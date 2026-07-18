@@ -122,10 +122,24 @@ async function withWsCas<T>(c: CoordClient, id: string, fn: (ifVersion: bigint) 
   }
 }
 
+/** Resolve a worker by exact fp, unique fp-prefix, or exact label — so CLI
+ *  callers can say `worker-rm mac-studio` instead of pasting a 64-char fp.
+ *  Exits on no-match or an ambiguous prefix/label. */
+async function resolveWorkerFp(c: CoordClient, arg: string): Promise<string> {
+  const { workers } = await c.workersList({});
+  const exact = workers.find((w) => w.fp === arg);
+  if (exact) return exact.fp;
+  const matches = workers.filter((w) => w.fp.startsWith(arg) || w.label === arg);
+  if (matches.length === 1) return matches[0]!.fp;
+  if (matches.length === 0) { console.error(`roost api: no worker matching "${arg}"`); process.exit(1); }
+  console.error(`roost api: "${arg}" is ambiguous — matches ${matches.map((w) => `${w.label}(${w.fp.slice(0, 8)})`).join(", ")}`);
+  process.exit(1);
+}
+
 export async function api(args: string[]): Promise<void> {
   const [verb, ...rest] = args;
   if (!verb) {
-    console.error("roost api <verb>: sessions | cat | cells | input | message | rename | assign | attach | spawn | kill | workers | workspaces | ws-create | ws-update | ws-delete | ws-set-sessions | tasks | task-enqueue | task-cancel | ui | ui-state | agent | events | watch");
+    console.error("roost api <verb>: sessions | cat | cells | input | message | rename | assign | attach | spawn | kill | workers | worker-rename | worker-rm | workspaces | ws-create | ws-update | ws-delete | ws-set-sessions | tasks | task-enqueue | task-cancel | ui | ui-state | agent | events | watch");
     process.exit(1);
   }
 
@@ -184,6 +198,25 @@ async function dispatch(c: CoordClient, verb: string, rest: string[]): Promise<v
       for (const w of workers) {
         console.log([w.fp, w.label, routable.has(w.fp) ? "online" : "offline", w.os].join("\t"));
       }
+      break;
+    }
+    case "worker-rm":
+    case "workers-remove": {
+      // Deregister a worker (WorkersDelete): drops the workers + authorized_keys
+      // rows atomically — the API-side equivalent of Settings → Machines → Remove.
+      const fp = await resolveWorkerFp(c, requireArg(rest[0], "fp|prefix|label"));
+      const r = await c.workersDelete({ fp });
+      console.log(String(r.ok));
+      break;
+    }
+    case "worker-rename": {
+      // Relabel a worker (WorkersRename) — the API-side equivalent of the
+      // Settings → Machines → Rename action.
+      const fp = await resolveWorkerFp(c, requireArg(rest[0], "fp|prefix|label"));
+      const label = rest.slice(1).filter((a) => !a.startsWith("--")).join(" ");
+      requireArg(label || undefined, "label");
+      const r = await c.workersRename({ fp, label });
+      console.log(r.worker?.label ?? "");
       break;
     }
     case "workspaces": {
@@ -504,7 +537,7 @@ async function dispatch(c: CoordClient, verb: string, rest: string[]): Promise<v
       break;
     }
     default:
-      console.error(`roost api: unknown verb "${verb}" — sessions | cat | cells | input | message | rename | assign | attach | spawn | kill | workers | workspaces | ws-create | ws-update | ws-delete | ws-set-sessions | tasks | task-enqueue | task-cancel | ui | ui-state | agent | events | watch`);
+      console.error(`roost api: unknown verb "${verb}" — sessions | cat | cells | input | message | rename | assign | attach | spawn | kill | workers | worker-rename | worker-rm | workspaces | ws-create | ws-update | ws-delete | ws-set-sessions | tasks | task-enqueue | task-cancel | ui | ui-state | agent | events | watch`);
       process.exit(1);
   }
 }
