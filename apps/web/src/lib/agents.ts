@@ -47,7 +47,6 @@ const [autoLaunchSig, setAutoLaunchSig] = createSignal(false);
 export const currentSelected = selectedSig;
 export const currentCustomCommand = customSig;
 export const autoLaunchEnabled = autoLaunchSig;
-export const setAutoLaunchEnabled = setAutoLaunchSig;
 export const resolveAgent = (): ResolvedAgent => resolveAgentFrom(selectedSig(), customSig());
 
 /** Load once on boot (fire-and-forget). */

@@ -20,12 +20,6 @@ export interface FolderActivity {
   needsInput: number;
 }
 
-export const EMPTY_ACTIVITY: FolderActivity = {
-  terminals: 0,
-  agentsRunning: 0,
-  needsInput: 0,
-};
-
 /**
  * For a set of folder paths on a given server, compute how many sessions
  * live inside each folder (directly or in any subfolder — cumulative).

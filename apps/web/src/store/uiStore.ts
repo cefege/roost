@@ -58,8 +58,6 @@ function persistWidth(v: number) {
   try { localStorage.setItem(SIDEBAR_WIDTH_KEY, String(v)); } catch { /* ignore */ }
 }
 
-export const SIDEBAR_WIDTH_BOUNDS = { min: SIDEBAR_WIDTH_MIN, max: SIDEBAR_WIDTH_MAX };
-
 export const [uiStore, setUiStore] = createStore<UIState>({
   contextMenu: null,
   renamingSessionId: null,
