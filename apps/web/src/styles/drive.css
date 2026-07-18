@@ -83,7 +83,9 @@
   overflow-x: auto;
   white-space: nowrap;
   font-size: var(--md-body-m-size);
+  scrollbar-width: none;
 }
+.df-browse-crumbs::-webkit-scrollbar { display: none; }
 .df-browse-crumb {
   background: transparent;
   border: none;
@@ -93,7 +95,7 @@
   cursor: pointer;
   font-family: inherit;
   font-size: var(--md-body-m-size);
-  max-width: 220px;
+  max-width: 160px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -186,7 +188,9 @@
   overflow-x: auto;
   white-space: nowrap;
   flex-shrink: 0;
+  scrollbar-width: none;
 }
+.df-browse-recents::-webkit-scrollbar { display: none; }
 .df-browse-recents-label {
   color: var(--md-sys-color-on-surface-variant);
   font-size: var(--md-label-s-size);
@@ -222,29 +226,28 @@
 /* Grid mode — Drive folder tiles. Mirrors .home-folder-card. */
 .df-browse-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 8px;
 }
 .df-browse-tile {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
   text-align: left;
-  padding: 14px 16px;
-  min-height: 120px;
-  border-radius: var(--md-shape-lg);
+  padding: 10px 12px;
+  border-radius: var(--md-shape-md);
   background: var(--md-sys-color-surface-container);
   border: 1px solid var(--md-sys-color-outline-variant);
   color: var(--md-sys-color-on-surface);
   cursor: pointer;
   font-family: inherit;
-  transition: border-color 120ms ease, background 120ms ease, transform 150ms ease;
+  transition: border-color 120ms ease, background 120ms ease;
 }
 @media (hover: hover) {
   .df-browse-tile:hover {
     border-color: var(--md-sys-color-outline);
     background: var(--md-sys-color-surface-container-high);
-    transform: scale(1.02);
   }
 }
 .df-browse-tile[data-active="true"] {
@@ -256,6 +259,14 @@
   display: inline-flex;
   align-items: center;
   color: var(--md-sys-color-on-surface-variant);
+  flex-shrink: 0;
+}
+.df-browse-tile-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
 }
 .df-browse-tile[data-active="true"] .df-browse-tile-icon {
   color: var(--md-sys-color-on-primary-container);
@@ -282,7 +293,8 @@
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
-  margin-top: 4px;
+  margin-top: 0;
+  flex-shrink: 0;
 }
 .df-browse-row-badges {
   display: inline-flex;
@@ -324,7 +336,6 @@
   font-size: var(--md-label-s-size);
   color: var(--md-sys-color-on-surface-variant);
   opacity: 0.65;
-  margin-top: 2px;
 }
 .df-browse-row-meta {
   font-size: var(--md-label-s-size);
@@ -452,7 +463,7 @@
  * is the default feel. The back arrow + crumbs + Open bar already adapt. */
 :where(.df-browse-page[data-compact="true"]) .df-browse-toggle { display: none; }
 :where(.df-browse-page[data-compact="true"]) .df-browse-grid {
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
 }
 /* Close button — mirrors .df-browse-back (40×40, transparent, hover state). */
 .df-browse-close {

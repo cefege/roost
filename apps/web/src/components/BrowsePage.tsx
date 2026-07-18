@@ -77,6 +77,7 @@ export function BrowsePage() {
   const [activeIdx, setActiveIdx] = createSignal(0);
   const [serverMenuOpen, setServerMenuOpen] = createSignal(false);
   let resultsRef: HTMLDivElement | undefined;
+  let crumbsRef: HTMLDivElement | undefined;
   const [newFolderOpen, setNewFolderOpen] = createSignal(false);
   const [newFolderName, setNewFolderName] = createSignal("");
   const [newFolderBusy, setNewFolderBusy] = createSignal(false);
@@ -166,6 +167,13 @@ export function BrowsePage() {
     const idx = activeIdx();
     const el = resultsRef?.querySelectorAll<HTMLElement>('[data-testid="browse-tile"],[data-testid="browse-row"]')[idx];
     el?.scrollIntoView({ block: "nearest" });
+  });
+
+  // Keep the current-folder crumb in view: scroll the strip fully right on
+  // every path change (older ancestors scroll off the left, Drive-style).
+  createEffect(() => {
+    crumbs();
+    queueMicrotask(() => { if (crumbsRef) crumbsRef.scrollLeft = crumbsRef.scrollWidth; });
   });
 
   // Mount: seed cwd + history from this server's most-recent session,
@@ -305,7 +313,7 @@ export function BrowsePage() {
           </svg>
         </button>
 
-        <div class="df-browse-crumbs">
+        <div class="df-browse-crumbs" ref={crumbsRef}>
           <For each={crumbs()}>
             {(c, i) => (
               <>
@@ -486,13 +494,14 @@ export function BrowsePage() {
                     onClick={() => drill(d.name)} onmouseenter={() => setActiveIdx(i())}
                   >
                     <span class="df-browse-tile-icon" style={{ color: needsInput > 0 ? "var(--md-sys-color-tertiary)" : `hsl(${hue} 48% 42%)` }}>
-                      <FolderGlyph size={40} />
+                      <FolderGlyph size={22} />
                     </span>
-                    <span class="df-browse-tile-name">{d.name}</span>
-                    <Show when={subtitle}>
-                      <span class="df-browse-tile-subtitle">{subtitle}</span>
-                    </Show>
-                    <MetaTime ms={d.mtimeMs} class="df-browse-tile-meta" />
+                    <span class="df-browse-tile-text">
+                      <span class="df-browse-tile-name">{d.name}</span>
+                      <Show when={subtitle} fallback={<MetaTime ms={d.mtimeMs} class="df-browse-tile-meta" />}>
+                        <span class="df-browse-tile-subtitle">{subtitle}</span>
+                      </Show>
+                    </span>
                     <Show when={activity && (needsInput > 0 || activity.terminals > 0 || activity.agentsRunning > 0)}>
                       <span class="df-browse-tile-badges">
                         <Show when={needsInput > 0}>
@@ -515,10 +524,12 @@ export function BrowsePage() {
                 {(f) => (
                   <div class="df-browse-tile df-browse-tile-file" data-testid="browse-file-tile" aria-label={f.name}>
                     <span class="df-browse-tile-icon" style={{ color: "var(--md-sys-color-on-surface-variant)" }}>
-                      <FileGlyph size={40} />
+                      <FileGlyph size={22} />
                     </span>
-                    <span class="df-browse-tile-name">{f.name}</span>
-                    <MetaTime ms={f.mtimeMs} class="df-browse-tile-meta" />
+                    <span class="df-browse-tile-text">
+                      <span class="df-browse-tile-name">{f.name}</span>
+                      <MetaTime ms={f.mtimeMs} class="df-browse-tile-meta" />
+                    </span>
                   </div>
                 )}
               </For>

@@ -33,8 +33,8 @@ function persistCollapsed(v: boolean) {
 function loadHomeFolderViewMode(): "grid" | "list" {
   try {
     const v = localStorage.getItem(HOME_FOLDER_VIEW_MODE_KEY);
-    return v === "list" ? "list" : "grid";
-  } catch { return "grid"; }
+    return v === "grid" ? "grid" : "list";
+  } catch { return "list"; }
 }
 function persistHomeFolderViewMode(v: "grid" | "list") {
   try { localStorage.setItem(HOME_FOLDER_VIEW_MODE_KEY, v); } catch { /* ignore */ }

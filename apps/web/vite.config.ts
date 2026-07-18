@@ -61,11 +61,27 @@ export default defineConfig({
     allowedHosts: [".ts.net"],
     proxy: coordUrl
       ? {
+          // Connect RPCs hit /roost.v1.<Service>/* at root, and the live sync
+          // feed is a WebSocket at /ws/coord-sync — neither lives under /api,
+          // so both need their own proxy entry or the dev app 404s every call
+          // against vite and shows no coord data. Keyed on the /roost.v1.
+          // prefix so services added later (crpc2+) proxy without a new rule.
           "/api": {
             target: coordUrl,
             secure: false, // tailscale cert is trusted via tailscale CA; node may not know
             changeOrigin: true,
             ws: true, // /api/events is a WebSocket — vite must upgrade & forward
+          },
+          "/roost.v1.": {
+            target: coordUrl,
+            secure: false,
+            changeOrigin: true,
+          },
+          "/ws/coord-sync": {
+            target: coordUrl,
+            secure: false,
+            changeOrigin: true,
+            ws: true,
           },
         }
       : undefined,
