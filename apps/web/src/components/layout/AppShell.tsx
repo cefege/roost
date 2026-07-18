@@ -11,6 +11,8 @@ import { uiStore, closeSidebar, toggleSidebarCollapsed, setSidebarWidth } from "
 import { isCompact } from "../../lib/windowSizeClass.ts";
 import { keyboardResize } from "../../lib/keyboardResizePref.ts";
 import { beginResizeDrag, endResizeDrag } from "../../lib/resizeDrag.ts";
+import { EDGE_PX, lockAxis, openOffsetPx, shouldOpen, closeOffsetPx, shouldClose } from "../../lib/edgeSwipeDrawer.ts";
+import { registerDrawer, dragDrawer, settleDrawerOpen, settleDrawerClose } from "../../lib/drawerDrag.ts";
 
 // ─── inline CSS helpers ─────────────────────────────────────────────────
 // Style objects are evaluated once; any dynamic value must live in JSX
@@ -165,8 +167,107 @@ export function AppShell(props: ParentProps) {
       toggleSidebarCollapsed();
     }
   }
-  onMount(() => window.addEventListener("keydown", onKeyDown));
-  onCleanup(() => window.removeEventListener("keydown", onKeyDown));
+
+  // ── Left-edge swipe-to-open the mobile drawer ──────────────────────────
+  // Native drawer gesture: a drag starting within EDGE_PX of the left edge on
+  // mobile drives the drawer's translateX live and snaps open / springs back on
+  // release. Window-level, capture-phase, so we run before CellTerminal's own
+  // touch listeners and can claim the gesture via stopPropagation. Transforms
+  // are written IMPERATIVELY onto drawerEl.style (not reactive inline style —
+  // see file-header convention); on settle we hand back to the data-open CSS.
+  let _startX = 0;
+  let _startY = 0;
+  let _lastX = 0;
+  let _axis: "none" | "x" | "y" = "none";
+  let _armed = false;
+  let _candidate = false;
+  let _samples: { x: number; t: number }[] = [];
+  let _mode: "open" | "close" | null = null;
+
+  function onTouchStart(e: TouchEvent) {
+    _mode = null;
+    if (!isMobile() || e.touches.length !== 1) { _candidate = false; return; }
+    const t = e.touches[0]!;
+    if (uiStore.sidebarOpen) {
+      // Skip touches that begin on the horizontally-scrollable folder tab bar
+      // so a rightward scroll of the tabs doesn't dismiss the drawer.
+      if ((e.target as Element | null)?.closest?.(".df-tab-bar")) { _candidate = false; return; }
+      _mode = "close";
+      _candidate = true;
+    } else if ((t.clientX ?? Infinity) <= EDGE_PX) {
+      _mode = "open";
+      _candidate = true;
+    } else { _candidate = false; return; }
+    _startX = t.clientX;
+    _startY = t.clientY;
+    _lastX = t.clientX;
+    _axis = "none";
+    _armed = false;
+    _samples = [{ x: t.clientX, t: performance.now() }];
+  }
+
+  function onTouchMove(e: TouchEvent) {
+    if (!_candidate) return;
+    const t = e.touches[0];
+    if (!t) return;
+    const dx = t.clientX - _startX;
+    const dy = t.clientY - _startY;
+    if (_axis === "none") {
+      const lock = lockAxis(dx, dy);
+      if (lock === "none") return;
+      if (lock === "y") { _candidate = false; return; } // vertical scroll → release
+      _axis = "x";
+    }
+    if (dx <= 0) { _candidate = false; return; } // leftward → not an open gesture
+    e.preventDefault();
+    e.stopPropagation(); // capture-phase: keep CellTerminal's listeners silent
+    if (!_armed) {
+      _armed = true;
+    }
+    const now = performance.now();
+    _samples.push({ x: t.clientX, t: now });
+    while (_samples.length > 2 && _samples[0]!.t < now - 120) _samples.shift();
+    _lastX = t.clientX;
+    const off = _mode === "close"
+      ? closeOffsetPx(dx, window.innerWidth)
+      : openOffsetPx(dx, window.innerWidth);
+    dragDrawer(off);
+  }
+
+  function onTouchEnd() {
+    if (!_armed) { _candidate = false; return; } // tap or vertical → nothing to settle
+    const dx = _lastX - _startX;
+    // velocity over the last ~80ms of samples (px/ms); a flick reads high here
+    const now = performance.now();
+    while (_samples.length > 1 && _samples[0]!.t < now - 80) _samples.shift();
+    let velocity = 0;
+    if (_samples.length >= 2) {
+      const first = _samples[0]!;
+      const last = _samples[_samples.length - 1]!;
+      const dt = last.t - first.t;
+      if (dt > 0) velocity = (last.x - first.x) / dt;
+    }
+    if (_mode === "open") settleDrawerOpen(shouldOpen(dx, velocity, window.innerWidth));
+    else settleDrawerClose(shouldClose(dx, velocity, window.innerWidth));
+    _armed = false;
+    _candidate = false;
+    _samples = [];
+    _mode = null;
+  }
+  onMount(() => {
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("touchstart", onTouchStart, { capture: true, passive: true });
+    window.addEventListener("touchmove", onTouchMove, { capture: true, passive: false });
+    window.addEventListener("touchend", onTouchEnd, { capture: true, passive: true });
+    window.addEventListener("touchcancel", onTouchEnd, { capture: true, passive: true });
+  });
+  onCleanup(() => {
+    window.removeEventListener("keydown", onKeyDown);
+    window.removeEventListener("touchstart", onTouchStart, { capture: true });
+    window.removeEventListener("touchmove", onTouchMove, { capture: true });
+    window.removeEventListener("touchend", onTouchEnd, { capture: true });
+    window.removeEventListener("touchcancel", onTouchEnd, { capture: true });
+  });
 
   return (
     <div style={shellStyle()}>
@@ -201,6 +302,7 @@ export function AppShell(props: ParentProps) {
       <Show when={isMobile()}>
         <aside
           data-testid="sidebar-drawer"
+          ref={(el) => registerDrawer(el)}
           class="roost-drawer"
           data-open={uiStore.sidebarOpen ? "true" : "false"}
           aria-hidden={!uiStore.sidebarOpen}

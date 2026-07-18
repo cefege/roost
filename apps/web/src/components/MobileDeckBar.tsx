@@ -13,7 +13,7 @@
 // props contract the old MobileTabStrip had; select/close/spawn reuse the
 // deck's doSelect/doClose/doNewTab.
 
-import { For, Show, createMemo, createSignal, onMount } from "solid-js";
+import { For, Show, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import { Portal } from "solid-js/web";
 import { ClaudeMark } from "./sidebar/StatusGlyph.tsx";
 import { isClaudeSession } from "../lib/isClaudeSession.ts";
@@ -26,6 +26,29 @@ import { relTimeTickMs } from "./sidebar/SessionRow.tsx";
 import type { Session } from "@roost/shared/wire";
 import { NotificationBellTrigger } from "./NotificationBell.tsx";
 import { renderPreview } from "../lib/terminalPreview.ts";
+import { ctxMenuSurfaceStyle, CtxMenuItem } from "./contextMenuPrimitives.tsx";
+
+const TITLE_DECEL = "var(--md-sys-motion-easing-emphasized-decelerate, cubic-bezier(0.05, 0.7, 0.1, 1))";
+const TITLE_TEXT: Record<string, string> = {
+  "font-size": "14px",
+  "font-weight": "600",
+  overflow: "hidden",
+  "text-overflow": "ellipsis",
+  "white-space": "nowrap",
+  "line-height": "48px",
+};
+function slideStyle(fraction: number, settleMs: number | null): Record<string, string> {
+  return {
+    ...TITLE_TEXT,
+    position: "absolute",
+    left: "0",
+    right: "0",
+    top: "0",
+    transform: `translateX(${fraction * 100}%)`,
+    transition: settleMs != null ? `transform ${settleMs}ms ${TITLE_DECEL}` : "none",
+    "will-change": "transform",
+  };
+}
 
 export interface MobileDeckBarProps {
   /** Flattened, ordered sessions in the folder (all panes, leaf-then-tab order). */
@@ -35,14 +58,14 @@ export interface MobileDeckBarProps {
   onSelect: (id: string) => void;
   onClose: (s: Session) => void;
   onNewTab: () => void;
-  /** Horizontal swipe on the bar → switch terminal (Chrome Android toolbar
-   *  gesture). Fired once when x-axis intent is confirmed; `dx` is the live
-   *  travel from touchstart so the receiver can pick direction. */
-  onSwipeStart?: (dx: number) => void;
-  /** Each touchmove after arm; `dx` is travel from touchstart (px). */
-  onSwipeMove?: (dx: number) => void;
-  /** Release. `dx` = final travel, `velocity` = px/ms over the last ~80ms. */
-  onSwipeEnd?: (dx: number, velocity: number) => void;
+  /** Live swipe state so the tab title slides in parallel with the terminal.
+   *  null when no swipe is active. Fractions are unit = title-zone width. */
+  swipe?: {
+    progress: number;          // current title translateX fraction (× 100%)
+    neighbor: Session | null;  // slide-in neighbor title source
+    neighborProgress: number;  // neighbor title translateX fraction (× 100%)
+    settleMs: number | null;   // null = track (finger-follow, no transition); ms during settle
+  } | null;
 }
 
 export function MobileDeckBar(props: MobileDeckBarProps) {
@@ -57,85 +80,12 @@ export function MobileDeckBar(props: MobileDeckBarProps) {
   const attention = createMemo(() => rollupLevels(props.tabs.map(attentionOf)));
   const countLabel = () => `${props.tabs.length} terminal${props.tabs.length === 1 ? "" : "s"} in this workspace`;
 
-  // ── Swipe-to-switch (touch only) ───────────────────────────────────────
-  // Chrome Android toolbar gesture: a horizontal drag on the bar slides the
-  // current terminal out and the next/prev in. Detected here (axis-locked,
-  // same pattern as TerminalCard's swipe-to-close / SessionRow's dismiss);
-  // the actual slide transform lives in TerminalDeck, driven via the three
-  // onSwipe* callbacks. Vertical movement falls through to the browser
-  // (touch-action: pan-y) — the bar itself doesn't scroll, but pan-y stops
-  // the browser from intercepting horizontal pans. Taps on the bar's buttons
-  // never arm (no x-axis travel past the 10px gate).
-  let _touchStartX = 0;
-  let _touchStartY = 0;
-  let _axis: "none" | "x" | "y" = "none";
-  let _armed = false;
-  let _lastX = 0;
-  let _samples: { x: number; t: number }[] = [];
-
-  function onTouchStart(e: TouchEvent) {
-    const t = e.touches[0];
-    if (!t) return;
-    // stopPropagation keeps the deck's onDeckPointerDown (which would no-op
-    // here but still run) out of the bar's gesture.
-    e.stopPropagation();
-    _touchStartX = t.clientX;
-    _touchStartY = t.clientY;
-    _lastX = t.clientX;
-    _axis = "none";
-    _armed = false;
-    _samples = [{ x: t.clientX, t: performance.now() }];
-  }
-  function onTouchMove(e: TouchEvent) {
-    if (!props.onSwipeStart && !props.onSwipeMove) return; // no consumer → let it pass
-    const t = e.touches[0];
-    if (!t) return;
-    const dx = t.clientX - _touchStartX;
-    const dy = t.clientY - _touchStartY;
-    if (_axis === "none") {
-      if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
-      _axis = Math.abs(dx) > Math.abs(dy) * 1.5 ? "x" : "y";
-    }
-    if (_axis !== "x") return; // vertical → let the browser handle it
-    e.preventDefault(); // we own the gesture now
-    _lastX = t.clientX;
-    const now = performance.now();
-    _samples.push({ x: t.clientX, t: now });
-    // keep the last ~120ms for the release-velocity calc
-    while (_samples.length > 2 && _samples[0]!.t < now - 120) _samples.shift();
-    if (!_armed) {
-      _armed = true;
-      props.onSwipeStart?.(dx);
-    }
-    props.onSwipeMove?.(dx);
-  }
-  function onTouchEnd() {
-    if (!_armed) return;
-    _armed = false;
-    const dx = _lastX - _touchStartX;
-    // velocity over the last ~80ms of samples (px/ms); a flick reads high here
-    const now = performance.now();
-    while (_samples.length > 1 && _samples[0]!.t < now - 80) _samples.shift();
-    let velocity = 0;
-    if (_samples.length >= 2) {
-      const first = _samples[0]!;
-      const last = _samples[_samples.length - 1]!;
-      const dt = last.t - first.t;
-      if (dt > 0) velocity = (last.x - first.x) / dt;
-    }
-    props.onSwipeEnd?.(dx, velocity);
-    _samples = [];
-  }
-
   return (
     <>
       <div
         class="mobile-deck-bar"
         data-testid="mobile-deck-bar"
         data-attention={attention()}
-        onTouchStart={onTouchStart}
-        onTouchMove={onTouchMove}
-        onTouchEnd={onTouchEnd}
         style={{
           display: "flex",
           "align-items": "center",
@@ -156,20 +106,40 @@ export function MobileDeckBar(props: MobileDeckBarProps) {
           onClick={openSidebar}
           style={{ "flex-shrink": "0" }}
         />
-        <span
-          title={title()}
+        <div
           style={{
             flex: "1 1 0",
             "min-width": "0",
-            "font-size": "14px",
-            "font-weight": "600",
+            position: "relative",
             overflow: "hidden",
-            "text-overflow": "ellipsis",
-            "white-space": "nowrap",
+            height: "48px",
           }}
         >
-          {title()}
-        </span>
+          <Show
+            when={props.swipe}
+            fallback={
+              <span title={title()} style={{ ...TITLE_TEXT, display: "block", width: "100%" }}>
+                {title()}
+              </span>
+            }
+          >
+            {(sw) => (
+              <>
+                <span title={title()} style={slideStyle(sw().progress, sw().settleMs)}>
+                  {title()}
+                </span>
+                <Show when={sw().neighbor}>
+                  <span
+                    title={sessionTitle(sw().neighbor!)}
+                    style={slideStyle(sw().neighborProgress, sw().settleMs)}
+                  >
+                    {sessionTitle(sw().neighbor!)}
+                  </span>
+                </Show>
+              </>
+            )}
+          </Show>
+        </div>
 
         {/* New terminal — same folder & server (unchanged behavior). */}
         <button
@@ -215,11 +185,14 @@ export function MobileDeckBar(props: MobileDeckBarProps) {
 }
 
 // ── Full-screen terminal card grid (Chrome tab grid spec) ───────────────
-// Three vertical zones: top toolbar (56px, back + title), scrollable card
-// grid (2 columns), bottom toolbar (56px, count + new tab). Card structure
-// mirrors Chrome's tab_grid_card_item_layout: 40px header (favicon + title
-// + close ✕) over a faux-terminal preview area with asymmetric corner
-// radius (12px top / 20px bottom — Chrome's signature thumbnail shape).
+// Two vertical zones: a single top toolbar (56px) + a scrollable 2-column
+// card grid. Normal mode: [back] [+ new] [N terminals] [⋮]. Selection mode:
+// [✕ exit] [N selected] [⋮], cards toggle selection (ring + check). The ⋮
+// overflow menu offers Close all / Select tabs (normal) or Select all /
+// Close selected (selection). Card structure mirrors Chrome's
+// tab_grid_card_item_layout: 40px header (favicon + title + close ✕) over a
+// faux-terminal preview area with asymmetric corner radius (12px top / 20px
+// bottom — Chrome's signature thumbnail shape).
 
 interface WorkspaceTabsSheetProps {
   tabs: Session[];
@@ -231,7 +204,28 @@ interface WorkspaceTabsSheetProps {
 }
 
 function WorkspaceTabsSheet(props: WorkspaceTabsSheetProps) {
-  const attention = createMemo(() => rollupLevels(props.tabs.map(attentionOf)));
+  const [selectionMode, setSelectionMode] = createSignal(false);
+  const [selectedIds, setSelectedIds] = createSignal<string[]>([]);
+  const isSelected = (id: string) => selectedIds().includes(id);
+  const toggleSelect = (id: string) =>
+    setSelectedIds((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
+  const enterSelection = () => { setSelectedIds([]); setSelectionMode(true); };
+  const exitSelection = () => { setSelectionMode(false); setSelectedIds([]); };
+  const selectAll = () => setSelectedIds(props.tabs.map((t) => t.id));
+  // Snapshot BEFORE closing — props.tabs is reactive (mobileTabs()) and shrinks
+  // as each onClose commits. onClose is the existing soft-close (closeSessionOp):
+  // each schedules its own independent undo snackbar, matching Chrome's undo.
+  const closeAll = () => {
+    const snap = [...props.tabs];
+    snap.forEach((s) => props.onClose(s));
+    props.onCloseSheet();
+  };
+  const closeSelected = () => {
+    const ids = new Set(selectedIds());
+    const snap = props.tabs.filter((t) => ids.has(t.id));
+    exitSelection();
+    snap.forEach((s) => props.onClose(s));
+  };
 
   return (
     <Portal mount={document.body}>
@@ -262,15 +256,46 @@ function WorkspaceTabsSheet(props: WorkspaceTabsSheetProps) {
             color: "var(--text-hi)",
           }}
         >
-          <IconButton
-            icon="arrow_back"
-            label="Close terminal grid"
-            data-testid="workspace-tabs-back"
-            onClick={props.onCloseSheet}
-          />
+          <Show when={!selectionMode()}>
+            <IconButton
+              icon="arrow_back"
+              label="Close terminal grid"
+              data-testid="workspace-tabs-back"
+              onClick={props.onCloseSheet}
+            />
+            <button
+              type="button"
+              class="mobile-deck-new"
+              data-testid="workspace-tabs-new"
+              aria-label="New terminal"
+              title="New terminal in this folder"
+              onClick={() => props.onNewTab()}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+            </button>
+          </Show>
+          <Show when={selectionMode()}>
+            <IconButton
+              icon="close"
+              label="Exit selection"
+              data-testid="workspace-tabs-selection-exit"
+              onClick={exitSelection}
+            />
+          </Show>
           <span style={{ flex: "1 1 0", "font-size": "16px", "font-weight": "500" }}>
-            {props.tabs.length} terminal{props.tabs.length === 1 ? "" : "s"}
+            {selectionMode()
+              ? `${selectedIds().length} selected`
+              : `${props.tabs.length} terminal${props.tabs.length === 1 ? "" : "s"}`}
           </span>
+          <WorkspaceTabsMenu
+            selectionMode={selectionMode()}
+            onCloseAll={closeAll}
+            onSelectTabs={enterSelection}
+            onSelectAll={selectAll}
+            onCloseSelected={closeSelected}
+          />
         </div>
 
         {/* Card grid — scrollable middle zone. */}
@@ -283,7 +308,7 @@ function WorkspaceTabsSheet(props: WorkspaceTabsSheetProps) {
               style={{ "padding-top": "64px" }}
             >
               <div class="home-landing-empty-title">No terminals</div>
-              <div class="home-landing-empty-sub">Open one with the + below.</div>
+              <div class="home-landing-empty-sub">Open one with the + above.</div>
             </div>
           }
         >
@@ -297,6 +322,9 @@ function WorkspaceTabsSheet(props: WorkspaceTabsSheetProps) {
                     onSelect={props.onSelect}
                     onClose={props.onClose}
                     onCloseSheet={props.onCloseSheet}
+                    selectionMode={selectionMode()}
+                    selected={isSelected(s.id)}
+                    onToggleSelect={toggleSelect}
                   />
                 </div>
               )}
@@ -304,49 +332,96 @@ function WorkspaceTabsSheet(props: WorkspaceTabsSheetProps) {
           </div>
         </Show>
 
-        {/* Bottom toolbar — Chrome TabGroupUiToolbarView (56dp). */}
-        <div
-          class="workspace-tabs-bottombar"
-          data-testid="workspace-tabs-bottombar"
-          style={{
-            display: "flex",
-            "align-items": "center",
-            gap: "8px",
-            height: "56px",
-            "flex-shrink": "0",
-            padding: "0 16px",
-            "border-top": "1px solid var(--border-subtle)",
-            background: "var(--md-surface-container)",
-            "padding-bottom": "env(safe-area-inset-bottom, 0px)",
-          }}
-        >
-          {/* Tab count — rounded square with number (mirrors the deck bar count). */}
-          <button
-            type="button"
-            class="mobile-deck-count"
-            data-attention={attention()}
-            aria-label={`${props.tabs.length} terminals`}
-            style={{ cursor: "default" }}
-          >
-            <span>{props.tabs.length}</span>
-          </button>
-          <span style={{ flex: "1 1 0" }} />
-          {/* New tab — same as the deck bar +. */}
-          <button
-            type="button"
-            class="mobile-deck-new"
-            data-testid="workspace-tabs-new"
-            aria-label="New terminal"
-            title="New terminal in this folder"
-            onClick={() => props.onNewTab()}
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-              <path d="M12 5v14M5 12h14" />
-            </svg>
-          </button>
-        </div>
       </div>
     </Portal>
+  );
+}
+
+// Right-anchored overflow menu for the tab grid. Mirrors ArrangeMenu's
+// toggle/anchor/doc-click/Escape dismissal. zIndex 70 clears the sheet (60).
+function WorkspaceTabsMenu(props: {
+  selectionMode: boolean;
+  onCloseAll: () => void;
+  onSelectTabs: () => void;
+  onSelectAll: () => void;
+  onCloseSelected: () => void;
+}) {
+  const [open, setOpen] = createSignal<{ right: number; y: number } | null>(null);
+  let btnEl: HTMLButtonElement | undefined;
+  let menuEl: HTMLDivElement | undefined;
+
+  const toggle = () => {
+    if (open()) {
+      setOpen(null);
+      return;
+    }
+    const r = btnEl!.getBoundingClientRect();
+    setOpen({ right: Math.max(6, window.innerWidth - r.right), y: r.bottom + 4 });
+  };
+
+  const surfaceStyle = (right: number, y: number) => {
+    const s = { ...ctxMenuSurfaceStyle(0, y, 70), "min-width": "200px", right: `${right}px` };
+    delete s.left;
+    return s;
+  };
+
+  const choose = (fn: () => void) => { setOpen(null); fn(); };
+
+  const onDocClick = (e: MouseEvent) => {
+    const t = e.target as Node;
+    if (btnEl?.contains(t) || menuEl?.contains(t)) return;
+    setOpen(null);
+  };
+  const onEsc = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(null); };
+
+  onMount(() => {
+    document.addEventListener("click", onDocClick);
+    document.addEventListener("keydown", onEsc);
+    onCleanup(() => {
+      document.removeEventListener("click", onDocClick);
+      document.removeEventListener("keydown", onEsc);
+    });
+  });
+
+  return (
+    <>
+      <IconButton
+        ref={btnEl}
+        icon="more_vert"
+        label="More options"
+        data-testid="workspace-tabs-menu"
+        onClick={toggle}
+      />
+      <Show when={open()}>
+        {(pos) => (
+          <Portal>
+            <div
+              ref={menuEl}
+              data-testid="workspace-tabs-menu-popup"
+              class="df-menu-enter"
+              style={surfaceStyle(pos().right, pos().y)}
+            >
+              <Show when={!props.selectionMode}>
+                <CtxMenuItem testid="workspace-tabs-close-all" danger onClick={() => choose(props.onCloseAll)}>
+                  Close all tabs
+                </CtxMenuItem>
+                <CtxMenuItem testid="workspace-tabs-select" onClick={() => choose(props.onSelectTabs)}>
+                  Select tabs
+                </CtxMenuItem>
+              </Show>
+              <Show when={props.selectionMode}>
+                <CtxMenuItem testid="workspace-tabs-select-all" onClick={() => choose(props.onSelectAll)}>
+                  Select all
+                </CtxMenuItem>
+                <CtxMenuItem testid="workspace-tabs-close-selected" danger onClick={() => choose(props.onCloseSelected)}>
+                  Close selected tabs
+                </CtxMenuItem>
+              </Show>
+            </div>
+          </Portal>
+        )}
+      </Show>
+    </>
   );
 }
 // One terminal card — Chrome tab_grid_card_item_layout adapted for terminals.
@@ -361,6 +436,9 @@ function TerminalCard(props: {
   onSelect: (id: string) => void;
   onClose: (s: Session) => void;
   onCloseSheet: () => void;
+  selectionMode: boolean;
+  selected: boolean;
+  onToggleSelect: (id: string) => void;
 }) {
   const s = () => props.session;
   const level = createMemo(() => attentionOf(s()));
@@ -394,6 +472,7 @@ function TerminalCard(props: {
   let _swiped = false;
 
   function onTouchStart(e: TouchEvent) {
+    if (props.selectionMode) return;
     const t = e.touches[0];
     if (!t) return;
     _touchStartX = t.clientX;
@@ -430,6 +509,7 @@ function TerminalCard(props: {
   }
 
   function activate() {
+    if (props.selectionMode) { props.onToggleSelect(s().id); return; }
     if (_swiped) { _swiped = false; return; }
     props.onSelect(s().id);
     props.onCloseSheet();
@@ -441,6 +521,7 @@ function TerminalCard(props: {
       data-testid={`terminal-card-${s().id}`}
       data-stage={stage()}
       data-active={props.active ? "true" : "false"}
+      data-selected={props.selected ? "true" : "false"}
       data-attention={level()}
       role="button"
       tabindex="0"
@@ -476,21 +557,36 @@ function TerminalCard(props: {
       </div>
 
       {/* Close ✕ — 48px touch target, 18px visible icon, top-right corner. */}
-      <button
-        type="button"
-        class="terminal-card-close"
-        data-testid={`terminal-card-close-${s().id}`}
-        aria-label="Close terminal"
-        onClick={(e: MouseEvent) => {
-          e.stopPropagation();
-          e.preventDefault();
-          props.onClose(s());
-        }}
-      >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
-          <path d="M18 6 6 18M6 6l12 12" />
-        </svg>
-      </button>
+      <Show when={!props.selectionMode}>
+        <button
+          type="button"
+          class="terminal-card-close"
+          data-testid={`terminal-card-close-${s().id}`}
+          aria-label="Close terminal"
+          onClick={(e: MouseEvent) => {
+            e.stopPropagation();
+            e.preventDefault();
+            props.onClose(s());
+          }}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+            <path d="M18 6 6 18M6 6l12 12" />
+          </svg>
+        </button>
+      </Show>
+
+      {/* Selection check — filled tint when selected, top-right corner. */}
+      <Show when={props.selectionMode}>
+        <span
+          class="terminal-card-check"
+          data-testid={`terminal-card-check-${s().id}`}
+          data-checked={props.selected ? "true" : "false"}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M20 6 9 17l-5-5" />
+          </svg>
+        </span>
+      </Show>
 
       {/* Preview area — real terminal text or faux glyph fallback.
           Asymmetric corners (12/20px). Fixed 160px height = uniform cards. */}

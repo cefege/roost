@@ -1195,7 +1195,7 @@ let _jumping = false; // true while the smooth jump-to-bottom animation runs —
 		>
 			<div
 				ref={displayRef}
-				style={{ flex: "1", "min-width": "0", "min-height": "0" }}
+				style={{ flex: "1", "min-width": "0", "min-height": "0", "touch-action": "pan-y" }}
 			/>
 			{/* Optimistic spawn placeholder: paint the pane instantly; the real
           terminal reconciles into this same tab when the spawn RPC resolves. */}

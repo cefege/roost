@@ -34,6 +34,9 @@ import {
 import { spotlightSessionId, clearSpotlight, setSpotlightSessionId, setVisiblePaneCount } from "../store/spotlight.ts";
 import { zoneToSplit, zoneRect, tileTargetFor, type DropZone, type TileTarget } from "../lib/dropZones.ts";
 import { selectTabOp, focusPaneOp, closeSessionOp, type DeckOpsCtx } from "../lib/deckOps.ts";
+import { shouldCommitSwitch, settleDurationMs, endMode, newFabProgress, type SwipeMode } from "../lib/deckSwipe.ts";
+import { EDGE_PX, lockAxis, openOffsetPx } from "../lib/edgeSwipeDrawer.ts";
+import { dragDrawer, settleDrawerOpen } from "../lib/drawerDrag.ts";
 import { arrangeLayout, type ArrangeKind } from "../store/paneLayoutPresets.ts";
 import { ArrangeMenu } from "./ArrangeMenu.tsx";
 import type { Session } from "@roost/shared/wire";
@@ -43,6 +46,11 @@ const STRIP_H = 40; // per-pane tab strip height (px)
 /** Mobile (compact) deck-level bar height (px) — the Chrome-style workspace
  *  bar ([menu][title][+][count]) rendered above the full-bleed terminal. */
 const MOBILE_STRIP_H = 48;
+// Emphasized-decelerate easing for the swipe settle (shared by slot transform +
+// end-affordance placeholder). Mirrors the M3 token used across the mobile deck.
+const SWIPE_DECEL = "var(--md-sys-motion-easing-emphasized-decelerate, cubic-bezier(0.05, 0.7, 0.1, 1))";
+const NEW_FAB_PARALLAX = 0.14;  // current terminal drags at 14% of finger travel during a new-terminal pull (resists, does not slide off)
+const NEW_BLOOM_MS = 300;       // container-transform reveal (M3 emphasized medium2)
 
 // Deep-equal two PaneViews so the panes memo can REUSE the prior object ref when
 // a layout commit didn't actually change this pane. Keeps <For each={panes()}>
@@ -206,12 +214,15 @@ export function TerminalDeck(props: { activeSessionId: string | null }) {
   type Swipe = {
     phase: SwipePhase;
     currentId: string;          // URL-active session at swipe start
-    neighborId: string | null;  // null → at an end, rubberband
+    neighborId: string | null;  // null → at an end (new-terminal / workspace affordance)
     dir: 1 | -1;                 // 1 = swipe left → next; -1 = swipe right → prev
     offset: number;              // live finger dx (px), clamped to [-w, w]
-    mode: "slide" | "rubberband";
+    mode: SwipeMode;             // slide (real neighbor) | new-terminal | workspace
+    settleTarget?: "commit" | "cancel"; // set only in endSwipe → keys the settle geometry
+    settleMs?: number;           // per-settle duration (momentum); undefined during track
   };
   const [swipe, setSwipe] = createSignal<Swipe | null>(null);
+  let newFabArmed = false; // per-gesture latch so the arm haptic fires once (reset in armSwipe)
 
   const slotBySession = createMemo(() => {
     const m = new Map<string, { rect: Rect; paneId: string; focused: boolean; spotlit?: boolean }>();
@@ -323,31 +334,88 @@ export function TerminalDeck(props: { activeSessionId: string | null }) {
   // ── Swipe transform per terminal slot ─────────────────────────────────
   // Composed AFTER termStyle (which never sets transform) so the slot's base
   // geometry is intact. During track: no transition (finger-follow). During
-  // settle: 200ms material-decelerate so the snap matches the existing
-  // TerminalCard swipe-dismiss motion.
-  const SWIPE_SETTLE_MS = 220; // 200ms transition + slack; matches TerminalCard:343
+  // settle: momentum-continued material-decelerate (per-settle duration from
+  // settleDurationMs) so the snap eases out at the finger's release speed.
+  const SETTLE_SLACK_MS = 20; // setTimeout outlasts the CSS transition so commit/clear lands after the visual
+  function swipeOffsetsPx(sw: Swipe, w: number): { current: number; neighbor: number } {
+    if (sw.phase === "settle")
+      return sw.settleTarget === "commit"
+        ? { current: -sw.dir * w, neighbor: 0 }
+        : { current: 0, neighbor: sw.dir * w };
+    return { current: sw.offset, neighbor: sw.offset + sw.dir * w };
+  }
   function swipeStyleFor(id: string): Record<string, string> {
     const sw = swipe();
     if (!sw || (id !== sw.currentId && id !== sw.neighborId)) return {};
     const w = size().w;
-    const decel = "var(--md-sys-motion-easing-emphasized-decelerate, cubic-bezier(0.05, 0.7, 0.1, 1))";
-    const transition = sw.phase === "settle"
-      ? `transform 200ms ${decel}`
-      : "none";
+    const transition = sw.phase === "settle" ? `transform ${sw.settleMs ?? 200}ms ${SWIPE_DECEL}` : "none";
+    const o = swipeOffsetsPx(sw, w);
     if (id === sw.currentId) {
-      // current follows the finger; settle carries it fully off in swipe dir
-      let off = sw.offset;
-      if (sw.mode === "rubberband") off = sw.offset * 0.25; // 0.25× resistance at ends
-      if (sw.phase === "settle") off = sw.mode === "slide" ? -sw.dir * w : 0;
-      return { transform: `translateX(${off}px)`, transition };
+      if (sw.mode === "new-terminal") {
+        const dx = sw.phase === "track" ? sw.offset * NEW_FAB_PARALLAX : 0; // settle → ease back to 0
+        return { transform: `translateX(${dx}px)`, transition };
+      }
+      if (sw.mode === "workspace") return {};
+      return { transform: `translateX(${o.current}px)`, transition };
     }
-    // neighbor (slide mode only; rubberband has no neighbor)
-    if (!sw.neighborId) return {};
-    // neighbor starts one full width off in the OPPOSITE direction of the swipe,
-    // moves to 0 as the current moves to -dir*w.
-    let off = sw.offset + sw.dir * w;
-    if (sw.phase === "settle") off = sw.mode === "slide" ? 0 : sw.dir * w;
-    return { transform: `translateX(${off}px)`, transition };
+    if (!sw.neighborId) return {}; // new-terminal/workspace: no session neighbor slot (placeholder owns that side)
+    return { transform: `translateX(${o.neighbor}px)`, transition };
+  }
+
+  // Tab-bar title slide: same offsets as the terminal, expressed as fractions of
+  // one width so MobileDeckBar can translate its (narrower) title zone by the
+  // same PROGRESS (translateX %). null when no swipe / not compact.
+  const barSwipe = createMemo(() => {
+    const sw = swipe();
+    if (!sw || !isCompact()) return null;
+    if (sw.mode === "new-terminal") return null; // no title slide — the edge handle is the sole affordance
+    if (sw.mode === "workspace") return null;
+    const w = size().w;
+    if (w <= 0) return null;
+    const o = swipeOffsetsPx(sw, w);
+    return {
+      progress: o.current / w,
+      neighbor: sw.neighborId ? rootStore.sessions[sw.neighborId] ?? null : null,
+      neighborProgress: o.neighbor / w,
+      settleMs: sw.phase === "settle" ? (sw.settleMs ?? 200) : null,
+    };
+  });
+
+
+  // Right-edge pull-tab handle (new-terminal): a rounded-left pill with a pointed
+  // left nub, docked to the right edge and vertically centered on the terminal
+  // box. JS owns position/reveal/opacity; CSS owns the look + nub + armed emphasis.
+  // Slides in from the right edge (translateX % of its own width) as the pull
+  // progresses; fades out as the bloom takes over.
+  function newHandleStyle(): Record<string, string> {
+    const sw = swipe();
+    if (!sw || sw.mode !== "new-terminal") return { display: "none" };
+    const r = view().panes[0]?.rect;
+    if (!r) return { display: "none" };
+    const committing = sw.phase === "settle" && sw.settleTarget === "commit";
+    const settling = sw.phase === "settle";
+    const p = newFabProgress(sw.offset, size().w);
+    const revealX = committing ? 0 : settling ? 100 : (1 - p) * 100; // 100% = off the right edge, 0% = docked
+    const opacity = committing || (settling && sw.settleTarget === "cancel") ? 0 : Math.min(1, p * 2.2);
+    const dur = sw.settleMs ?? 200;
+    const cy = r.y + stripH() + Math.max(0, r.h - stripH()) / 2;
+    return {
+      position: "absolute", right: "0px", top: `${cy}px`, "z-index": "5",
+      transform: `translate(${revealX}%, -50%)`, opacity: `${opacity}`,
+      transition: settling ? `transform ${dur}ms ${SWIPE_DECEL}, opacity ${dur}ms ${SWIPE_DECEL}` : "none",
+    };
+  }
+  // Container-transform reveal: a primary-container circle grows from the FAB
+  // over the terminal area (below the deck bar) on commit, masking the swap to
+  // the newly-spawned terminal. Sized to the mobile pane's terminal box.
+  function newBloomStyle(): Record<string, string> {
+    const r = view().panes[0]?.rect;
+    if (!r) return { display: "none" };
+    return {
+      position: "absolute", left: `${r.x}px`, top: `${r.y + stripH()}px`,
+      width: `${r.w}px`, height: `${Math.max(0, r.h - stripH())}px`, "z-index": "4",
+      "pointer-events": "none",
+    };
   }
 
   // ── ops (apply a pure transform to the CURRENT layout + persist) ───────────
@@ -373,16 +441,17 @@ export function TerminalDeck(props: { activeSessionId: string | null }) {
   // armSwipe picks direction from the first dx sign, resolves the neighbor
   // from mobileTabs() order (flatTabs = leaf-then-tab), and enters track.
   function armSwipe(dx: number): void {
+    newFabArmed = false; // reset the arm-haptic latch per gesture
     const cur = swipe();
     if (cur?.phase === "settle") return; // mid-settle, ignore re-grab
     if (!isCompact()) return;
     const tabs = mobileTabs();
     const idx = tabs.findIndex((t) => t.id === props.activeSessionId);
     if (idx < 0) return;
-    const dir: 1 | -1 = dx < 0 ? 1 : -1; // left → next, right → prev
+    const dir: 1 | -1 = dx < 0 ? 1 : -1; // finger-left → next, finger-right → prev
     const neighborId = dir === 1 ? tabs[idx + 1]?.id ?? null : tabs[idx - 1]?.id ?? null;
-    if (!neighborId && tabs.length < 2) return; // single tab: nothing to do
-    const mode: "slide" | "rubberband" = neighborId ? "slide" : "rubberband";
+    // No delta guard: a single tab still arms — forward → new-terminal, backward → workspace.
+    const mode = endMode(dir, !!neighborId);
     setSwipe({ phase: "track", currentId: props.activeSessionId!, neighborId, dir, offset: dx, mode });
   }
   function trackSwipe(dx: number): void {
@@ -393,29 +462,47 @@ export function TerminalDeck(props: { activeSessionId: string | null }) {
       const clamped = Math.max(-w, Math.min(w, dx));
       return { ...prev, offset: clamped };
     });
+    const sw = swipe();
+    if (sw?.mode === "workspace") { dragDrawer(openOffsetPx(sw.offset, window.innerWidth)); return; }
+    if (sw?.mode === "new-terminal" && !newFabArmed && newFabProgress(sw.offset, size().w) >= 1) {
+      newFabArmed = true;
+      navigator.vibrate?.(8); // progressive enhancement; no-op where unsupported
+    }
   }
   function endSwipe(dx: number, velocity: number): void {
+    const cur = swipe();
+    if (cur?.mode === "workspace" && cur.phase === "track") {
+      settleDrawerOpen(shouldCommitSwitch(dx, velocity, cur.dir, window.innerWidth));
+      setSwipe(null);
+      return;
+    }
     setSwipe((prev) => {
       if (!prev || prev.phase !== "track") return prev;
       const w = size().w;
-      // Release direction must match the armed direction: reversing mid-swipe
-      // and crossing threshold the other way must NOT commit to the originally
-      // armed neighbor (its slot is on the wrong edge → the current would
-      // teleport across screen). Chrome cancels on reversal too; user re-swipes.
-      const releaseDir: 1 | -1 = dx < 0 ? 1 : -1;
-      const dirMatch = releaseDir === prev.dir;
-      const commit = prev.mode === "slide" && dirMatch
-        && (Math.abs(dx) >= w * 0.3 || Math.abs(velocity) >= 0.8);
+      const off = Math.abs(prev.offset); // clamped in trackSwipe → [0, w]
+      // Commit is directional + travel-gated (shouldCommitSwitch), same gate for
+      // every mode: a reversed release, a weak drag, or a backward end-of-touch
+      // flick must NOT commit. All three modes share the commit geometry — the
+      // current slot slides fully off in the swipe dir, the neighbor/placeholder
+      // lands at 0 — so settleTarget:"commit" drives swipeOffsetsPx uniformly.
+      const commit = shouldCommitSwitch(dx, velocity, prev.dir, w);
       if (commit) {
-        // current fully off in swipe dir, neighbor to 0; doSelect fires after
-        // the settle so the visual already matches reactivity.
-        const neighborId = prev.neighborId!;
-        setTimeout(() => { doSelect(neighborId); setSwipe(null); }, SWIPE_SETTLE_MS);
-        return { ...prev, phase: "settle", offset: -prev.dir * w };
+        if (prev.mode === "new-terminal") {
+          navigator.vibrate?.(12);
+          setTimeout(() => { void doNewTab(layout()?.focusedPaneId ?? ""); setSwipe(null); }, NEW_BLOOM_MS + SETTLE_SLACK_MS);
+          return { ...prev, phase: "settle", settleTarget: "commit", settleMs: NEW_BLOOM_MS };
+        }
+        // Action fires after the settle so the visual already matches reactivity.
+        // Settle continues the finger's momentum over the remaining travel.
+        const ms = settleDurationMs(w - off, velocity);
+        const neighborId = prev.neighborId;
+        setTimeout(() => { doSelect(neighborId!); setSwipe(null); }, ms + SETTLE_SLACK_MS);
+        return { ...prev, phase: "settle", settleTarget: "commit", offset: -prev.dir * w, settleMs: ms };
       }
-      // cancel: spring back (rubberband always cancels). neighbor returns off-edge.
-      setTimeout(() => setSwipe(null), SWIPE_SETTLE_MS);
-      return { ...prev, phase: "settle", offset: 0 };
+      // cancel: spring back. current returns to 0, neighbor/placeholder off-edge.
+      const ms = settleDurationMs(off, velocity); // remaining travel back to 0
+      setTimeout(() => setSwipe(null), ms + SETTLE_SLACK_MS);
+      return { ...prev, phase: "settle", settleTarget: "cancel", offset: 0, settleMs: ms };
     });
   }
   function doReorder(paneId: string, ids: string[]): void { apply((l) => reorderTab(l, paneId, ids)); }
@@ -564,6 +651,79 @@ export function TerminalDeck(props: { activeSessionId: string | null }) {
     onCleanup(() => document.removeEventListener("keydown", onKey));
   });
 
+  // ── Deck-wide swipe detection (bar + terminal body) ────────────────────
+  // ONE capture-phase touch listener on deckEl covers the whole compact deck.
+  // Capture runs before CellTerminal's displayRef listeners, so a claimed
+  // horizontal move (stopPropagation) silences the terminal's scroll/mouse
+  // forwarding; vertical is released untouched so scrollback/mouse-mode work.
+  // AppShell's window-capture edge-drawer runs earlier and stopPropagations
+  // edge gestures, so a ≤EDGE_PX start never reaches here (we also bail on it).
+  onMount(() => {
+    const el = deckEl;
+    if (!el) return;
+    let startX = 0, startY = 0, lastX = 0;
+    let axis: "none" | "x" | "y" = "none";
+    let armed = false;
+    let tracking = false; // a valid single-touch start was recorded
+    let samples: { x: number; t: number }[] = [];
+    const onStart = (e: TouchEvent) => {
+      armed = false;
+      axis = "none";
+      tracking = false;
+      if (!isCompact() || e.touches.length !== 1) return;
+      const t = e.touches[0]!;
+      if (t.clientX <= EDGE_PX) return; // defer to the drawer edge-swipe
+      startX = t.clientX; startY = t.clientY; lastX = t.clientX;
+      samples = [{ x: t.clientX, t: performance.now() }];
+      tracking = true;
+    };
+    const onMove = (e: TouchEvent) => {
+      if (!tracking) return;
+      const t = e.touches[0];
+      if (!t) return;
+      const dx = t.clientX - startX, dy = t.clientY - startY;
+      if (axis === "none") {
+        const lock = lockAxis(dx, dy);
+        if (lock === "none") return;
+        axis = lock;
+      }
+      if (axis !== "x") return; // vertical → let the terminal scroll/forward
+      e.preventDefault();
+      e.stopPropagation();
+      const now = performance.now();
+      samples.push({ x: t.clientX, t: now });
+      while (samples.length > 2 && samples[0]!.t < now - 120) samples.shift();
+      lastX = t.clientX;
+      if (!armed) { armed = true; armSwipe(dx); }
+      trackSwipe(dx);
+    };
+    const onEnd = () => {
+      if (!armed) { tracking = false; return; }
+      armed = false;
+      tracking = false;
+      const now = performance.now();
+      while (samples.length > 1 && samples[0]!.t < now - 80) samples.shift();
+      let velocity = 0;
+      if (samples.length >= 2) {
+        const first = samples[0]!, last = samples[samples.length - 1]!;
+        const dt = last.t - first.t;
+        if (dt > 0) velocity = (last.x - first.x) / dt;
+      }
+      endSwipe(lastX - startX, velocity);
+      samples = [];
+    };
+    el.addEventListener("touchstart", onStart, { capture: true, passive: true });
+    el.addEventListener("touchmove", onMove, { capture: true, passive: false });
+    el.addEventListener("touchend", onEnd, { capture: true, passive: true });
+    el.addEventListener("touchcancel", onEnd, { capture: true, passive: true });
+    onCleanup(() => {
+      el.removeEventListener("touchstart", onStart, { capture: true });
+      el.removeEventListener("touchmove", onMove, { capture: true });
+      el.removeEventListener("touchend", onEnd, { capture: true });
+      el.removeEventListener("touchcancel", onEnd, { capture: true });
+    });
+  });
+
   return (
     <div
       ref={deckEl}
@@ -611,11 +771,28 @@ export function TerminalDeck(props: { activeSessionId: string | null }) {
             onSelect={doSelect}
             onClose={doClose}
             onNewTab={() => void doNewTab(layout()?.focusedPaneId ?? "")}
-            onSwipeStart={(dx) => armSwipe(dx)}
-            onSwipeMove={(dx) => trackSwipe(dx)}
-            onSwipeEnd={(dx, vel) => endSwipe(dx, vel)}
+            swipe={barSwipe()}
           />
         </div>
+      </Show>
+      {/* mobile forward-swipe affordance: corner FAB grows in from bottom-right; on
+           commit it blooms (container-transform) into the new terminal. */}
+      <Show when={isCompact() && swipe()?.mode === "new-terminal"}>
+        <div
+          class="deck-new-handle"
+          data-testid="deck-new-handle"
+          data-armed={newFabProgress(swipe()!.offset, size().w) >= 1 ? "true" : undefined}
+          style={newHandleStyle()}
+          aria-hidden="true"
+        >
+          <svg class="deck-new-handle__icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true">
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+          <span class="deck-new-handle__label">New terminal</span>
+        </div>
+        <Show when={swipe()?.phase === "settle" && swipe()?.settleTarget === "commit"}>
+          <div class="deck-new-bloom" data-testid="deck-new-bloom" style={newBloomStyle()} aria-hidden="true" />
+        </Show>
       </Show>
       {/* per-pane tab strips + dividers (desktop only — mobile uses the deck bar above) */}
       <Show when={!isCompact()}>

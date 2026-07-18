@@ -1,5 +1,5 @@
 // Per-folder tiling layout: persisted to localStorage, reactive via a per-key
-// signal map (same pattern as lib/tabOrder.ts). One Layout per folderKeyOf
+// signal map (one signal per folder bucket). One Layout per folderKeyOf
 // bucket. Every tiling op resolves the current layout, applies a pure transform
 // from store/paneLayout.ts, and persists — so pane identities stay stable across
 // renders (a re-derived default would churn paneIds and thrash the deck).

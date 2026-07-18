@@ -1268,6 +1268,62 @@ aside[data-testid="sidebar-drawer"]::-webkit-scrollbar-thumb:hover,
   animation: df-tab-dot-pulse 1.8s ease-in-out infinite;
 }
 
+/* ── New-terminal right-edge pull-tab handle + container-transform bloom (TerminalDeck) ──
+   A rounded-left pill with a pointed left nub, docked to the right edge and
+   grown in from it as the finger drags past the last tab. JS (newHandleStyle)
+   owns position/reveal/opacity; CSS owns the look, the pointed nub, and the
+   armed emphasis. */
+.deck-new-handle {
+  position: absolute;            /* JS sets right/top/transform; needs positioned box for ::before */
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 48px;
+  padding: 0 18px 0 16px;
+  border-radius: 24px 0 0 24px;  /* rounded left (protruding), flush right (docked to edge) */
+  background: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
+  box-shadow: var(--md-elev-3);
+  font: 600 14px/1 var(--md-font);
+  white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 150ms var(--md-ease-emphasized), box-shadow 150ms var(--md-ease-emphasized);
+}
+/* Pointed left nub: a left-pointing CSS triangle color-matched to the pill. */
+.deck-new-handle::before {
+  content: "";
+  position: absolute;
+  left: -10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 0;
+  height: 0;
+  border-top: 11px solid transparent;
+  border-bottom: 11px solid transparent;
+  border-right: 10px solid var(--md-sys-color-primary-container);  /* tip points left */
+}
+.deck-new-handle__icon { flex-shrink: 0; }
+.deck-new-handle__label { letter-spacing: 0.1px; }
+/* Armed = past the commit distance: primary emphasis + lift, so the user sees
+   (and feels, via the haptic tick) that releasing now will create. */
+.deck-new-handle[data-armed="true"] {
+  background: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-primary);
+  box-shadow: var(--md-elev-4);
+}
+.deck-new-handle[data-armed="true"]::before {
+  border-right-color: var(--md-sys-color-primary);
+}
+.deck-new-bloom {
+  overflow: hidden;
+  background: var(--md-sys-color-primary-container);
+  clip-path: circle(0 at 100% 50%);
+  animation: deck-bloom var(--deck-bloom-ms, 300ms) var(--md-ease-emphasized) forwards;
+}
+@keyframes deck-bloom {
+  to { clip-path: circle(150% at 100% 50%); }
+}
+
 /* ── Card entrance animation (Chrome card scale-in, staggered) ─────── */
 /* The wrap carries the entrance animation (scale + opacity); the inner
    .terminal-card carries the swipe transform (translateX + rotate) so the
@@ -1322,6 +1378,30 @@ aside[data-testid="sidebar-drawer"]::-webkit-scrollbar-thumb:hover,
 }
 .terminal-card[data-active="true"] {
   box-shadow: 0 0 0 2px var(--md-sys-color-primary), var(--md-elev-1);
+}
+.terminal-card[data-selected="true"] {
+  box-shadow: 0 0 0 2px var(--md-sys-color-primary), var(--md-elev-1);
+}
+/* Selection check badge — top-right, transparent glyph until checked. */
+.terminal-card-check {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid var(--md-outline);
+  background: var(--md-surface-container);
+  color: transparent;
+}
+.terminal-card-check[data-checked="true"] {
+  background: var(--md-sys-color-primary);
+  border-color: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-primary);
 }
 .terminal-card:focus-visible {
   outline: 2px solid var(--md-sys-color-primary);
