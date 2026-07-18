@@ -30,19 +30,20 @@ export async function sendPushToSubscriptions(
   db: Kysely<DB>,
   subs: PushSubscriptionsTable[],
   payload: object,
-): Promise<void> {
-  if (subs.length === 0) return;
+): Promise<{ delivered: number; expired: number; failed: number }> {
+  if (subs.length === 0) return { delivered: 0, expired: 0, failed: 0 };
   await ensureConfigured(db);
   const body = JSON.stringify(payload);
 
-  await Promise.all(
-    subs.map(async (sub) => {
+  const results = await Promise.all(
+    subs.map(async (sub): Promise<"delivered" | "expired" | "failed"> => {
       try {
         await webpush.sendNotification(
           { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
           body,
           { TTL: TTL_SECONDS },
         );
+        return "delivered";
       } catch (err) {
         const status = err instanceof WebPushError ? err.statusCode : null;
         if (status === 404 || status === 410) {
@@ -52,14 +53,22 @@ export async function sendPushToSubscriptions(
             .where("endpoint", "=", sub.endpoint)
             .execute();
           log.info("push", "subscription_expired", { endpoint: sub.endpoint, status });
+          return "expired";
         } else {
           log.warn("push", "send_failed", {
             endpoint: sub.endpoint,
             status,
             error: String(err),
           });
+          return "failed";
         }
       }
     }),
   );
+
+  return {
+    delivered: results.filter((r) => r === "delivered").length,
+    expired: results.filter((r) => r === "expired").length,
+    failed: results.filter((r) => r === "failed").length,
+  };
 }

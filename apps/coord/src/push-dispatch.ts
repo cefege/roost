@@ -36,7 +36,10 @@ export async function firePushForTransition(
       .select(["cwd", "custom_title"])
       .where("id", "=", sessionId)
       .executeTakeFirst();
-    if (!row) return;
+    if (!row) {
+      log.warn("push", "session_missing", { session_id: sessionId, kind });
+      return;
+    }
 
     // Suppress push to any device actively viewing THIS session (live claim).
     const viewers = _viewersBySession.get(sessionId);
@@ -44,12 +47,31 @@ export async function firePushForTransition(
       const claim = viewers?.get(s.viewer_fp);
       return !(claim && claim.cols > 0 && claim.rows > 0);
     });
-    if (targets.length === 0) return;
+    const suppressed = subs.length - targets.length;
+    if (targets.length === 0) {
+      log.info("push", "suppressed_all", {
+        session_id: sessionId,
+        kind,
+        subs: subs.length,
+        suppressed,
+      });
+      return;
+    }
 
     const leaf = row.cwd.split("/").filter(Boolean).pop() ?? row.cwd;
     const title = row.custom_title || leaf;
     const body = kind === "blocked" ? "Needs your input" : "Finished";
-    await sendPushToSubscriptions(db, targets, { sessionId, kind, title, body });
+    const result = await sendPushToSubscriptions(db, targets, { sessionId, kind, title, body });
+    log.info("push", "dispatched", {
+      session_id: sessionId,
+      kind,
+      subs: subs.length,
+      suppressed,
+      targeted: targets.length,
+      delivered: result.delivered,
+      expired: result.expired,
+      failed: result.failed,
+    });
   } catch (err) {
     log.warn("push", "dispatch_failed", { session_id: sessionId, error: String(err) });
   }
