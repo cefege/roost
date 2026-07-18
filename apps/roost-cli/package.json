@@ -1,0 +1,17 @@
+{
+  "name": "@roost/cli",
+  "private": true,
+  "type": "module",
+  "version": "2.0.0",
+  "bin": {
+    "roost": "./src/main.ts"
+  },
+  "scripts": {
+    "dev": "bun ./src/main.ts",
+    "typecheck": "bun x tsgo -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "^2.12.0",
+    "@roost/shared": "workspace:*"
+  }
+}

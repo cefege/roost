@@ -1,0 +1,224 @@
+// Core wire message types — mirror of Zod schemas at apps/shared/src/wire/*.ts.
+// Used by RPCs in coordinator.proto and worker_transport.proto.
+// crpc2 expanded from crpc1's minimal Worker-only set.
+
+syntax = "proto3";
+package roost.v1;
+
+// ─── HostMetrics + Worker ───────────────────────────────────────────────
+
+message HostMetrics {
+  double cpu_pct = 1;
+  uint64 mem_used_bytes = 2;
+  uint64 mem_total_bytes = 3;
+  uint64 disk_used_bytes = 4;
+  uint64 disk_total_bytes = 5;
+  uint64 net_rx_bps = 6;
+  uint64 net_tx_bps = 7;
+  uint64 sampled_at_ms = 8;
+}
+
+message Worker {
+  string fp = 1;
+  string label = 2;
+  string os = 3;  // "darwin" | "linux"
+  optional string git_sha = 4;
+  optional HostMetrics host_metrics = 5;
+  uint64 registered_at_ms = 6;
+  uint64 last_seen_ms = 7;
+  // Tailnet-reachable FQDN (or other resolvable hostname) set by the
+  // deploy script via ROOST_REACHABLE_ADDR. Used by the SPA's
+  // right-click "Screen Share" / "SSH" menu to compose vnc:// / ssh://
+  // URLs. Not used for the worker's outbound coord link (the worker
+  // dials coord, not the other way around).
+  optional string reachable_addr = 8;
+  // Non-empty = this worker's keeper is running stale code (the value is the
+  // running keeper's short build stamp); empty/absent = current. Drives the
+  // MachinesPane "keeper stale" badge.
+  optional string keeper_stale = 9;
+}
+
+// ─── Session + AgentState ────────────────────────────────────────────────
+
+message Tokens {
+  uint64 in = 1;
+  uint64 out = 2;
+  uint64 cached = 3;
+}
+
+message LastMessage {
+  string role = 1;  // user|assistant|thinking
+  string text = 2;
+  uint64 ts = 3;
+}
+
+message CurrentTool {
+  string name = 1;
+  string input_summary = 2;
+}
+
+message CurrentBlock {
+  uint64 id = 1;
+  optional string command = 2;
+}
+
+message PermissionRequest {
+  string id = 1;
+  string snippet = 2;
+  repeated string options = 3;
+}
+
+message SubAgentRow {
+  string parent_message_id = 1;
+  string child_session_id = 2;
+  string label = 3;
+  string status = 4;
+}
+
+message AgentState {
+  string mode = 1;  // ClaudeMode enum
+  string model = 2;
+  string status = 3;  // running|needs-input|idle|done
+  Tokens tokens = 4;
+  double cost_usd = 5;
+  optional LastMessage last_message = 6;
+  optional CurrentTool current_tool = 7;
+  optional CurrentBlock current_block = 8;
+  optional PermissionRequest permission_request = 9;
+  repeated SubAgentRow sub_agents = 10;
+  // A1: this agent state is STALE — the worker restarted and the claude
+  // bridge (stream-json parser + hooks) that produces live state died with
+  // it. The keeper-PTY claude is still running and the terminal works, but
+  // chips won't update until the session is reopened/restarted. UI shows a
+  // "stale — reopen to refresh" badge instead of a confidently-wrong chip.
+  bool stale = 11;
+}
+
+message Session {
+  string id = 1;
+  string worker_fp = 2;
+  uint32 channel = 3;
+  string kind = 4;  // shell|claude
+  string cwd = 5;
+  optional string workspace_id = 6;
+  string status = 7;  // open|closed
+  optional AgentState agent = 8;
+  uint64 created_at = 9;
+  optional uint64 closed_at = 10;
+  // User-set rename. Overrides the auto-derived title (OSC/tool/cwd) in
+  // sessionTitle.ts. absent/empty = no override → auto title shows.
+  optional string custom_title = 11;
+  // Local git branch of the session's cwd, computed on the worker host.
+  // absent = folder isn't a git repo (or not yet resolved). Feeds the
+  // cell-grid folder-row subtitle. Updated via the `git` SessionEvent.
+  optional string git_branch = 12;
+  // GitHub "owner/repo" of the session's origin remote (github.com only).
+  // Feeds bare #123 / commit-SHA terminal links. Updated via `git` event.
+  optional string git_remote = 13;
+  // GitHub PR status for git_branch, resolved on the worker via `gh pr list`.
+  // pr_number absent = no open PR. Feeds the #123 ✓ folder-row badge
+  // (FolderList.tsx). Updated via the `pr` SessionEvent.
+  optional int32 pr_number = 14;
+  optional string pr_state = 15;   // open|merged|closed|draft
+  optional string pr_checks = 16;  // passing|failing|pending|none
+  optional string pr_url = 17;
+  // TCP ports the session's process tree is LISTENing on (worker lsof).
+  // Feeds :5174 folder-row chips. Updated via the `ports` SessionEvent.
+  repeated int32 ports = 18;
+  // Immutable folder the session was spawned in (set once at `opened`, never
+  // updated by `cwd` drift). Backs the stable /t/:workerFp/*folderPath URL.
+  // absent = pre-migration row → callers fall back to /s/:sessionId.
+  optional string spawn_cwd = 19;
+}
+
+// ─── Workspace ────────────────────────────────────────────────────────────
+
+message Workspace {
+  string id = 1;
+  string worker_fp = 2;
+  string name = 3;
+  string folder_path = 4;
+  optional string color = 5;
+  uint32 position = 6;
+  uint64 version = 7;  // CAS
+  uint64 created_at_ms = 8;
+  uint64 updated_at_ms = 9;
+  repeated string session_ids = 10;
+}
+
+// ─── Task ──────────────────────────────────────────────────────────────────
+
+message Task {
+  string id = 1;
+  string state = 2;  // pending|claimed|running|done|failed|cancelled
+  string payload_json = 3;  // raw JSON; coord stores as text
+  uint64 enqueued_at_ms = 4;
+  optional uint64 claimed_at_ms = 5;
+  optional string claimed_by = 6;
+  optional uint64 finished_at_ms = 7;
+  optional string result_json = 8;  // raw JSON or absent
+  optional string completion_check = 9;
+  optional uint64 completion_check_last_attempt_ms = 10;
+  uint64 claim_ttl_ms = 11;
+}
+
+// ─── WebhookToken ─────────────────────────────────────────────────────────
+
+message WebhookToken {
+  string id = 1;
+  string label = 2;
+  string last4 = 3;
+  repeated string scopes = 4;  // "tasks.enqueue", etc.
+  uint64 created_at_ms = 5;
+  optional uint64 last_used_at_ms = 6;
+}
+
+message WebhookTokenMint {
+  string id = 1;
+  string label = 2;
+  string plaintext = 3;  // ONCE — only on mint
+  repeated string scopes = 4;
+  uint64 created_at_ms = 5;
+}
+
+// ─── PermissionRule ───────────────────────────────────────────────────────
+
+message PermissionRule {
+  string id = 1;
+  string tool_pattern = 2;
+  string folder_glob = 3;
+  string decision = 4;  // allow|deny|allow-and-remember
+  bool enabled = 5;
+  uint64 created_at_ms = 6;
+}
+
+// ─── McpRelay ─────────────────────────────────────────────────────────────
+
+message McpRelay {
+  string id = 1;
+  string label = 2;
+  string kind = 3;  // stdio|sse
+  string config_json = 4;  // raw JSON for free-form config
+  uint64 created_at_ms = 5;
+}
+
+// ─── PairRequest ──────────────────────────────────────────────────────────
+
+message PairRequest {
+  string ephemeral_id = 1;
+  string label = 2;
+  uint64 created_at_ms = 3;
+}
+
+// ─── Audit ────────────────────────────────────────────────────────────────
+
+message AuditRow {
+  uint64 id = 1;
+  uint64 ts = 2;
+  optional string caller_fp = 3;
+  optional string caller_label = 4;
+  string method = 5;
+  string path = 6;
+  uint32 status = 7;
+  optional string trace_id = 8;
+}

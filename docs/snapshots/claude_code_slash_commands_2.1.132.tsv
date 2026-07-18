@@ -1,0 +1,54 @@
+# Claude Code slash commands
+# Binary: /opt/homebrew/Caskroom/claude-code/2.1.132/claude
+# Version: 2.1.132
+# Extracted: 2026-05-17T16:50:37Z
+
+/add-dir	Add a new working directory
+/agents	Manage agent configurations
+/autocompact	Configure the auto-compact window size
+/autofix-pr	Monitor and autofix any issues with the current PR
+/bridge-kick	Inject bridge failure states for manual recovery testing
+/brief	Toggle brief-only mode
+/btw	Ask a quick side question without interrupting the main conversation
+/chrome	Claude in Chrome (Beta) settings
+/claude-in-chrome	Automates your Chrome browser to interact with web pages - clicking elements, filling forms, capturing screenshots, reading console logs, and navigating sites. Opens pages in new tabs within your existing Chrome session. Requires site-level permissions before executing (configured in the extension).
+/clear	Start a new session with empty context; previous session stays on disk (resumable with /resume)
+/compact	Free up context by summarizing the conversation so far
+/config	Open config panel
+/context	Visualize current context usage as a colored grid
+/diff	View uncommitted changes and per-turn diffs
+/doctor	Diagnose and verify your Claude Code installation and settings
+/extra-usage	Configure extra usage to keep working when limits are hit
+/feedback	Submit feedback about Claude Code
+/fork	Spawn a background agent that inherits the full conversation
+/goal	Set a goal \u2014 keep working until the condition is met
+/heapdump	Dump the JS heap to ~/Desktop
+/hooks	View hook configurations for tool events
+/ide	Manage IDE integrations and show status
+/install-github-app	Set up Claude GitHub Actions for a repository
+/install-slack-app	Install the Claude Slack app
+/keybindings	Open or create your keybindings configuration file
+/logout	Sign out from your Anthropic account
+/loops	List, create, and delete recurring loops and stop-hooks
+/mcp	Manage MCP servers
+/memory	Edit Claude memory files
+/privacy-settings	View and update your privacy settings
+/pro-trial-expired	Options shown when the Pro plan Claude Code trial has ended
+/radio	Listen to Claude FM lo-fi radio
+/rate-limit-options	Show options when rate limit is reached
+/recap	Generate a one-line session recap now
+/reload-plugins	Activate pending plugin changes in the current session
+/remote-env	Configure the default remote environment for teleport sessions
+/resume	Resume a previous conversation
+/skills	List available skills
+/status	Show Claude Code status including version, model, account, API connectivity, and tool statuses
+/stop	Stop this background session; transcript and worktree are kept
+/team-onboarding	Help teammates ramp on Claude Code with a guide from your usage
+/teleport	Resume a Claude Code session from claude.ai
+/toggle-memory	Toggle automemory off/on for this session
+/tui	Set the terminal UI renderer (default | fullscreen)
+/update	Switch to the latest version (conversation continues)
+/upgrade	Upgrade to Max for higher rate limits and more Opus
+/version	Print the version this session is running (not what autoupdate downloaded)
+/voice	Toggle voice mode
+/web-setup	Setup Claude Code on the web (requires connecting your GitHub account)

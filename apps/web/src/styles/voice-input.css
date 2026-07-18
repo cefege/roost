@@ -1,0 +1,584 @@
+/*
+ * voice-input.css — Material 3 styling for the bottom-right touch
+ * controls: MobileVoiceInput.tsx (mic) + TerminalNavButtons.tsx (keypad).
+ * Owns: the mic FAB (primary-container → error while recording), the
+ * small tonal ✕ discard FAB, the snackbar-style transcript caption, and
+ * the .term-nav always-on control pad (Esc / arrows / Enter).
+ * Reuses the M3 token graph — ALL --md-* tokens (color, shape, elevation,
+ * spacing, type) resolve from styles/theme-vars.css :root (eager) — no new
+ * colors. Imported once by main.tsx.
+ *
+ * Anatomy per M3 FAB spec: container + state layer (::after, hover/
+ * focus/press alphas) + icon. Recording adds an expanding pulse ring
+ * (::before). Motion uses the M3 emphasized easing curve.
+ */
+
+:root {
+  /* M3 emphasized + standard easing — aliased to the global motion tokens
+     (theme-vars.css --md-sys-motion-easing-*), not re-literal'd here. */
+  --md-ease-emphasized: var(--md-sys-motion-easing-emphasized);
+  --md-ease-standard: var(--md-sys-motion-easing-standard);
+}
+
+/* ── container: fixed bottom-right, safe-area aware ── */
+/* z 55: above the z-50 side FABs (plan / agent-launch / attach) so the discard
+   ✕ — which shares the plan/agent-launch slot — can never be covered while
+   recording, even if a gate is missed or during a transition frame. Still
+   below the z-60+ modal overlays (command palette, help, mobile deck,
+   dialogs) so those cover the mic when open. The caption is
+   pointer-events:none, so it overlays the term-nav pad (z 40) visually
+   without eating taps. */
+.voice-input {
+  position: fixed;
+  right: calc(env(safe-area-inset-right, 0px) + 16px);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
+  translate: 0 calc(-1 * var(--roost-fab-dy, 0px));
+  will-change: translate;
+  z-index: 55;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--md-space-3);
+  pointer-events: none;
+  font-family: var(--md-font);
+}
+
+.voice-input__cluster {
+  display: flex;
+  align-items: center;
+  gap: var(--md-space-3);
+  pointer-events: none;
+}
+
+/* ── mic FAB (M3 FAB: 56dp, large-shape corner, elevation 3) ── */
+.voice-fab {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  border-radius: var(--md-shape-lg);
+  border: none;
+  cursor: pointer;
+  pointer-events: auto;
+  touch-action: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
+  box-shadow: var(--md-elev-3);
+  overflow: hidden;
+  transition:
+    background-color 200ms var(--md-ease-emphasized),
+    box-shadow 200ms var(--md-ease-emphasized),
+    border-radius 200ms var(--md-ease-emphasized),
+    transform 120ms var(--md-ease-standard),
+    opacity 150ms var(--md-ease-standard);
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* M3 state layer — same-color overlay at hover/focus/press alphas. Shared
+   by the mic, agent-launch, and plan-mode FABs (identical M3 press anatomy). */
+.voice-fab::after,
+.agent-launch-fab::after,
+.plan-fab::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: currentColor;
+  opacity: 0;
+  transition: opacity 120ms var(--md-ease-standard);
+  pointer-events: none;
+}
+@media (hover: hover) {
+  .voice-fab:hover,
+  .agent-launch-fab:hover,
+  .plan-fab:hover { box-shadow: var(--md-elev-4); }
+  .voice-fab:hover::after,
+  .agent-launch-fab:hover::after,
+  .plan-fab:hover::after { opacity: 0.08; }
+}
+.voice-fab:focus-visible,
+.agent-launch-fab:focus-visible,
+.plan-fab:focus-visible { outline: none; }
+.voice-fab:focus-visible::after,
+.agent-launch-fab:focus-visible::after,
+.plan-fab:focus-visible::after { opacity: 0.12; }
+.voice-fab:active::after,
+.agent-launch-fab:active::after,
+.plan-fab:active::after { opacity: 0.12; }
+.voice-fab:active,
+.agent-launch-fab:active,
+.plan-fab:active { transform: scale(0.96); }
+
+.voice-fab__icon {
+  position: relative;
+  z-index: 1;
+  font-family: "Material Symbols Rounded";
+  font-size: 26px;
+  line-height: 1;
+  font-variation-settings: "FILL" 1, "wght" 500, "GRAD" 0, "opsz" 24;
+  user-select: none;
+}
+
+/* ── recording: morph to error color + larger radius + pulse ring ── */
+.voice-fab[data-recording="true"] {
+  background: var(--md-sys-color-error);
+  color: var(--md-sys-color-on-error);
+  border-radius: var(--md-shape-xl);
+}
+/* Pulse ring lives on ::before (::after is the M3 state layer) — a
+   pre-rendered ring that scales+fades on the compositor, replacing the
+   box-shadow spread (0→14px) that repainted the FAB region every frame.
+   opacity:0 base → invisible when the animation is off (reduced motion). */
+.voice-fab[data-recording="true"]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 7px solid color-mix(in srgb, var(--md-sys-color-error) 55%, transparent);
+  opacity: 0;
+  pointer-events: none;
+  animation: voice-pulse 1.6s var(--md-ease-standard) infinite;
+  z-index: 0;
+}
+@keyframes voice-pulse {
+  0%   { transform: scale(1); opacity: 0.55; }
+  70%  { transform: scale(1.5); opacity: 0; }
+  100% { transform: scale(1.5); opacity: 0; }
+}
+
+/* ── finalizing: dim, non-interactive, breathing icon ── */
+.voice-fab[data-finalizing="true"] {
+  opacity: 0.62;
+  pointer-events: none;
+}
+.voice-fab[data-finalizing="true"] .voice-fab__icon {
+  animation: voice-breathe 1.1s ease-in-out infinite;
+}
+@keyframes voice-breathe {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.45; }
+}
+
+/* ── ✕ discard: small tonal FAB (40dp, medium shape) ── */
+.voice-fab--discard {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--md-shape-md);
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface-variant);
+  box-shadow: var(--md-elev-2);
+  animation: voice-enter 220ms var(--md-ease-emphasized);
+}
+@media (hover: hover) {
+  .voice-fab--discard:hover { box-shadow: var(--md-elev-3); }
+}
+.voice-fab--discard .voice-fab__icon { font-size: 22px; }
+
+@keyframes voice-enter {
+  from { opacity: 0; transform: scale(0.6) translateX(12px); }
+  to   { opacity: 1; transform: scale(1) translateX(0); }
+}
+
+/* ── agent-launch FAB (M3 FAB: 56dp, tertiary-container, elevation 3) ── */
+/* Shells only (Terminal.tsx Show gate). Fixed bottom-right, one mic-width
+   to the LEFT of the mic FAB so they sit side by side on touch. Same M3
+   container + state-layer + press anatomy as .voice-fab. */
+.agent-launch-fab {
+  position: fixed;
+  right: calc(env(safe-area-inset-right, 0px) + 16px + 56px + 12px);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
+  translate: 0 calc(-1 * var(--roost-fab-dy, 0px));
+  will-change: translate;
+  z-index: 50;
+  width: 56px;
+  height: 56px;
+  border-radius: var(--md-shape-lg);
+  border: none;
+  cursor: pointer;
+  pointer-events: auto;
+  touch-action: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: var(--md-sys-color-tertiary-container);
+  color: var(--md-sys-color-on-tertiary-container);
+  box-shadow: var(--md-elev-3);
+  transition:
+    background-color 200ms var(--md-ease-emphasized),
+    box-shadow 200ms var(--md-ease-emphasized),
+    transform 120ms var(--md-ease-standard);
+  -webkit-tap-highlight-color: transparent;
+}
+.agent-launch-fab__icon {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  line-height: 0;
+}
+.agent-launch-fab__icon svg { height: 26px; width: auto; }
+.agent-launch-fab__mono { font: 700 18px/1 ui-sans-serif, system-ui, sans-serif; color: currentColor; }
+
+/* ── plan-mode shortcut FAB (M3 FAB: 56dp, tertiary-container, elevation 3) ── */
+/* Agent sessions only (CellTerminal.tsx Show gate on liveStatus==="idle"
+   && not voice-recording). Shares the agent-launch FAB's fixed slot (mutually
+   exclusive: agent-launch is shells-only at a shell prompt; hidden during
+   voice recording so it doesn't cover the discard ✕). Same M3 container +
+   state-layer + press anatomy; state-layer selectors grouped with
+   .voice-fab/.agent-launch-fab above. Renders "/plan" as text (not an icon)
+   for clarity. Types "/plan" + CR into the PTY to enter plan mode. */
+.plan-fab {
+  position: fixed;
+  right: calc(env(safe-area-inset-right, 0px) + 16px + 56px + 12px);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
+  translate: 0 calc(-1 * var(--roost-fab-dy, 0px));
+  will-change: translate;
+  z-index: 50;
+  width: 56px;
+  height: 56px;
+  border-radius: var(--md-shape-lg);
+  border: none;
+  cursor: pointer;
+  pointer-events: auto;
+  touch-action: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: var(--md-sys-color-tertiary-container);
+  color: var(--md-sys-color-on-tertiary-container);
+  box-shadow: var(--md-elev-3);
+  transition:
+    background-color 200ms var(--md-ease-emphasized),
+    box-shadow 200ms var(--md-ease-emphasized),
+    transform 120ms var(--md-ease-standard);
+  -webkit-tap-highlight-color: transparent;
+}
+.plan-fab__label {
+  position: relative;
+  z-index: 1;
+  font: 700 18px/1 ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: -0.3px;
+  user-select: none;
+}
+
+/* ── attach-file FAB (M3 FAB: 56dp, secondary-container, elevation 3) ── */
+/* Always shown. Two mic-widths LEFT of the mic FAB (left of agent-launch)
+   so the bottom-right cluster reads mic ← agent ← attach. Same M3 container +
+   state-layer + press anatomy as .voice-fab. */
+.attach-file-fab {
+  position: fixed;
+  right: calc(env(safe-area-inset-right, 0px) + 16px + 2 * (56px + 12px));
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
+  translate: 0 calc(-1 * var(--roost-fab-dy, 0px));
+  will-change: translate;
+  z-index: 50;
+  width: 56px;
+  height: 56px;
+  border-radius: var(--md-shape-lg);
+  border: none;
+  cursor: pointer;
+  pointer-events: auto;
+  touch-action: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+  box-shadow: var(--md-elev-3);
+  transition:
+    background-color 200ms var(--md-ease-emphasized),
+    box-shadow 200ms var(--md-ease-emphasized),
+    transform 120ms var(--md-ease-standard);
+  -webkit-tap-highlight-color: transparent;
+}
+.attach-file-fab::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: currentColor;
+  opacity: 0;
+  transition: opacity 120ms var(--md-ease-standard);
+  pointer-events: none;
+}
+@media (hover: hover) {
+  .attach-file-fab:hover { box-shadow: var(--md-elev-4); }
+  .attach-file-fab:hover::after { opacity: 0.08; }
+}
+.attach-file-fab:focus-visible { outline: none; }
+.attach-file-fab:focus-visible::after { opacity: 0.12; }
+.attach-file-fab:active { transform: scale(0.96); }
+.attach-file-fab:active::after { opacity: 0.12; }
+.attach-file-fab__icon {
+  position: relative;
+  z-index: 1;
+  font-family: "Material Symbols Rounded";
+  font-size: 26px;
+  line-height: 1;
+  font-variation-settings: "FILL" 1, "wght" 500, "GRAD" 0, "opsz" 24;
+  user-select: none;
+}
+
+/* ── scroll-to-bottom FAB (jump to latest) ──────────────────────────────
+   Shown only when scrolled up > 1 viewport (CellTerminal Show gate). Bottom-
+   center so it never overlaps the bottom-right mic/agent/attach/plan cluster.
+   Tap → fixed-duration eased scroll to bottom + pin. */
+.jump-bottom-fab {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 20px);
+  z-index: 50;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface-variant);
+  box-shadow: var(--md-elev-3);
+  animation: jump-bottom-enter 160ms var(--md-ease-emphasized);
+  transition: box-shadow 200ms var(--md-ease-emphasized), transform 120ms var(--md-ease-standard);
+  -webkit-tap-highlight-color: transparent;
+}
+@media (hover: hover) {
+  .jump-bottom-fab:hover { box-shadow: var(--md-elev-4); }
+}
+.jump-bottom-fab:active { transform: translateX(-50%) scale(0.94); }
+.jump-bottom-fab:focus-visible { outline: none; }
+.jump-bottom-fab__icon {
+  font-family: "Material Symbols Rounded";
+  font-size: 24px;
+  line-height: 1;
+  font-variation-settings: "FILL" 1, "wght" 500, "GRAD" 0, "opsz" 24;
+  user-select: none;
+}
+@keyframes jump-bottom-enter {
+  from { opacity: 0; transform: translateX(-50%) translateY(8px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+/* ── caption (M3 snackbar: surface-container-highest, elevation 3) ── */
+.voice-caption {
+  max-width: min(90vw, 420px);
+  padding: var(--md-space-4) var(--md-space-5);
+  border-radius: var(--md-shape-md);
+  background: var(--md-sys-color-surface-container-highest);
+  color: var(--md-sys-color-on-surface);
+  box-shadow: var(--md-elev-3);
+  font: var(--md-body-l-weight) var(--md-body-l-size)/var(--md-body-l-line) var(--md-font);
+  text-align: left;
+  white-space: pre-wrap;
+  pointer-events: none;
+  animation: voice-caption-enter 220ms var(--md-ease-emphasized);
+}
+.voice-caption--error {
+  background: var(--md-sys-color-error-container);
+  color: var(--md-sys-color-on-error-container);
+}
+.voice-caption__final { color: var(--md-sys-color-on-surface); }
+.voice-caption__interim { color: var(--md-sys-color-on-surface-variant); font-style: italic; }
+.voice-caption__hint { color: var(--md-sys-color-on-surface-variant); font-style: italic; }
+.voice-caption__error { color: var(--md-sys-color-on-error-container); }
+
+@keyframes voice-caption-enter {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── term-nav-toggle: keyboard FAB that pops the pad open/closed ── */
+/* Sits directly above the mic (same right edge). Tonal when closed, filled
+   secondary when open. Tap pops .term-nav up above it; tap again collapses. */
+.term-nav-toggle {
+  position: fixed;
+  right: calc(env(safe-area-inset-right, 0px) + 16px);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 84px);
+  translate: 0 calc(-1 * var(--roost-fab-dy, 0px));
+  will-change: translate;
+  z-index: 40;
+  width: 56px;
+  height: 56px;
+  border-radius: var(--md-shape-lg);
+  border: none;
+  cursor: pointer;
+  pointer-events: auto;
+  touch-action: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface-variant);
+  box-shadow: var(--md-elev-3);
+  transition:
+    background-color 200ms var(--md-ease-emphasized),
+    box-shadow 200ms var(--md-ease-emphasized),
+    transform 120ms var(--md-ease-standard);
+  -webkit-tap-highlight-color: transparent;
+}
+.term-nav-toggle::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: currentColor;
+  opacity: 0;
+  transition: opacity 120ms var(--md-ease-standard);
+  pointer-events: none;
+}
+@media (hover: hover) {
+  .term-nav-toggle:hover { box-shadow: var(--md-elev-4); }
+  .term-nav-toggle:hover::after { opacity: 0.08; }
+}
+.term-nav-toggle:active::after { opacity: 0.12; }
+.term-nav-toggle:active { transform: scale(0.96); }
+.term-nav-toggle:focus-visible { outline: none; }
+.term-nav-toggle:focus-visible::after { opacity: 0.12; }
+.term-nav-toggle[data-open="true"] {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+}
+.term-nav-toggle__icon {
+  position: relative;
+  z-index: 1;
+  font-family: "Material Symbols Rounded";
+  font-size: 26px;
+  line-height: 1;
+  font-variation-settings: "FILL" 1, "wght" 500, "GRAD" 0, "opsz" 24;
+  user-select: none;
+}
+
+/* ── term-nav: M3 pop-up control pad (Esc / arrows / Enter, touch) ── */
+/* Wide Esc key on top, inverted-T arrows (▲ / ◀▼▶), wide Enter on the
+   bottom, on a floating surface panel anchored above the toggle FAB.
+   Shown only while .term-nav-toggle is open. */
+.term-nav {
+  position: fixed;
+  right: calc(env(safe-area-inset-right, 0px) + 16px);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 152px);
+  translate: 0 calc(-1 * var(--roost-fab-dy, 0px));
+  will-change: translate;
+  z-index: 40;
+  display: grid;
+  grid-template-columns: repeat(3, 48px);
+  grid-template-areas:
+    "esc   esc   esc"
+    "pgup  up    pgdn"
+    "left  down  right"
+    "ent   ent   ent"
+    "mouse mouse mouse";
+  gap: var(--md-space-2);
+  padding: var(--md-space-2);
+  border-radius: var(--md-shape-lg);
+  background: var(--md-sys-color-surface-container-high);
+  box-shadow: var(--md-elev-3);
+  pointer-events: auto;
+  animation: voice-caption-enter 200ms var(--md-ease-emphasized);
+  font-family: var(--md-font);
+}
+
+.term-nav__key {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  border: none;
+  border-radius: var(--md-shape-md);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: var(--md-sys-color-surface-container-highest);
+  color: var(--md-sys-color-on-surface-variant);
+  box-shadow: var(--md-elev-1);
+  transition:
+    box-shadow 150ms var(--md-ease-standard),
+    transform 100ms var(--md-ease-standard);
+  -webkit-tap-highlight-color: transparent;
+}
+.term-nav__key::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: currentColor;
+  opacity: 0;
+  transition: opacity 100ms var(--md-ease-standard);
+  pointer-events: none;
+}
+@media (hover: hover) {
+  .term-nav__key:hover::after { opacity: 0.08; }
+}
+.term-nav__key:active::after { opacity: 0.12; }
+.term-nav__key:active { transform: scale(0.94); }
+.term-nav__key:focus-visible { outline: none; }
+.term-nav__key:focus-visible::after { opacity: 0.12; }
+
+.term-nav__key--up { grid-area: up; }
+.term-nav__key--left { grid-area: left; }
+.term-nav__key--down { grid-area: down; }
+.term-nav__key--right { grid-area: right; }
+.term-nav__key--pgup { grid-area: pgup; }
+.term-nav__key--pgdn { grid-area: pgdn; }
+
+/* Esc — full-width tonal key on top (the cancel/back action). */
+.term-nav__key--esc {
+  grid-area: esc;
+  width: auto;
+  background: var(--md-sys-color-surface-container-highest);
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+/* Enter — full-width primary key (the affirmative action). */
+.term-nav__key--enter {
+  grid-area: ent;
+  width: auto;
+  background: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-primary);
+}
+
+/* Mouse toggle — full-width tonal key; lights up (primary) when forwarding
+   is ON. Icon + on/off label sit side by side. */
+.term-nav__key--mouse {
+  grid-area: mouse;
+  width: auto;
+  gap: 6px;
+  background: var(--md-sys-color-surface-container-highest);
+  color: var(--md-sys-color-on-surface-variant);
+}
+.term-nav__key--mouse[data-active="true"] {
+  background: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-primary);
+}
+
+/* Text label (Esc) — same footprint as the icon glyph, just type. */
+.term-nav__label {
+  position: relative;
+  z-index: 1;
+  font: var(--md-label-l-weight) var(--md-label-l-size)/var(--md-label-l-line) var(--md-font);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  user-select: none;
+}
+
+.term-nav__icon {
+  position: relative;
+  z-index: 1;
+  font-family: "Material Symbols Rounded";
+  font-size: 24px;
+  line-height: 1;
+  font-variation-settings: "FILL" 1, "wght" 500, "GRAD" 0, "opsz" 24;
+  user-select: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-fab[data-recording="true"]::before,
+  .voice-fab[data-finalizing="true"] .voice-fab__icon,
+  .voice-fab--discard,
+  .voice-caption,
+  .term-nav { animation: none; }
+}

@@ -1,0 +1,688 @@
+// Layout-driven terminal deck (tiling model). Mounts every open session ONCE
+// (persistent deck — no remount on nav or re-tile) and positions the visible
+// ones into their pane rects from the per-folder tiling layout
+// (store/paneLayout + paneLayoutStore). Renders a PaneStrip per pane + draggable
+// PaneDividers. One pane (the default) = full-area terminal + one strip on top
+// = identical to the pre-tiling UI. Compact/mobile collapses to the focused
+// pane's selected tab, full-bleed (single terminal — matches mobile-app layout).
+// Callers: MainPane.tsx. Splits via ⌘D / ⌘⇧D; bring-to-front via ⌘⏎ / middle-click / right-click. New tab via the pane strip's +. Arrange presets via the top-right ArrangeMenu / ⌘⌥B·E·R·G·V.
+
+import { For, Index, Show, createMemo, createSignal, createEffect, onMount, onCleanup, on } from "solid-js";
+import { useNavigate } from "@solidjs/router";
+import { rootStore } from "../store/root.ts";
+import { markSeen } from "../lib/sessionSeen.ts";
+import { pageVisible } from "../lib/pageVisible.ts";
+import { CellTerminal } from "./CellTerminal.tsx";
+import { PaneStrip } from "./PaneStrip.tsx";
+import { MobileDeckBar } from "./MobileDeckBar.tsx";
+import { PaneDivider } from "./PaneDivider.tsx";
+import { isCompact } from "../lib/windowSizeClass.ts";
+import { isResizeDragging, pulseArrange } from "../lib/resizeDrag.ts";
+import { folderKeyOf, folderPathOf } from "../lib/folderKey.ts";
+import { isPendingClose } from "../lib/pendingClose.ts";
+import { spawnShell, spawnInWorkspace, waitForSession, maybeAutoLaunchAgent } from "../lib/spawnSession.ts";
+import {
+  beginOptimisticSpawn, endOptimisticSpawn, failOptimisticSpawn,
+  wasAborted, clearAborted,
+} from "../store/optimisticSpawn.ts";
+import { coordClient } from "../connect.ts";
+import { commitLayout, seedIfAbsent, resolveLayout } from "../store/paneLayoutStore.ts";
+import {
+  layoutView, setRatio, selectTab, focusPane, reorderTab, splitLeaf, moveTab,
+  findLeafOfTab, allLeaves, flatTabs, type Layout, type PaneDir, type PaneView, type Rect,
+} from "../store/paneLayout.ts";
+import { spotlightSessionId, clearSpotlight, setSpotlightSessionId, setVisiblePaneCount } from "../store/spotlight.ts";
+import { zoneToSplit, zoneRect, tileTargetFor, type DropZone, type TileTarget } from "../lib/dropZones.ts";
+import { selectTabOp, focusPaneOp, closeSessionOp, type DeckOpsCtx } from "../lib/deckOps.ts";
+import { arrangeLayout, type ArrangeKind } from "../store/paneLayoutPresets.ts";
+import { ArrangeMenu } from "./ArrangeMenu.tsx";
+import type { Session } from "@roost/shared/wire";
+import { diag } from "@roost/shared/diag";
+
+const STRIP_H = 40; // per-pane tab strip height (px)
+/** Mobile (compact) deck-level bar height (px) — the Chrome-style workspace
+ *  bar ([menu][title][+][count]) rendered above the full-bleed terminal. */
+const MOBILE_STRIP_H = 48;
+
+// Deep-equal two PaneViews so the panes memo can REUSE the prior object ref when
+// a layout commit didn't actually change this pane. Keeps <For each={panes()}>
+// from recreating (and re-animating the M3 underline of) every strip on a plain
+// focus click. Identity deliberately IGNORES rect AND focused: both are read
+// live (paneRectById / paneFocusById), so a drag repositions and a focus flip
+// re-styles strips WITHOUT re-mounting them (remounting re-upgrades the
+// @material/web ripples — the focus-flip DOM churn).
+function samePaneView(a: PaneView, b: PaneView): boolean {
+  return a.paneId === b.paneId && a.selectedTab === b.selectedTab
+    && a.tabIds.length === b.tabIds.length && a.tabIds.every((id, i) => id === b.tabIds[i]);
+}
+
+// Slot value-equality for the per-session slot memo: slotBySession mints a new
+// Map of new slot objects per layout commit / drag frame / deck resize, so
+// ref-equality re-fired termStyle + the data-* effects + CellTerminal's raw
+// prop effects for EVERY open session on every commit. Compare exactly the
+// slot's fields so only real changes propagate.
+type SessionSlot = { rect: Rect; paneId: string; focused: boolean; spotlit?: boolean };
+function sameSlot(a: SessionSlot | null, b: SessionSlot | null): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return a.paneId === b.paneId && a.focused === b.focused && !!a.spotlit === !!b.spotlit
+    && a.rect.x === b.rect.x && a.rect.y === b.rect.y && a.rect.w === b.rect.w && a.rect.h === b.rect.h;
+}
+
+export function TerminalDeck(props: { activeSessionId: string | null }) {
+  const navigate = useNavigate();
+  const openSessions = createMemo(() => Object.values(rootStore.sessions).filter((s) => s.status === "open"));
+
+  const activeSession = createMemo(() => (props.activeSessionId ? rootStore.sessions[props.activeSessionId] ?? null : null));
+  const folderKey = createMemo(() => { const s = activeSession(); return s ? folderKeyOf(s) : null; });
+  // Sessions that belong in the layout for the active folder. EXCLUDE
+  // pending-close (soft-closed) sessions: a closed tab stays status="open" until
+  // the delayed kill lands, and without this filter reconcile immediately
+  // re-adds it → the pane never collapses on close (the terminal stays mounted
+  // in the deck via openSessions so an undo restores it).
+  const liveIds = createMemo(() => {
+    const fk = folderKey();
+    if (!fk) return [];
+    return openSessions()
+      .filter((s) => folderKeyOf(s) === fk && !isPendingClose(s.id))
+      .sort((a, b) => a.created_at - b.created_at)
+      .map((s) => s.id);
+  });
+
+  // deck pixel size for rect computation
+  let deckEl: HTMLDivElement | undefined;
+  const [size, setSize] = createSignal({ w: 0, h: 0 });
+  onMount(() => {
+    const ro = new ResizeObserver(() => { if (deckEl) setSize({ w: deckEl.clientWidth, h: deckEl.clientHeight }); });
+    if (deckEl) { ro.observe(deckEl); setSize({ w: deckEl.clientWidth, h: deckEl.clientHeight }); }
+    onCleanup(() => ro.disconnect());
+  });
+
+  // seed a stable default layout the first time a folder becomes active
+  createEffect(() => { const fk = folderKey(); if (fk) seedIfAbsent(fk, liveIds()); });
+
+  // URL → tiling fold: external navigation only (sidebar click, deep link,
+  // back/forward, spawn) selects + focuses the active session's pane. In-deck
+  // clicks already commit focus synchronously (doFocusPane/doSelect), so the
+  // priority ring is instant and no longer waits on the startTransition-gated
+  // navigate. on() untracks the body, so this fires ONLY when activeSessionId
+  // changes — never on a local focus commit — so it cannot clobber a fresh
+  // click back to the URL's stale session. No-op when already in sync.
+  createEffect(on(() => props.activeSessionId, (active) => {
+    if (!active) return;
+    const fk = folderKey();
+    if (!fk) return;
+    const l = resolveLayout(fk, liveIds());
+    const leaf = findLeafOfTab(l.root, active);
+    if (!leaf) return;
+    if (l.focusedPaneId === leaf.paneId && leaf.selectedTab === active) return;
+    commitLayout(fk, selectTab(l, active));
+  }));
+
+  // External nav (sidebar click, deep link, agent command) during an active
+  // TRACK-phase swipe aborts the gesture — the neighbor/current pair is now
+  // stale. Skip during settle: the commit's own doSelect→navigate changes
+  // activeSessionId at the end of the 220ms settle, and clearing there would
+  // yank the transform mid-snap. Settle self-clears via its setTimeout.
+  createEffect(on(() => props.activeSessionId, (active) => {
+    if (!active) return;
+    const sw = swipe();
+    if (sw && sw.phase === "track" && active !== sw.currentId) setSwipe(null);
+  }));
+
+  // transient divider ratios during a drag (don't persist every pointermove)
+  const [dragRatios, setDragRatios] = createSignal<Record<string, number>>({});
+
+  // drag-to-tile (P2): live drop-zone preview while a tab is dragged over the deck
+  const [dropOverlay, setDropOverlay] = createSignal<{ rect: Rect; zone: DropZone } | null>(null);
+
+  // Reconciled base layout (committed store is the focus source of truth,
+  // reconciled against the live set). Does NOT read dragRatios → stays memoized
+  // across a drag (no per-frame reconcile); transient drag ratios are applied in
+  // view() at the geometry layer so a pointermove re-runs only setRatio+layoutView.
+  const layout = createMemo<Layout | null>(() => {
+    const fk = folderKey();
+    if (!fk) return null;
+    return resolveLayout(fk, liveIds());
+  });
+
+  const view = createMemo<{ panes: PaneView[]; dividers: ReturnType<typeof layoutView>["dividers"] }>(() => {
+    let l = layout();
+    if (!l) return { panes: [], dividers: [] };
+    // Before the first ResizeObserver tick the deck size is 0×0 — keep every
+    // terminal hidden rather than positioning it at 0×0 (the RO-0×0 grid
+    // corruption trigger). onMount sets a real size synchronously after render.
+    if (size().w === 0 || size().h === 0) return { panes: [], dividers: [] };
+    // Transient drag ratios applied HERE only (geometry layer): a pointermove
+    // re-runs this cheap setRatio+layoutView, never the reconcile in layout().
+    const dr = dragRatios();
+    for (const id in dr) l = { ...l, root: setRatio(l.root, id, dr[id]) };
+    if (isCompact()) {
+      // mobile = one terminal: the focused pane's selected tab, full-bleed
+      const leaf = allLeaves(l.root).find((le) => le.paneId === l.focusedPaneId) ?? allLeaves(l.root)[0];
+      if (!leaf) return { panes: [], dividers: [] };
+      return { panes: [{ paneId: leaf.paneId, rect: { x: 0, y: 0, w: size().w, h: size().h }, tabIds: leaf.tabs, selectedTab: leaf.selectedTab, focused: true }], dividers: [] };
+    }
+    return layoutView(l, size().w, size().h);
+  });
+  // Mobile (compact): the flat, ordered list of every tab in the folder — panes
+  // collapsed to one scrollable row (topology is desktop-only). Empty
+  // off-compact or with no layout; the strip renders only on a terminal route
+  // that has sessions. Order is flatTabs (leaf-then-tab); selectedTab is the
+  // URL-active session so the highlight tracks navigation instantly.
+  const mobileTabs = createMemo<Session[]>(() => {
+    if (!isCompact()) return [];
+    const l = layout();
+    if (!l) return [];
+    return flatTabs(l.root)
+      .map((t) => rootStore.sessions[t.tabId])
+      .filter(Boolean) as Session[];
+  });
+
+  // The visible pane holding the floated session (null → inert: compact, folder
+  // changed, tab switched away, or pane gone). Floating targets the PANE.
+  const spotlightPane = createMemo(() => {
+    const sid = spotlightSessionId();
+    if (!sid || isCompact()) return null;
+    return view().panes.find((p) => p.selectedTab === sid) ?? null;
+  });
+  // Centered card rect: ~6% inset (min 24px) so the dimmed stack shows at the edges.
+  const spotlightRect = createMemo<Rect | null>(() => {
+    if (!spotlightPane()) return null;
+    const { w, h } = size();
+    if (!w || !h) return null;
+    const mx = Math.max(w * 0.06, 24), my = Math.max(h * 0.06, 24);
+    return { x: mx, y: my, w: w - 2 * mx, h: h - 2 * my };
+  });
+
+  // ── Mobile swipe-to-switch (Chrome Android toolbar gesture) ────────────
+  // Swiping left/right on MobileDeckBar slides the current terminal out and
+  // the next/prev in, in parallel. The neighbor is already mounted (parked at
+  // -99999px); surfacing a slot flips its inLayout true (CellTerminal TAB_VISIBLE
+  // claim — canvas keeps its last frame, so it never slides in blank). Commit
+  // is delayed to the end of the 200ms settle so reactivity matches the visual
+  // at switch time (no flash). Mobile-only; reads isCompact() at arm + render.
+  type SwipePhase = "track" | "settle";
+  type Swipe = {
+    phase: SwipePhase;
+    currentId: string;          // URL-active session at swipe start
+    neighborId: string | null;  // null → at an end, rubberband
+    dir: 1 | -1;                 // 1 = swipe left → next; -1 = swipe right → prev
+    offset: number;              // live finger dx (px), clamped to [-w, w]
+    mode: "slide" | "rubberband";
+  };
+  const [swipe, setSwipe] = createSignal<Swipe | null>(null);
+
+  const slotBySession = createMemo(() => {
+    const m = new Map<string, { rect: Rect; paneId: string; focused: boolean; spotlit?: boolean }>();
+    for (const p of view().panes) if (p.selectedTab) m.set(p.selectedTab, { rect: p.rect, paneId: p.paneId, focused: p.focused });
+    const sp = spotlightPane(), sr = spotlightRect();
+    if (sp && sr && sp.selectedTab) m.set(sp.selectedTab, { rect: sr, paneId: sp.paneId, focused: true, spotlit: true });
+    // During a swipe, give the neighbor the SAME rect as the single mobile pane
+    // so termStyle positions it full-bleed (top:48 / bottom inset), then the
+    // swipe transform (swipeStyleFor) slides it in from the opposite edge.
+    const sw0 = swipe();
+    if (sw0 && sw0.neighborId && isCompact()) {
+      const cur = view().panes[0]; // mobile: exactly one pane
+      if (cur) m.set(sw0.neighborId, { rect: cur.rect, paneId: cur.paneId, focused: false });
+    }
+    return m;
+  });
+
+  // Ref-stable pane list for the strips <For>: reuse the prior PaneView object
+  // whenever a commit left that pane unchanged, so unchanged strips don't
+  // recreate (their sliding underline stays put instead of re-animating).
+  let panesCache = new Map<string, PaneView>();
+  const panes = createMemo(() => {
+    const next = new Map<string, PaneView>();
+    const out = view().panes.map((p) => {
+      const prev = panesCache.get(p.paneId);
+      const stable = prev && samePaneView(prev, p) ? prev : p;
+      next.set(p.paneId, stable);
+      return stable;
+    });
+    panesCache = next;
+    return out;
+  });
+
+  // Live paneId → rect for the strip wrappers, read reactively. Kept SEPARATE
+  // from the ref-stable `panes` list so a drag (rect-only change) repositions
+  // strips WITHOUT recreating them (samePaneView ignores rect → stable refs).
+  const paneRectById = createMemo(() => {
+    const m = new Map<string, Rect>();
+    for (const p of view().panes) m.set(p.paneId, p.rect);
+    return m;
+  });
+
+  // Live paneId → focused for the strips, read reactively — same pattern as
+  // paneRectById: samePaneView ignores focused, so a focus flip updates this
+  // map instead of minting new PaneView refs (no strip re-mount).
+  const paneFocusById = createMemo(() => {
+    const m = new Map<string, boolean>();
+    for (const p of view().panes) m.set(p.paneId, p.focused);
+    return m;
+  });
+
+  // Selected tab per visible pane, content-stable: identity changes ONLY when
+  // the SET changes, NOT when a drag moves rects — so the markSeen effect below
+  // does not re-run (and re-persist to localStorage) on every pointermove.
+  const visibleSelectedTabs = createMemo(
+    () => view().panes.map((p) => p.selectedTab).filter(Boolean) as string[],
+    undefined,
+    { equals: (a, b) => a.length === b.length && a.every((id, i) => id === b[i]) },
+  );
+
+  // Mark every ON-SCREEN pane's selected tab "seen" while the tab is foregrounded
+  // (P3.3). Tiling shows several panes at once, so seeing can't be URL-active-only
+  // — else visible idle panes wrongly read "Done". After this, "Done = idle &
+  // unseen" (attention.ts) fires ONLY for agents that finished OFF-SCREEN. Reads
+  // last_message.ts so fresh output while watched re-stamps. markSeen is monotonic.
+  createEffect(() => {
+    if (!pageVisible()) return;
+    for (const id of visibleSelectedTabs()) {
+      void rootStore.sessions[id]?.agent?.last_message?.ts;
+      markSeen(id);
+    }
+  });
+
+  createEffect(() => setVisiblePaneCount(view().panes.length));
+  // Spotlit session closed → drop the peek.
+  createEffect(() => { const sid = spotlightSessionId(); if (sid && !openSessions().some((s) => s.id === sid)) clearSpotlight(); });
+  // Navigate to another folder → drop the peek + abort any in-flight swipe
+  // (its neighbor/current tabs belong to the old folder).
+  createEffect(on(folderKey, () => { clearSpotlight(); setSwipe(null); }, { defer: true }));
+
+  const stripH = () => (isCompact() ? MOBILE_STRIP_H : STRIP_H);
+  function termStyle(slot: { rect: Rect; focused: boolean; spotlit?: boolean } | null): Record<string, string> {
+    // Hidden panes park off-screen but stay LAID OUT (visibility:hidden, NOT
+    // content-visibility). Skipping their layout cuts per-switch forced layout
+    // (~50ms→~11ms across 15+ panes), BUT because content-visibility:hidden drops
+    // the whole subtree, REVEALING a pane then re-renders it cold: a deep-history
+    // (8000-row) pane measured ~134ms cold vs ~72ms kept-warm. Deep-history reveal
+    // is the freeze users hit, so keeping hidden panes warm wins there. The
+    // O(open-sessions) per-switch floor needs a different lever (not eagerly
+    // mounting every pane), not a content-visibility layout skip.
+    if (!slot) return { position: "absolute", left: "-99999px", top: "0", width: "800px", height: "600px", visibility: "hidden", "pointer-events": "none" };
+    const r = slot.rect;
+    // Spotlit pane floats as a full card with NO strip above it (its strip is
+    // hidden below): the terminal fills the whole card rect, all corners rounded.
+    // The .pane-spotlight-card frame (z8) rings/shadows it from behind.
+    if (slot.spotlit) {
+      return {
+        position: "absolute", left: `${r.x}px`, top: `${r.y}px`, width: `${r.w}px`, height: `${r.h}px`,
+        visibility: "visible", "z-index": "9", overflow: "hidden", "border-radius": "12px",
+      };
+    }
+    return {
+      position: "absolute", left: `${r.x}px`, top: `${r.y + stripH()}px`,
+      width: `${r.w}px`, height: `${Math.max(0, r.h - stripH())}px`,
+      visibility: "visible", "z-index": slot.focused ? "2" : "1",
+    };
+  }
+
+  // ── Swipe transform per terminal slot ─────────────────────────────────
+  // Composed AFTER termStyle (which never sets transform) so the slot's base
+  // geometry is intact. During track: no transition (finger-follow). During
+  // settle: 200ms material-decelerate so the snap matches the existing
+  // TerminalCard swipe-dismiss motion.
+  const SWIPE_SETTLE_MS = 220; // 200ms transition + slack; matches TerminalCard:343
+  function swipeStyleFor(id: string): Record<string, string> {
+    const sw = swipe();
+    if (!sw || (id !== sw.currentId && id !== sw.neighborId)) return {};
+    const w = size().w;
+    const decel = "var(--md-sys-motion-easing-emphasized-decelerate, cubic-bezier(0.05, 0.7, 0.1, 1))";
+    const transition = sw.phase === "settle"
+      ? `transform 200ms ${decel}`
+      : "none";
+    if (id === sw.currentId) {
+      // current follows the finger; settle carries it fully off in swipe dir
+      let off = sw.offset;
+      if (sw.mode === "rubberband") off = sw.offset * 0.25; // 0.25× resistance at ends
+      if (sw.phase === "settle") off = sw.mode === "slide" ? -sw.dir * w : 0;
+      return { transform: `translateX(${off}px)`, transition };
+    }
+    // neighbor (slide mode only; rubberband has no neighbor)
+    if (!sw.neighborId) return {};
+    // neighbor starts one full width off in the OPPOSITE direction of the swipe,
+    // moves to 0 as the current moves to -dir*w.
+    let off = sw.offset + sw.dir * w;
+    if (sw.phase === "settle") off = sw.mode === "slide" ? 0 : sw.dir * w;
+    return { transform: `translateX(${off}px)`, transition };
+  }
+
+  // ── ops (apply a pure transform to the CURRENT layout + persist) ───────────
+  function apply(fn: (l: Layout) => Layout): void {
+    const fk = folderKey();
+    const l = layout();
+    if (fk && l) commitLayout(fk, fn(l));
+  }
+  // select/focus/close logic lives in lib/deckOps.ts so the agent command
+  // channel (lib/uiCommandDispatch.ts) drives the exact same code paths. The
+  // ctx hands over the live memos — ops re-read them around their own commits,
+  // preserving the original closure semantics (doClose capture-before-async,
+  // doSelect post-commit spotlight follow).
+  const opsCtx: DeckOpsCtx = {
+    folderKey,
+    layout,
+    activeSessionId: () => props.activeSessionId,
+    navigate,
+  };
+  function doSelect(id: string): void { selectTabOp(opsCtx, id, spotlightPane()?.paneId ?? null); }
+
+  // ── Swipe arm/track/end (driven by MobileDeckBar's onSwipe* callbacks) ──
+  // armSwipe picks direction from the first dx sign, resolves the neighbor
+  // from mobileTabs() order (flatTabs = leaf-then-tab), and enters track.
+  function armSwipe(dx: number): void {
+    const cur = swipe();
+    if (cur?.phase === "settle") return; // mid-settle, ignore re-grab
+    if (!isCompact()) return;
+    const tabs = mobileTabs();
+    const idx = tabs.findIndex((t) => t.id === props.activeSessionId);
+    if (idx < 0) return;
+    const dir: 1 | -1 = dx < 0 ? 1 : -1; // left → next, right → prev
+    const neighborId = dir === 1 ? tabs[idx + 1]?.id ?? null : tabs[idx - 1]?.id ?? null;
+    if (!neighborId && tabs.length < 2) return; // single tab: nothing to do
+    const mode: "slide" | "rubberband" = neighborId ? "slide" : "rubberband";
+    setSwipe({ phase: "track", currentId: props.activeSessionId!, neighborId, dir, offset: dx, mode });
+  }
+  function trackSwipe(dx: number): void {
+    setSwipe((prev) => {
+      if (!prev || prev.phase !== "track") return prev;
+      const w = size().w;
+      // clamp raw finger travel to one screen width either way
+      const clamped = Math.max(-w, Math.min(w, dx));
+      return { ...prev, offset: clamped };
+    });
+  }
+  function endSwipe(dx: number, velocity: number): void {
+    setSwipe((prev) => {
+      if (!prev || prev.phase !== "track") return prev;
+      const w = size().w;
+      // Release direction must match the armed direction: reversing mid-swipe
+      // and crossing threshold the other way must NOT commit to the originally
+      // armed neighbor (its slot is on the wrong edge → the current would
+      // teleport across screen). Chrome cancels on reversal too; user re-swipes.
+      const releaseDir: 1 | -1 = dx < 0 ? 1 : -1;
+      const dirMatch = releaseDir === prev.dir;
+      const commit = prev.mode === "slide" && dirMatch
+        && (Math.abs(dx) >= w * 0.3 || Math.abs(velocity) >= 0.8);
+      if (commit) {
+        // current fully off in swipe dir, neighbor to 0; doSelect fires after
+        // the settle so the visual already matches reactivity.
+        const neighborId = prev.neighborId!;
+        setTimeout(() => { doSelect(neighborId); setSwipe(null); }, SWIPE_SETTLE_MS);
+        return { ...prev, phase: "settle", offset: -prev.dir * w };
+      }
+      // cancel: spring back (rubberband always cancels). neighbor returns off-edge.
+      setTimeout(() => setSwipe(null), SWIPE_SETTLE_MS);
+      return { ...prev, phase: "settle", offset: 0 };
+    });
+  }
+  function doReorder(paneId: string, ids: string[]): void { apply((l) => reorderTab(l, paneId, ids)); }
+  function doFocusPane(paneId: string): void { focusPaneOp(opsCtx, paneId); }
+  function doClose(s: Session): void { closeSessionOp(opsCtx, s); }
+  function anchorFor(paneId: string): Session | null {
+    const p = view().panes.find((pv) => pv.paneId === paneId);
+    return (p && rootStore.sessions[p.selectedTab]) || activeSession();
+  }
+  async function spawnSibling(anchor: Session, sessionId?: string): Promise<string> {
+    return anchor.workspace_id
+      ? await spawnInWorkspace(anchor.worker_fp, anchor.workspace_id, folderPathOf(anchor), sessionId)
+      : await spawnShell(anchor.worker_fp, anchor.cwd, sessionId);
+  }
+  async function doNewTab(paneId: string): Promise<void> {
+    const anchor = anchorFor(paneId);
+    if (!anchor) return;
+    apply((l) => focusPane(l, paneId)); // reconcile appends the optimistic placeholder into this pane
+    const sid = beginOptimisticSpawn(anchor); // tab + pane + CellTerminal render THIS frame
+    navigate(`/s/${sid}`); // URL-fold selects the new tab in the focused pane
+    const t0 = Date.now();
+    try {
+      await spawnSibling(anchor, sid);
+      diag("spawn.optimistic", { session_id: sid, rtt_ms: Date.now() - t0 });
+      // Closed mid-flight → reap the now-real PTY and leave the tab gone.
+      if (wasAborted(sid)) { clearAborted(sid); void coordClient.sessionsKill({ sessionId: sid }); return; }
+      endOptimisticSpawn(sid); // clears pending → CellTerminal fires INITIAL claim + paints
+      maybeAutoLaunchAgent(sid);
+    } catch (e) {
+      failOptimisticSpawn(sid, e); // removes placeholder → reconcile prunes the tab + toast
+    }
+  }
+  async function doSplit(dir: PaneDir): Promise<void> {
+    const l = layout();
+    if (!l) return;
+    const paneId = l.focusedPaneId;
+    const anchor = anchorFor(paneId);
+    if (!anchor) return;
+    const id = await spawnSibling(anchor);
+    await waitForSession(id); // must be live before it can occupy a split pane
+    maybeAutoLaunchAgent(id);
+    apply((cur) => splitLeaf(cur, paneId, dir, id, false));
+    navigate(`/s/${id}`);
+  }
+  function doSpotlight(): void {
+    if (spotlightSessionId()) { clearSpotlight(); return; }
+    const p = view().panes.find((pv) => pv.paneId === layout()?.focusedPaneId);
+    if (p?.selectedTab) setSpotlightSessionId(p.selectedTab);
+  }
+  // "Arrange" — balance keeps the current tree (panes/tabs/focus), only
+  // re-balancing ratios; the rebuild kinds replace the layout with a preset
+  // tiling of the folder's sessions (one session per pane).
+  function doArrange(kind: ArrangeKind): void {
+    const fk = folderKey();
+    const l = layout();
+    if (!fk || !l) return;
+    clearSpotlight();
+    let next = arrangeLayout(kind, l, liveIds());
+    // Rebuild presets reset focusedPaneId to the first leaf, desyncing the
+    // priority ring from the URL-active session. Re-point focus/selection at it
+    // (balance preserves focus by construction, so leave it — a pending
+    // doFocusPane navigate may not have reached props.activeSessionId yet).
+    const active = props.activeSessionId;
+    if (kind !== "balance" && active && findLeafOfTab(next.root, active)) next = selectTab(next, active);
+    commitLayout(fk, next);
+    pulseArrange();
+  }
+
+  // divider drag → live ratio (visual) → commit on release
+  function onDividerDrag(splitId: string, ratio: number): void { setDragRatios((p) => ({ ...p, [splitId]: ratio })); }
+  function onDividerCommit(splitId: string, ratio: number): void {
+    apply((l) => ({ ...l, root: setRatio(l.root, splitId, ratio) }));
+    setDragRatios((p) => { const n = { ...p }; delete n[splitId]; return n; });
+  }
+
+  // ── drag-to-tile (P2): a tab dragged out of its strip onto a pane EDGE splits
+  //    that pane; onto a pane's strip / body-center MERGES into it. dropZones.ts
+  //    does the edge-band math; the overlay previews the target region. ─────────
+  function deckLocal(clientX: number, clientY: number): { x: number; y: number } {
+    const r = deckEl?.getBoundingClientRect();
+    return { x: clientX - (r?.left ?? 0), y: clientY - (r?.top ?? 0) };
+  }
+  function tileTarget(originPaneId: string, clientX: number, clientY: number): TileTarget {
+    const { x, y } = deckLocal(clientX, clientY);
+    return tileTargetFor(view().panes, originPaneId, x, y, STRIP_H);
+  }
+  function onTabDragMove(originPaneId: string, clientX: number, clientY: number): void {
+    const t = tileTarget(originPaneId, clientX, clientY);
+    setDropOverlay(t ? { rect: zoneRect(t.rect, t.zone), zone: t.zone } : null);
+  }
+  function onTabTileDrop(tabId: string, originPaneId: string, clientX: number, clientY: number): boolean {
+    setDropOverlay(null);
+    const t = tileTarget(originPaneId, clientX, clientY);
+    if (!t || t.zone === "reorder") return false; // reorder → let the strip handle it
+    const split = zoneToSplit(t.zone);
+    if (split) apply((l) => splitLeaf(l, t.paneId, split.dir, tabId, split.insertFirst));
+    else apply((l) => moveTab(l, tabId, t.paneId));
+    navigate(`/s/${tabId}`);
+    return true;
+  }
+  function onTabDragEnd(): void { setDropOverlay(null); }
+
+  // Click in a pane's BODY → focus that pane (the mousedown-prevent net in
+  // CellTerminal lets clicks inside [data-pane] through for exactly this). A
+  // press inside a STRIP is skipped: it may start a tab drag, and focusing here
+  // re-renders + recreates the tab node mid-gesture (breaking the drag). Tab
+  // clicks focus via onSelect instead.
+  function onDeckPointerDown(e: PointerEvent): void {
+    const t = e.target as HTMLElement | null;
+    if (t?.closest("[data-pane-strip]")) return;
+    const el = t?.closest<HTMLElement>("[data-pane-id]");
+    const pid = el?.getAttribute("data-pane-id");
+    if (pid) doFocusPane(pid);
+    // Middle-click = bring-to-front toggle, same path as ⌘⏎. doFocusPane above
+    // already moved focus to the clicked pane synchronously (commitLayout is a
+    // plain signal set — paneLayoutStore.ts:70), so doSpotlight() floats THAT
+    // pane. While a pane is floated, the z7 backdrop swallows pointerdown on
+    // everything except the floated slot (z9) → middle-click there toggles back;
+    // backdrop middle-click clears via its own onPointerDown (stopPropagation
+    // keeps this handler out — no double-toggle).
+    if (e.button === 1 && pid && !isCompact() && !t?.closest("a")) {
+      e.preventDefault(); // suppress win/linux autoscroll + compat mousedown into the TUI mouse-forward path
+      doSpotlight();
+    }
+  }
+
+  // ⌘D split right · ⌘⇧D split down · ⌘⏎ bring-to-front (spotlight). Cmd-combos never reach the PTY,
+  // so intercepting them is safe. Only while a terminal folder is active.
+  onMount(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && spotlightSessionId()) { e.preventDefault(); clearSpotlight(); return; }
+      if (!e.metaKey || e.ctrlKey) return;
+      if (!folderKey()) return;
+      const k = e.key.toLowerCase();
+      if (e.altKey) { // ⌘⌥ = arrange presets
+        const preset: ArrangeKind | null =
+          k === "b" ? "balance" : k === "e" ? "even" : k === "r" ? "rows" :
+          k === "g" ? "tiled" : k === "v" ? "main-vertical" : null;
+        if (preset) { e.preventDefault(); doArrange(preset); }
+        return;
+      }
+      if (k === "d") { e.preventDefault(); void doSplit(e.shiftKey ? "col" : "row"); }
+      else if (e.key === "Enter") { e.preventDefault(); doSpotlight(); }
+    };
+    document.addEventListener("keydown", onKey);
+    onCleanup(() => document.removeEventListener("keydown", onKey));
+  });
+
+  return (
+    <div
+      ref={deckEl}
+      data-testid="terminal-deck"
+      data-multi-pane={view().panes.length > 1 ? "true" : "false"}
+      data-resizing={isResizeDragging() ? "true" : undefined}
+      onPointerDown={onDeckPointerDown}
+      style={{ flex: "1", position: "relative", overflow: "hidden", background: "var(--term-bg)" }}
+    >
+      <Show when={openSessions().length === 0}>
+        <div style={{ position: "absolute", inset: "0", display: "flex", "align-items": "center", "justify-content": "center", color: "var(--text-lo)", "font-size": "13px" }}>
+          No session selected.
+        </div>
+      </Show>
+
+      {/* terminals: every open session mounted once; visible ones positioned */}
+      <For each={openSessions()}>
+        {(s) => {
+          const slot = createMemo(() => slotBySession().get(s.id) ?? null, undefined, { equals: sameSlot });
+          return (
+            <div data-testid={`terminal-slot-${s.id}`} data-pane data-pane-id={slot()?.paneId ?? ""} data-focused={slot()?.focused ? "true" : "false"} data-spotlit={slot()?.spotlit ? "true" : undefined} style={{ ...termStyle(slot()), ...swipeStyleFor(s.id) }}>
+              <CellTerminal session={s} inLayout={!!slot()} focused={slot()?.focused ?? false} spotlit={slot()?.spotlit ?? false} />
+            </div>
+          );
+        }}
+      </For>
+
+      {/* mobile (compact): Chrome-style workspace bar above the full-bleed
+           terminal. Off-compact this block is inert. */}
+      <Show when={isCompact() && mobileTabs().length > 0}>
+        <div
+          data-testid="mobile-strip-wrap"
+          style={{
+            position: "absolute",
+            left: "0",
+            top: "0",
+            width: "100%",
+            height: `${MOBILE_STRIP_H}px`,
+            "z-index": "3",
+          }}
+        >
+          <MobileDeckBar
+            tabs={mobileTabs()}
+            selectedTab={props.activeSessionId ?? ""}
+            onSelect={doSelect}
+            onClose={doClose}
+            onNewTab={() => void doNewTab(layout()?.focusedPaneId ?? "")}
+            onSwipeStart={(dx) => armSwipe(dx)}
+            onSwipeMove={(dx) => trackSwipe(dx)}
+            onSwipeEnd={(dx, vel) => endSwipe(dx, vel)}
+          />
+        </div>
+      </Show>
+      {/* per-pane tab strips + dividers (desktop only — mobile uses the deck bar above) */}
+      <Show when={!isCompact()}>
+        <For each={panes()}>
+          {(p) => {
+            const tabs = createMemo(() => p.tabIds.map((id) => rootStore.sessions[id]).filter(Boolean) as Session[]);
+            const rect = () => paneRectById().get(p.paneId) ?? p.rect;
+            return (
+              <Show when={p.paneId !== spotlightPane()?.paneId}>
+                <div data-pane data-pane-id={p.paneId} style={{ position: "absolute", left: `${rect().x}px`, top: `${rect().y}px`, width: `${rect().w}px`, height: `${STRIP_H}px`, "z-index": "3" }}>
+                  <Show when={tabs().length > 0}>
+                    <PaneStrip
+                      paneId={p.paneId}
+                      tabs={tabs()}
+                      selectedTab={p.selectedTab}
+                      focused={paneFocusById().get(p.paneId) ?? false}
+                      onSelect={doSelect}
+                      onClose={doClose}
+                      onReorder={(ids) => doReorder(p.paneId, ids)}
+                      onNewTab={() => void doNewTab(p.paneId)}
+                      onTabDragMove={(x, y) => onTabDragMove(p.paneId, x, y)}
+                      onTabTileDrop={(tid, x, y) => onTabTileDrop(tid, p.paneId, x, y)}
+                      onTabDragEnd={onTabDragEnd}
+                    />
+                  </Show>
+                </div>
+              </Show>
+            );
+          }}
+        </For>
+        <Index each={view().dividers}>
+          {(d) => <PaneDivider divider={d} deckEl={() => deckEl} onDrag={onDividerDrag} onCommit={onDividerCommit} />}
+        </Index>
+        <Show when={dropOverlay()}>
+          {(o) => (
+            <div
+              class="pane-drop-overlay"
+              data-zone={o().zone}
+              style={{ position: "absolute", left: `${o().rect.x}px`, top: `${o().rect.y}px`, width: `${o().rect.w}px`, height: `${o().rect.h}px`, "z-index": "5", "pointer-events": "none" }}
+            />
+          )}
+        </Show>
+        <Show when={liveIds().length >= 2}>
+          <div style={{ position: "absolute", top: "0", right: "0", height: `${STRIP_H}px`, display: "flex", "align-items": "center", padding: "0 6px", "z-index": "4" }}>
+            <ArrangeMenu onArrange={doArrange} />
+          </div>
+        </Show>
+      </Show>
+      <Show when={spotlightRect()}>
+        {(r) => (
+          <>
+            <div
+              class="pane-spotlight-backdrop"
+              data-testid="pane-spotlight-backdrop"
+              style={{ position: "absolute", inset: "0", "z-index": "7" }}
+              onPointerDown={(e) => { e.stopPropagation(); clearSpotlight(); }}
+              onContextMenu={(e) => { e.preventDefault(); clearSpotlight(); }}
+              aria-hidden="true"
+            />
+            <div
+              class="pane-spotlight-card"
+              style={{ position: "absolute", left: `${r().x}px`, top: `${r().y}px`, width: `${r().w}px`, height: `${r().h}px`, "z-index": "8", "pointer-events": "none" }}
+              aria-hidden="true"
+            />
+          </>
+        )}
+      </Show>
+    </div>
+  );
+}

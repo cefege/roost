@@ -1,0 +1,583 @@
+/*
+ * tokens.css — M3 type utility classes + Settings shell/card styles.
+ * ALL --md-* tokens (color, shape, elevation, spacing, type ramp, --md-font,
+ * --md-ref-typeface-*, state layers) are declared ONCE in
+ * styles/theme-vars.css :root — eager via main.tsx, so global surfaces
+ * (voice-input.css, sidebar.css) resolve them from first paint; this
+ * lazy-loaded file declares NO custom properties (design-system phase 2).
+ *
+ * Imported once by SettingsRoot.tsx via `import "./md/tokens.css"`.
+ */
+
+/* ─── Type utility classes ─────────────────────────────────────── */
+.md-display-l { font: var(--md-display-l-weight) var(--md-display-l-size)/var(--md-display-l-line) var(--md-font); }
+.md-display-m { font: var(--md-display-m-weight) var(--md-display-m-size)/var(--md-display-m-line) var(--md-font); }
+.md-display-s { font: var(--md-display-s-weight) var(--md-display-s-size)/var(--md-display-s-line) var(--md-font); }
+
+.md-headline-l { font: var(--md-headline-l-weight) var(--md-headline-l-size)/var(--md-headline-l-line) var(--md-font); }
+.md-headline-m { font: var(--md-headline-m-weight) var(--md-headline-m-size)/var(--md-headline-m-line) var(--md-font); }
+.md-headline-s { font: var(--md-headline-s-weight) var(--md-headline-s-size)/var(--md-headline-s-line) var(--md-font); }
+
+.md-title-l { font: var(--md-title-l-weight) var(--md-title-l-size)/var(--md-title-l-line) var(--md-font); }
+.md-title-m { font: var(--md-title-m-weight) var(--md-title-m-size)/var(--md-title-m-line) var(--md-font); }
+.md-title-s { font: var(--md-title-s-weight) var(--md-title-s-size)/var(--md-title-s-line) var(--md-font); }
+
+.md-body-l { font: var(--md-body-l-weight) var(--md-body-l-size)/var(--md-body-l-line) var(--md-font); }
+.md-body-m { font: var(--md-body-m-weight) var(--md-body-m-size)/var(--md-body-m-line) var(--md-font); }
+.md-body-s { font: var(--md-body-s-weight) var(--md-body-s-size)/var(--md-body-s-line) var(--md-font); }
+
+.md-label-l { font: var(--md-label-l-weight) var(--md-label-l-size)/var(--md-label-l-line) var(--md-font); letter-spacing: 0.1px; }
+.md-label-m { font: var(--md-label-m-weight) var(--md-label-m-size)/var(--md-label-m-line) var(--md-font); letter-spacing: 0.5px; }
+.md-label-s { font: var(--md-label-s-weight) var(--md-label-s-size)/var(--md-label-s-line) var(--md-font); letter-spacing: 0.5px; }
+
+/* ─── Settings surface — shared shell styles ──────────────────── */
+.settings-shell {
+  display: flex;
+  height: 100vh;
+  background: var(--md-sys-color-surface);
+  color: var(--md-sys-color-on-surface);
+  font-family: var(--md-font);
+}
+
+.settings-rail {
+  width: 360px;
+  flex-shrink: 0;
+  background: var(--md-sys-color-surface);
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--md-sys-color-outline-variant);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+.settings-rail__brand {
+  font: var(--md-headline-s-weight) var(--md-headline-s-size)/var(--md-headline-s-line) var(--md-font);
+  color: var(--md-sys-color-on-surface);
+  padding: var(--md-space-5) var(--md-space-4) var(--md-space-3);
+  text-align: left;
+  letter-spacing: 0;
+  display: block;
+  width: 100%;
+  background: var(--md-sys-color-surface);
+  border: none;
+  cursor: pointer;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  flex-shrink: 0;
+}
+.settings-rail__brand:hover { background: var(--md-state-hover); }
+
+.settings-rail__group {
+  padding: 0 var(--md-space-2);
+}
+/* No border between groups — the group label separates, matching mobile/Pixel. */
+
+.settings-rail__group-label {
+  font: var(--md-label-m-weight) var(--md-label-m-size)/var(--md-label-m-line) var(--md-font);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  text-align: left;
+  color: var(--md-on-surface-dim, var(--md-sys-color-on-surface-variant));
+  padding: var(--md-space-5) var(--md-space-4) var(--md-space-2);
+}
+
+.settings-rail__item {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--md-space-4);
+  width: 100%;
+  min-height: 56px;
+  padding: 0 var(--md-space-4);
+  cursor: pointer;
+  color: var(--md-sys-color-on-surface-variant);
+  border: none;
+  background: transparent;
+  text-align: left;
+  position: relative;
+  font-family: inherit;
+  border-radius: var(--md-shape-full);
+  transition: background-color var(--md-sys-motion-duration-short2) var(--md-sys-motion-easing-standard);
+}
+
+.settings-rail__item + .settings-rail__item::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: calc(var(--md-space-4) + 40px + var(--md-space-4)); /* 72px — text start */
+  right: 0;
+  height: 1px;
+  background: var(--md-sys-color-outline-variant);
+}
+.settings-rail__item[data-selected="true"]::before,
+.settings-rail__item[data-selected="true"] + .settings-rail__item::before {
+  display: none;
+}
+
+.settings-rail__item:focus-visible { outline: none; }
+.settings-rail__item:focus-visible .settings-rail__indicator {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: 2px;
+}
+.settings-rail__item:hover { background: var(--md-state-hover); }
+
+.settings-rail__item[data-selected="true"] {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+}
+
+.settings-rail__indicator {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--md-shape-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: var(--md-sys-color-surface-container-high);
+}
+.settings-rail__item[data-selected="true"] .settings-rail__indicator {
+  background: transparent;
+}
+
+.settings-rail__icon {
+  font-family: "Material Symbols Rounded";
+  font-size: 24px;
+  font-weight: 400;
+  font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24;
+  line-height: 1;
+  color: inherit;
+}
+.settings-rail__item[data-selected="true"] .settings-rail__icon {
+  font-variation-settings: "FILL" 1, "wght" 500, "GRAD" 0, "opsz" 24;
+}
+
+.settings-rail__label {
+  font: var(--md-title-m-weight) var(--md-title-m-size)/var(--md-title-m-line) var(--md-font);
+  letter-spacing: 0;
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-rail__spacer { flex: 1; }
+
+.settings-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.settings-topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--md-space-3);
+  padding: 0 var(--md-space-4);
+  height: 64px;
+  background: var(--md-sys-color-surface);
+  border-bottom: 1px solid var(--md-sys-color-outline-variant);
+  flex-shrink: 0;
+}
+
+.settings-topbar__title {
+  font: var(--md-title-l-weight) var(--md-title-l-size)/var(--md-title-l-line) var(--md-font);
+  color: var(--md-sys-color-on-surface);
+}
+
+.settings-topbar__back {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--md-shape-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--md-sys-color-on-surface);
+  transition: background-color var(--md-sys-motion-duration-short2) var(--md-sys-motion-easing-standard);
+}
+.settings-topbar__back:hover { background: var(--md-state-hover); }
+
+.settings-content {
+  flex: 1;
+  overflow: auto;
+  padding: var(--md-space-6) var(--md-space-7);
+  background: var(--md-sys-color-surface);
+}
+
+.settings-content__inner {
+  max-width: 880px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--md-space-5);
+}
+
+/* ─── Settings — mobile master/detail (Android/Pixel pattern) ─── */
+.settings-mobile__list {
+  flex: 1;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.settings-mobile__group-label {
+  padding: var(--md-space-5) var(--md-space-4) var(--md-space-2);
+  font: var(--md-label-m-weight) var(--md-label-m-size)/var(--md-label-m-line) var(--md-font);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--md-on-surface-dim, var(--md-sys-color-on-surface-variant));
+}
+.settings-mobile__row {
+  display: flex;
+  align-items: center;
+  gap: var(--md-space-4);
+  width: 100%;
+  min-height: 56px;
+  padding: 0 var(--md-space-4);
+  background: transparent;
+  border: none;
+  position: relative;
+  color: var(--md-sys-color-on-surface);
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.settings-mobile__row:active { background: var(--md-state-pressed); }
+.settings-mobile__row:focus-visible { outline: 2px solid var(--md-sys-color-primary); outline-offset: -2px; }
+.settings-mobile__row + .settings-mobile__row::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: calc(var(--md-space-4) + 40px + var(--md-space-4)); /* 72px — text start */
+  right: 0;
+  height: 1px;
+  background: var(--md-sys-color-outline-variant);
+}
+.settings-mobile__icon {
+  font-family: "Material Symbols Rounded";
+  font-size: 24px;
+  color: var(--md-sys-color-on-surface-variant);
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--md-shape-md);
+  background: var(--md-sys-color-surface-container-high);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.settings-mobile__label {
+  flex: 1; min-width: 0;
+  font-size: var(--md-title-m-size);
+  font-weight: 400;
+}
+.settings-mobile__chev {
+  font-family: "Material Symbols Rounded";
+  font-size: 24px;
+  color: var(--md-sys-color-on-surface-variant);
+  flex-shrink: 0;
+}
+.settings-mobile__main {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--md-sys-color-surface);
+  color: var(--md-sys-color-on-surface);
+  font-family: var(--md-font);
+}
+.settings-mobile__main .settings-topbar {
+  height: auto;
+  min-height: calc(64px + env(safe-area-inset-top, 0px));
+  padding-top: env(safe-area-inset-top, 0px);
+}
+.settings-mobile__list {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+/* Tighten the reused detail content padding on mobile (default is space-6/space-7). */
+@media (max-width: 599px) {
+  .settings-mobile__main .settings-content { padding: var(--md-space-4); }
+}
+
+/* ─── Card ─────────────────────────────────────────────────────── */
+.md-card {
+  background: var(--md-sys-color-surface-container-low);
+  border-radius: var(--md-shape-md);
+  padding: var(--md-space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--md-space-4);
+}
+
+.md-card--elevated {
+  background: var(--md-sys-color-surface-container);
+  box-shadow: var(--md-elev-1);
+}
+
+.md-card--outlined {
+  background: var(--md-sys-color-surface);
+  border: 1px solid var(--md-sys-color-outline-variant);
+}
+
+.md-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--md-space-3);
+}
+
+.md-card__title {
+  font: var(--md-title-l-weight) var(--md-title-l-size)/var(--md-title-l-line) var(--md-font);
+  color: var(--md-sys-color-on-surface);
+}
+
+.md-card__supporting {
+  font: var(--md-body-m-weight) var(--md-body-m-size)/var(--md-body-m-line) var(--md-font);
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+/* ─── Section heading (between cards) ─────────────────────────── */
+.md-section-title {
+  font: var(--md-label-l-weight) var(--md-label-l-size)/var(--md-label-l-line) var(--md-font);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--md-sys-color-primary);
+  padding: var(--md-space-3) var(--md-space-2) var(--md-space-1);
+}
+
+/* ─── List rows (one-line + two-line + three-line) ────────────── */
+.md-list { display: flex; flex-direction: column; }
+.md-list--container {
+  background: var(--md-sys-color-surface-container-low);
+  border-radius: var(--md-shape-md);
+  overflow: hidden;
+}
+
+.md-list-row {
+  display: flex;
+  align-items: center;
+  gap: var(--md-space-4);
+  padding: var(--md-space-3) var(--md-space-4);
+  min-height: 56px;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  text-align: left;
+  color: inherit;
+  font-family: inherit;
+  position: relative;
+  transition: background-color var(--md-sys-motion-duration-short2) var(--md-sys-motion-easing-standard);
+}
+.md-list-row:hover { background: var(--md-state-hover); }
+.md-list-row:focus-visible { outline: 2px solid var(--md-sys-color-primary); outline-offset: -2px; }
+.md-list-row[data-selected="true"] { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
+
+.md-list-row + .md-list-row {
+  border-top: 1px solid var(--md-sys-color-outline-variant);
+}
+
+.md-list-row__leading {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--md-shape-full);
+  background: var(--md-sys-color-surface-container-high);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--md-sys-color-on-surface-variant);
+  flex-shrink: 0;
+}
+
+.md-list-row__leading .md-icon {
+  font-size: 20px;
+  font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 20;
+}
+
+.md-list-row__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.md-list-row__headline {
+  font: var(--md-body-l-weight) var(--md-body-l-size)/var(--md-body-l-line) var(--md-font);
+  color: var(--md-sys-color-on-surface);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.md-list-row__support {
+  font: var(--md-body-m-weight) var(--md-body-m-size)/var(--md-body-m-line) var(--md-font);
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.md-list-row__trailing {
+  display: flex;
+  align-items: center;
+  gap: var(--md-space-2);
+  flex-shrink: 0;
+}
+
+/* ─── Metric tile (used by Machines + Metrics panes) ──────────── */
+.md-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--md-space-3);
+}
+
+.md-metric-tile {
+  background: var(--md-sys-color-surface-container);
+  border-radius: var(--md-shape-md);
+  padding: var(--md-space-4) var(--md-space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--md-space-1);
+}
+
+.md-metric-tile__label {
+  font: var(--md-label-m-weight) var(--md-label-m-size)/var(--md-label-m-line) var(--md-font);
+  color: var(--md-sys-color-on-surface-variant);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  display: flex;
+  align-items: center;
+  gap: var(--md-space-1);
+}
+
+.md-metric-tile__value {
+  font: var(--md-headline-s-weight) var(--md-headline-s-size)/var(--md-headline-s-line) var(--md-font);
+  color: var(--md-sys-color-on-surface);
+  font-variant-numeric: tabular-nums;
+}
+
+.md-metric-tile__support {
+  font: var(--md-body-s-weight) var(--md-body-s-size)/var(--md-body-s-line) var(--md-font);
+  color: var(--md-sys-color-on-surface-variant);
+  font-variant-numeric: tabular-nums;
+}
+
+.md-metric-tile__bar {
+  margin-top: var(--md-space-2);
+  height: 4px;
+  border-radius: var(--md-shape-full);
+  background: var(--md-sys-color-surface-container-highest);
+  overflow: hidden;
+}
+.md-metric-tile__bar > span {
+  display: block;
+  height: 100%;
+  background: var(--md-sys-color-primary);
+  border-radius: inherit;
+}
+
+/* ─── Empty state ─────────────────────────────────────────────── */
+.md-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: var(--md-space-9) var(--md-space-4);
+  gap: var(--md-space-3);
+  color: var(--md-sys-color-on-surface-variant);
+}
+.md-empty-state__icon {
+  font-size: 48px;
+  color: var(--md-sys-color-on-surface-variant);
+  opacity: 0.6;
+}
+
+/* ─── Inline form helpers ─────────────────────────────────────── */
+.md-form-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--md-space-2);
+}
+.md-form-row__label {
+  font: var(--md-label-l-weight) var(--md-label-l-size)/var(--md-label-l-line) var(--md-font);
+  color: var(--md-sys-color-on-surface-variant);
+}
+.md-input {
+  font-family: var(--md-font);
+  font-size: var(--md-body-l-size);
+  color: var(--md-sys-color-on-surface);
+  background: var(--md-sys-color-surface-container-high);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-shape-sm);
+  padding: 10px 12px;
+  outline: none;
+  transition: border-color var(--md-sys-motion-duration-short2) var(--md-sys-motion-easing-standard), background-color var(--md-sys-motion-duration-short2) var(--md-sys-motion-easing-standard);
+}
+.md-input:focus {
+  border-color: var(--md-sys-color-primary);
+  background: var(--md-sys-color-surface-container);
+}
+
+/* Button-shaped helpers — wrappers around md-* web components are
+   preferred but inline buttons need a consistent look. */
+.md-text-btn,
+.md-filled-btn,
+.md-tonal-btn {
+  font: var(--md-label-l-weight) var(--md-label-l-size)/var(--md-label-l-line) var(--md-font);
+  border-radius: var(--md-shape-full);
+  padding: 10px 24px;
+  border: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--md-space-2);
+  transition: background-color var(--md-sys-motion-duration-short2) var(--md-sys-motion-easing-standard);
+  font-family: var(--md-font);
+}
+.md-filled-btn {
+  background: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-primary);
+}
+.md-filled-btn:hover { filter: brightness(1.08); }
+.md-tonal-btn {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+}
+.md-tonal-btn:hover { filter: brightness(1.08); }
+.md-text-btn {
+  background: transparent;
+  color: var(--md-sys-color-primary);
+  padding: 10px 12px;
+}
+.md-text-btn:hover { background: var(--md-state-hover); }
+
+.md-divider {
+  height: 1px;
+  background: var(--md-sys-color-outline-variant);
+  border: 0;
+  margin: 0;
+}
+
+/* ─── Mobile settings — View Transitions push/pop (Pixel slide) ─── */
+.settings-mobile__main {
+  view-transition-name: settings-mobile;
+}
+::view-transition-old(settings-mobile) {
+  animation: settings-slide-out var(--md-sys-motion-duration-medium2, 300ms)
+    var(--md-sys-motion-easing-emphasized, cubic-bezier(0.2, 0, 0, 1)) forwards;
+}
+::view-transition-new(settings-mobile) {
+  animation: settings-slide-in var(--md-sys-motion-duration-medium2, 300ms)
+    var(--md-sys-motion-easing-emphasized, cubic-bezier(0.2, 0, 0, 1)) forwards;
+}
+@keyframes settings-slide-out {
+  from { transform: translateX(0); opacity: 1; }
+  to   { transform: translateX(calc(-100% * var(--settings-nav-dir, 1))); opacity: 0; }
+}
+@keyframes settings-slide-in {
+  from { transform: translateX(calc(100% * var(--settings-nav-dir, 1))); opacity: 0; }
+  to   { transform: translateX(0); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(settings-mobile),
+  ::view-transition-new(settings-mobile) { animation: none !important; }
+}

@@ -1,0 +1,33 @@
+node_modules/
+dist/
+.turbo/
+*.log
+.DS_Store
+.env
+.env.*
+!.env.example
+coordinator_v2.db*
+bun.lockb.bak
+target/
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+/.claude/worktrees/
+
+# Auto-regenerated per session — STATE.md by Stop hook (R0.11),
+# keeper/main.js by `bun run build:keeper`. Tracking either of these
+# pollutes every `git status` and forces phase commits to either include
+# unrelated churn or run a pre-stage filter. Both are deterministically
+# rebuilt from in-tree sources (state.skill + worker/src/keeper/main.ts).
+STATE.md
+apps/worker/src/keeper/main.js
+
+.claude/scheduled_tasks.lock
+
+# Local-only: build cache + UI design mockups. Deploy CLI rejects
+# any untracked entry (treats as dirty); ignoring keeps the tree
+# deployable without committing scratch material.
+.cache/
+mockups/

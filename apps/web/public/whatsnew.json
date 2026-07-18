@@ -1,0 +1,19 @@
+[
+  {
+    "version": "2.0.0",
+    "date": "2026-06-11",
+    "title": "Roost v2 — full rewrite",
+    "items": [
+      "New TypeScript coordinator (H3 + Kysely + node:sqlite) replaces legacy Rust coord",
+      "Event-sourced sessions: every state change is an append-only event folded by the same pure function in both coord and browser",
+      "Single Solid createStore root — all sidebar views read one store, no per-domain wedges",
+      "Browser connects directly to worker over authenticated WSS — coord is out of the PTY byte path",
+      "Tailscale-first networking: workers register their tailnet hostname; browser reaches them directly",
+      "EdDSA JWT auth via WebCrypto — private key lives in IndexedDB, never sent to coord",
+      "Theme persistence: light / dark / auto follows prefers-color-scheme and survives reload",
+      "Coordinator health banner: offline or coord-unreachable state surfaced inline without a full reload",
+      "wterm-only terminal: raw stream-json rendering, no xterm, no overlays",
+      "Claude hook coverage: 30 events wired from spawn through agent-idle"
+    ]
+  }
+]

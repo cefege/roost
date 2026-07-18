@@ -1,0 +1,215 @@
+// Auth + device-pairing RPC handlers: coord identity, browser/worker key
+// authorization, bootstrap-token mint/redeem, and the pairing flow
+// (create/poll/list/approve/deny). Spread into router.ts's single
+// router.service() literal. Split out of router.ts (400-line cap).
+
+import type { ServiceImpl } from "@connectrpc/connect";
+import { Code, ConnectError } from "@connectrpc/connect";
+import { create } from "@bufbuild/protobuf";
+import { randomUUID } from "node:crypto";
+import { log } from "@roost/shared/log";
+import {
+  CoordinatorService,
+  AuthCoordIdentityResponseSchema, AuthAuthorizeBrowserResponseSchema,
+  AuthMintBootstrapResponseSchema, AuthRedeemWorkerResponseSchema, AuthRedeemBrowserResponseSchema,
+  PairCreateResponseSchema, PairPollResponseSchema, PairListResponseSchema,
+  PairApproveResponseSchema, PairDenyResponseSchema,
+} from "@roost/shared/proto/coordinator_pb";
+import { PairRequestSchema } from "@roost/shared/proto/wire_pb";
+import { requireAuth, optionalAuth, remoteAddressKey } from "./auth-interceptor.ts";
+import { fingerprintOf } from "../jwt.ts";
+import { decodeEd25519Pubkey } from "../authorized-keys.ts";
+import { assertLoopback, assertLoopbackOrTailnet } from "../middleware/loopback-only.ts";
+import { COORD_GIT_SHA } from "../git-sha.ts";
+import { randomToken } from "./router-helpers.ts";
+import { _invalidateLabel } from "./viewer-tracker.ts";
+import { pairBus } from "../buses.ts";
+import type { ConnectDeps } from "./router.ts";
+
+type AuthMethods =
+  | "authCoordIdentity" | "authAuthorizeBrowser" | "authMintBootstrap"
+  | "authRedeemWorker" | "authRedeemBrowser"
+  | "pairCreate" | "pairPoll" | "pairList" | "pairApprove" | "pairDeny";
+
+export function makeAuthHandlers(
+  deps: ConnectDeps,
+): Pick<ServiceImpl<typeof CoordinatorService>, AuthMethods> {
+  return {
+    // ─── auth ──────────────────────────────────────────────────────────
+    async authCoordIdentity(_req, _ctx) {
+      // public
+      return create(AuthCoordIdentityResponseSchema, {
+        fingerprintHex: deps.coordKey.verifyingKeyKid(),
+        gitSha: COORD_GIT_SHA,
+      });
+    },
+
+    async authAuthorizeBrowser(req, ctx) {
+      // public, loopback OR tailnet peer (the tailnet is the trust boundary —
+      // a fresh phone browser self-registers over the FQDN with no prior cred).
+      const remote = ctx.values.get(remoteAddressKey);
+      assertLoopbackOrTailnet(remote);
+      const pubkey = decodeEd25519Pubkey(req.sshPubkeyB64);
+      if (!pubkey) throw new ConnectError("invalid ssh_pubkey_b64", Code.InvalidArgument);
+      const fp = await fingerprintOf(pubkey);
+      await deps.db.insertInto("authorized_keys").values({
+        fingerprint: fp, public_key: pubkey, label: req.label, added_at: Date.now(),
+      }).onConflict((oc) => oc.column("fingerprint").doUpdateSet({ label: req.label })).execute();
+      _invalidateLabel(fp);
+      log.info("auth.connect", "browser_authorized", { fp, label: req.label });
+      return create(AuthAuthorizeBrowserResponseSchema, { fingerprint: fp });
+    },
+
+    async authMintBootstrap(req, ctx) {
+      requireAuth(ctx.values);
+      const token = randomToken("roost_bt_", 24);
+      const now = Date.now();
+      const expires_at_ms = now + 24 * 60 * 60 * 1000;
+      await deps.db.insertInto("bootstrap_tokens").values({
+        token, kind: req.kind as any, label: req.label,
+        created_at_ms: now, expires_at_ms,
+        used_at_ms: null, used_by_fp: null,
+      }).execute();
+      log.info("auth.connect", "bootstrap_minted", { kind: req.kind, label: req.label });
+      return create(AuthMintBootstrapResponseSchema, { token, expiresAtMs: BigInt(expires_at_ms) });
+    },
+
+    async authRedeemWorker(req, _ctx) {
+      // public
+      const tokenRow = await deps.db.selectFrom("bootstrap_tokens").selectAll()
+        .where("token", "=", req.token).where("kind", "=", "worker").executeTakeFirst();
+      if (!tokenRow) throw new ConnectError("invalid token", Code.Unauthenticated);
+      if (tokenRow.used_at_ms !== null) throw new ConnectError("token already used", Code.Unauthenticated);
+      if (tokenRow.expires_at_ms < Date.now()) throw new ConnectError("token expired", Code.Unauthenticated);
+      const pubkey = decodeEd25519Pubkey(req.sshPubkeyB64);
+      if (!pubkey) throw new ConnectError("invalid ssh_pubkey_b64", Code.InvalidArgument);
+      const fp = await fingerprintOf(pubkey);
+      const now = Date.now();
+      await deps.db.transaction().execute(async (trx) => {
+        await trx.updateTable("bootstrap_tokens").set({ used_at_ms: now, used_by_fp: fp })
+          .where("token", "=", req.token).execute();
+        await trx.insertInto("authorized_keys").values({
+          fingerprint: fp, public_key: pubkey, label: req.label, added_at: now,
+        }).onConflict((oc) => oc.column("fingerprint").doUpdateSet({ label: req.label })).execute();
+        await trx.insertInto("workers").values({
+          fp, label: req.label, os: req.os as any,
+          git_sha: req.gitSha ?? null, host_metrics_json: null,
+          registered_at_ms: now, last_seen_ms: now,
+        }).onConflict((oc) => oc.column("fp").doUpdateSet({
+          label: req.label, os: req.os as any,
+          git_sha: req.gitSha ?? null, last_seen_ms: now,
+        })).execute();
+      });
+      log.info("auth.connect", "worker_redeemed", { fp, label: req.label });
+      return create(AuthRedeemWorkerResponseSchema, {
+        fingerprint: fp, label: req.label,
+        coordVerifyingKeyB64: deps.coordKey.verifyingKeyB64(),
+      });
+    },
+
+    async authRedeemBrowser(req, _ctx) {
+      // public
+      const tokenRow = await deps.db.selectFrom("bootstrap_tokens").selectAll()
+        .where("token", "=", req.token).where("kind", "=", "browser").executeTakeFirst();
+      if (!tokenRow) throw new ConnectError("invalid token", Code.Unauthenticated);
+      if (tokenRow.used_at_ms !== null) throw new ConnectError("token already used", Code.Unauthenticated);
+      if (tokenRow.expires_at_ms < Date.now()) throw new ConnectError("token expired", Code.Unauthenticated);
+      const pubkey = decodeEd25519Pubkey(req.sshPubkeyB64);
+      if (!pubkey) throw new ConnectError("invalid ssh_pubkey_b64", Code.InvalidArgument);
+      const fp = await fingerprintOf(pubkey);
+      const now = Date.now();
+      await deps.db.transaction().execute(async (trx) => {
+        await trx.updateTable("bootstrap_tokens").set({ used_at_ms: now, used_by_fp: fp })
+          .where("token", "=", req.token).execute();
+        await trx.insertInto("authorized_keys").values({
+          fingerprint: fp, public_key: pubkey, label: req.label, added_at: now,
+        }).onConflict((oc) => oc.column("fingerprint").doUpdateSet({ label: req.label })).execute();
+      });
+      log.info("auth.connect", "browser_redeemed", { fp, label: req.label });
+      return create(AuthRedeemBrowserResponseSchema, { fingerprint: fp, label: req.label });
+    },
+
+    // ─── pair ──────────────────────────────────────────────────────────
+    async pairCreate(req, _ctx) {
+      // public
+      const pubkey = decodeEd25519Pubkey(req.sshPubkeyB64);
+      if (!pubkey) throw new ConnectError("invalid ssh_pubkey_b64", Code.InvalidArgument);
+      const id = randomUUID();
+      const ephBuf = new Uint8Array(16);
+      crypto.getRandomValues(ephBuf);
+      const ephemeral_id = Array.from(ephBuf).map(b => b.toString(16).padStart(2, "0")).join("");
+      const now = Date.now();
+      await deps.db.insertInto("pair_requests").values({
+        id, ephemeral_id, public_key: pubkey,
+        label: req.label, status: "pending",
+        created_at_ms: now, decided_at_ms: null,
+      }).execute();
+      // Firehose delta (perf sweep C2.4): authed browsers see the new pending
+      // request immediately — no pairList poll.
+      pairBus.publish({ kind: "pending", ephemeral_id, label: req.label, created_at_ms: now });
+      log.info("pair.connect", "created", { ephemeral_id, label: req.label });
+      return create(PairCreateResponseSchema, { ephemeralId: ephemeral_id });
+    },
+
+    async pairPoll(req, _ctx) {
+      // public
+      const row = await deps.db.selectFrom("pair_requests").select("status")
+        .where("ephemeral_id", "=", req.ephemeralId).executeTakeFirst();
+      if (!row) throw new ConnectError("not found", Code.NotFound);
+      return create(PairPollResponseSchema, { status: row.status as string });
+    },
+
+    // pairList/pairApprove/pairDeny: authed browser (notifier click) OR a
+    // LOOPBACK caller — the on-host agent/CLI approves devices via API
+    // (Author 2026-07-11 "approve new devices via API"). Deliberately NOT
+    // tailnet-wide: a tailnet grant would let a device pairCreate + self-
+    // approve past the approval gate. authAuthorizeBrowser's tailnet
+    // self-register is the one deliberate wide door; this stays tight.
+    async pairList(_req, ctx) {
+      if (!optionalAuth(ctx.values)) assertLoopback(ctx.values.get(remoteAddressKey));
+      const rows = await deps.db.selectFrom("pair_requests")
+        .select(["ephemeral_id", "label", "created_at_ms"])
+        .where("status", "=", "pending").execute();
+      return create(PairListResponseSchema, {
+        requests: rows.map(r => create(PairRequestSchema, {
+          ephemeralId: r.ephemeral_id, label: r.label,
+          createdAtMs: BigInt(r.created_at_ms),
+        })),
+      });
+    },
+
+    async pairApprove(req, ctx) {
+      if (!optionalAuth(ctx.values)) assertLoopback(ctx.values.get(remoteAddressKey));
+      const row = await deps.db.selectFrom("pair_requests").selectAll()
+        .where("ephemeral_id", "=", req.ephemeralId)
+        .where("status", "=", "pending").executeTakeFirst();
+      if (!row) throw new ConnectError("not found", Code.NotFound);
+      const pubkey = row.public_key instanceof Uint8Array ? row.public_key : new Uint8Array(row.public_key);
+      const fp = await fingerprintOf(pubkey);
+      const now = Date.now();
+      await deps.db.transaction().execute(async (trx) => {
+        await trx.updateTable("pair_requests").set({ status: "approved", decided_at_ms: now })
+          .where("ephemeral_id", "=", req.ephemeralId).execute();
+        await trx.insertInto("authorized_keys").values({
+          fingerprint: fp, public_key: pubkey, label: row.label, added_at: now,
+        }).onConflict((oc) => oc.column("fingerprint").doUpdateSet({ label: row.label })).execute();
+      });
+      _invalidateLabel(fp);
+      pairBus.publish({ kind: "removed", ephemeral_id: req.ephemeralId });
+      log.info("pair.connect", "approved", { ephemeral_id: req.ephemeralId, fp });
+      return create(PairApproveResponseSchema, { ok: true });
+    },
+
+    async pairDeny(req, ctx) {
+      if (!optionalAuth(ctx.values)) assertLoopback(ctx.values.get(remoteAddressKey));
+      const result = await deps.db.updateTable("pair_requests")
+        .set({ status: "denied", decided_at_ms: Date.now() })
+        .where("ephemeral_id", "=", req.ephemeralId)
+        .where("status", "=", "pending").returningAll().executeTakeFirst();
+      if (!result) throw new ConnectError("not found", Code.NotFound);
+      pairBus.publish({ kind: "removed", ephemeral_id: req.ephemeralId });
+      log.info("pair.connect", "denied", { ephemeral_id: req.ephemeralId });
+      return create(PairDenyResponseSchema, { ok: true });
+    },
+  };
+}

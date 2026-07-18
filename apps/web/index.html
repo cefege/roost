@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en" data-density="dense">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, interactive-widget=resizes-visual" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/icon-32.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
+    <link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="theme-color" content="#0d0d0d" />
+    <title>Roost</title>
+    <style>
+      * { box-sizing: border-box; margin: 0; }
+      /* (MWC touch targets are internal shadow elements — button .touch 48px,
+         checkbox input 48x48, switch .touch 48px — NOT host margin, so the
+         margin:0 reset is safe for tap-target a11y. Verified 2026-07-04.) */
+      /* padding:0 reset — but NOT on Material label-buttons/chips. Their
+         horizontal padding (24px) lives on the shadow `:host`, and an outer-tree
+         `*` rule BEATS a shadow `:host` rule for the host element — so a blanket
+         `* { padding:0 }` silently strips every MWC button/chip to a cramped,
+         un-material pill. Exclude them here so `:host` padding applies. (Same
+         outer-beats-:host class of bug as the md-dialog margin below.) */
+      *:not(md-filled-button, md-filled-tonal-button, md-text-button, md-outlined-button, md-elevated-button, md-fab, md-branded-fab, md-assist-chip, md-filter-chip, md-input-chip, md-suggestion-chip) { padding: 0; }
+      /* The `*` reset above zeroes the md-dialog host margin; outer-tree rules
+         beat its shadow `:host{margin:auto}`, so the inner <dialog> inherits 0
+         and pins top-left. Re-assert auto to recenter every md-dialog. */
+      md-dialog { margin: auto; }
+      html, body, #app { height: 100%; background: #0d0d0d; color: #e8e8e8; font-family: 'SF Mono', 'JetBrains Mono', monospace; }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

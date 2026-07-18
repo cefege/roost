@@ -1,0 +1,11 @@
+{
+  "apps/web/src/components/HelpOverlay.tsx": 1,
+  "apps/web/src/components/Settings/PairDevicePane.tsx": 1,
+  "apps/web/src/components/sidebar/SessionRow.tsx": 1,
+  "apps/web/src/components/terminal-links.ts": 1,
+  "apps/web/src/components/TerminalContextMenu.tsx": 1,
+  "apps/web/src/components/ToastContainer.tsx": 1,
+  "apps/web/src/lib/cellRenderer.ts": 2,
+  "apps/web/src/styles/settings-dense.css": 1,
+  "apps/web/src/styles/sidebar.css": 51
+}

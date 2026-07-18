@@ -1,0 +1,13 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "workspaces": {
+    "apps/shared":   { "entry": ["src/index.ts!"], "ignore": ["src/gen/**"], "ignoreDependencies": ["@bufbuild/protoc-gen-es"] },
+    "apps/coord":    { "entry": ["src/main.ts!", "tests/**/*.test.ts"] },
+    "apps/worker":   { "entry": ["src/main.ts!", "src/keeper/multiplexed-main.ts!", "src/cli/hook.ts!", "tests/**/*.test.ts"] },
+    "apps/web":      { "entry": ["src/main.tsx!", "index.html", "tests/**/*.test.ts"] },
+    "apps/roost-cli": { "entry": ["src/main.ts!"] },
+    "smoke":         { "entry": ["*.test.ts"] }
+  },
+  "ignore": ["**/gen/**", "mockups/**", "_spike/**", "docs/archive/**", ".claude/**", "scripts/**"],
+  "ignoreBinaries": ["vm_stat", "playwright"]
+}

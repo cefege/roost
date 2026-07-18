@@ -1,0 +1,360 @@
+/*
+ * theme-vars.css — the alias graph for the theme engine.
+ *
+ * The ENGINE (lib/theme.ts) writes the canonical token set (themeTokens.ts:
+ * --bg-base, --surface-0..3, --text-hi/mid/lo, --accent*, --border-*,
+ * --status-*, --syntax-*, --bg-selected, --border-selected, --term-bg/fg,
+ * --ansi-*) directly onto documentElement.style per the active theme.
+ *
+ * THIS FILE does two jobs:
+ *   1. `:root` canonical FALLBACK (= Dark values) so first paint before the
+ *      engine runs / a no-JS load still renders. The engine's inline
+ *      documentElement style wins over these :root rules at runtime.
+ *   2. The ALIAS graph: every other token the app consumes (--md-*,
+ *      --md-sys-color-*, --bg-elev-*, --color-*, Catppuccin --base/--text/
+ *      --blue, etc.) is `var(--canonical)`, declared ONCE. A theme supplies
+ *      only the canonical set and every alias reflows — propagation is
+ *      structural. No per-theme [data-theme="..."] blocks here anymore.
+ */
+
+:root {
+  /* Per-browser vertical lift for the bottom-right terminal FAB cluster.
+     Default 0 (docked at the corner); overridden at runtime by
+     lib/fabDragOffset.ts::onFabPointerDown drag. Read by voice-input.css. */
+  --roost-fab-dy: 0px;
+
+  /* ── M3 motion system (easing + duration scale) ──────────────────────────
+     The thing that makes UI feel "native Material" vs generic: emphasized
+     easing + the M3 duration scale, applied consistently. Enter uses
+     decelerate, exit uses accelerate. Spec: m3.material.io/styles/motion. */
+  --md-sys-motion-easing-emphasized: cubic-bezier(0.2, 0, 0, 1);
+  --md-sys-motion-easing-emphasized-decelerate: cubic-bezier(0.05, 0.7, 0.1, 1);
+  --md-sys-motion-easing-emphasized-accelerate: cubic-bezier(0.3, 0, 0.8, 0.15);
+  --md-sys-motion-easing-standard: cubic-bezier(0.2, 0, 0, 1);
+  --md-sys-motion-duration-short2: 120ms;
+  --md-sys-motion-duration-short3: 150ms;
+  --md-sys-motion-duration-short4: 200ms;
+  --md-sys-motion-duration-medium1: 250ms;
+  --md-sys-motion-duration-medium2: 300ms;
+
+  /* ── 1. CANONICAL FALLBACK (Dark) — engine overrides via inline style ── */
+  --bg-base: #1a1719;
+  --surface-0: #141113;
+  --surface-1: #261f22;
+  --surface-2: #312b2d;
+  --surface-3: #3c3538;
+  --term-bg: #1f1f1e;
+  --text-hi: #f1dfde;
+  --text-mid: #d7c1bf;
+  --text-lo: #a8908d;
+  --term-fg: #f1dfde;
+  --accent: #ffb59f;
+  /* Fixed Roost brand coral — theme-independent (the sidebar selected-rail
+     tick + claude-tab glyph mark). NOT --accent (which retints per theme). */
+  --brand-coral: #db7556;
+  --on-accent: #56200f;
+  --accent-container: #743523;
+  --on-accent-container: #ffdbcf;
+  --border-strong: #524345;
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --status-ok: #4caf50;
+  --status-warn: #ff9800;
+  --status-err: #f44336;
+  --status-info: #2196f3;
+  --syntax-plain: #abb2bf;
+  --syntax-keyword: #c678dd;
+  --syntax-string: #98c379;
+  --syntax-number: #d19a66;
+  --syntax-comment: #5c6370;
+  --bg-selected: #1e2a1e;
+  --border-selected: #2a4a2a;
+  --ansi-black: #282c34;
+  --ansi-red: #e06c75;
+  --ansi-green: #98c379;
+  --ansi-yellow: #d19a66;
+  --ansi-blue: #61afef;
+  --ansi-magenta: #c678dd;
+  --ansi-cyan: #56b6c2;
+  --ansi-white: #abb2bf;
+  --ansi-bright-black: #5c6370;
+  --ansi-bright-red: #e06c75;
+  --ansi-bright-green: #98c379;
+  --ansi-bright-yellow: #e5c07b;
+  --ansi-bright-blue: #61afef;
+  --ansi-bright-magenta: #c678dd;
+  --ansi-bright-cyan: #56b6c2;
+  --ansi-bright-white: #ffffff;
+
+  /* ── 2. ALIAS GRAPH (all derive from canonical) ── */
+
+  /* M3 surface tiers → canonical surfaces (7 M3 tiers fold onto 5). */
+  --md-surface: var(--bg-base);
+  --md-surface-dim: var(--surface-0);
+  --md-surface-container-lowest: var(--surface-0);
+  --md-surface-container-low: var(--surface-1);
+  --md-surface-container: var(--surface-1);
+  --md-surface-container-high: var(--surface-2);
+  --md-surface-container-highest: var(--surface-3);
+  --md-on-surface: var(--text-hi);
+  --md-on-surface-variant: var(--text-mid);
+  --md-on-surface-dim: var(--text-lo);
+  --md-primary: var(--accent);
+  --md-on-primary: var(--on-accent);
+  --md-primary-container: var(--accent-container);
+  --md-on-primary-container: var(--on-accent-container);
+  /* Secondary = the M3 SELECTED-state role (rail, list-row, theme tile). Real
+     per-theme secondary-container canonical token — NOT collapsed to primary. */
+  --md-secondary-container: var(--secondary-container);
+  --md-on-secondary-container: var(--on-secondary-container);
+  --md-secondary: var(--on-secondary-container);
+  --md-on-secondary: var(--secondary-container);
+  /* Tertiary not surfaced in this UI → derive from accent (kept lean, no
+     per-theme token). surface-variant = the next surface tier up. */
+  --md-tertiary: var(--accent);
+  --md-tertiary-container: var(--accent-container);
+  --md-on-tertiary: var(--on-accent);
+  --md-on-tertiary-container: var(--on-accent-container);
+  --md-surface-variant: var(--surface-2);
+  /* Inverse + tint + scrim/shadow — M3 roles some MWC components read. */
+  --md-inverse-surface: var(--text-hi);
+  --md-inverse-on-surface: var(--bg-base);
+  --md-inverse-primary: var(--on-accent);
+  --md-surface-tint: var(--accent);
+  --md-scrim: #000000;
+  --md-shadow: #000000;
+  --md-success: var(--status-ok);
+  --md-error: var(--status-err);
+  --md-warning: var(--status-warn);
+  /* on-error is ALWAYS light (sits on the full --status-err red, both
+     appearances) — text-hi flips dark on light themes and would vanish.
+     error-container is a low-chroma red tint over surface; its on-* text
+     follows text-hi which contrasts the tint in either appearance. */
+  --md-on-error: var(--ansi-bright-white);
+  --md-error-container: color-mix(in srgb, var(--status-err) 22%, var(--surface-1));
+  --md-on-error-container: var(--text-hi);
+  --md-outline: var(--border-strong);
+  --md-outline-variant: var(--border-subtle);
+  /* State layers adapt to appearance automatically: on dark themes text-hi
+     is light → light overlay; on light themes text-hi is dark → dark overlay. */
+  --md-state-hover: color-mix(in srgb, var(--text-hi) 8%, transparent);
+  --md-state-focus: color-mix(in srgb, var(--text-hi) 12%, transparent);
+  --md-state-pressed: color-mix(in srgb, var(--text-hi) 10%, transparent);
+  --md-state-dragged: color-mix(in srgb, var(--text-hi) 16%, transparent);
+
+  /* M3 shape scale — the SINGLE declaration site (design-system phase 1: the
+     md/tokens.css duplicate was removed). Global surfaces AND the settings
+     subtree resolve from here. xs/sm/md/lg/xl/full = 4/8/12/16/28/9999. */
+  --md-shape-xs: 4px;
+  --md-shape-sm: 8px;
+  --md-shape-md: 12px;
+  --md-shape-lg: 16px;
+  --md-shape-xl: 28px;
+  --md-shape-full: 9999px;
+
+  /* Soft-keyboard inset (px). Desktop default 0; lib/keyboardInset.ts
+     overrides at runtime on mobile. Declared here so the cascade has a base
+     and var(--kb-offset) resolves without a literal fallback. */
+  --kb-offset: 0px;
+
+  /* Toast stack height (px). ToastContainer's ResizeObserver writes this at
+     runtime so PairRequestNotifier can offset above the toast stack.
+     Declared here so var(--toast-stack-height) resolves without a literal
+     fallback. Default 0 = no toasts visible. */
+  --toast-stack-height: 0px;
+
+  /* M3 elevation shadows — the SINGLE declaration site (design-system phase 1:
+     the md/tokens.css duplicate was removed). Global surfaces AND the settings
+     subtree resolve from here. */
+  --md-elev-0: none;
+  --md-elev-1:
+    0 1px 2px 0 rgba(0, 0, 0, 0.30),
+    0 1px 3px 1px rgba(0, 0, 0, 0.15);
+  --md-elev-2:
+    0 1px 2px 0 rgba(0, 0, 0, 0.30),
+    0 2px 6px 2px rgba(0, 0, 0, 0.15);
+  --md-elev-3:
+    0 4px 8px 3px rgba(0, 0, 0, 0.15),
+    0 1px 3px 0 rgba(0, 0, 0, 0.30);
+  --md-elev-4:
+    0 6px 10px 4px rgba(0, 0, 0, 0.15),
+    0 2px 3px 0 rgba(0, 0, 0, 0.30);
+  --md-elev-5:
+    0 8px 12px 6px rgba(0, 0, 0, 0.15),
+    0 4px 4px 0 rgba(0, 0, 0, 0.30);
+
+  /* M3 spacing grid + type ramp + --md-font — the SINGLE declaration site
+     (design-system phase 2: hoisted from md/tokens.css, which is lazy-loaded
+     with the Settings chunk; eager CSS — voice-input.css, sidebar.css —
+     consumes these, and an undefined var collapses padding/gap to 0 and font
+     to inherit). */
+
+  /* M3 spacing (4dp grid). Use these by name in component styles
+     rather than hard-coding pixels — keeps density adjustments
+     globally adjustable. */
+  --md-space-1: 4px;
+  --md-space-2: 8px;
+  --md-space-3: 12px;
+  --md-space-4: 16px;
+  --md-space-5: 20px;
+  --md-space-6: 24px;
+  --md-space-7: 32px;
+  --md-space-8: 40px;
+  --md-space-9: 48px;
+
+  /* Type ramp (M3 — Roboto Flex). Pairs of font-size/line-height/
+     weight. Use display for hero numbers, headline for pane titles,
+     title for card headers, body for content, label for chips +
+     button text. */
+  /* Match the rest of the app (sidebar.css uses this exact stack). The app
+     renders in system-ui (SF on macOS) — NOT Roboto. md-web was the only
+     surface forced to Roboto Flex, so its popups looked alien. Keep the M3
+     components on the same system font as everything else. */
+  --md-font: "Anthropic Sans", system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  /* Material Web custom elements read --md-ref-typeface-* (NOT --md-font) for
+     their typescale; left unset they default to literal "Roboto". Point both
+     at --md-font so every md-button/field/dialog uses the app's system font. */
+  --md-ref-typeface-brand: var(--md-font);
+  --md-ref-typeface-plain: var(--md-font);
+
+  --md-display-l-size: 57px;  --md-display-l-line: 64px;  --md-display-l-weight: 400;
+  --md-display-m-size: 45px;  --md-display-m-line: 52px;  --md-display-m-weight: 400;
+  --md-display-s-size: 36px;  --md-display-s-line: 44px;  --md-display-s-weight: 400;
+
+  --md-headline-l-size: 32px; --md-headline-l-line: 40px; --md-headline-l-weight: 400;
+  --md-headline-m-size: 28px; --md-headline-m-line: 36px; --md-headline-m-weight: 400;
+  --md-headline-s-size: 24px; --md-headline-s-line: 32px; --md-headline-s-weight: 400;
+
+  --md-title-l-size: 22px;    --md-title-l-line: 28px;    --md-title-l-weight: 500;
+  --md-title-m-size: 16px;    --md-title-m-line: 24px;    --md-title-m-weight: 500;
+  --md-title-s-size: 14px;    --md-title-s-line: 20px;    --md-title-s-weight: 500;
+
+  --md-body-l-size: 16px;     --md-body-l-line: 24px;     --md-body-l-weight: 400;
+  --md-body-m-size: 14px;     --md-body-m-line: 20px;     --md-body-m-weight: 400;
+  --md-body-s-size: 12px;     --md-body-s-line: 16px;     --md-body-s-weight: 400;
+
+  --md-label-l-size: 14px;    --md-label-l-line: 20px;    --md-label-l-weight: 500;
+  --md-label-m-size: 12px;    --md-label-m-line: 16px;    --md-label-m-weight: 500;
+  --md-label-s-size: 11px;    --md-label-s-line: 16px;    --md-label-s-weight: 500;
+
+  /* MWC reads --md-sys-color-* — mirror the --md-* aliases. */
+  --md-sys-color-surface: var(--md-surface);
+  --md-sys-color-surface-container: var(--md-surface-container);
+  --md-sys-color-surface-container-low: var(--md-surface-container-low);
+  --md-sys-color-surface-container-high: var(--md-surface-container-high);
+  --md-sys-color-surface-container-highest: var(--md-surface-container-highest);
+  --md-sys-color-on-surface: var(--md-on-surface);
+  --md-sys-color-on-surface-variant: var(--md-on-surface-variant);
+  --md-sys-color-primary: var(--md-primary);
+  --md-sys-color-on-primary: var(--md-on-primary);
+  --md-sys-color-primary-container: var(--md-primary-container);
+  --md-sys-color-on-primary-container: var(--md-on-primary-container);
+  --md-sys-color-secondary: var(--md-secondary);
+  --md-sys-color-on-secondary: var(--md-on-secondary);
+  --md-sys-color-secondary-container: var(--md-secondary-container);
+  --md-sys-color-on-secondary-container: var(--md-on-secondary-container);
+  --md-sys-color-tertiary: var(--md-tertiary);
+  --md-sys-color-on-tertiary: var(--md-on-tertiary);
+  --md-sys-color-tertiary-container: var(--md-tertiary-container);
+  --md-sys-color-on-tertiary-container: var(--md-on-tertiary-container);
+  --md-sys-color-surface-variant: var(--md-surface-variant);
+  --md-sys-color-inverse-surface: var(--md-inverse-surface);
+  --md-sys-color-inverse-on-surface: var(--md-inverse-on-surface);
+  --md-sys-color-inverse-primary: var(--md-inverse-primary);
+  --md-sys-color-surface-tint: var(--md-surface-tint);
+  --md-sys-color-scrim: var(--md-scrim);
+  --md-sys-color-shadow: var(--md-shadow);
+  --md-sys-color-outline: var(--md-outline);
+  --md-sys-color-outline-variant: var(--md-outline-variant);
+  --md-sys-color-error: var(--md-error);
+  --md-sys-color-on-error: var(--md-on-error);
+  --md-sys-color-error-container: var(--md-error-container);
+  --md-sys-color-on-error-container: var(--md-on-error-container);
+  /* Back-compat: legacy selection aliases now route through the M3 role so any
+     straggler consumer is auto-correct. The old per-theme tints are gone. */
+  --bg-selected: var(--md-sys-color-secondary-container);
+  --border-selected: var(--md-sys-color-outline-variant);
+
+  /* Legacy --bg-* elevation tier → canonical surfaces. */
+  --bg-elev-0: var(--surface-0);
+  --bg-elev-1: var(--surface-1);
+  --bg-elev-2: var(--surface-2);
+  --bg-elev-3: var(--surface-3);
+  --bg-app: var(--surface-0);
+  --surface2: var(--surface-2);
+
+  /* Legacy semantic status / action aliases. */
+  --color-ok: var(--status-ok);
+  --color-warn: var(--status-warn);
+  --color-err: var(--status-err);
+  --color-info: var(--status-info);
+  --color-action: var(--accent);
+  --color-accent: var(--accent);
+  --color-accent-tonal: var(--accent-container);
+  --green: var(--status-ok);
+  --peach: var(--status-warn);
+
+  /* ── Terminal palette bridge → @wterm/dom ──
+     wterm reads --term-color-0..15 / --term-cursor (+ --term-bg/fg) but
+     scopes them to .wterm. These :root aliases (a) feed app-chrome
+     consumers that read --term-color-N outside the grid — SessionRow
+     status dots, StatusGlyph, Transfer/DeployConsoleModal — and (b) are
+     the source the .wterm bridge in sidebar.css re-points wterm's own
+     vars at. Index→name order = themes.ts ANSI block. --terminal-grid-*
+     are distinct names so the .wterm bridge can reference bg/fg without
+     a self-collision against wterm's own --term-bg/--term-fg. */
+  --term-color-0: var(--ansi-black);
+  --term-color-1: var(--ansi-red);
+  --term-color-2: var(--ansi-green);
+  --term-color-3: var(--ansi-yellow);
+  --term-color-4: var(--ansi-blue);
+  --term-color-5: var(--ansi-magenta);
+  --term-color-6: var(--ansi-cyan);
+  --term-color-7: var(--ansi-white);
+  --term-color-8: var(--ansi-bright-black);
+  --term-color-9: var(--ansi-bright-red);
+  --term-color-10: var(--ansi-bright-green);
+  --term-color-11: var(--ansi-bright-yellow);
+  --term-color-12: var(--ansi-bright-blue);
+  --term-color-13: var(--ansi-bright-magenta);
+  --term-color-14: var(--ansi-bright-cyan);
+  --term-color-15: var(--ansi-bright-white);
+  --terminal-grid-bg: var(--term-bg);
+  --terminal-grid-fg: var(--term-fg);
+  --terminal-cursor: var(--accent);
+  --terminal-selection: var(--bg-selected);
+
+  /* Catppuccin-name aliases (legacy components). */
+  --base: var(--bg-base);
+  --crust: var(--surface-0);
+  --mantle: var(--surface-1);
+  --surface0: var(--surface-2);
+  --surface1: var(--surface-3);
+  --overlay1: var(--border-strong);
+  --overlay2: var(--border-subtle);
+  --text: var(--text-hi);
+  --subtext1: var(--text-lo);
+  --blue: var(--status-info);
+  --red: var(--status-err);
+
+  /* ── 3. Non-color tokens (font / shape / density) — theme-independent. ── */
+  --term-font-family: Menlo, Consolas, "DejaVu Sans Mono", "Courier New", monospace;
+  --term-font-size: 14px;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, "Cascadia Code", "Courier New", monospace;
+  --row-h: 28px;
+  --radius-sm: 4px;
+  --r-1: 6px;
+  /* Settings mobile slide nav direction: 1 = forward, -1 = back.
+     Runtime-set per navigation in SettingsRoot.slideNavigate(); static
+     default keeps the keyframe var() resolvable from first paint. */
+  --settings-nav-dir: 1;
+}
+
+/* Honor OS "reduce motion" — kills every infinite animation (df-agent-pulse,
+   roost-zzz-float, voice-pulse) + transitions in one place; battery + a11y. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

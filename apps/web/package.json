@@ -1,0 +1,30 @@
+{
+  "name": "@roost/web",
+  "private": true,
+  "type": "module",
+  "version": "2.0.0",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "bun x tsgo -p tsconfig.json --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "^2.12.0",
+    "@connectrpc/connect": "^2.1.2",
+    "@connectrpc/connect-web": "^2.1.2",
+    "@roost/shared": "workspace:*",
+    "@material/web": "^2.4.1",
+    "@solidjs/router": "^0.16.0",
+    "@types/qrcode": "^1.5.6",
+    "@wterm/dom": "0.3.0",
+    "qrcode": "^1.5.4",
+    "solid-js": "^1.9.4"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "vite": "^6.0.0",
+    "vite-plugin-solid": "^2.11.0"
+  }
+}

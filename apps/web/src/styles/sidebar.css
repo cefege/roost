@@ -1,0 +1,2116 @@
+/* Sidebar — mirrored from claude.ai/code spec captured 2026-06-12.
+   Exact CSS-var values extracted from
+   `getComputedStyle(document.querySelector("aside.dframe-sidebar"))`:
+     --df-row-h: 26px
+     --df-row-font: 13px
+     --df-row-gap: 4px
+     --df-row-px: 2px
+     --df-radius-pill: 6px
+     --df-hover: rgba(255,255,255,0.05)
+     --df-selected: rgba(255,255,255,0.10)
+     --df-group-pt: 12px
+     --df-icon-size: 16px
+     --df-leading-slot: 24px
+   Sidebar bg #262626, font 13px white. */
+
+aside[data-testid="sidebar-desktop"],
+aside[data-testid="sidebar-drawer"] {
+  /* B3 — tighter density: 22px rows / 12px font / 8px section pad.
+     Previous claude.ai/code spec was 26/13/12 — too airy once we layered
+     PINNED + RECENT groups on top of machine sections; user has 4-5
+     groups stacked at once, density wins. */
+  /* Phase-m3c density bump — 30px M3 compact row height, 13px font,
+     full-radius pill for M3 selection shape. Matches mockup
+     m3-compact-hero.html session-row spec. */
+  --df-row-h: 30px;
+  --df-row-font: 13px;
+  --df-row-gap: 9px;
+  --df-row-px: 14px;
+  --df-radius-pill: var(--md-shape-full);
+  /* Phase-m3a: --df-* surface/text tokens remapped to M3 Expressive
+     dark (coral source). The hover/selected state layers shift to
+     M3's "on-surface @ 7%/12%" model so chrome warms up uniformly.
+     --df-selected-accent stays #db7556 (Roost brand coral) — the
+     left-rail tick is the strongest brand signal in the sidebar
+     and should not migrate to M3's lighter #ffb59f. */
+  --df-hover: var(--md-state-hover);
+  --df-selected: var(--md-secondary-container);
+  --df-selected-accent: var(--brand-coral);
+  --df-rail-dim: color-mix(in srgb, var(--text-hi) 8%, transparent);
+  --df-group-pt: 8px;
+  --df-icon-size: 16px;
+  --df-leading-slot: 22px;
+  --df-bg: var(--md-surface);
+  --df-text-000: var(--md-on-surface);
+  --df-text-300: var(--md-on-surface-variant);
+  --df-text-400: var(--md-on-surface-dim);
+  --df-text-500: var(--md-on-surface-dim);
+
+  background: var(--df-bg);
+  color: var(--df-text-300);
+  font-family: "Anthropic Sans", system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-size: var(--df-row-font);
+  border-right: none;
+}
+
+/* Phase-m3b brand row — M3 small app bar (48px), surface-container
+   background, the BrandMark perched-bird glyph as first child, larger
+   title, pill tag in primary-container. The mark lives in the AllView
+   brand-row JSX (BrandMark.tsx), not a CSS ::before. */
+.df-brand-row {
+  display: flex;
+  align-items: center;
+  height: 40px;          /* match the TabBar (.df-tab-bar) so the two top bars align */
+  flex-shrink: 0;
+  padding: 0 10px 0 16px;
+  gap: 10px;
+  background: var(--md-surface-container);
+}
+
+.df-brand-row .df-brand-title {
+  font-weight: 500;
+  color: var(--md-on-surface);
+  font-size: 17px;
+  letter-spacing: -0.01em;
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.df-brand-row .df-brand-tag {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 9px;
+  background: var(--md-primary-container);
+  color: var(--md-on-primary-container);
+  border-radius: var(--md-shape-full);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  flex-shrink: 0;
+}
+
+/* Row primitive — the load-bearing claude.ai/code button.
+   class="w-full shrink-0 border-none text-left text-[length:var(--df-row-font)]
+   text-text-300 flex items-center gap-[var(--df-row-gap)] h-[var(--df-row-h)]
+   px-[var(--df-row-px)] rounded-[var(--df-radius-pill)]
+   hover:bg-[var(--df-hover)] data-[selected=focused]:bg-[var(--df-selected)]" */
+/* Swipe-to-close (mobile): wrapper holds the row geometry + a red trash panel
+   that the .df-row foreground slides left to reveal. The panel grows from the
+   right (its width tracks the drag), so the row never needs an opaque bg. */
+.df-row-swipe {
+  position: relative;
+  overflow: hidden;
+  width: calc(100% - 8px);
+  margin: 0 4px;
+  border-radius: var(--df-radius-pill);
+}
+.df-row-swipe > .df-row {
+  width: 100%;
+  margin: 0;
+}
+/* Promote to a compositor layer only DURING an active swipe (data-swiping
+   set in SessionRow's onTouchStart, cleared onTouchEnd) — the old blanket
+   will-change kept EVERY row permanently on its own layer. */
+.df-row-swipe > .df-row[data-swiping="1"] {
+  will-change: transform;
+}
+.df-row-del {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--md-sys-color-error);
+  color: var(--md-sys-color-on-error);
+  border-radius: var(--df-radius-pill);
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.df-row {
+  display: flex;
+  align-items: center;
+  gap: var(--df-row-gap);
+  width: calc(100% - 8px);
+  margin: 0 4px;
+  height: var(--df-row-h);
+  padding: 0 var(--df-row-px);
+  background: transparent;
+  border: none;
+  color: var(--df-text-300);
+  /* .df-row is an <A> now (open-in-new-tab via ⌘/middle-click): kill the
+     anchor underline + inherit the row color instead of link blue. */
+  text-decoration: none;
+  box-sizing: border-box;
+  font-size: var(--df-row-font);
+  font-family: inherit;
+  text-align: left;
+  border-radius: var(--df-radius-pill);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 80ms ease-out, color 80ms ease-out;
+  overflow: hidden;
+  /* Phase-m3l: md-ripple needs the host to be a positioning context so
+     the ripple paint anchors inside the row. */
+  position: relative;
+}
+.df-row md-ripple {
+  --md-ripple-hover-color: var(--md-on-surface);
+  --md-ripple-pressed-color: var(--md-primary);
+}
+.df-tab md-ripple {
+  --md-ripple-hover-color: var(--md-on-surface);
+  --md-ripple-pressed-color: var(--md-primary);
+}
+@media (hover: hover) {
+  .df-row:hover {
+    background: var(--df-hover);
+    color: var(--df-text-000);
+  }
+}
+.df-row:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-hi) 20%, transparent);
+}
+/* B4 — connector tick on every session row's left edge. Inactive rows
+   get a 1px dim rail; active rows get the 3px coral rail (selector
+   below wins via specificity). Creates ARC's vertical rhythm down
+   the indented session column. */
+.df-row {
+  box-shadow: inset 1px 0 0 0 var(--df-rail-dim);
+}
+.df-row[data-selected="focused"],
+.df-row[aria-current="page"] {
+  background: var(--df-selected);
+  color: var(--df-text-000);
+  /* coral left rail so selected is unmistakable vs hover (which the
+     user called out as "very unclear what is selected and what not /
+     light gray vs not"). */
+  box-shadow: inset 3px 0 0 0 var(--df-selected-accent);
+}
+.df-row[data-selected="focused"] .df-label,
+.df-row[aria-current="page"] .df-label {
+  font-weight: 600;
+}
+/* Keyboard cursor highlight for the flat list (↑/↓ nav). Deliberately
+   NOT the coral selected rail — cursor (keyboard focus) and selected
+   (URL match) are independent states. Neutral inset ring, hover bg. */
+.df-row[data-cursor="on"] {
+  background: var(--df-hover);
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--text-hi) 30%, transparent);
+}
+
+/* Flat-list density = Material-3 THREE-line list item (mobile-Claude style):
+   leading status glyph, then three stacked lines —
+     line 1: headline (title) + trailing timestamp
+     line 2: location — server · path
+     line 3: activity — status · viewers · cost (or the blocked question)
+   Splitting location off line 3 lets "running" read loud instead of fighting
+   server·path for width. No per-server colors. */
+.df-row[data-density="flat"] {
+  height: 80px; /* M3 three-line list item; was 72px (two-line). 3 lines fill
+                   ~50px, so 80px gives breathing room without shells (2 lines
+                   of content) looking cavernous. */
+  align-items: center;
+}
+.df-flat-body {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  flex: 1;
+  min-width: 0;
+  gap: 2px;
+}
+.df-flat-top {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.df-flat-headline {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--md-body-m-size);
+}
+.df-flat-time {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--df-text-500);
+  white-space: nowrap;
+}
+/* Subtitle under the folder headline — what the program reports. Smaller +
+   dimmer so the folder name stays the prominent anchor; single-line clamp. */
+.df-flat-subtitle {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--md-body-s-size);
+  color: var(--df-text-400);
+}
+.df-flat-supporting {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  font-size: var(--md-body-s-size);
+  color: var(--df-text-500);
+}
+/* Line 3 — activity: status word + viewers + cost. Own line so the status
+   reads loud; chips self-separate so no "·" divider here. */
+.df-flat-activity {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+}
+/* Auto-insert a "·" separator between whatever supporting items are
+   present (path / status / server), so the JSX stays separator-free. */
+.df-flat-supporting > * + *::before {
+  content: "·";
+  opacity: 0.45;
+  padding: 0 5px;
+}
+.df-flat-path {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 1;
+  min-width: 0;
+  color: var(--df-text-400);
+}
+.df-flat-folder-icon { flex-shrink: 0; opacity: 0.7; }
+.df-flat-path-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Branch chip — ⎇ + branch name, plain text (not a link; there's nothing to
+   open). Truncates like the path chip when the line gets tight. */
+.df-flat-branch {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 1;
+  min-width: 0;
+  color: var(--df-text-400);
+}
+.df-flat-branch-icon { flex-shrink: 0; opacity: 0.7; }
+.df-flat-branch-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* PR badge — #123 + check glyph, click-through to the PR. Sits on the
+   supporting line; the > * + * ::before rule gives it a leading "·". */
+.df-flat-pr {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+  color: var(--df-text-400);
+  text-decoration: none;
+}
+@media (hover: hover) {
+  .df-flat-pr:hover { color: var(--df-text-000); }
+}
+.df-flat-pr-icon { flex-shrink: 0; opacity: 0.7; }
+.df-flat-pr-num { font-variant-numeric: tabular-nums; }
+.df-flat-pr-check { font-weight: 600; }
+/* A merged/closed PR reads dimmer — the branch is done, not in flight. */
+.df-flat-pr[data-pr-state="merged"],
+.df-flat-pr[data-pr-state="closed"] { opacity: 0.6; }
+/* Port chip — :5174 click-through to the dev server on the worker host. */
+.df-flat-port {
+  flex-shrink: 0;
+  color: var(--df-text-400);
+  text-decoration: none;
+  font-variant-numeric: tabular-nums;
+}
+.df-flat-port:hover { color: var(--color-info); }
+.df-flat-server {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0; /* server is the priority item — path truncates first */
+  min-width: 0;
+}
+.df-flat-server-icon { flex-shrink: 0; }
+/* Laptop icon tints with liveness: green = reachable, red = down. */
+.df-flat-server[data-online="true"] .df-flat-server-icon { color: var(--status-ok); }
+.df-flat-server[data-online="false"] .df-flat-server-icon { color: var(--status-err); }
+.df-flat-server-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Status word on the supporting line — keeps its semantic color; urgent
+   stages (needs-input) pulse. */
+.df-stage-text {
+  flex-shrink: 0;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  font-size: 10px;
+}
+.df-stage-text[data-stage="running"],
+.df-stage-text[data-stage="running-workflow"] { color: var(--color-ok); }
+.df-stage-text[data-stage="needs-input"] {
+  color: var(--color-warn);
+  animation: df-pulse 1.4s ease-in-out infinite;
+}
+.df-stage-text[data-stage="idle"] { color: var(--text-lo); }
+.df-stage-text[data-stage="done"] { color: var(--color-info); }
+/* Offline = worker unreachable. Muted + no pulse (nothing to act on),
+   visually distinct from the warn-colored needs-input. */
+.df-stage-text[data-stage="offline"] { color: var(--md-sys-color-on-surface-variant); opacity: 0.7; }
+
+/* ── Worklist emphasis (audit B) — make the row carry its own urgency ──────
+   needs-input rows POP (warn rail + tint + the agent's question read loud);
+   done rows get a quiet info rail; idle/done supporting text recedes so the
+   actionable rows win the glance. Selection (coral rail) always outranks via
+   :not([data-selected]). */
+.df-row[data-density="flat"][data-stage="needs-input"]:not([data-selected="focused"]) {
+  background: color-mix(in srgb, var(--color-warn) 12%, transparent);
+  box-shadow: inset 3px 0 0 0 var(--color-warn);
+}
+.df-row[data-density="flat"][data-stage="needs-input"]:not([data-selected="focused"]):hover {
+  background: color-mix(in srgb, var(--color-warn) 18%, transparent);
+}
+.df-row[data-density="flat"][data-stage="done"]:not([data-selected="focused"]):not([data-cursor="on"]) {
+  box-shadow: inset 2px 0 0 0 var(--color-info);
+}
+/* The blocked-on question — readable, not the dim supporting grey. */
+.df-flat-question {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--md-body-s-size);
+  color: var(--df-text-000);
+}
+/* Non-actionable states recede; needs-input/running stay full-strength. */
+.df-row[data-density="flat"][data-stage="idle"] .df-flat-supporting,
+.df-row[data-density="flat"][data-stage="done"] .df-flat-supporting,
+.df-row[data-density="flat"][data-stage="idle"] .df-flat-activity,
+.df-row[data-density="flat"][data-stage="done"] .df-flat-activity {
+  opacity: 0.72;
+}
+
+/* ── #2: louder attention — needs-input rows breathe ──────────────────────
+   The attention-ring idea, compositor-only: the static 3px inset rail
+   (default + m3flat box-shadow rules) stays as the base paint; a ::before
+   overlay bar breathes ON TOP via transform/opacity ONLY. The previous
+   box-shadow keyframes (inset 2↔4px) re-rasterized the sidebar at ~60fps
+   whenever any row waited for input. Same 1.8s rhythm: peak = 4px bar,
+   trough = the static 3px rail showing through. */
+@keyframes df-needs-attention {
+  0%, 100% { transform: scaleX(0.5); opacity: 0; }
+  50%      { transform: scaleX(1); opacity: 1; }
+}
+.df-row[data-density="flat"][data-stage="needs-input"]:not([data-selected="focused"])::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--color-warn);
+  transform-origin: left center;
+  opacity: 0;
+  pointer-events: none;
+  animation: df-needs-attention 1.8s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .df-row[data-density="flat"][data-stage="needs-input"]:not([data-selected="focused"])::before {
+    animation: none; /* opacity:0 base → falls back to the static inset rail */
+  }
+}
+
+/* ── M3 flat-list sidebar (data-m3flat, flag-gated) ──────────────────────────
+   Rows go FLAT — no per-row pill / dim rail. Only the ACTIVE row gets M3's
+   rounded secondary-container indicator. Section headers become quiet
+   sentence-case labels with breathing room; the needs-you accent softens to a
+   thin bar (no tint). Author 2026-06-25: "make it peaceful / proper M3." */
+/* ── Android grouped list (Material 3 shape morph) ───────────────────────
+   Cards in the SAME group sit tight together (2px gap) with sharper inner
+   corners (6px) and large rounding only on the group's outer corners (20px):
+   first = round top / sharp bottom, middle = sharp, last = sharp top / round
+   bottom, lone = fully round. Recessed surface-0 (#0a0f11) wells on the
+   surface-1 (#141a1e) page. Colors sampled from a Gmail night-mode shot. */
+/* data-m3flat is ON the all-view root → key its own layout off the real class
+   (df-all-view), not the data-testid test hook. */
+[data-m3flat].df-all-view {
+  background: var(--surface-1);   /* the lighter page the cards sit on */
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;               /* fill the sidebar so the FAB pins to bottom */
+}
+[data-m3flat] [data-testid="folder-list"] {
+  background: var(--surface-1);
+  display: flex;
+  flex-direction: column;
+  flex: 1 0 auto;                 /* grow → FAB's margin-top:auto reaches bottom */
+  padding-bottom: 8px;
+}
+[data-m3flat] .df-flat-group {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;                       /* hairline within a group (Gmail-tight) */
+}
+[data-m3flat] .df-flat-group .df-row[data-density="flat"] {
+  box-shadow: none;
+  background: var(--surface-0);   /* recessed card, darker than the page */
+  border-radius: 6px;             /* sharp inner corners between stacked cards */
+}
+[data-m3flat] .df-flat-group .df-row-swipe,
+[data-m3flat] .df-flat-group .df-row-del {
+  border-radius: 6px;
+}
+/* Large rounding ONLY on the group's outer corners. The swipe wrapper
+   (overflow:hidden) must carry the same radius or it clips the corner square. */
+[data-m3flat] .df-flat-group .df-row-swipe:first-child,
+[data-m3flat] .df-flat-group .df-row-swipe:first-child .df-row[data-density="flat"] {
+  border-top-left-radius: 20px;
+  border-top-right-radius: 20px;
+}
+[data-m3flat] .df-flat-group .df-row-swipe:last-child,
+[data-m3flat] .df-flat-group .df-row-swipe:last-child .df-row[data-density="flat"] {
+  border-bottom-left-radius: 20px;
+  border-bottom-right-radius: 20px;
+}
+[data-m3flat] .df-flat-group .df-row-swipe:only-child,
+[data-m3flat] .df-flat-group .df-row-swipe:only-child .df-row[data-density="flat"] {
+  border-radius: 20px;            /* lone card = fully rounded */
+}
+/* Gmail-style circular avatar: the leading glyph is a FULL circle (not a
+   rounded square), sized up to read as an avatar. Status color (green/peach/
+   idle) becomes the avatar fill; claude rows get a neutral circle behind the
+   mark. !important overrides the component's inline width/height/radius. */
+[data-m3flat] .df-flat-group .df-row .df-leading {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--avatar-bg, var(--surface-2));  /* colorful per-session circle */
+  align-self: center;   /* vertically centered in the card */
+}
+[data-m3flat] .df-flat-group [data-testid="status-glyph"] {
+  width: 30px !important;
+  height: 30px !important;
+  border-radius: 50% !important;
+  background: transparent !important;   /* the df-leading circle carries the color */
+  color: #fff !important;  /* glyph is always white on the hashed --avatar-bg circle */
+}
+/* Hover = M3 state layer (on-surface @ ~8%) over the card — keeps the card
+   tone, just lifts it, instead of replacing the background. */
+[data-m3flat] .df-flat-group .df-row[data-density="flat"]:hover {
+  background: color-mix(in srgb, var(--text-hi) 7%, var(--surface-0));
+}
+/* Active = filled secondary-container card (no coral rail). */
+[data-m3flat] .df-flat-group .df-row[data-density="flat"][data-selected="focused"] {
+  background: var(--secondary-container, var(--df-selected));
+  box-shadow: none;
+  color: var(--df-text-000);
+}
+/* needs-you: keep the card, add a soft accent bar (peaceful). */
+[data-m3flat] .df-flat-group .df-row[data-density="flat"][data-stage="needs-input"]:not([data-selected="focused"]) {
+  background: var(--surface-0);
+  box-shadow: inset 3px 0 0 0 var(--color-warn);
+}
+[data-m3flat] .df-flat-group .df-row[data-density="flat"][data-stage="needs-input"]:not([data-selected="focused"]):hover {
+  background: color-mix(in srgb, var(--color-warn) 8%, var(--surface-0));
+}
+[data-m3flat] .df-flat-group .df-row[data-density="flat"][data-stage="done"]:not([data-selected="focused"]):not([data-cursor="on"]) {
+  box-shadow: inset 3px 0 0 0 var(--color-info);
+}
+/* Close (✕): hover/cursor-reveal on desktop so the resting row stays clean;
+   on touch (no hover) it stays visible so it's reachable. */
+.df-row[data-density="flat"] .df-action-always {
+  opacity: 1;
+  transition: opacity 120ms ease-out;
+}
+@media (hover: hover) {
+  .df-row[data-density="flat"] .df-action-always { opacity: 0; }
+  .df-row[data-density="flat"]:hover .df-action-always,
+  .df-row[data-density="flat"][data-cursor="on"] .df-action-always { opacity: 1; }
+}
+
+/* ── Folder ("workspace") list — the ONE sidebar layout. REUSES the flat
+   session-list card shell (df-flat-group + df-row[data-density="flat"] +
+   df-leading avatar + df-flat-* body) so it reads identically to the session
+   views — see FolderList.tsx. Only two folder-specific rules remain: the
+   group-corner rounding for rows NOT wrapped in df-row-swipe (folders have no
+   swipe-to-delete, so they're direct children of df-flat-group), and the
+   hover-reveal "+ new terminal" button. ── */
+[data-m3flat] .df-flat-group > .df-row[data-density="flat"]:first-child {
+  border-top-left-radius: 20px;
+  border-top-right-radius: 20px;
+}
+[data-m3flat] .df-flat-group > .df-row[data-density="flat"]:last-child {
+  border-bottom-left-radius: 20px;
+  border-bottom-right-radius: 20px;
+}
+[data-m3flat] .df-flat-group > .df-row[data-density="flat"]:only-child {
+  border-radius: 20px;
+}
+
+/* "+ New terminal" CTA + composer (flat sidebar's session-create surface).
+   Spawns a plain shell at the chosen server+folder. */
+/* M3 circular FAB — 56×56 icon-only "+", pinned bottom-right of the sidebar,
+   sticky so it floats over the list while scrolling. Teal primary-container
+   (accent-container) + M3 elevation. */
+.df-newterm-fab {
+  /* margin-top:auto pushes it to the bottom of the flex column (even with few
+     rows); align-self:flex-end right-aligns; sticky keeps it floating over the
+     list while scrolling. */
+  position: sticky;
+  bottom: 14px;
+  margin-top: auto;
+  margin-right: 14px;
+  align-self: flex-end;
+  z-index: 6;   /* over the cards + their hover state layer */
+  width: 56px;
+  height: 56px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: var(--accent-container);
+  color: var(--on-accent-container);
+  border: none;
+  border-radius: 16px;   /* M3 FAB shape */
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.45), 0 1px 3px rgba(0,0,0,0.4);
+  transition: filter var(--md-sys-motion-duration-short4, 150ms) ease,
+              box-shadow var(--md-sys-motion-duration-short4, 150ms) ease;
+}
+.df-newterm-fab:hover {
+  filter: brightness(1.12);
+  box-shadow: 0 6px 18px rgba(0,0,0,0.55), 0 2px 5px rgba(0,0,0,0.45);
+}
+.df-newterm-fab:active { filter: brightness(0.95); }
+
+/* Phase-m3c leading slot — M3 glyph tile. 20x20 rounded square
+   with surface-container-high bg, JetBrains Mono char inside.
+   Tile picks up primary-container background on the selected row
+   (matches the mockup's "glyph follows selection" pattern). */
+.df-row .df-leading {
+  width: 20px;
+  height: 20px;
+  border-radius: var(--md-shape-sm);
+  background: var(--md-surface-container-high);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--md-on-surface-variant);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  transition: background-color 80ms ease-out, color 80ms ease-out;
+}
+.df-row:hover .df-leading {
+  color: var(--md-on-surface);
+}
+.df-row[data-selected="focused"] .df-leading,
+.df-row[aria-current="page"] .df-leading {
+  background: var(--md-primary-container);
+  color: var(--md-on-primary-container);
+}
+
+.df-row .df-label {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.df-row .df-trailing {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--df-text-500);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+/* Hover-reveal icon row buttons (the + / ⋮ pattern). ✕ (close)
+   uses df-action-always so it never hides — discoverability matters
+   more than minimalism for a destructive action. */
+.df-row .df-action {
+  opacity: 0;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--df-text-400);
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 11px;
+  padding: 0;
+  flex-shrink: 0;
+  transition: opacity 80ms ease-out, background-color 80ms ease-out, color 80ms ease-out;
+}
+.df-row .df-action-always { opacity: 0.55; }
+.df-row:hover .df-action,
+.df-row:focus-within .df-action,
+.df-row .df-action:focus-visible {
+  opacity: 1;
+}
+.df-row .df-action:hover {
+  background: var(--md-state-hover);
+  color: var(--df-text-000);
+}
+.df-row .df-action-always:hover { color: #f08775; }
+
+/* Scrollbars — narrow themed bars matching the palette. WebKit
+   (Chrome, Safari) + Firefox `scrollbar-color` for everything else. */
+aside[data-testid="sidebar-desktop"],
+aside[data-testid="sidebar-drawer"],
+.wterm,
+.has-scrollback {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text-hi) 18%, transparent) transparent;
+}
+aside[data-testid="sidebar-desktop"]::-webkit-scrollbar,
+aside[data-testid="sidebar-drawer"]::-webkit-scrollbar,
+.wterm::-webkit-scrollbar,
+.has-scrollback::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+aside[data-testid="sidebar-desktop"]::-webkit-scrollbar-track,
+aside[data-testid="sidebar-drawer"]::-webkit-scrollbar-track,
+.wterm::-webkit-scrollbar-track,
+.has-scrollback::-webkit-scrollbar-track {
+  background: transparent;
+}
+aside[data-testid="sidebar-desktop"]::-webkit-scrollbar-thumb,
+aside[data-testid="sidebar-drawer"]::-webkit-scrollbar-thumb,
+.wterm::-webkit-scrollbar-thumb,
+.has-scrollback::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text-hi) 14%, transparent);
+  border-radius: 4px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+aside[data-testid="sidebar-desktop"]::-webkit-scrollbar-thumb:hover,
+aside[data-testid="sidebar-drawer"]::-webkit-scrollbar-thumb:hover,
+.wterm::-webkit-scrollbar-thumb:hover,
+.has-scrollback::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--text-hi) 24%, transparent);
+  background-clip: padding-box;
+}
+
+/* Group/section header — labelrow per claude.ai/code:
+   class="group/labelrow flex w-full min-h-[calc(...)] items-center
+   pt-[var(--df-group-pt)] pr-[var(--df-row-px)] pb-1 text-xs text-text-400/80
+   pl-[calc(var(--df-row-px)+(var(--df-leading-slot)-var(--df-icon-size))/2)]" */
+.df-group-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding-top: var(--df-group-pt);
+  padding-bottom: 4px;
+  padding-right: var(--df-row-px);
+  padding-left: calc(var(--df-row-px) + (var(--df-leading-slot) - var(--df-icon-size)) / 2);
+  background: transparent;
+  border: none;
+  color: var(--df-text-400);
+  font-size: 11px;
+  font-weight: 500;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: color 80ms ease-out;
+}
+.df-group-label:hover { color: var(--df-text-300); }
+
+.df-group-label .df-group-name {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* B1 — workspace count chip styled as `·N` (ARC pattern: dim bullet
+   prefix tightens visual hierarchy). The bullet is rendered via
+   ::before so call sites still pass plain `{count}`. */
+.df-group-label .df-group-count {
+  color: var(--df-text-500);
+  font-size: 10px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.df-group-label .df-group-count::before {
+  content: "·";
+  color: var(--df-text-500);
+  font-weight: 700;
+  opacity: 0.7;
+}
+
+/* Group label + inline trailing action (e.g. + workspace per worker). */
+.df-group-row {
+  display: flex;
+  align-items: stretch;
+  padding-right: var(--df-row-px);
+}
+.df-group-row .df-group-label { padding-right: 0; }
+
+.df-group-action {
+  align-self: end;
+  margin-bottom: 4px;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--df-text-400);
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--md-body-m-size);
+  font-weight: 600;
+  flex-shrink: 0;
+  transition: background-color 80ms ease-out, color 80ms ease-out;
+}
+.df-group-action:hover {
+  background: var(--md-state-hover);
+  color: var(--df-text-000);
+}
+.df-group-action:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-hi) 20%, transparent);
+}
+
+/* Primary CTA (New session analog). Same row spec, slight emphasis. */
+.df-cta {
+  display: flex;
+  align-items: center;
+  gap: var(--df-row-gap);
+  width: calc(100% - 8px);
+  margin: 4px 4px;
+  height: var(--df-row-h);
+  padding: 0 var(--df-row-px);
+  background: var(--md-state-hover);
+  border: none;
+  color: var(--df-text-000);
+  font-size: var(--df-row-font);
+  font-family: inherit;
+  text-align: left;
+  border-radius: var(--df-radius-pill);
+  cursor: pointer;
+  transition: background-color 80ms ease-out;
+}
+.df-cta:hover { background: var(--md-state-focus); }
+.df-cta:focus-visible { outline: none; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-hi) 20%, transparent); }
+
+.df-cta .df-leading {
+  width: var(--df-leading-slot);
+  display: inline-flex; align-items: center; justify-content: center;
+  flex-shrink: 0; color: var(--df-text-000); font-weight: 600;
+}
+.df-cta .df-kbd {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--df-text-500);
+  opacity: 0;
+  transition: opacity 80ms ease-out;
+}
+.df-cta:hover .df-kbd { opacity: 1; }
+
+/* Phase-m3b search — M3 docked search pill, 40px, full-radius,
+   surface-container-high background, no border (M3 doesn't use
+   borders on filled containers). */
+.df-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 10px 0;
+  padding: 0 14px;
+  height: 40px;
+  background: var(--md-surface-container-high);
+  border: none;
+  border-radius: var(--md-shape-full);
+  color: var(--md-on-surface-variant);
+  transition: background-color 120ms ease-out;
+}
+.df-search:hover { background: var(--md-surface-container-highest); }
+.df-search:focus-within { background: var(--md-surface-container-highest); }
+.df-search input {
+  flex: 1; background: transparent; border: none; outline: none;
+  color: var(--md-on-surface); font-size: 13px; font-family: inherit;
+}
+.df-search input::placeholder { color: var(--md-on-surface-dim); }
+
+/* Status dot for server header (green = online). B2 — slightly larger
+   + faint outer ring when online so the machine-header rhythm reads
+   as `name ─────── ●`. */
+.df-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  transition: box-shadow 120ms ease-out;
+}
+.df-status-dot[data-online="true"] {
+  background: var(--status-ok);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--status-ok) 12%, transparent);
+}
+.df-status-dot[data-online="false"] { background: var(--df-text-500); }
+
+/* B2 — section divider between worker sections, stronger so each
+   machine reads as its own block (ARC's per-space separation). */
+.df-section-divider {
+  margin: 10px 12px 2px;
+  border-top: 1px solid color-mix(in srgb, var(--text-hi) 10%, transparent);
+}
+
+/* B2 — machine header's df-group-name gets a trailing line that
+   visually merges into the section divider (the `name ────── ●`
+   read from the mockup). Uses a flex-grow filler with a dim
+   border-bottom so it gets the line without an extra DOM node. */
+.df-machine-header .df-group-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 0;
+}
+.df-machine-header .df-group-name::after {
+  content: "";
+  flex: 1 1 0;
+  height: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--text-hi) 8%, transparent);
+  margin-top: 1px;
+}
+
+/* wterm theme — claude.ai/code chat colors (extracted 2026-06-12 via
+   humanchrome). Full 16-color ANSI palette in the warm-cream family so
+   shell prompts (red git status, green branch, blue path, etc.) read
+   consistently against #1f1f1e instead of mixing in wterm's stock
+   colors tuned for #1e1e1e. */
+/* Terminal font — full, uncut JetBrains Mono Nerd Font Mono (~11.7k
+   codepoints / 12.1k glyphs: every Nerd icon range — Powerline, Octicons,
+   Material, Devicons, FontAwesome, Codicons in U+E000-F8FF + U+F0000+).
+   DO NOT subset / PUA-strip these woff2s. An earlier strip (2 MB -> 174 KB)
+   broke edge cases we can't enumerate up front: powerline/starship prompts,
+   `eza --icons`, vim/claude TUI icons all emit PUA glyphs that then render as
+   tofu. The ~2 MB combined download is the accepted cost of never guessing
+   which glyphs a shell might emit. If ever lost, restore the full woff2 from
+   git: `git checkout 9d3c0a17 -- apps/web/public/fonts/JetBrainsMonoNerdFontMono-Regular.woff2`. */
+@font-face {
+  font-family: 'JBM Nerd';
+  src: url('/fonts/JetBrainsMonoNerdFontMono-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'JBM Nerd';
+  src: url('/fonts/JetBrainsMonoNerdFontMono-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* M3 type ramp + icons, self-hosted (was Google Fonts CDN <link> in
+   index.html — dropped so a tailnet-only / offline box renders M3 without
+   reaching fonts.googleapis.com). Both are variable fonts; the wght/opsz
+   ranges below match the retired CDN css2 query so font-variation-settings
+   in md/tokens.css still resolve. Roboto Flex woff2 is basic-Latin subset
+   (94 glyphs) — non-ASCII UI text falls back to the system-ui stack in
+   --md-font. Material Symbols Rounded is instanced to FILL=0:1 only
+   (GRAD/wght/opsz pinned) — 5.3 MB → 534 KB, all 6579 glyphs kept, filled
+   vs outline preserved; the wght/opsz font-variation-settings in
+   md/tokens.css resolve to the pinned single value. Re-instance via
+   `fonttools varLib.instancer <upstream> GRAD=0 wght=400 opsz=24 FILL=0:1`.
+   ponytail: glyph-subset to ~40 KB only if FILL-fidelity codepoint refactor
+   ever pays for itself; instancing alone is the lazy 90% win. */
+@font-face {
+  font-family: 'Roboto Flex';
+  src: url('/fonts/RobotoFlex.woff2') format('woff2-variations');
+  font-weight: 100 1000;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Material Symbols Rounded';
+  src: url('/fonts/MaterialSymbolsRounded.woff2') format('woff2-variations');
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+
+/* Terminal palette bridge → Roost theme engine.
+   @wterm/dom scopes --term-bg/fg/cursor + --term-color-0..15 to .wterm
+   (package src/terminal.css), which SHADOWS the theme tokens the engine
+   (lib/theme.ts) writes on documentElement. We re-point each wterm var
+   at Roost's canonical token here so the grid repaints in lockstep with
+   the rest of the SPA on every theme switch. Source aliases live in
+   theme-vars.css (:root --term-color-N → --ansi-*, --terminal-grid-bg/fg,
+   --terminal-cursor). renderer.js emits inline var() per cell, so a CSS
+   var change reflows live DOM with no re-render — switching is automatic.
+   --terminal-grid-bg/fg are distinct names to avoid a self-collision
+   against wterm's own --term-bg/--term-fg at this same .wterm scope.
+   Structural (non-palette) overrides also kept here:
+   - JBM Nerd Font so claude / starship / vim icon glyphs render.
+   - padding + zero border so the canvas fills our pane edge-to-edge. */
+.wterm {
+  --term-bg: var(--terminal-grid-bg);
+  --term-fg: var(--terminal-grid-fg);
+  --term-cursor: var(--terminal-cursor);
+  --term-color-0: var(--ansi-black);
+  --term-color-1: var(--ansi-red);
+  --term-color-2: var(--ansi-green);
+  --term-color-3: var(--ansi-yellow);
+  --term-color-4: var(--ansi-blue);
+  --term-color-5: var(--ansi-magenta);
+  --term-color-6: var(--ansi-cyan);
+  --term-color-7: var(--ansi-white);
+  --term-color-8: var(--ansi-bright-black);
+  --term-color-9: var(--ansi-bright-red);
+  --term-color-10: var(--ansi-bright-green);
+  --term-color-11: var(--ansi-bright-yellow);
+  --term-color-12: var(--ansi-bright-blue);
+  --term-color-13: var(--ansi-bright-magenta);
+  --term-color-14: var(--ansi-bright-cyan);
+  --term-color-15: var(--ansi-bright-white);
+  --term-font-family: 'JBM Nerd', monospace;
+  font-size: var(--term-font-size, 13px);
+  border-radius: 0;
+  box-shadow: none;
+  /* Paint/layout isolation: make each pane its own layout+paint root so a
+     divider-drag resize dirties/repaints only THIS terminal, not the whole
+     deck tree (all slots + strips + sidebar). position: relative pins the
+     cell cursor/ghost containing block to .wterm (contain already makes it a
+     containing block; explicit = intent). The focus glow lives on the SLOT
+     ::after (outside .wterm) so it is NOT clipped; the link hint is
+     document.body-attached so it is unaffected. */
+  position: relative;
+  contain: layout paint;
+  padding: 12px 16px;
+  /* 2026-06-16: wterm renders scrollback as .term-scrollback-row DOM
+   * elements above the live grid (verified: getScrollbackCount=245,
+   * scrollHeight=5158 vs clientHeight=976 after writing 300 lines).
+   * Without overflow-y the rows are clipped + the user can't scroll
+   * up to see history. Author 2026-06-16: "THERE IS NO SCROLL".
+   * scrollbar-gutter: stable reserves the scrollbar's width even when
+   * the scrollbar is hidden. Without it, the scrollbar's appearance/
+   * disappearance on each scrollback write flips container contentRect
+   * width by ~15px → ResizeObserver fires → fitWterm calls wterm.resize
+   * at a different cols → emits a new claim → SCD round-trip → refetch
+   * writes scrollback → scrollbar flips again → infinite spazz loop on
+   * multi-viewer drag-resize. Author 2026-06-17. */
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
+}
+
+/* Theme the text-selection tint (package terminal.css hardcodes a blue
+   rgba(86,156,214,0.3)); point it at the active theme's selection token. */
+.wterm ::selection {
+  background: var(--terminal-selection);
+}
+
+/* R11 CellGridRenderer (cellRenderer.ts). Paints pre-rendered cells;
+   NEVER reflows. Rows are pinned to the grid's cols (--cell-cols, ch units,
+   monospace) so a wider pane letterboxes (margin) instead of stretching. */
+.cell-grid {
+  font-family: var(--term-font-family);
+  font-size: var(--term-font-size, 13px);
+  color: var(--term-fg);
+  background: var(--term-bg);
+  line-height: 1.2;
+  font-variant-ligatures: none;
+}
+.cell-grid .cell-scrollback,
+.cell-grid .cell-viewport {
+  width: calc(var(--cell-cols, 80) * 1ch);
+}
+/* Alt-screen owns the viewport — no scrollback, no scroll-up. CellGridRenderer
+   toggles .alt-active from frame.altScreen; without this the stale pre-alt
+   scrollback sheet shows above the viewport and the wheel scrolls into it. */
+.cell-grid.alt-active .cell-scrollback { display: none; }
+.cell-grid.alt-active { overflow-y: hidden; }
+.cell-grid .cell-row {
+  white-space: pre;        /* preserve runs of spaces; no wrap = no reflow */
+  min-height: 1.2em;
+}
+/* Scrollback rows are packed into .cell-block groups (CellGridRenderer). Skipping
+   layout/paint of off-screen blocks keeps a reveal reflow + scrollHeight reads
+   O(blocks) not O(history) — the fix for the deep-history pane-switch freeze.
+   contain-intrinsic-size = SB_BLOCK(250) rows × line-height 1.2em = 300em; keep
+   in sync with SB_BLOCK in cellRenderer.ts. `auto` remembers the real size once
+   a block has rendered (partial last block), so scrollHeight never drifts. */
+.cell-grid .cell-scrollback .cell-block {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 300em;
+}
+@keyframes cell-blink { 50% { opacity: 0; } }
+/* Block cursor overlay (CellGridRenderer.updateCursor positions it via inline
+   top/left in lh/ch units). cell mode drew no cursor before — this is the
+   "blinking bar where characters are written". */
+.cell-grid .cell-cursor {
+  position: absolute;
+  width: 1ch;
+  height: 1lh;
+  background: var(--term-cursor, var(--term-fg));
+  opacity: 0.7;
+  pointer-events: none;
+  animation: cell-blink 1.06s step-end infinite;
+}
+
+/* Ghost cursors — remote viewers' cursor cells (CellGridRenderer.setGhosts).
+   Positioned in ch/lh viewport coords like the real cursor. */
+.cell-grid .cell-ghosts { position: absolute; inset: 0; pointer-events: none; }
+.cell-grid .cell-ghost {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1ch;
+  height: 1lh;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--status-info) 35%, transparent);
+  border: 1px solid var(--status-info);
+  pointer-events: none;
+  transition: transform 60ms linear;
+}
+
+/* Predictive local echo (lib/predictiveEcho.ts) — a speculative char painted
+   ~1 RTT before the authoritative cell frame confirms it. Rendered in the
+   terminal font at the grid position; the engine only shows confirmed-epoch
+   guesses, and underlines them (inline style) on a high-RTT link. */
+.cell-grid .cell-predict-ch {
+  position: absolute;
+  font: inherit;
+  line-height: 1lh;
+  color: var(--term-fg);
+  white-space: pre;
+  pointer-events: none;
+}
+
+
+@keyframes df-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.55; }
+}
+
+/* Sleeping-mascot Zzz (StatusGlyph ClaudeMarkSleeping): two z's drift up
+   and to the right off the robot's head, then fade — staggered so they
+   read as a stream. HTML spans overlaid on the SVG (not SVG <text>) so
+   the float runs on transform/opacity only — compositor-animated, zero
+   paint work on idle rows (idle is the sidebar's steady state). */
+.roost-sleeping {
+  position: relative;
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+}
+.roost-zzz {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  font-family: ui-monospace, monospace;
+  font-weight: 700;
+  line-height: 1;
+}
+.roost-zzz span {
+  position: absolute;
+  animation: roost-zzz-float 2.6s ease-in-out infinite;
+}
+.roost-zzz .roost-zzz-1 { left: 9px; top: 1px; font-size: 6px; }
+.roost-zzz .roost-zzz-2 { left: 11px; top: -3px; font-size: 8px; animation-delay: 1.3s; }
+@keyframes roost-zzz-float {
+  0%   { opacity: 0; transform: translate(0, 2px); }
+  25%  { opacity: 1; }
+  100% { opacity: 0; transform: translate(2.5px, -4px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .roost-zzz span { animation: none; opacity: 0.85; }
+}
+
+/* Phase-m3f tab bar — M3 secondary-tabs spec, lives in MainPane above
+   the terminal deck. One tab per OPEN session. Active gets a 2px
+   primary overline (on top, VS Code-style). Each tab carries a leading dot reflecting
+   rootStore.claude_status (running/idle/needs-input) so the user sees
+   live agent state per tab. */
+.df-tab-bar {
+  height: 40px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  gap: 2px;
+  border-bottom: 1px solid var(--md-outline-variant);
+  background: var(--md-surface-container);
+  overflow-x: auto;
+  position: relative;
+}
+.df-tab-bar::-webkit-scrollbar { display: none; }
+/* M3 sliding active-indicator — slides+stretches to the active tab (the
+   signature md-tabs motion) as a 1px bar under translateX+scaleX, so the
+   move is compositor-only (no width-transition layout/paint per slide).
+   JS sets the transform per active tab (PaneStrip.tsx indicator effect).
+   No border-radius: scaleX would smear a horizontal radius across the bar. */
+.df-tab-indicator {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 2px;
+  background: var(--md-sys-color-primary);
+  pointer-events: none;
+  transform-origin: 0 50%;
+  transition:
+    transform var(--md-sys-motion-duration-medium1) var(--md-sys-motion-easing-emphasized),
+    opacity var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard);
+}
+.df-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  padding: 0 10px 0 12px;
+  border: none;
+  background: transparent;
+  color: var(--md-on-surface-variant);
+  font-family: inherit;
+  font-size: var(--md-body-s-size);
+  font-weight: 500;
+  cursor: pointer;
+  position: relative;
+  border-radius: var(--md-shape-sm) var(--md-shape-sm) 0 0;
+  transition: background-color 120ms ease-out, color 120ms ease-out;
+  flex-shrink: 0;
+  max-width: 240px;
+}
+@media (hover: hover) {
+  .df-tab:hover { background: var(--md-state-hover); }
+}
+/* Drag-to-reorder: keep horizontal pointer drags from scrolling/selecting;
+   the grabbed tab lifts (elevation + grabbing cursor) and floats above the
+   sliding siblings. Transforms/transitions are set inline by TabBar.tsx. */
+.df-tab { touch-action: pan-y; -webkit-tap-highlight-color: transparent; }
+.df-tab-bar[data-dragging="true"] { user-select: none; cursor: grabbing; }
+/* ── Mobile (compact) Chrome-style workspace bar (MobileDeckBar) ────────
+   Replaces the old scrollable MobileTabStrip row. The bar chrome is
+   inline-styled (48px, surface-1); these rules style its interactive bits
+   and the full-screen terminal card grid (WorkspaceTabsSheet) it opens.
+
+   Card layout follows Chrome's tab_grid_card_item_layout spec:
+   24dp border-radius, 1dp elevation, 40dp header (favicon + title + close ✕),
+   thumbnail preview with asymmetric 12/20dp corner radius. Swipe-to-close
+   at 144dp threshold (Chrome's swipe_to_dismiss_threshold). */
+.mobile-deck-new,
+.mobile-deck-count {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border-radius: 10px;
+  background: transparent;
+  border: none;
+  color: var(--md-on-surface);
+  cursor: pointer;
+  font-family: inherit;
+  -webkit-tap-highlight-color: transparent;
+}
+.mobile-deck-new {
+  width: 36px;
+  height: 36px;
+  color: var(--text-hi);
+}
+.mobile-deck-count {
+  width: 28px;
+  height: 28px;
+  box-sizing: border-box;
+  padding: 0;
+  border: 1.5px solid var(--md-outline);
+  border-radius: 8px;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--md-on-surface);
+}
+@media (hover: hover) {
+  .mobile-deck-new:hover,
+  .mobile-deck-count:hover {
+    background: var(--md-state-hover);
+  }
+}
+/* needs-input stays unmissable: the count square pulses amber when any
+   terminal in the workspace is blocked (rollupLevels). */
+.mobile-deck-count[data-attention="blocked"] {
+  border-color: var(--md-warning);
+  color: var(--md-warning);
+  animation: df-tab-dot-pulse 1.8s ease-in-out infinite;
+}
+
+/* ── Card entrance animation (Chrome card scale-in, staggered) ─────── */
+/* The wrap carries the entrance animation (scale + opacity); the inner
+   .terminal-card carries the swipe transform (translateX + rotate) so the
+   two never collide on the same element's transform property. */
+.terminal-card-wrap {
+  min-width: 0; /* Grid item: allow shrink below content min-size (terminal
+                  lines are white-space: pre → large min-content). Without
+                  this the 1fr track blows out to the longest line's width. */
+  animation: tc-card-enter 200ms var(--md-sys-motion-easing-emphasized-decelerate, cubic-bezier(0.05, 0.7, 0.1, 1)) backwards;
+}
+.terminal-card-wrap:nth-child(1) { animation-delay: 0ms; }
+.terminal-card-wrap:nth-child(2) { animation-delay: 50ms; }
+.terminal-card-wrap:nth-child(3) { animation-delay: 100ms; }
+.terminal-card-wrap:nth-child(4) { animation-delay: 150ms; }
+.terminal-card-wrap:nth-child(5) { animation-delay: 200ms; }
+.terminal-card-wrap:nth-child(6) { animation-delay: 250ms; }
+.terminal-card-wrap:nth-child(n+7) { animation-delay: 300ms; }
+@keyframes tc-card-enter {
+  from { opacity: 0; transform: scale(0.8); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+/* ── WorkspaceTabsSheet grid (2 columns, Chrome phone default) ─────── */
+.workspace-tabs-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  /* Grid default align-content is stretch — with the flex:1 container grown
+     to ~700px, that stretches the single content row to fill it, leaving
+    ~536px of dead space under each 164px card. Pack rows to the top instead. */
+  align-content: start;
+}
+
+/* ── Terminal card — Chrome tab_grid_card_item_layout ────────────────── */
+/* 24px border-radius, 1dp elevation (not a border — Chrome uses shadow).
+   overflow:hidden clips the preview's asymmetric corners to the card. */
+.terminal-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0; /* Flex item: children with white-space: pre have large
+                  min-content; allow shrink so the card holds its column width. */
+  text-align: left;
+  border-radius: 24px;
+  background: var(--md-surface-container);
+  box-shadow: var(--md-elev-1);
+  color: var(--md-on-surface);
+  cursor: pointer;
+  font-family: inherit;
+  overflow: hidden;
+  -webkit-tap-highlight-color: transparent;
+}
+.terminal-card[data-active="true"] {
+  box-shadow: 0 0 0 2px var(--md-sys-color-primary), var(--md-elev-1);
+}
+.terminal-card:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: 2px;
+}
+/* Header — 36px, favicon + title + compact subtitle. Close ✕ overlaps right. */
+.terminal-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 44px 0 11px;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.terminal-card-favicon {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  background: var(--md-surface-container-highest);
+}
+.terminal-card-title-wrap {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  overflow: hidden;
+}
+.terminal-card-title {
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.terminal-card-subtitle {
+  font-size: 11px;
+  color: var(--text-mid);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Close ✕ — 48px touch target (Chrome tab_list_card_action_button_size),
+   18px visible icon centered. Absolute top-right. */
+.terminal-card-close {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--md-on-surface-variant);
+  flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+.terminal-card-close:hover {
+  color: var(--md-on-surface);
+}
+/* Preview area — terminal text preview (recent viewport lines) or faux glyph.
+   Asymmetric corners: 12px top / 20px bottom (Chrome's signature detail).
+   Dark surface-0 background; status-tinted for needs-input.
+   Fixed 160px height = uniform card heights across the grid. */
+.terminal-card-preview {
+  margin: 4px;
+  border-radius: 12px 12px 20px 20px;
+  background: var(--surface-0);
+  height: 160px;
+  display: block;
+  position: relative;
+  overflow: hidden;
+}
+.terminal-card-preview[data-stage="needs-input"] {
+  background: color-mix(in srgb, var(--md-warning) 12%, var(--surface-0));
+}
+.terminal-card-preview-text {
+  width: 100%;
+  height: 100%;
+  display: block;
+  border-radius: inherit;
+  padding: 4px 6px;
+  overflow: hidden;
+  font-family: ui-monospace, SFMono-Regular, Menlo, "JBM Nerd Font", monospace;
+  font-size: 7px;
+  line-height: 1.2;
+  white-space: pre;
+  color: var(--term-fg);
+  box-sizing: border-box;
+}
+.terminal-card-preview-text span {
+  animation: none !important;
+}
+.terminal-card-preview-row {
+  overflow: hidden;
+  white-space: pre;
+}
+.terminal-card-preview-glyph {
+  font-size: 40px;
+  line-height: 1;
+  opacity: 0.7;
+  /* Center the fallback glyph when no text preview is available. */
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+.terminal-card-glyph {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 700;
+}
+.terminal-card[data-attention="blocked"] .terminal-card-preview-glyph {
+  animation: df-tab-dot-pulse 1.8s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mobile-deck-count[data-attention="blocked"],
+  .terminal-card[data-attention="blocked"] .terminal-card-preview-glyph,
+  .terminal-card-wrap {
+    animation: none;
+  }
+}
+@keyframes df-tab-dot-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.75); }
+}
+
+/* Split-pane divider (TerminalDeck / PaneDivider): a faint seam between two
+   tiled panes, brightening to the primary on hover/drag so it's grabbable. */
+.pane-divider {
+  background: var(--md-outline-variant);
+  opacity: 0.4;
+  transition: opacity 120ms ease-out, background-color 120ms ease-out;
+}
+.pane-divider:hover,
+.pane-divider:active {
+  opacity: 1;
+  background: var(--md-sys-color-primary);
+}
+.pane-divider[data-dragging="true"] {
+  opacity: 1;
+  background: var(--md-sys-color-primary);
+  transition: none;
+}
+
+/* Drag-to-tile drop preview (TerminalDeck): highlights the region a dragged tab
+   will occupy — a half-pane for an edge split, the whole pane for a merge. */
+.pane-drop-overlay {
+  background: color-mix(in srgb, var(--md-sys-color-primary) 22%, transparent);
+  border: 2px solid var(--md-sys-color-primary);
+  border-radius: var(--md-shape-sm);
+  box-sizing: border-box;
+  transition: left 80ms ease-out, top 80ms ease-out, width 80ms ease-out, height 80ms ease-out;
+}
+
+/* Reorder preview: dragging a tab within its own pane's body center is a
+   reorder, not a split — fainter fill + dashed frame so the indicator never
+   blanks mid-drag but still reads as "stays here", distinct from the solid
+   split fill. */
+.pane-drop-overlay[data-zone="reorder"] {
+  background: color-mix(in srgb, var(--md-sys-color-primary) 10%, transparent);
+  border-style: dashed;
+}
+
+/* Pane spotlight ("Bring to front"): backdrop dims the tiled stack, card frame
+   rings + elevates the floated pane (TerminalDeck slot z9 / strip z10). */
+.pane-spotlight-backdrop {
+  background: color-mix(in srgb, var(--md-scrim) 55%, transparent);
+  animation: pane-spotlight-fade 120ms ease-out;
+}
+.pane-spotlight-card {
+  border-radius: 12px;
+  box-shadow: 0 0 0 1px var(--border-strong), var(--md-elev-5);
+}
+@keyframes pane-spotlight-fade { from { opacity: 0; } to { opacity: 1; } }
+
+/* Priority-pane indicator (which tiled pane owns keyboard + voice input).
+   Only when >1 pane is on screen — the single-pane default IS the whole
+   terminal, so ringing it would be noise. Focused pane: thick primary ring +
+   outer glow drawn as an ::after (paints above the terminal canvas, unlike an
+   inset shadow) so the active pane is unmistakable at a glance. Inactive pane
+   bodies and every tab strip are left untouched — kept fully readable. */
+[data-multi-pane="true"] [data-testid^="terminal-slot-"][data-focused="true"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 4;
+  border: 3px solid var(--md-sys-color-primary);
+  border-radius: var(--md-shape-sm);
+  box-shadow:
+    inset 0 0 0 1px var(--md-sys-color-primary),
+    0 0 22px 3px color-mix(in srgb, var(--md-sys-color-primary) 55%, transparent);
+}
+/* Spotlit pane: the dim backdrop + floating card frame already make "on top"
+   unmistakable, so the tiled-pane focus ring would be redundant noise. Drop it. */
+[data-multi-pane="true"] [data-testid^="terminal-slot-"][data-focused="true"][data-spotlit="true"]::after {
+  display: none;
+}
+/* Drop the 22px-blur glow while a divider drag is live: re-rastering the blur
+   on every resized frame is the paint cost on real GPUs. The cheap 3px border
+   (above) stays as the ring; the full glow returns on pointerup. data-resizing
+   is set on the deck root while isResizeDragging() (resizeDrag.ts). */
+[data-testid="terminal-deck"][data-resizing="true"] [data-testid^="terminal-slot-"][data-focused="true"]::after {
+  box-shadow: none;
+}
+.df-tab[data-dragging="true"] {
+  background: var(--md-surface-container-high);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.32);
+  cursor: grabbing;
+  position: relative;
+}
+.df-tab-new {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  margin-left: 2px;
+  padding: 0;
+  border: none;
+  border-radius: var(--md-shape-sm);
+  background: transparent;
+  color: var(--md-on-surface-variant);
+  cursor: pointer;
+  position: relative;
+  transition: background-color 120ms ease-out, color 120ms ease-out;
+}
+.df-tab-new:hover { background: var(--md-state-hover); color: var(--md-on-surface); }
+.df-arrange-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  border-radius: var(--md-shape-sm);
+  /* subtle backdrop so it reads over a scrolled/overflowing strip */
+  background: var(--md-surface-container);
+  color: var(--md-on-surface-variant);
+  cursor: pointer;
+  position: relative;
+  transition: background-color 120ms ease-out, color 120ms ease-out;
+}
+.df-arrange-btn:hover { background: var(--md-state-hover); color: var(--md-on-surface); }
+.df-tab-filler {
+  flex: 1;
+  align-self: stretch;
+  min-width: 24px;
+  cursor: default;
+}
+.df-tab[data-active="true"] { color: var(--md-on-surface); }
+/* Active overline is now the sliding .df-tab-indicator (TabBar.tsx) — the old
+   static ::after was removed so they don't double-paint. */
+.df-tab-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  transition: background-color 120ms ease-out;
+}
+.df-tab-glyph {
+  width: 16px;
+  height: 16px;
+  border-radius: var(--md-shape-sm);
+  background: var(--md-surface-container-high);
+  color: var(--md-on-surface-variant);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.df-tab-glyph[data-claude="1"] {
+  /* Claude tabs: brand coral mark (matches sidebar isClaude branch);
+     no tile background — the icon is the identity. */
+  background: transparent;
+  color: var(--brand-coral);
+}
+.df-tab-glyph[data-claude="1"] svg { width: 14px; height: 14px; }
+.df-tab[data-active="true"] .df-tab-glyph {
+  background: var(--md-primary-container);
+  color: var(--md-on-primary-container);
+}
+.df-tab[data-active="true"] .df-tab-glyph[data-claude="1"] {
+  background: transparent;
+  color: var(--brand-coral);
+}
+.df-tab-label {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+/* Now a real md-icon-button (ripple + 48px touch target free). Visual size
+   stays dense at 18px; --md-icon-button-icon-size:14px set inline. */
+.df-tab-close {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  margin-left: 2px;
+  color: var(--md-on-surface-dim);
+  --md-icon-button-state-layer-width: 18px;
+  --md-icon-button-state-layer-height: 18px;
+}
+.df-tab-close:hover { color: var(--md-on-surface); }
+
+/* Phase-m3g agent status bar — glass-blurred pill pinned at bottom
+   of MainPane. Renders only for active claude session via
+   AgentStatusBar component. */
+.df-agent-bar {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 14px);
+  background: var(--md-surface-container);
+  border: 1px solid var(--md-outline-variant);
+  border-radius: 12px;
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  /* ponytail: no backdrop-filter blur — md-surface-container is opaque, and
+     blur() recomposites the backdrop every frame = sustained mobile-GPU heat. */
+  box-shadow: var(--md-elev-3);
+  font-size: var(--md-body-s-size);
+  color: var(--md-on-surface-variant);
+  z-index: 5;
+}
+.df-agent-chip-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: var(--md-shape-full);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+.df-agent-chip-status .df-agent-chip-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: df-agent-pulse 1.4s ease-in-out infinite;
+}
+@keyframes df-agent-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.5; transform: scale(0.85); }
+}
+.term-status-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 4;
+  pointer-events: none;
+  user-select: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: var(--md-shape-full);
+  font: var(--md-label-s-weight) var(--md-label-s-size)/var(--md-label-s-line) var(--md-font);
+  white-space: nowrap;
+  color: var(--md-on-surface);
+  background: color-mix(in srgb, var(--badge-color) 22%, var(--md-surface-container-high));
+  border: 1px solid color-mix(in srgb, var(--badge-color) 45%, transparent);
+  box-shadow: var(--md-elev-1);
+}
+.term-status-badge__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--badge-color);
+}
+.df-agent-chip-mode {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: var(--md-shape-full);
+  border: 1px solid var(--md-outline-variant);
+  color: var(--md-on-surface-variant);
+  font-size: 11px;
+  font-weight: 500;
+}
+.df-agent-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex: 1;
+  min-width: 0;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11.5px;
+  color: var(--md-on-surface-variant);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.df-agent-tool-name {
+  color: var(--md-tertiary);
+  font-weight: 600;
+}
+.df-agent-spinner {
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--md-outline-variant);
+  border-top-color: var(--md-tertiary);
+  border-radius: 50%;
+  animation: df-agent-spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes df-agent-spin {
+  to { transform: rotate(360deg); }
+}
+.df-agent-divider {
+  width: 1px;
+  height: 16px;
+  background: var(--md-outline-variant);
+}
+.df-agent-metric {
+  font-size: var(--md-body-s-size);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  color: var(--md-on-surface-variant);
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.df-agent-metric b {
+  color: var(--md-on-surface);
+  font-weight: 500;
+}
+
+/* Phase-m3j search ⌘K hint — small monospace chip at the right edge
+   of the search pill. */
+.df-search-kbd {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--md-surface-container-low);
+  color: var(--md-on-surface-dim);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  letter-spacing: 0;
+}
+
+/* Phase-m3j brand row settings icon-button. */
+.df-icon-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--md-on-surface-variant);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background-color 120ms ease-out;
+}
+.df-icon-btn:hover { background: var(--md-state-hover); }
+.df-icon-btn svg { width: 18px; height: 18px; }
+
+/* Phase-m3j server-row meta pill — already exists as .df-group-count
+   but flat. Promote to a surface-container-high pill ONLY in the
+   machine-header context so the per-folder count keeps its bullet
+   form. */
+.df-machine-header .df-group-count {
+  padding: 2px 8px;
+  border-radius: var(--md-shape-full);
+  background: var(--md-surface-container-high);
+  color: var(--md-on-surface-dim);
+  font-size: 10.5px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.df-machine-header .df-group-count::before { content: none; }
+
+/* Phase-m3-needs-pill — M3 tertiary-container animated pulse pill.
+   Matches mockups/m3-compact-hero.html .need-pill spec: warm gold,
+   uppercase, mono-numeric, pulsing box-shadow halo to draw the eye
+   without screaming. Replaces the prior blue-accent --accent dot. */
+.df-needs-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--md-shape-full);
+  background: var(--md-tertiary-container);
+  color: var(--md-on-tertiary-container);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  font-family: inherit;
+  flex-shrink: 0;
+  position: relative; /* anchors the ::after pulse halo */
+}
+.df-needs-pill::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--md-tertiary);
+  flex-shrink: 0;
+}
+.df-needs-pill-count {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+/* Pulse halo — compositor-only ::after ring (transform/opacity), replacing
+   the box-shadow spread that repainted the row on every frame. Same 2s
+   rhythm; opacity:0 base means reduced-motion/no-animation shows no halo. */
+.df-needs-pill::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: var(--md-shape-full);
+  border: 2px solid rgba(217, 197, 142, 0.35);
+  opacity: 0;
+  pointer-events: none;
+  animation: df-needs-pulse 2s ease-in-out infinite;
+}
+@keyframes df-needs-pulse {
+  0%, 100% { transform: scale(0.9); opacity: 0; }
+  50%      { transform: scale(1.05); opacity: 1; }
+}
+
+/* Phase-m3-claude-glyph — gradient tile for claude session leading
+   slot. Matches the mockup spec where claude rows get a brand-coral
+   gradient instead of the surface-container-high tile. Applied to
+   .df-leading on rows with data-is-claude="1" on the inner glyph. */
+.df-row[data-is-claude="1"] .df-leading {
+  background: linear-gradient(135deg, var(--md-primary) 0%, #ff7a52 100%);
+  color: var(--md-on-primary);
+}
+.df-row[data-selected="focused"][data-is-claude="1"] .df-leading,
+.df-row[aria-current="page"][data-is-claude="1"] .df-leading {
+  background: linear-gradient(135deg, var(--md-primary) 0%, #ff7a52 100%);
+  color: var(--md-on-primary);
+}
+
+/* ── Mobile slide-out drawer (claude.ai/code pattern) ──────────────────
+   AppShell drives the open state via the reactive data-open attribute
+   (inline style={fn(store.x)} is evaluated once and never reacts). The
+   slide + backdrop animate purely in CSS keyed on [data-open="true"].
+   Closed = off-screen left; full-screen content shows behind it. */
+/* Full-screen mobile drawer (claude.ai-app pattern): covers the whole
+   phone screen in BOTH orientations — no dimmed peek of the terminal
+   behind it. Close via the ✕ in the list header (AllView brand row,
+   compact mode) or by selecting a session (AppShell auto-closes on route
+   change). Rendered only when isPhone() (short-side ≤ phone threshold),
+   so landscape iPhone still gets the full-screen sidebar, not a panel. */
+.roost-drawer {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100%;
+  padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px)
+    env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+  box-sizing: border-box;
+  background: var(--bg-elev-1);
+  overflow: hidden auto;
+  z-index: 50;
+  transform: translateX(-100%);
+  /* Closing (→ off-screen): emphasized-ACCELERATE, quick. M3 exits accelerate. */
+  transition: transform var(--md-sys-motion-duration-short4, 200ms)
+    var(--md-sys-motion-easing-emphasized-accelerate, cubic-bezier(0.3, 0, 0.8, 0.15));
+  will-change: transform;
+}
+.roost-drawer[data-open="true"] {
+  transform: translateX(0);
+  /* Opening (→ on-screen): emphasized-DECELERATE, slightly longer so it settles
+     in rather than snapping. The asymmetry (decelerate in / accelerate out) is
+     what reads as native Material. */
+  transition: transform var(--md-sys-motion-duration-medium2, 300ms)
+    var(--md-sys-motion-easing-emphasized-decelerate, cubic-bezier(0.05, 0.7, 0.1, 1));
+}
+
+/* No backdrop: a full-screen drawer has nothing behind it to dim. The
+   element stays in the DOM (AppShell) but renders nothing. */
+.roost-drawer-overlay {
+  display: none;
+}
+
+/* ── Touch devices: reveal hover-gated controls ─────────────────────────
+   The pane ✕ / action buttons (.df-action) are opacity:0 until :hover,
+   which never fires on touch — so the drawer was missing its controls on
+   a phone. Reveal them persistently and grow the tap targets to a
+   finger-friendly size (M3 touch guidance). Row height is left untouched
+   so desktop density is unchanged. (hover: none) matches touch pointers
+   only — pointer/desktop keeps hover. */
+@media (hover: none) {
+  .df-row .df-action {
+    opacity: 0.6;
+    width: 30px;
+    height: 30px;
+  }
+  .df-cta .df-kbd {
+    display: none;
+  }
+}
+
+/* ── Home landing ("hello" pane at "/") ──────────────────────────────────
+   Rendered by components/HomeLanding.tsx when workers exist but no session
+   is auto-opened. Roost mark + "+ New" composer + recents grid. */
+.home-landing {
+  height: 100%;
+  overflow-y: auto;
+  padding: 32px max(24px, env(safe-area-inset-left, 0px)) max(24px, env(safe-area-inset-bottom, 0px))
+    max(24px, env(safe-area-inset-left, 0px));
+  box-sizing: border-box;
+}
+.home-landing-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 28px;
+}
+.home-landing-menu {
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  color: var(--text-hi);
+  font-size: 20px;
+  line-height: 1;
+  font-family: inherit;
+  cursor: pointer;
+}
+.home-landing-mark {
+  font-size: var(--md-title-l-size);
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: var(--text-hi);
+}
+
+/* Teach the core actions (audit E): a persistent shortcut hint under the brand,
+   and a real zero-state hero (was: a blank page) when there are no recents. */
+.home-landing-tagline {
+  margin: -16px 0 28px;
+  font-size: var(--md-body-s-size);
+  color: var(--text-lo);
+}
+.home-landing-kbd {
+  font-family: inherit;
+  font-size: 11px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-mid);
+  white-space: nowrap;
+}
+.home-landing-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+  padding: 56px 24px;
+  color: var(--text-lo);
+}
+.home-landing-empty-icon {
+  width: 56px;
+  height: 56px;
+  display: grid;
+  place-items: center;
+  border-radius: 16px;
+  background: var(--bg-elev-1);
+  border: 1px solid var(--border-subtle);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-mid);
+}
+.home-landing-empty-title {
+  font-size: var(--md-title-m-size);
+  font-weight: 600;
+  color: var(--text-hi);
+}
+.home-landing-empty-sub {
+  font-size: 13px;
+  max-width: 340px;
+  line-height: 1.5;
+}
+.home-landing-empty-cta {
+  margin-top: 8px;
+  padding: 9px 18px;
+  border-radius: var(--md-shape-md);
+  background: var(--df-selected-accent);
+  border: none;
+  color: var(--md-sys-color-on-primary);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.home-landing-empty-cta:hover {
+  filter: brightness(1.08);
+}
+
+/* M3 context-menu enter motion + state-layers (M3 wave 2).
+   Applied to SessionRowContextMenu / TerminalContextMenu
+   panels — they used to SNAP open via bare <Show> with no motion. The panel
+   scales 0.95→1 + fades in on mount; menu items get CSS :hover/:active
+   state-layers instead of inline-JS onMouseEnter/Leave. */
+/* transform-only entrance — never animate opacity (rAF-throttle / WAAPI
+   freeze can forwards-fill a fade at 0 → invisible menu). */
+@keyframes df-menu-enter {
+  from { transform: scale(0.95); }
+  to   { transform: scale(1); }
+}
+/* toast-in — was referenced by ToastContainer but never defined (toasts
+   snapped in). M3 emphasized-decelerate slide+fade. */
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.df-menu-enter {
+  transform-origin: top right;
+  animation: df-menu-enter var(--md-sys-motion-duration-short4)
+    var(--md-sys-motion-easing-emphasized-decelerate);
+}
+/* Menu item state-layer — replaces inline onMouseEnter/Leave JS. */
+.df-menu-item {
+  transition: background-color 80ms ease-out;
+}
+.df-menu-item:hover { background: var(--md-state-hover); }
+.df-menu-item:active { background: var(--md-state-pressed); }
+.df-menu-item:focus-visible {
+  background: var(--md-state-focus);
+  outline: none;
+}
+
+/* ── Collapsed icon rail ──────────────────────────────────────────────
+   The collapsed sidebar is the SAME SidebarRoot (folder rows), narrowed
+   to 52px and stripped to just the leading status glyph per folder. Row
+   title={cwd} (FolderList.tsx) supplies the hover tooltip. NOT a separate
+   worker-initials component — that diverged from the real list.
+   Keyed on the aside's data-collapsed (set in AppShell.tsx). */
+[data-collapsed="true"] .df-flat-body { display: none; }
+
+/* Row → centered lone glyph. */
+[data-collapsed="true"] .df-flat-group .df-row[data-density="flat"] {
+  justify-content: center;
+  padding: 0;
+  gap: 0;
+}
+
+/* Brand row → only the expand button, centered; chevron flips to point out. */
+[data-collapsed="true"] .df-brand-row {
+  justify-content: center;
+  padding: 0;
+}
+[data-collapsed="true"] .df-brand-row .brand-mark,
+[data-collapsed="true"] .df-brand-title,
+[data-collapsed="true"] [data-testid="brand-row-search"],
+[data-collapsed="true"] [data-testid="brand-row-settings"] { display: none; }
+[data-collapsed="true"] .df-brand-row [data-testid="notification-bell"] { display: none !important; }
+[data-collapsed="true"] [data-testid="brand-row-collapse"] svg { transform: rotate(180deg); }
+/* "+ new session" FAB → shrink to fit the 52px rail, centered. */
+[data-collapsed="true"] .df-newterm-fab {
+  width: 40px;
+  height: 40px;
+  margin-right: 0;
+  align-self: center;
+  border-radius: 12px;
+}
+
+/* Hide the hover ⋮ in the collapsed rail (no room). */
+[data-collapsed="true"] .df-row .df-action { display: none; }
+

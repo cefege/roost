@@ -1,0 +1,72 @@
+/* "Dense Pro" layout — Direction B (Linear/Raycast DNA). THE Settings layout
+   now (the spacious default + the toggle were dropped 2026-06-24 — Author: "keep
+   it compact, we won't look back"). `data-density="dense"` is hardcoded on
+   <html> in index.html. Restyles the EXISTING Settings markup + md-dialog — no
+   JSX rewrite. Reuses the M3 tokens only.
+
+   Hairlines instead of cards · tighter rhythm · narrow rail · compact dialogs. */
+
+/* ── Topbar: shorter, smaller title ─────────────────────────────────────────── */
+[data-density="dense"] .settings-topbar { height: 48px; }
+[data-density="dense"] .settings-topbar__title {
+  font-size: var(--md-title-m-size);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* ── Cards → flat hairline groups (no elevation, no rounded chrome) ──────────── */
+[data-density="dense"] .md-card,
+[data-density="dense"] .md-card--elevated,
+[data-density="dense"] .md-card--outlined {
+  background: transparent;
+  box-shadow: none;
+  border: none;
+  border-radius: 0;
+  padding-left: 0;
+  padding-right: 0;
+}
+[data-density="dense"] .md-card__header { padding: 0 0 var(--md-space-2); }
+[data-density="dense"] .md-card__title {
+  font-size: var(--md-label-l-size);
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--md-on-surface-dim);
+}
+
+/* ── Section eyebrow ────────────────────────────────────────────────────────── */
+[data-density="dense"] .md-section-title {
+  font-size: var(--md-label-m-size);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--md-on-surface-dim);
+  margin-bottom: var(--md-space-2);
+}
+
+/* ── List rows: compact, hairline dividers ──────────────────────────────────── */
+[data-density="dense"] .md-list-row {
+  min-height: 44px;
+  padding: var(--md-space-2) 0;
+  border-radius: 0;
+}
+[data-density="dense"] .md-list-row + .md-list-row {
+  border-top: 1px solid var(--md-outline-variant);
+  margin-top: 0;
+}
+[data-density="dense"] .md-list-row__leading .md-icon { font-size: 18px; }
+[data-density="dense"] .md-list-row__headline { font-size: var(--md-body-m-size); }
+[data-density="dense"] .md-list-row__support { font-size: var(--md-body-s-size); }
+
+/* ── Form rows: tight label/field stack ─────────────────────────────────────── */
+[data-density="dense"] .md-form-row { gap: var(--md-space-1); }
+[data-density="dense"] .md-form-row__label {
+  font-size: var(--md-label-m-size);
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--md-on-surface-dim);
+}
+
+/* ── md-dialog: tighter corner ──────────────────────────────────────────────── */
+[data-density="dense"] md-dialog {
+  --md-dialog-container-shape: var(--md-shape-md);
+}

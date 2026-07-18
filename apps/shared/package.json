@@ -1,0 +1,39 @@
+{
+  "name": "@roost/shared",
+  "private": true,
+  "type": "module",
+  "version": "2.0.0",
+  "exports": {
+    ".": "./src/index.ts",
+    "./wire": "./src/wire/index.ts",
+    "./wire/event-proto": "./src/wire/event-proto.ts",
+    "./wire/agent-proto": "./src/wire/agent-proto.ts",
+    "./wire/row-proto": "./src/wire/row-proto.ts",
+    "./config": "./src/config.ts",
+    "./trace": "./src/trace.ts",
+    "./log": "./src/log.ts",
+    "./diag": "./src/diag.ts",
+    "./json": "./src/json.ts",
+    "./viewport": "./src/viewport.ts",
+    "./wterm-wasm": "./src/wterm-wasm.ts",
+    "./wterm-core-factory": "./src/wterm-core-factory.ts",
+    "./cell": "./src/cell/index.ts",
+    "./cell/cell-proto": "./src/cell/cell-proto.ts",
+    "./proto/*": "./src/gen/roost/v1/*.ts"
+  },
+  "scripts": {
+    "typecheck": "bun x tsgo -p tsconfig.json --noEmit",
+    "test": "bun test",
+    "proto:gen": "buf generate"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "^2.12.0",
+    "@wterm/core": "0.3.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@bufbuild/buf": "^1.70.0",
+    "@bufbuild/protoc-gen-es": "^2.12.0",
+    "fast-check": "^3.23.0"
+  }
+}

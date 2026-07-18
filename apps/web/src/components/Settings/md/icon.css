@@ -1,0 +1,41 @@
+/*
+ * icon.css — Material Symbols icon utility, eager-delivered.
+ * Imported directly by Icon.tsx so the .md-icon font rule travels with
+ * every consumer (PaneStrip tab close, sidebar rows, dialogs) instead of
+ * being trapped in the lazy Settings chunk (tokens.css). The @font-face for
+ * "Material Symbols Rounded" lives in styles/sidebar.css (eager via main.tsx,
+ * font-display: block) — this file only applies the family to .md-icon.
+ */
+
+/* ─── Material Symbols icon (utility) ─────────────────────────── */
+.md-icon {
+  font-family: "Material Symbols Rounded";
+  font-style: normal;
+  font-weight: 400;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-feature-settings: "liga";
+  -webkit-font-feature-settings: "liga";
+  font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24;
+  vertical-align: middle;
+  user-select: none;
+}
+.md-icon--filled { font-variation-settings: "FILL" 1, "wght" 400, "GRAD" 0, "opsz" 24; }
+.md-icon--sm { font-size: 18px; }
+.md-icon--lg { font-size: 32px; }
+
+/* @material/web icon-button sizes slotted icons via
+   `.icon ::slotted(*){font-size:var(--_icon-size)}` where
+   --_icon-size = var(--md-icon-button-icon-size, 24px). Document rules
+   beat shadow ::slotted rules for normal declarations, so .md-icon's
+   24px would silently defeat the dense 14px overrides set inline in
+   PaneStrip.tsx / SessionRow.tsx. Resolve the same token here so the
+   document-side winner agrees with the component. */
+md-icon-button > .md-icon {
+  font-size: var(--md-icon-button-icon-size, 24px);
+}

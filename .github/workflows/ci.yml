@@ -1,0 +1,53 @@
+name: ci
+
+on:
+  push:
+    branches: [main, v2]
+  pull_request:
+    branches: [main, v2]
+
+jobs:
+  invariants:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - name: install
+        run: bun install
+      - name: typecheck
+        run: bun x tsgo -p tsconfig.base.json --noEmit
+      - name: knip (dead-code report, report-only)
+        run: bunx knip || true
+      - name: smoke (Bun primitives)
+        run: bun test smoke/
+      - name: shared (wire spec + event log)
+        run: bun test apps/shared/tests/
+      - name: coord
+        run: bun test apps/coord/tests/
+      - name: worker
+        run: bun test apps/worker/tests/
+      - name: web
+        run: bun test apps/web/tests/
+
+  playwright:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    needs: invariants
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: bun install
+      - run: bun run --cwd apps/web build
+      - name: playwright install
+        run: cd apps/web && npx playwright install --with-deps chromium
+      - name: playwright run (on Node, not Bun)
+        run: cd apps/web && node ./node_modules/.bin/playwright test
+        continue-on-error: true   # non-blocking — full-browser E2E not verified in this pass

@@ -1,0 +1,183 @@
+// Sync — single Connect server-streaming RPC replacing sync.firehose
+// tRPC subscription. Multiplexes 8 buses (sessions/presence/workspaces/
+// tasks/permissions/mcp/globalBytes/globalPresence) over one stream.
+//
+// Wire shape: FirehoseFrame oneof. Event-typed variants carry a JSON
+// payload (existing per-domain event shapes from @roost/shared/wire).
+// Bytes variant uses proto-native fields (session_id, data, seq) —
+// binary efficient, no base64.
+
+syntax = "proto3";
+package roost.v1;
+
+import "roost/v1/events.proto";
+import "roost/v1/wire.proto";
+import "roost/v1/cell.proto";
+
+message SyncRequest {
+  // T1.4 — reconnect backfill. SPA persists the last event id it saw
+  // (server-stamped on each SessionEvent) and passes it on reopen.
+  // Coord replays event rows with id > since_event_id before subscribing
+  // to live publishes. 0 = no backfill (first connect).
+  uint64 since_event_id = 1;
+}
+
+// Generic event variants — payload_json carries the existing per-domain
+// event shape verbatim. SPA decodes JSON and dispatches into existing
+// projector handlers. Migration path: when each handler ports to proto,
+// these get replaced with typed message variants.
+message JsonEvent {
+  string payload_json = 1;
+}
+
+message BytesFrame {
+  string session_id = 1;
+  bytes data = 2;  // raw PTY bytes — no base64
+  uint64 seq = 3;
+}
+
+message SessionPresence {
+  string session_id = 1;
+  string payload_json = 2;
+}
+
+// claude TUI status, scraped centrally by coord (claude-status-hub) and
+// fanned out here. Volatile (re-derived continuously) — NOT backfilled on
+// reconnect; the next output settle re-publishes the current value.
+message ClaudeStatusFrame {
+  string session_id = 1;
+  string status = 2;  // running | running-workflow | needs-input | idle | unknown
+}
+
+// OSC 0/2 terminal title, parsed centrally by coord (terminal-title-hub) from
+// the same relayed byte stream and fanned out here. Volatile (re-derived from
+// output) — NOT backfilled on reconnect; seeded on Sync connect like status.
+message TerminalTitleFrame {
+  string session_id = 1;
+  string title = 2;
+}
+
+// Last-activity timestamp (ms) per session, stamped centrally by coord
+// (last-activity-hub) on PTY byte flow and fanned out here (throttled).
+// Drives the sidebar "Last activity" filter aging out idle OPEN sessions.
+// Volatile — seeded on Sync connect, throttled live updates after. double
+// (not int64) so protobuf-es keeps it a JS number, not bigint.
+message LastActivityFrame {
+  string session_id = 1;
+  double ts_ms = 2;
+}
+
+// Live worker routability = coord's raw-WS membership (connectWorkers). Full
+// current set, published on every connect/disconnect + seeded on Sync connect.
+// SPA replaces its routable set wholesale → the online indicator stops lying.
+message WorkerRoutableFrame {
+  repeated string fps = 1;
+}
+
+message FirehoseFrame {
+  oneof frame {
+    JsonEvent sessions = 1;       // legacy fallback: any kind not yet in session_event_proto
+    BytesFrame bytes = 7;
+    SessionPresence session_presence = 8;
+    AuditRow audit_row = 10;
+    SessionEventProto session_event = 11;
+    // T1.2 part 2 — typed bus deltas. Both sides accept either form;
+    // older clients fall back to the JsonEvent equivalents above.
+    WorkspaceDeltaProto workspace_delta = 12;
+    TaskDeltaProto task_delta = 13;
+    WebhookTokenDeltaProto webhook_token_delta = 14;
+    PermissionRuleDeltaProto permission_delta = 15;
+    McpStreamMessageProto mcp_msg = 16;
+    WorkerPresenceProto worker_presence = 17;
+    ClaudeStatusFrame claude_status = 18;
+    WorkerRoutableFrame worker_routable = 19;
+    // R11 cell-grid cell-shipping — pre-rendered grid, SPA paints + never reflows.
+    PbCellGridFrame cell_grid = 20;
+    TerminalTitleFrame terminal_title = 21;
+    LastActivityFrame last_activity = 22;
+    PairRequestDeltaProto pair_request_delta = 23;
+    // ui-cc — browser-tab UI state + command channel (G1/G2). ui_state
+    // re-broadcasts a tab's UiReportState (agents watch the spatial model
+    // live); ui_command carries a UiDispatch to the live SPA tab(s) that
+    // execute it with their existing pure layout ops. Both volatile,
+    // presence-class (no replay; state re-seeded on Sync connect).
+    UiStateFrame ui_state = 24;
+    UiCommandFrame ui_command = 25;
+    // Application-level keepalive. Coord sends one every 30s on each Sync WS
+    // so the browser stale-link watchdog (apps/web/src/store/sync-watchdog.ts)
+    // can tell a half-open connection (silence past 90s → force-close +
+    // reconnect) from a merely idle session. Mirrors the worker bidi
+    // keepalive (worker-conn.ts). The browser WebSocket API does not surface
+    // WS-level pings to JS, so this MUST be a data frame that arrives in
+    // onmessage.
+    KeepaliveFrame keepalive = 26;
+  }
+}
+
+message KeepaliveFrame {
+  int64 ts = 1;
+}
+
+// ─── ui-cc: browser-tab UI state + command channel ─────────────────────────
+// Layout stays browser-local (localStorage); coord only relays. The tab
+// REPORTS its spatial model (UiReportState) and EXECUTES commands
+// (UiDispatch → ui_command frame → SPA maps onto store/paneLayout.ts pure
+// ops). No browser open → commands no-op; agents detect via UiListStates.
+
+message UiReportStateRequest {
+  string tab_id = 1;           // sessionStorage roost.tabId (auth/tab-id.ts)
+  string active_path = 2;      // router location, e.g. "/s/<sessionId>"
+  string folder_key = 3;       // pane-layout bucket the layout below belongs to
+  // Layout tree serialized as-is (store/paneLayout.ts Layout). JSON string
+  // keeps the proto stable while the layout model evolves — same pattern as
+  // DiagSnapshot.spa_state_json.
+  string layout_json = 4;
+  string focused_pane_id = 5;
+  repeated string visible_session_ids = 6;  // one selectedTab per visible pane
+}
+
+// Typed command set — unlike layout_json, commands ARE the contract.
+message UiCommand {
+  oneof command {
+    UiNavigate navigate = 1;
+    UiPlaceSplit place_split = 2;
+    UiSelectTab select_tab = 3;
+    UiFocusPane focus_pane = 4;
+    UiMoveTab move_tab = 5;
+    UiArrange arrange = 6;
+    UiCloseTab close_tab = 7;
+    UiSpotlight spotlight = 8;
+  }
+}
+
+message UiNavigate { string path = 1; }
+// Split the pane holding anchor_session_id; the new sibling pane holds
+// session_id. dir: "row" (left|right) | "col" (top|bottom). insert_first =
+// new pane takes the left/top side.
+message UiPlaceSplit {
+  string session_id = 1;
+  string anchor_session_id = 2;
+  string dir = 3;
+  bool insert_first = 4;
+}
+message UiSelectTab { string session_id = 1; }
+// Focus the pane currently holding session_id.
+message UiFocusPane { string session_id = 1; }
+// Move session_id's tab into the pane holding dest_session_id.
+message UiMoveTab { string session_id = 1; string dest_session_id = 2; }
+// preset: even | rows | tiled | main-vertical | balance (paneLayoutPresets.ts)
+message UiArrange { string preset = 1; }
+// Soft-close honoring the pendingClose undo window (TerminalDeck doClose).
+message UiCloseTab { string session_id = 1; }
+message UiSpotlight { string session_id = 1; bool off = 2; }
+
+message UiStateFrame {
+  string fp = 1;      // browser key fingerprint (auth identity)
+  string tab_id = 2;
+  UiReportStateRequest state = 3;
+}
+
+message UiCommandFrame {
+  string target_tab_id = 1;  // empty = all tabs
+  UiCommand command = 2;
+}

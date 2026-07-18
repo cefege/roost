@@ -1,0 +1,8 @@
+[install]
+# Use bun's native lockfile (bun.lockb).
+exact = false
+
+[test]
+# Default timeout for `bun test` — 10s lets PTY + subprocess + WSS specs
+# finish comfortably while still catching hangs.
+timeout = 10000

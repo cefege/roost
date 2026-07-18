@@ -1,0 +1,116 @@
+// crpc5 — coord ↔ worker bidi stream. Worker dials coord once at boot;
+// stream stays open. Server-to-server, full duplex.
+//
+// Replaces /ws/coord-worker/:fp hand-rolled JSON+binary WSS.
+// Both directions multiplex control frames (proto oneof) and binary
+// PTY bytes (BinaryFrame).
+
+syntax = "proto3";
+package roost.v1;
+
+import "roost/v1/events.proto";
+import "roost/v1/cell.proto";
+
+// ── Upstream (worker → coord) ────────────────────────────────────
+
+message WHello { string worker_fp = 1; string version = 2; }
+message WPong { uint64 ts = 1; }
+// D-4b at-least-once delivery: worker stamps a per-worker monotonic
+// client_seq on every SessionEvent. Coord inserts under a unique
+// constraint (worker_fp, client_seq); retries dedup at the index and
+// still get acked. Coord MUST send DEventAck { client_seq } downstream
+// after a successful insert OR dedup so the worker drops the entry
+// from its unacked outbox.
+message WSessionEvent {
+  SessionEventProto event = 1;
+  uint64 client_seq = 2;
+}
+message WRpcOk { string request_id = 1; string data_json = 2; }
+message WRpcError { string request_id = 1; string message = 2; }
+message WTransferLine { string job_id = 1; string text = 2; }
+message WTransferDone { string job_id = 1; int32 exit = 2; string error = 3; }
+message WBinary { uint32 channel_id = 1; uint32 direction = 2; uint64 seq = 3; bytes data = 4; }
+
+// T2.2 — in-band JWT rotation. Worker sends this BEFORE the current
+// JWT expires; coord-side auth interceptor verifies the new token and
+// swaps the caller binding for this stream. Stream stays open.
+message WRefreshJwt { string jwt = 1; }
+
+// R11 cell-shipping. Worker emits a pre-rendered cell grid (full on
+// attach/resize, delta after each PTY chunk) keyed by channel_id; coord
+// maps channel→session (byte-hub) and fans out via FirehoseFrame.cell_grid.
+message WCellGrid { uint32 channel_id = 1; PbCellGridFrame frame = 2; }
+
+// Volatile herdr agent status (running|needs-input|idle) keyed by channel_id;
+// coord maps channel→session (byte-hub) and republishes to claudeStatusBus →
+// FirehoseFrame.claude_status. NOT durable (never in the events table): the
+// worker screen-scrapes its wtermCore grid (detect/) and emits on change.
+message WClaudeStatus { uint32 channel_id = 1; string status = 2; }
+
+message CoordWorkerUp {
+  oneof frame {
+    WHello hello = 1;
+    WPong pong = 2;
+    WSessionEvent event = 3;
+    // field 4 (WAgentPatch agent_patch) retired — dead wire; agent events
+    // now flow typed via the `event` field's SessionEventProto.agent oneof.
+    // field 5 (WPresence presence) retired — no worker-side producer ever
+    // emitted it; presence flows SPA→coord via sessionsCursorPos RPC.
+    WRpcOk rpc_ok = 6;
+    WRpcError rpc_error = 7;
+    WTransferLine transfer_line = 8;
+    WTransferDone transfer_done = 9;
+    WBinary binary = 10;
+    WRefreshJwt refresh_jwt = 11;
+    WCellGrid cell_grid = 12;
+    WClaudeStatus claude_status = 13;
+  }
+}
+
+// ── Downstream (coord → worker) ──────────────────────────────────
+
+message DHelloAck { string coord_pubkey_b64 = 1; string coord_pubkey_kid = 2; }
+message DPing { uint64 ts = 1; }
+message DBrowserCommand {
+  string browser_id = 1;
+  string viewer_id = 2;
+  string request_id = 3;
+  string frame_json = 4;  // ClientControlFrame serialized
+}
+message DBinary { uint32 channel_id = 1; uint32 direction = 2; bytes data = 3; }
+// D-4b ack — coord echoes the worker's client_seq after a successful
+// (or dedup'd) event insert. Worker uses this to drop entries from the
+// unacked outbox.
+message DEventAck { uint64 client_seq = 1; }
+
+// Streamed file upload SPA→coord→worker. Coord relays the AttachFileChunk
+// stream as a sequence of these (raw bytes, no base64 inflation). The worker
+// assembles per request_id into a temp file, renames on `last`, then replies
+// WRpcOk { request_id, data_json:{abs_path} }. Additive frame (no
+// PROTOCOL_VERSION bump): a pre-stream worker simply never receives it.
+message DAttachmentChunk {
+  string request_id = 1;
+  string session_id = 2;  // first chunk only
+  string filename = 3;    // first chunk only
+  bool short_path = 4;    // first chunk only
+  bytes data = 5;         // raw chunk bytes
+  bool last = 6;          // final chunk → close + rename + reply
+  uint32 seq = 7;         // 0-based chunk index; worker rejects out-of-order
+}
+
+message CoordWorkerDown {
+  oneof frame {
+    DHelloAck hello_ack = 1;
+    DPing ping = 2;
+    DBrowserCommand browser_command = 3;
+    DBinary binary = 4;
+    DEventAck event_ack = 5;
+    DAttachmentChunk attachment_chunk = 6;
+  }
+}
+
+service WorkerService {
+  // Worker dials this once at boot. Coord verifies the JWT in the
+  // initial metadata; upstream Hello carries worker_fp for routing.
+  rpc Attach(stream CoordWorkerUp) returns (stream CoordWorkerDown);
+}

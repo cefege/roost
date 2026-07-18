@@ -1,0 +1,16 @@
+/*
+ * syntax-vars.css — fallback for the syntaxLite token kinds.
+ * --syntax-{plain,keyword,string,number,comment} are CANONICAL theme tokens:
+ * the engine (lib/theme.ts) writes them per active theme onto documentElement,
+ * and theme-vars.css :root carries the same Dark fallback. This file remains
+ * only so a direct import of it (FileViewerSheet.tsx) still has the tokens
+ * defined if loaded before theme-vars. Values mirror the Dark fallback.
+ */
+
+:root {
+  --syntax-keyword: #c678dd;
+  --syntax-string:  #98c379;
+  --syntax-comment: #5c6370;
+  --syntax-number:  #d19a66;
+  --syntax-plain:   #abb2bf;
+}

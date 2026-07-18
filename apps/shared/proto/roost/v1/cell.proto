@@ -1,0 +1,41 @@
+// Cell-grid wire (R11, cell-grid model). Worker ships PRE-RENDERED styled cells;
+// SPA paints + never reflows. Mirrors @roost/shared/cell types 1:1; adapters
+// in src/cell/cell-proto.ts. Imported by worker_transport (worker→coord
+// WCellGrid) and sync (coord→SPA FirehoseFrame.cell_grid).
+
+syntax = "proto3";
+package roost.v1;
+
+message PbCellSpan {
+  string text = 1;
+  uint32 fg = 2;            // 0..15 ANSI, 16..255 palette, 256 = default
+  uint32 bg = 3;
+  uint32 flags = 4;         // CELL_* bitfield (bold/dim/italic/underline/...)
+  optional uint32 fg_rgb = 5;  // 0xRRGGBB when true-color; absent = palette
+  optional uint32 bg_rgb = 6;
+}
+
+message PbCellRow {
+  uint32 index = 1;         // viewport: 0..rows-1; scrollback: absolute line #
+  repeated PbCellSpan spans = 2;
+}
+
+message PbCellGridFrame {
+  string session_id = 1;    // stamped by coord (worker sends channel_id)
+  uint32 cols = 2;
+  uint32 rows = 3;
+  uint32 cursor_row = 4;
+  uint32 cursor_col = 5;
+  bool cursor_visible = 6;
+  bool alt_screen = 7;
+  bool full = 8;            // full snapshot vs delta
+  repeated PbCellRow viewport_rows = 9;       // full: all; delta: changed only
+  repeated PbCellRow scrollback_rows = 10;    // full only: scrollback tail (see sb_base)
+  repeated PbCellRow scrollback_append = 11;  // delta only: appended lines
+  uint64 scrollback_total = 12;
+  uint64 seq = 13;
+  // Absolute index of scrollback_rows[0]. Full frames may carry only a TAIL
+  // of retained history; [0, sb_base) is served by SessionsGetScrollbackCells.
+  // 0 = complete (also the pre-tail wire default).
+  uint64 sb_base = 14;
+}

@@ -1,0 +1,589 @@
+// BrowsePage — the Google-Drive-style file manager at /browse/:workerFp.
+// Opened by the "+" (new terminal) flow (FlatNewTerminal, HomeLanding CTAs,
+// ⌘K "New terminal on…" rows). Replaces the CommandPalette folder-mode picker
+// (CommandPaletteBody.tsx desktop/mobile folder branches) with a real route:
+// folder GRID of tiles (default) or list, breadcrumb, New-folder, and
+// "Open terminal here". Phone (compact) = same page, path field hidden,
+// tap-to-drill only — Drive's Move-to mobile.
+//
+// Navigation is click-driven: folder tiles drill in, breadcrumb segments go up,
+// back/forward traverse a history stack (lib/browseHistory.ts). No path/filter
+// input — every dir change is an explicit click that pushes history, so
+// back/forward are a faithful browser stack.
+//
+// Data layer: filesListDir/filesMkdir RPCs, childPath/pathCrumbs
+// (lib/folderPalette.ts), pickFolder→spawnShell, createFolder.
+
+import { createMemo, createSignal, createEffect, For, Show, onMount, onCleanup } from "solid-js";
+import { useNavigate, useParams, Navigate } from "@solidjs/router";
+import { rootStore } from "../store/root.ts";
+import { allSessions } from "../store/selectors.ts";
+import { workerOnline } from "../store/sync.ts";
+import { coordClient } from "../connect.ts";
+import { spawnShell, waitForSession, maybeAutoLaunchAgent } from "../lib/spawnSession.ts";
+import { terminalHref } from "../lib/terminalHref.ts";
+import { pushRecent } from "../lib/sidebarRecent.ts";
+import { computeFolderActivity, type FolderActivity } from "../lib/folderActivity.ts";
+import { colorForFp } from "../lib/fpColor.ts";
+import { isCompact } from "../lib/windowSizeClass.ts";
+import { addToast } from "../lib/toastStore.ts";
+import { childPath, pathCrumbs } from "../lib/folderPalette.ts";
+import { initHistory, pushHistory as pushHistoryFn, goBack as goBackFn, goForward as goForwardFn, canGoBack as canBackFn, canGoForward as canFwdFn, type HistoryState } from "../lib/browseHistory.ts";
+import { uiStore, setHomeFolderViewMode, setHomeFolderShowFiles } from "../store/uiStore.ts";
+import { FolderGlyph } from "./FolderGlyph.tsx";
+import { FileGlyph } from "./FileGlyph.tsx";
+import { StatusDot } from "./Settings/md/StatusDot.tsx";
+import { Dialog, Button, TextField } from "./Settings/md/primitives.tsx";
+import type { WorkerFp } from "@roost/shared/wire";
+
+interface DirEntry { name: string; isDir: boolean; mtimeMs: number }
+
+function relativeTime(ms: number): string {
+  if (!ms) return "";
+  const diff = Date.now() - ms;
+  if (diff < 60_000) return "just now";
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
+  if (diff < 604_800_000) return `${Math.floor(diff / 86_400_000)}d ago`;
+  return new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+// Self-explanatory timestamp: clock glyph + relative text, with the full
+// locale date+time in the `title` so a hover says exactly what "5m ago" means.
+function MetaTime(props: { ms: number; class: string }) {
+  return (
+    <Show when={props.ms > 0}>
+      <span class={props.class} title={`Modified ${new Date(props.ms).toLocaleString()}`}>
+        <svg class="df-browse-meta-clock" width="11" height="11" viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" />
+        </svg>
+        {relativeTime(props.ms)}
+      </span>
+    </Show>
+  );
+}
+export function BrowsePage() {
+  const params = useParams<{ workerFp: string }>();
+  const navigate = useNavigate();
+
+  // Navigation is click-driven: `cwd` is the canonical current directory
+  // (no trailing slash, "~" = home). `historyState` tracks every dir change
+  // as a browser-style stack (truncate-forward-on-push). Back/Forward move
+  // the cursor; tiles/breadcrumbs push entries. No typed path — every
+  // dir change is an explicit click.
+  const [cwd, setCwd] = createSignal("~");
+  const [startDir, setStartDir] = createSignal("~");
+  const [historyState, setHistoryState] = createSignal<HistoryState>(initHistory("~"));
+  const [activeIdx, setActiveIdx] = createSignal(0);
+  const [serverMenuOpen, setServerMenuOpen] = createSignal(false);
+  let resultsRef: HTMLDivElement | undefined;
+  const [newFolderOpen, setNewFolderOpen] = createSignal(false);
+  const [newFolderName, setNewFolderName] = createSignal("");
+  const [newFolderBusy, setNewFolderBusy] = createSignal(false);
+  let newFolderInput: HTMLElement | undefined;
+
+  const folderServer = createMemo(() => params.workerFp ?? "");
+  const serverLabel = createMemo(() => rootStore.workers[folderServer()]?.label ?? folderServer().slice(0, 8));
+  const serverOnline = createMemo(() => { const w = rootStore.workers[folderServer()]; return w ? workerOnline(w) : false; });
+
+  const onlineWorkers = createMemo(() =>
+    Object.values(rootStore.workers).filter(workerOnline).sort((a, b) => a.label.localeCompare(b.label)),
+  );
+
+
+  // Directory listing — eager createEffect, last-write-wins cancellation (same
+  // pattern as the retired palette folder mode).
+  const [dirData, setDirData] = createSignal<{ resolved: string; entries: DirEntry[] } | null>(null);
+  const [dirLoading, setDirLoading] = createSignal(false);
+  createEffect(() => {
+    const fp = folderServer();
+    const dir = cwd();
+    if (!fp) { setDirData(null); setDirLoading(false); return; }
+    let cancelled = false;
+    setDirLoading(true);
+    coordClient.filesListDir({ workerFp: fp as unknown as WorkerFp, path: dir })
+      .then((res) => { if (!cancelled) setDirData({ resolved: res.resolvedPath || dir, entries: res.entries.map((e) => ({ name: e.name, isDir: e.isDir, mtimeMs: Number(e.mtimeMs) })) }); })
+      .catch(() => { if (!cancelled) setDirData(null); })
+      .finally(() => { if (!cancelled) setDirLoading(false); });
+    onCleanup(() => { cancelled = true; });
+  });
+
+  // Server-scoped recent cwds, shown as a chip strip above the grid.
+  const folderRecents = createMemo<string[]>(() => {
+    const fp = folderServer();
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const s of [...allSessions()].sort((a, b) => b.created_at - a.created_at)) {
+      if (s.worker_fp !== fp || !s.cwd || seen.has(s.cwd)) continue;
+      seen.add(s.cwd); out.push(s.cwd);
+      if (out.length >= 5) break;
+    }
+    return out;
+  });
+
+  const cwdNow = createMemo(() => dirData()?.resolved ?? cwd());
+  const crumbs = createMemo(() => pathCrumbs(cwdNow()));
+  const backEnabled = createMemo(() => canBackFn(historyState()));
+  const forwardEnabled = createMemo(() => canFwdFn(historyState()));
+
+  // Dotfiles always hidden (no frag — the path input is gone, so there is
+  // no filter to reveal dotfiles matching a typed prefix).
+  const filteredDirs = createMemo<DirEntry[]>(() => {
+    const dirs = dirData()?.entries ?? [];
+    return dirs.filter((d) => d.isDir && !d.name.startsWith("."));
+  });
+  const filteredFiles = createMemo<DirEntry[]>(() => {
+    const files = (dirData()?.entries ?? [])
+      .filter((d) => !d.isDir && !d.name.startsWith("."));
+    return [...files].sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+  });
+  // Folder activity (terminal/agent counts) for each visible subdirectory.
+  // Cumulative: counts all sessions in the folder OR its subtree.
+  const folderActivity = createMemo<Map<string, FolderActivity>>(() => {
+    const fp = folderServer();
+    if (!fp) return new Map();
+    const base = cwdNow();
+    const childPaths = filteredDirs().map((d) => childPath(base, d.name));
+    return computeFolderActivity(allSessions(), fp, childPaths);
+  });
+  // Subtitle per folder: human-readable summary from session activity.
+  const folderSubtitles = createMemo<Map<string, string>>(() => {
+    const out = new Map<string, string>();
+    for (const [path, a] of folderActivity()) {
+      if (a.needsInput > 0) out.set(path, "Waiting on your input");
+      else if (a.agentsRunning > 0) out.set(path, "Agent running");
+      else if (a.terminals > 0) out.set(path, `${a.terminals} session${a.terminals === 1 ? "" : "s"}`);
+    }
+    return out;
+  });
+
+
+  // Reset cursor on query change only (not on background WS ticks).
+  createEffect(() => { cwd(); setActiveIdx(0); });
+
+  // Keep the keyboard-highlighted tile in view.
+  createEffect(() => {
+    const idx = activeIdx();
+    const el = resultsRef?.querySelectorAll<HTMLElement>('[data-testid="browse-tile"],[data-testid="browse-row"]')[idx];
+    el?.scrollIntoView({ block: "nearest" });
+  });
+
+  // Mount: seed cwd + history from this server's most-recent session,
+  // else "~" (home). Home is "~" (never ""); the empty-string→root bug
+  // from the old string-nav model is gone at the representation level.
+  onMount(() => {
+    const fp = folderServer();
+    const recent = [...allSessions()].filter((s) => String(s.worker_fp) === fp)
+      .sort((a, b) => b.created_at - a.created_at)[0];
+    const sd = recent?.cwd ?? "~";
+    setStartDir(sd);
+    setCwd(sd);
+    setHistoryState(initHistory(sd));
+    requestAnimationFrame(() => resultsRef?.focus());
+  });
+
+  // Every navigation is an explicit click: push the new dir onto history
+  // (truncating any forward branch) and set cwd. No typed-path tracking,
+  // no navigating guard — click ops are the only thing that moves cwd.
+  function pushCwd(path: string) {
+    setCwd(path);
+    setHistoryState((s) => pushHistoryFn(s, path));
+    setActiveIdx(0);
+  }
+  function drill(name: string) { pushCwd(childPath(cwd(), name)); }
+  function goToDir(path: string) { pushCwd(path); }
+  function goBack() {
+    const next = goBackFn(historyState());
+    if (next === historyState()) return;
+    setHistoryState(next);
+    setCwd(next.entries[next.cursor]);
+    setActiveIdx(0);
+  }
+  function goForward() {
+    const next = goForwardFn(historyState());
+    if (next === historyState()) return;
+    setHistoryState(next);
+    setCwd(next.entries[next.cursor]);
+    setActiveIdx(0);
+  }
+
+  async function pickFolder(path: string) {
+    const fp = folderServer();
+    if (!fp) return;
+    try {
+      const sessionId = await spawnShell(fp as unknown as WorkerFp, path);
+      pushRecent(sessionId);
+      const session = await waitForSession(sessionId);
+      maybeAutoLaunchAgent(sessionId);
+      navigate(session ? terminalHref(session) : `/s/${sessionId}`);
+    } catch (err) {
+      addToast(`New terminal failed: ${err instanceof Error ? err.message : String(err)}`, "err");
+    }
+  }
+
+  function newFolder() {
+    setNewFolderName("");
+    setNewFolderBusy(false);
+    setNewFolderOpen(true);
+    queueMicrotask(() => newFolderInput?.focus());
+  }
+
+  async function commitNewFolder() {
+    const name = newFolderName().trim();
+    if (!name || newFolderBusy()) return;
+    const fp = folderServer();
+    if (!fp) return;
+    setNewFolderBusy(true);
+    try {
+      const target = childPath(cwd(), name);
+      const res = await coordClient.filesMkdir({ workerFp: fp as unknown as WorkerFp, path: target });
+      setNewFolderOpen(false);
+      pushCwd(res.resolvedPath || target);
+    } catch (err) {
+      addToast(`Create folder failed: ${err instanceof Error ? err.message : String(err)}`, "err");
+      setNewFolderBusy(false);
+    }
+  }
+
+  function selectServer(fp: string) {
+    setServerMenuOpen(false);
+    navigate(`/browse/${fp}`);
+  }
+
+  function onKeydown(e: KeyboardEvent) {
+    // ESC: close overlay on desktop
+    if (e.key === "Escape") {
+      const dlg = document.querySelector("md-dialog");
+      if (dlg && dlg.open) return;          // let New-folder dialog close itself
+      e.preventDefault(); navigate("/"); return;
+    }
+    if (e.key === "ArrowDown") { e.preventDefault(); setActiveIdx((i) => Math.min(filteredDirs().length - 1, i + 1)); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setActiveIdx((i) => Math.max(0, i - 1)); }
+    else if (e.key === "ArrowRight") {
+      const d = filteredDirs()[activeIdx()];
+      if (d) { e.preventDefault(); drill(d.name); }
+    }
+    else if (e.key === "ArrowLeft") { e.preventDefault(); goBack(); }
+    else if (e.key === "Tab") {
+      const d = filteredDirs()[activeIdx()];
+      if (d) { e.preventDefault(); drill(d.name); }
+    }
+    else if (e.key === "Enter") { e.preventDefault(); void pickFolder(cwdNow()); }
+  }
+  onMount(() => window.addEventListener("keydown", onKeydown));
+  onCleanup(() => window.removeEventListener("keydown", onKeydown));
+
+  const viewMode = () => uiStore.homeFolderViewMode;
+  const showFiles = () => uiStore.homeFolderShowFiles;
+  const compact = isCompact;
+
+  const innerContent = (
+    <div class="df-browse-page" data-testid="browse-page" data-compact={compact() ? "true" : "false"} data-overlay={!compact() ? "true" : undefined}>
+      <div class="df-browse-toolbar">
+        <Show when={compact()}>
+          <button type="button" class="df-browse-close" data-testid="browse-close"
+            aria-label="Cancel" title="Cancel"
+            onClick={() => navigate("/")}>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </button>
+        </Show>
+        <button type="button" class="df-browse-back" data-testid="browse-back" aria-label="Back"
+          onClick={goBack} disabled={!backEnabled()} title="Back"
+        >
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M15 18l-6-6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </button>
+        <button type="button" class="df-browse-forward" data-testid="browse-forward" aria-label="Forward"
+          onClick={goForward} disabled={!forwardEnabled()} title="Forward"
+        >
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M9 18l6-6-6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </button>
+
+        <div class="df-browse-crumbs">
+          <For each={crumbs()}>
+            {(c, i) => (
+              <>
+                <Show when={i() > 0}>
+                  <span class="df-browse-crumb-sep" aria-hidden="true">▸</span>
+                </Show>
+                <button type="button" class="df-browse-crumb" data-testid="browse-crumb"
+                  data-current={i() === crumbs().length - 1 ? "true" : "false"}
+                  onClick={() => goToDir(c.path)} title={c.path}
+                >{c.label}</button>
+              </>
+            )}
+          </For>
+        </div>
+
+
+        <div class="df-browse-toggle" role="group" aria-label="View mode">
+          <button type="button" class="df-browse-toggle-btn" data-testid="browse-view-grid"
+            data-active={viewMode() === "grid" ? "true" : "false"} aria-label="Grid view"
+            aria-pressed={viewMode() === "grid"} onClick={() => setHomeFolderViewMode("grid")}
+          ><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></svg></button>
+          <button type="button" class="df-browse-toggle-btn" data-testid="browse-view-list"
+            data-active={viewMode() === "list" ? "true" : "false"} aria-label="List view"
+            aria-pressed={viewMode() === "list"} onClick={() => setHomeFolderViewMode("list")}
+          ><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" /><line x1="8" y1="18" x2="21" y2="18" /><circle cx="3.5" cy="6" r="1" /><circle cx="3.5" cy="12" r="1" /><circle cx="3.5" cy="18" r="1" /></svg></button>
+        </div>
+        <div class="df-browse-toolbar-actions">
+        <button type="button" class="df-browse-toggle-btn" data-testid="browse-show-files"
+          data-active={showFiles() ? "true" : "false"} aria-pressed={showFiles()}
+          onClick={() => setHomeFolderShowFiles(!showFiles())} title="Show files in this folder"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M14 3v4a1 1 0 0 0 1 1h4" /><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z" />
+          </svg>
+        </button>
+
+        <button type="button" class="df-browse-new" data-testid="browse-new" onClick={newFolder}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"
+          ><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" /><path d="M12 11v5M9.5 13.5h5" /></svg>
+          <span class="df-browse-new-label">New folder</span>
+        </button>
+
+        <Show when={onlineWorkers().length > 1}>
+          <div style={{ position: "relative", "flex-shrink": "0" }}>
+            <button type="button" class="df-browse-server" data-testid="browse-server"
+              onClick={(e) => { e.stopPropagation(); setServerMenuOpen((v) => !v); }} title={serverLabel()}
+            >
+              <StatusDot status={serverOnline() ? "ok" : "idle"} size={7} />
+              <span class="df-browse-server-label">{serverLabel()}</span>
+              <span aria-hidden="true" style={{ "font-size": "10px", opacity: "0.8" }}>▼</span>
+            </button>
+            <Show when={serverMenuOpen()}>
+              <div data-testid="browse-server-menu"
+                style={{ position: "absolute", top: "calc(100% + 6px)", right: "0", "min-width": "180px", "z-index": "1", display: "flex", "flex-direction": "column", padding: "4px", background: "var(--md-sys-color-surface-container-high)", border: "1px solid var(--md-sys-color-outline-variant)", "border-radius": "var(--md-shape-md)", "box-shadow": "var(--md-elev-2)" }}
+              >
+                <For each={onlineWorkers()}>
+                  {(w) => (
+                    <button type="button" data-testid="browse-server-option"
+                      onClick={(e) => { e.stopPropagation(); selectServer(String(w.fp)); }}
+                      style={{ display: "flex", "align-items": "center", gap: "8px", width: "100%", padding: "6px 10px", "border-radius": "var(--md-shape-sm)", border: "none", background: String(w.fp) === folderServer() ? "var(--md-sys-color-secondary-container)" : "transparent", color: String(w.fp) === folderServer() ? "var(--md-sys-color-on-secondary-container)" : "var(--md-sys-color-on-surface)", "font-size": "var(--md-body-s-size)", "font-family": "inherit", cursor: "pointer", "text-align": "left" }}
+                    >
+                      <StatusDot status="ok" size={7} />
+                      <span style={{ flex: "1", overflow: "hidden", "text-overflow": "ellipsis", "white-space": "nowrap" }}>{w.label}</span>
+                      <Show when={String(w.fp) === folderServer()}><span aria-hidden="true" style={{ opacity: "0.7" }}>✓</span></Show>
+                    </button>
+                  )}
+                </For>
+              </div>
+            </Show>
+          </div>
+        </Show>
+        </div>
+      </div>
+
+      <Show when={cwd() === startDir() && folderRecents().length > 0}>
+        <div class="df-browse-recents">
+          <span class="df-browse-recents-label">Recent</span>
+          <For each={folderRecents()}>
+            {(r) => (
+              <button type="button" class="df-browse-recent-chip" data-testid="browse-recent"
+                onClick={() => void pickFolder(r)} title={r}
+              >
+                <FolderGlyph size={11} />
+                {r.split("/").filter(Boolean).pop() || r}
+              </button>
+            )}
+          </For>
+        </div>
+      </Show>
+
+      <div ref={resultsRef} class="df-browse-area" tabIndex="-1">
+        <Show when={dirLoading() && filteredDirs().length === 0}>
+          <div class="df-browse-empty">Loading…</div>
+        </Show>
+        <Show when={!dirLoading() && filteredDirs().length === 0}>
+          <div class="df-browse-empty">
+            <div class="df-browse-empty-icon"><FolderGlyph size={24} /></div>
+            {serverOnline() ? "Empty folder" : "Server offline"}
+            <Show when={serverOnline()} fallback={
+              <span class="df-browse-empty-sub">Reconnect to this server to browse folders</span>
+            }>
+              <span class="df-browse-empty-sub">Create a new folder or open a terminal here</span>
+              <div class="df-browse-empty-actions">
+                <button type="button" class="df-browse-new" onClick={newFolder}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"
+                  ><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" /><path d="M12 11v5M9.5 13.5h5" /></svg>
+                  New folder
+                </button>
+              </div>
+            </Show>
+          </div>
+        </Show>
+
+        <Show when={viewMode() === "grid"} fallback={
+          <div class="df-browse-list">
+            <For each={filteredDirs()}>
+              {(d, i) => {
+                const path = childPath(cwdNow(), d.name);
+                const activity = folderActivity().get(path);
+                const needsInput = activity?.needsInput ? activity.needsInput : 0;
+                return (
+                  <button type="button" class="df-browse-row" data-testid="browse-row"
+                    data-active={activeIdx() === i() ? "true" : "false"}
+                    data-needs-input={needsInput > 0 ? "true" : "false"}
+                    onClick={() => drill(d.name)} onmouseenter={() => setActiveIdx(i())}
+                  >
+                    <span class="df-browse-row-icon">
+                      <FolderGlyph size={20} style={{ color: needsInput > 0 ? "var(--md-sys-color-tertiary)" : undefined }} />
+                    </span>
+                    <span class="df-browse-row-name">{d.name}</span>
+                    <MetaTime ms={d.mtimeMs} class="df-browse-row-meta" />
+                    <Show when={needsInput > 0}>
+                      <span class="df-browse-badge df-browse-badge-needs-input" title="Agent waiting for input">{needsInput}</span>
+                    </Show>
+                    <Show when={activity && (activity.terminals > 0 || activity.agentsRunning > 0)}>
+                      <span class="df-browse-row-badges">
+                        <Show when={activity!.terminals > 0}>
+                          <span class="df-browse-badge df-browse-badge-terminals">{activity!.terminals}</span>
+                        </Show>
+                        <Show when={activity!.agentsRunning > 0}>
+                          <span class="df-browse-badge df-browse-badge-agents">{activity!.agentsRunning}</span>
+                        </Show>
+                      </span>
+                    </Show>
+                    <span class="df-browse-row-chev" aria-hidden="true">›</span>
+                  </button>
+                );
+              }}
+            </For>
+            <Show when={showFiles()}>
+              <For each={filteredFiles()}>
+                {(f) => (
+                  <div class="df-browse-row df-browse-row-file" data-testid="browse-file-row" aria-label={f.name}>
+                    <span class="df-browse-row-icon"><FileGlyph size={20} /></span>
+                    <span class="df-browse-row-name">{f.name}</span>
+                    <MetaTime ms={f.mtimeMs} class="df-browse-row-meta" />
+                  </div>
+                )}
+              </For>
+            </Show>
+          </div>
+        }>
+          <div class="df-browse-grid">
+            <For each={filteredDirs()}>
+              {(d, i) => {
+                const path = childPath(cwdNow(), d.name);
+                const activity = folderActivity().get(path);
+                const needsInput = activity?.needsInput ? activity.needsInput : 0;
+                const subtitle = folderSubtitles().get(path);
+                const hue = colorForFp(folderServer()).hue;
+                return (
+                  <button type="button" class="df-browse-tile" data-testid="browse-tile"
+                    data-active={activeIdx() === i() ? "true" : "false"}
+                    data-needs-input={needsInput > 0 ? "true" : "false"}
+                    onClick={() => drill(d.name)} onmouseenter={() => setActiveIdx(i())}
+                  >
+                    <span class="df-browse-tile-icon" style={{ color: needsInput > 0 ? "var(--md-sys-color-tertiary)" : `hsl(${hue} 48% 42%)` }}>
+                      <FolderGlyph size={40} />
+                    </span>
+                    <span class="df-browse-tile-name">{d.name}</span>
+                    <Show when={subtitle}>
+                      <span class="df-browse-tile-subtitle">{subtitle}</span>
+                    </Show>
+                    <MetaTime ms={d.mtimeMs} class="df-browse-tile-meta" />
+                    <Show when={activity && (needsInput > 0 || activity.terminals > 0 || activity.agentsRunning > 0)}>
+                      <span class="df-browse-tile-badges">
+                        <Show when={needsInput > 0}>
+                          <span class="df-browse-badge df-browse-badge-needs-input" title="Agent waiting for input">{needsInput}</span>
+                        </Show>
+                        <Show when={activity!.terminals > 0}>
+                          <span class="df-browse-badge df-browse-badge-terminals">{activity!.terminals}</span>
+                        </Show>
+                        <Show when={activity!.agentsRunning > 0}>
+                          <span class="df-browse-badge df-browse-badge-agents">{activity!.agentsRunning}</span>
+                        </Show>
+                      </span>
+                    </Show>
+                  </button>
+                );
+              }}
+            </For>
+            <Show when={showFiles()}>
+              <For each={filteredFiles()}>
+                {(f) => (
+                  <div class="df-browse-tile df-browse-tile-file" data-testid="browse-file-tile" aria-label={f.name}>
+                    <span class="df-browse-tile-icon" style={{ color: "var(--md-sys-color-on-surface-variant)" }}>
+                      <FileGlyph size={40} />
+                    </span>
+                    <span class="df-browse-tile-name">{f.name}</span>
+                    <MetaTime ms={f.mtimeMs} class="df-browse-tile-meta" />
+                  </div>
+                )}
+              </For>
+            </Show>
+          </div>
+        </Show>
+      </div>
+
+      <div class="df-browse-actions">
+        <button type="button" class="df-browse-open" data-testid="browse-open"
+          onClick={() => void pickFolder(cwdNow())}
+        >
+          <span aria-hidden="true">❯</span>
+          Open terminal here
+        </button>
+      </div>
+      <Dialog
+        open={newFolderOpen()}
+        onClose={() => setNewFolderOpen(false)}
+        headline="New folder"
+        actions={
+          <>
+            <span style={{ flex: "1" }} />
+            <Button variant="text" onClick={() => setNewFolderOpen(false)}>Cancel</Button>
+            <Button variant="filled" data-testid="newfolder-confirm"
+              onClick={() => void commitNewFolder()} disabled={newFolderBusy() || !newFolderName().trim()}>
+              {newFolderBusy() ? "Creating…" : "Create"}
+            </Button>
+          </>
+        }
+      >
+        <div style={{ display: "flex", "flex-direction": "column", gap: "12px", "min-width": "320px" }}>
+          <TextField value={newFolderName()} onInput={(v) => setNewFolderName(v)} label="Folder name"
+            testId="newfolder-input" style={{ width: "100%" }} ref={(el) => { newFolderInput = el; }}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void commitNewFolder(); } }} />
+          <div style={{ "font-size": "12px", color: "var(--md-sys-color-on-surface-variant)" }}>
+            Creates a folder in {cwdNow()}.
+          </div>
+        </div>
+      </Dialog>
+    </div>
+  )
+
+  return !compact() ? (
+    <div
+      style={{ position: "fixed", inset: 0, "z-index": "100", display: "flex", "align-items": "center", "justify-content": "center", background: "color-mix(in srgb, var(--md-scrim) 55%, transparent)" }}
+      onClick={() => navigate("/")}
+    >
+      <div
+        style={{ width: "min(640px, 94vw)", "height": "85vh", display: "flex", "flex-direction": "column", background: "var(--md-sys-color-surface)", "border-radius": "var(--md-shape-xl)", "box-shadow": "var(--md-elev-3)", overflow: "hidden" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {innerContent}
+      </div>
+    </div>
+  ) : innerContent
+}
+
+// /browse (no server) → most-recent online server, else Home.
+export function BrowseRedirect() {
+  const navigate = useNavigate();
+  const fp = createMemo(() => {
+    const recent = [...allSessions()].sort((a, b) => b.created_at - a.created_at)
+      .find((s) => { const w = rootStore.workers[s.worker_fp]; return w ? workerOnline(w) : false; });
+    return recent?.worker_fp ?? Object.values(rootStore.workers).find(workerOnline)?.fp;
+  });
+  return <Navigate href={fp() ? `/browse/${fp()}` : "/"} />;
+}

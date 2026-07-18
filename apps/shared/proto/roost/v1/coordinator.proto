@@ -1,0 +1,746 @@
+// CoordinatorService — browser ↔ coord unary RPCs.
+// crpc2 migrates all unary procedures from tRPC.
+// Subscriptions land in crpc3 (Sync.proto). Streams in crpc4.
+
+syntax = "proto3";
+package roost.v1;
+
+import "roost/v1/wire.proto";
+import "roost/v1/sync.proto";
+import "roost/v1/cell.proto";
+
+// ─── workers ──────────────────────────────────────────────────────────────
+
+message WorkersListRequest {}
+message WorkersListResponse {
+  repeated Worker workers = 1;
+  // A2: fps the coord can actually route to RIGHT NOW (raw-WS membership in
+  // connectWorkers) — the authoritative "usable" signal, distinct from the
+  // weaker last_seen_ms heartbeat freshness. SPA gates the online indicator
+  // + session-create on this so a heartbeat-fresh-but-WS-dropped worker
+  // isn't shown online.
+  repeated string routable_fps = 2;
+}
+
+message WorkersRegisterRequest {
+  optional string label = 1;
+  optional string os = 2;  // darwin|linux
+  optional string git_sha = 3;
+  optional string reachable_addr = 4;
+}
+message WorkersRegisterResponse { Worker worker = 1; }
+
+message WorkersHeartbeatRequest {
+  optional HostMetrics host_metrics = 1;
+  optional string git_sha = 2;
+  // Set to the RUNNING keeper's build stamp when it differs from the worker's
+  // own (keeper running stale code); absent/empty = keeper is current. Surfaced
+  // as a badge in the SPA MachinesPane; applied via `roost keeper-refresh`.
+  optional string keeper_stale = 3;
+  // LIVE tailnet MagicDNS name (Self.DNSName from `tailscale status`),
+  // re-resolved each beat so a machine rename self-heals within 30s instead of
+  // only at boot. Coord persists it to workers.reachable_addr; the SPA composes
+  // vnc:// / smb:// from it. Absent when tailscale isn't reachable this beat
+  // (coord keeps the prior value). Never the worker label (that's the Tailscale
+  // HostName, which is NOT a resolvable DNS name on this tailnet).
+  optional string reachable_addr = 4;
+}
+message WorkersHeartbeatResponse {
+  string coord_pubkey_b64 = 1;
+  string coord_pubkey_kid = 2;
+}
+
+message WorkersRenameRequest { string fp = 1; string label = 2; }
+message WorkersRenameResponse { Worker worker = 1; }
+
+message WorkersDeleteRequest { string fp = 1; }
+message WorkersDeleteResponse { bool ok = 1; }
+
+message WorkersDeployStartRequest { string host = 1; }
+message WorkersDeployStartResponse {
+  bool ok = 1;
+  string job_id = 2;
+  string error = 3;
+}
+
+message WorkersDeployOutputRequest { string job_id = 1; }
+message WorkersDeployOutputFrame {
+  // oneof: line text OR done event
+  string kind = 1;   // "line" | "done"
+  string text = 2;   // present on kind="line"
+  int32 exit = 3;    // present on kind="done"; -1 if null
+  string error = 4;  // optional on kind="done"
+}
+
+message TransfersStartRequest {
+  string src_fp = 1;
+  string src_path = 2;
+  string dst_fp = 3;
+  string dst_path = 4;
+  bool delete_extra = 5;
+  bool dry_run = 6;
+}
+message TransfersStartResponse {
+  bool ok = 1;
+  string job_id = 2;
+  string error = 3;
+}
+
+message TransfersOutputRequest { string job_id = 1; }
+message TransfersOutputFrame {
+  string kind = 1;   // "line" | "done"
+  string text = 2;
+  int32 exit = 3;
+  string error = 4;
+}
+
+// ─── sessions ─────────────────────────────────────────────────────────────
+
+message SessionsListRequest {
+  optional string worker_fp = 1;
+  optional string status = 2;  // open|closed|all; default "open"
+}
+message SessionsListResponse { repeated Session sessions = 1; }
+
+message SessionsSpawnRequest {
+  string worker_fp = 1;
+  string kind = 2;  // shell|claude
+  string folder = 3;
+  optional string initial_mode = 4;  // ClaudeMode
+  optional uint32 cols = 5;
+  optional uint32 rows = 6;
+  optional string session_id = 7;  // caller-minted id (optimistic spawn); worker reuses it verbatim
+}
+message SessionsSpawnResponse {
+  string session_id = 1;
+  uint32 channel_id = 2;
+}
+
+message SessionsAttachRequest {
+  string session_id = 1;
+  optional uint64 from_offset = 2;
+}
+message SessionsAttachResponse { uint64 replay_offset = 1; }
+
+// force=true: tombstone the session in coord even when the owning worker is
+// offline (no ack possible). Used for "Force remove" on a dead/asleep host.
+message SessionsKillRequest { string session_id = 1; bool force = 2; }
+message SessionsKillResponse { bool accepted = 1; }
+
+// Set/clear a session's user rename. title="" clears the override.
+message SessionsRenameRequest { string session_id = 1; string title = 2; }
+message SessionsRenameResponse { bool ok = 1; }
+
+// What browser event produced a viewport claim (the ResizeCause model). The
+// SPA states its INTENT; the worker uses it as a hint (e.g.
+// force a full cell frame on a (re)attach/visible so a reconnecting viewer
+// paints immediately, vs a plain VIEWPORT resize that just re-paces). The SPA
+// does NOT try to distinguish chrome-wobble from a user drag — both are
+// VIEWPORT; wobble is absorbed by SCD-min + letterbox, not by this field.
+enum ResizeCause {
+  RESIZE_CAUSE_UNSPECIFIED = 0;  // legacy caller (treat as VIEWPORT)
+  RESIZE_CAUSE_INITIAL = 1;      // pane mount / first claim
+  RESIZE_CAUSE_VIEWPORT = 2;     // ResizeObserver — window/element size change
+  RESIZE_CAUSE_TAB_VISIBLE = 3;  // visibilitychange → visible (re-claim)
+  RESIZE_CAUSE_WITHDRAW = 4;     // tab hidden / unmount → 0x0 withdraw
+}
+
+message SessionsResizeRequest {
+  string session_id = 1;
+  uint32 cols = 2;
+  uint32 rows = 3;
+  // Monotonic per-SPA-window counter, bumped on each intent-bearing
+  // claim (focus / resize / visibilitychange-visible). Heartbeats reuse
+  // the last intent's value → worker treats as no-op for latestViewer.
+  // 0 (unset) = legacy caller; worker synthesizes a fresh seq locally.
+  uint64 client_seq = 4;
+  ResizeCause cause = 5;
+}
+message SessionsResizeResponse { bool accepted = 1; }
+
+message SessionsUserMessageRequest { string session_id = 1; string text = 2; }
+message SessionsUserMessageResponse { bool accepted = 1; }
+
+message SessionsInputRequest {
+  string session_id = 1;
+  bytes data = 2;  // raw PTY input bytes (no base64)
+}
+message SessionsInputResponse { bool accepted = 1; }
+
+message SessionsCursorPosRequest {
+  string session_id = 1;
+  uint32 col = 2;
+  uint32 row = 3;
+}
+message SessionsCursorPosResponse { bool accepted = 1; }
+
+message SessionsAssignWorkspaceRequest {
+  string session_id = 1;
+  optional string workspace_id = 2;
+}
+message SessionsAssignWorkspaceResponse { bool ok = 1; }
+
+message SessionsGetScrollbackSinceRequest {
+  string session_id = 1;
+  uint64 last_seq = 2;
+  // SPA's current wterm dims at mount. When set, worker resizes its
+  // headless wterm-core to (cols, rows) BEFORE serializing so the
+  // snapshot reflows to match the SPA — fixes "lines wrap short and
+  // stack downward" after a refresh at a different window size.
+  // last_seq=0 callers MUST send these; later seq callers may omit.
+  uint32 cols = 3;
+  uint32 rows = 4;
+}
+message SessionsGetScrollbackSinceResponse {
+  bytes data = 1;  // raw bytes (no base64)
+  uint64 start_seq = 2;
+  uint64 end_seq = 3;
+  bool gap = 4;
+}
+
+// Lazy-history backfill (cell mode): pre-rendered scrollback rows
+// [max(0, end_row - max_rows), end_row) of the session's CURRENT grid
+// epoch. Complements the tail-only full cell frame on attach (sb_base).
+message SessionsGetScrollbackCellsRequest {
+  string session_id = 1;
+  uint64 end_row = 2;   // exclusive; serves [max(0, end_row - max_rows), end_row)
+  uint32 max_rows = 3;
+}
+message SessionsGetScrollbackCellsResponse {
+  repeated PbCellRow rows = 1;  // oldest→newest, absolute index set
+  uint32 cols = 2;
+  uint64 scrollback_total = 3;
+  uint64 start_row = 4;
+  uint64 end_row = 5;
+}
+
+// ─── workspaces ───────────────────────────────────────────────────────────
+
+message WorkspacesListRequest {}
+message WorkspacesListResponse { repeated Workspace workspaces = 1; }
+
+message WorkspacesCreateRequest {
+  string worker_fp = 1;
+  string name = 2;
+  string folder_path = 3;
+  optional string color = 4;
+  repeated string attach_session_ids = 5;
+}
+message WorkspacesCreateResponse { Workspace workspace = 1; }
+
+message WorkspacesUpdateRequest {
+  string id = 1;
+  uint64 if_version = 2;
+  optional string name = 3;
+  optional string folder_path = 4;
+  optional string color = 5;
+  optional uint32 position = 6;
+}
+message WorkspacesUpdateResponse { Workspace workspace = 1; }
+
+message WorkspacesDeleteRequest { string id = 1; uint64 if_version = 2; }
+message WorkspacesDeleteResponse { bool ok = 1; }
+
+message WorkspacesSetSessionsRequest {
+  string id = 1;
+  uint64 if_version = 2;
+  repeated string session_ids = 3;
+}
+message WorkspacesSetSessionsResponse { Workspace workspace = 1; }
+
+// ─── tasks ────────────────────────────────────────────────────────────────
+
+message TasksListRequest { optional string state = 1; }
+message TasksListResponse { repeated Task tasks = 1; }
+
+message TasksEnqueueRequest {
+  string payload_json = 1;
+  optional string completion_check = 2;
+  optional uint64 claim_ttl_ms = 3;
+}
+message TasksEnqueueResponse { Task task = 1; }
+
+message TasksNextPendingRequest {}
+message TasksNextPendingResponse { optional Task task = 1; }
+
+message TasksSetStateRequest {
+  string id = 1;
+  string state = 2;
+  optional string result_json = 3;
+}
+message TasksSetStateResponse { Task task = 1; }
+
+message TasksCancelRequest { string id = 1; }
+message TasksCancelResponse { Task task = 1; }
+
+// ─── webhookTokens ────────────────────────────────────────────────────────
+
+message WebhookTokensListRequest {}
+message WebhookTokensListResponse { repeated WebhookToken tokens = 1; }
+
+message WebhookTokensMintRequest { string label = 1; repeated string scopes = 2; }
+message WebhookTokensMintResponse { WebhookTokenMint token = 1; }
+
+message WebhookTokensDeleteRequest { string id = 1; }
+message WebhookTokensDeleteResponse { bool ok = 1; }
+
+// ─── permissions ──────────────────────────────────────────────────────────
+
+message PermissionsListRequest {}
+message PermissionsListResponse { repeated PermissionRule rules = 1; }
+
+message PermissionsCreateRequest {
+  string tool_pattern = 1;
+  string folder_glob = 2;
+  string decision = 3;
+  optional bool enabled = 4;
+}
+message PermissionsCreateResponse { PermissionRule rule = 1; }
+
+message PermissionsUpdateRequest {
+  string id = 1;
+  optional string tool_pattern = 2;
+  optional string folder_glob = 3;
+  optional string decision = 4;
+  optional bool enabled = 5;
+}
+message PermissionsUpdateResponse { PermissionRule rule = 1; }
+
+message PermissionsDeleteRequest { string id = 1; }
+message PermissionsDeleteResponse { bool ok = 1; }
+
+// ─── mcp ──────────────────────────────────────────────────────────────────
+
+message McpListRequest {}
+message McpListResponse { repeated McpRelay relays = 1; }
+
+message McpCreateRequest { string label = 1; string kind = 2; string config_json = 3; }
+message McpCreateResponse { McpRelay relay = 1; }
+
+message McpDeleteRequest { string id = 1; }
+message McpDeleteResponse { bool ok = 1; }
+
+message McpPublishRequest { string id = 1; string payload_json = 2; }
+message McpPublishResponse { bool ok = 1; }
+
+// ─── auth ─────────────────────────────────────────────────────────────────
+
+message AuthCoordIdentityRequest {}
+message AuthCoordIdentityResponse { string fingerprint_hex = 1; string git_sha = 2; }
+
+message AuthAuthorizeBrowserRequest { string ssh_pubkey_b64 = 1; string label = 2; }
+message AuthAuthorizeBrowserResponse { string fingerprint = 1; }
+
+message AuthMintBootstrapRequest { string kind = 1; string label = 2; }  // kind: worker|browser
+message AuthMintBootstrapResponse { string token = 1; uint64 expires_at_ms = 2; }
+
+message AuthRedeemWorkerRequest {
+  string token = 1;
+  string ssh_pubkey_b64 = 2;
+  string label = 3;
+  string os = 4;
+  optional string git_sha = 5;
+}
+message AuthRedeemWorkerResponse {
+  string fingerprint = 1;
+  string label = 2;
+  string coord_verifying_key_b64 = 3;
+}
+
+message AuthRedeemBrowserRequest { string token = 1; string ssh_pubkey_b64 = 2; string label = 3; }
+message AuthRedeemBrowserResponse { string fingerprint = 1; string label = 2; }
+
+// ─── pair ─────────────────────────────────────────────────────────────────
+
+message PairCreateRequest { string ssh_pubkey_b64 = 1; string label = 2; }
+message PairCreateResponse { string ephemeral_id = 1; }
+
+message PairPollRequest { string ephemeral_id = 1; }
+message PairPollResponse { string status = 1; }  // pending|approved|denied
+
+message PairListRequest {}
+message PairListResponse { repeated PairRequest requests = 1; }
+
+message PairApproveRequest { string ephemeral_id = 1; }
+message PairApproveResponse { bool ok = 1; }
+
+message PairDenyRequest { string ephemeral_id = 1; }
+message PairDenyResponse { bool ok = 1; }
+
+// ─── misc ─────────────────────────────────────────────────────────────────
+
+message MiscFlagsRequest {}
+message MiscFlagsResponse { map<string, bool> flags = 1; }
+
+message MiscHealthRequest {}
+message MiscHealthResponse {
+  bool ok = 1;
+  uint64 boot_ms = 2;
+  uint64 uptime_ms = 3;
+  string git_sha = 4;
+}
+
+message MiscDbExportUrlRequest {}
+message MiscDbExportUrlResponse { string url = 1; }
+
+message MiscMetricsRequest {}
+message MiscMetricsResponse {
+  uint64 uptime_ms = 1;
+  map<string, uint64> requests = 2;
+  map<string, uint64> errors = 3;
+  uint64 total_requests = 4;
+  uint64 total_errors = 5;
+}
+
+// ─── audit ────────────────────────────────────────────────────────────────
+
+message AuditListRequest {
+  optional string cursor = 1;
+  optional uint32 limit = 2;
+  optional string caller_fp = 3;
+  optional string method = 4;
+}
+message AuditListResponse {
+  repeated AuditRow rows = 1;
+  optional string next_cursor = 2;
+}
+
+// ─── files ────────────────────────────────────────────────────────────────
+
+message FilesReadRequest { string worker_fp = 1; string path = 2; }
+message FilesReadResponse { bytes data = 1; uint64 size = 2; }
+
+message FilesReadChunkRequest { string worker_fp = 1; string path = 2; uint64 offset = 3; uint32 len = 4; }
+message FilesReadChunkResponse { bytes data = 1; uint64 size = 2; bool eof = 3; }
+
+message FilesListDirRequest { string worker_fp = 1; string path = 2; }
+message FilesListDirEntry { string name = 1; bool is_dir = 2; uint64 mtime_ms = 3; }
+message FilesListDirResponse { repeated FilesListDirEntry entries = 1; string resolved_path = 2; }
+message FilesMkdirRequest { string worker_fp = 1; string path = 2; }
+message FilesMkdirResponse { string resolved_path = 1; }
+
+// ─── transcription (voice dictation) ────────────────────────────────────────
+// The key is returned only masked (last 4 chars); the raw secret never leaves coord.
+message TranscriptionConfig {
+  bool deepgram_configured = 1;
+  string deepgram_key_masked = 2;     // e.g. "····abcd" ("" when unset)
+  string deepgram_language = 3;       // "en" | "multi" | "__auto__"
+}
+message TranscriptionGetConfigRequest {}
+// deepgram_key is proto3 optional: absent = leave unchanged, present = overwrite
+// (empty string clears). Language always overwrites.
+message TranscriptionSetConfigRequest {
+  optional string deepgram_key = 1;
+  string deepgram_language = 2;
+}
+message TranscriptionGrantTokenRequest {}
+message TranscriptionGrantTokenResponse { string access_token = 1; int32 expires_in = 2; }
+message TranscriptionTestRequest {}
+message TranscriptionTestResponse { bool ok = 1; string error = 2; }
+
+// ─── default agent (launch-button command) ─────────────────────────────────
+message AgentConfig {
+  string selected = 1;        // built-in agent id (e.g. "claude") or "custom"
+  string custom_command = 2;  // custom launch string ("" when unset)
+  bool auto_launch = 3;       // auto-launch agent in new terminal windows
+}
+message AgentConfigGetRequest {}
+message AgentConfigSetRequest {
+  string selected = 1;
+  string custom_command = 2;  // always overwrites; "" clears
+  bool auto_launch = 3;       // auto-launch agent in new terminal windows
+}
+
+// ─── ui-cc: browser-tab UI state + command channel ─────────────────────────
+// Shared payload shapes (UiReportStateRequest, UiCommand) live in sync.proto
+// next to their FirehoseFrame variants (coordinator.proto already imports
+// sync.proto; the reverse would cycle).
+
+message UiReportStateResponse {}
+
+message UiListStatesRequest {}
+message UiTabState {
+  string fp = 1;               // browser key fingerprint
+  string tab_id = 2;
+  string label = 3;            // authorized_keys label for fp ("" if unknown)
+  uint64 last_ms = 4;          // last report wall-clock ms
+  UiReportStateRequest state = 5;
+}
+message UiListStatesResponse { repeated UiTabState tabs = 1; }
+
+message UiDispatchRequest {
+  string target_tab_id = 1;    // empty = all tabs
+  UiCommand command = 2;
+}
+message UiDispatchResponse {
+  // Sync subscriber count at publish — an UPPER BOUND on executing tabs
+  // (stale-SPA tabs and headless agent watchers hold Sync streams too);
+  // 0 = definitely no listener. To detect "no drivable tab", check
+  // UiListStates emptiness instead (only reporting tabs execute commands).
+  uint32 delivered = 1;
+}
+
+
+// ─── push (web push subscriptions) ────────────────────────────────────────
+message PushGetConfigRequest {}
+message PushGetConfigResponse {
+  string vapid_public_key_b64 = 1;  // base64url-encoded P-256 public key; empty = push unavailable
+  bool   available = 2;             // false if coord has no VAPID keys (shouldn't happen — auto-generated)
+}
+message PushSubscribeRequest {
+  string endpoint = 1;   // push service URL (per-device, per-browser)
+  string p256dh = 2;     // base64url client ECDH public key
+  string auth = 3;       // base64url auth secret
+}
+message PushSubscribeResponse { bool ok = 1; }
+message PushUnsubscribeRequest { string endpoint = 1; }
+message PushUnsubscribeResponse { bool ok = 1; }
+
+
+// ─── service ──────────────────────────────────────────────────────────────
+
+service CoordinatorService {
+  // workers
+  rpc WorkersList(WorkersListRequest) returns (WorkersListResponse);
+  rpc WorkersRegister(WorkersRegisterRequest) returns (WorkersRegisterResponse);
+  rpc WorkersHeartbeat(WorkersHeartbeatRequest) returns (WorkersHeartbeatResponse);
+  rpc WorkersRename(WorkersRenameRequest) returns (WorkersRenameResponse);
+  rpc WorkersDelete(WorkersDeleteRequest) returns (WorkersDeleteResponse);
+  rpc WorkersDeployStart(WorkersDeployStartRequest) returns (WorkersDeployStartResponse);
+  rpc WorkersDeployOutput(WorkersDeployOutputRequest) returns (stream WorkersDeployOutputFrame);
+
+  // sessions
+  rpc SessionsList(SessionsListRequest) returns (SessionsListResponse);
+  rpc SessionsSpawn(SessionsSpawnRequest) returns (SessionsSpawnResponse);
+  rpc SessionsAttach(SessionsAttachRequest) returns (SessionsAttachResponse);
+  rpc SessionsKill(SessionsKillRequest) returns (SessionsKillResponse);
+  rpc SessionsRename(SessionsRenameRequest) returns (SessionsRenameResponse);
+  rpc SessionsResize(SessionsResizeRequest) returns (SessionsResizeResponse);
+  rpc SessionsUserMessage(SessionsUserMessageRequest) returns (SessionsUserMessageResponse);
+  rpc SessionsInput(SessionsInputRequest) returns (SessionsInputResponse);
+  rpc SessionsCursorPos(SessionsCursorPosRequest) returns (SessionsCursorPosResponse);
+  rpc SessionsAssignWorkspace(SessionsAssignWorkspaceRequest) returns (SessionsAssignWorkspaceResponse);
+  rpc SessionsGetScrollbackSince(SessionsGetScrollbackSinceRequest) returns (SessionsGetScrollbackSinceResponse);
+  rpc SessionsGetScrollbackCells(SessionsGetScrollbackCellsRequest) returns (SessionsGetScrollbackCellsResponse);
+
+  // workspaces
+  rpc WorkspacesList(WorkspacesListRequest) returns (WorkspacesListResponse);
+  rpc WorkspacesCreate(WorkspacesCreateRequest) returns (WorkspacesCreateResponse);
+  rpc WorkspacesUpdate(WorkspacesUpdateRequest) returns (WorkspacesUpdateResponse);
+  rpc WorkspacesDelete(WorkspacesDeleteRequest) returns (WorkspacesDeleteResponse);
+  rpc WorkspacesSetSessions(WorkspacesSetSessionsRequest) returns (WorkspacesSetSessionsResponse);
+
+  // tasks
+  rpc TasksList(TasksListRequest) returns (TasksListResponse);
+  rpc TasksEnqueue(TasksEnqueueRequest) returns (TasksEnqueueResponse);
+  rpc TasksNextPending(TasksNextPendingRequest) returns (TasksNextPendingResponse);
+  rpc TasksSetState(TasksSetStateRequest) returns (TasksSetStateResponse);
+  rpc TasksCancel(TasksCancelRequest) returns (TasksCancelResponse);
+
+  // webhooks
+  rpc WebhookTokensList(WebhookTokensListRequest) returns (WebhookTokensListResponse);
+  rpc WebhookTokensMint(WebhookTokensMintRequest) returns (WebhookTokensMintResponse);
+  rpc WebhookTokensDelete(WebhookTokensDeleteRequest) returns (WebhookTokensDeleteResponse);
+
+  // permissions
+  rpc PermissionsList(PermissionsListRequest) returns (PermissionsListResponse);
+  rpc PermissionsCreate(PermissionsCreateRequest) returns (PermissionsCreateResponse);
+  rpc PermissionsUpdate(PermissionsUpdateRequest) returns (PermissionsUpdateResponse);
+  rpc PermissionsDelete(PermissionsDeleteRequest) returns (PermissionsDeleteResponse);
+
+  // mcp
+  rpc McpList(McpListRequest) returns (McpListResponse);
+  rpc McpCreate(McpCreateRequest) returns (McpCreateResponse);
+  rpc McpDelete(McpDeleteRequest) returns (McpDeleteResponse);
+  rpc McpPublish(McpPublishRequest) returns (McpPublishResponse);
+
+  // auth
+  rpc AuthCoordIdentity(AuthCoordIdentityRequest) returns (AuthCoordIdentityResponse);
+  rpc AuthAuthorizeBrowser(AuthAuthorizeBrowserRequest) returns (AuthAuthorizeBrowserResponse);
+  rpc AuthMintBootstrap(AuthMintBootstrapRequest) returns (AuthMintBootstrapResponse);
+  rpc AuthRedeemWorker(AuthRedeemWorkerRequest) returns (AuthRedeemWorkerResponse);
+  rpc AuthRedeemBrowser(AuthRedeemBrowserRequest) returns (AuthRedeemBrowserResponse);
+
+  // pair
+  rpc PairCreate(PairCreateRequest) returns (PairCreateResponse);
+  rpc PairPoll(PairPollRequest) returns (PairPollResponse);
+  rpc PairList(PairListRequest) returns (PairListResponse);
+  rpc PairApprove(PairApproveRequest) returns (PairApproveResponse);
+  rpc PairDeny(PairDenyRequest) returns (PairDenyResponse);
+
+  // misc
+  rpc MiscFlags(MiscFlagsRequest) returns (MiscFlagsResponse);
+  rpc MiscHealth(MiscHealthRequest) returns (MiscHealthResponse);
+  rpc MiscDbExportUrl(MiscDbExportUrlRequest) returns (MiscDbExportUrlResponse);
+  rpc MiscMetrics(MiscMetricsRequest) returns (MiscMetricsResponse);
+
+  // audit
+  rpc AuditList(AuditListRequest) returns (AuditListResponse);
+
+  // files
+  rpc FilesRead(FilesReadRequest) returns (FilesReadResponse);
+  rpc FilesReadChunk(FilesReadChunkRequest) returns (FilesReadChunkResponse);
+  rpc FilesListDir(FilesListDirRequest) returns (FilesListDirResponse);
+  rpc FilesMkdir(FilesMkdirRequest) returns (FilesMkdirResponse);
+
+  // transcription (voice dictation) — coord holds the Deepgram key so every
+  // device shares one; SPA gets a short-lived token. No key → SPA uses Web Speech.
+  rpc TranscriptionGetConfig(TranscriptionGetConfigRequest) returns (TranscriptionConfig);
+  rpc TranscriptionSetConfig(TranscriptionSetConfigRequest) returns (TranscriptionConfig);
+  rpc TranscriptionGrantToken(TranscriptionGrantTokenRequest) returns (TranscriptionGrantTokenResponse);
+  rpc TranscriptionTest(TranscriptionTestRequest) returns (TranscriptionTestResponse);
+
+  // default agent — the launch-button command; app_settings-backed, universal.
+  rpc AgentConfigGet(AgentConfigGetRequest) returns (AgentConfig);
+  rpc AgentConfigSet(AgentConfigSetRequest) returns (AgentConfig);
+
+  // ui-cc — browser-tab UI state + command channel. The SPA reports its
+  // spatial model (pane layout + active path) and executes dispatched
+  // commands; coord only relays (in-memory presence map + Sync fan-out,
+  // no persistence). Agents: UiListStates to SEE, UiDispatch to DRIVE.
+  rpc UiReportState(UiReportStateRequest) returns (UiReportStateResponse);
+  rpc UiListStates(UiListStatesRequest) returns (UiListStatesResponse);
+  rpc UiDispatch(UiDispatchRequest) returns (UiDispatchResponse);
+
+  // push (web push subscriptions)
+  rpc PushGetConfig(PushGetConfigRequest) returns (PushGetConfigResponse);
+  rpc PushSubscribe(PushSubscribeRequest) returns (PushSubscribeResponse);
+  rpc PushUnsubscribe(PushUnsubscribeRequest) returns (PushUnsubscribeResponse);
+
+  // sync (crpc3) — server-streaming multiplexed firehose
+  rpc Sync(SyncRequest) returns (stream FirehoseFrame);
+
+  // att1-stream — chunked file upload, no size ceiling. SPA slices the file
+  // with Blob.slice and calls this once per bounded chunk (serial, in order);
+  // coord relays each as a DAttachmentChunk to the worker (raw bytes, no
+  // base64); worker streams them to a temp file and renames on `last`. Worker
+  // saves to ~/.roost/attachments/<sid>/ and returns the absolute path the SPA
+  // injects into the PTY via sessionsInput. Memory is O(chunk), not O(file).
+  // Unary (not client-streaming) because connect-web has no request-streaming
+  // over fetch. abs_path comes back on the final (`last`) chunk's response;
+  // earlier responses are empty.
+  rpc AttachFileChunk(AttachFileChunkRequest) returns (AttachFileChunkResponse);
+  rpc AttachmentProbe(AttachmentProbeRequest) returns (AttachmentProbeResponse);
+
+  // att2b — attachment browser: list a session's attachment dir +
+  // delete entries (helper for the Settings pane).
+  rpc ListAttachments(ListAttachmentsRequest) returns (ListAttachmentsResponse);
+  rpc DeleteAttachment(DeleteAttachmentRequest) returns (DeleteAttachmentResponse);
+
+  // crpc6 — transfers (cross-worker rsync)
+  rpc TransfersStart(TransfersStartRequest) returns (TransfersStartResponse);
+  rpc TransfersOutput(TransfersOutputRequest) returns (stream TransfersOutputFrame);
+
+  // diag — comprehensive terminal-corruption diagnostics. Gated by
+  // ROOST_DIAG=1 on the LaunchAgent (coord+worker) and
+  // localStorage.roostDiag=1 (browser). See plan
+  // ~/.claude/plans/so-this-entire-terminal-humming-lightning.md.
+  rpc DiagDebugLogBatch(DiagDebugLogBatchRequest) returns (DiagDebugLogBatchResponse);
+  rpc DiagSnapshot(DiagSnapshotRequest) returns (DiagSnapshotResponse);
+}
+
+
+// ─── att1: file attachment ─────────────────────────────────────────────────
+
+// One chunk of a chunked upload. `upload_id` (SPA-minted UUID) ties the chunks
+// together — it IS the worker-side request_id the chunks assemble under and the
+// rpc-ok resolves on. `session_id` is sent on EVERY chunk so coord can resolve
+// the worker statelessly per call; filename/short_path matter only on the
+// first chunk (the worker reads them when it opens the temp file). `last` marks
+// the final chunk → worker renames + replies abs_path.
+message AttachFileChunkRequest {
+  string upload_id = 1;
+  string session_id = 2;
+  string filename = 3;
+  bool short_path = 4;
+  bytes data = 5;
+  bool last = 6;
+  // 0-based chunk index. The worker rejects a chunk whose seq != the next
+  // expected one — so a continuation that arrives after a mid-stream write
+  // error (its in-flight state already torn down) is refused instead of being
+  // mistaken for a fresh upload and renamed as a truncated file.
+  uint32 seq = 7;
+}
+// abs_path is populated only on the response to the `last` chunk; empty otherwise.
+message AttachFileChunkResponse {
+  string abs_path = 1;
+}
+
+// att3 — content-dedup probe. SPA hashes the file (SHA-256) and asks the worker
+// whether that exact content already exists in the session's attachment dir. On
+// a hit the worker returns the existing path and the SPA skips the byte upload.
+message AttachmentProbeRequest {
+  string session_id = 1;
+  string sha256 = 2;
+  uint64 size = 3;
+  string filename = 4;
+  bool short_path = 5;
+}
+message AttachmentProbeResponse {
+  bool hit = 1;
+  string abs_path = 2;
+}
+
+message ListAttachmentsRequest {
+  string session_id = 1;
+}
+message AttachmentEntry {
+  string filename = 1;
+  uint64 size_bytes = 2;
+  uint64 mtime_ms = 3;
+  string abs_path = 4;
+}
+message ListAttachmentsResponse {
+  repeated AttachmentEntry entries = 1;
+}
+
+message DeleteAttachmentRequest {
+  string session_id = 1;
+  string filename = 2;
+}
+message DeleteAttachmentResponse {
+  bool ok = 1;
+}
+
+// ─── diag: terminal-corruption diagnostics ─────────────────────────────────
+
+// One SPA-side event. The SPA-side facade batches these (100ms or
+// 64-entry flush) and unary-uploads via DiagDebugLogBatch. Coord
+// re-emits each entry via the normal log.* facade so it lands in
+// RoostCoord/main.out.log with all the same JSON-line shape.
+message DiagDebugLogEntry {
+  string evt = 1;                // snake_case from fixed namespace
+  uint64 ts_ms = 2;              // SPA wall-clock at emit time
+  uint64 mono_ns = 3;            // SPA performance.now()*1e6
+  string trace_id = 4;           // request-scoped, optional
+  string session_trace_id = 5;   // session-scoped, optional
+  string sid = 6;                // optional
+  string viewer_key = 7;         // optional
+  // Free-form kv. Values are JSON-encoded (numbers / bools / strings
+  // all as JSON literals) — coord re-injects them as-is into the
+  // log line so numerics stay numeric.
+  string kv_json = 8;
+  // Tier-1 always-on signal (anomaly/error), NOT the gated firehose.
+  // Coord routes these to log.warn(target="signal") → *.err.log so the
+  // daily `roost doctor` review reads them even with ROOST_DIAG off.
+  bool signal = 9;
+}
+
+message DiagDebugLogBatchRequest {
+  repeated DiagDebugLogEntry entries = 1;
+}
+message DiagDebugLogBatchResponse {
+  uint32 accepted = 1;
+}
+
+// On-demand snapshot. Loopback-only; fires a single diag.snapshot
+// event containing coord + per-worker + (caller-supplied) SPA state.
+// Caller passes SPA-known state in `spa_state_json` since the RPC
+// itself doesn't see the browser.
+message DiagSnapshotRequest {
+  string spa_state_json = 1;     // optional; whatever the SPA can
+                                 // collect locally + ship in one call
+}
+message DiagSnapshotResponse {
+  string snapshot_json = 1;      // dump of coord + worker state
+}
