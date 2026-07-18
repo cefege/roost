@@ -1,9 +1,9 @@
 <!-- AUDIENCE: human -->
 # Getting started with Roost
 
-Roost runs across your Macs over [Tailscale](https://tailscale.com). One Mac
-runs the coordinator + a worker; your phone and other devices connect to it
-over your tailnet.
+Roost runs across your Macs over your own network — [Tailscale](https://tailscale.com)
+is the tested, recommended setup. One Mac runs the coordinator + a worker; your
+phone and other devices connect to it over your tailnet.
 
 ## Prerequisite: Tailscale
 

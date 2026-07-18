@@ -14,3 +14,6 @@ Live documentation lives at the repo root and in each app:
 
 Internal cross-references inside these archived files point at the tree layout
 as it was when they were written; they are snapshots, not maintained links.
+
+Archived ledgers:
+- **AUDIT.md** — completed knip/jscpd/split cleanup ledger (Phases 0–6, 2026-07-04).
