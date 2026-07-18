@@ -7,7 +7,7 @@ import { createSignal, Show } from "solid-js";
 import type { PermissionRule, PermissionDecision } from "@roost/shared/wire";
 import { asPermissionRuleId } from "@roost/shared/wire";
 import { coordClient } from "../connect.ts";
-import { setRootStore } from "../store/root.ts";
+import { upsertPermissionRule, deletePermissionRule } from "../store/mutations.ts";
 import { addToast } from "../lib/toastStore.ts";
 import { Switch, Button } from "./Settings/md/primitives.tsx";
 
@@ -42,7 +42,7 @@ export function PermissionRuleEditor(props: PermissionRuleEditorProps) {
       });
       // Optimistic projection in case SSE delta is lost/delayed.
       // Connect returns proto-shape; convert to wire shape for store.
-      setRootStore("permission_rules", updated.rule!.id, {
+      upsertPermissionRule({
         id: asPermissionRuleId(updated.rule!.id),
         tool_pattern: updated.rule!.toolPattern,
         folder_glob: updated.rule!.folderGlob,
@@ -66,13 +66,7 @@ export function PermissionRuleEditor(props: PermissionRuleEditorProps) {
       await coordClient.permissionsDelete({ id: asPermissionRuleId(props.rule.id) });
       // Optimistic remove: don't wait for the SSE delta; if it's lost the row
       // would otherwise persist forever with the delete button stuck disabled.
-      // Per-key delete; setRootStore(key, fn → newRecord) silently no-ops
-      // on a Record subtree.
-      setRootStore(
-        "permission_rules",
-        props.rule.id,
-        undefined as unknown as import("@roost/shared/wire").PermissionRule,
-      );
+      deletePermissionRule(props.rule.id);
       addToast("Rule deleted");
       // Row unmounts on the store mutation above; no setBusy(false) needed.
     } catch (e) {

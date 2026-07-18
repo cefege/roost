@@ -7,7 +7,8 @@
 
 import { For, Show, createMemo } from "solid-js";
 import { Portal } from "solid-js/web";
-import { rootStore, setRootStore, type PairRequest } from "../store/root.ts";
+import { rootStore, type PairRequest } from "../store/root.ts";
+import { deletePairRequest } from "../store/mutations.ts";
 import { coordClient } from "../connect.ts";
 import { addToast } from "../lib/toastStore.ts";
 import { Button } from "./Settings/md/Button.tsx";
@@ -20,7 +21,7 @@ export function PairRequestNotifier() {
   async function approve(id: string) {
     try {
       await coordClient.pairApprove({ ephemeralId: id });
-      setRootStore("pair_requests", id, undefined as unknown as PairRequest);
+      deletePairRequest(id);
       addToast("Browser approved", "ok");
     } catch (e) {
       addToast(`Approve failed: ${e instanceof Error ? e.message : String(e)}`, "err");
@@ -30,7 +31,7 @@ export function PairRequestNotifier() {
   async function deny(id: string) {
     try {
       await coordClient.pairDeny({ ephemeralId: id });
-      setRootStore("pair_requests", id, undefined as unknown as PairRequest);
+      deletePairRequest(id);
       addToast("Pair request dismissed", "ok");
     } catch (e) {
       addToast(`Dismiss failed: ${e instanceof Error ? e.message : String(e)}`, "err");

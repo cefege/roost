@@ -7,7 +7,8 @@
 // Depends on: rootStore, coordClient, PermissionRuleEditor, md/primitives.
 
 import { createMemo, createSignal, For, Show } from "solid-js";
-import { rootStore, setRootStore } from "../../store/root.ts";
+import { rootStore } from "../../store/root.ts";
+import { upsertPermissionRule } from "../../store/mutations.ts";
 import { coordClient } from "../../connect.ts";
 import type { PermissionDecision } from "@roost/shared/wire";
 import { PermissionRuleEditor } from "../PermissionRuleEditor.tsx";
@@ -54,7 +55,7 @@ export function PermissionsPane() {
         enabled: rule.enabled,
         created_at_ms: Number(rule.createdAtMs),
       };
-      setRootStore("permission_rules", wireRule.id, wireRule);
+      upsertPermissionRule(wireRule);
       setToolPattern("");
       setFolderGlob("*");
       addToast("Rule created");

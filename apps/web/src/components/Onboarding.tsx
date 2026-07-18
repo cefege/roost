@@ -11,7 +11,8 @@ import { createSignal, createMemo, For, Show, onCleanup } from "solid-js";
 import { coordClient } from "../connect.ts";
 import { getPublicKeyB64 } from "../auth/web-key.ts";
 import { redeemPairToken } from "../auth/redeemPairToken.ts";
-import { setRootStore, rootStore } from "../store/root.ts";
+import { rootStore } from "../store/root.ts";
+import { deletePairRequest } from "../store/mutations.ts";
 import { addToast } from "../lib/toastStore.ts";
 import { browserSelfLabel } from "../lib/browserSelfLabel.ts";
 import { Button } from "./Settings/md/primitives.tsx";
@@ -105,13 +106,7 @@ export function Onboarding(props: { embedded?: boolean } = {}) {
   async function approvePairRequest(ephemeral_id: string) {
     try {
       await coordClient.pairApprove({ ephemeralId: ephemeral_id });
-      // Per-key delete; setRootStore(key, fn → newRecord) silently
-      // no-ops on a Record subtree (feedback_solid_setstore_record_replace).
-      setRootStore(
-        "pair_requests",
-        ephemeral_id,
-        undefined as unknown as import("../store/root.ts").PairRequest,
-      );
+      deletePairRequest(ephemeral_id);
       addToast("Approved", "ok");
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -122,11 +117,7 @@ export function Onboarding(props: { embedded?: boolean } = {}) {
   async function denyPairRequest(ephemeral_id: string) {
     try {
       await coordClient.pairDeny({ ephemeralId: ephemeral_id });
-      setRootStore(
-        "pair_requests",
-        ephemeral_id,
-        undefined as unknown as import("../store/root.ts").PairRequest,
-      );
+      deletePairRequest(ephemeral_id);
       addToast("Denied", "ok");
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);

@@ -9,7 +9,8 @@
 
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import type { McpRelay, McpRelayId } from "@roost/shared/wire";
-import { rootStore, setRootStore } from "../../store/root.ts";
+import { rootStore } from "../../store/root.ts";
+import { replaceMcpRelays, deleteMcpRelay, upsertMcpRelay } from "../../store/mutations.ts";
 import { coordClient } from "../../connect.ts";
 import { McpRelayEditor } from "../McpRelayEditor.tsx";
 import { addToast } from "../../lib/toastStore.ts";
@@ -35,7 +36,7 @@ export function McpPane() {
         config: JSON.parse(r.configJson),
         created_at_ms: Number(r.createdAtMs),
       };
-      setRootStore("mcp_relays", rec);
+      replaceMcpRelays(rec);
     } catch (e) {
       setLoadErr(e instanceof Error ? e.message : String(e));
     }
@@ -61,7 +62,7 @@ export function McpPane() {
     setDeleteError("");
     try {
       await coordClient.mcpDelete({ id });
-      setRootStore("mcp_relays", id, undefined as unknown as import("@roost/shared/wire").McpRelay);
+      deleteMcpRelay(id);
       addToast("Relay removed");
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -79,7 +80,7 @@ export function McpPane() {
         config: JSON.parse(r.configJson),
         created_at_ms: Number(r.createdAtMs),
       };
-      setRootStore("mcp_relays", relay.id, relay);
+      upsertMcpRelay(relay);
       setShowEditor(false);
       addToast("Relay added");
     } catch (e) {
