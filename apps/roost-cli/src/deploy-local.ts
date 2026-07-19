@@ -45,7 +45,9 @@ export async function _deployLocal(host: string): Promise<void> {
 
   console.log(`>> install LaunchAgent (com.roost.worker-v2) locally`);
   const installSh = await run(
-    ["bash", "apps/worker/scripts/install.sh", "install"],
+    // Absolute path from this module (../../../ = repo root) so it resolves no
+    // matter the process cwd — the `roost` npm alias runs with cwd apps/roost-cli.
+    ["bash", new URL("../../../apps/worker/scripts/install.sh", import.meta.url).pathname, "install"],
     {
       quiet: true,
       env: {
