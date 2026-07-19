@@ -86,7 +86,7 @@ function PairCard(props: {
         padding: "16px",
         "box-shadow": "var(--md-elev-3)",
         border: "1px solid var(--border-strong)",
-        animation: "pair-card-in 220ms cubic-bezier(0.2, 0, 0, 1)",
+        animation: "pair-card-in 220ms var(--md-sys-motion-easing-emphasized)",
         display: "flex",
         "flex-direction": "column",
         gap: "12px",

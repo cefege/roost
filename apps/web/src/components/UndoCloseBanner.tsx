@@ -66,7 +66,7 @@ export function UndoCloseBanner() {
                   "max-width": "min(568px, calc(100vw - 40px))",
                   overflow: "hidden",
                   "pointer-events": "auto",
-                  animation: "undo-snackbar-in 180ms cubic-bezier(0.0, 0.0, 0.2, 1)",
+                  animation: "undo-snackbar-in 180ms var(--md-sys-motion-easing-standard-decelerate)",
                 }}
               >
                 <div style={{ flex: 1, "min-width": 0, display: "flex", "flex-direction": "column", gap: "1px" }}>
