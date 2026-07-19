@@ -831,12 +831,6 @@ export function TerminalDeck(props: { activeSessionId: string | null }) {
         >
           <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
         </div>
-        <div
-          class="deck-new-hint"
-          data-testid="deck-new-hint"
-          data-armed={newFabProgress(swipe()!.offset, size().w) >= 1 ? "true" : undefined}
-          aria-hidden="true"
-        >Release to create</div>
       </Show>
       {/* per-pane tab strips + dividers (desktop only — mobile uses the deck bar above) */}
       <Show when={!isCompact()}>
