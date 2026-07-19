@@ -29,6 +29,7 @@ import {
 import { learnTerms, lexiconTopTerms } from "../lib/keytermLexicon.ts";
 import { keytermBiasing } from "../lib/keytermBiasingPref.ts";
 import { onFabPointerDown } from "../lib/fabDragOffset.ts";
+import { dragArmed } from "../lib/dragThreshold.ts";
 // ─── shared recording state ───────────────────────────────────────────────
 // All MobileVoiceInput instances share this signal. Only one can record at a
 // time — the owning instance renders; all others return null early. This
@@ -96,6 +97,10 @@ function enterDelayMs(text: string): number {
 	return Math.min(150 + Math.ceil(text.length * 0.4), 2500);
 }
 
+// Sustained press (no drag) on the mic FAB opens the type-mode composer
+// instead of recording. A quick tap still records.
+const LONG_PRESS_MS = 500;
+
 // ─── types ───────────────────────────────────────────────────────────────
 
 // listening = mic recording; finalizing = stopped, waiting for the engine to
@@ -123,6 +128,12 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 	const [interimText, setInterimText] = createSignal("");
 	const [finalText, setFinalText] = createSignal("");
 	const [errorMsg, setErrorMsg] = createSignal<string | null>(null);
+	// Type mode: long-press the mic → keyboard composer instead of recording.
+	// Kept separate from VoiceState (engine callbacks branch on that union);
+	// recording and typing are mutually exclusive, guarded below.
+	const [typing, setTyping] = createSignal(false);
+	const [draft, setDraft] = createSignal("");
+	let composeEl: HTMLTextAreaElement | undefined;
 	// If another session owns the recording, hide completely. Only ONE MobileVoiceInput
 	// DOM tree exists at a time — no position:fixed overlap when multiple terminals are visible.
 	const owner = activeVoiceChannel();
@@ -298,14 +309,95 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 		resetToIdle();
 	};
 
+	// ─── type mode ───────────────────────────────────────────────────────────
+	// Claim the shared slot exactly like startRecording so sibling FABs (other
+	// terminals' mics, agent-launch/plan) stay hidden and don't cover the box.
+	const startTyping = () => {
+		setDraft("");
+		setTyping(true);
+		setActiveVoiceChannel(props.channelId);
+	};
+
+	// Close the composer and hand focus back to the terminal, using the same
+	// guarded refocus as resetToIdle (only if focus is still inside our UI).
+	const closeTyping = () => {
+		setTyping(false);
+		setDraft("");
+		setActiveVoiceChannel(null);
+		const voiceEl = document.querySelector('[data-testid="mobile-voice-input"]');
+		if (!voiceEl || voiceEl.contains(document.activeElement)) {
+			props.refocusTerminal?.();
+		}
+	};
+
+	// Send typed text through the same PTY pipeline dictation uses: bracketed
+	// paste, then CR as its own frame after a length-scaled delay.
+	const sendDraft = () => {
+		const text = draft().trim();
+		if (text.length === 0) {
+			closeTyping();
+			return;
+		}
+		props.sendInput(props.channelId, buildPtyPayload(text));
+		setTimeout(
+			() => props.sendInput(props.channelId, CR_BYTES),
+			enterDelayMs(text),
+		);
+		closeTyping();
+	};
+
+	// One-shot capture-phase click swallow — mirrors fabDragOffset.onUp so the
+	// trailing click after a long-press doesn't fire toggleRecord.
+	const swallowNextClick = () => {
+		const onClickCapture = (ev: MouseEvent) => {
+			ev.stopPropagation();
+			ev.preventDefault();
+			window.removeEventListener("click", onClickCapture, true);
+		};
+		window.addEventListener("click", onClickCapture, true);
+	};
+
+	// Long-press (no drag) on the mic FAB opens type mode. Quick tap records
+	// (via onClick); drag ≥8px repositions the cluster (via onFabPointerDown).
+	const onMicPointerDown = (e: PointerEvent) => {
+		onFabPointerDown(e); // preserve FAB drag-to-reposition
+		if (e.pointerType === "mouse" && e.button !== 0) return;
+		if (voiceState() !== "idle" || typing()) return;
+		const start = { x: e.clientX, y: e.clientY };
+		let fired = false;
+		const timer = window.setTimeout(() => {
+			fired = true;
+			cleanup();
+			startTyping();
+			swallowNextClick();
+		}, LONG_PRESS_MS);
+		const onMove = (ev: PointerEvent) => {
+			if (dragArmed(start, ev.clientX, ev.clientY)) cleanup();
+		};
+		const cleanup = () => {
+			clearTimeout(timer);
+			window.removeEventListener("pointermove", onMove);
+			window.removeEventListener("pointerup", onEnd);
+			window.removeEventListener("pointercancel", onEnd);
+		};
+		const onEnd = () => {
+			if (!fired) cleanup();
+		};
+		window.addEventListener("pointermove", onMove);
+		window.addEventListener("pointerup", onEnd);
+		window.addEventListener("pointercancel", onEnd);
+	};
+
 	const isActive = () => voiceState() !== "idle";
 	// Material Symbols Rounded ligature per state.
-	const micIcon = () =>
-		voiceState() === "listening"
+	const micIcon = () => {
+		if (typing()) return "send";
+		return voiceState() === "listening"
 			? "stop"
 			: voiceState() === "finalizing"
 				? "send"
 				: "mic";
+	};
 
 	return (
 		<div
@@ -346,15 +438,42 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 				</div>
 			</Show>
 
+			{/* Type-mode composer (keyboard input) — long-press the mic to open. */}
+			<Show when={typing()}>
+				<div class="voice-compose" data-testid="voice-compose">
+					<textarea
+						class="voice-compose__input"
+						data-testid="voice-compose-input"
+						rows={2}
+						placeholder="Type a message…"
+						value={draft()}
+						onInput={(e) => setDraft(e.currentTarget.value)}
+						onKeyDown={(e) => {
+							if (e.key === "Enter" && !e.shiftKey) {
+								e.preventDefault();
+								sendDraft();
+							} else if (e.key === "Escape") {
+								e.preventDefault();
+								closeTyping();
+							}
+						}}
+						ref={(el) => {
+							composeEl = el;
+							queueMicrotask(() => el.focus());
+						}}
+					/>
+				</div>
+			</Show>
+
 			{/* ✕ discard (small tonal FAB) + mic (stop = send), side by side. */}
 			<div class="voice-input__cluster">
-				<Show when={isActive()}>
+				<Show when={isActive() || typing()}>
 					<button
 						type="button"
 						class="voice-fab voice-fab--discard"
 						data-testid="voice-discard"
-						onClick={discard}
-						aria-label="Discard recording"
+						onClick={() => (typing() ? closeTyping() : discard())}
+						aria-label={typing() ? "Discard message" : "Discard recording"}
 					>
 						<span class="voice-fab__icon">close</span>
 					</button>
@@ -366,14 +485,17 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 					data-testid="voice-mic"
 					data-recording={voiceState() === "listening" ? "true" : "false"}
 					data-finalizing={voiceState() === "finalizing" ? "true" : "false"}
-					onPointerDown={onFabPointerDown}
-					onClick={toggleRecord}
+					data-typing={typing() ? "true" : "false"}
+					onPointerDown={onMicPointerDown}
+					onClick={() => (typing() ? sendDraft() : toggleRecord())}
 					aria-label={
-						voiceState() === "listening"
-							? "Stop and send"
-							: voiceState() === "finalizing"
-								? "Sending"
-								: "Start recording"
+						typing()
+							? "Send message"
+							: voiceState() === "listening"
+								? "Stop and send"
+								: voiceState() === "finalizing"
+									? "Sending"
+									: "Start recording"
 					}
 				>
 					<span class="voice-fab__icon">{micIcon()}</span>

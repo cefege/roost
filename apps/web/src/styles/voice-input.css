@@ -392,6 +392,38 @@
   to   { opacity: 1; transform: translateY(0); }
 }
 
+/* ── type-mode composer (keyboard input; long-press the mic to open) ── */
+/* Same M3 snackbar surface + anchoring as .voice-caption, but interactive
+   (pointer-events: auto) — it sits above the FAB cluster and must accept
+   keyboard/touch input. */
+.voice-compose {
+  max-width: min(90vw, 420px);
+  width: min(90vw, 420px);
+  padding: var(--md-space-4) var(--md-space-5);
+  border-radius: var(--md-shape-md);
+  background: var(--md-sys-color-surface-container-highest);
+  color: var(--md-sys-color-on-surface);
+  box-shadow: var(--md-elev-3);
+  pointer-events: auto;
+  animation: voice-caption-enter 220ms var(--md-ease-emphasized);
+}
+.voice-compose__input {
+  box-sizing: border-box;
+  width: 100%;
+  border: none;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: var(--md-sys-color-on-surface);
+  font-family: var(--md-font);
+  /* >=16px avoids iOS zoom-on-focus. */
+  font-size: 16px;
+  line-height: var(--md-body-l-line);
+}
+.voice-compose__input::placeholder {
+  color: var(--md-sys-color-on-surface-variant);
+}
+
 /* ── term-nav-toggle: keyboard FAB that pops the pad open/closed ── */
 /* Sits directly above the mic (same right edge). Tonal when closed, filled
    secondary when open. Tap pops .term-nav up above it; tap again collapses. */
