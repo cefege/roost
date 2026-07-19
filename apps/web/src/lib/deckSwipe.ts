@@ -6,8 +6,7 @@
 export const SWITCH_DIST_FRAC = 0.4;       // deliberate drag: travel >= 40% width
 export const SWITCH_FLING_VEL = 0.6;       // px/ms, directional flick
 export const SWITCH_FLING_MIN_FRAC = 0.12; // a flick must have moved >= 12% width
-export const SETTLE_MIN_MS = 180;
-export const SETTLE_MAX_MS = 340;
+export const ANIMATION_SPEED_SCREEN_MS = 500; // Chromium ToolbarSwipeLayout: ms per full screen-width of travel
 
 // Commit only when the release is IN the armed direction AND either a real
 // distance drag OR a directional flick past a small travel floor. The travel
@@ -28,14 +27,13 @@ export function shouldCommitSwitch(
   return distOk || flingOk;
 }
 
-// Settle continues the release motion instead of a fixed snap: a fast flick
-// finishes briskly, a slow release settles gently, both clamped so it never
-// snaps instantly (too fast) nor drags (laggy). remaining = px the slot still
-// travels; releaseVel = px/ms at release (sign ignored).
-export function settleDurationMs(remaining: number, releaseVel: number): number {
-  const v = Math.abs(releaseVel);
-  const raw = v > 0 ? remaining / v : SETTLE_MAX_MS;
-  return Math.max(SETTLE_MIN_MS, Math.min(SETTLE_MAX_MS, raw));
+// Constant-speed settle (Chromium ToolbarSwipeLayout): the slot always finishes
+// at 500ms per screen-width regardless of release velocity, so a full traverse is
+// never faster than ~500ms and its direction is always readable. remaining = px the
+// slot still travels; width = viewport px.
+export function settleDurationMs(remaining: number, width: number): number {
+  if (width <= 0) return 0;
+  return Math.round(ANIMATION_SPEED_SCREEN_MS * Math.abs(remaining) / width);
 }
 
 // What a swipe at an end of the tab list becomes. hasNeighbor: is there a real

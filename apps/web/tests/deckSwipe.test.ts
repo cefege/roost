@@ -31,17 +31,20 @@ describe("shouldCommitSwitch", () => {
 });
 
 describe("settleDurationMs", () => {
-  test("fast flick clamps to min", () => {
-    expect(settleDurationMs(300, 5)).toBe(180);
+  test("full-screen traverse → 500ms", () => {
+    expect(settleDurationMs(400, 400)).toBe(500);
   });
-  test("slow release clamps to max", () => {
-    expect(settleDurationMs(300, 0.1)).toBe(340);
+  test("half-screen remaining → 250ms", () => {
+    expect(settleDurationMs(200, 400)).toBe(250);
   });
-  test("zero velocity → max", () => {
-    expect(settleDurationMs(50, 0)).toBe(340);
+  test("quarter-screen remaining → 125ms", () => {
+    expect(settleDurationMs(100, 400)).toBe(125);
   });
-  test("mid case proportional", () => {
-    expect(settleDurationMs(240, 1)).toBe(240);
+  test("zero remaining → 0ms", () => {
+    expect(settleDurationMs(0, 400)).toBe(0);
+  });
+  test("zero-width guard → 0", () => {
+    expect(settleDurationMs(100, 0)).toBe(0);
   });
 });
 

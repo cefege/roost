@@ -50,6 +50,11 @@ const MOBILE_STRIP_H = 48;
 // Emphasized-decelerate easing for the swipe settle (shared by slot transform +
 // end-affordance placeholder). Mirrors the M3 token used across the mobile deck.
 const SWIPE_DECEL = "var(--md-sys-motion-easing-emphasized-decelerate, cubic-bezier(0.05, 0.7, 0.1, 1))";
+// Tab-switch slide settle — Chromium ToolbarSwipeLayout animates the offset with
+// Android's DecelerateInterpolator(1.0) = 1-(1-t)² (easeOutQuad). Gentler than the
+// M3 emphasized-decelerate SWIPE_DECEL, which front-loads ~70% of travel into the
+// first ~15% of time and hid the swipe direction. Slide only; affordances keep SWIPE_DECEL.
+const SWIPE_SLIDE_EASE = "cubic-bezier(0.25, 0.46, 0.45, 0.94)";
 const NEW_BLOOM_MS = 300;       // container-transform reveal (M3 emphasized medium2)
 
 // Deep-equal two PaneViews so the panes memo can REUSE the prior object ref when
@@ -335,8 +340,8 @@ export function TerminalDeck(props: { activeSessionId: string | null }) {
   // ── Swipe transform per terminal slot ─────────────────────────────────
   // Composed AFTER termStyle (which never sets transform) so the slot's base
   // geometry is intact. During track: no transition (finger-follow). During
-  // settle: momentum-continued material-decelerate (per-settle duration from
-  // settleDurationMs) so the snap eases out at the finger's release speed.
+  // settle: constant-speed slide (settleDurationMs = 500ms per screen-width) with a
+  // decelerate ease-out so a full traverse never blinks past and its direction reads.
   const SETTLE_SLACK_MS = 20; // setTimeout outlasts the CSS transition so commit/clear lands after the visual
   function swipeOffsetsPx(sw: Swipe, w: number): { current: number; neighbor: number } {
     if (sw.phase === "settle")
@@ -349,7 +354,7 @@ export function TerminalDeck(props: { activeSessionId: string | null }) {
     const sw = swipe();
     if (!sw || (id !== sw.currentId && id !== sw.neighborId)) return {};
     const w = size().w;
-    const transition = sw.phase === "settle" ? `transform ${sw.settleMs ?? 200}ms ${SWIPE_DECEL}` : "none";
+    const transition = sw.phase === "settle" ? `transform ${sw.settleMs ?? 200}ms ${SWIPE_SLIDE_EASE}` : "none";
     const o = swipeOffsetsPx(sw, w);
     if (id === sw.currentId) {
       if (sw.mode === "new-terminal") {
@@ -505,14 +510,14 @@ export function TerminalDeck(props: { activeSessionId: string | null }) {
           return { ...prev, phase: "settle", settleTarget: "commit", settleMs: NEW_BLOOM_MS };
         }
         // Action fires after the settle so the visual already matches reactivity.
-        // Settle continues the finger's momentum over the remaining travel.
-        const ms = settleDurationMs(w - off, velocity);
+        // Constant-speed settle: 500ms per screen-width over the remaining travel.
+        const ms = settleDurationMs(w - off, w);
         const neighborId = prev.neighborId;
         setTimeout(() => { doSelect(neighborId!); setSwipe(null); }, ms + SETTLE_SLACK_MS);
         return { ...prev, phase: "settle", settleTarget: "commit", offset: -prev.dir * w, settleMs: ms };
       }
       // cancel: spring back. current returns to 0, neighbor/placeholder off-edge.
-      const ms = settleDurationMs(off, velocity); // remaining travel back to 0
+      const ms = settleDurationMs(off, w); // remaining travel back to 0
       setTimeout(() => setSwipe(null), ms + SETTLE_SLACK_MS);
       return { ...prev, phase: "settle", settleTarget: "cancel", offset: 0, settleMs: ms };
     });
