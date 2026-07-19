@@ -1,20 +1,21 @@
-// TerminalNavButtons — a keyboard-free input pad for touch. A small FAB
-// (keyboard icon, sibling to the mic) toggles a pop-up control pad: Esc on
-// top, the ▲ / ◀▼▶ arrow cluster, Enter on the bottom. Tap the FAB to pop
-// the pad open; tap again to collapse back to the FAB. Each key sends the
-// real terminal byte sequence (Esc = 0x1b, arrows = CSI A/B/C/D, Enter = CR);
-// nothing here parses the terminal. Open/closed state is module-level (shared
-// across every deck-mounted pad) and persisted, so toggling one toggles all
-// and the choice survives reload. Styling: styles/voice-input.css (.term-nav,
-// .term-nav-toggle). Caller: CellTerminal.tsx (compact/touch/micOnDesktop).
+// TerminalNavButtons — the touch special-keys sheet. A single FAB (keyboard
+// icon, sibling above the chat FAB) toggles a pop-up pad of special keys (Esc,
+// the ▲ / ◀▼▶ arrows, PgUp/PgDn, Enter, mouse toggle). Each key sends the real
+// terminal byte sequence (Esc = 0x1b, arrows = CSI A/B/C/D, Enter = CR);
+// nothing here parses the terminal. Text composing lives in the separate chat
+// FAB (TerminalChatButton). Open/closed state is module-level (shared across
+// every deck-mounted sheet) and persisted, so toggling one toggles all and the
+// choice survives reload. Styling: styles/voice-input.css (.term-nav,
+// .term-nav-toggle). Caller: CellTerminal.tsx (compact/touch/keyboardOnDesktop).
 
 import { createSignal, Show } from "solid-js";
 import { inputChannel } from "../ws/input-channel.ts";
 import { mouseForwardEnabled, toggleMouseForward } from "../lib/mouseForwardPref.ts";
 import { onFabPointerDown } from "../lib/fabDragOffset.ts";
+import type { Session } from "@roost/shared/wire";
 
 interface Props {
-  sessionId: string;
+  session: Session;
 }
 
 const ESC = new Uint8Array([27]); // ESC
@@ -27,7 +28,7 @@ const ENTER = new Uint8Array([13]); // CR
 const PGUP = new Uint8Array([27, 91, 53, 126]); // ESC [ 5 ~
 const PGDN = new Uint8Array([27, 91, 54, 126]); // ESC [ 6 ~
 
-// Shared across all deck-mounted pads (the deck renders one Terminal —
+// Shared across all deck-mounted sheets (the deck renders one Terminal —
 // hence one TerminalNavButtons — per open session). A module-level signal
 // keeps every instance in lock-step; localStorage makes the choice sticky.
 const PAD_OPEN_KEY = "roostNavPadOpen";
@@ -43,34 +44,36 @@ const togglePad = () =>
   });
 
 export function TerminalNavButtons(props: Props) {
-  const send = (bytes: Uint8Array) => inputChannel.sendInput(props.sessionId, bytes);
+  const send = (bytes: Uint8Array) => inputChannel.sendInput(props.session.id, bytes);
 
   return (
     <>
       <Show when={padOpen()}>
         <div class="term-nav" data-testid="terminal-nav-buttons">
-          <NavKey area="esc" testid="nav-esc" label="esc" onClick={() => send(ESC)} />
-          <NavKey area="pgup" testid="nav-pgup" icon="keyboard_double_arrow_up" onClick={() => send(PGUP)} />
-          <NavKey area="up" testid="nav-up" icon="keyboard_arrow_up" onClick={() => send(UP)} />
-          <NavKey area="pgdn" testid="nav-pgdn" icon="keyboard_double_arrow_down" onClick={() => send(PGDN)} />
-          <NavKey area="left" testid="nav-left" icon="keyboard_arrow_left" onClick={() => send(LEFT)} />
-          <NavKey area="down" testid="nav-down" icon="keyboard_arrow_down" onClick={() => send(DOWN)} />
-          <NavKey area="right" testid="nav-right" icon="keyboard_arrow_right" onClick={() => send(RIGHT)} />
-          <NavKey area="enter" testid="nav-enter" icon="keyboard_return" onClick={() => send(ENTER)} />
-          {/* Mouse toggle: forward swipe/click to claude (scroll its fullscreen)
-              vs native browser select/scroll. Highlighted when ON. */}
-          <button
-            type="button"
-            class="term-nav__key term-nav__key--mouse"
-            data-testid="nav-mouse"
-            data-active={mouseForwardEnabled() ? "true" : "false"}
-            aria-label="Toggle mouse forwarding"
-            aria-pressed={mouseForwardEnabled()}
-            onClick={toggleMouseForward}
-          >
-            <span class="term-nav__icon">mouse</span>
-            <span class="term-nav__label">{mouseForwardEnabled() ? "on" : "off"}</span>
-          </button>
+          <div class="term-nav__grid">
+            <NavKey area="esc" testid="nav-esc" label="esc" onClick={() => send(ESC)} />
+            <NavKey area="pgup" testid="nav-pgup" icon="keyboard_double_arrow_up" onClick={() => send(PGUP)} />
+            <NavKey area="up" testid="nav-up" icon="keyboard_arrow_up" onClick={() => send(UP)} />
+            <NavKey area="pgdn" testid="nav-pgdn" icon="keyboard_double_arrow_down" onClick={() => send(PGDN)} />
+            <NavKey area="left" testid="nav-left" icon="keyboard_arrow_left" onClick={() => send(LEFT)} />
+            <NavKey area="down" testid="nav-down" icon="keyboard_arrow_down" onClick={() => send(DOWN)} />
+            <NavKey area="right" testid="nav-right" icon="keyboard_arrow_right" onClick={() => send(RIGHT)} />
+            <NavKey area="enter" testid="nav-enter" icon="keyboard_return" onClick={() => send(ENTER)} />
+            {/* Mouse toggle: forward swipe/click to claude (scroll its fullscreen)
+                vs native browser select/scroll. Highlighted when ON. */}
+            <button
+              type="button"
+              class="term-nav__key term-nav__key--mouse"
+              data-testid="nav-mouse"
+              data-active={mouseForwardEnabled() ? "true" : "false"}
+              aria-label="Toggle mouse forwarding"
+              aria-pressed={mouseForwardEnabled()}
+              onClick={toggleMouseForward}
+            >
+              <span class="term-nav__icon">mouse</span>
+              <span class="term-nav__label">{mouseForwardEnabled() ? "on" : "off"}</span>
+            </button>
+          </div>
         </div>
       </Show>
       <button
@@ -78,7 +81,7 @@ export function TerminalNavButtons(props: Props) {
         class="term-nav-toggle"
         data-testid="terminal-nav-toggle"
         data-open={padOpen() ? "true" : "false"}
-        aria-label={padOpen() ? "Hide keys" : "Show keys"}
+        aria-label={padOpen() ? "Hide keyboard" : "Show keyboard"}
         onPointerDown={onFabPointerDown}
         onClick={togglePad}
       >

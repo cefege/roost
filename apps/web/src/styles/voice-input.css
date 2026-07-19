@@ -392,45 +392,13 @@
   to   { opacity: 1; transform: translateY(0); }
 }
 
-/* ── type-mode composer (keyboard input; long-press the mic to open) ── */
-/* Same M3 snackbar surface + anchoring as .voice-caption, but interactive
-   (pointer-events: auto) — it sits above the FAB cluster and must accept
-   keyboard/touch input. */
-.voice-compose {
-  max-width: min(90vw, 420px);
-  width: min(90vw, 420px);
-  padding: var(--md-space-4) var(--md-space-5);
-  border-radius: var(--md-shape-md);
-  background: var(--md-sys-color-surface-container-highest);
-  color: var(--md-sys-color-on-surface);
-  box-shadow: var(--md-elev-3);
-  pointer-events: auto;
-  animation: voice-caption-enter 220ms var(--md-ease-emphasized);
-}
-.voice-compose__input {
-  box-sizing: border-box;
-  width: 100%;
-  border: none;
-  outline: none;
-  resize: none;
-  background: transparent;
-  color: var(--md-sys-color-on-surface);
-  font-family: var(--md-font);
-  /* >=16px avoids iOS zoom-on-focus. */
-  font-size: 16px;
-  line-height: var(--md-body-l-line);
-}
-.voice-compose__input::placeholder {
-  color: var(--md-sys-color-on-surface-variant);
-}
-
 /* ── term-nav-toggle: keyboard FAB that pops the pad open/closed ── */
 /* Sits directly above the mic (same right edge). Tonal when closed, filled
    secondary when open. Tap pops .term-nav up above it; tap again collapses. */
 .term-nav-toggle {
   position: fixed;
   right: calc(env(safe-area-inset-right, 0px) + 16px);
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 84px);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 152px);
   translate: 0 calc(-1 * var(--roost-fab-dy, 0px));
   will-change: translate;
   z-index: 40;
@@ -485,17 +453,169 @@
   user-select: none;
 }
 
-/* ── term-nav: M3 pop-up control pad (Esc / arrows / Enter, touch) ── */
-/* Wide Esc key on top, inverted-T arrows (▲ / ◀▼▶), wide Enter on the
-   bottom, on a floating surface panel anchored above the toggle FAB.
-   Shown only while .term-nav-toggle is open. */
+/* ── term-chat: the light chat FAB + its horizontal composer pill ── */
+/* One-shot analogue of the mic. The FAB sits between the mic (below) and the
+   keyboard-nav FAB (above); tapping it expands a composer pill LEFTWARD within
+   its own 84px lane (paperclip + textarea + send) — never an upward panel,
+   which would collide with the nav FAB above. --kb-offset lifts it above the
+   soft keyboard. Only one pane's pill is open at a time (module guard). */
+.term-chat {
+  position: fixed;
+  right: calc(env(safe-area-inset-right, 0px) + 16px);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 84px + var(--kb-offset, 0px));
+  translate: 0 calc(-1 * var(--roost-fab-dy, 0px));
+  will-change: translate;
+  z-index: 45;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--md-space-2);
+  pointer-events: none;
+}
+.term-chat[data-open="true"] {
+  width: min(90vw, 460px);
+}
+.term-chat__pill {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--md-space-2);
+  padding: var(--md-space-1);
+  border-radius: var(--md-shape-lg);
+  background: var(--md-sys-color-surface-container-high);
+  box-shadow: var(--md-elev-3);
+  pointer-events: auto;
+  animation: voice-caption-enter 200ms var(--md-ease-emphasized);
+  font-family: var(--md-font);
+}
+.term-chat__input {
+  box-sizing: border-box;
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  resize: none;
+  background: var(--md-sys-color-surface-container-highest);
+  color: var(--md-sys-color-on-surface);
+  border-radius: var(--md-shape-md);
+  padding: var(--md-space-2) var(--md-space-3);
+  font-family: var(--md-font);
+  /* >=16px avoids iOS zoom-on-focus. */
+  font-size: 16px;
+  line-height: var(--md-body-l-line);
+}
+.term-chat__input::placeholder {
+  color: var(--md-sys-color-on-surface-variant);
+}
+.term-chat__attach,
+.term-chat__send {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: none;
+  background: var(--md-sys-color-surface-container-highest);
+  color: var(--md-sys-color-on-surface-variant);
+  border-radius: var(--md-shape-md);
+  cursor: pointer;
+  pointer-events: auto;
+}
+.term-chat__send {
+  background: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
+}
+.term-chat__icon {
+  font-family: "Material Symbols Rounded";
+  font-size: 22px;
+  line-height: 1;
+  font-variation-settings: "FILL" 1, "wght" 500, "GRAD" 0, "opsz" 24;
+  user-select: none;
+}
+
+/* Chat toggle FAB — clone of .term-nav-toggle, but positioned by the
+   .term-chat flex container (relative, no fixed bottom/right/z-index). */
+.term-chat-toggle {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  border-radius: var(--md-shape-lg);
+  border: none;
+  cursor: pointer;
+  pointer-events: auto;
+  touch-action: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface-variant);
+  box-shadow: var(--md-elev-3);
+  transition:
+    background-color 200ms var(--md-ease-emphasized),
+    box-shadow 200ms var(--md-ease-emphasized),
+    transform 120ms var(--md-ease-standard);
+  -webkit-tap-highlight-color: transparent;
+}
+.term-chat-toggle::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: currentColor;
+  opacity: 0;
+  transition: opacity 120ms var(--md-ease-standard);
+  pointer-events: none;
+}
+@media (hover: hover) {
+  .term-chat-toggle:hover { box-shadow: var(--md-elev-4); }
+  .term-chat-toggle:hover::after { opacity: 0.08; }
+}
+.term-chat-toggle:active::after { opacity: 0.12; }
+.term-chat-toggle:active { transform: scale(0.96); }
+.term-chat-toggle:focus-visible { outline: none; }
+.term-chat-toggle:focus-visible::after { opacity: 0.12; }
+.term-chat-toggle[data-open="true"] {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+}
+.term-chat-toggle__icon {
+  position: relative;
+  z-index: 1;
+  font-family: "Material Symbols Rounded";
+  font-size: 26px;
+  line-height: 1;
+  font-variation-settings: "FILL" 1, "wght" 500, "GRAD" 0, "opsz" 24;
+  user-select: none;
+}
+
+/* ── term-nav: the special-keys sheet ── */
+/* Floating surface panel anchored above the toggle FAB: the special-keys pad —
+   a wide Esc key, inverted-T arrows (▲ / ◀▼▶), PgUp/PgDn, a wide Enter, and the
+   mouse toggle. Shown only while .term-nav-toggle is open. */
 .term-nav {
   position: fixed;
   right: calc(env(safe-area-inset-right, 0px) + 16px);
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 152px);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 220px);
   translate: 0 calc(-1 * var(--roost-fab-dy, 0px));
   will-change: translate;
   z-index: 40;
+  width: min(80vw, 280px);
+  display: flex;
+  flex-direction: column;
+  gap: var(--md-space-2);
+  padding: var(--md-space-2);
+  border-radius: var(--md-shape-lg);
+  background: var(--md-sys-color-surface-container-high);
+  box-shadow: var(--md-elev-3);
+  pointer-events: auto;
+  animation: voice-caption-enter 200ms var(--md-ease-emphasized);
+  font-family: var(--md-font);
+}
+
+/* Special-keys pad — the 3-col grid. */
+.term-nav__grid {
   display: grid;
   grid-template-columns: repeat(3, 48px);
   grid-template-areas:
@@ -505,13 +625,7 @@
     "ent   ent   ent"
     "mouse mouse mouse";
   gap: var(--md-space-2);
-  padding: var(--md-space-2);
-  border-radius: var(--md-shape-lg);
-  background: var(--md-sys-color-surface-container-high);
-  box-shadow: var(--md-elev-3);
-  pointer-events: auto;
-  animation: voice-caption-enter 200ms var(--md-ease-emphasized);
-  font-family: var(--md-font);
+  justify-content: center;
 }
 
 .term-nav__key {

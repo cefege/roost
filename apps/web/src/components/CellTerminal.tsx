@@ -39,6 +39,7 @@ import { TerminalContextMenu } from "./TerminalContextMenu.tsx";
 import { pickAndAttachFiles, enqueueAttachment } from "../lib/attachments.ts";
 import { MobileVoiceInput, activeVoiceChannel } from "./MobileVoiceInput.tsx";
 import { TerminalNavButtons } from "./TerminalNavButtons.tsx";
+import { TerminalChatButton } from "./TerminalChatButton.tsx";
 import { TerminalStatusBadge } from "./TerminalStatusBadge.tsx";
 import { mouseForwardEnabled } from "../lib/mouseForwardPref.ts";
 import { isCompact, isTouchDevice } from "../lib/windowSizeClass.ts";
@@ -1285,7 +1286,10 @@ let _touchGraceTimer: ReturnType<typeof setTimeout> | null = null;
 				/>
 			</Show>
 			<Show when={isCompact() || isTouchDevice() || keyboardOnDesktop()}>
-				<TerminalNavButtons sessionId={props.session.id} />
+				<TerminalNavButtons session={props.session} />
+			</Show>
+			<Show when={isCompact() || isTouchDevice() || keyboardOnDesktop()}>
+				<TerminalChatButton session={props.session} refocusTerminal={() => term?.forceFocus()} />
 			</Show>
 			{/* Launch-agent FAB — shells only, shown only at a plain shell prompt
           (regex on the live viewport tail) AND not while voice-recording
@@ -1303,9 +1307,12 @@ let _touchGraceTimer: ReturnType<typeof setTimeout> | null = null;
 			<Show when={liveStatus(props.session) === "idle" && activeVoiceChannel() === null}>
 				<PlanButton sessionId={props.session.id} />
 			</Show>
-			{/* Attach-file FAB — always on. Native picker → chunked upload (progress
-          chip) → abs_path injected into the PTY, same as drag-drop. */}
-			<AttachFileButton session={props.session} />
+			{/* Attach-file FAB — desktop-only now; on touch/compact/keyboard-on-desktop
+          the chat FAB owns attach (its composer's leading paperclip). Native
+          picker → chunked upload (progress chip) → abs_path injected, same as drag-drop. */}
+			<Show when={!(isCompact() || isTouchDevice() || keyboardOnDesktop())}>
+				<AttachFileButton session={props.session} />
+			</Show>
 			<Show when={!pending() && !offline() && props.inLayout !== false}>
 				<TerminalStatusBadge session={props.session} />
 			</Show>

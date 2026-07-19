@@ -77,7 +77,7 @@ const VAR = "--roost-fab-dy";
 const pd = (clientY: number, clientX = 500) => ({ pointerType: "mouse", button: 0, clientX, clientY });
 
 describe("fabDragOffset", () => {
-  beforeEach(() => installFakeDom(800)); // max offset = 800 - 120 = 680
+  beforeEach(() => installFakeDom(800)); // max offset = 800 - 190 = 610
 
   test("drag up raises the offset var by (startY - clientY)", async () => {
     const dom = installFakeDom(800);
@@ -98,9 +98,9 @@ describe("fabDragOffset", () => {
     const dom = installFakeDom(800);
     const { onFabPointerDown } = await freshModule();
     onFabPointerDown(pd(700));
-    dom.win.fire("pointermove", pd(0)); // would be +700, clamps to 680
+    dom.win.fire("pointermove", pd(0)); // would be +700, clamps to 610
     dom.win.flushRaf(); // coalesced var-write deferred to a frame
-    expect(dom.cssProps[VAR]).toBe("680px");
+    expect(dom.cssProps[VAR]).toBe("610px");
   });
 
   test("below-threshold move is a tap: no offset change, no persist, no swallow", async () => {

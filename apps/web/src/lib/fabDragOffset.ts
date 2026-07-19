@@ -14,7 +14,7 @@ import { dragArmed } from "./dragThreshold.ts";
 
 const KEY = "roost.fabOffsetY.v1";
 const VAR = "--roost-fab-dy";
-const CLUSTER_H = 120; // approx stack height incl. term-nav pad; keep on-screen
+const CLUSTER_H = 190; // approx stack height incl. keys FAB + its sheet; keep on-screen
 
 function clampY(y: number): number {
   const max = Math.max(0, window.innerHeight - CLUSTER_H);
