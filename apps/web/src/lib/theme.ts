@@ -11,6 +11,7 @@
 import { createSignal } from "solid-js";
 import { CANONICAL_TOKENS } from "./themeTokens.ts";
 import { THEMES_BY_ID, SYSTEM_DARK_ID, SYSTEM_LIGHT_ID, DEFAULT_THEME_ID } from "./themes.ts";
+import { withViewTransition } from "./viewTransition.ts";
 
 const THEME_STORAGE_KEY = "roost.theme";
 
@@ -65,9 +66,11 @@ export function applyTheme(choice: ThemeChoice): void {
   setChoiceSignal(choice);
 }
 
-/** Picker entry point — same as applyTheme, named for intent. */
+/** Picker entry point — cross-fades the whole-app recolor via the View
+ *  Transitions API (Material "You" feel). applyTheme stays instant for boot +
+ *  the OS auto-flip; only an explicit user pick animates. */
 export function setTheme(choice: ThemeChoice): void {
-  applyTheme(choice);
+  withViewTransition(() => applyTheme(choice));
 }
 
 // Re-apply when the OS scheme flips while the user is on "auto".

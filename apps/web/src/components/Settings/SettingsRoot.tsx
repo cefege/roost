@@ -22,6 +22,7 @@ import { NotificationsPane } from "./NotificationsPane.tsx";
 import { ConnectionPane } from "./ConnectionPane.tsx";
 import { Icon } from "./md/primitives.tsx";
 import { isCompact } from "../../lib/windowSizeClass.ts";
+import { withViewTransition } from "../../lib/viewTransition.ts";
 import "./md/tokens.css";
 
 // The "Devices" pane (DevicesPane) merges phone-pairing (QR) + browser
@@ -62,26 +63,19 @@ const GROUPS: RailGroup[] = [
   ] },
 ];
 const ALL_PANES: PaneSpec[] = GROUPS.flatMap((g) => g.panes);
-const REDUCED = (): boolean =>
-  typeof window !== "undefined" &&
-  window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
-
 /** Mobile push/pop: detail slides in from the right (dir 1 = forward),
- *  back pops it out to the right (dir -1). View Transitions API where
- *  available; instant navigate fallback otherwise. Desktop rail is NOT
- *  routed through this — only the two mobile navigate calls use it. */
+ *  back pops it out to the right (dir -1). Direction-aware slide via
+ *  --settings-nav-dir; withViewTransition handles feature-detect + reduced
+ *  motion (instant navigate fallback). Desktop rail is NOT routed through
+ *  this — only the two mobile navigate calls use it. */
 function slideNavigate(
   navigate: (path: string, opts?: { replace?: boolean }) => void,
   path: string,
   opts: { replace?: boolean } | undefined,
   dir: 1 | -1,
 ): void {
-  const sv = (document as Document & {
-    startViewTransition?: (cb: () => void) => unknown;
-  }).startViewTransition;
-  if (!sv || REDUCED()) { navigate(path, opts); return; }
   document.documentElement.style.setProperty("--settings-nav-dir", String(dir));
-  sv.call(document, () => navigate(path, opts));
+  withViewTransition(() => navigate(path, opts));
 }
 // Shared pane router — used by both desktop main and mobile detail so the
 // two surfaces render identical pane content with zero duplication.
