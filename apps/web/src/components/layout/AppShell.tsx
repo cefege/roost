@@ -13,6 +13,7 @@ import { keyboardResize } from "../../lib/keyboardResizePref.ts";
 import { beginResizeDrag, endResizeDrag } from "../../lib/resizeDrag.ts";
 import { EDGE_PX, lockAxis, openOffsetPx, shouldOpen, closeOffsetPx, shouldClose } from "../../lib/edgeSwipeDrawer.ts";
 import { registerDrawer, dragDrawer, settleDrawerOpen, settleDrawerClose } from "../../lib/drawerDrag.ts";
+import { attachElasticOverscroll } from "../../lib/overscroll.ts";
 
 // ─── inline CSS helpers ─────────────────────────────────────────────────
 // Style objects are evaluated once; any dynamic value must live in JSX
@@ -279,6 +280,7 @@ export function AppShell(props: ParentProps) {
         <aside
           data-testid="sidebar-desktop"
           data-collapsed={uiStore.sidebarCollapsed ? "true" : "false"}
+          ref={(el) => onCleanup(attachElasticOverscroll(el))}
           style={desktopSidebarStyle()}
         >
           <SidebarRoot />
@@ -303,7 +305,7 @@ export function AppShell(props: ParentProps) {
       <Show when={isMobile()}>
         <aside
           data-testid="sidebar-drawer"
-          ref={(el) => registerDrawer(el)}
+          ref={(el) => { registerDrawer(el); onCleanup(attachElasticOverscroll(el)); }}
           class="roost-drawer"
           data-open={uiStore.sidebarOpen ? "true" : "false"}
           aria-hidden={!uiStore.sidebarOpen}

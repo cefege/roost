@@ -53,6 +53,25 @@ aside[data-testid="sidebar-drawer"] {
   border-right: none;
 }
 
+/* Chrome/Android-style overscroll edge glow. lib/overscroll.ts sets
+   data-overscroll="top|bottom" on the scrolling aside while the list is
+   rubber-banded past an edge; an inset accent glow blooms at that edge and
+   fades on release (transition). Inset box-shadow paints on the element's
+   border box, so it stays pinned to the visual edge as content translates. */
+/* Desktop aside has no transform transition, so a box-shadow transition here is
+   safe. The DRAWER's box-shadow transition is folded into its own transform
+   transition (below) — a separate higher-specificity rule here would clobber
+   the drawer's slide (transition replaces, not merges). */
+aside[data-testid="sidebar-desktop"] {
+  transition: box-shadow var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard);
+}
+aside[data-overscroll="top"] {
+  box-shadow: inset 0 28px 22px -22px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+aside[data-overscroll="bottom"] {
+  box-shadow: inset 0 -28px 22px -22px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
 /* Phase-m3b brand row — M3 small app bar (48px), surface-container
    background, the BrandMark perched-bird glyph as first child, larger
    title, pill tag in primary-container. The mark lives in the AllView
