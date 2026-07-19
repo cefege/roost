@@ -15,7 +15,7 @@
     "knip": "knip",
     "test": "bun test apps smoke",
     "dev": "bun run --filter='*' dev",
-    "roost": "bun run --cwd apps/roost-cli dev"
+    "roost": "bun apps/roost-cli/src/main.ts"
   },
   "devDependencies": {
     "@resvg/resvg-js": "^2.6.2",
