@@ -46,13 +46,13 @@ export function settleDrawerOpen(commit: boolean): void {
   handoff(el);
 }
 
-// Settle the CLOSE gesture: commit → slide off the RIGHT edge + closeSidebar();
+// Settle the CLOSE gesture: commit → slide off the LEFT edge + closeSidebar();
 // cancel → settle back open. Mirrors AppShell's prior close branch exactly.
 export function settleDrawerClose(commit: boolean): void {
   if (commit) closeSidebar();
   const el = drawerEl;
   if (!el) return;
   el.style.transition = commit ? ACCEL : DECEL;
-  el.style.transform = commit ? "translateX(100%)" : "translateX(0)";
+  el.style.transform = commit ? "translateX(-100%)" : "translateX(0)";
   handoff(el);
 }

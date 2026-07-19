@@ -190,8 +190,9 @@ export function AppShell(props: ParentProps) {
     const t = e.touches[0]!;
     if (uiStore.sidebarOpen) {
       // Skip touches that begin on the horizontally-scrollable folder tab bar
-      // so a rightward scroll of the tabs doesn't dismiss the drawer.
-      if ((e.target as Element | null)?.closest?.(".df-tab-bar")) { _candidate = false; return; }
+      // (so tab scroll doesn't dismiss) or on a SessionRow swipe wrapper (so a
+      // leftward swipe there runs its own swipe-to-delete instead of closing).
+      if ((e.target as Element | null)?.closest?.(".df-tab-bar, .df-row-swipe")) { _candidate = false; return; }
       _mode = "close";
       _candidate = true;
     } else if ((t.clientX ?? Infinity) <= EDGE_PX) {
@@ -218,7 +219,7 @@ export function AppShell(props: ParentProps) {
       if (lock === "y") { _candidate = false; return; } // vertical scroll → release
       _axis = "x";
     }
-    if (dx <= 0) { _candidate = false; return; } // leftward → not an open gesture
+    if (_mode === "open" ? dx <= 0 : dx >= 0) { _candidate = false; return; } // open needs rightward, close needs leftward
     e.preventDefault();
     e.stopPropagation(); // capture-phase: keep CellTerminal's listeners silent
     if (!_armed) {

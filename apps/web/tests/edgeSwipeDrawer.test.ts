@@ -55,31 +55,31 @@ describe("closeOffsetPx", () => {
   test("open base → 0", () => {
     expect(closeOffsetPx(0, 400)).toBe(0);
   });
-  test("dragged one full width → off right", () => {
-    expect(closeOffsetPx(400, 400)).toBe(400);
+  test("dragged one full width left → off left", () => {
+    expect(closeOffsetPx(-400, 400)).toBe(-400);
   });
-  test("over-drag clamps to width", () => {
-    expect(closeOffsetPx(600, 400)).toBe(400);
+  test("over-drag clamps to -width", () => {
+    expect(closeOffsetPx(-600, 400)).toBe(-400);
   });
-  test("leftward drag clamps to stay open", () => {
-    expect(closeOffsetPx(-50, 400)).toBe(0);
+  test("rightward drag clamps to stay open", () => {
+    expect(closeOffsetPx(50, 400)).toBe(0);
   });
 });
 
 describe("shouldClose", () => {
-  test("past 30% width closes", () => {
-    expect(shouldClose(120, 0, 400)).toBe(true);
+  test("past 30% width left closes", () => {
+    expect(shouldClose(-120, 0, 400)).toBe(true);
   });
   test("just under 30% width stays open", () => {
-    expect(shouldClose(119, 0, 400)).toBe(false);
+    expect(shouldClose(-119, 0, 400)).toBe(false);
   });
-  test("a rightward flick closes", () => {
-    expect(shouldClose(10, 0.8, 400)).toBe(true);
+  test("a leftward flick closes", () => {
+    expect(shouldClose(-10, -0.8, 400)).toBe(true);
   });
   test("just under flick velocity stays open", () => {
-    expect(shouldClose(10, 0.79, 400)).toBe(false);
+    expect(shouldClose(-10, -0.79, 400)).toBe(false);
   });
-  test("leftward never closes", () => {
-    expect(shouldClose(-200, 0, 400)).toBe(false);
+  test("rightward never closes", () => {
+    expect(shouldClose(200, 0, 400)).toBe(false);
   });
 });

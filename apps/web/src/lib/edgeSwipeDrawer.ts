@@ -30,14 +30,14 @@ export function shouldOpen(dx: number, velocity: number, width: number): boolean
 }
 
 // The drawer's live translateX in px while dragging it CLOSED. Base open = 0.
-// Rightward drag (dx>0) advances toward +width (off the RIGHT edge — the close
-// direction chosen for the workspace drawer). Leftward (dx<0) clamps to 0 (stays open).
+// Leftward drag (dx<0) advances toward -width (off the LEFT edge — the close
+// direction chosen for the workspace drawer). Rightward (dx>0) clamps to 0 (stays open).
 export function closeOffsetPx(dx: number, width: number): number {
-  return Math.max(0, Math.min(dx, width));
+  return Math.min(0, Math.max(dx, -width));
 }
 
-// Commit-to-close on release: past 30% width OR a rightward flick. Same
-// rightward-positive thresholds as shouldOpen (mirror gesture).
+// Commit-to-close on release: past 30% width left OR a leftward flick.
+// Leftward-negative thresholds (mirror of shouldOpen's rightward-positive).
 export function shouldClose(dx: number, velocity: number, width: number): boolean {
-  return dx >= width * 0.3 || velocity >= 0.8;
+  return dx <= -width * 0.3 || velocity <= -0.8;
 }
