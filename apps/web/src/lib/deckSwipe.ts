@@ -1,7 +1,7 @@
 // Commit-to-switch decision + momentum settle timing for the mobile tab-bar
 // swipe (wired in TerminalDeck, gesture measured in MobileDeckBar). Pure so the
-// thresholds are unit-tested. Mirrors edgeSwipeDrawer.ts. dir: 1 = swipe
-// left→next (leftward, dx<0), -1 = swipe right→prev (rightward, dx>0).
+// thresholds are unit-tested. Mirrors edgeSwipeDrawer.ts. dir: 1 = next, -1 =
+// prev (deck feeds the real finger dx, so dir 1 = finger-left, dir -1 = finger-right).
 
 export const SWITCH_DIST_FRAC = 0.4;       // deliberate drag: travel >= 40% width
 export const SWITCH_FLING_VEL = 0.6;       // px/ms, directional flick
@@ -57,4 +57,21 @@ export function endMode(dir: 1 | -1, hasNeighbor: boolean): SwipeMode {
 export function newFabProgress(offset: number, width: number): number {
   if (width <= 0) return 0;
   return Math.min(1, Math.abs(offset) / (width * SWITCH_DIST_FRAC));
+}
+
+// Predictive-back peel + growing-FAB visuals for the new-terminal pull.
+// p = newFabProgress(offset,width) ∈ [0,1]. Pure so the mapping is unit-tested;
+// TerminalDeck composes these into inline styles.
+export const PEEK_SCALE_MIN = 0.9;   // current terminal shrinks to 90% at armed
+export const PEEK_SHIFT_FRAC = 0.05; // …and slides left up to 5% of width
+export const PEEK_RADIUS_PX = 28;    // …corners round to 28px (M3 large)
+export const NEW_FAB_MIN_SCALE = 0.5;
+
+export function peekCard(p: number): { scale: number; shiftFrac: number; radius: number } {
+  const c = Math.max(0, Math.min(1, p));
+  return { scale: 1 - c * (1 - PEEK_SCALE_MIN), shiftFrac: -c * PEEK_SHIFT_FRAC || 0, radius: c * PEEK_RADIUS_PX };
+}
+export function newFabScale(p: number): number {
+  const c = Math.max(0, Math.min(1, p));
+  return NEW_FAB_MIN_SCALE + (1 - NEW_FAB_MIN_SCALE) * c;
 }

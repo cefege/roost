@@ -1268,61 +1268,60 @@ aside[data-testid="sidebar-drawer"]::-webkit-scrollbar-thumb:hover,
   animation: df-tab-dot-pulse 1.8s ease-in-out infinite;
 }
 
-/* ── New-terminal right-edge pull-tab handle + container-transform bloom (TerminalDeck) ──
-   A rounded-left pill with a pointed left nub, docked to the right edge and
-   grown in from it as the finger drags past the last tab. JS (newHandleStyle)
-   owns position/reveal/opacity; CSS owns the look, the pointed nub, and the
-   armed emphasis. */
-.deck-new-handle {
-  position: absolute;            /* JS sets right/top/transform; needs positioned box for ::before */
-  display: inline-flex;
+/* ── New-terminal predictive-back pull (TerminalDeck) ─────────────────────
+   JS (newPeekStyle/newFabStyle) owns geometry + progress; CSS owns color,
+   elevation, and the armed (primary) emphasis. */
+.deck-new-peek {
+  display: flex;
   align-items: center;
-  gap: 8px;
-  height: 48px;
-  padding: 0 18px 0 16px;
-  border-radius: 24px 0 0 24px;  /* rounded left (protruding), flush right (docked to edge) */
+  justify-content: center;
+  background: var(--md-surface-container);
+  overflow: hidden;
+  -webkit-tap-highlight-color: transparent;
+}
+.deck-new-peek__label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--md-on-surface-variant);
+  font: 500 14px/1.2 var(--md-font);
+  letter-spacing: 0.1px;
+}
+.deck-new-fab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background: var(--md-sys-color-primary-container);
   color: var(--md-sys-color-on-primary-container);
-  box-shadow: var(--md-elev-3);
-  font: 600 14px/1 var(--md-font);
-  white-space: nowrap;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
   -webkit-tap-highlight-color: transparent;
-  transition: background-color 150ms var(--md-ease-emphasized), box-shadow 150ms var(--md-ease-emphasized);
+  transition: background-color 150ms var(--md-ease-emphasized),
+              color 150ms var(--md-ease-emphasized),
+              box-shadow 150ms var(--md-ease-emphasized);
 }
-/* Pointed left nub: a left-pointing CSS triangle color-matched to the pill. */
-.deck-new-handle::before {
-  content: "";
-  position: absolute;
-  left: -10px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 0;
-  height: 0;
-  border-top: 11px solid transparent;
-  border-bottom: 11px solid transparent;
-  border-right: 10px solid var(--md-sys-color-primary-container);  /* tip points left */
-}
-.deck-new-handle__icon { flex-shrink: 0; }
-.deck-new-handle__label { letter-spacing: 0.1px; }
-/* Armed = past the commit distance: primary emphasis + lift, so the user sees
-   (and feels, via the haptic tick) that releasing now will create. */
-.deck-new-handle[data-armed="true"] {
+/* Armed = past the commit distance: fill to primary + state-layer ring, so
+   releasing now unmistakably creates. Pairs with the existing arm haptic. */
+.deck-new-fab[data-armed="true"] {
   background: var(--md-sys-color-primary);
   color: var(--md-sys-color-on-primary);
-  box-shadow: var(--md-elev-4);
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.5),
+              0 0 0 12px color-mix(in srgb, var(--md-sys-color-primary) 18%, transparent);
 }
-.deck-new-handle[data-armed="true"]::before {
-  border-right-color: var(--md-sys-color-primary);
+.deck-new-hint {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 22%;
+  text-align: center;
+  color: var(--md-sys-color-primary);
+  font: 600 13px/1.2 var(--md-font);
+  letter-spacing: 0.1px;
+  z-index: 6;
+  opacity: 0;
+  transition: opacity 120ms var(--md-ease-emphasized);
+  pointer-events: none;
 }
-.deck-new-bloom {
-  overflow: hidden;
-  background: var(--md-sys-color-primary-container);
-  clip-path: circle(0 at 100% 50%);
-  animation: deck-bloom var(--deck-bloom-ms, 300ms) var(--md-ease-emphasized) forwards;
-}
-@keyframes deck-bloom {
-  to { clip-path: circle(150% at 100% 50%); }
-}
+.deck-new-hint[data-armed="true"] { opacity: 1; }
 
 /* ── Card entrance animation (Chrome card scale-in, staggered) ─────── */
 /* The wrap carries the entrance animation (scale + opacity); the inner
@@ -1722,49 +1721,6 @@ aside[data-testid="sidebar-drawer"]::-webkit-scrollbar-thumb:hover,
 }
 .df-tab-close:hover { color: var(--md-on-surface); }
 
-/* Phase-m3g agent status bar — glass-blurred pill pinned at bottom
-   of MainPane. Renders only for active claude session via
-   AgentStatusBar component. */
-.df-agent-bar {
-  position: absolute;
-  left: 14px;
-  right: 14px;
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 14px);
-  background: var(--md-surface-container);
-  border: 1px solid var(--md-outline-variant);
-  border-radius: 12px;
-  padding: 8px 12px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  /* ponytail: no backdrop-filter blur — md-surface-container is opaque, and
-     blur() recomposites the backdrop every frame = sustained mobile-GPU heat. */
-  box-shadow: var(--md-elev-3);
-  font-size: var(--md-body-s-size);
-  color: var(--md-on-surface-variant);
-  z-index: 5;
-}
-.df-agent-chip-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 10px;
-  border-radius: var(--md-shape-full);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.3px;
-}
-.df-agent-chip-status .df-agent-chip-dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: currentColor;
-  animation: df-agent-pulse 1.4s ease-in-out infinite;
-}
-@keyframes df-agent-pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50%      { opacity: 0.5; transform: scale(0.85); }
-}
 .term-status-badge {
   position: absolute;
   top: 8px;
@@ -1789,63 +1745,6 @@ aside[data-testid="sidebar-drawer"]::-webkit-scrollbar-thumb:hover,
   height: 6px;
   border-radius: 50%;
   background: var(--badge-color);
-}
-.df-agent-chip-mode {
-  display: inline-flex;
-  align-items: center;
-  padding: 3px 10px;
-  border-radius: var(--md-shape-full);
-  border: 1px solid var(--md-outline-variant);
-  color: var(--md-on-surface-variant);
-  font-size: 11px;
-  font-weight: 500;
-}
-.df-agent-tool {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  flex: 1;
-  min-width: 0;
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 11.5px;
-  color: var(--md-on-surface-variant);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.df-agent-tool-name {
-  color: var(--md-tertiary);
-  font-weight: 600;
-}
-.df-agent-spinner {
-  width: 10px;
-  height: 10px;
-  border: 2px solid var(--md-outline-variant);
-  border-top-color: var(--md-tertiary);
-  border-radius: 50%;
-  animation: df-agent-spin 0.8s linear infinite;
-  flex-shrink: 0;
-}
-@keyframes df-agent-spin {
-  to { transform: rotate(360deg); }
-}
-.df-agent-divider {
-  width: 1px;
-  height: 16px;
-  background: var(--md-outline-variant);
-}
-.df-agent-metric {
-  font-size: var(--md-body-s-size);
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-variant-numeric: tabular-nums;
-  color: var(--md-on-surface-variant);
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-}
-.df-agent-metric b {
-  color: var(--md-on-surface);
-  font-weight: 500;
 }
 
 /* Phase-m3j search ⌘K hint — small monospace chip at the right edge

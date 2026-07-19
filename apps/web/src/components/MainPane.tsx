@@ -16,7 +16,6 @@ import { consumeBootRestore } from "../lib/bootRestore.ts";
 import { folderKeyOf } from "../lib/folderKey.ts";
 import { signal } from "@roost/shared/diag";
 import { TerminalDeck } from "./TerminalDeck.tsx";
-import { AgentStatusBar } from "./AgentStatusBar.tsx";
 import { Button } from "./Settings/md/Button.tsx";
 import { uiStore, closeSidebar } from "../store/uiStore.ts";
 import { isCompact } from "../lib/windowSizeClass.ts";
@@ -175,7 +174,6 @@ export function MainPane() {
           and dividers; see TerminalDeck.tsx. */}
       <Show when={!isFileView() && !isSearch()}>
         <TerminalDeck activeSessionId={activeOpenSession()?.id ?? null} />
-        <AgentStatusBar />
 
         {/* Stuck-terminal escape: the pane resolves to no live terminal AND
             bootstrap is wedged (coord unreachable or browser unpaired) — show

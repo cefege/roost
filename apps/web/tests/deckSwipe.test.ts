@@ -1,7 +1,7 @@
 // Mobile tab-bar swipe commit decision + momentum settle math (lib/deckSwipe.ts).
 
 import { describe, test, expect } from "bun:test";
-import { shouldCommitSwitch, settleDurationMs, endMode, newFabProgress } from "../src/lib/deckSwipe.ts";
+import { shouldCommitSwitch, settleDurationMs, endMode, newFabProgress, peekCard, newFabScale, PEEK_SCALE_MIN, PEEK_RADIUS_PX } from "../src/lib/deckSwipe.ts";
 
 describe("shouldCommitSwitch", () => {
   test("past-distance drag commits", () => {
@@ -79,4 +79,15 @@ describe("newFabProgress", () => {
   test("zero-width guard → 0", () => {
     expect(newFabProgress(-100, 0)).toBe(0);
   });
+});
+
+describe("peekCard", () => {
+  test("at rest → identity", () => { expect(peekCard(0)).toEqual({ scale: 1, shiftFrac: 0, radius: 0 }); });
+  test("armed → shrunk/shifted/rounded", () => { expect(peekCard(1)).toEqual({ scale: PEEK_SCALE_MIN, shiftFrac: -0.05, radius: PEEK_RADIUS_PX }); });
+  test("clamps past 1", () => { expect(peekCard(2)).toEqual(peekCard(1)); });
+});
+describe("newFabScale", () => {
+  test("rest → 0.5", () => { expect(newFabScale(0)).toBe(0.5); });
+  test("armed → 1", () => { expect(newFabScale(1)).toBe(1); });
+  test("clamps", () => { expect(newFabScale(-1)).toBe(0.5); expect(newFabScale(3)).toBe(1); });
 });

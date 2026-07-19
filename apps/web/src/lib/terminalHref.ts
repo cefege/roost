@@ -2,8 +2,8 @@
 // terminal on (server, spawn folder) instead of the ephemeral session id, so a
 // bookmark survives a session death+respawn in the same folder.
 //
-// Called by: CommandPalette.pickFolder (builds the href on open), MainPane +
-// AgentStatusBar (decode the splat → resolveSessionByFolder). Encoding mirrors
+// Called by: CommandPalette.pickFolder (builds the href on open), MainPane
+// (decode the splat → resolveSessionByFolder). Encoding mirrors
 // the /file/ link builder in CellTerminal.tsx:90 — per-segment
 // encodeURIComponent, leading slash stripped (the @solidjs/router *splat drops
 // it and re-adds none).

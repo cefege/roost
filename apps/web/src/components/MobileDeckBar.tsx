@@ -28,7 +28,6 @@ import { NotificationBellTrigger } from "./NotificationBell.tsx";
 import { renderPreview } from "../lib/terminalPreview.ts";
 import { ctxMenuSurfaceStyle, CtxMenuItem } from "./contextMenuPrimitives.tsx";
 
-const TITLE_DECEL = "var(--md-sys-motion-easing-emphasized-decelerate, cubic-bezier(0.05, 0.7, 0.1, 1))";
 const TITLE_TEXT: Record<string, string> = {
   "font-size": "14px",
   "font-weight": "600",
@@ -37,18 +36,6 @@ const TITLE_TEXT: Record<string, string> = {
   "white-space": "nowrap",
   "line-height": "48px",
 };
-function slideStyle(fraction: number, settleMs: number | null): Record<string, string> {
-  return {
-    ...TITLE_TEXT,
-    position: "absolute",
-    left: "0",
-    right: "0",
-    top: "0",
-    transform: `translateX(${fraction * 100}%)`,
-    transition: settleMs != null ? `transform ${settleMs}ms ${TITLE_DECEL}` : "none",
-    "will-change": "transform",
-  };
-}
 
 export interface MobileDeckBarProps {
   /** Flattened, ordered sessions in the folder (all panes, leaf-then-tab order). */
@@ -58,14 +45,6 @@ export interface MobileDeckBarProps {
   onSelect: (id: string) => void;
   onClose: (s: Session) => void;
   onNewTab: () => void;
-  /** Live swipe state so the tab title slides in parallel with the terminal.
-   *  null when no swipe is active. Fractions are unit = title-zone width. */
-  swipe?: {
-    progress: number;          // current title translateX fraction (× 100%)
-    neighbor: Session | null;  // slide-in neighbor title source
-    neighborProgress: number;  // neighbor title translateX fraction (× 100%)
-    settleMs: number | null;   // null = track (finger-follow, no transition); ms during settle
-  } | null;
 }
 
 export function MobileDeckBar(props: MobileDeckBarProps) {
@@ -106,39 +85,10 @@ export function MobileDeckBar(props: MobileDeckBarProps) {
           onClick={openSidebar}
           style={{ "flex-shrink": "0" }}
         />
-        <div
-          style={{
-            flex: "1 1 0",
-            "min-width": "0",
-            position: "relative",
-            overflow: "hidden",
-            height: "48px",
-          }}
-        >
-          <Show
-            when={props.swipe}
-            fallback={
-              <span title={title()} style={{ ...TITLE_TEXT, display: "block", width: "100%" }}>
-                {title()}
-              </span>
-            }
-          >
-            {(sw) => (
-              <>
-                <span title={title()} style={slideStyle(sw().progress, sw().settleMs)}>
-                  {title()}
-                </span>
-                <Show when={sw().neighbor}>
-                  <span
-                    title={sessionTitle(sw().neighbor!)}
-                    style={slideStyle(sw().neighborProgress, sw().settleMs)}
-                  >
-                    {sessionTitle(sw().neighbor!)}
-                  </span>
-                </Show>
-              </>
-            )}
-          </Show>
+        <div style={{ flex: "1 1 0", "min-width": "0", position: "relative", overflow: "hidden", height: "48px" }}>
+          <span title={title()} style={{ ...TITLE_TEXT, display: "block", width: "100%" }}>
+            {title()}
+          </span>
         </div>
 
         {/* New terminal — same folder & server (unchanged behavior). */}

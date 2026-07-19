@@ -3,8 +3,8 @@
 // idle / … via liveStatus, plus the seen-map via needsAttention) up to herdr's
 // 5-level attention model: blocked > done > working > idle > unknown. "done" =
 // a finished agent whose output you haven't seen (idle/done & unseen — falls out
-// of needsAttention's idle branch, attention.ts:23). Replaces 4 duplicated
-// status→color maps (PaneStrip / SessionRow / StatusGlyph / AgentStatusBar);
+// of needsAttention's idle branch, attention.ts:23). Replaces 3 duplicated
+// status→color maps (PaneStrip / SessionRow / StatusGlyph);
 // uses --md-* design-system roles only.
 
 import type { Session } from "@roost/shared/wire";

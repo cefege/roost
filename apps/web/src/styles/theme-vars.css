@@ -349,8 +349,8 @@
   --settings-nav-dir: 1;
 }
 
-/* Honor OS "reduce motion" — kills every infinite animation (df-agent-pulse,
-   roost-zzz-float, voice-pulse) + transitions in one place; battery + a11y. */
+/* Honor OS "reduce motion" — kills every infinite animation (roost-zzz-float,
+   voice-pulse) + transitions in one place; battery + a11y. */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
