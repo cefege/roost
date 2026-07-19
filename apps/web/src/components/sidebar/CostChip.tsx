@@ -12,7 +12,7 @@ interface Props {
   session: Session;
 }
 
-function formatCostUsd(cost: number | null | undefined): string | null {
+export function formatCostUsd(cost: number | null | undefined): string | null {
   if (cost == null || !Number.isFinite(cost) || cost < 0.01) return null;
   return `$${cost.toFixed(2)}`;
 }

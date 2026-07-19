@@ -354,7 +354,9 @@ aside[data-overscroll="bottom"] {
   text-decoration: none;
   font-variant-numeric: tabular-nums;
 }
-.df-flat-port:hover { color: var(--color-info); }
+@media (hover: hover) {
+  .df-flat-port:hover { color: var(--color-info); }
+}
 .df-flat-server {
   display: inline-flex;
   align-items: center;
@@ -401,8 +403,10 @@ aside[data-overscroll="bottom"] {
   background: color-mix(in srgb, var(--color-warn) 12%, transparent);
   box-shadow: inset 3px 0 0 0 var(--color-warn);
 }
-.df-row[data-density="flat"][data-stage="needs-input"]:not([data-selected="focused"]):hover {
-  background: color-mix(in srgb, var(--color-warn) 18%, transparent);
+@media (hover: hover) {
+  .df-row[data-density="flat"][data-stage="needs-input"]:not([data-selected="focused"]):hover {
+    background: color-mix(in srgb, var(--color-warn) 18%, transparent);
+  }
 }
 .df-row[data-density="flat"][data-stage="done"]:not([data-selected="focused"]):not([data-cursor="on"]) {
   box-shadow: inset 2px 0 0 0 var(--color-info);
@@ -531,8 +535,10 @@ aside[data-overscroll="bottom"] {
 }
 /* Hover = M3 state layer (on-surface @ ~8%) over the card — keeps the card
    tone, just lifts it, instead of replacing the background. */
-[data-m3flat] .df-flat-group .df-row[data-density="flat"]:hover {
-  background: color-mix(in srgb, var(--text-hi) 7%, var(--surface-0));
+@media (hover: hover) {
+  [data-m3flat] .df-flat-group .df-row[data-density="flat"]:hover {
+    background: color-mix(in srgb, var(--text-hi) 7%, var(--surface-0));
+  }
 }
 /* Active = filled secondary-container card (no coral rail). */
 [data-m3flat] .df-flat-group .df-row[data-density="flat"][data-selected="focused"] {
@@ -545,8 +551,10 @@ aside[data-overscroll="bottom"] {
   background: var(--surface-0);
   box-shadow: inset 3px 0 0 0 var(--color-warn);
 }
-[data-m3flat] .df-flat-group .df-row[data-density="flat"][data-stage="needs-input"]:not([data-selected="focused"]):hover {
-  background: color-mix(in srgb, var(--color-warn) 8%, var(--surface-0));
+@media (hover: hover) {
+  [data-m3flat] .df-flat-group .df-row[data-density="flat"][data-stage="needs-input"]:not([data-selected="focused"]):hover {
+    background: color-mix(in srgb, var(--color-warn) 8%, var(--surface-0));
+  }
 }
 [data-m3flat] .df-flat-group .df-row[data-density="flat"][data-stage="done"]:not([data-selected="focused"]):not([data-cursor="on"]) {
   box-shadow: inset 3px 0 0 0 var(--color-info);
@@ -637,8 +645,10 @@ aside[data-overscroll="bottom"] {
   font-weight: 600;
   transition: background-color 80ms ease-out, color 80ms ease-out;
 }
-.df-row:hover .df-leading {
-  color: var(--md-on-surface);
+@media (hover: hover) {
+  .df-row:hover .df-leading {
+    color: var(--md-on-surface);
+  }
 }
 .df-row[data-selected="focused"] .df-leading,
 .df-row[aria-current="page"] .df-leading {
@@ -686,16 +696,22 @@ aside[data-overscroll="bottom"] {
   transition: opacity 80ms ease-out, background-color 80ms ease-out, color 80ms ease-out;
 }
 .df-row .df-action-always { opacity: 0.55; }
-.df-row:hover .df-action,
 .df-row:focus-within .df-action,
 .df-row .df-action:focus-visible {
   opacity: 1;
 }
-.df-row .df-action:hover {
-  background: var(--md-state-hover);
-  color: var(--df-text-000);
+@media (hover: hover) {
+  .df-row:hover .df-action { opacity: 1; }
 }
-.df-row .df-action-always:hover { color: #f08775; }
+@media (hover: hover) {
+  .df-row .df-action:hover {
+    background: var(--md-state-hover);
+    color: var(--df-text-000);
+  }
+}
+@media (hover: hover) {
+  .df-row .df-action-always:hover { color: #f08775; }
+}
 
 /* Scrollbars — narrow themed bars matching the palette. WebKit
    (Chrome, Safari) + Firefox `scrollbar-color` for everything else. */
@@ -1232,6 +1248,23 @@ aside[data-testid="sidebar-drawer"]::-webkit-scrollbar-thumb:hover,
    sliding siblings. Transforms/transitions are set inline by TabBar.tsx. */
 .df-tab { touch-action: pan-y; -webkit-tap-highlight-color: transparent; }
 .df-tab-bar[data-dragging="true"] { user-select: none; cursor: grabbing; }
+/* Chrome-style tab close: the closing tab collapses its width to 0 (siblings
+   slide left to fill via the inline-flex row) while fading, then PaneStrip
+   fires onClose. Compositor-friendly where possible; max-width/padding drive
+   the reflow. Reduced-motion → the global guard (theme-vars.css) zeroes the
+   duration so it's effectively instant. */
+.df-tab[data-closing="true"] {
+  max-width: 0 !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+  transition:
+    max-width var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-emphasized-accelerate),
+    padding var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-emphasized-accelerate),
+    opacity var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard);
+}
 /* ── Mobile (compact) Chrome-style workspace bar (MobileDeckBar) ────────
    Replaces the old scrollable MobileTabStrip row. The bar chrome is
    inline-styled (48px, surface-1); these rules style its interactive bits
@@ -1326,21 +1359,6 @@ aside[data-testid="sidebar-drawer"]::-webkit-scrollbar-thumb:hover,
   box-shadow: 0 8px 26px rgba(0, 0, 0, 0.5),
               0 0 0 12px color-mix(in srgb, var(--md-sys-color-primary) 18%, transparent);
 }
-.deck-new-hint {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 22%;
-  text-align: center;
-  color: var(--md-sys-color-primary);
-  font: 600 13px/1.2 var(--md-font);
-  letter-spacing: 0.1px;
-  z-index: 6;
-  opacity: 0;
-  transition: opacity 120ms var(--md-ease-emphasized);
-  pointer-events: none;
-}
-.deck-new-hint[data-armed="true"] { opacity: 1; }
 
 /* ── Card entrance animation (Chrome card scale-in, staggered) ─────── */
 /* The wrap carries the entrance animation (scale + opacity); the inner
@@ -1650,13 +1668,108 @@ aside[data-testid="sidebar-drawer"]::-webkit-scrollbar-thumb:hover,
   padding: 0;
   border: none;
   border-radius: var(--md-shape-sm);
-  background: transparent;
+  /* Pinned right so the + stays reachable while overflowing tabs scroll under
+     it; the opaque bar-colored background masks tabs sliding beneath. */
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  background: var(--md-surface-container);
   color: var(--md-on-surface-variant);
   cursor: pointer;
-  position: relative;
   transition: background-color 120ms ease-out, color 120ms ease-out;
 }
 .df-tab-new:hover { background: var(--md-state-hover); color: var(--md-on-surface); }
+/* Overflow tab-list chevron — rendered only when the strip overflows. Pinned
+   left of the + button; a soft left shadow separates it from scrolling tabs. */
+.df-tab-overflow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  border-radius: var(--md-shape-sm);
+  position: sticky;
+  right: 32px;
+  z-index: 1;
+  background: var(--md-surface-container);
+  color: var(--md-on-surface-variant);
+  cursor: pointer;
+  box-shadow: -8px 0 8px -6px color-mix(in srgb, var(--md-scrim) 40%, transparent);
+  transition: background-color 120ms ease-out, color 120ms ease-out;
+}
+.df-tab-overflow:hover { background: var(--md-state-hover); color: var(--md-on-surface); }
+/* Desktop tab hover card (Chrome tab hover-card). Fixed via Portal; JS sets
+   top/left. pointer-events:none so it never eats the hover that spawned it. */
+.df-tab-hovercard {
+  position: fixed;
+  z-index: 70;
+  width: 280px;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--md-surface-container-high);
+  border: 1px solid var(--md-outline-variant);
+  border-radius: var(--md-shape-lg);
+  box-shadow: var(--md-elev-3);
+  color: var(--md-on-surface);
+  font-size: var(--md-body-s-size);
+  pointer-events: none;
+  animation: df-hovercard-in 100ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .df-tab-hovercard { animation: none; }
+}
+@keyframes df-hovercard-in { from { opacity: 0; } to { opacity: 1; } }
+.df-tab-hovercard-head { display: flex; align-items: center; gap: 7px; }
+.df-tab-hovercard-title {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.df-tab-hovercard-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--md-on-surface-variant);
+}
+.df-tab-hovercard-line {
+  color: var(--md-on-surface-variant);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.df-tab-hovercard-cwd {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--md-on-surface-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.df-tab-hovercard-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--md-on-surface-variant);
+}
+.df-tab-hovercard-preview {
+  height: 120px;
+  margin-top: 4px;
+  border-radius: var(--md-shape-sm);
+  overflow: hidden;
+  background: var(--term-bg);
+}
 .df-arrange-btn {
   display: inline-flex;
   align-items: center;
@@ -1902,7 +2015,8 @@ aside[data-testid="sidebar-drawer"]::-webkit-scrollbar-thumb:hover,
   transform: translateX(-100%);
   /* Closing (→ off-screen): emphasized-ACCELERATE, quick. M3 exits accelerate. */
   transition: transform var(--md-sys-motion-duration-short4, 200ms)
-    var(--md-sys-motion-easing-emphasized-accelerate, cubic-bezier(0.3, 0, 0.8, 0.15));
+      var(--md-sys-motion-easing-emphasized-accelerate, cubic-bezier(0.3, 0, 0.8, 0.15)),
+    box-shadow var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard);
   will-change: transform;
 }
 .roost-drawer[data-open="true"] {
@@ -1911,7 +2025,8 @@ aside[data-testid="sidebar-drawer"]::-webkit-scrollbar-thumb:hover,
      in rather than snapping. The asymmetry (decelerate in / accelerate out) is
      what reads as native Material. */
   transition: transform var(--md-sys-motion-duration-medium2, 300ms)
-    var(--md-sys-motion-easing-emphasized-decelerate, cubic-bezier(0.05, 0.7, 0.1, 1));
+      var(--md-sys-motion-easing-emphasized-decelerate, cubic-bezier(0.05, 0.7, 0.1, 1)),
+    box-shadow var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard);
 }
 
 /* No backdrop: a full-screen drawer has nothing behind it to dim. The
