@@ -1,13 +1,36 @@
-// Verifies spawn-retry resilience: after a coord restart the worker↔coord WS
-// is down for ~10-15s while the worker re-dials, and coord rejects a spawn with
-// FailedPrecondition "worker <fp> not connected". withSpawnRetry must retry
-// across that window (so the click flow surfaces a brief delay, not a scary
-// error toast) yet rethrow any OTHER error immediately. Guards the fix for the
-// "New terminal failed: worker ... not connected" report.
+// spawnSession.test.ts — two concerns in the spawn helper module.
+//
+// 1. Spawn-retry resilience: after a coord restart the worker↔coord WS is down
+//    for ~10-15s while the worker re-dials, and coord rejects a spawn with
+//    FailedPrecondition "worker <fp> not connected". withSpawnRetry must retry
+//    across that window (so the click flow surfaces a brief delay, not a scary
+//    error toast) yet rethrow any OTHER error immediately.
+// 2. The per-session auto-launch guard: maybeAutoLaunchAgent is reachable from
+//    several racy new-tab paths; without a guard a second call re-queues the
+//    agent command and it gets typed twice into the same PTY (sendInput has no
+//    dedup). Two calls for one session id must send exactly once.
+//
+// mock.module must run before the unit's static imports resolve, so the deps
+// are mocked here and the unit is pulled in via a dynamic import below.
 
-import { test, expect } from "bun:test";
+import { test, expect, describe, mock } from "bun:test";
 import { ConnectError, Code } from "@connectrpc/connect";
-import { isWorkerReconnecting, withSpawnRetry } from "../src/lib/spawnSession.ts";
+
+let enabled = true;
+const sendInput = mock((_sid: string, _bytes: Uint8Array) => {});
+
+mock.module("../src/lib/agents.ts", () => ({
+  autoLaunchEnabled: () => enabled,
+  resolveAgent: () => ({ command: "omp" }),
+}));
+mock.module("../src/ws/input-channel.ts", () => ({
+  inputChannel: { sendInput },
+}));
+
+// Dynamic import: static imports hoist above the mock.module calls above, so the
+// unit must be pulled in after the deps are mocked (module-loading boundary).
+const { isWorkerReconnecting, withSpawnRetry, maybeAutoLaunchAgent } =
+  await import("../src/lib/spawnSession.ts");
 
 test("isWorkerReconnecting: only the transient precondition", () => {
   expect(isWorkerReconnecting(new ConnectError("worker abc123 not connected", Code.FailedPrecondition))).toBe(true);
@@ -38,4 +61,28 @@ test("withSpawnRetry: rethrows a non-transient error immediately (no retry)", as
   });
   await expect(run).rejects.toThrow("internal boom");
   expect(calls).toBe(1);
+});
+
+describe("maybeAutoLaunchAgent", () => {
+  test("fires at most once per session id", () => {
+    maybeAutoLaunchAgent("s1");
+    maybeAutoLaunchAgent("s1");
+    expect(sendInput).toHaveBeenCalledTimes(1);
+    const [sid, bytes] = sendInput.mock.calls[0];
+    expect(sid).toBe("s1");
+    expect(new TextDecoder().decode(bytes)).toBe("omp\r");
+  });
+
+  test("a distinct session id is not blocked", () => {
+    maybeAutoLaunchAgent("s2");
+    expect(sendInput).toHaveBeenCalledTimes(2);
+    expect(sendInput.mock.calls[1][0]).toBe("s2");
+  });
+
+  test("disabled config sends nothing", () => {
+    enabled = false;
+    maybeAutoLaunchAgent("s3");
+    expect(sendInput).toHaveBeenCalledTimes(2);
+    enabled = true;
+  });
 });

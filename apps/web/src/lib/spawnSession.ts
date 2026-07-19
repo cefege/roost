@@ -21,6 +21,12 @@ import type { WorkerFp, Session, ClaudeMode } from "@roost/shared/wire";
 import { inputChannel } from "../ws/input-channel.ts";
 import { resolveAgent, autoLaunchEnabled } from "./agents.ts";
 
+// A session's agent command is auto-launched at most once. maybeAutoLaunchAgent
+// is reachable from several racy new-tab paths (swipe setTimeout + button clicks,
+// split, browse, context menu); without this a second call re-queues the command
+// and the agent gets typed twice into the same PTY. sendInput has no dedup.
+const autoLaunchedSessionIds = new Set<string>();
+
 // Spawn-retry window. After a coord restart the worker↔coord WS is down for
 // ~10-15s while the worker re-dials; coord rejects a spawn in that window with
 // FailedPrecondition "worker <fp> not connected". Retrying across the window
@@ -118,9 +124,11 @@ export async function waitForSession(sessionId: string, timeoutMs = 2_000): Prom
   return null;
 }
 
-/** If auto-launch is enabled, send the configured agent command into the new PTY. */
+/** If auto-launch is enabled, send the configured agent command into the new PTY. Fires at most once per session. */
 export function maybeAutoLaunchAgent(sessionId: string): void {
   if (!autoLaunchEnabled()) return;
+  if (autoLaunchedSessionIds.has(sessionId)) return;
+  autoLaunchedSessionIds.add(sessionId);
   const cmd = resolveAgent().command + "\r";
   inputChannel.sendInput(sessionId, new TextEncoder().encode(cmd));
 }
