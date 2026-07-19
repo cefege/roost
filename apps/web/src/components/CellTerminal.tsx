@@ -63,6 +63,7 @@ import { coordClient } from "../connect.ts";
 import { ResizeCause } from "@roost/shared/proto/coordinator_pb";
 import { isResizeDragging, arrangeEpoch } from "../lib/resizeDrag.ts";
 import { diag, signal } from "@roost/shared/diag";
+import { springStep, isSpringAtRest, SPRING_STIFF, type SpringState } from "../lib/spring.ts";
 import { getSessionTraceId } from "../lib/diag.ts";
 import type { Session } from "@roost/shared/wire";
 import { useNavigate } from "@solidjs/router";
@@ -106,6 +107,13 @@ const CLAIM_HEARTBEAT_MS = 30_000;
 // assert scrollToBottom across this window instead of trusting one synchronous
 // atBottom() read (which sees the pre-reflow estimate). ~12 frames ≈ 200ms @60fps.
 const REPIN_SETTLE_FRAMES = 12;
+
+// A finger must travel this far before a touch counts as a scroll (vs a tap-to-
+// focus). Below it, follow intent is left untouched so tapping never breaks it.
+const TOUCH_SCROLL_SLOP_PX = 8;
+// Keep auto-pin suppressed this long after the finger lifts so iOS/Android fling
+// momentum settles before follow re-syncs to the resting position.
+const TOUCH_MOMENTUM_GRACE_MS = 300;
 
 // Shared 500ms cursor-poll ticker — one interval for ALL mounted panes (was one
 // per open session; the deck keeps every open session mounted). Ref-counted like
@@ -205,6 +213,10 @@ let _settling = false;              // true while the reveal re-pin burst is scr
 let _settleRaf: number | null = null;
 let _settleFrames = 0;
 let _jumping = false; // true while the smooth jump-to-bottom animation runs — ignore the scroll listener
+let _touchScrolling = false; // finger actively dragging a main-screen (non-alt) pane → suppress auto-pin
+let _touchStartY = 0;        // clientY at touchstart, to measure drag distance vs slop
+let _touchMoved = false;     // this touch has passed the slop → it's a scroll, not a tap
+let _touchGraceTimer: ReturnType<typeof setTimeout> | null = null;
 	const [altScreen, setAltScreen] = createSignal(false); // tracks frame.altScreen — gates mouse/touch forwarding + wheel passivity
 	// Show the jump-to-bottom FAB once the user has scrolled up more than one
 	// full viewport from the bottom (i.e. scrolling back manually would be tedious).
@@ -401,11 +413,11 @@ let _jumping = false; // true while the smooth jump-to-bottom animation runs —
 		setShowJumpDown(fromBottom > displayRef.clientHeight);
 	}
 
-	// Fixed-duration eased scroll to the true bottom, then an instant snap to pin.
-	// Duration is distance-independent ("fast" no matter how far up), and the target
-	// is recomputed each frame so content-visibility block reflow (scrollHeight
-	// growth as off-screen .cell-block blocks reveal) can't leave us landing short.
-	const JUMP_DURATION_MS = 280;
+	// Spring-driven scroll to the true bottom, then an instant snap to pin. The
+	// target is recomputed each frame so content-visibility block reflow
+	// (scrollHeight growth as off-screen .cell-block blocks reveal) can't leave
+	// us landing short; the spring naturally chases the moving target. Shares the
+	// app motion vocabulary (lib/spring.ts) instead of a bespoke easeOutCubic.
 	function jumpToBottom(): void {
 		if (!displayRef || !renderer) return;
 		setShowJumpDown(false);
@@ -417,20 +429,28 @@ let _jumping = false; // true while the smooth jump-to-bottom animation runs —
 		}
 		_jumping = true;
 		const el = displayRef;
-		const start = el.scrollTop;
-		const t0 = performance.now();
+		let state: SpringState = { position: el.scrollTop, velocity: 0 };
+		let last = performance.now();
+		const t0 = last;
 		const step = (now: number) => {
 			if (unmounted || !renderer) { _jumping = false; return; }
-			const p = Math.min(1, (now - t0) / JUMP_DURATION_MS);
-			const eased = 1 - Math.pow(1 - p, 3); // easeOutCubic
+			const dtMs = Math.min(now - last, 64); // clamp after a stall
+			last = now;
 			const target = el.scrollHeight - el.clientHeight;
-			el.scrollTop = start + (target - start) * eased;
-			if (p < 1) {
-				requestAnimationFrame(step);
-			} else {
-				renderer.scrollToBottom(); // instant final snap
+			state = springStep(state, target, SPRING_STIFF, dtMs);
+			// Hand off to the normal follow/pin machinery once at rest, within a
+			// line of the true bottom, or after a wall-clock cap. The cap + the
+			// near-bottom check are load-bearing: while output is STREAMING the
+			// target grows every frame, so the spring never reaches rest — without
+			// a bound the rAF would spin forever with _jumping stuck true.
+			const nearBottom = target - state.position < 24; // ~one row of slack
+			if (isSpringAtRest(state, target) || nearBottom || now - t0 > 600) {
+				renderer.scrollToBottom(); // instant final snap → follow takes over
 				_following = true;
 				_jumping = false;
+			} else {
+				el.scrollTop = state.position;
+				requestAnimationFrame(step);
 			}
 		};
 		requestAnimationFrame(step);
@@ -526,14 +546,14 @@ let _jumping = false; // true while the smooth jump-to-bottom animation runs —
 			// intent, so the reveal never arms _repinPending and never re-pins. The
 			// scroll listener is already gated the same way (spurious parked scrolls).
 			if (props.inLayout !== false && isPageVisible()) {
-				const pin = wasBottom || _repinPending;
+				const pin = (wasBottom && !_touchScrolling) || _repinPending;
 				if (pin) renderer.scrollToBottom();
 				// A reveal re-pin (_repinPending) must survive the post-paint content-
 				// visibility reflow: drive scrollToBottom across a bounded rAF burst
 				// that clears _repinPending when it lands, instead of a same-tick
 				// atBottom() read against the pre-reflow (estimate) scrollHeight.
 				if (_repinPending) startRepinSettle();
-				_following = pin;
+				if (!_touchScrolling) _following = pin;
 				updateJumpDownVis();
 			}
 			if (frame.full) backfill.onFullFrame();
@@ -814,6 +834,11 @@ let _jumping = false; // true while the smooth jump-to-bottom animation runs —
 		let touchCol = 1,
 			touchRow = 1;
 		const onTouchStart = (ev: TouchEvent) => {
+			if (!altScreen() && ev.touches.length === 1) {
+				_touchStartY = ev.touches[0]!.clientY;
+				_touchMoved = false;
+				if (_touchGraceTimer) { clearTimeout(_touchGraceTimer); _touchGraceTimer = null; }
+			}
 			if (!forwardActive() || ev.touches.length !== 1) {
 				touchY = null;
 				return;
@@ -825,6 +850,15 @@ let _jumping = false; // true while the smooth jump-to-bottom animation runs —
 			touchRow = c.row;
 		};
 		const onTouchMove = (ev: TouchEvent) => {
+			if (!altScreen()) {
+				if (!_touchMoved && ev.touches.length === 1 &&
+					Math.abs(ev.touches[0]!.clientY - _touchStartY) > TOUCH_SCROLL_SLOP_PX) {
+					_touchMoved = true;
+					_touchScrolling = true;
+					_following = false; // user is scrolling into history → stop following
+				}
+				return; // native scroll owns the movement; never preventDefault outside alt-screen
+			}
 			if (touchY === null || !forwardActive() || ev.touches.length !== 1)
 				return;
 			const y = ev.touches[0]!.clientY;
@@ -840,11 +874,25 @@ let _jumping = false; // true while the smooth jump-to-bottom animation runs —
 		};
 		const onTouchEnd = () => {
 			touchY = null;
+			if (_touchMoved) {
+				_touchMoved = false;
+				clearTimeout(_touchGraceTimer ?? undefined);
+				_touchGraceTimer = setTimeout(() => {
+					_touchGraceTimer = null;
+					_touchScrolling = false;
+					// Re-sync follow intent to where the fling actually landed.
+					if (renderer && props.inLayout !== false && isPageVisible()) {
+						_following = renderer.atBottom();
+						updateJumpDownVis();
+					}
+				}, TOUCH_MOMENTUM_GRACE_MS);
+			}
 		};
 
 		displayRef!.addEventListener("mousedown", onMouseDownFwd);
 		displayRef!.addEventListener("touchstart", onTouchStart, { passive: true });
 		displayRef!.addEventListener("touchend", onTouchEnd, { passive: true });
+		displayRef!.addEventListener("touchcancel", onTouchEnd, { passive: true });
 
 		// att1d — file drop/paste → upload → inject abs_path into the PTY.
 		// Lost in the byte-mode cut (e8f450b9); restored here. Logic lives in
@@ -1153,10 +1201,12 @@ let _jumping = false; // true while the smooth jump-to-bottom animation runs —
 				displayRef?.removeEventListener("mousedown", onMouseDownFwd);
 				displayRef?.removeEventListener("touchstart", onTouchStart);
 				displayRef?.removeEventListener("touchend", onTouchEnd);
+				displayRef?.removeEventListener("touchcancel", onTouchEnd);
 				displayRef?.removeEventListener("paste", onPaste);
 				resizeObs?.disconnect();
 				if (claimTimer) clearTimeout(claimTimer);
 				if (_settleRaf != null) { cancelAnimationFrame(_settleRaf); _settleRaf = null; }
+				if (_touchGraceTimer) { clearTimeout(_touchGraceTimer); _touchGraceTimer = null; }
 				predictor?.dispose();
 				renderer?.dispose();
 				unregPreview();
