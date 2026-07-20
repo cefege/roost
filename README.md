@@ -5,9 +5,11 @@
 
 # Roost
 
-**One place to reach every Mac you own — and drive a real terminal on any of them, from any device.**
+**Built for AI engineers — one screen to run, watch, and steer a fleet of coding agents, on any device.**
 
-Connect all your Macs to a single coordinator, then open, control, and split full native terminals across them from one browser tab — laptop, phone, or tablet — over your own network. Full native control, run anything. It's tuned for coding agents (Claude Code, pi, oh-my-pi), but an agent is optional — a plain shell is a first-class session. Self-hosted; nothing touches a cloud.
+Roost is a tool for AI engineers. Connect your machines to a single coordinator and every coding agent you're running — Claude Code, pi, oh-my-pi, or any terminal tool — lands in one browser tab you can open from a laptop, phone, or tablet: watch which agents are working and which are blocked on you, and drop into any of them as a real, full native terminal. It's a terminal multiplexer at heart, retuned to streamline the agentic workflows AI engineers live in. Self-hosted; nothing touches a cloud.
+
+_Made by an AI engineer, for AI engineers._
 
 [![License](https://img.shields.io/badge/license-GPL--3.0--only-blue)](LICENSE)
 ![Platform](https://img.shields.io/badge/platform-macOS-lightgrey)
@@ -20,19 +22,21 @@ Connect all your Macs to a single coordinator, then open, control, and split ful
 
 ## What it is
 
-Roost is one control plane for every computer you own: connect each Mac to a coordinator and you get full, native terminal control of all of them from a single browser tab. At its core it's a terminal multiplexer — like `tmux` or `screen`, except the screen is any browser on your network and the panes span every machine you own. It's tuned for coding agents: Claude Code, pi, oh-my-pi, and anything else that lives in a terminal. You don't strictly need an agent — a plain shell is a valid session — but agentic workflows are what it's built for.
+Roost is a control room for AI engineers: one screen where you run, observe, and steer a whole fleet of coding agents. Connect each machine to a coordinator and every agent — Claude Code, pi, oh-my-pi, or anything else that lives in a terminal — shows up in one browser tab, grouped by the machine it runs on, each with a live status chip: working, waiting on you, or idle.
 
-Set it up once and every terminal on every machine follows you. Reattach the same live session at your desk, from the couch on your phone, or on a tablet on the train — a **real** terminal, full ANSI and scrollback, driven by touch as comfortably as by a keyboard. There's no stripped-down "mobile view": coding agents are terminal-first and UI-second, so Roost perfects the terminal instead of wrapping it in a lossy chat window.
+Under the hood it's a terminal multiplexer — like `tmux`, `screen`, or `zellij`, except the screen is any browser on your network and the panes span every machine you own. But where those manage *terminals*, Roost is built for the way AI engineers actually work: it lifts each agent's state, model, and cost onto the sidebar, keeps every session alive across disconnects, and lets you split, arrange, and switch panes by clicking or tapping. A plain shell is still a first-class session — you just don't need one, because streamlining agentic workflows is the whole point.
 
-If you've used `tmux`, `screen`, or `zellij`: those live inside one terminal on one machine, driven by a prefix-key grammar, and to reach another box you SSH in first. Roost turns that inside out. Every machine you own shows up in one place — be connected to ten computers at once with no SSH juggling — and you split, arrange, and switch panes by clicking or tapping, so it's approachable even if you've never touched a multiplexer. Still love tmux or zellij? Run them inside a Roost session; Roost just means you no longer have to.
+If you've used `tmux`, `screen`, or `zellij`, they live inside one terminal on one machine, driven by a prefix-key grammar, and to reach another box you SSH in first. Roost turns that inside out: every machine you own shows up in one place — be connected to ten computers at once with no SSH juggling — and the whole surface is built to keep a dozen concurrent agents legible instead of buried in tabs. Still love tmux or zellij? Run them inside a Roost session; Roost just means you no longer have to.
 
 ## The problem
 
-Run more than one or two coding-agent sessions and you lose the thread. Five terminal tabs across two Macs, and the one blocked on a permission prompt is the one you can't find — and none of them is reachable when you're away from the desk. Roost puts every session, on every machine, on one screen you can open from anywhere, and tells you at a glance which one needs you.
+An AI engineer runs many coding agents at once — and the moment you have five going across two machines, you lose the thread. The one blocked on a permission prompt is the one you can't find, the heavy run is stuck on the laptop that should have offloaded it, and none of them is reachable when you step away from the desk. Roost puts every agent, on every machine, on one screen you can open from anywhere, and tells you at a glance which one needs you.
 
 ## What you get
 
-**Many machines, one screen.** Connect every Mac you own to one coordinator and drive all of them — natively — from a single browser tab. One coordinator plus any number of workers that dial outbound only (no inbound port on your other machines); the sidebar groups every live session by the machine it runs on, so ten computers are as easy to work as one, with no SSH juggling. Offload heavy, power-hungry runs onto a beefier box while you keep working on your laptop over the LAN. Works great with exactly one machine too.
+**Every agent at a glance.** The sidebar shows each session's live state — working, waiting for input, or idle — with its model and cost-so-far, grouped by the machine it runs on. No tabbing through terminals to find the blocked one. State is read from Claude Code's hooks or by screen-scraping the TUI; the agent's transcript is never consumed to get it.
+
+**Scale your agent fleet across machines.** Connect every Mac you own to one coordinator and run agents on all of them — natively — from a single browser tab. One coordinator plus any number of workers that dial outbound only (no inbound port on your other machines); the sidebar groups every live session by the machine it runs on, so ten computers are as easy to work as one, with no SSH juggling. Offload heavy, power-hungry runs onto a beefier box while you keep working on your laptop over the LAN. Works great with exactly one machine too.
 
 ![The sidebar: every session grouped by the machine it runs on, with live status and cost](docs/media/sidebar-status.png)
 
@@ -41,8 +45,6 @@ Run more than one or two coding-agent sessions and you lose the thread. Five ter
 ![Desktop-grade on a tablet — the same real terminal and layout as a laptop](docs/media/tablet-desktop.png)
 
 ![A real terminal on a phone — full ANSI, touch selection, and an on-screen key row](docs/media/mobile-phone.png)
-
-**Every agent at a glance.** The sidebar shows each session's live state — working, waiting for input, or idle — with its model and cost-so-far, grouped by the machine it runs on. No tabbing through terminals to find the blocked one. State is read from Claude Code's hooks or by screen-scraping the TUI; the agent's transcript is never consumed to get it.
 
 **Open a workspace wherever the work is.** No `cd`-ing around over SSH to find a project. Browse any machine's folders as a visual grid, drill in, and hit *Open terminal here* — a new workspace starts in that directory, on that machine. Every folder on every computer you own is a couple of clicks away in the same UI.
 
