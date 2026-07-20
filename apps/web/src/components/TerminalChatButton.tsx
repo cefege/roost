@@ -54,7 +54,7 @@ export function TerminalChatButton(props: Props) {
     setActiveChatChannel(null);
     // On touch, drop the soft keyboard by blurring — refocusing the terminal's
     // textarea would keep the keyboard up. Desktop keeps terminal focus.
-    if (isTouchDevice()) (document.activeElement as HTMLElement | null)?.blur();
+    if (isTouchDevice()) inputEl?.blur();
     else props.refocusTerminal?.();
   };
 
@@ -92,6 +92,16 @@ export function TerminalChatButton(props: Props) {
     >
       <Portal>
         <div class="term-chat__dock" data-testid="mobile-chat-input" data-open="true">
+          <button
+            type="button"
+            class="term-chat-toggle"
+            data-testid="terminal-chat-toggle"
+            data-open="true"
+            aria-label="Cancel message"
+            onClick={closeComposer}
+          >
+            <span class="term-chat-toggle__icon">close</span>
+          </button>
           <div class="term-chat__box" data-testid="chat-box">
             <button
               type="button"
@@ -134,16 +144,6 @@ export function TerminalChatButton(props: Props) {
               <span class="term-chat__icon">send</span>
             </button>
           </div>
-          <button
-            type="button"
-            class="term-chat-toggle"
-            data-testid="terminal-chat-toggle"
-            data-open="true"
-            aria-label="Cancel message"
-            onClick={closeComposer}
-          >
-            <span class="term-chat-toggle__icon">close</span>
-          </button>
         </div>
       </Portal>
     </Show>
