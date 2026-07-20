@@ -23,8 +23,8 @@ self.addEventListener("push", (event) => {
       tag: sessionId, // coalesce: a newer notification for the same session replaces the prior one
       data: { sessionId },
       requireInteraction: kind === "blocked", // blocked persists until acted on; done auto-dismisses
-      icon: "/icon-192.png",
-      badge: "/icon-32.png",
+      icon: "/icon-192.png?v=2",
+      badge: "/icon-32.png?v=2",
     }),
   );
 });

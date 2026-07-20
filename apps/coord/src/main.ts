@@ -170,15 +170,23 @@ export async function runCoord() {
   }
 
   async function fileResponse(
-    path: string, ext: string, method: string, acceptEncoding: string, isIndex: boolean,
+    path: string, ext: string, method: string, acceptEncoding: string, isIndex: boolean, hashed: boolean,
   ): Promise<Response> {
     const headers: Record<string, string> = {
       "content-type": MIME[ext] ?? "application/octet-stream",
     };
     if (isIndex) {
       headers["cache-control"] = "no-cache, no-store, must-revalidate";
-    } else if (ext !== ".html") {
+    } else if (hashed) {
+      // Vite content-hashed bundle (assets/*): the filename changes on every
+      // content change, so the body at this URL is genuinely immutable.
       headers["cache-control"] = "public, max-age=31536000, immutable";
+    } else {
+      // Stable-filename assets (icons, manifest, sw-push.js, fonts, wasm,
+      // whatsnew.json): the URL is reused across builds, so it must NEVER be
+      // immutable — otherwise a changed favicon/manifest stays pinned in the
+      // browser for a year. Revalidate on every load instead.
+      headers["cache-control"] = "no-cache";
     }
     // On-the-fly gzip via Bun's NATIVE Bun.gzipSync — NOT node:zlib (heap
     // corruption + random-later segfault under load; see git history +
@@ -201,13 +209,13 @@ export async function runCoord() {
     const asset = resolveAsset(rel);
     if (asset) {
       const dot = rel.lastIndexOf(".");
-      return fileResponse(asset, dot >= 0 ? rel.slice(dot) : "", method, acceptEncoding, false);
+      return fileResponse(asset, dot >= 0 ? rel.slice(dot) : "", method, acceptEncoding, false, rel.startsWith("assets/"));
     }
     if (rel.startsWith("assets/")) {
       return new Response("not found", { status: 404 });
     }
     const index = resolveIndex();
-    if (index) return fileResponse(index, ".html", method, acceptEncoding, true);
+    if (index) return fileResponse(index, ".html", method, acceptEncoding, true, false);
     return new Response("not found", { status: 404 });
   }
 

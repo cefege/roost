@@ -513,76 +513,80 @@ let _touchGraceTimer: ReturnType<typeof setTimeout> | null = null;
 			string,
 			{ x: number; y: number; label?: string }
 		>();
-		const unsubCell = registerCellHandler(props.session.id, (frame) => {
-			setHasFrame(true);
-			// Echo RTT tracker: input→cell-frame round-trip, works even when
-			// predictive echo is off. Consumes the last-send timestamp (one
-			// measurement per input→echo cycle).
-			const sendTs = consumeLastInputSendTs(props.session.id);
-			if (sendTs !== undefined) {
-				const rttMs = performance.now() - sendTs;
-				if (rttMs > 0 && rttMs < 5000) diag("echo.frame_rtt", { sid: props.session.id, rtt_ms: rttMs });
-			}
-			if (!renderer) return;
-			diag("cell.apply", {
-				sid: props.session.id,
-				seq: frame.seq,
-				full: frame.full,
-				vp_rows: frame.viewportRows.length,
-				cursor_vis: frame.cursorVisible,
-				cursor_row: frame.cursorRow,
-				cursor_col: frame.cursorCol,
-			});
-			setAltScreen(frame.altScreen);
-			const wasBottom = renderer.atBottom();
-			renderer.apply(frame);
-			renderer.setGhosts(ghostMap); // re-attach after the viewport re-render
-			lastCurRow = frame.cursorRow;
-			lastCurCol = frame.cursorCol;
-			predictor?.onFrame(frame); // reconcile predictions against the authoritative grid
-			// Only a LIVE (in-layout + page-visible) pane updates the stick-to-bottom
-			// intent. A frame arriving while parked (in-flight after a withdraw, or a
-			// late emit) reads wasBottom=false on the reverted content-visibility
-			// container — writing that to _following would erase the pre-withdrawal
-			// intent, so the reveal never arms _repinPending and never re-pins. The
-			// scroll listener is already gated the same way (spurious parked scrolls).
-			if (props.inLayout !== false && isPageVisible()) {
-				const pin = (wasBottom && !_touchScrolling) || _repinPending;
-				if (pin) renderer.scrollToBottom();
-				// A reveal re-pin (_repinPending) must survive the post-paint content-
-				// visibility reflow: drive scrollToBottom across a bounded rAF burst
-				// that clears _repinPending when it lands, instead of a same-tick
-				// atBottom() read against the pre-reflow (estimate) scrollHeight.
-				if (_repinPending) startRepinSettle();
-				if (!_touchScrolling) _following = pin;
-				updateJumpDownVis();
-			}
-			if (frame.full) backfill.onFullFrame();
-			setAtShellPrompt(SHELL_PROMPT_RE.test(renderer.viewportTail()));
-		});
-
-		// Receive remote viewers' cursors → ghostMap → cellRenderer (ch/lh overlay).
-		const unsubPresence = registerPresenceHandler(props.session.id, (msg) => {
-			const f = msg as {
-				kind?: string;
-				viewer_id?: string;
-				cursor_col?: number;
-				cursor_row?: number;
-				label?: string;
-			};
-			if (f.kind === "presence-delta" && typeof f.viewer_id === "string") {
-				ghostMap.set(f.viewer_id, {
-					x: f.cursor_col ?? 0,
-					y: f.cursor_row ?? 0,
-					label: f.label ?? f.viewer_id,
+		let unsubCell: () => void;
+		let unsubPresence: () => void;
+		runWithOwner(cellOwner, () => {
+			unsubCell = registerCellHandler(props.session.id, (frame) => {
+				setHasFrame(true);
+				// Echo RTT tracker: input→cell-frame round-trip, works even when
+				// predictive echo is off. Consumes the last-send timestamp (one
+				// measurement per input→echo cycle).
+				const sendTs = consumeLastInputSendTs(props.session.id);
+				if (sendTs !== undefined) {
+					const rttMs = performance.now() - sendTs;
+					if (rttMs > 0 && rttMs < 5000) diag("echo.frame_rtt", { sid: props.session.id, rtt_ms: rttMs });
+				}
+				if (!renderer) return;
+				diag("cell.apply", {
+					sid: props.session.id,
+					seq: frame.seq,
+					full: frame.full,
+					vp_rows: frame.viewportRows.length,
+					cursor_vis: frame.cursorVisible,
+					cursor_row: frame.cursorRow,
+					cursor_col: frame.cursorCol,
 				});
-				renderer?.setGhosts(ghostMap);
-			} else if (
-				f.kind === "presence-leave" &&
-				typeof f.viewer_id === "string"
-			) {
-				if (ghostMap.delete(f.viewer_id)) renderer?.setGhosts(ghostMap);
-			}
+				setAltScreen(frame.altScreen);
+				const wasBottom = renderer.atBottom();
+				renderer.apply(frame);
+				renderer.setGhosts(ghostMap); // re-attach after the viewport re-render
+				lastCurRow = frame.cursorRow;
+				lastCurCol = frame.cursorCol;
+				predictor?.onFrame(frame); // reconcile predictions against the authoritative grid
+				// Only a LIVE (in-layout + page-visible) pane updates the stick-to-bottom
+				// intent. A frame arriving while parked (in-flight after a withdraw, or a
+				// late emit) reads wasBottom=false on the reverted content-visibility
+				// container — writing that to _following would erase the pre-withdrawal
+				// intent, so the reveal never arms _repinPending and never re-pins. The
+				// scroll listener is already gated the same way (spurious parked scrolls).
+				if (props.inLayout !== false && isPageVisible()) {
+					const pin = (wasBottom && !_touchScrolling) || _repinPending;
+					if (pin) renderer.scrollToBottom();
+					// A reveal re-pin (_repinPending) must survive the post-paint content-
+					// visibility reflow: drive scrollToBottom across a bounded rAF burst
+					// that clears _repinPending when it lands, instead of a same-tick
+					// atBottom() read against the pre-reflow (estimate) scrollHeight.
+					if (_repinPending) startRepinSettle();
+					if (!_touchScrolling) _following = pin;
+					updateJumpDownVis();
+				}
+				if (frame.full) backfill.onFullFrame();
+				setAtShellPrompt(SHELL_PROMPT_RE.test(renderer.viewportTail()));
+			});
+
+			// Receive remote viewers' cursors → ghostMap → cellRenderer (ch/lh overlay).
+			unsubPresence = registerPresenceHandler(props.session.id, (msg) => {
+				const f = msg as {
+					kind?: string;
+					viewer_id?: string;
+					cursor_col?: number;
+					cursor_row?: number;
+					label?: string;
+				};
+				if (f.kind === "presence-delta" && typeof f.viewer_id === "string") {
+					ghostMap.set(f.viewer_id, {
+						x: f.cursor_col ?? 0,
+						y: f.cursor_row ?? 0,
+						label: f.label ?? f.viewer_id,
+					});
+					renderer?.setGhosts(ghostMap);
+				} else if (
+					f.kind === "presence-leave" &&
+					typeof f.viewer_id === "string"
+				) {
+					if (ghostMap.delete(f.viewer_id)) renderer?.setGhosts(ghostMap);
+				}
+			});
 		});
 
 		// Send THIS viewer's cursor so others' ghostMaps update. Gated on visible +
@@ -648,12 +652,15 @@ let _touchGraceTimer: ReturnType<typeof setTimeout> | null = null;
 		// text in <a>. Same stream that feeds the hidden input oracle. Client-side,
 		// no wire change (the cell wire carries no link metadata).
 		const osc8 = new Osc8Tracker();
-		const unsubBytes = registerBytesHandler(props.session.id, (chunk) => {
-			const bytes =
-				typeof chunk === "string" ? new TextEncoder().encode(chunk) : chunk;
-			osc8.process(bytes);
-			if (!term) return;
-			term.write(bytes);
+		let unsubBytes: () => void;
+		runWithOwner(cellOwner, () => {
+			unsubBytes = registerBytesHandler(props.session.id, (chunk) => {
+				const bytes =
+					typeof chunk === "string" ? new TextEncoder().encode(chunk) : chunk;
+				osc8.process(bytes);
+				if (!term) return;
+				term.write(bytes);
+			});
 		});
 		// Linkify rendered .cell-row text (OSC 8 links + regex URLs), Cmd/Ctrl-gated.
 		const detachLinks = attachTerminalLinks(displayRef!, osc8, {
