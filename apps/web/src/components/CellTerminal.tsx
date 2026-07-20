@@ -1288,7 +1288,7 @@ let _touchGraceTimer: ReturnType<typeof setTimeout> | null = null;
 			<Show when={(isCompact() || isTouchDevice() || keyboardOnDesktop()) && activeChatChannel() === null}>
 				<TerminalNavButtons session={props.session} />
 			</Show>
-			<Show when={isCompact() || isTouchDevice() || keyboardOnDesktop()}>
+			<Show when={isCompact() || isTouchDevice()}>
 				<TerminalChatButton session={props.session} refocusTerminal={() => term?.forceFocus()} />
 			</Show>
 			{/* Launch-agent FAB — shells only, shown only at a plain shell prompt
@@ -1307,10 +1307,10 @@ let _touchGraceTimer: ReturnType<typeof setTimeout> | null = null;
 			<Show when={liveStatus(props.session) === "idle" && activeVoiceChannel() === null && activeChatChannel() === null}>
 				<PlanButton sessionId={props.session.id} />
 			</Show>
-			{/* Attach-file FAB — desktop-only now; on touch/compact/keyboard-on-desktop
-          the chat FAB owns attach (its composer's leading paperclip). Native
-          picker → chunked upload (progress chip) → abs_path injected, same as drag-drop. */}
-			<Show when={!(isCompact() || isTouchDevice() || keyboardOnDesktop())}>
+			{/* Attach-file FAB — desktop only; on touch/compact the chat FAB owns
+          attach (its composer's leading paperclip). Native picker → chunked
+          upload (progress chip) → abs_path injected, same as drag-drop. */}
+			<Show when={!(isCompact() || isTouchDevice())}>
 				<AttachFileButton session={props.session} />
 			</Show>
 			<Show when={!pending() && !offline() && props.inLayout !== false}>
