@@ -1296,7 +1296,7 @@ let _touchGraceTimer: ReturnType<typeof setTimeout> | null = null;
           (shares the discard-✕ slot; would cover the cancel button). Types the
           selected agent's command + CR into the PTY; agent configurable in
           Settings. */}
-			<Show when={props.session.kind === "shell" && atShellPrompt() && activeVoiceChannel() === null}>
+			<Show when={props.session.kind === "shell" && atShellPrompt() && activeVoiceChannel() === null && activeChatChannel() === null}>
 				<AgentLaunchButton sessionId={props.session.id} />
 			</Show>
 			{/* Plan-mode shortcut FAB — agent sessions only, shown when the agent is
@@ -1304,7 +1304,7 @@ let _touchGraceTimer: ReturnType<typeof setTimeout> | null = null;
           the PTY, entering plan mode. Mirrors the agent-launch button's
           sendInput path; shares its fixed slot (mutually exclusive: the
           agent-launch shows only on shells at a shell prompt). */}
-			<Show when={liveStatus(props.session) === "idle" && activeVoiceChannel() === null}>
+			<Show when={liveStatus(props.session) === "idle" && activeVoiceChannel() === null && activeChatChannel() === null}>
 				<PlanButton sessionId={props.session.id} />
 			</Show>
 			{/* Attach-file FAB — desktop-only now; on touch/compact/keyboard-on-desktop

@@ -453,12 +453,12 @@
   user-select: none;
 }
 
-/* ── term-chat: the light chat FAB + its keyboard-docked composer bar ── */
-/* One-shot analogue of the mic. The FAB sits between the mic (below) and the
-   keyboard-nav FAB (above); tapping it swaps the FAB for a full-width composer
-   bar (.term-chat__bar) docked at the bottom, riding just above the soft
-   keyboard via --kb-offset (Telegram-style). Only one pane's composer is open
-   at a time (module guard). */
+/* ── term-chat: the message FAB + its mic-style composer box ── */
+/* A faithful analogue of the mic (mirrors .voice-input): the FAB sits above the
+   mic and below the keyboard-nav FAB; tapping it pops a compact composer box
+   (.term-chat__box: paperclip + textarea + send) ABOVE the FAB, riding above the
+   soft keyboard via --kb-offset so it's never covered. Send/Enter or a second
+   tap collapses it. Only one pane's composer is open at a time (module guard). */
 .term-chat {
   position: fixed;
   right: calc(env(safe-area-inset-right, 0px) + 16px);
@@ -467,27 +467,24 @@
   will-change: translate;
   z-index: 45;
   display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: var(--md-space-2);
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--md-space-3);
   pointer-events: none;
 }
-.term-chat__bar {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: calc(env(safe-area-inset-bottom, 0px) + var(--kb-offset, 0px));
-  z-index: 56;
+/* Compact composer box above the FAB — same snackbar surface + entrance as the
+   mic caption, but interactive (pointer-events: auto). */
+.term-chat__box {
   display: flex;
   align-items: flex-end;
   gap: var(--md-space-2);
+  width: min(80vw, 360px);
   padding: var(--md-space-2);
-  padding-left: max(var(--md-space-2), env(safe-area-inset-left, 0px));
-  padding-right: max(var(--md-space-2), env(safe-area-inset-right, 0px));
-  background: var(--md-sys-color-surface-container-high);
+  border-radius: var(--md-shape-lg);
+  background: var(--md-sys-color-surface-container-highest);
   box-shadow: var(--md-elev-3);
   pointer-events: auto;
-  animation: voice-caption-enter 160ms var(--md-ease-emphasized);
+  animation: voice-caption-enter 200ms var(--md-ease-emphasized);
   font-family: var(--md-font);
 }
 .term-chat__input {
@@ -510,8 +507,7 @@
   color: var(--md-sys-color-on-surface-variant);
 }
 .term-chat__attach,
-.term-chat__send,
-.term-chat__collapse {
+.term-chat__send {
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;

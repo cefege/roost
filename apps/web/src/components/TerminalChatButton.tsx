@@ -1,16 +1,17 @@
-// TerminalChatButton — the light chat FAB (chat icon, sibling above the mic and
-// below the keyboard-nav FAB). Mirrors the mic's one-shot rhythm: tap → a
-// full-width composer bar docks above the soft keyboard (paperclip + textarea +
-// send) → type a line → Enter (or send) fires it to the PTY and the bar
-// collapses back to the FAB. Unlike the keyboard sheet, nothing is sticky or
-// persisted: the draft is ephemeral and Escape/collapse discards it. Typed text
-// rides the same bracketed-paste + delayed-CR path as mic dictation
-// (lib/ptyPaste). Only one pane's composer opens at a time (module-level guard).
-// Styling: styles/voice-input.css (.term-chat, .term-chat-toggle). Caller:
-// CellTerminal.tsx (compact/touch/keyboardOnDesktop).
+// TerminalChatButton — the message FAB (chat icon, sibling above the mic and
+// below the keyboard-nav FAB). A faithful analogue of the mic: tap → a compact
+// composer box (paperclip + textarea + send) pops ABOVE the FAB — same snackbar
+// styling/animation as the mic's caption box — the message FAB transforms into
+// a close (✕) button that cancels. Send is Enter (or the send button); on
+// send/cancel the composer collapses, the keyboard drops, and the mic returns.
+// The box rides above the soft keyboard via --kb-offset so it's never covered.
+// Nothing is sticky or persisted: the draft is ephemeral, Escape/collapse
+// discards it. Typed text rides the same bracketed-paste + delayed-CR path as
+// mic dictation (lib/ptyPaste). Only one pane's composer is open at a time
+// (module-level guard). Styling: styles/voice-input.css (.term-chat,
+// .term-chat-toggle). Caller: CellTerminal.tsx (compact/touch/keyboardOnDesktop).
 
 import { createSignal, onCleanup, Show } from "solid-js";
-import { Portal } from "solid-js/web";
 import { inputChannel } from "../ws/input-channel.ts";
 import { onFabPointerDown } from "../lib/fabDragOffset.ts";
 import { buildPtyPayload, CR_BYTES, enterDelayMs } from "../lib/ptyPaste.ts";
@@ -23,9 +24,9 @@ interface Props {
 }
 
 // Shared across all deck-mounted chat FABs (one per open session). Only one
-// pane's composer is ever open — the owning instance renders the pill; all
-// others still render the FAB but never expand, so no two position:fixed pills
-// overlap when multiple terminals are visible.
+// pane's composer is ever open — the owning instance renders the box; all
+// others still render the FAB but never expand, so no two boxes overlap when
+// multiple terminals are visible.
 export const [activeChatChannel, setActiveChatChannel] = createSignal<number | null>(null);
 
 export function TerminalChatButton(props: Props) {
@@ -68,34 +69,8 @@ export function TerminalChatButton(props: Props) {
 
   return (
     <div class="term-chat" data-testid="mobile-chat-input" data-open={open() ? "true" : "false"}>
-      <Show
-        when={open()}
-        fallback={
-          <button
-            type="button"
-            class="term-chat-toggle"
-            data-testid="terminal-chat-toggle"
-            data-open="false"
-            aria-label="Type a message"
-            onPointerDown={onFabPointerDown}
-            onClick={openComposer}
-          >
-            <span class="term-chat-toggle__icon">chat</span>
-          </button>
-        }
-      >
-        <Portal>
-        <div class="term-chat__bar" data-testid="chat-bar">
-          <button
-            type="button"
-            class="term-chat__collapse"
-            data-testid="chat-collapse"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={closeComposer}
-            aria-label="Close chat"
-          >
-            <span class="term-chat__icon">keyboard_arrow_down</span>
-          </button>
+      <Show when={open()}>
+        <div class="term-chat__box" data-testid="chat-box">
           <button
             type="button"
             class="term-chat__attach"
@@ -137,8 +112,20 @@ export function TerminalChatButton(props: Props) {
             <span class="term-chat__icon">send</span>
           </button>
         </div>
-        </Portal>
       </Show>
+      <button
+        type="button"
+        class="term-chat-toggle"
+        data-testid="terminal-chat-toggle"
+        data-open={open() ? "true" : "false"}
+        aria-label={open() ? "Close message" : "Type a message"}
+        onPointerDown={onFabPointerDown}
+        onClick={() => (open() ? closeComposer() : openComposer())}
+      >
+        <span class="term-chat-toggle__icon">
+          {open() ? "close" : "chat"}
+        </span>
+      </button>
     </div>
   );
 }
