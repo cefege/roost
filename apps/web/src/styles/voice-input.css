@@ -453,12 +453,12 @@
   user-select: none;
 }
 
-/* ── term-chat: the message FAB + its mic-style composer box ── */
-/* A faithful analogue of the mic (mirrors .voice-input): the FAB sits above the
-   mic and below the keyboard-nav FAB; tapping it pops a compact composer box
-   (.term-chat__box: paperclip + textarea + send) ABOVE the FAB, riding above the
-   soft keyboard via --kb-offset so it's never covered. Send/Enter or a second
-   tap collapses it. Only one pane's composer is open at a time (module guard). */
+/* ── term-chat: the message FAB (closed) + its keyboard-docked composer ── */
+/* Closed: a FAB in the corner stack (this .term-chat lane, above the mic).
+   Open: the composer is portaled to <body> as .term-chat__dock so it escapes
+   the deck's swipe transform and anchors to the viewport, docked flush above
+   the soft keyboard via --kb-offset. Only one pane's composer is open at a time
+   (module guard). */
 .term-chat {
   position: fixed;
   right: calc(env(safe-area-inset-right, 0px) + 16px);
@@ -471,6 +471,21 @@
   align-items: flex-end;
   gap: var(--md-space-3);
   pointer-events: none;
+}
+/* Open composer, portaled to <body>: viewport-anchored, docked just above the
+   soft keyboard (--kb-offset). Box on top, the message FAB (now ✕) at the
+   bottom — mirrors the mic's caption-above-FAB. */
+.term-chat__dock {
+  position: fixed;
+  right: calc(env(safe-area-inset-right, 0px) + 16px);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + var(--kb-offset, 0px) + 8px);
+  z-index: 56;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--md-space-3);
+  pointer-events: none;
+  font-family: var(--md-font);
 }
 /* Compact composer box above the FAB — same snackbar surface + entrance as the
    mic caption, but interactive (pointer-events: auto). */
