@@ -9,7 +9,7 @@
 
 Roost is a tool for AI engineers. Connect your machines to a single coordinator and every coding agent you're running, whether Claude Code, pi, oh-my-pi, or any other terminal tool, lands in one browser tab you can open from a laptop, phone, or tablet. See which agents are working and which are blocked on you, then drop into any of them as a real, full native terminal. At heart it's a terminal multiplexer, retuned for the agentic workflows AI engineers live in. It's self-hosted, so nothing touches a cloud.
 
-_Built by Mihai Mateias, an AI engineer. His daily driver, real infrastructure, not a demo._
+_Built by Mihai Mateias, an AI engineer. My daily driver, real infrastructure, not a demo._
 
 [![License](https://img.shields.io/badge/license-GPL--3.0--only-blue)](LICENSE)
 ![Platform](https://img.shields.io/badge/platform-macOS-lightgrey)
