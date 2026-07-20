@@ -14,6 +14,7 @@ import { beginResizeDrag, endResizeDrag } from "../../lib/resizeDrag.ts";
 import { EDGE_PX, lockAxis, openOffsetPx, shouldOpen, closeOffsetPx, shouldClose } from "../../lib/edgeSwipeDrawer.ts";
 import { registerDrawer, dragDrawer, settleDrawerOpen, settleDrawerClose } from "../../lib/drawerDrag.ts";
 import { attachElasticOverscroll } from "../../lib/overscroll.ts";
+import { chatComposerActive } from "../TerminalChatButton.tsx";
 
 // ─── inline CSS helpers ─────────────────────────────────────────────────
 // Style objects are evaluated once; any dynamic value must live in JSX
@@ -30,7 +31,10 @@ function shellStyle() {
     //    dvh) so ONLY the keyboard inset drives the change, not chrome wobble.
     //  - push (toggle off): height stays 100svh; AppShell's mainStyle()
     //    translateY's the content up instead (grid size unchanged).
-    height: keyboardResize() ? "calc(100svh - var(--kb-offset, 0px))" : "100svh",
+    // Frozen at full height while the chat composer owns the keyboard
+    // (chatComposerActive): the composer floats above the keyboard, so shrinking
+    // the terminal underneath it only makes the scrollback jump as --kb-offset ramps.
+    height: keyboardResize() && !chatComposerActive() ? "calc(100svh - var(--kb-offset, 0px))" : "100svh",
     transition: "height var(--md-sys-motion-duration-medium1) var(--md-sys-motion-easing-emphasized)",
     overflow: "hidden",
     background: "var(--bg-base)",
@@ -135,7 +139,9 @@ function mainStyle() {
     display: "flex",
     "flex-direction": "column",
   } as const;
-  if (keyboardResize()) return base;
+  // No transform while the composer is active — the terminal stays put; the
+  // composer docks itself above the keyboard via its own --kb-offset.
+  if (keyboardResize() || chatComposerActive()) return base;
   return {
     ...base,
     transform: "translateY(calc(var(--kb-offset, 0px) * -1))",

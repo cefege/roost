@@ -30,6 +30,24 @@ interface Props {
 // others still render the FAB but never expand.
 export const [activeChatChannel, setActiveChatChannel] = createSignal<number | null>(null);
 
+// True from composer-open until the soft keyboard has finished sliding back out
+// on close. AppShell reads this to FREEZE the terminal's --kb-offset reaction
+// while the composer owns the keyboard: the composer is a floating bar docked
+// above the keyboard, so re-fitting the terminal grid underneath it is pointless
+// and is what made the scrollback jump as --kb-offset ramped. Held across the
+// dismiss so releasing the freeze doesn't re-fit the grid mid-slide-out.
+export const [chatComposerActive, setChatComposerActive] = createSignal(false);
+
+// Soft-keyboard slide-out window (must cover --kb-offset returning to 0 on
+// blur); matches AppShell's --md-sys-motion-duration-medium1 height transition.
+const KB_DISMISS_MS = 350;
+
+// Freeze-release generation, module-level so any composer OPEN (even a different
+// pane's) invalidates a prior close's pending release — otherwise a close→reopen
+// within KB_DISMISS_MS would unfreeze mid-compose. Each open/close bumps it; a
+// scheduled release only fires while its captured generation is still current.
+let kbReleaseGen = 0;
+
 export function TerminalChatButton(props: Props) {
   // If another session owns the open composer, don't render at all.
   const owner = activeChatChannel();
@@ -44,6 +62,8 @@ export function TerminalChatButton(props: Props) {
   const openComposer = () => {
     setOpen(true);
     setActiveChatChannel(props.session.channel);
+    kbReleaseGen++;
+    setChatComposerActive(true);
     queueMicrotask(() => inputEl?.focus());
   };
 
@@ -55,6 +75,11 @@ export function TerminalChatButton(props: Props) {
     // textarea would keep the keyboard up. Desktop keeps terminal focus.
     if (isTouchDevice()) inputEl?.blur();
     else props.refocusTerminal?.();
+    // Keep the terminal frozen until the keyboard has fully retracted (--kb-offset
+    // back to 0), so lifting the freeze lands on a no-op height, not a re-fit. A
+    // later open bumps the generation, no-op'ing this stale release.
+    const gen = ++kbReleaseGen;
+    setTimeout(() => { if (gen === kbReleaseGen) setChatComposerActive(false); }, KB_DISMISS_MS);
   };
 
   // Send the typed line through the same bracketed-paste + delayed-CR path as
@@ -68,7 +93,10 @@ export function TerminalChatButton(props: Props) {
   };
 
   onCleanup(() => {
-    if (activeChatChannel() === props.session.channel) setActiveChatChannel(null);
+    if (activeChatChannel() === props.session.channel) {
+      setActiveChatChannel(null);
+      setChatComposerActive(false);
+    }
   });
 
   return (
