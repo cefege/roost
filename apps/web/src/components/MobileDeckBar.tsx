@@ -13,7 +13,7 @@
 // props contract the old MobileTabStrip had; select/close/spawn reuse the
 // deck's doSelect/doClose/doNewTab.
 
-import { For, Show, createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal, on, onCleanup, onMount } from "solid-js";
 import { Portal } from "solid-js/web";
 import { ClaudeMark } from "./sidebar/StatusGlyph.tsx";
 import { isClaudeSession } from "../lib/isClaudeSession.ts";
@@ -27,6 +27,8 @@ import type { Session } from "@roost/shared/wire";
 import { NotificationBellTrigger } from "./NotificationBell.tsx";
 import { renderPreview } from "../lib/terminalPreview.ts";
 import { ctxMenuSurfaceStyle, CtxMenuItem } from "./contextMenuPrimitives.tsx";
+import { shouldDismissCard, cardSwipeAlpha, CARD_DISMISS_PX } from "../lib/deckSwipe.ts";
+import { flipGrid } from "../lib/gridFlip.ts";
 
 const TITLE_TEXT: Record<string, string> = {
   "font-size": "14px",
@@ -177,6 +179,17 @@ function WorkspaceTabsSheet(props: WorkspaceTabsSheetProps) {
     snap.forEach((s) => props.onClose(s));
   };
 
+  // Chrome DefaultItemAnimator move: when a card leaves, survivors slide to
+  // their new slots instead of the grid snapping. FLIP keyed by tab id.
+  let gridEl: HTMLDivElement | undefined;
+  let _flipRects = new Map<string, DOMRect>();
+  createEffect(
+    on(
+      () => props.tabs.map((t) => t.id).join(","),
+      () => { if (gridEl) _flipRects = flipGrid(gridEl, _flipRects); },
+    ),
+  );
+
   return (
     <Portal mount={document.body}>
       <div
@@ -262,10 +275,10 @@ function WorkspaceTabsSheet(props: WorkspaceTabsSheetProps) {
             </div>
           }
         >
-          <div class="workspace-tabs-grid" style={{ padding: "16px", "overflow-y": "auto", flex: "1 1 0" }}>
+          <div ref={gridEl} class="workspace-tabs-grid" style={{ padding: "16px", "overflow-y": "auto", flex: "1 1 0" }}>
             <For each={props.tabs}>
               {(s) => (
-                <div class="terminal-card-wrap">
+                <div class="terminal-card-wrap" data-flip-key={s.id}>
                   <TerminalCard
                     session={s}
                     active={s.id === props.selectedTab}
@@ -378,8 +391,9 @@ function WorkspaceTabsMenu(props: {
 // Compact header (favicon + title + truncated subtitle) over a terminal
 // preview area: a real low-quality canvas screenshot of the terminal's
 // current viewport, or a faux glyph fallback if no frame is available yet.
-// Asymmetric corners (12px top / 20px bottom). Swipe left/right past 144px
-// to close (Chrome's swipe_to_dismiss_threshold), with slight tilt.
+// Asymmetric corners (12px top / 20px bottom). Swipe left/right past a fixed
+// 144px, or flick fast, to close (Chrome's swipe_to_dismiss_threshold); the
+// card slides via translateX and fades (opacity) as it leaves — no tilt.
 function TerminalCard(props: {
   session: Session;
   active: boolean;
@@ -411,15 +425,20 @@ function TerminalCard(props: {
   });
 
   // ── Swipe-to-close (touch only) ───────────────────────────────────────
-  // Chrome's swipe_to_dismiss: drag card past halfway off-screen → close.
-  // Card slides straight left/right — NO rotation (Chrome doesn't tilt).
-  // Below threshold → spring back. Vertical movement → let the grid scroll.
+  // Chrome TabGridItemTouchHelperCallback: drag a card left/right and it slides
+  // straight (translateX, NO rotation) while fading toward transparent; past a
+  // fixed 144px of travel it dismisses, or a fast directional flick dismisses
+  // below that. Below threshold → spring back. Vertical → let the grid scroll.
   const [swipeX, setSwipeX] = createSignal(0);
   const [swiping, setSwiping] = createSignal(false);
   let _touchStartX = 0;
   let _touchStartY = 0;
   let _swipeAxis: "none" | "x" | "y" = "none";
   let _swiped = false;
+  let _lastX = 0;
+  let _lastT = 0;
+  let _vx = 0;
+  let _overThreshold = false;
 
   function onTouchStart(e: TouchEvent) {
     if (props.selectionMode) return;
@@ -427,8 +446,12 @@ function TerminalCard(props: {
     if (!t) return;
     _touchStartX = t.clientX;
     _touchStartY = t.clientY;
+    _lastX = t.clientX;
+    _lastT = e.timeStamp;
+    _vx = 0;
     _swipeAxis = "none";
     _swiped = false;
+    _overThreshold = false;
     setSwiping(true);
   }
   function onTouchMove(e: TouchEvent) {
@@ -444,11 +467,18 @@ function TerminalCard(props: {
     e.preventDefault();
     setSwipeX(dx);
     if (Math.abs(dx) > 24) _swiped = true;
+    const dt = e.timeStamp - _lastT;
+    if (dt > 0) _vx = (t.clientX - _lastX) / dt;
+    _lastX = t.clientX;
+    _lastT = e.timeStamp;
+    const over = Math.abs(dx) >= CARD_DISMISS_PX;
+    if (over && !_overThreshold) navigator.vibrate?.(8); // Chrome: haptic once on cross-up
+    _overThreshold = over;
   }
   function onTouchEnd() {
     setSwiping(false);
-    const threshold = window.innerWidth * 0.5;
-    if (Math.abs(swipeX()) >= threshold) {
+    if (shouldDismissCard(swipeX(), _vx)) {
+      _swiped = true; // suppress the trailing click during slide-off
       const off = swipeX() > 0 ? window.innerWidth : -window.innerWidth;
       setSwipeX(off);
       setTimeout(() => props.onClose(s()), 180);
@@ -478,9 +508,10 @@ function TerminalCard(props: {
       title={name()}
       style={{
         transform: `translateX(${swipeX()}px)`,
+        opacity: String(cardSwipeAlpha(swipeX())),
         transition: swiping()
           ? "none"
-          : "transform var(--md-sys-motion-duration-short4, 200ms) var(--md-sys-motion-easing-emphasized-decelerate, cubic-bezier(0.05, 0.7, 0.1, 1))",
+          : "transform var(--md-sys-motion-duration-short4, 200ms) var(--md-sys-motion-easing-emphasized-decelerate, cubic-bezier(0.05, 0.7, 0.1, 1)), opacity var(--md-sys-motion-duration-short4, 200ms) var(--md-sys-motion-easing-emphasized-decelerate, cubic-bezier(0.05, 0.7, 0.1, 1))",
       }}
       onClick={activate}
       onTouchStart={onTouchStart}

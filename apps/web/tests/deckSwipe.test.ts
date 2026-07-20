@@ -1,7 +1,7 @@
 // Mobile tab-bar swipe commit decision + momentum settle math (lib/deckSwipe.ts).
 
 import { describe, test, expect } from "bun:test";
-import { shouldCommitSwitch, settleDurationMs, endMode, newFabProgress, peekCard, newFabScale, PEEK_SCALE_MIN, PEEK_RADIUS_PX } from "../src/lib/deckSwipe.ts";
+import { shouldCommitSwitch, settleDurationMs, endMode, newFabProgress, peekCard, newFabScale, PEEK_SCALE_MIN, PEEK_RADIUS_PX, shouldDismissCard, cardSwipeAlpha } from "../src/lib/deckSwipe.ts";
 
 describe("shouldCommitSwitch", () => {
   test("past-distance drag commits", () => {
@@ -93,4 +93,34 @@ describe("newFabScale", () => {
   test("rest → 0.5", () => { expect(newFabScale(0)).toBe(0.5); });
   test("armed → 1", () => { expect(newFabScale(1)).toBe(1); });
   test("clamps", () => { expect(newFabScale(-1)).toBe(0.5); expect(newFabScale(3)).toBe(1); });
+});
+
+describe("shouldDismissCard", () => {
+  test("just-under 144px travel stays", () => {
+    expect(shouldDismissCard(143, 0)).toBe(false);
+  });
+  test("at 144px travel dismisses", () => {
+    expect(shouldDismissCard(144, 0)).toBe(true);
+  });
+  test("fast flick under threshold dismisses", () => {
+    expect(shouldDismissCard(30, 0.6)).toBe(true);
+  });
+  test("flick opposite the drag stays", () => {
+    expect(shouldDismissCard(30, -0.6)).toBe(false);
+  });
+  test("fast flick below the travel floor stays", () => {
+    expect(shouldDismissCard(10, 0.9)).toBe(false);
+  });
+});
+
+describe("cardSwipeAlpha", () => {
+  test("at rest → fully opaque", () => {
+    expect(cardSwipeAlpha(0)).toBe(1);
+  });
+  test("at threshold → ~0.2", () => {
+    expect(cardSwipeAlpha(144)).toBeCloseTo(0.2, 10);
+  });
+  test("past threshold clamps to 0.2", () => {
+    expect(cardSwipeAlpha(1000)).toBe(0.2);
+  });
 });

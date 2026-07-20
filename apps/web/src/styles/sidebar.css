@@ -1375,8 +1375,8 @@ aside[data-testid="sidebar-drawer"]::-webkit-scrollbar-thumb:hover,
 
 /* ── Card entrance animation (Chrome card scale-in, staggered) ─────── */
 /* The wrap carries the entrance animation (scale + opacity); the inner
-   .terminal-card carries the swipe transform (translateX + rotate) so the
-   two never collide on the same element's transform property. */
+   .terminal-card carries the swipe transform (translateX) + swipe opacity fade,
+   so the two never collide on the same element's transform property. */
 .terminal-card-wrap {
   min-width: 0; /* Grid item: allow shrink below content min-size (terminal
                   lines are white-space: pre → large min-content). Without

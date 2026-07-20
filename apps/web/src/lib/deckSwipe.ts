@@ -27,6 +27,24 @@ export function shouldCommitSwitch(
   return distOk || flingOk;
 }
 
+// Chrome tab-grid swipe-to-dismiss (TabGridItemTouchHelperCallback). dp≈px on web.
+export const CARD_DISMISS_PX = 144;   // Chrome swipe_to_dismiss_threshold (144dp)
+export const CARD_FLING_VEL = 0.5;    // px/ms — directional flick escape velocity
+export const CARD_FLING_MIN_PX = 24;  // flick floor so a jittery release doesn't dismiss
+
+// Dismiss on a full-travel drag OR a directional flick past the floor. Both
+// directions dismiss (Chrome START|END). vx must point the same way as dx.
+export function shouldDismissCard(dx: number, vx: number): boolean {
+  const travel = Math.abs(dx);
+  if (travel >= CARD_DISMISS_PX) return true;
+  return Math.abs(vx) >= CARD_FLING_VEL && travel >= CARD_FLING_MIN_PX && Math.sign(vx) === Math.sign(dx);
+}
+
+// Chrome onChildDraw: alpha = max(0.2, 1 - 0.8*|dX|/threshold). 1 at rest, 0.2 at threshold.
+export function cardSwipeAlpha(dx: number): number {
+  return Math.max(0.2, 1 - (0.8 * Math.abs(dx)) / CARD_DISMISS_PX);
+}
+
 // Constant-speed settle (Chromium ToolbarSwipeLayout): the slot always finishes
 // at 500ms per screen-width regardless of release velocity, so a full traverse is
 // never faster than ~500ms and its direction is always readable. remaining = px the
