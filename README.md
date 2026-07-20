@@ -160,6 +160,8 @@ Roost is designed, built, and operated by one AI engineer, [Mihai Mateias](https
 
 If you hire AI engineers who ship production systems end to end rather than prototypes, this repository is the resume. Read the code, then read [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
+Reach me on [GitHub](https://github.com/cefege) or [LinkedIn](https://de.linkedin.com/in/mihai-mateias).
+
 ## License
 
 GPL-3.0-only. See [`LICENSE`](LICENSE).
