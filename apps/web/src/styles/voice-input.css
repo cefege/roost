@@ -517,11 +517,12 @@
   /* >=16px avoids iOS zoom-on-focus. */
   font-size: 16px;
   line-height: var(--md-body-l-line);
+  max-height: 160px;
+  overflow-y: auto;
 }
 .term-chat__input::placeholder {
   color: var(--md-sys-color-on-surface-variant);
 }
-.term-chat__attach,
 .term-chat__send {
   flex: 0 0 auto;
   display: inline-flex;

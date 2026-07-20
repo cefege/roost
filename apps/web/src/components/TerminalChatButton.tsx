@@ -1,6 +1,6 @@
 // TerminalChatButton — the message FAB (chat icon), a sibling above the mic and
 // below the keyboard-nav FAB in the corner stack. A faithful analogue of the
-// mic: tap → a compact composer (paperclip + textarea + send) with the FAB
+// mic: tap → a compact composer (textarea + send) with the FAB
 // transformed into a close (✕) below it. While open it is PORTALED to <body>
 // (so it escapes the deck's swipe transform and anchors to the viewport) and
 // docked flush above the soft keyboard via --kb-offset — never covered. Enter
@@ -17,7 +17,6 @@ import { Portal } from "solid-js/web";
 import { inputChannel } from "../ws/input-channel.ts";
 import { onFabPointerDown } from "../lib/fabDragOffset.ts";
 import { buildPtyPayload, CR_BYTES, enterDelayMs } from "../lib/ptyPaste.ts";
-import { pickAndAttachFiles } from "../lib/attachments.ts";
 import { isTouchDevice } from "../lib/windowSizeClass.ts";
 import type { Session } from "@roost/shared/wire";
 
@@ -103,25 +102,18 @@ export function TerminalChatButton(props: Props) {
             <span class="term-chat-toggle__icon">close</span>
           </button>
           <div class="term-chat__box" data-testid="chat-box">
-            <button
-              type="button"
-              class="term-chat__attach"
-              data-testid="chat-attach"
-              // MOUSEDOWN preventDefault: keep composer focus so the injected
-              // path doesn't land in a blurred pane.
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => pickAndAttachFiles(props.session)}
-              aria-label="Attach a file"
-            >
-              <span class="term-chat__icon">attach_file</span>
-            </button>
             <textarea
               class="term-chat__input"
               data-testid="chat-input"
               rows={1}
               placeholder="Type a message…"
               value={draft()}
-              onInput={(e) => setDraft(e.currentTarget.value)}
+              onInput={(e) => {
+                const el = e.currentTarget;
+                setDraft(el.value);
+                el.style.height = "auto";
+                el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+              }}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();

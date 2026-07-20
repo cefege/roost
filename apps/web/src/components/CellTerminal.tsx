@@ -1307,10 +1307,10 @@ let _touchGraceTimer: ReturnType<typeof setTimeout> | null = null;
 			<Show when={liveStatus(props.session) === "idle" && activeVoiceChannel() === null && activeChatChannel() === null}>
 				<PlanButton sessionId={props.session.id} />
 			</Show>
-			{/* Attach-file FAB — desktop only; on touch/compact the chat FAB owns
-          attach (its composer's leading paperclip). Native picker → chunked
-          upload (progress chip) → abs_path injected, same as drag-drop. */}
-			<Show when={!(isCompact() || isTouchDevice())}>
+			{/* Attach-file FAB — its own standalone button on every platform (touch,
+          compact, desktop); hidden only while the message composer is open.
+          Native picker → chunked upload (progress chip) → abs_path injected. */}
+			<Show when={activeChatChannel() === null}>
 				<AttachFileButton session={props.session} />
 			</Show>
 			<Show when={!pending() && !offline() && props.inLayout !== false}>
