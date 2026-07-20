@@ -34,6 +34,7 @@ export function createPcmCapture(): PcmCapture {
   let proc: ScriptProcessorNode | null = null;
   let source: MediaStreamAudioSourceNode | null = null;
   let workletUrl: string | null = null;
+  let stopped = false;
 
   // Linear-interpolation resampler state (inputRate → 16 kHz). Fractional read
   // position carries across chunks so chunk boundaries don't drop/dup samples.
@@ -68,9 +69,11 @@ export function createPcmCapture(): PcmCapture {
   };
 
   const start = async (onChunk: (pcm16: Int16Array) => void) => {
+    stopped = false;
     stream = await navigator.mediaDevices.getUserMedia({
       audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
     });
+    if (stopped) { stop(); return; }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const Ctx = window.AudioContext ?? (window as any).webkitAudioContext;
     ctx = new Ctx();
@@ -92,6 +95,7 @@ export function createPcmCapture(): PcmCapture {
       try {
         workletUrl = URL.createObjectURL(new Blob([WORKLET_SRC], { type: "application/javascript" }));
         await ctx.audioWorklet.addModule(workletUrl);
+        if (stopped) { stop(); return; }
         node = new AudioWorkletNode(ctx, "pcm-forwarder");
         node.port.onmessage = (e: MessageEvent<Float32Array>) => onFloat(e.data);
         source.connect(node);
@@ -100,7 +104,7 @@ export function createPcmCapture(): PcmCapture {
         workletOk = false;
       }
     }
-    if (!workletOk) {
+    if (!workletOk && ctx && !stopped) {
       // eslint-disable-next-line @typescript-eslint/no-deprecated
       proc = ctx.createScriptProcessor(4096, 1, 1);
       proc.onaudioprocess = (e) => onFloat(new Float32Array(e.inputBuffer.getChannelData(0)));
@@ -110,6 +114,7 @@ export function createPcmCapture(): PcmCapture {
   };
 
   const stop = () => {
+    stopped = true;
     try { node?.port.close(); } catch { /* ignore */ }
     try { if (proc) proc.onaudioprocess = null; } catch { /* ignore */ }
     try { source?.disconnect(); } catch { /* ignore */ }

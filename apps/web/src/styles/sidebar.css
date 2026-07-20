@@ -266,6 +266,19 @@ aside[data-overscroll="bottom"] {
   color: var(--df-text-500);
   white-space: nowrap;
 }
+.df-flat-unread {
+  flex-shrink: 0;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--md-warning);
+  color: var(--md-sys-color-on-surface);
+  font-size: var(--md-label-s-size);
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+}
 /* Subtitle under the folder headline — what the program reports. Smaller +
    dimmer so the folder name stays the prominent anchor; single-line clamp. */
 .df-flat-subtitle {

@@ -15,13 +15,13 @@
 // The dropdown follows the FolderRowContextMenu outside-click pattern: an
 // invisible full-screen scrim at z-99 closes on click, the panel sits above it.
 
-import { Show, For, onMount, onCleanup, createEffect, createSignal, on } from "solid-js";
+import { Show, For, onMount, onCleanup, createSignal } from "solid-js";
 import type { JSX } from "solid-js";
 import { Portal } from "solid-js/web";
 import { Icon } from "./Settings/md/primitives.tsx";
 import { useNavigate } from "@solidjs/router";
 import {
-  notifications, unreadCount, markAllRead, markRead, clearAll, dismissNotification,
+  notifications, unreadCount, markAllRead, markRead, markUnread, clearAll, dismissNotification,
   setNavigateHandler, type AttentionNotification,
 } from "../lib/notifyStore.ts";
 import { relTimeSince } from "../lib/relTime.ts";
@@ -149,18 +149,42 @@ function NotificationDropdown(props: {
           <span style={{ "font-size": "14px", "font-weight": "600", color: "var(--md-sys-color-on-surface)" }}>
             Notifications
           </span>
-          <Show when={notifications().length > 0}>
-            <button
-              type="button"
-              data-testid="notification-clear-all"
-              onClick={() => clearAll()}
-              style={{
-                border: "none", background: "transparent", cursor: "pointer",
-                "font-size": "12px", color: "var(--md-sys-color-primary)",
-                padding: "4px 8px", "border-radius": "var(--md-shape-xs)",
-              }}
-            >Clear all</button>
-          </Show>
+          <div style={{ display: "flex", "align-items": "center", gap: "4px" }}>
+            <Show when={unreadCount() > 0}>
+              <button
+                type="button"
+                data-testid="notification-jump-latest"
+                onClick={() => { const n = notifications().find((x) => !x.read); if (n) props.onJump(n); }}
+                style={{
+                  border: "none", background: "transparent", cursor: "pointer",
+                  "font-size": "12px", color: "var(--md-sys-color-primary)",
+                  padding: "4px 8px", "border-radius": "var(--md-shape-xs)",
+                }}
+              >Jump to latest</button>
+              <button
+                type="button"
+                data-testid="notification-mark-all-read"
+                onClick={() => markAllRead()}
+                style={{
+                  border: "none", background: "transparent", cursor: "pointer",
+                  "font-size": "12px", color: "var(--md-sys-color-primary)",
+                  padding: "4px 8px", "border-radius": "var(--md-shape-xs)",
+                }}
+              >Mark all read</button>
+            </Show>
+            <Show when={notifications().length > 0}>
+              <button
+                type="button"
+                data-testid="notification-clear-all"
+                onClick={() => clearAll()}
+                style={{
+                  border: "none", background: "transparent", cursor: "pointer",
+                  "font-size": "12px", color: "var(--md-sys-color-primary)",
+                  padding: "4px 8px", "border-radius": "var(--md-shape-xs)",
+                }}
+              >Clear all</button>
+            </Show>
+          </div>
         </div>
 
         {/* OS-notification permission prompt */}
@@ -226,6 +250,7 @@ function NotificationDropdown(props: {
                       onClick={() => props.onJump(n)}
                       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); props.onJump(n); } }}
                       style={{
+                        position: "relative",
                         width: "100%",
                         display: "flex",
                         "align-items": "flex-start",
@@ -240,14 +265,14 @@ function NotificationDropdown(props: {
                       onMouseEnter={(e) => { e.currentTarget.style.background = "var(--md-state-hover)"; }}
                       onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
                     >
-                      {/* Status dot */}
+                      {/* Left accent bar — the unread signal (transparent when read). */}
                       <span style={{
-                        "flex-shrink": 0,
-                        width: "10px",
-                        height: "10px",
-                        "border-radius": "50%",
-                        "margin-top": "4px",
-                        background: visual.color,
+                        position: "absolute",
+                        left: 0,
+                        top: 0,
+                        bottom: 0,
+                        width: "2.5px",
+                        background: n.read ? "transparent" : visual.color,
                       }} />
                       {/* Content */}
                       <div style={{ "flex": 1, "min-width": 0, display: "flex", "flex-direction": "column", gap: "2px" }}>
@@ -258,7 +283,14 @@ function NotificationDropdown(props: {
                           "white-space": "nowrap",
                           overflow: "hidden",
                           "text-overflow": "ellipsis",
-                        }}>{n.message}</span>
+                        }}>{n.sessionTitle}</span>
+                        <span style={{
+                          "font-size": "12px",
+                          color: "var(--md-sys-color-on-surface-variant)",
+                          "white-space": "nowrap",
+                          overflow: "hidden",
+                          "text-overflow": "ellipsis",
+                        }}>{n.kind === "blocked" ? "Needs your input" : n.kind === "offline" ? "Went offline" : "Finished"}</span>
                         <span style={{
                           "font-size": "11px",
                           color: "var(--md-sys-color-on-surface-variant)",
@@ -267,7 +299,7 @@ function NotificationDropdown(props: {
                           "text-overflow": "ellipsis",
                         }}>{n.cwd}</span>
                       </div>
-                      {/* Time + dismiss */}
+                      {/* Time + per-row actions */}
                       <div style={{
                         "flex-shrink": 0,
                         display: "flex",
@@ -278,17 +310,30 @@ function NotificationDropdown(props: {
                         <span style={{ "font-size": "11px", color: "var(--md-sys-color-on-surface-variant)" }}>
                           {relTimeSince(n.ts)}
                         </span>
-                        <button
-                          type="button"
-                          aria-label="Dismiss"
-                          onClick={(e) => { e.stopPropagation(); dismissNotification(n.id); }}
-                          style={{
-                            border: "none", background: "transparent", cursor: "pointer",
-                            "font-size": "12px", color: "var(--md-sys-color-on-surface-variant)",
-                            padding: "2px 4px", "border-radius": "var(--md-shape-xs)",
-                            "line-height": "1",
-                          }}
-                        >✕</button>
+                        <div style={{ display: "flex", "align-items": "center", gap: "2px" }}>
+                          <button
+                            type="button"
+                            aria-label={n.read ? "Mark as unread" : "Mark as read"}
+                            onClick={(e) => { e.stopPropagation(); if (n.read) markUnread(n.id); else markRead(n.id); }}
+                            style={{
+                              border: "none", background: "transparent", cursor: "pointer",
+                              "font-size": "12px", color: "var(--md-sys-color-on-surface-variant)",
+                              padding: "2px 4px", "border-radius": "var(--md-shape-xs)",
+                              "line-height": "1",
+                            }}
+                          >{n.read ? "○" : "●"}</button>
+                          <button
+                            type="button"
+                            aria-label="Dismiss"
+                            onClick={(e) => { e.stopPropagation(); dismissNotification(n.id); }}
+                            style={{
+                              border: "none", background: "transparent", cursor: "pointer",
+                              "font-size": "12px", color: "var(--md-sys-color-on-surface-variant)",
+                              padding: "2px 4px", "border-radius": "var(--md-shape-xs)",
+                              "line-height": "1",
+                            }}
+                          >✕</button>
+                        </div>
                       </div>
                     </div>
                   );
@@ -333,12 +378,6 @@ export function NotificationBell() {
     setNavigateHandler(null);
     navigator.serviceWorker?.removeEventListener("message", onSwMessage);
   });
-
-  // Mark all read when the dropdown opens (was in toggle() before).
-  createEffect(on(() => uiStore.notificationBellOpen, (open) => {
-    if (open && unreadCount() > 0) markAllRead();
-  }, { defer: true }));
-
   function jumpTo(notif: AttentionNotification) {
     navigate(`/s/${notif.sessionId}`);
     markRead(notif.id);

@@ -21,6 +21,7 @@ import { activeSessionForPath } from "../store/selectors.ts";
 import { isPageVisible } from "./pageVisible.ts";
 import { sessionTitle } from "./sessionTitle.ts";
 import { isClaudeSession } from "./isClaudeSession.ts";
+import { folderKeyOf } from "./folderKey.ts";
 import { notifyPrefs } from "./notifyPrefs.ts";
 import { pushAttentionToast } from "./attentionToastStore.ts";
 
@@ -32,6 +33,7 @@ export interface AttentionNotification {
   sessionTitle: string;
   workerFp: string;
   cwd: string;
+  folderKey: string; // (worker, folder) bucket — ties the notif to a sidebar row
   kind: "done" | "blocked" | "offline";
   message: string;
   ts: number;
@@ -50,6 +52,15 @@ export { notifications };
 
 export const unreadCount = createRoot(() =>
   createMemo(() => notifications().filter((n) => !n.read).length),
+);
+
+/** Reactive: unread notification count per folderKey. */
+export const unreadByFolder = createRoot(() =>
+  createMemo(() => {
+    const m: Record<string, number> = {};
+    for (const n of notifications()) if (!n.read) m[n.folderKey] = (m[n.folderKey] ?? 0) + 1;
+    return m;
+  }),
 );
 
 // ─── Persist read-state to localStorage ─────────────────────────────────────
@@ -91,6 +102,26 @@ export function markRead(id: number): void {
     const next = [...prev];
     next[idx] = { ...next[idx], read: true };
     return next;
+  });
+  persistReadIds();
+}
+
+export function markUnread(id: number): void {
+  setNotifications((prev) => {
+    const idx = prev.findIndex((n) => n.id === id);
+    if (idx < 0 || !prev[idx].read) return prev;
+    const next = [...prev];
+    next[idx] = { ...next[idx], read: false };
+    return next;
+  });
+  persistReadIds();
+}
+
+/** Mark every notification for a session read — clears its unread after a jump/visit. */
+export function markReadForSession(sessionId: string): void {
+  setNotifications((prev) => {
+    if (!prev.some((n) => n.sessionId === sessionId && !n.read)) return prev;
+    return prev.map((n) => (n.sessionId === sessionId && !n.read ? { ...n, read: true } : n));
   });
   persistReadIds();
 }
@@ -149,6 +180,7 @@ function emitNotification(s: Session, kind: AttentionNotification["kind"]): void
     sessionTitle: title,
     workerFp: s.worker_fp,
     cwd: s.cwd,
+    folderKey: folderKeyOf(s),
     kind,
     message: msg,
     ts: Date.now(),

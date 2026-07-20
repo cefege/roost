@@ -453,12 +453,12 @@
   user-select: none;
 }
 
-/* ── term-chat: the light chat FAB + its horizontal composer pill ── */
+/* ── term-chat: the light chat FAB + its keyboard-docked composer bar ── */
 /* One-shot analogue of the mic. The FAB sits between the mic (below) and the
-   keyboard-nav FAB (above); tapping it expands a composer pill LEFTWARD within
-   its own 84px lane (paperclip + textarea + send) — never an upward panel,
-   which would collide with the nav FAB above. --kb-offset lifts it above the
-   soft keyboard. Only one pane's pill is open at a time (module guard). */
+   keyboard-nav FAB (above); tapping it swaps the FAB for a full-width composer
+   bar (.term-chat__bar) docked at the bottom, riding just above the soft
+   keyboard via --kb-offset (Telegram-style). Only one pane's composer is open
+   at a time (module guard). */
 .term-chat {
   position: fixed;
   right: calc(env(safe-area-inset-right, 0px) + 16px);
@@ -472,21 +472,22 @@
   gap: var(--md-space-2);
   pointer-events: none;
 }
-.term-chat[data-open="true"] {
-  width: min(90vw, 460px);
-}
-.term-chat__pill {
-  flex: 1;
-  min-width: 0;
+.term-chat__bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + var(--kb-offset, 0px));
+  z-index: 56;
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: var(--md-space-2);
-  padding: var(--md-space-1);
-  border-radius: var(--md-shape-lg);
+  padding: var(--md-space-2);
+  padding-left: max(var(--md-space-2), env(safe-area-inset-left, 0px));
+  padding-right: max(var(--md-space-2), env(safe-area-inset-right, 0px));
   background: var(--md-sys-color-surface-container-high);
   box-shadow: var(--md-elev-3);
   pointer-events: auto;
-  animation: voice-caption-enter 200ms var(--md-ease-emphasized);
+  animation: voice-caption-enter 160ms var(--md-ease-emphasized);
   font-family: var(--md-font);
 }
 .term-chat__input {
@@ -509,7 +510,8 @@
   color: var(--md-sys-color-on-surface-variant);
 }
 .term-chat__attach,
-.term-chat__send {
+.term-chat__send,
+.term-chat__collapse {
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
@@ -517,7 +519,7 @@
   width: 44px;
   height: 44px;
   border: none;
-  background: var(--md-sys-color-surface-container-highest);
+  background: transparent;
   color: var(--md-sys-color-on-surface-variant);
   border-radius: var(--md-shape-md);
   cursor: pointer;
@@ -535,8 +537,8 @@
   user-select: none;
 }
 
-/* Chat toggle FAB — clone of .term-nav-toggle, but positioned by the
-   .term-chat flex container (relative, no fixed bottom/right/z-index). */
+/* Chat toggle FAB — a mic-style primary FAB (twin of .voice-fab), positioned by
+   the .term-chat flex container (relative, no fixed bottom/right/z-index). */
 .term-chat-toggle {
   position: relative;
   width: 56px;
@@ -550,8 +552,8 @@
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  background: var(--md-sys-color-surface-container-high);
-  color: var(--md-sys-color-on-surface-variant);
+  background: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
   box-shadow: var(--md-elev-3);
   transition:
     background-color 200ms var(--md-ease-emphasized),
@@ -601,7 +603,6 @@
   translate: 0 calc(-1 * var(--roost-fab-dy, 0px));
   will-change: translate;
   z-index: 40;
-  width: min(80vw, 280px);
   display: flex;
   flex-direction: column;
   gap: var(--md-space-2);

@@ -39,7 +39,7 @@ import { TerminalContextMenu } from "./TerminalContextMenu.tsx";
 import { pickAndAttachFiles, enqueueAttachment } from "../lib/attachments.ts";
 import { MobileVoiceInput, activeVoiceChannel } from "./MobileVoiceInput.tsx";
 import { TerminalNavButtons } from "./TerminalNavButtons.tsx";
-import { TerminalChatButton } from "./TerminalChatButton.tsx";
+import { TerminalChatButton, activeChatChannel } from "./TerminalChatButton.tsx";
 import { TerminalStatusBadge } from "./TerminalStatusBadge.tsx";
 import { mouseForwardEnabled } from "../lib/mouseForwardPref.ts";
 import { isCompact, isTouchDevice } from "../lib/windowSizeClass.ts";
@@ -1271,7 +1271,7 @@ let _touchGraceTimer: ReturnType<typeof setTimeout> | null = null;
 			/>
 			{/* Mic + on-screen keypad — always on touch/compact; on desktop each is
           gated by its own pref (mic / nav pad). Input rides inputChannel. */}
-			<Show when={isCompact() || isTouchDevice() || micOnDesktop()}>
+			<Show when={(isCompact() || isTouchDevice() || micOnDesktop()) && activeChatChannel() === null}>
 				<MobileVoiceInput
 					channelId={props.session.channel}
 					sendInput={(_ch, data) =>
@@ -1285,7 +1285,7 @@ let _touchGraceTimer: ReturnType<typeof setTimeout> | null = null;
 					refocusTerminal={() => term?.forceFocus()}
 				/>
 			</Show>
-			<Show when={isCompact() || isTouchDevice() || keyboardOnDesktop()}>
+			<Show when={(isCompact() || isTouchDevice() || keyboardOnDesktop()) && activeChatChannel() === null}>
 				<TerminalNavButtons session={props.session} />
 			</Show>
 			<Show when={isCompact() || isTouchDevice() || keyboardOnDesktop()}>

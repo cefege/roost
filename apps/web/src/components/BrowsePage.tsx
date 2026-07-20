@@ -27,7 +27,7 @@ import { computeFolderActivity, type FolderActivity } from "../lib/folderActivit
 import { colorForFp } from "../lib/fpColor.ts";
 import { isCompact } from "../lib/windowSizeClass.ts";
 import { addToast } from "../lib/toastStore.ts";
-import { childPath, pathCrumbs } from "../lib/folderPalette.ts";
+import { childPath, pathCrumbs, collapseCrumbs, type CrumbView } from "../lib/folderPalette.ts";
 import { initHistory, pushHistory as pushHistoryFn, goBack as goBackFn, goForward as goForwardFn, canGoBack as canBackFn, canGoForward as canFwdFn, type HistoryState } from "../lib/browseHistory.ts";
 import { uiStore, setHomeFolderViewMode, setHomeFolderShowFiles } from "../store/uiStore.ts";
 import { FolderGlyph } from "./FolderGlyph.tsx";
@@ -76,8 +76,11 @@ export function BrowsePage() {
   const [historyState, setHistoryState] = createSignal<HistoryState>(initHistory("~"));
   const [activeIdx, setActiveIdx] = createSignal(0);
   const [serverMenuOpen, setServerMenuOpen] = createSignal(false);
+  const [crumbMenuOpen, setCrumbMenuOpen] = createSignal(false);
+  const [crumbMenuPos, setCrumbMenuPos] = createSignal<{ top: number; left: number }>({ top: 0, left: 0 });
   let resultsRef: HTMLDivElement | undefined;
   let crumbsRef: HTMLDivElement | undefined;
+  let crumbOverflowBtn: HTMLButtonElement | undefined;
   const [newFolderOpen, setNewFolderOpen] = createSignal(false);
   const [newFolderName, setNewFolderName] = createSignal("");
   const [newFolderBusy, setNewFolderBusy] = createSignal(false);
@@ -124,6 +127,7 @@ export function BrowsePage() {
 
   const cwdNow = createMemo(() => dirData()?.resolved ?? cwd());
   const crumbs = createMemo(() => pathCrumbs(cwdNow()));
+  const crumbViews = createMemo<CrumbView[]>(() => collapseCrumbs(crumbs()));
   const backEnabled = createMemo(() => canBackFn(historyState()));
   const forwardEnabled = createMemo(() => canFwdFn(historyState()));
 
@@ -313,23 +317,6 @@ export function BrowsePage() {
           </svg>
         </button>
 
-        <div class="df-browse-crumbs" ref={crumbsRef}>
-          <For each={crumbs()}>
-            {(c, i) => (
-              <>
-                <Show when={i() > 0}>
-                  <span class="df-browse-crumb-sep" aria-hidden="true">▸</span>
-                </Show>
-                <button type="button" class="df-browse-crumb" data-testid="browse-crumb"
-                  data-current={i() === crumbs().length - 1 ? "true" : "false"}
-                  onClick={() => goToDir(c.path)} title={c.path}
-                >{c.label}</button>
-              </>
-            )}
-          </For>
-        </div>
-
-
         <div class="df-browse-toggle" role="group" aria-label="View mode">
           <button type="button" class="df-browse-toggle-btn" data-testid="browse-view-grid"
             data-active={viewMode() === "grid" ? "true" : "false"} aria-label="Grid view"
@@ -388,6 +375,62 @@ export function BrowsePage() {
           </div>
         </Show>
         </div>
+      </div>
+
+      <div class="df-browse-crumbs" ref={crumbsRef} data-testid="browse-crumbs">
+        <For each={crumbViews()}>
+          {(v, i) => (
+            <>
+              <Show when={i() > 0}>
+                <span class="df-browse-crumb-sep" aria-hidden="true">▸</span>
+              </Show>
+              <Show
+                when={v.kind === "crumb"}
+                fallback={
+                  <div style={{ position: "relative", "flex-shrink": "0" }}>
+                    <button type="button" class="df-browse-crumb df-browse-crumb-overflow"
+                      ref={crumbOverflowBtn}
+                      data-testid="browse-crumb-overflow" aria-label="Show hidden folders"
+                      aria-haspopup="menu" aria-expanded={crumbMenuOpen()}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const willOpen = !crumbMenuOpen();
+                        if (willOpen && crumbOverflowBtn) {
+                          const r = crumbOverflowBtn.getBoundingClientRect();
+                          setCrumbMenuPos({ top: r.bottom + 6, left: r.left });
+                        }
+                        setCrumbMenuOpen(willOpen);
+                      }}
+                    >…</button>
+                    <Show when={crumbMenuOpen()}>
+                      <div onClick={() => setCrumbMenuOpen(false)}
+                        style={{ position: "fixed", inset: "0", "z-index": "1" }} />
+                      <div data-testid="browse-crumb-menu"
+                        style={{ position: "fixed", top: `${crumbMenuPos().top}px`, left: `${crumbMenuPos().left}px`, "min-width": "180px", "max-height": "50vh", overflow: "auto", "z-index": "2", display: "flex", "flex-direction": "column", padding: "4px", background: "var(--md-sys-color-surface-container-high)", border: "1px solid var(--md-sys-color-outline-variant)", "border-radius": "var(--md-shape-md)", "box-shadow": "var(--md-elev-2)" }}
+                      >
+                        <For each={(v as Extract<CrumbView, { kind: "ellipsis" }>).hidden}>
+                          {(h) => (
+                            <button type="button" data-testid="browse-crumb-menu-item"
+                              onClick={(e) => { e.stopPropagation(); setCrumbMenuOpen(false); goToDir(h.path); }}
+                              title={h.path}
+                              style={{ display: "flex", "align-items": "center", gap: "8px", width: "100%", padding: "6px 10px", "border-radius": "var(--md-shape-sm)", border: "none", background: "transparent", color: "var(--md-sys-color-on-surface)", "font-size": "var(--md-body-s-size)", "font-family": "inherit", cursor: "pointer", "text-align": "left", "white-space": "nowrap", overflow: "hidden", "text-overflow": "ellipsis" }}
+                            >{h.label}</button>
+                          )}
+                        </For>
+                      </div>
+                    </Show>
+                  </div>
+                }
+              >
+                <button type="button" class="df-browse-crumb" data-testid="browse-crumb"
+                  data-current={i() === crumbViews().length - 1 ? "true" : "false"}
+                  onClick={() => goToDir((v as Extract<CrumbView, { kind: "crumb" }>).path)}
+                  title={(v as Extract<CrumbView, { kind: "crumb" }>).path}
+                >{(v as Extract<CrumbView, { kind: "crumb" }>).label}</button>
+              </Show>
+            </>
+          )}
+        </For>
       </div>
 
       <Show when={cwd() === startDir() && folderRecents().length > 0}>

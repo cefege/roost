@@ -27,7 +27,6 @@
   align-items: center;
   gap: 8px;
   padding: 10px 16px;
-  border-bottom: 1px solid var(--md-sys-color-outline-variant);
   background: var(--md-sys-color-surface-container);
   flex-shrink: 0;
 }
@@ -75,15 +74,17 @@
 }
 
 .df-browse-crumbs {
-  flex: 1;
-  min-width: 0;
   display: flex;
   align-items: center;
   gap: 2px;
+  padding: 4px 12px 8px;
+  border-bottom: 1px solid var(--md-sys-color-outline-variant);
+  background: var(--md-sys-color-surface-container);
   overflow-x: auto;
   white-space: nowrap;
   font-size: var(--md-body-m-size);
   scrollbar-width: none;
+  flex-shrink: 0;
 }
 .df-browse-crumbs::-webkit-scrollbar { display: none; }
 .df-browse-crumb {
@@ -103,13 +104,21 @@
   .df-browse-crumb:hover { background: var(--md-state-hover); }
 }
 .df-browse-crumb[data-current="true"] {
-  color: var(--md-sys-color-on-surface);
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
   font-weight: 600;
 }
 .df-browse-crumb-sep {
   color: var(--md-sys-color-on-surface-variant);
   opacity: 0.6;
   flex-shrink: 0;
+}
+.df-browse-crumb-overflow {
+  flex-shrink: 0;
+  min-width: 28px;
+  text-align: center;
+  font-weight: 700;
+  letter-spacing: 1px;
 }
 
 
@@ -460,7 +469,7 @@
 }
 
 /* Mobile (compact): hide the grid/list toggle; grid still works but list
- * is the default feel. The back arrow + crumbs + Open bar already adapt. */
+ * is the default feel. The control row + pathbar + Open bar already adapt. */
 :where(.df-browse-page[data-compact="true"]) .df-browse-toggle { display: none; }
 :where(.df-browse-page[data-compact="true"]) .df-browse-grid {
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));

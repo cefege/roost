@@ -10,12 +10,13 @@ import type { Session, WorkerFp } from "@roost/shared/wire";
 import { rootStore } from "../store/root.ts";
 import { allSessions } from "../store/selectors.ts";
 import { isPendingClose } from "./pendingClose.ts";
-import { liveStatus, needsAttention } from "./attention.ts";
+import { liveStatus, attentionKind } from "./attention.ts";
 import { activityLine, type Attention } from "./folderSubtitle.ts";
 import { shortServerLabel } from "./sidebarFormat.ts";
 import { workerOnline } from "../store/sync.ts";
 import { folderKeyOf, folderPathOf, folderDisplayName } from "./folderKey.ts";
 import { isClaudeSession } from "./isClaudeSession.ts";
+import { unreadByFolder } from "./notifyStore.ts";
 
 export type { Attention };
 
@@ -35,7 +36,8 @@ export interface FolderGroup {
   server: string;
   spawnFp: WorkerFp;
   spawnCwd: string;
-  attention: Attention;   // sort key (needs → running → idle)
+  attention: Attention;   // coarse band (needs → running → idle), derived from priority
+  priority: number;       // fine sort key: blocked=3 > offline|done=2 > running=1 > idle=0
   online: boolean;        // worker reachable → server-icon online dot
   isClaude: boolean;      // leading glyph: claude mark vs terminal $
   glyphStatus: GlyphStatus; // leading glyph status color/icon
@@ -51,6 +53,7 @@ export interface FolderGroup {
   branch: string | null;  // current git branch of the lead's cwd (worker git)
   ports: number[];        // LISTEN ports across the folder's panes (worker lsof)
   reachAddr: string | null; // worker host for port click-through (reachable_addr)
+  unreadCount: number;    // unread attention-notifications for this folder (bell badge)
 }
 
 // Check glyph + token color per rollup state. none → no glyph (just #123).
@@ -89,8 +92,27 @@ function prBadgeOf(lead: Session): PrBadge | null {
   };
 }
 
-export function buildFolderGroups(): FolderGroup[] {
-  const list = allSessions().filter((s) => !isPendingClose(s.id));
+// Fine-grained folder sort rank from attentionKind across its panes:
+// blocked=3 (waiting on YOU) > offline|done=2 (rest of the needs band) >
+// running=1 > idle=0. The coarse `attention` band is derived from this.
+function folderPriority(sessions: Session[]): number {
+  let p = 0; // 0 idle/calm
+  for (const s of sessions) {
+    const k = attentionKind(s);
+    if (k === "blocked") return 3; // top — early out
+    if (k === "offline" || k === "done") p = 2;
+  }
+  if (p > 0) return p;
+  return sessions.some((s) => {
+    const st = liveStatus(s);
+    return st === "running" || st === "running-workflow";
+  }) ? 1 : 0;
+}
+
+// `input` defaults to the reactive allSessions() (default evaluated at call
+// time, so prod callers stay fully reactive); tests pass a fixed array to sort.
+export function buildFolderGroups(input: Session[] = allSessions()): FolderGroup[] {
+  const list = input.filter((s) => !isPendingClose(s.id));
   const buckets = new Map<string, Session[]>();
   for (const s of list) {
     const key = folderKeyOf(s);
@@ -98,14 +120,10 @@ export function buildFolderGroups(): FolderGroup[] {
   }
   const out: FolderGroup[] = [];
   for (const [key, sessions] of buckets) {
-    const anyNeeds = sessions.some(needsAttention);
-    const anyRunning = sessions.some((s) => {
-      const st = liveStatus(s);
-      return st === "running" || st === "running-workflow";
-    });
-    const attention: Attention = anyNeeds ? "needs" : anyRunning ? "running" : "idle";
+    const pr = folderPriority(sessions);
+    const attention: Attention = pr >= 2 ? "needs" : pr === 1 ? "running" : "idle";
     // lead = neediest-then-most-recent (for needs), else most-recent activity.
-    const pool = anyNeeds ? sessions.filter(needsAttention) : sessions;
+    const pool = pr >= 2 ? sessions.filter((s) => attentionKind(s) !== null) : sessions;
     const lead = [...pool].sort((a, b) => activityTsOf(b) - activityTsOf(a))[0];
     const head = sessions[0];
     const gs = glyphStatusOf(lead);
@@ -128,6 +146,7 @@ export function buildFolderGroups(): FolderGroup[] {
       spawnFp: head.worker_fp,
       spawnCwd: folderPathOf(head),
       attention,
+      priority: pr,
       online: workerOnline(rootStore.workers[head.worker_fp]),
       isClaude: isClaudeSession(lead),
       glyphStatus: gs,
@@ -141,12 +160,9 @@ export function buildFolderGroups(): FolderGroup[] {
       reachAddr: rootStore.workers[head.worker_fp]?.reachable_addr ?? null,
       leadId: lead.id,
       sessionIds: sessions.map((s) => s.id),
+      unreadCount: unreadByFolder()[key] ?? 0,
     });
   }
-  // Needs-you first, then running, then most-recent activity.
-  const rank: Record<Attention, number> = { needs: 2, running: 1, idle: 0 };
-  return out.sort((a, b) => {
-    if (rank[a.attention] !== rank[b.attention]) return rank[b.attention] - rank[a.attention];
-    return b.activityTs - a.activityTs;
-  });
+  // Blocked-on-you first, then offline/done, then running, then most-recent.
+  return out.sort((a, b) => b.priority - a.priority || b.activityTs - a.activityTs);
 }

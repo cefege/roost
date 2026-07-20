@@ -23,6 +23,7 @@ import { closeSidebar } from "../../store/uiStore.ts";
 import { allSessions, activeSessionForPath, folderRowTargetId } from "../../store/selectors.ts";
 import { mostRecentUnread } from "../../lib/attention.ts";
 import { markSeen, seedSeenOnce } from "../../lib/sessionSeen.ts";
+import { markReadForSession } from "../../lib/notifyStore.ts";
 import { getLastSessionForFolder } from "../../lib/lastVisited.ts";
 import { setJumpUnreadHandler } from "../../lib/keyboardShortcuts.ts";
 import { cursorSessionId, setActivateHandler, setOrderedSessionIds } from "../../lib/sidebarCursor.ts";
@@ -79,6 +80,7 @@ export function FolderList() {
     if (!id) return;
     void rootStore.sessions[id]?.agent?.last_message?.ts; // track new output
     markSeen(id);
+    markReadForSession(id); // clear this session's bell/badge unread on visit
   });
 
   // Cursor ⏎ opens a session: same effect as a row click (push MRU + nav).
@@ -155,6 +157,9 @@ export function FolderList() {
               <span class="df-flat-body">
                 <span class="df-flat-top">
                   <span class="df-label df-flat-headline" title={g.spawnCwd}>{g.name}</span>
+                  <Show when={g.unreadCount > 0}>
+                    <span class="df-flat-unread" data-testid={`folder-unread-${g.key}`}>{g.unreadCount > 9 ? "9+" : g.unreadCount}</span>
+                  </Show>
                   <span class="df-flat-time">{(relTimeTickMs(), relTimeSince(g.ageTs))}</span>
                 </span>
                 <Show when={g.subtitle}>

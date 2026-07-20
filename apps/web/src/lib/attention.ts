@@ -14,17 +14,26 @@ export function liveStatus(s: Session): string | undefined {
   return s.agent?.status ?? rootStore.claude_status[s.id];
 }
 
-/** Reactive (reads store + seen-map): does this session want your attention? */
-export function needsAttention(s: Session): boolean {
+export type AttentionKind = "blocked" | "offline" | "done" | null;
+
+/** Reactive (reads store + seen-map): WHY this session wants your attention,
+ *  or null. Precedence: needs-input → offline worker → idle/done with unseen
+ *  output. One source of truth for the sidebar sort and the folder badge. */
+export function attentionKind(s: Session): AttentionKind {
   const st = liveStatus(s);
-  if (st === "needs-input") return true;
+  if (st === "needs-input") return "blocked";
   const w = rootStore.workers[s.worker_fp];
-  if (w && !workerOnline(w)) return true; // stranded on an offline/asleep Mac
+  if (w && !workerOnline(w)) return "offline"; // stranded on an offline/asleep Mac
   if (st === "idle" || st === "done") {
     const lm = s.agent?.last_message?.ts ?? 0;
-    return lm > 0 && lm > lastSeenAt(s.id); // finished with output you haven't seen
+    if (lm > 0 && lm > lastSeenAt(s.id)) return "done"; // finished with unseen output
   }
-  return false;
+  return null;
+}
+
+/** Reactive (reads store + seen-map): does this session want your attention? */
+export function needsAttention(s: Session): boolean {
+  return attentionKind(s) !== null;
 }
 
 function activityTs(s: Session): number {
