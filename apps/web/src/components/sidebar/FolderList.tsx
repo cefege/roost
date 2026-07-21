@@ -160,7 +160,7 @@ export function FolderList() {
                   <Show when={g.unreadCount > 0}>
                     <span class="df-flat-unread" data-testid={`folder-unread-${g.key}`}>{g.unreadCount > 9 ? "9+" : g.unreadCount}</span>
                   </Show>
-                  <span class="df-flat-time">{(relTimeTickMs(), relTimeSince(g.ageTs))}</span>
+                  <span class="df-flat-time">{(relTimeTickMs(), relTimeSince(g.latestActivity))}</span>
                 </span>
                 <Show when={g.subtitle}>
                   <span class="df-flat-subtitle">{g.subtitle}</span>

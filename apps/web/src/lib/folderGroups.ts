@@ -42,10 +42,9 @@ export interface FolderGroup {
   isClaude: boolean;      // leading glyph: claude mark vs terminal $
   glyphStatus: GlyphStatus; // leading glyph status color/icon
   subtitle: string;       // latest activity line ("" = none, row shows one line)
-  activityTs: number;     // sort key = lead's last-message ts
-  ageTs: number;          // stamp shown on the row: for a WAITING agent this is
-                          // when it went idle (last PTY byte) so the label reads
-                          // "how long unattended"; else falls back to activityTs
+  latestActivity: number;  // sort key + row stamp: newest real activity
+                           // (max last-PTY-byte across panes, fallback
+                           // agent last-message ts, fallback created_at)
   leadId: string;         // click target (neediest / most-recent)
   sessionIds: string[];   // ids only — plain scalars so reconcile diffs values,
                           // never deep-walks live Session store proxies
@@ -75,10 +74,19 @@ function glyphStatusOf(lead: Session): GlyphStatus {
   return undefined;
 }
 
-// Lead's last-message ts, falling back to session creation. 4 call sites in
-// buildFolderGroups (sort comparator ×2, activityTs, ageTs fallback) — lockstep.
+// Lead's last-message ts, falling back to session creation. Fallback inside
+// recencyOf for sessions with no coord last-PTY-byte stamp yet.
 function activityTsOf(s: Session): number {
   return s.agent?.last_message?.ts ?? s.created_at;
+}
+
+// Most-recent real activity for a session: coord's last-PTY-byte stamp
+// (last_activity — bytes from terminals AND agents) when present, else the
+// agent's last-message ts, else created_at. last_activity is absent for
+// sessions idle since before coord start / this page load, so the fallback
+// keeps them ordered sanely.
+function recencyOf(s: Session): number {
+  return Math.max(rootStore.last_activity[s.id] ?? 0, activityTsOf(s));
 }
 
 // Pull the lead session's PR fields into a badge, or null when absent.
@@ -124,21 +132,10 @@ export function buildFolderGroups(input: Session[] = allSessions()): FolderGroup
     const attention: Attention = pr >= 2 ? "needs" : pr === 1 ? "running" : "idle";
     // lead = neediest-then-most-recent (for needs), else most-recent activity.
     const pool = pr >= 2 ? sessions.filter((s) => attentionKind(s) !== null) : sessions;
-    const lead = [...pool].sort((a, b) => activityTsOf(b) - activityTsOf(a))[0];
+    const lead = [...pool].sort((a, b) => recencyOf(b) - recencyOf(a))[0];
     const head = sessions[0];
     const gs = glyphStatusOf(lead);
-    // Waiting agent (idle/done/needs-input) → stamp = time since it went idle
-    // (coord's last-PTY-byte last_activity ≈ the moment claude stopped). That's
-    // the "how long left unattended" number (SessionRow uses the same source).
-    // cell-grid model (ws.latestAt): the clock starts when the WHOLE workspace
-    // went quiet, i.e. the most-recent last-PTY-byte across its panes. You're
-    // only "unattended" once everything stopped — a pane that moved 20s ago
-    // means you weren't idle for the hour the oldest pane has sat. (max ts.)
-    const latestQuiet =
-      (gs === "idle" || gs === "done" || gs === "needs-input")
-        ? Math.max(...sessions.map((s) => rootStore.last_activity[s.id] ?? 0))
-        : 0;
-    const waitingSince = latestQuiet > 0 ? latestQuiet : undefined;
+    const latestActivity = Math.max(...sessions.map(recencyOf));
     out.push({
       key,
       name: folderDisplayName(head),
@@ -151,8 +148,7 @@ export function buildFolderGroups(input: Session[] = allSessions()): FolderGroup
       isClaude: isClaudeSession(lead),
       glyphStatus: gs,
       subtitle: activityLine(lead, attention),
-      activityTs: activityTsOf(lead),
-      ageTs: waitingSince ?? activityTsOf(lead),
+      latestActivity,
       pr: prBadgeOf(lead),
       branch: lead.git_branch ?? null,
       // Union of LISTEN ports across the folder's panes, ascending.
@@ -164,5 +160,5 @@ export function buildFolderGroups(input: Session[] = allSessions()): FolderGroup
     });
   }
   // Blocked-on-you first, then offline/done, then running, then most-recent.
-  return out.sort((a, b) => b.priority - a.priority || b.activityTs - a.activityTs);
+  return out.sort((a, b) => b.priority - a.priority || b.latestActivity - a.latestActivity);
 }

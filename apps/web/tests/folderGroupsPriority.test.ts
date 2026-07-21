@@ -12,6 +12,7 @@ import { expect, test, describe, beforeEach } from "bun:test";
 import { asWorkerFp, asSessionId, asChannelId } from "@roost/shared/wire";
 import type { Session, Worker } from "@roost/shared/wire";
 import { setRootStore } from "../src/store/root.ts";
+import { reconcile } from "solid-js/store";
 import { setRoutableFps } from "../src/store/sync-routable.ts";
 import { markSeen } from "../src/lib/sessionSeen.ts";
 import { buildFolderGroups } from "../src/lib/folderGroups.ts";
@@ -92,5 +93,41 @@ describe("attentionKind", () => {
     const s = sess({ id: uuid(13), agent: agent({ status: "done", last_message: { text: "x", ts: 5 } }) });
     markSeen(s.id, 5); // seen up to the last message → nothing unseen
     expect(attentionKind(s)).toBeNull();
+  });
+});
+
+describe("buildFolderGroups — recency", () => {
+  beforeEach(() => {
+    setRoutableFps(null);
+    setRootStore("workers", { [FP]: { fp: FP, last_seen_ms: Date.now() } as Worker });
+    setRootStore("last_activity", reconcile({})); // reconcile REPLACES (plain {} shallow-merges → no-op)
+  });
+
+  // Two plain-terminal folders (no agent), equal created_at → recency is the only
+  // differentiator. B's session saw newer PTY activity, so B floats above A.
+  test("terminal PTY activity floats a folder up", () => {
+    const a = sess({ id: uuid(20), cwd: "/a", agent: null, created_at: 1000 });
+    const b = sess({ id: uuid(21), cwd: "/b", agent: null, created_at: 1000 });
+    setRootStore("last_activity", { [a.id]: 2000, [b.id]: 5000 });
+    const order = buildFolderGroups([a, b]).map((grp) => grp.key);
+    expect(order.indexOf(`${FP}::/b`)).toBeLessThan(order.indexOf(`${FP}::/a`));
+  });
+
+  // Row stamp = last PTY byte, NOT the agent's last-message ts. A running agent
+  // last spoke at 1000 but its PTY moved at 9000 → latestActivity is 9000.
+  test("row stamp reflects PTY activity, not agent message", () => {
+    const s = sess({ id: uuid(22), cwd: "/live", agent: agent({ status: "running", last_message: { text: "r", ts: 1000 } }) });
+    setRootStore("last_activity", { [s.id]: 9000 });
+    const grp = buildFolderGroups([s])[0];
+    expect(grp.latestActivity).toBe(9000);
+  });
+
+  // Folder-level number is the max across all panes.
+  test("latestActivity is the max across panes", () => {
+    const s1 = sess({ id: uuid(23), cwd: "/multi", agent: null });
+    const s2 = sess({ id: uuid(24), cwd: "/multi", agent: null });
+    setRootStore("last_activity", { [s1.id]: 3000, [s2.id]: 7000 });
+    const grp = buildFolderGroups([s1, s2])[0];
+    expect(grp.latestActivity).toBe(7000);
   });
 });
