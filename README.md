@@ -156,9 +156,7 @@ Early, and honest about it. I use Roost every day as my primary coding surface, 
 
 ## Built by
 
-Roost is designed, built, and operated by one AI engineer, [Mihai Mateias](https://github.com/cefege). It isn't a portfolio piece assembled to look good in a repo. It's the tool I run my own coding agents on every day, which is why the hard parts are real and load-bearing: an event-sourced coordinator that projects every session from an append-only log, outbound-only workers that never expose an inbound port, a custom Connect-RPC and protobuf transport, a resumable byte stream that reconnects with no loss and no duplication, a WASM VT terminal that renders full ANSI on a phone, and self-hosted EdDSA-JWT auth with a private key that never leaves the browser.
-
-If you hire AI engineers who ship production systems end to end rather than prototypes, this repository is the resume. Read the code, then read [`ARCHITECTURE.md`](ARCHITECTURE.md).
+I'm Mihai — I build and run Roost solo, and it's my daily coding surface. That's why the hard parts are real rather than demo-deep: an event-sourced coordinator that projects every session from an append-only log, outbound-only workers that never expose an inbound port, a custom Connect-RPC and protobuf transport, a resumable byte stream that reconnects with no loss and no duplication, a WASM VT terminal that renders full ANSI on a phone, and self-hosted EdDSA-JWT auth with a private key that never leaves the browser.
 
 Reach me on [GitHub](https://github.com/cefege) or [LinkedIn](https://de.linkedin.com/in/mihai-mateias).
 
