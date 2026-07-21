@@ -212,6 +212,7 @@ let _following = true;     // user stuck to bottom? (default: a fresh pane follo
 let _repinPending = false; // a reveal happened while _following → re-pin on next frame(s)
 let _settling = false;              // true while the reveal re-pin burst is scrolling — self-inflicted scrolls, ignore them
 let _settleRaf: number | null = null;
+let _flushRaf: number | null = null;
 let _settleFrames = 0;
 let _jumping = false; // true while the smooth jump-to-bottom animation runs — ignore the scroll listener
 let _touchScrolling = false; // finger actively dragging a main-screen (non-alt) pane → suppress auto-pin
@@ -414,6 +415,22 @@ let _touchGraceTimer: ReturnType<typeof setTimeout> | null = null;
 		setShowJumpDown(fromBottom > displayRef.clientHeight);
 	}
 
+	// Coalesced post-frame layout work: the ONLY synchronous scrollHeight reads on
+	// the cell-apply path. Deferring them to a single rAF (guarded, so N frames in
+	// one frame collapse to one flush) lets the browser lay out the whole document
+	// ONCE per animation frame instead of once per live pane per frame — the fix
+	// for input jank that scales with open-terminal count. apply() itself is
+	// writes-only, so the DOM is dirty-but-uncomputed when this runs.
+	function scheduleFlush(): void {
+		if (_flushRaf != null) return;
+		_flushRaf = requestAnimationFrame(() => {
+			_flushRaf = null;
+			if (unmounted || !renderer || props.inLayout === false || !isPageVisible()) return;
+			if (_following && !_touchScrolling && !_settling) renderer.scrollToBottom();
+			updateJumpDownVis();
+		});
+	}
+
 	// Spring-driven scroll to the true bottom, then an instant snap to pin. The
 	// target is recomputed each frame so content-visibility block reflow
 	// (scrollHeight growth as off-screen .cell-block blocks reveal) can't leave
@@ -548,31 +565,23 @@ let _touchGraceTimer: ReturnType<typeof setTimeout> | null = null;
 					cursor_col: frame.cursorCol,
 				});
 				setAltScreen(frame.altScreen);
-				const wasBottom = renderer.atBottom();
 				renderer.apply(frame);
 				frameCursorApp = frame.cursorKeysApp;
 				frameBracketed = frame.bracketedPaste;
 				syncInputModes();
-				renderer.setGhosts(ghostMap); // re-attach after the viewport re-render
 				lastCurRow = frame.cursorRow;
 				lastCurCol = frame.cursorCol;
 				predictor?.onFrame(frame); // reconcile predictions against the authoritative grid
 				// Only a LIVE (in-layout + page-visible) pane updates the stick-to-bottom
 				// intent. A frame arriving while parked (in-flight after a withdraw, or a
-				// late emit) reads wasBottom=false on the reverted content-visibility
-				// container — writing that to _following would erase the pre-withdrawal
+				// late emit) must not touch _following: that would erase the pre-withdrawal
 				// intent, so the reveal never arms _repinPending and never re-pins. The
 				// scroll listener is already gated the same way (spurious parked scrolls).
 				if (props.inLayout !== false && isPageVisible()) {
-					const pin = (wasBottom && !_touchScrolling) || _repinPending;
-					if (pin) renderer.scrollToBottom();
-					// A reveal re-pin (_repinPending) must survive the post-paint content-
-					// visibility reflow: drive scrollToBottom across a bounded rAF burst
-					// that clears _repinPending when it lands, instead of a same-tick
-					// atBottom() read against the pre-reflow (estimate) scrollHeight.
-					if (_repinPending) startRepinSettle();
+					const pin = _following || _repinPending;
 					if (!_touchScrolling) _following = pin;
-					updateJumpDownVis();
+					if (_repinPending) startRepinSettle(); // reveal burst owns its own rAF (unchanged)
+					scheduleFlush();                        // batched pin + jump-FAB, one rAF/frame
 				}
 				if (frame.full) backfill.onFullFrame();
 				setAtShellPrompt(SHELL_PROMPT_RE.test(renderer.viewportTail()));
@@ -1227,6 +1236,7 @@ let _touchGraceTimer: ReturnType<typeof setTimeout> | null = null;
 				resizeObs?.disconnect();
 				if (claimTimer) clearTimeout(claimTimer);
 				if (_settleRaf != null) { cancelAnimationFrame(_settleRaf); _settleRaf = null; }
+				if (_flushRaf != null) { cancelAnimationFrame(_flushRaf); _flushRaf = null; }
 				if (_touchGraceTimer) { clearTimeout(_touchGraceTimer); _touchGraceTimer = null; }
 				predictor?.dispose();
 				renderer?.dispose();
