@@ -44,7 +44,7 @@ function frame(o: { seq: number; cc?: number; cr?: number; rows?: (string | null
   return {
     cols: o.cols ?? 80, rows: 24,
     cursorRow: o.cr ?? 0, cursorCol: o.cc ?? 0, cursorVisible: true,
-    altScreen: o.alt ?? false, full: o.full ?? false,
+    altScreen: o.alt ?? false, cursorKeysApp: false, bracketedPaste: false, full: o.full ?? false,
     viewportRows: rows.map((t, i) => ({ index: i, spans: t ? [{ text: t, fg: 256, bg: 256, flags: 0 }] : [] })),
     scrollbackRows: [], scrollbackAppend: [], scrollbackTotal: 0, sbBase: 0,
     seq: o.seq,
@@ -294,7 +294,7 @@ describe("prediction-engine hardening", () => {
     // DELTA: only row 5 changed, at viewportRows ARRAY POSITION 0 (.index=5).
     const delta = {
       cols: 80, rows: 24, cursorRow: 5, cursorCol: 1, cursorVisible: true,
-      altScreen: false, full: false,
+      altScreen: false, cursorKeysApp: false, bracketedPaste: false, full: false,
       viewportRows: [{ index: 5, spans: [{ text: "a", fg: 256, bg: 256, flags: 0 }] }],
       scrollbackRows: [], scrollbackAppend: [], scrollbackTotal: 0, sbBase: 0, seq: 2,
     } as CellGridFrame;

@@ -15,7 +15,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file roost/v1/cell.proto.
  */
 export const file_roost_v1_cell: GenFile = /*@__PURE__*/
-  fileDesc("ChNyb29zdC92MS9jZWxsLnByb3RvEghyb29zdC52MSKBAQoKUGJDZWxsU3BhbhIMCgR0ZXh0GAEgASgJEgoKAmZnGAIgASgNEgoKAmJnGAMgASgNEg0KBWZsYWdzGAQgASgNEhMKBmZnX3JnYhgFIAEoDUgAiAEBEhMKBmJnX3JnYhgGIAEoDUgBiAEBQgkKB19mZ19yZ2JCCQoHX2JnX3JnYiI/CglQYkNlbGxSb3cSDQoFaW5kZXgYASABKA0SIwoFc3BhbnMYAiADKAsyFC5yb29zdC52MS5QYkNlbGxTcGFuIuUCCg9QYkNlbGxHcmlkRnJhbWUSEgoKc2Vzc2lvbl9pZBgBIAEoCRIMCgRjb2xzGAIgASgNEgwKBHJvd3MYAyABKA0SEgoKY3Vyc29yX3JvdxgEIAEoDRISCgpjdXJzb3JfY29sGAUgASgNEhYKDmN1cnNvcl92aXNpYmxlGAYgASgIEhIKCmFsdF9zY3JlZW4YByABKAgSDAoEZnVsbBgIIAEoCBIqCg12aWV3cG9ydF9yb3dzGAkgAygLMhMucm9vc3QudjEuUGJDZWxsUm93EiwKD3Njcm9sbGJhY2tfcm93cxgKIAMoCzITLnJvb3N0LnYxLlBiQ2VsbFJvdxIuChFzY3JvbGxiYWNrX2FwcGVuZBgLIAMoCzITLnJvb3N0LnYxLlBiQ2VsbFJvdxIYChBzY3JvbGxiYWNrX3RvdGFsGAwgASgEEgsKA3NlcRgNIAEoBBIPCgdzYl9iYXNlGA4gASgEYgZwcm90bzM");
+  fileDesc("ChNyb29zdC92MS9jZWxsLnByb3RvEghyb29zdC52MSKBAQoKUGJDZWxsU3BhbhIMCgR0ZXh0GAEgASgJEgoKAmZnGAIgASgNEgoKAmJnGAMgASgNEg0KBWZsYWdzGAQgASgNEhMKBmZnX3JnYhgFIAEoDUgAiAEBEhMKBmJnX3JnYhgGIAEoDUgBiAEBQgkKB19mZ19yZ2JCCQoHX2JnX3JnYiI/CglQYkNlbGxSb3cSDQoFaW5kZXgYASABKA0SIwoFc3BhbnMYAiADKAsyFC5yb29zdC52MS5QYkNlbGxTcGFuIpcDCg9QYkNlbGxHcmlkRnJhbWUSEgoKc2Vzc2lvbl9pZBgBIAEoCRIMCgRjb2xzGAIgASgNEgwKBHJvd3MYAyABKA0SEgoKY3Vyc29yX3JvdxgEIAEoDRISCgpjdXJzb3JfY29sGAUgASgNEhYKDmN1cnNvcl92aXNpYmxlGAYgASgIEhIKCmFsdF9zY3JlZW4YByABKAgSDAoEZnVsbBgIIAEoCBIqCg12aWV3cG9ydF9yb3dzGAkgAygLMhMucm9vc3QudjEuUGJDZWxsUm93EiwKD3Njcm9sbGJhY2tfcm93cxgKIAMoCzITLnJvb3N0LnYxLlBiQ2VsbFJvdxIuChFzY3JvbGxiYWNrX2FwcGVuZBgLIAMoCzITLnJvb3N0LnYxLlBiQ2VsbFJvdxIYChBzY3JvbGxiYWNrX3RvdGFsGAwgASgEEgsKA3NlcRgNIAEoBBIPCgdzYl9iYXNlGA4gASgEEhcKD2N1cnNvcl9rZXlzX2FwcBgPIAEoCBIXCg9icmFja2V0ZWRfcGFzdGUYECABKAhiBnByb3RvMw");
 
 /**
  * @generated from message roost.v1.PbCellSpan
@@ -176,6 +176,20 @@ export type PbCellGridFrame = Message<"roost.v1.PbCellGridFrame"> & {
    * @generated from field: uint64 sb_base = 14;
    */
   sbBase: bigint;
+
+  /**
+   * DECCKM (application cursor keys); SPA input encoder reads this
+   *
+   * @generated from field: bool cursor_keys_app = 15;
+   */
+  cursorKeysApp: boolean;
+
+  /**
+   * DECSET 2004 (bracketed paste); SPA wraps pastes when set
+   *
+   * @generated from field: bool bracketed_paste = 16;
+   */
+  bracketedPaste: boolean;
 };
 
 /**

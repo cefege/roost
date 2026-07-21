@@ -38,4 +38,6 @@ message PbCellGridFrame {
   // of retained history; [0, sb_base) is served by SessionsGetScrollbackCells.
   // 0 = complete (also the pre-tail wire default).
   uint64 sb_base = 14;
+  bool cursor_keys_app = 15;   // DECCKM (application cursor keys); SPA input encoder reads this
+  bool bracketed_paste = 16;   // DECSET 2004 (bracketed paste); SPA wraps pastes when set
 }

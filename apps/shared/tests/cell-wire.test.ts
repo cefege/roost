@@ -31,6 +31,10 @@ class MockCore {
   getCell(r: number, c: number) { return this.grid[r][c]; }
   getCursor() { return this.cursor; }
   usingAltScreen() { return this.alt; }
+  cursorApp = false;
+  bracketed = false;
+  cursorKeysApp() { return this.cursorApp; }
+  bracketedPaste() { return this.bracketed; }
   getScrollbackCount() { return this.sb.length; }
   getScrollbackCell(off: number, c: number) { return this.sb[this.sb.length - 1 - off][c] ?? cell(" "); }
   getScrollbackLineLen(off: number) { return this.sb[this.sb.length - 1 - off].length; }
@@ -116,6 +120,7 @@ describe("cell-proto round-trip", () => {
   function makeFrame(): CellGridFrame {
     return {
       cols: 6, rows: 2, cursorRow: 1, cursorCol: 3, cursorVisible: false, altScreen: true,
+      cursorKeysApp: true, bracketedPaste: false,
       full: true,
       viewportRows: [
         { index: 0, spans: [{ text: "hi", fg: 1, bg: DEFAULT_COLOR, flags: CELL_BOLD, fgRgb: 0xff8800, bgRgb: undefined }] },

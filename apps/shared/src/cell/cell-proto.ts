@@ -25,7 +25,7 @@ export function cellFrameToProto(f: CellGridFrame, sessionId: string): PbCellGri
     sessionId,
     cols: f.cols, rows: f.rows,
     cursorRow: f.cursorRow, cursorCol: f.cursorCol, cursorVisible: f.cursorVisible,
-    altScreen: f.altScreen, full: f.full,
+    altScreen: f.altScreen, cursorKeysApp: f.cursorKeysApp, bracketedPaste: f.bracketedPaste, full: f.full,
     viewportRows: f.viewportRows.map(cellRowToProto),
     scrollbackRows: f.scrollbackRows.map(cellRowToProto),
     scrollbackAppend: f.scrollbackAppend.map(cellRowToProto),
@@ -46,7 +46,7 @@ export function protoToCellFrame(p: PbCellGridFrame): CellGridFrame {
   return {
     cols: p.cols, rows: p.rows,
     cursorRow: p.cursorRow, cursorCol: p.cursorCol, cursorVisible: p.cursorVisible,
-    altScreen: p.altScreen, full: p.full,
+    altScreen: p.altScreen, cursorKeysApp: p.cursorKeysApp, bracketedPaste: p.bracketedPaste, full: p.full,
     viewportRows: p.viewportRows.map(cellRowFromProto),
     scrollbackRows: p.scrollbackRows.map(cellRowFromProto),
     scrollbackAppend: p.scrollbackAppend.map(cellRowFromProto),

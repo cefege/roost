@@ -515,6 +515,17 @@ let _touchGraceTimer: ReturnType<typeof setTimeout> | null = null;
 		>();
 		let unsubCell: () => void;
 		let unsubPresence: () => void;
+		// Input-encoding modes now ride the cell frame (cursorKeysApp / bracketedPaste)
+		// instead of re-parsing the whole output byte stream through the hidden wterm.
+		// We keep the hidden wterm ONLY as the keystroke encoder; write the tiny mode-set
+		// escapes when a flag flips so its onData encodes arrows (DECCKM) + paste correctly.
+		let frameCursorApp = false, frameBracketed = false;   // latest from cell frames
+		let syncedCursorApp = false, syncedBracketed = false; // what the hidden wterm knows (wterm defaults: both off)
+		const syncInputModes = () => {
+			if (!term) return;
+			if (frameCursorApp !== syncedCursorApp) { syncedCursorApp = frameCursorApp; term.write(frameCursorApp ? "\x1b[?1h" : "\x1b[?1l"); }
+			if (frameBracketed !== syncedBracketed) { syncedBracketed = frameBracketed; term.write(frameBracketed ? "\x1b[?2004h" : "\x1b[?2004l"); }
+		};
 		runWithOwner(cellOwner, () => {
 			unsubCell = registerCellHandler(props.session.id, (frame) => {
 				setHasFrame(true);
@@ -539,6 +550,9 @@ let _touchGraceTimer: ReturnType<typeof setTimeout> | null = null;
 				setAltScreen(frame.altScreen);
 				const wasBottom = renderer.atBottom();
 				renderer.apply(frame);
+				frameCursorApp = frame.cursorKeysApp;
+				frameBracketed = frame.bracketedPaste;
+				syncInputModes();
 				renderer.setGhosts(ghostMap); // re-attach after the viewport re-render
 				lastCurRow = frame.cursorRow;
 				lastCurCol = frame.cursorCol;
@@ -638,15 +652,16 @@ let _touchGraceTimer: ReturnType<typeof setTimeout> | null = null;
 			term.destroy();
 			return;
 		}
+		syncInputModes(); // flush modes seen before the hidden wterm existed
 		term.onData = (data: string) => {
 			const bytes = new TextEncoder().encode(data);
 			predictor?.predict(bytes); // speculative echo before the round-trip
 			inputChannel.sendInput(props.session.id, bytes);
 			recordInput(props.session.id, data); // typed text → keyterm context
 		};
-		// Feed the byte stream so DECCKM / bracketed-paste / keypad modes track
-		// the running program → onData encodes arrows/paste correctly. The
-		// hidden grid render is discarded (never shown).
+		// DECCKM / bracketed-paste modes come from the cell frame (see syncInputModes),
+		// NOT from re-parsing this byte stream. The byte stream is retained ONLY for
+		// OSC 8 link tracking below.
 		// OSC 8 hyperlink tracker — parses the byte stream for ESC]8;;URI links
 		// (claude / ls --hyperlink) so attachTerminalLinks can wrap their visible
 		// text in <a>. Same stream that feeds the hidden input oracle. Client-side,
@@ -658,8 +673,6 @@ let _touchGraceTimer: ReturnType<typeof setTimeout> | null = null;
 				const bytes =
 					typeof chunk === "string" ? new TextEncoder().encode(chunk) : chunk;
 				osc8.process(bytes);
-				if (!term) return;
-				term.write(bytes);
 			});
 		});
 		// Linkify rendered .cell-row text (OSC 8 links + regex URLs), Cmd/Ctrl-gated.

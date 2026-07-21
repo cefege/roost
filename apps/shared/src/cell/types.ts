@@ -55,6 +55,10 @@ export interface CellGridFrame {
   cursorCol: number;
   cursorVisible: boolean;
   altScreen: boolean;
+  /** DECCKM app-cursor-keys mode; drives the SPA keystroke encoder (arrows). */
+  cursorKeysApp: boolean;
+  /** DECSET 2004 bracketed-paste mode; drives the SPA paste wrapping. */
+  bracketedPaste: boolean;
   /** true = full snapshot (viewportRows = all rows, scrollbackRows = all
    *  retained lines). false = delta (viewportRows = changed only,
    *  scrollbackAppend = lines pushed since the prior frame). */

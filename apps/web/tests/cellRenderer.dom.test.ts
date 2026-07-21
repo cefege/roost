@@ -87,7 +87,7 @@ function makeContainer(): FakeEl {
 function row(index: number, text: string): CellRow {
   return { index, spans: text ? [{ text, fg: DEFAULT_COLOR, bg: DEFAULT_COLOR, flags: 0 }] : [] };
 }
-const BASE = { cursorRow: 0, cursorCol: 0, cursorVisible: true, altScreen: false } as const;
+const BASE = { cursorRow: 0, cursorCol: 0, cursorVisible: true, altScreen: false, cursorKeysApp: false, bracketedPaste: false } as const;
 function fullFrame(cols: number, viewport: CellRow[], scrollback: CellRow[]): CellGridFrame {
   return { ...BASE, cols, rows: viewport.length, full: true,
     viewportRows: viewport, scrollbackRows: scrollback, scrollbackAppend: [],

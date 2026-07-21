@@ -28,7 +28,7 @@ export function applyDelta(base: CellGridFrame, delta: CellGridFrame): CellGridF
   return {
     cols: delta.cols, rows: delta.rows,
     cursorRow: delta.cursorRow, cursorCol: delta.cursorCol, cursorVisible: delta.cursorVisible,
-    altScreen: delta.altScreen,
+    altScreen: delta.altScreen, cursorKeysApp: delta.cursorKeysApp, bracketedPaste: delta.bracketedPaste,
     full: true,
     viewportRows,
     scrollbackRows,
