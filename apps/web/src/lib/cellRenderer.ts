@@ -354,6 +354,14 @@ export class CellGridRenderer {
    *  keeps scrollbackRows aligned with the painted DOM regardless of size. */
   private _evictScrollback(): void {
     if (this._evictionFrozen) return;
+    // Preserve scrollTop across the eviction: capture distance-from-bottom
+    // ONCE before the loop and restore ONCE after, mirroring prependScrollback.
+    // Without this, removing a leading block shrinks scrollHeight and fires a
+    // position-changing scroll event whose atBottom() misread flips
+    // CellTerminal._following false (the "pane jumps off the bottom" race).
+    const el = this.container;
+    const fromBottom = el.scrollHeight - el.scrollTop;
+    let removed = false;
     while (this.frame && this.frame.scrollbackRows.length > MAX_HELD_SCROLLBACK_ROWS) {
       // Leading child is a .cell-block (possibly partial from backfill); the
       // open tail block _curBlock is always last, so firstElementChild is never it.
@@ -367,7 +375,9 @@ export class CellGridRenderer {
         scrollbackRows: this.frame.scrollbackRows.slice(dropped),
         sbBase: this.frame.sbBase + dropped,
       };
+      removed = true;
     }
+    if (removed) el.scrollTop = el.scrollHeight - fromBottom;
   }
 
   /** Backfill splice: insert older history rows ABOVE the painted scrollback

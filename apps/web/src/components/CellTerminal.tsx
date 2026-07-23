@@ -215,6 +215,7 @@ let _settleRaf: number | null = null;
 let _flushRaf: number | null = null;
 let _settleFrames = 0;
 let _jumping = false; // true while the smooth jump-to-bottom animation runs — ignore the scroll listener
+let _lastPinTop = Number.NaN; // scrollTop right after the last scheduleFlush scrollToBottom pin. NaN until the first pin (NaN comparisons are false → never suppresses a real scroll before then). onBackfillScroll uses this to tell the pin's OWN async scroll event (scrollTop still == the target, possibly with scrollHeight since grown below it) from a genuine wheel/touch scroll-up (scrollTop now BELOW the target). Position-based, not time-based, so a real scroll-up is honored the instant it moves — the one-frame flag it replaced re-armed every frame during streaming and blinded wheel-up the whole time output was pouring.
 let _touchScrolling = false; // finger actively dragging a main-screen (non-alt) pane → suppress auto-pin
 let _touchStartY = 0;        // clientY at touchstart, to measure drag distance vs slop
 let _touchMoved = false;     // this touch has passed the slop → it's a scroll, not a tap
@@ -425,8 +426,17 @@ let _touchGraceTimer: ReturnType<typeof setTimeout> | null = null;
 		if (_flushRaf != null) return;
 		_flushRaf = requestAnimationFrame(() => {
 			_flushRaf = null;
-			if (unmounted || !renderer || props.inLayout === false || !isPageVisible()) return;
-			if (_following && !_touchScrolling && !_settling) renderer.scrollToBottom();
+			if (unmounted || !renderer || !displayRef || props.inLayout === false || !isPageVisible()) return;
+			if (_following && !_touchScrolling && !_settling) {
+				// Pin and record where it landed. onBackfillScroll ignores events
+				// whose scrollTop still matches this target (the pin's own async
+				// event can fire AFTER scrollHeight grew from the next cell frame,
+				// which would otherwise make atBottom() misread false and flip
+				// _following off). A real wheel/touch scroll-up moves scrollTop
+				// below this target and is honored immediately.
+				renderer.scrollToBottom();
+				_lastPinTop = displayRef.scrollTop;
+			}
 			updateJumpDownVis();
 		});
 	}
@@ -500,8 +510,18 @@ let _touchGraceTimer: ReturnType<typeof setTimeout> | null = null;
 			// Gate to visible+in-layout: a parked pane's content-visibility blocks
 			// revert to placeholders and can fire spurious scroll events whose
 			// atBottom() misreads would corrupt _following / arm backfill pointlessly.
-			if (_settling || _jumping || props.inLayout === false || !isPageVisible() || !renderer) return;
+			if (_settling || _jumping || props.inLayout === false || !isPageVisible() || !renderer || !displayRef) return;
 			const atB = renderer.atBottom();
+			// Suppress only the stale post-pin FALSE read: scrollToBottom set
+			// scrollTop to the bottom, but its async scroll event can fire AFTER
+			// a new cell frame grew scrollHeight below it → atBottom() misreads
+			// false. If scrollTop still matches the last pin target (±2px —
+			// atBottom's own tolerance; one row ≈19px so no real scroll is eaten),
+			// this is that stale event → ignore it. A genuine wheel/touch scroll-up
+			// has already moved scrollTop clear of the target, so it falls through
+			// and flips _following off, even mid-stream. Gated on !atB so scrolling
+			// back to bottom re-engages follow.
+			if (!atB && Math.abs(displayRef.scrollTop - _lastPinTop) <= 2) return;
 			_following = atB;
 			if (!atB) backfill.onUserScrollUp();
 			updateJumpDownVis();

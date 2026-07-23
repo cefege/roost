@@ -50,6 +50,7 @@ class FakeEl {
   // numbers are enough for node-identity assertions.
   scrollHeight = 0;
   scrollTop = 0;
+  clientHeight = 0; // viewport height — atBottom/scrollToBottom math (set per-test as needed)
   replaceChildren(...kids: any[]) {
     for (const c of this.children) c.parentElement = null;
     this.children = kids.slice();
@@ -514,5 +515,48 @@ describe("CellGridRenderer DOM — held-window eviction", () => {
     const lastHeld = after.scrollbackRows[after.scrollbackRows.length - 1]!;
     const extTail = tailFrame(80, [row(0, "v")], [lastHeld, row(idx, `new${idx}`)], total + 1);
     expect(mergeFullFrame(after, extTail)).not.toBeNull();
+  });
+  test("eviction is scroll-neutral: preserves distance-from-bottom (no spurious scroll event)", () => {
+    // Regression for the "pane jumps off the bottom" race: _evictScrollback
+    // trimmed leading blocks WITHOUT restoring scrollTop (unlike its sibling
+    // prependScrollback). Under real DOM + content-visibility that fires a
+    // position-changing scroll event → CellTerminal.onBackfillScroll misreads
+    // atBottom() → flips _following false → the per-frame auto-pin skips and
+    // the pane drifts off the live tail. The fix captures fromBottom once
+    // before the loop and restores once after (prependScrollback's pattern),
+    // so eviction emits NO net movement. This locks it with a faithful DOM
+    // model: container.scrollHeight tracks painted scrollback rows (1px/row),
+    // so removing a leading block shrinks it like real layout.
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    // scrollbackEl is created + appended by the constructor; capture after.
+    const scrollbackEl = c.children[0] as FakeEl;
+    Object.defineProperty(c, "scrollHeight", { get: () => sbRows(scrollbackEl).length });
+    c.clientHeight = 500;
+    // Partial leading block via backfill (the realistic deep-session shape:
+    // every backfill prepend is < SB_BLOCK). A full-block append + full-block
+    // evict is net-zero in rows and hides the bug; the partial head makes the
+    // pre-fix movement observable.
+    const total = 2500;
+    const tailStart = total - 100;
+    r.apply(tailFrame(80, [row(0, "v")], seq(100).map((k) => row(tailStart + k, `h${k}`)), total));
+    r.prependScrollback(seq(180).map((k) => row(tailStart - 180 + k, `b${k}`)));
+    // Grow to just under the cap (6 batches: held = 280 + 6*250 = 1780).
+    let idx = total, running = total;
+    for (let i = 0; i < 6; i++) {
+      const append = seq(BLOCK).map((k) => row(idx + k, `s${idx + k}`));
+      idx += BLOCK; running += BLOCK;
+      r.apply(appDelta(append, running, i + 2));
+    }
+    expect(r.currentFrame!.scrollbackRows.length).toBeLessThanOrEqual(MAX_HELD_SCROLLBACK_ROWS);
+    // Pin to bottom — the component's job (apply() itself never scrolls).
+    c.scrollTop = c.scrollHeight - c.clientHeight;
+    expect(c.scrollHeight - c.scrollTop - c.clientHeight).toBe(0);
+    // One more block → over cap → eviction removes the 180-row partial head.
+    r.apply(appDelta(seq(BLOCK).map((k) => row(idx + k, `s${idx + k}`)), running + BLOCK, 99));
+    // Scroll-neutral: the only viewport movement is the appended block below —
+    // distance-from-bottom grew by exactly BLOCK. Pre-fix (no restore write):
+    // scrollTop unchanged, scrollHeight shrank by 180 → distance = BLOCK - 180.
+    expect(c.scrollHeight - c.scrollTop - c.clientHeight).toBe(BLOCK);
   });
 });
