@@ -12,7 +12,7 @@
 // exactly what CellGridRenderer touches — node identity is all we assert.
 
 import { describe, test, expect } from "bun:test";
-import { CellGridRenderer, mergeFullFrame } from "../src/lib/cellRenderer.ts";
+import { CellGridRenderer, mergeFullFrame, rowText, MAX_HELD_SCROLLBACK_ROWS } from "../src/lib/cellRenderer.ts";
 import { DEFAULT_COLOR, type CellGridFrame, type CellRow } from "@roost/shared/cell";
 
 // ── minimal fake DOM ──────────────────────────────────────────────────────
@@ -73,6 +73,7 @@ class FakeEl {
     if (p) { const i = p.children.indexOf(this); if (i >= 0) p.children.splice(i, 1); }
     this.parentElement = null;
   }
+  get firstElementChild(): FakeEl | null { return this.children[0] ?? null; }
 }
 function makeContainer(): FakeEl {
   const doc: any = {
@@ -404,5 +405,114 @@ describe("CellGridRenderer DOM — tail frames + backfill", () => {
     expect(r.backfillAnchor()!.sbBase).toBe(1);
     r.prependScrollback([row(0, "h0")]);
     expect(sbRows(scrollbackEl).map((n) => n.children[0].textContent)).toEqual(["h0", "h1", "h2"]);
+  });
+});
+
+// ── client-side eviction: cap the held scrollback window ─────────────────
+// .cell-scrollback was append-only, so a long stable streaming session grew
+// live DOM nodes ~500/min without bound (the long-uptime lag). _evictScrollback
+// trims oldest whole content-visibility blocks once the held window exceeds
+// MAX_HELD_SCROLLBACK_ROWS, bumping sbBase so the held-window invariant
+// (scrollbackRows.length === scrollbackTotal - sbBase) stays honest and
+// scrollbackBackfill re-pulls the evicted range on scroll-up. These lock the
+// cap, the invariant + DOM↔array alignment, the freeze under a scrolled-up
+// reader, mergeFullFrame after eviction, and — critically — that a PARTIAL
+// leading block never desyncs (every backfill prepend is < SB_BLOCK because
+// the overlap row is stripped at scrollbackBackfill.ts:111).
+describe("CellGridRenderer DOM — held-window eviction", () => {
+  const BLOCK = 250; // mirrors cellRenderer SB_BLOCK
+  // Delta that appends `append` scrollback rows, carrying the cumulative
+  // absolute `total` (applyDelta takes scrollbackTotal verbatim from the delta).
+  const appDelta = (append: CellRow[], total: number, seq: number): CellGridFrame =>
+    ({ ...deltaFrame(80, 1, [row(0, "v")], append, seq), scrollbackTotal: total });
+  const seq = (n: number) => Array.from({ length: n }, (_, i) => i);
+  const grow = (r: CellGridRenderer, from: number, batches: number) => {
+    let total = from, idx = from;
+    for (let i = 0; i < batches; i++) {
+      const append = seq(BLOCK).map((k) => row(idx + k, `s${idx + k}`));
+      idx += BLOCK; total += BLOCK;
+      r.apply(appDelta(append, total, i + 2));
+    }
+    return { total, idx };
+  };
+
+  test("eviction caps the held window and preserves invariant + DOM alignment", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    const scrollbackEl = c.children[0];
+    r.apply(fullFrame(80, [row(0, "v")], seq(100).map((i) => row(i, `h${i}`))));
+    const { total, idx } = grow(r, 100, 12);
+    // After every apply the invariant, the cap, and DOM↔array alignment hold.
+    const f = r.currentFrame!;
+    expect(f.scrollbackTotal - f.sbBase).toBe(f.scrollbackRows.length);
+    expect(f.scrollbackRows.length).toBeLessThanOrEqual(MAX_HELD_SCROLLBACK_ROWS);
+    expect(sbRows(scrollbackEl).length).toBe(f.scrollbackRows.length);
+    // Block count bounded (≤ ceil(MAX_HELD / BLOCK) + 1 open tail block).
+    expect(scrollbackEl.children.length).toBeLessThanOrEqual(Math.ceil(MAX_HELD_SCROLLBACK_ROWS / BLOCK) + 1);
+    // Tail row survived eviction unchanged.
+    expect(rowText(f.scrollbackRows[f.scrollbackRows.length - 1]!)).toBe(`s${idx - 1}`);
+    expect(total).toBe(idx); // sanity: total tracks the last appended index
+  });
+
+  test("setEvictionFrozen(true) grows past the cap; thaw trims back on next append", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    r.apply(fullFrame(80, [row(0, "v")], seq(100).map((i) => row(i, `h${i}`))));
+    r.setEvictionFrozen(true);
+    const { idx } = grow(r, 100, 12); // frozen → no trim
+    expect(r.currentFrame!.scrollbackRows.length).toBe(100 + 12 * BLOCK);
+    expect(r.currentFrame!.scrollbackRows.length).toBeGreaterThan(MAX_HELD_SCROLLBACK_ROWS);
+    // Thaw + one more append → trims back under the cap, invariant intact.
+    r.setEvictionFrozen(false);
+    const append = seq(BLOCK).map((k) => row(idx + k, `s${idx + k}`));
+    r.apply(appDelta(append, idx + BLOCK, 99));
+    const f = r.currentFrame!;
+    expect(f.scrollbackRows.length).toBeLessThanOrEqual(MAX_HELD_SCROLLBACK_ROWS);
+    expect(f.scrollbackTotal - f.sbBase).toBe(f.scrollbackRows.length);
+  });
+
+  test("a partial leading block (backfill prepend) never desyncs DOM from array", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    const scrollbackEl = c.children[0];
+    // Tail frame (sbBase > 0): held = last 100 rows of a 2500-row history.
+    const total = 2500;
+    const tailStart = total - 100;
+    r.apply(tailFrame(80, [row(0, "v")], seq(100).map((k) => row(tailStart + k, `h${tailStart + k}`)), total));
+    // Backfill with a PARTIAL chunk (< BLOCK): every real backfill batch is
+    // < SB_BLOCK (overlap row stripped), so this is the realistic case. The
+    // leading block becomes partial (180 rows) — the first block eviction removes.
+    const chunk = 180;
+    r.prependScrollback(seq(chunk).map((k) => row(tailStart - chunk + k, `b${k}`)));
+    expect(r.currentFrame!.scrollbackRows.length).toBe(100 + chunk);
+    // Stream past the cap; check invariant + DOM alignment every apply.
+    let idx = total, running = total;
+    for (let i = 0; i < 12; i++) {
+      const append = seq(BLOCK).map((k) => row(idx + k, `s${idx + k}`));
+      idx += BLOCK; running += BLOCK;
+      r.apply(appDelta(append, running, i + 2));
+      const f = r.currentFrame!;
+      expect(f.scrollbackTotal - f.sbBase).toBe(f.scrollbackRows.length);
+      expect(f.scrollbackRows.length).toBeLessThanOrEqual(MAX_HELD_SCROLLBACK_ROWS);
+      // Killer assertion: painted DOM row count must track the array. A hardcoded
+      // dropped = SB_BLOCK would leave the 180-row block's worth of DOM behind
+      // while slicing 250 off the array → DOM count > array length.
+      expect(sbRows(scrollbackEl).length).toBe(f.scrollbackRows.length);
+    }
+  });
+
+  test("after eviction, an extending tail full frame still merges; anchor base is honest", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    r.apply(fullFrame(80, [row(0, "v")], seq(100).map((i) => row(i, `h${i}`))));
+    const { total, idx } = grow(r, 100, 12);
+    const after = r.currentFrame!;
+    expect(after.sbBase).toBeGreaterThan(0); // eviction actually bumped the base
+    expect(r.backfillAnchor()!.sbBase).toBe(after.sbBase); // anchor reports bumped base
+    // A tail overlapping the held window's last row + one new row must merge
+    // (mergeFullFrame reads the held TAIL; eviction only ever drops the HEAD).
+    const lastHeld = after.scrollbackRows[after.scrollbackRows.length - 1]!;
+    const extTail = tailFrame(80, [row(0, "v")], [lastHeld, row(idx, `new${idx}`)], total + 1);
+    expect(mergeFullFrame(after, extTail)).not.toBeNull();
   });
 });

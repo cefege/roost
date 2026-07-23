@@ -546,6 +546,7 @@ let _touchGraceTimer: ReturnType<typeof setTimeout> | null = null;
 		runWithOwner(cellOwner, () => {
 			unsubCell = registerCellHandler(props.session.id, (frame) => {
 				setHasFrame(true);
+				const _frameArr = performance.now();
 				// Echo RTT tracker: input→cell-frame round-trip, works even when
 				// predictive echo is off. Consumes the last-send timestamp (one
 				// measurement per input→echo cycle).
@@ -565,7 +566,15 @@ let _touchGraceTimer: ReturnType<typeof setTimeout> | null = null;
 					cursor_col: frame.cursorCol,
 				});
 				setAltScreen(frame.altScreen);
+				if (renderer) renderer.setEvictionFrozen(!_following);
+				const _ap = performance.now();
 				renderer.apply(frame);
+				diag("cell.apply_dur", { sid: props.session.id, dur_ms: performance.now() - _ap });
+				if (isPageVisible() && props.inLayout !== false) {
+					requestAnimationFrame(() => requestAnimationFrame(() => {
+						diag("cell.paint_screen", { sid: props.session.id, dur_ms: performance.now() - _frameArr });
+					}));
+				}
 				frameCursorApp = frame.cursorKeysApp;
 				frameBracketed = frame.bracketedPaste;
 				syncInputModes();

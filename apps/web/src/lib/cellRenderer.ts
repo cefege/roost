@@ -22,6 +22,15 @@ import {
 } from "@roost/shared/cell";
 
 const SB_BLOCK = 250; // scrollback rows per content-visibility block; keep in sync with .cell-block contain-intrinsic-size in sidebar.css (SB_BLOCK × 1.2em = 300em). Perf tuning only — any positive value renders identically.
+// Per-renderer cap on held scrollback rows. CellGridRenderer._evictScrollback
+// trims oldest whole content-visibility blocks once the held window grows past
+// this — the client-side fix for long-uptime DOM growth (.cell-scrollback was
+// append-only, so live nodes climbed ~500/min without bound while the server's
+// ring stayed bounded at 10k). MUST be ≤ the server's 10k wtermCore ring so
+// backfill can always re-supply evicted rows. 2000 ≈ 8 blocks / ~40 screens of
+// 50-row immediate scroll-up before a backfill round-trip. Single tuning knob
+// — lower if DOM headroom under many parked panes is still high.
+export const MAX_HELD_SCROLLBACK_ROWS = 2000;
 
 // xterm 256-palette → CSS. 0..15 map to the themed --term-color-N vars;
 // 16..231 are the 6×6×6 cube; 232..255 are the 24-step grayscale ramp.
@@ -163,6 +172,12 @@ export class CellGridRenderer {
   // background churn). renderFull/dispose reset both.
   private _rowEls: HTMLElement[] = [];
   private _rowSigs: string[] = [];
+  // Eviction freeze: while the user is scrolled up reading history, live
+  // output must NOT trim history out from under them (CLAUDE.md L11: never
+  // trade history away). CellTerminal drives this from its stick-to-bottom
+  // intent (_following) — frozen when scrolled up, thawed when pinned at the
+  // bottom (the unbounded streaming case where eviction must run).
+  private _evictionFrozen = false;
 
   constructor(private readonly container: HTMLElement) {
     this.doc = container.ownerDocument;
@@ -272,6 +287,10 @@ export class CellGridRenderer {
     this.armedHold = active;
     this._flushIfReleased();
   }
+  /** Freeze/thaw scrollback eviction. Frozen while the user is scrolled up
+   *  reading history (CellTerminal _following === false) so live output never
+   *  trims history out from under the viewport. Thawed at the bottom. */
+  setEvictionFrozen(frozen: boolean): void { this._evictionFrozen = frozen; }
 
   /** After any hold clears, rebuild from the latest folded frame so the pane
    *  snaps back to live. No-op while another hold is still active. */
@@ -315,6 +334,39 @@ export class CellGridRenderer {
       }
       this._curBlock.appendChild(renderRow(r, this.doc));
       this._curBlockRows++;
+    }
+    this._evictScrollback();
+  }
+
+  /** Evict oldest whole content-visibility blocks once the held scrollback
+   *  window exceeds MAX_HELD_SCROLLBACK_ROWS. Runs only while NOT frozen (the
+   *  user is pinned at the bottom — the unbounded streaming case); while
+   *  scrolled up, the freeze keeps history intact. Evicted rows stay fully
+   *  recoverable: bumping sbBase keeps the held-window invariant
+   *  (scrollbackRows.length === scrollbackTotal - sbBase) honest, so
+   *  scrollbackBackfill's onUserScrollUp re-pulls exactly the evicted range.
+   *
+   *  dropped = the leading block's ACTUAL child count, not a hardcoded
+   *  SB_BLOCK: every backfill prepend is < SB_BLOCK rows (scrollbackBackfill
+   *  fetches with endRow = sbBase+1 to include the overlap row, then strips it
+   *  via rows.slice(0,-1)), so a partial block at the head is the norm after
+   *  any backfill cycle, not just the final chunk. Slicing by the real count
+   *  keeps scrollbackRows aligned with the painted DOM regardless of size. */
+  private _evictScrollback(): void {
+    if (this._evictionFrozen) return;
+    while (this.frame && this.frame.scrollbackRows.length > MAX_HELD_SCROLLBACK_ROWS) {
+      // Leading child is a .cell-block (possibly partial from backfill); the
+      // open tail block _curBlock is always last, so firstElementChild is never it.
+      const lead = this.scrollbackEl.firstElementChild as HTMLElement | null;
+      if (!lead) break;
+      const dropped = lead.children.length;
+      if (dropped === 0) break; // defensive — never spin on an empty block
+      lead.remove();
+      this.frame = {
+        ...this.frame,
+        scrollbackRows: this.frame.scrollbackRows.slice(dropped),
+        sbBase: this.frame.sbBase + dropped,
+      };
     }
   }
 
