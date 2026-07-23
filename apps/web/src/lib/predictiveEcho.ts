@@ -22,9 +22,14 @@
 import type { CellGridFrame } from "@roost/shared/cell";
 import { diag } from "@roost/shared/diag";
 
-// SRTT/2 thresholds. send_interval = SRTT/2.
-const SHOW_ON_MS = 30;    // srtt/2 > 30 (≈ RTT > 60ms) → engage predictions
-const SHOW_OFF_MS = 20;   // srtt/2 ≤ 20 (≈ RTT < 40ms) & idle → disengage
+// SRTT/2 thresholds. send_interval = SRTT/2. Lowered so local echo engages on a
+// LAN/tailnet link (~15-30ms RTT) — where every keystroke otherwise visibly
+// trails one full round-trip (the everyday typing lag) — and only a true
+// single-digit-ms loopback stays a no-op. Validated: roostPredict="always"
+// makes typing feel instant on this link; this makes it the default, per
+// browser, with no localStorage toggle. (Still suppressed in alt-screen TUIs.)
+const SHOW_ON_MS = 5;     // srtt/2 > 5 (≈ RTT > 10ms) → engage predictions
+const SHOW_OFF_MS = 3;    // srtt/2 ≤ 3 (≈ RTT < 6ms) & idle → disengage
 const FLAG_ON_MS = 80;    // srtt/2 > 80 (≈ RTT > 160ms) → underline the guess
 const GLITCH_MS = 250;    // a prediction pending this long → force-show (link stalled)
 
