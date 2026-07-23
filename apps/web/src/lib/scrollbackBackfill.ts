@@ -24,9 +24,13 @@ import { rowText, type CellGridRenderer } from "./cellRenderer.ts";
 // Grace after a full frame before fetching — lets the attach burst (N panes
 // re-claiming on tab-visible) settle; a user scroll-up starts immediately.
 const BACKFILL_DELAY_MS = 300;
-// Rows per RPC chunk. Server caps at 2000 (browser-command-terminal.ts);
-// 1000 keeps each response + prepend a few-ms task.
-const BACKFILL_CHUNK_ROWS = 1000;
+// Rows per RPC chunk. Server caps at 2000 (browser-command-terminal.ts). Kept
+// small (~one content-visibility block) so each prependScrollback is a short
+// DOM task: a large chunk builds thousands of row/span nodes synchronously,
+// blocking the main thread ~0.15ms/row (the deep-scrollback attach/reconnect
+// freeze — whole UI stalls while history materializes). Deep history just
+// arrives over a few more RPCs instead of one long freeze.
+const BACKFILL_CHUNK_ROWS = 250;
 // One retry after a transient RPC failure (coord 8s timeout, reconnect),
 // then park until the next trigger.
 const BACKFILL_RETRY_MS = 2000;
@@ -114,6 +118,13 @@ export function createScrollbackBackfill(opts: {
           rows: prefix.length,
           sb_base_after: anchor.sbBase - prefix.length,
         });
+        // Yield a frame between chunks: a deep drain paints + handles input
+        // between prepends instead of stacking into one long blocking task.
+        await new Promise<void>((r) =>
+          typeof requestAnimationFrame === "function"
+            ? requestAnimationFrame(() => r())
+            : setTimeout(r, 0),
+        );
         retried = false;
       }
     } finally {
