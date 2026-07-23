@@ -267,7 +267,10 @@ export function emitCellFrame(this: SessionManager, channelId: number, force: bo
 	});
 	// session_id left empty: coord's publishCellGrid stamps it from the
 	// channel→session map (byte-hub.ts), overwriting anything sent here.
-	send(channelId, cellFrameToProto(frame, ""));
+	const pb = cellFrameToProto(frame, "");
+	pb.ptyOutMs = BigInt(this.lastByteAt.get(channelId) ?? 0);
+	pb.workerEmitMs = BigInt(Date.now());
+	send(channelId, pb);
 }
 
 /** Register per-channel output handlers on the multiplexed pool. */

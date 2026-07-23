@@ -9,6 +9,7 @@ import { rootStore, setRootStore } from "./root.ts";
 import { protoToCellFrame } from "@roost/shared/cell/cell-proto";
 import type { CellGridFrame } from "@roost/shared/cell";
 import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
+import { recordCellLag } from "../lib/diag.ts";
 
 // Bytes are live-forward only: CellTerminal's handler feeds the hidden input
 // wterm + OSC trackers. Terminal content recovers via the worker's TAIL cell
@@ -41,6 +42,8 @@ export function registerPresenceHandler(sessionId: string, fn: PresenceHandler):
 }
 
 export function _dispatchCell(pb: PbCellGridFrame): void {
+  const recvWall = Date.now();
+  recordCellLag(pb, recvWall);
   _cellFrameCounts.set(pb.sessionId, (_cellFrameCounts.get(pb.sessionId) ?? 0) + 1);
   const fn = _cellHandlers.get(pb.sessionId);
   if (fn) fn(protoToCellFrame(pb));
@@ -49,6 +52,18 @@ export function _dispatchCell(pb: PbCellGridFrame): void {
 /** Test-only: how many cell frames have arrived for this session. */
 export function cellFrameCount(sessionId: string): number {
   return _cellFrameCounts.get(sessionId) ?? 0;
+}
+
+/** Reap a closed session's frame-count entry — keyed by session id with no
+ *  other reaper, so it leaks one entry per session ever for the tab's life.
+ *  Called from the sessions-delta `closed` handler (see pruneOscBuffer). */
+export function pruneCellFrameCount(sessionId: string): void {
+  _cellFrameCounts.delete(sessionId);
+}
+
+/** Live size of the per-session frame-count map — a leak-watch accumulator. */
+export function cellFrameCountSize(): number {
+  return _cellFrameCounts.size;
 }
 // OSC 7 = `ESC ] 7 ; file://<host>/<path> BEL` (or ESC \\ as terminator).
 // Shells with TERM_PROGRAM=Apple_Terminal (set by keeper) emit this on every

@@ -40,4 +40,11 @@ message PbCellGridFrame {
   uint64 sb_base = 14;
   bool cursor_keys_app = 15;   // DECCKM (application cursor keys); SPA input encoder reads this
   bool bracketed_paste = 16;   // DECSET 2004 (bracketed paste); SPA wraps pastes when set
+  // Lag-lens (roostDiag): down-leg wall-clock stamps (ms) ridden back to the
+  // browser on the frame so it reconstructs the whole down-leg with no
+  // cross-process correlation token. 0 = unset. See apps/web/src/lib/diag.ts.
+  uint64 pty_out_ms = 17;      // worker: PTY-out chunk arrival (lastByteAt)
+  uint64 worker_emit_ms = 18;  // worker: cell-frame send
+  uint64 coord_recv_ms = 19;   // coord: byte-hub publishCellGrid
+  uint64 coord_fanout_ms = 20; // coord: streaming fanout to browser
 }

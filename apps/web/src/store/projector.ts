@@ -20,6 +20,7 @@ import { foldEvent } from "@roost/shared/wire";
 import { signal } from "@roost/shared/diag";
 import { rootStore, setRootStore } from "./root.ts";
 import { isPendingSpawn } from "./optimisticSpawn.ts";
+import { pruneCellFrameCount } from "./sync-dispatch.ts";
 
 /** session_ids whose store entry this event could change — the slice we
  *  must hand foldEvent so its result is correct. snapshot replaces every
@@ -63,9 +64,12 @@ export function foldEventIntoStore(event: SessionEvent): void {
         setRootStore("sessions", id, undefined as unknown as Session);
         // Drop the session's volatile coord-streamed slices too — they're keyed
         // by session id and have no other reaper, so they'd leak one entry per
-        // closed session for the life of the tab.
+        // closed session for the life of the tab (the days-long-uptime bloat).
         setRootStore("claude_status", id, undefined as unknown as ClaudeStatus);
         setRootStore("terminal_title", id, undefined as unknown as string);
+        setRootStore("last_activity", id, undefined as unknown as never);
+        setRootStore("session_viewers", id, undefined as unknown as never);
+        pruneCellFrameCount(id); // module-private Map, same per-session-reaper duty
       }
     }
     for (const [id, s] of next) {

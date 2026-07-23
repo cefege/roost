@@ -57,7 +57,7 @@ type InputSend = (sessionId: string, data: Uint8Array, timeoutMs: number) => Pro
 const defaultSend: InputSend = (sessionId, data, timeoutMs) =>
   coordClient.sessionsInput({ sessionId, data }, { timeoutMs });
 
-interface InputFrame { session_id: string; data: Uint8Array; }
+interface InputFrame { session_id: string; data: Uint8Array; t: number; }
 
 export class InputChannel {
   private pending: InputFrame[] = [];
@@ -92,7 +92,7 @@ export class InputChannel {
       return;
     }
     _lastSendTs.set(sessionId, performance.now());
-    this.pending.push({ session_id: sessionId, data: bytes });
+    this.pending.push({ session_id: sessionId, data: bytes, t: performance.now() });
     // diag — every up-byte chunk gets logged + sha8'd. Lets claude trace
     // a single keystroke through coord (bytes.up_relay) and worker
     // (bytes.up_recv) by matching sha8.
@@ -130,8 +130,13 @@ export class InputChannel {
           data.set(this.pending[i]!.data, off);
           off += this.pending[i]!.data.length;
         }
+        // Queue-sit time of the OLDEST keystroke in this batch: enqueue→flush.
+        // Under fast spam this is the felt lag the wire-only post_dur misses.
+        diag("input.queue_wait", { sid, dur_ms: performance.now() - this.pending[0]!.t });
         try {
+          const _t0 = performance.now();
           await this.send(sid, data, SEND_TIMEOUT_MS);
+          diag("echo.post_dur", { sid, dur_ms: performance.now() - _t0 });
         } catch (err) {
           if (err instanceof ConnectError && (err.code === Code.DeadlineExceeded || err.code === Code.Canceled)) {
             // Ambiguous: bytes may already be at the PTY. Retrying would

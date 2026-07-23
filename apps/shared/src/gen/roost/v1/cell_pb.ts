@@ -15,7 +15,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file roost/v1/cell.proto.
  */
 export const file_roost_v1_cell: GenFile = /*@__PURE__*/
-  fileDesc("ChNyb29zdC92MS9jZWxsLnByb3RvEghyb29zdC52MSKBAQoKUGJDZWxsU3BhbhIMCgR0ZXh0GAEgASgJEgoKAmZnGAIgASgNEgoKAmJnGAMgASgNEg0KBWZsYWdzGAQgASgNEhMKBmZnX3JnYhgFIAEoDUgAiAEBEhMKBmJnX3JnYhgGIAEoDUgBiAEBQgkKB19mZ19yZ2JCCQoHX2JnX3JnYiI/CglQYkNlbGxSb3cSDQoFaW5kZXgYASABKA0SIwoFc3BhbnMYAiADKAsyFC5yb29zdC52MS5QYkNlbGxTcGFuIpcDCg9QYkNlbGxHcmlkRnJhbWUSEgoKc2Vzc2lvbl9pZBgBIAEoCRIMCgRjb2xzGAIgASgNEgwKBHJvd3MYAyABKA0SEgoKY3Vyc29yX3JvdxgEIAEoDRISCgpjdXJzb3JfY29sGAUgASgNEhYKDmN1cnNvcl92aXNpYmxlGAYgASgIEhIKCmFsdF9zY3JlZW4YByABKAgSDAoEZnVsbBgIIAEoCBIqCg12aWV3cG9ydF9yb3dzGAkgAygLMhMucm9vc3QudjEuUGJDZWxsUm93EiwKD3Njcm9sbGJhY2tfcm93cxgKIAMoCzITLnJvb3N0LnYxLlBiQ2VsbFJvdxIuChFzY3JvbGxiYWNrX2FwcGVuZBgLIAMoCzITLnJvb3N0LnYxLlBiQ2VsbFJvdxIYChBzY3JvbGxiYWNrX3RvdGFsGAwgASgEEgsKA3NlcRgNIAEoBBIPCgdzYl9iYXNlGA4gASgEEhcKD2N1cnNvcl9rZXlzX2FwcBgPIAEoCBIXCg9icmFja2V0ZWRfcGFzdGUYECABKAhiBnByb3RvMw");
+  fileDesc("ChNyb29zdC92MS9jZWxsLnByb3RvEghyb29zdC52MSKBAQoKUGJDZWxsU3BhbhIMCgR0ZXh0GAEgASgJEgoKAmZnGAIgASgNEgoKAmJnGAMgASgNEg0KBWZsYWdzGAQgASgNEhMKBmZnX3JnYhgFIAEoDUgAiAEBEhMKBmJnX3JnYhgGIAEoDUgBiAEBQgkKB19mZ19yZ2JCCQoHX2JnX3JnYiI/CglQYkNlbGxSb3cSDQoFaW5kZXgYASABKA0SIwoFc3BhbnMYAiADKAsyFC5yb29zdC52MS5QYkNlbGxTcGFuIvMDCg9QYkNlbGxHcmlkRnJhbWUSEgoKc2Vzc2lvbl9pZBgBIAEoCRIMCgRjb2xzGAIgASgNEgwKBHJvd3MYAyABKA0SEgoKY3Vyc29yX3JvdxgEIAEoDRISCgpjdXJzb3JfY29sGAUgASgNEhYKDmN1cnNvcl92aXNpYmxlGAYgASgIEhIKCmFsdF9zY3JlZW4YByABKAgSDAoEZnVsbBgIIAEoCBIqCg12aWV3cG9ydF9yb3dzGAkgAygLMhMucm9vc3QudjEuUGJDZWxsUm93EiwKD3Njcm9sbGJhY2tfcm93cxgKIAMoCzITLnJvb3N0LnYxLlBiQ2VsbFJvdxIuChFzY3JvbGxiYWNrX2FwcGVuZBgLIAMoCzITLnJvb3N0LnYxLlBiQ2VsbFJvdxIYChBzY3JvbGxiYWNrX3RvdGFsGAwgASgEEgsKA3NlcRgNIAEoBBIPCgdzYl9iYXNlGA4gASgEEhcKD2N1cnNvcl9rZXlzX2FwcBgPIAEoCBIXCg9icmFja2V0ZWRfcGFzdGUYECABKAgSEgoKcHR5X291dF9tcxgRIAEoBBIWCg53b3JrZXJfZW1pdF9tcxgSIAEoBBIVCg1jb29yZF9yZWN2X21zGBMgASgEEhcKD2Nvb3JkX2Zhbm91dF9tcxgUIAEoBGIGcHJvdG8z");
 
 /**
  * @generated from message roost.v1.PbCellSpan
@@ -190,6 +190,38 @@ export type PbCellGridFrame = Message<"roost.v1.PbCellGridFrame"> & {
    * @generated from field: bool bracketed_paste = 16;
    */
   bracketedPaste: boolean;
+
+  /**
+   * Lag-lens (roostDiag): down-leg wall-clock stamps (ms) ridden back to the
+   * browser on the frame so it reconstructs the whole down-leg with no
+   * cross-process correlation token. 0 = unset. See apps/web/src/lib/diag.ts.
+   *
+   * worker: PTY-out chunk arrival (lastByteAt)
+   *
+   * @generated from field: uint64 pty_out_ms = 17;
+   */
+  ptyOutMs: bigint;
+
+  /**
+   * worker: cell-frame send
+   *
+   * @generated from field: uint64 worker_emit_ms = 18;
+   */
+  workerEmitMs: bigint;
+
+  /**
+   * coord: byte-hub publishCellGrid
+   *
+   * @generated from field: uint64 coord_recv_ms = 19;
+   */
+  coordRecvMs: bigint;
+
+  /**
+   * coord: streaming fanout to browser
+   *
+   * @generated from field: uint64 coord_fanout_ms = 20;
+   */
+  coordFanoutMs: bigint;
 };
 
 /**

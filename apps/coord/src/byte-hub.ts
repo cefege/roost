@@ -161,6 +161,7 @@ export function publishCellGrid(workerFp: WorkerFp, channelId: ChannelId, frame:
   }
   _clearUnmappedDrop(workerFp, channelId);
   frame.sessionId = sessionId;
+  frame.coordRecvMs = BigInt(Date.now());
   diag("cell.relay", { sid: sessionId, channel_id: channelId });
   globalCellBus.publish(frame);
 }

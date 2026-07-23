@@ -301,8 +301,10 @@ export function startSyncFeed(
       }))),
     // R11 cell-grid cell-shipping. Bus payload is already a PbCellGridFrame
     // (session_id stamped by byte-hub::publishCellGrid).
-    globalCellBus.subscribe((frame) =>
-      push(create(FirehoseFrameSchema, { frame: { case: "cellGrid", value: frame } }))),
+    globalCellBus.subscribe((frame) => {
+      frame.coordFanoutMs = BigInt(Date.now());
+      push(create(FirehoseFrameSchema, { frame: { case: "cellGrid", value: frame } }));
+    }),
     claudeStatusBus.subscribe(({ session_id, status }) =>
       push(create(FirehoseFrameSchema, {
         frame: { case: "claudeStatus", value: create(ClaudeStatusFrameSchema, {

@@ -77,6 +77,62 @@ function _printEchoRtt(): void {
   }
 }
 
+// Lag-lens (Phase 1). Per-hop echo round-trip breakdown. recordCellLag reads
+// the 4 down-leg frame stamps off the raw PbCellGridFrame; `post` (client POST
+// duration) + `paint` (renderer.apply) arrive via pushRecord. `paint_screen` =
+// frame-arrival→pixels (double-rAF, ~1-frame floor). window.__roostLag() prints
+// p50/p95/max per segment + the dominant hop. All wall-clock ms; valid
+const LAG_CAP = 500;
+const _lag: Record<string, number[]> = {
+  queue_wait: [], post: [], worker_prep: [], w2c_wire: [], coord_internal: [], c2client_wire: [], paint: [], paint_screen: [],
+};
+function _pushLag(seg: string, ms: number): void {
+  const buf = _lag[seg];
+  if (!buf) return;
+  buf.push(ms);
+  if (buf.length > LAG_CAP) buf.shift();
+}
+type LagStamps = { ptyOutMs: bigint; workerEmitMs: bigint; coordRecvMs: bigint; coordFanoutMs: bigint };
+/** Collect the down-leg segment durations from a raw cell frame's stamps.
+ *  recvWall = Date.now() captured at browser dispatch. Skips any segment whose
+ *  needed stamp is 0/unset (Number(bigint) is lossless for ms < 2^53). */
+export function recordCellLag(pb: LagStamps, recvWall: number): void {
+  if (!isDiagEnabled()) return;
+  const ptyOut = Number(pb.ptyOutMs);
+  const workerEmit = Number(pb.workerEmitMs);
+  const coordRecv = Number(pb.coordRecvMs);
+  const coordFanout = Number(pb.coordFanoutMs);
+  if (ptyOut > 0 && workerEmit > 0) _pushLag("worker_prep", workerEmit - ptyOut);
+  if (workerEmit > 0 && coordRecv > 0) _pushLag("w2c_wire", coordRecv - workerEmit);
+  if (coordRecv > 0 && coordFanout > 0) _pushLag("coord_internal", coordFanout - coordRecv);
+  if (coordFanout > 0) _pushLag("c2client_wire", recvWall - coordFanout);
+}
+function _pct(arr: number[], p: number): number {
+  const s = [...arr].sort((a, b) => a - b);
+  return s[Math.min(s.length - 1, Math.floor(p * s.length))] ?? 0;
+}
+function _printLag(): void {
+  const segs = ["queue_wait", "post", "worker_prep", "w2c_wire", "coord_internal", "c2client_wire", "paint", "paint_screen"];
+  const p50s: Record<string, number> = {};
+  for (const seg of segs) {
+    const arr = _lag[seg] ?? [];
+    if (arr.length === 0) { console.log(`${seg}: no samples`); p50s[seg] = 0; continue; }
+    p50s[seg] = _pct(arr, 0.5);
+    console.log(`${seg} (n=${arr.length}): p50=${_pct(arr, 0.5).toFixed(1)}ms p95=${_pct(arr, 0.95).toFixed(1)}ms max=${Math.max(...arr).toFixed(1)}ms`);
+  }
+  const totalArr = _echoRtt["echo.frame_rtt"] ?? [];
+  const totalP50 = totalArr.length ? _pct(totalArr, 0.5) : 0;
+  if (totalArr.length) console.log(`total (n=${totalArr.length}): p50=${totalP50.toFixed(1)}ms p95=${_pct(totalArr, 0.95).toFixed(1)}ms max=${Math.max(...totalArr).toFixed(1)}ms`);
+  else console.log("total: no samples");
+  const sumP50 = segs.reduce((a, s) => a + (p50s[s] ?? 0), 0);
+  const residual = totalP50 - sumP50;
+  console.log(`residual (total - measured segments): p50=${residual.toFixed(1)}ms`);
+  const candidates: Record<string, number> = { ...p50s, residual };
+  let dom = "residual", domV = -Infinity;
+  for (const [k, v] of Object.entries(candidates)) if (v > domV) { domV = v; dom = k; }
+  console.log(`dominant hop: ${dom} (p50=${domV.toFixed(1)}ms)`);
+}
+
 function flushSoon(): void {
   if (_timer !== null) return;
   _timer = setTimeout(() => {
@@ -155,6 +211,18 @@ function pushRecord(record: Record<string, unknown>, isSignal: boolean): void {
   if (evt === "echo.rtt_sample" || evt === "echo.frame_rtt") {
     const rttMs = Number(record.rtt_ms ?? 0);
     if (rttMs > 0) _pushEchoRtt(evt, rttMs);
+  } else if (evt === "echo.post_dur") {
+    const d = Number(record.dur_ms ?? 0);
+    if (d > 0) _pushLag("post", d);
+  } else if (evt === "input.queue_wait") {
+    const d = Number(record.dur_ms ?? 0);
+    if (d > 0) _pushLag("queue_wait", d);
+  } else if (evt === "cell.apply_dur") {
+    const d = Number(record.dur_ms ?? 0);
+    if (d > 0) _pushLag("paint", d);
+  } else if (evt === "cell.paint_screen") {
+    const d = Number(record.dur_ms ?? 0);
+    if (d > 0) _pushLag("paint_screen", d);
   }
 
   if (_buf.length >= FLUSH_MAX_ENTRIES) {
@@ -172,7 +240,8 @@ function spaSignalSink(record: Record<string, unknown>): void { pushRecord(recor
  *  firehose (ROOST_DIAG / localStorage.roostDiag) is off. */
 export function installSignalShip(): void {
   setSignalSink(spaSignalSink);
-  (window as Window & { __roostEchoRtt?: () => void }).__roostEchoRtt = _printEchoRtt;
+  (window as Window & { __roostEchoRtt?: () => void; __roostLag?: () => void }).__roostEchoRtt = _printEchoRtt;
+  (window as Window & { __roostLag?: () => void }).__roostLag = _printLag;
   window.addEventListener("pagehide", sendBeaconFlush, { capture: true });
   window.addEventListener("beforeunload", sendBeaconFlush, { capture: true });
 }

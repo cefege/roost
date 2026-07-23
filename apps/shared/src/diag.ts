@@ -132,6 +132,7 @@ export type SignalKind =
   | "voice.ws_failed"
   | "agent.stuck"
   | "nav.safety_net_redirect" // MainPane dead-route safety net navigated away from a terminal route (kv.reason=gone|stale-deeplink, kv.target). Live-session bounce = a resolution bug to chase from kv.sid.
+  | "perf.longtask_stall"       // SPA main-thread task ≥ freeze threshold; kv carries the leak-watch accumulator snapshot (per-session map sizes, dom_nodes, heap_mb, uptime) at stall time → names days-long-uptime bloat vs a transient
   // ─── Coverage-sweep additions (coord Tier-1, worker transport/lifecycle, deploy) ───
   | "bytes.drop_unmapped"       // coord byte-hub dropped PTY output/cell/status for a channel with no session mapping (burst = real output/history loss, not the open-race)
   | "sync.backfill_failed"      // coord reconnect backfill query threw; live stream continued → SPA split-brain

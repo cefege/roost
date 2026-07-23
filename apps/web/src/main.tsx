@@ -11,6 +11,7 @@ import { loadAgentConfig } from "./lib/agents.ts";
 import { notifyPrefs } from "./lib/notifyPrefs.ts";
 import { ensurePushSubscription } from "./lib/push-client.ts";
 import { installSpaDiag, installSignalShip } from "./lib/diag.ts";
+import { installLeakWatch } from "./lib/leakWatch.ts";
 import "./lib/keyboardInset.ts"; // side effect: track soft-keyboard inset via --kb-offset
 import { diag, signal } from "@roost/shared/diag";
 import "./styles/theme-vars.css";
@@ -84,6 +85,10 @@ window.addEventListener("pageshow", (e) => {
 const root = document.getElementById("app");
 if (!root) throw new Error("no #app element");
 render(() => <App />, root);
+// Always-on leak watchdog: periodic accumulator sample + long-task correlation,
+// shipped Tier-1 so a natural multi-day run self-reports what grows / when it
+// stalls (freeze-hunt evidence we can't reproduce synthetically).
+installLeakWatch();
 
 // Load the default-agent (launch-button) config once on boot (fire-and-forget).
 // Until it resolves the button uses the claude default (byte-identical to today).
