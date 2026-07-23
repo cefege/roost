@@ -24,13 +24,14 @@ function shellStyle() {
   return {
     display: "flex",
     // Soft-keyboard behavior is pref-driven (lib/keyboardResizePref.ts):
-    //  - resize (default): shell height = 100svh − --kb-offset, so the layout
-    //    shrinks to the space above the keyboard → the terminal's
-    //    ResizeObserver re-claims a smaller grid and grows back on dismiss.
-    //    Safe in cell mode (client never reflows history). 100svh base (NOT
-    //    dvh) so ONLY the keyboard inset drives the change, not chrome wobble.
-    //  - push (toggle off): height stays 100svh; AppShell's mainStyle()
-    //    translateY's the content up instead (grid size unchanged).
+    //  - push (DEFAULT, keyboardResize() === false): shell height stays 100svh;
+    //    AppShell's mainStyle() translateY's the content up instead — the grid
+    //    size is unchanged, so no scrollback recompute while the keyboard
+    //    slides in. 100svh base (NOT dvh) so chrome wobble never changes the
+    //    shell, only --kb-offset does.
+    //  - resize (toggle on): shell height = 100svh − --kb-offset, so the
+    //    terminal's ResizeObserver re-claims a smaller grid and grows back on
+    //    dismiss.
     // Frozen at full height while the chat composer owns the keyboard
     // (chatComposerActive): the composer floats above the keyboard, so shrinking
     // the terminal underneath it only makes the scrollback jump as --kb-offset ramps.
@@ -127,11 +128,11 @@ function SidebarResizer() {
 // keyed on [data-open="true"] animates correctly.
 
 // Soft-keyboard handling is pref-driven (keyboardResizePref):
-//  - resize (default): the SHELL already shrank by --kb-offset (shellStyle),
-//    so main needs NO transform — the terminal just re-claims a smaller grid.
-//  - push (toggle off): shell stays full height; shift main up by --kb-offset
-//    so the input rides above the keyboard (grid size unchanged, top scrolls
-//    off). lib/keyboardInset.ts sets --kb-offset; 0px on desktop.
+//  - push (DEFAULT): shell stays full height; shift main up by --kb-offset so
+//    the input rides above the keyboard (grid size unchanged, top scrolls off).
+//  - resize (toggle on): the SHELL already shrank by --kb-offset (shellStyle),
+//    so main needs NO transform — the terminal re-claims a smaller grid.
+// lib/keyboardInset.ts sets --kb-offset; 0px on desktop.
 function mainStyle() {
   const base = {
     flex: "1 1 0",

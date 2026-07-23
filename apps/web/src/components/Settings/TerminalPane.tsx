@@ -1,7 +1,7 @@
 // TerminalPane — terminal behavior settings (Settings → Terminal). Client-only
 // prefs, persisted per device, reactive (apply immediately, no reload):
 //  - keyboard resize: shrink the terminal to fit above the soft keyboard
-//    (default ON) vs push it up off-screen (lib/keyboardResizePref).
+//    (default OFF — push is the default) vs push it up off-screen (lib/keyboardResizePref).
 //  - key pad on desktop: show the on-screen nav pad on desktop widths
 //    (default ON) (lib/keyboardOnDesktop).
 //  - mouse mode: forward clicks/scroll/swipe to the running app (claude
