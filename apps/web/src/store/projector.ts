@@ -21,6 +21,9 @@ import { signal } from "@roost/shared/diag";
 import { rootStore, setRootStore } from "./root.ts";
 import { isPendingSpawn } from "./optimisticSpawn.ts";
 import { pruneCellFrameCount } from "./sync-dispatch.ts";
+import { pruneChatOmp } from "./chatOmp.ts";
+import { pruneInputMaps } from "../ws/input-channel.ts";
+import { pruneSessionTrace } from "../lib/diag.ts";
 
 /** session_ids whose store entry this event could change — the slice we
  *  must hand foldEvent so its result is correct. snapshot replaces every
@@ -70,6 +73,9 @@ export function foldEventIntoStore(event: SessionEvent): void {
         setRootStore("last_activity", id, undefined as unknown as never);
         setRootStore("session_viewers", id, undefined as unknown as never);
         pruneCellFrameCount(id); // module-private Map, same per-session-reaper duty
+        pruneChatOmp(id);      // append-only chat transcript, no other reaper
+        pruneInputMaps(id);    // _lastSendTs + dropTotals per-session maps
+        pruneSessionTrace(id); // diag session_trace_id cache
       }
     }
     for (const [id, s] of next) {

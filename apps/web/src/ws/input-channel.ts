@@ -50,6 +50,18 @@ export function consumeLastInputSendTs(sid: string): number | undefined {
   return ts;
 }
 
+/** Leak-watch: total per-session input map entries (_lastSendTs + dropTotals).
+ *  Climbs one per closed session if the close reaper doesn't drop them. */
+export function inputMapSizes(): number {
+  return _lastSendTs.size + inputChannel.dropSize();
+}
+
+/** Reap a closed session's input-map entries. No-op when absent. */
+export function pruneInputMaps(sid: string): void {
+  _lastSendTs.delete(sid);
+  inputChannel.dropForget(sid);
+}
+
 // Injectable so tests drive the send outcome without a live coord. Default
 // issues the unary sessionsInput with the deadline above.
 type InputSend = (sessionId: string, data: Uint8Array, timeoutMs: number) => Promise<unknown>;
@@ -77,6 +89,12 @@ export class InputChannel {
     diag("bytes.up_dropped", { sid, session_trace_id: getSessionTraceId(sid), reason });
     signal("input.drop_burst", { sid, reason, dropped_total: total, cooldownKey: sid });
   }
+
+  /** Reap a closed session's cumulative drop counter (per-session-reaper duty). */
+  dropForget(sid: string): void { this.dropTotals.delete(sid); }
+
+  /** Live drop-counter map size, for the leak-watch accumulator sample. */
+  dropSize(): number { return this.dropTotals.size; }
 
   start(): void { /* no-op — unary mode, no persistent stream to open */ }
 

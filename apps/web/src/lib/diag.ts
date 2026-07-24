@@ -36,6 +36,12 @@ export function getSessionTraceId(sid: string): string {
   return id;
 }
 
+/** Reap a closed session's trace-id entry. No-op when absent. */
+export function pruneSessionTrace(sid: string): void { _sessionTrace.delete(sid); }
+
+/** Live trace-id map size, for the leak-watch accumulator sample. */
+export function sessionTraceSize(): number { return _sessionTrace.size; }
+
 // Field names follow the proto-es camelCase convention because the
 // generated Connect client serializer drops fields whose names don't
 // match — sending snake_case results in 0n/empty on the coord side.

@@ -12,12 +12,33 @@
 import { diag, signal } from "@roost/shared/diag";
 import { rootStore } from "../store/root.ts";
 import { cellFrameCountSize } from "../store/sync-dispatch.ts";
+import { chatOmpStats } from "../store/chatOmp.ts";
+import { inputMapSizes } from "../ws/input-channel.ts";
+import { sessionTraceSize } from "./diag.ts";
+
+// Always-on input→echo RTT ring. Fed by recordInputRtt() from the CellTerminal
+// echo path (one push per echoed cell frame), independent of the diag firehose
+// so the felt-lag trajectory reports even on a natural un-instrumented run.
+// Bounded ring (push/shift), so the watcher itself can never leak.
+const RTT_CAP = 500;
+const _inputRtt: number[] = [];
+export function recordInputRtt(ms: number): void {
+  if (!(ms > 0 && ms < 5000)) return;
+  _inputRtt.push(ms);
+  if (_inputRtt.length > RTT_CAP) _inputRtt.shift();
+}
+function p(arr: number[], q: number): number {
+  if (arr.length === 0) return -1;
+  const s = [...arr].sort((a, b) => a - b);
+  return Math.round(s[Math.min(s.length - 1, Math.floor(q * s.length))] ?? -1);
+}
 
 // Accumulators to watch: anything keyed per-session (the leak class) + the
 // gross DOM/heap totals. A climbing per-session count over a flat session count
 // is a reaper miss; climbing dom_nodes/heap_mb with flat sessions is elsewhere.
 function sample(): Record<string, number> {
   const mem = (performance as Performance & { memory?: { usedJSHeapSize: number } }).memory;
+  const chat = chatOmpStats();
   return {
     uptime_s: Math.round(performance.now() / 1000),
     heap_mb: mem ? Math.round(mem.usedJSHeapSize / 1e6) : -1,
@@ -29,6 +50,12 @@ function sample(): Record<string, number> {
     last_activity: Object.keys(rootStore.last_activity).length,
     session_viewers: Object.keys(rootStore.session_viewers).length,
     cell_frame_counts: cellFrameCountSize(),
+    input_rtt_p50: p(_inputRtt, 0.5),
+    input_rtt_p95: p(_inputRtt, 0.95),
+    chat_omp_sessions: chat.sessions,
+    chat_omp_msgs: chat.msgs,
+    input_maps: inputMapSizes(),
+    session_trace: sessionTraceSize(),
   };
 }
 

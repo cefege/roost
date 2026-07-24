@@ -69,6 +69,7 @@ import { isResizeDragging, arrangeEpoch } from "../lib/resizeDrag.ts";
 import { diag, signal } from "@roost/shared/diag";
 import { springStep, isSpringAtRest, SPRING_STIFF, type SpringState } from "../lib/spring.ts";
 import { getSessionTraceId } from "../lib/diag.ts";
+import { recordInputRtt } from "../lib/leakWatch.ts";
 import type { Session } from "@roost/shared/wire";
 import { useNavigate } from "@solidjs/router";
 import { createOfflineWatch } from "../lib/offlineWatch.ts";
@@ -576,6 +577,7 @@ let _touchGraceTimer: ReturnType<typeof setTimeout> | null = null;
 				const sendTs = consumeLastInputSendTs(props.session.id);
 				if (sendTs !== undefined) {
 					const rttMs = performance.now() - sendTs;
+					recordInputRtt(rttMs); // always-on felt-lag ring (leakWatch), independent of diag gate
 					if (rttMs > 0 && rttMs < 5000) diag("echo.frame_rtt", { sid: props.session.id, rtt_ms: rttMs });
 				}
 				if (!renderer) return;

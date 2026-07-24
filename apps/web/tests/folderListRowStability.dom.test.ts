@@ -18,7 +18,9 @@ import { asWorkerFp, asSessionId, asChannelId } from "@roost/shared/wire";
 import type { SessionEvent } from "@roost/shared/wire";
 import { foldEventIntoStore } from "../src/store/projector.ts";
 import { rootStore, setRootStore } from "../src/store/root.ts";
-import type { ClaudeStatus } from "../src/store/root.ts";
+import type { ClaudeStatus, ChatOmpState } from "../src/store/root.ts";
+import { getSessionTraceId, sessionTraceSize } from "../src/lib/diag.ts";
+import { InputChannel, inputMapSizes } from "../src/ws/input-channel.ts";
 
 const FP = asWorkerFp("c".repeat(64));
 const SID_A = asSessionId("00000000-0000-4000-8000-00000000c001");
@@ -75,13 +77,27 @@ describe("session store row stability (projector reconcile)", () => {
     expect(rootStore.sessions[SID_B]?.agent).toBeNull();
   });
 
-  test("closed still deletes the session and its volatile slices (batch path)", () => {
-    // Seed a volatile slice so the delete path's slice-drop is observable.
+  test("closed reaps the session, its volatile slices, AND the per-session accumulators", () => {
+    // Seed every per-session accumulator the close reaper owns so each drop is
+    // observable. chat_omp / _sessionTrace / _lastSendTs have NO other reaper —
+    // without the projector prune they leak one entry per closed session for the
+    // life of the tab (the days-long-uptime input-lag bug this fix closes).
     setRootStore("claude_status", SID_A, "working" as ClaudeStatus);
+    setRootStore("chat_omp", SID_A, { messages: [], seq: 1, status: "resolved" } as ChatOmpState);
+    getSessionTraceId(SID_A);                                         // → diag _sessionTrace[SID_A]
+    new InputChannel(async () => {}).sendInput(SID_A, new Uint8Array([65])); // → _lastSendTs[SID_A]
+    const traceBefore = sessionTraceSize();
+    const mapsBefore = inputMapSizes();
+
     foldEventIntoStore({ kind: "closed", session_id: SID_A, ts: 4000 } as SessionEvent);
 
     expect(rootStore.sessions[SID_A]).toBeUndefined();
     expect(rootStore.claude_status[SID_A]).toBeUndefined();
+    // The accumulators with no other reaper — reaped exactly (delta −1 proves
+    // this session's entry was dropped, not merely that the map is small).
+    expect(rootStore.chat_omp[SID_A]).toBeUndefined();
+    expect(sessionTraceSize()).toBe(traceBefore - 1);
+    expect(inputMapSizes()).toBe(mapsBefore - 1);
     // Sibling untouched by the deletion.
     expect(rootStore.sessions[SID_B]?.cwd).toBe("/repo/b");
   });

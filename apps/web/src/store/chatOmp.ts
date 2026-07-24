@@ -14,6 +14,12 @@ import { asSessionId } from "@roost/shared/wire";
 import type { ChatFrame as PbChatFrame, ChatMessage as PbChatMessage } from "@roost/shared/proto/sync_pb";
 import { diag } from "@roost/shared/diag";
 
+// Cap in-memory transcript tail per session. Matches the 2000-row scrollback
+// cap philosophy: the chat reader pages older history via backfillOmpChat, so
+// trimming the in-memory tail is recoverable. Without this, chat_omp[sid].messages
+// is append-only and grows unbounded on a long-lived π session.
+const MAX_CHAT_MSGS = 2000;
+
 /** omp identity on the SPA side: the OSC terminal title starts with π (U+03C0).
  *  Same signal the worker anchors the chat watcher on. Absent title → chat
  *  toggle hidden (fails safe to the terminal). */
@@ -55,8 +61,9 @@ export function applyOmpChatFrame(pb: PbChatFrame): void {
 		if (cur.status === "loading") setRootStore("chat_omp", sid, "status", "resolved");
 		return;
 	}
+	const merged = [...cur.messages, ...fresh];
 	setRootStore("chat_omp", sid, {
-		messages: [...cur.messages, ...fresh],
+		messages: merged.length > MAX_CHAT_MSGS ? merged.slice(-MAX_CHAT_MSGS) : merged,
 		seq: Math.max(cur.seq, frame.seq),
 		status: "resolved",
 	});
@@ -71,6 +78,19 @@ function dedup(msgs: ChatMessage[]): ChatMessage[] {
 		out.push(m);
 	}
 	return out;
+}
+
+/** Reap a closed session's chat state. No-op when absent (setStore undefined). */
+export function pruneChatOmp(sid: string): void {
+	setRootStore("chat_omp", sid, undefined as unknown as ChatOmpState);
+}
+
+/** Leak-watch accumulator sizes: live session count + total held messages. */
+export function chatOmpStats(): { sessions: number; msgs: number } {
+	const ids = Object.keys(rootStore.chat_omp);
+	let msgs = 0;
+	for (const id of ids) msgs += rootStore.chat_omp[id]?.messages.length ?? 0;
+	return { sessions: ids.length, msgs };
 }
 
 /** Backfill chat history on first chat-view enter / browser reconnect.
