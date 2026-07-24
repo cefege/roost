@@ -43,7 +43,7 @@ export function OmpChatPane(props: Props) {
   });
 
   return (
-    <div class="omp-chat" data-testid="omp-chat-pane">
+    <div class="omp-chat" data-testid="omp-chat-pane" data-session-id={props.sessionId}>
       <div class="omp-chat__thread" ref={threadEl} onScroll={onScroll}>
         <Show when={state().status !== "loading"} fallback={<div class="omp-chat__skeleton">Loading chat…</div>}>
           <Show when={state().messages.length > 0} fallback={<div class="omp-chat__skeleton">No messages yet</div>}>

@@ -39,44 +39,75 @@ export function newChatFolderPath(): string {
   return `${CHAT_ROOT}/chat-${stamp}-${rand}`;
 }
 
-// Newest session's worker if online, else the first online worker, else null.
-// Online-filtered (unlike FlatNewTerminal's /browse heuristic) because a chat
-// has no re-pick step — a down Mac would hang the spawn.
-export function pickDefaultChatWorker(): WorkerFp | null {
+// A worker that cannot serve chat usually fails fast; this bounds the one that
+// hangs instead. Long enough to cover a cold `omp --mode rpc` boot.
+const PROBE_TIMEOUT_MS = 8000;
+// Candidate machines for a chat, best first: the worker behind the newest
+// session, then every other online worker. Online-filtered (unlike
+// FlatNewTerminal's /browse heuristic) because a down Mac would hang the spawn.
+export function chatWorkerCandidates(): WorkerFp[] {
+  const out: WorkerFp[] = [];
   const recent = [...allSessions()].sort((a, b) => b.created_at - a.created_at)[0];
   if (recent) {
     const w = rootStore.workers[recent.worker_fp];
-    if (w && workerOnline(w)) return recent.worker_fp;
+    if (w && workerOnline(w)) out.push(recent.worker_fp);
   }
   for (const w of Object.values(rootStore.workers)) {
-    if (workerOnline(w)) return w.fp;
+    if (workerOnline(w) && !out.includes(w.fp)) out.push(w.fp);
   }
-  return null;
+  return out;
 }
 
-// One-tap chat: mkdir scratch → spawn shell → wait for the row → navigate.
+// One-tap chat: mkdir scratch → spawn shell → wait for the row → probe → navigate.
 // NATIVE engine: the chat is driven by the worker's `omp --mode rpc` child
 // (sessionsChatCommand), NOT a TUI in the PTY — the terminal stays a plain
-// companion shell in the same folder. We warm the child with get_state so the
-// first prompt doesn't pay the boot latency.
+// companion shell in the same folder.
+//
+// The get_state probe is AWAITED, not fire-and-forget: a worker running a build
+// without the native chat path answers every prompt with an error, and the user
+// just sees a chat that silently does nothing. Probing first turns that into
+// "try the next machine", and only a total failure reaches the user — naming
+// the machines it tried.
 export async function startQuickChat(navigate: Navigator): Promise<void> {
-  const fp = pickDefaultChatWorker();
-  if (!fp) { addToast("No machine connected", "err"); return; }
+  const candidates = chatWorkerCandidates();
+  if (candidates.length === 0) { addToast("No machine connected", "err"); return; }
+
+  // One folder name per click, reused across retries: each candidate is a
+  // different machine, so a retry cannot collide, and a failed attempt leaves
+  // at most one empty scratch dir per machine instead of one per attempt.
+  // (No files-delete RPC exists to clean it up; the dir is empty and its
+  // session is killed, so no sidebar bucket survives.)
   const folder = newChatFolderPath();
-  const sid = crypto.randomUUID();
-  try {
-    const mk = await coordClient.filesMkdir({ workerFp: fp, path: folder });
-    const abs = mk.resolvedPath || folder;
-    await spawnShell(fp, abs, sid);
-    await waitForSession(sid);
-    navigate(`/s/${sid}`);
-    void coordClient.sessionsChatCommand({
-      sessionId: sid,
-      commandJson: JSON.stringify({ type: "get_state" }),
-    }).catch(() => { /* warm-up only — first prompt boots the child anyway */ });
-  } catch (e) {
-    // Nothing to unwind — no client placeholder was inserted; a spawned-but-
-    // unnavigated PTY is harmless and reachable via its scratch row.
-    addToast(`New chat failed: ${e instanceof Error ? e.message : String(e)}`, "err");
+  const tried: string[] = [];
+  let lastErr = "";
+  for (const fp of candidates) {
+    const sid = crypto.randomUUID();
+    const host = rootStore.workers[fp]?.label || fp.slice(0, 8);
+    tried.push(host);
+    try {
+      const mk = await coordClient.filesMkdir({ workerFp: fp, path: folder });
+      const abs = mk.resolvedPath || folder;
+      await spawnShell(fp, abs, sid);
+      await waitForSession(sid);
+      // Boots the RPC child AND proves this worker can actually serve the chat.
+      // Raced against a short deadline: coord's own pending RPC takes ~35s to
+      // give up, and three candidates at that rate is a minute of a button
+      // that looks broken — the very symptom this probe exists to remove.
+      await Promise.race([
+        coordClient.sessionsChatCommand({
+          sessionId: sid,
+          commandJson: JSON.stringify({ type: "get_state" }),
+        }),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error(`${host} did not answer in ${PROBE_TIMEOUT_MS / 1000}s`)), PROBE_TIMEOUT_MS)),
+      ]);
+      navigate(`/s/${sid}`);
+      return;
+    } catch (e) {
+      lastErr = e instanceof Error ? e.message : String(e);
+      // Leave no dead chat row behind on a machine that cannot serve it.
+      void coordClient.sessionsKill({ sessionId: sid }).catch(() => { /* already gone */ });
+    }
   }
+  addToast(`No machine can run a chat (tried ${tried.join(", ")}): ${lastErr}`, "err");
 }
