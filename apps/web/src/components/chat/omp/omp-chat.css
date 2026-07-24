@@ -16,11 +16,20 @@
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  padding: 12px 12px 4px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
   scroll-behavior: smooth;
+  gap: 3px;
+  padding: 14px 16px 6px;
+}
+
+/* The thread is a COLUMN flex container, so every row is a flex item and
+   shrinks by default once the content is taller than the viewport. That
+   silently crushed tall tool cards to their header height and clipped the
+   output (overflow:hidden on the card). Rows size to their content; the
+   thread scrolls. */
+.omp-chat__thread > * {
+  flex: 0 0 auto;
 }
 
 .omp-chat__skeleton {
@@ -33,24 +42,41 @@
 }
 
 /* ─── message bubbles ──────────────────────────────────────────────── */
-.omp-msg { display: flex; flex-direction: column; max-width: 100%; }
-.omp-msg--user { align-self: flex-end; align-items: flex-end; }
+.omp-msg {
+  display: flex;
+  flex-direction: column;
+  max-width: 100%;
+}
+.omp-msg--user {
+  align-self: flex-end;
+  align-items: flex-end;
+}
 .omp-msg--assistant,
-.omp-msg--developer { align-self: flex-start; align-items: flex-start; }
-.omp-msg--toolResult { align-self: flex-start; align-items: flex-start; }
+.omp-msg--developer {
+  align-self: flex-start;
+  align-items: flex-start;
+}
+.omp-msg--toolResult {
+  align-self: flex-start;
+  align-items: flex-start;
+}
 
 .omp-msg__bubble {
-  padding: 8px 12px;
   border-radius: 12px;
-  font-size: var(--md-body-m-size);
-  line-height: 1.5;
   word-break: break-word;
-  max-width: min(720px, 88%);
+  font-family: var(--md-font);
+  font-size: 15px;
+  line-height: 1.6;
+  letter-spacing: 0.005em;
+  padding: 10px 14px;
+  max-width: min(68ch, 92%);
 }
 .omp-msg--user .omp-msg__bubble {
   background: var(--md-sys-color-primary-container);
   color: var(--md-sys-color-on-primary-container);
   border-bottom-right-radius: 4px;
+  border-radius: 14px 14px 4px 14px;
+  font-size: 14px;
 }
 .omp-msg--assistant .omp-msg__bubble,
 .omp-msg--developer .omp-msg__bubble {
@@ -59,13 +85,23 @@
   border-bottom-left-radius: 4px;
 }
 .omp-msg--developer .omp-msg__bubble {
-  opacity: 0.7;
-  font-style: italic;
+  background: none;
+  border-left: 2px solid var(--md-sys-color-outline-variant);
+  border-radius: 0;
+  padding: 2px 0 2px 10px;
+  font-style: normal;
+  font-family: var(--term-font-family);
+  font-size: 12px;
+  opacity: 0.66;
 }
 
 /* markdown body inside bubbles */
-.omp-md p { margin: 0 0 8px; }
-.omp-md p:last-child { margin-bottom: 0; }
+.omp-md p {
+  margin: 0 0 8px;
+}
+.omp-md p:last-child {
+  margin-bottom: 0;
+}
 .omp-md pre {
   background: var(--md-sys-color-surface-container-low);
   padding: 8px 10px;
@@ -83,9 +119,17 @@
   padding: 1px 4px;
   border-radius: 4px;
 }
-.omp-md ul, .omp-md ol { margin: 4px 0 8px; padding-left: 20px; }
-.omp-md h1, .omp-md h2, .omp-md h3 { font-size: var(--md-body-m-size); margin: 8px 0 4px; }
-.omp-md a { color: var(--md-sys-color-primary); }
+.omp-md ul, .omp-md ol {
+  margin: 4px 0 8px;
+  padding-left: 20px;
+}
+.omp-md h1, .omp-md h2, .omp-md h3 {
+  font-size: var(--md-body-m-size);
+  margin: 8px 0 4px;
+}
+.omp-md a {
+  color: var(--md-sys-color-primary);
+}
 
 /* ─── thinking block ───────────────────────────────────────────────── */
 .omp-thinking {
@@ -97,6 +141,11 @@
   color: var(--md-sys-color-on-surface-variant);
   user-select: none;
   padding: 2px 0;
+  list-style: none;
+  /* the native ▶ marker doubled our own ▸ */
+  font-size: var(--md-label-s-size);
+  opacity: 0.62;
+  padding-left: 10px;
 }
 .omp-thinking__body {
   padding: 6px 10px;
@@ -104,10 +153,12 @@
   border-left: 2px solid var(--md-sys-color-outline-variant);
   color: var(--md-sys-color-on-surface-variant);
   white-space: pre-wrap;
-  font-size: var(--md-body-s-size);
   line-height: 1.45;
   max-height: 60vh;
   overflow-y: auto;
+  margin-left: 10px;
+  font-size: 12px;
+  opacity: 0.8;
 }
 .omp-thinking__more {
   color: var(--md-sys-color-primary);
@@ -121,25 +172,45 @@
 /* ─── tool card ────────────────────────────────────────────────────── */
 .omp-tool {
   align-self: flex-start;
-  width: min(760px, 96%);
-  border: 1px solid var(--md-sys-color-outline-variant);
-  border-radius: 8px;
   overflow: hidden;
   font-size: var(--md-body-m-size);
+  width: auto;
+  max-width: min(96ch, 100%);
+  /* A rule, not a box: the card is a log entry hanging off the gutter. */
+  border: 0 solid var(--md-sys-color-outline-variant);
+  border-left-width: 2px;
+  border-radius: 0;
+  background: none;
 }
-.omp-tool--running { border-color: var(--md-sys-color-primary); }
-.omp-tool--error { border-color: var(--md-sys-color-error); }
+.omp-tool--running {
+  border-color: var(--md-sys-color-primary);
+  border-left-color: var(--md-sys-color-primary);
+}
+.omp-tool--error {
+  border-color: var(--md-sys-color-error);
+  border-left-color: var(--md-sys-color-error);
+}
 .omp-tool__head {
   display: flex;
   align-items: baseline;
-  gap: 8px;
-  padding: 6px 10px;
-  background: var(--md-sys-color-surface-container-high);
   cursor: pointer;
   user-select: none;
+  background: none;
+  padding: 3px 0 3px 10px;
+  gap: 7px;
+  font-size: var(--md-label-s-size);
 }
-.omp-tool__chevron { color: var(--md-sys-color-on-surface-variant); font-size: var(--md-label-s-size); }
-.omp-tool__name { font-weight: 600; color: var(--md-sys-color-primary); flex: 0 0 auto; }
+.omp-tool__chevron {
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-label-s-size);
+  opacity: 0.5;
+}
+.omp-tool__name {
+  color: var(--md-sys-color-primary);
+  flex: 0 0 auto;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
 .omp-tool__summary {
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: var(--md-body-s-size);
@@ -148,47 +219,92 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   flex: 1 1 auto;
+  opacity: 0.72;
 }
 .omp-tool__status {
   flex: 0 0 auto;
   font-size: var(--md-label-s-size);
   color: var(--md-sys-color-primary);
+  opacity: 0.6;
+  font-variant-numeric: tabular-nums;
 }
-.omp-tool--error .omp-tool__status { color: var(--md-sys-color-error); }
-.omp-tool__body { display: flex; flex-direction: column; }
+.omp-tool--error .omp-tool__status {
+  color: var(--md-sys-color-error);
+}
+.omp-tool__body {
+  display: flex;
+  flex-direction: column;
+  margin-left: 10px;
+}
 .omp-tool__code,
 .omp-tool__result {
   margin: 0;
-  padding: 8px 10px;
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  font-size: var(--md-body-s-size);
-  line-height: 1.45;
   white-space: pre-wrap;
   word-break: break-word;
   overflow-x: auto;
-  max-height: 260px;
   overflow-y: auto;
+  border: none;
+  padding: 4px 0 6px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  opacity: 0.78;
+  background: none;
+  max-height: 200px;
 }
-.omp-tool__code { color: var(--md-sys-color-on-surface-variant); background: var(--md-sys-color-surface-container-low); }
-.omp-tool__result { border-top: 1px solid var(--md-sys-color-outline-variant); }
-.omp-tool__result--error { color: var(--md-sys-color-error); }
+.omp-tool__code {
+  color: var(--md-sys-color-on-surface-variant);
+  background: var(--md-sys-color-surface-container-low);
+}
+.omp-tool__result {
+  border-top: none;
+}
+.omp-tool__result--error {
+  color: var(--md-sys-color-error);
+}
 .omp-tool__body--expanded .omp-tool__code,
-.omp-tool__body--expanded .omp-tool__result { max-height: none; }
-.omp-tool__code code, .omp-tool__result code { font: inherit; background: none; padding: 0; }
-.omp-tool__images { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 10px; border-top: 1px solid var(--md-sys-color-outline-variant); }
-.omp-img { max-width: 100%; max-height: 360px; border-radius: 6px; }
-.omp-img-placeholder { padding: 8px 10px; font-size: var(--md-body-s-size); color: var(--md-sys-color-on-surface-variant); }
-.omp-tool__loading { padding: 4px 10px; font-size: var(--md-body-s-size); color: var(--md-sys-color-on-surface-variant); }
+.omp-tool__body--expanded .omp-tool__result {
+  max-height: none;
+}
+.omp-tool__code code, .omp-tool__result code {
+  font: inherit;
+  background: none;
+  padding: 0;
+}
+.omp-tool__images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 10px;
+  border-top: none;
+  padding-left: 0;
+}
+.omp-img {
+  max-width: 100%;
+  max-height: 360px;
+  border-radius: 6px;
+}
+.omp-img-placeholder {
+  padding: 8px 10px;
+  font-size: var(--md-body-s-size);
+  color: var(--md-sys-color-on-surface-variant);
+}
+.omp-tool__loading {
+  padding: 4px 10px;
+  font-size: var(--md-body-s-size);
+  color: var(--md-sys-color-on-surface-variant);
+}
 .omp-tool__more {
   color: var(--md-sys-color-primary);
   cursor: pointer;
   font-size: var(--md-body-s-size);
   background: none;
   border: none;
-  border-top: 1px solid var(--md-sys-color-outline-variant);
-  padding: 6px 10px;
   text-align: left;
   width: 100%;
+  border-top: none;
+  padding: 2px 0 6px;
+  opacity: 0.8;
 }
 
 /* ─── composer ─────────────────────────────────────────────────────── */
@@ -227,33 +343,53 @@
   font-weight: 500;
   cursor: pointer;
 }
-.omp-composer__send:disabled { opacity: 0.4; cursor: default; }
+.omp-composer__send:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
 
 /* ─── approval card ────────────────────────────────────────────────── */
 .omp-approval {
   align-self: flex-start;
-  width: min(560px, 92%);
-  padding: 10px 12px;
-  border-radius: 8px;
-  border: 1px solid var(--md-sys-color-error-container);
-  background: var(--md-sys-color-error-container);
-  color: var(--md-sys-color-on-error-container);
   font-size: var(--md-body-m-size);
   display: flex;
   flex-direction: column;
+  width: auto;
+  max-width: min(72ch, 100%);
+  border: none;
+  border-left: 2px solid var(--md-sys-color-error);
+  border-radius: 0;
+  background: color-mix(in srgb, var(--md-sys-color-error) 8%, transparent);
+  color: var(--md-sys-color-on-surface);
+  padding: 8px 12px 10px;
+  gap: 7px;
+  font-family: var(--md-font);
+}
+.omp-approval__actions {
+  display: flex;
   gap: 8px;
 }
-.omp-approval__actions { display: flex; gap: 8px; }
 .omp-approval__btn {
-  padding: 5px 12px;
   border-radius: 6px;
   border: none;
   cursor: pointer;
   font-size: var(--md-body-m-size);
   font-weight: 500;
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface);
+  padding: 5px 14px;
 }
-.omp-approval__msg { margin-top: 4px; font-size: var(--md-body-s-size); opacity: 0.85; }
-.omp-approval__answer { font-weight: 500; }
+.omp-approval__msg {
+  margin-top: 4px;
+  font-family: var(--term-font-family);
+  font-size: 12px;
+  opacity: 0.8;
+}
+.omp-approval__answer {
+  font-weight: 500;
+  font-family: var(--term-font-family);
+  font-size: 12px;
+}
 .omp-approval__input {
   flex: 1;
   padding: 5px 8px;
@@ -296,6 +432,107 @@
   font-size: var(--md-label-s-size);
   color: var(--md-sys-color-on-surface-variant);
 }
-.omp-chat__status-model { font-weight: 600; color: var(--md-sys-color-primary); }
-.omp-chat__status-ctx { margin-left: auto; }
-.omp-tool__result--live { color: var(--md-sys-color-on-surface-variant); opacity: 0.85; }
+.omp-chat__status-model {
+  font-weight: 600;
+  color: var(--md-sys-color-primary);
+}
+.omp-chat__status-ctx {
+  margin-left: auto;
+}
+.omp-tool__result--live {
+  color: var(--md-sys-color-on-surface-variant);
+  opacity: 0.85;
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   Reading pass. The transcript had one visual weight for everything, so a
+   400-line file read and the sentence the agent wrote after it looked
+   identical and the prose vanished into a wall of grey boxes.
+
+   The split is speech vs machinery, and the type carries it: what the agent
+   SAYS is prose, set in the UI sans at reading size; what it DOES is a log,
+   set in mono, smaller and quieter, hung off a gutter rule. The gutter is
+   structural, not decorative — it marks the rows that belong to the machine.
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* — speech —————————————————————————————————————————————————— */
+
+.omp-msg--assistant .omp-msg__bubble {
+  /* The agent's own words: no container at all. A bubble competes with the
+     tool cards it sits between;
+  bare prose outranks them by contrast. */
+  background: none;
+  padding-left: 0;
+  color: var(--md-sys-color-on-surface);
+}
+
+/* — machinery ——————————————————————————————————————————————— */
+
+/* A running tool's live output is the one piece of machinery worth full
+   attention while it lasts. */
+.omp-tool--running .omp-tool__result--live {
+  opacity: 1;
+}
+
+/* — asides: thinking, compaction, notices ————————————————————— */
+
+.omp-thinking summary::-webkit-details-marker {
+  display: none;
+}
+
+/* — rhythm: machinery packs tight, speech gets air ——————————————— */
+
+.omp-chat__thread > .omp-msg {
+  margin: 9px 0;
+}
+.omp-chat__thread > .omp-msg--user {
+  margin-top: 20px;
+}
+
+/* — working indicator ———————————————————————————————————————— */
+.omp-chat__busy {
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 0 4px 10px;
+  font-size: var(--md-label-s-size);
+  color: var(--md-sys-color-on-surface-variant);
+}
+.omp-chat__busy-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--md-sys-color-primary);
+  animation: omp-pulse 1.3s ease-in-out infinite;
+}
+@keyframes omp-pulse { 0%,100% { opacity: 0.25; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .omp-chat__busy-dot { animation: none; opacity: 0.8; } }
+
+/* The row is a flex item in a column: align-self:flex-start makes it
+   shrink-to-fit, which wrapped prose at ~40 characters regardless of the
+   bubble's max-width. Let the row span and cap the measure on the bubble. */
+.omp-msg--assistant, .omp-msg--developer, .omp-msg--toolResult {
+  align-self: stretch;
+}
+
+/* — approvals ——————————————————————————————————————————————
+   These were the loudest thing on screen: a filled error-container block that
+   outranked the user's own message. An approval is urgent but it is still a
+   question, so it gets the machinery's rule (in error tint) plus a faint wash,
+   and spends its contrast on the buttons instead of the box. A RESOLVED one is
+   history — it drops to a log line. */
+
+.omp-approval__btn:first-child {
+  background: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-primary);
+  font-weight: 600;
+}
+.omp-approval:has(.omp-approval__answer) {
+  border-left-color: var(--md-sys-color-outline-variant);
+  background: none;
+  padding: 2px 0 2px 10px;
+  font-size: 12px;
+  opacity: 0.62;
+}
+

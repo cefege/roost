@@ -20,8 +20,15 @@ interface Props {
   images?: ImageBlock[];
 }
 
+/** Result rows past this fold themselves away once the tool finishes: a read of
+ *  a 400-line file must not bury the sentence the agent wrote after it. */
+const LONG_RESULT_LINES = 12;
+
 export function ToolCard(props: Props) {
-  const [collapsed, setCollapsed] = createSignal(false);
+  // null = follow the default; set once the user clicks. A RUNNING tool always
+  // stays open — its live output is the point. A finished one folds itself away
+  // when it is long enough to bury the conversation, and says how much it hid.
+  const [override, setOverride] = createSignal<boolean | null>(null);
 
   const name = () => props.call?.name ?? props.results?.[0]?.block.name ?? props.event?.name ?? "tool";
   const results = () => props.results ?? [];
@@ -34,15 +41,20 @@ export function ToolCard(props: Props) {
   const summary = () => (props.call ? toolSummary(name(), args()) : props.event?.intent ?? "");
   const payload = createMemo(() => (props.call ? toolPayload(name(), args()) : null));
 
+  const resultLines = () => results().reduce((n, r) => n + r.block.text.split("\n").length, 0);
+  const bulky = () => !running() && resultLines() > LONG_RESULT_LINES;
+  const collapsed = () => override() ?? bulky();
+
   return (
     <div class="omp-tool" classList={{ "omp-tool--error": isError(), "omp-tool--running": running() }} data-testid="omp-chat-tool">
-      <div class="omp-tool__head" onClick={() => setCollapsed((v) => !v)}>
+      <div class="omp-tool__head" onClick={() => setOverride(!collapsed())}>
         <span class="omp-tool__chevron">{collapsed() ? "▸" : "▾"}</span>
         <span class="omp-tool__name">{name()}</span>
         <Show when={summary()}><span class="omp-tool__summary">{summary()}</span></Show>
         <span class="omp-tool__status">
-          <Show when={running()}>running…</Show>
+          <Show when={running()}>running</Show>
           <Show when={isError()}>error</Show>
+          <Show when={collapsed() && !isError()}>{resultLines()} lines</Show>
         </span>
       </div>
 

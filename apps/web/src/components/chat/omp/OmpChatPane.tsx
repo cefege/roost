@@ -65,7 +65,7 @@ export function OmpChatPane(props: Props) {
           </Show>
         </Show>
         <Show when={state().streaming}>
-          <div class="omp-chat__thinking" data-testid="omp-chat-thinking">π thinking…</div>
+          <div class="omp-chat__busy" data-testid="omp-chat-busy"><span class="omp-chat__busy-dot" />working</div>
         </Show>
       </div>
       <Composer sessionId={props.sessionId} />

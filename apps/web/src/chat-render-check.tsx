@@ -5,10 +5,19 @@
 // Served by vite at /chat-render-check.html.
 
 import { render } from "solid-js/web";
+// Load the SAME tokens + globals main.tsx does. Without these the harness
+// renders in Times on a transparent background and every design judgement
+// made against it is wrong.
+import "./styles/theme-vars.css";
+import "./styles/syntax-vars.css";
+import "./styles/voice-input.css";
+import { applyTheme, loadTheme } from "./lib/theme.ts";
 import { rootStore, setRootStore } from "./store/root.ts";
 import { setOmpChatView } from "./store/uiStore.ts";
 import { OmpChatPane } from "./components/chat/omp/OmpChatPane.tsx";
 import type { ChatMessage } from "@roost/shared/chat/wire";
+
+applyTheme(loadTheme());
 
 const SID = "00000000-0000-0000-0000-000000000001";
 
