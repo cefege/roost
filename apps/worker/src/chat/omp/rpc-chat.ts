@@ -162,6 +162,39 @@ function mapAndRecord(entry: RpcChatEntry, raw: unknown, id: string, parentId: s
 	return msg;
 }
 
+/** One developer narration row. Prose — it goes through the renderer's
+ *  markdown pass, same as any assistant text. */
+function narrate(host: RpcChatHost, entry: RpcChatEntry, text: string): void {
+	upsertMessage(host, entry, {
+		id: `rpc-${entry.nextMsg++}`, parentId: entry.lastMsgId, ts: new Date().toISOString(),
+		role: "developer", blocks: [{ kind: "text", text }],
+	});
+}
+
+// CSI/OSC/SS3 escapes. omp writes slash-command output for a terminal, so
+// `/context` arrives full of 24-bit colour runs that would render as literal
+// garbage in a web bubble.
+const ANSI_RE = /[\u001b\u009b](?:\][^\u0007\u001b]*(?:\u0007|\u001b\\)|[[(][0-?]*[ -/]*[@-~])/g;
+
+/** Strip escapes AND resolve carriage-return overwrites. omp renders progress
+ *  lines by rewriting one line with \r; kept verbatim inside a fence they
+ *  stack up as duplicate rows, so only the final text of each line survives. */
+function stripAnsi(text: string): string {
+	return text
+		.replace(ANSI_RE, "")
+		.replace(/\r\n/g, "\n")
+		.split("\n")
+		.map((line) => (line.includes("\r") ? line.slice(line.lastIndexOf("\r") + 1) : line))
+		.join("\n");
+}
+
+/** Preformatted terminal output → a fenced block. `/context` and friends are
+ *  box-drawn, column-aligned text; markdown would collapse the whitespace and
+ *  shred the table. */
+function preformatted(text: string): string {
+	return `\`\`\`\n${text.replace(/```/g, "``\u200b`")}\n\`\`\``;
+}
+
 /** Flush a coalesced message_update remap now (message_end / tool / agent_end). */
 function flushPending(host: RpcChatHost, entry: RpcChatEntry): void {
 	if (entry.flushTimer) { clearTimeout(entry.flushTimer); entry.flushTimer = null; }
@@ -271,14 +304,52 @@ function onEvent(host: RpcChatHost, entry: RpcChatEntry, frame: RpcFrame): void 
 			return;
 		}
 
+		// Everything below is a plain narration row. The TUI shows all of it; a
+		// chat that drops it is not an alternative to the terminal.
 		case "notice": {
 			const message = typeof frame.message === "string" ? frame.message : "";
 			if (!message) return;
 			const level = typeof frame.level === "string" ? frame.level : "info";
-			upsertMessage(host, entry, {
-				id: `rpc-${entry.nextMsg++}`, parentId: entry.lastMsgId, ts: new Date().toISOString(),
-				role: "developer", blocks: [{ kind: "text", text: `${level}: ${message}` }],
-			});
+			narrate(host, entry, `${level}: ${message}`);
+			return;
+		}
+
+		// Local slash commands (/model, /context, /cost …) answer HERE, not via
+		// an agent turn — no message_* frames at all. Dropping this is why a
+		// slash command in the chat pane looked like it did nothing.
+		case "command_output": {
+			const text = typeof frame.text === "string" ? stripAnsi(frame.text) : "";
+			if (text.trim().length === 0) return;
+			flushPending(host, entry);
+			narrate(host, entry, preformatted(text));
+			return;
+		}
+
+		case "extension_error": {
+			const err = typeof frame.error === "string" ? frame.error : "";
+			const where = typeof frame.extensionPath === "string" ? frame.extensionPath : "extension";
+			narrate(host, entry, `extension error (${where}): ${err}`);
+			return;
+		}
+
+		case "auto_compaction_start":
+			narrate(host, entry, "— compacting context… —");
+			return;
+
+		case "auto_compaction_end":
+			narrate(host, entry, "— context compacted —");
+			return;
+
+		case "auto_retry_start": {
+			const why = typeof frame.error === "string" ? `: ${frame.error}` : "";
+			narrate(host, entry, `— retrying${why} —`);
+			return;
+		}
+
+		case "retry_fallback_applied": {
+			const from = typeof frame.from === "string" ? frame.from : "?";
+			const to = typeof frame.to === "string" ? frame.to : "?";
+			narrate(host, entry, `— model fallback: ${from} → ${to} —`);
 			return;
 		}
 
