@@ -603,6 +603,54 @@ aside[data-overscroll="bottom"] {
   border-radius: 20px;
 }
 
+/* ── Code | Chat segmented toggle — pinned at the top of the sidebar body,
+   switches the row list between workspaces (Code) and quick AI chats (Chat).
+   Pill container + two equal-width segments; active segment raised. ── */
+.df-fld-tabs {
+  display: flex;
+  gap: 2px;
+  margin: 4px 8px 8px;
+  padding: 3px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--text-hi) 6%, transparent);
+}
+.df-fld-tab {
+  flex: 1;
+  padding: 6px 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-lo);
+  font-size: var(--md-label-l-size);
+  font-weight: 600;
+  cursor: pointer;
+}
+.df-fld-tab:hover {
+  color: var(--text-mid, var(--text-hi));
+}
+.df-fld-tab[data-active="true"] {
+  background: var(--surface-0);
+  color: var(--text-hi);
+  box-shadow: var(--md-elev-1);
+}
+/* "+ New chat" — one-tap quick-chat action, shown only on the Chat tab. */
+.df-fld-newchat {
+  display: block;
+  width: calc(100% - 16px);
+  margin: 0 8px 8px;
+  padding: 8px 0;
+  border: 0;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--text-hi) 8%, transparent);
+  color: var(--text-hi);
+  font-size: var(--md-label-l-size);
+  font-weight: 600;
+  cursor: pointer;
+}
+.df-fld-newchat:hover {
+  background: color-mix(in srgb, var(--text-hi) 14%, transparent);
+}
+
 /* "+ New terminal" CTA + composer (flat sidebar's session-create surface).
    Spawns a plain shell at the chosen server+folder. */
 /* M3 circular FAB — 56×56 icon-only "+", pinned bottom-right of the sidebar,

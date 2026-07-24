@@ -132,3 +132,12 @@ export function maybeAutoLaunchAgent(sessionId: string): void {
   const cmd = resolveAgent().command + "\r";
   inputChannel.sendInput(sessionId, new TextEncoder().encode(cmd));
 }
+
+/** Launch the selected default agent NOW, bypassing the auto-launch toggle
+ *  (quick chats always launch — that's the point). At most once per session. */
+export function forceLaunchAgent(sessionId: string): void {
+  if (autoLaunchedSessionIds.has(sessionId)) return;
+  autoLaunchedSessionIds.add(sessionId);
+  const cmd = resolveAgent().command + "\r";
+  inputChannel.sendInput(sessionId, new TextEncoder().encode(cmd));
+}

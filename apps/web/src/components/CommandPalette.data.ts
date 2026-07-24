@@ -9,6 +9,7 @@ import { rootStore } from "../store/root.ts";
 import { allSessions } from "../store/selectors.ts";
 import { workerOnline } from "../store/sync.ts";
 import { queueTaskDialogStore } from "./QueueTaskDialog.tsx";
+import { startQuickChat } from "../lib/quickChat.ts";
 import type { ItemKind } from "./CommandPalettePieces.tsx";
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -28,6 +29,7 @@ export interface PaletteItem {
 
 function buildStaticActions(navigate: Navigator): PaletteItem[] {
   const items: PaletteItem[] = [
+    { id: "action:new-chat", kind: "action", label: "New chat", hint: "quick AI chat", action: () => startQuickChat(navigate) },
     { id: "action:settings:machines", kind: "action", label: "Settings — Machines", hint: "⌘,", action: () => navigate("/settings/machines") },
     { id: "action:settings:permissions", kind: "action", label: "Settings — Access", action: () => navigate("/settings/permissions") },
     { id: "action:settings:webhooks", kind: "action", label: "Settings — Webhooks", action: () => navigate("/settings/webhooks") },
