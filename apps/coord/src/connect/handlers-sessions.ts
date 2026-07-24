@@ -446,8 +446,15 @@ export function makeSessionHandlers(
         command_json: req.commandJson,
       });
       let res;
+      // Distinguish the three failure modes the SPA used to see as one opaque
+      // "Unavailable": a worker too old to know `chat-command` rejects it
+      // immediately, and reporting that as a timeout sent debugging the wrong
+      // way for an hour. The worker's own message is the useful part.
       try { res = await pending.promise; }
-      catch { throw new ConnectError("chat command timed out", Code.Unavailable); }
+      catch (e) {
+        const detail = e instanceof Error ? e.message : String(e);
+        throw new ConnectError(`chat command failed on worker: ${detail}`, Code.Unavailable);
+      }
       return create(SessionsChatCommandResponseSchema, { responseJson: res.response_json });
     },
   };
