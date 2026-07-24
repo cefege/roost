@@ -4,6 +4,8 @@
 // sidebarOpen: mobile drawer state; on desktop the sidebar is always visible.
 
 import { createStore } from "solid-js/store";
+import { rootStore } from "./root.ts";
+import { isChatFolder } from "../lib/quickChat.ts";
 
 interface UIState {
   contextMenu: { x: number; y: number; sessionId: string } | null;
@@ -120,9 +122,14 @@ export const setHomeFolderShowFiles = (v: boolean) => {
   setUiStore("homeFolderShowFiles", v);
   persistHomeFolderShowFiles(v);
 };
-/** Per-session chat view mode. Default "terminal". */
+/** Per-session chat view mode. A quick chat defaults to "chat" — it exists to
+ *  BE the chat; landing the user on a shell makes the feature invisible behind
+ *  a corner toggle. Everything else defaults to "terminal". An explicit toggle
+ *  is persisted per session and always wins. */
 export function ompChatViewForSession(sessionId: string): "terminal" | "chat" {
-  return uiStore.chatViewBySession[sessionId] ?? "terminal";
+	const explicit = uiStore.chatViewBySession[sessionId];
+	if (explicit) return explicit;
+	return isChatFolder(rootStore.sessions[sessionId]?.cwd ?? "") ? "chat" : "terminal";
 }
 export function setOmpChatView(sessionId: string, mode: "terminal" | "chat"): void {
   setUiStore("chatViewBySession", sessionId, mode);

@@ -243,6 +243,10 @@ let _touchGraceTimer: ReturnType<typeof setTimeout> | null = null;
 	// For a non-optimistic session this is always false → every gate below is a
 	// no-op, so mount behaviour is byte-identical to before.
 	const pending = createMemo(() => isPendingSpawn(props.session.id));
+	// Chat view owns the whole pane: the terminal's fixed-position FABs would
+	// otherwise float over the composer (the mic FAB covers Send exactly).
+	const chatViewActive = createMemo(() =>
+		ompChatEnabled(props.session.id) && ompChatViewForSession(props.session.id) === "chat");
 
 	// ── liveness: does this VIEWED pane actually receive frames? ──────────
 	// A live pane paints a snapshot within a beat of being claimed; a dead
@@ -1374,8 +1378,12 @@ let _touchGraceTimer: ReturnType<typeof setTimeout> | null = null;
 				}}
 			/>
 			{/* Mic + on-screen keypad — always on touch/compact; on desktop each is
-          gated by its own pref (mic / nav pad). Input rides inputChannel. */}
-			<Show when={(isCompact() || isTouchDevice() || micOnDesktop()) && activeChatChannel() === null}>
+          gated by its own pref (mic / nav pad). Input rides inputChannel.
+          inLayout: a PARKED pane must not paint a position:fixed FAB over the
+          visible one (every other FAB here already guards on it; this one did
+          not, so a background terminal's mic landed on the chat's Send button).
+          chatViewActive: PTY affordances have no meaning over the chat pane. */}
+			<Show when={(isCompact() || isTouchDevice() || micOnDesktop()) && activeChatChannel() === null && props.inLayout !== false && !chatViewActive()}>
 				<MobileVoiceInput
 					channelId={props.session.channel}
 					sendInput={(_ch, data) =>
@@ -1389,10 +1397,10 @@ let _touchGraceTimer: ReturnType<typeof setTimeout> | null = null;
 					refocusTerminal={() => term?.forceFocus()}
 				/>
 			</Show>
-			<Show when={(isCompact() || isTouchDevice() || keyboardOnDesktop()) && activeChatChannel() === null && props.inLayout !== false}>
+			<Show when={(isCompact() || isTouchDevice() || keyboardOnDesktop()) && activeChatChannel() === null && props.inLayout !== false && !chatViewActive()}>
 				<TerminalNavButtons session={props.session} />
 			</Show>
-			<Show when={isCompact() || isTouchDevice()}>
+			<Show when={(isCompact() || isTouchDevice()) && props.inLayout !== false && !chatViewActive()}>
 				<TerminalChatButton session={props.session} refocusTerminal={() => term?.forceFocus()} />
 			</Show>
 			{/* Omp chat toggle (transcript-reader). omp sessions only — switches the
@@ -1419,7 +1427,7 @@ let _touchGraceTimer: ReturnType<typeof setTimeout> | null = null;
           (shares the discard-✕ slot; would cover the cancel button). Types the
           selected agent's command + CR into the PTY; agent configurable in
           Settings. */}
-			<Show when={props.session.kind === "shell" && atShellPrompt() && activeVoiceChannel() === null && activeChatChannel() === null && props.inLayout !== false}>
+			<Show when={props.session.kind === "shell" && atShellPrompt() && activeVoiceChannel() === null && activeChatChannel() === null && props.inLayout !== false && !chatViewActive()}>
 				<AgentLaunchButton sessionId={props.session.id} />
 			</Show>
 			{/* Plan-mode shortcut FAB — agent sessions only, shown when the agent is
@@ -1427,22 +1435,22 @@ let _touchGraceTimer: ReturnType<typeof setTimeout> | null = null;
           the PTY, entering plan mode. Mirrors the agent-launch button's
           sendInput path; shares its fixed slot (mutually exclusive: the
           agent-launch shows only on shells at a shell prompt). */}
-			<Show when={liveStatus(props.session) === "idle" && activeVoiceChannel() === null && activeChatChannel() === null && props.inLayout !== false}>
+			<Show when={liveStatus(props.session) === "idle" && activeVoiceChannel() === null && activeChatChannel() === null && props.inLayout !== false && !chatViewActive()}>
 				<PlanButton sessionId={props.session.id} />
 			</Show>
 			{/* Attach-file FAB — its own standalone button on every platform (touch,
           compact, desktop); hidden only while the message composer is open.
           Native picker → chunked upload (progress chip) → abs_path injected. */}
-			<Show when={activeChatChannel() === null && props.inLayout !== false}>
+			<Show when={activeChatChannel() === null && props.inLayout !== false && !chatViewActive()}>
 				<AttachFileButton session={props.session} />
 			</Show>
-			<Show when={!pending() && !offline() && props.inLayout !== false}>
+			<Show when={!pending() && !offline() && props.inLayout !== false && !chatViewActive()}>
 				<TerminalStatusBadge session={props.session} />
 			</Show>
 			{/* Jump-to-latest FAB — bottom-center, shown only when scrolled up > 1
           viewport (never in alt-screen). Tap → fixed-duration eased scroll to
           the bottom + pin, resuming live-follow. */}
-			<Show when={showJumpDown() && props.inLayout !== false}>
+			<Show when={showJumpDown() && props.inLayout !== false && !chatViewActive()}>
 				<button
 					type="button"
 					class="jump-bottom-fab"
