@@ -20,6 +20,19 @@
   --md-ease-standard: var(--md-sys-motion-easing-standard);
 }
 
+/* Promote FAB layers ONLY during the reposition drag (mirrors the sidebar
+   [data-swiping="1"] gating). Permanent will-change kept every FAB on its
+   own compositor layer across all mounted sessions and janked the drag. */
+html[data-fab-dragging="true"] .voice-input,
+html[data-fab-dragging="true"] .agent-launch-fab,
+html[data-fab-dragging="true"] .plan-fab,
+html[data-fab-dragging="true"] .attach-file-fab,
+html[data-fab-dragging="true"] .term-nav-toggle,
+html[data-fab-dragging="true"] .term-chat,
+html[data-fab-dragging="true"] .term-nav {
+  will-change: translate;
+}
+
 /* ── container: fixed bottom-right, safe-area aware ── */
 /* z 55: above the z-50 side FABs (plan / agent-launch / attach) so the discard
    ✕ — which shares the plan/agent-launch slot — can never be covered while
@@ -33,7 +46,6 @@
   right: calc(env(safe-area-inset-right, 0px) + 16px);
   bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
   translate: 0 calc(-1 * var(--roost-fab-dy, 0px));
-  will-change: translate;
   z-index: 55;
   display: flex;
   flex-direction: column;
@@ -189,7 +201,6 @@
   right: calc(env(safe-area-inset-right, 0px) + 16px + 56px + 12px);
   bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
   translate: 0 calc(-1 * var(--roost-fab-dy, 0px));
-  will-change: translate;
   z-index: 50;
   width: 56px;
   height: 56px;
@@ -233,7 +244,6 @@
   right: calc(env(safe-area-inset-right, 0px) + 16px + 56px + 12px);
   bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
   translate: 0 calc(-1 * var(--roost-fab-dy, 0px));
-  will-change: translate;
   z-index: 50;
   width: 56px;
   height: 56px;
@@ -272,7 +282,6 @@
   right: calc(env(safe-area-inset-right, 0px) + 16px + 2 * (56px + 12px));
   bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
   translate: 0 calc(-1 * var(--roost-fab-dy, 0px));
-  will-change: translate;
   z-index: 50;
   width: 56px;
   height: 56px;
@@ -400,7 +409,6 @@
   right: calc(env(safe-area-inset-right, 0px) + 16px);
   bottom: calc(env(safe-area-inset-bottom, 0px) + 152px);
   translate: 0 calc(-1 * var(--roost-fab-dy, 0px));
-  will-change: translate;
   z-index: 40;
   width: 56px;
   height: 56px;
@@ -464,7 +472,6 @@
   right: calc(env(safe-area-inset-right, 0px) + 16px);
   bottom: calc(env(safe-area-inset-bottom, 0px) + 84px + var(--kb-offset, 0px));
   translate: 0 calc(-1 * var(--roost-fab-dy, 0px));
-  will-change: translate;
   z-index: 45;
   display: flex;
   flex-direction: column;
@@ -613,7 +620,6 @@
   right: calc(env(safe-area-inset-right, 0px) + 16px);
   bottom: calc(env(safe-area-inset-bottom, 0px) + 220px);
   translate: 0 calc(-1 * var(--roost-fab-dy, 0px));
-  will-change: translate;
   z-index: 40;
   display: flex;
   flex-direction: column;

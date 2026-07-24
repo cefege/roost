@@ -25,7 +25,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file roost/v1/sync.proto.
  */
 export const file_roost_v1_sync: GenFile = /*@__PURE__*/
-  fileDesc("ChNyb29zdC92MS9zeW5jLnByb3RvEghyb29zdC52MSIlCgtTeW5jUmVxdWVzdBIWCg5zaW5jZV9ldmVudF9pZBgBIAEoBCIhCglKc29uRXZlbnQSFAoMcGF5bG9hZF9qc29uGAEgASgJIjsKCkJ5dGVzRnJhbWUSEgoKc2Vzc2lvbl9pZBgBIAEoCRIMCgRkYXRhGAIgASgMEgsKA3NlcRgDIAEoBCI7Cg9TZXNzaW9uUHJlc2VuY2USEgoKc2Vzc2lvbl9pZBgBIAEoCRIUCgxwYXlsb2FkX2pzb24YAiABKAkiNwoRQ2xhdWRlU3RhdHVzRnJhbWUSEgoKc2Vzc2lvbl9pZBgBIAEoCRIOCgZzdGF0dXMYAiABKAkiNwoSVGVybWluYWxUaXRsZUZyYW1lEhIKCnNlc3Npb25faWQYASABKAkSDQoFdGl0bGUYAiABKAkiNgoRTGFzdEFjdGl2aXR5RnJhbWUSEgoKc2Vzc2lvbl9pZBgBIAEoCRINCgV0c19tcxgCIAEoASIiChNXb3JrZXJSb3V0YWJsZUZyYW1lEgsKA2ZwcxgBIAMoCSKvCAoNRmlyZWhvc2VGcmFtZRInCghzZXNzaW9ucxgBIAEoCzITLnJvb3N0LnYxLkpzb25FdmVudEgAEiUKBWJ5dGVzGAcgASgLMhQucm9vc3QudjEuQnl0ZXNGcmFtZUgAEjUKEHNlc3Npb25fcHJlc2VuY2UYCCABKAsyGS5yb29zdC52MS5TZXNzaW9uUHJlc2VuY2VIABInCglhdWRpdF9yb3cYCiABKAsyEi5yb29zdC52MS5BdWRpdFJvd0gAEjQKDXNlc3Npb25fZXZlbnQYCyABKAsyGy5yb29zdC52MS5TZXNzaW9uRXZlbnRQcm90b0gAEjgKD3dvcmtzcGFjZV9kZWx0YRgMIAEoCzIdLnJvb3N0LnYxLldvcmtzcGFjZURlbHRhUHJvdG9IABIuCgp0YXNrX2RlbHRhGA0gASgLMhgucm9vc3QudjEuVGFza0RlbHRhUHJvdG9IABI/ChN3ZWJob29rX3Rva2VuX2RlbHRhGA4gASgLMiAucm9vc3QudjEuV2ViaG9va1Rva2VuRGVsdGFQcm90b0gAEj4KEHBlcm1pc3Npb25fZGVsdGEYDyABKAsyIi5yb29zdC52MS5QZXJtaXNzaW9uUnVsZURlbHRhUHJvdG9IABIyCgdtY3BfbXNnGBAgASgLMh8ucm9vc3QudjEuTWNwU3RyZWFtTWVzc2FnZVByb3RvSAASOAoPd29ya2VyX3ByZXNlbmNlGBEgASgLMh0ucm9vc3QudjEuV29ya2VyUHJlc2VuY2VQcm90b0gAEjQKDWNsYXVkZV9zdGF0dXMYEiABKAsyGy5yb29zdC52MS5DbGF1ZGVTdGF0dXNGcmFtZUgAEjgKD3dvcmtlcl9yb3V0YWJsZRgTIAEoCzIdLnJvb3N0LnYxLldvcmtlclJvdXRhYmxlRnJhbWVIABIuCgljZWxsX2dyaWQYFCABKAsyGS5yb29zdC52MS5QYkNlbGxHcmlkRnJhbWVIABI2Cg50ZXJtaW5hbF90aXRsZRgVIAEoCzIcLnJvb3N0LnYxLlRlcm1pbmFsVGl0bGVGcmFtZUgAEjQKDWxhc3RfYWN0aXZpdHkYFiABKAsyGy5yb29zdC52MS5MYXN0QWN0aXZpdHlGcmFtZUgAEj0KEnBhaXJfcmVxdWVzdF9kZWx0YRgXIAEoCzIfLnJvb3N0LnYxLlBhaXJSZXF1ZXN0RGVsdGFQcm90b0gAEioKCHVpX3N0YXRlGBggASgLMhYucm9vc3QudjEuVWlTdGF0ZUZyYW1lSAASLgoKdWlfY29tbWFuZBgZIAEoCzIYLnJvb3N0LnYxLlVpQ29tbWFuZEZyYW1lSAASLQoJa2VlcGFsaXZlGBogASgLMhgucm9vc3QudjEuS2VlcGFsaXZlRnJhbWVIAEIHCgVmcmFtZSIcCg5LZWVwYWxpdmVGcmFtZRIKCgJ0cxgBIAEoAyKaAQoUVWlSZXBvcnRTdGF0ZVJlcXVlc3QSDgoGdGFiX2lkGAEgASgJEhMKC2FjdGl2ZV9wYXRoGAIgASgJEhIKCmZvbGRlcl9rZXkYAyABKAkSEwoLbGF5b3V0X2pzb24YBCABKAkSFwoPZm9jdXNlZF9wYW5lX2lkGAUgASgJEhsKE3Zpc2libGVfc2Vzc2lvbl9pZHMYBiADKAki8QIKCVVpQ29tbWFuZBIoCghuYXZpZ2F0ZRgBIAEoCzIULnJvb3N0LnYxLlVpTmF2aWdhdGVIABItCgtwbGFjZV9zcGxpdBgCIAEoCzIWLnJvb3N0LnYxLlVpUGxhY2VTcGxpdEgAEisKCnNlbGVjdF90YWIYAyABKAsyFS5yb29zdC52MS5VaVNlbGVjdFRhYkgAEisKCmZvY3VzX3BhbmUYBCABKAsyFS5yb29zdC52MS5VaUZvY3VzUGFuZUgAEicKCG1vdmVfdGFiGAUgASgLMhMucm9vc3QudjEuVWlNb3ZlVGFiSAASJgoHYXJyYW5nZRgGIAEoCzITLnJvb3N0LnYxLlVpQXJyYW5nZUgAEikKCWNsb3NlX3RhYhgHIAEoCzIULnJvb3N0LnYxLlVpQ2xvc2VUYWJIABIqCglzcG90bGlnaHQYCCABKAsyFS5yb29zdC52MS5VaVNwb3RsaWdodEgAQgkKB2NvbW1hbmQiGgoKVWlOYXZpZ2F0ZRIMCgRwYXRoGAEgASgJImAKDFVpUGxhY2VTcGxpdBISCgpzZXNzaW9uX2lkGAEgASgJEhkKEWFuY2hvcl9zZXNzaW9uX2lkGAIgASgJEgsKA2RpchgDIAEoCRIUCgxpbnNlcnRfZmlyc3QYBCABKAgiIQoLVWlTZWxlY3RUYWISEgoKc2Vzc2lvbl9pZBgBIAEoCSIhCgtVaUZvY3VzUGFuZRISCgpzZXNzaW9uX2lkGAEgASgJIjgKCVVpTW92ZVRhYhISCgpzZXNzaW9uX2lkGAEgASgJEhcKD2Rlc3Rfc2Vzc2lvbl9pZBgCIAEoCSIbCglVaUFycmFuZ2USDgoGcHJlc2V0GAEgASgJIiAKClVpQ2xvc2VUYWISEgoKc2Vzc2lvbl9pZBgBIAEoCSIuCgtVaVNwb3RsaWdodBISCgpzZXNzaW9uX2lkGAEgASgJEgsKA29mZhgCIAEoCCJZCgxVaVN0YXRlRnJhbWUSCgoCZnAYASABKAkSDgoGdGFiX2lkGAIgASgJEi0KBXN0YXRlGAMgASgLMh4ucm9vc3QudjEuVWlSZXBvcnRTdGF0ZVJlcXVlc3QiTQoOVWlDb21tYW5kRnJhbWUSFQoNdGFyZ2V0X3RhYl9pZBgBIAEoCRIkCgdjb21tYW5kGAIgASgLMhMucm9vc3QudjEuVWlDb21tYW5kYgZwcm90bzM", [file_roost_v1_events, file_roost_v1_wire, file_roost_v1_cell]);
+  fileDesc("ChNyb29zdC92MS9zeW5jLnByb3RvEghyb29zdC52MSIlCgtTeW5jUmVxdWVzdBIWCg5zaW5jZV9ldmVudF9pZBgBIAEoBCIhCglKc29uRXZlbnQSFAoMcGF5bG9hZF9qc29uGAEgASgJIjsKCkJ5dGVzRnJhbWUSEgoKc2Vzc2lvbl9pZBgBIAEoCRIMCgRkYXRhGAIgASgMEgsKA3NlcRgDIAEoBCI7Cg9TZXNzaW9uUHJlc2VuY2USEgoKc2Vzc2lvbl9pZBgBIAEoCRIUCgxwYXlsb2FkX2pzb24YAiABKAkiNwoRQ2xhdWRlU3RhdHVzRnJhbWUSEgoKc2Vzc2lvbl9pZBgBIAEoCRIOCgZzdGF0dXMYAiABKAkiNwoSVGVybWluYWxUaXRsZUZyYW1lEhIKCnNlc3Npb25faWQYASABKAkSDQoFdGl0bGUYAiABKAkiNgoRTGFzdEFjdGl2aXR5RnJhbWUSEgoKc2Vzc2lvbl9pZBgBIAEoCRINCgV0c19tcxgCIAEoASIiChNXb3JrZXJSb3V0YWJsZUZyYW1lEgsKA2ZwcxgBIAMoCSLUCAoNRmlyZWhvc2VGcmFtZRInCghzZXNzaW9ucxgBIAEoCzITLnJvb3N0LnYxLkpzb25FdmVudEgAEiUKBWJ5dGVzGAcgASgLMhQucm9vc3QudjEuQnl0ZXNGcmFtZUgAEjUKEHNlc3Npb25fcHJlc2VuY2UYCCABKAsyGS5yb29zdC52MS5TZXNzaW9uUHJlc2VuY2VIABInCglhdWRpdF9yb3cYCiABKAsyEi5yb29zdC52MS5BdWRpdFJvd0gAEjQKDXNlc3Npb25fZXZlbnQYCyABKAsyGy5yb29zdC52MS5TZXNzaW9uRXZlbnRQcm90b0gAEjgKD3dvcmtzcGFjZV9kZWx0YRgMIAEoCzIdLnJvb3N0LnYxLldvcmtzcGFjZURlbHRhUHJvdG9IABIuCgp0YXNrX2RlbHRhGA0gASgLMhgucm9vc3QudjEuVGFza0RlbHRhUHJvdG9IABI/ChN3ZWJob29rX3Rva2VuX2RlbHRhGA4gASgLMiAucm9vc3QudjEuV2ViaG9va1Rva2VuRGVsdGFQcm90b0gAEj4KEHBlcm1pc3Npb25fZGVsdGEYDyABKAsyIi5yb29zdC52MS5QZXJtaXNzaW9uUnVsZURlbHRhUHJvdG9IABIyCgdtY3BfbXNnGBAgASgLMh8ucm9vc3QudjEuTWNwU3RyZWFtTWVzc2FnZVByb3RvSAASOAoPd29ya2VyX3ByZXNlbmNlGBEgASgLMh0ucm9vc3QudjEuV29ya2VyUHJlc2VuY2VQcm90b0gAEjQKDWNsYXVkZV9zdGF0dXMYEiABKAsyGy5yb29zdC52MS5DbGF1ZGVTdGF0dXNGcmFtZUgAEjgKD3dvcmtlcl9yb3V0YWJsZRgTIAEoCzIdLnJvb3N0LnYxLldvcmtlclJvdXRhYmxlRnJhbWVIABIuCgljZWxsX2dyaWQYFCABKAsyGS5yb29zdC52MS5QYkNlbGxHcmlkRnJhbWVIABI2Cg50ZXJtaW5hbF90aXRsZRgVIAEoCzIcLnJvb3N0LnYxLlRlcm1pbmFsVGl0bGVGcmFtZUgAEjQKDWxhc3RfYWN0aXZpdHkYFiABKAsyGy5yb29zdC52MS5MYXN0QWN0aXZpdHlGcmFtZUgAEj0KEnBhaXJfcmVxdWVzdF9kZWx0YRgXIAEoCzIfLnJvb3N0LnYxLlBhaXJSZXF1ZXN0RGVsdGFQcm90b0gAEioKCHVpX3N0YXRlGBggASgLMhYucm9vc3QudjEuVWlTdGF0ZUZyYW1lSAASLgoKdWlfY29tbWFuZBgZIAEoCzIYLnJvb3N0LnYxLlVpQ29tbWFuZEZyYW1lSAASLQoJa2VlcGFsaXZlGBogASgLMhgucm9vc3QudjEuS2VlcGFsaXZlRnJhbWVIABIjCgRjaGF0GBsgASgLMhMucm9vc3QudjEuQ2hhdEZyYW1lSABCBwoFZnJhbWUiHAoOS2VlcGFsaXZlRnJhbWUSCgoCdHMYASABKAMimgEKFFVpUmVwb3J0U3RhdGVSZXF1ZXN0Eg4KBnRhYl9pZBgBIAEoCRITCgthY3RpdmVfcGF0aBgCIAEoCRISCgpmb2xkZXJfa2V5GAMgASgJEhMKC2xheW91dF9qc29uGAQgASgJEhcKD2ZvY3VzZWRfcGFuZV9pZBgFIAEoCRIbChN2aXNpYmxlX3Nlc3Npb25faWRzGAYgAygJIvECCglVaUNvbW1hbmQSKAoIbmF2aWdhdGUYASABKAsyFC5yb29zdC52MS5VaU5hdmlnYXRlSAASLQoLcGxhY2Vfc3BsaXQYAiABKAsyFi5yb29zdC52MS5VaVBsYWNlU3BsaXRIABIrCgpzZWxlY3RfdGFiGAMgASgLMhUucm9vc3QudjEuVWlTZWxlY3RUYWJIABIrCgpmb2N1c19wYW5lGAQgASgLMhUucm9vc3QudjEuVWlGb2N1c1BhbmVIABInCghtb3ZlX3RhYhgFIAEoCzITLnJvb3N0LnYxLlVpTW92ZVRhYkgAEiYKB2FycmFuZ2UYBiABKAsyEy5yb29zdC52MS5VaUFycmFuZ2VIABIpCgljbG9zZV90YWIYByABKAsyFC5yb29zdC52MS5VaUNsb3NlVGFiSAASKgoJc3BvdGxpZ2h0GAggASgLMhUucm9vc3QudjEuVWlTcG90bGlnaHRIAEIJCgdjb21tYW5kIhoKClVpTmF2aWdhdGUSDAoEcGF0aBgBIAEoCSJgCgxVaVBsYWNlU3BsaXQSEgoKc2Vzc2lvbl9pZBgBIAEoCRIZChFhbmNob3Jfc2Vzc2lvbl9pZBgCIAEoCRILCgNkaXIYAyABKAkSFAoMaW5zZXJ0X2ZpcnN0GAQgASgIIiEKC1VpU2VsZWN0VGFiEhIKCnNlc3Npb25faWQYASABKAkiIQoLVWlGb2N1c1BhbmUSEgoKc2Vzc2lvbl9pZBgBIAEoCSI4CglVaU1vdmVUYWISEgoKc2Vzc2lvbl9pZBgBIAEoCRIXCg9kZXN0X3Nlc3Npb25faWQYAiABKAkiGwoJVWlBcnJhbmdlEg4KBnByZXNldBgBIAEoCSIgCgpVaUNsb3NlVGFiEhIKCnNlc3Npb25faWQYASABKAkiLgoLVWlTcG90bGlnaHQSEgoKc2Vzc2lvbl9pZBgBIAEoCRILCgNvZmYYAiABKAgiWQoMVWlTdGF0ZUZyYW1lEgoKAmZwGAEgASgJEg4KBnRhYl9pZBgCIAEoCRItCgVzdGF0ZRgDIAEoCzIeLnJvb3N0LnYxLlVpUmVwb3J0U3RhdGVSZXF1ZXN0Ik0KDlVpQ29tbWFuZEZyYW1lEhUKDXRhcmdldF90YWJfaWQYASABKAkSJAoHY29tbWFuZBgCIAEoCzITLnJvb3N0LnYxLlVpQ29tbWFuZCKkBQoMQ29udGVudEJsb2NrEg4KBHRleHQYASABKAlIABI3Cgh0aGlua2luZxgCIAEoCzIjLnJvb3N0LnYxLkNvbnRlbnRCbG9jay5UaGlua2luZ1RleHRIABI0Cgl0b29sX2NhbGwYAyABKAsyHy5yb29zdC52MS5Db250ZW50QmxvY2suVG9vbENhbGxIABI4Cgt0b29sX3Jlc3VsdBgEIAEoCzIhLnJvb3N0LnYxLkNvbnRlbnRCbG9jay5Ub29sUmVzdWx0SAASNgoKdG9vbF9ldmVudBgFIAEoCzIgLnJvb3N0LnYxLkNvbnRlbnRCbG9jay5Ub29sRXZlbnRIABIwCgVpbWFnZRgGIAEoCzIfLnJvb3N0LnYxLkNvbnRlbnRCbG9jay5JbWFnZVJlZkgAGkEKDFRoaW5raW5nVGV4dBIMCgR0ZXh0GAEgASgJEhEKCXRydW5jYXRlZBgCIAEoCBIQCghmdWxsX2xlbhgDIAEoDRo8CghUb29sQ2FsbBIPCgdjYWxsX2lkGAEgASgJEgwKBG5hbWUYAiABKAkSEQoJYXJnc19qc29uGAMgASgJGnAKClRvb2xSZXN1bHQSDwoHY2FsbF9pZBgBIAEoCRIMCgRuYW1lGAIgASgJEgwKBHRleHQYAyABKAkSEAoIaXNfZXJyb3IYBCABKAgSEQoJdHJ1bmNhdGVkGAUgASgIEhAKCGZ1bGxfbGVuGAYgASgNGkkKCVRvb2xFdmVudBIPCgdjYWxsX2lkGAEgASgJEgwKBG5hbWUYAiABKAkSDQoFcGhhc2UYAyABKAkSDgoGaW50ZW50GAQgASgJGisKCEltYWdlUmVmEhEKCWJsb2JfcGF0aBgBIAEoCRIMCgRtaW1lGAIgASgJQgYKBGtpbmQibgoLQ2hhdE1lc3NhZ2USCgoCaWQYASABKAkSEQoJcGFyZW50X2lkGAIgASgJEgoKAnRzGAMgASgJEgwKBHJvbGUYBCABKAkSJgoGYmxvY2tzGAUgAygLMhYucm9vc3QudjEuQ29udGVudEJsb2NrImIKCUNoYXRGcmFtZRISCgpzZXNzaW9uX2lkGAEgASgJEiUKBmFwcGVuZBgCIAMoCzIVLnJvb3N0LnYxLkNoYXRNZXNzYWdlEgsKA3NlcRgDIAEoBBINCgVyZXNldBgEIAEoCGIGcHJvdG8z", [file_roost_v1_events, file_roost_v1_wire, file_roost_v1_cell]);
 
 /**
  * @generated from message roost.v1.SyncRequest
@@ -373,6 +373,16 @@ export type FirehoseFrame = Message<"roost.v1.FirehoseFrame"> & {
      */
     value: KeepaliveFrame;
     case: "keepalive";
+  } | {
+    /**
+     * Chat — omp transcript-reader chat frames. Worker parses omp's JSONL
+     * transcript into structured ChatMessages and emits here; coord fans out
+     * unchanged (same path as cell_grid/bytes). Per-agent (omp only).
+     *
+     * @generated from field: roost.v1.ChatFrame chat = 27;
+     */
+    value: ChatFrame;
+    case: "chat";
   } | { case: undefined; value?: undefined };
 };
 
@@ -746,4 +756,312 @@ export type UiCommandFrame = Message<"roost.v1.UiCommandFrame"> & {
  */
 export const UiCommandFrameSchema: GenMessage<UiCommandFrame> = /*@__PURE__*/
   messageDesc(file_roost_v1_sync, 21);
+
+/**
+ * @generated from message roost.v1.ContentBlock
+ */
+export type ContentBlock = Message<"roost.v1.ContentBlock"> & {
+  /**
+   * @generated from oneof roost.v1.ContentBlock.kind
+   */
+  kind: {
+    /**
+     * assistant/user text (markdown); sent in full
+     *
+     * @generated from field: string text = 1;
+     */
+    value: string;
+    case: "text";
+  } | {
+    /**
+     * assistant reasoning — truncated when huge, lazy-fetched
+     *
+     * @generated from field: roost.v1.ContentBlock.ThinkingText thinking = 2;
+     */
+    value: ContentBlock_ThinkingText;
+    case: "thinking";
+  } | {
+    /**
+     * @generated from field: roost.v1.ContentBlock.ToolCall tool_call = 3;
+     */
+    value: ContentBlock_ToolCall;
+    case: "toolCall";
+  } | {
+    /**
+     * @generated from field: roost.v1.ContentBlock.ToolResult tool_result = 4;
+     */
+    value: ContentBlock_ToolResult;
+    case: "toolResult";
+  } | {
+    /**
+     * live tool lifecycle (start/end) from custom entries
+     *
+     * @generated from field: roost.v1.ContentBlock.ToolEvent tool_event = 5;
+     */
+    value: ContentBlock_ToolEvent;
+    case: "toolEvent";
+  } | {
+    /**
+     * @generated from field: roost.v1.ContentBlock.ImageRef image = 6;
+     */
+    value: ContentBlock_ImageRef;
+    case: "image";
+  } | { case: undefined; value?: undefined };
+};
+
+/**
+ * Describes the message roost.v1.ContentBlock.
+ * Use `create(ContentBlockSchema)` to create a new message.
+ */
+export const ContentBlockSchema: GenMessage<ContentBlock> = /*@__PURE__*/
+  messageDesc(file_roost_v1_sync, 22);
+
+/**
+ * @generated from message roost.v1.ContentBlock.ThinkingText
+ */
+export type ContentBlock_ThinkingText = Message<"roost.v1.ContentBlock.ThinkingText"> & {
+  /**
+   * truncated to TRUNC_CAP chars when full_len exceeds it
+   *
+   * @generated from field: string text = 1;
+   */
+  text: string;
+
+  /**
+   * true → fetch full via SessionsGetChatBlock
+   *
+   * @generated from field: bool truncated = 2;
+   */
+  truncated: boolean;
+
+  /**
+   * untruncated length, for "show N more"
+   *
+   * @generated from field: uint32 full_len = 3;
+   */
+  fullLen: number;
+};
+
+/**
+ * Describes the message roost.v1.ContentBlock.ThinkingText.
+ * Use `create(ContentBlock_ThinkingTextSchema)` to create a new message.
+ */
+export const ContentBlock_ThinkingTextSchema: GenMessage<ContentBlock_ThinkingText> = /*@__PURE__*/
+  messageDesc(file_roost_v1_sync, 22, 0);
+
+/**
+ * @generated from message roost.v1.ContentBlock.ToolCall
+ */
+export type ContentBlock_ToolCall = Message<"roost.v1.ContentBlock.ToolCall"> & {
+  /**
+   * @generated from field: string call_id = 1;
+   */
+  callId: string;
+
+  /**
+   * @generated from field: string name = 2;
+   */
+  name: string;
+
+  /**
+   * raw JSON arguments (prettified client-side)
+   *
+   * @generated from field: string args_json = 3;
+   */
+  argsJson: string;
+};
+
+/**
+ * Describes the message roost.v1.ContentBlock.ToolCall.
+ * Use `create(ContentBlock_ToolCallSchema)` to create a new message.
+ */
+export const ContentBlock_ToolCallSchema: GenMessage<ContentBlock_ToolCall> = /*@__PURE__*/
+  messageDesc(file_roost_v1_sync, 22, 1);
+
+/**
+ * @generated from message roost.v1.ContentBlock.ToolResult
+ */
+export type ContentBlock_ToolResult = Message<"roost.v1.ContentBlock.ToolResult"> & {
+  /**
+   * @generated from field: string call_id = 1;
+   */
+  callId: string;
+
+  /**
+   * @generated from field: string name = 2;
+   */
+  name: string;
+
+  /**
+   * truncated to TRUNC_CAP chars
+   *
+   * @generated from field: string text = 3;
+   */
+  text: string;
+
+  /**
+   * @generated from field: bool is_error = 4;
+   */
+  isError: boolean;
+
+  /**
+   * true → fetch full via SessionsGetChatBlock
+   *
+   * @generated from field: bool truncated = 5;
+   */
+  truncated: boolean;
+
+  /**
+   * untruncated length, for "show N more"
+   *
+   * @generated from field: uint32 full_len = 6;
+   */
+  fullLen: number;
+};
+
+/**
+ * Describes the message roost.v1.ContentBlock.ToolResult.
+ * Use `create(ContentBlock_ToolResultSchema)` to create a new message.
+ */
+export const ContentBlock_ToolResultSchema: GenMessage<ContentBlock_ToolResult> = /*@__PURE__*/
+  messageDesc(file_roost_v1_sync, 22, 2);
+
+/**
+ * @generated from message roost.v1.ContentBlock.ToolEvent
+ */
+export type ContentBlock_ToolEvent = Message<"roost.v1.ContentBlock.ToolEvent"> & {
+  /**
+   * @generated from field: string call_id = 1;
+   */
+  callId: string;
+
+  /**
+   * @generated from field: string name = 2;
+   */
+  name: string;
+
+  /**
+   * "start" | "end"
+   *
+   * @generated from field: string phase = 3;
+   */
+  phase: string;
+
+  /**
+   * optional human label
+   *
+   * @generated from field: string intent = 4;
+   */
+  intent: string;
+};
+
+/**
+ * Describes the message roost.v1.ContentBlock.ToolEvent.
+ * Use `create(ContentBlock_ToolEventSchema)` to create a new message.
+ */
+export const ContentBlock_ToolEventSchema: GenMessage<ContentBlock_ToolEvent> = /*@__PURE__*/
+  messageDesc(file_roost_v1_sync, 22, 3);
+
+/**
+ * @generated from message roost.v1.ContentBlock.ImageRef
+ */
+export type ContentBlock_ImageRef = Message<"roost.v1.ContentBlock.ImageRef"> & {
+  /**
+   * ~/.omp/agent/blobs/<sha256>
+   *
+   * @generated from field: string blob_path = 1;
+   */
+  blobPath: string;
+
+  /**
+   * @generated from field: string mime = 2;
+   */
+  mime: string;
+};
+
+/**
+ * Describes the message roost.v1.ContentBlock.ImageRef.
+ * Use `create(ContentBlock_ImageRefSchema)` to create a new message.
+ */
+export const ContentBlock_ImageRefSchema: GenMessage<ContentBlock_ImageRef> = /*@__PURE__*/
+  messageDesc(file_roost_v1_sync, 22, 4);
+
+/**
+ * @generated from message roost.v1.ChatMessage
+ */
+export type ChatMessage = Message<"roost.v1.ChatMessage"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * @generated from field: string parent_id = 2;
+   */
+  parentId: string;
+
+  /**
+   * ISO 8601 from transcript
+   *
+   * @generated from field: string ts = 3;
+   */
+  ts: string;
+
+  /**
+   * user | assistant | toolResult | developer
+   *
+   * @generated from field: string role = 4;
+   */
+  role: string;
+
+  /**
+   * @generated from field: repeated roost.v1.ContentBlock blocks = 5;
+   */
+  blocks: ContentBlock[];
+};
+
+/**
+ * Describes the message roost.v1.ChatMessage.
+ * Use `create(ChatMessageSchema)` to create a new message.
+ */
+export const ChatMessageSchema: GenMessage<ChatMessage> = /*@__PURE__*/
+  messageDesc(file_roost_v1_sync, 23);
+
+/**
+ * @generated from message roost.v1.ChatFrame
+ */
+export type ChatFrame = Message<"roost.v1.ChatFrame"> & {
+  /**
+   * @generated from field: string session_id = 1;
+   */
+  sessionId: string;
+
+  /**
+   * newest messages (worker tailer output)
+   *
+   * @generated from field: repeated roost.v1.ChatMessage append = 2;
+   */
+  append: ChatMessage[];
+
+  /**
+   * monotonic line count (tailer offset)
+   *
+   * @generated from field: uint64 seq = 3;
+   */
+  seq: bigint;
+
+  /**
+   * true → drop client history and reseed
+   *
+   * @generated from field: bool reset = 4;
+   */
+  reset: boolean;
+};
+
+/**
+ * Describes the message roost.v1.ChatFrame.
+ * Use `create(ChatFrameSchema)` to create a new message.
+ */
+export const ChatFrameSchema: GenMessage<ChatFrame> = /*@__PURE__*/
+  messageDesc(file_roost_v1_sync, 24);
 

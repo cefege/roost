@@ -16,9 +16,12 @@ import {
   SessionsInputResponseSchema, SessionsCursorPosResponseSchema,
   SessionsAssignWorkspaceResponseSchema,
   SessionsGetScrollbackCellsResponseSchema,
+  SessionsGetChatHistoryResponseSchema, SessionsGetChatBlockResponseSchema,
 } from "@roost/shared/proto/coordinator_pb";
 import { sessionToProto } from "@roost/shared/wire/agent-proto";
 import { cellRowToProto } from "@roost/shared/cell/cell-proto";
+import { chatMessageToProto } from "@roost/shared/chat/wire";
+import type { ChatMessage } from "@roost/shared/chat/wire";
 import type { CellRow } from "@roost/shared/cell";
 import { asSessionId, asWorkspaceId, ClaudeMode } from "@roost/shared/wire";
 import { safeJsonParse } from "@roost/shared/json";
@@ -98,7 +101,8 @@ type SessionMethods =
   | "sessionsList" | "sessionsSpawn" | "sessionsAttach" | "sessionsKill"
   | "sessionsRename" | "sessionsResize" | "sessionsUserMessage" | "sessionsInput"
   | "sessionsCursorPos" | "sessionsAssignWorkspace"
-  | "sessionsGetScrollbackCells";
+  | "sessionsGetScrollbackCells"
+  | "sessionsGetChatHistory" | "sessionsGetChatBlock";
 
 export function makeSessionHandlers(
   deps: ConnectDeps,
@@ -380,6 +384,50 @@ export function makeSessionHandlers(
         startRow: BigInt(res.start_row),
         endRow: BigInt(res.end_row),
       });
+    },
+
+    async sessionsGetChatHistory(req, ctx) {
+      requireAuth(ctx.values);
+      const row = await deps.db.selectFrom("sessions").select(["worker_fp"]).where("id", "=", req.sessionId).executeTakeFirst();
+      if (!row) throw new ConnectError("unknown session", Code.NotFound);
+      const sock = getWorkerHubSocket(row.worker_fp);
+      if (!sock) throw new ConnectError("worker not connected", Code.Unavailable);
+      const pending = createPendingRpc<{ messages: ChatMessage[]; next_seq: number; truncated: boolean }>(8_000, row.worker_fp);
+      sendBrowserCmd(sock, requireAuth(ctx.values), pending.request_id, {
+        kind: "get-chat-history" as const,
+        request_id: pending.request_id,
+        session_id: asSessionId(req.sessionId),
+        ...(req.afterSeq !== undefined ? { after_seq: Number(req.afterSeq) } : {}),
+        max_messages: req.maxMessages || 500,
+      });
+      let res;
+      try { res = await pending.promise; }
+      catch { throw new ConnectError("chat history serve timed out", Code.Unavailable); }
+      return create(SessionsGetChatHistoryResponseSchema, {
+        messages: res.messages.map(chatMessageToProto),
+        nextSeq: BigInt(res.next_seq),
+        truncated: res.truncated,
+      });
+    },
+
+    async sessionsGetChatBlock(req, ctx) {
+      requireAuth(ctx.values);
+      const row = await deps.db.selectFrom("sessions").select(["worker_fp"]).where("id", "=", req.sessionId).executeTakeFirst();
+      if (!row) throw new ConnectError("unknown session", Code.NotFound);
+      const sock = getWorkerHubSocket(row.worker_fp);
+      if (!sock) throw new ConnectError("worker not connected", Code.Unavailable);
+      const pending = createPendingRpc<{ text: string }>(8_000, row.worker_fp);
+      sendBrowserCmd(sock, requireAuth(ctx.values), pending.request_id, {
+        kind: "get-chat-block" as const,
+        request_id: pending.request_id,
+        session_id: asSessionId(req.sessionId),
+        message_id: req.messageId,
+        block_index: req.blockIndex,
+      });
+      let res;
+      try { res = await pending.promise; }
+      catch { throw new ConnectError("chat block serve timed out", Code.Unavailable); }
+      return create(SessionsGetChatBlockResponseSchema, { text: res.text });
     },
   };
 }

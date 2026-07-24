@@ -40,6 +40,9 @@ import { pickAndAttachFiles, enqueueAttachment } from "../lib/attachments.ts";
 import { MobileVoiceInput, activeVoiceChannel } from "./MobileVoiceInput.tsx";
 import { TerminalNavButtons } from "./TerminalNavButtons.tsx";
 import { TerminalChatButton, activeChatChannel } from "./TerminalChatButton.tsx";
+import { OmpChatPane } from "./chat/omp/OmpChatPane.tsx";
+import { ompChatEnabled } from "../store/chatOmp.ts";
+import { ompChatViewForSession, toggleOmpChatView } from "../store/uiStore.ts";
 import { TerminalStatusBadge } from "./TerminalStatusBadge.tsx";
 import { mouseForwardEnabled } from "../lib/mouseForwardPref.ts";
 import { isCompact, isTouchDevice } from "../lib/windowSizeClass.ts";
@@ -1307,6 +1310,14 @@ let _touchGraceTimer: ReturnType<typeof setTimeout> | null = null;
 				ref={displayRef}
 				style={{ flex: "1", "min-width": "0", "min-height": "0", "touch-action": "pan-y" }}
 			/>
+			{/* Omp chat overlay (transcript-reader). Terminal stays mounted underneath
+          so toggling back preserves wterm scrollback + cursor state. Shown only
+          for omp sessions when the per-session view mode is "chat". */}
+			<Show when={ompChatEnabled(props.session.id) && ompChatViewForSession(props.session.id) === "chat"}>
+				<div style={{ position: "absolute", inset: "0", "z-index": "5" }}>
+					<OmpChatPane sessionId={props.session.id} />
+				</div>
+			</Show>
 			{/* Optimistic spawn placeholder: paint the pane instantly; the real
           terminal reconciles into this same tab when the spawn RPC resolves. */}
 			<Show when={pending()}>
@@ -1344,18 +1355,37 @@ let _touchGraceTimer: ReturnType<typeof setTimeout> | null = null;
 					refocusTerminal={() => term?.forceFocus()}
 				/>
 			</Show>
-			<Show when={(isCompact() || isTouchDevice() || keyboardOnDesktop()) && activeChatChannel() === null}>
+			<Show when={(isCompact() || isTouchDevice() || keyboardOnDesktop()) && activeChatChannel() === null && props.inLayout !== false}>
 				<TerminalNavButtons session={props.session} />
 			</Show>
 			<Show when={isCompact() || isTouchDevice()}>
 				<TerminalChatButton session={props.session} refocusTerminal={() => term?.forceFocus()} />
+			</Show>
+			{/* Omp chat toggle (transcript-reader). omp sessions only — switches the
+          pane between the cell terminal and the OmpChatPane overlay. Hidden for
+          non-omp sessions (claude/shell/pi). */}
+			<Show when={ompChatEnabled(props.session.id)}>
+				<button
+					class="omp-chat-toggle"
+					data-testid="omp-chat-toggle"
+					title={ompChatViewForSession(props.session.id) === "chat" ? "Switch to terminal" : "Switch to chat"}
+					onClick={() => toggleOmpChatView(props.session.id)}
+					style={{
+						position: "absolute", right: "12px", top: "12px", "z-index": "10",
+						padding: "6px 8px", border: "1px solid var(--md-sys-color-outline-variant)",
+						"border-radius": "8px", background: "var(--md-sys-color-surface-container-high)",
+						color: "var(--md-sys-color-on-surface)", cursor: "pointer", "font-size": "12px",
+					}}
+				>
+					{ompChatViewForSession(props.session.id) === "chat" ? "▭ Terminal" : "✉ Chat"}
+				</button>
 			</Show>
 			{/* Launch-agent FAB — shells only, shown only at a plain shell prompt
           (regex on the live viewport tail) AND not while voice-recording
           (shares the discard-✕ slot; would cover the cancel button). Types the
           selected agent's command + CR into the PTY; agent configurable in
           Settings. */}
-			<Show when={props.session.kind === "shell" && atShellPrompt() && activeVoiceChannel() === null && activeChatChannel() === null}>
+			<Show when={props.session.kind === "shell" && atShellPrompt() && activeVoiceChannel() === null && activeChatChannel() === null && props.inLayout !== false}>
 				<AgentLaunchButton sessionId={props.session.id} />
 			</Show>
 			{/* Plan-mode shortcut FAB — agent sessions only, shown when the agent is
@@ -1363,13 +1393,13 @@ let _touchGraceTimer: ReturnType<typeof setTimeout> | null = null;
           the PTY, entering plan mode. Mirrors the agent-launch button's
           sendInput path; shares its fixed slot (mutually exclusive: the
           agent-launch shows only on shells at a shell prompt). */}
-			<Show when={liveStatus(props.session) === "idle" && activeVoiceChannel() === null && activeChatChannel() === null}>
+			<Show when={liveStatus(props.session) === "idle" && activeVoiceChannel() === null && activeChatChannel() === null && props.inLayout !== false}>
 				<PlanButton sessionId={props.session.id} />
 			</Show>
 			{/* Attach-file FAB — its own standalone button on every platform (touch,
           compact, desktop); hidden only while the message composer is open.
           Native picker → chunked upload (progress chip) → abs_path injected. */}
-			<Show when={activeChatChannel() === null}>
+			<Show when={activeChatChannel() === null && props.inLayout !== false}>
 				<AttachFileButton session={props.session} />
 			</Show>
 			<Show when={!pending() && !offline() && props.inLayout !== false}>

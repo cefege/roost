@@ -214,6 +214,30 @@ message SessionsGetScrollbackCellsResponse {
   uint64 end_row = 5;
 }
 
+// ─── chat history backfill (omp transcript-reader) ────────────────────────
+// Mirrors SessionsGetScrollbackCells: worker holds the parsed transcript in
+// memory; coord relays. Used on first chat-view enter + paging older history.
+message SessionsGetChatHistoryRequest {
+  string session_id = 1;
+  optional uint64 after_seq = 2;     // page older: lowest-held seq − 1
+  uint32 max_messages = 3;           // default 500
+}
+message SessionsGetChatHistoryResponse {
+  repeated ChatMessage messages = 1; // oldest→newest
+  uint64 next_seq = 2;               // next-older page cursor (0 = no more)
+  bool truncated = 3;                // true → more history exists
+}
+
+// Full text of one truncated ContentBlock (thinking/tool_result/assistant text).
+message SessionsGetChatBlockRequest {
+  string session_id = 1;
+  string message_id = 2;
+  uint32 block_index = 3;
+}
+message SessionsGetChatBlockResponse {
+  string text = 1;                   // untruncated block text
+}
+
 // ─── workspaces ───────────────────────────────────────────────────────────
 
 message WorkspacesListRequest {}
@@ -522,6 +546,8 @@ service CoordinatorService {
   rpc SessionsAssignWorkspace(SessionsAssignWorkspaceRequest) returns (SessionsAssignWorkspaceResponse);
   rpc SessionsGetScrollbackSince(SessionsGetScrollbackSinceRequest) returns (SessionsGetScrollbackSinceResponse);
   rpc SessionsGetScrollbackCells(SessionsGetScrollbackCellsRequest) returns (SessionsGetScrollbackCellsResponse);
+  rpc SessionsGetChatHistory(SessionsGetChatHistoryRequest) returns (SessionsGetChatHistoryResponse);
+  rpc SessionsGetChatBlock(SessionsGetChatBlockRequest) returns (SessionsGetChatBlockResponse);
 
   // workspaces
   rpc WorkspacesList(WorkspacesListRequest) returns (WorkspacesListResponse);

@@ -1,0 +1,254 @@
+/* Omp chat pane styling. Resolves only existing --md-* design tokens
+   (apps/web/src/styles/voice-input.css:7-8 rule: no new token graphs).
+   Self-contained — a future Claude chat ships its own css, shares nothing. */
+
+.omp-chat {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--md-sys-color-surface);
+  color: var(--md-sys-color-on-surface);
+  overflow: hidden;
+}
+
+.omp-chat__thread {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 12px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  scroll-behavior: smooth;
+}
+
+.omp-chat__skeleton {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 13px;
+}
+
+/* ─── message bubbles ──────────────────────────────────────────────── */
+.omp-msg { display: flex; flex-direction: column; max-width: 100%; }
+.omp-msg--user { align-self: flex-end; align-items: flex-end; }
+.omp-msg--assistant,
+.omp-msg--developer { align-self: flex-start; align-items: flex-start; }
+.omp-msg--toolResult { align-self: flex-start; align-items: flex-start; }
+
+.omp-msg__bubble {
+  padding: 8px 12px;
+  border-radius: 12px;
+  font-size: 14px;
+  line-height: 1.5;
+  word-break: break-word;
+  max-width: min(720px, 88%);
+}
+.omp-msg--user .omp-msg__bubble {
+  background: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
+  border-bottom-right-radius: 4px;
+}
+.omp-msg--assistant .omp-msg__bubble,
+.omp-msg--developer .omp-msg__bubble {
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface);
+  border-bottom-left-radius: 4px;
+}
+.omp-msg--developer .omp-msg__bubble {
+  opacity: 0.7;
+  font-style: italic;
+}
+
+/* markdown body inside bubbles */
+.omp-md p { margin: 0 0 8px; }
+.omp-md p:last-child { margin-bottom: 0; }
+.omp-md pre {
+  background: var(--md-sys-color-surface-container-low);
+  padding: 8px 10px;
+  border-radius: 6px;
+  overflow-x: auto;
+  font-size: 12px;
+  margin: 6px 0;
+}
+.omp-md code {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 12px;
+}
+.omp-md :not(pre) > code {
+  background: var(--md-sys-color-surface-container-highest);
+  padding: 1px 4px;
+  border-radius: 4px;
+}
+.omp-md ul, .omp-md ol { margin: 4px 0 8px; padding-left: 20px; }
+.omp-md h1, .omp-md h2, .omp-md h3 { font-size: 14px; margin: 8px 0 4px; }
+.omp-md a { color: var(--md-sys-color-primary); }
+
+/* ─── thinking block ───────────────────────────────────────────────── */
+.omp-thinking {
+  margin: 2px 0;
+  font-size: 13px;
+}
+.omp-thinking summary {
+  cursor: pointer;
+  color: var(--md-sys-color-on-surface-variant);
+  user-select: none;
+  padding: 2px 0;
+}
+.omp-thinking__body {
+  padding: 6px 10px;
+  margin-top: 4px;
+  border-left: 2px solid var(--md-sys-color-outline-variant);
+  color: var(--md-sys-color-on-surface-variant);
+  white-space: pre-wrap;
+  font-size: 12px;
+  line-height: 1.45;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+.omp-thinking__more {
+  color: var(--md-sys-color-primary);
+  cursor: pointer;
+  font-size: 12px;
+  background: none;
+  border: none;
+  padding: 2px 0;
+}
+
+/* ─── tool card ────────────────────────────────────────────────────── */
+.omp-tool {
+  align-self: flex-start;
+  width: min(760px, 96%);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: 8px;
+  overflow: hidden;
+  font-size: 13px;
+}
+.omp-tool--running { border-color: var(--md-sys-color-primary); }
+.omp-tool--error { border-color: var(--md-sys-color-error); }
+.omp-tool__head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--md-sys-color-surface-container-high);
+  cursor: pointer;
+  user-select: none;
+}
+.omp-tool__chevron { color: var(--md-sys-color-on-surface-variant); font-size: 11px; }
+.omp-tool__name { font-weight: 600; color: var(--md-sys-color-primary); flex: 0 0 auto; }
+.omp-tool__summary {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 12px;
+  color: var(--md-sys-color-on-surface-variant);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1 1 auto;
+}
+.omp-tool__status {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--md-sys-color-primary);
+}
+.omp-tool--error .omp-tool__status { color: var(--md-sys-color-error); }
+.omp-tool__body { display: flex; flex-direction: column; }
+.omp-tool__code,
+.omp-tool__result {
+  margin: 0;
+  padding: 8px 10px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-x: auto;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.omp-tool__code { color: var(--md-sys-color-on-surface-variant); background: var(--md-sys-color-surface-container-low); }
+.omp-tool__result { border-top: 1px solid var(--md-sys-color-outline-variant); }
+.omp-tool__result--error { color: var(--md-sys-color-error); }
+.omp-tool__body--expanded .omp-tool__code,
+.omp-tool__body--expanded .omp-tool__result { max-height: none; }
+.omp-tool__code code, .omp-tool__result code { font: inherit; background: none; padding: 0; }
+.omp-tool__images { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 10px; border-top: 1px solid var(--md-sys-color-outline-variant); }
+.omp-img { max-width: 100%; max-height: 360px; border-radius: 6px; }
+.omp-img-placeholder { padding: 8px 10px; font-size: 12px; color: var(--md-sys-color-on-surface-variant); }
+.omp-tool__loading { padding: 4px 10px; font-size: 12px; color: var(--md-sys-color-on-surface-variant); }
+.omp-tool__more {
+  color: var(--md-sys-color-primary);
+  cursor: pointer;
+  font-size: 12px;
+  background: none;
+  border: none;
+  border-top: 1px solid var(--md-sys-color-outline-variant);
+  padding: 6px 10px;
+  text-align: left;
+  width: 100%;
+}
+
+/* ─── composer ─────────────────────────────────────────────────────── */
+.omp-composer {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 6px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--md-sys-color-outline-variant);
+  background: var(--md-sys-color-surface-container);
+}
+.omp-composer__input {
+  flex: 1;
+  resize: none;
+  max-height: 140px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  background: var(--md-sys-color-surface-container-low);
+  color: var(--md-sys-color-on-surface);
+  font-size: 14px;
+  font-family: inherit;
+  line-height: 1.4;
+}
+.omp-composer__input:focus {
+  outline: none;
+  border-color: var(--md-sys-color-primary);
+}
+.omp-composer__send {
+  align-self: flex-end;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: none;
+  background: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-primary);
+  font-weight: 500;
+  cursor: pointer;
+}
+.omp-composer__send:disabled { opacity: 0.4; cursor: default; }
+
+/* ─── approval card ────────────────────────────────────────────────── */
+.omp-approval {
+  align-self: flex-start;
+  width: min(560px, 92%);
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--md-sys-color-error-container);
+  background: var(--md-sys-color-error-container);
+  color: var(--md-sys-color-on-error-container);
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.omp-approval__actions { display: flex; gap: 8px; }
+.omp-approval__btn {
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+}

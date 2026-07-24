@@ -114,7 +114,7 @@ export function makeWorkerWsHandler(deps: WorkerServiceDeps) {
       // constraint. Process immediately so an echo cell frame never waits
       // behind a DB-writing event frame (the .tail variance amplifier).
       const fcase = frame.frame.case;
-      if (fcase === "binary" || fcase === "cellGrid" || fcase === "claudeStatus") {
+      if (fcase === "binary" || fcase === "cellGrid" || fcase === "claudeStatus" || fcase === "chat") {
         void conn.handleUpstream(frame).catch((e) => {
           log.warn("worker-ws", "handle_failed", { worker_fp: ws.data.fp, error: String(e) });
         });

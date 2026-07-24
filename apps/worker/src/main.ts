@@ -208,6 +208,8 @@ export async function runWorker() {
 			coordLink.sendCellGrid(channelId, frame),
 		sendClaudeStatusUpstream: (channelId, status) =>
 			coordLink.sendClaudeStatus(channelId, status),
+		sendChatFrameUpstream: (channelId, frame) =>
+			coordLink.sendChatFrame(channelId, frame),
 	});
 
 	// Worker has NO inbound port. Browser commands arrive as

@@ -10,6 +10,7 @@ package roost.v1;
 
 import "roost/v1/events.proto";
 import "roost/v1/cell.proto";
+import "roost/v1/sync.proto";
 
 // ── Upstream (worker → coord) ────────────────────────────────────
 
@@ -47,6 +48,11 @@ message WCellGrid { uint32 channel_id = 1; PbCellGridFrame frame = 2; }
 // worker screen-scrapes its wtermCore grid (detect/) and emits on change.
 message WClaudeStatus { uint32 channel_id = 1; string status = 2; }
 
+// Chat (omp transcript-reader). Worker parses omp's JSONL transcript into
+// ChatMessages and emits here keyed by channel_id; coord maps channel→session
+// (byte-hub), stamps session_id, fans out via FirehoseFrame.chat. Mirrors WCellGrid.
+message WChat { uint32 channel_id = 1; ChatFrame frame = 2; }
+
 message CoordWorkerUp {
   oneof frame {
     WHello hello = 1;
@@ -64,6 +70,8 @@ message CoordWorkerUp {
     WRefreshJwt refresh_jwt = 11;
     WCellGrid cell_grid = 12;
     WClaudeStatus claude_status = 13;
+    // Chat frames — omp transcript-reader (channel→session stamped by byte-hub).
+    WChat chat = 14;
   }
 }
 

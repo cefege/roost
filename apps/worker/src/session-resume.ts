@@ -83,8 +83,10 @@ export async function resume(this: SessionManager, opts: {
 		if (resumedBytes.length > 0) {
 			wtermCore.writeRaw(resumedBytes);
 			const resumedTitle = extractOscTitle(resumedBytes);
-			if (resumedTitle !== null)
+			if (resumedTitle !== null) {
 				this.lastOscTitle.set(opts.channelId, resumedTitle);
+				this._ensureChatWatch(opts.channelId);
+			}
 		}
 		// RC3 fallback: ONLY when the session was genuinely in alt-screen but the
 		// enter-seq was evicted from the ring (core didn't pick it up). Never
@@ -111,6 +113,7 @@ export async function resume(this: SessionManager, opts: {
 			session_trace_id: newTraceId(),
 			cell_emit: initCellEmitState(),
 			spawnedAtMs: Date.now(),
+			chat_seq: 0,
 			// Re-capture the child pid from listChannels so ports survive a worker
 			// restart (reconcile adopts the keeper's live PTY, no re-spawn → the
 			// childPid the port scan needs would otherwise be undefined → []).
@@ -224,6 +227,7 @@ export async function respawn(this: SessionManager, opts: {
 		session_trace_id: newTraceId(),
 		cell_emit: initCellEmitState(),
 		spawnedAtMs: Date.now(),
+		chat_seq: 0,
 	};
 	this.sessions.set(channelId, record);
 	this._startGitBranch(record);

@@ -14,11 +14,12 @@
     "@bufbuild/protobuf": "^2.12.0",
     "@connectrpc/connect": "^2.1.2",
     "@connectrpc/connect-web": "^2.1.2",
-    "@roost/shared": "workspace:*",
     "@material/web": "^2.4.1",
+    "@roost/shared": "workspace:*",
     "@solidjs/router": "^0.16.0",
     "@types/qrcode": "^1.5.6",
     "@wterm/dom": "0.3.0",
+    "marked": "^18.0.7",
     "qrcode": "^1.5.4",
     "solid-js": "^1.9.4"
   },

@@ -19,6 +19,7 @@
     "./wterm-core-factory": "./src/wterm-core-factory.ts",
     "./cell": "./src/cell/index.ts",
     "./cell/cell-proto": "./src/cell/cell-proto.ts",
+    "./chat/wire": "./src/chat/wire.ts",
     "./proto/*": "./src/gen/roost/v1/*.ts"
   },
   "scripts": {

@@ -25,7 +25,9 @@ import { isPageVisible } from "../lib/pageVisible.ts";
 import type { Worker } from "@roost/shared/wire";
 import { signal, diag } from "@roost/shared/diag";
 import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
+import type { ChatFrame as PbChatFrame } from "@roost/shared/proto/sync_pb";
 import { _dispatchBytes, _dispatchCell, _dispatchPresence } from "./sync-dispatch.ts";
+import { applyOmpChatFrame } from "./chatOmp.ts";
 import { startStaleWatchdog } from "./sync-watchdog.ts";
 // Worker-routability signal lives in sync-routable.ts (leaf): _runConnectSync
 // writes it; the UI reads workerOnline (re-exported here so consumers keep
@@ -303,6 +305,11 @@ function _dispatchSyncFrame(frame: FirehoseFrame): void {
             // red. workerOnline() reads this set; full-set replace semantics.
             const wr = v as { fps: string[] };
             setRoutableFps(new Set(wr.fps));
+            break;
+          }
+          case "chat": {
+            // Omp chat frame (transcript-reader). applyOmpChatFrame splices
+            applyOmpChatFrame(v as PbChatFrame);
             break;
           }
           case "pairRequestDelta": {

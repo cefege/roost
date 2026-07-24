@@ -3,6 +3,7 @@
 // from CoordLink.ts so external import paths stay unchanged.
 
 import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
+import type { ChatFrame } from "@roost/shared/chat/wire";
 import type { WorkerFp, ClientControlFrame, SessionEvent } from "@roost/shared/wire";
 
 // ─── deps + options ──────────────────────────────────────────────────
@@ -35,6 +36,9 @@ export interface CoordLink {
   // Volatile herdr agent status (running|needs-input|idle). Same drop-on-down
   // policy as sendCellGrid — the worker re-scrapes and re-sends on reconnect.
   sendClaudeStatus(channelId: number, status: string): boolean;
+  // Omp chat frame (transcript-reader). Volatile — dropped on down stream; the
+  // watcher re-seeds via reset + history backfill on reconnect.
+  sendChatFrame(channelId: number, frame: ChatFrame): boolean;
   state(): CoordLinkState;
   dispose(): void;
 }

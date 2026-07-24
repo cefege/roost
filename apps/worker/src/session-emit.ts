@@ -114,7 +114,10 @@ export function emitUpstreamChunk(this: SessionManager, channelId: number, chunk
 	// must still light its sidebar chip; the byte clock feeds the working→idle hold.
 	if (this.sessions.has(channelId)) {
 		const title = extractOscTitle(chunk);
-		if (title !== null) this.lastOscTitle.set(channelId, title);
+		if (title !== null) {
+			this.lastOscTitle.set(channelId, title);
+			this._ensureChatWatch(channelId);
+		}
 		this.lastByteAt.set(channelId, Date.now());
 		this._scheduleDetect(channelId);
 	}

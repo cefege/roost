@@ -10,6 +10,7 @@ import { log, diag, signal } from "@roost/shared";
 import type { ChannelState, FsmEvent } from "./fsm.ts";
 import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
 import * as byteCapture from "./diag/byte-capture.ts";
+import * as chat from "./session-chat.ts";
 import {
 	RECENTLY_CLOSED_TTL_MS,
 	STRAY_REAP_STRIKES,
@@ -185,6 +186,7 @@ export function _dropChannelState(this: SessionManager, channelId: number): void
 			kind: rec.kind,
 		});
 		rec.gitWatchDispose?.();
+		chat._disposeChatWatch(rec);
 		if (rec.prPollTimer) {
 			clearInterval(rec.prPollTimer);
 			rec.prPollTimer = null;

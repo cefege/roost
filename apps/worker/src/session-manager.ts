@@ -13,10 +13,12 @@ import * as viewport from "./session-viewport.ts";
 import * as spawnFns from "./session-spawn.ts";
 import * as resumeFns from "./session-resume.ts";
 import * as lifecycle from "./session-lifecycle.ts";
+import * as chat from "./session-chat.ts";
 
 import { getMultiplexedPool, type MuxChannelCallbacks } from "./keeper/multiplexed-client.ts";
 import { log, asChannelId } from "@roost/shared";
 import type { TerminalCore } from "@wterm/core";
+import type { ChatFrame } from "@roost/shared/chat/wire";
 import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
 import type { SessionEventSink } from "./event-sink.ts";
 import type { ChannelState, FsmEvent } from "./fsm.ts";
@@ -105,6 +107,10 @@ export class SessionManager {
 	readonly sendClaudeStatusUpstream:
 		| ((channelId: number, status: string) => void)
 		| null;
+	// Omp chat frame sink (transcript-reader). null in tests without a coord link.
+	readonly sendChatFrameUpstream:
+		| ((channelId: number, frame: ChatFrame) => void)
+		| null;
 
 	// Sliding-window timestamps of emit_no_session events → keeper.degraded.
 	_noSessionBurst: number[] = [];
@@ -132,6 +138,7 @@ export class SessionManager {
 		sendBinaryUpstream?: (bytes: Uint8Array) => void;
 		sendCellGridUpstream?: (channelId: number, frame: PbCellGridFrame) => void;
 		sendClaudeStatusUpstream?: (channelId: number, status: string) => void;
+		sendChatFrameUpstream?: (channelId: number, frame: ChatFrame) => void;
 	}) {
 		this.workerFp = opts.workerFp;
 		this.sink = opts.sink;
@@ -139,6 +146,7 @@ export class SessionManager {
 		this.sendBinaryUpstream = opts.sendBinaryUpstream ?? null;
 		this.sendCellGridUpstream = opts.sendCellGridUpstream ?? null;
 		this.sendClaudeStatusUpstream = opts.sendClaudeStatusUpstream ?? null;
+		this.sendChatFrameUpstream = opts.sendChatFrameUpstream ?? null;
 		// Viewport-claim reaper. Every 5s: drop claims older than 60s,
 		// recompute SCD per affected channel, SIGWINCH if changed. Catches
 		// dead browsers that didn't get to send a withdraw (kill -9, WiFi
@@ -270,6 +278,10 @@ export class SessionManager {
 
 	_resolvePr(rec: SessionRecord): Promise<void> {
 		return gitPorts._resolvePr.call(this, rec);
+	}
+
+	_ensureChatWatch(channelId: number): void {
+		return chat._ensureChatWatch.call(this, channelId);
 	}
 
 	claimViewport(channelId: number, viewerFp: string, cols: number, rows: number, clientSeq?: number, cause?: number): void {

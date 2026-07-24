@@ -5,6 +5,7 @@ import type { SessionId, ChannelId } from "@roost/shared";
 import type { FsmChannel } from "./fsm.ts";
 import type { TerminalCore } from "@wterm/core";
 import type { CellEmitState } from "@roost/shared/cell";
+import type { ChatMessage } from "@roost/shared/chat/wire";
 
 export type SessionRecord = {
 	sessionId: SessionId;
@@ -91,6 +92,16 @@ export type SessionRecord = {
 	// DEAD_BIRTH_LIFETIME_MS: a child that exits fast having produced zero bytes
 	// (head_seq===0) is a dead-birth → feeds the degraded-keeper self-heal.
 	spawnedAtMs: number;
+	// Omp chat (transcript-reader). Only omp sessions resolve a transcript;
+	// chatWatchDispose closes the fs tailer on close / cwd-change / respawn.
+	// chat_seq = monotonic line count (frame seq); chatMessages = parsed
+	// transcript cache for history backfill; chatTranscriptPath = resolved
+	// JSONL path for get-chat-block full-text re-reads. See chat/omp/.
+	chatWatchDispose?: (() => void) | null;
+	chat_seq: number;
+	chatMsgSeqs?: number[];
+	chatMessages?: ChatMessage[] | null;
+	chatTranscriptPath?: string | null;
 };
 
 export interface ViewportClaim {

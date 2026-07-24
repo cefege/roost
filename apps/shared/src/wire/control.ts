@@ -149,6 +149,24 @@ export const ClientControlFrame = z.discriminatedUnion("kind", [
     cols: z.number().int().positive().default(80),
     rows: z.number().int().positive().default(24),
   }),
+  // omp chat history backfill (transcript-reader). rpc-ok data:
+  // { messages: ChatMessage[], next_seq: number, truncated: boolean }.
+  Base.extend({
+    kind: z.literal("get-chat-history"),
+    request_id: z.string(),
+    session_id: SessionId,
+    after_seq: z.number().int().nonnegative().optional(),
+    max_messages: z.number().int().positive().default(500),
+  }),
+  // Full text of one truncated ContentBlock (thinking/tool_result/toolCall args).
+  // rpc-ok data: { text: string }.
+  Base.extend({
+    kind: z.literal("get-chat-block"),
+    request_id: z.string(),
+    session_id: SessionId,
+    message_id: z.string(),
+    block_index: z.number().int().nonnegative(),
+  }),
 ]);
 export type ClientControlFrame = z.infer<typeof ClientControlFrame>;
 

@@ -14,7 +14,7 @@
 // Data layer: filesListDir/filesMkdir RPCs, childPath/pathCrumbs
 // (lib/folderPalette.ts), pickFolder→spawnShell, createFolder.
 
-import { createMemo, createSignal, createEffect, For, Show, onMount, onCleanup } from "solid-js";
+import { createMemo, createSignal, createEffect, For, Show, onMount, onCleanup, on } from "solid-js";
 import { useNavigate, useParams, Navigate } from "@solidjs/router";
 import { rootStore } from "../store/root.ts";
 import { allSessions } from "../store/selectors.ts";
@@ -27,7 +27,7 @@ import { computeFolderActivity, type FolderActivity } from "../lib/folderActivit
 import { colorForFp } from "../lib/fpColor.ts";
 import { isCompact } from "../lib/windowSizeClass.ts";
 import { addToast } from "../lib/toastStore.ts";
-import { childPath, pathCrumbs, collapseCrumbs, type CrumbView } from "../lib/folderPalette.ts";
+import { childPath, pathCrumbs, collapseCrumbsTo, type CrumbView } from "../lib/folderPalette.ts";
 import { initHistory, pushHistory as pushHistoryFn, goBack as goBackFn, goForward as goForwardFn, canGoBack as canBackFn, canGoForward as canFwdFn, type HistoryState } from "../lib/browseHistory.ts";
 import { uiStore, setHomeFolderViewMode, setHomeFolderShowFiles } from "../store/uiStore.ts";
 import { FolderGlyph } from "./FolderGlyph.tsx";
@@ -81,6 +81,8 @@ export function BrowsePage() {
   let resultsRef: HTMLDivElement | undefined;
   let crumbsRef: HTMLDivElement | undefined;
   let crumbOverflowBtn: HTMLButtonElement | undefined;
+  const [hideMiddle, setHideMiddle] = createSignal(0);
+  let crumbsMeasureRef: HTMLDivElement | undefined;   // hidden mirror row
   const [newFolderOpen, setNewFolderOpen] = createSignal(false);
   const [newFolderName, setNewFolderName] = createSignal("");
   const [newFolderBusy, setNewFolderBusy] = createSignal(false);
@@ -127,7 +129,7 @@ export function BrowsePage() {
 
   const cwdNow = createMemo(() => dirData()?.resolved ?? cwd());
   const crumbs = createMemo(() => pathCrumbs(cwdNow()));
-  const crumbViews = createMemo<CrumbView[]>(() => collapseCrumbs(crumbs()));
+  const crumbViews = createMemo<CrumbView[]>(() => collapseCrumbsTo(crumbs(), hideMiddle()));
   const backEnabled = createMemo(() => canBackFn(historyState()));
   const forwardEnabled = createMemo(() => canFwdFn(historyState()));
 
@@ -176,9 +178,57 @@ export function BrowsePage() {
   // Keep the current-folder crumb in view: scroll the strip fully right on
   // every path change (older ancestors scroll off the left, Drive-style).
   createEffect(() => {
-    crumbs();
+    crumbViews();
     queueMicrotask(() => { if (crumbsRef) crumbsRef.scrollLeft = crumbsRef.scrollWidth; });
   });
+
+  // Width-aware breadcrumb collapse. A hidden mirror row (carrying the real
+  // .df-browse-crumb classes → exact font/padding) gives each segment's natural
+  // width; we fold middle crumbs from the left until the trail fits the strip's
+  // content box, never folding when it already fits. PaneStrip.tsx:54-82 is the
+  // reference idiom (ResizeObserver + rAF measure).
+  function availableCrumbWidth(): number {
+    if (!crumbsRef) return Infinity;
+    const cs = getComputedStyle(crumbsRef);
+    const pad = parseFloat(cs.paddingLeft || "0") + parseFloat(cs.paddingRight || "0");
+    return crumbsRef.clientWidth - pad;
+  }
+  function measureCrumbs(): void {
+    const mirror = crumbsMeasureRef;
+    if (!mirror) return;
+    const sampleCrumb = mirror.querySelector<HTMLElement>("[data-mirror-crumb]");
+    const sepEl = mirror.querySelector<HTMLElement>("[data-mirror-sep]");
+    const ovEl = mirror.querySelector<HTMLElement>("[data-mirror-overflow]");
+    if (!sampleCrumb || !sepEl || !ovEl) return;
+    const widths = Array.from(mirror.querySelectorAll<HTMLElement>("[data-mirror-crumb]"), (el) => el.offsetWidth);
+    if (widths.length <= 3) { setHideMiddle(0); return; }
+    const sepW = sepEl.offsetWidth;
+    const overflowW = ovEl.offsetWidth;
+    const avail = availableCrumbWidth();
+    const n = widths.length;
+    const middleCount = n - 3;
+    const sumAll = widths.reduce((a, b) => a + b, 0) + (n - 1) * sepW;
+    if (sumAll <= avail) { setHideMiddle(0); return; }
+    // Smallest k in [1, middleCount] that fits; default max-collapse if none does.
+    let best = middleCount;
+    for (let k = 1; k <= middleCount; k++) {
+      const keptWidth = widths.slice(1 + k).reduce((a, b) => a + b, 0); // tail side incl. parent+current
+      const visibleCount = 1 + 1 + (n - 1 - k);                          // head + ellipsis + kept
+      const w = widths[0] + overflowW + keptWidth + (visibleCount - 1) * sepW;
+      if (w <= avail) { best = k; break; }
+    }
+    setHideMiddle(best);
+  }
+  const crumbResizeObs = new ResizeObserver(() => measureCrumbs());
+  onMount(() => {
+    if (crumbsRef) crumbResizeObs.observe(crumbsRef);
+    measureCrumbs();
+  });
+  onCleanup(() => crumbResizeObs.disconnect());
+  // Re-measure when the path changes: mirror re-renders, then read post-layout.
+  createEffect(on(crumbs, () => {
+    queueMicrotask(measureCrumbs);
+  }));
 
   // Mount: seed cwd + history from this server's most-recent session,
   // else "~" (home). Home is "~" (never ""); the empty-string→root bug
@@ -431,6 +481,21 @@ export function BrowsePage() {
             </>
           )}
         </For>
+      </div>
+      <div class="df-browse-crumbs-measure" ref={crumbsMeasureRef} aria-hidden="true">
+        <For each={crumbs()}>
+          {(c, i) => (
+            <>
+              <Show when={i() > 0}>
+                <span class="df-browse-crumb-sep" data-mirror-sep aria-hidden="true">▸</span>
+              </Show>
+              <button type="button" class="df-browse-crumb" data-mirror-crumb tabindex="-1">{c.label}</button>
+            </>
+          )}
+        </For>
+        {/* one sample of each non-crumb token so its width is measurable */}
+        <span class="df-browse-crumb-sep" aria-hidden="true">▸</span>
+        <button type="button" class="df-browse-crumb df-browse-crumb-overflow" data-mirror-overflow tabindex="-1">…</button>
       </div>
 
       <Show when={cwd() === startDir() && folderRecents().length > 0}>

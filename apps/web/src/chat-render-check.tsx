@@ -1,0 +1,54 @@
+// Standalone render check — mounts OmpChatPane with a realistic synthetic
+// conversation to prove the Solid UI render path (bubbles, ToolCard inline
+// result, ThinkingBlock, Composer) with the REAL components + store. No coord
+// auth needed: backfill fails → status "resolved" → injected data renders.
+// Served by vite at /chat-render-check.html.
+
+import { render } from "solid-js/web";
+import { rootStore, setRootStore } from "./store/root.ts";
+import { setOmpChatView } from "./store/uiStore.ts";
+import { OmpChatPane } from "./components/chat/omp/OmpChatPane.tsx";
+import type { ChatMessage } from "@roost/shared/chat/wire";
+
+const SID = "00000000-0000-0000-0000-000000000001";
+
+// Force omp eligibility + chat view mode.
+setRootStore("terminal_title", SID, "π: render check");
+setOmpChatView(SID, "chat");
+
+// A realistic conversation: user msg, assistant (thinking+text+toolCall),
+// a separate toolResult message, and a live toolEvent (running chip).
+const msgs: ChatMessage[] = [
+  {
+    id: "u1", parentId: "", ts: "2026-07-24T10:00:00Z", role: "user",
+    blocks: [{ kind: "text", text: "**Read** this file and summarize." }],
+  },
+  {
+    id: "a1", parentId: "u1", ts: "2026-07-24T10:00:01Z", role: "assistant",
+    blocks: [
+      { kind: "thinking", text: "Let me read the file the user asked about.", truncated: false, fullLen: 41 },
+      { kind: "text", text: "Reading `README.md` now." },
+      { kind: "toolCall", callId: "call_1", name: "read", argsJson: '{"path":"README.md"}' },
+    ],
+  },
+  {
+    id: "tr1", parentId: "a1", ts: "2026-07-24T10:00:02Z", role: "toolResult",
+    blocks: [{ kind: "toolResult", callId: "call_1", name: "read", isError: false, text: "# README\n\nThis is a test project.\n\n## Install\n\nRun `bun install`.", truncated: false, fullLen: 56 }],
+  },
+  {
+    id: "a2", parentId: "tr1", ts: "2026-07-24T10:00:03Z", role: "assistant",
+    blocks: [
+      { kind: "text", text: "The README describes a test project with a simple `bun install` setup." },
+      { kind: "toolCall", callId: "call_2", name: "edit", argsJson: '{"path":"README.md","content":"updated"}' },
+    ],
+  },
+  // A live tool_event (start, no end/result) → "running" chip.
+  {
+    id: "e1", parentId: "a2", ts: "2026-07-24T10:00:04Z", role: "assistant",
+    blocks: [{ kind: "toolEvent", callId: "call_2", name: "edit", phase: "start", intent: "Editing" }],
+  },
+];
+
+setRootStore("chat_omp", SID, { messages: msgs, seq: 5, status: "resolved" });
+
+render(() => <OmpChatPane sessionId={SID} />, document.getElementById("app")!);

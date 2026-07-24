@@ -111,6 +111,10 @@ message FirehoseFrame {
     // WS-level pings to JS, so this MUST be a data frame that arrives in
     // onmessage.
     KeepaliveFrame keepalive = 26;
+    // Chat — omp transcript-reader chat frames. Worker parses omp's JSONL
+    // transcript into structured ChatMessages and emits here; coord fans out
+    // unchanged (same path as cell_grid/bytes). Per-agent (omp only).
+    ChatFrame chat = 27;
   }
 }
 
@@ -180,4 +184,70 @@ message UiStateFrame {
 message UiCommandFrame {
   string target_tab_id = 1;  // empty = all tabs
   UiCommand command = 2;
+}
+
+// ─── chat: omp transcript-reader chat wire ────────────────────────────────
+// Worker parses omp's append-only JSONL transcript into ChatMessages and
+// ships them here; coord relays verbatim. This is the ONE shared chat
+// contract (transport-only, same status as SessionEvent/AgentState) — all
+// parsing, watching, UI, and store code is omp-scoped in worker/web.
+// See apps/shared/src/chat/wire.ts for the Zod schema + adapters.
+
+message ContentBlock {
+  oneof kind {
+    string text = 1;                 // assistant/user text (markdown); sent in full
+    ThinkingText thinking = 2;       // assistant reasoning — truncated when huge, lazy-fetched
+    ToolCall tool_call = 3;
+    ToolResult tool_result = 4;
+    ToolEvent tool_event = 5;        // live tool lifecycle (start/end) from custom entries
+    ImageRef image = 6;
+  }
+
+  message ThinkingText {
+    string text = 1;                 // truncated to TRUNC_CAP chars when full_len exceeds it
+    bool truncated = 2;              // true → fetch full via SessionsGetChatBlock
+    uint32 full_len = 3;             // untruncated length, for "show N more"
+  }
+
+  message ToolCall {
+    string call_id = 1;
+    string name = 2;
+    string args_json = 3;            // raw JSON arguments (prettified client-side)
+  }
+
+  message ToolResult {
+    string call_id = 1;
+    string name = 2;
+    string text = 3;                 // truncated to TRUNC_CAP chars
+    bool is_error = 4;
+    bool truncated = 5;              // true → fetch full via SessionsGetChatBlock
+    uint32 full_len = 6;             // untruncated length, for "show N more"
+  }
+
+  message ToolEvent {
+    string call_id = 1;
+    string name = 2;
+    string phase = 3;                // "start" | "end"
+    string intent = 4;               // optional human label
+  }
+
+  message ImageRef {
+    string blob_path = 1;            // ~/.omp/agent/blobs/<sha256>
+    string mime = 2;
+  }
+}
+
+message ChatMessage {
+  string id = 1;
+  string parent_id = 2;
+  string ts = 3;                     // ISO 8601 from transcript
+  string role = 4;                   // user | assistant | toolResult | developer
+  repeated ContentBlock blocks = 5;
+}
+
+message ChatFrame {
+  string session_id = 1;
+  repeated ChatMessage append = 2;   // newest messages (worker tailer output)
+  uint64 seq = 3;                    // monotonic line count (tailer offset)
+  bool reset = 4;                    // true → drop client history and reseed
 }

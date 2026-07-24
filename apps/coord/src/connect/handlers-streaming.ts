@@ -37,7 +37,7 @@ import {
   sessionBus, presenceBus, workspaceBus, taskBus, webhookBus,
   permissionBus, mcpBus, globalBytesBus, globalPresenceBus, auditBus,
   claudeStatusBus, titleBus, lastActivityBus, workerRoutableBus, globalCellBus,
-  pairBus, uiBus, type TaskBusMsg, type PairRequestDelta, type AuditRow,
+  globalChatBus, pairBus, uiBus, type TaskBusMsg, type PairRequestDelta, type AuditRow,
 } from "../buses.ts";
 import { getEventsSince } from "../event-log.ts";
 import { listRoutableFps } from "./worker-service.ts";
@@ -304,6 +304,11 @@ export function startSyncFeed(
     globalCellBus.subscribe((frame) => {
       frame.coordFanoutMs = BigInt(Date.now());
       push(create(FirehoseFrameSchema, { frame: { case: "cellGrid", value: frame } }));
+    }),
+    // Omp chat. Bus payload is already a ChatFrame (session_id stamped by
+    // byte-hub::publishChat).
+    globalChatBus.subscribe((frame) => {
+      push(create(FirehoseFrameSchema, { frame: { case: "chat", value: frame } }));
     }),
     claudeStatusBus.subscribe(({ session_id, status }) =>
       push(create(FirehoseFrameSchema, {

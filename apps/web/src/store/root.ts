@@ -12,6 +12,7 @@ import type {
   PermissionRule,
   McpRelay,
 } from "@roost/shared/wire";
+import type { ChatMessage } from "@roost/shared/chat/wire";
 
 // Keyed by string id for plain-object Solid reactivity.
 // Solid createStore + Map<K,V> has limited granularity; keyed records work better.
@@ -70,6 +71,18 @@ export interface RootState {
    *  routes the CTA to /pair (Onboarding). Cleared on successful
    *  refresh once trust is granted. See AllView.tsx + SidebarEmptyState. */
   browser_unauthorized: boolean;
+  /** Omp chat (transcript-reader). Per-session messages + tailer status.
+   *  Self-contained omp slice — no shared chat components. The logic +
+   *  selectors live in store/chatOmp.ts; state mounts here so sync.ts's
+   *  single reactive flush covers chat frames too. key = SessionId. */
+  chat_omp: Record<string, ChatOmpState>;
+}
+
+export type ChatOmpStatus = "idle" | "loading" | "resolved";
+export interface ChatOmpState {
+  messages: ChatMessage[];
+  seq: number;
+  status: ChatOmpStatus;
 }
 
 const initialState: RootState = {
@@ -86,6 +99,7 @@ const initialState: RootState = {
   last_activity: {},
   session_viewers: {},
   browser_unauthorized: false,
+  chat_omp: {},
 };
 
 export const [rootStore, setRootStore] = createStore<RootState>(initialState);

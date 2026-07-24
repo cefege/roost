@@ -15,6 +15,7 @@ function installFakeDom(innerHeight: number) {
   const listeners = new Map<string, Set<Handler>>();
   const cssProps: Record<string, string> = {};
   const store = new Map<string, string>();
+  const attrs: Record<string, string> = {};
 
   const win = {
     innerHeight,
@@ -55,14 +56,18 @@ function installFakeDom(innerHeight: number) {
   (globalThis as any).requestAnimationFrame = (cb: () => void) => win.requestAnimationFrame(cb);
   (globalThis as any).cancelAnimationFrame = (id: number) => win.cancelAnimationFrame(id);
   (globalThis as any).document = {
-    documentElement: { style: { setProperty: (n: string, v: string) => (cssProps[n] = v) } },
+    documentElement: {
+      style: { setProperty: (n: string, v: string) => (cssProps[n] = v) },
+      setAttribute: (n: string, v: string) => (attrs[n] = v),
+      removeAttribute: (n: string) => { delete attrs[n]; },
+    },
   };
   (globalThis as any).localStorage = {
     getItem: (k: string) => store.get(k) ?? null,
     setItem: (k: string, v: string) => store.set(k, v),
   };
 
-  return { win, cssProps, store };
+  return { win, cssProps, store, attrs };
 }
 
 // Fresh module instance per test: cache-bust the import specifier so module-top
@@ -88,10 +93,12 @@ describe("fabDragOffset", () => {
     dom.win.fire("pointermove", pd(500)); // up 200px
     dom.win.flushRaf(); // coalesced var-write deferred to a frame
     expect(dom.cssProps[VAR]).toBe("200px");
+    expect(dom.attrs["data-fab-dragging"]).toBe("true"); // layers promoted for the drag
 
     dom.win.fire("pointerup", {});
     expect(dom.store.get("roost.fabOffsetY.v1")).toBe("200"); // persisted
     expect(dom.win.count("click")).toBe(1); // one-shot swallow installed
+    expect(dom.attrs["data-fab-dragging"]).toBeUndefined(); // demoted on release
   });
 
   test("clamps so the cluster can't leave the top of the viewport", async () => {
@@ -112,6 +119,7 @@ describe("fabDragOffset", () => {
     expect(dom.cssProps[VAR]).toBe("0px");
     expect(dom.store.get("roost.fabOffsetY.v1")).toBeUndefined();
     expect(dom.win.count("click")).toBe(0); // tap → FAB's own onClick fires
+    expect(dom.attrs["data-fab-dragging"]).toBeUndefined(); // tap never promotes layers
   });
 
   test("restores a persisted offset at import (before first paint)", async () => {

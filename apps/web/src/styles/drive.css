@@ -120,6 +120,21 @@
   font-weight: 700;
   letter-spacing: 1px;
 }
+/* Hidden measurement mirror for width-aware breadcrumb collapse
+ * (BrowsePage.tsx). Same classes as the visible strip → exact font/padding
+ * match. Out of flow + invisible, but laid out so offsetWidth is real. */
+.df-browse-crumbs-measure {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  visibility: hidden;
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: -1;
+}
 
 
 .df-browse-toggle {

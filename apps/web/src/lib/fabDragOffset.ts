@@ -80,7 +80,15 @@ export function onFabPointerDown(e: PointerEvent): void {
 
   const onMove = (ev: PointerEvent): void => {
     if (!armed && !dragArmed({ x: startX, y: startY }, ev.clientX, ev.clientY)) return;
-    armed = true;
+    if (!armed) {
+      armed = true;
+      // Promote FAB layers to compositor surfaces for the drag only (mirrors
+      // the sidebar [data-swiping="1"] gating — permanent will-change kept
+      // every FAB on its own layer across all mounted sessions and janked the
+      // drag). Set BEFORE scheduling the first rAF so promotion is in place
+      // when the first translate write lands.
+      document.documentElement.setAttribute("data-fab-dragging", "true");
+    }
     // drag UP (clientY decreases) => larger upward offset
     last = Math.min(maxY, Math.max(0, base + (startY - ev.clientY)));
     if (!rafId) rafId = requestAnimationFrame(flush);
@@ -92,6 +100,7 @@ export function onFabPointerDown(e: PointerEvent): void {
     window.removeEventListener("pointerup", onUp);
     window.removeEventListener("pointercancel", onUp);
     if (!armed) return; // was a tap — let the FAB's own onClick fire; no var write
+    document.documentElement.removeAttribute("data-fab-dragging");
     // Commit the most recent target (a frame may have been pending at release)
     // so the released position is final and durable.
     current = last;

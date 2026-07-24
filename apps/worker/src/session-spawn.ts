@@ -60,6 +60,7 @@ export async function spawnShell(
 		session_trace_id: newTraceId(),
 		cell_emit: initCellEmitState(),
 		spawnedAtMs: Date.now(),
+		chat_seq: 0,
 	};
 	this.sessions.set(channelId, record);
 	diag("session.spawn", {
@@ -178,6 +179,7 @@ export async function spawnClaude(
 		session_trace_id: newTraceId(),
 		cell_emit: initCellEmitState(),
 		spawnedAtMs: Date.now(),
+		chat_seq: 0,
 	};
 	this.sessions.set(channelId, record);
 	diag("session.spawn", {
