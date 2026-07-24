@@ -273,4 +273,13 @@
   font-style: italic;
   padding: 2px 4px;
 }
-.omp-composer__stop { background: var(--md-sys-color-error); color: var(--md-sys-color-on-error); }
+.omp-composer__stop {
+  align-self: flex-end;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: none;
+  font-weight: 500;
+  cursor: pointer;
+  background: var(--md-sys-color-error);
+  color: var(--md-sys-color-on-error);
+}

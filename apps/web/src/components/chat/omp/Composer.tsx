@@ -9,7 +9,7 @@
 //  buildPtyPayload + delayed CR, exactly like TerminalChatButton. The chat
 //  overlay mirrors what the terminal does.
 
-import { createSignal, Show } from "solid-js";
+import { createMemo, createSignal, Show } from "solid-js";
 import { coordClient } from "../../../connect.ts";
 import { rootStore } from "../../../store/root.ts";
 import { ompChatForSession } from "../../../store/chatOmp.ts";
@@ -29,7 +29,9 @@ export function Composer(props: Props) {
   const isNative = () => isChatFolder(rootStore.sessions[props.sessionId]?.cwd ?? "");
   // Worker-owned turn state (native engine only) — the mirror engine always
   // reports false, so Stop never appears on a PTY-injection session.
-  const streaming = () => ompChatForSession(props.sessionId).streaming;
+  // createMemo, not a bare accessor: the slot may not exist on first render,
+  // and a plain read of the fallback literal registers no store dependency.
+  const chat = createMemo(() => ompChatForSession(props.sessionId));
 
   const abort = async () => {
     try {
@@ -86,7 +88,7 @@ export function Composer(props: Props) {
   };
 
   return (
-    <div class="omp-composer" data-testid="omp-chat-composer">
+    <div class="omp-composer" data-testid="omp-chat-composer" data-streaming={String(chat().streaming)}>
       <textarea
         class="omp-composer__input"
         placeholder="Send to omp…"
@@ -99,8 +101,8 @@ export function Composer(props: Props) {
       {/* Stop sits BESIDE Send, not in place of it: omp accepts a mid-turn
           prompt (the worker queues it as a followUp), so hiding Send would
           wrongly imply follow-ups are blocked. */}
-      <Show when={streaming()}>
-        <button class="omp-composer__send omp-composer__stop" onClick={() => void abort()}>Stop</button>
+      <Show when={chat().streaming}>
+        <button class="omp-composer__stop" onClick={() => void abort()}>Stop</button>
       </Show>
       <button
         class="omp-composer__send"

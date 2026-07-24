@@ -527,8 +527,20 @@ export async function rpcChatCommand(
 	if (type === "prompt" && entry.streaming && cmd.streamingBehavior === undefined) cmd.streamingBehavior = "followUp";
 	try {
 		const response = await entry.driver.send(cmd);
+		// A rejected command is invisible otherwise: the SPA toasts and the
+		// worker log shows a successful round trip. Chief offender is a prompt
+		// omp refuses because the turn state disagreed with entry.streaming.
+		if (response.success === false) {
+			log.warn("omp-rpc", "command_rejected", {
+				sid: entry.sessionId, type,
+				streaming: entry.streaming,
+				behavior: String(cmd.streamingBehavior ?? ""),
+				error: String(response.error ?? ""),
+			});
+		}
 		return { ok: true, response };
 	} catch (err) {
+		log.warn("omp-rpc", "command_failed", { sid: entry.sessionId, type, error: String(err) });
 		return { ok: false, error: err instanceof Error ? err.message : String(err) };
 	}
 }
