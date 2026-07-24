@@ -31,10 +31,19 @@ export function ConsoleModalShell(props: Props) {
   const [collapsed, setCollapsed] = createSignal(false);
   let scrollRef: HTMLPreElement | undefined;
 
-  // Auto-scroll to bottom on each new line — feels alive while running.
+  // Auto-scroll to bottom on each new line — but only while the user is parked
+  // there. Sampled in onScroll (pre-append geometry); by the time the effect
+  // runs the new line is already in the DOM and the at-bottom read is off by a
+  // line. The programmatic pin below fires its own scroll event, which re-arms
+  // stick.
+  let stick = true;
+  const onScroll = () => {
+    const el = scrollRef;
+    if (el) stick = el.scrollHeight - el.scrollTop - el.clientHeight <= 32;
+  };
   createEffect(() => {
     props.lines();
-    if (scrollRef) scrollRef.scrollTop = scrollRef.scrollHeight;
+    if (stick && scrollRef) scrollRef.scrollTop = scrollRef.scrollHeight;
   });
 
   const headerColor = () => {
@@ -98,6 +107,7 @@ export function ConsoleModalShell(props: Props) {
           <pre
             ref={scrollRef}
             data-testid={`${props.testId}-output`}
+            onScroll={onScroll}
             style={{
               margin: "0",
               padding: "12px",

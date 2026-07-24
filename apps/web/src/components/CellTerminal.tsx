@@ -214,12 +214,12 @@ export function CellTerminal(props: CellTerminalProps) {
 // intent; _repinPending forces a re-pin on the first frame(s) after reveal.
 let _following = true;     // user stuck to bottom? (default: a fresh pane follows)
 let _repinPending = false; // a reveal happened while _following → re-pin on next frame(s)
-let _settling = false;              // true while the reveal re-pin burst is scrolling — self-inflicted scrolls, ignore them
+let _settling = false;              // true while the reveal re-pin burst is scrolling — self-inflicted scrolls, ignore them. Bounded: only a FULL frame re-arms the countdown (see startRepinSettle), so a stream of delta frames can never keep it latched.
 let _settleRaf: number | null = null;
 let _flushRaf: number | null = null;
 let _settleFrames = 0;
 let _jumping = false; // true while the smooth jump-to-bottom animation runs — ignore the scroll listener
-let _lastPinTop = Number.NaN; // scrollTop right after the last scheduleFlush scrollToBottom pin. NaN until the first pin (NaN comparisons are false → never suppresses a real scroll before then). onBackfillScroll uses this to tell the pin's OWN async scroll event (scrollTop still == the target, possibly with scrollHeight since grown below it) from a genuine wheel/touch scroll-up (scrollTop now BELOW the target). Position-based, not time-based, so a real scroll-up is honored the instant it moves — the one-frame flag it replaced re-armed every frame during streaming and blinded wheel-up the whole time output was pouring.
+let _lastPinTop = Number.NaN; // scrollTop right after the last scheduleFlush scrollToBottom pin. NaN until the first pin (NaN comparisons are false → never suppresses a real scroll before then). onBackfillScroll uses this to tell the pin's OWN async scroll event (scrollTop still == the target, possibly with scrollHeight since grown below it) from a genuine wheel/touch scroll-up (scrollTop now strictly BELOW the target). Position-based, not time-based, so a real scroll-up is honored the instant it moves — the one-frame flag it replaced re-armed every frame during streaming and blinded wheel-up the whole time output was pouring.
 let _touchScrolling = false; // finger actively dragging a main-screen (non-alt) pane → suppress auto-pin
 let _touchStartY = 0;        // clientY at touchstart, to measure drag distance vs slop
 let _touchMoved = false;     // this touch has passed the slop → it's a scroll, not a tap
@@ -391,11 +391,15 @@ let _touchGraceTimer: ReturnType<typeof setTimeout> | null = null;
 		sendClaim(cause);
 	}
 
-	// Drive the reveal re-pin across the reflow window. Idempotent restart: a new
-	// snapshot frame during the burst just resets the frame counter (extends the
-	// follow); the running rAF loop is not double-scheduled.
-	function startRepinSettle(): void {
-		_settleFrames = 0;
+	// Drive the reveal re-pin across the reflow window. A FULL frame (the
+	// re-claim snapshot) re-arms the countdown — its content-visibility blocks
+	// are what reflow. Delta frames must NEVER re-arm it: under streaming they
+	// land every ~16ms (worker CELL_EMIT_COALESCE_MS), and resetting the counter
+	// on each one livelocked the burst — _settling swallowed every scroll event
+	// while the rAF re-pinned to the bottom, so scroll-up was impossible for as
+	// long as output streamed.
+	function startRepinSettle(restart: boolean): void {
+		if (restart) _settleFrames = 0;
 		_settling = true;
 		if (_settleRaf != null) return; // loop already running
 		const step = () => {
@@ -465,7 +469,7 @@ let _touchGraceTimer: ReturnType<typeof setTimeout> | null = null;
 		let last = performance.now();
 		const t0 = last;
 		const step = (now: number) => {
-			if (unmounted || !renderer) { _jumping = false; return; }
+			if (unmounted || !renderer || !_jumping) { _jumping = false; return; }
 			const dtMs = Math.min(now - last, 64); // clamp after a stall
 			last = now;
 			const target = el.scrollHeight - el.clientHeight;
@@ -510,25 +514,46 @@ let _touchGraceTimer: ReturnType<typeof setTimeout> | null = null;
 			sessionId: props.session.id,
 			renderer: () => renderer,
 		});
+		// The user asked to leave the bottom. AUTHORITATIVE: every programmatic
+		// scroll source is torn down here, so nothing can drag the view back —
+		// the reveal re-pin burst, its rAF, the pending re-pin intent, and any
+		// in-flight jump-to-bottom animation. Idempotent (backfill.start()
+		// dedupes on its active-loop epoch), so wheel-then-scroll-event double
+		// fires are free. Follow re-engages only from onBackfillScroll's
+		// atBottom() read or the jump-to-bottom FAB.
+		function stopFollowing(): void {
+			_following = false;
+			_repinPending = false;
+			_settling = false;
+			if (_settleRaf != null) { cancelAnimationFrame(_settleRaf); _settleRaf = null; }
+			_jumping = false;
+			// Retire the pin target: nothing pins while unfollowed, so a kept
+			// _lastPinTop would go stale-low and the `scrollTop >= _lastPinTop`
+			// suppressor in onBackfillScroll would then swallow every NON-bottom
+			// event on the way back down, leaving the jump-FAB visibility stale
+			// (the at-bottom event is unaffected — the suppressor is gated on
+			// !atB). NaN compares false → every scroll is honored until the next
+			// real pin.
+			_lastPinTop = Number.NaN;
+			backfill.onUserScrollUp();
+			updateJumpDownVis();
+		}
 		const onBackfillScroll = () => {
 			// Gate to visible+in-layout: a parked pane's content-visibility blocks
 			// revert to placeholders and can fire spurious scroll events whose
 			// atBottom() misreads would corrupt _following / arm backfill pointlessly.
 			if (_settling || _jumping || props.inLayout === false || !isPageVisible() || !renderer || !displayRef) return;
 			const atB = renderer.atBottom();
-			// Suppress only the stale post-pin FALSE read: scrollToBottom set
-			// scrollTop to the bottom, but its async scroll event can fire AFTER
-			// a new cell frame grew scrollHeight below it → atBottom() misreads
-			// false. If scrollTop still matches the last pin target (±2px —
-			// atBottom's own tolerance; one row ≈19px so no real scroll is eaten),
-			// this is that stale event → ignore it. A genuine wheel/touch scroll-up
-			// has already moved scrollTop clear of the target, so it falls through
-			// and flips _following off, even mid-stream. Gated on !atB so scrolling
-			// back to bottom re-engages follow.
-			if (!atB && Math.abs(displayRef.scrollTop - _lastPinTop) <= 2) return;
-			_following = atB;
-			if (!atB) backfill.onUserScrollUp();
-			updateJumpDownVis();
+			// Stale post-pin echo: the pin's own scroll event can land AFTER a new
+			// cell frame grew scrollHeight, so atBottom() misreads false while
+			// scrollTop is still exactly where the pin put it. A real scroll-up
+			// moves scrollTop strictly BELOW the pin target, so `>=` is the exact
+			// discriminator — the old ±2px band also swallowed genuine 1-2px
+			// trackpad scrolls. NaN-safe: _lastPinTop starts NaN (comparison false
+			// → the event is honored) until the first pin.
+			if (!atB && displayRef.scrollTop >= _lastPinTop) return;
+			if (atB) { _following = true; updateJumpDownVis(); }
+			else stopFollowing();
 		};
 		displayRef!.addEventListener("scroll", onBackfillScroll, { passive: true });
 		// Predictive local echo — speculative client overlay, gated on
@@ -614,7 +639,7 @@ let _touchGraceTimer: ReturnType<typeof setTimeout> | null = null;
 				if (props.inLayout !== false && isPageVisible()) {
 					const pin = _following || _repinPending;
 					if (!_touchScrolling) _following = pin;
-					if (_repinPending) startRepinSettle(); // reveal burst owns its own rAF (unchanged)
+					if (_repinPending) startRepinSettle(frame.full); // reveal burst; only a snapshot frame re-arms it
 					scheduleFlush();                        // batched pin + jump-FAB, one rAF/frame
 				}
 				if (frame.full) backfill.onFullFrame();
@@ -834,6 +859,13 @@ let _touchGraceTimer: ReturnType<typeof setTimeout> | null = null;
 		let lastMotionCell: { col: number; row: number } | null = null;
 
 		const onWheelForward = (ev: WheelEvent) => {
+			// Scroll-up intent straight off the INPUT event — authoritative and
+			// immune to the per-frame auto-pin. scrollTop > 0 gates out the no-op
+			// wheel at the top of history and a pane too short to scroll (which
+			// would otherwise strand it un-following at the bottom). A ≤2px brush
+			// still leaves atBottom() true, and the scroll event that follows
+			// re-engages follow, so a trackpad twitch can't stick.
+			if (!altScreen() && ev.deltaY < 0 && displayRef && displayRef.scrollTop > 0) stopFollowing();
 			if (!forwardActive() || modifierBypass(ev)) return;
 			const { col, row } = cellOf(ev.clientX, ev.clientY);
 			sendSeq(`\x1b[<${ev.deltaY < 0 ? 64 : 65};${col};${row}M`);
@@ -919,7 +951,7 @@ let _touchGraceTimer: ReturnType<typeof setTimeout> | null = null;
 					Math.abs(ev.touches[0]!.clientY - _touchStartY) > TOUCH_SCROLL_SLOP_PX) {
 					_touchMoved = true;
 					_touchScrolling = true;
-					_following = false; // user is scrolling into history → stop following
+					stopFollowing(); // user is scrolling into history → stop following
 				}
 				return; // native scroll owns the movement; never preventDefault outside alt-screen
 			}
