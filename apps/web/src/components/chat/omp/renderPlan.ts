@@ -89,6 +89,9 @@ export function analyzeCoverage(messages: ChatMessage[]): { total: number; dropp
           ok = hasCard(b.callId); break;
         case "image":
           ok = msgCallId ? hasCard(msgCallId) : true; break;
+        case "approval":
+          // Carries no callId — its own row at the message site.
+          ok = true; break;
       }
       if (!ok) dropped.push({ msgId: msg.id, blockIndex: i, kind: b.kind });
     });

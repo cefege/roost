@@ -15,6 +15,7 @@ import {
   ContentBlock_ThinkingTextSchema,
   ContentBlock_ToolCallSchema, ContentBlock_ToolResultSchema,
   ContentBlock_ToolEventSchema, ContentBlock_ImageRefSchema,
+  ContentBlock_ApprovalSchema,
   type ChatMessage as PbChatMessage,
   type ChatFrame as PbChatFrame,
   type ContentBlock as PbContentBlock,
@@ -23,6 +24,7 @@ import {
   type ContentBlock_ToolResult as PbToolResult,
   type ContentBlock_ToolEvent as PbToolEvent,
   type ContentBlock_ImageRef as PbImageRef,
+  type ContentBlock_Approval as PbApproval,
 } from "../gen/roost/v1/sync_pb.ts";
 
 // Cap applied by the worker parser to thinking + tool_result text. Anything
@@ -80,8 +82,23 @@ export const ImageBlock = z.object({
 });
 export type ImageBlock = z.infer<typeof ImageBlock>;
 
+// Inline approval prompt (native RPC chat only). omp asks via
+// extension_ui_request; the pane answers with extension_ui_response, so the
+// block carries both the question and — once answered — the decision.
+export const ApprovalBlock = z.object({
+  kind: z.literal("approval"),
+  requestId: z.string(),
+  method: z.string(),            // "confirm" | "select" | "input"
+  title: z.string().default(""),
+  message: z.string().default(""),
+  options: z.array(z.string()).default([]),
+  resolved: z.boolean().default(false),
+  answer: z.string().default(""),
+});
+export type ApprovalBlock = z.infer<typeof ApprovalBlock>;
+
 export const ContentBlock = z.discriminatedUnion("kind", [
-  TextBlock, ThinkingBlock, ToolCallBlock, ToolResultBlock, ToolEventBlock, ImageBlock,
+  TextBlock, ThinkingBlock, ToolCallBlock, ToolResultBlock, ToolEventBlock, ImageBlock, ApprovalBlock,
 ]);
 export type ContentBlock = z.infer<typeof ContentBlock>;
 
@@ -99,11 +116,15 @@ export const ChatMessage = z.object({
 });
 export type ChatMessage = z.infer<typeof ChatMessage>;
 
+// `append` is APPEND-OR-REPLACE BY id, not append-only: a streaming message is
+// re-emitted under the same id as it grows, so a receiver that already holds
+// that id MUST replace it in place rather than skip the entry.
 export const ChatFrame = z.object({
   sessionId: z.string(),
   append: z.array(ChatMessage),
   seq: z.number().int().nonnegative(),
   reset: z.boolean().default(false),
+  streaming: z.boolean().default(false),
 });
 export type ChatFrame = z.infer<typeof ChatFrame>;
 
@@ -144,6 +165,13 @@ export function contentBlockToProto(b: ContentBlock): PbContentBlock {
           blobPath: b.blobPath, mime: b.mime,
         }) },
       });
+    case "approval":
+      return create(ContentBlockSchema, {
+        kind: { case: "approval", value: create(ContentBlock_ApprovalSchema, {
+          requestId: b.requestId, method: b.method, title: b.title, message: b.message,
+          options: b.options, resolved: b.resolved, answer: b.answer,
+        }) },
+      });
   }
 }
 
@@ -160,6 +188,7 @@ export function chatFrameToProto(f: ChatFrame): PbChatFrame {
     append: f.append.map(chatMessageToProto),
     seq: BigInt(f.seq),
     reset: f.reset,
+    streaming: f.streaming,
   });
 }
 
@@ -201,6 +230,13 @@ export function contentBlockFromProto(p: PbContentBlock): ContentBlock {
       const v: PbImageRef = k.value;
       return ContentBlock.parse({ kind: "image", blobPath: v.blobPath, mime: v.mime });
     }
+    case "approval": {
+      const v: PbApproval = k.value;
+      return ContentBlock.parse({
+        kind: "approval", requestId: v.requestId, method: v.method, title: v.title,
+        message: v.message, options: v.options, resolved: v.resolved, answer: v.answer,
+      });
+    }
     case undefined:
     default:
       // Re-Zod-parse with an unknown marker → throws loudly rather than
@@ -222,5 +258,6 @@ export function chatFrameFromProto(p: PbChatFrame): ChatFrame {
     append: p.append.map(chatMessageFromProto),
     seq: Number(p.seq),
     reset: p.reset,
+    streaming: p.streaming,
   });
 }

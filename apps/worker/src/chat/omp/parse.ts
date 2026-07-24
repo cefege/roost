@@ -112,6 +112,20 @@ function mapContent(b: unknown, cap: Cap): ContentBlock | null {
   return null;
 }
 
+/** Map an omp AgentMessage (transcript `message` entry OR RPC message_end
+ *  payload — same shape) → ChatMessage by role. Exported for the native RPC
+ *  chat path (rpc-chat.ts). */
+export function mapAgentMessage(message: unknown, id: string, parentId: string, ts: string): ChatMessage | null {
+  return mapMessage(message, id, parentId, ts, capText);
+}
+
+/** Same mapping WITHOUT truncation. The native RPC path has no transcript
+ *  entry id to re-read by (AgentEvent messages carry none), so it keeps the
+ *  full text alongside the capped message to serve SessionsGetChatBlock. */
+export function mapAgentMessageFull(message: unknown, id: string, parentId: string, ts: string): ChatMessage | null {
+  return mapMessage(message, id, parentId, ts, fullCap);
+}
+
 /** Map a `message` entry → ChatMessage by role (or null). */
 function mapMessage(message: unknown, id: string, parentId: string, ts: string, cap: Cap): ChatMessage | null {
   const m = asRec(message);

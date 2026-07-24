@@ -83,6 +83,8 @@ export interface ChatOmpState {
   messages: ChatMessage[];
   seq: number;
   status: ChatOmpStatus;
+  /** Native RPC chat only: an agent turn is in flight (worker-owned flag). */
+  streaming: boolean;
 }
 
 const initialState: RootState = {

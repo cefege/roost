@@ -7,7 +7,6 @@
 import { createMemo, createEffect, For, Show, onMount } from "solid-js";
 import type { ChatMessage, ContentBlock } from "@roost/shared/chat/wire";
 import { ompChatForSession, backfillOmpChat } from "../../../store/chatOmp.ts";
-import { rootStore } from "../../../store/root.ts";
 import { buildToolIndex, type ToolMatch } from "./renderPlan.ts";
 import { MessageBubble } from "./MessageBubble.tsx";
 import { ThinkingBlock } from "./ThinkingBlock.tsx";
@@ -24,7 +23,6 @@ export function OmpChatPane(props: Props) {
   let threadEl: HTMLDivElement | undefined;
 
   const state = createMemo(() => ompChatForSession(props.sessionId));
-  const blocked = createMemo(() => rootStore.claude_status[props.sessionId] === "needs-input");
 
   // Backfill on first enter (status !== resolved). Idempotent.
   onMount(() => { void backfillOmpChat(props.sessionId); });
@@ -54,8 +52,10 @@ export function OmpChatPane(props: Props) {
             </For>
           </Show>
         </Show>
+        <Show when={state().streaming}>
+          <div class="omp-chat__thinking" data-testid="omp-chat-thinking">π thinking…</div>
+        </Show>
       </div>
-      <ApprovalCard sessionId={props.sessionId} blocked={blocked()} />
       <Composer sessionId={props.sessionId} />
     </div>
   );
@@ -111,5 +111,8 @@ function BlockView(props: { block: ContentBlock; msg: ChatMessage; blockIndex: n
       if (m?.call || (m && m.results.length > 0)) return null;
       return <ToolCard sessionId={props.sessionId} event={block} images={m?.images} />;
     }
+    case "approval":
+      // Native RPC chat only — the mirror engine never produces these.
+      return <ApprovalCard sessionId={props.sessionId} block={block} />;
   }
 }

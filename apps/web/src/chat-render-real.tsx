@@ -13,6 +13,6 @@ import msgs from "./chat-render-real.json";
 const SID = "00000000-0000-0000-0000-000000000001";
 setRootStore("terminal_title", SID, "π: real session");
 setOmpChatView(SID, "chat");
-setRootStore("chat_omp", SID, { messages: msgs as ChatMessage[], seq: (msgs as ChatMessage[]).length, status: "resolved" });
+setRootStore("chat_omp", SID, { messages: msgs as ChatMessage[], seq: (msgs as ChatMessage[]).length, status: "resolved", streaming: false });
 
 render(() => <OmpChatPane sessionId={SID} />, document.getElementById("app")!);

@@ -23,15 +23,19 @@ import {
 import { parseOmpLine, fullBlockText, TRUNC_CAP } from "./chat/omp/parse.ts";
 import { readFile } from "node:fs/promises";
 
-/** omp identity: OSC title starts with π (U+03C0) then ":". */
+/** omp identity: OSC window title. omp emits "π > <breadcrumb>" (and older
+ *  builds "π: <summary>"); match those two prefixes. Crucially EXCLUDE pi's
+ *  "π - <dir>" so chat never steals a pi pane — a bare "π" check would. */
 export function isOmpTitle(title: string | undefined): boolean {
-	return !!title && title.startsWith("\u03C0:");
+	return !!title && (title.startsWith("\u03C0 >") || title.startsWith("\u03C0:"));
 }
 
 /** Build + send a ChatFrame upstream. No-op when no sink (tests). */
 function emitChatFrame(this: SessionManager, channelId: number, append: ChatMessage[], seq: number, reset: boolean): void {
 	if (!this.sendChatFrameUpstream) return;
-	const frame: ChatFrame = { sessionId: "", append, seq, reset };
+	// streaming is a native-RPC-only signal; the mirror engine tails a file and
+	// has no turn state, so it always reports idle.
+	const frame: ChatFrame = { sessionId: "", append, seq, reset, streaming: false };
 	this.sendChatFrameUpstream(channelId, frame);
 }
 

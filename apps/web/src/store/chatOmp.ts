@@ -8,6 +8,7 @@
 // reset → reseed, else splice append by seq (dedup by message id).
 
 import { rootStore, setRootStore, type ChatOmpState } from "./root.ts";
+import { isChatFolder } from "../lib/quickChat.ts";
 import { chatFrameFromProto, chatMessageFromProto, type ChatFrame, type ChatMessage } from "@roost/shared/chat/wire";
 import { coordClient } from "../connect.ts";
 import { asSessionId } from "@roost/shared/wire";
@@ -20,21 +21,27 @@ import { diag } from "@roost/shared/diag";
 // is append-only and grows unbounded on a long-lived π session.
 const MAX_CHAT_MSGS = 2000;
 
-/** omp identity on the SPA side: the OSC terminal title starts with π (U+03C0).
- *  Same signal the worker anchors the chat watcher on. Absent title → chat
- *  toggle hidden (fails safe to the terminal). */
+/** omp identity on the SPA side (chat toggle gate). omp emits "π > <breadcrumb>"
+ *  (older builds "π: <summary>"); match those two. EXCLUDE pi's "π - <dir>" so
+ *  the toggle never appears on a pi pane. Absent/other → toggle hidden. */
 export function ompChatEnabled(sessionId: string): boolean {
+	// Native quick-chats (scratch folder under ~/.roost/chats) are chat-eligible
+	// by construction — the engine is the worker's `omp --mode rpc` child, no
+	// TUI/title involved. Terminal omp sessions stay title-gated.
+	const cwd = rootStore.sessions[sessionId]?.cwd;
+	if (cwd && isChatFolder(cwd)) return true;
 	const title = rootStore.terminal_title[sessionId];
-	return !!title && title.startsWith("\u03C0:");
+	return !!title && (title.startsWith("\u03C0 >") || title.startsWith("\u03C0:"));
 }
 
 /** Current chat state for a session (creates an empty slot lazily). */
 export function ompChatForSession(sessionId: string): ChatOmpState {
-	return rootStore.chat_omp[sessionId] ?? { messages: [], seq: 0, status: "idle" };
+	return rootStore.chat_omp[sessionId] ?? { messages: [], seq: 0, status: "idle", streaming: false };
 }
 
-/** Apply an inbound ChatFrame. reset → replace; else splice append by seq,
- *  deduping messages by id (tailer re-emits are idempotent). */
+/** Apply an inbound ChatFrame. reset → replace; else UPSERT by message id:
+ *  a streaming message is re-emitted under the same id as it grows, so a
+ *  known id replaces in place and only unknown ids append. */
 export function applyOmpChatFrame(pb: PbChatFrame): void {
 	let frame: ChatFrame;
 	try { frame = chatFrameFromProto(pb); }
@@ -50,18 +57,25 @@ export function applyOmpChatFrame(pb: PbChatFrame): void {
 			messages: dedup(frame.append),
 			seq: frame.seq,
 			status: frame.append.length > 0 ? "resolved" : "loading",
+			streaming: frame.streaming,
 		});
 		return;
 	}
-	// Splice: append new messages (dedup by id), bump seq.
-	const existing = new Set(cur.messages.map((m) => m.id));
-	const fresh = frame.append.filter((m) => !existing.has(m.id));
-	if (fresh.length === 0 && cur.seq >= frame.seq) {
+	// Turn state rides every frame, including the payload-less ones the worker
+	// sends on agent_start/agent_end — apply it before any early return.
+	if (cur.streaming !== frame.streaming) setRootStore("chat_omp", sid, "streaming", frame.streaming);
+	if (frame.append.length === 0 && cur.seq >= frame.seq) {
 		// Already current — just bump status if we were loading.
 		if (cur.status === "loading") setRootStore("chat_omp", sid, "status", "resolved");
 		return;
 	}
-	const merged = [...cur.messages, ...fresh];
+	const merged = cur.messages.slice();
+	const at = new Map(merged.map((m, i) => [m.id, i]));
+	for (const m of frame.append) {
+		const i = at.get(m.id);
+		if (i === undefined) { at.set(m.id, merged.length); merged.push(m); }
+		else merged[i] = m;
+	}
 	setRootStore("chat_omp", sid, {
 		messages: merged.length > MAX_CHAT_MSGS ? merged.slice(-MAX_CHAT_MSGS) : merged,
 		seq: Math.max(cur.seq, frame.seq),
@@ -69,13 +83,15 @@ export function applyOmpChatFrame(pb: PbChatFrame): void {
 	});
 }
 
+/** Keep the LAST occurrence of each id — a reset batch can carry the same
+ *  message twice (growing), and the newest copy is the complete one. */
 function dedup(msgs: ChatMessage[]): ChatMessage[] {
-	const seen = new Set<string>();
+	const at = new Map<string, number>();
 	const out: ChatMessage[] = [];
 	for (const m of msgs) {
-		if (seen.has(m.id)) continue;
-		seen.add(m.id);
-		out.push(m);
+		const i = at.get(m.id);
+		if (i === undefined) { at.set(m.id, out.length); out.push(m); }
+		else out[i] = m;
 	}
 	return out;
 }
@@ -103,6 +119,7 @@ export async function backfillOmpChat(sessionId: string): Promise<void> {
 		messages: cur?.messages ?? [],
 		seq: cur?.seq ?? 0,
 		status: "loading",
+		streaming: cur?.streaming ?? false,
 	});
 	try {
 		const res = await coordClient.sessionsGetChatHistory({
@@ -122,6 +139,7 @@ export async function backfillOmpChat(sessionId: string): Promise<void> {
 			messages: merged,
 			seq: Math.max(existing?.seq ?? 0, Number(res.nextSeq)),
 			status: "resolved",
+			streaming: existing?.streaming ?? false,
 		});
 	} catch (e) {
 		// On failure, mark resolved with whatever we have so the pane renders

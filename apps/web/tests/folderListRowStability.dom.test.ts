@@ -83,7 +83,7 @@ describe("session store row stability (projector reconcile)", () => {
     // without the projector prune they leak one entry per closed session for the
     // life of the tab (the days-long-uptime input-lag bug this fix closes).
     setRootStore("claude_status", SID_A, "working" as ClaudeStatus);
-    setRootStore("chat_omp", SID_A, { messages: [], seq: 1, status: "resolved" } as ChatOmpState);
+    setRootStore("chat_omp", SID_A, { messages: [], seq: 1, status: "resolved", streaming: false } as ChatOmpState);
     getSessionTraceId(SID_A);                                         // → diag _sessionTrace[SID_A]
     new InputChannel(async () => {}).sendInput(SID_A, new Uint8Array([65])); // → _lastSendTs[SID_A]
     const traceBefore = sessionTraceSize();

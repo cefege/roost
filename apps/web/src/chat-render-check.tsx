@@ -47,8 +47,23 @@ const msgs: ChatMessage[] = [
     id: "e1", parentId: "a2", ts: "2026-07-24T10:00:04Z", role: "assistant",
     blocks: [{ kind: "toolEvent", callId: "call_2", name: "edit", phase: "start", intent: "Editing" }],
   },
+  // Native-engine approvals: pending (buttons) + already answered (static).
+  {
+    id: "ap1", parentId: "e1", ts: "2026-07-24T10:00:05Z", role: "developer",
+    blocks: [{
+      kind: "approval", requestId: "ui-1", method: "confirm", title: "Run bash",
+      message: "rm -rf /tmp/roost-approval-probe", options: [], resolved: false, answer: "",
+    }],
+  },
+  {
+    id: "ap2", parentId: "ap1", ts: "2026-07-24T10:00:06Z", role: "developer",
+    blocks: [{
+      kind: "approval", requestId: "ui-0", method: "select", title: "Pick a model",
+      message: "", options: ["sonnet", "opus"], resolved: true, answer: "opus",
+    }],
+  },
 ];
 
-setRootStore("chat_omp", SID, { messages: msgs, seq: 5, status: "resolved" });
+setRootStore("chat_omp", SID, { messages: msgs, seq: 5, status: "resolved", streaming: true });
 
 render(() => <OmpChatPane sessionId={SID} />, document.getElementById("app")!);

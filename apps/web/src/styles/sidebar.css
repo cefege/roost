@@ -603,6 +603,10 @@ aside[data-overscroll="bottom"] {
   border-radius: 20px;
 }
 
+/* Slim chat-tab rows: single line (title + time), not the 80px three-line
+   workspace item. Chat buckets have no repo/branch/PR to show. */
+.df-row[data-density="flat"][data-chat="true"] { height: 44px; }
+
 /* ── Code | Chat segmented toggle — pinned at the top of the sidebar body,
    switches the row list between workspaces (Code) and quick AI chats (Chat).
    Pill container + two equal-width segments; active segment raised. ── */

@@ -238,6 +238,16 @@ message SessionsGetChatBlockResponse {
   string text = 1;                   // untruncated block text
 }
 
+// Native omp chat: tunnel one omp RpcCommand (JSON) to the session's
+// `omp --mode rpc` child on the worker (lazy-started on first command).
+message SessionsChatCommandRequest {
+  string session_id = 1;
+  string command_json = 2;           // omp RpcCommand, e.g. {"type":"prompt","message":"..."}
+}
+message SessionsChatCommandResponse {
+  string response_json = 1;          // the child's id-correlated response frame
+}
+
 // ─── workspaces ───────────────────────────────────────────────────────────
 
 message WorkspacesListRequest {}
@@ -548,6 +558,7 @@ service CoordinatorService {
   rpc SessionsGetScrollbackCells(SessionsGetScrollbackCellsRequest) returns (SessionsGetScrollbackCellsResponse);
   rpc SessionsGetChatHistory(SessionsGetChatHistoryRequest) returns (SessionsGetChatHistoryResponse);
   rpc SessionsGetChatBlock(SessionsGetChatBlockRequest) returns (SessionsGetChatBlockResponse);
+  rpc SessionsChatCommand(SessionsChatCommandRequest) returns (SessionsChatCommandResponse);
 
   // workspaces
   rpc WorkspacesList(WorkspacesListRequest) returns (WorkspacesListResponse);

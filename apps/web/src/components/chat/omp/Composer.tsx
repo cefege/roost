@@ -1,10 +1,20 @@
-// Composer — bottom input + send. Reuses the infra path verbatim:
-// buildPtyPayload + CR_BYTES + enterDelayMs (lib/ptyPaste) + inputChannel
-// (ws/input-channel), exactly like TerminalChatButton.tsx:17-19,60.
-// Enter/Send writes the line to the PTY → omp receives it → omp appends a user
-// message → watcher emits it → chat updates. Text-only (attachments v2).
+// Composer — bottom input + send, with two transport paths:
+//
+//  NATIVE (quick-chat sessions, cwd under ~/.roost/chats): the proper omp
+//  integration — sessionsChatCommand tunnels {type:"prompt"} to the worker's
+//  `omp --mode rpc` child for this session (lazy-started on first command).
+//  No PTY, no TUI, no keystroke timing; the reply streams back as ChatFrames.
+//
+//  LEGACY (regular terminal sessions running the omp TUI): PTY injection —
+//  buildPtyPayload + delayed CR, exactly like TerminalChatButton. The chat
+//  overlay mirrors what the terminal does.
 
 import { createSignal, Show } from "solid-js";
+import { coordClient } from "../../../connect.ts";
+import { rootStore } from "../../../store/root.ts";
+import { ompChatForSession } from "../../../store/chatOmp.ts";
+import { isChatFolder } from "../../../lib/quickChat.ts";
+import { addToast } from "../../../lib/toastStore.ts";
 import { inputChannel } from "../../../ws/input-channel.ts";
 import { buildPtyPayload, CR_BYTES, enterDelayMs } from "../../../lib/ptyPaste.ts";
 
@@ -16,14 +26,52 @@ export function Composer(props: Props) {
   const [text, setText] = createSignal("");
   const [sending, setSending] = createSignal(false);
 
+  const isNative = () => isChatFolder(rootStore.sessions[props.sessionId]?.cwd ?? "");
+  // Worker-owned turn state (native engine only) — the mirror engine always
+  // reports false, so Stop never appears on a PTY-injection session.
+  const streaming = () => ompChatForSession(props.sessionId).streaming;
+
+  const abort = async () => {
+    try {
+      await coordClient.sessionsChatCommand({
+        sessionId: props.sessionId,
+        commandJson: JSON.stringify({ type: "abort" }),
+      });
+    } catch (e) {
+      addToast(`Stop failed: ${e instanceof Error ? e.message : String(e)}`, "err");
+    }
+  };
+
+  const sendNative = async (body: string) => {
+    try {
+      const res = await coordClient.sessionsChatCommand({
+        sessionId: props.sessionId,
+        commandJson: JSON.stringify({ type: "prompt", message: body }),
+      });
+      const parsed: unknown = JSON.parse(res.responseJson || "{}");
+      const ok = !!parsed && typeof parsed === "object" && "success" in parsed && parsed.success === true;
+      if (!ok) {
+        const err = parsed && typeof parsed === "object" && "error" in parsed ? String(parsed.error) : "prompt rejected";
+        addToast(`Chat: ${err}`, "err");
+      }
+    } catch (e) {
+      addToast(`Chat send failed: ${e instanceof Error ? e.message : String(e)}`, "err");
+    } finally {
+      setSending(false);
+    }
+  };
+
   const send = () => {
     const body = text().trim();
     if (!body || sending()) return;
     setSending(true);
-    // Same path as TerminalChatButton: bracket multi-line, send payload, then
-    // a delayed CR to submit (omp needs time to ingest before Enter).
-    inputChannel.sendInput(props.sessionId, buildPtyPayload(body));
     setText("");
+    if (isNative()) {
+      void sendNative(body);
+      return;
+    }
+    // Legacy TUI path: bracket multi-line, send payload, delayed CR to submit.
+    inputChannel.sendInput(props.sessionId, buildPtyPayload(body));
     setTimeout(() => {
       inputChannel.sendInput(props.sessionId, CR_BYTES);
       setSending(false);
@@ -48,6 +96,12 @@ export function Composer(props: Props) {
         rows={1}
         disabled={sending()}
       />
+      {/* Stop sits BESIDE Send, not in place of it: omp accepts a mid-turn
+          prompt (the worker queues it as a followUp), so hiding Send would
+          wrongly imply follow-ups are blocked. */}
+      <Show when={streaming()}>
+        <button class="omp-composer__send omp-composer__stop" onClick={() => void abort()}>Stop</button>
+      </Show>
       <button
         class="omp-composer__send"
         onClick={() => send()}

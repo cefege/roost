@@ -11,7 +11,7 @@ import { coordClient } from "../connect.ts";
 import { rootStore } from "../store/root.ts";
 import { allSessions } from "../store/selectors.ts";
 import { workerOnline } from "../store/sync.ts";
-import { spawnShell, waitForSession, forceLaunchAgent } from "./spawnSession.ts";
+import { spawnShell, waitForSession } from "./spawnSession.ts";
 import { addToast } from "./toastStore.ts";
 
 // Tilde path sent to the worker; expandTilde resolves it and mkdirRpc is
@@ -54,9 +54,11 @@ export function pickDefaultChatWorker(): WorkerFp | null {
   return null;
 }
 
-// One-tap chat: mkdir scratch → spawn shell → wait for the row → navigate →
-// force-launch the selected default agent. Mirrors the non-optimistic doSplit
-// pattern (spawn → waitForSession → navigate), not the optimistic doNewTab path.
+// One-tap chat: mkdir scratch → spawn shell → wait for the row → navigate.
+// NATIVE engine: the chat is driven by the worker's `omp --mode rpc` child
+// (sessionsChatCommand), NOT a TUI in the PTY — the terminal stays a plain
+// companion shell in the same folder. We warm the child with get_state so the
+// first prompt doesn't pay the boot latency.
 export async function startQuickChat(navigate: Navigator): Promise<void> {
   const fp = pickDefaultChatWorker();
   if (!fp) { addToast("No machine connected", "err"); return; }
@@ -68,7 +70,10 @@ export async function startQuickChat(navigate: Navigator): Promise<void> {
     await spawnShell(fp, abs, sid);
     await waitForSession(sid);
     navigate(`/s/${sid}`);
-    forceLaunchAgent(sid);
+    void coordClient.sessionsChatCommand({
+      sessionId: sid,
+      commandJson: JSON.stringify({ type: "get_state" }),
+    }).catch(() => { /* warm-up only — first prompt boots the child anyway */ });
   } catch (e) {
     // Nothing to unwind — no client placeholder was inserted; a spawned-but-
     // unnavigated PTY is harmless and reachable via its scratch row.

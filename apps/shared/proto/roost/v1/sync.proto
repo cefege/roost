@@ -201,6 +201,7 @@ message ContentBlock {
     ToolResult tool_result = 4;
     ToolEvent tool_event = 5;        // live tool lifecycle (start/end) from custom entries
     ImageRef image = 6;
+    Approval approval = 7;           // omp extension_ui_request (RPC chat only)
   }
 
   message ThinkingText {
@@ -235,6 +236,18 @@ message ContentBlock {
     string blob_path = 1;            // ~/.omp/agent/blobs/<sha256>
     string mime = 2;
   }
+
+  // Inline approval prompt — omp's extension_ui_request surfaced in-thread so
+  // the user answers without switching to the terminal view.
+  message Approval {
+    string request_id = 1;           // omp UI request id (echoed on response)
+    string method = 2;               // "confirm" | "select" | "input"
+    string title = 3;
+    string message = 4;
+    repeated string options = 5;     // select only; empty otherwise
+    bool resolved = 6;
+    string answer = 7;               // empty until resolved
+  }
 }
 
 message ChatMessage {
@@ -247,7 +260,8 @@ message ChatMessage {
 
 message ChatFrame {
   string session_id = 1;
-  repeated ChatMessage append = 2;   // newest messages (worker tailer output)
+  repeated ChatMessage append = 2;   // append-OR-REPLACE by id (streaming re-emits)
   uint64 seq = 3;                    // monotonic line count (tailer offset)
   bool reset = 4;                    // true → drop client history and reseed
+  bool streaming = 5;                // true → agent turn in flight (RPC chat)
 }

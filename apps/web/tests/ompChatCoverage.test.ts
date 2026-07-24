@@ -7,7 +7,9 @@
 
 import { test, expect } from "bun:test";
 import type { ChatMessage } from "@roost/shared/chat/wire";
+import { chatFrameToProto } from "@roost/shared/chat/wire";
 import { analyzeCoverage, buildToolIndex, orphanCallIds } from "../src/components/chat/omp/renderPlan.ts";
+import { applyOmpChatFrame, ompChatForSession } from "../src/store/chatOmp.ts";
 
 const thread: ChatMessage[] = [
   { id: "u1", parentId: "", ts: "t", role: "user", blocks: [{ kind: "text", text: "do it" }] },
@@ -75,4 +77,54 @@ test("result full-text fetch targets the RESULT's coordinates, not the call's", 
   expect(m.callMsgId).toBe("a3");
   expect(m.results[0]!.msgId).toBe("tr3");
   expect(m.results[0]!.block.truncated).toBe(true);
+});
+
+// ─── store projection: upsert-by-id + turn state ─────────────────────────
+// The wire is append-OR-REPLACE: a streaming message is re-emitted under the
+// same id as it grows. The old skip-by-id splice froze the first token forever.
+
+const SID = "sess-upsert";
+const push = (append: ChatMessage[], seq: number, opts: { reset?: boolean; streaming?: boolean } = {}) =>
+  applyOmpChatFrame(chatFrameToProto({
+    sessionId: SID, append, seq, reset: opts.reset ?? false, streaming: opts.streaming ?? false,
+  }));
+
+test("same message id upserts in place — second frame's blocks win", () => {
+  push([], 0, { reset: true });
+  push([{ id: "m1", parentId: "", ts: "t", role: "assistant", blocks: [{ kind: "text", text: "Hel" }] }], 1);
+  push([{ id: "m1", parentId: "", ts: "t", role: "assistant", blocks: [{ kind: "text", text: "Hello, world" }] }], 2);
+
+  const state = ompChatForSession(SID);
+  expect(state.messages).toHaveLength(1);
+  expect(state.messages[0]!.blocks[0]).toEqual({ kind: "text", text: "Hello, world" });
+  expect(state.seq).toBe(2);
+
+  // An unknown id still appends, after the upserted row.
+  push([{ id: "m2", parentId: "m1", ts: "t", role: "user", blocks: [{ kind: "text", text: "next" }] }], 3);
+  expect(ompChatForSession(SID).messages.map((m) => m.id)).toEqual(["m1", "m2"]);
+});
+
+test("ChatFrame.streaming lands on chat_omp[sid].streaming, payload or not", () => {
+  push([], 0, { reset: true });
+  expect(ompChatForSession(SID).streaming).toBe(false);
+
+  // Payload-less turn-state frame (the worker's agent_start) must still apply.
+  push([], 0, { streaming: true });
+  expect(ompChatForSession(SID).streaming).toBe(true);
+
+  push([{ id: "m1", parentId: "", ts: "t", role: "assistant", blocks: [{ kind: "text", text: "hi" }] }], 1, { streaming: true });
+  expect(ompChatForSession(SID).streaming).toBe(true);
+
+  push([], 1, { streaming: false });
+  expect(ompChatForSession(SID).streaming).toBe(false);
+});
+
+test("reset keeps the LAST copy of a repeated id, not the first", () => {
+  push([
+    { id: "m1", parentId: "", ts: "t", role: "assistant", blocks: [{ kind: "text", text: "partial" }] },
+    { id: "m1", parentId: "", ts: "t", role: "assistant", blocks: [{ kind: "text", text: "complete" }] },
+  ], 9, { reset: true });
+  const state = ompChatForSession(SID);
+  expect(state.messages).toHaveLength(1);
+  expect(state.messages[0]!.blocks[0]).toEqual({ kind: "text", text: "complete" });
 });

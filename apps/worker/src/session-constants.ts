@@ -98,6 +98,38 @@ export function extractOscTitle(bytes: Uint8Array): string | null {
 	return result;
 }
 
+/** Cross-chunk-safe OSC 0/2 title extraction. omp sets its title ONCE at boot
+ *  (not per-frame like claude), so a boot title split across a PTY read chunk
+ *  must be BRIDGED or it is lost forever and the chat watcher never starts.
+ *  Carries the trailing bytes of an unterminated OSC (bounded) into the next
+ *  chunk. Returns the latest complete title + the new carry to persist. */
+export function extractOscTitleStateful(
+	carry: Uint8Array,
+	chunk: Uint8Array,
+): { title: string | null; carry: Uint8Array } {
+	const buf = carry.length ? Buffer.concat([carry, chunk]) : chunk;
+	const title = extractOscTitle(buf);
+	// Find the last OSC start; carry it forward only if it has no terminator yet.
+	let lastStart = -1;
+	for (let i = buf.length - 2; i >= 0; i--) {
+		if (buf[i] === 0x1b && buf[i + 1] === 0x5d) { lastStart = i; break; }
+	}
+	let next: Uint8Array = EMPTY_BYTES;
+	if (lastStart >= 0) {
+		let terminated = false;
+		for (let j = lastStart + 2; j < buf.length; j++) {
+			if (buf[j] === 0x07 || (buf[j] === 0x1b && buf[j + 1] === 0x5c)) { terminated = true; break; }
+		}
+		if (!terminated) {
+			const tail = buf.subarray(lastStart);
+			next = tail.length > 1024 ? tail.subarray(tail.length - 1024) : tail;
+		}
+	}
+	return { title, carry: next };
+}
+
+const EMPTY_BYTES = new Uint8Array(0);
+
 // Multi-viewer PTY size: SCD (smallest-common-denominator) policy. PTY
 // size = min(cols) × min(rows) across all active viewer claims so no
 // viewer is ever clipped. Decision lives in _recomputeViewport. SCD min

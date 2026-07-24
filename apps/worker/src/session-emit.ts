@@ -12,7 +12,7 @@ import { detectAgentScreen, screenStatus } from "./detect/screen-detect.ts";
 import { resolveAgentStatus } from "./detect/arbiter.ts";
 import type { MuxChannelCallbacks } from "./keeper/multiplexed-client.ts";
 import {
-	extractOscTitle,
+	extractOscTitleStateful,
 	RECENTLY_CLOSED_TTL_MS,
 	KEEPER_DEGRADED_WINDOW_MS,
 	KEEPER_DEGRADED_THRESHOLD,
@@ -20,6 +20,9 @@ import {
 	AGENT_WORKING_GRACE_MS,
 	CELL_EMIT_COALESCE_MS,
 } from "./session-constants.ts";
+
+// Empty carry seed for extractOscTitleStateful (per-channel OSC title bridging).
+const EMPTY_OSC_CARRY = new Uint8Array(0);
 
 // Leading-edge sentinel: marks a microtask-queued cell emit in cellEmitTimers.
 // clearTimeout(LEADING_SENTINEL) is a no-op (coerces to NaN), so existing
@@ -113,7 +116,8 @@ export function emitUpstreamChunk(this: SessionManager, channelId: number, chunk
 	// `unknown` → no status emitted. NOT viewer-gated — an idle background agent
 	// must still light its sidebar chip; the byte clock feeds the working→idle hold.
 	if (this.sessions.has(channelId)) {
-		const title = extractOscTitle(chunk);
+		const { title, carry } = extractOscTitleStateful(this.oscTitleCarry.get(channelId) ?? EMPTY_OSC_CARRY, chunk);
+		this.oscTitleCarry.set(channelId, carry);
 		if (title !== null) {
 			this.lastOscTitle.set(channelId, title);
 			this._ensureChatWatch(channelId);

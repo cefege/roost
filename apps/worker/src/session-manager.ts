@@ -77,6 +77,9 @@ export class SessionManager {
 	lastByteAt = new Map<number, number>();
 	// Last raw-stream OSC title per channel (braille intact — see extractOscTitle).
 	lastOscTitle = new Map<number, string>();
+	// Per-channel carry of a trailing unterminated OSC title split across PTY
+	// read chunks (omp sets its title once at boot — see extractOscTitleStateful).
+	oscTitleCarry = new Map<number, Uint8Array>();
 	viewportReaperTimer: ReturnType<typeof setInterval> | null = null;
 	detectSweepTimer: ReturnType<typeof setInterval> | null = null;
 	strayReaperTimer: ReturnType<typeof setInterval> | null = null;

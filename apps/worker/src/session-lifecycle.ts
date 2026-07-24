@@ -11,6 +11,8 @@ import type { ChannelState, FsmEvent } from "./fsm.ts";
 import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
 import * as byteCapture from "./diag/byte-capture.ts";
 import * as chat from "./session-chat.ts";
+import { disposeRpcChat, disposeAllRpcChats } from "./chat/omp/rpc-chat.ts";
+import { forgetOmpSession } from "./chat/omp/session-store.ts";
 import {
 	RECENTLY_CLOSED_TTL_MS,
 	STRAY_REAP_STRIKES,
@@ -130,6 +132,11 @@ export function closedByKeeper(this: SessionManager, channelId: number, exitCode
 	this._checkDeadBirth(r);
 	r.fsm.send({ kind: "close", exitCode });
 	// _onTransition fires the coord event.
+	// TRUE close (respawn deliberately bypasses this function): the pane is
+	// gone for good, so drop the native chat's durable omp-session mapping.
+	// _dropChannelState below only kills the child — it also runs on respawn,
+	// where the same sessionId comes straight back.
+	forgetOmpSession(String(r.sessionId));
 	// @wterm/core has no dispose — WASM memory is GC'd with the bridge ref.
 	this._dropChannelState(channelId);
 }
@@ -186,7 +193,8 @@ export function _dropChannelState(this: SessionManager, channelId: number): void
 			kind: rec.kind,
 		});
 		rec.gitWatchDispose?.();
-		chat._disposeChatWatch(rec);
+		chat._disposeChatWatch(rec);       // mirror engine: transcript tailer
+		disposeRpcChat(String(rec.sessionId)); // native engine: `omp --mode rpc` child
 		if (rec.prPollTimer) {
 			clearInterval(rec.prPollTimer);
 			rec.prPollTimer = null;
@@ -226,6 +234,7 @@ export function _dropChannelState(this: SessionManager, channelId: number): void
 	this.committedStatus.delete(channelId);
 	this.lastByteAt.delete(channelId);
 	this.lastOscTitle.delete(channelId);
+	this.oscTitleCarry.delete(channelId);
 }
 
 /** Diag snapshot helper for diag.snapshot RPC. */
@@ -320,4 +329,8 @@ export function dispose(this: SessionManager): void {
 		clearInterval(this.strayReaperTimer);
 		this.strayReaperTimer = null;
 	}
+	// Native chat children are plain Bun.spawn subprocesses, NOT keeper PTY
+	// channels, and _dropChannelState never runs on SIGTERM — nothing else
+	// reaps them. Mappings are KEPT so the next boot resumes each conversation.
+	disposeAllRpcChats();
 }

@@ -15,7 +15,7 @@
 //
 // Reads allSessions(); pure read of the store (no setStore).
 
-import { createComputed, createEffect, createMemo, createSignal, For, Show, onMount, onCleanup } from "solid-js";
+import { batch, createComputed, createEffect, createMemo, createSignal, For, Show, onMount, onCleanup } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import { A, useNavigate, useLocation } from "@solidjs/router";
 import { rootStore } from "../../store/root.ts";
@@ -33,6 +33,8 @@ import { colorForFp } from "../../lib/fpColor.ts";
 import { buildFolderGroups, type FolderGroup, PR_CHECK_GLYPH, PR_CHECK_COLOR } from "../../lib/folderGroups.ts";
 import { pushRecent } from "../../lib/sidebarRecent.ts";
 import { isChatFolder, startQuickChat } from "../../lib/quickChat.ts";
+import { scheduleClose } from "../../lib/pendingClose.ts";
+import { closeLabelsFor, killAfterUndo } from "../../lib/closeSession.ts";
 import { StatusGlyph } from "./StatusGlyph.tsx";
 import { relTimeTickMs } from "./SessionRow.tsx";
 import { FolderRowContextMenu } from "./FolderRowContextMenu.tsx";
@@ -255,6 +257,78 @@ export function FolderList() {
     );
   };
 
+  // Soft-close a chat bucket: hide every session in it immediately
+  // (buildFolderGroups filters isPendingClose → row vanishes) and fire each
+  // kill after its own 5s undo window. Chats live in a throwaway scratch
+  // folder with no meaningful sibling, so a viewed chat lands Home (not
+  // siblingOrHomeHref like SessionRow). No onUndo — un-hiding the row is
+  // enough; a chat has no pane-tiling to restore.
+  function closeChat(g: FolderGroup) {
+    const viewed = g.sessionIds.includes(activeId() ?? "");
+    batch(() => {
+      for (const sid of g.sessionIds) {
+        const s = rootStore.sessions[sid];
+        if (!s) continue;
+        scheduleClose(sid, closeLabelsFor(s), killAfterUndo(sid));
+      }
+      if (viewed) navigate("/");
+    });
+  }
+
+  // Slim chat-tab row: single line (title + time) + an always-visible ✕. No
+  // repo/branch/PR/server/pane-count — a quick AI chat has none of that.
+  const renderChatRow = (g: FolderGroup) => {
+    const targetId = () =>
+      folderRowTargetId(g.key, g.attention, g.leadId, getLastSessionForFolder(g.spawnFp, g.spawnCwd));
+    return (
+    <A
+      href={`/s/${targetId()}`}
+      class="df-row"
+      title={g.spawnCwd}
+      data-density="flat"
+      data-chat="true"
+      data-testid={`folder-row-${g.key}`}
+      data-selected={activeFolderKey() === g.key ? "focused" : ""}
+      data-cursor={cursorSessionId() === g.leadId ? "on" : undefined}
+      data-stage={g.glyphStatus ?? ""}
+      onClick={() => { pushRecent(targetId()); closeSidebar(); }}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setFolderCtxMenu({
+          x: e.clientX, y: e.clientY,
+          workerFp: g.spawnFp, folderPath: g.spawnCwd,
+          displayName: g.name, sessionIds: [...g.sessionIds],
+        });
+      }}
+      style={{ "--avatar-bg": `hsl(${colorForFp(g.key).hue} 48% 42%)` }}
+    >
+      <md-ripple />
+      <span class="df-leading">
+        <StatusGlyph status={g.glyphStatus} isClaude={g.isClaude} />
+      </span>
+      <span class="df-flat-body">
+        <span class="df-flat-top">
+          <span class="df-label df-flat-headline">{g.subtitle || "New chat"}</span>
+          <Show when={g.unreadCount > 0}>
+            <span class="df-flat-unread" data-testid={`folder-unread-${g.key}`}>{g.unreadCount > 9 ? "9+" : g.unreadCount}</span>
+          </Show>
+          <span class="df-flat-time">{(relTimeTickMs(), relTimeSince(g.latestActivity))}</span>
+        </span>
+      </span>
+      <IconButton
+        icon="close"
+        label="Close chat"
+        class="df-action df-action-always"
+        data-testid={`chat-close-${g.key}`}
+        title="Close chat"
+        onClick={(e: MouseEvent) => { e.stopPropagation(); e.preventDefault(); closeChat(g); }}
+        style={{ "--md-icon-button-icon-size": "14px" }}
+      />
+    </A>
+    );
+  };
+
   return (
     <div data-testid="folder-list">
       {/* Reuse the flat session-list card shell (df-flat-group + df-row[flat] +
@@ -281,7 +355,7 @@ export function FolderList() {
       </Show>
       <div class="df-flat-group">
         <For each={visibleRows()}>
-          {renderFolderRow}
+          {(g) => (sidebarTab() === "chat" ? renderChatRow(g) : renderFolderRow(g))}
         </For>
       </div>
       <FlatNewTerminal />

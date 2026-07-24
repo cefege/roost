@@ -167,6 +167,15 @@ export const ClientControlFrame = z.discriminatedUnion("kind", [
     message_id: z.string(),
     block_index: z.number().int().nonnegative(),
   }),
+  // Native omp chat: tunnel one RpcCommand (JSON) to the session's
+  // `omp --mode rpc` child (lazy-started by the worker). rpc-ok data:
+  // { response_json: string } — the child's id-correlated response frame.
+  Base.extend({
+    kind: z.literal("chat-command"),
+    request_id: z.string(),
+    session_id: SessionId,
+    command_json: z.string(),
+  }),
 ]);
 export type ClientControlFrame = z.infer<typeof ClientControlFrame>;
 

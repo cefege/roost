@@ -17,6 +17,7 @@ import {
   SessionsAssignWorkspaceResponseSchema,
   SessionsGetScrollbackCellsResponseSchema,
   SessionsGetChatHistoryResponseSchema, SessionsGetChatBlockResponseSchema,
+  SessionsChatCommandResponseSchema,
 } from "@roost/shared/proto/coordinator_pb";
 import { sessionToProto } from "@roost/shared/wire/agent-proto";
 import { cellRowToProto } from "@roost/shared/cell/cell-proto";
@@ -102,7 +103,7 @@ type SessionMethods =
   | "sessionsRename" | "sessionsResize" | "sessionsUserMessage" | "sessionsInput"
   | "sessionsCursorPos" | "sessionsAssignWorkspace"
   | "sessionsGetScrollbackCells"
-  | "sessionsGetChatHistory" | "sessionsGetChatBlock";
+  | "sessionsGetChatHistory" | "sessionsGetChatBlock" | "sessionsChatCommand";
 
 export function makeSessionHandlers(
   deps: ConnectDeps,
@@ -428,6 +429,26 @@ export function makeSessionHandlers(
       try { res = await pending.promise; }
       catch { throw new ConnectError("chat block serve timed out", Code.Unavailable); }
       return create(SessionsGetChatBlockResponseSchema, { text: res.text });
+    },
+
+    async sessionsChatCommand(req, ctx) {
+      requireAuth(ctx.values);
+      const row = await deps.db.selectFrom("sessions").select(["worker_fp"]).where("id", "=", req.sessionId).executeTakeFirst();
+      if (!row) throw new ConnectError("unknown session", Code.NotFound);
+      const sock = getWorkerHubSocket(row.worker_fp);
+      if (!sock) throw new ConnectError("worker not connected", Code.Unavailable);
+      // 35s: prompt acks fast, but get_state/first-command lazy-boot takes seconds.
+      const pending = createPendingRpc<{ response_json: string }>(35_000, row.worker_fp);
+      sendBrowserCmd(sock, requireAuth(ctx.values), pending.request_id, {
+        kind: "chat-command" as const,
+        request_id: pending.request_id,
+        session_id: asSessionId(req.sessionId),
+        command_json: req.commandJson,
+      });
+      let res;
+      try { res = await pending.promise; }
+      catch { throw new ConnectError("chat command timed out", Code.Unavailable); }
+      return create(SessionsChatCommandResponseSchema, { responseJson: res.response_json });
     },
   };
 }

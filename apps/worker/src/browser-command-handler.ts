@@ -14,7 +14,7 @@ import { handleGetScrollbackCells, handleResize } from "./browser-command-termin
 import { handleStartTransfer } from "./browser-command-transfer.ts";
 import { handleAttachmentProbe, handleDeleteAttachment, handleListAttachments } from "./browser-command-attachments.ts";
 import { handleDiagDumpBytecap, handleDiagSnapshot } from "./browser-command-diag.ts";
-import { handleGetChatBlock, handleGetChatHistory } from "./browser-command-chat.ts";
+import { handleGetChatBlock, handleGetChatHistory, handleChatCommand } from "./browser-command-chat.ts";
 
 export interface BrowserCommandMsg {
 	browser_id: string;
@@ -77,6 +77,10 @@ export function handleBrowserCommand(
 		}
 		case "get-chat-block": {
 			void handleGetChatBlock(frame, request_id, { coordLink, sessionMgr });
+			return;
+		}
+		case "chat-command": {
+			void handleChatCommand(frame, request_id, { coordLink, sessionMgr });
 			return;
 		}
 		case "resize": {

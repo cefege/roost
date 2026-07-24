@@ -252,3 +252,25 @@
   font-size: var(--md-body-m-size);
   font-weight: 500;
 }
+.omp-approval__msg { margin-top: 4px; font-size: var(--md-body-s-size); opacity: 0.85; }
+.omp-approval__answer { font-weight: 500; }
+.omp-approval__input {
+  flex: 1;
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  background: var(--md-sys-color-surface-container-low);
+  color: var(--md-sys-color-on-surface);
+  font-size: var(--md-body-m-size);
+  font-family: inherit;
+}
+
+/* ─── streaming indicator ──────────────────────────────────────────── */
+.omp-chat__thinking {
+  align-self: flex-start;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-body-s-size);
+  font-style: italic;
+  padding: 2px 4px;
+}
+.omp-composer__stop { background: var(--md-sys-color-error); color: var(--md-sys-color-on-error); }
