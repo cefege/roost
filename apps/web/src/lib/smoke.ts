@@ -10,7 +10,9 @@
 
 import { coordClient } from "../connect.ts";
 import { forceSyncReconnect as forceSyncReconnectImpl, cellFrameCount as cellFrameCountImpl } from "../store/sync.ts";
-import { rootStore } from "../store/root.ts";
+import { rootStore, setRootStore } from "../store/root.ts";
+import { setOmpChatView, ompChatViewForSession } from "../store/uiStore.ts";
+import { ompChatEnabled } from "../store/chatOmp.ts";
 import { setForceVisible } from "./pageVisible.ts";
 
 interface SmokeApi {
@@ -94,6 +96,12 @@ interface SmokeApi {
    *  return the reassembled byte length + hex SHA-256 (integrity + no-size-cap
    *  proof). */
   downloadWorkerFile(workerFp: string, path: string): Promise<{ bytes: number; sha256: string }>;
+  /** Switch a session between the terminal and the omp chat overlay WITHOUT
+   *  clicking the toggle — the test affordance for driving the chat view.
+   *  omp-only: when mode==="chat" it forces this tab's π: eligibility so the
+   *  overlay renders even before a live OSC title propagates. Returns the
+   *  resulting view + whether the session is omp-eligible. */
+  setChatView(sessionId: string, mode: "chat" | "terminal"): { view: "chat" | "terminal"; eligible: boolean };
 }
 
 export function maybeInstallSmokeBackdoor(): void {
@@ -118,6 +126,15 @@ export function maybeInstallSmokeBackdoor(): void {
         sessionId,
         data: new TextEncoder().encode(text),
       });
+    },
+    setChatView(sessionId, mode) {
+      // omp-only affordance: to drive the overlay in a test we force this tab's
+      // π: eligibility (real prod eligibility comes from the live OSC title).
+      if (mode === "chat" && !ompChatEnabled(sessionId)) {
+        setRootStore("terminal_title", sessionId, "\u03C0: smoke");
+      }
+      setOmpChatView(sessionId, mode);
+      return { view: ompChatViewForSession(sessionId), eligible: ompChatEnabled(sessionId) };
     },
     paneFocused(sessionId) {
       const slot = document.querySelector(`[data-testid="terminal-slot-${sessionId}"]`);
