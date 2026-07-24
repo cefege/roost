@@ -44,6 +44,18 @@ export function OmpChatPane(props: Props) {
 
   return (
     <div class="omp-chat" data-testid="omp-chat-pane" data-session-id={props.sessionId}>
+      {/* The status the omp TUI keeps permanently on screen. Native engine
+          only — the mirror engine reports nothing and the row stays hidden. */}
+      <Show when={state().model}>
+        <div class="omp-chat__status" data-testid="omp-chat-status">
+          <span class="omp-chat__status-model">{state().model}</span>
+          <Show when={state().contextTokens > 0}>
+            <span class="omp-chat__status-ctx">
+              {state().contextPct}% context · {state().contextTokens.toLocaleString()} tokens
+            </span>
+          </Show>
+        </div>
+      </Show>
       <div class="omp-chat__thread" ref={threadEl} onScroll={onScroll}>
         <Show when={state().status !== "loading"} fallback={<div class="omp-chat__skeleton">Loading chat…</div>}>
           <Show when={state().messages.length > 0} fallback={<div class="omp-chat__skeleton">No messages yet</div>}>
@@ -81,14 +93,18 @@ function BlockView(props: { block: ContentBlock; msg: ChatMessage; blockIndex: n
     case "thinking":
       return <ThinkingBlock sessionId={props.sessionId} messageId={props.msg.id} blockIndex={props.blockIndex} data={block} />;
     case "toolCall": {
-      const m = props.toolIndex.get(block.callId);
+      // Accessor, NOT a captured value: this component body runs once, but the
+      // tool's index entry keeps changing as start → update → end → result
+      // frames land. Capturing froze `event` at mount, so a card mounted before
+      // its first toolEvent never showed live output or a phase change.
+      const m = () => props.toolIndex.get(block.callId);
       return (
         <ToolCard
           sessionId={props.sessionId}
           call={block}
-          results={m?.results}
-          event={m?.event}
-          images={m?.images}
+          results={m()?.results}
+          event={m()?.event}
+          images={m()?.images}
         />
       );
     }

@@ -45,7 +45,7 @@ const msgs: ChatMessage[] = [
   // A live tool_event (start, no end/result) → "running" chip.
   {
     id: "e1", parentId: "a2", ts: "2026-07-24T10:00:04Z", role: "assistant",
-    blocks: [{ kind: "toolEvent", callId: "call_2", name: "edit", phase: "start", intent: "Editing" }],
+    blocks: [{ kind: "toolEvent", callId: "call_2", name: "edit", phase: "update", intent: "Editing", output: "beat 1\nbeat 2\nbeat 3\n" }],
   },
   // Native-engine approvals: pending (buttons) + already answered (static).
   {
@@ -64,6 +64,6 @@ const msgs: ChatMessage[] = [
   },
 ];
 
-setRootStore("chat_omp", SID, { messages: msgs, seq: 5, status: "resolved", streaming: true });
+setRootStore("chat_omp", SID, { messages: msgs, seq: 5, status: "resolved", streaming: true, model: "anthropic/claude-opus-5", contextPct: 3, contextTokens: 31240 });
 
 render(() => <OmpChatPane sessionId={SID} />, document.getElementById("app")!);

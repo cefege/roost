@@ -25,7 +25,10 @@ export function ToolCard(props: Props) {
 
   const name = () => props.call?.name ?? props.results?.[0]?.block.name ?? props.event?.name ?? "tool";
   const results = () => props.results ?? [];
-  const running = () => results().length === 0 && (!props.event || props.event.phase === "start");
+  // "update" is still in flight — only the final result or an end event stops it.
+  const running = () => results().length === 0 && (!props.event || props.event.phase !== "end");
+  // Live output omp streams while the tool runs. Superseded by the real result.
+  const liveOutput = () => (results().length === 0 ? props.event?.output ?? "" : "");
   const isError = () => results().some((r) => r.block.isError);
   const args = createMemo(() => parseArgs(props.call?.argsJson ?? ""));
   const summary = () => (props.call ? toolSummary(name(), args()) : props.event?.intent ?? "");
@@ -47,6 +50,9 @@ export function ToolCard(props: Props) {
         <div class="omp-tool__body">
           <Show when={payload()}>
             <pre class="omp-tool__code" data-lang={payload()!.lang}><code>{payload()!.text}</code></pre>
+          </Show>
+          <Show when={liveOutput()}>
+            <pre class="omp-tool__result omp-tool__result--live" data-testid="omp-tool-live"><code>{liveOutput()}</code></pre>
           </Show>
           <For each={results()}>
             {(r) => <ToolResultView sessionId={props.sessionId} r={r} />}

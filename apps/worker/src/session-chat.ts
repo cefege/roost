@@ -33,9 +33,9 @@ export function isOmpTitle(title: string | undefined): boolean {
 /** Build + send a ChatFrame upstream. No-op when no sink (tests). */
 function emitChatFrame(this: SessionManager, channelId: number, append: ChatMessage[], seq: number, reset: boolean): void {
 	if (!this.sendChatFrameUpstream) return;
-	// streaming is a native-RPC-only signal; the mirror engine tails a file and
-	// has no turn state, so it always reports idle.
-	const frame: ChatFrame = { sessionId: "", append, seq, reset, streaming: false };
+	// streaming/model/context are native-RPC-only signals; the mirror engine
+	// tails a file and has no session state to report.
+	const frame: ChatFrame = { sessionId: "", append, seq, reset, streaming: false, model: "", contextPct: 0, contextTokens: 0 };
 	this.sendChatFrameUpstream(channelId, frame);
 }
 

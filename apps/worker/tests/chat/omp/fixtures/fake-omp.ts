@@ -48,7 +48,15 @@ async function runTurn(): Promise<void> {
 	await Bun.sleep(5);
 	out({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "Hello, world" }] } });
 	out({ type: "tool_execution_start", toolCallId: "call_1", toolName: "read", intent: "Reading a file" });
-	await Bun.sleep(5);
+	// Live partial output, faster than STREAM_FLUSH_MS so the coalescing path
+	// is what the test actually exercises. Newest must win.
+	for (const chunk of ["line 1\n", "line 1\nline 2\n", "line 1\nline 2\nline 3\n"]) {
+		out({
+			type: "tool_execution_update", toolCallId: "call_1", toolName: "read",
+			partialResult: { content: [{ type: "text", text: chunk }] },
+		});
+	}
+	await Bun.sleep(120);
 	out({ type: "tool_execution_end", toolCallId: "call_1", toolName: "read", result: { ok: true } });
 	out({ type: "extension_ui_request", id: "ui-1", method: "confirm", title: "Confirm", message: "Continue?" });
 }
@@ -81,7 +89,12 @@ for await (const chunk of Bun.stdin.stream()) {
 		if (type === "get_state") {
 			out({
 				id, type: "response", command: "get_state", success: true,
-				data: { sessionFile: SESSION_FILE, sessionId: "fake", isStreaming: false, messageCount: 0 },
+				data: {
+					sessionFile: SESSION_FILE, sessionId: "fake", isStreaming: false, messageCount: 0,
+					// Shapes copied from a live omp 17.1.2 get_state.
+					model: { provider: "anthropic", id: "claude-opus-5" },
+					contextUsage: { tokens: 18004, contextWindow: 1000000, percent: 1.8004 },
+				},
 			});
 			continue;
 		}

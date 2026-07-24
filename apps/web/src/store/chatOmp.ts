@@ -36,7 +36,7 @@ export function ompChatEnabled(sessionId: string): boolean {
 
 /** Current chat state for a session (creates an empty slot lazily). */
 export function ompChatForSession(sessionId: string): ChatOmpState {
-	return rootStore.chat_omp[sessionId] ?? { messages: [], seq: 0, status: "idle", streaming: false };
+	return rootStore.chat_omp[sessionId] ?? { messages: [], seq: 0, status: "idle", streaming: false, model: "", contextPct: 0, contextTokens: 0 };
 }
 
 /** Apply an inbound ChatFrame. reset → replace; else UPSERT by message id:
@@ -58,12 +58,24 @@ export function applyOmpChatFrame(pb: PbChatFrame): void {
 			seq: frame.seq,
 			status: frame.append.length > 0 ? "resolved" : "loading",
 			streaming: frame.streaming,
+			model: frame.model,
+			contextPct: frame.contextPct,
+			contextTokens: frame.contextTokens,
 		});
 		return;
 	}
-	// Turn state rides every frame, including the payload-less ones the worker
-	// sends on agent_start/agent_end — apply it before any early return.
+	// Turn state and session status ride EVERY frame, including the payload-less
+	// ones the worker sends on agent_start/agent_end — apply before any early
+	// return or the status line freezes at its first value.
 	if (cur.streaming !== frame.streaming) setRootStore("chat_omp", sid, "streaming", frame.streaming);
+	// `model` non-empty marks a frame from the native engine that has completed
+	// its first get_state. Gate context on that rather than on a non-zero token
+	// count, so a genuine 0 is representable and boot frames never clobber.
+	if (frame.model) {
+		if (cur.model !== frame.model) setRootStore("chat_omp", sid, "model", frame.model);
+		if (cur.contextPct !== frame.contextPct) setRootStore("chat_omp", sid, "contextPct", frame.contextPct);
+		if (cur.contextTokens !== frame.contextTokens) setRootStore("chat_omp", sid, "contextTokens", frame.contextTokens);
+	}
 	if (frame.append.length === 0 && cur.seq >= frame.seq) {
 		// Already current — just bump status if we were loading.
 		if (cur.status === "loading") setRootStore("chat_omp", sid, "status", "resolved");
@@ -120,6 +132,7 @@ export async function backfillOmpChat(sessionId: string): Promise<void> {
 		seq: cur?.seq ?? 0,
 		status: "loading",
 		streaming: cur?.streaming ?? false,
+		model: cur?.model ?? "", contextPct: cur?.contextPct ?? 0, contextTokens: cur?.contextTokens ?? 0,
 	});
 	try {
 		const res = await coordClient.sessionsGetChatHistory({
@@ -140,6 +153,7 @@ export async function backfillOmpChat(sessionId: string): Promise<void> {
 			seq: Math.max(existing?.seq ?? 0, Number(res.nextSeq)),
 			status: "resolved",
 			streaming: existing?.streaming ?? false,
+			model: existing?.model ?? "", contextPct: existing?.contextPct ?? 0, contextTokens: existing?.contextTokens ?? 0,
 		});
 	} catch (e) {
 		// On failure, mark resolved with whatever we have so the pane renders

@@ -92,10 +92,27 @@ test("streaming turn: upsert, tool collapse, approval round trip, mid-turn promp
 		expect(textRows.length).toBe(1);
 		expect(textRows[0]!.blocks[0]).toEqual({ kind: "text", text: "Hello, world" });
 
-		// tool_execution_start + _end → ONE row, final phase "end".
+		// start + 3 live updates + end → ONE row, final phase "end". The live
+		// output is cleared by the terminal state (the real result follows as a
+		// toolResult message), so its absence here is the contract, not a miss.
 		const toolRows = msgs.filter((m) => m.blocks.some((b) => b.kind === "toolEvent"));
 		expect(toolRows.length).toBe(1);
-		expect(findBlock(msgs, "toolEvent")).toEqual({ kind: "toolEvent", callId: "call_1", name: "read", phase: "end", intent: "" });
+		expect(findBlock(msgs, "toolEvent")).toEqual({ kind: "toolEvent", callId: "call_1", name: "read", phase: "end", intent: "", output: "" });
+
+		// The coalesced live frames must have carried the NEWEST partial, not the
+		// first — a leading-edge drop would strand "line 1" on screen.
+		const liveFrames = h.frames.filter((f) =>
+			f.append.some((m) => m.blocks.some((b) => b.kind === "toolEvent" && b.phase === "update")));
+		expect(liveFrames.length).toBeGreaterThan(0);
+		const lastLive = liveFrames.at(-1)!.append[0]!.blocks[0];
+		expect(lastLive.kind === "toolEvent" && lastLive.output).toBe("line 1\nline 2\nline 3\n");
+		// Coalescing actually happened: 3 updates did not become 3 frames.
+		expect(liveFrames.length).toBeLessThan(3);
+
+		// Session status the omp TUI shows rides every frame.
+		expect(h.frames.at(-1)!.model).toBe("anthropic/claude-opus-5");
+		expect(h.frames.at(-1)!.contextTokens).toBe(18004);
+		expect(h.frames.at(-1)!.contextPct).toBe(2);   // 1.8004 → rounded, as omp's own /context does
 
 		// Approval arrives unresolved; the turn is still open.
 		const approvalMsg = msgs.find((m) => m.blocks.some((b) => b.kind === "approval"))!;

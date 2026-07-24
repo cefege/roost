@@ -85,6 +85,10 @@ export interface ChatOmpState {
   status: ChatOmpStatus;
   /** Native RPC chat only: an agent turn is in flight (worker-owned flag). */
   streaming: boolean;
+  /** Session status the omp TUI keeps on screen. Empty/0 on the mirror engine. */
+  model: string;
+  contextPct: number;
+  contextTokens: number;
 }
 
 const initialState: RootState = {

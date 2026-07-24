@@ -53,6 +53,10 @@ const UI_DECISION_METHODS: Record<string, true> = { confirm: true, select: true,
  *  a ChatFrame on the coord bus. */
 const STREAM_FLUSH_MS = 60;
 
+/** Tail of a running tool's output kept on the wire. A `bash` tail -f would
+ *  otherwise re-send its whole buffer on every update. */
+const PARTIAL_CAP = 2000;
+
 /** omp caps a page at 256 messages; ask for the max so a reload is few round trips. */
 const HISTORY_PAGE_LIMIT = 256;
 
@@ -65,6 +69,11 @@ interface RpcChatEntry {
 	curMsgId: string | null;
 	/** True between agent_start and agent_end — rides every ChatFrame. */
 	streaming: boolean;
+	/** Session status the omp TUI keeps on screen. Refreshed from get_state at
+	 *  boot and after every turn, and carried on every frame. */
+	model: string;
+	contextPct: number;
+	contextTokens: number;
 	/** omp session JSONL path, from get_state. Survives a child restart so the
 	 *  respawned child resumes the same conversation via switch_session. */
 	sessionFile: string | null;
@@ -79,6 +88,12 @@ interface RpcChatEntry {
 	/** chat message id → per-block UNTRUNCATED text, for SessionsGetChatBlock.
 	 *  Only populated for messages that actually got truncated. */
 	fullText: Map<string, string[]>;
+	/** toolCallId → newest un-emitted live output message. Coalesced on a
+	 *  trailing timer: tool_execution_update fires as fast as the tool writes,
+	 *  and a leading-edge drop would strand the last line before a long quiet
+	 *  stretch — exactly the compile-then-wait case live output is for. */
+	toolPending: Map<string, ChatMessage>;
+	toolTimer: ReturnType<typeof setTimeout> | null;
 	/** Trailing-timer coalescing state for message_update. */
 	pendingMsg: ChatMessage | null;
 	flushTimer: ReturnType<typeof setTimeout> | null;
@@ -104,7 +119,9 @@ function ensureReaper(host: RpcChatHost): void {
 
 function disposeEntry(entry: RpcChatEntry): void {
 	if (entry.flushTimer) { clearTimeout(entry.flushTimer); entry.flushTimer = null; }
+	if (entry.toolTimer) { clearTimeout(entry.toolTimer); entry.toolTimer = null; }
 	entry.pendingMsg = null;
+	entry.toolPending.clear();
 	entry.driver.dispose();
 }
 
@@ -120,18 +137,26 @@ function upsertMessage(host: RpcChatHost, entry: RpcChatEntry, msg: ChatMessage)
 	const i = rec.chatMessages.findIndex((m) => m.id === msg.id);
 	if (i >= 0) rec.chatMessages[i] = msg;
 	else { rec.chatMessages.push(msg); rec.chatMsgSeqs.push(rec.chat_seq); }
-	host.sendChatFrameUpstream?.(rec.channelId, {
-		sessionId: "", append: [msg], seq: rec.chat_seq, reset: false, streaming: entry.streaming,
-	});
+	host.sendChatFrameUpstream?.(rec.channelId, frameFor(entry, rec.chat_seq, [msg], false));
 }
 
-/** Publish a turn-state change with no message payload (agent_start/end). */
+/** Every frame carries the session status the omp TUI keeps on screen, so the
+ *  pane can show it without a second channel. */
+function frameFor(entry: RpcChatEntry, seq: number, append: ChatMessage[], reset: boolean): ChatFrame {
+	return {
+		sessionId: "", append, seq, reset,
+		streaming: entry.streaming,
+		model: entry.model,
+		contextPct: entry.contextPct,
+		contextTokens: entry.contextTokens,
+	};
+}
+
+/** Publish a state change with no message payload (agent_start/end, status). */
 function emitState(host: RpcChatHost, entry: RpcChatEntry): void {
 	const rec = host.getBySessionId(entry.sessionId);
 	if (!rec) return;
-	host.sendChatFrameUpstream?.(rec.channelId, {
-		sessionId: "", append: [], seq: rec.chat_seq, reset: false, streaming: entry.streaming,
-	});
+	host.sendChatFrameUpstream?.(rec.channelId, frameFor(entry, rec.chat_seq, [], false));
 }
 
 /** Untruncated text of one block, mirroring parse.ts::fullBlockText's switch. */
@@ -169,6 +194,25 @@ function narrate(host: RpcChatHost, entry: RpcChatEntry, text: string): void {
 		id: `rpc-${entry.nextMsg++}`, parentId: entry.lastMsgId, ts: new Date().toISOString(),
 		role: "developer", blocks: [{ kind: "text", text }],
 	});
+}
+
+/** Text of a tool's in-flight partial result. omp's AgentToolResult carries
+ *  `content: [{type:"text", text}]`; some tools report progress as a bare
+ *  string. Tail-capped: a running command's newest output is what matters,
+ *  and this re-renders on every update. */
+function partialResultText(raw: unknown): string {
+	if (typeof raw === "string") return stripAnsi(raw).slice(-PARTIAL_CAP);
+	if (raw === null || typeof raw !== "object") return "";
+	const content = (raw as { content?: unknown }).content;
+	if (!Array.isArray(content)) return "";
+	let out = "";
+	for (const b of content) {
+		if (b !== null && typeof b === "object") {
+			const blk = b as { type?: unknown; text?: unknown };
+			if (blk.type === "text" && typeof blk.text === "string") out += blk.text;
+		}
+	}
+	return stripAnsi(out).slice(-PARTIAL_CAP);
 }
 
 // CSI/OSC/SS3 escapes. omp writes slash-command output for a terminal, so
@@ -213,6 +257,25 @@ function scheduleFlush(host: RpcChatHost, entry: RpcChatEntry): void {
 	}, STREAM_FLUSH_MS);
 }
 
+/** Queue a live tool-output frame, newest-wins per call, emitted on a trailing
+ *  timer so a chatty tool cannot turn every write into a ChatFrame. */
+function queueToolUpdate(host: RpcChatHost, entry: RpcChatEntry, callId: string, msg: ChatMessage): void {
+	entry.toolPending.set(callId, msg);
+	if (entry.toolTimer) return;
+	entry.toolTimer = setTimeout(() => {
+		entry.toolTimer = null;
+		flushToolUpdates(host, entry);
+	}, STREAM_FLUSH_MS);
+}
+
+function flushToolUpdates(host: RpcChatHost, entry: RpcChatEntry): void {
+	if (entry.toolTimer) { clearTimeout(entry.toolTimer); entry.toolTimer = null; }
+	if (entry.toolPending.size === 0) return;
+	const pending = [...entry.toolPending.values()];
+	entry.toolPending.clear();
+	for (const msg of pending) upsertMessage(host, entry, msg);
+}
+
 function onEvent(host: RpcChatHost, entry: RpcChatEntry, frame: RpcFrame): void {
 	switch (frame.type) {
 		case "agent_start":
@@ -222,9 +285,13 @@ function onEvent(host: RpcChatHost, entry: RpcChatEntry, frame: RpcFrame): void 
 
 		case "agent_end":
 			flushPending(host, entry);
+			flushToolUpdates(host, entry);
 			entry.streaming = false;
 			entry.curMsgId = null;
 			emitState(host, entry);
+			// Context grew over the turn; the TUI's status line would already
+			// show the new number. Failure is silent — status is not load-bearing.
+			void refreshStatus(host, entry).catch(() => { /* keep last known */ });
 			return;
 
 		case "message_start": {
@@ -263,23 +330,35 @@ function onEvent(host: RpcChatHost, entry: RpcChatEntry, frame: RpcFrame): void 
 		}
 
 		case "tool_execution_start":
+		case "tool_execution_update":
 		case "tool_execution_end": {
 			const callId = typeof frame.toolCallId === "string" ? frame.toolCallId : "";
 			if (!callId) return;
 			flushPending(host, entry);
 			let id = entry.toolMsgIds.get(callId);
 			if (id === undefined) { id = `rpc-${entry.nextMsg++}`; entry.toolMsgIds.set(callId, id); }
-			const phase = frame.type === "tool_execution_start" ? "start" : "end";
-			if (phase === "end") entry.toolMsgIds.delete(callId);
-			upsertMessage(host, entry, {
+			const phase = frame.type === "tool_execution_start" ? "start"
+				: frame.type === "tool_execution_update" ? "update" : "end";
+			// The final result arrives separately as a toolResult message, so the
+			// event's own output only has to carry the LIVE view while running —
+			// which is what the TUI shows and the chat used to drop entirely.
+			const output = phase === "update" ? partialResultText(frame.partialResult) : "";
+			const msg: ChatMessage = {
 				id, parentId: entry.lastMsgId, ts: new Date().toISOString(), role: "assistant",
 				blocks: [{
 					kind: "toolEvent", callId,
 					name: typeof frame.toolName === "string" ? frame.toolName : "",
 					phase,
 					intent: typeof frame.intent === "string" ? frame.intent : "",
+					output,
 				}],
-			});
+			};
+			if (phase === "update") { queueToolUpdate(host, entry, callId, msg); return; }
+			// start/end are turn structure, not chatter — emit immediately, and
+			// drop any queued partial the terminal state supersedes.
+			entry.toolPending.delete(callId);
+			if (phase === "end") entry.toolMsgIds.delete(callId);
+			upsertMessage(host, entry, msg);
 			return;
 		}
 
@@ -369,19 +448,42 @@ async function initSession(host: RpcChatHost, entry: RpcChatEntry, priorFile: st
 			if (res.success === true) await reloadHistory(host, entry);
 			else log.warn("omp-rpc", "switch_session_failed", { sid: entry.sessionId, error: String(res.error ?? "") });
 		}
-		const state = await entry.driver.send({ type: "get_state" });
-		const data = state.data as { sessionFile?: unknown } | undefined;
-		const file = data && typeof data.sessionFile === "string" ? data.sessionFile : null;
-		if (!file) return;
+		await refreshStatus(host, entry);
+	} catch (err) {
+		log.warn("omp-rpc", "init_session_failed", { sid: entry.sessionId, error: String(err) });
+	}
+}
+
+/** Pull the status the omp TUI shows permanently — model + context usage — and
+ *  publish it. Cheap and only on boot / turn end, so no polling loop. */
+async function refreshStatus(host: RpcChatHost, entry: RpcChatEntry): Promise<void> {
+	const state = await entry.driver.send({ type: "get_state" });
+	if (state.success !== true) return;
+	const data = state.data as {
+		sessionFile?: unknown;
+		model?: { provider?: unknown; id?: unknown };
+		contextUsage?: { tokens?: unknown; percent?: unknown };
+	} | undefined;
+	if (!data) return;
+
+	const file = typeof data.sessionFile === "string" ? data.sessionFile : null;
+	if (file && file !== entry.sessionFile) {
 		entry.sessionFile = file;
 		// Durable, so a worker RESTART resumes this conversation too — the
 		// in-memory entry only covers a child that died under a live worker.
 		saveOmpSessionFile(entry.sessionId, file);
 		const rec = host.getBySessionId(entry.sessionId);
 		if (rec) rec.chatTranscriptPath = file;
-	} catch (err) {
-		log.warn("omp-rpc", "init_session_failed", { sid: entry.sessionId, error: String(err) });
 	}
+
+	const provider = typeof data.model?.provider === "string" ? data.model.provider : "";
+	const id = typeof data.model?.id === "string" ? data.model.id : "";
+	entry.model = provider && id ? `${provider}/${id}` : id || provider;
+	const usage = data.contextUsage;
+	entry.contextTokens = typeof usage?.tokens === "number" ? Math.max(0, Math.round(usage.tokens)) : 0;
+	// omp reports `percent` already scaled 0-100 (e.g. 0.55 = 0.55%).
+	entry.contextPct = typeof usage?.percent === "number" ? Math.max(0, Math.min(100, Math.round(usage.percent))) : 0;
+	emitState(host, entry);
 }
 
 /** Drain get_messages_page into a fresh transcript. A busy/stale session
@@ -418,9 +520,7 @@ async function reloadHistory(host: RpcChatHost, entry: RpcChatEntry): Promise<vo
 	if (!rec) return;
 	rec.chatMessages = [];
 	rec.chatMsgSeqs = [];
-	host.sendChatFrameUpstream?.(rec.channelId, {
-		sessionId: "", append: [], seq: rec.chat_seq, reset: true, streaming: entry.streaming,
-	});
+	host.sendChatFrameUpstream?.(rec.channelId, frameFor(entry, rec.chat_seq, [], true));
 	for (const msg of collected) upsertMessage(host, entry, msg);
 	if (incomplete) {
 		upsertMessage(host, entry, {
@@ -444,7 +544,9 @@ export function ensureRpcChat(host: RpcChatHost, rec: SessionRecord): RpcChatEnt
 
 	const entry: RpcChatEntry = {
 		sessionId: sid, nextMsg: 1, lastMsgId: "", curMsgId: null, streaming: false,
+		model: "", contextPct: 0, contextTokens: 0,
 		sessionFile: priorFile, pendingUi: new Map(), toolMsgIds: new Map(), fullText: new Map(),
+		toolPending: new Map(), toolTimer: null,
 		pendingMsg: null, flushTimer: null, ready: Promise.resolve(),
 		driver: null as unknown as OmpRpcDriver,
 	};
@@ -466,7 +568,7 @@ export function ensureRpcChat(host: RpcChatHost, rec: SessionRecord): RpcChatEnt
 	entries.set(sid, entry);
 	rec.chatMessages ??= [];
 	rec.chatMsgSeqs ??= [];
-	host.sendChatFrameUpstream?.(rec.channelId, { sessionId: "", append: [], seq: rec.chat_seq, reset: true, streaming: false });
+	host.sendChatFrameUpstream?.(rec.channelId, frameFor(entry, rec.chat_seq, [], true));
 	entry.driver.start();
 	// initSession never rejects (it logs); commands await this, they never fail on it.
 	entry.ready = initSession(host, entry, priorFile);

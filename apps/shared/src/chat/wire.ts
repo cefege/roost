@@ -70,8 +70,9 @@ export const ToolEventBlock = z.object({
   kind: z.literal("toolEvent"),
   callId: z.string(),
   name: z.string(),
-  phase: z.string(),             // "start" | "end"
+  phase: z.string(),             // "start" | "update" | "end"
   intent: z.string().default(""),
+  output: z.string().default(""),   // live partial output while the tool runs
 });
 export type ToolEventBlock = z.infer<typeof ToolEventBlock>;
 
@@ -125,6 +126,11 @@ export const ChatFrame = z.object({
   seq: z.number().int().nonnegative(),
   reset: z.boolean().default(false),
   streaming: z.boolean().default(false),
+  // Status the omp TUI keeps permanently on screen. Empty/zero on the mirror
+  // engine, which has no session state to ask for.
+  model: z.string().default(""),
+  contextPct: z.number().int().nonnegative().default(0),
+  contextTokens: z.number().int().nonnegative().default(0),
 });
 export type ChatFrame = z.infer<typeof ChatFrame>;
 
@@ -156,7 +162,7 @@ export function contentBlockToProto(b: ContentBlock): PbContentBlock {
     case "toolEvent":
       return create(ContentBlockSchema, {
         kind: { case: "toolEvent", value: create(ContentBlock_ToolEventSchema, {
-          callId: b.callId, name: b.name, phase: b.phase, intent: b.intent,
+          callId: b.callId, name: b.name, phase: b.phase, intent: b.intent, output: b.output,
         }) },
       });
     case "image":
@@ -189,6 +195,7 @@ export function chatFrameToProto(f: ChatFrame): PbChatFrame {
     seq: BigInt(f.seq),
     reset: f.reset,
     streaming: f.streaming,
+    model: f.model, contextPct: f.contextPct, contextTokens: f.contextTokens,
   });
 }
 
@@ -223,7 +230,7 @@ export function contentBlockFromProto(p: PbContentBlock): ContentBlock {
     case "toolEvent": {
       const v: PbToolEvent = k.value;
       return ContentBlock.parse({
-        kind: "toolEvent", callId: v.callId, name: v.name, phase: v.phase, intent: v.intent,
+        kind: "toolEvent", callId: v.callId, name: v.name, phase: v.phase, intent: v.intent, output: v.output,
       });
     }
     case "image": {
@@ -259,5 +266,6 @@ export function chatFrameFromProto(p: PbChatFrame): ChatFrame {
     seq: Number(p.seq),
     reset: p.reset,
     streaming: p.streaming,
+    model: p.model, contextPct: p.contextPct, contextTokens: p.contextTokens,
   });
 }

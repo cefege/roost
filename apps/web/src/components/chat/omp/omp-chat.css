@@ -283,3 +283,19 @@
   background: var(--md-sys-color-error);
   color: var(--md-sys-color-on-error);
 }
+
+/* ─── session status (omp TUI parity) ──────────────────────────────── */
+.omp-chat__status {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--md-sys-color-outline-variant);
+  background: var(--md-sys-color-surface-container-low);
+  font-size: var(--md-label-s-size);
+  color: var(--md-sys-color-on-surface-variant);
+}
+.omp-chat__status-model { font-weight: 600; color: var(--md-sys-color-primary); }
+.omp-chat__status-ctx { margin-left: auto; }
+.omp-tool__result--live { color: var(--md-sys-color-on-surface-variant); opacity: 0.85; }

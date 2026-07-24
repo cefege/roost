@@ -228,8 +228,9 @@ message ContentBlock {
   message ToolEvent {
     string call_id = 1;
     string name = 2;
-    string phase = 3;                // "start" | "end"
+    string phase = 3;                // "start" | "update" | "end"
     string intent = 4;               // optional human label
+    string output = 5;               // live partial output while running (TUI parity)
   }
 
   message ImageRef {
@@ -264,4 +265,8 @@ message ChatFrame {
   uint64 seq = 3;                    // monotonic line count (tailer offset)
   bool reset = 4;                    // true → drop client history and reseed
   bool streaming = 5;                // true → agent turn in flight (RPC chat)
+  // Status the omp TUI keeps on screen; empty on the mirror engine.
+  string model = 6;                  // "provider/model"
+  uint32 context_pct = 7;            // context window used, 0-100
+  uint32 context_tokens = 8;         // tokens in context
 }

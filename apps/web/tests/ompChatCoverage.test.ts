@@ -43,7 +43,7 @@ const thread: ChatMessage[] = [
   ] },
   // Lone tool_event (no call, no result) → standalone running card.
   { id: "a4", parentId: "tr4", ts: "t", role: "assistant", blocks: [
-    { kind: "toolEvent", callId: "ev", name: "grep", phase: "start", intent: "searching" },
+    { kind: "toolEvent", callId: "ev", name: "grep", phase: "start", intent: "searching", output: "" },
   ] },
   { id: "d1", parentId: "a4", ts: "t", role: "developer", blocks: [{ kind: "text", text: "— context compacted —" }] },
   // inline image on an assistant message (rendered directly, not via a card).
@@ -84,9 +84,10 @@ test("result full-text fetch targets the RESULT's coordinates, not the call's", 
 // same id as it grows. The old skip-by-id splice froze the first token forever.
 
 const SID = "sess-upsert";
-const push = (append: ChatMessage[], seq: number, opts: { reset?: boolean; streaming?: boolean } = {}) =>
+const push = (append: ChatMessage[], seq: number, opts: { reset?: boolean; streaming?: boolean; model?: string; contextPct?: number } = {}) =>
   applyOmpChatFrame(chatFrameToProto({
     sessionId: SID, append, seq, reset: opts.reset ?? false, streaming: opts.streaming ?? false,
+    model: opts.model ?? "", contextPct: opts.contextPct ?? 0, contextTokens: 0,
   }));
 
 test("same message id upserts in place — second frame's blocks win", () => {
@@ -127,4 +128,40 @@ test("reset keeps the LAST copy of a repeated id, not the first", () => {
   const state = ompChatForSession(SID);
   expect(state.messages).toHaveLength(1);
   expect(state.messages[0]!.blocks[0]).toEqual({ kind: "text", text: "complete" });
+});
+
+test("session status rides payload-less frames onto the store", () => {
+  push([], 0, { reset: true });
+  expect(ompChatForSession(SID).model).toBe("");
+
+  // agent_end sends no messages and no seq bump — the status must still land,
+  // or the header freezes at whatever the first frame happened to carry.
+  push([], 0, { model: "anthropic/claude-opus-5", contextPct: 2 });
+  expect(ompChatForSession(SID).model).toBe("anthropic/claude-opus-5");
+  expect(ompChatForSession(SID).contextPct).toBe(2);
+});
+
+test("tool index exposes the newest event, including live update output", () => {
+  const call: ChatMessage = { id: "a", parentId: "", ts: "t", role: "assistant", blocks: [
+    { kind: "toolCall", callId: "c1", name: "bash", argsJson: "{}" },
+  ] };
+  const evStart: ChatMessage = { id: "e", parentId: "a", ts: "t", role: "assistant", blocks: [
+    { kind: "toolEvent", callId: "c1", name: "bash", phase: "start", intent: "", output: "" },
+  ] };
+  // Same message id, replaced in place as the tool streams — the index must
+  // surface the newest block, not the one present when the card first mounted.
+  const evUpdate: ChatMessage = { ...evStart, blocks: [
+    { kind: "toolEvent", callId: "c1", name: "bash", phase: "update", intent: "", output: "tick 1\ntick 2\n" },
+  ] };
+
+  const before = buildToolIndex([call, evStart]);
+  expect(before.get("c1")!.event!.phase).toBe("start");
+  expect(before.get("c1")!.event!.output).toBe("");
+
+  const after = buildToolIndex([call, evUpdate]);
+  expect(after.get("c1")!.event!.phase).toBe("update");
+  expect(after.get("c1")!.event!.output).toBe("tick 1\ntick 2\n");
+
+  // An update-phase event still counts as covered routing (folds into the call).
+  expect(analyzeCoverage([call, evUpdate]).dropped).toEqual([]);
 });

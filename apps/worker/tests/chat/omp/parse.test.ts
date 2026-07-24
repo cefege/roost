@@ -94,7 +94,7 @@ test("custom tool_execution_start → toolEvent block (role assistant, phase sta
   const m = parseOmpLine(REAL.toolStart);
   expect(m!.role).toBe("assistant");
   expect(m!.blocks).toEqual([
-    { kind: "toolEvent", callId: "call_0167ad99a3704a1d883a8d9e", name: "read", phase: "start", intent: "Reading authoritative plan" },
+    { kind: "toolEvent", callId: "call_0167ad99a3704a1d883a8d9e", name: "read", phase: "start", intent: "Reading authoritative plan", output: "" },
   ]);
 });
 

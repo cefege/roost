@@ -214,7 +214,7 @@ function entryToChatMessage(entry: SessionEntry, cap: Cap = capText): ChatMessag
         if (!callId) return null;
         const name = asStr(d.toolName) ?? "";
         const intent = asStr(d.intent) ?? "";
-        return { id, parentId, ts, role: "assistant", blocks: [{ kind: "toolEvent", callId, name, phase: "start", intent }] };
+        return { id, parentId, ts, role: "assistant", blocks: [{ kind: "toolEvent", callId, name, phase: "start", intent, output: "" }] };
       }
       diag("chat.parse_skip", { reason: "unknown_custom", type: ct });
       return null;
