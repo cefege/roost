@@ -20,6 +20,13 @@ export const TextField: Component<{
   // ref for .focus()) can migrate off the native <input>. md-text-field's host
   // exposes .focus() (delegates to its inner input).
   onKeyDown?: (e: KeyboardEvent) => void;
+  // prop:, not attr: — a bare disabled={false} through <Dynamic> can land as
+  // the attribute disabled="false", which HTML reads as DISABLED and would
+  // permanently lock a field that only disables itself while sending.
+  disabled?: boolean;
+  // For fields with no visible label (the chat composer): supplies the
+  // accessible name md-outlined-text-field otherwise lacks.
+  ariaLabel?: string;
   ref?: (el: HTMLElement) => void;
 }> = (props) => (
   <Dynamic
@@ -35,6 +42,8 @@ export const TextField: Component<{
     class={props.class}
     style={props.style}
     attr:data-testid={props.testId}
+    prop:disabled={props.disabled ?? false}
+    attr:aria-label={props.ariaLabel}
     on:keydown={props.onKeyDown}
     on:input={(e: Event) =>
       props.onInput((e.currentTarget as HTMLInputElement & { value: string }).value)

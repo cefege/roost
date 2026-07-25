@@ -1,0 +1,132 @@
+/* Message bubbles and the markdown body rendered inside them.
+
+   Reading pass: the transcript once had one visual weight for everything, so a
+   400-line file read and the sentence the agent wrote after it looked
+   identical. The surviving mechanism is TYPE — what the agent SAYS is prose,
+   set in the UI sans at reading size; what it DOES is a log, set in
+   --term-font-family, smaller and quieter. The containers are M3 now: speech
+   gets a filled bubble, machinery gets an outlined card (chat-tool.css). The
+   three quiet tiers stay the M3 text-emphasis ladder, not bare opacity:
+   on-surface (speech) → on-surface-variant (secondary) → --md-on-surface-dim
+   (log meta). */
+
+.omp-msg {
+  display: flex;
+  flex-direction: column;
+  max-width: 100%;
+}
+.omp-msg--user {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+.omp-msg--assistant,
+.omp-msg--developer {
+  align-self: flex-start;
+  align-items: flex-start;
+}
+.omp-msg--toolResult {
+  align-self: flex-start;
+  align-items: flex-start;
+}
+
+.omp-msg__bubble {
+  border-radius: var(--md-shape-md);
+  word-break: break-word;
+  font-size: var(--md-body-l-size);
+  line-height: var(--md-body-l-line);
+  font-weight: var(--md-body-l-weight);
+  /* No token family covers tracking; this is a deliberate reading-pass value. */
+  letter-spacing: 0.005em;
+  padding: var(--md-space-3) var(--md-space-4);
+  max-width: min(68ch, 92%);
+}
+/* M3 chat shape: the pinched corner marks the speaker's side. No elevation —
+   filled containers in a list are elevation 0. */
+.omp-msg--user .omp-msg__bubble {
+  background: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
+  border-radius: var(--md-shape-lg) var(--md-shape-lg) var(--md-shape-xs) var(--md-shape-lg);
+}
+.omp-msg--assistant .omp-msg__bubble {
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface);
+  border-radius: var(--md-shape-lg) var(--md-shape-lg) var(--md-shape-lg) var(--md-shape-xs);
+}
+/* Developer turns are host chatter, not speech: a low-emphasis outlined
+   container set in the machinery type. */
+.omp-msg--developer .omp-msg__bubble {
+  background: var(--md-sys-color-surface-container-low);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-shape-md);
+  padding: var(--md-space-2) var(--md-space-3);
+  font-family: var(--term-font-family);
+  font-size: var(--md-body-s-size);
+  line-height: var(--md-body-s-line);
+  font-weight: var(--md-body-s-weight);
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+/* markdown body inside bubbles */
+.omp-md p {
+  margin: 0 0 var(--md-space-2);
+}
+.omp-md p:last-child {
+  margin-bottom: 0;
+}
+/* One surface tier below the assistant bubble it sits inside, so a fenced
+   block stays legible against the filled container. --md-surface-container-lowest
+   has no --md-sys-color-* mirror (theme-vars.css:106) — the --md-* name is the
+   only spelling. */
+.omp-md pre {
+  background: var(--md-surface-container-lowest);
+  padding: var(--md-space-2) var(--md-space-3);
+  border-radius: var(--md-shape-sm);
+  overflow-x: auto;
+  font-size: var(--md-body-s-size);
+  line-height: var(--md-body-s-line);
+  font-weight: var(--md-body-s-weight);
+  margin: var(--md-space-2) 0;
+}
+.omp-md code {
+  font-family: var(--term-font-family);
+  font-size: var(--md-body-s-size);
+  line-height: var(--md-body-s-line);
+  font-weight: var(--md-body-s-weight);
+}
+.omp-md :not(pre) > code {
+  background: var(--md-sys-color-surface-container-highest);
+  padding: 0 var(--md-space-1);
+  border-radius: var(--md-shape-xs);
+}
+.omp-md ul, .omp-md ol {
+  margin: var(--md-space-1) 0 var(--md-space-2);
+  padding-left: var(--md-space-5);
+}
+.omp-md h1, .omp-md h2, .omp-md h3 {
+  margin: var(--md-space-2) 0 var(--md-space-1);
+}
+.omp-md h1 {
+  font-size: var(--md-title-m-size);
+  line-height: var(--md-title-m-line);
+  font-weight: var(--md-title-m-weight);
+}
+.omp-md h2 {
+  font-size: var(--md-title-s-size);
+  line-height: var(--md-title-s-line);
+  font-weight: var(--md-title-s-weight);
+}
+.omp-md h3 {
+  font-size: var(--md-label-l-size);
+  line-height: var(--md-label-l-line);
+  font-weight: var(--md-label-l-weight);
+}
+.omp-md a {
+  color: var(--md-sys-color-primary);
+}
+
+/* The row is a flex item in a column: align-self:flex-start makes it
+   shrink-to-fit, which wrapped prose at ~40 characters regardless of the
+   bubble's max-width. Let the row span and cap the measure on the bubble. */
+.omp-msg--assistant, .omp-msg--developer, .omp-msg--toolResult {
+  align-self: stretch;
+}

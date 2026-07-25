@@ -1,10 +1,12 @@
-// TerminalStatusBadge — per-terminal status tag, pinned top-right of each
-// terminal viewport (absolute overlay, non-interactive). Colored by the agent's
-// live attention level (Working / Needs input / Done / Idle) via the ONE vocab
-// in lib/agentStatus.ts, so its color matches the pane's tab-strip dot for the
-// same session. Claude/agent sessions only; hidden while the level is unknown.
-// Plain shells render nothing. Caller: CellTerminal.tsx (gated !pending &&
-// !offline && inLayout — parked off-screen panes skip the attention recompute).
+// TerminalStatusBadge — per-terminal status tag. Renders as a non-interactive
+// flex child of CellTerminal's `.term-pane-corner` top-right slot (shared with
+// the omp chat/terminal toggle): the slot owns the positioning, this owns the
+// pill. Colored by the agent's live attention level (Working / Needs input /
+// Done / Idle) via the ONE vocab in lib/agentStatus.ts, so its color matches
+// the pane's tab-strip dot for the same session. Claude/agent sessions only;
+// hidden while the level is unknown. Plain shells render nothing. Caller:
+// CellTerminal.tsx (gated !pending && !offline && inLayout — parked off-screen
+// panes skip the attention recompute).
 import { Show, createMemo, type Component } from "solid-js";
 import type { Session } from "@roost/shared/wire";
 import { attentionOf, presentationOf } from "../lib/agentStatus.ts";

@@ -1919,11 +1919,23 @@ aside[data-testid="sidebar-drawer"]::-webkit-scrollbar-thumb:hover,
 }
 .df-tab-close:hover { color: var(--md-on-surface); }
 
-.term-status-badge {
+/* Pane top-right overlay slot (CellTerminal `.term-pane-corner`). Holds the
+   status badge + the omp chat/terminal toggle in ONE row. They used to anchor
+   independently in this corner (top:8/right:8 vs top:12/right:12) and the
+   toggle painted over the badge. Click-through; children opt back in. */
+.term-pane-corner {
   position: absolute;
   top: 8px;
   right: 8px;
-  z-index: 4;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.term-status-badge {
+  flex-shrink: 0;
   pointer-events: none;
   user-select: none;
   display: inline-flex;

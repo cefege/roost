@@ -7,6 +7,7 @@
 import { createResource, Show } from "solid-js";
 import { coordClient } from "../../../connect.ts";
 import { rootStore } from "../../../store/root.ts";
+import { Icon } from "../../Settings/md/Icon.tsx";
 
 interface Props {
   sessionId: string;
@@ -49,8 +50,8 @@ export function ChatImage(props: Props) {
   );
   const url = () => (isData() ? props.blobPath : src());
   return (
-    <Show when={url()} fallback={<span class="omp-img-placeholder">🖼 image ({props.mime}){src.loading ? " loading…" : ""}</span>}>
-      <img class="omp-img" src={url()!} alt="" loading="lazy" />
+    <Show when={url()} fallback={<span class="omp-img-placeholder"><Icon name="image" size="sm" /> image ({props.mime}){src.loading ? " loading…" : ""}</span>}>
+      <img class="omp-img" src={url()!} alt={`attachment: ${props.mime}`} loading="lazy" />
     </Show>
   );
 }

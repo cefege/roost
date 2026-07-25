@@ -4,7 +4,7 @@
 // call-less results render as their own card. Backfills history on first enter;
 // stick-to-bottom scroll.
 
-import { createMemo, createEffect, For, Show, onMount } from "solid-js";
+import { createMemo, createEffect, createSignal, untrack, For, Show, onMount } from "solid-js";
 import type { ChatMessage, ContentBlock } from "@roost/shared/chat/wire";
 import { ompChatForSession, backfillOmpChat } from "../../../store/chatOmp.ts";
 import { buildToolIndex, type ToolMatch } from "./renderPlan.ts";
@@ -13,7 +13,14 @@ import { ThinkingBlock } from "./ThinkingBlock.tsx";
 import { ToolCard } from "./ToolCard.tsx";
 import { Composer } from "./Composer.tsx";
 import { ApprovalCard } from "./ApprovalCard.tsx";
-import "./omp-chat.css";
+import { Icon } from "../../Settings/md/Icon.tsx";
+import "@material/web/progress/linear-progress.js";
+// Cascade order is load-bearing: pane shell → message bubbles → machinery →
+// composer. Do not reorder.
+import "./styles/chat-pane.css";
+import "./styles/chat-message.css";
+import "./styles/chat-tool.css";
+import "./styles/chat-composer.css";
 
 interface Props {
   sessionId: string;
@@ -31,19 +38,24 @@ export function OmpChatPane(props: Props) {
   const toolIndex = createMemo(() => buildToolIndex(state().messages));
 
   // Stick-to-bottom: scroll to end on append unless the user scrolled up.
-  let stick = true;
+  const [stick, setStick] = createSignal(true);
+  const [scrolled, setScrolled] = createSignal(false);
   const onScroll = () => {
     if (!threadEl) return;
-    stick = threadEl.scrollHeight - threadEl.scrollTop - threadEl.clientHeight < 80;
+    setStick(threadEl.scrollHeight - threadEl.scrollTop - threadEl.clientHeight < 80);
+    setScrolled(threadEl.scrollTop > 0);
   };
+  // untrack(stick): the effect must fire on APPEND only. Tracking `stick` would
+  // re-run it on every scroll flip and yank the view back down mid-read.
   createEffect(() => {
     const n = state().messages.length;
-    if (stick && threadEl) queueMicrotask(() => { threadEl?.scrollTo({ top: threadEl.scrollHeight }); });
+    if (untrack(stick) && threadEl) queueMicrotask(() => { threadEl?.scrollTo({ top: threadEl.scrollHeight }); });
     void n;
   });
+  const toBottom = () => threadEl?.scrollTo({ top: threadEl.scrollHeight });
 
   return (
-    <div class="omp-chat" data-testid="omp-chat-pane" data-session-id={props.sessionId}>
+    <div class="omp-chat" data-testid="omp-chat-pane" data-session-id={props.sessionId} data-scrolled={String(scrolled())}>
       {/* The status the omp TUI keeps permanently on screen. Native engine
           only — the mirror engine reports nothing and the row stays hidden. */}
       <Show when={state().model}>
@@ -56,7 +68,10 @@ export function OmpChatPane(props: Props) {
           </Show>
         </div>
       </Show>
-      <div class="omp-chat__thread" ref={threadEl} onScroll={onScroll}>
+      <Show when={state().streaming}>
+        <md-linear-progress class="omp-chat__progress" prop:indeterminate={true} />
+      </Show>
+      <div class="omp-chat__thread" role="log" aria-label="Chat transcript" ref={threadEl} onScroll={onScroll}>
         <Show when={state().status !== "loading"} fallback={<div class="omp-chat__skeleton">Loading chat…</div>}>
           <Show when={state().messages.length > 0} fallback={<div class="omp-chat__skeleton">No messages yet</div>}>
             <For each={state().messages}>
@@ -65,9 +80,15 @@ export function OmpChatPane(props: Props) {
           </Show>
         </Show>
         <Show when={state().streaming}>
-          <div class="omp-chat__busy" data-testid="omp-chat-busy"><span class="omp-chat__busy-dot" />working</div>
+          <div class="omp-chat__busy" role="status" data-testid="omp-chat-busy"><Icon name="autorenew" size="sm" />working</div>
         </Show>
       </div>
+      <Show when={!stick()}>
+        <button type="button" class="omp-chat__jump" data-testid="omp-chat-jump-bottom"
+          aria-label="Scroll to latest" onClick={toBottom}>
+          <Icon name="arrow_downward" />
+        </button>
+      </Show>
       <Composer sessionId={props.sessionId} />
     </div>
   );

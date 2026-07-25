@@ -18,6 +18,7 @@ import { addToast } from "../../../lib/toastStore.ts";
 import { inputChannel } from "../../../ws/input-channel.ts";
 import { buildPtyPayload, CR_BYTES, enterDelayMs } from "../../../lib/ptyPaste.ts";
 import { Button } from "../../Settings/md/Button.tsx";
+import { TextField } from "../../Settings/md/TextField.tsx";
 
 interface Props {
   sessionId: string;
@@ -82,6 +83,9 @@ export function Composer(props: Props) {
   };
 
   const onKey = (e: KeyboardEvent) => {
+    // An IME candidate commit fires Enter too; sending there ships a
+    // half-composed CJK message.
+    if (e.isComposing) return;
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       send();
@@ -89,24 +93,28 @@ export function Composer(props: Props) {
   };
 
   return (
-    <div class="omp-composer" data-testid="omp-chat-composer" data-streaming={String(chat().streaming)}>
-      <textarea
+    <div class="omp-composer" data-testid="omp-chat-composer">
+      <TextField
         class="omp-composer__input"
-        placeholder="Send to omp…"
-        value={text()}
-        onInput={(e) => setText(e.currentTarget.value)}
-        onKeyDown={onKey}
+        type="textarea"
         rows={1}
+        value={text()}
+        onInput={setText}
+        placeholder="Send to omp…"
+        ariaLabel="Message"
         disabled={sending()}
+        testId="omp-chat-input"
+        onKeyDown={onKey}
       />
       {/* Stop sits BESIDE Send, not in place of it: omp accepts a mid-turn
           prompt (the worker queues it as a followUp), so hiding Send would
           wrongly imply follow-ups are blocked. */}
       <Show when={chat().streaming}>
-        <Button variant="text" data-testid="omp-chat-stop" onClick={() => void abort()}>Stop</Button>
+        <Button variant="text" icon="stop" data-testid="omp-chat-stop" onClick={() => void abort()}>Stop</Button>
       </Show>
       <Button
         variant="filled"
+        icon="send"
         data-testid="omp-chat-send"
         onClick={() => send()}
         disabled={sending() || text().trim().length === 0}

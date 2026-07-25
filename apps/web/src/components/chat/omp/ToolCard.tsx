@@ -11,6 +11,10 @@ import type { ResultRef } from "./renderPlan.ts";
 import { fetchChatBlock } from "../../../store/chatOmp.ts";
 import { parseArgs, toolSummary, toolPayload } from "./toolView.ts";
 import { ChatImage } from "./ChatImage.tsx";
+import { Icon } from "../../Settings/md/Icon.tsx";
+import { Button } from "../../Settings/md/Button.tsx";
+import "@material/web/ripple/ripple.js";
+import "@material/web/progress/linear-progress.js";
 
 interface Props {
   sessionId: string;
@@ -44,23 +48,28 @@ export function ToolCard(props: Props) {
   const resultLines = () => results().reduce((n, r) => n + r.block.text.split("\n").length, 0);
   const bulky = () => !running() && resultLines() > LONG_RESULT_LINES;
   const collapsed = () => override() ?? bulky();
+  // One string, one chip. Three sibling <Show>es left whitespace text nodes in
+  // the span, so a finished expanded card painted an empty pill.
+  const status = () =>
+    running() ? "running" : isError() ? "error" : collapsed() ? `${resultLines()} lines` : "";
 
   return (
-    <div class="omp-tool" classList={{ "omp-tool--error": isError(), "omp-tool--running": running() }} data-testid="omp-chat-tool">
+    <div class="omp-tool" classList={{ "omp-tool--error": isError(), "omp-tool--running": running() }} data-testid="omp-chat-tool" data-expanded={String(!collapsed())}>
       <button type="button" class="omp-tool__head" aria-expanded={!collapsed()} onClick={() => setOverride(!collapsed())}>
-        <span class="omp-tool__chevron">{collapsed() ? "▸" : "▾"}</span>
+        <md-ripple />
+        <Icon name="chevron_right" size="sm" class="omp-tool__chevron" />
         <span class="omp-tool__name">{name()}</span>
         <Show when={summary()}><span class="omp-tool__summary">{summary()}</span></Show>
-        <span class="omp-tool__status">
-          <Show when={running()}>running</Show>
-          <Show when={isError()}>error</Show>
-          <Show when={collapsed() && !isError()}>{resultLines()} lines</Show>
-        </span>
+        <Show when={status()}><span class="omp-tool__status">{status()}</span></Show>
       </button>
+      <Show when={running()}>
+        <md-linear-progress class="omp-tool__progress" prop:indeterminate={true} />
+      </Show>
 
       <Show when={!collapsed()}>
         <div class="omp-tool__body">
           <Show when={payload()}>
+            {/* data-lang is the syntax-highlighting hook: it feeds toolPayload().lang / langForPath() in toolView.ts. */}
             <pre class="omp-tool__code" data-lang={payload()!.lang}><code>{payload()!.text}</code></pre>
           </Show>
           <Show when={liveOutput()}>
@@ -102,9 +111,9 @@ function ToolResultView(props: { sessionId: string; r: ResultRef }) {
       <pre class="omp-tool__result" classList={{ "omp-tool__result--error": props.r.block.isError }}><code>{text()}</code></pre>
       <Show when={loading()}><span class="omp-tool__loading">loading full…</span></Show>
       <Show when={props.r.block.truncated && full() === null}>
-        <button class="omp-tool__more" onClick={() => void loadFull()}>
+        <Button variant="text" class="omp-tool__more" data-testid="omp-chat-tool-more" onClick={() => void loadFull()}>
           show full {props.r.block.fullLen.toLocaleString()} chars
-        </button>
+        </Button>
       </Show>
     </Show>
   );

@@ -1,0 +1,261 @@
+/* Machinery containers: thinking blocks, tool cards, inline images — plus
+   their interaction states. Everything here is set in --term-font-family at
+   body-s, one tier quieter than the speech bubbles in chat-message.css. */
+
+/* ─── thinking block ───────────────────────────────────────────────── */
+/* Outlined but unfilled — quieter than a tool card, which is the point: an
+   aside, not a log entry. */
+.omp-thinking {
+  margin: var(--md-space-1) 0;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-shape-md);
+  background: none;
+  overflow: hidden;
+  font-size: var(--md-body-m-size);
+  line-height: var(--md-body-m-line);
+}
+.omp-thinking summary {
+  position: relative;               /* md-ripple anchor */
+  display: flex;
+  align-items: center;
+  gap: var(--md-space-2);
+  cursor: pointer;
+  color: var(--md-on-surface-dim);
+  user-select: none;
+  list-style: none;
+  /* the native ▶ marker doubled our own chevron */
+  min-height: 36px;
+  padding: 0 var(--md-space-3);
+  font-size: var(--md-label-s-size);
+  line-height: var(--md-label-s-line);
+  font-weight: var(--md-label-s-weight);
+}
+.omp-thinking summary md-ripple {
+  --md-ripple-hover-color: var(--md-sys-color-on-surface);
+  --md-ripple-pressed-color: var(--md-sys-color-primary);
+}
+.omp-thinking summary::-webkit-details-marker {
+  display: none;
+}
+.omp-thinking__chevron {
+  flex: 0 0 auto;
+  transition: transform var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-emphasized);
+}
+.omp-thinking[open] .omp-thinking__chevron {
+  transform: rotate(90deg);
+}
+.omp-thinking__icon {
+  flex: 0 0 auto;
+  color: var(--md-sys-color-tertiary);
+}
+.omp-thinking__body {
+  background: var(--md-surface-container-lowest);
+  border-radius: var(--md-shape-sm);
+  border-left: none;
+  margin: 0 var(--md-space-3) var(--md-space-3);
+  padding: var(--md-space-2) var(--md-space-3);
+  color: var(--md-sys-color-on-surface-variant);
+  white-space: pre-wrap;
+  max-height: 60vh;
+  overflow-y: auto;
+  font-size: var(--md-body-s-size);
+  line-height: var(--md-body-s-line);
+  font-weight: var(--md-body-s-weight);
+}
+/* md-text-button now; the class only keeps it off the left edge. */
+.omp-thinking__more {
+  margin: 0 var(--md-space-3) var(--md-space-2);
+}
+
+/* ─── tool card ────────────────────────────────────────────────────── */
+/* An M3 outlined card: the run's phase paints the outline, not a gutter rule. */
+.omp-tool {
+  align-self: flex-start;
+  overflow: hidden;
+  font-size: var(--md-body-m-size);
+  line-height: var(--md-body-m-line);
+  width: auto;
+  max-width: min(96ch, 100%);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-shape-md);
+  background: var(--md-sys-color-surface-container-low);
+}
+.omp-tool--running {
+  border-color: var(--md-sys-color-primary);
+}
+.omp-tool--error {
+  border-color: var(--md-sys-color-error);
+}
+.omp-tool__head {
+  position: relative;               /* md-ripple anchor */
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+  background: none;
+  /* real <button> for keyboard reach — reset the UA chrome */
+  width: 100%;
+  border: 0;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  min-height: 40px;
+  padding: var(--md-space-2) var(--md-space-3);
+  gap: var(--md-space-2);
+  font-size: var(--md-label-s-size);
+  line-height: var(--md-label-s-line);
+  font-weight: var(--md-label-s-weight);
+}
+.omp-tool__head md-ripple {
+  --md-ripple-hover-color: var(--md-sys-color-on-surface);
+  --md-ripple-pressed-color: var(--md-sys-color-primary);
+}
+.omp-tool__progress {
+  display: block;
+  --md-linear-progress-track-height: 2px;
+  --md-linear-progress-active-indicator-height: 2px;
+  --md-linear-progress-active-indicator-color: var(--md-sys-color-primary);
+  --md-linear-progress-track-color: transparent;
+}
+/* No font-size here: the Material Symbol is sized by .md-icon--sm (size="sm").
+   Re-declaring label-s would beat it — same specificity, later cascade. */
+.omp-tool__chevron {
+  color: var(--md-on-surface-dim);
+  flex: 0 0 auto;
+  transition: transform var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-emphasized);
+}
+.omp-tool[data-expanded="true"] .omp-tool__chevron {
+  transform: rotate(90deg);
+}
+.omp-tool__name {
+  color: var(--md-sys-color-tertiary);
+  flex: 0 0 auto;
+  font-size: var(--md-label-s-size);
+  line-height: var(--md-label-s-line);
+  font-weight: var(--md-label-s-weight);
+  letter-spacing: 0.02em;
+}
+.omp-tool__summary {
+  font-family: var(--term-font-family);
+  font-size: var(--md-body-s-size);
+  line-height: var(--md-body-s-line);
+  font-weight: var(--md-body-s-weight);
+  color: var(--md-on-surface-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1 1 auto;
+}
+/* A pill, not a word: the phase reads at a glance. ToolCard renders the span
+   only when there is a phase to name, so no empty chip is possible. */
+.omp-tool__status {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 var(--md-space-2);
+  border-radius: var(--md-shape-full);
+  background: var(--md-sys-color-surface-container-highest);
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-label-s-size);
+  line-height: var(--md-label-s-line);
+  font-weight: var(--md-label-s-weight);
+  font-variant-numeric: tabular-nums;
+}
+.omp-tool--running .omp-tool__status {
+  background: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
+}
+.omp-tool--error .omp-tool__status {
+  background: var(--md-sys-color-error-container);
+  color: var(--md-sys-color-on-error-container);
+}
+.omp-tool__body {
+  display: flex;
+  flex-direction: column;
+  margin-left: 0;
+  padding: 0 var(--md-space-3) var(--md-space-2);
+}
+.omp-tool__code,
+.omp-tool__result {
+  margin: 0 0 var(--md-space-2);
+  font-family: var(--term-font-family);
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-x: auto;
+  overflow-y: auto;
+  border: none;
+  padding: var(--md-space-2);
+  border-radius: var(--md-shape-sm);
+  font-size: var(--md-body-s-size);
+  line-height: var(--md-body-s-line);
+  font-weight: var(--md-body-s-weight);
+  color: var(--md-sys-color-on-surface-variant);
+  /* -lowest (surface-0), not -container: theme-vars.css:107-108 aliases BOTH
+     container-low and container onto surface-1, which is also --md-surface —
+     the page. Only lowest/high/highest read as a distinct tier. */
+  background: var(--md-surface-container-lowest);
+  max-height: 200px;
+}
+.omp-tool__result--error {
+  color: var(--md-sys-color-error);
+}
+.omp-tool__result--live {
+  color: var(--md-sys-color-on-surface-variant);
+}
+/* A running tool's live output is the one piece of machinery worth full
+   attention while it lasts. */
+.omp-tool--running .omp-tool__result--live {
+  color: var(--md-sys-color-on-surface);
+}
+.omp-tool__code code, .omp-tool__result code {
+  font: inherit;
+  background: none;
+  padding: 0;
+}
+.omp-tool__images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--md-space-2);
+  padding: var(--md-space-2) var(--md-space-3) var(--md-space-2) 0;
+  border-top: none;
+}
+.omp-img {
+  max-width: 100%;
+  max-height: 360px;
+  border-radius: var(--md-shape-sm);
+}
+.omp-img-placeholder {
+  padding: var(--md-space-2) var(--md-space-3);
+  font-size: var(--md-body-s-size);
+  line-height: var(--md-body-s-line);
+  font-weight: var(--md-body-s-weight);
+  color: var(--md-sys-color-on-surface-variant);
+}
+.omp-tool__loading {
+  padding: var(--md-space-1) var(--md-space-3);
+  font-size: var(--md-label-m-size);
+  line-height: var(--md-label-m-line);
+  font-weight: var(--md-label-m-weight);
+  color: var(--md-sys-color-on-surface-variant);
+}
+/* md-text-button now; the class only keeps it from stretching across the
+   column-flex body. */
+.omp-tool__more {
+  align-self: flex-start;
+}
+
+/* ─── interaction: state layers, focus, motion ─────────────────────── */
+/* md-ripple owns hover and press on both .omp-tool__head and
+   .omp-thinking summary; it draws no focus ring, so the outline stays
+   hand-rolled. */
+.omp-tool__head:focus-visible,
+.omp-thinking summary:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: -2px;
+}
+/* theme-vars.css:369-374 neutralises this under prefers-reduced-motion. */
+.omp-tool,
+.omp-thinking {
+  transition: border-color var(--md-sys-motion-duration-short2) var(--md-sys-motion-easing-standard);
+}

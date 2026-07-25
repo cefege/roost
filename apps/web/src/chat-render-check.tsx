@@ -10,6 +10,10 @@ import { render } from "solid-js/web";
 // made against it is wrong.
 import "./styles/theme-vars.css";
 import "./styles/syntax-vars.css";
+// sidebar.css carries the @font-face for "Material Symbols Rounded" (see
+// Settings/md/icon.css header) — without it every Icon paints its ligature
+// name as literal text.
+import "./styles/sidebar.css";
 import "./styles/voice-input.css";
 import { applyTheme, loadTheme } from "./lib/theme.ts";
 import { rootStore, setRootStore } from "./store/root.ts";

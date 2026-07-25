@@ -5,6 +5,7 @@
 import { For, Show } from "solid-js";
 import type { ChatMessage, ContentBlock } from "@roost/shared/chat/wire";
 import { renderMarkdown } from "./markdown.ts";
+import { Icon } from "../../Settings/md/Icon.tsx";
 
 interface Props {
   msg: ChatMessage;
@@ -17,7 +18,6 @@ function proseBlocks(msg: ChatMessage): ContentBlock[] {
 
 export function MessageBubble(props: Props) {
   const blocks = () => proseBlocks(props.msg);
-  const isUser = () => props.msg.role === "user";
 
   return (
     <Show when={blocks().length > 0}>
@@ -41,8 +41,8 @@ function ImageBlock(props: { blobPath: string; mime: string }) {
   // data: URLs render directly; absolute paths need a byte fetch (v1: placeholder).
   const isDataUrl = () => props.blobPath.startsWith("data:");
   return (
-    <Show when={isDataUrl()} fallback={<span class="omp-md" style={{ color: "var(--md-on-surface-dim)" }}>[image: {props.mime}]</span>}>
-      <img src={props.blobPath} alt="" style={{ "max-width": "100%", "border-radius": "var(--md-shape-sm)", margin: "var(--md-space-1) 0" }} />
+    <Show when={isDataUrl()} fallback={<span class="omp-md" style={{ color: "var(--md-on-surface-dim)" }}><Icon name="image" size="sm" /> [image: {props.mime}]</span>}>
+      <img src={props.blobPath} alt={`image: ${props.mime}`} style={{ "max-width": "100%", "border-radius": "var(--md-shape-sm)", margin: "var(--md-space-1) 0" }} />
     </Show>
   );
 }

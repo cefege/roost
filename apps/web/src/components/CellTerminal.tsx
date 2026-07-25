@@ -1274,24 +1274,35 @@ export function CellTerminal(props: CellTerminalProps) {
 			<Show when={(isCompact() || isTouchDevice()) && props.inLayout !== false && !chatViewActive()}>
 				<TerminalChatButton session={props.session} refocusTerminal={() => term?.forceFocus()} />
 			</Show>
-			{/* Omp chat toggle (transcript-reader). omp sessions only — switches the
-          pane between the cell terminal and the OmpChatPane overlay. Hidden for
-          non-omp sessions (claude/shell/pi). */}
-			<Show when={ompChatEnabled(props.session.id)}>
-				<IconButton
-					icon={ompChatViewForSession(props.session.id) === "chat" ? "terminal" : "forum"}
-					label={ompChatViewForSession(props.session.id) === "chat" ? "Switch to terminal" : "Switch to chat"}
-					data-testid="omp-chat-toggle"
-					title={ompChatViewForSession(props.session.id) === "chat" ? "Switch to terminal" : "Switch to chat"}
-					onClick={() => toggleOmpChatView(props.session.id)}
-					style={{
-						position: "absolute", right: "var(--md-space-3)", top: "var(--md-space-3)", "z-index": "10",
-						"--md-icon-button-icon-size": "18px",
-						"--md-icon-button-state-layer-width": "36px",
-						"--md-icon-button-state-layer-height": "36px",
-					}}
-				/>
-			</Show>
+			{/* Pane top-right overlay slot — the ONE place pane-corner affordances live.
+          The omp chat/terminal toggle and the status badge each used to anchor
+          themselves absolutely in this corner (top:12/right:12 vs top:8/right:8),
+          so the 36px toggle painted straight over the badge pill. They are now
+          flex children of one row: a third corner affordance is a new child, not
+          a fourth set of coordinates. Container is click-through; the toggle opts
+          back in (the badge is pointer-events:none by design).
+          The toggle is deliberately the only overlay here WITHOUT a
+          !chatViewActive() guard — it is the only way back out of the chat pane. */}
+			<div class="term-pane-corner">
+				<Show when={!pending() && !offline() && props.inLayout !== false && !chatViewActive()}>
+					<TerminalStatusBadge session={props.session} />
+				</Show>
+				<Show when={ompChatEnabled(props.session.id)}>
+					<IconButton
+						icon={ompChatViewForSession(props.session.id) === "chat" ? "terminal" : "forum"}
+						label={ompChatViewForSession(props.session.id) === "chat" ? "Switch to terminal" : "Switch to chat"}
+						data-testid="omp-chat-toggle"
+						title={ompChatViewForSession(props.session.id) === "chat" ? "Switch to terminal" : "Switch to chat"}
+						onClick={() => toggleOmpChatView(props.session.id)}
+						style={{
+							"pointer-events": "auto",
+							"--md-icon-button-icon-size": "18px",
+							"--md-icon-button-state-layer-width": "36px",
+							"--md-icon-button-state-layer-height": "36px",
+						}}
+					/>
+				</Show>
+			</div>
 			{/* Launch-agent FAB — shells only, shown only at a plain shell prompt
           (regex on the live viewport tail) AND not while voice-recording
           (shares the discard-✕ slot; would cover the cancel button). Types the
@@ -1313,9 +1324,6 @@ export function CellTerminal(props: CellTerminalProps) {
           Native picker → chunked upload (progress chip) → abs_path injected. */}
 			<Show when={activeChatChannel() === null && props.inLayout !== false && !chatViewActive()}>
 				<AttachFileButton session={props.session} />
-			</Show>
-			<Show when={!pending() && !offline() && props.inLayout !== false && !chatViewActive()}>
-				<TerminalStatusBadge session={props.session} />
 			</Show>
 			{/* Jump-to-latest FAB — bottom-center, shown only when scrolled up > 1
           viewport (never in alt-screen). Tap → instant scroll to the bottom,

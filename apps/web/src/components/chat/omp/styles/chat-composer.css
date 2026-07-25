@@ -1,0 +1,90 @@
+/* Bottom-docked composer and the inline approval card — the two places the
+   user types back into the thread. */
+
+/* ─── composer ─────────────────────────────────────────────────────── */
+.omp-composer {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-end;
+  gap: var(--md-space-2);
+  padding: var(--md-space-3);
+  /* Bottom-most element of a full-bleed pane: clear the iOS home indicator.
+     No --kb-offset here — AppShell.tsx already moves `main` for the soft
+     keyboard and this composer lives inside it. */
+  padding-bottom: calc(var(--md-space-3) + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--md-sys-color-outline-variant);
+  background: var(--md-sys-color-surface-container);
+}
+.omp-composer md-text-button[data-testid="omp-chat-stop"] {
+  --md-text-button-label-text-color: var(--md-sys-color-error);
+}
+/* md-outlined-text-field owns its border, fill, focus ring and label motion. */
+.omp-composer__input {
+  flex: 1;
+  /* md-outlined-text-field's :host is resize:both in textarea mode — the old
+     raw <textarea> was resize:none and the drag handle is not wanted here. */
+  resize: none;
+  max-height: 140px;
+  --md-outlined-text-field-container-shape: var(--md-shape-lg);
+}
+
+/* ─── approval card ────────────────────────────────────────────────── */
+/* Pending: a filled error container at elevation-1 — urgent, and it looks it. */
+.omp-approval {
+  align-self: flex-start;
+  font-size: var(--md-body-m-size);
+  line-height: var(--md-body-m-line);
+  font-weight: var(--md-body-m-weight);
+  display: flex;
+  flex-direction: column;
+  width: auto;
+  max-width: min(72ch, 100%);
+  border: 1px solid var(--md-sys-color-error);
+  border-radius: var(--md-shape-md);
+  background: var(--md-sys-color-error-container);
+  color: var(--md-sys-color-on-error-container);
+  padding: var(--md-space-3);
+  gap: var(--md-space-2);
+  box-shadow: var(--md-elev-1);
+}
+.omp-approval__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--md-space-2);
+}
+.omp-approval__msg {
+  margin-top: var(--md-space-1);
+  font-family: var(--term-font-family);
+  font-size: var(--md-body-s-size);
+  line-height: var(--md-body-s-line);
+  font-weight: var(--md-body-s-weight);
+  color: var(--md-sys-color-on-surface-variant);
+}
+.omp-approval__answer {
+  font-family: var(--term-font-family);
+  font-size: var(--md-body-s-size);
+  line-height: var(--md-body-s-line);
+  font-weight: var(--md-body-s-weight);
+}
+.omp-approval__input {
+  flex: 1;
+  --md-outlined-text-field-container-shape: var(--md-shape-sm);
+}
+/* Inherits: on-error-container while pending, on-surface-variant once the
+   :has() demotion fires. */
+.omp-approval__icon {
+  margin-right: var(--md-space-1);
+}
+
+/* A RESOLVED approval is history — it drops to a log line. Emphasis on the
+   actions is carried by the M3 button variant, not by DOM position. */
+.omp-approval:has(.omp-approval__answer) {
+  background: none;
+  border-color: var(--md-sys-color-outline-variant);
+  color: var(--md-sys-color-on-surface-variant);
+  box-shadow: none;
+  font-size: var(--md-body-s-size);
+  line-height: var(--md-body-s-line);
+  font-weight: var(--md-body-s-weight);
+}

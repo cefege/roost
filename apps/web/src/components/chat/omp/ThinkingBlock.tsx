@@ -4,6 +4,9 @@
 import { createSignal, Show } from "solid-js";
 import type { ThinkingBlock as ThinkingData } from "@roost/shared/chat/wire";
 import { fetchChatBlock } from "../../../store/chatOmp.ts";
+import { Icon } from "../../Settings/md/Icon.tsx";
+import { Button } from "../../Settings/md/Button.tsx";
+import "@material/web/ripple/ripple.js";
 
 interface Props {
   sessionId: string;
@@ -41,15 +44,18 @@ export function ThinkingBlock(props: Props) {
 
   return (
     <details class="omp-thinking" open={open()} data-testid="omp-chat-thinking">
-      <summary onClick={(e) => { e.preventDefault(); void onToggle(); }}>
-        {open() ? "▾" : "▸"} thinking{showMore() ? ` (${props.data.fullLen} chars)` : ""}
+      <summary aria-expanded={open()} onClick={(e) => { e.preventDefault(); void onToggle(); }}>
+        <md-ripple />
+        <Icon name="chevron_right" size="sm" class="omp-thinking__chevron" />
+        <Icon name="psychology" size="sm" class="omp-thinking__icon" />
+        thinking{showMore() ? ` (${props.data.fullLen} chars)` : ""}
       </summary>
       <Show when={open()}>
         <div class="omp-thinking__body">{text()}{loading() ? "…" : ""}</div>
         <Show when={showMore()}>
-          <button class="omp-thinking__more" onClick={(e) => void loadFull(e)}>
+          <Button variant="text" class="omp-thinking__more" data-testid="omp-chat-thinking-more" onClick={(e: MouseEvent) => void loadFull(e)}>
             show full {props.data.fullLen} chars
-          </button>
+          </Button>
         </Show>
       </Show>
     </details>
