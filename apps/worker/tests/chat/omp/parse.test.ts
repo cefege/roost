@@ -9,7 +9,7 @@
 import { test, expect } from "bun:test";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { ChatMessage, ContentBlock } from "@roost/shared/chat/wire";
+import { RAW_CAP, type ChatMessage, type ContentBlock } from "@roost/shared/chat/wire";
 import { parseOmpLine, fullBlockText, TRUNC_CAP } from "../../../src/chat/omp/parse.ts";
 
 /** Narrow blocks[i] to a concrete kind (checked — throws if absent/mismatched). */
@@ -18,6 +18,16 @@ function block<K extends ContentBlock["kind"]>(m: ChatMessage, i: number, kind: 
   if (b === undefined) throw new Error(`no block at index ${i}`);
   if (b.kind !== kind) throw new Error(`block ${i}: expected ${kind}, got ${b.kind}`);
   return b as Extract<ContentBlock, { kind: K }>;
+}
+
+/** The omp ToolResultMessage envelope carried in ToolResultBlock.rawJson. Shape
+ *  is pinned by the parser under test, so the tests read it as this. */
+type RawEnvelope = {
+  toolCallId: string; toolName: string; isError: boolean;
+  content: { type: string; text: string }[]; details?: unknown;
+};
+function rawEnvelope(b: Extract<ContentBlock, { kind: "toolResult" }>): RawEnvelope {
+  return JSON.parse(b.rawJson) as RawEnvelope;
 }
 
 // ── Real captured lines (verbatim from the live corpus) ──────────────────────
@@ -76,18 +86,26 @@ test("assistant message → thinking + toolCall blocks (order preserved)", () =>
   expect(JSON.parse(call.argsJson)).toEqual({ path: "local://price-refresh-july2026-plan.md", i: "Reading authoritative plan" });
 });
 
-test("toolResult error → toolResult block with message-level metadata + isError", () => {
+test("toolResult error → one toolResult block whose rawJson is the omp envelope", () => {
   const m = parseOmpLine(REAL.toolResultErr);
   expect(m!.role).toBe("toolResult");
-  expect(m!.blocks).toEqual([
-    { kind: "toolResult", callId: "call_d6dc057e3bbf42cbac09cfd3", name: "grep", isError: true, text: "artifact:// ID must be numeric, got: 2;artifact:", truncated: false, fullLen: 48 },
-  ]);
+  expect(m!.blocks).toHaveLength(1);
+  const b = block(m!, 0, "toolResult");
+  expect(b).toMatchObject({
+    callId: "call_d6dc057e3bbf42cbac09cfd3", name: "grep", isError: true,
+    text: "", truncated: false, fullLen: 48,
+  });
+  // The payload <omp-tool-view> reads: message-level metadata + verbatim content
+  // + the per-tool `details` the old flattening dropped.
+  expect(JSON.parse(b.rawJson)).toEqual({
+    toolCallId: "call_d6dc057e3bbf42cbac09cfd3", toolName: "grep", isError: true,
+    content: [{ type: "text", text: "artifact:// ID must be numeric, got: 2;artifact:" }],
+    details: {},
+  });
 });
 
-test("developer message → role developer (rendered muted, not dropped)", () => {
-  const m = parseOmpLine(REAL.developer);
-  expect(m!.role).toBe("developer");
-  expect(m!.blocks).toEqual([{ kind: "text", text: "Plan approved." }]);
+test("developer message → suppressed, as omp's TUI suppresses it", () => {
+  expect(parseOmpLine(REAL.developer)).toBeNull();
 });
 
 test("custom tool_execution_start → toolEvent block (role assistant, phase start)", () => {
@@ -121,9 +139,11 @@ test("branch_summary → developer 'returned from branch' divider", () => {
   expect(block(m!, 0, "text").text).toBe("— returned from branch: implemented the feature");
 });
 
-test("image block blob:sha256 → resolved absolute blob path, interleaved with text", () => {
+test("image block blob:sha256 → one toolResult (both texts joined in rawJson) + image", () => {
   const m = parseOmpLine(REAL.image);
-  expect(m!.blocks.map((b) => b.kind)).toEqual(["toolResult", "image", "toolResult"]);
+  expect(m!.blocks.map((b) => b.kind)).toEqual(["toolResult", "image"]);
+  const raw = rawEnvelope(block(m!, 0, "toolResult"));
+  expect(raw.content.map((c) => c.text)).toEqual(["Screenshot captured", "done"]);
   const img = block(m!, 1, "image");
   expect(img.blobPath).toBe(`${process.env.HOME}/.omp/agent/blobs/edc40f82d28389d5a5873f030f59b4e2edc9b5057f2c2465016afea334ef5cb3`);
   expect(img.mime).toBe("image/webp");
@@ -158,14 +178,36 @@ test("large thinking text → truncated at TRUNC_CAP with fullLen; fullBlockText
   expect(fullBlockText(line, 0)).toBe(big);
 });
 
-test("large toolResult text → truncated; fullBlockText returns full", () => {
+test("large toolResult text → truncated flags set; rawJson still carries it whole", () => {
   const big = "q".repeat(TRUNC_CAP + 123);
   const line = `{"type":"message","id":"r","parentId":"p","timestamp":"2026-01-01T00:00:00Z","message":{"role":"toolResult","toolCallId":"c","toolName":"read","content":[${JSON.stringify({ type: "text", text: big })}],"isError":false}}`;
-  const m = parseOmpLine(line);
-  const b = block(m!, 0, "toolResult");
+  const b = block(parseOmpLine(line)!, 0, "toolResult");
   expect(b.truncated).toBe(true);
   expect(b.fullLen).toBe(TRUNC_CAP + 123);
-  expect(fullBlockText(line, 0)).toBe(big);
+  // Under RAW_CAP, so nothing is cut — the block's own `text` stays empty.
+  expect(b.text).toBe("");
+  expect(rawEnvelope(b).content[0]!.text).toBe(big);
+  expect(fullBlockText(line, 0)).toBeNull();
+});
+
+test("toolResult over RAW_CAP → valid JSON, details dropped, text capped", () => {
+  const big = "w".repeat(RAW_CAP + 10);
+  const line = `{"type":"message","id":"r2","parentId":"p","timestamp":"2026-01-01T00:00:00Z","message":{"role":"toolResult","toolCallId":"c2","toolName":"bash","content":[${JSON.stringify({ type: "text", text: big })}],"details":{"wallTimeMs":12},"isError":false}}`;
+  const b = block(parseOmpLine(line)!, 0, "toolResult");
+  expect(b.rawJson.length).toBeLessThanOrEqual(RAW_CAP);
+  const raw = rawEnvelope(b);
+  expect(raw.details).toBeUndefined();
+  expect(raw.content).toHaveLength(1);
+  expect(raw.content[0]!.text.startsWith("w".repeat(TRUNC_CAP))).toBe(true);
+  expect(raw.content[0]!.text.endsWith(`… (truncated, ${RAW_CAP + 10 - TRUNC_CAP} more characters)`)).toBe(true);
+});
+
+test("oversized details with short text → capped envelope keeps the text verbatim", () => {
+  const fat = { blob: "d".repeat(RAW_CAP + 10) };
+  const line = `{"type":"message","id":"r3","parentId":"p","timestamp":"2026-01-01T00:00:00Z","message":{"role":"toolResult","toolCallId":"c3","toolName":"edit","content":[{"type":"text","text":"ok"}],"details":${JSON.stringify(fat)},"isError":false}}`;
+  const raw = rawEnvelope(block(parseOmpLine(line)!, 0, "toolResult"));
+  expect(raw.details).toBeUndefined();
+  expect(raw.content[0]!.text).toBe("ok");
 });
 
 test("fullBlockText returns argsJson for a toolCall block, aligned by index", () => {

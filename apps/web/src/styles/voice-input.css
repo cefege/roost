@@ -62,6 +62,29 @@ html[data-fab-dragging="true"] .term-nav {
   pointer-events: none;
 }
 
+/* ── inline variant ── the chat composer hosts the mic in its button row, so
+   the fixed bottom-right dock, the FAB-drag offset and the 56dp FAB footprint
+   all go away. The caption anchors to the composer's relative mic wrapper. */
+.voice-input--inline {
+  position: static;
+  right: auto;
+  bottom: auto;
+  translate: none;
+  z-index: auto;
+}
+
+.voice-input--inline .voice-fab {
+  width: 44px;
+  height: 44px;
+}
+
+.voice-input--inline .voice-caption {
+  position: absolute;
+  right: 0;
+  bottom: 100%;
+  margin-bottom: var(--md-space-2);
+}
+
 /* ── mic FAB (M3 FAB: 56dp, large-shape corner, elevation 3) ── */
 .voice-fab {
   position: relative;

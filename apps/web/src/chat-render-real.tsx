@@ -14,6 +14,9 @@ import "./styles/syntax-vars.css";
 // name as literal text.
 import "./styles/sidebar.css";
 import "./styles/voice-input.css";
+// Registers <omp-tool-view>, exactly as main.tsx does — without it every tool
+// card is an empty custom element.
+import "./vendor/omp-tool-views.js";
 import { applyTheme, loadTheme } from "./lib/theme.ts";
 import { setRootStore } from "./store/root.ts";
 import { setOmpChatView } from "./store/uiStore.ts";

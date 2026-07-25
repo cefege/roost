@@ -89,9 +89,11 @@ export async function uploadAttachment(
 }
 
 /** Upload one file with a live transfer card (hashing → dedup-probe → upload),
- *  then inject its abs_path into the PTY (trailing space). Shared by Terminal +
- *  CellTerminal. */
-export async function enqueueAttachment(session: Session, file: File): Promise<void> {
+ *  then hand the resulting absolute path to `sink`. The sink is a parameter
+ *  because the chat composer builds an attachment chip from it while the
+ *  terminal writes it to the PTY — same upload, two destinations. The `File`
+ *  rides along so a sink can read name/mime/size without re-probing disk. */
+export async function enqueueAttachmentTo(session: Session, file: File, sink: (absPath: string, file: File) => void): Promise<void> {
   const id = crypto.randomUUID();
   addTransfer({ id, name: file.name, dir: "up", bytes_total: file.size, state: "hashing" });
   try {
@@ -105,7 +107,7 @@ export async function enqueueAttachment(session: Session, file: File): Promise<v
           sessionId: session.id, sha256, size: BigInt(file.size), filename: file.name, shortPath: getShortPathPref(),
         });
         if (probe.hit) {
-          inputChannel.sendInput(session.id, new TextEncoder().encode(`${probe.absPath} `));
+          sink(probe.absPath, file);
           markTransferState(id, "dedup");
           return;
         }
@@ -113,7 +115,7 @@ export async function enqueueAttachment(session: Session, file: File): Promise<v
     }
     markTransferState(id, "active");
     const res = await uploadAttachment(session, file, (sent) => setTransferProgress(id, sent));
-    inputChannel.sendInput(session.id, new TextEncoder().encode(`${res.abs_path} `));
+    sink(res.abs_path, file);
     markTransferState(id, "ok");
   } catch (err) {
     log.warn("attachments", "transfer_failed", { msg: String(err) });
@@ -121,18 +123,33 @@ export async function enqueueAttachment(session: Session, file: File): Promise<v
   }
 }
 
+/** Upload + inject the abs_path into the PTY (trailing space). Shared by
+ *  Terminal + CellTerminal. */
+export async function enqueueAttachment(session: Session, file: File): Promise<void> {
+  return enqueueAttachmentTo(session, file, (p) => {
+    inputChannel.sendInput(session.id, new TextEncoder().encode(`${p} `));
+  });
+}
+
 /** Open the native file picker (must run inside a user gesture) and run each
- *  chosen file through enqueueAttachment. */
-export function pickAndAttachFiles(session: Session): void {
+ *  chosen file through `sink`. */
+export function pickFilesTo(session: Session, sink: (absPath: string, file: File) => void): void {
   const input = document.createElement("input");
   input.type = "file";
   input.multiple = true;
   input.style.display = "none";
   input.onchange = () => {
     const files = input.files;
-    if (files) for (let i = 0; i < files.length; i++) void enqueueAttachment(session, files[i]!);
+    if (files) for (let i = 0; i < files.length; i++) void enqueueAttachmentTo(session, files[i]!, sink);
     input.remove();
   };
   document.body.appendChild(input);
   input.click();
+}
+
+/** Native picker → each chosen file uploaded and injected into the PTY. */
+export function pickAndAttachFiles(session: Session): void {
+  pickFilesTo(session, (p) => {
+    inputChannel.sendInput(session.id, new TextEncoder().encode(`${p} `));
+  });
 }

@@ -223,6 +223,7 @@ message ContentBlock {
     bool is_error = 4;
     bool truncated = 5;              // true → fetch full via SessionsGetChatBlock
     uint32 full_len = 6;             // untruncated length, for "show N more"
+    string raw_json = 7;             // omp ToolResultMessage JSON: {toolCallId,toolName,content,isError,details}
   }
 
   message ToolEvent {
@@ -243,11 +244,27 @@ message ContentBlock {
   message Approval {
     string request_id = 1;           // omp UI request id (echoed on response)
     string method = 2;               // "confirm" | "select" | "input"
-    string title = 3;
+    string title = 3;                // select: question text, omp's own prefixes stripped
     string message = 4;
-    repeated string options = 5;     // select only; empty otherwise
+    repeated string options = 5;     // raw frame echo; select only, empty otherwise
     bool resolved = 6;
     string answer = 7;               // empty until resolved
+    // Render model for a select card, rebuilt in the worker from the ask tool's
+    // tool_execution_start args (omp's RPC select frame carries labels only).
+    // Parallel to `options`, same order; empty for non-select methods.
+    repeated Choice rich_options = 8;
+    string header = 9;               // ask question header chip; "" when none
+    string progress = 10;            // "2/3" inside a multi-question ask; "" otherwise
+    bool multi = 11;                 // ask multi-select question
+
+    message Choice {
+      string value = 1;              // exact string to echo back on answer
+      string label = 2;              // display label, " (Recommended)" stripped
+      string description = 3;
+      bool recommended = 4;
+      bool checked = 5;
+      string role = 6;               // "option" | "other" | "done" | "next" | "back"
+    }
   }
 }
 
@@ -269,4 +286,6 @@ message ChatFrame {
   string model = 6;                  // "provider/model"
   uint32 context_pct = 7;            // context window used, 0-100
   uint32 context_tokens = 8;         // tokens in context
+  string model_name = 9;             // friendly display name, e.g. "Claude Sonnet 5"
+  string thinking_level = 10;        // omp ThinkingLevel: off|minimal|low|medium|high|xhigh|max|auto|inherit; "" = unknown
 }

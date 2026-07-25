@@ -127,6 +127,7 @@ test("streaming turn: upsert, tool collapse, approval round trip, mid-turn promp
 		expect(findBlock(msgs, "approval")).toEqual({
 			kind: "approval", requestId: "ui-1", method: "confirm",
 			title: "Confirm", message: "Continue?", options: [], resolved: false, answer: "",
+			richOptions: [], header: "", progress: "", multi: false,
 		});
 		expect(h.frames.at(-1)!.streaming).toBe(true);
 
@@ -266,10 +267,19 @@ test("an N-option decision reaches the pane, and 'Other' opens the free-text bra
 
 		// Every option survives the mapping — an empty `options` renders a card
 		// with nothing to click, which is indistinguishable from "no decision".
+		// A plain ui.select with no `ask` call in flight still gets a render model:
+		// roles are classified from the label alone, descriptions stay empty.
 		expect(findBlock(h.rec.chatMessages ?? [], "approval")).toEqual({
 			kind: "approval", requestId: "ui-sel", method: "select", title: "Pick a colour",
 			message: "", options: ["Red", "Green", "Blue", "Other (type your own)"],
 			resolved: false, answer: "",
+			richOptions: [
+				{ value: "Red", label: "Red", description: "", recommended: false, checked: false, role: "option" },
+				{ value: "Green", label: "Green", description: "", recommended: false, checked: false, role: "option" },
+				{ value: "Blue", label: "Blue", description: "", recommended: false, checked: false, role: "option" },
+				{ value: "Other (type your own)", label: "Other (type your own)", description: "", recommended: false, checked: false, role: "other" },
+			],
+			header: "", progress: "", multi: false,
 		});
 
 		// Picking "Other" is not an answer: omp follows it with an `editor`
@@ -299,6 +309,83 @@ test("an N-option decision reaches the pane, and 'Other' opens the free-text bra
 			.find((b) => b.kind === "approval" && b.requestId === "ui-ed")).toMatchObject({ resolved: true, answer: "Teal" });
 	} finally {
 		disposeRpcChat("s-decide");
+	}
+});
+
+test("a batched ask becomes selection cards: descriptions, recommendation, in-place ticks", async () => {
+	const h = harness("s-ask");
+	const cardFor = (requestId: string) => (h.rec.chatMessages ?? [])
+		.find((m) => m.blocks.some((b) => b.kind === "approval" && b.requestId === requestId));
+	const blockFor = (requestId: string) => {
+		const b = cardFor(requestId)?.blocks[0];
+		return b?.kind === "approval" ? b : undefined;
+	};
+	try {
+		await rpcChatCommand(h.host, h.rec, JSON.stringify({ type: "prompt", message: "__ask" }));
+		await waitFor("Q1 card", () => blockFor("ui-a1")?.header === "Auth");
+
+		// Q1: the title's ` (1/2)` batch suffix is split off, and the option
+		// descriptions — which exist ONLY on tool_execution_start.args — are
+		// correlated back onto the bare labels the select frame carried.
+		//
+		// The fixture emits that tool event AFTER Q1's select frame, as omp does:
+		// the card is first painted bare and then REPAINTED in place once the
+		// spec lands. One message for ui-a1, never two.
+		expect((h.rec.chatMessages ?? []).filter((m) =>
+			m.blocks.some((b) => b.kind === "approval" && b.requestId === "ui-a1")).length).toBe(1);
+		const q1 = blockFor("ui-a1")!;
+		expect(q1.title).toBe("Which auth method?");
+		expect(q1.progress).toBe("1/2");
+		expect(q1.multi).toBe(false);
+		expect(q1.richOptions).toEqual([
+			{ value: "JWT", label: "JWT", description: "Bearer tokens for stateless API clients.", recommended: false, checked: false, role: "option" },
+			// The recommended row keeps the suffixed RAW string as its value —
+			// that is what omp matches on — but shows the clean label.
+			{ value: "OAuth2 (Recommended)", label: "OAuth2", description: "Delegated authorization via an external IdP.", recommended: true, checked: false, role: "option" },
+			{ value: "Session cookies", label: "Session cookies", description: "Browser-first, server-side sessions.", recommended: false, checked: false, role: "option" },
+			{ value: "Other (type your own)", label: "Other (type your own)", description: "", recommended: false, checked: false, role: "other" },
+			{ value: "Next →", label: "Next →", description: "", recommended: false, checked: false, role: "next" },
+		]);
+
+		// Answering echoes the raw value to omp but records the CLEAN label: a
+		// resolved card reading "OAuth2 (Recommended)" is transcript noise.
+		const a1 = await rpcChatCommand(h.host, h.rec, JSON.stringify({ type: "extension_ui_response", id: "ui-a1", value: "OAuth2 (Recommended)" }));
+		expect(a1.ok).toBe(true);
+		expect(blockFor("ui-a1")).toMatchObject({ resolved: true, answer: "OAuth2" });
+
+		await waitFor("Q2 card", () => blockFor("ui-a2") !== undefined);
+		// omp matched on the SUFFIXED string, so that is what has to reach it.
+		expect(h.log().find((f) => f.id === "ui-a1")?.value).toBe("OAuth2 (Recommended)");
+		const q2 = blockFor("ui-a2")!;
+		expect(q2.title).toBe("Which features ship in v1?");
+		expect(q2.progress).toBe("2/2");
+		expect(q2.multi).toBe(true);
+		expect(q2.richOptions.map((c) => c.role)).toEqual(["option", "option", "option", "other", "back", "next"]);
+		expect(q2.richOptions.every((c) => !c.checked)).toBe(true);
+		const q2MsgId = cardFor("ui-a2")!.id;
+
+		// Tick one box. omp re-prompts with a NEW request id; the card must
+		// repaint in place — a dead card per tick is what this pins.
+		const a2 = await rpcChatCommand(h.host, h.rec, JSON.stringify({ type: "extension_ui_response", id: "ui-a2", value: "Streaming" }));
+		expect(a2.ok).toBe(true);
+		await waitFor("Q2 repaint", () => blockFor("ui-a3") !== undefined);
+		expect(cardFor("ui-a3")!.id).toBe(q2MsgId);
+		const q2b = blockFor("ui-a3")!;
+		expect(q2b.resolved).toBe(false);
+		// omp never echoes checked state; it is reconstructed from the answer we
+		// posted, and rides the re-prompt's render model.
+		expect(q2b.richOptions.find((c) => c.label === "Streaming")?.checked).toBe(true);
+		expect(q2b.richOptions.filter((c) => c.checked).length).toBe(1);
+
+		// "Next →" is navigation, not an answer: the resolved card must show what
+		// was actually ticked.
+		const a3 = await rpcChatCommand(h.host, h.rec, JSON.stringify({ type: "extension_ui_response", id: "ui-a3", value: "Next →" }));
+		expect(a3.ok).toBe(true);
+		expect(blockFor("ui-a3")).toMatchObject({ resolved: true, answer: "Streaming" });
+		await waitFor("turn end", () => h.frames.at(-1)!.streaming === false);
+		expect(h.log().find((f) => f.id === "ui-a3")?.value).toBe("Next →");
+	} finally {
+		disposeRpcChat("s-ask");
 	}
 });
 
@@ -332,5 +419,67 @@ test("an unrenderable UI request is declined, never left hanging", async () => {
 		expect(findBlock(h.rec.chatMessages ?? [], "approval")).toBeUndefined();
 	} finally {
 		disposeRpcChat("s-mystery");
+	}
+});
+
+test("model name + effort ride every frame, and both change paths refresh the chip mid-idle", async () => {
+	const h = harness("s-model");
+	try {
+		// Any command boots the child and runs the initial get_state.
+		const res = await rpcChatCommand(h.host, h.rec, JSON.stringify({ type: "get_state" }));
+		expect(res.ok).toBe(true);
+		await waitFor("boot status frame", () => h.frames.at(-1)?.modelName !== "");
+
+		// The friendly name rides get_state's own model object — reading it costs
+		// no extra round trip, and "claude-opus-5" here would mean the chip fell
+		// back to the selector's id half.
+		expect(h.frames.at(-1)!.model).toBe("anthropic/claude-opus-5");
+		expect(h.frames.at(-1)!.modelName).toBe("Claude Opus 5");
+		expect(h.frames.at(-1)!.thinkingLevel).toBe("medium");
+		// Status must NOT depend on the catalog: publishing it is on the boot path
+		// and the catalog reply is a megabyte.
+		expect(h.log().some((f) => f.type === "get_available_models")).toBe(false);
+
+		// A model switch runs NO agent turn AND omp pushes no event for it, so the
+		// command's own response is the only thing that can refresh the chip.
+		await rpcChatCommand(h.host, h.rec, JSON.stringify({ type: "set_model", provider: "anthropic", modelId: "claude-sonnet-5" }));
+		await waitFor("model switch frame", () => h.frames.at(-1)?.modelName === "Claude Sonnet 5");
+		expect(h.frames.at(-1)!.model).toBe("anthropic/claude-sonnet-5");
+
+		// Effort is the opposite case: omp pushes `thinking_level_changed`, and
+		// the handler for it is what lands this frame.
+		await rpcChatCommand(h.host, h.rec, JSON.stringify({ type: "set_thinking_level", level: "high" }));
+		await waitFor("effort switch frame", () => h.frames.at(-1)?.thinkingLevel === "high");
+		expect(h.frames.at(-1)!.modelName).toBe("Claude Sonnet 5");
+	} finally {
+		disposeRpcChat("s-model");
+	}
+});
+
+test("the model catalog survives the frame cap (protocol v2 chunks) and reaches the SPA trimmed", async () => {
+	const h = harness("s-catalog");
+	try {
+		const res = await rpcChatCommand(h.host, h.rec, JSON.stringify({ type: "get_available_models" }));
+		expect(res.ok).toBe(true);
+		if (!res.ok) return;
+
+		// The driver negotiated v2 off the ready frame; without that the child
+		// answers `success:false, "RPC response exceeded the transport limit"`
+		// and the picker has no models at all.
+		expect(h.log().some((f) => f.type === "negotiate_protocol" && f.protocolVersion === 2)).toBe(true);
+		expect(res.response.success).toBe(true);
+
+		const models = (res.response.data as { models: Record<string, unknown>[] }).models;
+		expect(models.map((m) => m.id)).toEqual(["claude-opus-5", "claude-sonnet-5", "gpt-5"]);
+		// Projected to what the picker renders — the real payload is ~1.1 MB of
+		// per-model pricing/capability metadata that must never cross the tunnel.
+		expect(models[0]).toEqual({
+			provider: "anthropic", id: "claude-opus-5", name: "Claude Opus 5",
+			reasoning: true, efforts: ["low", "medium", "high"],
+		});
+		// A model with no thinking config still lands, with an empty ladder.
+		expect(models[2]).toEqual({ provider: "openai", id: "gpt-5", name: "GPT-5", reasoning: false, efforts: [] });
+	} finally {
+		disposeRpcChat("s-catalog");
 	}
 });

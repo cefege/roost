@@ -414,9 +414,9 @@ const HOME = "/tmp";  // portable — every Unix has /tmp
     while (performance.now() - t0 < 90000) {
       const pane = $(paneSel);
       if (pane) {
-        if (pane.querySelector('[data-testid="omp-chat-msg"].omp-msg--user')) sawUser = true;
+        if (pane.querySelector('.tr-row--user [data-testid="omp-chat-msg"]')) sawUser = true;
         if (pane.querySelector('[data-testid="omp-chat-composer"][data-streaming="true"]')) sawStreaming = true;
-        const bubbles = Array.from(pane.querySelectorAll('[data-testid="omp-chat-msg"].omp-msg--assistant'));
+        const bubbles = Array.from(pane.querySelectorAll('.tr-row--assistant [data-testid="omp-chat-msg"]'));
         const node = bubbles[bubbles.length - 1] ?? null;
         const len = node ? node.textContent.trim().length : 0;
         if (len > 0) {

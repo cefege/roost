@@ -1123,6 +1123,12 @@ aside[data-testid="sidebar-drawer"]::-webkit-scrollbar-thumb:hover,
   overflow-y: auto;
   overflow-x: hidden;
   scrollbar-gutter: stable;
+  /* CellGridRenderer OWNS scrollTop (syncScroll re-derives it from a row-space
+     intent after every mutation). Browser scroll anchoring is a competing
+     writer: measured here, an uncorrected 4200px prepend above the viewport
+     moved scrollTop by +4200 on its own — and each such adjustment emits a
+     scroll event indistinguishable from a user gesture. Turn it off. */
+  overflow-anchor: none;
 }
 
 /* Theme the text-selection tint (package terminal.css hardcodes a blue
@@ -1153,17 +1159,23 @@ aside[data-testid="sidebar-drawer"]::-webkit-scrollbar-thumb:hover,
 .cell-grid.alt-active { overflow-y: hidden; }
 .cell-grid .cell-row {
   white-space: pre;        /* preserve runs of spaces; no wrap = no reflow */
-  min-height: 1.2em;
+  /* A CAP, not a floor (was min-height): a terminal row is exactly one cell
+     tall by definition, and a fallback-font line box that grew past one cell
+     would silently break the uniform-row assumption CellGridRenderer's
+     rowHeight()/sizeBlock() derive every scroll position from. */
+  height: 1.2em;
 }
 /* Scrollback rows are packed into .cell-block groups (CellGridRenderer). Skipping
    layout/paint of off-screen blocks keeps a reveal reflow + scrollHeight reads
    O(blocks) not O(history) — the fix for the deep-history pane-switch freeze.
    The 300em below is only a fallback: CellGridRenderer.sizeBlock() sets an EXACT
-   inline contain-intrinsic-size (rows × 1.2em) on every block, so a skipped
-   block's placeholder equals its real height and revealing it reflows nothing.
-   The flat estimate used to overstate every partial block, which is what made
-   the view lurch when history materialized. SB_BLOCK(250) × 1.2em = 300em; keep
-   ROW_EM in cellRenderer.ts in sync with the line-height on .cell-grid above. */
+   inline contain-intrinsic-size (rows × the MEASURED .cell-row px height, with
+   the `auto` keyword where supported so the browser reuses a block's real size
+   once it has rendered), so a skipped block's placeholder equals its real height
+   and revealing it reflows nothing. The flat estimate used to overstate every
+   partial block, which is what made the view lurch when history materialized.
+   SB_BLOCK(250) × 1.2em = 300em; keep the line-height on .cell-grid above in
+   sync with DEFAULT_ROW_PX in cellRenderer.ts. */
 .cell-grid .cell-scrollback .cell-block {
   content-visibility: auto;
   contain-intrinsic-size: auto 300em;

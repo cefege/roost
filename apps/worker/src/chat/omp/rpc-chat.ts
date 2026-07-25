@@ -28,6 +28,9 @@
 import type { ChatFrame, ChatMessage, ContentBlock } from "@roost/shared/chat/wire";
 import { diag, log } from "@roost/shared";
 import type { SessionRecord } from "../../session-record.ts";
+import {
+	askQuestionMatches, buildAskChoices, parseAskSpec, splitSelectTitle, type AskQuestionSpec,
+} from "./ask-spec.ts";
 import { mapAgentMessage, mapAgentMessageFull } from "./parse.ts";
 import { OmpRpcDriver, type RpcFrame } from "./rpc-driver.ts";
 import { loadOmpSessionFile, saveOmpSessionFile, forgetOmpSession } from "./session-store.ts";
@@ -42,10 +45,15 @@ export interface RpcChatHost {
 const ALLOWED_COMMANDS: Record<string, true> = {
 	prompt: true, steer: true, follow_up: true, abort: true, abort_and_prompt: true,
 	get_state: true, get_messages: true, get_session_stats: true,
-	set_model: true, cycle_model: true, get_available_models: true,
+	set_model: true, cycle_model: true, get_available_models: true, get_available_commands: true,
 	set_thinking_level: true, cycle_thinking_level: true,
 	compact: true, set_auto_compaction: true, new_session: true, set_session_name: true,
 };
+
+/** Commands that change the model with NO corresponding omp event — the chip
+ *  only stays honest if the worker re-reads state off their response. (Effort
+ *  changes DO push `thinking_level_changed`, so they are absent here.) */
+const MODEL_CHANGING_COMMANDS: Record<string, true> = { set_model: true, cycle_model: true };
 
 /** UI methods that ask the user a question and BLOCK the turn until answered
  *  (omp awaits every one of these — see rpc-mode's #createDialogPromise).
@@ -74,6 +82,9 @@ const PARTIAL_CAP = 2000;
 /** omp caps a page at 256 messages; ask for the max so a reload is few round trips. */
 const HISTORY_PAGE_LIMIT = 256;
 
+/** Shared empty tick set for select frames with no toggle history. */
+const EMPTY_CHECKED: ReadonlySet<string> = new Set();
+
 interface RpcChatEntry {
 	driver: OmpRpcDriver;
 	sessionId: string;
@@ -88,6 +99,10 @@ interface RpcChatEntry {
 	model: string;
 	contextPct: number;
 	contextTokens: number;
+	/** Friendly display name for `model`, from get_state. "" until resolved. */
+	modelName: string;
+	/** omp ThinkingLevel string from get_state/config_update. "" until resolved. */
+	thinkingLevel: string;
 	/** omp session JSONL path, from get_state. Survives a child restart so the
 	 *  respawned child resumes the same conversation via switch_session. */
 	sessionFile: string | null;
@@ -99,6 +114,18 @@ interface RpcChatEntry {
 	pendingUi: Map<string, string>;
 	/** toolCallId → chat message id, so start/end collapse into one message. */
 	toolMsgIds: Map<string, string>;
+	/** toolCallId → the ask tool's parsed questions, captured from
+	 *  tool_execution_start. omp's RPC select frame carries labels only, so the
+	 *  descriptions/multi/header metadata exists nowhere else on the wire. */
+	askSpecs: Map<string, AskQuestionSpec[]>;
+	/** toolCallId of the newest in-flight `ask` call; null when none. */
+	activeAsk: string | null;
+	/** `${toolCallId}:${questionIndex}` → labels ticked so far. omp never echoes
+	 *  checked state back, so it is reconstructed from the answers WE post. */
+	askChecked: Map<string, Set<string>>;
+	/** `${toolCallId}:${questionIndex}` → chat message id, so a multi-select's
+	 *  toggle chain repaints ONE card instead of stacking a dead one per tick. */
+	askCardIds: Map<string, string>;
 	/** chat message id → per-block UNTRUNCATED text, for SessionsGetChatBlock.
 	 *  Only populated for messages that actually got truncated. */
 	fullText: Map<string, string[]>;
@@ -136,6 +163,10 @@ function disposeEntry(entry: RpcChatEntry): void {
 	if (entry.toolTimer) { clearTimeout(entry.toolTimer); entry.toolTimer = null; }
 	entry.pendingMsg = null;
 	entry.toolPending.clear();
+	entry.askSpecs.clear();
+	entry.askChecked.clear();
+	entry.askCardIds.clear();
+	entry.activeAsk = null;
 	entry.driver.dispose();
 }
 
@@ -161,6 +192,8 @@ function frameFor(entry: RpcChatEntry, seq: number, append: ChatMessage[], reset
 		sessionId: "", append, seq, reset,
 		streaming: entry.streaming,
 		model: entry.model,
+		modelName: entry.modelName,
+		thinkingLevel: entry.thinkingLevel,
 		contextPct: entry.contextPct,
 		contextTokens: entry.contextTokens,
 	};
@@ -173,12 +206,12 @@ function emitState(host: RpcChatHost, entry: RpcChatEntry): void {
 	host.sendChatFrameUpstream?.(rec.channelId, frameFor(entry, rec.chat_seq, [], false));
 }
 
-/** Untruncated text of one block, mirroring parse.ts::fullBlockText's switch. */
+/** Untruncated text of one block, mirroring parse.ts::fullBlockText's switch.
+ *  toolResult is absent on purpose: its payload rides whole in rawJson. */
 function blockFullText(b: ContentBlock): string {
 	switch (b.kind) {
 		case "text":
 		case "thinking":
-		case "toolResult":
 			return b.text;
 		case "toolCall":
 			return b.argsJson;
@@ -194,7 +227,7 @@ function mapAndRecord(entry: RpcChatEntry, raw: unknown, id: string, parentId: s
 	const ts = new Date().toISOString();
 	const msg = mapAgentMessage(raw, id, parentId, ts);
 	if (!msg) return null;
-	const truncated = msg.blocks.some((b) => (b.kind === "thinking" || b.kind === "toolResult") && b.truncated);
+	const truncated = msg.blocks.some((b) => b.kind === "thinking" && b.truncated);
 	if (!truncated) { entry.fullText.delete(id); return msg; }
 	const full = mapAgentMessageFull(raw, id, parentId, ts);
 	if (full) entry.fullText.set(id, full.blocks.map(blockFullText));
@@ -348,6 +381,23 @@ function onEvent(host: RpcChatHost, entry: RpcChatEntry, frame: RpcFrame): void 
 		case "tool_execution_end": {
 			const callId = typeof frame.toolCallId === "string" ? frame.toolCallId : "";
 			if (!callId) return;
+			// The ask tool's rich question data — descriptions, header, multi —
+			// exists ONLY here: omp's RPC select frame flattens every option to a
+			// bare label. Stash it so the select frames can be correlated back
+			// into a real selection card.
+			if (frame.type === "tool_execution_start" && frame.toolName === "ask") {
+				const spec = parseAskSpec(frame.args);
+				if (spec.length > 0) {
+					entry.askSpecs.set(callId, spec);
+					entry.activeAsk = callId;
+					enrichPendingAsk(host, entry);
+				}
+			} else if (frame.type === "tool_execution_end" && entry.askSpecs.delete(callId)) {
+				if (entry.activeAsk === callId) entry.activeAsk = null;
+				const prefix = `${callId}:`;
+				for (const key of [...entry.askChecked.keys()]) if (key.startsWith(prefix)) entry.askChecked.delete(key);
+				for (const key of [...entry.askCardIds.keys()]) if (key.startsWith(prefix)) entry.askCardIds.delete(key);
+			}
 			flushPending(host, entry);
 			let id = entry.toolMsgIds.get(callId);
 			if (id === undefined) { id = `rpc-${entry.nextMsg++}`; entry.toolMsgIds.set(callId, id); }
@@ -397,19 +447,45 @@ function onEvent(host: RpcChatHost, entry: RpcChatEntry, frame: RpcFrame): void 
 				return;
 			}
 			flushPending(host, entry);
-			const id = `rpc-${entry.nextMsg++}`;
+			// A select frame is the only place an ask question reaches the pane,
+			// and omp mangles the title on the way: `(N selected) ` on a
+			// multi-select re-prompt, ` (i/total)` inside a batch. Split it back
+			// apart so the card shows the question the model actually wrote.
+			const rawTitle = typeof frame.title === "string" ? frame.title : "";
+			const rawOptions = Array.isArray(frame.options)
+				? frame.options.filter((o): o is string => typeof o === "string")
+				: [];
+			const isSelect = method === "select";
+			const { question, progress, index } = isSelect
+				? splitSelectTitle(rawTitle)
+				: { question: rawTitle, progress: "", index: 0 };
+			const spec = isSelect && entry.activeAsk ? entry.askSpecs.get(entry.activeAsk) ?? [] : [];
+			const matched = askQuestionMatches(spec, index, question);
+			const key = `${entry.activeAsk ?? ""}:${index}`;
+			const checked = entry.askChecked.get(key) ?? EMPTY_CHECKED;
+			// Reuse the card of an earlier frame for the SAME ask question so a
+			// multi-select's toggle chain repaints in place instead of stacking a
+			// dead card per tick. Safe because answerUiRequest posts and retires
+			// the previous requestId synchronously, before omp can re-prompt.
+			const reuse = matched ? entry.askCardIds.get(key) : undefined;
+			const id = reuse ?? `rpc-${entry.nextMsg++}`;
+			if (matched && reuse === undefined) entry.askCardIds.set(key, id);
 			entry.pendingUi.set(requestId, id);
 			upsertMessage(host, entry, {
 				id, parentId: entry.lastMsgId, ts: new Date().toISOString(), role: "developer",
 				blocks: [{
 					kind: "approval", requestId, method,
-					title: typeof frame.title === "string" ? frame.title : "",
+					title: question,
 					// input → placeholder (hint text); editor → prefill (seed text).
 					message: typeof frame.message === "string" ? frame.message
 						: typeof frame.placeholder === "string" ? frame.placeholder
 						: typeof frame.prefill === "string" ? frame.prefill : "",
-					options: Array.isArray(frame.options) ? frame.options.filter((o): o is string => typeof o === "string") : [],
+					options: rawOptions,
 					resolved: false, answer: "",
+					richOptions: isSelect ? buildAskChoices(spec, index, rawOptions, checked, question) : [],
+					header: matched ? spec[index]!.header : "",
+					progress,
+					multi: matched ? spec[index]!.multi : false,
 				}],
 			});
 			return;
@@ -464,6 +540,15 @@ function onEvent(host: RpcChatHost, entry: RpcChatEntry, frame: RpcFrame): void 
 			return;
 		}
 
+		case "thinking_level_changed":
+			// The ONLY unsolicited config event omp 17.1.2 pushes (verified against
+			// a live child: set_model answers with a bare response and no event,
+			// so THAT path refreshes off its own command result instead). Without
+			// this the effort half of the chip goes stale until a turn ends —
+			// including when the user changes it inside omp itself.
+			void refreshStatus(host, entry).catch(() => { /* keep last known */ });
+			return;
+
 		default:
 			return;
 	}
@@ -471,8 +556,8 @@ function onEvent(host: RpcChatHost, entry: RpcChatEntry, frame: RpcFrame): void 
 
 /** Resolve the child's session file (get_state) and, on a RESPAWN, resume the
  *  prior conversation: switch_session then re-seed history from the paged
- *  endpoint. Paging (not get_messages) because a v1 physical frame caps at
- *  1 MiB and this driver has no rpc_chunk reassembly. */
+ *  endpoint. Paging (not get_messages) because a physical frame caps at 1 MiB;
+ *  chunk reassembly covers a big RESPONSE, but paging keeps each one small. */
 async function initSession(host: RpcChatHost, entry: RpcChatEntry, priorFile: string | null): Promise<void> {
 	try {
 		if (priorFile) {
@@ -493,8 +578,9 @@ async function refreshStatus(host: RpcChatHost, entry: RpcChatEntry): Promise<vo
 	if (state.success !== true) return;
 	const data = state.data as {
 		sessionFile?: unknown;
-		model?: { provider?: unknown; id?: unknown };
+		model?: { provider?: unknown; id?: unknown; name?: unknown };
 		contextUsage?: { tokens?: unknown; percent?: unknown };
+		thinkingLevel?: unknown;
 	} | undefined;
 	if (!data) return;
 
@@ -511,6 +597,13 @@ async function refreshStatus(host: RpcChatHost, entry: RpcChatEntry): Promise<vo
 	const provider = typeof data.model?.provider === "string" ? data.model.provider : "";
 	const id = typeof data.model?.id === "string" ? data.model.id : "";
 	entry.model = provider && id ? `${provider}/${id}` : id || provider;
+	entry.thinkingLevel = typeof data.thinkingLevel === "string" ? data.thinkingLevel : "";
+	// get_state's model object already carries the friendly name, so the chip
+	// costs no extra round trip. Falling back to the id half keeps a build that
+	// omits `name` readable rather than blank.
+	entry.modelName = typeof data.model?.name === "string" && data.model.name
+		? data.model.name
+		: (entry.model.split("/").pop() ?? "");
 	const usage = data.contextUsage;
 	entry.contextTokens = typeof usage?.tokens === "number" ? Math.max(0, Math.round(usage.tokens)) : 0;
 	// omp reports `percent` already scaled 0-100 (e.g. 0.55 = 0.55%).
@@ -576,8 +669,10 @@ export function ensureRpcChat(host: RpcChatHost, rec: SessionRecord): RpcChatEnt
 
 	const entry: RpcChatEntry = {
 		sessionId: sid, nextMsg: 1, lastMsgId: "", curMsgId: null, streaming: false,
-		model: "", contextPct: 0, contextTokens: 0,
+		model: "", modelName: "", thinkingLevel: "",
+		contextPct: 0, contextTokens: 0,
 		sessionFile: priorFile, pendingUi: new Map(), toolMsgIds: new Map(), fullText: new Map(),
+		askSpecs: new Map(), activeAsk: null, askChecked: new Map(), askCardIds: new Map(),
 		toolPending: new Map(), toolTimer: null,
 		pendingMsg: null, flushTimer: null, ready: Promise.resolve(),
 		driver: null as unknown as OmpRpcDriver,
@@ -622,6 +717,36 @@ function retireUiRequest(host: RpcChatHost, entry: RpcChatEntry, requestId: stri
 	}
 }
 
+/** Re-render approval cards that reached the pane BEFORE their ask spec did.
+ *  omp writes extension_ui_request straight to stdout, while
+ *  tool_execution_start rides the session event bus a tick behind — so the
+ *  FIRST question of an ask reliably arrives descriptionless. Observed against
+ *  omp from source: select("Which auth method? (1/2)") lands before the
+ *  tool_execution_start that carries the very args describing it. */
+function enrichPendingAsk(host: RpcChatHost, entry: RpcChatEntry): void {
+	const callId = entry.activeAsk;
+	const spec = callId ? entry.askSpecs.get(callId) : undefined;
+	const messages = host.getBySessionId(entry.sessionId)?.chatMessages;
+	if (!callId || !spec || !messages) return;
+	for (const msgId of entry.pendingUi.values()) {
+		const prev = messages.find((m) => m.id === msgId);
+		const block = prev?.blocks[0];
+		if (!prev || block?.kind !== "approval" || block.method !== "select") continue;
+		const index = block.progress ? Number(block.progress.split("/")[0]) - 1 : 0;
+		if (!askQuestionMatches(spec, index, block.title)) continue;
+		const key = `${callId}:${index}`;
+		// Claim the card for the toggle chain too, or the first tick would mint
+		// a second card beside this one.
+		entry.askCardIds.set(key, msgId);
+		upsertMessage(host, entry, { ...prev, blocks: [{
+			...block,
+			richOptions: buildAskChoices(spec, index, block.options, entry.askChecked.get(key) ?? EMPTY_CHECKED, block.title),
+			header: spec[index]!.header,
+			multi: spec[index]!.multi,
+		}] });
+	}
+}
+
 /** Answer an omp extension_ui_request from the chat pane. Bypasses send():
  *  UI responses get no correlated `response` frame back. */
 function answerUiRequest(
@@ -632,14 +757,69 @@ function answerUiRequest(
 	if (!entry || (requestId ? entry.pendingUi.get(requestId) : undefined) === undefined) {
 		return { ok: false, error: "unknown ui request" };
 	}
+	// Resolve the answer BEFORE posting: a multi-select tick has to update the
+	// tracked set so the card omp re-prompts with paints the box as ticked.
+	// omp never echoes checked state back — this is the only record of it.
+	const answer = resolveAnswerText(host, entry, requestId, cmd);
 	try { entry.driver.post(cmd); }
 	catch (err) { return { ok: false, error: err instanceof Error ? err.message : String(err) }; }
 
-	retireUiRequest(host, entry, requestId, cmd.cancelled === true ? "cancelled"
-		: typeof cmd.value === "string" ? cmd.value
-		: cmd.confirmed === true ? "approved"
-		: "denied");
+	retireUiRequest(host, entry, requestId, answer);
 	return { ok: true, response: { type: "ack" } };
+}
+
+/** What the resolved card should say it answered, and — for a multi-select —
+ *  the tick bookkeeping that makes the next re-prompt render correctly.
+ *  A bare `"Next →"` or a glyph-prefixed done label is navigation, not an
+ *  answer: the card must show what was actually selected. */
+function resolveAnswerText(
+	host: RpcChatHost, entry: RpcChatEntry, requestId: string, cmd: Record<string, unknown>,
+): string {
+	if (cmd.cancelled === true) return "cancelled";
+	const value = typeof cmd.value === "string" ? cmd.value : undefined;
+	if (value === undefined) return cmd.confirmed === true ? "approved" : "denied";
+
+	const msgId = entry.pendingUi.get(requestId);
+	const block = host.getBySessionId(entry.sessionId)?.chatMessages
+		?.find((m) => m.id === msgId)?.blocks[0];
+	if (block?.kind !== "approval" || block.method !== "select") return value;
+	const choice = block.richOptions.find((c) => c.value === value);
+	if (!block.multi) return choice?.label ?? value;
+
+	// The card's own progress suffix is what keyed the tick set at build time.
+	const index = block.progress ? Number(block.progress.split("/")[0]) - 1 : 0;
+	const key = `${entry.activeAsk ?? ""}:${Number.isFinite(index) && index >= 0 ? index : 0}`;
+	let set = entry.askChecked.get(key);
+	if (!set) { set = new Set(); entry.askChecked.set(key, set); }
+	if (choice?.role === "option") {
+		if (set.has(choice.label)) set.delete(choice.label); else set.add(choice.label);
+	}
+	return set.size > 0 ? [...set].join(", ") : "(none)";
+}
+
+/** omp's model catalog is ~1.1 MB of provider metadata (costs, context windows,
+ *  capability matrices) and only arrives at all because the driver negotiates
+ *  protocol v2 chunking. The picker needs five fields per model, so project
+ *  here rather than pushing a megabyte through coord to the browser. */
+function trimCatalog(response: RpcFrame): RpcFrame {
+	if (response.success !== true) return response;
+	const data = response.data as { models?: unknown } | undefined;
+	if (!Array.isArray(data?.models)) return response;
+	const models: { provider: string; id: string; name: string; reasoning: boolean; efforts: string[] }[] = [];
+	for (const m of data.models as Record<string, unknown>[]) {
+		if (!m || typeof m.provider !== "string" || typeof m.id !== "string") continue;
+		const thinking = m.thinking as { efforts?: unknown } | undefined;
+		models.push({
+			provider: m.provider,
+			id: m.id,
+			name: typeof m.name === "string" && m.name ? m.name : m.id,
+			reasoning: m.reasoning !== false,
+			efforts: Array.isArray(thinking?.efforts)
+				? thinking.efforts.filter((e): e is string => typeof e === "string")
+				: [],
+		});
+	}
+	return { ...response, data: { models } };
 }
 
 /** Tunnel one allow-listed RpcCommand to the session's child (lazy start). */
@@ -680,6 +860,14 @@ export async function rpcChatCommand(
 				error: String(response.error ?? ""),
 			});
 		}
+		// A model switch emits NO event (unlike thinking level) — its own response
+		// is the only signal that the chip is now stale, and no agent turn runs to
+		// trigger the agent_end refresh. Fire and forget: the caller gets the
+		// command's own result, the frame follows a round trip later.
+		if (response.success === true && MODEL_CHANGING_COMMANDS[type] === true) {
+			void refreshStatus(host, entry).catch(() => { /* keep last known */ });
+		}
+		if (type === "get_available_models") return { ok: true, response: trimCatalog(response) };
 		return { ok: true, response };
 	} catch (err) {
 		log.warn("omp-rpc", "command_failed", { sid: entry.sessionId, type, error: String(err) });
@@ -691,6 +879,14 @@ export async function rpcChatCommand(
  *  RPC child / the block was never truncated. */
 export function rpcChatFullBlock(sessionId: string, messageId: string, blockIndex: number): string | null {
 	return entries.get(sessionId)?.fullText.get(messageId)?.[blockIndex] ?? null;
+}
+
+/** Re-emit the current session status for a live RPC child (no-op otherwise).
+ *  Status rides pushed frames only, so a pane that mounts between two pushes
+ *  would otherwise sit with a blank model chip until the next turn ended. */
+export function republishRpcChatState(host: RpcChatHost, sessionId: string): void {
+	const entry = entries.get(sessionId);
+	if (entry) emitState(host, entry);
 }
 
 /** Kill a session's child. Called from _dropChannelState — the kill /

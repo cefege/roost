@@ -23,16 +23,40 @@ import {
 import { parseOmpLine, fullBlockText, TRUNC_CAP } from "./chat/omp/parse.ts";
 import { readFile } from "node:fs/promises";
 
-import { isOmpTitle } from "@roost/shared/chat/omp-title";
+import { isOmpTitle, ompTitleRunState } from "@roost/shared/chat/omp-title";
 export { isOmpTitle };
+
+/** Cap on transcript-resolve attempts per session. Each attempt costs a global
+ *  `lsof -c bun` and runs ~12 s, so this is ~1.5 min of trying: ample for a slow
+ *  omp boot, longer than findActiveTranscriptByCwd's 60 s activeWindowMs (a
+ *  just-exited sibling in the same cwd keeps the fallback ambiguous for that
+ *  long), and short enough that a permanently-unresolvable session stops
+ *  probing lsof for the rest of its life. */
+const CHAT_RESOLVE_MAX_TRIES = 8;
 
 /** Build + send a ChatFrame upstream. No-op when no sink (tests). */
 function emitChatFrame(this: SessionManager, channelId: number, append: ChatMessage[], seq: number, reset: boolean): void {
 	if (!this.sendChatFrameUpstream) return;
-	// streaming/model/context are native-RPC-only signals; the mirror engine
-	// tails a file and has no session state to report.
-	const frame: ChatFrame = { sessionId: "", append, seq, reset, streaming: false, model: "", contextPct: 0, contextTokens: 0 };
+	// `streaming` comes from omp's OSC title separator (the only run-state signal
+	// the mirror engine has). model/context stay empty: those are genuinely
+	// native-RPC-only, and the pane hides the model chip when `model` is "".
+	const streaming = ompTitleRunState(this.lastOscTitle.get(channelId)) === "working";
+	const frame: ChatFrame = { sessionId: "", append, seq, reset, streaming, model: "", modelName: "", thinkingLevel: "", contextPct: 0, contextTokens: 0 };
 	this.sendChatFrameUpstream(channelId, frame);
+}
+
+/** Publish a payload-less frame when omp's run state flips with no new
+ *  transcript line. The chat pane's working badge and Stop button read
+ *  `streaming` off every frame, and a turn can run for minutes between
+ *  appends. Change-gated: the title re-emits ~12.5×/s on the spinner, and
+ *  every Braille frame is the same `working` state. */
+export function _emitChatRunState(this: SessionManager, channelId: number): void {
+	const rec = this.sessions.get(channelId);
+	if (!rec || !rec.chatWatchDispose) return;
+	const next = ompTitleRunState(this.lastOscTitle.get(channelId));
+	if (rec.chatRunState === next) return;
+	rec.chatRunState = next;
+	emitChatFrame.call(this, channelId, [], rec.chat_seq, false);
 }
 
 /** Idempotently start the omp chat watcher for a session when its OSC title
@@ -40,21 +64,38 @@ function emitChatFrame(this: SessionManager, channelId: number, append: ChatMess
  *  once a watcher is running, and only acts on the omp title. */
 export function _ensureChatWatch(this: SessionManager, channelId: number): void {
 	const rec = this.sessions.get(channelId);
-	if (!rec || rec.chatWatchDispose) return;
+	if (!rec || rec.chatWatchDispose || rec.chatWatchStarting) return;
 	if (!isOmpTitle(this.lastOscTitle.get(channelId))) return;
-
-	rec.chatMessages = [];
-	rec.chatMsgSeqs = [];
-	// Reset first so the client drops any prior history and reseeds.
-	emitChatFrame.call(this, channelId, [], 0, true);
+	rec.chatWatchStarting = true;
 
 	void resolveTranscriptPath(rec.childPid, rec.cwd).then((r) => {
 		// Session may have closed during the async resolve.
 		if (this.sessions.get(channelId) !== rec) return;
 		if (!r) {
-			diag("chat.resolve", { ok: false, reason: "no_path", sid: String(rec.sessionId) });
+			rec.chatWatchTries = (rec.chatWatchTries ?? 0) + 1;
+			diag("chat.resolve", { ok: false, reason: "no_path", sid: String(rec.sessionId), tries: rec.chatWatchTries });
+			// Retryable, bounded. omp boots slower than its first OSC title, so
+			// the first resolve routinely runs before the transcript exists —
+			// latching here would kill the pane for the session's whole life.
+			// Clearing does NOT bring back the 12 Hz storm: that came from having
+			// no in-flight guard at all, so ~100 resolves overlapped. The guard is
+			// set BEFORE the await, so the next attempt can only start once this
+			// one finished — one resolve per ~12 s, and at most MAX_TRIES of them.
+			if (rec.chatWatchTries < CHAT_RESOLVE_MAX_TRIES) rec.chatWatchStarting = false;
 			return;
 		}
+		// One transcript, one session. Two Roost sessions in the same cwd both
+		// resolve the single open transcript otherwise, and both mirror it.
+		for (const other of this.sessions.values()) {
+			if (other !== rec && other.chatTranscriptPath === r.path) {
+				diag("chat.resolve", { ok: false, reason: "path_taken", sid: String(rec.sessionId) });
+				return;   // chatWatchStarting stays true: one attempt, fails safe to the terminal
+			}
+		}
+		rec.chatMessages = [];
+		rec.chatMsgSeqs = [];
+		// Reset first so the client drops any prior history and reseeds.
+		emitChatFrame.call(this, channelId, [], 0, true);
 		diag("chat.resolve", { ok: true, via: r.via, sid: String(rec.sessionId) });
 		rec.chatTranscriptPath = r.path;
 		const handle = startTranscriptWatcher(r.path, (msgs, seq) => {
@@ -80,6 +121,12 @@ export function _ensureChatWatch(this: SessionManager, channelId: number): void 
 export function _disposeChatWatch(rec: SessionRecord): void {
 	try { rec.chatWatchDispose?.(); } catch { /* best-effort */ }
 	rec.chatWatchDispose = null;
+	rec.chatWatchStarting = false;
+	rec.chatWatchTries = 0;
+	rec.chatRunState = undefined;
+	// Release the path so the S3 `path_taken` scan can't be tripped by a record
+	// that no longer mirrors anything.
+	rec.chatTranscriptPath = null;
 }
 
 export interface ChatHistoryPage {

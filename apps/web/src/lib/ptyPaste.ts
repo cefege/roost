@@ -10,8 +10,16 @@ const BP_START = "\x1b[200~";
 const BP_END = "\x1b[201~";
 
 export function buildPtyPayload(text: string): Uint8Array {
-  const body = text.includes("\n") ? `${BP_START}${text}${BP_END}` : text;
-  return new TextEncoder().encode(body);
+  return text.includes("\n") ? buildBracketedPaste(text) : new TextEncoder().encode(text);
+}
+
+// Always bracketed, newlines or not. omp's editor only auto-attaches image
+// paths that arrive INSIDE a bracketed paste
+// (custom-editor.ts::extractBracketedImagePastePaths); an attachment path is
+// single-line, which buildPtyPayload would send raw and omp would take as
+// literal text.
+export function buildBracketedPaste(text: string): Uint8Array {
+  return new TextEncoder().encode(`${BP_START}${text}${BP_END}`);
 }
 
 // CR as its own frame — callers that want to SUBMIT append this after the

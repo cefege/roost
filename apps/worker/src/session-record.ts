@@ -6,6 +6,7 @@ import type { FsmChannel } from "./fsm.ts";
 import type { TerminalCore } from "@wterm/core";
 import type { CellEmitState } from "@roost/shared/cell";
 import type { ChatMessage } from "@roost/shared/chat/wire";
+import type { OmpRunState } from "@roost/shared/chat/omp-title";
 
 export type SessionRecord = {
 	sessionId: SessionId;
@@ -102,6 +103,21 @@ export type SessionRecord = {
 	chatMsgSeqs?: number[];
 	chatMessages?: ChatMessage[] | null;
 	chatTranscriptPath?: string | null;
+	/** In-flight guard for the async transcript resolve: the per-OSC-title
+	 *  re-entry from session-emit.ts fires ~12.5×/s on omp's spinner, and
+	 *  without this every tick started another resolve + fs watcher on the same
+	 *  file. Set BEFORE the await, so the rate is capped at one resolve per
+	 *  resolve-duration (~12 s). Cleared when the resolve finds no transcript
+	 *  (omp boots slower than its first title — that MUST be retryable); left
+	 *  set when the path is already taken or the resolve threw, both of which
+	 *  fail safe to the terminal. Also cleared by _disposeChatWatch. */
+	chatWatchStarting?: boolean;
+	/** Failed transcript-resolve attempts, capped by CHAT_RESOLVE_MAX_TRIES so a
+	 *  session whose transcript can never be resolved stops probing lsof. */
+	chatWatchTries?: number;
+	/** Last omp run state published on a ChatFrame. Change-gate for the
+	 *  payload-less run-state frames (_emitChatRunState). */
+	chatRunState?: OmpRunState;
 };
 
 export interface ViewportClaim {

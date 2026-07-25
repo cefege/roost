@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "bun x tsgo -p tsconfig.json --noEmit",
-    "test": "bun test"
+    "test": "bun test",
+    "sync:tool-views": "bun scripts/sync-omp-tool-views.ts"
   },
   "dependencies": {
     "@bufbuild/protobuf": "^2.12.0",

@@ -19,14 +19,14 @@ const thread: ChatMessage[] = [
     { kind: "toolCall", callId: "r", name: "read", argsJson: '{"path":"a.ts"}' },
   ] },
   { id: "tr1", parentId: "a1", ts: "t", role: "toolResult", blocks: [
-    { kind: "toolResult", callId: "r", name: "read", text: "file body", isError: false, truncated: false, fullLen: 9 },
+    { kind: "toolResult", callId: "r", name: "read", text: "", isError: false, truncated: false, fullLen: 9, rawJson: '{"toolCallId":"r","toolName":"read","content":[{"type":"text","text":"file body"}]}' },
   ] },
   { id: "a2", parentId: "tr1", ts: "t", role: "assistant", blocks: [
     { kind: "toolCall", callId: "b", name: "browser", argsJson: "{}" },
   ] },
   // toolResult message carrying an IMAGE (was silently dropped pre-fix).
   { id: "tr2", parentId: "a2", ts: "t", role: "toolResult", blocks: [
-    { kind: "toolResult", callId: "b", name: "browser", text: "shot", isError: false, truncated: false, fullLen: 4 },
+    { kind: "toolResult", callId: "b", name: "browser", text: "", isError: false, truncated: false, fullLen: 4, rawJson: '{"toolCallId":"b","toolName":"browser","content":[{"type":"text","text":"shot"}]}' },
     { kind: "image", blobPath: "~/.omp/agent/blobs/deadbeef", mime: "image/webp" },
     { kind: "text", text: "meta" },
   ] },
@@ -35,11 +35,11 @@ const thread: ChatMessage[] = [
     { kind: "toolCall", callId: "e", name: "edit", argsJson: '{"input":"[a.ts#1]"}' },
   ] },
   { id: "tr3", parentId: "a3", ts: "t", role: "toolResult", blocks: [
-    { kind: "toolResult", callId: "e", name: "edit", text: "x".repeat(8192), isError: false, truncated: true, fullLen: 9000 },
+    { kind: "toolResult", callId: "e", name: "edit", text: "", isError: false, truncated: true, fullLen: 9000, rawJson: '{"toolCallId":"e","toolName":"edit","content":[{"type":"text","text":"x"}]}' },
   ] },
   // ORPHAN result: no matching toolCall anywhere → own card.
   { id: "tr4", parentId: "a3", ts: "t", role: "toolResult", blocks: [
-    { kind: "toolResult", callId: "orphan", name: "bash", text: "out", isError: false, truncated: false, fullLen: 3 },
+    { kind: "toolResult", callId: "orphan", name: "bash", text: "", isError: false, truncated: false, fullLen: 3, rawJson: '{"toolCallId":"orphan","toolName":"bash","content":[{"type":"text","text":"out"}]}' },
   ] },
   // Lone tool_event (no call, no result) → standalone running card.
   { id: "a4", parentId: "tr4", ts: "t", role: "assistant", blocks: [
@@ -84,10 +84,11 @@ test("result full-text fetch targets the RESULT's coordinates, not the call's", 
 // same id as it grows. The old skip-by-id splice froze the first token forever.
 
 const SID = "sess-upsert";
-const push = (append: ChatMessage[], seq: number, opts: { reset?: boolean; streaming?: boolean; model?: string; contextPct?: number } = {}) =>
+const push = (append: ChatMessage[], seq: number, opts: { reset?: boolean; streaming?: boolean; model?: string; modelName?: string; thinkingLevel?: string; contextPct?: number } = {}) =>
   applyOmpChatFrame(chatFrameToProto({
     sessionId: SID, append, seq, reset: opts.reset ?? false, streaming: opts.streaming ?? false,
-    model: opts.model ?? "", contextPct: opts.contextPct ?? 0, contextTokens: 0,
+    model: opts.model ?? "", modelName: opts.modelName ?? "", thinkingLevel: opts.thinkingLevel ?? "",
+    contextPct: opts.contextPct ?? 0, contextTokens: 0,
   }));
 
 test("same message id upserts in place — second frame's blocks win", () => {
@@ -146,6 +147,55 @@ test("session status rides payload-less frames onto the store", () => {
   push([], 0, { model: "anthropic/claude-opus-5", contextPct: 2 });
   expect(ompChatForSession(SID).model).toBe("anthropic/claude-opus-5");
   expect(ompChatForSession(SID).contextPct).toBe(2);
+});
+
+test("model name + thinking level ride the frame; a mirror frame can't clobber them", () => {
+  push([], 0, { reset: true });
+
+  push([], 0, { model: "anthropic/claude-sonnet-5", modelName: "Claude Sonnet 5", thinkingLevel: "medium" });
+  expect(ompChatForSession(SID).modelName).toBe("Claude Sonnet 5");
+  expect(ompChatForSession(SID).thinkingLevel).toBe("medium");
+
+  // The mirror (PTY) engine has no session state and sends model: "". That
+  // frame must not blank the chip the native engine just populated.
+  push([], 0, { model: "", modelName: "", thinkingLevel: "" });
+  expect(ompChatForSession(SID).modelName).toBe("Claude Sonnet 5");
+  expect(ompChatForSession(SID).thinkingLevel).toBe("medium");
+});
+
+test("a selection card survives the proto boundary intact", () => {
+  // The ask render model is rebuilt in the WORKER and only reaches the pane
+  // through proto. A field added to the zod schema but not to both adapter arms
+  // vanishes here silently, and the card degrades to a label-only button row.
+  push([], 0, { reset: true });
+  push([{
+    id: "ap1", parentId: "", ts: "t", role: "developer", blocks: [{
+      kind: "approval", requestId: "ui-9", method: "select",
+      title: "Which features?", message: "", resolved: false, answer: "",
+      options: ["Streaming", "Search", "Next →"],
+      header: "Scope", progress: "2/3", multi: true,
+      richOptions: [
+        { value: "Streaming", label: "Streaming", description: "Token by token.", recommended: true, checked: true, role: "option" },
+        { value: "Search", label: "Search", description: "", recommended: false, checked: false, role: "option" },
+        { value: "Next →", label: "Next →", description: "", recommended: false, checked: false, role: "next" },
+      ],
+    }],
+  }], 1);
+
+  const block = ompChatForSession(SID).messages[0]!.blocks[0]!;
+  expect(block.kind).toBe("approval");
+  if (block.kind !== "approval") return;
+  expect(block.header).toBe("Scope");
+  expect(block.progress).toBe("2/3");
+  expect(block.multi).toBe(true);
+  expect(block.richOptions).toHaveLength(3);
+  expect(block.richOptions[0]).toEqual({
+    value: "Streaming", label: "Streaming", description: "Token by token.",
+    recommended: true, checked: true, role: "option",
+  });
+  expect(block.richOptions[2]!.role).toBe("next");
+  // `options` keeps its own meaning — the raw frame echo the smoke path reads.
+  expect(block.options).toEqual(["Streaming", "Search", "Next →"]);
 });
 
 test("tool index exposes the newest event, including live update output", () => {

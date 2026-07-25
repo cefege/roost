@@ -29,6 +29,11 @@ export interface OmpRpcDriverOpts {
 
 const RESPONSE_TIMEOUT_MS = 30_000;
 
+/** Reassembly cap for a chunked (protocol v2) frame. omp advertises 64 MiB;
+ *  the only response that gets anywhere near a megabyte is the model catalog,
+ *  so this is a runaway guard, not a working limit. */
+const MAX_REASSEMBLED_BYTES = 8 * 1024 * 1024;
+
 /** Resolve the omp binary: explicit override first (tests + non-standard
  *  installs), then PATH, then the standard bun global bin. */
 export function resolveOmpBin(): string | null {
@@ -47,6 +52,8 @@ export class OmpRpcDriver {
 	#nextId = 1;
 	#pending = new Map<string, { resolve: (f: RpcFrame) => void; timer: ReturnType<typeof setTimeout> }>();
 	#disposed = false;
+	/** chunkId → base64 pieces of an in-flight protocol-v2 frame. */
+	#chunks = new Map<string, string[]>();
 
 	constructor(opts: OmpRpcDriverOpts) {
 		this.#opts = opts;
@@ -84,6 +91,8 @@ export class OmpRpcDriver {
 			if (this.#disposed) return;
 			log.info("omp-rpc", "child_exit", { code });
 			this.#failAllPending("omp rpc child exited");
+			// A half-delivered chunk series can never complete now.
+			this.#chunks.clear();
 			this.#proc = null;
 			this.#opts.onExit(code);
 		});
@@ -128,6 +137,7 @@ export class OmpRpcDriver {
 		if (this.#disposed) return;
 		this.#disposed = true;
 		this.#failAllPending("driver disposed");
+		this.#chunks.clear();
 		try { this.#proc?.kill(); } catch { /* already dead */ }
 		this.#proc = null;
 	}
@@ -164,6 +174,25 @@ export class OmpRpcDriver {
 	}
 
 	#dispatch(frame: RpcFrame): void {
+		// Protocol v2: omp splits any response over its 1 MiB frame cap into
+		// rpc_chunk frames. Without negotiating + reassembling, the ONLY reply
+		// that exceeds the cap — get_available_models, ~1.1 MB — comes back as
+		// `success:false, error:"RPC response exceeded the transport limit"`,
+		// i.e. the model picker has no catalog at all.
+		if (frame.type === "ready") {
+			const versions = frame.supportedProtocolVersions;
+			if (Array.isArray(versions) && versions.includes(2)) {
+				void this.send({ type: "negotiate_protocol", protocolVersion: 2 })
+					.catch(() => { /* v1 still works for everything but the catalog */ });
+			}
+			this.#opts.onEvent(frame);
+			return;
+		}
+		if (frame.type === "rpc_chunk") {
+			const whole = this.#collectChunk(frame);
+			if (whole) this.#dispatch(whole);
+			return;
+		}
 		const id = typeof frame.id === "string" ? frame.id : null;
 		if (frame.type === "response" && id) {
 			const p = this.#pending.get(id);
@@ -175,5 +204,39 @@ export class OmpRpcDriver {
 			}
 		}
 		this.#opts.onEvent(frame);
+	}
+
+	/** Accumulate one rpc_chunk; returns the decoded frame once the last piece
+	 *  lands, else null. A malformed or oversized series is dropped whole —
+	 *  the caller's 30 s timeout then reports it as a failed command. */
+	#collectChunk(frame: RpcFrame): RpcFrame | null {
+		const chunkId = typeof frame.chunkId === "string" ? frame.chunkId : "";
+		const index = typeof frame.index === "number" ? frame.index : -1;
+		const count = typeof frame.count === "number" ? frame.count : 0;
+		const data = typeof frame.data === "string" ? frame.data : "";
+		if (!chunkId || index < 0 || count <= 0 || index >= count) return null;
+		const parts = this.#chunks.get(chunkId) ?? new Array<string>(count).fill("");
+		parts[index] = data;
+		if (parts.reduce((n, p) => n + p.length, 0) > MAX_REASSEMBLED_BYTES) {
+			log.warn("omp-rpc", "chunk_overflow", { chunkId, count });
+			this.#chunks.delete(chunkId);
+			return null;
+		}
+		if (parts.some((p) => p === "")) {
+			this.#chunks.set(chunkId, parts);
+			return null;
+		}
+		this.#chunks.delete(chunkId);
+		try {
+			// Each piece is base64'd INDEPENDENTLY, padding and all — concatenating
+			// the base64 text and decoding once stops at the first chunk's `=`
+			// and silently yields only the first 256 KiB. Decode per piece, then
+			// join the bytes.
+			const bytes = Buffer.concat(parts.map((p) => Buffer.from(p, "base64")));
+			return JSON.parse(bytes.toString("utf8")) as RpcFrame;
+		} catch {
+			log.warn("omp-rpc", "chunk_decode_failed", { chunkId, count });
+			return null;
+		}
 	}
 }

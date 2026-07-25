@@ -24,7 +24,7 @@
 
 import { parseSessionEntries, type FileEntry, type SessionEntry } from "@earendil-works/pi-coding-agent";
 import {
-  TRUNC_CAP,
+  RAW_CAP, TRUNC_CAP,
   type ChatMessage, type ContentBlock,
 } from "@roost/shared/chat/wire";
 import { diag } from "@roost/shared";
@@ -126,25 +126,54 @@ export function mapAgentMessageFull(message: unknown, id: string, parentId: stri
   return mapMessage(message, id, parentId, ts, fullCap);
 }
 
+/** The omp ToolResultMessage envelope <omp-tool-view> renders, as JSON.
+ *  `details` is the per-tool structured payload (diff hunks, grep hits, todo
+ *  lists) every rich renderer reads — it is the reason this exists at all.
+ *  Over RAW_CAP the envelope is rebuilt without `details` and with the text
+ *  capped, so the output is ALWAYS valid JSON, never a sliced string. */
+function toolResultRawJson(
+  callId: string, name: string, isError: boolean,
+  texts: readonly Rec[], details: unknown, joined: string,
+): string {
+  let raw = "";
+  try { raw = JSON.stringify({ toolCallId: callId, toolName: name, isError, content: texts, details }); }
+  catch { raw = ""; }
+  if (raw && raw.length <= RAW_CAP) return raw;
+  // An oversized `details` alone can blow the cap while the text is short, so
+  // only claim truncation when the text is actually the part being cut.
+  const capped = joined.length > TRUNC_CAP
+    ? `${joined.slice(0, TRUNC_CAP)}\n… (truncated, ${joined.length - TRUNC_CAP} more characters)`
+    : joined;
+  return JSON.stringify({
+    toolCallId: callId, toolName: name, isError,
+    content: [{ type: "text", text: capped }],
+  });
+}
+
 /** Map a `message` entry → ChatMessage by role (or null). */
 function mapMessage(message: unknown, id: string, parentId: string, ts: string, cap: Cap): ChatMessage | null {
   const m = asRec(message);
   if (!m) return null;
 
   const role = m.role;
-  if (role !== "user" && role !== "assistant" && role !== "toolResult" && role !== "developer") {
-    diag("chat.parse_skip", { reason: "unknown_role", role: String(role) });
+  if (role !== "user" && role !== "assistant" && role !== "toolResult") {
+    diag("chat.parse_skip", {
+      reason: role === "developer" ? "developer_suppressed" : "unknown_role",
+      role: String(role),
+    });
     return null;
   }
 
-  // toolResult message: omp carries toolCallId/toolName/isError at the MESSAGE
-  // level (not per content block). Content text → a toolResult block; images →
-  // separate image blocks on the same message.
+  // toolResult message: omp carries toolCallId/toolName/isError/details at the
+  // MESSAGE level (not per content block). The whole envelope becomes ONE
+  // toolResult block's rawJson; images stay separate blocks Roost renders itself.
   if (role === "toolResult") {
     const callId = asStr(m.toolCallId) ?? "";
     const name = asStr(m.toolName) ?? "";
     const isError = m.isError === true;
-    const blocks: ContentBlock[] = [];
+    const images: ContentBlock[] = [];
+    const texts: Rec[] = [];
+    let joined = "";
     const content = m.content;
     if (Array.isArray(content)) {
       for (const b of content) {
@@ -152,23 +181,26 @@ function mapMessage(message: unknown, id: string, parentId: string, ts: string, 
         if (!br) continue;
         if (br.type === "text") {
           const text = asStr(br.text);
-          if (text !== undefined) {
-            blocks.push({ kind: "toolResult", callId, name, isError, ...cap(text) });
-          }
+          if (text === undefined) continue;
+          texts.push(br);
+          joined += joined ? `\n${text}` : text;
         } else if (br.type === "image") {
           const img = resolveImage(br);
-          if (img) blocks.push({ kind: "image", blobPath: img.blobPath, mime: img.mime });
+          if (img) images.push({ kind: "image", blobPath: img.blobPath, mime: img.mime });
         }
       }
     }
-    if (blocks.length === 0) {
-      // No usable text — still surface the tool name + completion.
-      blocks.push({ kind: "toolResult", callId, name, isError, text: "", truncated: false, fullLen: 0 });
-    }
-    return { id, parentId, ts, role: "toolResult", blocks };
+    const { truncated, fullLen } = cap(joined);
+    // `text` stays empty: the payload rides in rawJson, and shipping both would
+    // double the frame. truncated/fullLen still describe the joined tool text.
+    const result: ContentBlock = {
+      kind: "toolResult", callId, name, isError, text: "", truncated, fullLen,
+      rawJson: toolResultRawJson(callId, name, isError, texts, m.details, joined),
+    };
+    return { id, parentId, ts, role: "toolResult", blocks: [result, ...images] };
   }
 
-  // user / assistant / developer: map each content block.
+  // user / assistant: map each content block.
   const content = m.content;
   const blocks: ContentBlock[] = [];
   if (Array.isArray(content)) {
@@ -266,7 +298,8 @@ export function parseOmpLine(line: string): ChatMessage | null {
 
 /** Parse a transcript line fully (no truncation) and return the text of the
  *  block at blockIndex, using the SAME entry mapping as parseOmpLine so block
- *  indices stay aligned with the streamed message. Returns null if absent. */
+ *  indices stay aligned with the streamed message. Returns null if absent.
+ *  toolResult blocks carry no text — their payload rides in rawJson, whole. */
 export function fullBlockText(line: string, blockIndex: number): string | null {
   const entry = firstEntry(line);
   if (!entry) return null;
@@ -276,7 +309,6 @@ export function fullBlockText(line: string, blockIndex: number): string | null {
   switch (blk.kind) {
     case "text":
     case "thinking":
-    case "toolResult":
       return blk.text;
     case "toolCall":
       return blk.argsJson;

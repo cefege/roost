@@ -91,6 +91,8 @@ export interface ChatOmpState {
   streaming: boolean;
   /** Session status the omp TUI keeps on screen. Empty/0 on the mirror engine. */
   model: string;
+  modelName: string;
+  thinkingLevel: string;
   contextPct: number;
   contextTokens: number;
 }

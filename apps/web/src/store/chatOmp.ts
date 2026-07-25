@@ -37,7 +37,7 @@ export function ompChatEnabled(sessionId: string): boolean {
 
 /** Current chat state for a session (creates an empty slot lazily). */
 export function ompChatForSession(sessionId: string): ChatOmpState {
-	return rootStore.chat_omp[sessionId] ?? { messages: [], seq: 0, status: "idle", streaming: false, model: "", contextPct: 0, contextTokens: 0 };
+	return rootStore.chat_omp[sessionId] ?? { messages: [], seq: 0, status: "idle", streaming: false, model: "", modelName: "", thinkingLevel: "", contextPct: 0, contextTokens: 0 };
 }
 
 /** Apply an inbound ChatFrame. reset → replace; else UPSERT by message id:
@@ -65,6 +65,8 @@ export function applyOmpChatFrame(pb: PbChatFrame): void {
 			status: frame.append.length > 0 ? "resolved" : "loading",
 			streaming: frame.streaming,
 			model: frame.model,
+			modelName: frame.modelName,
+			thinkingLevel: frame.thinkingLevel,
 			contextPct: frame.contextPct,
 			contextTokens: frame.contextTokens,
 		});
@@ -79,6 +81,8 @@ export function applyOmpChatFrame(pb: PbChatFrame): void {
 	// count, so a genuine 0 is representable and boot frames never clobber.
 	if (frame.model) {
 		if (cur.model !== frame.model) setRootStore("chat_omp", sid, "model", frame.model);
+		if (cur.modelName !== frame.modelName) setRootStore("chat_omp", sid, "modelName", frame.modelName);
+		if (cur.thinkingLevel !== frame.thinkingLevel) setRootStore("chat_omp", sid, "thinkingLevel", frame.thinkingLevel);
 		if (cur.contextPct !== frame.contextPct) setRootStore("chat_omp", sid, "contextPct", frame.contextPct);
 		if (cur.contextTokens !== frame.contextTokens) setRootStore("chat_omp", sid, "contextTokens", frame.contextTokens);
 	}

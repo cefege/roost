@@ -6,7 +6,7 @@ import type { ClientControlFrame } from "@roost/shared/wire";
 import type { CoordLink } from "./transport/CoordLink.ts";
 import type { SessionManager } from "./session-manager.ts";
 import { getChatHistory, getChatBlockText } from "./session-chat.ts";
-import { rpcChatCommand, rpcChatFullBlock } from "./chat/omp/rpc-chat.ts";
+import { rpcChatCommand, rpcChatFullBlock, republishRpcChatState } from "./chat/omp/rpc-chat.ts";
 
 /** Serve a slice of cached chat history. rpc-ok data:
  *  { messages, next_seq, truncated }. Empty messages when no watcher is running
@@ -33,6 +33,11 @@ export async function handleGetChatHistory(
 			truncated: page.truncated,
 		},
 	});
+	// Session status (model, effort, context) is PUSHED on change, never part of
+	// this page — so a pane that mounts after the child booted would show no
+	// model chip until the next turn ended. Re-publish it on every reseed: the
+	// mount is exactly the moment the client needs it.
+	republishRpcChatState(sessionMgr, frame.session_id);
 }
 
 /** Full untruncated text of one ContentBlock. rpc-ok data: { text }.

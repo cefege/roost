@@ -1,13 +1,14 @@
-/* Omp chat pane styling. Resolves only existing --md-* design tokens
-   (apps/web/src/styles/voice-input.css:7-8 rule: no new token graphs).
-   Self-contained — a future Claude chat ships its own css, shares nothing.
+/* Omp chat pane shell: root, thread scroller, skeleton, status bar, streaming
+   progress, working indicator, jump-to-bottom FAB.
 
-   Two font sources only: --md-font at the pane root (speech, controls, chrome)
-   and --term-font-family for machinery (code, tool output, log rows). Every
-   font-size ships with its paired --md-*-line and --md-*-weight.
+   Colors resolve through omp-tokens.css — the aliases that point omp's variable
+   names at Roost's canonical tokens. Nothing here reads --md-sys-color-*: the
+   pane and the tool cards inside it must recolor from ONE source or a theme
+   switch splits the view in half. Spacing/elevation/motion still use the --md-*
+   ramps, which are palette-independent.
 
-   This file owns the pane shell: root, thread scroller, skeleton, app bar,
-   thread rhythm and the working indicator. */
+   Two font sources only: --font-ui (speech, controls, chrome) and --font-mono
+   (machinery — gutter labels, code, tool output). */
 
 .omp-chat {
   position: relative;               /* containing block for the jump FAB */
@@ -15,34 +16,34 @@
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  background: var(--md-sys-color-surface);
-  color: var(--md-sys-color-on-surface);
+  background: var(--bg);
+  color: var(--fg);
   overflow: hidden;
   /* The pane's type root. Form controls do not inherit font-family from an
      ancestor, so the ones that stay hand-rolled re-declare `font: inherit`
      against this. */
-  font-family: var(--md-font);
-  font-size: var(--md-body-m-size);
-  line-height: var(--md-body-m-line);
-  font-weight: var(--md-body-m-weight);
+  font-family: var(--font-ui);
+  font-size: var(--tr-body);
+  line-height: 1.5;
 }
 
+/* omp's .tr-root metrics — the transcript's own rhythm, not a bubble list's. */
 .omp-chat__thread {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
   scroll-behavior: smooth;
-  gap: var(--md-space-1);
-  padding: var(--md-space-4) var(--md-space-4) var(--md-space-2);
+  padding: 12px 16px 24px;
+  color: var(--fg);
 }
 
 /* The thread is a COLUMN flex container, so every row is a flex item and
    shrinks by default once the content is taller than the viewport. That
    silently crushed tall tool cards to their header height and clipped the
-   output (overflow:hidden on the card). Rows size to their content; the
-   thread scrolls. */
+   output. Rows size to their content; the thread scrolls. */
 .omp-chat__thread > * {
   flex: 0 0 auto;
 }
@@ -52,13 +53,61 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--md-sys-color-on-surface-variant);
-  font-size: var(--md-body-m-size);
-  line-height: var(--md-body-m-line);
-  font-weight: var(--md-body-m-weight);
+  color: var(--fg-faint);
+  font-family: var(--font-mono);
+  font-size: var(--tr-machinery);
 }
 
-/* ─── top app bar (M3 small) ───────────────────────────────────────── */
+/* Empty-pane welcome card. omp's TUI splash can't reach a --mode child, so the
+   pane draws its own: greeting + folder always, tips only when the child
+   answered get_available_commands. Sizes to its content, never `flex: 1`: it
+   stacks ABOVE any boot-time developer notice, and a stretching card would
+   push that row to the bottom of an otherwise empty pane. Horizontally
+   centered; the text block stays left-aligned and width-capped so tip rows
+   read as a list instead of stretching across a wide pane. */
+.omp-chat__welcome {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--md-space-2);
+  color: var(--fg-faint);
+  padding: var(--md-space-8) var(--md-space-4) var(--md-space-6);
+}
+
+.omp-chat__welcome-title {
+  color: var(--fg);
+  font-size: var(--tr-h3);
+}
+
+.omp-chat__welcome-sub {
+  font-size: var(--tr-meta);
+}
+
+.omp-chat__welcome-tips {
+  display: flex;
+  flex-direction: column;
+  gap: var(--md-space-1);
+  width: 100%;
+  max-width: 42ch;
+  margin-top: var(--md-space-3);
+}
+
+.omp-chat__welcome-tip {
+  display: flex;
+  gap: var(--md-space-2);
+  font-size: var(--tr-meta);
+}
+
+.omp-chat__welcome-cmd {
+  flex: 0 0 auto;
+  min-width: 9ch;
+  color: var(--accent);
+  font-family: var(--font-mono);
+}
+
+/* ─── status bar ───────────────────────────────────────────────────── */
+/* Roost-only: omp's web transcript has no persistent status row. Structure
+   stays M3; only the palette moved onto the aliases. */
 .omp-chat__status {
   flex: 0 0 auto;
   display: flex;
@@ -68,26 +117,17 @@
   /* Right pad clears the pane's top-right overlay slot (.term-pane-corner:
      36px toggle + 8px inset) so the context/token readout is never covered. */
   padding: 0 var(--md-space-9) 0 var(--md-space-4);
-  border-bottom: none;
-  /* Same tier as the composer: two bars framing one thread. */
-  background: var(--md-sys-color-surface-container);
+  background: var(--bg-raised);
   /* The bar lifts off the surface once the thread scrolls under it. */
   box-shadow: var(--md-elev-0);
   transition: box-shadow var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
   z-index: 1;
-  font-size: var(--md-label-s-size);
-  line-height: var(--md-label-s-line);
-  font-weight: var(--md-label-s-weight);
-  color: var(--md-sys-color-on-surface-variant);
+  font-family: var(--font-mono);
+  font-size: var(--tr-meta);
+  color: var(--fg-muted);
 }
 .omp-chat[data-scrolled="true"] .omp-chat__status {
   box-shadow: var(--md-elev-2);
-}
-.omp-chat__status-model {
-  color: var(--md-sys-color-on-surface);
-  font-size: var(--md-title-s-size);
-  line-height: var(--md-title-s-line);
-  font-weight: var(--md-title-s-weight);
 }
 .omp-chat__status-ctx {
   margin-left: auto;
@@ -96,8 +136,35 @@
   height: 24px;
   padding: 0 var(--md-space-2);
   border-radius: var(--md-shape-full);
-  background: var(--md-sys-color-surface-container-highest);
-  color: var(--md-sys-color-on-surface-variant);
+  background: var(--bg-inset);
+  color: var(--fg-muted);
+}
+/* Pane-level thinking switch. Chip idiom borrowed from chat-message.css
+   .tr-chip; the status row is plain-element territory, no @material/web here. */
+.omp-chat__status-toggle {
+  display: inline-flex;
+  align-items: center;
+  height: 16px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-inset);
+  color: var(--fg-faint);
+  font-family: var(--font-mono);
+  font-size: var(--tr-label);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.omp-chat__status-toggle:hover {
+  color: var(--fg-muted);
+}
+.omp-chat__status-toggle[aria-pressed="true"] {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.omp-chat__status-toggle:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
 }
 
 /* ─── streaming progress ───────────────────────────────────────────── */
@@ -106,36 +173,27 @@
   display: block;
   --md-linear-progress-track-height: 3px;
   --md-linear-progress-active-indicator-height: 3px;
-  --md-linear-progress-active-indicator-color: var(--md-sys-color-primary);
+  --md-linear-progress-active-indicator-color: var(--accent);
   --md-linear-progress-track-color: transparent;
 }
 
-/* — rhythm: machinery packs tight, speech gets air ——————————————— */
-
-.omp-chat__thread > .omp-msg {
-  margin: var(--md-space-2) 0;
-}
-.omp-chat__thread > .omp-msg--user {
-  margin-top: var(--md-space-5);
-}
-
-/* — working indicator ———————————————————————————————————————— */
+/* ─── working indicator ────────────────────────────────────────────── */
 .omp-chat__busy {
   align-self: flex-start;
   display: flex;
   align-items: center;
   gap: var(--md-space-2);
-  padding: var(--md-space-1) 0 var(--md-space-1) var(--md-space-3);
-  font-size: var(--md-label-s-size);
-  line-height: var(--md-label-s-line);
-  font-weight: var(--md-label-s-weight);
-  color: var(--md-sys-color-on-surface-variant);
+  /* Aligns with .tr-body: past the 72px gutter and its 12px gap. */
+  padding: 4px 0 4px 84px;
+  font-family: var(--font-mono);
+  font-size: var(--tr-meta);
+  color: var(--fg-muted);
 }
 
 /* ─── scroll-to-bottom FAB ─────────────────────────────────────────── */
-/* Recipe from voice-input.css:337-367 (.jump-bottom-fab), scoped chat-local.
-   The bottom offset clears the composer, measured at 81px: md-outlined-text-field
-   in textarea mode (~56px) + 2× --md-space-3 padding + its 1px top border.
+/* Recipe from voice-input.css (.jump-bottom-fab), scoped chat-local. The bottom
+   offset clears the composer, measured at 81px: md-outlined-text-field in
+   textarea mode (~56px) + 2× --md-space-3 padding + its 1px top border.
    --md-space-9 ×2 = 96px leaves the M3 16px gap above it. */
 .omp-chat__jump {
   position: absolute;
@@ -150,8 +208,8 @@
   border: none;
   cursor: pointer;
   border-radius: var(--md-shape-md);
-  background: var(--md-sys-color-surface-container-high);
-  color: var(--md-sys-color-on-surface-variant);
+  background: var(--bg-overlay);
+  color: var(--fg-muted);
   box-shadow: var(--md-elev-3);
   transition: box-shadow var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-emphasized);
   z-index: 2;
@@ -160,4 +218,4 @@
   .omp-chat__jump:hover { box-shadow: var(--md-elev-4); }
 }
 .omp-chat__jump:active { transform: translateX(-50%) scale(0.94); }
-.omp-chat__jump:focus-visible { outline: 2px solid var(--md-sys-color-primary); outline-offset: 2px; }
+.omp-chat__jump:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }

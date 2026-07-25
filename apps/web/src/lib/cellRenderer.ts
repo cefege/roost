@@ -21,24 +21,42 @@ import {
   CELL_REVERSE, CELL_INVISIBLE, CELL_STRIKE, DEFAULT_COLOR,
 } from "@roost/shared/cell";
 
-const SB_BLOCK = 250; // scrollback rows per content-visibility block; keep in sync with .cell-block contain-intrinsic-size in sidebar.css (SB_BLOCK × 1.2em = 300em). Perf tuning only — any positive value renders identically.
+const SB_BLOCK = 250; // scrollback rows per content-visibility block. sizeBlock() writes each block's EXACT pixel placeholder, so this is perf tuning only — any positive value renders identically.
 
-// Height of one .cell-row, in em. Every row is exactly one line box: .cell-grid
-// sets line-height:1.2, .cell-row is white-space:pre (never wraps), and blank
-// rows carry a space (renderRow) so nothing can collapse or grow one. Keep in
-// sync with .cell-grid { line-height } in styles/sidebar.css.
-const ROW_EM = 1.2;
+// Fallback height of one .cell-row, in px, for the window before the live
+// probe can measure (detached container / no layout yet): --term-font-size 14px
+// (theme-vars.css) × line-height 1.2 (.cell-grid, styles/sidebar.css). Every
+// row is exactly one line box — .cell-row is white-space:pre (never wraps) and
+// height:1.2em (a CAP, not a floor), and blank rows carry a space (renderRow),
+// so nothing can collapse or grow one. CellGridRenderer.rowHeight() supersedes
+// this the moment the pane has layout.
+const DEFAULT_ROW_PX = 16.8;
+
+// `contain-intrinsic-size: auto <length>` makes the browser REMEMBER a block's
+// real rendered size and use that instead of our estimate on every subsequent
+// skip. An engine without the two-value form drops the whole inline
+// declaration — silently falling back to the stylesheet's flat estimate — so
+// feature-detect once at module scope and write the bare length there.
+const CIS_AUTO = typeof CSS !== "undefined" && CSS.supports?.("contain-intrinsic-size", "auto 1px") === true;
 
 // Pin a scrollback block's content-visibility placeholder to its EXACT height.
 // A skipped block reports contain-intrinsic-size, not its content — so with the
-// stylesheet's flat 300em estimate every partial block (backfill chunks, the
-// open tail block) overstates scrollHeight by up to 300em, and the instant the
-// block materializes (scrolled into view, or a parked pane revealed) it reflows
-// to its real height and every row below it shifts. That reflow IS the "scroll
-// jumps around" class. Exact placeholder ⇒ reveal is a layout no-op ⇒
-// scrollHeight never lies ⇒ a single pin always lands on the true bottom.
-function sizeBlock(blk: HTMLElement, rows: number): void {
-  blk.style.setProperty("contain-intrinsic-size", `${(rows * ROW_EM).toFixed(2)}em`);
+// stylesheet's flat estimate every partial block (backfill chunks, the open
+// tail block) misstates scrollHeight, and the instant the block materializes
+// (scrolled into view, or a parked pane revealed) it reflows to its real height
+// and every row below it shifts. That reflow IS the "scroll jumps around"
+// class. Exact placeholder ⇒ reveal is a layout no-op ⇒ scrollHeight never lies
+// ⇒ syncScroll's derived position always lands where it computed.
+/** The contain-intrinsic-size value for a block of `rows` rows at a measured
+ *  row height of `rowH` px. `auto` is feature-gated (CIS_AUTO) because an
+ *  engine without the two-value form drops the declaration outright; the
+ *  parameter exists so BOTH branches are unit-testable. Pure. */
+export function blockPlaceholder(rows: number, rowH: number, auto = CIS_AUTO): string {
+  const px = (rows * (rowH > 0 ? rowH : DEFAULT_ROW_PX)).toFixed(2);
+  return auto ? `auto ${px}px` : `${px}px`;
+}
+function sizeBlock(blk: HTMLElement, rows: number, rowH: number): void {
+  blk.style.setProperty("contain-intrinsic-size", blockPlaceholder(rows, rowH));
 }
 
 /** Slack for "at the bottom", in px. scrollTop is fractional on hi-DPI while
@@ -176,8 +194,8 @@ export class CellGridRenderer {
   private armedHold = false;
   private pendingRender = false;
   // Scrollback rows are packed into content-visibility "blocks" of SB_BLOCK rows.
-  // Off-screen blocks skip layout/paint, so scrollHeight reads (CellTerminal's
-  // atBottom/scrollToBottom) + reveal reflow stay O(history / SB_BLOCK), not
+  // Off-screen blocks skip layout/paint, so this class's own scrollHeight reads
+  // (atBottom / syncScroll) + reveal reflow stay O(history / SB_BLOCK), not
   // O(history) — the fix for the pane-switch freeze (a deep-history pane used to
   // relayout every line on reveal). The last block stays open until it fills;
   // full blocks are immutable (append-only model).
@@ -200,10 +218,23 @@ export class CellGridRenderer {
   private _rowSigs: string[] = [];
   // Eviction freeze: while the user is scrolled up reading history, live
   // output must NOT trim history out from under them (CLAUDE.md L11: never
-  // trade history away). CellTerminal drives this from its stick-to-bottom
-  // intent (`stick`) — frozen when scrolled up, thawed when pinned at the
-  // bottom (the unbounded streaming case where eviction must run).
+  // trade history away). Driven from this renderer's own scroll intent —
+  // frozen while an anchor holds the view in history, thawed while following
+  // the tail (the unbounded streaming case where eviction must run).
   private _evictionFrozen = false;
+  // ── scroll intent ─────────────────────────────────────────────────────
+  // The pane's scroll position is a DECLARED value in absolute scrollback-row
+  // space, re-derived after every mutation — never a pixel scrollTop that has
+  // to survive a rebuild, a park→reveal container resize, an alt-screen
+  // display:none collapse or a browser scroll-anchor adjustment. It survived
+  // none of those, which is why the pane kept landing mid-history.
+  // "tail" = follow the live bottom. "anchor" = keep absolute scrollback row
+  // `row` at `off` px below the top of the visible area. Row-space anchors are
+  // invariant under prepend, eviction and rebuild — that is what kills the
+  // whole jump class.
+  private _intent: { kind: "tail" } | { kind: "anchor"; row: number; off: number } = { kind: "tail" };
+  private _selfTop = -1;  // last scrollTop WE wrote — see isSelfScroll()
+  private _rowH = 0;      // measured px height of one .cell-row; 0 = not measured yet
 
   constructor(private readonly container: HTMLElement) {
     this.doc = container.ownerDocument;
@@ -220,6 +251,9 @@ export class CellGridRenderer {
     this.ghostsEl.className = "cell-ghosts";
     container.appendChild(this.scrollbackEl);
     container.appendChild(this.viewportEl);
+    // A late webfont swap changes the line box under us — drop the cached row
+    // height so the next derivation re-measures instead of anchoring on stale px.
+    void this.doc.fonts?.ready?.then(() => { this._rowH = 0; });
   }
 
   /** Remote viewers' cursors (ghost cursors). Rendered in the viewport at
@@ -257,6 +291,7 @@ export class CellGridRenderer {
         this.renderViewport(incoming.altScreen ? 0 : merged.appended.length);
         this.setGridWidth();
         this._syncAltScreen();
+        this.syncScroll();
         return;
       }
       // Slow path: fresh mount / width change / reset / uncovered gap →
@@ -279,6 +314,7 @@ export class CellGridRenderer {
     this.renderViewport(this.frame.altScreen ? 0 : appended.length);
     this.setGridWidth();
     this._syncAltScreen();
+    this.syncScroll();
   }
 
   /** Alt-screen (claude fullscreen / vim / htop) OWNS the viewport — there is no
@@ -314,7 +350,7 @@ export class CellGridRenderer {
     this._flushIfReleased();
   }
   /** Freeze/thaw scrollback eviction. Frozen while the user is scrolled up
-   *  reading history (CellTerminal `stick === false`) so live output never
+   *  reading history (an anchor intent) so live output never
    *  trims history out from under the viewport. Thawed at the bottom. */
   setEvictionFrozen(frozen: boolean): void { this._evictionFrozen = frozen; }
 
@@ -332,6 +368,7 @@ export class CellGridRenderer {
    *  so the browser's layout stays O(blocks). */
   private renderFull(): void {
     if (!this.frame) return;
+    this._rowH = 0; // container may have been resized/re-fonted since the last measure
     this.scrollbackEl.replaceChildren();
     this._curBlock = null;
     this._curBlockRows = 0;
@@ -342,6 +379,10 @@ export class CellGridRenderer {
     this.renderViewport();
     this.setGridWidth();
     this._syncAltScreen();
+    // Without this the landing spot after a wipe-and-rebuild is whatever the
+    // browser's scrollTop clamp happens to produce — the bimodal mid-history
+    // reveal. The intent decides instead.
+    this.syncScroll();
   }
 
   /** Append rows to the scrollback, packing them into content-visibility "blocks"
@@ -352,7 +393,7 @@ export class CellGridRenderer {
   private _appendScrollback(rows: readonly CellRow[]): void {
     for (const r of rows) {
       if (!this._curBlock || this._curBlockRows >= SB_BLOCK) {
-        if (this._curBlock) sizeBlock(this._curBlock, this._curBlockRows);
+        if (this._curBlock) sizeBlock(this._curBlock, this._curBlockRows, this.rowHeight());
         const blk = this.doc.createElement("div");
         blk.className = "cell-block";
         this.scrollbackEl.appendChild(blk);
@@ -362,7 +403,7 @@ export class CellGridRenderer {
       this._curBlock.appendChild(renderRow(r, this.doc));
       this._curBlockRows++;
     }
-    if (this._curBlock) sizeBlock(this._curBlock, this._curBlockRows);
+    if (this._curBlock) sizeBlock(this._curBlock, this._curBlockRows, this.rowHeight());
     this._evictScrollback();
   }
 
@@ -382,14 +423,6 @@ export class CellGridRenderer {
    *  keeps scrollbackRows aligned with the painted DOM regardless of size. */
   private _evictScrollback(): void {
     if (this._evictionFrozen) return;
-    // Preserve scrollTop across the eviction: capture distance-from-bottom
-    // ONCE before the loop and restore ONCE after, mirroring prependScrollback.
-    // Without this, removing a leading block shrinks scrollHeight and fires a
-    // position-changing scroll event whose atBottom() misread flips
-    // CellTerminal's `stick` false (the "pane jumps off the bottom" race).
-    const el = this.container;
-    const fromBottom = el.scrollHeight - el.scrollTop;
-    let removed = false;
     while (this.frame && this.frame.scrollbackRows.length > MAX_HELD_SCROLLBACK_ROWS) {
       // Leading child is a .cell-block (possibly partial from backfill); the
       // open tail block _curBlock is always last, so firstElementChild is never it.
@@ -403,30 +436,35 @@ export class CellGridRenderer {
         scrollbackRows: this.frame.scrollbackRows.slice(dropped),
         sbBase: this.frame.sbBase + dropped,
       };
-      removed = true;
     }
-    if (removed) el.scrollTop = el.scrollHeight - fromBottom;
+    // Removing leading blocks shrinks scrollHeight under the viewport. No
+    // distance-from-bottom arithmetic: the intent is in row space and sbBase
+    // is already updated, so re-deriving lands on the same content.
+    this.syncScroll();
   }
 
   /** Backfill splice: insert older history rows ABOVE the painted scrollback
    *  (lazy-history attach — full frames carry only a tail, the controller in
    *  scrollbackBackfill.ts pulls [0, sbBase) and lands it here). `rows` must
    *  end exactly at the held window's first row; misaligned splices are
-   *  dropped (epoch moved — the next reframe restarts the backfill). Scroll
-   *  is preserved by distance-from-bottom, so a pinned-at-bottom AND a
-   *  scrolled-up reader both see zero movement. Prepended blocks are
-   *  complete/immutable — _curBlock (the append tail) is untouched. Applies
-   *  even mid-hold: no existing node is rebuilt, so a live selection
-   *  survives, and a hold-release renderFull rebuilds from the merged frame. */
+   *  dropped (epoch moved — the next reframe restarts the backfill). Scroll is
+   *  re-derived from the intent after the frame's sbBase drops by rows.length,
+   *  so a tail-following AND an anchored reader both see zero movement — an
+   *  absolute row anchor needs no compensation, which is the whole point.
+   *  Prepended blocks are complete/immutable — _curBlock (the append tail) is
+   *  untouched. Applies even mid-hold: no existing node is rebuilt, so a live
+   *  selection survives, and a hold-release renderFull rebuilds from the
+   *  merged frame. */
   prependScrollback(rows: readonly CellRow[]): void {
     if (!this.frame || rows.length === 0) return;
     if (rows[rows.length - 1]!.index + 1 !== this.frame.sbBase) return;
+    const rowH = this.rowHeight();
     const frag = this.doc.createDocumentFragment();
     let blk: HTMLElement | null = null;
     let blkRows = 0;
     for (const r of rows) {
       if (!blk || blkRows >= SB_BLOCK) {
-        if (blk) sizeBlock(blk, blkRows);
+        if (blk) sizeBlock(blk, blkRows, rowH);
         blk = this.doc.createElement("div");
         blk.className = "cell-block";
         frag.appendChild(blk);
@@ -435,16 +473,16 @@ export class CellGridRenderer {
       blk.appendChild(renderRow(r, this.doc));
       blkRows++;
     }
-    if (blk) sizeBlock(blk, blkRows);
-    const el = this.container;
-    const fromBottom = el.scrollHeight - el.scrollTop;
+    if (blk) sizeBlock(blk, blkRows, rowH);
     this.scrollbackEl.prepend(frag);
-    el.scrollTop = el.scrollHeight - fromBottom;
+    // Frame first: syncScroll reads frame.sbBase to place the anchor, so it
+    // must already reflect the prepend.
     this.frame = {
       ...this.frame,
       scrollbackRows: rows.concat(this.frame.scrollbackRows),
       sbBase: this.frame.sbBase - rows.length,
     };
+    this.syncScroll();
   }
 
   /** Backfill validation surface: how deep the hole is (sbBase), the width
@@ -573,19 +611,88 @@ export class CellGridRenderer {
    *  and the predictive-echo layer. */
   get predictionHost(): HTMLElement { return this.viewportEl; }
 
+  // ── scroll intent: derive, never remember pixels ──────────────────────
+
+  /** Measured px height of one .cell-row, or 0 while unmeasurable (detached
+   *  container, no layout yet). Probe mirrors CellTerminal.measureCell — one
+   *  measurement convention in the codebase, not two. Invalidated by
+   *  renderFull() and by a late webfont swap (constructor's fonts.ready hook). */
+  rowHeight(): number {
+    if (this._rowH > 0) return this._rowH;
+    const p = this.doc.createElement("div");
+    p.className = "cell-row";
+    p.style.position = "absolute";
+    p.style.visibility = "hidden";
+    p.textContent = " ";
+    this.viewportEl.appendChild(p);
+    const h = p.getBoundingClientRect?.().height ?? 0;
+    p.remove();
+    if (h > 0) this._rowH = h;
+    return this._rowH;
+  }
+
+  /** The ONLY writer of the container's scroll position in this file. Clamps,
+   *  writes instantly (behavior:"instant" so an inherited scroll-behavior:smooth
+   *  can never turn a re-derivation into a visible crawl), then records what the
+   *  browser actually took. */
+  private _setScrollTop(v: number): void {
+    const el = this.container;
+    const top = Math.max(0, Math.min(v, Math.max(0, el.scrollHeight - el.clientHeight)));
+    el.scrollTo({ top, behavior: "instant" });
+    this._selfTop = el.scrollTop; // read back — the browser may clamp further
+  }
+
+  /** True when the container's scroll position is still the value WE wrote.
+   *  Scroll events are delivered asynchronously, so every programmatic write —
+   *  and every browser clamp we corrected in the same frame — echoes back later
+   *  looking exactly like a user gesture. This is how the listener tells them
+   *  apart, and it replaced CellTerminal's `lastTop` delta heuristic. */
+  isSelfScroll(): boolean {
+    return Math.abs(this.container.scrollTop - this._selfTop) <= 1;
+  }
+
+  /** Is the pane following the live tail? Replaces CellTerminal's `stick`. */
+  following(): boolean { return this._intent.kind === "tail"; }
+
+  /** Declare tail-following and land there now (pane reveal, jump-to-latest). */
+  followTail(): void {
+    this._intent = { kind: "tail" };
+    this.syncScroll();
+  }
+
+  /** Turn a genuine user gesture into an intent. The ONLY place a scroll event
+   *  becomes state — everything else derives. */
+  captureScrollIntent(): void {
+    if (!this.frame || this.frame.altScreen) return; // alt has no scrollback
+    if (this.atBottom()) { this._intent = { kind: "tail" }; return; }
+    const h = this.rowHeight();
+    if (h <= 0) return; // unmeasurable → keep the current intent rather than guess
+    // scrollbackEl.offsetTop = the container's padding-top: .wterm is
+    // position:relative (styles/sidebar.css) so it IS the offset parent.
+    const top = this.container.scrollTop - (this.scrollbackEl.offsetTop ?? 0);
+    const k = Math.max(0, Math.floor(top / h));
+    this._intent = { kind: "anchor", row: this.frame.sbBase + k, off: top - k * h };
+  }
+
+  /** Re-derive the pixel position from the declared intent. THE single
+   *  corrective path: every mutation that can move content under the viewport
+   *  (apply / renderFull / evict / prepend) ends here, and CellTerminal calls it
+   *  on container resize. Alt-screen has no scrollback and locks scroll, so it
+   *  is a no-op there — leaving alt is covered by apply()'s trailing call, which
+   *  runs after _syncAltScreen() has already cleared the flag. */
+  syncScroll(): void {
+    if (!this.frame || this.frame.altScreen) return;
+    if (this._intent.kind === "tail") { this._setScrollTop(this.container.scrollHeight); return; }
+    const h = this.rowHeight();
+    if (h <= 0) { this._setScrollTop(this.container.scrollHeight); return; }
+    const k = Math.max(0, this._intent.row - this.frame.sbBase);
+    this._setScrollTop((this.scrollbackEl.offsetTop ?? 0) + k * h + this._intent.off);
+  }
+
   /** Is the viewport scrolled to the bottom (live tail visible)? */
   atBottom(): boolean {
     const el = this.container;
     return el.scrollHeight - el.scrollTop - el.clientHeight <= BOTTOM_EPSILON_PX;
-  }
-
-  scrollToBottom(): void {
-    // Single-frame, non-animated pin. behavior:"instant" overrides any inherited
-    // or global scroll-behavior:smooth so a resize re-pin never crawls. The pin
-    // itself is already instant (scrollTop trace across a resize shows st==sh-ch
-    // every frame); the residual on-resize travel users see is the viewport rect
-    // settling over a few frames — a layout reflow, not this scroll call.
-    this.container.scrollTo({ top: this.container.scrollHeight, behavior: "instant" });
   }
 
   dispose(): void {

@@ -409,6 +409,10 @@ function runColorFallbackCheck(): Violation[] {
     "apps/web/src/components/Settings/md/tokens.css",
     // Voice-input FAB motion tokens (--md-ease-*) are declared + used here.
     "apps/web/src/styles/voice-input.css",
+    // The omp chat pane aliases Roost's canonical tokens onto the variable
+    // names omp's vendored transcript/tool-view CSS reads, plus omp's own
+    // denser type scale. Scoped to .omp-chat, declared once here.
+    "apps/web/src/components/chat/omp/styles/omp-tokens.css",
   ]) {
     try {
       const txt = readFileSync(join(REPO, css), "utf8");
@@ -514,6 +518,9 @@ const RAW_VALUE_ALLOW = new Set([
   // agents.ts DECLARES the BUILTIN_AGENTS brand palette — these hexes are
   // agent identity data the palette defines, not theme drift (cf. icon.css).
   "apps/web/src/lib/agents.ts",
+  // omp-tokens.css DECLARES the omp chat pane's alias layer + omp's transcript
+  // type scale (13/12/11/10px) — definition file, same exemption as icon.css.
+  "apps/web/src/components/chat/omp/styles/omp-tokens.css",
 ]);
 const RAW_BASELINE_FILE = join(REPO, "scripts/design-raw-baseline.json");
 

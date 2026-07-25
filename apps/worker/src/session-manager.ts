@@ -287,6 +287,10 @@ export class SessionManager {
 		return chat._ensureChatWatch.call(this, channelId);
 	}
 
+	_emitChatRunState(channelId: number): void {
+		return chat._emitChatRunState.call(this, channelId);
+	}
+
 	claimViewport(channelId: number, viewerFp: string, cols: number, rows: number, clientSeq?: number, cause?: number): void {
 		return viewport.claimViewport.call(this, channelId, viewerFp, cols, rows, clientSeq, cause);
 	}

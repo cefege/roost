@@ -3,7 +3,7 @@
 // this controller pulls the remaining [0, sbBase) rows per-viewer via the
 // SessionsGetScrollbackCells unary RPC — OFF the broadcast Sync stream — and
 // splices them above the painted history (CellGridRenderer.prependScrollback,
-// distance-from-bottom preserved, invisible to the user).
+// scroll re-derived from the renderer's row-space intent, invisible to the user).
 //
 // Epoch model: scrollback row indices are absolute only within one grid epoch
 // (a reframe — width change / alt toggle / reset — restarts numbering). Every

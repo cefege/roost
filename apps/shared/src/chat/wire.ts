@@ -15,7 +15,7 @@ import {
   ContentBlock_ThinkingTextSchema,
   ContentBlock_ToolCallSchema, ContentBlock_ToolResultSchema,
   ContentBlock_ToolEventSchema, ContentBlock_ImageRefSchema,
-  ContentBlock_ApprovalSchema,
+  ContentBlock_ApprovalSchema, ContentBlock_Approval_ChoiceSchema,
   type ChatMessage as PbChatMessage,
   type ChatFrame as PbChatFrame,
   type ContentBlock as PbContentBlock,
@@ -30,6 +30,10 @@ import {
 // Cap applied by the worker parser to thinking + tool_result text. Anything
 // beyond this is fetched on demand via SessionsGetChatBlock.
 export const TRUNC_CAP = 8192;
+
+// Ceiling for ToolResultBlock.rawJson. 32x TRUNC_CAP: omp's tool views render
+// the whole payload client-side and cannot lazy-fetch more.
+export const RAW_CAP = 262144;
 
 // ─── ContentBlock variants (discriminated union on `kind`) ────────────────
 
@@ -63,6 +67,10 @@ export const ToolResultBlock = z.object({
   isError: z.boolean().default(false),
   truncated: z.boolean().default(false),
   fullLen: z.number().int().nonnegative().default(0),
+  // omp ToolResultMessage JSON ({toolCallId,toolName,content,isError,details}) —
+  // the payload <omp-tool-view> renders. Defaulted: proto3 decode and any
+  // non-omp producer yield "", which the renderer treats as "no rich result".
+  rawJson: z.string().default(""),
 });
 export type ToolResultBlock = z.infer<typeof ToolResultBlock>;
 
@@ -83,6 +91,20 @@ export const ImageBlock = z.object({
 });
 export type ImageBlock = z.infer<typeof ImageBlock>;
 
+// One select option as the pane renders it. omp's RPC select frame carries
+// bare labels, so the worker rebuilds this from the ask tool's arguments.
+export const ApprovalChoice = z.object({
+  value: z.string(),             // exact string to echo back on answer
+  label: z.string(),             // " (Recommended)" stripped
+  description: z.string().default(""),
+  recommended: z.boolean().default(false),
+  checked: z.boolean().default(false),
+  // string, not enum: an unknown role must degrade to a plain row rather than
+  // throw the whole frame away.
+  role: z.string().default("option"),
+});
+export type ApprovalChoice = z.infer<typeof ApprovalChoice>;
+
 // Inline approval prompt (native RPC chat only). omp asks via
 // extension_ui_request; the pane answers with extension_ui_response, so the
 // block carries both the question and — once answered — the decision.
@@ -92,9 +114,13 @@ export const ApprovalBlock = z.object({
   method: z.string(),            // "confirm" | "select" | "input"
   title: z.string().default(""),
   message: z.string().default(""),
-  options: z.array(z.string()).default([]),
+  options: z.array(z.string()).default([]),   // raw frame echo
   resolved: z.boolean().default(false),
   answer: z.string().default(""),
+  richOptions: z.array(ApprovalChoice).default([]),  // render model, parallel to options
+  header: z.string().default(""),
+  progress: z.string().default(""),
+  multi: z.boolean().default(false),
 });
 export type ApprovalBlock = z.infer<typeof ApprovalBlock>;
 
@@ -129,6 +155,8 @@ export const ChatFrame = z.object({
   // Status the omp TUI keeps permanently on screen. Empty/zero on the mirror
   // engine, which has no session state to ask for.
   model: z.string().default(""),
+  modelName: z.string().default(""),
+  thinkingLevel: z.string().default(""),
   contextPct: z.number().int().nonnegative().default(0),
   contextTokens: z.number().int().nonnegative().default(0),
 });
@@ -156,7 +184,7 @@ export function contentBlockToProto(b: ContentBlock): PbContentBlock {
       return create(ContentBlockSchema, {
         kind: { case: "toolResult", value: create(ContentBlock_ToolResultSchema, {
           callId: b.callId, name: b.name, text: b.text,
-          isError: b.isError, truncated: b.truncated, fullLen: b.fullLen,
+          isError: b.isError, truncated: b.truncated, fullLen: b.fullLen, rawJson: b.rawJson,
         }) },
       });
     case "toolEvent":
@@ -176,6 +204,8 @@ export function contentBlockToProto(b: ContentBlock): PbContentBlock {
         kind: { case: "approval", value: create(ContentBlock_ApprovalSchema, {
           requestId: b.requestId, method: b.method, title: b.title, message: b.message,
           options: b.options, resolved: b.resolved, answer: b.answer,
+          richOptions: b.richOptions.map((c) => create(ContentBlock_Approval_ChoiceSchema, c)),
+          header: b.header, progress: b.progress, multi: b.multi,
         }) },
       });
   }
@@ -195,7 +225,8 @@ export function chatFrameToProto(f: ChatFrame): PbChatFrame {
     seq: BigInt(f.seq),
     reset: f.reset,
     streaming: f.streaming,
-    model: f.model, contextPct: f.contextPct, contextTokens: f.contextTokens,
+    model: f.model, modelName: f.modelName, thinkingLevel: f.thinkingLevel,
+    contextPct: f.contextPct, contextTokens: f.contextTokens,
   });
 }
 
@@ -224,7 +255,7 @@ export function contentBlockFromProto(p: PbContentBlock): ContentBlock {
       const v: PbToolResult = k.value;
       return ContentBlock.parse({
         kind: "toolResult", callId: v.callId, name: v.name, text: v.text,
-        isError: v.isError, truncated: v.truncated, fullLen: v.fullLen,
+        isError: v.isError, truncated: v.truncated, fullLen: v.fullLen, rawJson: v.rawJson,
       });
     }
     case "toolEvent": {
@@ -242,6 +273,7 @@ export function contentBlockFromProto(p: PbContentBlock): ContentBlock {
       return ContentBlock.parse({
         kind: "approval", requestId: v.requestId, method: v.method, title: v.title,
         message: v.message, options: v.options, resolved: v.resolved, answer: v.answer,
+        richOptions: v.richOptions, header: v.header, progress: v.progress, multi: v.multi,
       });
     }
     case undefined:
@@ -266,6 +298,7 @@ export function chatFrameFromProto(p: PbChatFrame): ChatFrame {
     seq: Number(p.seq),
     reset: p.reset,
     streaming: p.streaming,
-    model: p.model, contextPct: p.contextPct, contextTokens: p.contextTokens,
+    model: p.model, modelName: p.modelName, thinkingLevel: p.thinkingLevel,
+    contextPct: p.contextPct, contextTokens: p.contextTokens,
   });
 }

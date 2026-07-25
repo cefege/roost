@@ -190,28 +190,13 @@ export function CellTerminal(props: CellTerminalProps) {
 	// sendClaim → sees inLayout=false → would withdraw AGAIN. Reset on claim.
 	let _lastSent: "claim" | "withdraw" | null = null;
 	let unmounted = false;
-	// ── stick-to-bottom: the WHOLE rule ──────────────────────────────────
-	// At the bottom → stay at the bottom as output arrives. Scroll up → release,
-	// and stay released while output keeps arriving. Scroll back to the bottom →
-	// stick again. Nothing else.
-	//
-	// 2026-07-25 rewrite. The previous machine had eleven interacting flags — a
-	// 12-frame reveal re-pin burst (which made scroll-up impossible for ~200ms
-	// after every tab switch), a NaN-sentinel pin-echo suppressor, touch slop +
-	// a 300ms momentum grace, and a 600ms spring jump chasing a moving bottom.
-	// They fought each other; that was the "it jumps around". Do not add a flag
-	// here. If the view misbehaves, the bug is a lying scrollHeight — fix it at
-	// the source (cellRenderer.sizeBlock), not with another guard.
-	let stick = true;   // pinned to the live tail
-	// lastTop exists for exactly ONE reason: scroll events are delivered
-	// asynchronously, so a PROGRAMMATIC scrollTop write echoes back here a frame
-	// later looking like user input. Two writers do it — the pin, and
-	// cellRenderer._evictScrollback, which restores distance-from-bottom after
-	// trimming leading blocks and thereby LOWERS scrollTop. Both run in the cell
-	// handler's task and end with lastTop resynced (pinToBottom), so their echo
-	// arrives with scrollTop === lastTop. Only a scrollTop that actually
-	// DECREASED relative to our last write is a user scroll-up.
-	let lastTop = 0;
+	// ── scroll position: NOT owned here ──────────────────────────────────
+	// CellGridRenderer owns it end-to-end as a declared row-space intent
+	// (cellRenderer.ts `_intent` / syncScroll) and re-derives the pixels after
+	// every mutation. This component only reports gestures in (captureScrollIntent)
+	// and reveals (followTail). Do not reintroduce a `stick` flag or a lastTop
+	// echo-suppressor here — that split ownership is what kept the pane landing
+	// mid-history.
 	let _flushRaf: number | null = null; // coalesces the per-frame jump-FAB read into one rAF
 	const [altScreen, setAltScreen] = createSignal(false); // tracks frame.altScreen — gates mouse/touch forwarding + wheel passivity
 	// Show the jump-to-bottom FAB once the user has scrolled up more than one
@@ -392,22 +377,6 @@ export function CellTerminal(props: CellTerminalProps) {
 		setShowJumpDown(fromBottom > displayRef.clientHeight);
 	}
 
-	// Pin to the live tail, synchronously. MUST run in the same task as
-	// renderer.apply(): apply() WRITES scrollTop itself — _evictScrollback
-	// restores distance-from-bottom after trimming leading blocks, which LOWERS
-	// scrollTop — and the browser delivers that scroll event asynchronously, one
-	// frame later, where it is indistinguishable from a user scroll-up (that IS
-	// the "pane drifts off the bottom while streaming" race; it fires the moment
-	// history first exceeds MAX_HELD_SCROLLBACK_ROWS). Pinning here means the
-	// coalesced scroll event always arrives with scrollTop === lastTop, so the
-	// listener reads "not a scroll-up" and `stick` survives. Costs one forced
-	// layout per LIVE pane per frame; a rAF-deferred pin loses the race.
-	function pinToBottom(): void {
-		if (!renderer || !displayRef) return;
-		renderer.scrollToBottom();
-		lastTop = displayRef.scrollTop; // a pin is never a scroll-up
-	}
-
 	// Coalesced post-frame FAB visibility. One guarded rAF per animation frame (N
 	// cell frames in one animation frame collapse to one read), and it runs after
 	// layout has settled, so the jump-FAB never flickers off a mid-apply geometry.
@@ -421,10 +390,9 @@ export function CellTerminal(props: CellTerminalProps) {
 		});
 	}
 
-	// Jump-to-latest FAB: re-stick and pin, instantly.
+	// Jump-to-latest FAB: re-declare tail-following; the renderer lands there.
 	function jumpToBottom(): void {
-		stick = true;
-		pinToBottom();
+		renderer?.followTail();
 		setShowJumpDown(false);
 	}
 
@@ -450,20 +418,15 @@ export function CellTerminal(props: CellTerminalProps) {
 			sessionId: props.session.id,
 			renderer: () => renderer,
 		});
-		// The ONLY place `stick` changes from user action. Gated to live+visible:
-		// a parked pane (visibility:hidden, off-screen — TerminalDeck.termStyle)
-		// can emit scroll events whose geometry is not what the user sees.
+		// Gestures in. Gated to live+visible: a parked pane (visibility:hidden,
+		// off-screen — TerminalDeck.termStyle) can emit scroll events whose
+		// geometry is not what the user sees.
 		const onScroll = () => {
 			if (!renderer || !displayRef) return;
 			if (props.inLayout === false || !isPageVisible()) return;
-			const top = displayRef.scrollTop;
-			const movedUp = top < lastTop; // ANY decrease is a scroll-up
-			lastTop = top;
-			if (renderer.atBottom()) stick = true;
-			else if (movedUp) {
-				stick = false;
-				backfill.onUserScrollUp(); // idempotent — dedupes on its active-loop epoch
-			}
+			if (renderer.isSelfScroll()) return; // our own write echoing back — not user intent
+			renderer.captureScrollIntent();
+			if (!renderer.following()) backfill.onUserScrollUp(); // idempotent — dedupes on its active-loop epoch
 			updateJumpDownVis();
 		};
 		displayRef!.addEventListener("scroll", onScroll, { passive: true });
@@ -527,7 +490,7 @@ export function CellTerminal(props: CellTerminalProps) {
 					cursor_col: frame.cursorCol,
 				});
 				setAltScreen(frame.altScreen);
-				if (renderer) renderer.setEvictionFrozen(!stick);
+				renderer.setEvictionFrozen(!renderer.following());
 				const _ap = performance.now();
 				renderer.apply(frame);
 				diag("cell.apply_dur", { sid: props.session.id, dur_ms: performance.now() - _ap });
@@ -542,19 +505,10 @@ export function CellTerminal(props: CellTerminalProps) {
 				lastCurRow = frame.cursorRow;
 				lastCurCol = frame.cursorCol;
 				predictor?.onFrame(frame); // reconcile predictions against the authoritative grid
-				// Only a LIVE (in-layout + page-visible) pane pins. A frame arriving
-				// while parked — in flight after a withdraw, or a late emit — must not
-				// move a viewport the user is not looking at.
-				if (props.inLayout !== false && isPageVisible()) {
-					if (stick) pinToBottom(); // same task as apply() — see pinToBottom
-					scheduleFlush();          // jump-FAB visibility, coalesced
-				} else if (displayRef) {
-					// Parked: never move a viewport the user isn't looking at, but
-					// apply()'s eviction may still have lowered scrollTop. Resync so
-					// lastTop can't go stale-high and make the first scroll event
-					// after the reveal look like a user scroll-up.
-					lastTop = displayRef.scrollTop;
-				}
+				// renderer.apply() already re-derived the scroll position from the
+				// intent — including while parked, which is free and keeps a hidden
+				// pane correct. Only the jump-FAB read needs a live pane.
+				if (props.inLayout !== false && isPageVisible()) scheduleFlush();
 				if (frame.full) backfill.onFullFrame();
 				setAtShellPrompt(SHELL_PROMPT_RE.test(renderer.viewportTail()));
 			});
@@ -621,8 +575,11 @@ export function CellTerminal(props: CellTerminalProps) {
 		// ── input + mode oracle: hidden wterm ────────────────────────────
 		// autoFocus off on touch — popping the on-screen keyboard on pane mount/
 		// selection is unwanted; an explicit tap focuses (onDisplayClick).
+		// Off under the chat overlay too: the composer owns the keyboard there,
+		// and this post-init forceFocus would otherwise land AFTER it and send
+		// every keystroke (and every pasted image) to the PTY behind the pane.
 		term = new RoostTerm(inputHostRef!, {
-			autoFocus: props.focused === true && !isTouchDevice(),
+			autoFocus: props.focused === true && !isTouchDevice() && !chatViewActive(),
 			// Cells own the display; this wterm exists for mode state + onData
 			// only. Renderless keeps its never-shown mirror grid out of the DOM
 			// (~22k nodes/session otherwise — the focus-flip flush stall).
@@ -876,15 +833,18 @@ export function CellTerminal(props: CellTerminalProps) {
 		// letterboxed (narrower than the pane), so a drop on the surrounding margin
 		// missed the grid handler → the browser opened the image in a new tab.
 		// The ACTIVE+visible pane owns the drop for the whole window; guarded to
-		// file drags only so text/selection drags aren't hijacked.
+		// file drags only so text/selection drags aren't hijacked. Also skipped
+		// while the chat overlay covers this pane — OmpChatPane installs its own
+		// element-scoped handlers, and without this guard a drop over the chat
+		// would upload twice (once to the PTY, once to the composer tray).
 		const dragHasFiles = (e: DragEvent) =>
 			!!e.dataTransfer && Array.from(e.dataTransfer.types).includes("Files");
 		const onDragOver = (e: DragEvent) => {
-			if (!props.focused || !isPageVisible() || !dragHasFiles(e)) return;
+			if (!props.focused || !isPageVisible() || chatViewActive() || !dragHasFiles(e)) return;
 			e.preventDefault(); // allow the drop + stop the browser opening the file
 		};
 		const onDrop = (e: DragEvent) => {
-			if (!props.focused || !isPageVisible() || !dragHasFiles(e)) return;
+			if (!props.focused || !isPageVisible() || chatViewActive() || !dragHasFiles(e)) return;
 			e.preventDefault();
 			const items = e.dataTransfer?.items;
 			if (!items) return;
@@ -896,6 +856,7 @@ export function CellTerminal(props: CellTerminalProps) {
 			}
 		};
 		const onPaste = (e: ClipboardEvent) => {
+			if (chatViewActive()) return;
 			const items = e.clipboardData?.items;
 			if (!items) return;
 			for (let i = 0; i < items.length; i++) {
@@ -935,6 +896,10 @@ export function CellTerminal(props: CellTerminalProps) {
 				sendWithdraw();
 				return;
 			}
+			// Revealing a pane lands on the live tail — the literal ask. Doing it
+			// here also pins immediately from already-held content instead of
+			// waiting on the claim→worker→snapshot round-trip.
+			renderer?.followTail();
 			sendClaimNow(ResizeCause.TAB_VISIBLE);
 		}));
 		// Focus gate: only the FOCUSED pane's terminal grabs the keyboard. Touch
@@ -943,8 +908,11 @@ export function CellTerminal(props: CellTerminalProps) {
 		// yet in DOM while WASM init runs) is covered by RoostTerm's autoFocus
 		// (fires forceFocus after init, see the constructor above) — this effect
 		// handles the become-focused-later flips, when init is long done.
+		// chatViewActive: the chat overlay owns the pane, and its composer takes
+		// focus on mount. Without this the hidden textarea keeps the keyboard and
+		// every keystroke (and every paste) lands in the PTY behind the overlay.
 		const focusGate = createMemo(
-			() => props.inLayout === true && props.focused === true,
+			() => props.inLayout === true && props.focused === true && !chatViewActive(),
 		);
 		createEffect(() => {
 			if (focusGate() && !isTouchDevice())
@@ -1015,6 +983,10 @@ export function CellTerminal(props: CellTerminalProps) {
 			sendClaim(ResizeCause.INITIAL);
 		});
 		resizeObs = new ResizeObserver(() => {
+			// A container height change moves the content under the viewport even
+			// when the debounced PTY claim is suppressed — re-derive first. One
+			// layout read, no RPC.
+			renderer?.syncScroll();
 			if (isResizeDragging()) return; // suppress mid-drag PTY round-trips; flush on release (effect below)
 			scheduleClaim(ResizeCause.VIEWPORT);
 		});
@@ -1224,7 +1196,7 @@ export function CellTerminal(props: CellTerminalProps) {
           for omp sessions when the per-session view mode is "chat". */}
 			<Show when={ompChatEnabled(props.session.id) && ompChatViewForSession(props.session.id) === "chat"}>
 				<div style={{ position: "absolute", inset: "0", "z-index": "5" }}>
-					<OmpChatPane sessionId={props.session.id} />
+					<OmpChatPane sessionId={props.session.id} focused={props.focused} />
 				</div>
 			</Show>
 			{/* Optimistic spawn placeholder: paint the pane instantly; the real

@@ -25,7 +25,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file roost/v1/sync.proto.
  */
 export const file_roost_v1_sync: GenFile = /*@__PURE__*/
-  fileDesc("ChNyb29zdC92MS9zeW5jLnByb3RvEghyb29zdC52MSIlCgtTeW5jUmVxdWVzdBIWCg5zaW5jZV9ldmVudF9pZBgBIAEoBCIhCglKc29uRXZlbnQSFAoMcGF5bG9hZF9qc29uGAEgASgJIjsKCkJ5dGVzRnJhbWUSEgoKc2Vzc2lvbl9pZBgBIAEoCRIMCgRkYXRhGAIgASgMEgsKA3NlcRgDIAEoBCI7Cg9TZXNzaW9uUHJlc2VuY2USEgoKc2Vzc2lvbl9pZBgBIAEoCRIUCgxwYXlsb2FkX2pzb24YAiABKAkiNwoRQ2xhdWRlU3RhdHVzRnJhbWUSEgoKc2Vzc2lvbl9pZBgBIAEoCRIOCgZzdGF0dXMYAiABKAkiNwoSVGVybWluYWxUaXRsZUZyYW1lEhIKCnNlc3Npb25faWQYASABKAkSDQoFdGl0bGUYAiABKAkiNgoRTGFzdEFjdGl2aXR5RnJhbWUSEgoKc2Vzc2lvbl9pZBgBIAEoCRINCgV0c19tcxgCIAEoASIiChNXb3JrZXJSb3V0YWJsZUZyYW1lEgsKA2ZwcxgBIAMoCSLUCAoNRmlyZWhvc2VGcmFtZRInCghzZXNzaW9ucxgBIAEoCzITLnJvb3N0LnYxLkpzb25FdmVudEgAEiUKBWJ5dGVzGAcgASgLMhQucm9vc3QudjEuQnl0ZXNGcmFtZUgAEjUKEHNlc3Npb25fcHJlc2VuY2UYCCABKAsyGS5yb29zdC52MS5TZXNzaW9uUHJlc2VuY2VIABInCglhdWRpdF9yb3cYCiABKAsyEi5yb29zdC52MS5BdWRpdFJvd0gAEjQKDXNlc3Npb25fZXZlbnQYCyABKAsyGy5yb29zdC52MS5TZXNzaW9uRXZlbnRQcm90b0gAEjgKD3dvcmtzcGFjZV9kZWx0YRgMIAEoCzIdLnJvb3N0LnYxLldvcmtzcGFjZURlbHRhUHJvdG9IABIuCgp0YXNrX2RlbHRhGA0gASgLMhgucm9vc3QudjEuVGFza0RlbHRhUHJvdG9IABI/ChN3ZWJob29rX3Rva2VuX2RlbHRhGA4gASgLMiAucm9vc3QudjEuV2ViaG9va1Rva2VuRGVsdGFQcm90b0gAEj4KEHBlcm1pc3Npb25fZGVsdGEYDyABKAsyIi5yb29zdC52MS5QZXJtaXNzaW9uUnVsZURlbHRhUHJvdG9IABIyCgdtY3BfbXNnGBAgASgLMh8ucm9vc3QudjEuTWNwU3RyZWFtTWVzc2FnZVByb3RvSAASOAoPd29ya2VyX3ByZXNlbmNlGBEgASgLMh0ucm9vc3QudjEuV29ya2VyUHJlc2VuY2VQcm90b0gAEjQKDWNsYXVkZV9zdGF0dXMYEiABKAsyGy5yb29zdC52MS5DbGF1ZGVTdGF0dXNGcmFtZUgAEjgKD3dvcmtlcl9yb3V0YWJsZRgTIAEoCzIdLnJvb3N0LnYxLldvcmtlclJvdXRhYmxlRnJhbWVIABIuCgljZWxsX2dyaWQYFCABKAsyGS5yb29zdC52MS5QYkNlbGxHcmlkRnJhbWVIABI2Cg50ZXJtaW5hbF90aXRsZRgVIAEoCzIcLnJvb3N0LnYxLlRlcm1pbmFsVGl0bGVGcmFtZUgAEjQKDWxhc3RfYWN0aXZpdHkYFiABKAsyGy5yb29zdC52MS5MYXN0QWN0aXZpdHlGcmFtZUgAEj0KEnBhaXJfcmVxdWVzdF9kZWx0YRgXIAEoCzIfLnJvb3N0LnYxLlBhaXJSZXF1ZXN0RGVsdGFQcm90b0gAEioKCHVpX3N0YXRlGBggASgLMhYucm9vc3QudjEuVWlTdGF0ZUZyYW1lSAASLgoKdWlfY29tbWFuZBgZIAEoCzIYLnJvb3N0LnYxLlVpQ29tbWFuZEZyYW1lSAASLQoJa2VlcGFsaXZlGBogASgLMhgucm9vc3QudjEuS2VlcGFsaXZlRnJhbWVIABIjCgRjaGF0GBsgASgLMhMucm9vc3QudjEuQ2hhdEZyYW1lSABCBwoFZnJhbWUiHAoOS2VlcGFsaXZlRnJhbWUSCgoCdHMYASABKAMimgEKFFVpUmVwb3J0U3RhdGVSZXF1ZXN0Eg4KBnRhYl9pZBgBIAEoCRITCgthY3RpdmVfcGF0aBgCIAEoCRISCgpmb2xkZXJfa2V5GAMgASgJEhMKC2xheW91dF9qc29uGAQgASgJEhcKD2ZvY3VzZWRfcGFuZV9pZBgFIAEoCRIbChN2aXNpYmxlX3Nlc3Npb25faWRzGAYgAygJIvECCglVaUNvbW1hbmQSKAoIbmF2aWdhdGUYASABKAsyFC5yb29zdC52MS5VaU5hdmlnYXRlSAASLQoLcGxhY2Vfc3BsaXQYAiABKAsyFi5yb29zdC52MS5VaVBsYWNlU3BsaXRIABIrCgpzZWxlY3RfdGFiGAMgASgLMhUucm9vc3QudjEuVWlTZWxlY3RUYWJIABIrCgpmb2N1c19wYW5lGAQgASgLMhUucm9vc3QudjEuVWlGb2N1c1BhbmVIABInCghtb3ZlX3RhYhgFIAEoCzITLnJvb3N0LnYxLlVpTW92ZVRhYkgAEiYKB2FycmFuZ2UYBiABKAsyEy5yb29zdC52MS5VaUFycmFuZ2VIABIpCgljbG9zZV90YWIYByABKAsyFC5yb29zdC52MS5VaUNsb3NlVGFiSAASKgoJc3BvdGxpZ2h0GAggASgLMhUucm9vc3QudjEuVWlTcG90bGlnaHRIAEIJCgdjb21tYW5kIhoKClVpTmF2aWdhdGUSDAoEcGF0aBgBIAEoCSJgCgxVaVBsYWNlU3BsaXQSEgoKc2Vzc2lvbl9pZBgBIAEoCRIZChFhbmNob3Jfc2Vzc2lvbl9pZBgCIAEoCRILCgNkaXIYAyABKAkSFAoMaW5zZXJ0X2ZpcnN0GAQgASgIIiEKC1VpU2VsZWN0VGFiEhIKCnNlc3Npb25faWQYASABKAkiIQoLVWlGb2N1c1BhbmUSEgoKc2Vzc2lvbl9pZBgBIAEoCSI4CglVaU1vdmVUYWISEgoKc2Vzc2lvbl9pZBgBIAEoCRIXCg9kZXN0X3Nlc3Npb25faWQYAiABKAkiGwoJVWlBcnJhbmdlEg4KBnByZXNldBgBIAEoCSIgCgpVaUNsb3NlVGFiEhIKCnNlc3Npb25faWQYASABKAkiLgoLVWlTcG90bGlnaHQSEgoKc2Vzc2lvbl9pZBgBIAEoCRILCgNvZmYYAiABKAgiWQoMVWlTdGF0ZUZyYW1lEgoKAmZwGAEgASgJEg4KBnRhYl9pZBgCIAEoCRItCgVzdGF0ZRgDIAEoCzIeLnJvb3N0LnYxLlVpUmVwb3J0U3RhdGVSZXF1ZXN0Ik0KDlVpQ29tbWFuZEZyYW1lEhUKDXRhcmdldF90YWJfaWQYASABKAkSJAoHY29tbWFuZBgCIAEoCzITLnJvb3N0LnYxLlVpQ29tbWFuZCLtBgoMQ29udGVudEJsb2NrEg4KBHRleHQYASABKAlIABI3Cgh0aGlua2luZxgCIAEoCzIjLnJvb3N0LnYxLkNvbnRlbnRCbG9jay5UaGlua2luZ1RleHRIABI0Cgl0b29sX2NhbGwYAyABKAsyHy5yb29zdC52MS5Db250ZW50QmxvY2suVG9vbENhbGxIABI4Cgt0b29sX3Jlc3VsdBgEIAEoCzIhLnJvb3N0LnYxLkNvbnRlbnRCbG9jay5Ub29sUmVzdWx0SAASNgoKdG9vbF9ldmVudBgFIAEoCzIgLnJvb3N0LnYxLkNvbnRlbnRCbG9jay5Ub29sRXZlbnRIABIwCgVpbWFnZRgGIAEoCzIfLnJvb3N0LnYxLkNvbnRlbnRCbG9jay5JbWFnZVJlZkgAEjMKCGFwcHJvdmFsGAcgASgLMh8ucm9vc3QudjEuQ29udGVudEJsb2NrLkFwcHJvdmFsSAAaQQoMVGhpbmtpbmdUZXh0EgwKBHRleHQYASABKAkSEQoJdHJ1bmNhdGVkGAIgASgIEhAKCGZ1bGxfbGVuGAMgASgNGjwKCFRvb2xDYWxsEg8KB2NhbGxfaWQYASABKAkSDAoEbmFtZRgCIAEoCRIRCglhcmdzX2pzb24YAyABKAkacAoKVG9vbFJlc3VsdBIPCgdjYWxsX2lkGAEgASgJEgwKBG5hbWUYAiABKAkSDAoEdGV4dBgDIAEoCRIQCghpc19lcnJvchgEIAEoCBIRCgl0cnVuY2F0ZWQYBSABKAgSEAoIZnVsbF9sZW4YBiABKA0aWQoJVG9vbEV2ZW50Eg8KB2NhbGxfaWQYASABKAkSDAoEbmFtZRgCIAEoCRINCgVwaGFzZRgDIAEoCRIOCgZpbnRlbnQYBCABKAkSDgoGb3V0cHV0GAUgASgJGisKCEltYWdlUmVmEhEKCWJsb2JfcGF0aBgBIAEoCRIMCgRtaW1lGAIgASgJGoEBCghBcHByb3ZhbBISCgpyZXF1ZXN0X2lkGAEgASgJEg4KBm1ldGhvZBgCIAEoCRINCgV0aXRsZRgDIAEoCRIPCgdtZXNzYWdlGAQgASgJEg8KB29wdGlvbnMYBSADKAkSEAoIcmVzb2x2ZWQYBiABKAgSDgoGYW5zd2VyGAcgASgJQgYKBGtpbmQibgoLQ2hhdE1lc3NhZ2USCgoCaWQYASABKAkSEQoJcGFyZW50X2lkGAIgASgJEgoKAnRzGAMgASgJEgwKBHJvbGUYBCABKAkSJgoGYmxvY2tzGAUgAygLMhYucm9vc3QudjEuQ29udGVudEJsb2NrIrEBCglDaGF0RnJhbWUSEgoKc2Vzc2lvbl9pZBgBIAEoCRIlCgZhcHBlbmQYAiADKAsyFS5yb29zdC52MS5DaGF0TWVzc2FnZRILCgNzZXEYAyABKAQSDQoFcmVzZXQYBCABKAgSEQoJc3RyZWFtaW5nGAUgASgIEg0KBW1vZGVsGAYgASgJEhMKC2NvbnRleHRfcGN0GAcgASgNEhYKDmNvbnRleHRfdG9rZW5zGAggASgNYgZwcm90bzM", [file_roost_v1_events, file_roost_v1_wire, file_roost_v1_cell]);
+  fileDesc("ChNyb29zdC92MS9zeW5jLnByb3RvEghyb29zdC52MSIlCgtTeW5jUmVxdWVzdBIWCg5zaW5jZV9ldmVudF9pZBgBIAEoBCIhCglKc29uRXZlbnQSFAoMcGF5bG9hZF9qc29uGAEgASgJIjsKCkJ5dGVzRnJhbWUSEgoKc2Vzc2lvbl9pZBgBIAEoCRIMCgRkYXRhGAIgASgMEgsKA3NlcRgDIAEoBCI7Cg9TZXNzaW9uUHJlc2VuY2USEgoKc2Vzc2lvbl9pZBgBIAEoCRIUCgxwYXlsb2FkX2pzb24YAiABKAkiNwoRQ2xhdWRlU3RhdHVzRnJhbWUSEgoKc2Vzc2lvbl9pZBgBIAEoCRIOCgZzdGF0dXMYAiABKAkiNwoSVGVybWluYWxUaXRsZUZyYW1lEhIKCnNlc3Npb25faWQYASABKAkSDQoFdGl0bGUYAiABKAkiNgoRTGFzdEFjdGl2aXR5RnJhbWUSEgoKc2Vzc2lvbl9pZBgBIAEoCRINCgV0c19tcxgCIAEoASIiChNXb3JrZXJSb3V0YWJsZUZyYW1lEgsKA2ZwcxgBIAMoCSLUCAoNRmlyZWhvc2VGcmFtZRInCghzZXNzaW9ucxgBIAEoCzITLnJvb3N0LnYxLkpzb25FdmVudEgAEiUKBWJ5dGVzGAcgASgLMhQucm9vc3QudjEuQnl0ZXNGcmFtZUgAEjUKEHNlc3Npb25fcHJlc2VuY2UYCCABKAsyGS5yb29zdC52MS5TZXNzaW9uUHJlc2VuY2VIABInCglhdWRpdF9yb3cYCiABKAsyEi5yb29zdC52MS5BdWRpdFJvd0gAEjQKDXNlc3Npb25fZXZlbnQYCyABKAsyGy5yb29zdC52MS5TZXNzaW9uRXZlbnRQcm90b0gAEjgKD3dvcmtzcGFjZV9kZWx0YRgMIAEoCzIdLnJvb3N0LnYxLldvcmtzcGFjZURlbHRhUHJvdG9IABIuCgp0YXNrX2RlbHRhGA0gASgLMhgucm9vc3QudjEuVGFza0RlbHRhUHJvdG9IABI/ChN3ZWJob29rX3Rva2VuX2RlbHRhGA4gASgLMiAucm9vc3QudjEuV2ViaG9va1Rva2VuRGVsdGFQcm90b0gAEj4KEHBlcm1pc3Npb25fZGVsdGEYDyABKAsyIi5yb29zdC52MS5QZXJtaXNzaW9uUnVsZURlbHRhUHJvdG9IABIyCgdtY3BfbXNnGBAgASgLMh8ucm9vc3QudjEuTWNwU3RyZWFtTWVzc2FnZVByb3RvSAASOAoPd29ya2VyX3ByZXNlbmNlGBEgASgLMh0ucm9vc3QudjEuV29ya2VyUHJlc2VuY2VQcm90b0gAEjQKDWNsYXVkZV9zdGF0dXMYEiABKAsyGy5yb29zdC52MS5DbGF1ZGVTdGF0dXNGcmFtZUgAEjgKD3dvcmtlcl9yb3V0YWJsZRgTIAEoCzIdLnJvb3N0LnYxLldvcmtlclJvdXRhYmxlRnJhbWVIABIuCgljZWxsX2dyaWQYFCABKAsyGS5yb29zdC52MS5QYkNlbGxHcmlkRnJhbWVIABI2Cg50ZXJtaW5hbF90aXRsZRgVIAEoCzIcLnJvb3N0LnYxLlRlcm1pbmFsVGl0bGVGcmFtZUgAEjQKDWxhc3RfYWN0aXZpdHkYFiABKAsyGy5yb29zdC52MS5MYXN0QWN0aXZpdHlGcmFtZUgAEj0KEnBhaXJfcmVxdWVzdF9kZWx0YRgXIAEoCzIfLnJvb3N0LnYxLlBhaXJSZXF1ZXN0RGVsdGFQcm90b0gAEioKCHVpX3N0YXRlGBggASgLMhYucm9vc3QudjEuVWlTdGF0ZUZyYW1lSAASLgoKdWlfY29tbWFuZBgZIAEoCzIYLnJvb3N0LnYxLlVpQ29tbWFuZEZyYW1lSAASLQoJa2VlcGFsaXZlGBogASgLMhgucm9vc3QudjEuS2VlcGFsaXZlRnJhbWVIABIjCgRjaGF0GBsgASgLMhMucm9vc3QudjEuQ2hhdEZyYW1lSABCBwoFZnJhbWUiHAoOS2VlcGFsaXZlRnJhbWUSCgoCdHMYASABKAMimgEKFFVpUmVwb3J0U3RhdGVSZXF1ZXN0Eg4KBnRhYl9pZBgBIAEoCRITCgthY3RpdmVfcGF0aBgCIAEoCRISCgpmb2xkZXJfa2V5GAMgASgJEhMKC2xheW91dF9qc29uGAQgASgJEhcKD2ZvY3VzZWRfcGFuZV9pZBgFIAEoCRIbChN2aXNpYmxlX3Nlc3Npb25faWRzGAYgAygJIvECCglVaUNvbW1hbmQSKAoIbmF2aWdhdGUYASABKAsyFC5yb29zdC52MS5VaU5hdmlnYXRlSAASLQoLcGxhY2Vfc3BsaXQYAiABKAsyFi5yb29zdC52MS5VaVBsYWNlU3BsaXRIABIrCgpzZWxlY3RfdGFiGAMgASgLMhUucm9vc3QudjEuVWlTZWxlY3RUYWJIABIrCgpmb2N1c19wYW5lGAQgASgLMhUucm9vc3QudjEuVWlGb2N1c1BhbmVIABInCghtb3ZlX3RhYhgFIAEoCzITLnJvb3N0LnYxLlVpTW92ZVRhYkgAEiYKB2FycmFuZ2UYBiABKAsyEy5yb29zdC52MS5VaUFycmFuZ2VIABIpCgljbG9zZV90YWIYByABKAsyFC5yb29zdC52MS5VaUNsb3NlVGFiSAASKgoJc3BvdGxpZ2h0GAggASgLMhUucm9vc3QudjEuVWlTcG90bGlnaHRIAEIJCgdjb21tYW5kIhoKClVpTmF2aWdhdGUSDAoEcGF0aBgBIAEoCSJgCgxVaVBsYWNlU3BsaXQSEgoKc2Vzc2lvbl9pZBgBIAEoCRIZChFhbmNob3Jfc2Vzc2lvbl9pZBgCIAEoCRILCgNkaXIYAyABKAkSFAoMaW5zZXJ0X2ZpcnN0GAQgASgIIiEKC1VpU2VsZWN0VGFiEhIKCnNlc3Npb25faWQYASABKAkiIQoLVWlGb2N1c1BhbmUSEgoKc2Vzc2lvbl9pZBgBIAEoCSI4CglVaU1vdmVUYWISEgoKc2Vzc2lvbl9pZBgBIAEoCRIXCg9kZXN0X3Nlc3Npb25faWQYAiABKAkiGwoJVWlBcnJhbmdlEg4KBnByZXNldBgBIAEoCSIgCgpVaUNsb3NlVGFiEhIKCnNlc3Npb25faWQYASABKAkiLgoLVWlTcG90bGlnaHQSEgoKc2Vzc2lvbl9pZBgBIAEoCRILCgNvZmYYAiABKAgiWQoMVWlTdGF0ZUZyYW1lEgoKAmZwGAEgASgJEg4KBnRhYl9pZBgCIAEoCRItCgVzdGF0ZRgDIAEoCzIeLnJvb3N0LnYxLlVpUmVwb3J0U3RhdGVSZXF1ZXN0Ik0KDlVpQ29tbWFuZEZyYW1lEhUKDXRhcmdldF90YWJfaWQYASABKAkSJAoHY29tbWFuZBgCIAEoCzITLnJvb3N0LnYxLlVpQ29tbWFuZCLgCAoMQ29udGVudEJsb2NrEg4KBHRleHQYASABKAlIABI3Cgh0aGlua2luZxgCIAEoCzIjLnJvb3N0LnYxLkNvbnRlbnRCbG9jay5UaGlua2luZ1RleHRIABI0Cgl0b29sX2NhbGwYAyABKAsyHy5yb29zdC52MS5Db250ZW50QmxvY2suVG9vbENhbGxIABI4Cgt0b29sX3Jlc3VsdBgEIAEoCzIhLnJvb3N0LnYxLkNvbnRlbnRCbG9jay5Ub29sUmVzdWx0SAASNgoKdG9vbF9ldmVudBgFIAEoCzIgLnJvb3N0LnYxLkNvbnRlbnRCbG9jay5Ub29sRXZlbnRIABIwCgVpbWFnZRgGIAEoCzIfLnJvb3N0LnYxLkNvbnRlbnRCbG9jay5JbWFnZVJlZkgAEjMKCGFwcHJvdmFsGAcgASgLMh8ucm9vc3QudjEuQ29udGVudEJsb2NrLkFwcHJvdmFsSAAaQQoMVGhpbmtpbmdUZXh0EgwKBHRleHQYASABKAkSEQoJdHJ1bmNhdGVkGAIgASgIEhAKCGZ1bGxfbGVuGAMgASgNGjwKCFRvb2xDYWxsEg8KB2NhbGxfaWQYASABKAkSDAoEbmFtZRgCIAEoCRIRCglhcmdzX2pzb24YAyABKAkaggEKClRvb2xSZXN1bHQSDwoHY2FsbF9pZBgBIAEoCRIMCgRuYW1lGAIgASgJEgwKBHRleHQYAyABKAkSEAoIaXNfZXJyb3IYBCABKAgSEQoJdHJ1bmNhdGVkGAUgASgIEhAKCGZ1bGxfbGVuGAYgASgNEhAKCHJhd19qc29uGAcgASgJGlkKCVRvb2xFdmVudBIPCgdjYWxsX2lkGAEgASgJEgwKBG5hbWUYAiABKAkSDQoFcGhhc2UYAyABKAkSDgoGaW50ZW50GAQgASgJEg4KBm91dHB1dBgFIAEoCRorCghJbWFnZVJlZhIRCglibG9iX3BhdGgYASABKAkSDAoEbWltZRgCIAEoCRrhAgoIQXBwcm92YWwSEgoKcmVxdWVzdF9pZBgBIAEoCRIOCgZtZXRob2QYAiABKAkSDQoFdGl0bGUYAyABKAkSDwoHbWVzc2FnZRgEIAEoCRIPCgdvcHRpb25zGAUgAygJEhAKCHJlc29sdmVkGAYgASgIEg4KBmFuc3dlchgHIAEoCRI8CgxyaWNoX29wdGlvbnMYCCADKAsyJi5yb29zdC52MS5Db250ZW50QmxvY2suQXBwcm92YWwuQ2hvaWNlEg4KBmhlYWRlchgJIAEoCRIQCghwcm9ncmVzcxgKIAEoCRINCgVtdWx0aRgLIAEoCBpvCgZDaG9pY2USDQoFdmFsdWUYASABKAkSDQoFbGFiZWwYAiABKAkSEwoLZGVzY3JpcHRpb24YAyABKAkSEwoLcmVjb21tZW5kZWQYBCABKAgSDwoHY2hlY2tlZBgFIAEoCBIMCgRyb2xlGAYgASgJQgYKBGtpbmQibgoLQ2hhdE1lc3NhZ2USCgoCaWQYASABKAkSEQoJcGFyZW50X2lkGAIgASgJEgoKAnRzGAMgASgJEgwKBHJvbGUYBCABKAkSJgoGYmxvY2tzGAUgAygLMhYucm9vc3QudjEuQ29udGVudEJsb2NrIt0BCglDaGF0RnJhbWUSEgoKc2Vzc2lvbl9pZBgBIAEoCRIlCgZhcHBlbmQYAiADKAsyFS5yb29zdC52MS5DaGF0TWVzc2FnZRILCgNzZXEYAyABKAQSDQoFcmVzZXQYBCABKAgSEQoJc3RyZWFtaW5nGAUgASgIEg0KBW1vZGVsGAYgASgJEhMKC2NvbnRleHRfcGN0GAcgASgNEhYKDmNvbnRleHRfdG9rZW5zGAggASgNEhIKCm1vZGVsX25hbWUYCSABKAkSFgoOdGhpbmtpbmdfbGV2ZWwYCiABKAliBnByb3RvMw", [file_roost_v1_events, file_roost_v1_wire, file_roost_v1_cell]);
 
 /**
  * @generated from message roost.v1.SyncRequest
@@ -925,6 +925,13 @@ export type ContentBlock_ToolResult = Message<"roost.v1.ContentBlock.ToolResult"
    * @generated from field: uint32 full_len = 6;
    */
   fullLen: number;
+
+  /**
+   * omp ToolResultMessage JSON: {toolCallId,toolName,content,isError,details}
+   *
+   * @generated from field: string raw_json = 7;
+   */
+  rawJson: string;
 };
 
 /**
@@ -1023,6 +1030,8 @@ export type ContentBlock_Approval = Message<"roost.v1.ContentBlock.Approval"> & 
   method: string;
 
   /**
+   * select: question text, omp's own prefixes stripped
+   *
    * @generated from field: string title = 3;
    */
   title: string;
@@ -1033,7 +1042,7 @@ export type ContentBlock_Approval = Message<"roost.v1.ContentBlock.Approval"> & 
   message: string;
 
   /**
-   * select only; empty otherwise
+   * raw frame echo; select only, empty otherwise
    *
    * @generated from field: repeated string options = 5;
    */
@@ -1050,6 +1059,36 @@ export type ContentBlock_Approval = Message<"roost.v1.ContentBlock.Approval"> & 
    * @generated from field: string answer = 7;
    */
   answer: string;
+
+  /**
+   * Render model for a select card, rebuilt in the worker from the ask tool's
+   * tool_execution_start args (omp's RPC select frame carries labels only).
+   * Parallel to `options`, same order; empty for non-select methods.
+   *
+   * @generated from field: repeated roost.v1.ContentBlock.Approval.Choice rich_options = 8;
+   */
+  richOptions: ContentBlock_Approval_Choice[];
+
+  /**
+   * ask question header chip; "" when none
+   *
+   * @generated from field: string header = 9;
+   */
+  header: string;
+
+  /**
+   * "2/3" inside a multi-question ask; "" otherwise
+   *
+   * @generated from field: string progress = 10;
+   */
+  progress: string;
+
+  /**
+   * ask multi-select question
+   *
+   * @generated from field: bool multi = 11;
+   */
+  multi: boolean;
 };
 
 /**
@@ -1058,6 +1097,54 @@ export type ContentBlock_Approval = Message<"roost.v1.ContentBlock.Approval"> & 
  */
 export const ContentBlock_ApprovalSchema: GenMessage<ContentBlock_Approval> = /*@__PURE__*/
   messageDesc(file_roost_v1_sync, 22, 5);
+
+/**
+ * @generated from message roost.v1.ContentBlock.Approval.Choice
+ */
+export type ContentBlock_Approval_Choice = Message<"roost.v1.ContentBlock.Approval.Choice"> & {
+  /**
+   * exact string to echo back on answer
+   *
+   * @generated from field: string value = 1;
+   */
+  value: string;
+
+  /**
+   * display label, " (Recommended)" stripped
+   *
+   * @generated from field: string label = 2;
+   */
+  label: string;
+
+  /**
+   * @generated from field: string description = 3;
+   */
+  description: string;
+
+  /**
+   * @generated from field: bool recommended = 4;
+   */
+  recommended: boolean;
+
+  /**
+   * @generated from field: bool checked = 5;
+   */
+  checked: boolean;
+
+  /**
+   * "option" | "other" | "done" | "next" | "back"
+   *
+   * @generated from field: string role = 6;
+   */
+  role: string;
+};
+
+/**
+ * Describes the message roost.v1.ContentBlock.Approval.Choice.
+ * Use `create(ContentBlock_Approval_ChoiceSchema)` to create a new message.
+ */
+export const ContentBlock_Approval_ChoiceSchema: GenMessage<ContentBlock_Approval_Choice> = /*@__PURE__*/
+  messageDesc(file_roost_v1_sync, 22, 5, 0);
 
 /**
  * @generated from message roost.v1.ChatMessage
@@ -1159,6 +1246,20 @@ export type ChatFrame = Message<"roost.v1.ChatFrame"> & {
    * @generated from field: uint32 context_tokens = 8;
    */
   contextTokens: number;
+
+  /**
+   * friendly display name, e.g. "Claude Sonnet 5"
+   *
+   * @generated from field: string model_name = 9;
+   */
+  modelName: string;
+
+  /**
+   * omp ThinkingLevel: off|minimal|low|medium|high|xhigh|max|auto|inherit; "" = unknown
+   *
+   * @generated from field: string thinking_level = 10;
+   */
+  thinkingLevel: string;
 };
 
 /**

@@ -25,3 +25,17 @@ const OMP_TITLE_RE = /^\u03C0(?::|[ \t](?:[>!]|[\u2800-\u28FF]))/;
 export function isOmpTitle(title: string | undefined | null): boolean {
 	return typeof title === "string" && OMP_TITLE_RE.test(title);
 }
+
+export type OmpRunState = "idle" | "working" | "attention" | "unknown";
+
+/** omp's run state from the separator slot of its OSC title. `unknown` for
+ *  a non-omp title and for the `π:` pre-state layout (tui.titleState=false),
+ *  which carries no run state at all. */
+export function ompTitleRunState(title: string | undefined | null): OmpRunState {
+	if (!isOmpTitle(title)) return "unknown";
+	const sep = title![1] === ":" ? ":" : title![2];
+	if (sep === ">") return "idle";
+	if (sep === "!") return "attention";
+	if (sep && sep >= "\u2800" && sep <= "\u28FF") return "working";
+	return "unknown";
+}

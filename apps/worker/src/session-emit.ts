@@ -121,6 +121,7 @@ export function emitUpstreamChunk(this: SessionManager, channelId: number, chunk
 		if (title !== null) {
 			this.lastOscTitle.set(channelId, title);
 			this._ensureChatWatch(channelId);
+			this._emitChatRunState(channelId);
 		}
 		this.lastByteAt.set(channelId, Date.now());
 		this._scheduleDetect(channelId);

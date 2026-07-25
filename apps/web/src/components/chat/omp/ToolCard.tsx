@@ -1,20 +1,14 @@
-// ToolCard — renders a tool call + ALL its matched result blocks INLINE and
-// visible by default (no click needed to see what happened). Header: name +
-// one-line arg summary + status; click to collapse. Body: the primary arg
-// payload (write/edit/bash) as code, then each result block (a tool can emit
-// several — text interleaved with images), then images. A truncated result
-// fetches its untruncated text via SessionsGetChatBlock on "show full".
+// ToolCard — mounts omp's own <omp-tool-view> custom element for one tool call,
+// so a read/edit/bash/todo renders exactly as it does in omp's web transcript
+// (per-tool card, diff, checklist, grep hits). The element is registered by the
+// vendored bundle (src/vendor/omp-tool-views.js) and takes its whole payload on
+// the `data` property. Images stay ours: omp cannot resolve Roost blob paths.
 
-import { createSignal, Show, For, createMemo } from "solid-js";
+import { createMemo, createEffect, Show, For } from "solid-js";
 import type { ToolCallBlock, ToolEventBlock, ImageBlock } from "@roost/shared/chat/wire";
+import { safeJsonParse } from "@roost/shared/json";
 import type { ResultRef } from "./renderPlan.ts";
-import { fetchChatBlock } from "../../../store/chatOmp.ts";
-import { parseArgs, toolSummary, toolPayload } from "./toolView.ts";
 import { ChatImage } from "./ChatImage.tsx";
-import { Icon } from "../../Settings/md/Icon.tsx";
-import { Button } from "../../Settings/md/Button.tsx";
-import "@material/web/ripple/ripple.js";
-import "@material/web/progress/linear-progress.js";
 
 interface Props {
   sessionId: string;
@@ -24,97 +18,65 @@ interface Props {
   images?: ImageBlock[];
 }
 
-/** Result rows past this fold themselves away once the tool finishes: a read of
- *  a 400-line file must not bury the sentence the agent wrote after it. */
-const LONG_RESULT_LINES = 12;
+/** ToolViewProps as omp's element reads it. `args`/`result` are deliberately
+ *  loose — the renderers tolerate partial and malformed payloads by design. */
+interface ToolViewPayload {
+  name: string;
+  args: Record<string, unknown>;
+  result?: unknown;
+  running: boolean;
+  intent?: string;
+  partial?: string;
+  defaultOpen: boolean;
+}
+
+/** Port of omp's parseMCPToolName (src/mcp/tool-bridge.ts:366-379) + the label it
+ *  builds at tool-bridge.ts:413. omp's browser tool-view bundle has no mcp__
+ *  awareness, so the wire name would print raw. */
+function displayToolName(name: string): string {
+  if (!name.startsWith("mcp__")) return name;
+  const rest = name.slice(5);
+  const i = rest.indexOf("_");
+  if (i === -1) return name;
+  return `${rest.slice(0, i)}/${rest.slice(i + 1)}`;
+}
 
 export function ToolCard(props: Props) {
-  // null = follow the default; set once the user clicks. A RUNNING tool always
-  // stays open — its live output is the point. A finished one folds itself away
-  // when it is long enough to bury the conversation, and says how much it hid.
-  const [override, setOverride] = createSignal<boolean | null>(null);
-
-  const name = () => props.call?.name ?? props.results?.[0]?.block.name ?? props.event?.name ?? "tool";
   const results = () => props.results ?? [];
-  // "update" is still in flight — only the final result or an end event stops it.
-  const running = () => results().length === 0 && (!props.event || props.event.phase !== "end");
-  // Live output omp streams while the tool runs. Superseded by the real result.
-  const liveOutput = () => (results().length === 0 ? props.event?.output ?? "" : "");
-  const isError = () => results().some((r) => r.block.isError);
-  const args = createMemo(() => parseArgs(props.call?.argsJson ?? ""));
-  const summary = () => (props.call ? toolSummary(name(), args()) : props.event?.intent ?? "");
-  const payload = createMemo(() => (props.call ? toolPayload(name(), args()) : null));
+  const name = () => props.call?.name ?? results()[0]?.block.name ?? props.event?.name ?? "tool";
+  // Only a live tool_execution event can mean "running": a call with no event
+  // and no result is history (trimmed/compacted), and must not spin forever.
+  const running = () => (props.event ? props.event.phase !== "end" && results().length === 0 : false);
 
-  const resultLines = () => results().reduce((n, r) => n + r.block.text.split("\n").length, 0);
-  const bulky = () => !running() && resultLines() > LONG_RESULT_LINES;
-  const collapsed = () => override() ?? bulky();
-  // One string, one chip. Three sibling <Show>es left whitespace text nodes in
-  // the span, so a finished expanded card painted an empty pill.
-  const status = () =>
-    running() ? "running" : isError() ? "error" : collapsed() ? `${resultLines()} lines` : "";
+  const payload = createMemo<ToolViewPayload>(() => {
+    const raw = results()[0]?.block.rawJson;
+    return {
+      name: displayToolName(name()),
+      args: safeJsonParse<Record<string, unknown>>(props.call?.argsJson, {}, "chat.toolCall.args"),
+      result: raw ? safeJsonParse<unknown>(raw, undefined, "chat.toolResult.rawJson") : undefined,
+      running: running(),
+      intent: props.event?.intent || undefined,
+      // Live output omp streams while the tool runs. Superseded by the result.
+      partial: running() ? props.event?.output || undefined : undefined,
+      defaultOpen: false,
+    };
+  });
+
+  let el!: HTMLElement & { data?: ToolViewPayload };
+  // The element only re-renders on the property setter, so the assignment IS
+  // the update path — an attribute or a JSX prop would paint once and freeze.
+  createEffect(() => { el.data = payload(); });
 
   return (
-    <div class="omp-tool" classList={{ "omp-tool--error": isError(), "omp-tool--running": running() }} data-testid="omp-chat-tool" data-expanded={String(!collapsed())}>
-      <button type="button" class="omp-tool__head" aria-expanded={!collapsed()} onClick={() => setOverride(!collapsed())}>
-        <md-ripple />
-        <Icon name="chevron_right" size="sm" class="omp-tool__chevron" />
-        <span class="omp-tool__name">{name()}</span>
-        <Show when={summary()}><span class="omp-tool__summary">{summary()}</span></Show>
-        <Show when={status()}><span class="omp-tool__status">{status()}</span></Show>
-      </button>
-      <Show when={running()}>
-        <md-linear-progress class="omp-tool__progress" prop:indeterminate={true} />
-      </Show>
-
-      <Show when={!collapsed()}>
-        <div class="omp-tool__body">
-          <Show when={payload()}>
-            {/* data-lang is the syntax-highlighting hook: it feeds toolPayload().lang / langForPath() in toolView.ts. */}
-            <pre class="omp-tool__code" data-lang={payload()!.lang}><code>{payload()!.text}</code></pre>
-          </Show>
-          <Show when={liveOutput()}>
-            <pre class="omp-tool__result omp-tool__result--live" data-testid="omp-tool-live"><code>{liveOutput()}</code></pre>
-          </Show>
-          <For each={results()}>
-            {(r) => <ToolResultView sessionId={props.sessionId} r={r} />}
+    <div class="omp-tool" data-testid="omp-chat-tool">
+      <omp-tool-view ref={el} class="tv-host" />
+      <Show when={props.images && props.images.length > 0}>
+        <div class="omp-tool__images">
+          <For each={props.images}>
+            {(im) => <ChatImage sessionId={props.sessionId} blobPath={im.blobPath} mime={im.mime} />}
           </For>
-          <Show when={props.images && props.images.length > 0}>
-            <div class="omp-tool__images">
-              <For each={props.images}>
-                {(im) => <ChatImage sessionId={props.sessionId} blobPath={im.blobPath} mime={im.mime} />}
-              </For>
-            </div>
-          </Show>
         </div>
       </Show>
     </div>
-  );
-}
-
-/** One result block: shows (capped) text; "show full" fetches the untruncated
- *  text from the block's own message/index. */
-function ToolResultView(props: { sessionId: string; r: ResultRef }) {
-  const [full, setFull] = createSignal<string | null>(null);
-  const [loading, setLoading] = createSignal(false);
-  const text = () => full() ?? props.r.block.text;
-
-  const loadFull = async () => {
-    if (loading() || full() !== null) return;
-    setLoading(true);
-    const t = await fetchChatBlock(props.sessionId, props.r.msgId, props.r.blockIndex);
-    setFull(t ?? props.r.block.text);
-    setLoading(false);
-  };
-
-  return (
-    <Show when={text().length > 0}>
-      <pre class="omp-tool__result" classList={{ "omp-tool__result--error": props.r.block.isError }}><code>{text()}</code></pre>
-      <Show when={loading()}><span class="omp-tool__loading">loading full…</span></Show>
-      <Show when={props.r.block.truncated && full() === null}>
-        <Button variant="text" class="omp-tool__more" data-testid="omp-chat-tool-more" onClick={() => void loadFull()}>
-          show full {props.r.block.fullLen.toLocaleString()} chars
-        </Button>
-      </Show>
-    </Show>
   );
 }

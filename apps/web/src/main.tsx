@@ -20,6 +20,9 @@ import "./styles/sidebar.css";
 import "./styles/voice-input.css";
 import "./styles/settings-dense.css";
 import "./styles/drive.css";
+// Registers <omp-tool-view> + injects omp's tool-card stylesheet (self-contained
+// IIFE). Must load before the chat pane mounts a card.
+import "./vendor/omp-tool-views.js";
 
 // Apply before Solid renders any component so data-theme is set on first paint.
 applyTheme(loadTheme());

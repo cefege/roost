@@ -102,6 +102,11 @@ interface Props {
 	// hits a global handler (jumps workspace) instead of the PTY. CellTerminal
 	// passes term.forceFocus() here.
 	refocusTerminal?: () => void;
+	/** When set, a finalized transcript goes HERE instead of the PTY (chat
+	 *  composer): the composer owns the draft and its own send path. */
+	onTranscript?: (text: string) => void;
+	/** "inline" drops the position:fixed FAB dock so the mic can sit in a row. */
+	variant?: "fab" | "inline";
 }
 
 // ─── component ───────────────────────────────────────────────────────────
@@ -261,6 +266,11 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 			resetToIdle();
 			return;
 		}
+		if (props.onTranscript) {
+			props.onTranscript(text);
+			resetToIdle();
+			return;
+		}
 		props.sendInput(props.channelId, buildPtyPayload(text));
 		// Enter as its own frame, after a length-scaled delay, so it reliably
 		// submits even very long messages.
@@ -298,7 +308,7 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 
 	return (
 		<div
-			class="voice-input"
+			class={props.variant === "inline" ? "voice-input voice-input--inline" : "voice-input"}
 			data-testid="mobile-voice-input"
 			data-state={voiceState()}
 			data-engine={useDeepgram() ? "deepgram" : "web-speech"}
