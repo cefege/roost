@@ -35,6 +35,10 @@ class MockCore {
   getCell(row: number, col: number) { return this.grid[row][col]; }
   getCursor() { return this.cursor; }
   usingAltScreen() { return this.alt; }
+  cursorApp = false;
+  bracketed = false;
+  cursorKeysApp() { return this.cursorApp; }
+  bracketedPaste() { return this.bracketed; }
   getScrollbackCount() { return this.sb.length; }
   getScrollbackCell(offset: number, col: number) {
     const line = this.sb[this.sb.length - 1 - offset];
