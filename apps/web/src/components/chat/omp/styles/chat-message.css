@@ -75,6 +75,210 @@
   white-space: nowrap;
 }
 
+/* ---- notice / summary / custom / exec / mentions ----
+   The five rows the TUI paints that are neither prose nor a tool card. Each
+   carries its own label, which is why MessageRow drops the generic `developer`
+   chip above them. All five read at the machinery tier: they are what the agent
+   DID or what the harness said, not what it wrote. */
+
+/* Turn-ending abort/error/retry line. Plain text, one row, no chrome — omp
+   prints it as a bare colored line under the assistant's last block. */
+.tr-notice {
+  align-self: stretch;
+  font-family: var(--font-ui);
+  font-size: var(--tr-meta);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+.tr-notice[data-level="error"] {
+  color: var(--err);
+}
+
+.tr-notice[data-level="note"] {
+  color: var(--fg-faint);
+}
+
+/* Compaction / branch digest: collapsed to omp's one-line header. */
+.tr-summary {
+  align-self: stretch;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-inset);
+}
+
+/* Both disclosure heads. Mono is the default (a compaction header is
+   machinery); the synthetic head overrides it to the UI face below, because
+   what it summarizes is prose. */
+.tr-summary-head,
+.tr-synthetic-head {
+  cursor: pointer;
+  list-style: none;
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+  font-size: var(--tr-meta);
+}
+
+/* Safari still paints the native triangle without this; the ::before caret
+   below is the one both engines show. */
+.tr-summary-head::-webkit-details-marker,
+.tr-synthetic-head::-webkit-details-marker {
+  display: none;
+}
+
+.tr-summary-head::before,
+.tr-synthetic-head::before {
+  content: "▸ ";
+  color: var(--fg-faint);
+}
+
+.tr-summary[open] > .tr-summary-head::before,
+.tr-synthetic[open] > .tr-synthetic-head::before {
+  content: "▾ ";
+}
+
+.tr-summary[open] > .tr-summary-head,
+.tr-synthetic[open] > .tr-synthetic-head {
+  margin-bottom: 6px;
+}
+
+.tr-summary-head:focus-visible,
+.tr-synthetic-head:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* Extension-injected message (advisor, irc:incoming, async-result, hook). The
+   body is real content, so it reads at full contrast even though the row is a
+   developer row that .tr-row--custom otherwise dims. */
+.tr-custom {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding-left: 10px;
+  border-left: 2px solid var(--border-strong);
+}
+
+.tr-custom-label {
+  color: var(--fg-faint);
+}
+
+.tr-summary > .tr-md,
+.tr-custom > .tr-md {
+  align-self: stretch;
+  color: var(--fg);
+}
+
+/* `!cmd` bash / `!py` eval. Mono throughout — this is terminal output, not prose. */
+.tr-exec {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-inset);
+}
+
+.tr-exec-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  width: 100%;
+}
+
+.tr-exec-cmd {
+  min-width: 0;
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: var(--tr-machinery);
+  overflow-wrap: anywhere;
+}
+
+.tr-exec-excluded {
+  color: var(--fg-faint);
+}
+
+/* A non-zero exit is the one thing in this card worth alarming about; a
+   cancellation is the user's own doing, so it stays neutral. */
+.tr-exec-status {
+  margin-left: auto;
+  border-color: var(--err);
+  color: var(--err);
+}
+
+.tr-exec-status[data-cancelled="true"] {
+  border-color: var(--border);
+  color: var(--fg-muted);
+}
+
+.tr-exec-out {
+  width: 100%;
+  max-height: 320px;
+  margin: 0;
+  overflow: auto;
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+  font-size: var(--tr-machinery);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* `@path` mentions — omp's `Read <path>` rows. */
+.tr-mentions {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.tr-mention {
+  display: flex;
+  min-width: 0;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: var(--tr-machinery);
+}
+
+.tr-mention-verb {
+  color: var(--fg-muted);
+}
+
+.tr-mention-path {
+  color: var(--accent);
+  overflow-wrap: anywhere;
+}
+
+/* Agent-attributed user input, collapsed to one dim line until asked — omp's
+   CollapsedSyntheticMessageComponent (user-message.ts:84). */
+.tr-synthetic {
+  align-self: stretch;
+  min-width: 0;
+}
+
+.tr-synthetic-head {
+  overflow: hidden;
+  font-family: var(--font-ui);
+  font-style: italic;
+  color: var(--fg-faint);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Matches .tr-think-more: the recover-full-text button sits left under its
+   card, never centered in it. */
+.tr-more {
+  align-self: flex-start;
+}
+
 /* ---- tool cards ----
    Cards themselves are rendered by omp's vendored tool-render bundle (tv-*
    namespace); only host-level layout lives here. */

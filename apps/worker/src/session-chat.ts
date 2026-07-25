@@ -18,10 +18,15 @@ import type { SessionRecord } from "./session-record.ts";
 import { diag, log } from "@roost/shared";
 import type { ChatFrame, ChatMessage } from "@roost/shared/chat/wire";
 import {
-	resolveTranscriptPath, startTranscriptWatcher,
+	resolveTranscriptPath, startTranscriptWatcher, emptyOmpStatus,
 } from "./chat/omp/transcript-watcher.ts";
-import { parseOmpLine, fullBlockText, TRUNC_CAP } from "./chat/omp/parse.ts";
+import { startLiveWatcher } from "./chat/omp/live-watcher.ts";
+import { claimJoinKey, dropChatMessage, resolveLiveId, upsertChatMessage } from "./chat/omp/chat-record.ts";
+import { parseOmpLine, fullBlockText, ompLineJoinKey, TRUNC_CAP } from "./chat/omp/parse.ts";
+import { lookupOmpModel } from "./chat/omp/model-catalog.ts";
+import { OMP_LIVE_DIR } from "./session-constants.ts";
 import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 
 import { isOmpTitle, ompTitleRunState } from "@roost/shared/chat/omp-title";
 export { isOmpTitle };
@@ -37,11 +42,30 @@ const CHAT_RESOLVE_MAX_TRIES = 8;
 /** Build + send a ChatFrame upstream. No-op when no sink (tests). */
 function emitChatFrame(this: SessionManager, channelId: number, append: ChatMessage[], seq: number, reset: boolean): void {
 	if (!this.sendChatFrameUpstream) return;
-	// `streaming` comes from omp's OSC title separator (the only run-state signal
-	// the mirror engine has). model/context stay empty: those are genuinely
-	// native-RPC-only, and the pane hides the model chip when `model` is "".
-	const streaming = ompTitleRunState(this.lastOscTitle.get(channelId)) === "working";
-	const frame: ChatFrame = { sessionId: "", append, seq, reset, streaming, model: "", modelName: "", thinkingLevel: "", contextPct: 0, contextTokens: 0 };
+	const rec = this.sessions.get(channelId);
+	// Run state: the bridge's agent_start/agent_end when a sidecar is attached
+	// (it is omp's own turn state), else omp's OSC title separator — the only
+	// signal the mirror engine has on its own. The status block is folded out of
+	// the transcript by the tailer and rides EVERY frame — including the
+	// payload-less run-state and reset ones — because the client applies status
+	// off any frame carrying it.
+	const streaming = rec?.chatLiveStreaming
+		?? (ompTitleRunState(this.lastOscTitle.get(channelId)) === "working");
+	const status = rec?.chatStatus ?? emptyOmpStatus();
+	// The transcript gives tokens but not the window; omp's own model catalog
+	// gives the window and the friendly name. Unknown model → 0 window, and the
+	// client renders "<tokens> / ?" exactly as omp's formatContextUsage does.
+	const info = status.model ? lookupOmpModel(status.model) : null;
+	const frame: ChatFrame = {
+		sessionId: "", append, seq, reset, streaming,
+		engine: "mirror",
+		model: status.model,
+		modelName: info?.name ?? "",
+		thinkingLevel: status.thinkingLevel,
+		mode: status.mode,
+		contextTokens: status.contextTokens,
+		contextWindow: info?.contextWindow ?? 0,
+	};
 	this.sendChatFrameUpstream(channelId, frame);
 }
 
@@ -98,19 +122,83 @@ export function _ensureChatWatch(this: SessionManager, channelId: number): void 
 		emitChatFrame.call(this, channelId, [], 0, true);
 		diag("chat.resolve", { ok: true, via: r.via, sid: String(rec.sessionId) });
 		rec.chatTranscriptPath = r.path;
-		const handle = startTranscriptWatcher(r.path, (msgs, seq) => {
+		const handle = startTranscriptWatcher(r.path, (msgs, seq, status, joinKeys) => {
 			if (this.sessions.get(channelId) !== rec) return;
 			for (const m of msgs) {
-				rec.chatMessages!.push(m);
-				rec.chatMsgSeqs!.push(seq);
+				// A turn the bridge already streamed keeps its `live-N` id, so this
+				// canonical copy REPLACES that row instead of doubling it. When the
+				// bridge has NOT been here yet, claim the key so a live frame that
+				// arrives later recognises this row as the one already on screen.
+				const key = joinKeys.get(m.id) ?? "";
+				m.id = resolveLiveId(rec, key, m.id);
+				claimJoinKey(rec, key, m.id);
+				upsertChatMessage(rec, m, seq);
 			}
 			rec.chat_seq = seq;
+			// Held by reference on purpose: the tailer mutates one snapshot in
+			// place, so every later frame (including the payload-less run-state
+			// ones that never reach this callback) reads the current values.
+			rec.chatStatus = status;
 			emitChatFrame.call(this, channelId, msgs, seq, false);
+		});
+		// The live sidecar: omp only persists a message once it is COMPLETE, so
+		// the transcript can never stream. The file usually does not exist yet
+		// (omp not started, or no bridge) — the tailer's poll loop picks it up if
+		// it ever appears and costs one failed stat/s until then.
+		const live = startLiveWatcher(join(OMP_LIVE_DIR, `${rec.sessionId}.ndjson`), (ev) => {
+			if (this.sessions.get(channelId) !== rec) return;
+			switch (ev.kind) {
+				case "hello":
+					rec.chatLiveAttached = true;
+					diag("chat.live_hello", { sid: String(rec.sessionId), pid: ev.pid, file: ev.sessionFile });
+					return;
+				case "streaming":
+					rec.chatLiveStreaming = ev.value;
+					emitChatFrame.call(this, channelId, [], rec.chat_seq, false);
+					return;
+				case "message":
+					// Live frames must NOT advance chat_seq: it is the transcript's
+					// line count and getChatHistory pages by it.
+					upsertChatMessage(rec, ev.msg, rec.chat_seq);
+					emitChatFrame.call(this, channelId, [ev.msg], rec.chat_seq, false);
+					return;
+				case "join": {
+					// Commutative: if the transcript already claimed this turn, the
+					// streamed row is the duplicate — retract it and keep the
+					// canonical copy. Otherwise the claim succeeds and the tailer
+					// will rewrite the transcript copy onto this row instead.
+					const held = claimJoinKey(rec, ev.key, ev.liveId);
+					if (held === null || !dropChatMessage(rec, ev.liveId)) return;
+					emitChatFrame.call(this, channelId, rec.chatMessages ?? [], rec.chat_seq, true);
+					return;
+				}
+				case "retract": {
+					// A turn that rendered mid-flight but ends as something the TUI
+					// paints as nothing. Drop it rather than leave a red row where
+					// the terminal is silent; reseed, since the wire has no delete.
+					if (!dropChatMessage(rec, ev.liveId)) return;
+					emitChatFrame.call(this, channelId, rec.chatMessages ?? [], rec.chat_seq, true);
+					return;
+				}
+				case "abort": {
+					// The bridge died or said goodbye. Its turn state is no longer
+					// authoritative, and a row it left mid-stream would sit frozen
+					// beside the transcript's later copy of the same turn.
+					rec.chatLiveStreaming = undefined;
+					const dropped = ev.liveId !== null && dropChatMessage(rec, ev.liveId);
+					// A drop needs the full list: the wire has no delete verb, so
+					// the client reseeds off a reset frame.
+					emitChatFrame.call(this, channelId, dropped ? rec.chatMessages ?? [] : [], rec.chat_seq, dropped);
+					return;
+				}
+			}
 		});
 		if (this.sessions.get(channelId) === rec) {
 			rec.chatWatchDispose = handle.dispose;
+			rec.chatLiveDispose = live.dispose;
 		} else {
 			handle.dispose();
+			live.dispose();
 		}
 	}).catch((err) => {
 		log.warn("session-manager", "chat_watch_start_failed", { sid: String(rec.sessionId), error: String(err) });
@@ -120,10 +208,16 @@ export function _ensureChatWatch(this: SessionManager, channelId: number): void 
 /** Dispose the chat watcher (close / cwd-change / respawn). Idempotent. */
 export function _disposeChatWatch(rec: SessionRecord): void {
 	try { rec.chatWatchDispose?.(); } catch { /* best-effort */ }
+	try { rec.chatLiveDispose?.(); } catch { /* best-effort */ }
 	rec.chatWatchDispose = null;
+	rec.chatLiveDispose = null;
+	rec.chatLiveAttached = false;
+	rec.chatLiveStreaming = undefined;
+	rec.chatLiveIds = undefined;
 	rec.chatWatchStarting = false;
 	rec.chatWatchTries = 0;
 	rec.chatRunState = undefined;
+	rec.chatStatus = undefined;
 	// Release the path so the S3 `path_taken` scan can't be tripped by a record
 	// that no longer mirrors anything.
 	rec.chatTranscriptPath = null;
@@ -174,9 +268,10 @@ export async function getChatBlockText(rec: SessionRecord, messageId: string, bl
 		if (line.length === 0) continue;
 		let raw: unknown;
 		try { raw = JSON.parse(line); } catch { continue; }
-		if (typeof raw !== "object" || raw === null) continue;
-		const o = raw as { id?: unknown };
-		if (o.id !== messageId) continue;
+		if (typeof raw !== "object" || raw === null || !("id" in raw) || typeof raw.id !== "string") continue;
+		// Same rewrite the tailer applies, or "show full N chars" cannot resolve
+		// a message whose row was streamed first and re-keyed to its live id.
+		if (resolveLiveId(rec, ompLineJoinKey(line) ?? "", raw.id) !== messageId) continue;
 		// Found the line — re-parse WITHOUT truncation and pull the block.
 		return fullBlockText(line, blockIndex);
 	}

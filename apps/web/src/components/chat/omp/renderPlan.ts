@@ -13,6 +13,9 @@
 //    (images carry no callId; they inherit the message's toolResult callId).
 //  - a toolResult / toolEvent whose callId has NO toolCall (orphan) → its OWN
 //    card at the result site, so an out-of-order or call-less result still shows.
+//  - notice / summary / custom / exec / fileMention → their OWN row at the
+//    message site (NoticeRow, SummaryCard, CustomCard, ExecBlock,
+//    FileMentionRow). They carry no callId and never fold into a tool card.
 
 import type { ChatMessage, ContentBlock, ToolCallBlock, ToolResultBlock, ToolEventBlock, ImageBlock } from "@roost/shared/chat/wire";
 
@@ -91,6 +94,13 @@ export function analyzeCoverage(messages: ChatMessage[]): { total: number; dropp
           ok = msgCallId ? hasCard(msgCallId) : true; break;
         case "approval":
           // Carries no callId — its own row at the message site.
+          ok = true; break;
+        case "notice":
+        case "summary":
+        case "custom":
+        case "exec":
+        case "fileMention":
+          // Own row at the message site, same as approval.
           ok = true; break;
       }
       if (!ok) dropped.push({ msgId: msg.id, blockIndex: i, kind: b.kind });

@@ -17,6 +17,13 @@ import { ToolCard } from "./ToolCard.tsx";
 import { Composer, type Pending } from "./Composer.tsx";
 import { ChatWelcome } from "./ChatWelcome.tsx";
 import { ApprovalCard } from "./ApprovalCard.tsx";
+import { NoticeRow } from "./NoticeRow.tsx";
+import { SummaryCard } from "./SummaryCard.tsx";
+import { CustomCard } from "./CustomCard.tsx";
+import { ExecBlock } from "./ExecBlock.tsx";
+import { FileMentionRow } from "./FileMentionRow.tsx";
+import { cap } from "./ModelMenu.tsx";
+import { shortCwd } from "../../../lib/sidebarFormat.ts";
 import { Icon } from "../../Settings/md/Icon.tsx";
 import "@material/web/progress/linear-progress.js";
 // Cascade order is load-bearing: token aliases → pane shell → transcript rows →
@@ -114,10 +121,22 @@ export function OmpChatPane(props: Props) {
     setStick(threadEl.scrollHeight - threadEl.scrollTop - threadEl.clientHeight < 80);
     setScrolled(threadEl.scrollTop > 0);
   };
-  // untrack(stick): the effect must fire on APPEND only. Tracking `stick` would
-  // re-run it on every scroll flip and yank the view back down mid-read.
+  // A streaming message GROWS in place, so message count alone never re-fires
+  // this and a live reply scrolls off the bottom while it is still being
+  // written. Size of the tail message is the cheap proxy for "it changed".
+  const tailSize = createMemo(() => {
+    const msgs = state().messages;
+    const last = msgs[msgs.length - 1];
+    if (!last) return 0;
+    let n = 0;
+    for (const b of last.blocks) n += (b.kind === "text" || b.kind === "thinking") ? b.text.length : 1;
+    return n;
+  });
+  // untrack(stick): the effect must fire on APPEND/GROWTH only. Tracking
+  // `stick` would re-run it on every scroll flip and yank the view back down
+  // mid-read.
   createEffect(() => {
-    const n = state().messages.length;
+    const n = state().messages.length + tailSize();
     if (untrack(stick) && threadEl) queueMicrotask(() => { threadEl?.scrollTo({ top: threadEl.scrollHeight }); });
     void n;
   });
@@ -137,21 +156,83 @@ export function OmpChatPane(props: Props) {
   // means a real turn exists.
   const started = createMemo(() => state().messages.some((m) => m.role !== "developer"));
 
+  // ── status row ────────────────────────────────────────────────────────
+  // cwd + branch come from the session record, not the chat frame: Roost
+  // already tracks both, and omp's transcript carries neither.
+  const session = () => rootStore.sessions[props.sessionId];
+  // Same head as the composer's ModelMenu label, minus the "Claude " prefix
+  // omp itself strips in modelSegment. Falls back to the raw provider/id
+  // selector when the catalog could not name the model.
+  const modelLabel = () => {
+    const head = (state().modelName || state().model).replace(/^Claude /, "");
+    const lvl = state().thinkingLevel;
+    return lvl && lvl !== "off" ? `${head} · ${cap(lvl)}` : head;
+  };
+  // Percentage is derived here, not on the wire: an unknown window (no catalog
+  // entry) must stay distinguishable from a genuine 0%. null = unknown.
+  const ctxPct = () => {
+    const w = state().contextWindow;
+    return w > 0 ? (state().contextTokens / w) * 100 : null;
+  };
+  // omp's own context bands (context-thresholds.ts). Absolute-token thresholds
+  // are deliberately omitted: they only bite on windows where they are stricter
+  // than the percentages, and the bands carry the same warning where it counts.
+  const ctxLevel = () => {
+    const pct = ctxPct();
+    if (pct === null) return "normal";
+    if (pct >= 90) return "error";
+    if (pct >= 70) return "high";
+    if (pct >= 50) return "warning";
+    return "normal";
+  };
+  // Window unknown → "<tokens> / ?", the same degraded form omp's own
+  // formatContextUsage falls back to. One decimal otherwise, so the chip reads
+  // identically to the bar omp paints in the terminal view.
+  const ctxLabel = () => {
+    const tokens = state().contextTokens.toLocaleString();
+    const pct = ctxPct();
+    return pct === null ? `${tokens} / ?` : `${pct.toFixed(1)}% · ${tokens} tokens`;
+  };
+
   return (
     <div ref={rootEl} class="omp-chat" data-testid="omp-chat-pane" data-session-id={props.sessionId} data-scrolled={String(scrolled())}>
-      {/* Context readout only — model + effort live permanently on the
-          composer chip now. Native engine only: the mirror engine reports
-          nothing and the row stays hidden. */}
-      <Show when={state().contextTokens > 0 || hasThinking()}>
+      {/* Roost-native mirror of the bar omp paints into its own input-box top
+          border. Every chip is independently gated: an unknown fact renders
+          nothing rather than a placeholder. Read-only by design — the
+          interactive model picker lives on the composer, native engine only. */}
+      <Show when={state().engine !== "" || hasThinking()}>
         <div class="omp-chat__status" data-testid="omp-chat-status">
           <Show when={hasThinking()}>
             <button type="button" class="omp-chat__status-toggle" data-testid="omp-chat-thinking-all"
               aria-pressed={expandThinking()} onClick={() => setExpandThinking((v) => !v)}>thinking</button>
           </Show>
+          <Show when={state().model}>
+            <span class="omp-chat__chip" data-testid="omp-chat-status-model" title={state().model}>{modelLabel()}</span>
+          </Show>
+          {/* "none" is what omp writes on EXITING a mode — not a mode to show. */}
+          <Show when={state().mode && state().mode !== "none" && state().mode !== "default"}>
+            <span class="omp-chat__chip" data-testid="omp-chat-status-mode">{cap(state().mode)}</span>
+          </Show>
+          <Show when={session()?.cwd}>
+            {(cwd) => (
+              <span class="omp-chat__chip" data-testid="omp-chat-status-cwd" title={cwd()}>{shortCwd(cwd())}</span>
+            )}
+          </Show>
+          <Show when={session()?.git_branch}>
+            {(branch) => (
+              <span class="df-flat-branch" data-testid="omp-chat-status-branch" title={`On branch ${branch()}`}>
+                <svg class="df-flat-branch-icon" width="11" height="11" viewBox="0 0 24 24" fill="none"
+                  stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <line x1="6" y1="3" x2="6" y2="15" /><circle cx="18" cy="6" r="3" />
+                  <circle cx="6" cy="18" r="3" /><path d="M18 9a9 9 0 0 1-9 9" />
+                </svg>
+                <span class="df-flat-branch-text">{branch()}</span>
+              </span>
+            )}
+          </Show>
+          {/* margin-left:auto lives on -ctx, so the context chip sits right. */}
           <Show when={state().contextTokens > 0}>
-            <span class="omp-chat__status-ctx">
-              {state().contextPct}% context · {state().contextTokens.toLocaleString()} tokens
-            </span>
+            <span class="omp-chat__status-ctx" data-testid="omp-chat-status-ctx" data-level={ctxLevel()}>{ctxLabel()}</span>
           </Show>
         </div>
       </Show>
@@ -167,7 +248,10 @@ export function OmpChatPane(props: Props) {
             <ChatWelcome sessionId={props.sessionId} focused={props.focused} />
           </Show>
           <For each={state().messages}>
-            {(msg) => <MessageRow msg={msg} sessionId={props.sessionId} expandThinking={expandThinking()} toolIndex={toolIndex()} />}
+            {(msg, i) => (
+              <MessageRow msg={msg} sessionId={props.sessionId} expandThinking={expandThinking()}
+                toolIndex={toolIndex()} streaming={state().streaming && i() === state().messages.length - 1} />
+            )}
           </For>
         </Show>
         <Show when={state().streaming}>
@@ -202,43 +286,81 @@ const GUTTER_LABEL: Record<ChatMessage["role"], string> = {
   user: "host", assistant: "agent", developer: "", toolResult: "",
 };
 
-function MessageRow(props: { msg: ChatMessage; sessionId: string; expandThinking: boolean; toolIndex: Map<string, ToolMatch> }) {
-  const grouped = createMemo(() => groupThinking(props.msg.blocks));
+/** Blocks that already name themselves — a second generic `developer` chip
+ *  above one of these cards is noise, and hiding the card's own identity behind
+ *  it is exactly what made advisor / irc / async-result rows unreadable. */
+const SELF_LABELLED: Partial<Record<ContentBlock["kind"], true>> = {
+  custom: true, summary: true, exec: true, fileMention: true,
+};
+
+function MessageRow(props: { msg: ChatMessage; sessionId: string; expandThinking: boolean; toolIndex: Map<string, ToolMatch>; streaming: boolean }) {
+  // Agent-attributed user input collapses, exactly as omp's
+  // CollapsedSyntheticMessageComponent does (user-message.ts:84): an advisor
+  // "Session update" replay is hundreds of KiB and buries every real turn.
+  const head = () => {
+    for (const b of props.msg.blocks) {
+      if (b.kind !== "text") continue;
+      for (const line of b.text.split("\n")) {
+        const t = line.trim();
+        if (t) return t.length > 120 ? `${t.slice(0, 120)}…` : t;
+      }
+    }
+    return "synthetic message";
+  };
 
   return (
-    <div class={`tr-row tr-row--${ROW_KIND[props.msg.role]}`}>
+    // data-streaming marks the ONE row the agent is still writing into, so the
+    // reader (and the browser oracle) can watch growth on a stable node.
+    <div class={`tr-row tr-row--${ROW_KIND[props.msg.role]}`} data-streaming={props.streaming ? "true" : undefined}>
       <div class="tr-gutter" title={props.msg.ts}>{GUTTER_LABEL[props.msg.role]}</div>
       <div class="tr-body">
-        <Show when={props.msg.role === "developer"}>
+        <Show when={props.msg.role === "developer" && !props.msg.blocks.every((b) => SELF_LABELLED[b.kind])}>
           <span class="tr-chip">developer</span>
         </Show>
-        {/* Index, not For: it keys by position, so a streaming message that
-            re-groups on every frame updates props in place instead of
-            remounting each run and dropping its local expand state. */}
-        <Index each={grouped()}>
-          {(item) => {
-            const run = () => { const v = item(); return v.kind === "thinking" ? v : null; };
-            const blk = () => { const v = item(); return v.kind === "block" ? v : null; };
-            return (
-              <Switch>
-                <Match when={run()}>
-                  {(r) => (
-                    <ThinkingBlock sessionId={props.sessionId} messageId={props.msg.id}
-                      parts={r().parts} expandAll={props.expandThinking} />
-                  )}
-                </Match>
-                <Match when={blk()}>
-                  {(b) => (
-                    <BlockView block={b().block} msg={props.msg} blockIndex={b().index}
-                      sessionId={props.sessionId} toolIndex={props.toolIndex} />
-                  )}
-                </Match>
-              </Switch>
-            );
-          }}
-        </Index>
+        <Show when={props.msg.role === "user" && props.msg.synthetic}
+          fallback={<MessageBlocks msg={props.msg} sessionId={props.sessionId}
+            expandThinking={props.expandThinking} toolIndex={props.toolIndex} />}>
+          <details class="tr-synthetic" data-testid="omp-chat-synthetic">
+            <summary class="tr-synthetic-head">{head()} (expand)</summary>
+            <MessageBlocks msg={props.msg} sessionId={props.sessionId}
+              expandThinking={props.expandThinking} toolIndex={props.toolIndex} />
+          </details>
+        </Show>
       </div>
     </div>
+  );
+}
+
+/** The message's blocks in transcript order. Its own component only so the
+ *  synthetic disclosure can wrap the loop without it existing twice. */
+function MessageBlocks(props: { msg: ChatMessage; sessionId: string; expandThinking: boolean; toolIndex: Map<string, ToolMatch> }) {
+  const grouped = createMemo(() => groupThinking(props.msg.blocks));
+  return (
+    // Index, not For: it keys by position, so a streaming message that
+    // re-groups on every frame updates props in place instead of remounting
+    // each run and dropping its local expand state.
+    <Index each={grouped()}>
+      {(item) => {
+        const run = () => { const v = item(); return v.kind === "thinking" ? v : null; };
+        const blk = () => { const v = item(); return v.kind === "block" ? v : null; };
+        return (
+          <Switch>
+            <Match when={run()}>
+              {(r) => (
+                <ThinkingBlock sessionId={props.sessionId} messageId={props.msg.id}
+                  parts={r().parts} expandAll={props.expandThinking} />
+              )}
+            </Match>
+            <Match when={blk()}>
+              {(b) => (
+                <BlockView block={b().block} msg={props.msg} blockIndex={b().index}
+                  sessionId={props.sessionId} toolIndex={props.toolIndex} />
+              )}
+            </Match>
+          </Switch>
+        );
+      }}
+    </Index>
   );
 }
 
@@ -289,5 +411,24 @@ function BlockView(props: { block: ContentBlock; msg: ChatMessage; blockIndex: n
     case "approval":
       // Native RPC chat only — the mirror engine never produces these.
       return <ApprovalCard sessionId={props.sessionId} block={block} />;
+    case "notice":
+      return <NoticeRow block={block} />;
+    case "summary":
+      return (
+        <SummaryCard block={block} sessionId={props.sessionId}
+          messageId={props.msg.id} blockIndex={props.blockIndex} />
+      );
+    case "custom":
+      return (
+        <CustomCard block={block} sessionId={props.sessionId}
+          messageId={props.msg.id} blockIndex={props.blockIndex} />
+      );
+    case "exec":
+      return (
+        <ExecBlock block={block} sessionId={props.sessionId}
+          messageId={props.msg.id} blockIndex={props.blockIndex} />
+      );
+    case "fileMention":
+      return <FileMentionRow block={block} />;
   }
 }

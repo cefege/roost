@@ -167,6 +167,14 @@ export const ClientControlFrame = z.discriminatedUnion("kind", [
     message_id: z.string(),
     block_index: z.number().int().nonnegative(),
   }),
+  // Terminal-vs-web parity oracle for one omp session. rpc-ok data:
+  // { transcript_path, live_path, live_attached, tui_rows, roost_rows,
+  //   missing_json, extra_json }.
+  Base.extend({
+    kind: z.literal("get-chat-parity"),
+    request_id: z.string(),
+    session_id: SessionId,
+  }),
   // Native omp chat: tunnel one RpcCommand (JSON) to the session's
   // `omp --mode rpc` child (lazy-started by the worker). rpc-ok data:
   // { response_json: string } — the child's id-correlated response frame.

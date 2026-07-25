@@ -16,6 +16,8 @@ import {
   ContentBlock_ToolCallSchema, ContentBlock_ToolResultSchema,
   ContentBlock_ToolEventSchema, ContentBlock_ImageRefSchema,
   ContentBlock_ApprovalSchema, ContentBlock_Approval_ChoiceSchema,
+  ContentBlock_NoticeSchema, ContentBlock_SummarySchema, ContentBlock_CustomCardSchema,
+  ContentBlock_ExecSchema, ContentBlock_FileMentionSchema,
   type ChatMessage as PbChatMessage,
   type ChatFrame as PbChatFrame,
   type ContentBlock as PbContentBlock,
@@ -25,6 +27,11 @@ import {
   type ContentBlock_ToolEvent as PbToolEvent,
   type ContentBlock_ImageRef as PbImageRef,
   type ContentBlock_Approval as PbApproval,
+  type ContentBlock_Notice as PbNotice,
+  type ContentBlock_Summary as PbSummary,
+  type ContentBlock_CustomCard as PbCustomCard,
+  type ContentBlock_Exec as PbExec,
+  type ContentBlock_FileMention as PbFileMention,
 } from "../gen/roost/v1/sync_pb.ts";
 
 // Cap applied by the worker parser to thinking + tool_result text. Anything
@@ -124,8 +131,68 @@ export const ApprovalBlock = z.object({
 });
 export type ApprovalBlock = z.infer<typeof ApprovalBlock>;
 
+// ─── omp TUI-parity blocks ────────────────────────────────────────────────
+// Everything the omp terminal paints as its own transcript row that the first
+// seven variants cannot represent. Derived from
+// @oh-my-pi/pi-coding-agent@17.1.3 src/modes/components/chat-transcript-builder.ts.
+
+// Turn-ending assistant line (abort reason / error / recovered-retry note).
+// omp's resolveAssistantErrorPresentation decides whether one exists at all.
+export const NoticeBlock = z.object({
+  kind: z.literal("notice"),
+  text: z.string(),
+  level: z.enum(["error", "note"]).default("error"),
+});
+export type NoticeBlock = z.infer<typeof NoticeBlock>;
+
+// Collapsible summary card — compaction rollup or returned-from-branch digest.
+export const SummaryBlock = z.object({
+  kind: z.literal("summary"),
+  variant: z.enum(["compaction", "branch"]),
+  text: z.string(),
+  tokensBefore: z.number().int().nonnegative().default(0),
+  truncated: z.boolean().default(false),
+  fullLen: z.number().int().nonnegative().default(0),
+});
+export type SummaryBlock = z.infer<typeof SummaryBlock>;
+
+// Extension-injected message (advisor, irc:incoming, async-result, hooks…).
+// omp labels the card `[customType]` and renders the body as markdown; that
+// fallback IS the parity target, so per-type rich cards are not required.
+export const CustomCardBlock = z.object({
+  kind: z.literal("custom"),
+  customType: z.string(),
+  text: z.string(),
+  detailsJson: z.string().default(""),
+  truncated: z.boolean().default(false),
+  fullLen: z.number().int().nonnegative().default(0),
+});
+export type CustomCardBlock = z.infer<typeof CustomCardBlock>;
+
+// `!cmd` bash / `!py` eval block run from omp's composer.
+export const ExecBlock = z.object({
+  kind: z.literal("exec"),
+  lang: z.enum(["bash", "python"]),
+  command: z.string(),
+  output: z.string(),
+  exitCode: z.number().int().default(-1),
+  cancelled: z.boolean().default(false),
+  excluded: z.boolean().default(false),
+  truncated: z.boolean().default(false),
+  fullLen: z.number().int().nonnegative().default(0),
+});
+export type ExecBlock = z.infer<typeof ExecBlock>;
+
+// `@path` file mentions attached to a prompt.
+export const FileMentionBlock = z.object({
+  kind: z.literal("fileMention"),
+  paths: z.array(z.string()),
+});
+export type FileMentionBlock = z.infer<typeof FileMentionBlock>;
+
 export const ContentBlock = z.discriminatedUnion("kind", [
   TextBlock, ThinkingBlock, ToolCallBlock, ToolResultBlock, ToolEventBlock, ImageBlock, ApprovalBlock,
+  NoticeBlock, SummaryBlock, CustomCardBlock, ExecBlock, FileMentionBlock,
 ]);
 export type ContentBlock = z.infer<typeof ContentBlock>;
 
@@ -140,6 +207,10 @@ export const ChatMessage = z.object({
   ts: z.string(),
   role: ChatRole,
   blocks: z.array(ContentBlock),
+  // Agent-attributed user input (advisor "Session update" replays). omp
+  // collapses these behind CollapsedSyntheticMessageComponent; the pane does
+  // the same so a 300 KiB replay cannot bury the thread.
+  synthetic: z.boolean().default(false),
 });
 export type ChatMessage = z.infer<typeof ChatMessage>;
 
@@ -152,13 +223,19 @@ export const ChatFrame = z.object({
   seq: z.number().int().nonnegative(),
   reset: z.boolean().default(false),
   streaming: z.boolean().default(false),
-  // Status the omp TUI keeps permanently on screen. Empty/zero on the mirror
-  // engine, which has no session state to ask for.
+  // Status the omp TUI keeps permanently on screen. Populated by BOTH engines:
+  // the native RPC engine reads it off get_state, the mirror engine folds it
+  // out of the transcript tailer. `engine` names the producer and doubles as
+  // the "this frame carries status" marker; the rest are empty/zero until the
+  // first fact lands. The percentage is NOT on the wire: the client derives it
+  // from tokens/window so an unknown window stays distinguishable from 0%.
   model: z.string().default(""),
   modelName: z.string().default(""),
   thinkingLevel: z.string().default(""),
-  contextPct: z.number().int().nonnegative().default(0),
   contextTokens: z.number().int().nonnegative().default(0),
+  contextWindow: z.number().int().nonnegative().default(0),
+  mode: z.string().default(""),
+  engine: z.string().default(""),
 });
 export type ChatFrame = z.infer<typeof ChatFrame>;
 
@@ -208,6 +285,39 @@ export function contentBlockToProto(b: ContentBlock): PbContentBlock {
           header: b.header, progress: b.progress, multi: b.multi,
         }) },
       });
+    case "notice":
+      return create(ContentBlockSchema, {
+        kind: { case: "notice", value: create(ContentBlock_NoticeSchema, {
+          text: b.text, level: b.level,
+        }) },
+      });
+    case "summary":
+      return create(ContentBlockSchema, {
+        kind: { case: "summary", value: create(ContentBlock_SummarySchema, {
+          variant: b.variant, text: b.text, tokensBefore: b.tokensBefore,
+          truncated: b.truncated, fullLen: b.fullLen,
+        }) },
+      });
+    case "custom":
+      return create(ContentBlockSchema, {
+        kind: { case: "custom", value: create(ContentBlock_CustomCardSchema, {
+          customType: b.customType, text: b.text, detailsJson: b.detailsJson,
+          truncated: b.truncated, fullLen: b.fullLen,
+        }) },
+      });
+    case "exec":
+      return create(ContentBlockSchema, {
+        kind: { case: "exec", value: create(ContentBlock_ExecSchema, {
+          lang: b.lang, command: b.command, output: b.output, exitCode: b.exitCode,
+          cancelled: b.cancelled, excluded: b.excluded, truncated: b.truncated, fullLen: b.fullLen,
+        }) },
+      });
+    case "fileMention":
+      return create(ContentBlockSchema, {
+        kind: { case: "fileMention", value: create(ContentBlock_FileMentionSchema, {
+          paths: b.paths,
+        }) },
+      });
   }
 }
 
@@ -215,6 +325,7 @@ export function chatMessageToProto(m: ChatMessage): PbChatMessage {
   return create(ChatMessageSchema, {
     id: m.id, parentId: m.parentId, ts: m.ts, role: m.role,
     blocks: m.blocks.map(contentBlockToProto),
+    synthetic: m.synthetic,
   });
 }
 
@@ -226,7 +337,8 @@ export function chatFrameToProto(f: ChatFrame): PbChatFrame {
     reset: f.reset,
     streaming: f.streaming,
     model: f.model, modelName: f.modelName, thinkingLevel: f.thinkingLevel,
-    contextPct: f.contextPct, contextTokens: f.contextTokens,
+    contextTokens: f.contextTokens, contextWindow: f.contextWindow,
+    mode: f.mode, engine: f.engine,
   });
 }
 
@@ -276,6 +388,40 @@ export function contentBlockFromProto(p: PbContentBlock): ContentBlock {
         richOptions: v.richOptions, header: v.header, progress: v.progress, multi: v.multi,
       });
     }
+    case "notice": {
+      const v: PbNotice = k.value;
+      // proto3 zero value is "", which `.default()` does NOT rescue (it only
+      // fires on undefined) — an unset enum would throw and drop the whole
+      // frame. Narrow to the union here instead. Same for variant/lang below.
+      return ContentBlock.parse({ kind: "notice", text: v.text, level: v.level === "note" ? "note" : "error" });
+    }
+    case "summary": {
+      const v: PbSummary = k.value;
+      return ContentBlock.parse({
+        kind: "summary", variant: v.variant === "branch" ? "branch" : "compaction",
+        text: v.text, tokensBefore: v.tokensBefore,
+        truncated: v.truncated, fullLen: v.fullLen,
+      });
+    }
+    case "custom": {
+      const v: PbCustomCard = k.value;
+      return ContentBlock.parse({
+        kind: "custom", customType: v.customType, text: v.text, detailsJson: v.detailsJson,
+        truncated: v.truncated, fullLen: v.fullLen,
+      });
+    }
+    case "exec": {
+      const v: PbExec = k.value;
+      return ContentBlock.parse({
+        kind: "exec", lang: v.lang === "python" ? "python" : "bash",
+        command: v.command, output: v.output, exitCode: v.exitCode,
+        cancelled: v.cancelled, excluded: v.excluded, truncated: v.truncated, fullLen: v.fullLen,
+      });
+    }
+    case "fileMention": {
+      const v: PbFileMention = k.value;
+      return ContentBlock.parse({ kind: "fileMention", paths: v.paths });
+    }
     case undefined:
     default:
       // Re-Zod-parse with an unknown marker → throws loudly rather than
@@ -288,6 +434,7 @@ export function chatMessageFromProto(p: PbChatMessage): ChatMessage {
   return ChatMessage.parse({
     id: p.id, parentId: p.parentId, ts: p.ts, role: p.role,
     blocks: p.blocks.map(contentBlockFromProto),
+    synthetic: p.synthetic,
   });
 }
 
@@ -299,6 +446,7 @@ export function chatFrameFromProto(p: PbChatFrame): ChatFrame {
     reset: p.reset,
     streaming: p.streaming,
     model: p.model, modelName: p.modelName, thinkingLevel: p.thinkingLevel,
-    contextPct: p.contextPct, contextTokens: p.contextTokens,
+    contextTokens: p.contextTokens, contextWindow: p.contextWindow,
+    mode: p.mode, engine: p.engine,
   });
 }

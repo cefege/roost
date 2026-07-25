@@ -37,7 +37,9 @@ interface ModelRow {
  *  `off` is appended separately so it is always the last row. */
 const DEFAULT_EFFORTS = ["minimal", "low", "medium", "high", "xhigh", "max"];
 
-const cap = (s: string) => (s ? s[0]!.toUpperCase() + s.slice(1) : s);
+/** Capitalise an omp enum value ("low" → "Low"). Shared with the pane's status
+ *  row so the thinking-level suffix reads identically in both places. */
+export const cap = (s: string) => (s ? s[0]!.toUpperCase() + s.slice(1) : s);
 
 /** Decode the catalog the worker projected out of get_available_models
  *  (rpc-chat.ts::trimCatalog). Still guarded field by field: it crossed a JSON

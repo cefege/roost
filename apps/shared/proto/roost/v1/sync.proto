@@ -202,7 +202,51 @@ message ContentBlock {
     ToolEvent tool_event = 5;        // live tool lifecycle (start/end) from custom entries
     ImageRef image = 6;
     Approval approval = 7;           // omp extension_ui_request (RPC chat only)
+    Notice notice = 8;               // turn-ending assistant abort/error line
+    Summary summary = 9;             // compaction / branch summary card
+    CustomCard custom = 10;          // extension-injected labelled card
+    Exec exec = 11;                  // `!cmd` bash / `!py` eval block
+    FileMention file_mention = 12;
   }
+
+  // A turn-ending line the TUI paints as its own row (assistant abort/error).
+  // Ported from omp resolveAssistantErrorPresentation.
+  message Notice {
+    string text = 1;
+    string level = 2;                // "error" | "note"
+  }
+
+  // Collapsible summary card: compaction / branch summary.
+  message Summary {
+    string variant = 1;              // "compaction" | "branch"
+    string text = 2;                 // markdown summary body, capped at TRUNC_CAP
+    uint32 tokens_before = 3;        // compaction only; 0 otherwise
+    bool truncated = 4;
+    uint32 full_len = 5;
+  }
+
+  // Extension-injected message the TUI paints as a labelled card.
+  message CustomCard {
+    string custom_type = 1;          // "advisor" | "async-result" | "irc:incoming" | …
+    string text = 2;                 // joined text content (markdown), capped at TRUNC_CAP
+    string details_json = 3;         // message.details as JSON; "" when absent or > RAW_CAP
+    bool truncated = 4;
+    uint32 full_len = 5;
+  }
+
+  // `!cmd` bash / `!py` eval block.
+  message Exec {
+    string lang = 1;                 // "bash" | "python"
+    string command = 2;
+    string output = 3;               // capped at TRUNC_CAP
+    sint32 exit_code = 4;            // -1 when omp recorded `undefined`
+    bool cancelled = 5;
+    bool excluded = 6;               // excludeFromContext (`!!` form)
+    bool truncated = 7;
+    uint32 full_len = 8;
+  }
+
+  message FileMention { repeated string paths = 1; }
 
   message ThinkingText {
     string text = 1;                 // truncated to TRUNC_CAP chars when full_len exceeds it
@@ -274,6 +318,7 @@ message ChatMessage {
   string ts = 3;                     // ISO 8601 from transcript
   string role = 4;                   // user | assistant | toolResult | developer
   repeated ContentBlock blocks = 5;
+  bool synthetic = 6;                // agent-attributed user input; the TUI collapses it
 }
 
 message ChatFrame {
@@ -282,10 +327,15 @@ message ChatFrame {
   uint64 seq = 3;                    // monotonic line count (tailer offset)
   bool reset = 4;                    // true → drop client history and reseed
   bool streaming = 5;                // true → agent turn in flight (RPC chat)
-  // Status the omp TUI keeps on screen; empty on the mirror engine.
+  // Status the omp TUI keeps on screen. Both engines populate it: the native
+  // RPC engine off get_state, the mirror engine off the transcript tailer.
   string model = 6;                  // "provider/model"
-  uint32 context_pct = 7;            // context window used, 0-100
+  reserved 7;                        // was context_pct; the percent is derived client-side from tokens/window
   uint32 context_tokens = 8;         // tokens in context
   string model_name = 9;             // friendly display name, e.g. "Claude Sonnet 5"
   string thinking_level = 10;        // omp ThinkingLevel: off|minimal|low|medium|high|xhigh|max|auto|inherit; "" = unknown
+  string mode = 11;                  // omp mode_change: "plan" | "none" | …; "" = default/unknown
+  reserved 12;                       // was cost_usd; omp bills "(sub)", not a dollar figure — deliberately not mirrored
+  uint32 context_window = 13;        // model context window; 0 = unknown → render "<tokens>/?"
+  string engine = 14;                // "rpc" | "mirror" — which producer built this frame
 }

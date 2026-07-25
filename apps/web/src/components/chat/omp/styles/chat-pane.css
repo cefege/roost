@@ -129,7 +129,26 @@
 .omp-chat[data-scrolled="true"] .omp-chat__status {
   box-shadow: var(--md-elev-2);
 }
+/* Read-only status chips (model, mode, cwd). The branch chip reuses
+   .df-flat-branch from sidebar.css rather than growing a second branch style. */
+.omp-chat__chip {
+  /* inline-BLOCK, not inline-flex: text-overflow only applies to a block
+     container, so a flex chip would hard-clip a long model/cwd label with no
+     ellipsis. line-height does the vertical centering flex would have. */
+  display: inline-block;
+  height: 24px;
+  line-height: 24px;
+  padding: 0 var(--md-space-2);
+  border-radius: var(--md-shape-full);
+  background: var(--bg-inset);
+  color: var(--fg-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 22ch;
+}
 .omp-chat__status-ctx {
+  /* Last chip in the row — pushes itself to the right edge. */
   margin-left: auto;
   display: inline-flex;
   align-items: center;
@@ -138,6 +157,18 @@
   border-radius: var(--md-shape-full);
   background: var(--bg-inset);
   color: var(--fg-muted);
+  white-space: nowrap;
+}
+/* omp's own context bands (context-thresholds.ts): the readout has to shout at
+   the same fill level omp's bar does, or the two views disagree on screen. */
+.omp-chat__status-ctx[data-level="warning"] { color: var(--warn); }
+.omp-chat__status-ctx[data-level="high"] {
+  color: var(--warn);
+  font-weight: 600;
+}
+.omp-chat__status-ctx[data-level="error"] {
+  color: var(--err);
+  font-weight: 600;
 }
 /* Pane-level thinking switch. Chip idiom borrowed from chat-message.css
    .tr-chip; the status row is plain-element territory, no @material/web here. */

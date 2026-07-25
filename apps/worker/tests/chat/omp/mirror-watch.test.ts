@@ -23,23 +23,33 @@ import { test, expect, mock } from "bun:test";
 import type { ChatFrame, ChatMessage } from "@roost/shared/chat/wire";
 import type { SessionRecord } from "../../../src/session-record.ts";
 import type { SessionManager } from "../../../src/session-manager.ts";
+import type { OmpStatus } from "../../../src/chat/omp/transcript-watcher.ts";
 
 /** Scripted resolve outcome, swapped per test before the call under test. */
 let nextPath: string | null = null;
 let resolveCalls = 0;
-/** Appenders handed out by the mocked tailer, keyed by transcript path. */
-const tailers = new Map<string, (msgs: ChatMessage[], seq: number) => void>();
+/** Appenders handed out by the mocked tailer, keyed by transcript path. Shape
+ *  mirrors the real startTranscriptWatcher callback, including the join-key map
+ *  the live-bridge id rewrite reads. */
+type Appender = (msgs: ChatMessage[], seq: number, status: OmpStatus, joinKeys: ReadonlyMap<string, string>) => void;
+const tailers = new Map<string, Appender>();
 let disposed = 0;
+/** The status snapshot the real tailer folds out of the transcript; this suite
+ *  asserts on run state, not on status, so one empty value serves every call. */
+const EMPTY_STATUS: OmpStatus = { model: "", mode: "", thinkingLevel: "", contextTokens: 0 };
 
 await mock.module("../../../src/chat/omp/transcript-watcher.ts", () => ({
 	resolveTranscriptPath: async () => {
 		resolveCalls++;
 		return nextPath ? { path: nextPath, via: "lsof" as const } : null;
 	},
-	startTranscriptWatcher: (path: string, onAppend: (m: ChatMessage[], s: number) => void) => {
+	startTranscriptWatcher: (path: string, onAppend: Appender) => {
 		tailers.set(path, onAppend);
 		return { dispose: () => { disposed++; tailers.delete(path); } };
 	},
+	// session-chat.ts imports this for the per-frame status snapshot; a partial
+	// mock makes the whole module fail to link, not just this symbol.
+	emptyOmpStatus: () => ({ model: "", mode: "", thinkingLevel: "", contextTokens: 0 }),
 }));
 
 // Dynamic by necessity: a static import is hoisted above the mock.module call,
@@ -145,7 +155,7 @@ test("run state rides the title separator and publishes only on change", async (
 	_ensureChatWatch.call(h.mgr, 5);
 	await flush();
 	const append = tailers.get("/t/runstate.jsonl")!;
-	append([{ id: "m1", parentId: "", role: "user", ts: "2026-07-25T00:00:00Z", blocks: [{ kind: "text", text: "hi" }] }], 1);
+	append([{ id: "m1", parentId: "", role: "user", ts: "2026-07-25T00:00:00Z", synthetic: false, blocks: [{ kind: "text", text: "hi" }] }], 1, EMPTY_STATUS, new Map());
 	// The title is idle, so every frame so far reports an idle turn.
 	expect(h.frames.every((f) => f.streaming === false)).toBe(true);
 

@@ -120,7 +120,10 @@ test("streaming turn: upsert, tool collapse, approval round trip, mid-turn promp
 		// Session status the omp TUI shows rides every frame.
 		expect(h.frames.at(-1)!.model).toBe("anthropic/claude-opus-5");
 		expect(h.frames.at(-1)!.contextTokens).toBe(18004);
-		expect(h.frames.at(-1)!.contextPct).toBe(2);   // 1.8004 → rounded, as omp's own /context does
+		// The WINDOW rides the wire, not a precomputed percentage — the pane
+		// divides, so an unknown window stays distinguishable from a genuine 0%.
+		expect(h.frames.at(-1)!.contextWindow).toBe(1_000_000);
+		expect(h.frames.at(-1)!.engine).toBe("rpc");
 
 		// Approval arrives unresolved; the turn is still open.
 		const approvalMsg = msgs.find((m) => m.blocks.some((b) => b.kind === "approval"))!;

@@ -7,6 +7,7 @@ import type { TerminalCore } from "@wterm/core";
 import type { CellEmitState } from "@roost/shared/cell";
 import type { ChatMessage } from "@roost/shared/chat/wire";
 import type { OmpRunState } from "@roost/shared/chat/omp-title";
+import type { OmpStatus } from "./chat/omp/transcript-watcher.ts";
 
 export type SessionRecord = {
 	sessionId: SessionId;
@@ -118,6 +119,27 @@ export type SessionRecord = {
 	/** Last omp run state published on a ChatFrame. Change-gate for the
 	 *  payload-less run-state frames (_emitChatRunState). */
 	chatRunState?: OmpRunState;
+	/** Latest statusline snapshot folded out of the transcript (model, mode,
+	 *  thinking level, context tokens). Rides every ChatFrame so the chat
+	 *  pane's status row survives payload-less run-state frames. */
+	chatStatus?: OmpStatus;
+	/** Live-bridge sidecar tailer (chat/omp/live-watcher.ts), started beside the
+	 *  transcript watcher on `${OMP_LIVE_DIR}/<sessionId>.ndjson`. Present for
+	 *  every mirrored omp session, whether or not a sidecar file ever appears —
+	 *  it is NOT evidence of a bridge (chatLiveAttached is). */
+	chatLiveDispose?: (() => void) | null;
+	/** True once the sidecar's `hello` line was parsed: a bridge extension is
+	 *  really writing this session's live events. */
+	chatLiveAttached?: boolean;
+	/** Turn state straight from the bridge (agent_start/agent_end). AUTHORITATIVE
+	 *  when defined — the OSC-title guess (chatRunState) is only the fallback for
+	 *  sessions with no bridge. undefined = no bridge has spoken yet. */
+	chatLiveStreaming?: boolean;
+	/** omp entry id → the provisional `live-N` id that entry's row already
+	 *  streamed under. The transcript tailer rewrites parsed ids through this so
+	 *  the canonical copy REPLACES the streamed one instead of doubling it.
+	 *  Capped + oldest-first evicted by chat/omp/chat-record.ts. */
+	chatLiveIds?: Map<string, string>;
 };
 
 export interface ViewportClaim {

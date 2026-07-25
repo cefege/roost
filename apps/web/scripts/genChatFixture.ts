@@ -13,7 +13,7 @@
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseOmpLine } from "../../worker/src/chat/omp/parse.ts";
-import type { ChatMessage } from "@roost/shared/chat/wire";
+import type { ChatMessage, ContentBlock } from "@roost/shared/chat/wire";
 
 const OUT = join(import.meta.dir, "../src/chat-render-real.json");
 const SESSIONS = join(process.env.HOME ?? "", ".omp/agent/sessions/-Code-idea");
@@ -34,16 +34,29 @@ const full = process.argv.includes("--full");
 let file = argPath;
 if (!file) {
   const files = readdirSync(SESSIONS).filter((f) => f.endsWith(".jsonl")).map((f) => join(SESSIONS, f));
-  // Most tool renderers wins; block-kind coverage is the floor, recency the tiebreak.
+  // Parity cards first, then tool renderers, recency as the tiebreak. Card
+  // kinds are far rarer than tool calls, so ranking on tools alone reliably
+  // picked a session with no compaction and left the summary card unproven.
+  const CARDS: ContentBlock["kind"][] = ["summary", "notice", "custom", "exec", "fileMention", "image"];
   const scored = files
     .map((f) => ({ f, msgs: parseFile(f) }))
-    .map(({ f, msgs }) => ({
-      f,
-      kinds: new Set(msgs.flatMap((m) => m.blocks.map((b) => b.kind))).size,
-      tools: new Set(msgs.flatMap((m) => m.blocks.filter((b) => b.kind === "toolCall").map((b) => b.name))).size,
-    }))
+    .map(({ f, msgs }) => {
+      const kinds = new Set(msgs.flatMap((m) => m.blocks.map((b) => b.kind)));
+      return {
+        f,
+        kinds: kinds.size,
+        hasSummary: kinds.has("summary"),
+        cards: CARDS.filter((k) => kinds.has(k)).length,
+        tools: new Set(msgs.flatMap((m) => m.blocks.filter((b) => b.kind === "toolCall").map((b) => b.name))).size,
+      };
+    })
     .filter((s) => s.kinds >= 5)
-    .sort((a, b) => b.tools - a.tools || b.f.localeCompare(a.f));
+    // Compaction is the rarest card in the corpus — only long sessions have one,
+    // and those are rarely the tool-densest — so a session carrying one outranks
+    // a broader one. Without this the pick lands on a summary-less session and
+    // the harness proves nothing about the card.
+    .sort((a, b) => Number(b.hasSummary) - Number(a.hasSummary)
+      || b.cards - a.cards || b.tools - a.tools || b.f.localeCompare(a.f));
   file = scored[0]?.f;
 }
 if (!file) { console.error("no session found"); process.exit(1); }
@@ -73,9 +86,42 @@ if (!full) {
     }
   }
   const img = all.find((m) => m.role === "toolResult" && m.blocks.some((b) => b.kind === "image"));
-  const comp = all.find((m) => m.role === "developer" && m.blocks.some((b) => b.kind === "text" && b.text.includes("compacted")));
-  for (const extra of [img, comp]) if (extra) keep.add(extra);
+  // One example of each card the parity rebuild added, or the harness proves
+  // nothing about them. `compaction` used to be a text block reading
+  // "— context compacted —"; it is a `summary` block now, and the old
+  // text-substring predicate silently matched nothing.
+  const comp = all.find((m) => m.blocks.some((b) => b.kind === "summary"));
+  const notice = all.find((m) => m.blocks.some((b) => b.kind === "notice"));
+  const custom = all.find((m) => m.blocks.some((b) => b.kind === "custom"));
+  const exec = all.find((m) => m.blocks.some((b) => b.kind === "exec"));
+  const mention = all.find((m) => m.blocks.some((b) => b.kind === "fileMention"));
+  for (const extra of [img, comp, notice, custom, exec, mention]) if (extra) keep.add(extra);
   picked = all.filter((m) => keep.has(m));   // transcript order, not discovery order
+}
+
+// `exec` (omp's `!cmd` / `!py` blocks) and `fileMention` (`@path` attachments)
+// occur in NO transcript in the local corpus, so the pulls above cannot find
+// them and the DOM oracle would assert nothing about two of the five cards the
+// parity rebuild added. Append one synthetic example of each — clearly marked,
+// and only when the real corpus did not supply one — so the harness exercises
+// every card it claims to cover. Everything above this line is real data.
+const have = new Set(picked.flatMap((m) => m.blocks.map((b) => b.kind)));
+const ts = new Date().toISOString();
+if (!have.has("exec")) {
+  picked.push({
+    id: "synthetic-exec", parentId: "", ts, role: "developer", synthetic: false,
+    blocks: [{
+      kind: "exec", lang: "bash", command: "git status --short",
+      output: " M apps/web/src/components/chat/omp/OmpChatPane.tsx\n?? note.txt",
+      exitCode: 0, cancelled: false, excluded: false, truncated: false, fullLen: 0,
+    }],
+  });
+}
+if (!have.has("fileMention")) {
+  picked.push({
+    id: "synthetic-file-mention", parentId: "", ts, role: "developer", synthetic: false,
+    blocks: [{ kind: "fileMention", paths: ["apps/web/src/components/chat/omp/OmpChatPane.tsx"] }],
+  });
 }
 writeFileSync(OUT, JSON.stringify(picked));
 const kinds = [...new Set(picked.flatMap((m) => m.blocks.map((b) => b.kind)))].sort();

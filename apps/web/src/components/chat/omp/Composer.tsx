@@ -216,9 +216,14 @@ export function Composer(props: Props) {
             onInput={onInput}
             onKeyDown={onKey}
           />
-          {/* Native engine only: the mirror engine reports no model, and a chip
-              that cannot change anything would be a lie. */}
-          <Show when={chat().model}>
+          {/* Native engine only. The mirror engine reports a model too, but its
+              ModelMenu commands tunnel to a SEPARATE lazily-spawned
+              `omp --mode rpc` child — the picker would silently not affect the
+              TUI the user is looking at. The read-only chip in the status row
+              covers the mirror engine. Gated on the frame's own `engine`, NOT
+              isNative(): that is a cwd heuristic and misreads a PTY-mirrored
+              session living in a chat folder. */}
+          <Show when={chat().model && chat().engine === "rpc"}>
             <ModelMenu
               sessionId={props.sessionId}
               model={chat().model}

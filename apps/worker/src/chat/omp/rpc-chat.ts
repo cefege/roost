@@ -11,27 +11,29 @@
 // The wire is upsert-by-id: a streaming message is re-emitted under the SAME
 // chat message id as it grows, and both rec.chatMessages and the SPA store
 // replace in place. Ids are synthetic (`rpc-N`) because AgentEvent messages
-// carry no transcript entry id — see fullText below for the consequence.
+// carry no transcript entry id — see event-project.ts's fullText for the
+// consequence.
 //
-// Event mapping (tolerant, structural — omp types are deliberately NOT imported):
-//   agent_start/agent_end        → entry.streaming (rides every ChatFrame)
-//   message_start/update/end     → one upserted ChatMessage per assistant turn
-//   tool_execution_start/end     → one upserted toolEvent message per toolCallId
-//   extension_ui_request         → an approval block the pane answers inline
-//                                  (select/confirm/input/editor); `cancel`
-//                                  retires a card omp gave up on
-//   notice                       → developer text row
-//   everything else              → ignored (tool_execution_update carries partial
-//                                  results ToolEventBlock cannot model; the final
-//                                  result arrives as a toolResult message)
+// Event mapping lives in event-project.ts — ONE switch shared with the live
+// sidecar engine, so a narration row is worded the same whichever saw it. This
+// module keeps only what is RPC-specific:
+//   extension_ui_request  → an approval block the pane answers inline
+//                           (select/confirm/input/editor); `cancel` retires a
+//                           card omp gave up on
+//   command_output        → local slash-command output, fenced
+//   thinking_level_changed→ status refresh
+// plus the trailing-timer coalescing the projector deliberately does not own.
 
-import type { ChatFrame, ChatMessage, ContentBlock } from "@roost/shared/chat/wire";
+import type { ChatFrame, ChatMessage } from "@roost/shared/chat/wire";
 import { diag, log } from "@roost/shared";
 import type { SessionRecord } from "../../session-record.ts";
 import {
 	askQuestionMatches, buildAskChoices, parseAskSpec, splitSelectTitle, type AskQuestionSpec,
 } from "./ask-spec.ts";
-import { mapAgentMessage, mapAgentMessageFull } from "./parse.ts";
+import { dropChatMessage, upsertChatMessage } from "./chat-record.ts";
+import {
+	mapAndRecord, newProjectState, nextId, projectEvent, stripAnsi, type ProjectState,
+} from "./event-project.ts";
 import { OmpRpcDriver, type RpcFrame } from "./rpc-driver.ts";
 import { loadOmpSessionFile, saveOmpSessionFile, forgetOmpSession } from "./session-store.ts";
 
@@ -75,10 +77,6 @@ const UI_FIRE_AND_FORGET_METHODS: Record<string, true> = {
  *  a ChatFrame on the coord bus. */
 const STREAM_FLUSH_MS = 60;
 
-/** Tail of a running tool's output kept on the wire. A `bash` tail -f would
- *  otherwise re-send its whole buffer on every update. */
-const PARTIAL_CAP = 2000;
-
 /** omp caps a page at 256 messages; ask for the max so a reload is few round trips. */
 const HISTORY_PAGE_LIMIT = 256;
 
@@ -88,16 +86,15 @@ const EMPTY_CHECKED: ReadonlySet<string> = new Set();
 interface RpcChatEntry {
 	driver: OmpRpcDriver;
 	sessionId: string;
-	nextMsg: number;
-	lastMsgId: string;
-	/** Chat message id the in-flight assistant/user message streams into. */
-	curMsgId: string | null;
+	/** Id minting + per-turn projection state, shared with the live engine's
+	 *  projector. Ids are `rpc-N` here. */
+	st: ProjectState;
 	/** True between agent_start and agent_end — rides every ChatFrame. */
 	streaming: boolean;
 	/** Session status the omp TUI keeps on screen. Refreshed from get_state at
 	 *  boot and after every turn, and carried on every frame. */
 	model: string;
-	contextPct: number;
+	contextWindow: number;
 	contextTokens: number;
 	/** Friendly display name for `model`, from get_state. "" until resolved. */
 	modelName: string;
@@ -112,8 +109,6 @@ interface RpcChatEntry {
 	ready: Promise<void>;
 	/** omp extension UI request id → chat message id holding its approval block. */
 	pendingUi: Map<string, string>;
-	/** toolCallId → chat message id, so start/end collapse into one message. */
-	toolMsgIds: Map<string, string>;
 	/** toolCallId → the ask tool's parsed questions, captured from
 	 *  tool_execution_start. omp's RPC select frame carries labels only, so the
 	 *  descriptions/multi/header metadata exists nowhere else on the wire. */
@@ -126,9 +121,6 @@ interface RpcChatEntry {
 	/** `${toolCallId}:${questionIndex}` → chat message id, so a multi-select's
 	 *  toggle chain repaints ONE card instead of stacking a dead one per tick. */
 	askCardIds: Map<string, string>;
-	/** chat message id → per-block UNTRUNCATED text, for SessionsGetChatBlock.
-	 *  Only populated for messages that actually got truncated. */
-	fullText: Map<string, string[]>;
 	/** toolCallId → newest un-emitted live output message. Coalesced on a
 	 *  trailing timer: tool_execution_update fires as fast as the tool writes,
 	 *  and a leading-edge drop would strand the last line before a long quiet
@@ -170,18 +162,14 @@ function disposeEntry(entry: RpcChatEntry): void {
 	entry.driver.dispose();
 }
 
-/** Append-or-replace by id. On replace the message's ORIGINAL chatMsgSeqs slot
- *  is kept: getChatHistory pages by walking that array and it must stay
- *  monotonic. rec.chat_seq still advances so the SPA orders frames. */
+/** Append-or-replace by id, then publish the row. rec.chat_seq still advances
+ *  so the SPA orders frames; the record's own slot bookkeeping is shared with
+ *  the transcript and live engines (chat-record.ts). */
 function upsertMessage(host: RpcChatHost, entry: RpcChatEntry, msg: ChatMessage): void {
 	const rec = host.getBySessionId(entry.sessionId);
 	if (!rec) return;
-	rec.chatMessages ??= [];
-	rec.chatMsgSeqs ??= [];
 	rec.chat_seq += 1;
-	const i = rec.chatMessages.findIndex((m) => m.id === msg.id);
-	if (i >= 0) rec.chatMessages[i] = msg;
-	else { rec.chatMessages.push(msg); rec.chatMsgSeqs.push(rec.chat_seq); }
+	upsertChatMessage(rec, msg, rec.chat_seq);
 	host.sendChatFrameUpstream?.(rec.channelId, frameFor(entry, rec.chat_seq, [msg], false));
 }
 
@@ -194,8 +182,15 @@ function frameFor(entry: RpcChatEntry, seq: number, append: ChatMessage[], reset
 		model: entry.model,
 		modelName: entry.modelName,
 		thinkingLevel: entry.thinkingLevel,
-		contextPct: entry.contextPct,
 		contextTokens: entry.contextTokens,
+		contextWindow: entry.contextWindow,
+		engine: "rpc",
+		// omp's RPC get_state carries no agent mode (verified against
+		// rpc-mode.ts's RpcSessionState), so the native engine reports none —
+		// and quick-chat sessions are not driven through plan mode anyway. The
+		// pane omits an absent chip rather than faking one; the mirror engine
+		// fills it from the transcript.
+		mode: "",
 	};
 }
 
@@ -206,78 +201,6 @@ function emitState(host: RpcChatHost, entry: RpcChatEntry): void {
 	host.sendChatFrameUpstream?.(rec.channelId, frameFor(entry, rec.chat_seq, [], false));
 }
 
-/** Untruncated text of one block, mirroring parse.ts::fullBlockText's switch.
- *  toolResult is absent on purpose: its payload rides whole in rawJson. */
-function blockFullText(b: ContentBlock): string {
-	switch (b.kind) {
-		case "text":
-		case "thinking":
-			return b.text;
-		case "toolCall":
-			return b.argsJson;
-		default:
-			return "";
-	}
-}
-
-/** Map an omp AgentMessage → ChatMessage, stashing untruncated block text when
- *  the cap actually bit. The RPC stream carries no entry id, so re-reading the
- *  transcript by id (the mirror engine's path) cannot work here. */
-function mapAndRecord(entry: RpcChatEntry, raw: unknown, id: string, parentId: string): ChatMessage | null {
-	const ts = new Date().toISOString();
-	const msg = mapAgentMessage(raw, id, parentId, ts);
-	if (!msg) return null;
-	const truncated = msg.blocks.some((b) => b.kind === "thinking" && b.truncated);
-	if (!truncated) { entry.fullText.delete(id); return msg; }
-	const full = mapAgentMessageFull(raw, id, parentId, ts);
-	if (full) entry.fullText.set(id, full.blocks.map(blockFullText));
-	return msg;
-}
-
-/** One developer narration row. Prose — it goes through the renderer's
- *  markdown pass, same as any assistant text. */
-function narrate(host: RpcChatHost, entry: RpcChatEntry, text: string): void {
-	upsertMessage(host, entry, {
-		id: `rpc-${entry.nextMsg++}`, parentId: entry.lastMsgId, ts: new Date().toISOString(),
-		role: "developer", blocks: [{ kind: "text", text }],
-	});
-}
-
-/** Text of a tool's in-flight partial result. omp's AgentToolResult carries
- *  `content: [{type:"text", text}]`; some tools report progress as a bare
- *  string. Tail-capped: a running command's newest output is what matters,
- *  and this re-renders on every update. */
-function partialResultText(raw: unknown): string {
-	if (typeof raw === "string") return stripAnsi(raw).slice(-PARTIAL_CAP);
-	if (raw === null || typeof raw !== "object") return "";
-	const content = (raw as { content?: unknown }).content;
-	if (!Array.isArray(content)) return "";
-	let out = "";
-	for (const b of content) {
-		if (b !== null && typeof b === "object") {
-			const blk = b as { type?: unknown; text?: unknown };
-			if (blk.type === "text" && typeof blk.text === "string") out += blk.text;
-		}
-	}
-	return stripAnsi(out).slice(-PARTIAL_CAP);
-}
-
-// CSI/OSC/SS3 escapes. omp writes slash-command output for a terminal, so
-// `/context` arrives full of 24-bit colour runs that would render as literal
-// garbage in a web bubble.
-const ANSI_RE = /[\u001b\u009b](?:\][^\u0007\u001b]*(?:\u0007|\u001b\\)|[[(][0-?]*[ -/]*[@-~])/g;
-
-/** Strip escapes AND resolve carriage-return overwrites. omp renders progress
- *  lines by rewriting one line with \r; kept verbatim inside a fence they
- *  stack up as duplicate rows, so only the final text of each line survives. */
-function stripAnsi(text: string): string {
-	return text
-		.replace(ANSI_RE, "")
-		.replace(/\r\n/g, "\n")
-		.split("\n")
-		.map((line) => (line.includes("\r") ? line.slice(line.lastIndexOf("\r") + 1) : line))
-		.join("\n");
-}
 
 /** Preformatted terminal output → a fenced block. `/context` and friends are
  *  box-drawn, column-aligned text; markdown would collapse the whitespace and
@@ -323,109 +246,10 @@ function flushToolUpdates(host: RpcChatHost, entry: RpcChatEntry): void {
 	for (const msg of pending) upsertMessage(host, entry, msg);
 }
 
+/** RPC-only frames, then the shared projection. The two halves are disjoint:
+ *  nothing below is in event-project.ts's switch, and nothing in it is here. */
 function onEvent(host: RpcChatHost, entry: RpcChatEntry, frame: RpcFrame): void {
 	switch (frame.type) {
-		case "agent_start":
-			entry.streaming = true;
-			emitState(host, entry);
-			return;
-
-		case "agent_end":
-			flushPending(host, entry);
-			flushToolUpdates(host, entry);
-			entry.streaming = false;
-			entry.curMsgId = null;
-			emitState(host, entry);
-			// Context grew over the turn; the TUI's status line would already
-			// show the new number. Failure is silent — status is not load-bearing.
-			void refreshStatus(host, entry).catch(() => { /* keep last known */ });
-			return;
-
-		case "message_start": {
-			flushPending(host, entry);
-			const id = `rpc-${entry.nextMsg++}`;
-			entry.curMsgId = id;
-			const msg = mapAndRecord(entry, frame.message, id, entry.lastMsgId);
-			// A message_start usually carries empty content — nothing to render
-			// yet, but the id is reserved so updates land on one row.
-			if (msg) upsertMessage(host, entry, msg);
-			return;
-		}
-
-		case "message_update": {
-			// frame.message is the FULL message so far, not a delta — remap it
-			// wholesale and let the trailing timer decide when it hits the wire.
-			const id = entry.curMsgId ?? (entry.curMsgId = `rpc-${entry.nextMsg++}`);
-			const msg = mapAndRecord(entry, frame.message, id, entry.lastMsgId);
-			if (!msg) return;
-			entry.pendingMsg = msg;
-			scheduleFlush(host, entry);
-			return;
-		}
-
-		case "message_end": {
-			// Drop the coalesced partial: this frame supersedes it under the same id.
-			if (entry.flushTimer) { clearTimeout(entry.flushTimer); entry.flushTimer = null; }
-			entry.pendingMsg = null;
-			const id = entry.curMsgId ?? `rpc-${entry.nextMsg++}`;
-			entry.curMsgId = null;
-			const msg = mapAndRecord(entry, frame.message, id, entry.lastMsgId);
-			if (!msg) return;
-			entry.lastMsgId = id;
-			upsertMessage(host, entry, msg);
-			return;
-		}
-
-		case "tool_execution_start":
-		case "tool_execution_update":
-		case "tool_execution_end": {
-			const callId = typeof frame.toolCallId === "string" ? frame.toolCallId : "";
-			if (!callId) return;
-			// The ask tool's rich question data — descriptions, header, multi —
-			// exists ONLY here: omp's RPC select frame flattens every option to a
-			// bare label. Stash it so the select frames can be correlated back
-			// into a real selection card.
-			if (frame.type === "tool_execution_start" && frame.toolName === "ask") {
-				const spec = parseAskSpec(frame.args);
-				if (spec.length > 0) {
-					entry.askSpecs.set(callId, spec);
-					entry.activeAsk = callId;
-					enrichPendingAsk(host, entry);
-				}
-			} else if (frame.type === "tool_execution_end" && entry.askSpecs.delete(callId)) {
-				if (entry.activeAsk === callId) entry.activeAsk = null;
-				const prefix = `${callId}:`;
-				for (const key of [...entry.askChecked.keys()]) if (key.startsWith(prefix)) entry.askChecked.delete(key);
-				for (const key of [...entry.askCardIds.keys()]) if (key.startsWith(prefix)) entry.askCardIds.delete(key);
-			}
-			flushPending(host, entry);
-			let id = entry.toolMsgIds.get(callId);
-			if (id === undefined) { id = `rpc-${entry.nextMsg++}`; entry.toolMsgIds.set(callId, id); }
-			const phase = frame.type === "tool_execution_start" ? "start"
-				: frame.type === "tool_execution_update" ? "update" : "end";
-			// The final result arrives separately as a toolResult message, so the
-			// event's own output only has to carry the LIVE view while running —
-			// which is what the TUI shows and the chat used to drop entirely.
-			const output = phase === "update" ? partialResultText(frame.partialResult) : "";
-			const msg: ChatMessage = {
-				id, parentId: entry.lastMsgId, ts: new Date().toISOString(), role: "assistant",
-				blocks: [{
-					kind: "toolEvent", callId,
-					name: typeof frame.toolName === "string" ? frame.toolName : "",
-					phase,
-					intent: typeof frame.intent === "string" ? frame.intent : "",
-					output,
-				}],
-			};
-			if (phase === "update") { queueToolUpdate(host, entry, callId, msg); return; }
-			// start/end are turn structure, not chatter — emit immediately, and
-			// drop any queued partial the terminal state supersedes.
-			entry.toolPending.delete(callId);
-			if (phase === "end") entry.toolMsgIds.delete(callId);
-			upsertMessage(host, entry, msg);
-			return;
-		}
-
 		case "extension_ui_request": {
 			const requestId = typeof frame.id === "string" ? frame.id : "";
 			const method = typeof frame.method === "string" ? frame.method : "";
@@ -468,11 +292,12 @@ function onEvent(host: RpcChatHost, entry: RpcChatEntry, frame: RpcFrame): void 
 			// dead card per tick. Safe because answerUiRequest posts and retires
 			// the previous requestId synchronously, before omp can re-prompt.
 			const reuse = matched ? entry.askCardIds.get(key) : undefined;
-			const id = reuse ?? `rpc-${entry.nextMsg++}`;
+			const id = reuse ?? nextId(entry.st);
 			if (matched && reuse === undefined) entry.askCardIds.set(key, id);
 			entry.pendingUi.set(requestId, id);
 			upsertMessage(host, entry, {
-				id, parentId: entry.lastMsgId, ts: new Date().toISOString(), role: "developer",
+				id, parentId: entry.st.lastMsgId, ts: new Date().toISOString(), role: "developer",
+				synthetic: false,
 				blocks: [{
 					kind: "approval", requestId, method,
 					title: question,
@@ -491,52 +316,16 @@ function onEvent(host: RpcChatHost, entry: RpcChatEntry, frame: RpcFrame): void 
 			return;
 		}
 
-		// Everything below is a plain narration row. The TUI shows all of it; a
-		// chat that drops it is not an alternative to the terminal.
-		case "notice": {
-			const message = typeof frame.message === "string" ? frame.message : "";
-			if (!message) return;
-			const level = typeof frame.level === "string" ? frame.level : "info";
-			narrate(host, entry, `${level}: ${message}`);
-			return;
-		}
-
 		// Local slash commands (/model, /context, /cost …) answer HERE, not via
 		// an agent turn — no message_* frames at all. Dropping this is why a
-		// slash command in the chat pane looked like it did nothing.
+		// slash command in the chat pane looked like it did nothing. Prose, not
+		// a notice row: it is the command's own output, fenced so the box-drawn
+		// tables survive the markdown pass.
 		case "command_output": {
 			const text = typeof frame.text === "string" ? stripAnsi(frame.text) : "";
 			if (text.trim().length === 0) return;
 			flushPending(host, entry);
-			narrate(host, entry, preformatted(text));
-			return;
-		}
-
-		case "extension_error": {
-			const err = typeof frame.error === "string" ? frame.error : "";
-			const where = typeof frame.extensionPath === "string" ? frame.extensionPath : "extension";
-			narrate(host, entry, `extension error (${where}): ${err}`);
-			return;
-		}
-
-		case "auto_compaction_start":
-			narrate(host, entry, "— compacting context… —");
-			return;
-
-		case "auto_compaction_end":
-			narrate(host, entry, "— context compacted —");
-			return;
-
-		case "auto_retry_start": {
-			const why = typeof frame.error === "string" ? `: ${frame.error}` : "";
-			narrate(host, entry, `— retrying${why} —`);
-			return;
-		}
-
-		case "retry_fallback_applied": {
-			const from = typeof frame.from === "string" ? frame.from : "?";
-			const to = typeof frame.to === "string" ? frame.to : "?";
-			narrate(host, entry, `— model fallback: ${from} → ${to} —`);
+			upsertMessage(host, entry, developerRow(entry, preformatted(text)));
 			return;
 		}
 
@@ -550,8 +339,101 @@ function onEvent(host: RpcChatHost, entry: RpcChatEntry, frame: RpcFrame): void 
 			return;
 
 		default:
-			return;
+			break;
 	}
+
+	// The ask tool's rich question data — descriptions, header, multi — exists
+	// ONLY on the tool frames: omp's RPC select frame flattens every option to a
+	// bare label. Stash it BEFORE projecting, so the select frames that already
+	// arrived can be correlated back into a real selection card.
+	trackAskSpec(host, entry, frame);
+
+	const out = projectEvent(entry.st, frame);
+	if (!out) return;
+	switch (out.kind) {
+		case "streaming":
+			if (!out.value) {
+				// agent_end: land everything queued before the turn reads idle.
+				flushPending(host, entry);
+				flushToolUpdates(host, entry);
+			}
+			entry.streaming = out.value;
+			emitState(host, entry);
+			// Context grew over the turn; the TUI's status line would already
+			// show the new number. Failure is silent — status is not load-bearing.
+			if (!out.value) void refreshStatus(host, entry).catch(() => { /* keep last known */ });
+			return;
+
+		case "message":
+			if (out.coalesce) { entry.pendingMsg = out.msg; scheduleFlush(host, entry); return; }
+			// A pending update under THIS id is superseded by the frame in hand
+			// (message_end); one under any other id belongs to the previous
+			// message and must land before this one appears beneath it.
+			if (entry.pendingMsg?.id === out.msg.id) {
+				if (entry.flushTimer) { clearTimeout(entry.flushTimer); entry.flushTimer = null; }
+				entry.pendingMsg = null;
+			} else {
+				flushPending(host, entry);
+			}
+			upsertMessage(host, entry, out.msg);
+			return;
+
+		case "tool":
+			flushPending(host, entry);
+			if (out.phase === "update") { queueToolUpdate(host, entry, out.callId, out.msg); return; }
+			// start/end are turn structure, not chatter — emit immediately, and
+			// drop any queued partial the terminal state supersedes.
+			entry.toolPending.delete(out.callId);
+			upsertMessage(host, entry, out.msg);
+			return;
+
+		case "narrate":
+			upsertMessage(host, entry, out.msg);
+			return;
+
+		case "drop": {
+			// The turn rendered mid-flight but ends as nothing the TUI paints (a
+			// silent abort). Kill any coalesced update for the SAME id first —
+			// the trailing flush would otherwise resurrect the row we just
+			// removed — then retract it and reseed, the wire having no delete.
+			if (entry.pendingMsg?.id === out.id) {
+				if (entry.flushTimer) { clearTimeout(entry.flushTimer); entry.flushTimer = null; }
+				entry.pendingMsg = null;
+			}
+			const rec = host.getBySessionId(entry.sessionId);
+			if (!rec || !dropChatMessage(rec, out.id)) return;
+			host.sendChatFrameUpstream?.(rec.channelId, frameFor(entry, rec.chat_seq, rec.chatMessages ?? [], true));
+			return;
+		}
+	}
+}
+
+/** Capture / release the ask tool's question spec off the tool lifecycle. */
+function trackAskSpec(host: RpcChatHost, entry: RpcChatEntry, frame: RpcFrame): void {
+	const callId = typeof frame.toolCallId === "string" ? frame.toolCallId : "";
+	if (!callId) return;
+	if (frame.type === "tool_execution_start" && frame.toolName === "ask") {
+		const spec = parseAskSpec(frame.args);
+		if (spec.length === 0) return;
+		entry.askSpecs.set(callId, spec);
+		entry.activeAsk = callId;
+		enrichPendingAsk(host, entry);
+		return;
+	}
+	if (frame.type !== "tool_execution_end" || !entry.askSpecs.delete(callId)) return;
+	if (entry.activeAsk === callId) entry.activeAsk = null;
+	const prefix = `${callId}:`;
+	for (const key of [...entry.askChecked.keys()]) if (key.startsWith(prefix)) entry.askChecked.delete(key);
+	for (const key of [...entry.askCardIds.keys()]) if (key.startsWith(prefix)) entry.askCardIds.delete(key);
+}
+
+/** A plain prose row from the worker itself (command output, process exit,
+ *  incomplete reload) — NOT a projected omp narration row, which is a `notice`. */
+function developerRow(entry: RpcChatEntry, text: string): ChatMessage {
+	return {
+		id: nextId(entry.st), parentId: entry.st.lastMsgId, ts: new Date().toISOString(),
+		role: "developer", synthetic: false, blocks: [{ kind: "text", text }],
+	};
 }
 
 /** Resolve the child's session file (get_state) and, on a RESPAWN, resume the
@@ -579,7 +461,7 @@ async function refreshStatus(host: RpcChatHost, entry: RpcChatEntry): Promise<vo
 	const data = state.data as {
 		sessionFile?: unknown;
 		model?: { provider?: unknown; id?: unknown; name?: unknown };
-		contextUsage?: { tokens?: unknown; percent?: unknown };
+		contextUsage?: { tokens?: unknown; contextWindow?: unknown };
 		thinkingLevel?: unknown;
 	} | undefined;
 	if (!data) return;
@@ -606,8 +488,11 @@ async function refreshStatus(host: RpcChatHost, entry: RpcChatEntry): Promise<vo
 		: (entry.model.split("/").pop() ?? "");
 	const usage = data.contextUsage;
 	entry.contextTokens = typeof usage?.tokens === "number" ? Math.max(0, Math.round(usage.tokens)) : 0;
-	// omp reports `percent` already scaled 0-100 (e.g. 0.55 = 0.55%).
-	entry.contextPct = typeof usage?.percent === "number" ? Math.max(0, Math.min(100, Math.round(usage.percent))) : 0;
+	// The percentage is derived client-side off tokens/window, so get_state's
+	// own `percent` is redundant — the window is what the wire carries.
+	entry.contextWindow = typeof usage?.contextWindow === "number" && usage.contextWindow > 0
+		? Math.round(usage.contextWindow)
+		: 0;
 	emitState(host, entry);
 }
 
@@ -631,10 +516,10 @@ async function reloadHistory(host: RpcChatHost, entry: RpcChatEntry): Promise<vo
 		const data = res.data as { messages?: unknown; nextCursor?: unknown } | undefined;
 		const page = Array.isArray(data?.messages) ? data.messages : [];
 		for (const raw of page) {
-			const id = `rpc-${entry.nextMsg++}`;
-			const msg = mapAndRecord(entry, raw, id, entry.lastMsgId);
+			const id = nextId(entry.st);
+			const msg = mapAndRecord(entry.st, raw, id, entry.st.lastMsgId);
 			if (!msg) continue;
-			entry.lastMsgId = id;
+			entry.st.lastMsgId = id;
 			collected.push(msg);
 		}
 		cursor = typeof data?.nextCursor === "string" ? data.nextCursor : undefined;
@@ -648,10 +533,7 @@ async function reloadHistory(host: RpcChatHost, entry: RpcChatEntry): Promise<vo
 	host.sendChatFrameUpstream?.(rec.channelId, frameFor(entry, rec.chat_seq, [], true));
 	for (const msg of collected) upsertMessage(host, entry, msg);
 	if (incomplete) {
-		upsertMessage(host, entry, {
-			id: `rpc-${entry.nextMsg++}`, parentId: entry.lastMsgId, ts: new Date().toISOString(),
-			role: "developer", blocks: [{ kind: "text", text: "— history reload incomplete —" }],
-		});
+		upsertMessage(host, entry, developerRow(entry, "— history reload incomplete —"));
 	}
 }
 
@@ -668,10 +550,10 @@ export function ensureRpcChat(host: RpcChatHost, rec: SessionRecord): RpcChatEnt
 	if (existing) disposeEntry(existing);
 
 	const entry: RpcChatEntry = {
-		sessionId: sid, nextMsg: 1, lastMsgId: "", curMsgId: null, streaming: false,
+		sessionId: sid, st: newProjectState("rpc"), streaming: false,
 		model: "", modelName: "", thinkingLevel: "",
-		contextPct: 0, contextTokens: 0,
-		sessionFile: priorFile, pendingUi: new Map(), toolMsgIds: new Map(), fullText: new Map(),
+		contextWindow: 0, contextTokens: 0,
+		sessionFile: priorFile, pendingUi: new Map(),
 		askSpecs: new Map(), activeAsk: null, askChecked: new Map(), askCardIds: new Map(),
 		toolPending: new Map(), toolTimer: null,
 		pendingMsg: null, flushTimer: null, ready: Promise.resolve(),
@@ -684,10 +566,7 @@ export function ensureRpcChat(host: RpcChatHost, rec: SessionRecord): RpcChatEnt
 			diag("chat.rpc_exit", { sid });
 			if (entry.flushTimer) { clearTimeout(entry.flushTimer); entry.flushTimer = null; }
 			entry.streaming = false;
-			upsertMessage(host, entry, {
-				id: `rpc-${entry.nextMsg++}`, parentId: entry.lastMsgId, ts: new Date().toISOString(),
-				role: "developer", blocks: [{ kind: "text", text: "— agent process exited —" }],
-			});
+			upsertMessage(host, entry, developerRow(entry, "— agent process exited —"));
 			// Keep the entry: its sessionFile is what resumes the conversation on
 			// the next command. The driver is dead, so ensureRpcChat respawns.
 		},
@@ -878,7 +757,7 @@ export async function rpcChatCommand(
 /** Untruncated text of a native-chat block, or null when this session has no
  *  RPC child / the block was never truncated. */
 export function rpcChatFullBlock(sessionId: string, messageId: string, blockIndex: number): string | null {
-	return entries.get(sessionId)?.fullText.get(messageId)?.[blockIndex] ?? null;
+	return entries.get(sessionId)?.st.fullText.get(messageId)?.[blockIndex] ?? null;
 }
 
 /** Re-emit the current session status for a live RPC child (no-op otherwise).

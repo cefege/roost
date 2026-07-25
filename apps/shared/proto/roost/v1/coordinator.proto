@@ -238,6 +238,22 @@ message SessionsGetChatBlockResponse {
   string text = 1;                   // untruncated block text
 }
 
+// Terminal-vs-web parity oracle. Projects BOTH the raw omp transcript (what
+// omp's TUI would paint) and Roost's own parsed ChatMessages onto the same row
+// list, then diffs them positionally. `missing_json == "[]"` and
+// tui_rows == roost_rows means the pane is showing everything the terminal is.
+// See apps/worker/src/chat/omp/tui-rows.ts.
+message SessionsGetChatParityRequest  { string session_id = 1; }
+message SessionsGetChatParityResponse {
+  string transcript_path = 1;
+  string live_path = 2;              // "" when no bridge sidecar is present
+  bool   live_attached = 3;          // a hello was seen on the sidecar
+  uint32 tui_rows = 4;               // rows omp's TUI would paint
+  uint32 roost_rows = 5;             // rows Roost's ChatMessages project to
+  string missing_json = 6;           // JSON array of TuiRow the TUI paints, Roost does not
+  string extra_json = 7;             // JSON array of TuiRow Roost paints, the TUI does not
+}
+
 // Native omp chat: tunnel one omp RpcCommand (JSON) to the session's
 // `omp --mode rpc` child on the worker (lazy-started on first command).
 message SessionsChatCommandRequest {
@@ -558,6 +574,7 @@ service CoordinatorService {
   rpc SessionsGetScrollbackCells(SessionsGetScrollbackCellsRequest) returns (SessionsGetScrollbackCellsResponse);
   rpc SessionsGetChatHistory(SessionsGetChatHistoryRequest) returns (SessionsGetChatHistoryResponse);
   rpc SessionsGetChatBlock(SessionsGetChatBlockRequest) returns (SessionsGetChatBlockResponse);
+  rpc SessionsGetChatParity(SessionsGetChatParityRequest) returns (SessionsGetChatParityResponse);
   rpc SessionsChatCommand(SessionsChatCommandRequest) returns (SessionsChatCommandResponse);
 
   // workspaces

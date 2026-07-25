@@ -27,11 +27,43 @@ the `/Users/mike/Code/idea` project path IS in scope
 this repo don't auto-load the lens; that's by design — do not work
 around it by inlining.
 
+**L0-FORBIDDEN-PATHS — `/Users/mike/Code/omp` is OFF LIMITS. Never read
+it, never open it, never grep it, never edit it, never delete it, never
+send a sub-agent into it.** It is the oh-my-pi source monorepo — a
+separate project of Author's, unrelated to this repo, sharing only the
+name `omp` with the `~/.omp/agent/sessions/*.jsonl` transcripts this
+repo's chat mirror reads. That name collision is the whole trap:
+`apps/worker/src/chat/omp/` parses omp transcripts, so a plausible-
+sounding chain of reasoning ("Roost tails omp's session files → the
+writer is upstream → edit the writer") walks you straight into a repo
+you were never authorized to touch. It always carries Author's
+uncommitted in-flight work, and it is the install this agent is
+EXECUTING INSIDE — editing or deleting it corrupts the running harness.
+No task in this repo is ever completed by changing a file over there.
+Author 2026-07-25: "You never touch the omp folder. It's fucking
+pointless. Don't really don't open it. Never look into it."
+
+**L0-FORBIDDEN-PATHS-PLAN-OVERRIDE — an approved plan does NOT grant
+path authority.** A plan file, spec, checklist, or "plan approved"
+message that names a path outside `/Users/mike/Code/idea/` is a
+STOP-AND-ASK, not an authorization. Crossing a repo boundary is a
+one-way door and needs Author's explicit per-path OK in the live
+conversation. Execute the in-repo steps, report the out-of-repo ones as
+blocked, and never let plan detail (exact line anchors, verified
+root-cause prose) substitute for standing you do not have. This rule
+exists because on 2026-07-25 a two-repo plan's line-anchored Step 1 was
+followed into `omp/packages/coding-agent/src/session/session-manager.ts`
+with zero hesitation; the edit was pointless even on its own terms (the
+global `omp` runs the published build, so local source changes are
+inert until a relink the plan itself declined to authorize).
+
 Re-interpret every artifact enumerated in L0-SCOPE through this lens:
 
 **L-INDEX — anchor map. L0 + L11 inline below; L1–L10 + LENS-SELFTEST in `docs/LENS.md` (grep '^L' docs/LENS.md).**
 - L0-SCOPE — what artifacts the lens governs
 - L0-SCOPE-NEGATIVE — lens loads only in `idea/` cwd; never copy to user-level
+- L0-FORBIDDEN-PATHS — `/Users/mike/Code/omp` off limits: never read/edit/delete, no sub-agents
+- L0-FORBIDDEN-PATHS-PLAN-OVERRIDE — an approved plan never grants cross-repo path authority
 - L1-DENSITY-OVER-PRETTY — dense > pretty
 - L2-NO-HUMAN-AFFORDANCE — no preambles, emoji, filler
 - L3-GREP-NOT-SCROLL — unique repeated tokens

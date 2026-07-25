@@ -22,7 +22,7 @@
 //
 // Tolerant by design: unknown/ill-formed lines → null (never throw).
 
-import { parseSessionEntries, type FileEntry, type SessionEntry } from "@earendil-works/pi-coding-agent";
+import { parseSessionEntries, type FileEntry } from "@earendil-works/pi-coding-agent";
 import {
   RAW_CAP, TRUNC_CAP,
   type ChatMessage, type ContentBlock,
@@ -35,6 +35,62 @@ type Rec = Record<string, unknown>;
 const isRec = (x: unknown): x is Rec => typeof x === "object" && x !== null;
 const asStr = (x: unknown): string | undefined => (typeof x === "string" ? x : undefined);
 const asRec = (x: unknown): Rec | undefined => (isRec(x) ? x : undefined);
+const asNum = (x: unknown): number | undefined => (typeof x === "number" && Number.isFinite(x) ? x : undefined);
+
+/** A transcript entry as it actually appears on disk. The SDK's `SessionEntry`
+ *  union is NOT used: `@earendil-works/pi-coding-agent` 0.82 is a different,
+ *  older package than the agent that writes these files (omp 17), and its union
+ *  omits `mode_change`, `session_init`, `ttsr_injection`, `title`,
+ *  `mcp_tool_selection`, `service_tier_change` and more. Only the four fields
+ *  every entry carries are typed; everything else is read through the `as*`
+ *  helpers, so a future entry type degrades to `null` instead of a type error. */
+type OmpEntry = { type: string; id: string; parentId: string | null; timestamp: string } & Rec;
+
+// ─── Assistant turn-ending notice ─────────────────────────────────────────
+// Port of @oh-my-pi/pi-coding-agent@17.1.3
+//   src/modes/utils/transcript-render-helpers.ts::resolveAssistantErrorPresentation
+//   src/session/messages.ts::{isSilentAbort,isUserInterruptAbort,resolveAbortLabel}
+// omp's live-only `retryAttempt` branch ("Aborted after N retry attempts") is
+// deliberately NOT ported: Roost replays persisted history, where retryAttempt
+// is always 0, so that branch is unreachable here.
+
+const SILENT_ABORT_MARKER = "__omp.silent_abort__";
+const USER_INTERRUPT_LABEL = "Interrupted by user";
+const GENERIC_ABORT_SENTINEL = "Request was aborted";
+// @oh-my-pi/pi-ai src/error/flags.ts — AIError.is(id, f) === ((id ?? 0) & f) !== 0.
+const FLAG_SILENT_ABORT = 0x0200_0000;
+const FLAG_USER_INTERRUPT = 0x0400_0000;
+const FLAG_ABORT = 0x0800_0000;
+
+const hasFlag = (errorId: unknown, flag: number): boolean => ((asNum(errorId) ?? 0) & flag) !== 0;
+
+/** The turn-ending line omp paints under an assistant message, or null when it
+ *  paints none (silent aborts and Esc interrupts are quiet by design).
+ *
+ *  Shared with tui-rows.ts's parity oracle on purpose: two copies of this
+ *  decision WOULD drift, and a drifted oracle proves nothing. */
+export function resolveAssistantNotice(m: Rec): { level: "error" | "note"; text: string } | null {
+  const errorMessage = asStr(m.errorMessage);
+  const silentAbort = hasFlag(m.errorId, FLAG_SILENT_ABORT) || errorMessage === SILENT_ABORT_MARKER;
+  const userInterrupt = hasFlag(m.errorId, FLAG_USER_INTERRUPT) || errorMessage === USER_INTERRUPT_LABEL;
+  const renderAbortReason = !silentAbort && !userInterrupt;
+
+  const recovery = asRec(m.retryRecovery);
+  if (recovery?.status === "recovered") {
+    const note = (asStr(recovery.note) ?? "").replace(/\s+/g, " ").trim();
+    return { level: "note", text: note || "retried" };
+  }
+  if (m.stopReason === "aborted") {
+    if (!renderAbortReason) return null;
+    const generic = hasFlag(m.errorId, FLAG_ABORT)
+      || errorMessage === GENERIC_ABORT_SENTINEL || silentAbort;
+    if (generic || !errorMessage) return { level: "error", text: "Operation aborted" };
+    return { level: "error", text: errorMessage };
+  }
+  if (m.stopReason === "error") return { level: "error", text: errorMessage || "Error" };
+  if (errorMessage && renderAbortReason) return { level: "error", text: errorMessage };
+  return null;
+}
 
 /** Resolve an omp image block → absolute blob path (or data URL) + mime.
  *  omp writes images as:
@@ -150,19 +206,49 @@ function toolResultRawJson(
   });
 }
 
-/** Map a `message` entry → ChatMessage by role (or null). */
+/** Map an omp message `content` → ContentBlocks, preserving SOURCE ORDER.
+ *  Order is load-bearing: text/thinking that follows a toolCall must render
+ *  after that tool's card (omp's splitAssistantMessageToolTimeline), and both
+ *  the pane and tui-rows.ts's oracle derive that split by walking this array.
+ *  Array-only by design: omp types assistant content as a block array, and a
+ *  bare string is legal for USER turns alone (userMessageText) — see mapMessage. */
+function mapContentList(content: unknown, cap: Cap): ContentBlock[] {
+  const blocks: ContentBlock[] = [];
+  if (Array.isArray(content)) {
+    for (const b of content) {
+      const mapped = mapContent(b, cap);
+      if (mapped) blocks.push(mapped);
+    }
+  }
+  return blocks;
+}
+
+/** Extension-injected card (advisor / irc / async-result / hook / skill …).
+ *  omp's own fallback renderer is label + markdown body, so that IS parity;
+ *  `details` rides along untruncated-or-absent for per-type rich cards. */
+function customCardBlock(customType: string, content: unknown, details: unknown, cap: Cap): ContentBlock | null {
+  const body = cap(customMessageText(content));
+  let detailsJson = "";
+  if (details !== undefined) {
+    try {
+      const raw = JSON.stringify(details);
+      if (raw !== undefined && raw.length <= RAW_CAP) detailsJson = raw;
+    } catch { detailsJson = ""; }
+  }
+  if (body.text.length === 0 && detailsJson.length === 0) return null;
+  return {
+    kind: "custom", customType, text: body.text, detailsJson,
+    truncated: body.truncated, fullLen: body.fullLen,
+  };
+}
+
+/** Map a `message` entry → ChatMessage by role (or null).
+ *  Covers every role omp's ChatTranscriptBuilder.#appendChatMessage paints. */
 function mapMessage(message: unknown, id: string, parentId: string, ts: string, cap: Cap): ChatMessage | null {
   const m = asRec(message);
   if (!m) return null;
 
   const role = m.role;
-  if (role !== "user" && role !== "assistant" && role !== "toolResult") {
-    diag("chat.parse_skip", {
-      reason: role === "developer" ? "developer_suppressed" : "unknown_role",
-      role: String(role),
-    });
-    return null;
-  }
 
   // toolResult message: omp carries toolCallId/toolName/isError/details at the
   // MESSAGE level (not per content block). The whole envelope becomes ONE
@@ -197,20 +283,81 @@ function mapMessage(message: unknown, id: string, parentId: string, ts: string, 
       kind: "toolResult", callId, name, isError, text: "", truncated, fullLen,
       rawJson: toolResultRawJson(callId, name, isError, texts, m.details, joined),
     };
-    return { id, parentId, ts, role: "toolResult", blocks: [result, ...images] };
+    return { id, parentId, ts, role: "toolResult", synthetic: false, blocks: [result, ...images] };
   }
 
-  // user / assistant: map each content block.
-  const content = m.content;
-  const blocks: ContentBlock[] = [];
-  if (Array.isArray(content)) {
-    for (const b of content) {
-      const mapped = mapContent(b, cap);
-      if (mapped) blocks.push(mapped);
+  if (role === "user" || role === "assistant") {
+    // A user turn may carry a bare string instead of blocks (omp's
+    // userMessageText handles both); make it one text block rather than an
+    // empty — and therefore dropped — message.
+    const content = m.content;
+    const blocks: ContentBlock[] = role === "user" && typeof content === "string"
+      ? (content.length > 0 ? [{ kind: "text", text: content }] : [])
+      : mapContentList(content, cap);
+    // Turn-ending abort/error/recovered-retry line, appended LAST — omp paints
+    // it below the turn's content (AssistantMessageComponent.updateContent).
+    // Unlike omp we keep the standalone row even when the turn carried tool
+    // calls (omp folds the text into each tool card instead): synthesizing a
+    // toolResult block would risk duplicating the call's real result, and the
+    // shape fires on 6 of 39_155 assistant messages in the live corpus.
+    if (role === "assistant") {
+      const notice = resolveAssistantNotice(m);
+      if (notice) blocks.push({ kind: "notice", text: notice.text, level: notice.level });
     }
+    if (blocks.length === 0) return null; // empty message — nothing to render
+    // Agent-attributed input (advisor "Session update" replays). omp collapses
+    // these behind CollapsedSyntheticMessageComponent; the pane does the same.
+    return { id, parentId, ts, role, blocks, synthetic: role === "user" && m.synthetic === true };
   }
-  if (blocks.length === 0) return null; // empty message — nothing to render
-  return { id, parentId, ts, role, blocks };
+
+  // `!cmd` / `!py` composer runs — their own transcript rows in omp
+  // (BashExecutionComponent / EvalExecutionComponent).
+  if (role === "bashExecution" || role === "pythonExecution") {
+    const bash = role === "bashExecution";
+    const out = cap(asStr(m.output) ?? "");
+    return {
+      id, parentId, ts, role: "developer", synthetic: false,
+      blocks: [{
+        kind: "exec",
+        lang: bash ? "bash" : "python",
+        command: (bash ? asStr(m.command) : asStr(m.code)) ?? "",
+        output: out.text,
+        exitCode: asNum(m.exitCode) ?? -1,
+        cancelled: m.cancelled === true,
+        excluded: m.excludeFromContext === true,
+        truncated: out.truncated,
+        fullLen: out.fullLen,
+      }],
+    };
+  }
+
+  // `@path` mentions attached to a prompt → omp's "Read <path>" rows.
+  if (role === "fileMention") {
+    const paths: string[] = [];
+    const files = m.files;
+    if (Array.isArray(files)) {
+      for (const f of files) {
+        const p = typeof f === "string" ? f : asStr(asRec(f)?.path) ?? "";
+        if (p) paths.push(p);
+      }
+    }
+    if (paths.length === 0) return null;
+    return { id, parentId, ts, role: "developer", synthetic: false, blocks: [{ kind: "fileMention", paths }] };
+  }
+
+  if (role === "custom" || role === "hookMessage") {
+    if (m.display !== true) return null;
+    const card = customCardBlock(asStr(m.customType) ?? "", m.content, m.details, cap);
+    return card ? { id, parentId, ts, role: "developer", synthetic: false, blocks: [card] } : null;
+  }
+
+  // developer: parity, not a gap — omp computes textContent = "" for it and
+  // paints nothing.
+  diag("chat.parse_skip", {
+    reason: role === "developer" ? "developer_suppressed" : "unknown_role",
+    role: String(role),
+  });
+  return null;
 }
 
 /** Extract the joined text of a custom_message `content` (string or block array). */
@@ -225,9 +372,9 @@ function customMessageText(content: unknown): string {
   return out;
 }
 
-/** SDK entry → ChatMessage, or null to skip. `cap` controls text truncation
+/** Entry → ChatMessage, or null to skip. `cap` controls text truncation
  *  (capText for the live stream, fullCap for the untruncated block fetch). */
-function entryToChatMessage(entry: SessionEntry, cap: Cap = capText): ChatMessage | null {
+function entryToChatMessage(entry: OmpEntry, cap: Cap = capText): ChatMessage | null {
   const id = entry.id;
   const parentId = entry.parentId ?? "";
   const ts = entry.timestamp;
@@ -238,55 +385,72 @@ function entryToChatMessage(entry: SessionEntry, cap: Cap = capText): ChatMessag
 
     // custom: Roost's tool-lifecycle value-add. Only tool_execution_start is
     // ever emitted (tool_execution_end: 0/corpus). Everything else → skip.
+    // That is parity: omp renders a CustomEntry only when an extension
+    // registered an entry renderer, and Roost cannot execute those.
     case "custom": {
-      const ct = entry.customType;
+      const ct = asStr(entry.customType);
       if (ct === "tool_execution_start") {
         const d = asRec(entry.data) ?? {};
         const callId = asStr(d.toolCallId);
         if (!callId) return null;
         const name = asStr(d.toolName) ?? "";
         const intent = asStr(d.intent) ?? "";
-        return { id, parentId, ts, role: "assistant", blocks: [{ kind: "toolEvent", callId, name, phase: "start", intent, output: "" }] };
+        return { id, parentId, ts, role: "assistant", synthetic: false, blocks: [{ kind: "toolEvent", callId, name, phase: "start", intent, output: "" }] };
       }
-      diag("chat.parse_skip", { reason: "unknown_custom", type: ct });
+      diag("chat.parse_skip", { reason: "unknown_custom", type: String(ct) });
       return null;
     }
 
-    // compaction: top-level entry (NOT custom). Muted divider — the renderer
-    // and test key on the literal "compacted" substring.
-    case "compaction":
-      return { id, parentId, ts, role: "developer", blocks: [{ kind: "text", text: "— context compacted —" }] };
+    // compaction: top-level entry (NOT custom). omp paints a collapsible
+    // CompactionSummaryMessageComponent headed by the pre-compaction token count.
+    case "compaction": {
+      const body = cap(asStr(entry.summary) ?? "");
+      return {
+        id, parentId, ts, role: "developer", synthetic: false,
+        blocks: [{
+          kind: "summary", variant: "compaction", text: body.text,
+          tokensBefore: asNum(entry.tokensBefore) ?? 0,
+          truncated: body.truncated, fullLen: body.fullLen,
+        }],
+      };
+    }
+
+    // branch_summary: the returned-from-subagent digest (BranchSummaryMessageComponent).
+    case "branch_summary": {
+      const body = cap(asStr(entry.summary) ?? "");
+      return {
+        id, parentId, ts, role: "developer", synthetic: false,
+        blocks: [{
+          kind: "summary", variant: "branch", text: body.text, tokensBefore: 0,
+          truncated: body.truncated, fullLen: body.fullLen,
+        }],
+      };
+    }
 
     // custom_message: extension-injected context (advisor, irc, async-result…).
     // Surface only when omp marks it shown (display === true).
     case "custom_message": {
       if (entry.display !== true) return null;
-      const text = customMessageText(entry.content);
-      if (text.length === 0) return null;
-      return { id, parentId, ts, role: "developer", blocks: [{ kind: "text", text }] };
-    }
-
-    // branch_summary: the returned-from-subagent marker.
-    case "branch_summary": {
-      const summary = asStr(entry.summary);
-      if (!summary) return null;
-      return { id, parentId, ts, role: "developer", blocks: [{ kind: "text", text: "— returned from branch: " + summary }] };
+      const card = customCardBlock(asStr(entry.customType) ?? "", entry.content, entry.details, cap);
+      return card ? { id, parentId, ts, role: "developer", synthetic: false, blocks: [card] } : null;
     }
 
     // thinking_level_change / model_change / service_tier_change / label /
-    // title_change / mode_change / ttsr_injection / session_init / … → skip.
+    // title_change / mode_change / ttsr_injection / session_init /
+    // mcp_tool_selection / … → footer state, not transcript rows, in both
+    // systems. parseOmpStatusDelta folds the ones that matter into the chips.
     default:
       return null;
   }
 }
 
 /** Take the first non-header entry from a parsed line (drops SessionHeader). */
-function firstEntry(line: string): SessionEntry | null {
+function firstEntry(line: string): OmpEntry | null {
   let entries: FileEntry[];
   try { entries = parseSessionEntries(line); }
   catch { diag("chat.parse_skip", { reason: "json_error" }); return null; }
   const entry = entries.find((e) => e.type !== "session");
-  return (entry as SessionEntry | undefined) ?? null;
+  return (entry as OmpEntry | undefined) ?? null;
 }
 
 /** Parse one JSONL line → ChatMessage, or null if the line is not conversational.
@@ -294,6 +458,109 @@ function firstEntry(line: string): SessionEntry | null {
 export function parseOmpLine(line: string): ChatMessage | null {
   const entry = firstEntry(line);
   return entry ? entryToChatMessage(entry) : null;
+}
+
+// ─── live → transcript join key ───────────────────────────────────────────
+// The bridge streams an assistant turn under a provisional `live-N` id; the
+// tailer re-parses the SAME turn from the transcript minutes later under omp's
+// entry id. Joining the two needs an identity BOTH sides can compute.
+//
+// It is NOT the entry id. omp's `message_end` fires BEFORE the entry is
+// appended, so `ctx.sessionManager.getLeafId()` at that instant names the
+// PREVIOUS leaf — measured against a live omp 17.1.3: a `title_change`, a
+// `toolResult`, a `developer` reminder. Keying on it would miss the real row
+// AND rewrite the id of the unrelated row it named.
+//
+// So: omp's own `sessionMessagePersistenceKey`
+// (src/session/turn-persistence.ts:42-52), which exists for exactly this
+// problem (turn-recovery matches a message to its persisted entry with it).
+// Assistant only — the bridge streams no other role. Note `timestamp` here is
+// the INNER message field (epoch ms), NOT the entry's ISO `timestamp`; the two
+// are never equal, and the inner one is unique per session (0 collisions across
+// 20 798 assistant entries in the local corpus).
+
+/** omp's persistence key for an assistant message, or null when the shape is
+ *  not a keyable assistant message. Computed from the omp message object, so
+ *  the live side (event payload) and the durable side (transcript entry) reach
+ *  the same string. */
+export function assistantPersistenceKey(message: unknown): string | null {
+  const m = asRec(message);
+  if (!m || m.role !== "assistant") return null;
+  const ts = m.timestamp;
+  if (typeof ts !== "number" && typeof ts !== "string") return null;
+  return [
+    "assistant",
+    String(ts),
+    asStr(m.provider) ?? "",
+    asStr(m.model) ?? "",
+    asStr(m.responseId) ?? "",
+    asStr(m.stopReason) ?? "",
+  ].join(":");
+}
+
+/** Join key for one raw transcript line, or null when the line is not an
+ *  assistant message entry. Only called for lines that already parsed to an
+ *  assistant ChatMessage, so the extra decode is paid on ~45% of lines. */
+export function ompLineJoinKey(line: string): string | null {
+  const entry = firstEntry(line);
+  if (!entry || entry.type !== "message") return null;
+  return assistantPersistenceKey(entry.message);
+}
+
+/** Statusline facts omp keeps on screen, accumulated from transcript metadata
+ *  entries. Every field optional: one line updates one fact. */
+export interface OmpStatusDelta {
+  model?: string;          // "anthropic/claude-opus-5"
+  mode?: string;           // "plan" | "none" | …
+  thinkingLevel?: string;  // resolved level, or the configured one when auto is unresolved
+  contextTokens?: number;  // contextSnapshot.promptTokens
+}
+
+/** Parse one JSONL line → the statusline facts it carries, or null when it
+ *  carries none. Never throws.
+ *
+ *  Deliberately NOT routed through firstEntry/parseSessionEntries: the field
+ *  that matters most here — `message.contextSnapshot` — is absent from the
+ *  SDK's SessionEntry typings, so the SDK path would buy nothing but a cast.
+ *  Read the raw object defensively instead; any unexpected shape yields null. */
+export function parseOmpStatusDelta(line: string): OmpStatusDelta | null {
+  let e: unknown;
+  try { e = JSON.parse(line); } catch { return null; }
+  if (!isRec(e)) return null;
+  switch (e.type) {
+    case "model_change": {
+      const model = asStr(e.model);
+      return model ? { model } : null;
+    }
+    case "mode_change": {
+      const mode = asStr(e.mode);
+      return mode ? { mode } : null;
+    }
+    case "thinking_level_change": {
+      // `auto` stays unresolved until omp picks a level for the turn; fall back
+      // to the configured value so the chip says something either way.
+      const lvl = asStr(e.thinkingLevel) || asStr(e.configured);
+      return lvl ? { thinkingLevel: lvl } : null;
+    }
+    case "message": {
+      const msg = asRec(e.message);
+      if (!msg || msg.role !== "assistant") return null;
+      const out: OmpStatusDelta = {};
+      const tokens = asNum(asRec(msg.contextSnapshot)?.promptTokens);
+      if (tokens !== undefined && tokens >= 0) out.contextTokens = tokens;
+      // Model fallback. omp writes `model_change` only when the model is
+      // SELECTED, not at every boot, so a session that never touched the
+      // picker has no such line at all — but every assistant message names
+      // its provider + model, in the same `provider/id` shape. A later real
+      // model_change simply overwrites this (deltas fold in file order).
+      const provider = asStr(msg.provider);
+      const id = asStr(msg.model);
+      if (provider && id) out.model = `${provider}/${id}`;
+      return out.contextTokens === undefined && out.model === undefined ? null : out;
+    }
+    default:
+      return null;
+  }
 }
 
 /** Parse a transcript line fully (no truncation) and return the text of the
@@ -309,9 +576,15 @@ export function fullBlockText(line: string, blockIndex: number): string | null {
   switch (blk.kind) {
     case "text":
     case "thinking":
+    case "summary":
+    case "custom":
       return blk.text;
+    case "exec":
+      return blk.output;
     case "toolCall":
       return blk.argsJson;
+    // notice / fileMention / image / toolResult / toolEvent / approval carry
+    // nothing truncatable — toolResult's payload rides whole in rawJson.
     default:
       return null;
   }

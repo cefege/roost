@@ -14,7 +14,7 @@ import { expandTilde } from "./util/path.ts";
 import { withHistfile } from "./keeper/histfile.ts";
 import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
 import { buildHooksSettings } from "./claude/hooks.ts";
-import { _createWtermCore, HOOK_CMD } from "./session-constants.ts";
+import { _createWtermCore, HOOK_CMD, OMP_LIVE_DIR } from "./session-constants.ts";
 
 /** Spawn a plain shell session. Returns the channelId.
  *  targetSessionId: optional explicit session id to use instead of
@@ -80,7 +80,14 @@ export async function spawnShell(
 			argv: [shell],
 			cols: cols ?? 80,
 			rows: rows ?? 24,
-			env: withHistfile(resolvedCwd),
+			// bridge-extension.js (installed into ~/.omp/agent/extensions) reads
+			// both: the sidecar dir to write into + the session id to name the
+			// file. Absent either, it no-ops — so a non-Roost omp is unaffected.
+			env: {
+				...withHistfile(resolvedCwd),
+				ROOST_OMP_LIVE_DIR: OMP_LIVE_DIR,
+				ROOST_SESSION_ID: String(sessionId),
+			},
 			callbacks: this.muxCallbacks(channelId),
 		});
 	} catch (e) {

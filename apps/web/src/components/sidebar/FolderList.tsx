@@ -356,7 +356,12 @@ export function FolderList() {
           data-testid="sidebar-new-chat"
           aria-label="New chat"
           title="New chat"
-          style={{ display: "block", width: "calc(100% - var(--md-space-4))", margin: "0 var(--md-space-2) var(--md-space-2)" }}
+          style={{
+            display: "flex",
+            width: "calc(100% - var(--md-space-4))",
+            margin: "0 var(--md-space-2) var(--md-space-2)",
+            "--md-filled-tonal-button-with-leading-icon-trailing-space": "16px",
+          }}
           onClick={() => { closeSidebar(); void startQuickChat(navigate); }}
         >New chat</Button>
       </Show>

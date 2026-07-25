@@ -30,6 +30,6 @@ const SID = "00000000-0000-0000-0000-000000000001";
 setRootStore("terminal_title", SID, "π > real session");
 setRootStore("omp_eligible", SID, true);
 setOmpChatView(SID, "chat");
-setRootStore("chat_omp", SID, { messages: msgs as ChatMessage[], seq: (msgs as ChatMessage[]).length, status: "resolved", streaming: false, model: "", contextPct: 0, contextTokens: 0 });
+setRootStore("chat_omp", SID, { messages: msgs as ChatMessage[], seq: (msgs as ChatMessage[]).length, status: "resolved", streaming: false, model: "", modelName: "", thinkingLevel: "", contextTokens: 0, contextWindow: 0, mode: "", engine: "" });
 
 render(() => <OmpChatPane sessionId={SID} />, document.getElementById("app")!);

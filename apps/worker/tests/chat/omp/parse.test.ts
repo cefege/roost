@@ -10,7 +10,7 @@ import { test, expect } from "bun:test";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { RAW_CAP, type ChatMessage, type ContentBlock } from "@roost/shared/chat/wire";
-import { parseOmpLine, fullBlockText, TRUNC_CAP } from "../../../src/chat/omp/parse.ts";
+import { parseOmpLine, parseOmpStatusDelta, fullBlockText, TRUNC_CAP } from "../../../src/chat/omp/parse.ts";
 
 /** Narrow blocks[i] to a concrete kind (checked — throws if absent/mismatched). */
 function block<K extends ContentBlock["kind"]>(m: ChatMessage, i: number, kind: K): Extract<ContentBlock, { kind: K }> {
@@ -28,6 +28,11 @@ type RawEnvelope = {
 };
 function rawEnvelope(b: Extract<ContentBlock, { kind: "toolResult" }>): RawEnvelope {
   return JSON.parse(b.rawJson) as RawEnvelope;
+}
+
+/** Wrap an omp message object in its transcript `message` entry envelope. */
+function messageLine(message: Record<string, unknown>, id = "m1"): string {
+  return JSON.stringify({ type: "message", id, parentId: "p0", timestamp: "2026-01-01T00:00:00Z", message });
 }
 
 // ── Real captured lines (verbatim from the live corpus) ──────────────────────
@@ -116,27 +121,39 @@ test("custom tool_execution_start → toolEvent block (role assistant, phase sta
   ]);
 });
 
-test("top-level compaction entry → muted 'compacted' divider (the drift bug this fixes)", () => {
+test("top-level compaction entry → collapsible summary card (the drift bug this fixes)", () => {
   const m = parseOmpLine(REAL.compaction);
   expect(m!.role).toBe("developer");
   expect(m!.blocks).toHaveLength(1);
-  expect(block(m!, 0, "text").text).toContain("compacted");
+  const b = block(m!, 0, "summary");
+  expect(b.variant).toBe("compaction");
+  expect(b.tokensBefore).toBe(181416);
+  expect(b.text).toBe("[Superseded compaction summary elided after a newer compaction]");
+  expect(b.truncated).toBe(false);
 });
 
-test("custom_message display:true → developer text block", () => {
+test("custom_message display:true → labelled custom card", () => {
   const m = parseOmpLine(REAL.cmVisible);
   expect(m!.role).toBe("developer");
-  expect(m!.blocks).toEqual([{ kind: "text", text: "heads up: verify the scrape" }]);
+  expect(m!.blocks).toHaveLength(1);
+  const b = block(m!, 0, "custom");
+  expect(b.customType).toBe("advisor");
+  expect(b.text).toBe("heads up: verify the scrape");
+  expect(b.detailsJson).toBe("");
+  expect(b.fullLen).toBe(b.text.length);
 });
 
 test("custom_message display:false → null (omp marks it hidden)", () => {
   expect(parseOmpLine(REAL.cmHidden)).toBeNull();
 });
 
-test("branch_summary → developer 'returned from branch' divider", () => {
+test("branch_summary → collapsible branch summary card", () => {
   const m = parseOmpLine(REAL.branch);
   expect(m!.role).toBe("developer");
-  expect(block(m!, 0, "text").text).toBe("— returned from branch: implemented the feature");
+  expect(m!.blocks).toEqual([{
+    kind: "summary", variant: "branch", text: "implemented the feature",
+    tokensBefore: 0, truncated: false, fullLen: 23,
+  }]);
 });
 
 test("image block blob:sha256 → one toolResult (both texts joined in rawJson) + image", () => {
@@ -154,7 +171,7 @@ test("unknown custom type → null (never throws)", () => {
 });
 
 test("unknown message role → null", () => {
-  expect(parseOmpLine(`{"type":"message","id":"u","parentId":"p","timestamp":"2026-01-01T00:00:00Z","message":{"role":"bashExecution","content":[{"type":"text","text":"x"}]}}`)).toBeNull();
+  expect(parseOmpLine(messageLine({ role: "somethingNew", content: [{ type: "text", text: "x" }] }))).toBeNull();
 });
 
 test("empty message (no content blocks) → null", () => {
@@ -217,6 +234,180 @@ test("fullBlockText returns argsJson for a toolCall block, aligned by index", ()
   expect(fullBlockText(REAL.asstThinkTool, 9)).toBeNull();
 });
 
+// ── omp TUI parity: the rows the terminal paints the pane used to drop ───────
+// Error semantics are a port of omp 17.1.3's resolveAssistantErrorPresentation;
+// the errorId literals are real AIError flag bitmasks (Class|SilentAbort etc.)
+// captured from the live corpus.
+
+test("aborted turn interrupted by the user → NO notice row (the TUI stays quiet)", () => {
+  const line = messageLine({
+    role: "assistant", content: [{ type: "text", text: "partial" }],
+    stopReason: "aborted", errorMessage: "Interrupted by user", errorId: 67112960,
+  });
+  expect(parseOmpLine(line)!.blocks.map((b) => b.kind)).toEqual(["text"]);
+});
+
+test("silent-abort marker → NO notice row", () => {
+  const line = messageLine({
+    role: "assistant", content: [{ type: "text", text: "partial" }],
+    stopReason: "aborted", errorMessage: "__omp.silent_abort__", errorId: 33558528,
+  });
+  expect(parseOmpLine(line)!.blocks.map((b) => b.kind)).toEqual(["text"]);
+});
+
+test("bare abort (Abort flag, sentinel reason) → 'Operation aborted', even with no content", () => {
+  const line = messageLine({
+    role: "assistant", content: [],
+    stopReason: "aborted", errorMessage: "Request was aborted", errorId: 134221824,
+  });
+  expect(parseOmpLine(line)!.blocks).toEqual([{ kind: "notice", level: "error", text: "Operation aborted" }]);
+});
+
+test("abort with a custom reason → the reason verbatim", () => {
+  const line = messageLine({ role: "assistant", content: [], stopReason: "aborted", errorMessage: "advisor reset" });
+  expect(parseOmpLine(line)!.blocks).toEqual([{ kind: "notice", level: "error", text: "advisor reset" }]);
+});
+
+test("stopReason error → exactly one notice block, appended last", () => {
+  const line = messageLine({
+    role: "assistant", content: [{ type: "text", text: "sorry" }],
+    stopReason: "error", errorMessage: "upstream 500",
+  });
+  expect(parseOmpLine(line)!.blocks).toEqual([
+    { kind: "text", text: "sorry" },
+    { kind: "notice", level: "error", text: "upstream 500" },
+  ]);
+});
+
+test("errored turn WITH a tool call → still ONE notice, no synthesized toolResult", () => {
+  // Deliberate divergence from omp, which folds the error line into each tool
+  // card: synthesizing a toolResult risks duplicating the call's real result,
+  // and the shape fires on 6 of 39_155 assistant messages in the live corpus.
+  const line = messageLine({
+    role: "assistant", stopReason: "error", errorMessage: "upstream 500",
+    content: [{ type: "toolCall", id: "c1", name: "read", arguments: { path: "x" } }],
+  });
+  const m = parseOmpLine(line);
+  expect(m!.blocks.map((b) => b.kind)).toEqual(["toolCall", "notice"]);
+  expect(block(m!, 1, "notice")).toEqual({ kind: "notice", level: "error", text: "upstream 500" });
+});
+
+test("recovered auto-retry → a dim `note`, whitespace collapsed", () => {
+  const line = messageLine({
+    role: "assistant", content: [{ type: "text", text: "ok" }],
+    retryRecovery: { kind: "auto-retry", status: "recovered", attempt: 1, note: "error;\n  retried" },
+  });
+  expect(block(parseOmpLine(line)!, 1, "notice")).toEqual({ kind: "notice", level: "note", text: "error; retried" });
+});
+
+test("synthetic user turn → ChatMessage.synthetic (omp collapses these)", () => {
+  const line = messageLine({ role: "user", content: [{ type: "text", text: "Session update…" }], synthetic: true });
+  expect(parseOmpLine(line)!.synthetic).toBe(true);
+  expect(parseOmpLine(REAL.userText)!.synthetic).toBe(false);
+});
+
+test("user content as a bare string → one text block (omp's userMessageText)", () => {
+  const line = messageLine({ role: "user", content: "your interruptible wait was interrupted" });
+  expect(parseOmpLine(line)!.blocks).toEqual([{ kind: "text", text: "your interruptible wait was interrupted" }]);
+});
+
+test("bashExecution → developer exec block carrying command, output and exit code", () => {
+  const line = messageLine({
+    role: "bashExecution", command: "ls -la", output: "a\nb",
+    exitCode: 0, cancelled: false, excludeFromContext: true,
+  });
+  const m = parseOmpLine(line);
+  expect(m!.role).toBe("developer");
+  expect(m!.blocks).toEqual([{
+    kind: "exec", lang: "bash", command: "ls -la", output: "a\nb",
+    exitCode: 0, cancelled: false, excluded: true, truncated: false, fullLen: 3,
+  }]);
+});
+
+test("pythonExecution → exec block reading `code`; a missing exitCode is -1", () => {
+  const line = messageLine({ role: "pythonExecution", code: "print(1)", output: "1\n", cancelled: true });
+  const b = block(parseOmpLine(line)!, 0, "exec");
+  expect(b.lang).toBe("python");
+  expect(b.command).toBe("print(1)");
+  expect(b.exitCode).toBe(-1);
+  expect(b.cancelled).toBe(true);
+});
+
+test("fileMention → one fileMention block; entries without a path are dropped", () => {
+  const line = messageLine({
+    role: "fileMention",
+    files: [{ path: "/a/b.png", content: "[Image]" }, "/c/d.ts", { content: "no path" }],
+  });
+  const m = parseOmpLine(line);
+  expect(m!.role).toBe("developer");
+  expect(m!.blocks).toEqual([{ kind: "fileMention", paths: ["/a/b.png", "/c/d.ts"] }]);
+});
+
+test("custom role message → card when display:true (details carried), null otherwise", () => {
+  const shown = messageLine({
+    role: "custom", customType: "async-result", content: "done", display: true, details: { jobId: 7 },
+  });
+  const b = block(parseOmpLine(shown)!, 0, "custom");
+  expect(b.customType).toBe("async-result");
+  expect(b.text).toBe("done");
+  expect(JSON.parse(b.detailsJson)).toEqual({ jobId: 7 });
+  const hidden = messageLine({ role: "custom", customType: "async-result", content: "done", display: false });
+  expect(parseOmpLine(hidden)).toBeNull();
+});
+
+test("fullBlockText serves summary / custom / exec text untruncated", () => {
+  const big = "s".repeat(TRUNC_CAP + 7);
+  const comp = JSON.stringify({ type: "compaction", id: "c", parentId: "p", timestamp: "t", summary: big, tokensBefore: 10 });
+  expect(block(parseOmpLine(comp)!, 0, "summary").truncated).toBe(true);
+  expect(fullBlockText(comp, 0)).toBe(big);
+  const cm = JSON.stringify({ type: "custom_message", id: "c2", parentId: "p", timestamp: "t", customType: "advisor", display: true, content: big });
+  expect(fullBlockText(cm, 0)).toBe(big);
+  const bash = messageLine({ role: "bashExecution", command: "x", output: big, exitCode: 0 });
+  expect(fullBlockText(bash, 0)).toBe(big);
+});
+// ── parseOmpStatusDelta: the statusline facts, off the same raw lines ────────
+// Verbatim captured lines again — the status parser reads the RAW object (the
+// SDK typings carry no contextSnapshot), so a shape drift shows up only here.
+const STATUS = {
+  modelChange: `{"type":"model_change","id":"3942ae7a","parentId":null,"timestamp":"2026-07-25T09:56:48.634Z","model":"anthropic/claude-opus-5"}`,
+  modePlan: `{"type":"mode_change","id":"5fc8f8c9","parentId":"3942ae7a","timestamp":"2026-07-25T09:56:48.797Z","mode":"plan","data":{"planFilePath":"local://PLAN.md"}}`,
+  modeNone: `{"type":"mode_change","id":"1700dbef","parentId":"6894f1bc","timestamp":"2026-07-25T09:59:58.651Z","mode":"none"}`,
+  thinking: `{"type":"thinking_level_change","id":"ff0ead9c","parentId":null,"timestamp":"2026-07-25T09:59:58.657Z","thinkingLevel":"high","configured":"auto"}`,
+  assistant: `{"type":"message","id":"511f15fc","parentId":"57546175","timestamp":"2026-07-24T18:53:47.767Z","message":{"role":"assistant","content":[{"type":"text","text":"CLICK PATH OK."}],"api":"anthropic-messages","provider":"anthropic","model":"claude-opus-4-8","usage":{"input":2,"output":12,"cacheRead":34691,"cacheWrite":68479,"totalTokens":103184,"cost":{"input":0.00001,"output":0.00030000000000000003,"cacheRead":0.0173455,"cacheWrite":0.42799375,"total":0.44564925},"cttl":{"ephemeral1h":68479}},"stopReason":"stop","timestamp":1784919224524,"responseId":"msg_011CdMPXQ1W6syzb6QxaogZC","duration":3234.544875000138,"ttft":2970.097208000021,"contextSnapshot":{"promptTokens":103172,"nonMessageTokens":18829}}}`,
+};
+
+test("model_change / mode_change / thinking_level_change → one fact each", () => {
+  expect(parseOmpStatusDelta(STATUS.modelChange)).toEqual({ model: "anthropic/claude-opus-5" });
+  expect(parseOmpStatusDelta(STATUS.modePlan)).toEqual({ mode: "plan" });
+  // "none" is what omp writes on EXIT. It is a real fact (it clears the chip),
+  // not an absence — dropping it would strand a stale "Plan" on screen.
+  expect(parseOmpStatusDelta(STATUS.modeNone)).toEqual({ mode: "none" });
+  expect(parseOmpStatusDelta(STATUS.thinking)).toEqual({ thinkingLevel: "high" });
+});
+
+test("thinking_level_change with an unresolved level falls back to `configured`", () => {
+  const line = `{"type":"thinking_level_change","id":"t1","parentId":null,"timestamp":"2026-01-01T00:00:00Z","thinkingLevel":"","configured":"auto"}`;
+  expect(parseOmpStatusDelta(line)).toEqual({ thinkingLevel: "auto" });
+});
+
+test("assistant message yields BOTH context tokens and the model fallback", () => {
+  // The fallback is load-bearing: omp writes model_change only when the model
+  // is SELECTED, so a session that never touched the picker has none at all.
+  // Both sources produce the same provider/id shape, so they cannot disagree.
+  expect(parseOmpStatusDelta(STATUS.assistant)).toEqual({
+    contextTokens: 103172,
+    model: "anthropic/claude-opus-4-8",
+  });
+});
+
+test("non-status lines → null (ill-formed, unknown type, user turn)", () => {
+  expect(parseOmpStatusDelta("not json")).toBeNull();
+  expect(parseOmpStatusDelta(`{"type":"custom"}`)).toBeNull();
+  expect(parseOmpStatusDelta(REAL.userText)).toBeNull();
+  // An assistant message with neither a snapshot nor a provider carries nothing.
+  expect(parseOmpStatusDelta(`{"type":"message","id":"a","parentId":"p","timestamp":"t","message":{"role":"assistant","content":[]}}`)).toBeNull();
+});
+
 // ── Live-corpus smoke: the end-to-end proof on a real transcript ─────────────
 const CORPUS = join(process.env.HOME ?? "", ".omp/agent/sessions/-Code-idea");
 test.skipIf(!existsSync(CORPUS))("live corpus: a real transcript parses; compaction + toolEvent surface", () => {
@@ -231,7 +422,7 @@ test.skipIf(!existsSync(CORPUS))("live corpus: a real transcript parses; compact
     const m = parseOmpLine(line); // must never throw
     if (!m) continue;
     messages++;
-    if (m.role === "developer" && m.blocks.some((b) => b.kind === "text" && b.text.includes("compacted"))) compacted++;
+    if (m.role === "developer" && m.blocks.some((b) => b.kind === "summary" && b.variant === "compaction")) compacted++;
     if (m.blocks.some((b) => b.kind === "toolEvent")) toolEvents++;
   }
   expect(messages).toBeGreaterThan(0);

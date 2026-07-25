@@ -89,12 +89,24 @@ export interface ChatOmpState {
   status: ChatOmpStatus;
   /** Native RPC chat only: an agent turn is in flight (worker-owned flag). */
   streaming: boolean;
-  /** Session status the omp TUI keeps on screen. Empty/0 on the mirror engine. */
+  /** Session status the omp TUI keeps on screen. Both engines report it: the
+   *  native RPC engine off get_state, the mirror engine off its transcript
+   *  tailer. Empty/0 = the fact is unknown, and its chip is not rendered. */
   model: string;
   modelName: string;
   thinkingLevel: string;
-  contextPct: number;
   contextTokens: number;
+  /** Model context window. 0 = unknown (no catalog entry) → the pane shows
+   *  raw tokens with no percentage, exactly as omp's own bar does. */
+  contextWindow: number;
+  /** omp agent mode ("plan", "none", …). Mirror engine only — RPC get_state
+   *  exposes no mode. */
+  mode: string;
+  /** Which producer built the last status-bearing frame: "rpc" | "mirror".
+   *  "" = no status yet. Non-empty gates the status row; "rpc" additionally
+   *  gates the composer's INTERACTIVE model picker, whose commands only work
+   *  over the native RPC channel. */
+  engine: string;
 }
 
 const initialState: RootState = {

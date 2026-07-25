@@ -23,10 +23,11 @@ describe("chat relay (publishChat → globalChatBus)", () => {
     const wire: ChatFrame = {
       sessionId: "", // worker sends empty; coord stamps it
       append: [{
-        id: "m1", parentId: "", ts: "t", role: "user",
+        id: "m1", parentId: "", ts: "t", role: "user", synthetic: false,
         blocks: [{ kind: "text", text: "hello" }],
       }],
-      seq: 1, reset: false, streaming: false, model: "", modelName: "", thinkingLevel: "", contextPct: 0, contextTokens: 0,
+      seq: 1, reset: false, streaming: false, model: "", modelName: "", thinkingLevel: "",
+      contextTokens: 0, contextWindow: 0, mode: "", engine: "mirror",
     };
     const pb = chatFrameToProto(wire);
 
@@ -48,7 +49,10 @@ describe("chat relay (publishChat → globalChatBus)", () => {
   });
 
   test("publishChat drops unmapped channel (no crash, no publish)", async () => {
-    const wire: ChatFrame = { sessionId: "", append: [], seq: 0, reset: true, streaming: false, model: "", modelName: "", thinkingLevel: "", contextPct: 0, contextTokens: 0 };
+    const wire: ChatFrame = {
+      sessionId: "", append: [], seq: 0, reset: true, streaming: false, model: "", modelName: "", thinkingLevel: "",
+      contextTokens: 0, contextWindow: 0, mode: "", engine: "mirror",
+    };
     let fired = false;
     const unsub = globalChatBus.subscribe(() => { fired = true; });
     // An unmapped channel id (not primed) → dropped, bus never fires.

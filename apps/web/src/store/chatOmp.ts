@@ -37,7 +37,7 @@ export function ompChatEnabled(sessionId: string): boolean {
 
 /** Current chat state for a session (creates an empty slot lazily). */
 export function ompChatForSession(sessionId: string): ChatOmpState {
-	return rootStore.chat_omp[sessionId] ?? { messages: [], seq: 0, status: "idle", streaming: false, model: "", modelName: "", thinkingLevel: "", contextPct: 0, contextTokens: 0 };
+	return rootStore.chat_omp[sessionId] ?? { messages: [], seq: 0, status: "idle", streaming: false, model: "", modelName: "", thinkingLevel: "", contextTokens: 0, contextWindow: 0, mode: "", engine: "" };
 }
 
 /** Apply an inbound ChatFrame. reset → replace; else UPSERT by message id:
@@ -67,8 +67,10 @@ export function applyOmpChatFrame(pb: PbChatFrame): void {
 			model: frame.model,
 			modelName: frame.modelName,
 			thinkingLevel: frame.thinkingLevel,
-			contextPct: frame.contextPct,
 			contextTokens: frame.contextTokens,
+			contextWindow: frame.contextWindow,
+			mode: frame.mode,
+			engine: frame.engine,
 		});
 		return;
 	}
@@ -76,15 +78,18 @@ export function applyOmpChatFrame(pb: PbChatFrame): void {
 	// ones the worker sends on agent_start/agent_end — apply before any early
 	// return or the status line freezes at its first value.
 	if (cur.streaming !== frame.streaming) setRootStore("chat_omp", sid, "streaming", frame.streaming);
-	// `model` non-empty marks a frame from the native engine that has completed
-	// its first get_state. Gate context on that rather than on a non-zero token
-	// count, so a genuine 0 is representable and boot frames never clobber.
-	if (frame.model) {
+	// A non-empty `engine` marks a frame whose status block is populated — both
+	// producers set it ("rpc" / "mirror"), so gate on that rather than on
+	// `model` (a plain value again) or on a non-zero token count: a genuine 0
+	// stays representable and boot frames never clobber a known value.
+	if (frame.engine) {
 		if (cur.model !== frame.model) setRootStore("chat_omp", sid, "model", frame.model);
 		if (cur.modelName !== frame.modelName) setRootStore("chat_omp", sid, "modelName", frame.modelName);
 		if (cur.thinkingLevel !== frame.thinkingLevel) setRootStore("chat_omp", sid, "thinkingLevel", frame.thinkingLevel);
-		if (cur.contextPct !== frame.contextPct) setRootStore("chat_omp", sid, "contextPct", frame.contextPct);
 		if (cur.contextTokens !== frame.contextTokens) setRootStore("chat_omp", sid, "contextTokens", frame.contextTokens);
+		if (cur.contextWindow !== frame.contextWindow) setRootStore("chat_omp", sid, "contextWindow", frame.contextWindow);
+		if (cur.mode !== frame.mode) setRootStore("chat_omp", sid, "mode", frame.mode);
+		if (cur.engine !== frame.engine) setRootStore("chat_omp", sid, "engine", frame.engine);
 	}
 	if (frame.append.length === 0 && cur.seq >= frame.seq) {
 		// Already current — just bump status if we were loading.
@@ -155,7 +160,9 @@ export async function backfillOmpChat(sessionId: string, force = false): Promise
 			seq: cur?.seq ?? 0,
 			status: "loading",
 			streaming: cur?.streaming ?? false,
-			model: cur?.model ?? "", contextPct: cur?.contextPct ?? 0, contextTokens: cur?.contextTokens ?? 0,
+			model: cur?.model ?? "", modelName: cur?.modelName ?? "", thinkingLevel: cur?.thinkingLevel ?? "",
+			engine: cur?.engine ?? "", mode: cur?.mode ?? "",
+			contextTokens: cur?.contextTokens ?? 0, contextWindow: cur?.contextWindow ?? 0,
 		});
 	}
 	try {
@@ -176,7 +183,9 @@ export async function backfillOmpChat(sessionId: string, force = false): Promise
 			seq: Math.max(existing?.seq ?? 0, Number(res.nextSeq)),
 			status: "resolved",
 			streaming: existing?.streaming ?? false,
-			model: existing?.model ?? "", contextPct: existing?.contextPct ?? 0, contextTokens: existing?.contextTokens ?? 0,
+			model: existing?.model ?? "", modelName: existing?.modelName ?? "", thinkingLevel: existing?.thinkingLevel ?? "",
+			engine: existing?.engine ?? "", mode: existing?.mode ?? "",
+			contextTokens: existing?.contextTokens ?? 0, contextWindow: existing?.contextWindow ?? 0,
 		});
 	} catch (e) {
 		// On failure, mark resolved with whatever we have so the pane renders

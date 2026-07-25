@@ -25,7 +25,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file roost/v1/sync.proto.
  */
 export const file_roost_v1_sync: GenFile = /*@__PURE__*/
-  fileDesc("ChNyb29zdC92MS9zeW5jLnByb3RvEghyb29zdC52MSIlCgtTeW5jUmVxdWVzdBIWCg5zaW5jZV9ldmVudF9pZBgBIAEoBCIhCglKc29uRXZlbnQSFAoMcGF5bG9hZF9qc29uGAEgASgJIjsKCkJ5dGVzRnJhbWUSEgoKc2Vzc2lvbl9pZBgBIAEoCRIMCgRkYXRhGAIgASgMEgsKA3NlcRgDIAEoBCI7Cg9TZXNzaW9uUHJlc2VuY2USEgoKc2Vzc2lvbl9pZBgBIAEoCRIUCgxwYXlsb2FkX2pzb24YAiABKAkiNwoRQ2xhdWRlU3RhdHVzRnJhbWUSEgoKc2Vzc2lvbl9pZBgBIAEoCRIOCgZzdGF0dXMYAiABKAkiNwoSVGVybWluYWxUaXRsZUZyYW1lEhIKCnNlc3Npb25faWQYASABKAkSDQoFdGl0bGUYAiABKAkiNgoRTGFzdEFjdGl2aXR5RnJhbWUSEgoKc2Vzc2lvbl9pZBgBIAEoCRINCgV0c19tcxgCIAEoASIiChNXb3JrZXJSb3V0YWJsZUZyYW1lEgsKA2ZwcxgBIAMoCSLUCAoNRmlyZWhvc2VGcmFtZRInCghzZXNzaW9ucxgBIAEoCzITLnJvb3N0LnYxLkpzb25FdmVudEgAEiUKBWJ5dGVzGAcgASgLMhQucm9vc3QudjEuQnl0ZXNGcmFtZUgAEjUKEHNlc3Npb25fcHJlc2VuY2UYCCABKAsyGS5yb29zdC52MS5TZXNzaW9uUHJlc2VuY2VIABInCglhdWRpdF9yb3cYCiABKAsyEi5yb29zdC52MS5BdWRpdFJvd0gAEjQKDXNlc3Npb25fZXZlbnQYCyABKAsyGy5yb29zdC52MS5TZXNzaW9uRXZlbnRQcm90b0gAEjgKD3dvcmtzcGFjZV9kZWx0YRgMIAEoCzIdLnJvb3N0LnYxLldvcmtzcGFjZURlbHRhUHJvdG9IABIuCgp0YXNrX2RlbHRhGA0gASgLMhgucm9vc3QudjEuVGFza0RlbHRhUHJvdG9IABI/ChN3ZWJob29rX3Rva2VuX2RlbHRhGA4gASgLMiAucm9vc3QudjEuV2ViaG9va1Rva2VuRGVsdGFQcm90b0gAEj4KEHBlcm1pc3Npb25fZGVsdGEYDyABKAsyIi5yb29zdC52MS5QZXJtaXNzaW9uUnVsZURlbHRhUHJvdG9IABIyCgdtY3BfbXNnGBAgASgLMh8ucm9vc3QudjEuTWNwU3RyZWFtTWVzc2FnZVByb3RvSAASOAoPd29ya2VyX3ByZXNlbmNlGBEgASgLMh0ucm9vc3QudjEuV29ya2VyUHJlc2VuY2VQcm90b0gAEjQKDWNsYXVkZV9zdGF0dXMYEiABKAsyGy5yb29zdC52MS5DbGF1ZGVTdGF0dXNGcmFtZUgAEjgKD3dvcmtlcl9yb3V0YWJsZRgTIAEoCzIdLnJvb3N0LnYxLldvcmtlclJvdXRhYmxlRnJhbWVIABIuCgljZWxsX2dyaWQYFCABKAsyGS5yb29zdC52MS5QYkNlbGxHcmlkRnJhbWVIABI2Cg50ZXJtaW5hbF90aXRsZRgVIAEoCzIcLnJvb3N0LnYxLlRlcm1pbmFsVGl0bGVGcmFtZUgAEjQKDWxhc3RfYWN0aXZpdHkYFiABKAsyGy5yb29zdC52MS5MYXN0QWN0aXZpdHlGcmFtZUgAEj0KEnBhaXJfcmVxdWVzdF9kZWx0YRgXIAEoCzIfLnJvb3N0LnYxLlBhaXJSZXF1ZXN0RGVsdGFQcm90b0gAEioKCHVpX3N0YXRlGBggASgLMhYucm9vc3QudjEuVWlTdGF0ZUZyYW1lSAASLgoKdWlfY29tbWFuZBgZIAEoCzIYLnJvb3N0LnYxLlVpQ29tbWFuZEZyYW1lSAASLQoJa2VlcGFsaXZlGBogASgLMhgucm9vc3QudjEuS2VlcGFsaXZlRnJhbWVIABIjCgRjaGF0GBsgASgLMhMucm9vc3QudjEuQ2hhdEZyYW1lSABCBwoFZnJhbWUiHAoOS2VlcGFsaXZlRnJhbWUSCgoCdHMYASABKAMimgEKFFVpUmVwb3J0U3RhdGVSZXF1ZXN0Eg4KBnRhYl9pZBgBIAEoCRITCgthY3RpdmVfcGF0aBgCIAEoCRISCgpmb2xkZXJfa2V5GAMgASgJEhMKC2xheW91dF9qc29uGAQgASgJEhcKD2ZvY3VzZWRfcGFuZV9pZBgFIAEoCRIbChN2aXNpYmxlX3Nlc3Npb25faWRzGAYgAygJIvECCglVaUNvbW1hbmQSKAoIbmF2aWdhdGUYASABKAsyFC5yb29zdC52MS5VaU5hdmlnYXRlSAASLQoLcGxhY2Vfc3BsaXQYAiABKAsyFi5yb29zdC52MS5VaVBsYWNlU3BsaXRIABIrCgpzZWxlY3RfdGFiGAMgASgLMhUucm9vc3QudjEuVWlTZWxlY3RUYWJIABIrCgpmb2N1c19wYW5lGAQgASgLMhUucm9vc3QudjEuVWlGb2N1c1BhbmVIABInCghtb3ZlX3RhYhgFIAEoCzITLnJvb3N0LnYxLlVpTW92ZVRhYkgAEiYKB2FycmFuZ2UYBiABKAsyEy5yb29zdC52MS5VaUFycmFuZ2VIABIpCgljbG9zZV90YWIYByABKAsyFC5yb29zdC52MS5VaUNsb3NlVGFiSAASKgoJc3BvdGxpZ2h0GAggASgLMhUucm9vc3QudjEuVWlTcG90bGlnaHRIAEIJCgdjb21tYW5kIhoKClVpTmF2aWdhdGUSDAoEcGF0aBgBIAEoCSJgCgxVaVBsYWNlU3BsaXQSEgoKc2Vzc2lvbl9pZBgBIAEoCRIZChFhbmNob3Jfc2Vzc2lvbl9pZBgCIAEoCRILCgNkaXIYAyABKAkSFAoMaW5zZXJ0X2ZpcnN0GAQgASgIIiEKC1VpU2VsZWN0VGFiEhIKCnNlc3Npb25faWQYASABKAkiIQoLVWlGb2N1c1BhbmUSEgoKc2Vzc2lvbl9pZBgBIAEoCSI4CglVaU1vdmVUYWISEgoKc2Vzc2lvbl9pZBgBIAEoCRIXCg9kZXN0X3Nlc3Npb25faWQYAiABKAkiGwoJVWlBcnJhbmdlEg4KBnByZXNldBgBIAEoCSIgCgpVaUNsb3NlVGFiEhIKCnNlc3Npb25faWQYASABKAkiLgoLVWlTcG90bGlnaHQSEgoKc2Vzc2lvbl9pZBgBIAEoCRILCgNvZmYYAiABKAgiWQoMVWlTdGF0ZUZyYW1lEgoKAmZwGAEgASgJEg4KBnRhYl9pZBgCIAEoCRItCgVzdGF0ZRgDIAEoCzIeLnJvb3N0LnYxLlVpUmVwb3J0U3RhdGVSZXF1ZXN0Ik0KDlVpQ29tbWFuZEZyYW1lEhUKDXRhcmdldF90YWJfaWQYASABKAkSJAoHY29tbWFuZBgCIAEoCzITLnJvb3N0LnYxLlVpQ29tbWFuZCLgCAoMQ29udGVudEJsb2NrEg4KBHRleHQYASABKAlIABI3Cgh0aGlua2luZxgCIAEoCzIjLnJvb3N0LnYxLkNvbnRlbnRCbG9jay5UaGlua2luZ1RleHRIABI0Cgl0b29sX2NhbGwYAyABKAsyHy5yb29zdC52MS5Db250ZW50QmxvY2suVG9vbENhbGxIABI4Cgt0b29sX3Jlc3VsdBgEIAEoCzIhLnJvb3N0LnYxLkNvbnRlbnRCbG9jay5Ub29sUmVzdWx0SAASNgoKdG9vbF9ldmVudBgFIAEoCzIgLnJvb3N0LnYxLkNvbnRlbnRCbG9jay5Ub29sRXZlbnRIABIwCgVpbWFnZRgGIAEoCzIfLnJvb3N0LnYxLkNvbnRlbnRCbG9jay5JbWFnZVJlZkgAEjMKCGFwcHJvdmFsGAcgASgLMh8ucm9vc3QudjEuQ29udGVudEJsb2NrLkFwcHJvdmFsSAAaQQoMVGhpbmtpbmdUZXh0EgwKBHRleHQYASABKAkSEQoJdHJ1bmNhdGVkGAIgASgIEhAKCGZ1bGxfbGVuGAMgASgNGjwKCFRvb2xDYWxsEg8KB2NhbGxfaWQYASABKAkSDAoEbmFtZRgCIAEoCRIRCglhcmdzX2pzb24YAyABKAkaggEKClRvb2xSZXN1bHQSDwoHY2FsbF9pZBgBIAEoCRIMCgRuYW1lGAIgASgJEgwKBHRleHQYAyABKAkSEAoIaXNfZXJyb3IYBCABKAgSEQoJdHJ1bmNhdGVkGAUgASgIEhAKCGZ1bGxfbGVuGAYgASgNEhAKCHJhd19qc29uGAcgASgJGlkKCVRvb2xFdmVudBIPCgdjYWxsX2lkGAEgASgJEgwKBG5hbWUYAiABKAkSDQoFcGhhc2UYAyABKAkSDgoGaW50ZW50GAQgASgJEg4KBm91dHB1dBgFIAEoCRorCghJbWFnZVJlZhIRCglibG9iX3BhdGgYASABKAkSDAoEbWltZRgCIAEoCRrhAgoIQXBwcm92YWwSEgoKcmVxdWVzdF9pZBgBIAEoCRIOCgZtZXRob2QYAiABKAkSDQoFdGl0bGUYAyABKAkSDwoHbWVzc2FnZRgEIAEoCRIPCgdvcHRpb25zGAUgAygJEhAKCHJlc29sdmVkGAYgASgIEg4KBmFuc3dlchgHIAEoCRI8CgxyaWNoX29wdGlvbnMYCCADKAsyJi5yb29zdC52MS5Db250ZW50QmxvY2suQXBwcm92YWwuQ2hvaWNlEg4KBmhlYWRlchgJIAEoCRIQCghwcm9ncmVzcxgKIAEoCRINCgVtdWx0aRgLIAEoCBpvCgZDaG9pY2USDQoFdmFsdWUYASABKAkSDQoFbGFiZWwYAiABKAkSEwoLZGVzY3JpcHRpb24YAyABKAkSEwoLcmVjb21tZW5kZWQYBCABKAgSDwoHY2hlY2tlZBgFIAEoCBIMCgRyb2xlGAYgASgJQgYKBGtpbmQibgoLQ2hhdE1lc3NhZ2USCgoCaWQYASABKAkSEQoJcGFyZW50X2lkGAIgASgJEgoKAnRzGAMgASgJEgwKBHJvbGUYBCABKAkSJgoGYmxvY2tzGAUgAygLMhYucm9vc3QudjEuQ29udGVudEJsb2NrIt0BCglDaGF0RnJhbWUSEgoKc2Vzc2lvbl9pZBgBIAEoCRIlCgZhcHBlbmQYAiADKAsyFS5yb29zdC52MS5DaGF0TWVzc2FnZRILCgNzZXEYAyABKAQSDQoFcmVzZXQYBCABKAgSEQoJc3RyZWFtaW5nGAUgASgIEg0KBW1vZGVsGAYgASgJEhMKC2NvbnRleHRfcGN0GAcgASgNEhYKDmNvbnRleHRfdG9rZW5zGAggASgNEhIKCm1vZGVsX25hbWUYCSABKAkSFgoOdGhpbmtpbmdfbGV2ZWwYCiABKAliBnByb3RvMw", [file_roost_v1_events, file_roost_v1_wire, file_roost_v1_cell]);
+  fileDesc("ChNyb29zdC92MS9zeW5jLnByb3RvEghyb29zdC52MSIlCgtTeW5jUmVxdWVzdBIWCg5zaW5jZV9ldmVudF9pZBgBIAEoBCIhCglKc29uRXZlbnQSFAoMcGF5bG9hZF9qc29uGAEgASgJIjsKCkJ5dGVzRnJhbWUSEgoKc2Vzc2lvbl9pZBgBIAEoCRIMCgRkYXRhGAIgASgMEgsKA3NlcRgDIAEoBCI7Cg9TZXNzaW9uUHJlc2VuY2USEgoKc2Vzc2lvbl9pZBgBIAEoCRIUCgxwYXlsb2FkX2pzb24YAiABKAkiNwoRQ2xhdWRlU3RhdHVzRnJhbWUSEgoKc2Vzc2lvbl9pZBgBIAEoCRIOCgZzdGF0dXMYAiABKAkiNwoSVGVybWluYWxUaXRsZUZyYW1lEhIKCnNlc3Npb25faWQYASABKAkSDQoFdGl0bGUYAiABKAkiNgoRTGFzdEFjdGl2aXR5RnJhbWUSEgoKc2Vzc2lvbl9pZBgBIAEoCRINCgV0c19tcxgCIAEoASIiChNXb3JrZXJSb3V0YWJsZUZyYW1lEgsKA2ZwcxgBIAMoCSLUCAoNRmlyZWhvc2VGcmFtZRInCghzZXNzaW9ucxgBIAEoCzITLnJvb3N0LnYxLkpzb25FdmVudEgAEiUKBWJ5dGVzGAcgASgLMhQucm9vc3QudjEuQnl0ZXNGcmFtZUgAEjUKEHNlc3Npb25fcHJlc2VuY2UYCCABKAsyGS5yb29zdC52MS5TZXNzaW9uUHJlc2VuY2VIABInCglhdWRpdF9yb3cYCiABKAsyEi5yb29zdC52MS5BdWRpdFJvd0gAEjQKDXNlc3Npb25fZXZlbnQYCyABKAsyGy5yb29zdC52MS5TZXNzaW9uRXZlbnRQcm90b0gAEjgKD3dvcmtzcGFjZV9kZWx0YRgMIAEoCzIdLnJvb3N0LnYxLldvcmtzcGFjZURlbHRhUHJvdG9IABIuCgp0YXNrX2RlbHRhGA0gASgLMhgucm9vc3QudjEuVGFza0RlbHRhUHJvdG9IABI/ChN3ZWJob29rX3Rva2VuX2RlbHRhGA4gASgLMiAucm9vc3QudjEuV2ViaG9va1Rva2VuRGVsdGFQcm90b0gAEj4KEHBlcm1pc3Npb25fZGVsdGEYDyABKAsyIi5yb29zdC52MS5QZXJtaXNzaW9uUnVsZURlbHRhUHJvdG9IABIyCgdtY3BfbXNnGBAgASgLMh8ucm9vc3QudjEuTWNwU3RyZWFtTWVzc2FnZVByb3RvSAASOAoPd29ya2VyX3ByZXNlbmNlGBEgASgLMh0ucm9vc3QudjEuV29ya2VyUHJlc2VuY2VQcm90b0gAEjQKDWNsYXVkZV9zdGF0dXMYEiABKAsyGy5yb29zdC52MS5DbGF1ZGVTdGF0dXNGcmFtZUgAEjgKD3dvcmtlcl9yb3V0YWJsZRgTIAEoCzIdLnJvb3N0LnYxLldvcmtlclJvdXRhYmxlRnJhbWVIABIuCgljZWxsX2dyaWQYFCABKAsyGS5yb29zdC52MS5QYkNlbGxHcmlkRnJhbWVIABI2Cg50ZXJtaW5hbF90aXRsZRgVIAEoCzIcLnJvb3N0LnYxLlRlcm1pbmFsVGl0bGVGcmFtZUgAEjQKDWxhc3RfYWN0aXZpdHkYFiABKAsyGy5yb29zdC52MS5MYXN0QWN0aXZpdHlGcmFtZUgAEj0KEnBhaXJfcmVxdWVzdF9kZWx0YRgXIAEoCzIfLnJvb3N0LnYxLlBhaXJSZXF1ZXN0RGVsdGFQcm90b0gAEioKCHVpX3N0YXRlGBggASgLMhYucm9vc3QudjEuVWlTdGF0ZUZyYW1lSAASLgoKdWlfY29tbWFuZBgZIAEoCzIYLnJvb3N0LnYxLlVpQ29tbWFuZEZyYW1lSAASLQoJa2VlcGFsaXZlGBogASgLMhgucm9vc3QudjEuS2VlcGFsaXZlRnJhbWVIABIjCgRjaGF0GBsgASgLMhMucm9vc3QudjEuQ2hhdEZyYW1lSABCBwoFZnJhbWUiHAoOS2VlcGFsaXZlRnJhbWUSCgoCdHMYASABKAMimgEKFFVpUmVwb3J0U3RhdGVSZXF1ZXN0Eg4KBnRhYl9pZBgBIAEoCRITCgthY3RpdmVfcGF0aBgCIAEoCRISCgpmb2xkZXJfa2V5GAMgASgJEhMKC2xheW91dF9qc29uGAQgASgJEhcKD2ZvY3VzZWRfcGFuZV9pZBgFIAEoCRIbChN2aXNpYmxlX3Nlc3Npb25faWRzGAYgAygJIvECCglVaUNvbW1hbmQSKAoIbmF2aWdhdGUYASABKAsyFC5yb29zdC52MS5VaU5hdmlnYXRlSAASLQoLcGxhY2Vfc3BsaXQYAiABKAsyFi5yb29zdC52MS5VaVBsYWNlU3BsaXRIABIrCgpzZWxlY3RfdGFiGAMgASgLMhUucm9vc3QudjEuVWlTZWxlY3RUYWJIABIrCgpmb2N1c19wYW5lGAQgASgLMhUucm9vc3QudjEuVWlGb2N1c1BhbmVIABInCghtb3ZlX3RhYhgFIAEoCzITLnJvb3N0LnYxLlVpTW92ZVRhYkgAEiYKB2FycmFuZ2UYBiABKAsyEy5yb29zdC52MS5VaUFycmFuZ2VIABIpCgljbG9zZV90YWIYByABKAsyFC5yb29zdC52MS5VaUNsb3NlVGFiSAASKgoJc3BvdGxpZ2h0GAggASgLMhUucm9vc3QudjEuVWlTcG90bGlnaHRIAEIJCgdjb21tYW5kIhoKClVpTmF2aWdhdGUSDAoEcGF0aBgBIAEoCSJgCgxVaVBsYWNlU3BsaXQSEgoKc2Vzc2lvbl9pZBgBIAEoCRIZChFhbmNob3Jfc2Vzc2lvbl9pZBgCIAEoCRILCgNkaXIYAyABKAkSFAoMaW5zZXJ0X2ZpcnN0GAQgASgIIiEKC1VpU2VsZWN0VGFiEhIKCnNlc3Npb25faWQYASABKAkiIQoLVWlGb2N1c1BhbmUSEgoKc2Vzc2lvbl9pZBgBIAEoCSI4CglVaU1vdmVUYWISEgoKc2Vzc2lvbl9pZBgBIAEoCRIXCg9kZXN0X3Nlc3Npb25faWQYAiABKAkiGwoJVWlBcnJhbmdlEg4KBnByZXNldBgBIAEoCSIgCgpVaUNsb3NlVGFiEhIKCnNlc3Npb25faWQYASABKAkiLgoLVWlTcG90bGlnaHQSEgoKc2Vzc2lvbl9pZBgBIAEoCRILCgNvZmYYAiABKAgiWQoMVWlTdGF0ZUZyYW1lEgoKAmZwGAEgASgJEg4KBnRhYl9pZBgCIAEoCRItCgVzdGF0ZRgDIAEoCzIeLnJvb3N0LnYxLlVpUmVwb3J0U3RhdGVSZXF1ZXN0Ik0KDlVpQ29tbWFuZEZyYW1lEhUKDXRhcmdldF90YWJfaWQYASABKAkSJAoHY29tbWFuZBgCIAEoCzITLnJvb3N0LnYxLlVpQ29tbWFuZCKODgoMQ29udGVudEJsb2NrEg4KBHRleHQYASABKAlIABI3Cgh0aGlua2luZxgCIAEoCzIjLnJvb3N0LnYxLkNvbnRlbnRCbG9jay5UaGlua2luZ1RleHRIABI0Cgl0b29sX2NhbGwYAyABKAsyHy5yb29zdC52MS5Db250ZW50QmxvY2suVG9vbENhbGxIABI4Cgt0b29sX3Jlc3VsdBgEIAEoCzIhLnJvb3N0LnYxLkNvbnRlbnRCbG9jay5Ub29sUmVzdWx0SAASNgoKdG9vbF9ldmVudBgFIAEoCzIgLnJvb3N0LnYxLkNvbnRlbnRCbG9jay5Ub29sRXZlbnRIABIwCgVpbWFnZRgGIAEoCzIfLnJvb3N0LnYxLkNvbnRlbnRCbG9jay5JbWFnZVJlZkgAEjMKCGFwcHJvdmFsGAcgASgLMh8ucm9vc3QudjEuQ29udGVudEJsb2NrLkFwcHJvdmFsSAASLwoGbm90aWNlGAggASgLMh0ucm9vc3QudjEuQ29udGVudEJsb2NrLk5vdGljZUgAEjEKB3N1bW1hcnkYCSABKAsyHi5yb29zdC52MS5Db250ZW50QmxvY2suU3VtbWFyeUgAEjMKBmN1c3RvbRgKIAEoCzIhLnJvb3N0LnYxLkNvbnRlbnRCbG9jay5DdXN0b21DYXJkSAASKwoEZXhlYxgLIAEoCzIbLnJvb3N0LnYxLkNvbnRlbnRCbG9jay5FeGVjSAASOgoMZmlsZV9tZW50aW9uGAwgASgLMiIucm9vc3QudjEuQ29udGVudEJsb2NrLkZpbGVNZW50aW9uSAAaJQoGTm90aWNlEgwKBHRleHQYASABKAkSDQoFbGV2ZWwYAiABKAkaZAoHU3VtbWFyeRIPCgd2YXJpYW50GAEgASgJEgwKBHRleHQYAiABKAkSFQoNdG9rZW5zX2JlZm9yZRgDIAEoDRIRCgl0cnVuY2F0ZWQYBCABKAgSEAoIZnVsbF9sZW4YBSABKA0aagoKQ3VzdG9tQ2FyZBITCgtjdXN0b21fdHlwZRgBIAEoCRIMCgR0ZXh0GAIgASgJEhQKDGRldGFpbHNfanNvbhgDIAEoCRIRCgl0cnVuY2F0ZWQYBCABKAgSEAoIZnVsbF9sZW4YBSABKA0akgEKBEV4ZWMSDAoEbGFuZxgBIAEoCRIPCgdjb21tYW5kGAIgASgJEg4KBm91dHB1dBgDIAEoCRIRCglleGl0X2NvZGUYBCABKBESEQoJY2FuY2VsbGVkGAUgASgIEhAKCGV4Y2x1ZGVkGAYgASgIEhEKCXRydW5jYXRlZBgHIAEoCBIQCghmdWxsX2xlbhgIIAEoDRocCgtGaWxlTWVudGlvbhINCgVwYXRocxgBIAMoCRpBCgxUaGlua2luZ1RleHQSDAoEdGV4dBgBIAEoCRIRCgl0cnVuY2F0ZWQYAiABKAgSEAoIZnVsbF9sZW4YAyABKA0aPAoIVG9vbENhbGwSDwoHY2FsbF9pZBgBIAEoCRIMCgRuYW1lGAIgASgJEhEKCWFyZ3NfanNvbhgDIAEoCRqCAQoKVG9vbFJlc3VsdBIPCgdjYWxsX2lkGAEgASgJEgwKBG5hbWUYAiABKAkSDAoEdGV4dBgDIAEoCRIQCghpc19lcnJvchgEIAEoCBIRCgl0cnVuY2F0ZWQYBSABKAgSEAoIZnVsbF9sZW4YBiABKA0SEAoIcmF3X2pzb24YByABKAkaWQoJVG9vbEV2ZW50Eg8KB2NhbGxfaWQYASABKAkSDAoEbmFtZRgCIAEoCRINCgVwaGFzZRgDIAEoCRIOCgZpbnRlbnQYBCABKAkSDgoGb3V0cHV0GAUgASgJGisKCEltYWdlUmVmEhEKCWJsb2JfcGF0aBgBIAEoCRIMCgRtaW1lGAIgASgJGuECCghBcHByb3ZhbBISCgpyZXF1ZXN0X2lkGAEgASgJEg4KBm1ldGhvZBgCIAEoCRINCgV0aXRsZRgDIAEoCRIPCgdtZXNzYWdlGAQgASgJEg8KB29wdGlvbnMYBSADKAkSEAoIcmVzb2x2ZWQYBiABKAgSDgoGYW5zd2VyGAcgASgJEjwKDHJpY2hfb3B0aW9ucxgIIAMoCzImLnJvb3N0LnYxLkNvbnRlbnRCbG9jay5BcHByb3ZhbC5DaG9pY2USDgoGaGVhZGVyGAkgASgJEhAKCHByb2dyZXNzGAogASgJEg0KBW11bHRpGAsgASgIGm8KBkNob2ljZRINCgV2YWx1ZRgBIAEoCRINCgVsYWJlbBgCIAEoCRITCgtkZXNjcmlwdGlvbhgDIAEoCRITCgtyZWNvbW1lbmRlZBgEIAEoCBIPCgdjaGVja2VkGAUgASgIEgwKBHJvbGUYBiABKAlCBgoEa2luZCKBAQoLQ2hhdE1lc3NhZ2USCgoCaWQYASABKAkSEQoJcGFyZW50X2lkGAIgASgJEgoKAnRzGAMgASgJEgwKBHJvbGUYBCABKAkSJgoGYmxvY2tzGAUgAygLMhYucm9vc3QudjEuQ29udGVudEJsb2NrEhEKCXN5bnRoZXRpYxgGIAEoCCKKAgoJQ2hhdEZyYW1lEhIKCnNlc3Npb25faWQYASABKAkSJQoGYXBwZW5kGAIgAygLMhUucm9vc3QudjEuQ2hhdE1lc3NhZ2USCwoDc2VxGAMgASgEEg0KBXJlc2V0GAQgASgIEhEKCXN0cmVhbWluZxgFIAEoCBINCgVtb2RlbBgGIAEoCRIWCg5jb250ZXh0X3Rva2VucxgIIAEoDRISCgptb2RlbF9uYW1lGAkgASgJEhYKDnRoaW5raW5nX2xldmVsGAogASgJEgwKBG1vZGUYCyABKAkSFgoOY29udGV4dF93aW5kb3cYDSABKA0SDgoGZW5naW5lGA4gASgJSgQIBxAISgQIDBANYgZwcm90bzM", [file_roost_v1_events, file_roost_v1_wire, file_roost_v1_cell]);
 
 /**
  * @generated from message roost.v1.SyncRequest
@@ -814,6 +814,44 @@ export type ContentBlock = Message<"roost.v1.ContentBlock"> & {
      */
     value: ContentBlock_Approval;
     case: "approval";
+  } | {
+    /**
+     * turn-ending assistant abort/error line
+     *
+     * @generated from field: roost.v1.ContentBlock.Notice notice = 8;
+     */
+    value: ContentBlock_Notice;
+    case: "notice";
+  } | {
+    /**
+     * compaction / branch summary card
+     *
+     * @generated from field: roost.v1.ContentBlock.Summary summary = 9;
+     */
+    value: ContentBlock_Summary;
+    case: "summary";
+  } | {
+    /**
+     * extension-injected labelled card
+     *
+     * @generated from field: roost.v1.ContentBlock.CustomCard custom = 10;
+     */
+    value: ContentBlock_CustomCard;
+    case: "custom";
+  } | {
+    /**
+     * `!cmd` bash / `!py` eval block
+     *
+     * @generated from field: roost.v1.ContentBlock.Exec exec = 11;
+     */
+    value: ContentBlock_Exec;
+    case: "exec";
+  } | {
+    /**
+     * @generated from field: roost.v1.ContentBlock.FileMention file_mention = 12;
+     */
+    value: ContentBlock_FileMention;
+    case: "fileMention";
   } | { case: undefined; value?: undefined };
 };
 
@@ -823,6 +861,202 @@ export type ContentBlock = Message<"roost.v1.ContentBlock"> & {
  */
 export const ContentBlockSchema: GenMessage<ContentBlock> = /*@__PURE__*/
   messageDesc(file_roost_v1_sync, 22);
+
+/**
+ * A turn-ending line the TUI paints as its own row (assistant abort/error).
+ * Ported from omp resolveAssistantErrorPresentation.
+ *
+ * @generated from message roost.v1.ContentBlock.Notice
+ */
+export type ContentBlock_Notice = Message<"roost.v1.ContentBlock.Notice"> & {
+  /**
+   * @generated from field: string text = 1;
+   */
+  text: string;
+
+  /**
+   * "error" | "note"
+   *
+   * @generated from field: string level = 2;
+   */
+  level: string;
+};
+
+/**
+ * Describes the message roost.v1.ContentBlock.Notice.
+ * Use `create(ContentBlock_NoticeSchema)` to create a new message.
+ */
+export const ContentBlock_NoticeSchema: GenMessage<ContentBlock_Notice> = /*@__PURE__*/
+  messageDesc(file_roost_v1_sync, 22, 0);
+
+/**
+ * Collapsible summary card: compaction / branch summary.
+ *
+ * @generated from message roost.v1.ContentBlock.Summary
+ */
+export type ContentBlock_Summary = Message<"roost.v1.ContentBlock.Summary"> & {
+  /**
+   * "compaction" | "branch"
+   *
+   * @generated from field: string variant = 1;
+   */
+  variant: string;
+
+  /**
+   * markdown summary body, capped at TRUNC_CAP
+   *
+   * @generated from field: string text = 2;
+   */
+  text: string;
+
+  /**
+   * compaction only; 0 otherwise
+   *
+   * @generated from field: uint32 tokens_before = 3;
+   */
+  tokensBefore: number;
+
+  /**
+   * @generated from field: bool truncated = 4;
+   */
+  truncated: boolean;
+
+  /**
+   * @generated from field: uint32 full_len = 5;
+   */
+  fullLen: number;
+};
+
+/**
+ * Describes the message roost.v1.ContentBlock.Summary.
+ * Use `create(ContentBlock_SummarySchema)` to create a new message.
+ */
+export const ContentBlock_SummarySchema: GenMessage<ContentBlock_Summary> = /*@__PURE__*/
+  messageDesc(file_roost_v1_sync, 22, 1);
+
+/**
+ * Extension-injected message the TUI paints as a labelled card.
+ *
+ * @generated from message roost.v1.ContentBlock.CustomCard
+ */
+export type ContentBlock_CustomCard = Message<"roost.v1.ContentBlock.CustomCard"> & {
+  /**
+   * "advisor" | "async-result" | "irc:incoming" | …
+   *
+   * @generated from field: string custom_type = 1;
+   */
+  customType: string;
+
+  /**
+   * joined text content (markdown), capped at TRUNC_CAP
+   *
+   * @generated from field: string text = 2;
+   */
+  text: string;
+
+  /**
+   * message.details as JSON; "" when absent or > RAW_CAP
+   *
+   * @generated from field: string details_json = 3;
+   */
+  detailsJson: string;
+
+  /**
+   * @generated from field: bool truncated = 4;
+   */
+  truncated: boolean;
+
+  /**
+   * @generated from field: uint32 full_len = 5;
+   */
+  fullLen: number;
+};
+
+/**
+ * Describes the message roost.v1.ContentBlock.CustomCard.
+ * Use `create(ContentBlock_CustomCardSchema)` to create a new message.
+ */
+export const ContentBlock_CustomCardSchema: GenMessage<ContentBlock_CustomCard> = /*@__PURE__*/
+  messageDesc(file_roost_v1_sync, 22, 2);
+
+/**
+ * `!cmd` bash / `!py` eval block.
+ *
+ * @generated from message roost.v1.ContentBlock.Exec
+ */
+export type ContentBlock_Exec = Message<"roost.v1.ContentBlock.Exec"> & {
+  /**
+   * "bash" | "python"
+   *
+   * @generated from field: string lang = 1;
+   */
+  lang: string;
+
+  /**
+   * @generated from field: string command = 2;
+   */
+  command: string;
+
+  /**
+   * capped at TRUNC_CAP
+   *
+   * @generated from field: string output = 3;
+   */
+  output: string;
+
+  /**
+   * -1 when omp recorded `undefined`
+   *
+   * @generated from field: sint32 exit_code = 4;
+   */
+  exitCode: number;
+
+  /**
+   * @generated from field: bool cancelled = 5;
+   */
+  cancelled: boolean;
+
+  /**
+   * excludeFromContext (`!!` form)
+   *
+   * @generated from field: bool excluded = 6;
+   */
+  excluded: boolean;
+
+  /**
+   * @generated from field: bool truncated = 7;
+   */
+  truncated: boolean;
+
+  /**
+   * @generated from field: uint32 full_len = 8;
+   */
+  fullLen: number;
+};
+
+/**
+ * Describes the message roost.v1.ContentBlock.Exec.
+ * Use `create(ContentBlock_ExecSchema)` to create a new message.
+ */
+export const ContentBlock_ExecSchema: GenMessage<ContentBlock_Exec> = /*@__PURE__*/
+  messageDesc(file_roost_v1_sync, 22, 3);
+
+/**
+ * @generated from message roost.v1.ContentBlock.FileMention
+ */
+export type ContentBlock_FileMention = Message<"roost.v1.ContentBlock.FileMention"> & {
+  /**
+   * @generated from field: repeated string paths = 1;
+   */
+  paths: string[];
+};
+
+/**
+ * Describes the message roost.v1.ContentBlock.FileMention.
+ * Use `create(ContentBlock_FileMentionSchema)` to create a new message.
+ */
+export const ContentBlock_FileMentionSchema: GenMessage<ContentBlock_FileMention> = /*@__PURE__*/
+  messageDesc(file_roost_v1_sync, 22, 4);
 
 /**
  * @generated from message roost.v1.ContentBlock.ThinkingText
@@ -855,7 +1089,7 @@ export type ContentBlock_ThinkingText = Message<"roost.v1.ContentBlock.ThinkingT
  * Use `create(ContentBlock_ThinkingTextSchema)` to create a new message.
  */
 export const ContentBlock_ThinkingTextSchema: GenMessage<ContentBlock_ThinkingText> = /*@__PURE__*/
-  messageDesc(file_roost_v1_sync, 22, 0);
+  messageDesc(file_roost_v1_sync, 22, 5);
 
 /**
  * @generated from message roost.v1.ContentBlock.ToolCall
@@ -884,7 +1118,7 @@ export type ContentBlock_ToolCall = Message<"roost.v1.ContentBlock.ToolCall"> & 
  * Use `create(ContentBlock_ToolCallSchema)` to create a new message.
  */
 export const ContentBlock_ToolCallSchema: GenMessage<ContentBlock_ToolCall> = /*@__PURE__*/
-  messageDesc(file_roost_v1_sync, 22, 1);
+  messageDesc(file_roost_v1_sync, 22, 6);
 
 /**
  * @generated from message roost.v1.ContentBlock.ToolResult
@@ -939,7 +1173,7 @@ export type ContentBlock_ToolResult = Message<"roost.v1.ContentBlock.ToolResult"
  * Use `create(ContentBlock_ToolResultSchema)` to create a new message.
  */
 export const ContentBlock_ToolResultSchema: GenMessage<ContentBlock_ToolResult> = /*@__PURE__*/
-  messageDesc(file_roost_v1_sync, 22, 2);
+  messageDesc(file_roost_v1_sync, 22, 7);
 
 /**
  * @generated from message roost.v1.ContentBlock.ToolEvent
@@ -982,7 +1216,7 @@ export type ContentBlock_ToolEvent = Message<"roost.v1.ContentBlock.ToolEvent"> 
  * Use `create(ContentBlock_ToolEventSchema)` to create a new message.
  */
 export const ContentBlock_ToolEventSchema: GenMessage<ContentBlock_ToolEvent> = /*@__PURE__*/
-  messageDesc(file_roost_v1_sync, 22, 3);
+  messageDesc(file_roost_v1_sync, 22, 8);
 
 /**
  * @generated from message roost.v1.ContentBlock.ImageRef
@@ -1006,7 +1240,7 @@ export type ContentBlock_ImageRef = Message<"roost.v1.ContentBlock.ImageRef"> & 
  * Use `create(ContentBlock_ImageRefSchema)` to create a new message.
  */
 export const ContentBlock_ImageRefSchema: GenMessage<ContentBlock_ImageRef> = /*@__PURE__*/
-  messageDesc(file_roost_v1_sync, 22, 4);
+  messageDesc(file_roost_v1_sync, 22, 9);
 
 /**
  * Inline approval prompt — omp's extension_ui_request surfaced in-thread so
@@ -1096,7 +1330,7 @@ export type ContentBlock_Approval = Message<"roost.v1.ContentBlock.Approval"> & 
  * Use `create(ContentBlock_ApprovalSchema)` to create a new message.
  */
 export const ContentBlock_ApprovalSchema: GenMessage<ContentBlock_Approval> = /*@__PURE__*/
-  messageDesc(file_roost_v1_sync, 22, 5);
+  messageDesc(file_roost_v1_sync, 22, 10);
 
 /**
  * @generated from message roost.v1.ContentBlock.Approval.Choice
@@ -1144,7 +1378,7 @@ export type ContentBlock_Approval_Choice = Message<"roost.v1.ContentBlock.Approv
  * Use `create(ContentBlock_Approval_ChoiceSchema)` to create a new message.
  */
 export const ContentBlock_Approval_ChoiceSchema: GenMessage<ContentBlock_Approval_Choice> = /*@__PURE__*/
-  messageDesc(file_roost_v1_sync, 22, 5, 0);
+  messageDesc(file_roost_v1_sync, 22, 10, 0);
 
 /**
  * @generated from message roost.v1.ChatMessage
@@ -1178,6 +1412,13 @@ export type ChatMessage = Message<"roost.v1.ChatMessage"> & {
    * @generated from field: repeated roost.v1.ContentBlock blocks = 5;
    */
   blocks: ContentBlock[];
+
+  /**
+   * agent-attributed user input; the TUI collapses it
+   *
+   * @generated from field: bool synthetic = 6;
+   */
+  synthetic: boolean;
 };
 
 /**
@@ -1225,20 +1466,14 @@ export type ChatFrame = Message<"roost.v1.ChatFrame"> & {
   streaming: boolean;
 
   /**
-   * Status the omp TUI keeps on screen; empty on the mirror engine.
+   * Status the omp TUI keeps on screen. Both engines populate it: the native
+   * RPC engine off get_state, the mirror engine off the transcript tailer.
    *
    * "provider/model"
    *
    * @generated from field: string model = 6;
    */
   model: string;
-
-  /**
-   * context window used, 0-100
-   *
-   * @generated from field: uint32 context_pct = 7;
-   */
-  contextPct: number;
 
   /**
    * tokens in context
@@ -1260,6 +1495,27 @@ export type ChatFrame = Message<"roost.v1.ChatFrame"> & {
    * @generated from field: string thinking_level = 10;
    */
   thinkingLevel: string;
+
+  /**
+   * omp mode_change: "plan" | "none" | …; "" = default/unknown
+   *
+   * @generated from field: string mode = 11;
+   */
+  mode: string;
+
+  /**
+   * model context window; 0 = unknown → render "<tokens>/?"
+   *
+   * @generated from field: uint32 context_window = 13;
+   */
+  contextWindow: number;
+
+  /**
+   * "rpc" | "mirror" — which producer built this frame
+   *
+   * @generated from field: string engine = 14;
+   */
+  engine: string;
 };
 
 /**

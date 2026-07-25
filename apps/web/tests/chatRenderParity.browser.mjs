@@ -21,8 +21,10 @@
 //     call that produced a result has a card, named for its tool.
 //
 // Reasoning and tool bodies are collapsed by default — IN_TAB_EXTRACT clicks
-// every `Thinking …` line and every card head first (real clicks), so a
-// regression that leaves content unreadable when expanded is still caught.
+// every `Thinking …` line and every card head first (real clicks) and forces
+// open every <details> in the thread (summary cards, collapsed synthetic user
+// turns), so a regression that leaves content unreadable when expanded is
+// still caught.
 
 /** Build the prose oracle: one content string per verbatim-rendered block. */
 export function contentUnits(messages) {
@@ -35,6 +37,12 @@ export function contentUnits(messages) {
         try { a = JSON.parse(b.argsJson || "{}"); } catch { /* ignore */ }
         units.push({ kind: b.kind, content: String(a.path ?? a.content ?? a.input ?? a.command ?? a.pattern ?? a.query ?? a.op ?? b.name) });
       }
+      else if (b.kind === "notice" || b.kind === "summary" || b.kind === "custom") units.push({ kind: b.kind, content: b.text });
+      // Two units, not one joined string: the status/`!!` chips sit BETWEEN the
+      // command and the output in the DOM, so a window spanning both would
+      // never match the rendered text.
+      else if (b.kind === "exec") { units.push({ kind: b.kind, content: b.command }); units.push({ kind: b.kind, content: b.output }); }
+      else if (b.kind === "fileMention") { for (const p of b.paths) units.push({ kind: b.kind, content: p }); }
       // toolResult → the card oracle below. image → asserted separately
       // (an <img> or a visible placeholder), not by text.
     }
@@ -99,6 +107,7 @@ export function checkParity(messages, extract) {
 /** In-tab driver (inject via humanchrome). Expands every disclosure, then
  *  returns the thread text plus the name of every painted tool card. */
 export const IN_TAB_EXTRACT = `(() => {
+  document.querySelectorAll('.omp-chat__thread details').forEach((d) => { d.open = true; });
   document.querySelectorAll('.tr-think-collapsed').forEach((b) => b.click());
   document.querySelectorAll('omp-tool-view .tv-head[aria-expanded="false"]').forEach((b) => b.click());
   return new Promise((r) => setTimeout(() => r({

@@ -17,6 +17,7 @@ import {
   SessionsAssignWorkspaceResponseSchema,
   SessionsGetScrollbackCellsResponseSchema,
   SessionsGetChatHistoryResponseSchema, SessionsGetChatBlockResponseSchema,
+  SessionsGetChatParityResponseSchema,
   SessionsChatCommandResponseSchema,
 } from "@roost/shared/proto/coordinator_pb";
 import { sessionToProto } from "@roost/shared/wire/agent-proto";
@@ -103,7 +104,7 @@ type SessionMethods =
   | "sessionsRename" | "sessionsResize" | "sessionsUserMessage" | "sessionsInput"
   | "sessionsCursorPos" | "sessionsAssignWorkspace"
   | "sessionsGetScrollbackCells"
-  | "sessionsGetChatHistory" | "sessionsGetChatBlock" | "sessionsChatCommand";
+  | "sessionsGetChatHistory" | "sessionsGetChatBlock" | "sessionsGetChatParity" | "sessionsChatCommand";
 
 export function makeSessionHandlers(
   deps: ConnectDeps,
@@ -429,6 +430,40 @@ export function makeSessionHandlers(
       try { res = await pending.promise; }
       catch { throw new ConnectError("chat block serve timed out", Code.Unavailable); }
       return create(SessionsGetChatBlockResponseSchema, { text: res.text });
+    },
+
+    // Diagnostic: what is the terminal painting that the web is not? Compares
+    // the worker's two projections of the SAME session (raw transcript → the
+    // rows omp's TUI would paint, vs Roost's parsed ChatMessages). Proves the
+    // DATA reaches the pane; the browser harness separately proves the DOM
+    // paints it.
+    async sessionsGetChatParity(req, ctx) {
+      requireAuth(ctx.values);
+      const row = await deps.db.selectFrom("sessions").select(["worker_fp"]).where("id", "=", req.sessionId).executeTakeFirst();
+      if (!row) throw new ConnectError("unknown session", Code.NotFound);
+      const sock = getWorkerHubSocket(row.worker_fp);
+      if (!sock) throw new ConnectError("worker not connected", Code.Unavailable);
+      const pending = createPendingRpc<{
+        transcript_path: string; live_path: string; live_attached: boolean;
+        tui_rows: number; roost_rows: number; missing_json: string; extra_json: string;
+      }>(15_000, row.worker_fp);
+      sendBrowserCmd(sock, requireAuth(ctx.values), pending.request_id, {
+        kind: "get-chat-parity" as const,
+        request_id: pending.request_id,
+        session_id: asSessionId(req.sessionId),
+      });
+      let res;
+      try { res = await pending.promise; }
+      catch { throw new ConnectError("chat parity serve timed out", Code.Unavailable); }
+      return create(SessionsGetChatParityResponseSchema, {
+        transcriptPath: res.transcript_path,
+        livePath: res.live_path,
+        liveAttached: res.live_attached,
+        tuiRows: res.tui_rows,
+        roostRows: res.roost_rows,
+        missingJson: res.missing_json,
+        extraJson: res.extra_json,
+      });
     },
 
     async sessionsChatCommand(req, ctx) {
