@@ -18,7 +18,7 @@ import { asWorkerFp, asSessionId, asChannelId } from "@roost/shared/wire";
 import type { SessionEvent } from "@roost/shared/wire";
 import { foldEventIntoStore } from "../src/store/projector.ts";
 import { rootStore, setRootStore } from "../src/store/root.ts";
-import type { ClaudeStatus, ChatOmpState } from "../src/store/root.ts";
+import type { ClaudeStatus } from "../src/store/root.ts";
 import { getSessionTraceId, sessionTraceSize } from "../src/lib/diag.ts";
 import { InputChannel, inputMapSizes } from "../src/ws/input-channel.ts";
 
@@ -79,11 +79,8 @@ describe("session store row stability (projector reconcile)", () => {
 
   test("closed reaps the session, its volatile slices, AND the per-session accumulators", () => {
     // Seed every per-session accumulator the close reaper owns so each drop is
-    // observable. chat_omp / _sessionTrace / _lastSendTs have NO other reaper —
-    // without the projector prune they leak one entry per closed session for the
-    // life of the tab (the days-long-uptime input-lag bug this fix closes).
+    // observable. _sessionTrace and _lastSendTs have no other reaper.
     setRootStore("claude_status", SID_A, "working" as ClaudeStatus);
-    setRootStore("chat_omp", SID_A, { messages: [], seq: 1, status: "resolved", streaming: false, model: "", modelName: "", thinkingLevel: "", contextTokens: 0, contextWindow: 0, mode: "", engine: "mirror" } as ChatOmpState);
     getSessionTraceId(SID_A);                                         // → diag _sessionTrace[SID_A]
     new InputChannel(async () => {}).sendInput(SID_A, new Uint8Array([65])); // → _lastSendTs[SID_A]
     const traceBefore = sessionTraceSize();
@@ -93,9 +90,6 @@ describe("session store row stability (projector reconcile)", () => {
 
     expect(rootStore.sessions[SID_A]).toBeUndefined();
     expect(rootStore.claude_status[SID_A]).toBeUndefined();
-    // The accumulators with no other reaper — reaped exactly (delta −1 proves
-    // this session's entry was dropped, not merely that the map is small).
-    expect(rootStore.chat_omp[SID_A]).toBeUndefined();
     expect(sessionTraceSize()).toBe(traceBefore - 1);
     expect(inputMapSizes()).toBe(mapsBefore - 1);
     // Sibling untouched by the deletion.

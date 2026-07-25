@@ -19,7 +19,7 @@ import type { CoordConfig } from "@roost/shared/config";
 import type { JwtCache } from "../jwt.ts";
 import { verifyJwt } from "../jwt.ts";
 import { appendEvent } from "../event-log.ts";
-import { publishBytes, publishCellGrid, publishClaudeStatus, publishChat, primeChannelMap } from "../byte-hub.ts";
+import { publishBytes, publishCellGrid, publishClaudeStatus, primeChannelMap } from "../byte-hub.ts";
 import { resolvePendingRpc, rejectPendingRpc, rejectPendingRpcsForWorker } from "../router/pending-rpcs.ts";
 import { protoToEvent } from "@roost/shared/wire/event-proto";
 import { asWorkerFp, asChannelId, SessionKind } from "@roost/shared/wire";
@@ -206,13 +206,6 @@ export function makeWorkerConn(
         const cg = f.frame.value;
         if (workerFp && cg.frame) {
           publishCellGrid(asWorkerFp(workerFp), asChannelId(cg.channelId), cg.frame);
-        }
-        return;
-      }
-      case "chat": {
-        const cf = f.frame.value;
-        if (workerFp && cf.frame) {
-          publishChat(asWorkerFp(workerFp), asChannelId(cf.channelId), cf.frame);
         }
         return;
       }

@@ -12,7 +12,6 @@
 import { diag, signal } from "@roost/shared/diag";
 import { rootStore } from "../store/root.ts";
 import { cellFrameCountSize } from "../store/sync-dispatch.ts";
-import { chatOmpStats } from "../store/chatOmp.ts";
 import { inputMapSizes } from "../ws/input-channel.ts";
 import { sessionTraceSize } from "./diag.ts";
 
@@ -38,7 +37,6 @@ function p(arr: number[], q: number): number {
 // is a reaper miss; climbing dom_nodes/heap_mb with flat sessions is elsewhere.
 function sample(): Record<string, number> {
   const mem = (performance as Performance & { memory?: { usedJSHeapSize: number } }).memory;
-  const chat = chatOmpStats();
   return {
     uptime_s: Math.round(performance.now() / 1000),
     heap_mb: mem ? Math.round(mem.usedJSHeapSize / 1e6) : -1,
@@ -52,8 +50,6 @@ function sample(): Record<string, number> {
     cell_frame_counts: cellFrameCountSize(),
     input_rtt_p50: p(_inputRtt, 0.5),
     input_rtt_p95: p(_inputRtt, 0.95),
-    chat_omp_sessions: chat.sessions,
-    chat_omp_msgs: chat.msgs,
     input_maps: inputMapSizes(),
     session_trace: sessionTraceSize(),
   };

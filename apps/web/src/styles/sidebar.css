@@ -1932,9 +1932,7 @@ aside[data-testid="sidebar-drawer"]::-webkit-scrollbar-thumb:hover,
 .df-tab-close:hover { color: var(--md-on-surface); }
 
 /* Pane top-right overlay slot (CellTerminal `.term-pane-corner`). Holds the
-   status badge + the omp chat/terminal toggle in ONE row. They used to anchor
-   independently in this corner (top:8/right:8 vs top:12/right:12) and the
-   toggle painted over the badge. Click-through; children opt back in. */
+   status badge. Click-through; the child opts back in. */
 .term-pane-corner {
   position: absolute;
   top: 8px;
@@ -2316,80 +2314,3 @@ aside[data-testid="sidebar-drawer"]::-webkit-scrollbar-thumb:hover,
 
 /* Hide the hover ⋮ in the collapsed rail (no room). */
 [data-collapsed="true"] .df-row .df-action { display: none; }
-
-
-/* ─── Resume-chat picker (ResumeChatDialog.tsx) ─────────────────────────────
-   A list of omp transcripts that can be continued in a web-UI session. Rows
-   are plain buttons: the whole row is the target, and a row whose transcript a
-   live omp still holds is disabled rather than hidden — "why can I not resume
-   this one" is a question the UI should answer, not dodge. */
-.resume-chat { min-width: min(560px, 80vw); }
-
-.resume-chat__machines {
-  display: flex;
-  gap: var(--md-space-2);
-  margin-bottom: var(--md-space-3);
-  flex-wrap: wrap;
-}
-.resume-chat__machine {
-  border: 1px solid var(--md-sys-color-outline-variant);
-  background: transparent;
-  color: var(--text-hi);
-  border-radius: 999px;
-  padding: 2px 12px;
-  font: inherit;
-  font-size: var(--md-body-s-size);
-  cursor: pointer;
-}
-.resume-chat__machine[aria-pressed="true"] {
-  background: var(--md-sys-color-secondary-container);
-  border-color: transparent;
-}
-
-.resume-chat__list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  max-height: min(52vh, 460px);
-  overflow-y: auto;
-}
-.resume-chat__row {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  width: 100%;
-  text-align: left;
-  background: transparent;
-  border: 0;
-  border-radius: 8px;
-  padding: 8px 10px;
-  font: inherit;
-  color: var(--text-hi);
-  cursor: pointer;
-}
-.resume-chat__row:hover:not(:disabled) { background: var(--md-sys-color-surface-container-high); }
-.resume-chat__row:disabled { cursor: not-allowed; opacity: 0.55; }
-
-.resume-chat__title {
-  font-size: var(--md-body-m-size);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.resume-chat__meta {
-  display: flex;
-  gap: var(--md-space-2);
-  font-size: var(--md-label-s-size);
-  color: var(--text-lo);
-}
-.resume-chat__live {
-  color: var(--md-sys-color-error);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.resume-chat__empty {
-  padding: var(--md-space-4) 0;
-  color: var(--text-lo);
-  font-size: var(--md-body-m-size);
-}

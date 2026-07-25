@@ -25,9 +25,7 @@ import { isPageVisible } from "../lib/pageVisible.ts";
 import type { Worker } from "@roost/shared/wire";
 import { signal, diag } from "@roost/shared/diag";
 import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
-import type { ChatFrame as PbChatFrame } from "@roost/shared/proto/sync_pb";
 import { _dispatchBytes, _dispatchCell, _dispatchPresence } from "./sync-dispatch.ts";
-import { applyOmpChatFrame, resyncOmpChats } from "./chatOmp.ts";
 import { startStaleWatchdog } from "./sync-watchdog.ts";
 // Worker-routability signal lives in sync-routable.ts (leaf): _runConnectSync
 // writes it; the UI reads workerOnline (re-exported here so consumers keep
@@ -307,11 +305,6 @@ function _dispatchSyncFrame(frame: FirehoseFrame): void {
             setRoutableFps(new Set(wr.fps));
             break;
           }
-          case "chat": {
-            // Omp chat frame (transcript-reader). applyOmpChatFrame splices
-            applyOmpChatFrame(v as PbChatFrame);
-            break;
-          }
           case "pairRequestDelta": {
             // Pair-request delta (perf sweep C2.4 — replaces the 5 s pairList
             // poller). `pending` upserts, `removedId` drops (approve/deny),
@@ -398,10 +391,6 @@ export async function _runConnectSync(): Promise<void> {
         backoff = 1000;
         if (gen === _wsGen) setOpen(true);
         _stopWatchdog = startStaleWatchdog(ws, { onStale: () => { _initiateWsClose("stale"); } });
-        // Chat frames ride a bus coord does NOT re-seed on reconnect, so
-        // anything published while this socket was down is unrecoverable from
-        // the stream. Re-pull the transcripts we hold. No-op on first connect.
-        resyncOmpChats();
       };
       ws.onmessage = (ev) => {
         try {

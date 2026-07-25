@@ -99,11 +99,10 @@ export function extractOscTitle(bytes: Uint8Array): string | null {
 	return result;
 }
 
-/** Cross-chunk-safe OSC 0/2 title extraction. omp sets its title ONCE at boot
- *  (not per-frame like claude), so a boot title split across a PTY read chunk
- *  must be BRIDGED or it is lost forever and the chat watcher never starts.
- *  Carries the trailing bytes of an unterminated OSC (bounded) into the next
- *  chunk. Returns the latest complete title + the new carry to persist. */
+/** Cross-chunk-safe OSC 0/2 title extraction. Some terminal agents set their
+ *  title only at boot, so a title split across PTY reads must be carried or it
+ *  is lost. Carries the trailing bytes of an unterminated OSC (bounded) into
+ *  the next chunk. Returns the latest complete title + the new carry to persist. */
 export function extractOscTitleStateful(
 	carry: Uint8Array,
 	chunk: Uint8Array,

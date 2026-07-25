@@ -27,9 +27,7 @@ export function stageRank(status: string | null | undefined): number {
 }
 
 /** Agent-feed variant: a session with no agent identity (plain shell) sorts
- *  below every agent one (return -1) so the feed stays agent-first. Both agent
- *  kinds qualify — a claude PTY and a `kind:"agent"` omp session each carry
- *  AgentState. */
+ *  below every Claude session (return -1) so the feed stays agent-first. */
 export function claudeStageOf(s: Session): number {
   if (s.kind === "shell") return -1;
   return stageRank(s.agent?.status);

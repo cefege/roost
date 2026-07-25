@@ -5,16 +5,12 @@ import type { SessionId, ChannelId } from "@roost/shared";
 import type { FsmChannel } from "./fsm.ts";
 import type { TerminalCore } from "@wterm/core";
 import type { CellEmitState } from "@roost/shared/cell";
-import type { ChatMessage } from "@roost/shared/chat/wire";
 
 export type SessionRecord = {
 	sessionId: SessionId;
 	channelId: ChannelId;
 	socketPath: string;
-	// "shell"|"claude" = terminal mode (a keeper PTY channel). "agent" = web-UI
-	// mode: the session's process IS an `omp --mode rpc-ui` child, there is no
-	// PTY, no keeper channel, and no grid. See session-spawn.ts::spawnAgent.
-	kind: "shell" | "claude" | "agent";
+	kind: "shell" | "claude";
 	cwd: string;
 	// Local git branch of cwd (worker-resolved). undefined = not yet resolved,
 	// null = folder isn't a repo. Set by _startGitBranch; announced in
@@ -83,9 +79,7 @@ export type SessionRecord = {
 	// writes that ANSI into the SAME parser code path — one VT engine
 	// end-to-end, no cross-parser edge cases. Live deltas (lastSeq>0)
 	// still slice the raw byte ring above (byte-exact, no parser cost).
-	// Absent for kind:"agent" — an agent session has no PTY to mirror. Every
-	// terminal-path reader must narrow before dereferencing.
-	wtermCore?: TerminalCore;
+	wtermCore: TerminalCore;
 	// diag — stable per-session id used to correlate ALL events on this
 	// session across spa+coord+worker via `rg session_trace_id`. Set on
 	// session create; never mutated.
@@ -97,15 +91,6 @@ export type SessionRecord = {
 	// DEAD_BIRTH_LIFETIME_MS: a child that exits fast having produced zero bytes
 	// (head_seq===0) is a dead-birth → feeds the degraded-keeper self-heal.
 	spawnedAtMs: number;
-	// Omp chat, `kind:"agent"` sessions only (chat/omp/rpc-chat.ts).
-	// chat_seq = monotonic frame seq; chatMessages/chatMsgSeqs = the row cache
-	// the history RPC pages; chatTranscriptPath = the child's own session JSONL,
-	// used for get-chat-block full-text re-reads and for resuming across a
-	// worker restart.
-	chat_seq: number;
-	chatMsgSeqs?: number[];
-	chatMessages?: ChatMessage[] | null;
-	chatTranscriptPath?: string | null;
 };
 
 export interface ViewportClaim {

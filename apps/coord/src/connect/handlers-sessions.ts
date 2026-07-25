@@ -16,15 +16,9 @@ import {
   SessionsInputResponseSchema, SessionsCursorPosResponseSchema,
   SessionsAssignWorkspaceResponseSchema,
   SessionsGetScrollbackCellsResponseSchema,
-  SessionsGetChatHistoryResponseSchema, SessionsGetChatBlockResponseSchema,
-  SessionsListOmpSessionsResponseSchema,
-  OmpSessionEntrySchema,
-  SessionsChatCommandResponseSchema,
 } from "@roost/shared/proto/coordinator_pb";
 import { sessionToProto } from "@roost/shared/wire/agent-proto";
 import { cellRowToProto } from "@roost/shared/cell/cell-proto";
-import { chatMessageToProto } from "@roost/shared/chat/wire";
-import type { ChatMessage } from "@roost/shared/chat/wire";
 import type { CellRow } from "@roost/shared/cell";
 import { asSessionId, asWorkspaceId, ClaudeMode } from "@roost/shared/wire";
 import { safeJsonParse } from "@roost/shared/json";
@@ -100,14 +94,10 @@ async function _forwardSimple(
   catch (e) { log.warn("connect-router._forwardSimple", "send_failed", { error: String(e) }); return false; }
 }
 
-/** SessionsSpawnRequest → the worker control frame for its kind.
- *
- *  Three kinds, three frames. A ternary here silently downgraded anything that
- *  was not "shell" to spawn-claude; an unknown kind must be a loud error, not a
- *  session of the wrong sort. "agent" carries no cols/rows — it has no PTY. */
+/** SessionsSpawnRequest → the worker control frame for its kind. */
 export function _spawnFrameFor(req: {
   kind: string; folder: string; cols?: number; rows?: number;
-  sessionId?: string; initialMode?: string; resumeSessionFile?: string; model?: string;
+  sessionId?: string; initialMode?: string;
 }): ClientControlFrame {
   const sid = req.sessionId ? { session_id: asSessionId(req.sessionId) } : {};
   switch (req.kind) {
@@ -119,13 +109,6 @@ export function _spawnFrameFor(req: {
         initial_mode: ClaudeMode.parse(req.initialMode ?? "default"),
         cols: req.cols, rows: req.rows, ...sid,
       };
-    case "agent":
-      return {
-        kind: "spawn-agent", folder: req.folder,
-        resume_session_file: req.resumeSessionFile ?? "",
-        model: req.model ?? "",
-        ...sid,
-      };
     default:
       throw new ConnectError(`unknown session kind ${req.kind}`, Code.InvalidArgument);
   }
@@ -135,8 +118,7 @@ type SessionMethods =
   | "sessionsList" | "sessionsSpawn" | "sessionsAttach" | "sessionsKill"
   | "sessionsRename" | "sessionsResize" | "sessionsUserMessage" | "sessionsInput"
   | "sessionsCursorPos" | "sessionsAssignWorkspace"
-  | "sessionsGetScrollbackCells"
-  | "sessionsGetChatHistory" | "sessionsGetChatBlock" | "sessionsListOmpSessions" | "sessionsChatCommand";
+  | "sessionsGetScrollbackCells";
 
 export function makeSessionHandlers(
   deps: ConnectDeps,
@@ -419,103 +401,5 @@ export function makeSessionHandlers(
       });
     },
 
-    async sessionsGetChatHistory(req, ctx) {
-      requireAuth(ctx.values);
-      const row = await deps.db.selectFrom("sessions").select(["worker_fp"]).where("id", "=", req.sessionId).executeTakeFirst();
-      if (!row) throw new ConnectError("unknown session", Code.NotFound);
-      const sock = getWorkerHubSocket(row.worker_fp);
-      if (!sock) throw new ConnectError("worker not connected", Code.Unavailable);
-      const pending = createPendingRpc<{ messages: ChatMessage[]; next_seq: number; truncated: boolean }>(8_000, row.worker_fp);
-      sendBrowserCmd(sock, requireAuth(ctx.values), pending.request_id, {
-        kind: "get-chat-history" as const,
-        request_id: pending.request_id,
-        session_id: asSessionId(req.sessionId),
-        ...(req.afterSeq !== undefined ? { after_seq: Number(req.afterSeq) } : {}),
-        max_messages: req.maxMessages || 500,
-      });
-      let res;
-      try { res = await pending.promise; }
-      catch { throw new ConnectError("chat history serve timed out", Code.Unavailable); }
-      return create(SessionsGetChatHistoryResponseSchema, {
-        messages: res.messages.map(chatMessageToProto),
-        nextSeq: BigInt(res.next_seq),
-        truncated: res.truncated,
-      });
-    },
-
-    async sessionsGetChatBlock(req, ctx) {
-      requireAuth(ctx.values);
-      const row = await deps.db.selectFrom("sessions").select(["worker_fp"]).where("id", "=", req.sessionId).executeTakeFirst();
-      if (!row) throw new ConnectError("unknown session", Code.NotFound);
-      const sock = getWorkerHubSocket(row.worker_fp);
-      if (!sock) throw new ConnectError("worker not connected", Code.Unavailable);
-      const pending = createPendingRpc<{ text: string }>(8_000, row.worker_fp);
-      sendBrowserCmd(sock, requireAuth(ctx.values), pending.request_id, {
-        kind: "get-chat-block" as const,
-        request_id: pending.request_id,
-        session_id: asSessionId(req.sessionId),
-        message_id: req.messageId,
-        block_index: req.blockIndex,
-      });
-      let res;
-      try { res = await pending.promise; }
-      catch { throw new ConnectError("chat block serve timed out", Code.Unavailable); }
-      return create(SessionsGetChatBlockResponseSchema, { text: res.text });
-    },
-
-    // Resumable omp transcripts on one worker. Read-only and session-less: it
-    // targets a WORKER, not a session, because the whole point is picking a
-    // conversation before any session exists. Deliberately NOT in
-    // RATE_LIMITED_ROUTES — a read, same class as the *List calls.
-    async sessionsListOmpSessions(req, ctx) {
-      const caller = requireAuth(ctx.values);
-      const sock = getWorkerHubSocket(req.workerFp);
-      if (!sock) throw new ConnectError("worker not connected", Code.Unavailable);
-      const pending = createPendingRpc<{
-        sessions: { path: string; cwd: string; title: string; updatedAt: number; lastPrompt: string; active: boolean }[];
-      }>(15_000, req.workerFp);
-      sendBrowserCmd(sock, caller, pending.request_id, {
-        kind: "list-omp-sessions" as const,
-        request_id: pending.request_id,
-        limit: req.limit ?? 50,
-      });
-      let res;
-      try { res = await pending.promise; }
-      catch { throw new ConnectError("omp session scan timed out", Code.Unavailable); }
-      return create(SessionsListOmpSessionsResponseSchema, {
-        sessions: res.sessions.map((s) => create(OmpSessionEntrySchema, {
-          path: s.path, cwd: s.cwd, title: s.title,
-          updatedAt: BigInt(Math.max(0, Math.round(s.updatedAt))),
-          lastPrompt: s.lastPrompt, active: s.active,
-        })),
-      });
-    },
-
-    async sessionsChatCommand(req, ctx) {
-      requireAuth(ctx.values);
-      const row = await deps.db.selectFrom("sessions").select(["worker_fp"]).where("id", "=", req.sessionId).executeTakeFirst();
-      if (!row) throw new ConnectError("unknown session", Code.NotFound);
-      const sock = getWorkerHubSocket(row.worker_fp);
-      if (!sock) throw new ConnectError("worker not connected", Code.Unavailable);
-      // 35s: prompt acks fast, but get_state/first-command lazy-boot takes seconds.
-      const pending = createPendingRpc<{ response_json: string }>(35_000, row.worker_fp);
-      sendBrowserCmd(sock, requireAuth(ctx.values), pending.request_id, {
-        kind: "chat-command" as const,
-        request_id: pending.request_id,
-        session_id: asSessionId(req.sessionId),
-        command_json: req.commandJson,
-      });
-      let res;
-      // Distinguish the three failure modes the SPA used to see as one opaque
-      // "Unavailable": a worker too old to know `chat-command` rejects it
-      // immediately, and reporting that as a timeout sent debugging the wrong
-      // way for an hour. The worker's own message is the useful part.
-      try { res = await pending.promise; }
-      catch (e) {
-        const detail = e instanceof Error ? e.message : String(e);
-        throw new ConnectError(`chat command failed on worker: ${detail}`, Code.Unavailable);
-      }
-      return create(SessionsChatCommandResponseSchema, { responseJson: res.response_json });
-    },
   };
 }

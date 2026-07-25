@@ -17,7 +17,6 @@ import * as lifecycle from "./session-lifecycle.ts";
 import { getMultiplexedPool, type MuxChannelCallbacks } from "./keeper/multiplexed-client.ts";
 import { log, asChannelId } from "@roost/shared";
 import type { TerminalCore } from "@wterm/core";
-import type { ChatFrame } from "@roost/shared/chat/wire";
 import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
 import type { SessionEventSink } from "./event-sink.ts";
 import type { ChannelState, FsmEvent } from "./fsm.ts";
@@ -109,10 +108,6 @@ export class SessionManager {
 	readonly sendClaudeStatusUpstream:
 		| ((channelId: number, status: string) => void)
 		| null;
-	// Omp chat frame sink (transcript-reader). null in tests without a coord link.
-	readonly sendChatFrameUpstream:
-		| ((channelId: number, frame: ChatFrame) => void)
-		| null;
 
 	// Sliding-window timestamps of emit_no_session events → keeper.degraded.
 	_noSessionBurst: number[] = [];
@@ -140,7 +135,6 @@ export class SessionManager {
 		sendBinaryUpstream?: (bytes: Uint8Array) => void;
 		sendCellGridUpstream?: (channelId: number, frame: PbCellGridFrame) => void;
 		sendClaudeStatusUpstream?: (channelId: number, status: string) => void;
-		sendChatFrameUpstream?: (channelId: number, frame: ChatFrame) => void;
 	}) {
 		this.workerFp = opts.workerFp;
 		this.sink = opts.sink;
@@ -148,7 +142,6 @@ export class SessionManager {
 		this.sendBinaryUpstream = opts.sendBinaryUpstream ?? null;
 		this.sendCellGridUpstream = opts.sendCellGridUpstream ?? null;
 		this.sendClaudeStatusUpstream = opts.sendClaudeStatusUpstream ?? null;
-		this.sendChatFrameUpstream = opts.sendChatFrameUpstream ?? null;
 		// Viewport-claim reaper. Every 5s: drop claims older than 60s,
 		// recompute SCD per affected channel, SIGWINCH if changed. Catches
 		// dead browsers that didn't get to send a withdraw (kill -9, WiFi
@@ -318,11 +311,8 @@ export class SessionManager {
 		return spawnFns.spawnClaude.call(this, cwd, initialMode, cols, rows, targetSessionId);
 	}
 
-	spawnAgent(cwd: string, opts?: { resumeSessionFile?: string; model?: string }, targetSessionId?: SessionId): Promise<SessionRecord> {
-		return spawnFns.spawnAgent.call(this, cwd, opts, targetSessionId);
-	}
 
-	respawnIfMissing(sessionId: SessionId, kind: "shell" | "claude" | "agent", cwd: string, cols: number, rows: number): Promise<SessionRecord> {
+	respawnIfMissing(sessionId: SessionId, kind: "shell" | "claude", cwd: string, cols: number, rows: number): Promise<SessionRecord> {
 		return spawnFns.respawnIfMissing.call(this, sessionId, kind, cwd, cols, rows);
 	}
 
@@ -374,15 +364,6 @@ export class SessionManager {
 		return lifecycle.applyAgentPatch.call(this, p);
 	}
 
-	/** RpcChatHost: the omp child of a kind:"agent" session exited. That session
-	 *  has no PTY exit to piggyback on, so this is the only path to its `closed`
-	 *  event. No-op for terminal-mode sessions, where the child is a side
-	 *  process and the PTY owns the lifecycle. */
-	closeAgentSession(sessionId: string, exitCode: number | null): void {
-		const rec = this.getBySessionId(sessionId as SessionId);
-		if (rec?.kind !== "agent") return;
-		this.closedByKeeper(rec.channelId, exitCode);
-	}
 
 	dispose(): void {
 		return lifecycle.dispose.call(this);

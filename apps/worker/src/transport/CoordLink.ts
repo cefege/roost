@@ -18,11 +18,9 @@ import { create, toBinary, fromBinary } from "@bufbuild/protobuf";
 import {
   CoordWorkerUpSchema, CoordWorkerDownSchema, WHelloSchema,
   WRefreshJwtSchema, WSessionEventSchema,
-  WCellGridSchema, WClaudeStatusSchema, WChatSchema,
+  WCellGridSchema, WClaudeStatusSchema,
 } from "@roost/shared/proto/worker_transport_pb";
 import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
-import { chatFrameToProto } from "@roost/shared/chat/wire";
-import type { ChatFrame } from "@roost/shared/chat/wire";
 import { ClientSeq } from "./client-seq.ts";
 import type {
   CoordWorkerUp, CoordWorkerDown,
@@ -198,13 +196,6 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
     try { writer(up); return true; } catch { diag("transport.frame_dropped", { reason: "writer_throw", kind: "claudeStatus" }); return false; }
   }
 
-  function sendChatFrame(channelId: number, frame: ChatFrame): boolean {
-    if (disposed || !writer) return false;
-    const up = create(CoordWorkerUpSchema, {
-      frame: { case: "chat", value: create(WChatSchema, { channelId, frame: chatFrameToProto(frame) }) },
-    });
-    try { writer(up); return true; } catch { diag("transport.frame_dropped", { reason: "writer_throw", kind: "chat" }); return false; }
-  }
 
   async function dial(): Promise<void> {
     if (disposed) return;
@@ -438,5 +429,5 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
 
   void dial();
 
-  return { send, sendBinary, sendCellGrid, sendClaudeStatus, sendChatFrame, state: () => state, dispose };
+  return { send, sendBinary, sendCellGrid, sendClaudeStatus, state: () => state, dispose };
 }

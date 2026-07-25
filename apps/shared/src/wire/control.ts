@@ -52,17 +52,6 @@ export const ClientControlFrame = z.discriminatedUnion("kind", [
     rows: z.number().int().positive().optional(),
     session_id: SessionId.optional(),
   }),
-  // Web-UI mode: a session whose process IS an `omp --mode rpc-ui` child.
-  // No cols/rows — an agent session has no PTY.
-  Base.extend({
-    kind: z.literal("spawn-agent"),
-    folder: z.string(),
-    // Resume an existing omp transcript. Absolute path to a *.jsonl under the
-    // omp session dir; empty string starts a fresh conversation.
-    resume_session_file: z.string().default(""),
-    model: z.string().default(""),
-    session_id: SessionId.optional(),
-  }),
   Base.extend({ kind: z.literal("kill"), session_id: SessionId }),
   Base.extend({ kind: z.literal("set-mode"), session_id: SessionId, mode: ClaudeMode }),
   Base.extend({ kind: z.literal("user-message"), session_id: SessionId, text: z.string() }),
@@ -158,44 +147,10 @@ export const ClientControlFrame = z.discriminatedUnion("kind", [
     kind: z.literal("respawn-if-missing"),
     request_id: z.string(),
     session_id: SessionId,
-    target_kind: z.enum(["shell", "claude", "agent"]),
+    target_kind: z.enum(["shell", "claude"]),
     cwd: z.string(),
     cols: z.number().int().positive().default(80),
     rows: z.number().int().positive().default(24),
-  }),
-  // omp chat history backfill (transcript-reader). rpc-ok data:
-  // { messages: ChatMessage[], next_seq: number, truncated: boolean }.
-  Base.extend({
-    kind: z.literal("get-chat-history"),
-    request_id: z.string(),
-    session_id: SessionId,
-    after_seq: z.number().int().nonnegative().optional(),
-    max_messages: z.number().int().positive().default(500),
-  }),
-  // Full text of one truncated ContentBlock (thinking/tool_result/toolCall args).
-  // rpc-ok data: { text: string }.
-  Base.extend({
-    kind: z.literal("get-chat-block"),
-    request_id: z.string(),
-    session_id: SessionId,
-    message_id: z.string(),
-    block_index: z.number().int().nonnegative(),
-  }),
-  // Discoverable omp transcripts for the resume picker. rpc-ok data:
-  // { sessions: Array<{ path, cwd, title, updated_at, last_prompt, active }> }.
-  Base.extend({
-    kind: z.literal("list-omp-sessions"),
-    request_id: z.string(),
-    limit: z.number().int().positive().default(50),
-  }),
-  // Native omp chat: tunnel one RpcCommand (JSON) to the session's
-  // `omp --mode rpc` child (lazy-started by the worker). rpc-ok data:
-  // { response_json: string } — the child's id-correlated response frame.
-  Base.extend({
-    kind: z.literal("chat-command"),
-    request_id: z.string(),
-    session_id: SessionId,
-    command_json: z.string(),
   }),
 ]);
 export type ClientControlFrame = z.infer<typeof ClientControlFrame>;

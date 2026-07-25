@@ -13,8 +13,6 @@ import { rootStore } from "../store/root.ts";
 import { markSeen } from "../lib/sessionSeen.ts";
 import { pageVisible } from "../lib/pageVisible.ts";
 import { CellTerminal } from "./CellTerminal.tsx";
-import { OmpChatPane } from "./chat/omp/OmpChatPane.tsx";
-import { ompChatEnabled } from "../store/chatOmp.ts";
 import { PaneStrip } from "./PaneStrip.tsx";
 import { MobileDeckBar } from "./MobileDeckBar.tsx";
 import { PaneDivider } from "./PaneDivider.tsx";
@@ -759,25 +757,14 @@ export function TerminalDeck(props: { activeSessionId: string | null }) {
         </div>
       </Show>
 
-      {/* Every open session mounted once; visible ones positioned. The surface
-           is chosen by session KIND: terminal mode paints a cell grid,
-           `kind:"agent"` (web-UI mode) paints its chat pane. Both live in THIS
-           deck rather than behind a per-route <Show>, because a
-           <Show>-per-active-session remounts and loses state on every switch
-           (CLAUDE.md L11 `feedback_persistent_terminal_deck.md`) — a chat pane
-           would lose its scroll position and streaming row the same way a
-           terminal loses its grid. */}
+      {/* Every open session mounts once; visible ones are positioned in their
+           pane rectangles rather than remounted on navigation or re-tiling. */}
       <For each={openSessions()}>
         {(s) => {
           const slot = createMemo(() => slotBySession().get(s.id) ?? null, undefined, { equals: sameSlot });
           return (
             <div data-testid={`terminal-slot-${s.id}`} data-pane data-pane-id={slot()?.paneId ?? ""} data-focused={slot()?.focused ? "true" : "false"} data-spotlit={slot()?.spotlit ? "true" : undefined} style={{ ...termStyle(slot()), ...swipeStyleFor(s.id) }}>
-              <Show
-                when={ompChatEnabled(s.id)}
-                fallback={<CellTerminal session={s} inLayout={!!slot()} focused={slot()?.focused ?? false} spotlit={slot()?.spotlit ?? false} />}
-              >
-                <OmpChatPane sessionId={s.id} focused={slot()?.focused ?? false} />
-              </Show>
+              <CellTerminal session={s} inLayout={!!slot()} focused={slot()?.focused ?? false} spotlit={slot()?.spotlit ?? false} />
             </div>
           );
         }}

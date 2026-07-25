@@ -151,14 +151,9 @@ export function _sweepDetect(this: SessionManager): void {
 export function _runDetect(this: SessionManager, channelId: number): void {
 	const rec = this.sessions.get(channelId);
 	if (!rec) return;
-	// Web-UI sessions (kind:"agent") have no PTY and no grid, so there is
-	// nothing to scrape: their status comes from the process they own, not from
-	// this file. Guarded HERE, not in _sweepDetect — the per-chunk path at :137
-	// reaches this function too.
-	if (rec.kind === "agent") return;
-	// A record mid-teardown (or a stale one a leaked sweep timer still holds)
-	// can have no wtermCore — nothing to scrape, skip rather than crash.
 	const core = rec.wtermCore;
+	// The live spawn/resume paths always create a core before registering the
+	// record. Keep the guard for teardown races and narrow test fixtures.
 	if (!core) return;
 	const det = detectAgentScreen(
 		core,
@@ -267,8 +262,8 @@ export function emitCellFrame(this: SessionManager, channelId: number, force: bo
 	if (!send) return;
 	const rec = this.sessions.get(channelId);
 	if (!rec) return;
-	// No grid, nothing to paint — a kind:"agent" session has no cell terminal
-	// and never claims a viewport.
+	// The live paths create a terminal core before registration. Keep this
+	// narrow for teardown races and sparse test fixtures.
 	const core = rec.wtermCore;
 	if (!core) return;
 	const pending = this.cellEmitTimers.get(channelId);

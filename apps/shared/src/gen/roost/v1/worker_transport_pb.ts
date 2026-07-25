@@ -15,15 +15,13 @@ import type { SessionEventProto } from "./events_pb.ts";
 import { file_roost_v1_events } from "./events_pb.ts";
 import type { PbCellGridFrame } from "./cell_pb.ts";
 import { file_roost_v1_cell } from "./cell_pb.ts";
-import type { ChatFrame } from "./sync_pb.ts";
-import { file_roost_v1_sync } from "./sync_pb.ts";
 import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file roost/v1/worker_transport.proto.
  */
 export const file_roost_v1_worker_transport: GenFile = /*@__PURE__*/
-  fileDesc("Ch9yb29zdC92MS93b3JrZXJfdHJhbnNwb3J0LnByb3RvEghyb29zdC52MSIsCgZXSGVsbG8SEQoJd29ya2VyX2ZwGAEgASgJEg8KB3ZlcnNpb24YAiABKAkiEwoFV1BvbmcSCgoCdHMYASABKAQiTwoNV1Nlc3Npb25FdmVudBIqCgVldmVudBgBIAEoCzIbLnJvb3N0LnYxLlNlc3Npb25FdmVudFByb3RvEhIKCmNsaWVudF9zZXEYAiABKAQiLwoGV1JwY09rEhIKCnJlcXVlc3RfaWQYASABKAkSEQoJZGF0YV9qc29uGAIgASgJIjAKCVdScGNFcnJvchISCgpyZXF1ZXN0X2lkGAEgASgJEg8KB21lc3NhZ2UYAiABKAkiLQoNV1RyYW5zZmVyTGluZRIOCgZqb2JfaWQYASABKAkSDAoEdGV4dBgCIAEoCSI8Cg1XVHJhbnNmZXJEb25lEg4KBmpvYl9pZBgBIAEoCRIMCgRleGl0GAIgASgFEg0KBWVycm9yGAMgASgJIksKB1dCaW5hcnkSEgoKY2hhbm5lbF9pZBgBIAEoDRIRCglkaXJlY3Rpb24YAiABKA0SCwoDc2VxGAMgASgEEgwKBGRhdGEYBCABKAwiGgoLV1JlZnJlc2hKd3QSCwoDand0GAEgASgJIkkKCVdDZWxsR3JpZBISCgpjaGFubmVsX2lkGAEgASgNEigKBWZyYW1lGAIgASgLMhkucm9vc3QudjEuUGJDZWxsR3JpZEZyYW1lIjMKDVdDbGF1ZGVTdGF0dXMSEgoKY2hhbm5lbF9pZBgBIAEoDRIOCgZzdGF0dXMYAiABKAkiPwoFV0NoYXQSEgoKY2hhbm5lbF9pZBgBIAEoDRIiCgVmcmFtZRgCIAEoCzITLnJvb3N0LnYxLkNoYXRGcmFtZSKIBAoNQ29vcmRXb3JrZXJVcBIhCgVoZWxsbxgBIAEoCzIQLnJvb3N0LnYxLldIZWxsb0gAEh8KBHBvbmcYAiABKAsyDy5yb29zdC52MS5XUG9uZ0gAEigKBWV2ZW50GAMgASgLMhcucm9vc3QudjEuV1Nlc3Npb25FdmVudEgAEiIKBnJwY19vaxgGIAEoCzIQLnJvb3N0LnYxLldScGNPa0gAEigKCXJwY19lcnJvchgHIAEoCzITLnJvb3N0LnYxLldScGNFcnJvckgAEjAKDXRyYW5zZmVyX2xpbmUYCCABKAsyFy5yb29zdC52MS5XVHJhbnNmZXJMaW5lSAASMAoNdHJhbnNmZXJfZG9uZRgJIAEoCzIXLnJvb3N0LnYxLldUcmFuc2ZlckRvbmVIABIjCgZiaW5hcnkYCiABKAsyES5yb29zdC52MS5XQmluYXJ5SAASLAoLcmVmcmVzaF9qd3QYCyABKAsyFS5yb29zdC52MS5XUmVmcmVzaEp3dEgAEigKCWNlbGxfZ3JpZBgMIAEoCzITLnJvb3N0LnYxLldDZWxsR3JpZEgAEjAKDWNsYXVkZV9zdGF0dXMYDSABKAsyFy5yb29zdC52MS5XQ2xhdWRlU3RhdHVzSAASHwoEY2hhdBgOIAEoCzIPLnJvb3N0LnYxLldDaGF0SABCBwoFZnJhbWUiPwoJREhlbGxvQWNrEhgKEGNvb3JkX3B1YmtleV9iNjQYASABKAkSGAoQY29vcmRfcHVia2V5X2tpZBgCIAEoCSITCgVEUGluZxIKCgJ0cxgBIAEoBCJgCg9EQnJvd3NlckNvbW1hbmQSEgoKYnJvd3Nlcl9pZBgBIAEoCRIRCgl2aWV3ZXJfaWQYAiABKAkSEgoKcmVxdWVzdF9pZBgDIAEoCRISCgpmcmFtZV9qc29uGAQgASgJIj4KB0RCaW5hcnkSEgoKY2hhbm5lbF9pZBgBIAEoDRIRCglkaXJlY3Rpb24YAiABKA0SDAoEZGF0YRgDIAEoDCIfCglERXZlbnRBY2sSEgoKY2xpZW50X3NlcRgBIAEoBCKJAQoQREF0dGFjaG1lbnRDaHVuaxISCgpyZXF1ZXN0X2lkGAEgASgJEhIKCnNlc3Npb25faWQYAiABKAkSEAoIZmlsZW5hbWUYAyABKAkSEgoKc2hvcnRfcGF0aBgEIAEoCBIMCgRkYXRhGAUgASgMEgwKBGxhc3QYBiABKAgSCwoDc2VxGAcgASgNIqICCg9Db29yZFdvcmtlckRvd24SKAoJaGVsbG9fYWNrGAEgASgLMhMucm9vc3QudjEuREhlbGxvQWNrSAASHwoEcGluZxgCIAEoCzIPLnJvb3N0LnYxLkRQaW5nSAASNAoPYnJvd3Nlcl9jb21tYW5kGAMgASgLMhkucm9vc3QudjEuREJyb3dzZXJDb21tYW5kSAASIwoGYmluYXJ5GAQgASgLMhEucm9vc3QudjEuREJpbmFyeUgAEigKCWV2ZW50X2FjaxgFIAEoCzITLnJvb3N0LnYxLkRFdmVudEFja0gAEjYKEGF0dGFjaG1lbnRfY2h1bmsYBiABKAsyGi5yb29zdC52MS5EQXR0YWNobWVudENodW5rSABCBwoFZnJhbWUyUQoNV29ya2VyU2VydmljZRJACgZBdHRhY2gSFy5yb29zdC52MS5Db29yZFdvcmtlclVwGhkucm9vc3QudjEuQ29vcmRXb3JrZXJEb3duKAEwAWIGcHJvdG8z", [file_roost_v1_events, file_roost_v1_cell, file_roost_v1_sync]);
+  fileDesc("Ch9yb29zdC92MS93b3JrZXJfdHJhbnNwb3J0LnByb3RvEghyb29zdC52MSIsCgZXSGVsbG8SEQoJd29ya2VyX2ZwGAEgASgJEg8KB3ZlcnNpb24YAiABKAkiEwoFV1BvbmcSCgoCdHMYASABKAQiTwoNV1Nlc3Npb25FdmVudBIqCgVldmVudBgBIAEoCzIbLnJvb3N0LnYxLlNlc3Npb25FdmVudFByb3RvEhIKCmNsaWVudF9zZXEYAiABKAQiLwoGV1JwY09rEhIKCnJlcXVlc3RfaWQYASABKAkSEQoJZGF0YV9qc29uGAIgASgJIjAKCVdScGNFcnJvchISCgpyZXF1ZXN0X2lkGAEgASgJEg8KB21lc3NhZ2UYAiABKAkiLQoNV1RyYW5zZmVyTGluZRIOCgZqb2JfaWQYASABKAkSDAoEdGV4dBgCIAEoCSI8Cg1XVHJhbnNmZXJEb25lEg4KBmpvYl9pZBgBIAEoCRIMCgRleGl0GAIgASgFEg0KBWVycm9yGAMgASgJIksKB1dCaW5hcnkSEgoKY2hhbm5lbF9pZBgBIAEoDRIRCglkaXJlY3Rpb24YAiABKA0SCwoDc2VxGAMgASgEEgwKBGRhdGEYBCABKAwiGgoLV1JlZnJlc2hKd3QSCwoDand0GAEgASgJIkkKCVdDZWxsR3JpZBISCgpjaGFubmVsX2lkGAEgASgNEigKBWZyYW1lGAIgASgLMhkucm9vc3QudjEuUGJDZWxsR3JpZEZyYW1lIjMKDVdDbGF1ZGVTdGF0dXMSEgoKY2hhbm5lbF9pZBgBIAEoDRIOCgZzdGF0dXMYAiABKAki5wMKDUNvb3JkV29ya2VyVXASIQoFaGVsbG8YASABKAsyEC5yb29zdC52MS5XSGVsbG9IABIfCgRwb25nGAIgASgLMg8ucm9vc3QudjEuV1BvbmdIABIoCgVldmVudBgDIAEoCzIXLnJvb3N0LnYxLldTZXNzaW9uRXZlbnRIABIiCgZycGNfb2sYBiABKAsyEC5yb29zdC52MS5XUnBjT2tIABIoCglycGNfZXJyb3IYByABKAsyEy5yb29zdC52MS5XUnBjRXJyb3JIABIwCg10cmFuc2Zlcl9saW5lGAggASgLMhcucm9vc3QudjEuV1RyYW5zZmVyTGluZUgAEjAKDXRyYW5zZmVyX2RvbmUYCSABKAsyFy5yb29zdC52MS5XVHJhbnNmZXJEb25lSAASIwoGYmluYXJ5GAogASgLMhEucm9vc3QudjEuV0JpbmFyeUgAEiwKC3JlZnJlc2hfand0GAsgASgLMhUucm9vc3QudjEuV1JlZnJlc2hKd3RIABIoCgljZWxsX2dyaWQYDCABKAsyEy5yb29zdC52MS5XQ2VsbEdyaWRIABIwCg1jbGF1ZGVfc3RhdHVzGA0gASgLMhcucm9vc3QudjEuV0NsYXVkZVN0YXR1c0gAQgcKBWZyYW1lIj8KCURIZWxsb0FjaxIYChBjb29yZF9wdWJrZXlfYjY0GAEgASgJEhgKEGNvb3JkX3B1YmtleV9raWQYAiABKAkiEwoFRFBpbmcSCgoCdHMYASABKAQiYAoPREJyb3dzZXJDb21tYW5kEhIKCmJyb3dzZXJfaWQYASABKAkSEQoJdmlld2VyX2lkGAIgASgJEhIKCnJlcXVlc3RfaWQYAyABKAkSEgoKZnJhbWVfanNvbhgEIAEoCSI+CgdEQmluYXJ5EhIKCmNoYW5uZWxfaWQYASABKA0SEQoJZGlyZWN0aW9uGAIgASgNEgwKBGRhdGEYAyABKAwiHwoJREV2ZW50QWNrEhIKCmNsaWVudF9zZXEYASABKAQiiQEKEERBdHRhY2htZW50Q2h1bmsSEgoKcmVxdWVzdF9pZBgBIAEoCRISCgpzZXNzaW9uX2lkGAIgASgJEhAKCGZpbGVuYW1lGAMgASgJEhIKCnNob3J0X3BhdGgYBCABKAgSDAoEZGF0YRgFIAEoDBIMCgRsYXN0GAYgASgIEgsKA3NlcRgHIAEoDSKiAgoPQ29vcmRXb3JrZXJEb3duEigKCWhlbGxvX2FjaxgBIAEoCzITLnJvb3N0LnYxLkRIZWxsb0Fja0gAEh8KBHBpbmcYAiABKAsyDy5yb29zdC52MS5EUGluZ0gAEjQKD2Jyb3dzZXJfY29tbWFuZBgDIAEoCzIZLnJvb3N0LnYxLkRCcm93c2VyQ29tbWFuZEgAEiMKBmJpbmFyeRgEIAEoCzIRLnJvb3N0LnYxLkRCaW5hcnlIABIoCglldmVudF9hY2sYBSABKAsyEy5yb29zdC52MS5ERXZlbnRBY2tIABI2ChBhdHRhY2htZW50X2NodW5rGAYgASgLMhoucm9vc3QudjEuREF0dGFjaG1lbnRDaHVua0gAQgcKBWZyYW1lMlEKDVdvcmtlclNlcnZpY2USQAoGQXR0YWNoEhcucm9vc3QudjEuQ29vcmRXb3JrZXJVcBoZLnJvb3N0LnYxLkNvb3JkV29ya2VyRG93bigBMAFiBnByb3RvMw", [file_roost_v1_events, file_roost_v1_cell]);
 
 /**
  * @generated from message roost.v1.WHello
@@ -293,32 +291,6 @@ export const WClaudeStatusSchema: GenMessage<WClaudeStatus> = /*@__PURE__*/
   messageDesc(file_roost_v1_worker_transport, 10);
 
 /**
- * Chat (omp transcript-reader). Worker parses omp's JSONL transcript into
- * ChatMessages and emits here keyed by channel_id; coord maps channel→session
- * (byte-hub), stamps session_id, fans out via FirehoseFrame.chat. Mirrors WCellGrid.
- *
- * @generated from message roost.v1.WChat
- */
-export type WChat = Message<"roost.v1.WChat"> & {
-  /**
-   * @generated from field: uint32 channel_id = 1;
-   */
-  channelId: number;
-
-  /**
-   * @generated from field: roost.v1.ChatFrame frame = 2;
-   */
-  frame?: ChatFrame | undefined;
-};
-
-/**
- * Describes the message roost.v1.WChat.
- * Use `create(WChatSchema)` to create a new message.
- */
-export const WChatSchema: GenMessage<WChat> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 11);
-
-/**
  * @generated from message roost.v1.CoordWorkerUp
  */
 export type CoordWorkerUp = Message<"roost.v1.CoordWorkerUp"> & {
@@ -396,14 +368,6 @@ export type CoordWorkerUp = Message<"roost.v1.CoordWorkerUp"> & {
      */
     value: WClaudeStatus;
     case: "claudeStatus";
-  } | {
-    /**
-     * Chat frames — omp transcript-reader (channel→session stamped by byte-hub).
-     *
-     * @generated from field: roost.v1.WChat chat = 14;
-     */
-    value: WChat;
-    case: "chat";
   } | { case: undefined; value?: undefined };
 };
 
@@ -412,7 +376,7 @@ export type CoordWorkerUp = Message<"roost.v1.CoordWorkerUp"> & {
  * Use `create(CoordWorkerUpSchema)` to create a new message.
  */
 export const CoordWorkerUpSchema: GenMessage<CoordWorkerUp> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 12);
+  messageDesc(file_roost_v1_worker_transport, 11);
 
 /**
  * @generated from message roost.v1.DHelloAck
@@ -434,7 +398,7 @@ export type DHelloAck = Message<"roost.v1.DHelloAck"> & {
  * Use `create(DHelloAckSchema)` to create a new message.
  */
 export const DHelloAckSchema: GenMessage<DHelloAck> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 13);
+  messageDesc(file_roost_v1_worker_transport, 12);
 
 /**
  * @generated from message roost.v1.DPing
@@ -451,7 +415,7 @@ export type DPing = Message<"roost.v1.DPing"> & {
  * Use `create(DPingSchema)` to create a new message.
  */
 export const DPingSchema: GenMessage<DPing> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 14);
+  messageDesc(file_roost_v1_worker_transport, 13);
 
 /**
  * @generated from message roost.v1.DBrowserCommand
@@ -485,7 +449,7 @@ export type DBrowserCommand = Message<"roost.v1.DBrowserCommand"> & {
  * Use `create(DBrowserCommandSchema)` to create a new message.
  */
 export const DBrowserCommandSchema: GenMessage<DBrowserCommand> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 15);
+  messageDesc(file_roost_v1_worker_transport, 14);
 
 /**
  * @generated from message roost.v1.DBinary
@@ -512,7 +476,7 @@ export type DBinary = Message<"roost.v1.DBinary"> & {
  * Use `create(DBinarySchema)` to create a new message.
  */
 export const DBinarySchema: GenMessage<DBinary> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 16);
+  messageDesc(file_roost_v1_worker_transport, 15);
 
 /**
  * D-4b ack — coord echoes the worker's client_seq after a successful
@@ -533,7 +497,7 @@ export type DEventAck = Message<"roost.v1.DEventAck"> & {
  * Use `create(DEventAckSchema)` to create a new message.
  */
 export const DEventAckSchema: GenMessage<DEventAck> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 17);
+  messageDesc(file_roost_v1_worker_transport, 16);
 
 /**
  * Streamed file upload SPA→coord→worker. Coord relays the AttachFileChunk
@@ -598,7 +562,7 @@ export type DAttachmentChunk = Message<"roost.v1.DAttachmentChunk"> & {
  * Use `create(DAttachmentChunkSchema)` to create a new message.
  */
 export const DAttachmentChunkSchema: GenMessage<DAttachmentChunk> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 18);
+  messageDesc(file_roost_v1_worker_transport, 17);
 
 /**
  * @generated from message roost.v1.CoordWorkerDown
@@ -651,7 +615,7 @@ export type CoordWorkerDown = Message<"roost.v1.CoordWorkerDown"> & {
  * Use `create(CoordWorkerDownSchema)` to create a new message.
  */
 export const CoordWorkerDownSchema: GenMessage<CoordWorkerDown> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 19);
+  messageDesc(file_roost_v1_worker_transport, 18);
 
 /**
  * @generated from service roost.v1.WorkerService

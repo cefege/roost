@@ -12,10 +12,8 @@
 // open at a time (module-level guard). Styling: styles/voice-input.css
 // (.term-chat, .term-chat__dock). Caller: CellTerminal.tsx.
 //
-// TERMINAL MODE ONLY. This types into a PTY; it has nothing to do with the
-// omp chat pane (components/chat/omp/), which talks to an RPC child. It was
-// called TerminalChatButton, and that name made two unrelated subsystems look
-// like one.
+// TERMINAL MODE ONLY. This types into the session PTY. It was renamed from
+// TerminalChatButton so its terminal composition role is explicit.
 
 import { createSignal, onCleanup, Show } from "solid-js";
 import { Portal } from "solid-js/web";

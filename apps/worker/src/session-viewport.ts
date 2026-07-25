@@ -27,7 +27,7 @@ import { SB_SNAPSHOT_TAIL_ROWS, SB_SNAPSHOT_MAX_CATCHUP_ROWS, initCellEmitState 
 function _claimTailRows(mgr: SessionManager, channelId: number, heldSbTotal?: number): number {
 	if (!heldSbTotal || heldSbTotal <= 0) return SB_SNAPSHOT_TAIL_ROWS;
 	const rec = mgr.sessions.get(channelId);
-	const total = (rec?.cell_emit.sbDropped ?? 0) + (rec?.wtermCore?.getScrollbackCount() ?? 0);
+	const total = (rec?.cell_emit.sbDropped ?? 0) + (rec?.wtermCore.getScrollbackCount() ?? 0);
 	const need = total - heldSbTotal + 1;
 	return Math.min(Math.max(need, SB_SNAPSHOT_TAIL_ROWS), SB_SNAPSHOT_MAX_CATCHUP_ROWS);
 }
@@ -58,11 +58,10 @@ export function claimViewport(
 		this.withdrawViewport(channelId, viewerFp);
 		return;
 	}
-	// kind:"agent" has no PTY to size and no grid to snapshot. Only CellTerminal
-	// claims a viewport and an agent session never mounts one, so this refusal
-	// is defence in depth against a stray claim from a stale tab.
+	// Ignore a viewport claim that races a teardown. A live session always
+	// owns a terminal core.
 	const rec = this.sessions.get(channelId);
-	if (!rec || rec.kind === "agent") return;
+	if (!rec) return;
 	// A real claim cancels any in-flight deferred withdraw for this
 	// viewer (refresh re-claimed within the grace) → no size flap.
 	this._cancelPendingWithdraw(channelId, viewerFp);
@@ -330,8 +329,8 @@ export async function _rebuildWtermCore(
 	heldSbTotal?: number,
 ): Promise<void> {
 	const rec0 = this.sessions.get(channelId);
-	// No core to rebuild: kind:"agent" never claims a viewport, so it never gets
-	// here — but the chain is timer-driven, so narrow rather than assume.
+	// The chain is timer-driven: teardown can remove the terminal core before
+	// this queued rebuild executes.
 	if (!rec0?.wtermCore) return;
 	// Skip rebuild if the wtermCore is already at the target size — no reflow
 	// needed, and the claim path (emitCellSnapshot) already sent a full frame.

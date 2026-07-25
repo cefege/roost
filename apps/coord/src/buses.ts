@@ -12,7 +12,6 @@ import type { PermissionRuleDelta } from "@roost/shared/wire";
 import type { McpStreamMessage } from "@roost/shared/wire";
 import type { Task as PbTask } from "@roost/shared/proto/wire_pb";
 import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
-import type { ChatFrame } from "@roost/shared/proto/sync_pb";
 import type { UiReportStateRequest, UiCommand } from "@roost/shared/proto/sync_pb";
 
 // taskBus carries proto-typed Task deltas directly — the firehose
@@ -127,10 +126,6 @@ export const globalPresenceBus = new BoundedBus<{ session_id: string; data: unkn
 // cell_grid branch is the SPA's cell path. Small ring — a fresh viewer gets
 // a full frame from the worker on attach, so stale deltas needn't replay.
 export const globalCellBus     = new BoundedBus<PbCellGridFrame>(64);
-// Omp chat frames (transcript-reader). Worker emits ChatFrame per session;
-// coord stamps session_id (byte-hub) and fans out here. Sync's chat branch is
-// the SPA's chat path. Small ring — a fresh viewer backfills history via RPC.
-export const globalChatBus = new BoundedBus<ChatFrame>(64);
 
 // ui-cc — browser-tab UI state + command relay (G1/G2). VOLATILE,
 // presence-class, no replay: layout stays browser-local; coord only relays.

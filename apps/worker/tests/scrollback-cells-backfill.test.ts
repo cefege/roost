@@ -76,7 +76,6 @@ async function injectSession(mgr: SessionManager, bytes: Uint8Array): Promise<Se
     session_trace_id: "sbcell00",
     cell_emit: initCellEmitState(),
     spawnedAtMs: Date.now(),
-    chat_seq: 0,
   };
   mgr.sessions.set(CID, record);
   return record;

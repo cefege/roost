@@ -30,18 +30,14 @@ around it by inlining.
 **L0-FORBIDDEN-PATHS — `/Users/mike/Code/omp` is OFF LIMITS. Never read
 it, never open it, never grep it, never edit it, never delete it, never
 send a sub-agent into it.** It is the oh-my-pi source monorepo — a
-separate project of Author's, unrelated to this repo, sharing only the
-name `omp` with the `~/.omp/agent/sessions/*.jsonl` transcripts this
-repo's chat mirror reads. That name collision is the whole trap:
-`apps/worker/src/chat/omp/` parses omp transcripts, so a plausible-
-sounding chain of reasoning ("Roost tails omp's session files → the
-writer is upstream → edit the writer") walks you straight into a repo
-you were never authorized to touch. It always carries Author's
-uncommitted in-flight work, and it is the install this agent is
-EXECUTING INSIDE — editing or deleting it corrupts the running harness.
-No task in this repo is ever completed by changing a file over there.
-Author 2026-07-25: "You never touch the omp folder. It's fucking
-pointless. Don't really don't open it. Never look into it."
+separate project of Author's, unrelated to this repo. Roost does not read,
+write, or bridge omp transcripts and does not own an omp subprocess or web
+UI. That source tree always carries Author's uncommitted in-flight work, and
+it is the install this agent is EXECUTING INSIDE — editing or
+deleting it corrupts the running harness. No task in this repo is ever
+completed by changing a file over there. Author 2026-07-25: "You never
+touch the omp folder. It's fucking pointless. Don't really don't open it.
+Never look into it."
 
 **L0-FORBIDDEN-PATHS-PLAN-OVERRIDE — an approved plan does NOT grant
 path authority.** A plan file, spec, checklist, or "plan approved"
@@ -559,32 +555,11 @@ lsof -iTCP -sTCP:LISTEN -P -n | grep bun
 - **Attachment reaper:** `src/attachment-reaper.ts` — 1h sweep of
   `~/.roost/attachments/<sid>/`: deletes files >24h old, enforces 1 GB
   LRU cap, removes empty session dirs.
-- **Two independent subsystems.** Roost runs agents two ways, and they share NO
-  runtime state — deleting either one's source leaves the other building. The
-  boundary is the SESSION KIND, decided at spawn and never toggled:
-
-  | | terminal mode (`kind: "shell" \| "claude"`) | web-UI mode (`kind: "agent"`) |
-  |---|---|---|
-  | process | a PTY via the keeper mux | an `omp --mode rpc-ui` child — the session IS the child |
-  | render | wterm grid → cell frames → `CellTerminal` | `ChatFrame` → `globalChatBus` → `OmpChatPane` |
-  | status | screen-scrape (`detect/`) + claude hooks | the RPC child's own events (`chat/omp/rpc-chat.ts`) |
-  | spawn | `spawnShell` / `spawnClaude` | `spawnAgent` (`session-spawn.ts`) |
-  | record | `wtermCore`, scrollback ring, viewport claims | none of those — `wtermCore` is `undefined` |
-
-  Enforced by two greps that must stay empty (`rg 'chat|Chat'` over
-  `CellTerminal.tsx`, `session-emit.ts`, `detect/`; `rg -w 'wtermCore|
-  lastOscTitle|inputChannel'` over `worker/src/chat/`, `web/src/components/chat/`).
-  There used to be a THIRD thing — a "mirror engine" that tailed a terminal omp's
-  transcript and typed the user's messages back as bracketed-paste keystrokes,
-  plus a parity oracle to arbitrate between the two renderings. It was web-UI
-  mode implemented on top of terminal mode; all of it is deleted. Continuing a
-  terminal conversation in the browser is now a one-shot resume by transcript
-  path (`chat/omp/session-discovery.ts` → `spawnAgent --session FILE`).
-
-- **Terminal-mode agent status.** The agent TUI is richer than any structured
-  stream, so the terminal render is the parity-exact source; only STATUS is
-  extracted. Two adapters feed the same `AgentState` (the `AGENT-INTEGRATION-
-  POINT` doc in `hooks.ts`):
+- **Agent integration:** terminal-only. `src/claude/hooks.ts` instruments
+  Claude sessions with hooks; `src/detect/` screen-scrapes any terminal
+  agent that has a manifest. Roost never owns an omp subprocess, never tails
+  its transcripts, and never renders an omp web UI. The terminal is the
+  sole surface for shell, Claude, omp, pi, and every other agent.
   - `claude/hooks.ts` — `buildHooksSettings()` + hook UDS listener. `spawnClaude`
     (`session-manager.ts`) runs claude with `--settings <hooks_json>
     --input/output-format=stream-json --include-hook-events`; each hook POSTs a
@@ -595,19 +570,8 @@ lsof -iTCP -sTCP:LISTEN -P -n | grep bun
   - `detect/` — generic terminal screen-scrape (`screen-detect.ts` +
     `manifest-engine.ts` + `claude-manifest.ts` + `pi-manifest.ts` +
     `omp-manifest.ts`) over the rendered wterm grid → volatile
-    `claudeStatusBus`. The ONLY status source for agents WITHOUT hooks (pi, and
-    an omp the user launched in a terminal). It never runs for `kind: "agent"` —
-    that session has no grid, and `_runDetect` returns early on it.
-
-- **Web-UI mode (`src/chat/omp/`).** `rpc-driver.ts` owns the JSONL-over-stdio
-  transport (spawn, framing, id-correlated request/response, protocol-v2 chunk
-  reassembly); `rpc-chat.ts` maps omp's event stream onto `ChatMessage` rows AND
-  publishes `AgentState` for the sidebar chip; `session-store.ts` persists
-  sessionId→transcript so a worker restart resumes the conversation;
-  `session-discovery.ts` finds resumable transcripts for the New-chat picker
-  (head/tail reads only — transcripts run to hundreds of MB). Approvals are
-  `extension_ui_request` frames, which is why the child MUST be `--mode rpc-ui`:
-  plain `rpc` has no `ask` tool at all.
+    `claudeStatusBus`. The ONLY status source for agents without hooks, e.g.
+    pi and omp.
 - **Snapshot:** `src/snapshot.ts` — emit `snapshot` SessionEvent on
   coord reconnect (R3.1 reconciliation).
 - **Run / dev:** `bun apps/worker/src/main.ts`.

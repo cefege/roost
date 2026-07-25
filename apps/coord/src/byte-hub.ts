@@ -9,10 +9,9 @@
 // channel→session map (with its reverse index for O(1) closed-prune)
 // stays.
 
-import { sessionBus, globalBytesBus, globalCellBus, claudeStatusBus, globalChatBus } from "./buses.ts";
+import { sessionBus, globalBytesBus, globalCellBus, claudeStatusBus } from "./buses.ts";
 import type { SessionEvent, SessionId, WorkerFp, ChannelId } from "@roost/shared/wire";
 import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
-import type { ChatFrame } from "@roost/shared/proto/sync_pb";
 import { log } from "@roost/shared/log";
 import { signal, diag } from "@roost/shared/diag";
 
@@ -167,23 +166,6 @@ export function publishCellGrid(workerFp: WorkerFp, channelId: ChannelId, frame:
   globalCellBus.publish(frame);
 }
 
-// Omp chat. Worker WChat frames carry channel_id only; map to session_id,
-// stamp it, fan out via globalChatBus. Unmapped channel = drop (same as cells).
-export function publishChat(workerFp: WorkerFp, channelId: ChannelId, frame: ChatFrame): void {
-  const sessionId = _channelToSession.get(_key(workerFp, channelId));
-  if (!sessionId) {
-    diag("byte-hub.drop_unmapped_chat", { worker_fp: workerFp, channel_id: channelId });
-    // Unlike PTY bytes there is no re-send and no replay: a dropped chat frame
-    // is permanent data loss, so it gets a line even without ROOST_DIAG=1.
-    log.warn("byte-hub", "drop_unmapped_chat", { worker_fp: workerFp, channel_id: channelId, seq: Number(frame.seq) });
-    _recordUnmappedDrop(workerFp, channelId);
-    return;
-  }
-  _clearUnmappedDrop(workerFp, channelId);
-  frame.sessionId = sessionId;
-  diag("chat.relay", { sid: sessionId, channel_id: channelId, seq: Number(frame.seq) });
-  globalChatBus.publish(frame);
-}
 
 // herdr agent status. Worker WClaudeStatus frames carry channel_id only; map to
 // session_id and republish to claudeStatusBus → Sync firehose → SPA chip. Volatile

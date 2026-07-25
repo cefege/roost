@@ -1,5 +1,5 @@
 // roost-smoke harness — single chrome_javascript-injectable script.
-// Returns { steps: [{ name, pass, detail }], summary: "N/12 passed" }.
+// Returns { steps: [...], summary: "N/N passed" }.
 //
 // Prereq: page is loaded on the prod URL AND
 // localStorage.roostSmoke === "1" AND `window.__smoke` is installed
@@ -21,6 +21,55 @@ const HOME = "/tmp";  // portable — every Unix has /tmp
   function $(sel) { return document.querySelector(sel); }
   function $$(sel) { return Array.from(document.querySelectorAll(sel)); }
   function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+  async function waitUntil(check, timeoutMs) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (check()) return true;
+      await sleep(100);
+    }
+    return check();
+  }
+  function sameIds(a, b) {
+    return a.length === b.length && a.every((id, index) => id === b[index]);
+  }
+  function terminalFootprint() {
+    const slotPrefix = "terminal-slot-";
+    const slots = $$('[data-testid^="terminal-slot-"]');
+    const sessionId = (slot) => slot.dataset.testid?.slice(slotPrefix.length) ?? "";
+    const visible = slots.filter((slot) => getComputedStyle(slot).visibility === "visible");
+    return {
+      openSessions: Object.values(window.__smoke.state().sessions)
+        .filter((session) => session.status === "open")
+        .map((session) => session.id)
+        .sort(),
+      mountedSlots: slots.length,
+      cellPanes: $$('[data-testid="cell-terminal-pane"]').length,
+      wterms: $$('.wterm').length,
+      textareas: $$('textarea').length,
+      visibleSlots: visible.length,
+      mountedIds: slots.map(sessionId).filter(Boolean).sort(),
+      visibleIds: visible.map(sessionId).filter(Boolean).sort(),
+    };
+  }
+  function freshestWorker(workers) {
+    return Object.entries(workers)
+      .sort(([, a], [, b]) => Number(b.last_seen_ms ?? 0) - Number(a.last_seen_ms ?? 0))[0]?.[0] ?? null;
+  }
+  async function readyFreshDeck() {
+    const dismiss = $('[data-testid="whats-new-dismiss"]');
+    if (dismiss) {
+      dismiss.click();
+      if (!await waitUntil(() => !$('[data-testid="whats-new-dismiss"]'), 5_000)) {
+        return { dismissed: true, homeLanding: false };
+      }
+    }
+    history.pushState({}, "", "/");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+    return {
+      dismissed: !!dismiss,
+      homeLanding: await waitUntil(() => !!$('[data-testid="home-landing"]'), 5_000),
+    };
+  }
 
   // ── Step 1: bundle hash + page healthy ────────────────────────────
   try {
@@ -36,7 +85,7 @@ const HOME = "/tmp";  // portable — every Unix has /tmp
     );
     if (!hasSmoke) {
       record("FATAL", false, "window.__smoke missing — set localStorage.roostSmoke=1 and reload");
-      return { steps, summary: "0/13 passed (fatal)" };
+      return { steps, summary: `0/${steps.length} passed (fatal)` };
     }
   } catch (e) { record("step1_bundle_loaded", false, String(e)); }
 
@@ -52,14 +101,19 @@ const HOME = "/tmp";  // portable — every Unix has /tmp
     );
   } catch (e) { record("step2_sidebar_bootstrap", false, String(e)); }
 
+  // ── Step 2b: dismiss onboarding and create a fresh deck ────────────
+  try {
+    const freshDeck = await readyFreshDeck();
+    record("step2b_fresh_deck_ready", freshDeck.homeLanding, freshDeck);
+  } catch (e) { record("step2b_fresh_deck_ready", false, String(e)); }
+
   // ── Step 3: spawn shell via __smoke API ───────────────────────────
   let firstSession = null; // { sessionId, workerFp }
   try {
+    if (!$('[data-testid="home-landing"]')) throw new Error("fresh home deck unavailable");
     const workers = window.__smoke.state().workers;
-    const fps = Object.keys(workers);
-    if (!fps.length) throw new Error("no workers in store");
-    // Prefer a routable worker
-    const fp = fps.find((f) => workers[f].reachable_addr) ?? fps[0];
+    const fp = freshestWorker(workers);
+    if (!fp) throw new Error("no workers in store");
     const t0 = performance.now();
     const sh = await Promise.race([
       window.__smoke.spawnShell(fp, HOME),
@@ -82,25 +136,40 @@ const HOME = "/tmp";  // portable — every Unix has /tmp
       !!sh.session_id && visibleWterm >= 1,
       { dt_ms: Math.round(dt), session_id: sh.session_id?.slice(0, 8), visibleWterms: visibleWterm, workerFp: fp.slice(0, 12) },
     );
+    const footprint = terminalFootprint();
+    record(
+      "step3_mount_footprint",
+      sameIds(footprint.mountedIds, footprint.visibleIds),
+      footprint,
+    );
     if (sh.session_id) {
       firstSession = { sessionId: sh.session_id, workerFp: fp };
     }
-  } catch (e) { record("step3_spawn_and_nav", false, String(e)); }
+  } catch (e) {
+    record("step3_spawn_and_nav", false, String(e));
+    record("step3_mount_footprint", false, String(e));
+  }
 
   // ── Step 4: session's folder row appears in sidebar ───────────────
-  // One-mode sidebar: a fresh shell shows as its (worker, folder) row —
-  // headline title = spawn cwd — NOT a session row (those are strip-only).
+  // A shell can canonicalize its cwd after spawn (macOS /tmp → /private/tmp).
+  // Compare the row against the worker-reported current cwd, not the original
+  // spawn argument, so this checks grouping rather than filesystem aliases.
   try {
     if (!firstSession) throw new Error("no session from step 3");
     const rowDeadline = Date.now() + 5_000;
     let found = false;
+    let cwd = HOME;
     while (Date.now() < rowDeadline) {
+      cwd = window.__smoke.state().sessions[firstSession.sessionId]?.cwd ?? HOME;
       found = $$('[data-testid^="folder-row-"] .df-flat-headline')
-        .some((h) => h.title === HOME);
+        .some((h) => h.title === cwd);
       if (found) break;
       await sleep(150);
     }
-    record("step4_folder_row_in_sidebar", found, { sessionId: firstSession.sessionId?.slice(0, 8), cwd: HOME });
+    record("step4_folder_row_in_sidebar", found, {
+      sessionId: firstSession.sessionId?.slice(0, 8),
+      cwd,
+    });
   } catch (e) { record("step4_folder_row_in_sidebar", false, String(e)); }
 
   // ── Step 5: echo round-trip via __smoke.input ─────────────────────
@@ -150,31 +219,62 @@ const HOME = "/tmp";  // portable — every Unix has /tmp
     record("step5b_input_focus_lands", pf.focused, pf);
   } catch (e) { record("step5b_input_focus_lands", false, String(e)); }
 
-  // ── Step 6: deck persistence on switch (only with 2+ folders) ─────
-  // Clicking a DIFFERENT folder row navigates to that folder's lead
-  // session — guaranteed ≠ firstSession, so the deck must keep both panes.
+  // ── Step 6: persistent warm deck on a folder switch ───────────────
+  // Cold sessions must stay unmounted; first-visited slots persist by identity.
   try {
     const folderRows = $$('[data-testid^="folder-row-"]');
     if (folderRows.length < 2) {
       record("step6_deck_persists_on_switch", true, "skipped — only one folder");
+      record("step6_mount_footprint", true, "skipped — only one folder");
+      record("step6_restore_original_slot", true, "skipped — only one folder");
     } else {
-      const deck = $('[data-testid="terminal-deck"]');
-      const beforeChildren = deck?.children.length;
-      const otherRow = folderRows.find((r) => r.dataset.selected !== "focused");
+      const before = terminalFootprint();
+      const originalSlot = $$('[data-testid^="terminal-slot-"]')
+        .find((slot) => slot.dataset.testid === `terminal-slot-${firstSession?.sessionId}`);
+      const originalCell = originalSlot?.querySelector('[data-testid="cell-terminal-pane"]') ?? null;
+      const otherRow = folderRows.find((row) => row.dataset.selected !== "focused");
       otherRow?.click();
-      await sleep(500);
-      const afterChildren = deck?.children.length;
-      // Cell mode: each active CellTerminal has TWO .wterm (display grid +
-      // off-screen input host), so count visible SLOTS, not .wterm — exactly
-      // one terminal-slot is visibility:visible at a time.
-      const visibleNow = $$('[data-testid^="terminal-slot-"]').filter((s) => getComputedStyle(s).visibility === "visible").length;
+      const switched = await waitUntil(
+        () => !terminalFootprint().visibleIds.includes(firstSession?.sessionId ?? ""),
+        5_000,
+      );
+      const afterSwitch = terminalFootprint();
+      const focusedSlots = $$('[data-testid^="terminal-slot-"]')
+        .filter((slot) => slot.dataset.focused === "true");
+      const originalPreserved = !!originalSlot?.isConnected
+        && !!originalCell?.isConnected
+        && getComputedStyle(originalSlot).visibility !== "visible";
       record(
         "step6_deck_persists_on_switch",
-        beforeChildren === afterChildren && visibleNow === 1,
-        { beforeChildren, afterChildren, visibleSlots: visibleNow },
+        switched && originalPreserved && focusedSlots.length === 1,
+        { switched, originalPreserved, focusedSlots: focusedSlots.length },
+      );
+      const expectedMountedIds = [...new Set([...before.mountedIds, ...afterSwitch.visibleIds])].sort();
+      record(
+        "step6_mount_footprint",
+        sameIds(afterSwitch.mountedIds, expectedMountedIds),
+        { before, afterSwitch, expectedMountedIds },
+      );
+      history.pushState({}, "", `/s/${firstSession?.sessionId}`);
+      window.dispatchEvent(new PopStateEvent("popstate"));
+      const restored = await waitUntil(
+        () => terminalFootprint().visibleIds.includes(firstSession?.sessionId ?? "")
+          && originalSlot?.isConnected
+          && originalCell?.isConnected
+          && originalSlot?.dataset.focused === "true",
+        5_000,
+      );
+      record(
+        "step6_restore_original_slot",
+        restored,
+        { restored, visibleIds: terminalFootprint().visibleIds, focused: originalSlot?.dataset.focused === "true" },
       );
     }
-  } catch (e) { record("step6_deck_persists_on_switch", false, String(e)); }
+  } catch (e) {
+    record("step6_deck_persists_on_switch", false, String(e));
+    record("step6_mount_footprint", false, String(e));
+    record("step6_restore_original_slot", false, String(e));
+  }
 
   // ── Step 7: kill removes session from sidebar ─────────────────────
   try {
@@ -212,7 +312,7 @@ const HOME = "/tmp";  // portable — every Unix has /tmp
   let step9Sid = null;
   try {
     const workers = window.__smoke.state().workers;
-    const fp = Object.keys(workers).find((f) => workers[f].reachable_addr) ?? Object.keys(workers)[0];
+    const fp = freshestWorker(workers);
     if (!fp) throw new Error("no workers");
     const t0 = Date.now();
     const sh = await Promise.race([
@@ -238,7 +338,7 @@ const HOME = "/tmp";  // portable — every Unix has /tmp
   try {
     if (!step9WsId || !step9Sid) throw new Error("no workspace from step 9");
     const workers = window.__smoke.state().workers;
-    const fp = Object.keys(workers).find((f) => workers[f].reachable_addr) ?? Object.keys(workers)[0];
+    const fp = freshestWorker(workers);
     if (!fp) throw new Error("no workers");
     const before = Object.values(window.__smoke.state().sessions)
       .filter((s) => s.status === "open").length;
@@ -269,7 +369,7 @@ const HOME = "/tmp";  // portable — every Unix has /tmp
   // ── Step 11: cwd flip re-groups session ───────────────────────────
   try {
     const workers = window.__smoke.state().workers;
-    const fp = Object.keys(workers).find((f) => workers[f].reachable_addr) ?? Object.keys(workers)[0];
+    const fp = freshestWorker(workers);
     if (!fp) throw new Error("no workers");
     const sh = await Promise.race([
       window.__smoke.spawnShell(fp, HOME),
@@ -322,7 +422,7 @@ const HOME = "/tmp";  // portable — every Unix has /tmp
   // @wterm pushes live rows to scrollback → depth ratchets up.
   try {
     const workers = window.__smoke.state().workers;
-    const fp = Object.keys(workers).find((f) => workers[f].reachable_addr) ?? Object.keys(workers)[0];
+    const fp = freshestWorker(workers);
     if (!fp) throw new Error("no workers");
     const sh = await Promise.race([
       window.__smoke.spawnShell(fp, HOME),
@@ -368,216 +468,9 @@ const HOME = "/tmp";  // portable — every Unix has /tmp
     await window.__smoke.kill(sh.session_id).catch(() => null);
   } catch (e) { record("step13_resize_wobble_holds_scrollback", false, String(e)); }
 
-  // ── Step 14: a chat session spawns and its pane renders ────────────
-  // Proves the whole one-tap path: candidate pick → filesMkdir → spawnAgent
-  // (which starts `omp --mode rpc-ui` as the session's OWN process and fails
-  // the RPC if it cannot) → sidebar bucket → deck routing. Eligibility is the
-  // session KIND (`ompChatEnabled` → `session.kind === "agent"`), so no OSC
-  // title, no cwd heuristic and no view toggle is involved — if the pane does
-  // not render, spawn or deck routing is genuinely broken.
-  let chatSid = null;
-  try {
-    const qc = await window.__smoke.quickChat();
-    chatSid = qc.session_id;
-    history.pushState({}, "", `/s/${chatSid}`);
-    window.dispatchEvent(new PopStateEvent("popstate"));
-    const paneSel = `[data-testid="omp-chat-pane"][data-session-id="${chatSid}"]`;
-    const t0 = performance.now();
-    let hadPane = false, hadComposer = false;
-    while (performance.now() - t0 < 15000) {
-      const pane = $(paneSel);
-      hadPane = !!pane;
-      hadComposer = !!(pane && pane.querySelector('[data-testid="omp-chat-composer"]'));
-      if (hadPane && hadComposer) break;
-      await sleep(200);
-    }
-    record("step14_quick_chat_spawn_and_render", hadPane && hadComposer, {
-      sessionId: chatSid, ms: Math.round(performance.now() - t0), hadPane, hadComposer,
-    });
-  } catch (e) { record("step14_quick_chat_spawn_and_render", false, String(e)); }
 
-  // ── Step 15: a prompt streams back INCREMENTALLY ───────────────────
-  // The bug this exists for: output appeared to arrive in one lump. Two
-  // independent observations settle it — (a) the assistant text length grows
-  // across several samples, so frames really are incremental; (b) the bubble's
-  // DOM node is the SAME element throughout, so the keyed reconcile in
-  // chatOmp.ts is holding and <For> is not tearing the row down and rebuilding
-  // it (markdown re-parsed, selection lost) on every 60ms frame.
-  try {
-    if (!chatSid) throw new Error("step14 produced no session");
-    const paneSel = `[data-testid="omp-chat-pane"][data-session-id="${chatSid}"]`;
-    const res = await window.__smoke.chatPrompt(chatSid, "Write exactly four sentences about the ocean. No preamble.");
-    if (!res.success) throw new Error(`worker rejected the prompt: ${res.error ?? "no error given"}`);
-
-    const lens = [];       // distinct growing assistant text lengths
-    let firstNode = null, sameNode = true, sawUser = false, sawStreaming = false, lastGrowth = 0;
-    const t0 = performance.now();
-    while (performance.now() - t0 < 90000) {
-      const pane = $(paneSel);
-      if (pane) {
-        if (pane.querySelector('.tr-row--user [data-testid="omp-chat-msg"]')) sawUser = true;
-        if (pane.querySelector('[data-testid="omp-chat-composer"][data-streaming="true"]')) sawStreaming = true;
-        const bubbles = Array.from(pane.querySelectorAll('.tr-row--assistant [data-testid="omp-chat-msg"]'));
-        const node = bubbles[bubbles.length - 1] ?? null;
-        const len = node ? node.textContent.trim().length : 0;
-        if (len > 0) {
-          if (!firstNode) firstNode = node;
-          else if (node !== firstNode) sameNode = false;
-          if (lens[lens.length - 1] !== len) { lens.push(len); lastGrowth = performance.now(); }
-        }
-      }
-      const st = window.__smoke.chatState(chatSid);
-      // Only trust "the turn is over" AFTER the turn was observed to start —
-      // right after chatPrompt resolves, `streaming` has not flipped true yet,
-      // and exiting on that first tick would report a one-sample stream for a
-      // perfectly healthy one.
-      if (sawStreaming && lens.length > 0 && !st.streaming) break;
-      // Fallback: a fast reply can finish between two 200ms samples and we may
-      // never catch data-streaming="true". Settle on the text instead.
-      if (lens.length >= 2 && performance.now() - lastGrowth > 3000) break;
-      await sleep(200);
-    }
-    const st = window.__smoke.chatState(chatSid);
-    const errorBoundary = !!$('[data-testid="error-boundary"]');
-    // Two growing samples is the whole point: one sample means the reply only
-    // ever appeared complete, which is the reported symptom, not a pass.
-    // isConnected catches the remount directly — a rebuilt row leaves the node
-    // we captured detached, which is exactly the pre-reconcile behavior.
-    const stillMounted = !!firstNode && firstNode.isConnected;
-    record("step15_chat_stream_round_trip",
-      lens.length >= 2 && sameNode && stillMounted && sawUser && !errorBoundary, {
-        growthSamples: lens.length, lens: lens.slice(0, 12), finalLen: lens[lens.length - 1] ?? 0,
-        sameNode, stillMounted, sawUser, sawStreaming, errorBoundary,
-        model: st.model, msgCount: st.msgCount, ms: Math.round(performance.now() - t0),
-      });
-  } catch (e) { record("step15_chat_stream_round_trip", false, String(e)); }
-
-  // ── Step 16: an N-option decision renders and is answerable ────────
-  // omp only registers its `ask` tool when it runs with a UI (hasUI =
-  // isInteractive || mode === "rpc-ui"). Under the old `--mode rpc` child the
-  // tool did not exist, so the agent could never offer a choice and this card
-  // could never appear. Asserting the OPTION BUTTONS — not just the card —
-  // also covers the worker's `options` mapping degrading to an empty array.
-  try {
-    if (!chatSid) throw new Error("step14 produced no session");
-    const paneSel = `[data-testid="omp-chat-pane"][data-session-id="${chatSid}"]`;
-    const ASK = "Use the ask tool right now to ask me one question: 'Pick a colour' with options Red, Green and Blue. Do nothing else.";
-    let card = null, buttons = 0, pending = null, attempts = 0, panePresent = false, cardsAnywhere = 0;
-    const t0 = performance.now();
-    // Two attempts: whether the model reaches for `ask` on any single turn is
-    // not a contract, and one re-ask is cheaper than a flaky gate. Still a FAIL
-    // if it never asks — the capability is then unproven, and a green here
-    // would be exactly the lie this step exists to prevent.
-    while (attempts < 2 && !pending) {
-      attempts++;
-      const res = await window.__smoke.chatPrompt(chatSid, ASK);
-      if (!res.success) throw new Error(`worker rejected the prompt: ${res.error ?? "no error given"}`);
-      const deadline = performance.now() + 90000;
-      let turnStarted = false;
-      while (performance.now() < deadline) {
-        const st = window.__smoke.chatState(chatSid);
-        if (st.streaming) turnStarted = true;
-        pending = st.approvals.find((a) => !a.resolved) ?? null;
-        card = $(`${paneSel} [data-testid="omp-chat-approval"]`);
-        // The card's controls are md-* custom elements, NOT <button> — count the
-        // tagged option controls so an empty `options` array cannot pass.
-        buttons = card ? card.querySelectorAll('[data-testid="omp-chat-approval-option"]').length : 0;
-        panePresent = !!$(paneSel);
-        cardsAnywhere = $$('[data-testid="omp-chat-approval"]').length;
-        if (pending && card && buttons >= 3) break;
-        // "Turn ended without asking" is only meaningful once the turn began —
-        // `streaming` is still false for a moment after chatPrompt resolves.
-        if (turnStarted && !pending && !st.streaming) break;
-        await sleep(200);
-      }
-    }
-    const options = pending ? pending.options : [];
-    let answered = false;
-    if (pending) {
-      await window.__smoke.chatApprove(chatSid, pending.requestId, { value: options[0] ?? "Red" });
-      const t1 = performance.now();
-      while (performance.now() - t1 < 15000) {
-        const a = window.__smoke.chatState(chatSid).approvals.find((x) => x.requestId === pending.requestId);
-        if (a && a.resolved) { answered = true; break; }
-        await sleep(200);
-      }
-    }
-    record("step16_chat_decision_multi_option",
-      !!pending && pending.method === "select" && options.length >= 3 && buttons >= 3 && answered, {
-        method: pending ? pending.method : null, options, buttons, answered, attempts,
-        panePresent, cardsAnywhere,
-        reason: pending ? "" : "model never called the ask tool",
-        ms: Math.round(performance.now() - t0),
-      });
-  } catch (e) { record("step16_chat_decision_multi_option", false, String(e)); }
-
-  // ── Step 17: terminal mode and web-UI mode are disjoint surfaces ────
-  // THE independence requirement, observed in the DOM. A session's KIND picks
-  // its surface: `shell`/`claude` paint a cell terminal and never a chat pane;
-  // `agent` paints a chat pane and never a cell terminal. There is no toggle
-  // between them and no eligibility latch — this replaces the old
-  // step17_chat_toggle_survives_run_state, which drove OSC titles at a shell to
-  // prove the (now deleted) `omp_eligible` latch held.
-  //
-  // Driven with no omp process and no model cost on the shell side; the agent
-  // side reuses step 14's session.
-  try {
-    const workers = window.__smoke.state().workers;
-    const fp = (firstSession && firstSession.workerFp)
-      ?? Object.keys(workers).find((f) => workers[f].reachable_addr) ?? Object.keys(workers)[0];
-    if (!fp) throw new Error("no workers");
-    const sh = await window.__smoke.spawnShell(fp, HOME);
-    history.pushState({}, "", `/s/${sh.session_id}`);
-    window.dispatchEvent(new PopStateEvent("popstate"));
-    await sleep(1500);
-    const shellSlot = `[data-testid="terminal-slot-${sh.session_id}"]`;
-    const shellPaintsTerminal = !!$(`${shellSlot} [data-testid="cell-terminal-pane"]`);
-    const shellHasNoChat = !$(`${shellSlot} [data-testid="omp-chat-pane"]`);
-    // An omp running INSIDE the shell must not change any of this: the OSC
-    // title used to latch chat eligibility, and that coupling is gone.
-    await window.__smoke.input(sh.session_id, `printf '\\033]0;\\u03c0 \\u2839 smoke-working\\007'\n`);
-    await sleep(1200);
-    const stillNoChat = !$(`${shellSlot} [data-testid="omp-chat-pane"]`);
-    // And the converse: step 14's agent session paints a chat pane, never a grid.
-    let agentPaintsChat = false, agentHasNoTerminal = false;
-    if (chatSid) {
-      const agentSlot = `[data-testid="terminal-slot-${chatSid}"]`;
-      agentPaintsChat = !!$(`${agentSlot} [data-testid="omp-chat-pane"]`);
-      agentHasNoTerminal = !$(`${agentSlot} [data-testid="cell-terminal-pane"]`);
-    }
-    record("step17_terminal_and_chat_surfaces_are_disjoint",
-      shellPaintsTerminal && shellHasNoChat && stillNoChat && agentPaintsChat && agentHasNoTerminal,
-      { shellPaintsTerminal, shellHasNoChat, stillNoChat, agentPaintsChat, agentHasNoTerminal });
-    await window.__smoke.kill(sh.session_id).catch(() => null);
-  } catch (e) { record("step17_terminal_and_chat_surfaces_are_disjoint", false, String(e)); }
-
-  // ── Step 18: the browser PAINTS every row the pane holds ───────────
-  // The gap this closes: a pane can hold rows and paint none of them — CSS or
-  // the loading skeleton eats them — and no wire-level check can see that. So
-  // both columns are read IN THE BROWSER: `held` is the store projected with
-  // the same `roostMessageRows` the pane stamps `data-tui-row` from, `painted`
-  // is the DOM filtered by getClientRects. Equal counts AND equal order.
-  //
-  // This used to diff against a worker-side transcript projection
-  // (SessionsGetChatParity). That oracle existed to arbitrate between two
-  // engines rendering one conversation; with one engine there is nothing to
-  // arbitrate, and the store-vs-DOM gap is the failure that actually happened.
-  try {
-    if (!chatSid) throw new Error("step14 produced no session");
-    const dom = window.__smoke.chatRows(chatSid);
-    const sameOrder = dom.heldCount > 0
-      && dom.held.every((k, i) => k === (dom.painted[i] && dom.painted[i].kind));
-    record("step18_chat_rows_all_painted",
-      dom.heldCount > 0 && dom.paintedCount === dom.heldCount && sameOrder, {
-        storeCount: dom.storeCount, heldCount: dom.heldCount,
-        paintedCount: dom.paintedCount, status: dom.status, sameOrder,
-        held: dom.held.slice(0, 12),
-        paintedKinds: dom.painted.map((r) => r.kind).slice(0, 12),
-      });
-  } catch (e) { record("step18_chat_rows_all_painted", false, String(e)); }
-
-  // Never leave this run's quick chat behind. Allowlist only — NEVER a scan of
-  // state().sessions (feedback_never_mass_kill_live_sessions).
+  // Never leave this run's spawned sessions behind. Allowlist only — NEVER a scan
+  // of state().sessions (feedback_never_mass_kill_live_sessions).
   await window.__smoke.killSpawned().catch(() => null);
 
   const passed = steps.filter((s) => s.pass).length;

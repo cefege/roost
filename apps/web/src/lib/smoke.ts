@@ -11,9 +11,6 @@
 import { coordClient } from "../connect.ts";
 import { forceSyncReconnect as forceSyncReconnectImpl, cellFrameCount as cellFrameCountImpl } from "../store/sync.ts";
 import { rootStore, setRootStore } from "../store/root.ts";
-import { ompChatForSession } from "../store/chatOmp.ts";
-import { roostMessageRows } from "@roost/shared/chat/rows";
-import { createQuickChat } from "./quickChat.ts";
 import { setForceVisible } from "./pageVisible.ts";
 import { BOTTOM_EPSILON_PX } from "./cellRenderer.ts";
 
@@ -98,35 +95,6 @@ interface SmokeApi {
    *  return the reassembled byte length + hex SHA-256 (integrity + no-size-cap
    *  proof). */
   downloadWorkerFile(workerFp: string, path: string): Promise<{ bytes: number; sha256: string }>;
-  /** Create a quick chat (mkdir scratch → spawn an agent session) and return its
-   *  session id, registered in _spawned so killSpawned() reaps it. */
-  quickChat(): Promise<{ session_id: string }>;
-  /** Send a prompt through the SAME RPC the Composer uses. Returns the parsed
-   *  { success } envelope so the harness can assert the worker accepted it. */
-  chatPrompt(sessionId: string, message: string): Promise<{ success: boolean; error?: string }>;
-  /** Sampling probe for the chat transcript. Polling this over a turn is how
-   *  the harness proves output arrives INCREMENTALLY (many distinct growing
-   *  assistant lengths) rather than in one lump at message_end. */
-  chatState(sessionId: string): {
-    status: string; streaming: boolean; model: string; msgCount: number;
-    lastAssistantId: string; lastAssistantLen: number;
-    approvals: { requestId: string; method: string; title: string; options: string[]; resolved: boolean }[];
-  };
-  /** Answer a pending approval exactly as ApprovalCard does. */
-  chatApprove(sessionId: string, requestId: string, reply: Record<string, unknown>): Promise<void>;
-  /** The rows the pane has actually PAINTED, read off `data-tui-row` stamps.
-   *  Painted, not stored — a row the skeleton or a CSS rule swallowed has no
-   *  client rect and must not count, which is the whole point of measuring here
-   *  instead of in the store. */
-  chatRows(sessionId: string): {
-    status: string; streaming: boolean;
-    storeCount: number;
-    /** Rows the store projects to, via the pane's own row projection. */
-    heldCount: number;
-    held: string[];
-    paintedCount: number;
-    painted: { kind: string; label: string }[];
-  };
 }
 
 export function maybeInstallSmokeBackdoor(): void {
@@ -151,83 +119,6 @@ export function maybeInstallSmokeBackdoor(): void {
         sessionId,
         data: new TextEncoder().encode(text),
       });
-    },
-    async quickChat() {
-      const sid = await createQuickChat();
-      // Cleanup goes through the spawned allowlist, never a scan of live
-      // sessions (feedback_never_mass_kill_live_sessions).
-      spawned.push(sid);
-      return { session_id: sid };
-    },
-    async chatPrompt(sessionId, message) {
-      const res = await coordClient.sessionsChatCommand({
-        sessionId,
-        commandJson: JSON.stringify({ type: "prompt", message }),
-      });
-      const parsed = JSON.parse(res.responseJson || "{}") as { success?: boolean; error?: string };
-      return { success: parsed?.success === true, error: parsed?.error };
-    },
-    chatState(sessionId) {
-      const s = ompChatForSession(sessionId);
-      let lastAssistantId = "";
-      let lastAssistantLen = 0;
-      const approvals: { requestId: string; method: string; title: string; options: string[]; resolved: boolean }[] = [];
-      for (const m of s.messages) {
-        for (const b of m.blocks) {
-          if (b.kind === "approval") {
-            approvals.push({ requestId: b.requestId, method: b.method, title: b.title, options: [...b.options], resolved: b.resolved });
-          }
-        }
-        if (m.role !== "assistant") continue;
-        const len = m.blocks.reduce((n, b) => n + (b.kind === "text" ? b.text.length : 0), 0);
-        if (len > 0) { lastAssistantId = m.id; lastAssistantLen = len; }
-      }
-      return {
-        status: s.status, streaming: s.streaming, model: s.model,
-        msgCount: s.messages.length, lastAssistantId, lastAssistantLen, approvals,
-      };
-    },
-    async chatApprove(sessionId, requestId, reply) {
-      await coordClient.sessionsChatCommand({
-        sessionId,
-        commandJson: JSON.stringify({ type: "extension_ui_response", id: requestId, ...reply }),
-      });
-    },
-    chatRows(sessionId) {
-      const s = ompChatForSession(sessionId);
-      const pane = document.querySelector(`[data-testid="omp-chat-pane"][data-session-id="${sessionId}"]`);
-      const painted: { kind: string; label: string }[] = [];
-      if (pane) {
-        for (const el of pane.querySelectorAll("[data-tui-row]")) {
-          // getClientRects, not offsetParent: a row inside a collapsed
-          // <details> or hidden by `display:none` genuinely paints nothing, and
-          // that is exactly the failure this probe exists to catch.
-          if ((el as HTMLElement).getClientRects().length === 0) continue;
-          const raw = (el as HTMLElement).dataset.tuiRow;
-          if (!raw) continue;
-          try {
-            const row = JSON.parse(raw) as { kind?: unknown; label?: unknown };
-            painted.push({
-              kind: typeof row.kind === "string" ? row.kind : "?",
-              label: typeof row.label === "string" ? row.label : "",
-            });
-          } catch { painted.push({ kind: "?", label: "" }); }
-        }
-      }
-      // The rows the pane HOLDS, projected with the same function the pane
-      // stamps `data-tui-row` from. `held` vs `paintedCount` is the whole
-      // measurement: a row in the store that never reaches a client rect was
-      // eaten by CSS or the skeleton, which no wire-level check can see.
-      const held: string[] = [];
-      for (const m of s.messages) for (const a of roostMessageRows(m)) held.push(a.row.kind);
-      return {
-        status: s.status, streaming: s.streaming,
-        storeCount: s.messages.length,
-        heldCount: held.length,
-        held,
-        paintedCount: painted.length,
-        painted,
-      };
     },
     paneFocused(sessionId) {
       const slot = document.querySelector(`[data-testid="terminal-slot-${sessionId}"]`);

@@ -49,8 +49,8 @@ export async function handleGetScrollbackCells(
 		}
 	}
 	const core = rec.wtermCore;
-	// kind:"agent" has no grid to read. Only CellTerminal asks for scrollback and
-	// an agent session never mounts one, so this is a belt-and-braces refusal.
+	// Registered sessions own a terminal core. Keep the narrow for teardown
+	// races and sparse test fixtures.
 	if (!core) {
 		coordLink.send({ kind: "rpc-error", request_id, message: "session has no terminal" });
 		return;

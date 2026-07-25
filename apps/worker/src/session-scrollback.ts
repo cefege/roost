@@ -24,8 +24,8 @@ import { _sha8, SCROLLBACK_CAP_BYTES, MODE_CARRY_MAX } from "./session-constants
 export function appendScrollback(this: SessionManager, channelId: number, chunk: Buffer): number {
 	const rec = this.sessions.get(channelId);
 	if (!rec) return -1;
-	// Unreachable for kind:"agent" (no keeper channel ever forwards bytes to it),
-	// but the ring and the grid are one code path — narrow once, here.
+	// Live sessions own a terminal core; retain the narrow for teardown races
+	// and sparse test fixtures.
 	const core = rec.wtermCore;
 	if (!core) return -1;
 	const next = new Uint8Array(rec.scrollback.length + chunk.length);

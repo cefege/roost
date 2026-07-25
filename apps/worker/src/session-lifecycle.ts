@@ -10,8 +10,6 @@ import { log, diag, signal } from "@roost/shared";
 import type { ChannelState, FsmEvent } from "./fsm.ts";
 import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
 import * as byteCapture from "./diag/byte-capture.ts";
-import { disposeRpcChat, disposeAllRpcChats } from "./chat/omp/rpc-chat.ts";
-import { forgetOmpSession } from "./chat/omp/session-store.ts";
 import {
 	RECENTLY_CLOSED_TTL_MS,
 	STRAY_REAP_STRIKES,
@@ -109,15 +107,10 @@ export function emitClosedTombstone(this: SessionManager, sessionId: SessionId):
 export function kill(this: SessionManager, channelId: number): void {
 	const r = this.sessions.get(channelId);
 	if (!r) return;
-	// kind:"agent" holds no keeper channel — its child dies with disposeRpcChat
-	// inside _dropChannelState (via closedByKeeper below). Sending KillChild for
-	// a channel the keeper never had is a mismatch it logs and ignores.
-	if (r.kind !== "agent") {
-		// Mux pool sends KillChild on the shared UDS → keeper's IPty.kill →
-		// child exit → Exit frame → muxCallbacks.onExit → closedByKeeper →
-		// FSM closed → SessionEvent closed.
-		getMultiplexedPool().kill(channelId);
-	}
+	// Mux pool sends KillChild on the shared UDS → keeper's IPty.kill →
+	// child exit → Exit frame → muxCallbacks.onExit → closedByKeeper →
+	// FSM closed → SessionEvent closed.
+	getMultiplexedPool().kill(channelId);
 	// 2026-06-15: also tear down here regardless of whether the keeper
 	// still has the channel. The keeper restarts (manual kickstart,
 	// crash recovery, deploy) drop their PTY children without the
@@ -136,11 +129,6 @@ export function closedByKeeper(this: SessionManager, channelId: number, exitCode
 	this._checkDeadBirth(r);
 	r.fsm.send({ kind: "close", exitCode });
 	// _onTransition fires the coord event.
-	// TRUE close (respawn deliberately bypasses this function): the pane is
-	// gone for good, so drop the native chat's durable omp-session mapping.
-	// _dropChannelState below only kills the child — it also runs on respawn,
-	// where the same sessionId comes straight back.
-	forgetOmpSession(String(r.sessionId));
 	// @wterm/core has no dispose — WASM memory is GC'd with the bridge ref.
 	this._dropChannelState(channelId);
 }
@@ -154,10 +142,6 @@ export function closedByKeeper(this: SessionManager, channelId: number, exitCode
  *  someone kills it by hand. head_seq===0 gate keeps a legit fast-exiting
  *  shell (which prints a prompt first) from counting. */
 export function _checkDeadBirth(this: SessionManager, rec: SessionRecord): void {
-	// kind:"agent" has no keeper PTY, so it can never be a keeper dead-birth —
-	// and its head_seq is 0 for life, which would otherwise make EVERY quick
-	// close look like one and trip the degraded-keeper restart.
-	if (rec.kind === "agent") return;
 	const lifetimeMs = Date.now() - rec.spawnedAtMs;
 	if (lifetimeMs >= DEAD_BIRTH_LIFETIME_MS || rec.head_seq !== 0) return;
 	signal("keeper.dead_birth", {
@@ -201,7 +185,6 @@ export function _dropChannelState(this: SessionManager, channelId: number): void
 			kind: rec.kind,
 		});
 		rec.gitWatchDispose?.();
-		disposeRpcChat(String(rec.sessionId)); // native engine: `omp --mode rpc` child
 		if (rec.prPollTimer) {
 			clearInterval(rec.prPollTimer);
 			rec.prPollTimer = null;
@@ -258,8 +241,8 @@ export function diagSnapshot(this: SessionManager): Record<string, unknown> {
 			tail_seq: rec.head_seq - rec.scrollback.length,
 			scrollback_len: rec.scrollback.length,
 			alt_mode: rec.alt_mode,
-			wterm_cols: rec.wtermCore?.getCols() ?? null,
-			wterm_rows: rec.wtermCore?.getRows() ?? null,
+			wterm_cols: rec.wtermCore.getCols(),
+			wterm_rows: rec.wtermCore.getRows(),
 			last_applied_size: this.lastAppliedSize.get(channelId) ?? null,
 			claims: claims ? Object.fromEntries(claims.entries()) : {},
 		};
@@ -336,8 +319,4 @@ export function dispose(this: SessionManager): void {
 		clearInterval(this.strayReaperTimer);
 		this.strayReaperTimer = null;
 	}
-	// Native chat children are plain Bun.spawn subprocesses, NOT keeper PTY
-	// channels, and _dropChannelState never runs on SIGTERM — nothing else
-	// reaps them. Mappings are KEPT so the next boot resumes each conversation.
-	disposeAllRpcChats();
 }

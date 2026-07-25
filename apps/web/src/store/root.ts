@@ -12,7 +12,6 @@ import type {
   PermissionRule,
   McpRelay,
 } from "@roost/shared/wire";
-import type { ChatMessage } from "@roost/shared/chat/wire";
 
 // Keyed by string id for plain-object Solid reactivity.
 // Solid createStore + Map<K,V> has limited granularity; keyed records work better.
@@ -71,35 +70,6 @@ export interface RootState {
    *  routes the CTA to /pair (Onboarding). Cleared on successful
    *  refresh once trust is granted. See AllView.tsx + SidebarEmptyState. */
   browser_unauthorized: boolean;
-  /** Omp chat. Per-session messages + status for `kind:"agent"` sessions.
-   *  Self-contained omp slice — no shared chat components. The logic +
-   *  selectors live in store/chatOmp.ts; state mounts here so sync.ts's
-   *  single reactive flush covers chat frames too. key = SessionId. */
-  chat_omp: Record<string, ChatOmpState>;
-}
-
-/** `failed` = the backfill RPC errored: the pane has NO history and cannot get
- *  it. Distinct from `resolved` with zero messages, which is a genuinely empty
- *  conversation — conflating the two painted a welcome card over a dead pipe. */
-export type ChatOmpStatus = "idle" | "loading" | "resolved" | "failed";
-export interface ChatOmpState {
-  messages: ChatMessage[];
-  seq: number;
-  status: ChatOmpStatus;
-  /** An agent turn is in flight (worker-owned flag). */
-  streaming: boolean;
-  /** Session status, from the RPC child's get_state. Empty/0 = the fact is
-   *  unknown, and its chip is not rendered. */
-  model: string;
-  modelName: string;
-  thinkingLevel: string;
-  contextTokens: number;
-  /** Model context window. 0 = unknown (no catalog entry) → the pane shows
-   *  raw tokens with no percentage, exactly as omp's own bar does. */
-  contextWindow: number;
-  /** omp agent mode ("plan", "none", …). omp's RPC get_state exposes no mode,
-   *  so this is "" today; kept because the pane renders it when present. */
-  mode: string;
 }
 
 const initialState: RootState = {
@@ -116,7 +86,6 @@ const initialState: RootState = {
   last_activity: {},
   session_viewers: {},
   browser_unauthorized: false,
-  chat_omp: {},
 };
 
 export const [rootStore, setRootStore] = createStore<RootState>(initialState);

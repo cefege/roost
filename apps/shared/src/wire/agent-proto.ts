@@ -116,12 +116,9 @@ export function agentStateToProto(a: AgentState): PbAgentState {
 // Zod schema enforces enum membership for mode/status/role/etc; a
 // drift between worker version and SPA version surfaces here as a
 // loud error rather than a silent enum-widened-string in the store.
-// `kind` is not on the wire — it is derived from the owning Session.kind by the
-// caller (foldEvent re-asserts it too). Defaults to "claude" for the
-// session-less round-trip callers.
-export function agentStateFromProto(p: PbAgentState, kind: AgentState["kind"] = "claude"): AgentState {
+export function agentStateFromProto(p: PbAgentState): AgentState {
   return AgentStateZ.parse({
-    kind,
+    kind: "claude",
     mode: p.mode,
     model: p.model,
     status: p.status,
@@ -173,7 +170,7 @@ export function sessionFromProto(p: PbSession): Session {
     cwd: p.cwd,
     workspace_id: p.workspaceId ? p.workspaceId : null,
     status: p.status,
-    agent: p.agent ? agentStateFromProto(p.agent, p.kind === "agent" ? "omp" : "claude") : null,
+    agent: p.agent ? agentStateFromProto(p.agent) : null,
     created_at: Number(p.createdAt),
     closed_at: p.closedAt !== undefined ? Number(p.closedAt) : null,
     custom_title: p.customTitle ?? null,

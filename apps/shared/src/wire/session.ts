@@ -4,7 +4,7 @@
 import { z } from "zod";
 import { ChannelId, SessionId, WorkerFp, WorkspaceId } from "./brand.ts";
 
-// ─── AgentState (claude or omp agent sessions; null for plain shell) ────
+// ─── AgentState (claude only; null for plain shell) ─────────────────────
 
 export const ClaudeMode = z.enum([
   "default",
@@ -64,7 +64,7 @@ export const SubAgentRow = z.object({
 export type SubAgentRow = z.infer<typeof SubAgentRow>;
 
 export const AgentState = z.object({
-  kind: z.enum(["claude", "omp"]),
+  kind: z.literal("claude"),
   mode: ClaudeMode,
   model: z.string(),
   status: AgentStatus,
@@ -104,7 +104,7 @@ export function defaultAgentState(): AgentState {
 
 // ─── Session ────────────────────────────────────────────────────────────
 
-export const SessionKind = z.enum(["shell", "claude", "agent"]);
+export const SessionKind = z.enum(["shell", "claude"]);
 export type SessionKind = z.infer<typeof SessionKind>;
 
 export const SessionStatus = z.enum(["open", "closed"]);

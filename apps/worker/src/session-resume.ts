@@ -112,7 +112,6 @@ export async function resume(this: SessionManager, opts: {
 			session_trace_id: newTraceId(),
 			cell_emit: initCellEmitState(),
 			spawnedAtMs: Date.now(),
-			chat_seq: 0,
 			// Re-capture the child pid from listChannels so ports survive a worker
 			// restart (reconcile adopts the keeper's live PTY, no re-spawn → the
 			// childPid the port scan needs would otherwise be undefined → []).
@@ -226,7 +225,6 @@ export async function respawn(this: SessionManager, opts: {
 		session_trace_id: newTraceId(),
 		cell_emit: initCellEmitState(),
 		spawnedAtMs: Date.now(),
-		chat_seq: 0,
 	};
 	this.sessions.set(channelId, record);
 	this._startGitBranch(record);

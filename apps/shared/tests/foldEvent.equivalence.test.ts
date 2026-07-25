@@ -42,7 +42,7 @@ const workerFpArb = fc.constantFrom(
 );
 const channelArb = fc.integer({ min: 1, max: 200 }).map((n) => n as ChannelId);
 const cwdArb = fc.constantFrom("/", "/tmp", "/Users/you", "/var/log");
-const sessionKindArb = fc.constantFrom("shell" as const, "claude" as const, "agent" as const);
+const sessionKindArb = fc.constantFrom("shell" as const, "claude" as const);
 const tsArb = fc.integer({ min: 1, max: 2_000_000_000_000 });
 
 function openedEvent(id: SessionId, fp: WorkerFp, ts: number): SessionEvent {
@@ -196,34 +196,4 @@ describe("phase-24f foldEvent equivalence", () => {
     expect(foldAll(events).size).toBe(0);
   });
 
-  // Step 1 (omp web-UI split): AgentState.kind is DERIVED from Session.kind in
-  // the fold, never carried on AgentStatePatch. One source of truth.
-  test("agent-kind session folds AgentState.kind to 'omp'; claude folds to 'claude'", () => {
-    const w = "a".repeat(64) as WorkerFp;
-    const agentId = "66666666-6666-6666-6666-666666666666" as SessionId;
-    const claudeId = "77777777-7777-7777-7777-777777777777" as SessionId;
-    const opened = (id: SessionId, kind: "agent" | "claude"): SessionEvent => ({
-      kind: "opened",
-      session_id: id,
-      worker_fp: w,
-      channel: 1 as ChannelId,
-      session_kind: kind,
-      cwd: "/",
-      ts: 1,
-    });
-    const m = foldAll([
-      opened(agentId, "agent"),
-      opened(claudeId, "claude"),
-      { kind: "agent", session_id: agentId, patch: { status: "running" }, ts: 2 },
-      { kind: "agent", session_id: claudeId, patch: { status: "running" }, ts: 3 },
-    ]);
-    expect(m.get(agentId)!.agent!.kind).toBe("omp");
-    expect(m.get(claudeId)!.agent!.kind).toBe("claude");
-    // A patch that tries to assert the wrong kind loses to Session.kind.
-    const forced = foldAll([
-      opened(agentId, "agent"),
-      { kind: "agent", session_id: agentId, patch: { kind: "claude", status: "idle" }, ts: 2 },
-    ]);
-    expect(forced.get(agentId)!.agent!.kind).toBe("omp");
-  });
 });
