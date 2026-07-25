@@ -8,13 +8,13 @@ import { log } from "@roost/shared";
 import type { ClientControlFrame } from "@roost/shared/wire";
 import type { CoordLink } from "./transport/CoordLink.ts";
 import type { SessionManager } from "./session-manager.ts";
-import { handleAttach, handleKill, handleRespawnIfMissing, handleSpawnClaude, handleSpawnShell } from "./browser-command-spawn.ts";
+import { handleAttach, handleKill, handleRespawnIfMissing, handleSpawnAgent, handleSpawnClaude, handleSpawnShell } from "./browser-command-spawn.ts";
 import { handleGetHome, handleListDir, handleMkdir, handleReadFile, handleReadFileChunk } from "./browser-command-files.ts";
 import { handleGetScrollbackCells, handleResize } from "./browser-command-terminal.ts";
 import { handleStartTransfer } from "./browser-command-transfer.ts";
 import { handleAttachmentProbe, handleDeleteAttachment, handleListAttachments } from "./browser-command-attachments.ts";
 import { handleDiagDumpBytecap, handleDiagSnapshot } from "./browser-command-diag.ts";
-import { handleGetChatBlock, handleGetChatHistory, handleGetChatParity, handleChatCommand } from "./browser-command-chat.ts";
+import { handleGetChatBlock, handleGetChatHistory, handleListOmpSessions, handleChatCommand } from "./browser-command-chat.ts";
 
 export interface BrowserCommandMsg {
 	browser_id: string;
@@ -41,6 +41,10 @@ export function handleBrowserCommand(
 		}
 		case "spawn-claude": {
 			handleSpawnClaude(frame, request_id, { coordLink, sessionMgr });
+			return;
+		}
+		case "spawn-agent": {
+			handleSpawnAgent(frame, request_id, { coordLink, sessionMgr });
 			return;
 		}
 		case "attach": {
@@ -79,8 +83,8 @@ export function handleBrowserCommand(
 			void handleGetChatBlock(frame, request_id, { coordLink, sessionMgr });
 			return;
 		}
-		case "get-chat-parity": {
-			void handleGetChatParity(frame, request_id, { coordLink, sessionMgr });
+		case "list-omp-sessions": {
+			handleListOmpSessions(frame, request_id, { coordLink });
 			return;
 		}
 		case "chat-command": {

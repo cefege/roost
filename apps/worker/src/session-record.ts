@@ -6,14 +6,15 @@ import type { FsmChannel } from "./fsm.ts";
 import type { TerminalCore } from "@wterm/core";
 import type { CellEmitState } from "@roost/shared/cell";
 import type { ChatMessage } from "@roost/shared/chat/wire";
-import type { OmpRunState } from "@roost/shared/chat/omp-title";
-import type { OmpStatus } from "./chat/omp/transcript-watcher.ts";
 
 export type SessionRecord = {
 	sessionId: SessionId;
 	channelId: ChannelId;
 	socketPath: string;
-	kind: "shell" | "claude";
+	// "shell"|"claude" = terminal mode (a keeper PTY channel). "agent" = web-UI
+	// mode: the session's process IS an `omp --mode rpc-ui` child, there is no
+	// PTY, no keeper channel, and no grid. See session-spawn.ts::spawnAgent.
+	kind: "shell" | "claude" | "agent";
 	cwd: string;
 	// Local git branch of cwd (worker-resolved). undefined = not yet resolved,
 	// null = folder isn't a repo. Set by _startGitBranch; announced in
@@ -82,7 +83,9 @@ export type SessionRecord = {
 	// writes that ANSI into the SAME parser code path — one VT engine
 	// end-to-end, no cross-parser edge cases. Live deltas (lastSeq>0)
 	// still slice the raw byte ring above (byte-exact, no parser cost).
-	wtermCore: TerminalCore;
+	// Absent for kind:"agent" — an agent session has no PTY to mirror. Every
+	// terminal-path reader must narrow before dereferencing.
+	wtermCore?: TerminalCore;
 	// diag — stable per-session id used to correlate ALL events on this
 	// session across spa+coord+worker via `rg session_trace_id`. Set on
 	// session create; never mutated.
@@ -94,52 +97,15 @@ export type SessionRecord = {
 	// DEAD_BIRTH_LIFETIME_MS: a child that exits fast having produced zero bytes
 	// (head_seq===0) is a dead-birth → feeds the degraded-keeper self-heal.
 	spawnedAtMs: number;
-	// Omp chat (transcript-reader). Only omp sessions resolve a transcript;
-	// chatWatchDispose closes the fs tailer on close / cwd-change / respawn.
-	// chat_seq = monotonic line count (frame seq); chatMessages = parsed
-	// transcript cache for history backfill; chatTranscriptPath = resolved
-	// JSONL path for get-chat-block full-text re-reads. See chat/omp/.
-	chatWatchDispose?: (() => void) | null;
+	// Omp chat, `kind:"agent"` sessions only (chat/omp/rpc-chat.ts).
+	// chat_seq = monotonic frame seq; chatMessages/chatMsgSeqs = the row cache
+	// the history RPC pages; chatTranscriptPath = the child's own session JSONL,
+	// used for get-chat-block full-text re-reads and for resuming across a
+	// worker restart.
 	chat_seq: number;
 	chatMsgSeqs?: number[];
 	chatMessages?: ChatMessage[] | null;
 	chatTranscriptPath?: string | null;
-	/** In-flight guard for the async transcript resolve: the per-OSC-title
-	 *  re-entry from session-emit.ts fires ~12.5×/s on omp's spinner, and
-	 *  without this every tick started another resolve + fs watcher on the same
-	 *  file. Set BEFORE the await, so the rate is capped at one resolve per
-	 *  resolve-duration (~12 s). Cleared when the resolve finds no transcript
-	 *  (omp boots slower than its first title — that MUST be retryable); left
-	 *  set when the path is already taken or the resolve threw, both of which
-	 *  fail safe to the terminal. Also cleared by _disposeChatWatch. */
-	chatWatchStarting?: boolean;
-	/** Failed transcript-resolve attempts, capped by CHAT_RESOLVE_MAX_TRIES so a
-	 *  session whose transcript can never be resolved stops probing lsof. */
-	chatWatchTries?: number;
-	/** Last omp run state published on a ChatFrame. Change-gate for the
-	 *  payload-less run-state frames (_emitChatRunState). */
-	chatRunState?: OmpRunState;
-	/** Latest statusline snapshot folded out of the transcript (model, mode,
-	 *  thinking level, context tokens). Rides every ChatFrame so the chat
-	 *  pane's status row survives payload-less run-state frames. */
-	chatStatus?: OmpStatus;
-	/** Live-bridge sidecar tailer (chat/omp/live-watcher.ts), started beside the
-	 *  transcript watcher on `${OMP_LIVE_DIR}/<sessionId>.ndjson`. Present for
-	 *  every mirrored omp session, whether or not a sidecar file ever appears —
-	 *  it is NOT evidence of a bridge (chatLiveAttached is). */
-	chatLiveDispose?: (() => void) | null;
-	/** True once the sidecar's `hello` line was parsed: a bridge extension is
-	 *  really writing this session's live events. */
-	chatLiveAttached?: boolean;
-	/** Turn state straight from the bridge (agent_start/agent_end). AUTHORITATIVE
-	 *  when defined — the OSC-title guess (chatRunState) is only the fallback for
-	 *  sessions with no bridge. undefined = no bridge has spoken yet. */
-	chatLiveStreaming?: boolean;
-	/** omp entry id → the provisional `live-N` id that entry's row already
-	 *  streamed under. The transcript tailer rewrites parsed ids through this so
-	 *  the canonical copy REPLACES the streamed one instead of doubling it.
-	 *  Capped + oldest-first evicted by chat/omp/chat-record.ts. */
-	chatLiveIds?: Map<string, string>;
 };
 
 export interface ViewportClaim {

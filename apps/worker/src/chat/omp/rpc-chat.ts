@@ -1,12 +1,11 @@
-// Native omp chat sessions — per-session `omp --mode rpc` children.
+// Native omp chat sessions — one `omp --mode rpc-ui` child per kind:"agent"
+// session.
 //
-// The proper alternative-frontend integration: the SPA's chat view drives omp
-// through Roost natively (SessionsChatCommand → coord → worker → this module →
-// RPC child stdin), and the child's live event stream flows back through the
-// EXISTING chat wire (rec.chatMessages + ChatFrame upstream → SPA store → pane).
-// The session's PTY stays a plain shell (the terminal view); the RPC child is a
-// side process in the same cwd. Lazy: the child starts on the first chat
-// command for a session — no spawn-path changes.
+// The SPA's chat view drives its session process through
+// SessionsChatCommand → coord → worker → this module → child stdin. The
+// child's live event stream returns through the chat wire
+// (rec.chatMessages + ChatFrame upstream → SPA store → pane). It has no PTY,
+// terminal grid, OSC title, or sidecar.
 //
 // The wire is upsert-by-id: a streaming message is re-emitted under the SAME
 // chat message id as it grows, and both rec.chatMessages and the SPA store
@@ -25,7 +24,9 @@
 // plus the trailing-timer coalescing the projector deliberately does not own.
 
 import type { ChatFrame, ChatMessage } from "@roost/shared/chat/wire";
+import { existsSync } from "node:fs";
 import { diag, log } from "@roost/shared";
+import type { AgentState } from "@roost/shared";
 import type { SessionRecord } from "../../session-record.ts";
 import {
 	askQuestionMatches, buildAskChoices, parseAskSpec, splitSelectTitle, type AskQuestionSpec,
@@ -41,6 +42,16 @@ import { loadOmpSessionFile, saveOmpSessionFile, forgetOmpSession } from "./sess
 export interface RpcChatHost {
 	getBySessionId(sessionId: string): SessionRecord | undefined;
 	sendChatFrameUpstream: ((channelId: number, frame: ChatFrame) => void) | null;
+	/** Publish an AgentState delta (the sidebar chip). For kind:"agent" sessions
+	 *  this child is the ONLY status source — they have no grid for detect/ to
+	 *  scrape. `AgentState.kind` is deliberately absent from every patch: the
+	 *  fold derives it from Session.kind (event.ts), so putting it on the wire
+	 *  would be a second source of truth that can disagree. */
+	applyAgentPatch(p: { sessionId: string; patch: Partial<AgentState> }): void;
+	/** The RPC child of a kind:"agent" session exited. That session has no PTY
+	 *  exit to piggyback on, so its `closed` SessionEvent has to come from here.
+	 *  No-op for any other kind. */
+	closeAgentSession(sessionId: string, exitCode: number | null): void;
 }
 
 /** Commands the SPA may tunnel to the child (omp RpcCommand grammar subset). */
@@ -50,6 +61,9 @@ const ALLOWED_COMMANDS: Record<string, true> = {
 	set_model: true, cycle_model: true, get_available_models: true, get_available_commands: true,
 	set_thinking_level: true, cycle_thinking_level: true,
 	compact: true, set_auto_compaction: true, new_session: true, set_session_name: true,
+	// Subagent surface. The worker subscribes itself (initSession) so cards
+	// arrive unasked; these three let a drill-in UI land without a worker change.
+	set_subagent_subscription: true, get_subagents: true, get_subagent_messages: true,
 };
 
 /** Commands that change the model with NO corresponding omp event — the chip
@@ -76,6 +90,10 @@ const UI_FIRE_AND_FORGET_METHODS: Record<string, true> = {
 /** Coalesce per-token message_update remaps. Without this every token becomes
  *  a ChatFrame on the coord bus. */
 const STREAM_FLUSH_MS = 60;
+
+/** A turn whose child goes quiet mid-MESSAGE is reaped rather than left
+ * spinning forever. */
+const RPC_STALL_MS = 30_000;
 
 /** omp caps a page at 256 messages; ask for the max so a reload is few round trips. */
 const HISTORY_PAGE_LIMIT = 256;
@@ -130,6 +148,14 @@ interface RpcChatEntry {
 	/** Trailing-timer coalescing state for message_update. */
 	pendingMsg: ChatMessage | null;
 	flushTimer: ReturnType<typeof setTimeout> | null;
+	/** Armed while a turn is in flight, rearmed by every inbound frame. Fires
+	 *  when the child has gone silent mid-turn — see stallOut. */
+	stallTimer: ReturnType<typeof setTimeout> | null;
+	/** Newest `available_commands_update` payload. omp PUSHES the slash-command
+	 *  catalog at boot and on every change (plugin reload, session switch); the
+	 *  SPA only ever ASKS, on mount. Caching the push is what keeps the palette
+	 *  from going stale without adding a frame the pane would have to handle. */
+	commands: unknown[] | null;
 }
 
 const entries = new Map<string, RpcChatEntry>();
@@ -153,6 +179,7 @@ function ensureReaper(host: RpcChatHost): void {
 function disposeEntry(entry: RpcChatEntry): void {
 	if (entry.flushTimer) { clearTimeout(entry.flushTimer); entry.flushTimer = null; }
 	if (entry.toolTimer) { clearTimeout(entry.toolTimer); entry.toolTimer = null; }
+	if (entry.stallTimer) { clearTimeout(entry.stallTimer); entry.stallTimer = null; }
 	entry.pendingMsg = null;
 	entry.toolPending.clear();
 	entry.askSpecs.clear();
@@ -184,12 +211,9 @@ function frameFor(entry: RpcChatEntry, seq: number, append: ChatMessage[], reset
 		thinkingLevel: entry.thinkingLevel,
 		contextTokens: entry.contextTokens,
 		contextWindow: entry.contextWindow,
-		engine: "rpc",
 		// omp's RPC get_state carries no agent mode (verified against
-		// rpc-mode.ts's RpcSessionState), so the native engine reports none —
-		// and quick-chat sessions are not driven through plan mode anyway. The
-		// pane omits an absent chip rather than faking one; the mirror engine
-		// fills it from the transcript.
+		// rpc-mode.ts's RpcSessionState), so none is reported. The pane omits an
+		// absent chip rather than faking one.
 		mode: "",
 	};
 }
@@ -199,6 +223,14 @@ function emitState(host: RpcChatHost, entry: RpcChatEntry): void {
 	const rec = host.getBySessionId(entry.sessionId);
 	if (!rec) return;
 	host.sendChatFrameUpstream?.(rec.channelId, frameFor(entry, rec.chat_seq, [], false));
+}
+
+/** Publish an AgentState delta for a kind:"agent" session; no-op otherwise.
+ *  Terminal-mode sessions take their status from the screen scrape (detect/),
+ *  which cannot see a PTY-less child — and two writers on one chip flap. */
+function patchAgent(host: RpcChatHost, entry: RpcChatEntry, patch: Partial<AgentState>): void {
+	if (host.getBySessionId(entry.sessionId)?.kind !== "agent") return;
+	host.applyAgentPatch({ sessionId: entry.sessionId, patch });
 }
 
 
@@ -246,9 +278,61 @@ function flushToolUpdates(host: RpcChatHost, entry: RpcChatEntry): void {
 	for (const msg of pending) upsertMessage(host, entry, msg);
 }
 
+/** The child went silent while an assistant message was mid-stream. Only child
+ * EXIT is insufficient: a wedged-but-alive omp would leave the streamed row
+ * spinning forever with no way back short of reload.
+ *
+ * `curMsgId !== null` is load-bearing: it means a row is literally
+ * half-painted. A turn that is merely OPEN is not enough — a quiet
+ *  tool (a long build writing nothing) emits no frames for minutes, and
+ *  reaping that would paint "agent stopped responding" over a healthy turn.
+ *
+ *  The child is deliberately NOT killed — mirror does not kill either, it may
+ *  still recover, and the next command re-arms everything anyway. */
+function stallOut(host: RpcChatHost, entry: RpcChatEntry): void {
+	entry.stallTimer = null;
+	if (!entry.streaming || entry.st.curMsgId === null) return;
+	log.warn("omp-rpc", "turn_stalled", { sid: entry.sessionId });
+	diag("chat.rpc_stall", { sid: entry.sessionId });
+	flushPending(host, entry);
+	flushToolUpdates(host, entry);
+	entry.streaming = false;
+	patchAgent(host, entry, { status: "idle", current_tool: null });
+	// The half-painted row is finished as far as the pane is concerned. Leaving
+	// curMsgId set would make a late frame from a recovered child stream into a
+	// row that now sits ABOVE the stall notice.
+	entry.st.curMsgId = null;
+	upsertMessage(host, entry, {
+		id: nextId(entry.st), parentId: entry.st.lastMsgId, ts: new Date().toISOString(),
+		role: "developer", synthetic: false,
+		blocks: [{ kind: "notice", text: "agent stopped responding", level: "error" }],
+	});
+}
+
+/** Rearm the stall clock. Called on EVERY inbound frame: any traffic at all
+ *  proves the child is alive.
+ *
+ *  The interval is read HERE, not captured at module load: a slow provider can
+ *  legitimately outlast the default, and a 30 s invariant is otherwise
+ *  untestable — an import is hoisted above any env assignment beside it. */
+function armStall(host: RpcChatHost, entry: RpcChatEntry): void {
+	const ms = Number(process.env.ROOST_RPC_STALL_MS ?? "") || RPC_STALL_MS;
+	clearTimeout(entry.stallTimer ?? undefined);
+	entry.stallTimer = setTimeout(() => { stallOut(host, entry); }, ms);
+}
+
+/** Stop the stall clock — the turn is over, or the entry is going away. */
+function clearStall(entry: RpcChatEntry): void {
+	clearTimeout(entry.stallTimer ?? undefined);
+	entry.stallTimer = null;
+}
+
 /** RPC-only frames, then the shared projection. The two halves are disjoint:
  *  nothing below is in event-project.ts's switch, and nothing in it is here. */
 function onEvent(host: RpcChatHost, entry: RpcChatEntry, frame: RpcFrame): void {
+	// Any frame at all proves the child is alive; a long tool call is not a
+	// stall. Armed unconditionally, disarmed by agent_end / dispose.
+	armStall(host, entry);
 	switch (frame.type) {
 		case "extension_ui_request": {
 			const requestId = typeof frame.id === "string" ? frame.id : "";
@@ -295,6 +379,7 @@ function onEvent(host: RpcChatHost, entry: RpcChatEntry, frame: RpcFrame): void 
 			const id = reuse ?? nextId(entry.st);
 			if (matched && reuse === undefined) entry.askCardIds.set(key, id);
 			entry.pendingUi.set(requestId, id);
+			patchAgent(host, entry, { status: "needs-input" });
 			upsertMessage(host, entry, {
 				id, parentId: entry.st.lastMsgId, ts: new Date().toISOString(), role: "developer",
 				synthetic: false,
@@ -338,6 +423,16 @@ function onEvent(host: RpcChatHost, entry: RpcChatEntry, frame: RpcFrame): void 
 			void refreshStatus(host, entry).catch(() => { /* keep last known */ });
 			return;
 
+		// omp PUSHES the slash-command catalog: once at boot and again whenever
+		// command metadata changes (plugin reload, session switch). The SPA only
+		// PULLS, on ChatWelcome mount — so without this the palette shows
+		// whatever the very first get_available_commands happened to return.
+		// Cached, not pushed onward: the list is read on mount and on menu open,
+		// and a new wire frame for that is more surface than the problem.
+		case "available_commands_update":
+			entry.commands = Array.isArray(frame.commands) ? frame.commands : null;
+			return;
+
 		default:
 			break;
 	}
@@ -353,11 +448,16 @@ function onEvent(host: RpcChatHost, entry: RpcChatEntry, frame: RpcFrame): void 
 	switch (out.kind) {
 		case "streaming":
 			if (!out.value) {
-				// agent_end: land everything queued before the turn reads idle.
+				// agent_end: land everything queued before the turn reads idle,
+				// and stop the stall clock — an idle child is not a frozen one.
 				flushPending(host, entry);
 				flushToolUpdates(host, entry);
+				clearStall(entry);
 			}
 			entry.streaming = out.value;
+			patchAgent(host, entry, out.value
+				? { status: "running", current_tool: null }
+				: { status: "idle", current_tool: null });
 			emitState(host, entry);
 			// Context grew over the turn; the TUI's status line would already
 			// show the new number. Failure is silent — status is not load-bearing.
@@ -384,6 +484,9 @@ function onEvent(host: RpcChatHost, entry: RpcChatEntry, frame: RpcFrame): void 
 			// start/end are turn structure, not chatter — emit immediately, and
 			// drop any queued partial the terminal state supersedes.
 			entry.toolPending.delete(out.callId);
+			patchAgent(host, entry, out.phase === "start"
+				? { current_tool: { name: typeof frame.toolName === "string" && frame.toolName ? frame.toolName : "tool", input_summary: "" } }
+				: { current_tool: null });
 			upsertMessage(host, entry, out.msg);
 			return;
 
@@ -440,13 +543,42 @@ function developerRow(entry: RpcChatEntry, text: string): ChatMessage {
  *  prior conversation: switch_session then re-seed history from the paged
  *  endpoint. Paging (not get_messages) because a physical frame caps at 1 MiB;
  *  chunk reassembly covers a big RESPONSE, but paging keeps each one small. */
-async function initSession(host: RpcChatHost, entry: RpcChatEntry, priorFile: string | null): Promise<void> {
+async function initSession(
+	host: RpcChatHost, entry: RpcChatEntry, priorFile: string | null, launchedWithSession: boolean,
+): Promise<void> {
 	try {
+		// Two resume routes, never both: `--session FILE` at launch (Step 7's
+		// transcript picker) puts the history on the child before it speaks, so
+		// only the pane needs seeding; switch_session is the respawn route for a
+		// child that died under a live worker.
+		let seedHistory = launchedWithSession;
 		if (priorFile) {
 			const res = await entry.driver.send({ type: "switch_session", sessionPath: priorFile });
-			if (res.success === true) await reloadHistory(host, entry);
+			if (res.success === true) seedHistory = true;
 			else log.warn("omp-rpc", "switch_session_failed", { sid: entry.sessionId, error: String(res.error ?? "") });
 		}
+		if (seedHistory) await reloadHistory(host, entry);
+		// omp defaults subagent delivery to "off" (rpc-subagents.ts), so without
+		// this opt-in the pane is BLIND to every subagent a turn spawns while the
+		// terminal shows their work. "progress", not "events": progress carries
+		// lifecycle + status, which is all a card renders; "events" replays every
+		// subagent message and multiplies frame volume for nothing on screen.
+		//
+		// NOT awaited. Every command waits on `ready`, and a cold child answers
+		// its first command ~16 s in — putting another round trip in front of the
+		// user's first prompt pushes chat-command past its 35 s deadline. The
+		// subscription only has to be in place before a subagent SPAWNS, which is
+		// mid-turn at the earliest. Logged on refusal: a silent one is
+		// indistinguishable from "no subagents ran".
+		void entry.driver.send({ type: "set_subagent_subscription", level: "progress" })
+			.then((sub) => {
+				if (sub.success !== true) {
+					log.warn("omp-rpc", "subagent_subscribe_failed", { sid: entry.sessionId, error: String(sub.error ?? "") });
+				}
+			})
+			.catch((err: unknown) => {
+				log.warn("omp-rpc", "subagent_subscribe_failed", { sid: entry.sessionId, error: String(err) });
+			});
 		await refreshStatus(host, entry);
 	} catch (err) {
 		log.warn("omp-rpc", "init_session_failed", { sid: entry.sessionId, error: String(err) });
@@ -493,6 +625,12 @@ async function refreshStatus(host: RpcChatHost, entry: RpcChatEntry): Promise<vo
 	entry.contextWindow = typeof usage?.contextWindow === "number" && usage.contextWindow > 0
 		? Math.round(usage.contextWindow)
 		: 0;
+	// The chip's model + context numbers. Tokens are pull-only in omp — no event
+	// carries them — so this is the single place they can come from.
+	patchAgent(host, entry, {
+		model: entry.modelName || entry.model,
+		tokens: { in: entry.contextTokens, out: 0, cached: 0 },
+	});
 	emitState(host, entry);
 }
 
@@ -537,9 +675,20 @@ async function reloadHistory(host: RpcChatHost, entry: RpcChatEntry): Promise<vo
 	}
 }
 
-/** Lazy-start the RPC child for a session (idempotent). Emits the reset frame
- *  so the SPA reseeds, mirroring _ensureChatWatch. */
-export function ensureRpcChat(host: RpcChatHost, rec: SessionRecord): RpcChatEntry {
+export interface EnsureRpcChatOpts {
+	/** Absolute path to an existing omp *.jsonl to resume, applied as
+	 *  `--session FILE` on a FRESH child. Ignored when this session already has
+	 *  a conversation of its own (that resumes via switch_session instead).
+	 *  A path that cannot be read starts a fresh conversation and says so. */
+	resumeSessionFile?: string;
+	/** omp model id; empty = omp's own default. argv-time only. */
+	model?: string;
+}
+
+/** Start the RPC child for a session (idempotent). Emits the reset frame so the
+ *  SPA reseeds. Called eagerly by spawnAgent for kind:"agent" sessions, and
+ *  lazily on the first chat command for everything else. */
+export function ensureRpcChat(host: RpcChatHost, rec: SessionRecord, opts?: EnsureRpcChatOpts): RpcChatEntry {
 	const sid = String(rec.sessionId);
 	const existing = entries.get(sid);
 	if (existing?.driver.alive) return existing;
@@ -549,6 +698,16 @@ export function ensureRpcChat(host: RpcChatHost, rec: SessionRecord): RpcChatEnt
 	const priorFile = existing?.sessionFile ?? loadOmpSessionFile(sid);
 	if (existing) disposeEntry(existing);
 
+	// Resume-by-path is a one-shot read at spawn, not a live coupling: the file
+	// is checked once, here, and a stale bookmark must never block making a
+	// session — it degrades to a fresh conversation plus one notice row.
+	const wantResume = !priorFile && (opts?.resumeSessionFile ?? "") !== "";
+	const resumePath = wantResume ? opts!.resumeSessionFile! : "";
+	const resumeReadable = resumePath !== "" && existsSync(resumePath);
+	const args: string[] = [];
+	if (opts?.model) args.push("--model", opts.model);
+	if (resumeReadable) args.push("--session", resumePath);
+
 	const entry: RpcChatEntry = {
 		sessionId: sid, st: newProjectState("rpc"), streaming: false,
 		model: "", modelName: "", thinkingLevel: "",
@@ -556,19 +715,27 @@ export function ensureRpcChat(host: RpcChatHost, rec: SessionRecord): RpcChatEnt
 		sessionFile: priorFile, pendingUi: new Map(),
 		askSpecs: new Map(), activeAsk: null, askChecked: new Map(), askCardIds: new Map(),
 		toolPending: new Map(), toolTimer: null,
-		pendingMsg: null, flushTimer: null, ready: Promise.resolve(),
+		pendingMsg: null, flushTimer: null, stallTimer: null, commands: null,
+		ready: Promise.resolve(),
 		driver: null as unknown as OmpRpcDriver,
 	};
 	entry.driver = new OmpRpcDriver({
 		cwd: rec.cwd,
+		args,
 		onEvent: (frame) => onEvent(host, entry, frame),
-		onExit: () => {
+		onExit: (code) => {
 			diag("chat.rpc_exit", { sid });
 			if (entry.flushTimer) { clearTimeout(entry.flushTimer); entry.flushTimer = null; }
+			// The exit row IS the terminal state; a stall notice on top of it
+			// would say the same thing twice, 30 s later.
+			clearStall(entry);
 			entry.streaming = false;
 			upsertMessage(host, entry, developerRow(entry, "— agent process exited —"));
-			// Keep the entry: its sessionFile is what resumes the conversation on
-			// the next command. The driver is dead, so ensureRpcChat respawns.
+			patchAgent(host, entry, { status: "done", current_tool: null });
+			// For an agent session the child IS the session, so its exit closes
+			// the row. For a terminal-mode session the child is a side process:
+			// keep the entry, its sessionFile resumes on the next command.
+			host.closeAgentSession(sid, code);
 		},
 	});
 	entries.set(sid, entry);
@@ -576,10 +743,14 @@ export function ensureRpcChat(host: RpcChatHost, rec: SessionRecord): RpcChatEnt
 	rec.chatMsgSeqs ??= [];
 	host.sendChatFrameUpstream?.(rec.channelId, frameFor(entry, rec.chat_seq, [], true));
 	entry.driver.start();
+	if (resumePath !== "" && !resumeReadable) {
+		upsertMessage(host, entry, developerRow(entry,
+			`— could not read ${resumePath}; started a fresh conversation —`));
+	}
 	// initSession never rejects (it logs); commands await this, they never fail on it.
-	entry.ready = initSession(host, entry, priorFile);
+	entry.ready = initSession(host, entry, priorFile, resumeReadable);
 	ensureReaper(host);
-	diag("chat.rpc_start", { sid, cwd: rec.cwd, resumed: priorFile !== null });
+	diag("chat.rpc_start", { sid, cwd: rec.cwd, resumed: priorFile !== null || resumeReadable });
 	return entry;
 }
 
@@ -589,6 +760,12 @@ function retireUiRequest(host: RpcChatHost, entry: RpcChatEntry, requestId: stri
 	const msgId = requestId ? entry.pendingUi.get(requestId) : undefined;
 	if (msgId === undefined) return;
 	entry.pendingUi.delete(requestId);
+	// The chip leaves needs-input only once NOTHING is still asking — omp can
+	// have two questions open (a batched `ask`), and clearing on the first
+	// answer would say "running" while the pane still shows a live card.
+	if (entry.pendingUi.size === 0) {
+		patchAgent(host, entry, { status: entry.streaming ? "running" : "idle" });
+	}
 	const prev = host.getBySessionId(entry.sessionId)?.chatMessages?.find((m) => m.id === msgId);
 	const block = prev?.blocks[0];
 	if (prev && block?.kind === "approval") {
@@ -747,6 +924,12 @@ export async function rpcChatCommand(
 			void refreshStatus(host, entry).catch(() => { /* keep last known */ });
 		}
 		if (type === "get_available_models") return { ok: true, response: trimCatalog(response) };
+		// omp pushed a newer catalog than any reply we could ask for, and a
+		// refused/failed pull would otherwise blank the palette. The live answer
+		// still wins — the push is the floor, not the ceiling.
+		if (type === "get_available_commands" && response.success !== true && entry.commands !== null) {
+			return { ok: true, response: { type: "response", success: true, data: { commands: entry.commands } } };
+		}
 		return { ok: true, response };
 	} catch (err) {
 		log.warn("omp-rpc", "command_failed", { sid: entry.sessionId, type, error: String(err) });
@@ -755,9 +938,23 @@ export async function rpcChatCommand(
 }
 
 /** Untruncated text of a native-chat block, or null when this session has no
- *  RPC child / the block was never truncated. */
+ *  RPC child / the block was never truncated.
+ *
+ *  An empty slot reads as ABSENT, matching parse.ts::fullBlockText: a block
+ *  kind that carries nothing truncatable (toolEvent beside a capped thinking
+ *  block, say) stores "" to keep block indices aligned, and answering an
+ *  expand with blank text is worse than answering "block not found". */
 export function rpcChatFullBlock(sessionId: string, messageId: string, blockIndex: number): string | null {
-	return entries.get(sessionId)?.st.fullText.get(messageId)?.[blockIndex] ?? null;
+	const text = entries.get(sessionId)?.st.fullText.get(messageId)?.[blockIndex];
+	return text ? text : null;
+}
+
+/** True when this session has an rpc entry — a live child, or a dead one whose
+ *  sessionFile still resumes the conversation. The parity oracle needs it to
+ *  tell "rpc engine, no terminal column" from "mirror engine, bridge missing",
+ *  and `entries` is private to this module. */
+export function rpcChatActive(sessionId: string): boolean {
+	return entries.has(sessionId);
 }
 
 /** Re-emit the current session status for a live RPC child (no-op otherwise).

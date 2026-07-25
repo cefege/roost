@@ -13,7 +13,6 @@ import * as viewport from "./session-viewport.ts";
 import * as spawnFns from "./session-spawn.ts";
 import * as resumeFns from "./session-resume.ts";
 import * as lifecycle from "./session-lifecycle.ts";
-import * as chat from "./session-chat.ts";
 
 import { getMultiplexedPool, type MuxChannelCallbacks } from "./keeper/multiplexed-client.ts";
 import { log, asChannelId } from "@roost/shared";
@@ -218,8 +217,8 @@ export class SessionManager {
 
 	/** R11 — force a full cell frame upstream (a fresh SPA viewer attaching
 	 *  needs the whole grid; live deltas follow). */
-	emitCellSnapshot(channelId: ChannelId): void {
-		this.emitCellFrame(channelId, true);
+	emitCellSnapshot(channelId: ChannelId, tailRows?: number): void {
+		this.emitCellFrame(channelId, true, tailRows);
 	}
 
 	appendScrollback(channelId: number, chunk: Buffer): number {
@@ -259,8 +258,8 @@ export class SessionManager {
 		return emit._scheduleCellEmit.call(this, channelId);
 	}
 
-	emitCellFrame(channelId: number, force: boolean): void {
-		return emit.emitCellFrame.call(this, channelId, force);
+	emitCellFrame(channelId: number, force: boolean, tailRows?: number): void {
+		return emit.emitCellFrame.call(this, channelId, force, tailRows);
 	}
 
 	muxCallbacks(channelId: number): MuxChannelCallbacks {
@@ -283,16 +282,8 @@ export class SessionManager {
 		return gitPorts._resolvePr.call(this, rec);
 	}
 
-	_ensureChatWatch(channelId: number): void {
-		return chat._ensureChatWatch.call(this, channelId);
-	}
-
-	_emitChatRunState(channelId: number): void {
-		return chat._emitChatRunState.call(this, channelId);
-	}
-
-	claimViewport(channelId: number, viewerFp: string, cols: number, rows: number, clientSeq?: number, cause?: number): void {
-		return viewport.claimViewport.call(this, channelId, viewerFp, cols, rows, clientSeq, cause);
+	claimViewport(channelId: number, viewerFp: string, cols: number, rows: number, clientSeq?: number, cause?: number, heldSbTotal?: number): void {
+		return viewport.claimViewport.call(this, channelId, viewerFp, cols, rows, clientSeq, cause, heldSbTotal);
 	}
 
 	withdrawViewport(channelId: number, viewerFp: string): void {
@@ -307,16 +298,16 @@ export class SessionManager {
 		return viewport._reapViewportClaims.call(this);
 	}
 
-	_recomputeViewport(channelId: number): void {
-		return viewport._recomputeViewport.call(this, channelId);
+	_recomputeViewport(channelId: number, heldSbTotal?: number): void {
+		return viewport._recomputeViewport.call(this, channelId, heldSbTotal);
 	}
 
-	_scheduleWtermRebuild(channelId: number, cols: number, rows: number): void {
-		return viewport._scheduleWtermRebuild.call(this, channelId, cols, rows);
+	_scheduleWtermRebuild(channelId: number, cols: number, rows: number, heldSbTotal?: number): void {
+		return viewport._scheduleWtermRebuild.call(this, channelId, cols, rows, heldSbTotal);
 	}
 
-	_rebuildWtermCore(channelId: number, cols: number, rows: number): Promise<void> {
-		return viewport._rebuildWtermCore.call(this, channelId, cols, rows);
+	_rebuildWtermCore(channelId: number, cols: number, rows: number, heldSbTotal?: number): Promise<void> {
+		return viewport._rebuildWtermCore.call(this, channelId, cols, rows, heldSbTotal);
 	}
 
 	spawnShell(cwd: string, cols?: number, rows?: number, targetSessionId?: SessionId): Promise<SessionRecord> {
@@ -327,7 +318,11 @@ export class SessionManager {
 		return spawnFns.spawnClaude.call(this, cwd, initialMode, cols, rows, targetSessionId);
 	}
 
-	respawnIfMissing(sessionId: SessionId, kind: "shell" | "claude", cwd: string, cols: number, rows: number): Promise<SessionRecord> {
+	spawnAgent(cwd: string, opts?: { resumeSessionFile?: string; model?: string }, targetSessionId?: SessionId): Promise<SessionRecord> {
+		return spawnFns.spawnAgent.call(this, cwd, opts, targetSessionId);
+	}
+
+	respawnIfMissing(sessionId: SessionId, kind: "shell" | "claude" | "agent", cwd: string, cols: number, rows: number): Promise<SessionRecord> {
 		return spawnFns.respawnIfMissing.call(this, sessionId, kind, cwd, cols, rows);
 	}
 
@@ -377,6 +372,16 @@ export class SessionManager {
 
 	applyAgentPatch(p: { sessionId: SessionId; patch: Partial<AgentState> }): void {
 		return lifecycle.applyAgentPatch.call(this, p);
+	}
+
+	/** RpcChatHost: the omp child of a kind:"agent" session exited. That session
+	 *  has no PTY exit to piggyback on, so this is the only path to its `closed`
+	 *  event. No-op for terminal-mode sessions, where the child is a side
+	 *  process and the PTY owns the lifecycle. */
+	closeAgentSession(sessionId: string, exitCode: number | null): void {
+		const rec = this.getBySessionId(sessionId as SessionId);
+		if (rec?.kind !== "agent") return;
+		this.closedByKeeper(rec.channelId, exitCode);
 	}
 
 	dispose(): void {

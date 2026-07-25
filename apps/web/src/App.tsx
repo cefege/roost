@@ -19,6 +19,7 @@ import { ConnectionBanner } from "./components/ConnectionBanner.tsx";
 import { VersionBanner } from "./components/VersionBanner.tsx";
 import { WhatsNewDialog } from "./components/WhatsNewDialog.tsx";
 import { QueueTaskDialog } from "./components/QueueTaskDialog.tsx";
+import { ResumeChatDialog } from "./components/ResumeChatDialog.tsx";
 import { ToastContainer } from "./components/ToastContainer.tsx";
 import { AttentionToasts } from "./components/AttentionToasts.tsx";
 import { PairRequestNotifier } from "./components/PairRequestNotifier.tsx";
@@ -105,6 +106,7 @@ export function App() {
         <HelpOverlay />
         <WhatsNewDialog />
         <QueueTaskDialog />
+        <ResumeChatDialog />
         <ToastContainer />
         <AttentionToasts />
         <PairRequestNotifier />

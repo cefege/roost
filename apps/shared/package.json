@@ -21,6 +21,8 @@
     "./cell/cell-proto": "./src/cell/cell-proto.ts",
     "./chat/wire": "./src/chat/wire.ts",
     "./chat/omp-title": "./src/chat/omp-title.ts",
+    "./chat/rows": "./src/chat/rows.ts",
+    "./chat/assistant-notice": "./src/chat/assistant-notice.ts",
     "./proto/*": "./src/gen/roost/v1/*.ts"
   },
   "scripts": {

@@ -14,13 +14,18 @@
 //     prompt, or the message runs in a fresh, empty conversation.
 
 import { test, expect, afterAll } from "bun:test";
-import { mkdtempSync, readFileSync, existsSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync, existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ChatFrame, ChatMessage, ContentBlock } from "@roost/shared/chat/wire";
+import { TRUNC_CAP, type ChatFrame, type ChatMessage, type ContentBlock } from "@roost/shared/chat/wire";
+import type { AgentState, SessionEvent, SessionId, WorkerFp, ChannelId } from "@roost/shared";
+import { foldAll } from "@roost/shared";
 import type { SessionRecord } from "../../../src/session-record.ts";
-import { rpcChatCommand, disposeRpcChat, disposeAllRpcChats, type RpcChatHost } from "../../../src/chat/omp/rpc-chat.ts";
-import { loadOmpSessionFile, forgetOmpSession, _resetOmpSessionStoreCache } from "../../../src/chat/omp/session-store.ts";
+import {
+	rpcChatCommand, rpcChatFullBlock, rpcChatActive, disposeRpcChat, disposeAllRpcChats, type RpcChatHost,
+} from "../../../src/chat/omp/rpc-chat.ts";
+import { loadOmpSessionFile, forgetOmpSession, saveOmpSessionFile, _resetOmpSessionStoreCache } from "../../../src/chat/omp/session-store.ts";
+import { handleChatCommand, handleGetChatBlock, handleGetChatHistory } from "../../../src/browser-command-chat.ts";
 
 const FAKE = join(import.meta.dir, "fixtures", "fake-omp.ts");
 process.env.ROOST_OMP_BIN = FAKE;
@@ -35,6 +40,11 @@ interface Harness {
 	rec: SessionRecord;
 	host: RpcChatHost;
 	frames: ChatFrame[];
+	/** AgentState deltas the child published, in order. Empty unless the record
+	 *  is kind:"agent" — terminal-mode sessions take status from the scrape. */
+	patches: Partial<AgentState>[];
+	/** sessionIds whose child exit asked the manager to close the session. */
+	closed: string[];
 	/** Commands that reached the child, in order. Excludes the fixture's own
 	 *  `__argv` boot record — that is launch bookkeeping, not a command. */
 	log(): Record<string, unknown>[];
@@ -42,23 +52,27 @@ interface Harness {
 	argv(): string[] | undefined;
 }
 
-function harness(sid: string): Harness {
+function harness(sid: string, kind: SessionRecord["kind"] = "shell"): Harness {
 	const logPath = join(tmp, `${sid}.log`);
 	process.env.FAKE_OMP_LOG = logPath;
 	process.env.FAKE_OMP_SESSION_FILE = join(tmp, `${sid}-session.jsonl`);
 	const frames: ChatFrame[] = [];
+	const patches: Partial<AgentState>[] = [];
+	const closed: string[] = [];
 	const raw = (): Record<string, unknown>[] => (existsSync(logPath)
 		? readFileSync(logPath, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l) as Record<string, unknown>)
 		: []);
 	const rec = {
-		sessionId: sid, channelId: 1, cwd: tmp, chat_seq: 0,
+		sessionId: sid, channelId: 1, cwd: tmp, chat_seq: 0, kind,
 		chatMessages: [] as ChatMessage[], chatMsgSeqs: [] as number[],
 	} as unknown as SessionRecord;
 	return {
-		rec, frames,
+		rec, frames, patches, closed,
 		host: {
 			getBySessionId: (id) => (id === sid ? rec : undefined),
 			sendChatFrameUpstream: (_c, f) => { frames.push(f); },
+			applyAgentPatch: (p) => { patches.push(p.patch); },
+			closeAgentSession: (id) => { if (rec.kind === "agent") closed.push(id); },
 		},
 		log: () => raw().filter((f) => f.type !== "__argv"),
 		argv: () => raw().find((f) => f.type === "__argv")?.argv as string[] | undefined,
@@ -75,6 +89,20 @@ async function waitFor(what: string, cond: () => boolean, ms = 5000): Promise<vo
 		await Bun.sleep(10);
 	}
 	throw new Error(`timeout waiting for ${what}`);
+}
+
+/** Wait for a turn to OPEN and then CLOSE.
+ *
+ *  Never `waitFor(() => frames.at(-1).streaming === false)`: ensureRpcChat
+ *  emits a boot reset frame with `streaming:false`, so on a fast run that
+ *  predicate is already true before agent_start and the test races past the
+ *  turn it meant to observe. Cost a 1-in-3 flake before this existed. */
+async function waitTurn(h: Harness): Promise<void> {
+	await waitFor("turn start", () => h.frames.some((f) => f.streaming));
+	await waitFor("turn end", () => {
+		const i = h.frames.findIndex((f) => f.streaming);
+		return h.frames.slice(i).some((f) => !f.streaming);
+	});
 }
 
 /** First block of the message holding `kind`, narrowed. */
@@ -123,7 +151,6 @@ test("streaming turn: upsert, tool collapse, approval round trip, mid-turn promp
 		// The WINDOW rides the wire, not a precomputed percentage — the pane
 		// divides, so an unknown window stays distinguishable from a genuine 0%.
 		expect(h.frames.at(-1)!.contextWindow).toBe(1_000_000);
-		expect(h.frames.at(-1)!.engine).toBe("rpc");
 
 		// Approval arrives unresolved; the turn is still open.
 		const approvalMsg = msgs.find((m) => m.blocks.some((b) => b.kind === "approval"))!;
@@ -150,7 +177,7 @@ test("streaming turn: upsert, tool collapse, approval round trip, mid-turn promp
 		expect(findBlock(resolved, "approval")).toMatchObject({ resolved: true, answer: "approved" });
 
 		// agent_end closes the turn and publishes streaming:false.
-		await waitFor("turn end", () => h.frames.at(-1)?.streaming === false);
+		await waitTurn(h);
 
 		// An unknown ui id is refused rather than posted blind.
 		const bogus = await rpcChatCommand(h.host, h.rec, JSON.stringify({ type: "extension_ui_response", id: "nope", confirmed: true }));
@@ -198,6 +225,28 @@ test("disallowed commands never reach the child", async () => {
 		expect(h.log().length).toBe(0);
 	} finally {
 		disposeRpcChat("s-guard");
+	}
+});
+
+test("an image-only prompt reaches omp intact — no text, no mention, just ImageContent", async () => {
+	// omp's prompt/steer/follow_up/abort_and_prompt all take
+	// `images?: ImageContent[]`. Roost's composer does not use it today (every
+	// attachment is already uploaded to the WORKER's disk, so `@"abspath"` costs
+	// nothing and buys omp's server-side snapshot + auto-resize) — but a remote
+	// or ephemeral producer needs the inline path, and the worker must not eat
+	// it. Two ways it could: the object guard rejecting a message-less command,
+	// or the allow-list dropping the field on the way through.
+	const h = harness("s-images");
+	try {
+		const images = [{ type: "image", data: "aGVsbG8=", mimeType: "image/png" }];
+		const res = await rpcChatCommand(h.host, h.rec, JSON.stringify({ type: "prompt", images }));
+		expect(res.ok).toBe(true);
+		const sent = h.log().find((f) => f.type === "prompt");
+		expect(sent?.images).toEqual(images);
+		// An absent `message` stays absent — the worker must not invent one.
+		expect(sent && "message" in sent).toBe(false);
+	} finally {
+		disposeRpcChat("s-images");
 	}
 });
 
@@ -385,7 +434,7 @@ test("a batched ask becomes selection cards: descriptions, recommendation, in-pl
 		const a3 = await rpcChatCommand(h.host, h.rec, JSON.stringify({ type: "extension_ui_response", id: "ui-a3", value: "Next →" }));
 		expect(a3.ok).toBe(true);
 		expect(blockFor("ui-a3")).toMatchObject({ resolved: true, answer: "Streaming" });
-		await waitFor("turn end", () => h.frames.at(-1)!.streaming === false);
+		await waitTurn(h);
 		expect(h.log().find((f) => f.id === "ui-a3")?.value).toBe("Next →");
 	} finally {
 		disposeRpcChat("s-ask");
@@ -484,5 +533,362 @@ test("the model catalog survives the frame cap (protocol v2 chunks) and reaches 
 		expect(models[2]).toEqual({ provider: "openai", id: "gpt-5", name: "GPT-5", reasoning: false, efforts: [] });
 	} finally {
 		disposeRpcChat("s-catalog");
+	}
+});
+
+test("history after a worker restart reseeds the thread via PUSH, without blocking the RPC", async () => {
+	// Two failures this pins, both observed in production:
+	//
+	// 1. handleGetChatHistory served rec.chatMessages from memory and never
+	//    booted the child, so a user returning to a chat after a worker restart
+	//    saw an EMPTY thread until they typed.
+	// 2. Booting it and AWAITING readiness was worse: this RPC's deadline is 8 s
+	//    (handlers-sessions.ts:397) and a cold `omp --mode rpc-ui` needs ~16 s to
+	//    answer its first command, so every quick-chat pane open timed out.
+	//
+	// The contract is therefore: return immediately, and let the recovered rows
+	// arrive on the push channel the pane already renders from.
+	const h = harness("s-history");
+	try {
+		await rpcChatCommand(h.host, h.rec, JSON.stringify({ type: "get_state" }));
+		expect(loadOmpSessionFile("s-history")).not.toBeNull();
+
+		// A worker RESTART: children dead, in-memory rows gone, store cache cold.
+		disposeAllRpcChats();
+		_resetOmpSessionStoreCache();
+		h.rec.chatMessages = [];
+		h.rec.chatMsgSeqs = [];
+		h.rec.chat_seq = 0;
+		h.frames.length = 0;
+		const before = h.log().length;
+
+		// Ordering, NOT a stopwatch: a wall-clock bound would flake on a loaded
+		// machine, and the property under test is sequential anyway — the reply
+		// must go out BEFORE the child's boot has produced anything.
+		let repliedAfterLog: string[] | null = null;
+		await handleGetChatHistory(
+			{ kind: "get-chat-history", session_id: "s-history", max_messages: 100 } as never,
+			"r1",
+			{
+				coordLink: { send: () => { repliedAfterLog = h.log().map((f) => String(f.type)).slice(before); } },
+				sessionMgr: h.host,
+			} as never,
+		);
+		// It answered at all…
+		expect(repliedAfterLog).not.toBeNull();
+		// …and it answered before the resumed conversation had been paged back
+		// in. Re-adding `await ensureRpcChat(...).ready` makes this fail: the
+		// reply would then land after get_messages_page had already returned.
+		expect(repliedAfterLog!).not.toContain("get_messages_page");
+
+		// …and the thread refills on its own, through the push channel.
+		await waitFor("resumed row pushed", () => h.frames.some((f) => f.append.some((m) =>
+			m.role === "user" && m.blocks.some((b) => b.kind === "text" && b.text === "resumed history"))));
+		const after = h.log().map((f) => String(f.type)).slice(before);
+		expect(after).toContain("switch_session");
+		expect(after).toContain("get_messages_page");
+		// Recovery must never look like the user said something.
+		expect(after).not.toContain("prompt");
+	} finally {
+		disposeRpcChat("s-history");
+	}
+});
+
+test("'show full' works on a COLD rpc thread, where the rows came from the transcript", async () => {
+	// Invisible-regression guard. Hydrating a restarted rpc thread refills
+	// rec.chatMessages from omp's JSONL, so those rows carry REAL transcript
+	// entry ids — not the child's synthetic `rpc-N`. The rpc branch of
+	// handleGetChatBlock had dropped its transcript fallback on the premise that
+	// "rpc ids never match an entry", which hydration made false: expanding a
+	// truncated block on a restarted chat answered "block not found" for text
+	// sitting right there on disk.
+	const sid = "s-coldblock";
+	const jsonl = join(tmp, `${sid}.jsonl`);
+	// One assistant entry whose thinking block is past the 8192-char wire cap.
+	const thinking = `deliberating ${"about the tradeoffs ".repeat(600)}`;
+	writeFileSync(jsonl, `${JSON.stringify({
+		type: "message", id: "entry-1", parentId: null, timestamp: "2026-07-25T00:00:00Z",
+		message: { role: "assistant", content: [{ type: "thinking", thinking }] },
+	})}\n`);
+	saveOmpSessionFile(sid, jsonl);
+
+	const h = harness(sid);
+	try {
+		// A COLD record: no child, no rows. Exactly a post-restart pane open.
+		await handleGetChatHistory(
+			{ kind: "get-chat-history", session_id: sid, max_messages: 100 } as never,
+			"r1",
+			{ coordLink: { send: () => { /* ignored */ } }, sessionMgr: h.host } as never,
+		);
+		const row = (h.rec.chatMessages ?? [])[0];
+		expect(row?.id).toBe("entry-1");
+		const block = row!.blocks[0];
+		expect(block.kind).toBe("thinking");
+		if (block.kind !== "thinking") return;
+		expect(block.truncated).toBe(true);
+
+		let text: string | undefined;
+		let error: string | undefined;
+		await handleGetChatBlock(
+			{ kind: "get-chat-block", session_id: sid, message_id: "entry-1", block_index: 0 } as never,
+			"r2",
+			{
+				coordLink: { send: (m: { message?: string; data?: { text?: string } }) => {
+					if (m.message !== undefined) error = m.message; else text = m.data?.text;
+				} },
+				sessionMgr: h.host,
+			} as never,
+		);
+		expect(error).toBeUndefined();
+		expect(text).toBe(thinking);
+	} finally {
+		disposeRpcChat(sid);
+		forgetOmpSession(sid);
+	}
+});
+
+test("a history fetch for a session that never chatted stays empty, and boots nothing", async () => {
+	// The "new chat" render. A missing mapping is not an error and must not
+	// spawn a child just to answer "you have no messages".
+	const h = harness("s-fresh");
+	forgetOmpSession("s-fresh");
+	let data: { messages?: ChatMessage[] } = {};
+	await handleGetChatHistory(
+		{ kind: "get-chat-history", session_id: "s-fresh", max_messages: 100 } as never,
+		"r1",
+		{
+			coordLink: { send: (m: { data?: { messages?: ChatMessage[] } }) => { data = m.data ?? {}; } },
+			sessionMgr: h.host,
+		} as never,
+	);
+	expect(data.messages).toEqual([]);
+	expect(h.argv()).toBeUndefined();
+	expect(rpcChatActive("s-fresh")).toBe(false);
+});
+
+test("the worker opts into subagent progress, or the pane is blind to every subagent", async () => {
+	const h = harness("s-sub");
+	try {
+		await rpcChatCommand(h.host, h.rec, JSON.stringify({ type: "prompt", message: "__subagent" }));
+		await waitTurn(h);
+
+		// omp defaults subagent delivery to "off". Without this command NONE of
+		// the frames below are ever sent, and nothing else in the suite notices.
+		const sub = h.log().find((f) => f.type === "set_subagent_subscription");
+		expect(sub?.level).toBe("progress");
+
+		// The real spawn sequence reports completion TWICE (progress AND
+		// lifecycle), all under subagent id "sa-1". They must repaint ONE card.
+		// Observed live before the fix: two "scout · completed" rows for one
+		// spawn, because a terminal status released the id.
+		const cards = (h.rec.chatMessages ?? []).filter((m) =>
+			m.blocks.some((b) => b.kind === "custom" && b.customType === "subagent"));
+		expect(cards.length).toBe(1);
+		const block = cards[0]!.blocks[0];
+		expect(block.kind).toBe("custom");
+		if (block.kind === "custom") {
+			// Ends on the TERMINAL status…
+			expect(block.text).toContain("**scout** · completed");
+			expect(block.text).toContain("Map the auth callsites");
+			// …and KEEPS the work detail. The closing lifecycle frame carries no
+			// `progress` object, so an overwrite would blank the tool and token
+			// counts the user was just reading. Last non-empty value wins.
+			expect(block.text).toContain("7 tools");
+			expect(block.text).toContain("8200 tokens");
+		}
+		// It really did repaint — the running tick reached the pane first, on
+		// the same message id.
+		const running = h.frames.flatMap((f) => f.append).filter((m) =>
+			m.blocks.some((b) => b.kind === "custom" && b.text.includes("running")));
+		expect(running.length).toBeGreaterThan(0);
+		expect(running.every((m) => m.id === cards[0]!.id)).toBe(true);
+	} finally {
+		disposeRpcChat("s-sub");
+	}
+});
+
+test("compaction lands as a SUMMARY card", async () => {
+	const h = harness("s-compact");
+	try {
+		await rpcChatCommand(h.host, h.rec, JSON.stringify({ type: "prompt", message: "__compact" }));
+		await waitTurn(h);
+		const msgs = h.rec.chatMessages ?? [];
+
+		// The gap: `summary` blocks only ever came from transcript entries, which
+		// the rpc path never reads — so a compacted rpc chat showed a dim notice
+		// where the mirror pane shows a card.
+		expect(findBlock(msgs, "summary")).toEqual({
+			kind: "summary", variant: "compaction", text: "Rolled up the auth refactor.",
+			// fullLen is the real length even when uncapped — parse.ts::capText
+			// reports it unconditionally, and this row must be byte-identical to
+			// the one the mirror engine builds from the transcript entry.
+			tokensBefore: 91234, truncated: false, fullLen: 28,
+		});
+		// The START stays a notice: it is the "working" signal, and the mirror
+		// engine's compaction ENTRY only lands on completion.
+		expect(msgs.some((m) => m.blocks.some((b) =>
+			b.kind === "notice" && b.text.includes("compacting context")))).toBe(true);
+		// …and exactly one row per compaction, not a notice AND a card.
+		expect(msgs.filter((m) => m.blocks.some((b) => b.kind === "summary")).length).toBe(1);
+	} finally {
+		disposeRpcChat("s-compact");
+	}
+});
+
+test("a turn frozen mid-message is reaped; a quiet TOOL is not", async () => {
+	// Only child EXIT used to be handled, so a wedged-but-alive omp left a
+	// half-painted row spinning forever.
+	//
+	// Real timers on purpose, and no arbitrary sleep: this drives an actual
+	// child process over stdio, so a fake clock cannot advance it. The quiet
+	// session is started FIRST, so its (never-firing) stall window opens
+	// EARLIER than the stalled one's. When the stalled session's notice lands,
+	// the quiet session's identical window has provably already elapsed —
+	// that ordering, not a guessed duration, is what makes the negative sound.
+	process.env.ROOST_RPC_STALL_MS = "150";
+	const quiet = harness("s-quiet");
+	const stalled = harness("s-stall");
+	try {
+		// A complete message, then a long silent tool: nothing is half-painted,
+		// so this is a healthy turn. Reaping it would blank the pane on every
+		// slow build.
+		await rpcChatCommand(quiet.host, quiet.rec, JSON.stringify({ type: "prompt", message: "__quiet" }));
+		await waitFor("quiet turn running", () => (quiet.rec.chatMessages ?? []).some((m) =>
+			m.blocks.some((b) => b.kind === "toolEvent")));
+
+		await rpcChatCommand(stalled.host, stalled.rec, JSON.stringify({ type: "prompt", message: "__stall" }));
+		await waitFor("stall notice", () => (stalled.rec.chatMessages ?? []).some((m) =>
+			m.blocks.some((b) => b.kind === "notice" && b.text === "agent stopped responding")));
+
+		// The spinner stops too — a frozen row that still reads "streaming"
+		// leaves Stop on screen with nothing to stop.
+		expect(stalled.frames.at(-1)!.streaming).toBe(false);
+		// The child is NOT killed: it may recover, and the next command re-arms
+		// everything. A dead child would have written its exit row instead.
+		expect((stalled.rec.chatMessages ?? []).some((m) =>
+			m.blocks.some((b) => b.kind === "text" && b.text.includes("agent process exited")))).toBe(false);
+
+		// The quiet turn, whose window opened first, was left alone.
+		expect((quiet.rec.chatMessages ?? []).some((m) =>
+			m.blocks.some((b) => b.kind === "notice" && b.text === "agent stopped responding"))).toBe(false);
+		expect(quiet.frames.at(-1)!.streaming).toBe(true);
+	} finally {
+		disposeRpcChat("s-stall");
+		disposeRpcChat("s-quiet");
+		delete process.env.ROOST_RPC_STALL_MS;
+	}
+});
+
+test("a capped compaction summary can be expanded — the rpc engine's only recovery path", async () => {
+	// mapAndRecord stashed untruncated text ONLY for a truncated thinking block,
+	// so rpcChatFullBlock could never serve any other capped kind. The mirror
+	// engine's fallback (re-read the transcript line by entry id) cannot stand
+	// in: rpc ids are synthetic `rpc-N` and match no transcript entry, so this
+	// store is the whole recovery path.
+	const h = harness("s-full");
+	try {
+		await rpcChatCommand(h.host, h.rec, JSON.stringify({ type: "prompt", message: "__compactbig" }));
+		await waitTurn(h);
+		const msg = (h.rec.chatMessages ?? []).find((m) => m.blocks.some((b) => b.kind === "summary"))!;
+		const block = msg.blocks[0];
+		expect(block.kind).toBe("summary");
+		if (block.kind !== "summary") return;
+		// Capped on the wire…
+		expect(block.truncated).toBe(true);
+		expect(block.text.length).toBe(TRUNC_CAP);
+		expect(block.fullLen).toBeGreaterThan(TRUNC_CAP);
+		// …and fully recoverable off the same (messageId, blockIndex) the pane's
+		// "show full" button sends.
+		const full = rpcChatFullBlock("s-full", msg.id, 0);
+		expect(full?.length).toBe(block.fullLen);
+		expect(full?.startsWith("Rolled up ")).toBe(true);
+	} finally {
+		disposeRpcChat("s-full");
+	}
+});
+
+// ─── web-UI mode: the RPC child owns AgentStatus ─────────────────────────
+//
+// An `agent` session has no PTY and no grid, so detect/'s screen scrape — the
+// only status source terminal mode has — can never see it. Without this sink
+// its sidebar chip is blank for life. The mirror image matters just as much:
+// a terminal-mode session must publish NOTHING from here, or two writers flap
+// one chip.
+
+test("agent session: the child drives status running → needs-input → running → idle", async () => {
+	const h = harness("s-agentstatus", "agent");
+	try {
+		await rpcChatCommand(h.host, h.rec, JSON.stringify({ type: "prompt", message: "hi" }));
+		await waitFor("needs-input", () => h.patches.some((p) => p.status === "needs-input"));
+
+		// A tool ran, and the chip named it while it did.
+		expect(h.patches.some((p) => p.current_tool?.name === "read")).toBe(true);
+
+		const beforeAnswer = h.patches.length;
+		await rpcChatCommand(h.host, h.rec, JSON.stringify({ type: "extension_ui_response", id: "ui-1", confirmed: true }));
+		// Answering releases the chip — the turn is still streaming, so back to
+		// running, NOT idle.
+		expect(h.patches.slice(beforeAnswer).some((p) => p.status === "running")).toBe(true);
+
+		await waitTurn(h);
+		await waitFor("idle", () => h.patches.some((p) => p.status === "idle"));
+
+		// Order is the contract: running must precede needs-input must precede idle.
+		const statuses = h.patches.map((p) => p.status).filter((s) => s !== undefined);
+		expect(statuses[0]).toBe("running");
+		expect(statuses.indexOf("needs-input")).toBeGreaterThan(0);
+		expect(statuses.lastIndexOf("idle")).toBeGreaterThan(statuses.indexOf("needs-input"));
+
+		// The model chip and context tokens come from get_state — omp pushes no
+		// event carrying either.
+		const modelPatch = h.patches.findLast((p) => p.model !== undefined)!;
+		expect(modelPatch.model).toBe("Claude Opus 5");
+		expect(modelPatch.tokens).toEqual({ in: 18004, out: 0, cached: 0 });
+
+		// No patch asserts AgentState.kind: foldEvent derives it from
+		// Session.kind, so a wire copy would be a second source of truth.
+		expect(h.patches.every((p) => p.kind === undefined)).toBe(true);
+
+		// Fold the deltas the way the SPA and coord do — the projected session
+		// must read as an omp agent, idle.
+		const sid = "s-agentstatus" as SessionId;
+		const events: SessionEvent[] = [
+			{
+				kind: "opened", session_id: sid, worker_fp: "f".repeat(64) as WorkerFp,
+				channel: 1 as ChannelId, session_kind: "agent", cwd: "/tmp", ts: 1,
+			},
+			...h.patches.map((patch, i): SessionEvent => ({ kind: "agent", session_id: sid, patch, ts: i + 2 })),
+		];
+		const folded = foldAll(events).get(sid)!;
+		expect(folded.agent?.kind).toBe("omp");
+		expect(folded.agent?.status).toBe("idle");
+	} finally {
+		disposeRpcChat("s-agentstatus");
+	}
+});
+
+test("terminal-mode session publishes no agent patches — the scrape owns its chip", async () => {
+	const h = harness("s-noagentstatus");
+	try {
+		await rpcChatCommand(h.host, h.rec, JSON.stringify({ type: "prompt", message: "hi" }));
+		// Same turn as the agent case up to the blocking approval: agent_start,
+		// a tool lifecycle, and an extension_ui_request have all fired by now —
+		// every sink that would publish. None may have.
+		await waitFor("approval block", () => findBlock(h.rec.chatMessages ?? [], "approval") !== undefined);
+		expect(h.patches).toEqual([]);
+	} finally {
+		disposeRpcChat("s-noagentstatus");
+	}
+});
+
+test("agent session: the child's exit closes the session — there is no PTY exit to wait for", async () => {
+	const h = harness("s-agentexit", "agent");
+	try {
+		await rpcChatCommand(h.host, h.rec, JSON.stringify({ type: "prompt", message: "__die" }));
+		await waitFor("close request", () => h.closed.length > 0);
+		expect(h.closed).toEqual(["s-agentexit"]);
+		expect(h.patches.at(-1)).toEqual({ status: "done", current_tool: null });
+	} finally {
+		disposeRpcChat("s-agentexit");
 	}
 });

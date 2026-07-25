@@ -139,7 +139,7 @@ async function resolveWorkerFp(c: CoordClient, arg: string): Promise<string> {
 export async function api(args: string[]): Promise<void> {
   const [verb, ...rest] = args;
   if (!verb) {
-    console.error("roost api <verb>: sessions | cat | cells | input | message | rename | assign | attach | spawn | kill | workers | worker-rename | worker-rm | workspaces | ws-create | ws-update | ws-delete | ws-set-sessions | tasks | task-enqueue | task-cancel | ui | ui-state | agent | events | watch");
+    console.error("roost api <verb>: sessions | cat | cells | omp-sessions | input | message | rename | assign | attach | spawn | kill | workers | worker-rename | worker-rm | workspaces | ws-create | ws-update | ws-delete | ws-set-sessions | tasks | task-enqueue | task-cancel | ui | ui-state | agent | events | watch");
     process.exit(1);
   }
 
@@ -393,6 +393,25 @@ async function dispatch(c: CoordClient, verb: string, rest: string[]): Promise<v
       // range context → stderr; stdout stays pure row text for diffing
       console.error(`rows ${r.startRow}..${r.endRow} of ${r.scrollbackTotal} (cols ${r.cols})`);
       for (const row of r.rows) console.log(row.spans.map((s) => s.text).join("").replace(/\s+$/, ""));
+      break;
+    }
+    case "omp-sessions": {
+      // Resumable omp transcripts on one machine, newest first — the CLI half
+      // of the New-chat resume picker. `active` marks a file a live omp is
+      // probably still writing; resuming one is refused worker-side, because
+      // two writers corrupt a session file.
+      const fp = requireArg(rest[0], "workerFp");
+      const limit = numFlag(rest, "--limit", 20);
+      const r = await c.sessionsListOmpSessions({ workerFp: fp, limit });
+      if (rest.includes("--json")) {
+        console.log(JSON.stringify(r.sessions, jsonReplacer, 2));
+        break;
+      }
+      if (r.sessions.length === 0) { console.log("(no omp transcripts found)"); break; }
+      for (const s of r.sessions) {
+        const age = humanAge(Date.now() - Number(s.updatedAt));
+        console.log(`${age.padStart(5)}  ${s.active ? "LIVE" : "    "}  ${(s.title || "(untitled)").slice(0, 60).padEnd(60)}  ${s.path}`);
+      }
       break;
     }
     case "ws-create": {

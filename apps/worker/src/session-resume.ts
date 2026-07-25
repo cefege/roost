@@ -15,6 +15,8 @@ import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
 import { buildHooksSettings } from "./claude/hooks.ts";
 import { ALT_ENTER_SEQS, _scanAltModeTransitions } from "./terminal-stream-scan.ts";
 import { _createWtermCore, extractOscTitle, HOOK_CMD } from "./session-constants.ts";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 
 /** Rebuild SessionRecord for a session whose keeper survived this
  * worker restart. Probes the mux pool; if the channel is alive in the
@@ -83,10 +85,7 @@ export async function resume(this: SessionManager, opts: {
 		if (resumedBytes.length > 0) {
 			wtermCore.writeRaw(resumedBytes);
 			const resumedTitle = extractOscTitle(resumedBytes);
-			if (resumedTitle !== null) {
-				this.lastOscTitle.set(opts.channelId, resumedTitle);
-				this._ensureChatWatch(opts.channelId);
-			}
+			if (resumedTitle !== null) this.lastOscTitle.set(opts.channelId, resumedTitle);
 		}
 		// RC3 fallback: ONLY when the session was genuinely in alt-screen but the
 		// enter-seq was evicted from the ring (core didn't pick it up). Never

@@ -74,7 +74,6 @@ export function foldEventIntoStore(event: SessionEvent): void {
         setRootStore("session_viewers", id, undefined as unknown as never);
         pruneCellFrameCount(id); // module-private Map, same per-session-reaper duty
         pruneChatOmp(id);      // append-only chat transcript, no other reaper
-        setRootStore("omp_eligible", id, undefined as unknown as boolean); // omp-title latch
         pruneInputMaps(id);    // _lastSendTs + dropTotals per-session maps
         pruneSessionTrace(id); // diag session_trace_id cache
       }

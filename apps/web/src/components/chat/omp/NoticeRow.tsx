@@ -9,9 +9,9 @@
 
 import type { NoticeBlock } from "@roost/shared/chat/wire";
 
-export function NoticeRow(props: { block: NoticeBlock }) {
+export function NoticeRow(props: { block: NoticeBlock; dataTuiRow?: string }) {
   return (
-    <div class="tr-notice" data-testid="omp-chat-notice" data-level={props.block.level}>
+    <div class="tr-notice" data-testid="omp-chat-notice" data-level={props.block.level} data-tui-row={props.dataTuiRow}>
       {props.block.text}
     </div>
   );

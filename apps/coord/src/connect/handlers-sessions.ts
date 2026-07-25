@@ -17,7 +17,8 @@ import {
   SessionsAssignWorkspaceResponseSchema,
   SessionsGetScrollbackCellsResponseSchema,
   SessionsGetChatHistoryResponseSchema, SessionsGetChatBlockResponseSchema,
-  SessionsGetChatParityResponseSchema,
+  SessionsListOmpSessionsResponseSchema,
+  OmpSessionEntrySchema,
   SessionsChatCommandResponseSchema,
 } from "@roost/shared/proto/coordinator_pb";
 import { sessionToProto } from "@roost/shared/wire/agent-proto";
@@ -99,12 +100,43 @@ async function _forwardSimple(
   catch (e) { log.warn("connect-router._forwardSimple", "send_failed", { error: String(e) }); return false; }
 }
 
+/** SessionsSpawnRequest → the worker control frame for its kind.
+ *
+ *  Three kinds, three frames. A ternary here silently downgraded anything that
+ *  was not "shell" to spawn-claude; an unknown kind must be a loud error, not a
+ *  session of the wrong sort. "agent" carries no cols/rows — it has no PTY. */
+export function _spawnFrameFor(req: {
+  kind: string; folder: string; cols?: number; rows?: number;
+  sessionId?: string; initialMode?: string; resumeSessionFile?: string; model?: string;
+}): ClientControlFrame {
+  const sid = req.sessionId ? { session_id: asSessionId(req.sessionId) } : {};
+  switch (req.kind) {
+    case "shell":
+      return { kind: "spawn-shell", folder: req.folder, cols: req.cols, rows: req.rows, ...sid };
+    case "claude":
+      return {
+        kind: "spawn-claude", folder: req.folder,
+        initial_mode: ClaudeMode.parse(req.initialMode ?? "default"),
+        cols: req.cols, rows: req.rows, ...sid,
+      };
+    case "agent":
+      return {
+        kind: "spawn-agent", folder: req.folder,
+        resume_session_file: req.resumeSessionFile ?? "",
+        model: req.model ?? "",
+        ...sid,
+      };
+    default:
+      throw new ConnectError(`unknown session kind ${req.kind}`, Code.InvalidArgument);
+  }
+}
+
 type SessionMethods =
   | "sessionsList" | "sessionsSpawn" | "sessionsAttach" | "sessionsKill"
   | "sessionsRename" | "sessionsResize" | "sessionsUserMessage" | "sessionsInput"
   | "sessionsCursorPos" | "sessionsAssignWorkspace"
   | "sessionsGetScrollbackCells"
-  | "sessionsGetChatHistory" | "sessionsGetChatBlock" | "sessionsGetChatParity" | "sessionsChatCommand";
+  | "sessionsGetChatHistory" | "sessionsGetChatBlock" | "sessionsListOmpSessions" | "sessionsChatCommand";
 
 export function makeSessionHandlers(
   deps: ConnectDeps,
@@ -125,9 +157,7 @@ export function makeSessionHandlers(
       const sock = getWorkerHubSocket(req.workerFp);
       if (!sock) throw new ConnectError(`worker ${req.workerFp.slice(0, 12)} not connected`, Code.FailedPrecondition);
       const pending = createPendingRpc<{ session_id: string; channel_id: number }>(15_000, req.workerFp);
-      const frame: ClientControlFrame = req.kind === "shell"
-        ? { kind: "spawn-shell", folder: req.folder, cols: req.cols, rows: req.rows, ...(req.sessionId ? { session_id: asSessionId(req.sessionId) } : {}) }
-        : { kind: "spawn-claude", folder: req.folder, initial_mode: ClaudeMode.parse(req.initialMode ?? "default"), cols: req.cols, rows: req.rows, ...(req.sessionId ? { session_id: asSessionId(req.sessionId) } : {}) };
+      const frame = _spawnFrameFor(req);
       sendBrowserCmd(sock, caller, pending.request_id, frame);
       const data = await pending.promise;
       return create(SessionsSpawnResponseSchema, {
@@ -235,6 +265,7 @@ export function makeSessionHandlers(
         cols: req.cols, rows: req.rows,
         client_seq: clientSeq,
         cause: req.cause || undefined, // numeric ResizeCause; 0/unset → omit
+        held_sb_total: req.heldScrollbackTotal || undefined,
       } as ClientControlFrame, viewerKey);
       const isWithdraw = req.cols <= 0 || req.rows <= 0;
       if (ok || isWithdraw) {
@@ -432,37 +463,31 @@ export function makeSessionHandlers(
       return create(SessionsGetChatBlockResponseSchema, { text: res.text });
     },
 
-    // Diagnostic: what is the terminal painting that the web is not? Compares
-    // the worker's two projections of the SAME session (raw transcript → the
-    // rows omp's TUI would paint, vs Roost's parsed ChatMessages). Proves the
-    // DATA reaches the pane; the browser harness separately proves the DOM
-    // paints it.
-    async sessionsGetChatParity(req, ctx) {
-      requireAuth(ctx.values);
-      const row = await deps.db.selectFrom("sessions").select(["worker_fp"]).where("id", "=", req.sessionId).executeTakeFirst();
-      if (!row) throw new ConnectError("unknown session", Code.NotFound);
-      const sock = getWorkerHubSocket(row.worker_fp);
+    // Resumable omp transcripts on one worker. Read-only and session-less: it
+    // targets a WORKER, not a session, because the whole point is picking a
+    // conversation before any session exists. Deliberately NOT in
+    // RATE_LIMITED_ROUTES — a read, same class as the *List calls.
+    async sessionsListOmpSessions(req, ctx) {
+      const caller = requireAuth(ctx.values);
+      const sock = getWorkerHubSocket(req.workerFp);
       if (!sock) throw new ConnectError("worker not connected", Code.Unavailable);
       const pending = createPendingRpc<{
-        transcript_path: string; live_path: string; live_attached: boolean;
-        tui_rows: number; roost_rows: number; missing_json: string; extra_json: string;
-      }>(15_000, row.worker_fp);
-      sendBrowserCmd(sock, requireAuth(ctx.values), pending.request_id, {
-        kind: "get-chat-parity" as const,
+        sessions: { path: string; cwd: string; title: string; updatedAt: number; lastPrompt: string; active: boolean }[];
+      }>(15_000, req.workerFp);
+      sendBrowserCmd(sock, caller, pending.request_id, {
+        kind: "list-omp-sessions" as const,
         request_id: pending.request_id,
-        session_id: asSessionId(req.sessionId),
+        limit: req.limit ?? 50,
       });
       let res;
       try { res = await pending.promise; }
-      catch { throw new ConnectError("chat parity serve timed out", Code.Unavailable); }
-      return create(SessionsGetChatParityResponseSchema, {
-        transcriptPath: res.transcript_path,
-        livePath: res.live_path,
-        liveAttached: res.live_attached,
-        tuiRows: res.tui_rows,
-        roostRows: res.roost_rows,
-        missingJson: res.missing_json,
-        extraJson: res.extra_json,
+      catch { throw new ConnectError("omp session scan timed out", Code.Unavailable); }
+      return create(SessionsListOmpSessionsResponseSchema, {
+        sessions: res.sessions.map((s) => create(OmpSessionEntrySchema, {
+          path: s.path, cwd: s.cwd, title: s.title,
+          updatedAt: BigInt(Math.max(0, Math.round(s.updatedAt))),
+          lastPrompt: s.lastPrompt, active: s.active,
+        })),
       });
     },
 

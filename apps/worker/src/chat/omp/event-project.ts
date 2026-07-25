@@ -1,21 +1,13 @@
-// Pure omp-event → ChatMessage projection. ONE switch, both live engines.
+// Pure omp-event → ChatMessage projection for the native RPC child.
 //
-// Two callers feed it the SAME event objects:
-//   - rpc-chat.ts, from an `omp --mode rpc` child's stdout frames;
-//   - live-watcher.ts, from the bridge extension's NDJSON sidecar — omp's
-//     ExtensionAPI event objects are field-identical to the RPC frames
-//     (MessageUpdateEvent.message, ToolExecution{Start,Update,End}Event's
-//     {toolCallId,toolName,args,intent,partialResult,result,isError}).
-// Keeping one switch is the point: a narration row must be WORDED the same
-// whichever engine saw it, and the id/upsert discipline must match or one turn
-// becomes two rows in the pane.
+// The child's stdout uses the same event shapes for messages, tools, plans and
+// subagents. Keeping their projection in one switch makes each streaming
+// update an upsert of the row it expands, rather than a second transcript row.
 //
-// PURE: no host, no SessionRecord, no timers, no I/O. The caller owns emission.
-// `coalesce` marks a mid-stream repaint the caller MAY run through a trailing
-// timer (rpc-chat does — every token would otherwise be a ChatFrame; the
-// sidecar is already coalesced by the writer, so live-watcher emits directly).
+// PURE: no host, no SessionRecord, no timers, no I/O. The RPC controller owns
+// emission and coalesces mid-stream updates so every token is not a ChatFrame.
 
-import type { ChatMessage, ContentBlock } from "@roost/shared/chat/wire";
+import { TRUNC_CAP, type ChatMessage, type ContentBlock } from "@roost/shared/chat/wire";
 import { mapAgentMessage, mapAgentMessageFull } from "./parse.ts";
 
 /** Tail of a running tool's output kept on the wire. A `bash` tail -f would
@@ -36,6 +28,17 @@ export interface ProjectState {
 	lastMsgId: string;
 	/** toolCallId → chat message id, so start/end collapse into one message. */
 	toolMsgIds: Map<string, string>;
+	/** subagent id → the card being repainted for it.
+	 *
+	 *  One entry per subagent, kept for the life of the conversation. Two things
+	 *  ride here, both learned the hard way against a live spawn:
+	 *  - `id`, so a stream of progress ticks repaints ONE card instead of
+	 *    stacking a row each;
+	 *  - the last non-empty `title`/`detail`, because omp's lifecycle frames
+	 *    carry no `progress` object at all. The final `completed` lifecycle
+	 *    would otherwise blank a card that had just been showing the subagent's
+	 *    tool and token counts. */
+	subagentCards: Map<string, { id: string; title: string; detail: string }>;
 	/** chat message id → per-block UNTRUNCATED text, for SessionsGetChatBlock.
 	 *  Only populated for messages the cap actually bit. */
 	fullText: Map<string, string[]>;
@@ -49,20 +52,8 @@ export interface ProjectState {
 export function newProjectState(prefix = "rpc"): ProjectState {
 	return {
 		prefix, nextMsg: 1, curMsgId: null, lastMsgId: "",
-		toolMsgIds: new Map(), fullText: new Map(), emitted: new Set(),
+		toolMsgIds: new Map(), subagentCards: new Map(), fullText: new Map(), emitted: new Set(),
 	};
-}
-
-/** Drop per-conversation state (a new omp said hello, or the bridge said bye)
- *  WITHOUT rewinding nextMsg: the previous conversation's rows are still in the
- *  record, and re-minting their ids would make the next turn overwrite them
- *  (both sides are upsert-by-id). Ids stay monotonic for the watcher's life. */
-export function resetProjectState(st: ProjectState): void {
-	st.curMsgId = null;
-	st.lastMsgId = "";
-	st.toolMsgIds.clear();
-	st.fullText.clear();
-	st.emitted.clear();
 }
 
 /** Mint the next synthetic message id. Exported: rpc-chat mints ids for rows
@@ -107,18 +98,45 @@ function blockFullText(b: ContentBlock): string {
 	}
 }
 
+/** Bound on `st.fullText`. Same 256 as session-store.ts's MAX_ENTRIES: a chat
+ *  is long-lived but finite, and a capped block older than the last 256 that
+ *  were capped degrades to the truncated text with no expand — the pane's
+ *  pre-existing behavior, never an error. */
+const MAX_FULL_TEXT = 256;
+
 /** Map an omp AgentMessage → ChatMessage, stashing untruncated block text when
  *  the cap actually bit. The event stream carries no transcript entry id, so
- *  re-reading the transcript by id (the mirror engine's path) cannot work here. */
+ *  re-reading the transcript by id (the mirror engine's path) cannot work here
+ *  — this store is the ONLY recovery path the rpc engine has, which is why it
+ *  covers every capped block kind and not just `thinking`. */
 export function mapAndRecord(st: ProjectState, raw: unknown, id: string, parentId: string): ChatMessage | null {
 	const ts = new Date().toISOString();
 	const msg = mapAgentMessage(raw, id, parentId, ts);
 	if (!msg) return null;
-	const truncated = msg.blocks.some((b) => b.kind === "thinking" && b.truncated);
+	// Every capped kind blockFullText can actually serve — summary/custom/exec
+	// and toolCall args, not thinking alone; rpcChatFullBlock could never serve
+	// those before. toolResult is excluded on purpose: its `text` is ALWAYS ""
+	// (the payload rides whole in rawJson — parse.ts:243), so its `truncated`
+	// flag describes something that needs no recovery.
+	const truncated = msg.blocks.some((b) => b.kind !== "toolResult" && "truncated" in b && b.truncated);
 	if (!truncated) { st.fullText.delete(id); return msg; }
 	const full = mapAgentMessageFull(raw, id, parentId, ts);
-	if (full) st.fullText.set(id, full.blocks.map(blockFullText));
+	if (full) recordFullText(st, id, full.blocks.map(blockFullText));
 	return msg;
+}
+
+/** Stash untruncated per-block text under a message id, newest last, bounded.
+ *  Shared by mapAndRecord and the compaction summary, which is minted here
+ *  rather than mapped from an AgentMessage. */
+function recordFullText(st: ProjectState, id: string, texts: string[]): void {
+	// Re-insert last so a message that keeps growing stays the newest entry.
+	st.fullText.delete(id);
+	st.fullText.set(id, texts);
+	while (st.fullText.size > MAX_FULL_TEXT) {
+		const oldest = st.fullText.keys().next();
+		if (oldest.done) break;
+		st.fullText.delete(oldest.value);
+	}
 }
 
 /** One narration row: a line the omp TUI paints for itself (retrying, model
@@ -258,8 +276,48 @@ export function projectEvent(st: ProjectState, ev: Record<string, unknown>): Pro
 		case "auto_compaction_start":
 			return { kind: "narrate", msg: narrate(st, "— compacting context… —", "note") };
 
-		case "auto_compaction_end":
-			return { kind: "narrate", msg: narrate(st, "— context compacted —", "note") };
+		// The mirror engine gets its compaction card from the transcript's own
+		// `compaction` entry (parse.ts:367); the rpc engine never reads the
+		// transcript, so THIS event is the only place the card can come from.
+		// Shape and cap match parse.ts exactly, or one engine's summary row
+		// would differ from the other's for the same compaction.
+		//
+		// The sidecar bridge does not forward auto_compaction_end (it forwards
+		// six narration types and this is not one), so nothing here reaches the
+		// mirror pane and no card is doubled.
+		case "auto_compaction_end": {
+			const result = ev.result;
+			// Aborted / skipped / errored: NOTHING was compacted. A summary card
+			// would claim a rollup that does not exist, so those stay narration.
+			if (ev.aborted === true || ev.skipped === true) {
+				return { kind: "narrate", msg: narrate(st, "— compaction skipped —", "note") };
+			}
+			const errorMessage = typeof ev.errorMessage === "string" ? ev.errorMessage : "";
+			if (errorMessage) {
+				return { kind: "narrate", msg: narrate(st, `— compaction failed: ${errorMessage} —`, "error") };
+			}
+			const data = result !== null && typeof result === "object" ? result as Record<string, unknown> : undefined;
+			const summary = typeof data?.summary === "string" ? data.summary : "";
+			// omp's own compaction entry carries the summary; an absent one still
+			// gets a card, because the context DID shrink and the pane must say so.
+			const text = summary || "context compacted";
+			const id = nextId(st);
+			const capped = text.length > TRUNC_CAP;
+			if (capped) recordFullText(st, id, [text]);
+			return {
+				kind: "narrate",
+				msg: {
+					id, parentId: st.lastMsgId, ts: new Date().toISOString(),
+					role: "developer", synthetic: false,
+					blocks: [{
+						kind: "summary", variant: "compaction",
+						text: capped ? text.slice(0, TRUNC_CAP) : text,
+						tokensBefore: typeof data?.tokensBefore === "number" ? Math.max(0, Math.round(data.tokensBefore)) : 0,
+						truncated: capped, fullLen: text.length,
+					}],
+				},
+			};
+		}
 
 		case "auto_retry_start": {
 			const why = typeof ev.error === "string" ? `: ${ev.error}` : "";
@@ -285,6 +343,89 @@ export function projectEvent(st: ProjectState, ev: Record<string, unknown>): Pro
 				: typeof ev.reason === "string" ? ev.reason : "";
 			if (!text) return null;
 			return { kind: "narrate", msg: narrate(st, text, "note") };
+		}
+
+		// Subagent visibility. RPC-only: omp defaults the subscription to "off"
+		// and rpc-chat.ts opts in at "progress" level, so only that engine ever
+		// sees these. The card repaints in place under one id per subagent —
+		// a progress stream is a status, not a conversation.
+		//
+		// `subagent_event` is deliberately unhandled: the "progress" level never
+		// requests it, and replaying every subagent message would multiply frame
+		// volume for nothing this card renders.
+		case "subagent_lifecycle":
+		case "subagent_progress": {
+			const p = ev.payload !== null && typeof ev.payload === "object"
+				? ev.payload as Record<string, unknown> : undefined;
+			if (!p) return null;
+			// Lifecycle carries `id`; progress nests the same id under `progress`.
+			const prog = p.progress !== null && typeof p.progress === "object"
+				? p.progress as Record<string, unknown> : undefined;
+			const agent = typeof p.agent === "string" ? p.agent : "subagent";
+			const index = typeof p.index === "number" ? p.index : 0;
+			const key = typeof p.id === "string" && p.id ? p.id
+				: typeof prog?.id === "string" && prog.id ? prog.id
+				: `${agent}:${index}`;
+			const status = typeof p.status === "string" ? p.status
+				: typeof prog?.status === "string" ? prog.status : "running";
+			const title = typeof p.description === "string" && p.description ? p.description
+				: typeof prog?.description === "string" && prog.description ? prog.description
+				: typeof p.task === "string" ? p.task
+				: typeof prog?.task === "string" ? prog.task : "";
+			// Third line only while there is live work to report. An empty one
+			// would render as a stray blank row in the markdown body.
+			const detail: string[] = [];
+			const tool = typeof prog?.currentTool === "string" ? prog.currentTool : "";
+			const intent = typeof prog?.lastIntent === "string" ? prog.lastIntent : "";
+			if (tool) detail.push(intent ? `${tool} — ${intent}` : tool);
+			else if (intent) detail.push(intent);
+			if (typeof prog?.toolCount === "number" && prog.toolCount > 0) detail.push(`${prog.toolCount} tools`);
+			if (typeof prog?.tokens === "number" && prog.tokens > 0) detail.push(`${prog.tokens} tokens`);
+
+			// ONE card per subagent id, for the whole life of the conversation,
+			// and it MERGES rather than overwrites.
+			//
+			// Releasing the slot on a terminal status looks tidy and is wrong:
+			// omp reports completion TWICE — once as `subagent_lifecycle`
+			// {status:"completed"} and once as a final `subagent_progress` — so
+			// the first one freed the key and the second minted a SECOND card.
+			// Observed live: two "scout · completed" rows for one spawn.
+			//
+			// Merging matters for the same reason: a lifecycle frame carries no
+			// `progress` object, so the closing one would blank a card that had
+			// just been showing the subagent's tool and token counts. Last
+			// NON-EMPTY value wins per field.
+			//
+			// Nothing needs the slot back: omp mints a fresh subagent id per
+			// spawn, and a new conversation gets a whole new ProjectState.
+			// Bounded like fullText so a long session cannot grow it without limit.
+			let card = st.subagentCards.get(key);
+			if (card === undefined) {
+				card = { id: nextId(st), title: "", detail: "" };
+				st.subagentCards.set(key, card);
+				while (st.subagentCards.size > MAX_FULL_TEXT) {
+					const oldest = st.subagentCards.keys().next();
+					if (oldest.done) break;
+					st.subagentCards.delete(oldest.value);
+				}
+			}
+			if (title) card.title = title;
+			if (detail.length > 0) card.detail = detail.join(" · ");
+
+			const lines = [`**${agent}** · ${status}`];
+			if (card.title) lines.push(card.title);
+			if (card.detail) lines.push(card.detail);
+			return {
+				kind: "narrate",
+				msg: {
+					id: card.id, parentId: st.lastMsgId, ts: new Date().toISOString(),
+					role: "developer", synthetic: false,
+					blocks: [{
+						kind: "custom", customType: "subagent", text: lines.join("\n\n"),
+						detailsJson: "", truncated: false, fullLen: 0,
+					}],
+				},
+			};
 		}
 
 		default:

@@ -161,7 +161,14 @@ export function foldEvent(
       // fields from defaultAgentState() so the runtime object always
       // satisfies AgentState — no unsafe casts.
       const base: AgentState = s.agent ?? defaultAgentState();
-      const merged: AgentState = { ...base, ...e.patch, kind: "claude" };
+      const merged: AgentState = {
+        ...base,
+        ...e.patch,
+        // Derived from Session.kind, never from the patch: the session kind is
+        // authoritative on both sides of the fold, so a wire field would be a
+        // second source of truth that can disagree.
+        kind: s.kind === "agent" ? "omp" : "claude",
+      };
       next.set(e.session_id, { ...s, agent: merged });
       return next;
     }

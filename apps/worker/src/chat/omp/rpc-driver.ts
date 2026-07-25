@@ -23,6 +23,10 @@ export interface OmpRpcDriverOpts {
 	cwd: string;
 	/** Extra env on top of the worker's (worker env is clean — no CI/test vars). */
 	env?: Record<string, string>;
+	/** Launch args appended after `--mode rpc-ui`, in Paseo's order:
+	 *  `--model M` then `--session FILE`. Approval mode and session selection
+	 *  are argv-time decisions in omp — they cannot be changed on a live child. */
+	args?: string[];
 	onEvent: (frame: RpcFrame) => void;
 	onExit: (code: number | null) => void;
 }
@@ -78,7 +82,7 @@ export class OmpRpcDriver {
 		// decision (the `ask` tool) is simply absent from its toolset, which is
 		// why the chat never showed one. rpc-ui is otherwise a strict superset:
 		// same applyRpcDefaultSettingOverrides, plus PI_NO_PTY=1.
-		const proc = Bun.spawn([bin, "--mode", "rpc-ui"], {
+		const proc = Bun.spawn([bin, "--mode", "rpc-ui", ...(this.#opts.args ?? [])], {
 			cwd: this.#opts.cwd,
 			stdin: "pipe",
 			stdout: "pipe",

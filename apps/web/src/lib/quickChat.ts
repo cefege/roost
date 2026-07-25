@@ -1,9 +1,8 @@
-// Quick chats — ephemeral one-tap AI sessions. A chat is an ordinary session
-// spawned into a unique auto-created scratch folder under ~/.roost/chats, so it
-// buckets into its own sidebar row for free (folderKeyOf keys on worker+cwd).
-// "This bucket is a chat" is a pure path check (isChatFolder). No proto/worker/
-// coordinator/DB changes — entirely web-side spawn orchestration + sidebar
-// rendering. See quick-chats plan.
+// Quick chats — one-tap AI sessions. A chat is a `kind:"agent"` session (web-UI
+// mode: its process IS an `omp --mode rpc-ui` child, no PTY) spawned into a
+// unique auto-created scratch folder under ~/.roost/chats, so it buckets into
+// its own sidebar row for free (folderKeyOf keys on worker+cwd). See quick-chats
+// plan.
 
 import type { Navigator } from "@solidjs/router";
 import type { WorkerFp } from "@roost/shared/wire";
@@ -11,7 +10,7 @@ import { coordClient } from "../connect.ts";
 import { rootStore } from "../store/root.ts";
 import { allSessions } from "../store/selectors.ts";
 import { workerOnline } from "../store/sync.ts";
-import { spawnShell, waitForSession } from "./spawnSession.ts";
+import { spawnAgent, waitForSession } from "./spawnSession.ts";
 import { addToast } from "./toastStore.ts";
 
 // Tilde path sent to the worker; expandTilde resolves it and mkdirRpc is
@@ -23,7 +22,11 @@ export const CHAT_ROOT = "~/.roost/chats";
 export const CHAT_FOLDER_SEGMENT = "/.roost/chats/";
 
 /** True when a folder bucket is a quick-chat scratch dir. A real workspace
- *  whose path contains .roost/chats is vanishingly unlikely; accept it. */
+ *  whose path contains .roost/chats is vanishingly unlikely; accept it.
+ *
+ *  SIDEBAR GROUPING ONLY — "this bucket was created by the chat button", so the
+ *  Chat tab can list it. It is NOT a capability test and never gates behavior:
+ *  what a session IS lives in `session.kind` (see ompChatEnabled). */
 export function isChatFolder(cwd: string): boolean {
   return cwd.includes(CHAT_FOLDER_SEGMENT);
 }
@@ -39,9 +42,6 @@ export function newChatFolderPath(): string {
   return `${CHAT_ROOT}/chat-${stamp}-${rand}`;
 }
 
-// A worker that cannot serve chat usually fails fast; this bounds the one that
-// hangs instead. Long enough to cover a cold `omp --mode rpc` boot.
-const PROBE_TIMEOUT_MS = 8000;
 // Candidate machines for a chat, best first: the worker behind the newest
 // session, then every other online worker. Online-filtered (unlike
 // FlatNewTerminal's /browse heuristic) because a down Mac would hang the spawn.
@@ -58,16 +58,12 @@ export function chatWorkerCandidates(): WorkerFp[] {
   return out;
 }
 
-// One-tap chat: mkdir scratch → spawn shell → wait for the row → probe.
-// NATIVE engine: the chat is driven by the worker's `omp --mode rpc-ui` child
-// (sessionsChatCommand), NOT a TUI in the PTY — the terminal stays a plain
-// companion shell in the same folder.
+// One-tap chat: mkdir scratch → spawn an agent session → wait for the row.
 //
-// The get_state probe is AWAITED, not fire-and-forget: a worker running a build
-// without the native chat path answers every prompt with an error, and the user
-// just sees a chat that silently does nothing. Probing first turns that into
-// "try the next machine", and only a total failure reaches the user — naming
-// the machines it tried.
+// No probe: spawnAgent starts the omp child as part of the spawn and FAILS the
+// RPC if it cannot (missing binary, unstartable), so the spawn's own success is
+// the proof the old awaited `get_state` round trip was buying. A machine that
+// cannot serve chat rejects here and the loop moves to the next candidate.
 /** Create a quick chat and return its session id. Throws when no candidate
  *  machine can serve one; the caller owns navigation and user-facing errors. */
 export async function createQuickChat(): Promise<string> {
@@ -89,20 +85,8 @@ export async function createQuickChat(): Promise<string> {
     try {
       const mk = await coordClient.filesMkdir({ workerFp: fp, path: folder });
       const abs = mk.resolvedPath || folder;
-      await spawnShell(fp, abs, sid);
+      await spawnAgent(fp, abs, { sessionId: sid });
       await waitForSession(sid);
-      // Boots the RPC child AND proves this worker can actually serve the chat.
-      // Raced against a short deadline: coord's own pending RPC takes ~35s to
-      // give up, and three candidates at that rate is a minute of a button
-      // that looks broken — the very symptom this probe exists to remove.
-      await Promise.race([
-        coordClient.sessionsChatCommand({
-          sessionId: sid,
-          commandJson: JSON.stringify({ type: "get_state" }),
-        }),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error(`${host} did not answer in ${PROBE_TIMEOUT_MS / 1000}s`)), PROBE_TIMEOUT_MS)),
-      ]);
       return sid;
     } catch (e) {
       lastErr = e instanceof Error ? e.message : String(e);

@@ -25,6 +25,19 @@
 //   prompt "__mystery"  → ack, then an extension_ui_request with a method the
 //                         worker cannot render. omp awaits it, so a silent drop
 //                         would wedge the turn forever.
+//   prompt "__stall"    → ack, agent_start, ONE message_update, then silence.
+//                         The turn stays open with a half-painted row — the
+//                         frozen-turn case the stall reaper exists for.
+//   prompt "__quiet"    → ack, agent_start, a COMPLETE message, then a tool
+//                         start and silence. A long quiet tool is NOT a stall,
+//                         and reaping it would blank a healthy turn.
+//   prompt "__compact"  → ack, auto_compaction_start then auto_compaction_end
+//                         carrying a real CompactionResult, then agent_end.
+//   prompt "__compactbig"→ the same, with a summary past the wire's 8192 cap.
+//   prompt "__subagent" → ack, then the REAL omp spawn sequence: lifecycle
+//                         started → progress running → progress completed →
+//                         lifecycle completed. ONE card, four repaints, and the
+//                         detail-less closing frame must not blank it.
 //   extension_ui_response → agent_end (turn closes)
 //   prompt "__die"      → ack, then exit(0) (child-death / respawn path)
 //   get_state           → sessionFile + isStreaming + model + thinkingLevel
@@ -237,6 +250,64 @@ for await (const chunk of Bun.stdin.stream()) {
 			if (cmd.message === "__mystery") {
 				out({ type: "agent_start" });
 				out({ type: "extension_ui_request", id: "ui-m1", method: "someFutureDialog", title: "?" });
+				continue;
+			}
+			if (cmd.message === "__stall") {
+				out({ type: "agent_start" });
+				out({ type: "message_update", message: { role: "assistant", content: [{ type: "text", text: "half a th" }] } });
+				continue;
+			}
+			if (cmd.message === "__quiet") {
+				out({ type: "agent_start" });
+				out({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "running a build" }] } });
+				out({ type: "tool_execution_start", toolCallId: "call_q", toolName: "bash", intent: "Building" });
+				continue;
+			}
+			// Same event, a summary past the 8192-char wire cap: the block ships
+			// truncated and the untruncated text has to survive somewhere the
+			// expand endpoint can reach — the rpc engine cannot re-read a
+			// transcript, its ids are synthetic.
+			if (cmd.message === "__compactbig") {
+				out({ type: "agent_start" });
+				out({
+					type: "auto_compaction_end", action: "context-full", aborted: false, willRetry: false,
+					result: { summary: `Rolled up ${"the auth refactor. ".repeat(600)}`, firstKeptEntryId: "e9", tokensBefore: 91234 },
+				});
+				out({ type: "agent_end", messages: [] });
+				continue;
+			}
+			if (cmd.message === "__compact") {
+				out({ type: "agent_start" });
+				out({ type: "auto_compaction_start", reason: "threshold", action: "context-full" });
+				out({
+					type: "auto_compaction_end", action: "context-full", aborted: false, willRetry: false,
+					result: { summary: "Rolled up the auth refactor.", firstKeptEntryId: "e9", tokensBefore: 91234 },
+				});
+				out({ type: "agent_end", messages: [] });
+				continue;
+			}
+			if (cmd.message === "__subagent") {
+				out({ type: "agent_start" });
+				// Captured off a live `omp --mode rpc-ui` 17.1.3 driving a real
+				// `task` spawn (16 subagent frames, agent id "UnameProbe"):
+				//
+				//   subagent_lifecycle  payload.id,  NO progress,  status=started
+				//   subagent_progress   progress.id, has progress, status=running  (×13)
+				//   subagent_progress   progress.id, has progress, status=<terminal>
+				//   subagent_lifecycle  payload.id,  NO progress,  status=<terminal>
+				//
+				// Three properties the worker depends on, all of which bit:
+				//  - the id lives in payload.id on lifecycle but progress.id on
+				//    progress, so a key derived from one field alone splits in two;
+				//  - the terminal status is reported TWICE, so releasing the id on
+				//    the first one minted a duplicate card;
+				//  - the closing lifecycle carries NO progress object, so an
+				//    overwrite blanked the tool/token detail off the survivor.
+				out({ type: "subagent_lifecycle", payload: { id: "sa-1", agent: "scout", agentSource: "builtin", description: "Map the auth callsites", status: "started", index: 0 } });
+				out({ type: "subagent_progress", payload: { index: 0, agent: "scout", agentSource: "builtin", task: "Map the auth callsites", progress: { index: 0, id: "sa-1", agent: "scout", agentSource: "builtin", status: "running", task: "Map the auth callsites", currentTool: "grep", recentTools: [], recentOutput: [], toolCount: 4, requests: 2, tokens: 3100 } } });
+				out({ type: "subagent_progress", payload: { index: 0, agent: "scout", agentSource: "builtin", task: "Map the auth callsites", progress: { index: 0, id: "sa-1", agent: "scout", agentSource: "builtin", status: "completed", task: "Map the auth callsites", recentTools: [], recentOutput: [], toolCount: 7, requests: 3, tokens: 8200 } } });
+				out({ type: "subagent_lifecycle", payload: { id: "sa-1", agent: "scout", agentSource: "builtin", description: "Map the auth callsites", status: "completed", index: 0 } });
+				out({ type: "agent_end", messages: [] });
 				continue;
 			}
 			void runTurn();

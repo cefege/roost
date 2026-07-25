@@ -19,7 +19,6 @@ import "./styles/voice-input.css";
 import "./vendor/omp-tool-views.js";
 import { applyTheme, loadTheme } from "./lib/theme.ts";
 import { setRootStore } from "./store/root.ts";
-import { setOmpChatView } from "./store/uiStore.ts";
 import { OmpChatPane } from "./components/chat/omp/OmpChatPane.tsx";
 import type { ChatMessage } from "@roost/shared/chat/wire";
 import msgs from "./chat-render-real.json";
@@ -28,8 +27,6 @@ applyTheme(loadTheme());
 
 const SID = "00000000-0000-0000-0000-000000000001";
 setRootStore("terminal_title", SID, "π > real session");
-setRootStore("omp_eligible", SID, true);
-setOmpChatView(SID, "chat");
-setRootStore("chat_omp", SID, { messages: msgs as ChatMessage[], seq: (msgs as ChatMessage[]).length, status: "resolved", streaming: false, model: "", modelName: "", thinkingLevel: "", contextTokens: 0, contextWindow: 0, mode: "", engine: "" });
+setRootStore("chat_omp", SID, { messages: msgs as ChatMessage[], seq: (msgs as ChatMessage[]).length, status: "resolved", streaming: false, model: "", modelName: "", thinkingLevel: "", contextTokens: 0, contextWindow: 0, mode: "" });
 
 render(() => <OmpChatPane sessionId={SID} />, document.getElementById("app")!);

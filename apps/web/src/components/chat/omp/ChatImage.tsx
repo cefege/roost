@@ -13,6 +13,9 @@ interface Props {
   sessionId: string;
   blobPath: string;
   mime: string;
+  /** Parity-oracle stamp: the JSON TuiRow this element paints (see
+   *  @roost/shared/chat/rows). Undefined on elements that anchor no row. */
+  dataTuiRow?: string;
 }
 
 function bytesToDataUrl(bytes: Uint8Array, mime: string): string {
@@ -50,8 +53,8 @@ export function ChatImage(props: Props) {
   );
   const url = () => (isData() ? props.blobPath : src());
   return (
-    <Show when={url()} fallback={<span class="omp-img-placeholder"><Icon name="image" size="sm" /> image ({props.mime}){src.loading ? " loading…" : ""}</span>}>
-      <img class="omp-img" src={url()!} alt={`attachment: ${props.mime}`} loading="lazy" />
+    <Show when={url()} fallback={<span class="omp-img-placeholder" data-tui-row={props.dataTuiRow}><Icon name="image" size="sm" /> image ({props.mime}){src.loading ? " loading…" : ""}</span>}>
+      <img class="omp-img" src={url()!} alt={`attachment: ${props.mime}`} loading="lazy" data-tui-row={props.dataTuiRow} />
     </Show>
   );
 }

@@ -87,3 +87,12 @@ export interface CellGridFrame {
 // immediate scroll-up context; deeper history arrives via the per-viewer
 // get-scrollback-cells backfill.
 export const SB_SNAPSHOT_TAIL_ROWS = 250;
+
+// Ceiling on a CATCH-UP full frame's scrollback tail (a claim from a viewer
+// that fell behind while its pane was parked). Matches the SPA's held-window
+// cap (cellRenderer.ts MAX_HELD_SCROLLBACK_ROWS) and the worker's
+// get-scrollback-cells ceiling (browser-command-terminal.ts
+// SCROLLBACK_CELLS_MAX_ROWS), so one catch-up can never become an MB-scale
+// blob on the broadcast Sync stream. Past this the viewer's held window is
+// mostly stale anyway and a rebuild is the honest answer.
+export const SB_SNAPSHOT_MAX_CATCHUP_ROWS = 2000;

@@ -1,13 +1,13 @@
-// Composer — bottom input + send, with two transport paths:
+// Composer — bottom input + send. ONE transport: sessionsChatCommand tunnels
+// {type:"prompt"} to this session's `omp --mode rpc-ui` child. No PTY, no TUI,
+// no keystroke timing; the reply streams back as ChatFrames, and Stop is
+// {type:"abort"}.
 //
-//  NATIVE (quick-chat sessions, cwd under ~/.roost/chats): the proper omp
-//  integration — sessionsChatCommand tunnels {type:"prompt"} to the worker's
-//  `omp --mode rpc` child for this session (lazy-started on first command).
-//  No PTY, no TUI, no keystroke timing; the reply streams back as ChatFrames.
-//
-//  LEGACY (regular terminal sessions running the omp TUI): PTY injection —
-//  buildPtyPayload + delayed CR, exactly like TerminalChatButton. The chat
-//  overlay mirrors what the terminal does.
+// It used to have a second path — bracketed paste plus a length-derived
+// setTimeout before CR, typing into a terminal running the omp TUI. That was
+// web-UI mode implemented on top of terminal mode; it is gone, along with the
+// engine test that chose between the two. The pane only ever mounts for a
+// `kind:"agent"` session, which owns a child by construction.
 //
 // Layout is a column: an attachment chip tray (only when something is pending)
 // above the iOS-style row — a circular attach button on the left, the textarea
@@ -17,10 +17,7 @@
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { rootStore } from "../../../store/root.ts";
 import { ompChatForSession } from "../../../store/chatOmp.ts";
-import { isChatFolder } from "../../../lib/quickChat.ts";
 import { pickFilesTo } from "../../../lib/attachments.ts";
-import { inputChannel } from "../../../ws/input-channel.ts";
-import { buildBracketedPaste, buildPtyPayload, CR_BYTES, enterDelayMs } from "../../../lib/ptyPaste.ts";
 import { Icon } from "../../Settings/md/Icon.tsx";
 import { MobileVoiceInput } from "../../MobileVoiceInput.tsx";
 import { isTouchDevice } from "../../../lib/windowSizeClass.ts";
@@ -29,7 +26,7 @@ import { ModelMenu } from "./ModelMenu.tsx";
 import { ompCommand } from "./rpcCommand.ts";
 
 /** Textarea growth ceiling — past this the draft scrolls instead of eating
- *  the transcript. Mirrors TerminalChatButton's composer. */
+ *  the transcript. Mirrors TerminalComposeButton's composer. */
 const MAX_INPUT_PX = 140;
 
 /** One uploaded-but-not-yet-sent attachment. Owned by OmpChatPane (it owns the
@@ -61,17 +58,12 @@ export function Composer(props: Props) {
   const [sending, setSending] = createSignal(false);
   let taEl: HTMLTextAreaElement | undefined;
 
-  // The composer takes the keyboard once the chat overlay owns a FOCUSED pane:
-  // CellTerminal's focus gate hands it over (chatViewActive), and a pasted
-  // image only reaches OmpChatPane's element-scoped handler if focus is inside
-  // the pane. Touch skips it so switching to chat doesn't pop the keyboard.
+  // The composer takes the keyboard on the FOCUSED pane. Touch skips it so
+  // opening a chat doesn't pop the on-screen keyboard.
   createEffect(() => { if (props.focused && !isTouchDevice()) taEl?.focus(); });
 
   const session = () => rootStore.sessions[props.sessionId];
-  const isNative = () => isChatFolder(session()?.cwd ?? "");
-  // Worker-owned turn state. Native engine: the rpc child's own flag. Mirror
-  // engine: derived from omp's OSC title separator (Braille = working), so a
-  // PTY-injection session now lights the badge and Stop too.
+  // Worker-owned turn state, straight off the RPC child's own flag.
   // createMemo, not a bare accessor: the slot may not exist on first render,
   // and a plain read of the fallback literal registers no store dependency.
   const chat = createMemo(() => ompChatForSession(props.sessionId));
@@ -122,32 +114,19 @@ export function Composer(props: Props) {
     // Collapse the box back to one row: a sent long draft otherwise leaves a
     // tall empty field behind.
     queueMicrotask(fitHeight);
-    if (isNative()) {
-      // `@"path"` mentions: omp runs extractFileMentions inside
-      // AgentSession.prompt(), which the RPC prompt handler calls too — so the
-      // file is read SERVER-side (text inlined as <file path=…>, images
-      // attached as ImageContent). Always the quoted form: attachment names
-      // routinely carry spaces (macOS screenshots). The bytes are already on
-      // the worker's disk beside omp; base64ing them back up the wire would
-      // re-send a file we just uploaded.
-      const mentions = atts.map((p) => `@"${p.absPath}"`).join(" ");
-      void sendNative(mentions ? (draft ? `${mentions}\n${draft}` : mentions) : draft);
-      return;
-    }
-    // Legacy TUI path. Attachments first, ONE bracketed paste each: omp's
-    // extractBracketedImagePastePaths auto-attaches a paste only when EVERY
-    // segment is an image path, so a mixed png+pdf selection in one paste
-    // would attach neither. No `@` prefix here — that drives the editor's
-    // completion popup, which would swallow the submitting CR.
-    for (const p of atts) inputChannel.sendInput(props.sessionId, buildBracketedPaste(p.absPath));
-    if (draft) inputChannel.sendInput(props.sessionId, buildPtyPayload(draft));
-    // Delay budgeted over everything just written, not the draft alone.
-    const delay = enterDelayMs(draft + atts.map((p) => p.absPath).join(""));
-    setTimeout(() => {
-      inputChannel.sendInput(props.sessionId, CR_BYTES);
-      setSending(false);
-    }, delay);
+    // `@"path"` mentions: omp runs extractFileMentions inside
+    // AgentSession.prompt(), which the RPC prompt handler calls too — so the
+    // file is read SERVER-side (text inlined as <file path=…>, images
+    // attached as ImageContent). Always the quoted form: attachment names
+    // routinely carry spaces (macOS screenshots). The bytes are already on
+    // the worker's disk beside omp; base64ing them back up the wire would
+    // re-send a file we just uploaded.
+    const mentions = atts.map((p) => `@"${p.absPath}"`).join(" ");
+    void sendNative(mentions ? (draft ? `${mentions}\n${draft}` : mentions) : draft);
   };
+
+  /** Interrupt the running turn. */
+  const stop = () => { void ompCommand(props.sessionId, { type: "abort" }, "Stop"); };
 
   const onKey = (e: KeyboardEvent) => {
     // An IME candidate commit fires Enter too; sending there ships a
@@ -164,8 +143,7 @@ export function Composer(props: Props) {
     // (roost-smoke/run.js:418) samples it to prove a reply actually streamed.
     <div class="omp-composer" data-testid="omp-chat-composer" data-streaming={String(chat().streaming)}>
       {/* Uploaded-but-unsent attachments. They are NOT text in the draft: the
-          send path encodes them per transport (@"path" mention on native, one
-          bracketed paste each on the TUI). */}
+          send path encodes them as @"path" mentions omp resolves server-side. */}
       <Show when={props.pending().length > 0}>
         <div class="omp-composer__tray" data-testid="omp-chat-attachments">
           <For each={props.pending()}>
@@ -216,14 +194,10 @@ export function Composer(props: Props) {
             onInput={onInput}
             onKeyDown={onKey}
           />
-          {/* Native engine only. The mirror engine reports a model too, but its
-              ModelMenu commands tunnel to a SEPARATE lazily-spawned
-              `omp --mode rpc` child — the picker would silently not affect the
-              TUI the user is looking at. The read-only chip in the status row
-              covers the mirror engine. Gated on the frame's own `engine`, NOT
-              isNative(): that is a cwd heuristic and misreads a PTY-mirrored
-              session living in a chat folder. */}
-          <Show when={chat().model && chat().engine === "rpc"}>
+          {/* Shown once get_state has resolved a model. Always live: every chat
+              pane drives its own RPC child, so the picker moves the model the
+              user is actually talking to. */}
+          <Show when={chat().model}>
             <ModelMenu
               sessionId={props.sessionId}
               model={chat().model}
@@ -242,7 +216,7 @@ export function Composer(props: Props) {
             class="omp-composer__round omp-composer__round--stop"
             data-testid="omp-chat-stop"
             aria-label="Stop"
-            onClick={() => void ompCommand(props.sessionId, { type: "abort" }, "Stop")}
+            onClick={stop}
           >
             <Icon name="stop" />
           </button>

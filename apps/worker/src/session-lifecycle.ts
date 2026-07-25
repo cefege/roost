@@ -10,7 +10,6 @@ import { log, diag, signal } from "@roost/shared";
 import type { ChannelState, FsmEvent } from "./fsm.ts";
 import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
 import * as byteCapture from "./diag/byte-capture.ts";
-import * as chat from "./session-chat.ts";
 import { disposeRpcChat, disposeAllRpcChats } from "./chat/omp/rpc-chat.ts";
 import { forgetOmpSession } from "./chat/omp/session-store.ts";
 import {
@@ -110,10 +109,15 @@ export function emitClosedTombstone(this: SessionManager, sessionId: SessionId):
 export function kill(this: SessionManager, channelId: number): void {
 	const r = this.sessions.get(channelId);
 	if (!r) return;
-	// Mux pool sends KillChild on the shared UDS → keeper's IPty.kill →
-	// child exit → Exit frame → muxCallbacks.onExit → closedByKeeper →
-	// FSM closed → SessionEvent closed.
-	getMultiplexedPool().kill(channelId);
+	// kind:"agent" holds no keeper channel — its child dies with disposeRpcChat
+	// inside _dropChannelState (via closedByKeeper below). Sending KillChild for
+	// a channel the keeper never had is a mismatch it logs and ignores.
+	if (r.kind !== "agent") {
+		// Mux pool sends KillChild on the shared UDS → keeper's IPty.kill →
+		// child exit → Exit frame → muxCallbacks.onExit → closedByKeeper →
+		// FSM closed → SessionEvent closed.
+		getMultiplexedPool().kill(channelId);
+	}
 	// 2026-06-15: also tear down here regardless of whether the keeper
 	// still has the channel. The keeper restarts (manual kickstart,
 	// crash recovery, deploy) drop their PTY children without the
@@ -150,6 +154,10 @@ export function closedByKeeper(this: SessionManager, channelId: number, exitCode
  *  someone kills it by hand. head_seq===0 gate keeps a legit fast-exiting
  *  shell (which prints a prompt first) from counting. */
 export function _checkDeadBirth(this: SessionManager, rec: SessionRecord): void {
+	// kind:"agent" has no keeper PTY, so it can never be a keeper dead-birth —
+	// and its head_seq is 0 for life, which would otherwise make EVERY quick
+	// close look like one and trip the degraded-keeper restart.
+	if (rec.kind === "agent") return;
 	const lifetimeMs = Date.now() - rec.spawnedAtMs;
 	if (lifetimeMs >= DEAD_BIRTH_LIFETIME_MS || rec.head_seq !== 0) return;
 	signal("keeper.dead_birth", {
@@ -193,7 +201,6 @@ export function _dropChannelState(this: SessionManager, channelId: number): void
 			kind: rec.kind,
 		});
 		rec.gitWatchDispose?.();
-		chat._disposeChatWatch(rec);       // mirror engine: transcript tailer
 		disposeRpcChat(String(rec.sessionId)); // native engine: `omp --mode rpc` child
 		if (rec.prPollTimer) {
 			clearInterval(rec.prPollTimer);
@@ -251,8 +258,8 @@ export function diagSnapshot(this: SessionManager): Record<string, unknown> {
 			tail_seq: rec.head_seq - rec.scrollback.length,
 			scrollback_len: rec.scrollback.length,
 			alt_mode: rec.alt_mode,
-			wterm_cols: rec.wtermCore.getCols(),
-			wterm_rows: rec.wtermCore.getRows(),
+			wterm_cols: rec.wtermCore?.getCols() ?? null,
+			wterm_rows: rec.wtermCore?.getRows() ?? null,
 			last_applied_size: this.lastAppliedSize.get(channelId) ?? null,
 			claims: claims ? Object.fromEntries(claims.entries()) : {},
 		};

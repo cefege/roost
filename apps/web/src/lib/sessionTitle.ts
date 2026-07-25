@@ -53,10 +53,11 @@ export function sessionTitle(session: Session): string {
   // cloudSubtitle(); the TabBar title just adds a cwd / Terminal-N tail fallback.
   const program = cloudSubtitle(session);
   if (program) return program;
-  // No process-driven name: plain shells show their folder; claude panes keep a
-  // stable Terminal-N (their 1-based slot in the workspace) so an idle claude
-  // isn't churned.
-  if (session.kind !== "claude") return shortCwd(session.cwd) || "shell";
+  // No process-driven name: plain shells show their folder; agent panes (claude
+  // PTY sessions and `kind:"agent"` chat sessions alike) keep a stable
+  // Terminal-N (their 1-based slot in the workspace) so an idle one isn't
+  // churned.
+  if (session.kind === "shell") return shortCwd(session.cwd) || "shell";
   const wid = session.workspace_id;
   if (wid) {
     const ws = rootStore.workspaces[wid];

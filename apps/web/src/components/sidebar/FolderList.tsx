@@ -34,6 +34,7 @@ import { colorForFp } from "../../lib/fpColor.ts";
 import { buildFolderGroups, type FolderGroup, PR_CHECK_GLYPH, PR_CHECK_COLOR } from "../../lib/folderGroups.ts";
 import { pushRecent } from "../../lib/sidebarRecent.ts";
 import { isChatFolder, startQuickChat } from "../../lib/quickChat.ts";
+import { resumeChatDialogStore } from "../ResumeChatDialog.tsx";
 import { scheduleClose } from "../../lib/pendingClose.ts";
 import { closeLabelsFor, killAfterUndo } from "../../lib/closeSession.ts";
 import { StatusGlyph } from "./StatusGlyph.tsx";
@@ -350,20 +351,31 @@ export function FolderList() {
           onClick={() => setSidebarTab("chat")}>Chat</button>
       </div>
       <Show when={sidebarTab() === "chat"}>
-        <Button
-          variant="tonal"
-          icon="add"
-          data-testid="sidebar-new-chat"
-          aria-label="New chat"
-          title="New chat"
-          style={{
-            display: "flex",
-            width: "calc(100% - var(--md-space-4))",
-            margin: "0 var(--md-space-2) var(--md-space-2)",
-            "--md-filled-tonal-button-with-leading-icon-trailing-space": "16px",
-          }}
-          onClick={() => { closeSidebar(); void startQuickChat(navigate); }}
-        >New chat</Button>
+        <div style={{ display: "flex", gap: "var(--md-space-2)", margin: "0 var(--md-space-2) var(--md-space-2)" }}>
+          <Button
+            variant="tonal"
+            icon="add"
+            data-testid="sidebar-new-chat"
+            aria-label="New chat"
+            title="New chat"
+            style={{
+              display: "flex",
+              flex: "1",
+              "--md-filled-tonal-button-with-leading-icon-trailing-space": "16px",
+            }}
+            onClick={() => { closeSidebar(); void startQuickChat(navigate); }}
+          >New chat</Button>
+          {/* Continue a conversation started in a terminal. One-shot: the picker
+              hands its transcript path to a fresh agent session at spawn. */}
+          <Button
+            variant="text"
+            icon="history"
+            data-testid="sidebar-resume-chat"
+            aria-label="Resume chat"
+            title="Resume a chat started elsewhere"
+            onClick={() => { closeSidebar(); resumeChatDialogStore.open(); }}
+          >Resume</Button>
+        </div>
       </Show>
       <div class="df-flat-group">
         <For each={visibleRows()}>

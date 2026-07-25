@@ -7,9 +7,9 @@
 import { For } from "solid-js";
 import type { FileMentionBlock } from "@roost/shared/chat/wire";
 
-export function FileMentionRow(props: { block: FileMentionBlock }) {
+export function FileMentionRow(props: { block: FileMentionBlock; dataTuiRow?: string }) {
   return (
-    <div class="tr-mentions">
+    <div class="tr-mentions" data-tui-row={props.dataTuiRow}>
       <For each={props.block.paths}>
         {(path) => (
           <div class="tr-mention" data-testid="omp-chat-file-mention">

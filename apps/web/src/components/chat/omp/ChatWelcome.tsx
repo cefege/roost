@@ -41,10 +41,11 @@ export function ChatWelcome(props: Props) {
   };
 
   createEffect(() => {
-    // Mirror-engine sessions (terminal omp behind an OSC title) have no RPC
-    // child; asking for commands would spawn one purely to draw tips. They get
-    // greeting + folder only.
-    if (fetched || !props.focused || !isChatFolder(rootStore.sessions[props.sessionId]?.cwd ?? "")) return;
+    // Latched: the pane only mounts for a `kind:"agent"` session, whose RPC
+    // child exists from spawn, so the first focused render can ask for the
+    // command catalog outright. (This used to be gated on the cwd, because a
+    // mirror-engine session had no child to ask.)
+    if (fetched || !props.focused) return;
     fetched = true;
     void load();
   });

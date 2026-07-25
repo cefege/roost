@@ -1,5 +1,5 @@
 // Browser-command handlers: session lifecycle (kill / spawn-shell /
-// spawn-claude / attach / respawn-if-missing). Extracted from
+// spawn-claude / spawn-agent / attach / respawn-if-missing). Extracted from
 // browser-command-handler.ts (CLAUDE.md 400-line cap).
 
 import { log } from "@roost/shared";
@@ -62,6 +62,38 @@ export function handleSpawnClaude(
 	const { coordLink, sessionMgr } = deps;
 	sessionMgr
 		.spawnClaude(frame.folder, frame.initial_mode, frame.cols, frame.rows, frame.session_id)
+		.then((rec) => {
+			coordLink.send({
+				kind: "rpc-ok",
+				request_id,
+				data: { session_id: rec.sessionId, channel_id: rec.channelId },
+			});
+		})
+		.catch((err) => {
+			coordLink.send({
+				kind: "rpc-error",
+				request_id,
+				message: err instanceof Error ? err.message : String(err),
+			});
+		});
+	return;
+}
+
+/** Web-UI mode: a session whose process IS an `omp --mode rpc-ui` child. No
+ *  cols/rows — it has no PTY. A missing omp binary fails the RPC with the
+ *  worker's real message rather than leaving a half-live row behind. */
+export function handleSpawnAgent(
+	frame: Extract<ClientControlFrame, { kind: "spawn-agent" }>,
+	request_id: string,
+	deps: { coordLink: CoordLink; sessionMgr: SessionManager },
+): void {
+	const { coordLink, sessionMgr } = deps;
+	sessionMgr
+		.spawnAgent(
+			frame.folder,
+			{ resumeSessionFile: frame.resume_session_file, model: frame.model },
+			frame.session_id,
+		)
 		.then((rec) => {
 			coordLink.send({
 				kind: "rpc-ok",

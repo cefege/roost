@@ -20,12 +20,6 @@ export const HOOK_CMD = basename(process.execPath) === "bun"
 	? `"${process.execPath}" run "${HOOK_SCRIPT}"`
 	: `"${process.execPath}" hook`;
 
-// Live chat sidecars written by omp's roost-chat-bridge extension, one NDJSON
-// per session (`<sid>.ndjson`). spawnShell exports the dir to every pane as
-// ROOST_OMP_LIVE_DIR; the chat live-watcher tails the same path. One literal so
-// the writer and the reader cannot drift.
-export const OMP_LIVE_DIR = join(homedir(), ".roost", "omp-live");
-
 // 8 MB sliding scrollback window kept on the worker per session.
 // Matches the keeper's ring (sb30) so getScrollback can serve a fresh
 // SPA the same depth of history the keeper started us with. ~24 KB

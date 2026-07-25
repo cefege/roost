@@ -18,6 +18,9 @@ interface Props {
   messageId: string;
   parts: ThinkingPart[];
   expandAll: boolean;
+  /** Parity-oracle stamp: the JSON TuiRow this element paints (see
+   *  @roost/shared/chat/rows). Undefined on elements that anchor no row. */
+  dataTuiRow?: string;
 }
 
 export function ThinkingBlock(props: Props) {
@@ -45,7 +48,7 @@ export function ThinkingBlock(props: Props) {
   });
 
   return (
-    <div class="tr-think" data-testid="omp-chat-thinking" data-open={String(open())}>
+    <div class="tr-think" data-testid="omp-chat-thinking" data-open={String(open())} data-tui-row={props.dataTuiRow}>
       <button type="button" class="tr-think-collapsed" aria-expanded={open()}
         onClick={() => setLocalOpen((v) => !v)}>Thinking …</button>
       <Show when={open()}>

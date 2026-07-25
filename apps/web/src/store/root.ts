@@ -71,27 +71,25 @@ export interface RootState {
    *  routes the CTA to /pair (Onboarding). Cleared on successful
    *  refresh once trust is granted. See AllView.tsx + SidebarEmptyState. */
   browser_unauthorized: boolean;
-  /** Omp chat (transcript-reader). Per-session messages + tailer status.
+  /** Omp chat. Per-session messages + status for `kind:"agent"` sessions.
    *  Self-contained omp slice — no shared chat components. The logic +
    *  selectors live in store/chatOmp.ts; state mounts here so sync.ts's
    *  single reactive flush covers chat frames too. key = SessionId. */
   chat_omp: Record<string, ChatOmpState>;
-  /** Sessions whose OSC title has EVER identified omp. The title is live state
-   *  (omp rewrites it per run state, a child can overwrite it), but the engine
-   *  behind a pane does not change — so eligibility latches. Pruned on close. */
-  omp_eligible: Record<string, boolean>;
 }
 
-export type ChatOmpStatus = "idle" | "loading" | "resolved";
+/** `failed` = the backfill RPC errored: the pane has NO history and cannot get
+ *  it. Distinct from `resolved` with zero messages, which is a genuinely empty
+ *  conversation — conflating the two painted a welcome card over a dead pipe. */
+export type ChatOmpStatus = "idle" | "loading" | "resolved" | "failed";
 export interface ChatOmpState {
   messages: ChatMessage[];
   seq: number;
   status: ChatOmpStatus;
-  /** Native RPC chat only: an agent turn is in flight (worker-owned flag). */
+  /** An agent turn is in flight (worker-owned flag). */
   streaming: boolean;
-  /** Session status the omp TUI keeps on screen. Both engines report it: the
-   *  native RPC engine off get_state, the mirror engine off its transcript
-   *  tailer. Empty/0 = the fact is unknown, and its chip is not rendered. */
+  /** Session status, from the RPC child's get_state. Empty/0 = the fact is
+   *  unknown, and its chip is not rendered. */
   model: string;
   modelName: string;
   thinkingLevel: string;
@@ -99,14 +97,9 @@ export interface ChatOmpState {
   /** Model context window. 0 = unknown (no catalog entry) → the pane shows
    *  raw tokens with no percentage, exactly as omp's own bar does. */
   contextWindow: number;
-  /** omp agent mode ("plan", "none", …). Mirror engine only — RPC get_state
-   *  exposes no mode. */
+  /** omp agent mode ("plan", "none", …). omp's RPC get_state exposes no mode,
+   *  so this is "" today; kept because the pane renders it when present. */
   mode: string;
-  /** Which producer built the last status-bearing frame: "rpc" | "mirror".
-   *  "" = no status yet. Non-empty gates the status row; "rpc" additionally
-   *  gates the composer's INTERACTIVE model picker, whose commands only work
-   *  over the native RPC channel. */
-  engine: string;
 }
 
 const initialState: RootState = {
@@ -124,7 +117,6 @@ const initialState: RootState = {
   session_viewers: {},
   browser_unauthorized: false,
   chat_omp: {},
-  omp_eligible: {},
 };
 
 export const [rootStore, setRootStore] = createStore<RootState>(initialState);

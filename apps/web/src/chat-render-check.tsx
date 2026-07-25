@@ -20,7 +20,6 @@ import "./styles/voice-input.css";
 import "./vendor/omp-tool-views.js";
 import { applyTheme, loadTheme } from "./lib/theme.ts";
 import { rootStore, setRootStore } from "./store/root.ts";
-import { setOmpChatView } from "./store/uiStore.ts";
 import { OmpChatPane } from "./components/chat/omp/OmpChatPane.tsx";
 import type { ChatMessage } from "@roost/shared/chat/wire";
 
@@ -28,10 +27,9 @@ applyTheme(loadTheme());
 
 const SID = "00000000-0000-0000-0000-000000000001";
 
-// Force omp eligibility + chat view mode.
+// The pane renders for a kind:"agent" session; the harness has no store
+// session at all, so nothing to force — it drives OmpChatPane directly.
 setRootStore("terminal_title", SID, "π > render check");
-setRootStore("omp_eligible", SID, true);
-setOmpChatView(SID, "chat");
 
 // A realistic conversation: user msg, assistant (thinking+text+toolCall),
 // a separate toolResult message, and a live toolEvent (running chip).
@@ -118,6 +116,6 @@ setRootStore("sessions", SID, {
   session_id: SID, cwd: "/Users/mike/Code/idea", git_branch: "main",
 } as never);
 
-setRootStore("chat_omp", SID, { messages: msgs, seq: 5, status: "resolved", streaming: true, model: "anthropic/claude-opus-5", modelName: "Claude Opus 5", thinkingLevel: "low", contextTokens: 31240, contextWindow: 1_000_000, mode: "plan", engine: "mirror" });
+setRootStore("chat_omp", SID, { messages: msgs, seq: 5, status: "resolved", streaming: true, model: "anthropic/claude-opus-5", modelName: "Claude Opus 5", thinkingLevel: "low", contextTokens: 31240, contextWindow: 1_000_000, mode: "plan" });
 
 render(() => <OmpChatPane sessionId={SID} />, document.getElementById("app")!);

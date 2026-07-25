@@ -25,6 +25,9 @@ interface Props {
   sessionId: string;
   messageId: string;
   blockIndex: number;
+  /** Parity-oracle stamp: the JSON TuiRow this element paints (see
+   *  @roost/shared/chat/rows). Undefined on elements that anchor no row. */
+  dataTuiRow?: string;
 }
 
 export function CustomCard(props: Props) {
@@ -40,7 +43,8 @@ export function CustomCard(props: Props) {
   };
 
   return (
-    <div class="tr-custom" data-testid="omp-chat-custom" data-custom-type={props.block.customType}>
+    <div class="tr-custom" data-testid="omp-chat-custom" data-custom-type={props.block.customType}
+      data-tui-row={props.dataTuiRow}>
       <span class="tr-chip tr-custom-label">[{props.block.customType}]</span>
       <div class="tr-md" innerHTML={renderMarkdown(full() ?? props.block.text)} />
       <Show when={props.block.truncated && full() === undefined}>

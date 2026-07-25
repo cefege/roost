@@ -1,4 +1,4 @@
-// TerminalChatButton — the message FAB (chat icon), a sibling above the mic and
+// TerminalComposeButton — the PTY text-entry FAB, a sibling above the mic and
 // below the keyboard-nav FAB in the corner stack. A faithful analogue of the
 // mic: tap → a compact composer (textarea + send) with the FAB
 // transformed into a close (✕) below it. While open it is PORTALED to <body>
@@ -11,6 +11,11 @@
 // delayed-CR path as mic dictation (lib/ptyPaste). Only one pane's composer is
 // open at a time (module-level guard). Styling: styles/voice-input.css
 // (.term-chat, .term-chat__dock). Caller: CellTerminal.tsx.
+//
+// TERMINAL MODE ONLY. This types into a PTY; it has nothing to do with the
+// omp chat pane (components/chat/omp/), which talks to an RPC child. It was
+// called TerminalChatButton, and that name made two unrelated subsystems look
+// like one.
 
 import { createSignal, onCleanup, Show } from "solid-js";
 import { Portal } from "solid-js/web";
@@ -25,10 +30,10 @@ interface Props {
   refocusTerminal?: () => void;
 }
 
-// Shared across all deck-mounted chat FABs (one per open session). Only one
+// Shared across all deck-mounted compose FABs (one per open session). Only one
 // pane's composer is ever open — the owning instance renders the dock; all
 // others still render the FAB but never expand.
-export const [activeChatChannel, setActiveChatChannel] = createSignal<number | null>(null);
+export const [activeComposeChannel, setActiveComposeChannel] = createSignal<number | null>(null);
 
 // True from composer-open until the soft keyboard has finished sliding back out
 // on close. AppShell reads this to FREEZE the terminal's --kb-offset reaction
@@ -36,7 +41,7 @@ export const [activeChatChannel, setActiveChatChannel] = createSignal<number | n
 // above the keyboard, so re-fitting the terminal grid underneath it is pointless
 // and is what made the scrollback jump as --kb-offset ramped. Held across the
 // dismiss so releasing the freeze doesn't re-fit the grid mid-slide-out.
-export const [chatComposerActive, setChatComposerActive] = createSignal(false);
+export const [composerActive, setComposerActive] = createSignal(false);
 
 // Soft-keyboard slide-out window (must cover --kb-offset returning to 0 on
 // blur); matches AppShell's --md-sys-motion-duration-medium1 height transition.
@@ -48,9 +53,9 @@ const KB_DISMISS_MS = 350;
 // scheduled release only fires while its captured generation is still current.
 let kbReleaseGen = 0;
 
-export function TerminalChatButton(props: Props) {
+export function TerminalComposeButton(props: Props) {
   // If another session owns the open composer, don't render at all.
-  const owner = activeChatChannel();
+  const owner = activeComposeChannel();
   if (owner !== null && owner !== props.session.channel) return null;
 
   const [open, setOpen] = createSignal(false);
@@ -61,16 +66,16 @@ export function TerminalChatButton(props: Props) {
 
   const openComposer = () => {
     setOpen(true);
-    setActiveChatChannel(props.session.channel);
+    setActiveComposeChannel(props.session.channel);
     kbReleaseGen++;
-    setChatComposerActive(true);
+    setComposerActive(true);
     queueMicrotask(() => inputEl?.focus());
   };
 
   const closeComposer = () => {
     setOpen(false);
     setDraft("");
-    setActiveChatChannel(null);
+    setActiveComposeChannel(null);
     // On touch, drop the soft keyboard by blurring — refocusing the terminal's
     // textarea would keep the keyboard up. Desktop keeps terminal focus.
     if (isTouchDevice()) inputEl?.blur();
@@ -79,7 +84,7 @@ export function TerminalChatButton(props: Props) {
     // back to 0), so lifting the freeze lands on a no-op height, not a re-fit. A
     // later open bumps the generation, no-op'ing this stale release.
     const gen = ++kbReleaseGen;
-    setTimeout(() => { if (gen === kbReleaseGen) setChatComposerActive(false); }, KB_DISMISS_MS);
+    setTimeout(() => { if (gen === kbReleaseGen) setComposerActive(false); }, KB_DISMISS_MS);
   };
 
   // Send the typed line through the same bracketed-paste + delayed-CR path as
@@ -93,9 +98,9 @@ export function TerminalChatButton(props: Props) {
   };
 
   onCleanup(() => {
-    if (activeChatChannel() === props.session.channel) {
-      setActiveChatChannel(null);
-      setChatComposerActive(false);
+    if (activeComposeChannel() === props.session.channel) {
+      setActiveComposeChannel(null);
+      setComposerActive(false);
     }
   });
 

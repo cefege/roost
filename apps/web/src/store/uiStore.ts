@@ -4,7 +4,6 @@
 // sidebarOpen: mobile drawer state; on desktop the sidebar is always visible.
 
 import { createStore } from "solid-js/store";
-import { ompChatEnabled } from "./chatOmp.ts";
 
 interface UIState {
   contextMenu: { x: number; y: number; sessionId: string } | null;
@@ -16,24 +15,8 @@ interface UIState {
   homeFolderShowFiles: boolean;        // home/browse: reveal view-only files alongside folders
   notificationBellOpen: boolean;       // notification bell dropdown open (shared with mobile bars)
   bellAnchorEl: HTMLElement | null;    // anchor element for notification dropdown positioning
-  /** Per-session chat view mode (omp only). "terminal" = cell grid;
-   *  "chat" = OmpChatPane. Persisted to localStorage per session id. omp
-   *  sessions default to "chat"; everything else to "terminal". A future
-   *  Claude chat adds its own branch, not a value here. */
-  chatViewBySession: Record<string, "terminal" | "chat">;
 }
 
-const CHAT_VIEW_KEY = "roost.chatViewBySession";
-function loadChatView(): Record<string, "terminal" | "chat"> {
-  try {
-    const raw = localStorage.getItem(CHAT_VIEW_KEY);
-    const obj = raw ? JSON.parse(raw) : null;
-    return obj && typeof obj === "object" ? obj as Record<string, "terminal" | "chat"> : {};
-  } catch { return {}; }
-}
-function persistChatView(map: Record<string, "terminal" | "chat">): void {
-  try { localStorage.setItem(CHAT_VIEW_KEY, JSON.stringify(map)); } catch { /* quota */ }
-}
 
 const SIDEBAR_COLLAPSED_KEY = "roost.sidebarCollapsed";
 const SIDEBAR_WIDTH_KEY = "roost.sidebarWidth";
@@ -86,7 +69,6 @@ export const [uiStore, setUiStore] = createStore<UIState>({
   homeFolderShowFiles: loadHomeFolderShowFiles(),
   notificationBellOpen: false,
   bellAnchorEl: null,
-  chatViewBySession: loadChatView(),
 });
 
 export const setSidebarWidth = (px: number) => {
@@ -122,20 +104,3 @@ export const setHomeFolderShowFiles = (v: boolean) => {
   setUiStore("homeFolderShowFiles", v);
   persistHomeFolderShowFiles(v);
 };
-/** Per-session chat view mode. An omp session defaults to "chat" — the chat IS
- *  the session's native surface, and landing the user on a cell grid hides it
- *  behind a corner toggle. Everything else defaults to "terminal". An explicit
- *  toggle is persisted per session and always wins, so the terminal is one
- *  click away. */
-export function ompChatViewForSession(sessionId: string): "terminal" | "chat" {
-	const explicit = uiStore.chatViewBySession[sessionId];
-	if (explicit) return explicit;
-	return ompChatEnabled(sessionId) ? "chat" : "terminal";
-}
-export function setOmpChatView(sessionId: string, mode: "terminal" | "chat"): void {
-  setUiStore("chatViewBySession", sessionId, mode);
-  persistChatView(uiStore.chatViewBySession);
-}
-export function toggleOmpChatView(sessionId: string): void {
-  setOmpChatView(sessionId, ompChatViewForSession(sessionId) === "chat" ? "terminal" : "chat");
-}

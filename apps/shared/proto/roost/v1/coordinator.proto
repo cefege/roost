@@ -104,12 +104,17 @@ message SessionsListResponse { repeated Session sessions = 1; }
 
 message SessionsSpawnRequest {
   string worker_fp = 1;
-  string kind = 2;  // shell|claude
+  string kind = 2;  // shell|claude|agent
   string folder = 3;
   optional string initial_mode = 4;  // ClaudeMode
   optional uint32 cols = 5;
   optional uint32 rows = 6;
   optional string session_id = 7;  // caller-minted id (optimistic spawn); worker reuses it verbatim
+  // kind="agent" only: absolute path to an existing omp *.jsonl transcript to
+  // resume. Empty = fresh conversation.
+  optional string resume_session_file = 8;
+  // kind="agent" only: model id for the omp child. Empty = omp's default.
+  optional string model = 9;
 }
 message SessionsSpawnResponse {
   string session_id = 1;
@@ -155,6 +160,12 @@ message SessionsResizeRequest {
   // 0 (unset) = legacy caller; worker synthesizes a fresh seq locally.
   uint64 client_seq = 4;
   ResizeCause cause = 5;
+  // Highest scrollback row count this viewer already holds (its frame's
+  // scrollback_total). The worker sizes the claim snapshot's scrollback tail
+  // to reach back to that row, so a returning viewer's full frame EXTENDS what
+  // it already painted (cellRenderer.ts mergeFullFrame) instead of forcing a
+  // full rebuild. 0 = unset / holds nothing → the default tail.
+  uint32 held_scrollback_total = 6;
 }
 message SessionsResizeResponse { bool accepted = 1; }
 
@@ -238,21 +249,27 @@ message SessionsGetChatBlockResponse {
   string text = 1;                   // untruncated block text
 }
 
-// Terminal-vs-web parity oracle. Projects BOTH the raw omp transcript (what
-// omp's TUI would paint) and Roost's own parsed ChatMessages onto the same row
-// list, then diffs them positionally. `missing_json == "[]"` and
-// tui_rows == roost_rows means the pane is showing everything the terminal is.
-// See apps/worker/src/chat/omp/tui-rows.ts.
-message SessionsGetChatParityRequest  { string session_id = 1; }
-message SessionsGetChatParityResponse {
-  string transcript_path = 1;
-  string live_path = 2;              // "" when no bridge sidecar is present
-  bool   live_attached = 3;          // a hello was seen on the sidecar
-  uint32 tui_rows = 4;               // rows omp's TUI would paint
-  uint32 roost_rows = 5;             // rows Roost's ChatMessages project to
-  string missing_json = 6;           // JSON array of TuiRow the TUI paints, Roost does not
-  string extra_json = 7;             // JSON array of TuiRow Roost paints, the TUI does not
+// Discoverable omp transcripts on a worker, newest first. Read-only: the
+// New-chat picker passes the chosen `path` back as
+// SessionsSpawnRequest.resume_session_file to continue that conversation in a
+// kind:"agent" session. A one-shot read at spawn, never a live coupling to a
+// terminal — which is why the old terminal-vs-web parity oracle that used to
+// occupy this slot is gone.
+message SessionsListOmpSessionsRequest {
+  string worker_fp = 1;
+  optional uint32 limit = 2;         // newest N transcripts; default 50
 }
+message OmpSessionEntry {
+  string path = 1;                   // absolute *.jsonl path on the worker
+  string cwd = 2;                    // the cwd omp recorded in its session header
+  string title = 3;                  // session name, else the first user message
+  uint64 updated_at = 4;             // file mtime, ms
+  string last_prompt = 5;            // newest user message, trimmed
+  // mtime is recent enough that an omp process is probably still writing this
+  // file. Two writers corrupt it, so resuming an active transcript is REFUSED.
+  bool   active = 6;
+}
+message SessionsListOmpSessionsResponse { repeated OmpSessionEntry sessions = 1; }
 
 // Native omp chat: tunnel one omp RpcCommand (JSON) to the session's
 // `omp --mode rpc` child on the worker (lazy-started on first command).
@@ -574,7 +591,7 @@ service CoordinatorService {
   rpc SessionsGetScrollbackCells(SessionsGetScrollbackCellsRequest) returns (SessionsGetScrollbackCellsResponse);
   rpc SessionsGetChatHistory(SessionsGetChatHistoryRequest) returns (SessionsGetChatHistoryResponse);
   rpc SessionsGetChatBlock(SessionsGetChatBlockRequest) returns (SessionsGetChatBlockResponse);
-  rpc SessionsGetChatParity(SessionsGetChatParityRequest) returns (SessionsGetChatParityResponse);
+  rpc SessionsListOmpSessions(SessionsListOmpSessionsRequest) returns (SessionsListOmpSessionsResponse);
   rpc SessionsChatCommand(SessionsChatCommandRequest) returns (SessionsChatCommandResponse);
 
   // workspaces

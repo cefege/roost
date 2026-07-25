@@ -28,7 +28,6 @@ import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
 import type { ChatFrame as PbChatFrame } from "@roost/shared/proto/sync_pb";
 import { _dispatchBytes, _dispatchCell, _dispatchPresence } from "./sync-dispatch.ts";
 import { applyOmpChatFrame, resyncOmpChats } from "./chatOmp.ts";
-import { isOmpTitle } from "@roost/shared/chat/omp-title";
 import { startStaleWatchdog } from "./sync-watchdog.ts";
 // Worker-routability signal lives in sync-routable.ts (leaf): _runConnectSync
 // writes it; the UI reads workerOnline (re-exported here so consumers keep
@@ -290,9 +289,6 @@ function _dispatchSyncFrame(frame: FirehoseFrame): void {
             // path. sessionTitle()/SessionRow read rootStore.terminal_title[sid].
             const t = v as { sessionId: string; title: string };
             setRootStore("terminal_title", t.sessionId, t.title);
-            // Latch omp identity here, once, rather than re-deriving it from a
-            // title that changes ~12x/sec while the agent works (spinner frame).
-            if (isOmpTitle(t.title)) setRootStore("omp_eligible", t.sessionId, true);
             break;
           }
           case "lastActivity": {

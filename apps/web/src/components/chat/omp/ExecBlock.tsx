@@ -21,6 +21,9 @@ interface Props {
   sessionId: string;
   messageId: string;
   blockIndex: number;
+  /** Parity-oracle stamp: the JSON TuiRow this element paints (see
+   *  @roost/shared/chat/rows). Undefined on elements that anchor no row. */
+  dataTuiRow?: string;
 }
 
 export function ExecBlock(props: Props) {
@@ -41,7 +44,8 @@ export function ExecBlock(props: Props) {
   const output = () => full() ?? props.block.output;
 
   return (
-    <div class="tr-exec" data-testid="omp-chat-exec" data-lang={props.block.lang}>
+    <div class="tr-exec" data-testid="omp-chat-exec" data-lang={props.block.lang}
+      data-tui-row={props.dataTuiRow}>
       <div class="tr-exec-head">
         <code class="tr-exec-cmd">{props.block.lang === "bash" ? "$" : ">>>"} {props.block.command}</code>
         <Show when={props.block.excluded}>

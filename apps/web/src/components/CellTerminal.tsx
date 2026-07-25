@@ -39,10 +39,7 @@ import { TerminalContextMenu } from "./TerminalContextMenu.tsx";
 import { pickAndAttachFiles, enqueueAttachment } from "../lib/attachments.ts";
 import { MobileVoiceInput, activeVoiceChannel } from "./MobileVoiceInput.tsx";
 import { TerminalNavButtons } from "./TerminalNavButtons.tsx";
-import { TerminalChatButton, activeChatChannel } from "./TerminalChatButton.tsx";
-import { OmpChatPane } from "./chat/omp/OmpChatPane.tsx";
-import { ompChatEnabled } from "../store/chatOmp.ts";
-import { ompChatViewForSession, toggleOmpChatView } from "../store/uiStore.ts";
+import { TerminalComposeButton, activeComposeChannel } from "./TerminalComposeButton.tsx";
 import { TerminalStatusBadge } from "./TerminalStatusBadge.tsx";
 import { IconButton } from "./Settings/md/IconButton.tsx";
 import { mouseForwardEnabled } from "../lib/mouseForwardPref.ts";
@@ -217,10 +214,6 @@ export function CellTerminal(props: CellTerminalProps) {
 	// For a non-optimistic session this is always false → every gate below is a
 	// no-op, so mount behaviour is byte-identical to before.
 	const pending = createMemo(() => isPendingSpawn(props.session.id));
-	// Chat view owns the whole pane: the terminal's fixed-position FABs would
-	// otherwise float over the composer (the mic FAB covers Send exactly).
-	const chatViewActive = createMemo(() =>
-		ompChatEnabled(props.session.id) && ompChatViewForSession(props.session.id) === "chat");
 
 	// ── liveness: does this VIEWED pane actually receive frames? ──────────
 	// A live pane paints a snapshot within a beat of being claimed; a dead
@@ -344,6 +337,10 @@ export function CellTerminal(props: CellTerminalProps) {
 			rows,
 			clientSeq: BigInt(claimSeq),
 			cause,
+			// The worker sizes the claim snapshot's scrollback tail to reach back to
+			// this row, so the returning full frame EXTENDS our painted history
+			// (mergeFullFrame) instead of wiping it and re-pulling via backfill.
+			heldScrollbackTotal: renderer?.backfillAnchor()?.total ?? 0,
 		});
 	}
 
@@ -490,7 +487,6 @@ export function CellTerminal(props: CellTerminalProps) {
 					cursor_col: frame.cursorCol,
 				});
 				setAltScreen(frame.altScreen);
-				renderer.setEvictionFrozen(!renderer.following());
 				const _ap = performance.now();
 				renderer.apply(frame);
 				diag("cell.apply_dur", { sid: props.session.id, dur_ms: performance.now() - _ap });
@@ -575,11 +571,8 @@ export function CellTerminal(props: CellTerminalProps) {
 		// ── input + mode oracle: hidden wterm ────────────────────────────
 		// autoFocus off on touch — popping the on-screen keyboard on pane mount/
 		// selection is unwanted; an explicit tap focuses (onDisplayClick).
-		// Off under the chat overlay too: the composer owns the keyboard there,
-		// and this post-init forceFocus would otherwise land AFTER it and send
-		// every keystroke (and every pasted image) to the PTY behind the pane.
 		term = new RoostTerm(inputHostRef!, {
-			autoFocus: props.focused === true && !isTouchDevice() && !chatViewActive(),
+			autoFocus: props.focused === true && !isTouchDevice(),
 			// Cells own the display; this wterm exists for mode state + onData
 			// only. Renderless keeps its never-shown mirror grid out of the DOM
 			// (~22k nodes/session otherwise — the focus-flip flush stall).
@@ -832,19 +825,15 @@ export function CellTerminal(props: CellTerminalProps) {
 		// Listen on DOCUMENT (not just the cell grid): in cell mode the grid is
 		// letterboxed (narrower than the pane), so a drop on the surrounding margin
 		// missed the grid handler → the browser opened the image in a new tab.
-		// The ACTIVE+visible pane owns the drop for the whole window; guarded to
-		// file drags only so text/selection drags aren't hijacked. Also skipped
-		// while the chat overlay covers this pane — OmpChatPane installs its own
-		// element-scoped handlers, and without this guard a drop over the chat
-		// would upload twice (once to the PTY, once to the composer tray).
+		// file drags only so text/selection drags aren't hijacked.
 		const dragHasFiles = (e: DragEvent) =>
 			!!e.dataTransfer && Array.from(e.dataTransfer.types).includes("Files");
 		const onDragOver = (e: DragEvent) => {
-			if (!props.focused || !isPageVisible() || chatViewActive() || !dragHasFiles(e)) return;
+			if (!props.focused || !isPageVisible() || !dragHasFiles(e)) return;
 			e.preventDefault(); // allow the drop + stop the browser opening the file
 		};
 		const onDrop = (e: DragEvent) => {
-			if (!props.focused || !isPageVisible() || chatViewActive() || !dragHasFiles(e)) return;
+			if (!props.focused || !isPageVisible() || !dragHasFiles(e)) return;
 			e.preventDefault();
 			const items = e.dataTransfer?.items;
 			if (!items) return;
@@ -856,7 +845,6 @@ export function CellTerminal(props: CellTerminalProps) {
 			}
 		};
 		const onPaste = (e: ClipboardEvent) => {
-			if (chatViewActive()) return;
 			const items = e.clipboardData?.items;
 			if (!items) return;
 			for (let i = 0; i < items.length; i++) {
@@ -896,10 +884,15 @@ export function CellTerminal(props: CellTerminalProps) {
 				sendWithdraw();
 				return;
 			}
-			// Revealing a pane lands on the live tail — the literal ask. Doing it
-			// here also pins immediately from already-held content instead of
-			// waiting on the claim→worker→snapshot round-trip.
-			renderer?.followTail();
+			// Revealing a pane RE-DERIVES the position it already declared against the
+			// pane's new box; it does not override it. A pane the user never scrolled up
+			// in holds { kind: "tail" } and still lands on the live bottom. A pane they
+			// were reading keeps its row. This makes the deck reveal agree with the
+			// visibilitychange / pageshow / syncStreamOpen re-claims below, none of which
+			// override the intent — that split was the "switching tabs moves my scroll"
+			// asymmetry. Doing it here also pins immediately from already-held content
+			// instead of waiting on the claim→worker→snapshot round-trip.
+			renderer?.syncScroll();
 			sendClaimNow(ResizeCause.TAB_VISIBLE);
 		}));
 		// Focus gate: only the FOCUSED pane's terminal grabs the keyboard. Touch
@@ -908,11 +901,8 @@ export function CellTerminal(props: CellTerminalProps) {
 		// yet in DOM while WASM init runs) is covered by RoostTerm's autoFocus
 		// (fires forceFocus after init, see the constructor above) — this effect
 		// handles the become-focused-later flips, when init is long done.
-		// chatViewActive: the chat overlay owns the pane, and its composer takes
-		// focus on mount. Without this the hidden textarea keeps the keyboard and
-		// every keystroke (and every paste) lands in the PTY behind the overlay.
 		const focusGate = createMemo(
-			() => props.inLayout === true && props.focused === true && !chatViewActive(),
+			() => props.inLayout === true && props.focused === true,
 		);
 		createEffect(() => {
 			if (focusGate() && !isTouchDevice())
@@ -985,8 +975,10 @@ export function CellTerminal(props: CellTerminalProps) {
 		resizeObs = new ResizeObserver(() => {
 			// A container height change moves the content under the viewport even
 			// when the debounced PTY claim is suppressed — re-derive first. One
-			// layout read, no RPC.
-			renderer?.syncScroll();
+			// layout read, no RPC. Skipped while parked: TerminalDeck keeps a
+			// parked pane at a hardcoded 800x600 box, so deriving against it
+			// would place the reader against a size nobody is looking at.
+			if (props.inLayout !== false) renderer?.syncScroll();
 			if (isResizeDragging()) return; // suppress mid-drag PTY round-trips; flush on release (effect below)
 			scheduleClaim(ResizeCause.VIEWPORT);
 		});
@@ -1191,14 +1183,6 @@ export function CellTerminal(props: CellTerminalProps) {
 				ref={displayRef}
 				style={{ flex: "1", "min-width": "0", "min-height": "0", "touch-action": "pan-y" }}
 			/>
-			{/* Omp chat overlay (transcript-reader). Terminal stays mounted underneath
-          so toggling back preserves wterm scrollback + cursor state. Shown only
-          for omp sessions when the per-session view mode is "chat". */}
-			<Show when={ompChatEnabled(props.session.id) && ompChatViewForSession(props.session.id) === "chat"}>
-				<div style={{ position: "absolute", inset: "0", "z-index": "5" }}>
-					<OmpChatPane sessionId={props.session.id} focused={props.focused} />
-				</div>
-			</Show>
 			{/* Optimistic spawn placeholder: paint the pane instantly; the real
           terminal reconciles into this same tab when the spawn RPC resolves. */}
 			<Show when={pending()}>
@@ -1224,9 +1208,8 @@ export function CellTerminal(props: CellTerminalProps) {
           gated by its own pref (mic / nav pad). Input rides inputChannel.
           inLayout: a PARKED pane must not paint a position:fixed FAB over the
           visible one (every other FAB here already guards on it; this one did
-          not, so a background terminal's mic landed on the chat's Send button).
-          chatViewActive: PTY affordances have no meaning over the chat pane. */}
-			<Show when={(isCompact() || isTouchDevice() || micOnDesktop()) && activeChatChannel() === null && props.inLayout !== false && !chatViewActive()}>
+          not, so a background terminal's mic landed on the visible pane). */}
+			<Show when={(isCompact() || isTouchDevice() || micOnDesktop()) && activeComposeChannel() === null && props.inLayout !== false}>
 				<MobileVoiceInput
 					channelId={props.session.channel}
 					sendInput={(_ch, data) =>
@@ -1240,39 +1223,18 @@ export function CellTerminal(props: CellTerminalProps) {
 					refocusTerminal={() => term?.forceFocus()}
 				/>
 			</Show>
-			<Show when={(isCompact() || isTouchDevice() || keyboardOnDesktop()) && activeChatChannel() === null && props.inLayout !== false && !chatViewActive()}>
+			<Show when={(isCompact() || isTouchDevice() || keyboardOnDesktop()) && activeComposeChannel() === null && props.inLayout !== false}>
 				<TerminalNavButtons session={props.session} />
 			</Show>
-			<Show when={(isCompact() || isTouchDevice()) && props.inLayout !== false && !chatViewActive()}>
-				<TerminalChatButton session={props.session} refocusTerminal={() => term?.forceFocus()} />
+			<Show when={(isCompact() || isTouchDevice()) && props.inLayout !== false}>
+				<TerminalComposeButton session={props.session} refocusTerminal={() => term?.forceFocus()} />
 			</Show>
-			{/* Pane top-right overlay slot — the ONE place pane-corner affordances live.
-          The omp chat/terminal toggle and the status badge each used to anchor
-          themselves absolutely in this corner (top:12/right:12 vs top:8/right:8),
-          so the 36px toggle painted straight over the badge pill. They are now
-          flex children of one row: a third corner affordance is a new child, not
-          a fourth set of coordinates. Container is click-through; the toggle opts
-          back in (the badge is pointer-events:none by design).
-          The toggle is deliberately the only overlay here WITHOUT a
-          !chatViewActive() guard — it is the only way back out of the chat pane. */}
+			{/* Pane top-right overlay slot — the ONE place pane-corner affordances
+          live. Container is click-through; a child opts back in (the badge is
+          pointer-events:none by design). */}
 			<div class="term-pane-corner">
-				<Show when={!pending() && !offline() && props.inLayout !== false && !chatViewActive()}>
+				<Show when={!pending() && !offline() && props.inLayout !== false}>
 					<TerminalStatusBadge session={props.session} />
-				</Show>
-				<Show when={ompChatEnabled(props.session.id)}>
-					<IconButton
-						icon={ompChatViewForSession(props.session.id) === "chat" ? "terminal" : "forum"}
-						label={ompChatViewForSession(props.session.id) === "chat" ? "Switch to terminal" : "Switch to chat"}
-						data-testid="omp-chat-toggle"
-						title={ompChatViewForSession(props.session.id) === "chat" ? "Switch to terminal" : "Switch to chat"}
-						onClick={() => toggleOmpChatView(props.session.id)}
-						style={{
-							"pointer-events": "auto",
-							"--md-icon-button-icon-size": "18px",
-							"--md-icon-button-state-layer-width": "36px",
-							"--md-icon-button-state-layer-height": "36px",
-						}}
-					/>
 				</Show>
 			</div>
 			{/* Launch-agent FAB — shells only, shown only at a plain shell prompt
@@ -1280,7 +1242,7 @@ export function CellTerminal(props: CellTerminalProps) {
           (shares the discard-✕ slot; would cover the cancel button). Types the
           selected agent's command + CR into the PTY; agent configurable in
           Settings. */}
-			<Show when={props.session.kind === "shell" && atShellPrompt() && activeVoiceChannel() === null && activeChatChannel() === null && props.inLayout !== false && !chatViewActive()}>
+			<Show when={props.session.kind === "shell" && atShellPrompt() && activeVoiceChannel() === null && activeComposeChannel() === null && props.inLayout !== false}>
 				<AgentLaunchButton sessionId={props.session.id} />
 			</Show>
 			{/* Plan-mode shortcut FAB — agent sessions only, shown when the agent is
@@ -1288,19 +1250,19 @@ export function CellTerminal(props: CellTerminalProps) {
           the PTY, entering plan mode. Mirrors the agent-launch button's
           sendInput path; shares its fixed slot (mutually exclusive: the
           agent-launch shows only on shells at a shell prompt). */}
-			<Show when={liveStatus(props.session) === "idle" && activeVoiceChannel() === null && activeChatChannel() === null && props.inLayout !== false && !chatViewActive()}>
+			<Show when={liveStatus(props.session) === "idle" && activeVoiceChannel() === null && activeComposeChannel() === null && props.inLayout !== false}>
 				<PlanButton sessionId={props.session.id} />
 			</Show>
 			{/* Attach-file FAB — its own standalone button on every platform (touch,
           compact, desktop); hidden only while the message composer is open.
           Native picker → chunked upload (progress chip) → abs_path injected. */}
-			<Show when={activeChatChannel() === null && props.inLayout !== false && !chatViewActive()}>
+			<Show when={activeComposeChannel() === null && props.inLayout !== false}>
 				<AttachFileButton session={props.session} />
 			</Show>
 			{/* Jump-to-latest FAB — bottom-center, shown only when scrolled up > 1
           viewport (never in alt-screen). Tap → instant scroll to the bottom,
           resuming live-follow. */}
-			<Show when={showJumpDown() && props.inLayout !== false && !chatViewActive()}>
+			<Show when={showJumpDown() && props.inLayout !== false}>
 				<button
 					type="button"
 					class="jump-bottom-fab"

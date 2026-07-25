@@ -11,8 +11,8 @@
 import { coordClient } from "../connect.ts";
 import { forceSyncReconnect as forceSyncReconnectImpl, cellFrameCount as cellFrameCountImpl } from "../store/sync.ts";
 import { rootStore, setRootStore } from "../store/root.ts";
-import { setOmpChatView, ompChatViewForSession } from "../store/uiStore.ts";
-import { ompChatEnabled, ompChatForSession } from "../store/chatOmp.ts";
+import { ompChatForSession } from "../store/chatOmp.ts";
+import { roostMessageRows } from "@roost/shared/chat/rows";
 import { createQuickChat } from "./quickChat.ts";
 import { setForceVisible } from "./pageVisible.ts";
 import { BOTTOM_EPSILON_PX } from "./cellRenderer.ts";
@@ -98,13 +98,7 @@ interface SmokeApi {
    *  return the reassembled byte length + hex SHA-256 (integrity + no-size-cap
    *  proof). */
   downloadWorkerFile(workerFp: string, path: string): Promise<{ bytes: number; sha256: string }>;
-  /** Switch a session between the terminal and the omp chat overlay WITHOUT
-   *  clicking the toggle — the test affordance for driving the chat view.
-   *  omp-only: when mode==="chat" it forces this tab's π: eligibility so the
-   *  overlay renders even before a live OSC title propagates. Returns the
-   *  resulting view + whether the session is omp-eligible. */
-  setChatView(sessionId: string, mode: "chat" | "terminal"): { view: "chat" | "terminal"; eligible: boolean };
-  /** Create a native quick chat (mkdir scratch → spawn → probe) and return its
+  /** Create a quick chat (mkdir scratch → spawn an agent session) and return its
    *  session id, registered in _spawned so killSpawned() reaps it. */
   quickChat(): Promise<{ session_id: string }>;
   /** Send a prompt through the SAME RPC the Composer uses. Returns the parsed
@@ -120,6 +114,19 @@ interface SmokeApi {
   };
   /** Answer a pending approval exactly as ApprovalCard does. */
   chatApprove(sessionId: string, requestId: string, reply: Record<string, unknown>): Promise<void>;
+  /** The rows the pane has actually PAINTED, read off `data-tui-row` stamps.
+   *  Painted, not stored — a row the skeleton or a CSS rule swallowed has no
+   *  client rect and must not count, which is the whole point of measuring here
+   *  instead of in the store. */
+  chatRows(sessionId: string): {
+    status: string; streaming: boolean;
+    storeCount: number;
+    /** Rows the store projects to, via the pane's own row projection. */
+    heldCount: number;
+    held: string[];
+    paintedCount: number;
+    painted: { kind: string; label: string }[];
+  };
 }
 
 export function maybeInstallSmokeBackdoor(): void {
@@ -144,16 +151,6 @@ export function maybeInstallSmokeBackdoor(): void {
         sessionId,
         data: new TextEncoder().encode(text),
       });
-    },
-    setChatView(sessionId, mode) {
-      // omp-only affordance: to drive the overlay in a test we force this tab's
-      // π: eligibility (real prod eligibility comes from the live OSC title).
-      if (mode === "chat" && !ompChatEnabled(sessionId)) {
-        setRootStore("terminal_title", sessionId, "\u03C0 > smoke");
-        setRootStore("omp_eligible", sessionId, true);
-      }
-      setOmpChatView(sessionId, mode);
-      return { view: ompChatViewForSession(sessionId), eligible: ompChatEnabled(sessionId) };
     },
     async quickChat() {
       const sid = await createQuickChat();
@@ -195,6 +192,42 @@ export function maybeInstallSmokeBackdoor(): void {
         sessionId,
         commandJson: JSON.stringify({ type: "extension_ui_response", id: requestId, ...reply }),
       });
+    },
+    chatRows(sessionId) {
+      const s = ompChatForSession(sessionId);
+      const pane = document.querySelector(`[data-testid="omp-chat-pane"][data-session-id="${sessionId}"]`);
+      const painted: { kind: string; label: string }[] = [];
+      if (pane) {
+        for (const el of pane.querySelectorAll("[data-tui-row]")) {
+          // getClientRects, not offsetParent: a row inside a collapsed
+          // <details> or hidden by `display:none` genuinely paints nothing, and
+          // that is exactly the failure this probe exists to catch.
+          if ((el as HTMLElement).getClientRects().length === 0) continue;
+          const raw = (el as HTMLElement).dataset.tuiRow;
+          if (!raw) continue;
+          try {
+            const row = JSON.parse(raw) as { kind?: unknown; label?: unknown };
+            painted.push({
+              kind: typeof row.kind === "string" ? row.kind : "?",
+              label: typeof row.label === "string" ? row.label : "",
+            });
+          } catch { painted.push({ kind: "?", label: "" }); }
+        }
+      }
+      // The rows the pane HOLDS, projected with the same function the pane
+      // stamps `data-tui-row` from. `held` vs `paintedCount` is the whole
+      // measurement: a row in the store that never reaches a client rect was
+      // eaten by CSS or the skeleton, which no wire-level check can see.
+      const held: string[] = [];
+      for (const m of s.messages) for (const a of roostMessageRows(m)) held.push(a.row.kind);
+      return {
+        status: s.status, streaming: s.streaming,
+        storeCount: s.messages.length,
+        heldCount: held.length,
+        held,
+        paintedCount: painted.length,
+        painted,
+      };
     },
     paneFocused(sessionId) {
       const slot = document.querySelector(`[data-testid="terminal-slot-${sessionId}"]`);

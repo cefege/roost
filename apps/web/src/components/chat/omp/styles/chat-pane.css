@@ -74,6 +74,18 @@
   padding: var(--md-space-8) var(--md-space-4) var(--md-space-6);
 }
 
+/* The welcome card's evil twin: shown when the backfill RPC FAILED, so a dead
+   pipeline never renders as a greeting. Same layout, error colour — the only
+   difference that matters is that it names a fault instead of a welcome. */
+.omp-chat__failed {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--md-space-2);
+  color: var(--err);
+  padding: var(--md-space-8) var(--md-space-4) var(--md-space-6);
+}
+
 .omp-chat__welcome-title {
   color: var(--fg);
   font-size: var(--tr-h3);
@@ -250,3 +262,78 @@
 }
 .omp-chat__jump:active { transform: translateX(-50%) scale(0.94); }
 .omp-chat__jump:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+
+/* ─── todo HUD ─────────────────────────────────────────────────────── */
+/* Pinned board above the composer, the web port of omp's anchored todo
+   container. A flex sibling of the thread, never a child of it: inside the
+   scroller it would scroll away, which is the one thing this panel must not do.
+   Bounded height so a long plan cannot squeeze the composer off-screen. */
+.omp-todo {
+  flex: 0 0 auto;
+  max-height: 30%;
+  overflow-y: auto;
+  padding: var(--md-space-2) var(--md-space-4);
+  background: var(--bg-raised);
+  border-top: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: var(--tr-machinery);
+}
+
+/* Whole header is the collapse control — a bare button, styled only by its
+   children, so the hit target spans the row without looking like a control. */
+.omp-todo__header {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+}
+.omp-todo__header:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.omp-todo__title {
+  color: var(--accent);
+  font-weight: 600;
+}
+.omp-todo__count {
+  color: var(--fg-faint);
+}
+
+.omp-todo__phase {
+  margin-top: 4px;
+  color: var(--fg-muted);
+}
+.omp-todo__phase[data-active="true"] .omp-todo__phase-name {
+  color: var(--accent);
+  font-weight: 600;
+}
+.omp-todo__phase-progress {
+  color: var(--fg-faint);
+}
+
+/* Per-status coloring mirrors omp's #formatTodoLine (interactive-mode.ts:1852):
+   pending stays faint, current work takes the accent, closed work is struck
+   through in its outcome's color. */
+.omp-todo__task {
+  display: flex;
+  gap: 6px;
+  padding-left: var(--md-space-3);
+  color: var(--fg-faint);
+}
+.omp-todo__task[data-status="completed"] { color: var(--ok); }
+.omp-todo__task[data-status="completed"] .omp-todo__text { text-decoration: line-through; }
+.omp-todo__task[data-status="in_progress"] { color: var(--accent); }
+.omp-todo__task[data-status="abandoned"] { color: var(--err); }
+.omp-todo__task[data-status="abandoned"] .omp-todo__text { text-decoration: line-through; }
+.omp-todo__task[data-status="blocked"] { color: var(--warn); }
+.omp-todo__box {
+  flex: none;
+}
+.omp-todo__more {
+  padding-left: var(--md-space-3);
+  color: var(--fg-faint);
+}

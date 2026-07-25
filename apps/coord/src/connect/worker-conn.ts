@@ -22,7 +22,7 @@ import { appendEvent } from "../event-log.ts";
 import { publishBytes, publishCellGrid, publishClaudeStatus, publishChat, primeChannelMap } from "../byte-hub.ts";
 import { resolvePendingRpc, rejectPendingRpc, rejectPendingRpcsForWorker } from "../router/pending-rpcs.ts";
 import { protoToEvent } from "@roost/shared/wire/event-proto";
-import { asWorkerFp, asChannelId } from "@roost/shared/wire";
+import { asWorkerFp, asChannelId, SessionKind } from "@roost/shared/wire";
 import type { KyselyDB } from "../db/connection.ts";
 import { log } from "@roost/shared/log";
 import { signal, diag } from "@roost/shared/diag";
@@ -286,11 +286,22 @@ async function _respawnMissingForWorker(
   log.info("worker-service", "respawn_missing_dispatch", { worker_fp: workerFp, count: rows.length });
   for (const row of rows) {
     const requestId = randomUUID();
+    // Parse, don't coerce: the old `row.kind === "claude" ? "claude" : "shell"`
+    // ternary silently respawned an `agent` session as a bare shell. `kind` is
+    // an unconstrained text column, so an unreadable row is SKIPPED — throwing
+    // would abort the respawn of every remaining session on this worker.
+    const kind = SessionKind.safeParse(row.kind);
+    if (!kind.success) {
+      log.warn("worker-service", "respawn_unknown_kind", {
+        worker_fp: workerFp, session_id: row.id, kind: row.kind,
+      });
+      continue;
+    }
     const frame = {
       kind: "respawn-if-missing" as const,
       request_id: requestId,
       session_id: row.id,
-      target_kind: (row.kind === "claude" ? "claude" : "shell") as "shell" | "claude",
+      target_kind: kind.data,
       cwd: row.cwd,
       cols: 80,
       rows: 24,

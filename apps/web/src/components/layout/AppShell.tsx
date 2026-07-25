@@ -14,7 +14,7 @@ import { beginResizeDrag, endResizeDrag } from "../../lib/resizeDrag.ts";
 import { EDGE_PX, lockAxis, openOffsetPx, shouldOpen, closeOffsetPx, shouldClose } from "../../lib/edgeSwipeDrawer.ts";
 import { registerDrawer, dragDrawer, settleDrawerOpen, settleDrawerClose } from "../../lib/drawerDrag.ts";
 import { attachElasticOverscroll } from "../../lib/overscroll.ts";
-import { chatComposerActive } from "../TerminalChatButton.tsx";
+import { composerActive } from "../TerminalComposeButton.tsx";
 
 // ─── inline CSS helpers ─────────────────────────────────────────────────
 // Style objects are evaluated once; any dynamic value must live in JSX
@@ -33,9 +33,9 @@ function shellStyle() {
     //    terminal's ResizeObserver re-claims a smaller grid and grows back on
     //    dismiss.
     // Frozen at full height while the chat composer owns the keyboard
-    // (chatComposerActive): the composer floats above the keyboard, so shrinking
+    // (composerActive): the composer floats above the keyboard, so shrinking
     // the terminal underneath it only makes the scrollback jump as --kb-offset ramps.
-    height: keyboardResize() && !chatComposerActive() ? "calc(100svh - var(--kb-offset, 0px))" : "100svh",
+    height: keyboardResize() && !composerActive() ? "calc(100svh - var(--kb-offset, 0px))" : "100svh",
     transition: "height var(--md-sys-motion-duration-medium1) var(--md-sys-motion-easing-emphasized)",
     overflow: "hidden",
     background: "var(--bg-base)",
@@ -142,7 +142,7 @@ function mainStyle() {
   } as const;
   // No transform while the composer is active — the terminal stays put; the
   // composer docks itself above the keyboard via its own --kb-offset.
-  if (keyboardResize() || chatComposerActive()) return base;
+  if (keyboardResize() || composerActive()) return base;
   return {
     ...base,
     transform: "translateY(calc(var(--kb-offset, 0px) * -1))",

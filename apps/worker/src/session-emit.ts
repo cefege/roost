@@ -118,11 +118,10 @@ export function emitUpstreamChunk(this: SessionManager, channelId: number, chunk
 	if (this.sessions.has(channelId)) {
 		const { title, carry } = extractOscTitleStateful(this.oscTitleCarry.get(channelId) ?? EMPTY_OSC_CARRY, chunk);
 		this.oscTitleCarry.set(channelId, carry);
-		if (title !== null) {
-			this.lastOscTitle.set(channelId, title);
-			this._ensureChatWatch(channelId);
-			this._emitChatRunState(channelId);
-		}
+		// The OSC title feeds the sidebar name and detect/'s scrape, and nothing
+		// else. Terminal mode is self-contained: this file consumes only PTY
+		// bytes and produces only terminal state.
+		if (title !== null) this.lastOscTitle.set(channelId, title);
 		this.lastByteAt.set(channelId, Date.now());
 		this._scheduleDetect(channelId);
 	}
@@ -152,11 +151,17 @@ export function _sweepDetect(this: SessionManager): void {
 export function _runDetect(this: SessionManager, channelId: number): void {
 	const rec = this.sessions.get(channelId);
 	if (!rec) return;
+	// Web-UI sessions (kind:"agent") have no PTY and no grid, so there is
+	// nothing to scrape: their status comes from the process they own, not from
+	// this file. Guarded HERE, not in _sweepDetect — the per-chunk path at :137
+	// reaches this function too.
+	if (rec.kind === "agent") return;
 	// A record mid-teardown (or a stale one a leaked sweep timer still holds)
 	// can have no wtermCore — nothing to scrape, skip rather than crash.
-	if (!rec.wtermCore) return;
+	const core = rec.wtermCore;
+	if (!core) return;
 	const det = detectAgentScreen(
-		rec.wtermCore,
+		core,
 		this.lastOscTitle.get(channelId),
 	);
 	const recentBytes =
@@ -228,13 +233,24 @@ export function _scheduleCellEmit(this: SessionManager, channelId: number): void
 		this.cellEmitTimers.delete(channelId);
 		if (!this.sessions.has(channelId)) return;
 		this.emitCellFrame(channelId, false);
-		// Trailing coalesce: absorb chunks for CELL_EMIT_COALESCE_MS after the
-		// leading emit, then flush the latest grid. Bounds frame rate under floods.
-		const timer = setTimeout(() => {
-			this.cellEmitTimers.delete(channelId);
-			if (this.sessions.has(channelId) && this.cellDirty.has(channelId)) this.emitCellFrame(channelId, false);
-		}, CELL_EMIT_COALESCE_MS);
-		this.cellEmitTimers.set(channelId, timer);
+		// Trailing coalesce: absorb chunks for CELL_EMIT_COALESCE_MS, flush the
+		// latest grid, then RE-ARM while the channel is still producing. Without
+		// the re-arm the window closes after one flush and the next chunk starts
+		// a fresh leading edge microseconds later — two frames per 16ms, double
+		// the intended rate, and every frame is one scroll re-derive on every
+		// viewer. A channel that goes quiet lets the armed timer fire once,
+		// find nothing dirty, and stop.
+		const arm = (): void => {
+			const timer = setTimeout(() => {
+				this.cellEmitTimers.delete(channelId);
+				if (!this.sessions.has(channelId)) return;
+				if (!this.cellDirty.has(channelId)) return;
+				this.emitCellFrame(channelId, false);
+				arm();
+			}, CELL_EMIT_COALESCE_MS);
+			this.cellEmitTimers.set(channelId, timer);
+		};
+		arm();
 	});
 }
 
@@ -246,19 +262,23 @@ export function _scheduleCellEmit(this: SessionManager, channelId: number): void
  *  scaling with history depth. clearDirty() AFTER reading so the next delta
  *  carries only new changes — the worker's wtermCore dirty bits have no
  *  other consumer. */
-export function emitCellFrame(this: SessionManager, channelId: number, force: boolean): void {
+export function emitCellFrame(this: SessionManager, channelId: number, force: boolean, tailRows?: number): void {
 	const send = this.sendCellGridUpstream;
 	if (!send) return;
 	const rec = this.sessions.get(channelId);
 	if (!rec) return;
+	// No grid, nothing to paint — a kind:"agent" session has no cell terminal
+	// and never claims a viewport.
+	const core = rec.wtermCore;
+	if (!core) return;
 	const pending = this.cellEmitTimers.get(channelId);
 	if (pending !== undefined) {
 		if (pending !== LEADING_SENTINEL) clearTimeout(pending);
 		this.cellEmitTimers.delete(channelId);
 	}
-	const { frame, state } = nextCellFrame(rec.wtermCore, rec.cell_emit, force, SB_SNAPSHOT_TAIL_ROWS);
+	const { frame, state } = nextCellFrame(core, rec.cell_emit, force, tailRows ?? SB_SNAPSHOT_TAIL_ROWS);
 	rec.cell_emit = state;
-	rec.wtermCore.clearDirty();
+	core.clearDirty();
 	this.cellDirty.delete(channelId);
 	diag("cell.emit", {
 		sid: String(rec.sessionId),

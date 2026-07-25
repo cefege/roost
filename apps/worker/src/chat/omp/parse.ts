@@ -47,50 +47,11 @@ const asNum = (x: unknown): number | undefined => (typeof x === "number" && Numb
 type OmpEntry = { type: string; id: string; parentId: string | null; timestamp: string } & Rec;
 
 // ─── Assistant turn-ending notice ─────────────────────────────────────────
-// Port of @oh-my-pi/pi-coding-agent@17.1.3
-//   src/modes/utils/transcript-render-helpers.ts::resolveAssistantErrorPresentation
-//   src/session/messages.ts::{isSilentAbort,isUserInterruptAbort,resolveAbortLabel}
-// omp's live-only `retryAttempt` branch ("Aborted after N retry attempts") is
-// deliberately NOT ported: Roost replays persisted history, where retryAttempt
-// is always 0, so that branch is unreachable here.
-
-const SILENT_ABORT_MARKER = "__omp.silent_abort__";
-const USER_INTERRUPT_LABEL = "Interrupted by user";
-const GENERIC_ABORT_SENTINEL = "Request was aborted";
-// @oh-my-pi/pi-ai src/error/flags.ts — AIError.is(id, f) === ((id ?? 0) & f) !== 0.
-const FLAG_SILENT_ABORT = 0x0200_0000;
-const FLAG_USER_INTERRUPT = 0x0400_0000;
-const FLAG_ABORT = 0x0800_0000;
-
-const hasFlag = (errorId: unknown, flag: number): boolean => ((asNum(errorId) ?? 0) & flag) !== 0;
-
-/** The turn-ending line omp paints under an assistant message, or null when it
- *  paints none (silent aborts and Esc interrupts are quiet by design).
- *
- *  Shared with tui-rows.ts's parity oracle on purpose: two copies of this
- *  decision WOULD drift, and a drifted oracle proves nothing. */
-export function resolveAssistantNotice(m: Rec): { level: "error" | "note"; text: string } | null {
-  const errorMessage = asStr(m.errorMessage);
-  const silentAbort = hasFlag(m.errorId, FLAG_SILENT_ABORT) || errorMessage === SILENT_ABORT_MARKER;
-  const userInterrupt = hasFlag(m.errorId, FLAG_USER_INTERRUPT) || errorMessage === USER_INTERRUPT_LABEL;
-  const renderAbortReason = !silentAbort && !userInterrupt;
-
-  const recovery = asRec(m.retryRecovery);
-  if (recovery?.status === "recovered") {
-    const note = (asStr(recovery.note) ?? "").replace(/\s+/g, " ").trim();
-    return { level: "note", text: note || "retried" };
-  }
-  if (m.stopReason === "aborted") {
-    if (!renderAbortReason) return null;
-    const generic = hasFlag(m.errorId, FLAG_ABORT)
-      || errorMessage === GENERIC_ABORT_SENTINEL || silentAbort;
-    if (generic || !errorMessage) return { level: "error", text: "Operation aborted" };
-    return { level: "error", text: errorMessage };
-  }
-  if (m.stopReason === "error") return { level: "error", text: errorMessage || "Error" };
-  if (errorMessage && renderAbortReason) return { level: "error", text: errorMessage };
-  return null;
-}
+// Lives in @roost/shared/chat/assistant-notice: the parity oracle's row
+// projection needs the same decision, and both the worker and the browser
+// project rows with that one copy.
+import { resolveAssistantNotice } from "@roost/shared/chat/assistant-notice";
+export { resolveAssistantNotice };
 
 /** Resolve an omp image block → absolute blob path (or data URL) + mime.
  *  omp writes images as:
@@ -209,7 +170,7 @@ function toolResultRawJson(
 /** Map an omp message `content` → ContentBlocks, preserving SOURCE ORDER.
  *  Order is load-bearing: text/thinking that follows a toolCall must render
  *  after that tool's card (omp's splitAssistantMessageToolTimeline), and both
- *  the pane and tui-rows.ts's oracle derive that split by walking this array.
+ *  the pane and @roost/shared/chat/rows.ts's oracle derive that split by walking this array.
  *  Array-only by design: omp types assistant content as a block array, and a
  *  bare string is legal for USER turns alone (userMessageText) — see mapMessage. */
 function mapContentList(content: unknown, cap: Cap): ContentBlock[] {
@@ -458,109 +419,6 @@ function firstEntry(line: string): OmpEntry | null {
 export function parseOmpLine(line: string): ChatMessage | null {
   const entry = firstEntry(line);
   return entry ? entryToChatMessage(entry) : null;
-}
-
-// ─── live → transcript join key ───────────────────────────────────────────
-// The bridge streams an assistant turn under a provisional `live-N` id; the
-// tailer re-parses the SAME turn from the transcript minutes later under omp's
-// entry id. Joining the two needs an identity BOTH sides can compute.
-//
-// It is NOT the entry id. omp's `message_end` fires BEFORE the entry is
-// appended, so `ctx.sessionManager.getLeafId()` at that instant names the
-// PREVIOUS leaf — measured against a live omp 17.1.3: a `title_change`, a
-// `toolResult`, a `developer` reminder. Keying on it would miss the real row
-// AND rewrite the id of the unrelated row it named.
-//
-// So: omp's own `sessionMessagePersistenceKey`
-// (src/session/turn-persistence.ts:42-52), which exists for exactly this
-// problem (turn-recovery matches a message to its persisted entry with it).
-// Assistant only — the bridge streams no other role. Note `timestamp` here is
-// the INNER message field (epoch ms), NOT the entry's ISO `timestamp`; the two
-// are never equal, and the inner one is unique per session (0 collisions across
-// 20 798 assistant entries in the local corpus).
-
-/** omp's persistence key for an assistant message, or null when the shape is
- *  not a keyable assistant message. Computed from the omp message object, so
- *  the live side (event payload) and the durable side (transcript entry) reach
- *  the same string. */
-export function assistantPersistenceKey(message: unknown): string | null {
-  const m = asRec(message);
-  if (!m || m.role !== "assistant") return null;
-  const ts = m.timestamp;
-  if (typeof ts !== "number" && typeof ts !== "string") return null;
-  return [
-    "assistant",
-    String(ts),
-    asStr(m.provider) ?? "",
-    asStr(m.model) ?? "",
-    asStr(m.responseId) ?? "",
-    asStr(m.stopReason) ?? "",
-  ].join(":");
-}
-
-/** Join key for one raw transcript line, or null when the line is not an
- *  assistant message entry. Only called for lines that already parsed to an
- *  assistant ChatMessage, so the extra decode is paid on ~45% of lines. */
-export function ompLineJoinKey(line: string): string | null {
-  const entry = firstEntry(line);
-  if (!entry || entry.type !== "message") return null;
-  return assistantPersistenceKey(entry.message);
-}
-
-/** Statusline facts omp keeps on screen, accumulated from transcript metadata
- *  entries. Every field optional: one line updates one fact. */
-export interface OmpStatusDelta {
-  model?: string;          // "anthropic/claude-opus-5"
-  mode?: string;           // "plan" | "none" | …
-  thinkingLevel?: string;  // resolved level, or the configured one when auto is unresolved
-  contextTokens?: number;  // contextSnapshot.promptTokens
-}
-
-/** Parse one JSONL line → the statusline facts it carries, or null when it
- *  carries none. Never throws.
- *
- *  Deliberately NOT routed through firstEntry/parseSessionEntries: the field
- *  that matters most here — `message.contextSnapshot` — is absent from the
- *  SDK's SessionEntry typings, so the SDK path would buy nothing but a cast.
- *  Read the raw object defensively instead; any unexpected shape yields null. */
-export function parseOmpStatusDelta(line: string): OmpStatusDelta | null {
-  let e: unknown;
-  try { e = JSON.parse(line); } catch { return null; }
-  if (!isRec(e)) return null;
-  switch (e.type) {
-    case "model_change": {
-      const model = asStr(e.model);
-      return model ? { model } : null;
-    }
-    case "mode_change": {
-      const mode = asStr(e.mode);
-      return mode ? { mode } : null;
-    }
-    case "thinking_level_change": {
-      // `auto` stays unresolved until omp picks a level for the turn; fall back
-      // to the configured value so the chip says something either way.
-      const lvl = asStr(e.thinkingLevel) || asStr(e.configured);
-      return lvl ? { thinkingLevel: lvl } : null;
-    }
-    case "message": {
-      const msg = asRec(e.message);
-      if (!msg || msg.role !== "assistant") return null;
-      const out: OmpStatusDelta = {};
-      const tokens = asNum(asRec(msg.contextSnapshot)?.promptTokens);
-      if (tokens !== undefined && tokens >= 0) out.contextTokens = tokens;
-      // Model fallback. omp writes `model_change` only when the model is
-      // SELECTED, not at every boot, so a session that never touched the
-      // picker has no such line at all — but every assistant message names
-      // its provider + model, in the same `provider/id` shape. A later real
-      // model_change simply overwrites this (deltas fold in file order).
-      const provider = asStr(msg.provider);
-      const id = asStr(msg.model);
-      if (provider && id) out.model = `${provider}/${id}`;
-      return out.contextTokens === undefined && out.model === undefined ? null : out;
-    }
-    default:
-      return null;
-  }
 }
 
 /** Parse a transcript line fully (no truncation) and return the text of the

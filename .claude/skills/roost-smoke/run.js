@@ -368,12 +368,13 @@ const HOME = "/tmp";  // portable — every Unix has /tmp
     await window.__smoke.kill(sh.session_id).catch(() => null);
   } catch (e) { record("step13_resize_wobble_holds_scrollback", false, String(e)); }
 
-  // ── Step 14: quick chat spawns and the native pane renders ─────────
-  // Proves the whole one-tap path: candidate pick → filesMkdir → spawnShell →
-  // get_state probe (which boots `omp --mode rpc-ui`) → sidebar bucket →
-  // chat-view routing. A quick chat is eligible BY CWD (ompChatEnabled →
-  // isChatFolder), so no OSC title and no setChatView is involved — if the
-  // pane does not render, routing or eligibility is genuinely broken.
+  // ── Step 14: a chat session spawns and its pane renders ────────────
+  // Proves the whole one-tap path: candidate pick → filesMkdir → spawnAgent
+  // (which starts `omp --mode rpc-ui` as the session's OWN process and fails
+  // the RPC if it cannot) → sidebar bucket → deck routing. Eligibility is the
+  // session KIND (`ompChatEnabled` → `session.kind === "agent"`), so no OSC
+  // title, no cwd heuristic and no view toggle is involved — if the pane does
+  // not render, spawn or deck routing is genuinely broken.
   let chatSid = null;
   try {
     const qc = await window.__smoke.quickChat();
@@ -510,10 +511,16 @@ const HOME = "/tmp";  // portable — every Unix has /tmp
       });
   } catch (e) { record("step16_chat_decision_multi_option", false, String(e)); }
 
-  // ── Step 17: the chat toggle survives every omp run state ──────────
-  // The 2c93d49a regression, driven with no omp process and no model cost.
-  // omp encodes run state in the OSC title separator; the bug was call sites
-  // anchored on `π >` / `π:`, the two forms a stock omp emits least.
+  // ── Step 17: terminal mode and web-UI mode are disjoint surfaces ────
+  // THE independence requirement, observed in the DOM. A session's KIND picks
+  // its surface: `shell`/`claude` paint a cell terminal and never a chat pane;
+  // `agent` paints a chat pane and never a cell terminal. There is no toggle
+  // between them and no eligibility latch — this replaces the old
+  // step17_chat_toggle_survives_run_state, which drove OSC titles at a shell to
+  // prove the (now deleted) `omp_eligible` latch held.
+  //
+  // Driven with no omp process and no model cost on the shell side; the agent
+  // side reuses step 14's session.
   try {
     const workers = window.__smoke.state().workers;
     const fp = (firstSession && firstSession.workerFp)
@@ -523,23 +530,51 @@ const HOME = "/tmp";  // portable — every Unix has /tmp
     history.pushState({}, "", `/s/${sh.session_id}`);
     window.dispatchEvent(new PopStateEvent("popstate"));
     await sleep(1500);
-    // Per-pane scoping (data-session-id, added by d691e13c): a bare
-    // querySelector for the toggle is the wrong-pane trap this closes.
-    const hasToggle = () => !!$(`[data-testid="cell-terminal-pane"][data-session-id="${sh.session_id}"] [data-testid="omp-chat-toggle"]`);
-    const preTitle = hasToggle();
-    const emit = async (title) => {
-      await window.__smoke.input(sh.session_id, `printf '\\033]0;${title}\\007'\n`);
-      await sleep(1200);
-      return hasToggle();
-    };
-    const working = await emit("\u03c0 \u2839 smoke-working");    // spinner frame
-    const attention = await emit("\u03c0 ! smoke-attention");      // blocked on the user
-    const piOverwrite = await emit("\u03c0 - /tmp");               // pi's form; eligibility must LATCH
-    record("step17_chat_toggle_survives_run_state",
-      working && attention && piOverwrite,
-      { preTitle, working, attention, piOverwrite, title: window.__smoke.state().sessions[sh.session_id]?.terminal_title ?? "" });
+    const shellSlot = `[data-testid="terminal-slot-${sh.session_id}"]`;
+    const shellPaintsTerminal = !!$(`${shellSlot} [data-testid="cell-terminal-pane"]`);
+    const shellHasNoChat = !$(`${shellSlot} [data-testid="omp-chat-pane"]`);
+    // An omp running INSIDE the shell must not change any of this: the OSC
+    // title used to latch chat eligibility, and that coupling is gone.
+    await window.__smoke.input(sh.session_id, `printf '\\033]0;\\u03c0 \\u2839 smoke-working\\007'\n`);
+    await sleep(1200);
+    const stillNoChat = !$(`${shellSlot} [data-testid="omp-chat-pane"]`);
+    // And the converse: step 14's agent session paints a chat pane, never a grid.
+    let agentPaintsChat = false, agentHasNoTerminal = false;
+    if (chatSid) {
+      const agentSlot = `[data-testid="terminal-slot-${chatSid}"]`;
+      agentPaintsChat = !!$(`${agentSlot} [data-testid="omp-chat-pane"]`);
+      agentHasNoTerminal = !$(`${agentSlot} [data-testid="cell-terminal-pane"]`);
+    }
+    record("step17_terminal_and_chat_surfaces_are_disjoint",
+      shellPaintsTerminal && shellHasNoChat && stillNoChat && agentPaintsChat && agentHasNoTerminal,
+      { shellPaintsTerminal, shellHasNoChat, stillNoChat, agentPaintsChat, agentHasNoTerminal });
     await window.__smoke.kill(sh.session_id).catch(() => null);
-  } catch (e) { record("step17_chat_toggle_survives_run_state", false, String(e)); }
+  } catch (e) { record("step17_terminal_and_chat_surfaces_are_disjoint", false, String(e)); }
+
+  // ── Step 18: the browser PAINTS every row the pane holds ───────────
+  // The gap this closes: a pane can hold rows and paint none of them — CSS or
+  // the loading skeleton eats them — and no wire-level check can see that. So
+  // both columns are read IN THE BROWSER: `held` is the store projected with
+  // the same `roostMessageRows` the pane stamps `data-tui-row` from, `painted`
+  // is the DOM filtered by getClientRects. Equal counts AND equal order.
+  //
+  // This used to diff against a worker-side transcript projection
+  // (SessionsGetChatParity). That oracle existed to arbitrate between two
+  // engines rendering one conversation; with one engine there is nothing to
+  // arbitrate, and the store-vs-DOM gap is the failure that actually happened.
+  try {
+    if (!chatSid) throw new Error("step14 produced no session");
+    const dom = window.__smoke.chatRows(chatSid);
+    const sameOrder = dom.heldCount > 0
+      && dom.held.every((k, i) => k === (dom.painted[i] && dom.painted[i].kind));
+    record("step18_chat_rows_all_painted",
+      dom.heldCount > 0 && dom.paintedCount === dom.heldCount && sameOrder, {
+        storeCount: dom.storeCount, heldCount: dom.heldCount,
+        paintedCount: dom.paintedCount, status: dom.status, sameOrder,
+        held: dom.held.slice(0, 12),
+        paintedKinds: dom.painted.map((r) => r.kind).slice(0, 12),
+      });
+  } catch (e) { record("step18_chat_rows_all_painted", false, String(e)); }
 
   // Never leave this run's quick chat behind. Allowlist only — NEVER a scan of
   // state().sessions (feedback_never_mass_kill_live_sessions).

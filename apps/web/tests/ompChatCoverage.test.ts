@@ -121,15 +121,13 @@ const SID = "sess-upsert";
 type PushOpts = {
   reset?: boolean; streaming?: boolean; model?: string; modelName?: string; thinkingLevel?: string;
   contextTokens?: number; contextWindow?: number; mode?: string;
-  /** "" = a frame carrying no status block; both real producers name themselves. */
-  engine?: string;
 };
 const push = (append: ChatMessage[], seq: number, opts: PushOpts = {}) =>
   applyOmpChatFrame(chatFrameToProto({
     sessionId: SID, append, seq, reset: opts.reset ?? false, streaming: opts.streaming ?? false,
     model: opts.model ?? "", modelName: opts.modelName ?? "", thinkingLevel: opts.thinkingLevel ?? "",
     contextTokens: opts.contextTokens ?? 0, contextWindow: opts.contextWindow ?? 0,
-    mode: opts.mode ?? "", engine: opts.engine ?? "rpc",
+    mode: opts.mode ?? "",
   }));
 
 test("same message id upserts in place — second frame's blocks win", () => {
@@ -187,26 +185,28 @@ test("session status rides payload-less frames onto the store", () => {
   // or the header freezes at whatever the first frame happened to carry.
   // Every status field crosses BOTH proto adapter arms here (push encodes,
   // applyOmpChatFrame decodes) — one omitted from either arm drops silently.
-  push([], 0, { model: "anthropic/claude-opus-5", contextTokens: 20_000, contextWindow: 1_000_000, mode: "plan", engine: "mirror" });
+  push([], 0, { model: "anthropic/claude-opus-5", contextTokens: 20_000, contextWindow: 1_000_000, mode: "plan" });
   expect(ompChatForSession(SID).model).toBe("anthropic/claude-opus-5");
   expect(ompChatForSession(SID).contextTokens).toBe(20_000);
   expect(ompChatForSession(SID).contextWindow).toBe(1_000_000);
   expect(ompChatForSession(SID).mode).toBe("plan");
-  expect(ompChatForSession(SID).engine).toBe("mirror");
 });
 
-test("model name + thinking level ride the frame; a status-less frame can't clobber them", () => {
+test("model name + thinking level ride the frame", () => {
   push([], 0, { reset: true });
-
   push([], 0, { model: "anthropic/claude-sonnet-5", modelName: "Claude Sonnet 5", thinkingLevel: "medium" });
   expect(ompChatForSession(SID).modelName).toBe("Claude Sonnet 5");
   expect(ompChatForSession(SID).thinkingLevel).toBe("medium");
 
-  // A frame built before its producer resolved any status names no engine and
-  // carries empty fields. It must not blank what a real status frame set.
-  push([], 0, { engine: "", model: "", modelName: "", thinkingLevel: "" });
-  expect(ompChatForSession(SID).modelName).toBe("Claude Sonnet 5");
-  expect(ompChatForSession(SID).thinkingLevel).toBe("medium");
+  // Status is applied unconditionally now. There is exactly one producer and
+  // its status fields are sticky worker-side (refreshStatus only ever SETS
+  // them), so a frame carrying "" means the child genuinely reset — which
+  // happens only on a respawn, where blanking is correct. The old
+  // `if (frame.engine)` gate existed to keep a mirror-engine frame from
+  // clobbering an rpc one; with one engine there is nothing to arbitrate.
+  push([], 0, { model: "", modelName: "", thinkingLevel: "" });
+  expect(ompChatForSession(SID).modelName).toBe("");
+  expect(ompChatForSession(SID).thinkingLevel).toBe("");
 });
 
 test("a selection card survives the proto boundary intact", () => {

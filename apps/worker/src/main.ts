@@ -24,7 +24,6 @@ import { handleBrowserCommand } from "./browser-command-handler.ts";
 import { handleKeeperSurvivor } from "./boot-keeper.ts";
 import { setupReconcile } from "./boot-reconcile.ts";
 import { coordLinkSink } from "./event-sink.ts";
-import { installOmpBridge } from "./chat/omp/bridge-install.ts";
 import { asWorkerFp } from "@roost/shared";
 import { log, diag, signal } from "@roost/shared";
 import { createHash } from "node:crypto";
@@ -184,15 +183,6 @@ export async function runWorker() {
 	// 1 GB LRU cap on ~/.roost/attachments/.
 	const { startAttachmentReaper } = await import("./attachment-reaper.ts");
 	startAttachmentReaper();
-
-	// Live omp chat bridge: keep ~/.omp/agent/extensions/roost-chat-bridge.js in
-	// sync with the repo copy so panes running omp stream into the web chat pane.
-	// Idempotent, and never load-bearing for boot.
-	try {
-		installOmpBridge();
-	} catch (err) {
-		log.warn("omp-bridge", "install_failed", { error: String(err) });
-	}
 
 	// Hook listener UDS.
 	const hookSocketPath = join(SUPPORT, "hook.sock");

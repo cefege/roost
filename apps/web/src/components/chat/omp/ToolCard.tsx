@@ -16,6 +16,9 @@ interface Props {
   results?: ResultRef[];
   event?: ToolEventBlock | null;
   images?: ImageBlock[];
+  /** Parity-oracle stamp: the JSON TuiRow this element paints (see
+   *  @roost/shared/chat/rows). Undefined on elements that anchor no row. */
+  dataTuiRow?: string;
 }
 
 /** ToolViewProps as omp's element reads it. `args`/`result` are deliberately
@@ -68,7 +71,7 @@ export function ToolCard(props: Props) {
   createEffect(() => { el.data = payload(); });
 
   return (
-    <div class="omp-tool" data-testid="omp-chat-tool">
+    <div class="omp-tool" data-testid="omp-chat-tool" data-tui-row={props.dataTuiRow}>
       <omp-tool-view ref={el} class="tv-host" />
       <Show when={props.images && props.images.length > 0}>
         <div class="omp-tool__images">

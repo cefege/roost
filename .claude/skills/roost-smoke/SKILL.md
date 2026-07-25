@@ -65,7 +65,7 @@ The harness script at `.claude/skills/roost-smoke/run.js` runs all 18 steps as a
    applies, so prefer short external calls over long in-page polls). Unpin
    when done.
 3. **Inject the harness** in one `chrome_javascript` call. Read `.claude/skills/roost-smoke/run.js` and pass it as the `code` argument (wrap with `return await (...)` if needed for the IIFE).
-4. **Interpret the return value:** the script resolves with `{ steps: [...], summary: "N/18 passed" }`. Each step has `{ name, pass, detail }`.
+4. **Interpret the return value:** the script resolves with `{ steps: [...], summary: "N/19 passed" }`. Each step has `{ name, pass, detail }`.
 
    Steps 15 and 16 each wait on a live model turn (up to 90s, and step 16 retries once), so the whole run can exceed 5 minutes. A single CDP `evaluate` will hit its protocol timeout: start the harness detached (`Promise.resolve(eval(src)).then(r => { window.__smokeResult = r; })`) and poll `window.__smokeResult` from short external calls. Also wait for `state().workers` to be non-empty AND `[data-testid="folder-list"]` to exist before injecting — injecting during the first sync makes every step fail with "no workers in store".
 
@@ -82,14 +82,15 @@ The harness script at `.claude/skills/roost-smoke/run.js` runs all 18 steps as a
 8. **selected_state_url_driven** — `history.pushState` to a workspace URL, dispatch `popstate`, assert exactly one `[data-selected="focused"][data-testid^="workspace-row-"]` matches the URL.
 9. **no_error_boundary_on_known_fail** — `window.__smoke.kill("00000000-...")` (non-existent session), assert no `[data-testid="error-boundary"]` appears.
 13. **resize_wobble_holds_scrollback** — spawn shell, `seq 1 300` to fill scrollback, drive 3× sub-band (~4-row) deck-height wobbles (each waited > `FIT_SETTLE_MS`), assert `.term-scrollback-row` depth does not grow (`grew <= 2`). Hold-anchor hysteresis (`claimHysteresis.ts`) must absorb the wobble → no claim → no SCD change → no re-derive. Live regression case for the viewport-slaved-PTY history corruption.
-14. **quick_chat_spawn_and_render** — `window.__smoke.quickChat()` then route to `/s/<sid>`; assert `[data-testid="omp-chat-pane"][data-session-id=<sid>]` AND its composer mount within 15s. Covers the whole one-tap path: candidate pick → `filesMkdir` → spawn → the awaited `get_state` probe that boots the `omp --mode rpc-ui` child → sidebar bucket → chat-view routing. Eligibility here is BY CWD (`isChatFolder`), so no OSC title is involved.
+14. **quick_chat_spawn_and_render** — `window.__smoke.quickChat()` then route to `/s/<sid>`; assert `[data-testid="omp-chat-pane"][data-session-id=<sid>]` AND its composer mount within 15s. Covers the whole one-tap path: candidate pick → `filesMkdir` → `spawnAgent` (which starts the `omp --mode rpc-ui` child as the session's OWN process, and fails the spawn RPC if it cannot) → sidebar bucket → deck routing. Eligibility is the session KIND (`session.kind === "agent"`), so no OSC title and no cwd heuristic is involved.
 15. **chat_stream_round_trip** — send a real prompt through the Composer's RPC and sample the pane every 200ms. Pass needs **≥2 distinct growing assistant text lengths** (output really is incremental, not one lump at `message_end`) AND `sameNode`/`stillMounted` on the bubble element (the keyed `reconcile` in `chatOmp.ts` is holding, so `<For>` is not tearing the row down and rebuilding it every 60ms frame). Costs one model turn.
 16. **chat_decision_multi_option** — ask the agent to use its `ask` tool, then assert an `[data-testid="omp-chat-approval"]` card with ≥3 `[data-testid="omp-chat-approval-option"]` controls and answer it. Proves omp is launched with a UI at all: `hasUI = isInteractive || mode === "rpc-ui"`, and without it `AskTool.createIf` returns null, so no decision can ever exist. The option COUNT (not just the card) also catches the worker's `options` mapping degrading to an empty array. Retries the prompt once; costs 1–2 model turns.
-17. **chat_toggle_survives_run_state** — emit three OSC titles through the PTY (`π ⠹ working`, `π ! attention`, `π - /tmp`) and assert `[data-testid="omp-chat-toggle"]` stays mounted inside that session's own `[data-testid="cell-terminal-pane"][data-session-id=…]` for all three. The `2c93d49a` regression, driven with no omp process and no model cost. Per-pane scoping is the point — a bare `querySelector` for the toggle is the wrong-pane trap `d691e13c` exists to close.
+17. **terminal_and_chat_surfaces_are_disjoint** — THE independence requirement, in the DOM. Assert a `shell` session's slot holds `[data-testid="cell-terminal-pane"]` and NO `[data-testid="omp-chat-pane"]`, that emitting an omp OSC title (`π ⠹ working`) through its PTY does not change that (the `omp_eligible` latch is gone — a terminal running omp is still just a terminal), and conversely that step 14's `agent` session holds a chat pane and NO cell terminal. Replaces the old `chat_toggle_survives_run_state`: there is no toggle, because a session's kind picks its surface. No omp process, no model cost.
+18. **chat_rows_all_painted** — read the rows the pane HOLDS (`window.__smoke.chatRows(sid).held`, the store projected through the same `roostMessageRows` the pane stamps from) and the rows it PAINTED (`[data-tui-row]` stamps filtered by `getClientRects().length > 0`). Pass needs `heldCount > 0`, `paintedCount === heldCount`, and equal `kind` order. **Painted, not stored** — a non-zero `heldCount` with a zero `paintedCount` means CSS (`.tr-row:not(:has(.tr-body > *))`) or the loading skeleton ate the rows, which no wire-level check can see. Both columns are read in the browser: the worker-side parity oracle is gone with the second engine it existed to arbitrate.
 
 ## Pass criteria
 
-`summary` is `18/18 passed`. AND console has no errors matching:
+`summary` is `19/19 passed`. AND console has no errors matching:
 - `Cannot read properties of null`
 - `\[spawn-buttons\] (failed|timed out)`
 - Toast text `did not (ack|respond)`
@@ -115,10 +116,11 @@ Each step name maps to a CLAUDE.md L11 row:
 | step7 | `feedback_solid_setstore_record_replace.md` (store doesn't reflect delete) |
 | step8 | `feedback_selected_means_url_match_not_has_children.md` |
 | step13 | `project_terminal_history_corruption_viewport_slaved_pty.md` (history grows/corrupts on resize wobble) |
-| step14 | quick-chat candidate/mkdir/spawn/probe path (`apps/web/src/lib/quickChat.ts`) — a failure here is routing or `isChatFolder` eligibility, not the chat engine |
+| step14 | quick-chat candidate/mkdir/spawn path (`apps/web/src/lib/quickChat.ts` → `spawnAgent`) — a failure here is the spawn or deck routing, not the chat engine. `spawnAgent` fails the RPC when omp cannot start, so a red here with a clear message usually means no omp binary on that worker |
 | step15 | streaming: worker `STREAM_FLUSH_MS` coalescing (`rpc-chat.ts`) and the keyed `reconcile` in `chatOmp.ts`. `growthSamples < 2` = frames are not incremental; `sameNode:false`/`stillMounted:false` = `<For>` is remounting the row every frame |
 | step16 | the omp child must be spawned `--mode rpc-ui` (`rpc-driver.ts`) or the `ask` tool does not exist; then `UI_DECISION_METHODS` in `rpc-chat.ts` must carry select/confirm/input/editor, and unrenderable methods must be DECLINED (a silent drop wedges the turn, since omp awaits every dialog request) |
-| step17 | `2c93d49a` — the shared `omp-title` predicate plus the `rootStore.omp_eligible` latch. If the toggle vanishes at `π ⠹`, the latch write is the thing under test; do NOT loosen the assertion |
+| step17 | the two-subsystem split itself. `shellHasNoChat:false` = something re-coupled the chat pane to a terminal session (`TerminalDeck`'s kind branch, or `ompChatEnabled` reading anything other than `session.kind`). `agentPaintsChat:false` = an `agent` session is not routing to `OmpChatPane`. `stillNoChat:false` = an OSC-title eligibility latch is back |
+| step18 | the DOM row stamps. `paintedCount: 0` with `heldCount > 0` = CSS or the skeleton is hiding rows (`chat-message.css` `.tr-row:not(:has(.tr-body > *))`, `OmpChatPane.tsx`'s `status !== "loading"` gate). `sameOrder: false` = `roostMessageRows`' block anchor no longer names the element that paints the row (`@roost/shared/chat/rows`, `OmpChatPane.tsx`'s `stamps` memo). `paintedCount` short of `heldCount` = rows the pane holds but never paints — the exact gap this step exists to name |
 
 Do NOT patch the symptom. Open the linked memory, apply the named pattern.
 
@@ -128,6 +130,6 @@ Same flow but after a fresh `bun apps/roost-cli/src/main.ts deploy <host>`. Catc
 
 ## Output
 
-End with one line: `roost-smoke: 18/18 passed` or `roost-smoke: STEP <K> FAILED: <reason> → see memory/<file>.md`.
+End with one line: `roost-smoke: 19/19 passed` or `roost-smoke: STEP <K> FAILED: <reason> → see memory/<file>.md`.
 
 No partial work. Do not declare a change done if the smoke didn't run end-to-end clean.

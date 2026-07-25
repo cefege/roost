@@ -12,6 +12,9 @@ import { ChatImage } from "./ChatImage.tsx";
 interface Props {
   block: TextBlock | ImageBlock;
   sessionId: string;
+  /** Parity-oracle stamp: the JSON TuiRow this element paints (see
+   *  @roost/shared/chat/rows). Undefined on elements that anchor no row. */
+  dataTuiRow?: string;
 }
 
 export function ProseBlock(props: Props) {
@@ -25,10 +28,10 @@ export function ProseBlock(props: Props) {
       // filesReadChunk → data URL). Rendering it here meant every image omp
       // persisted to its blob store painted as an inert [image: mime] marker.
       <Show when={img()}>
-        {(im) => <ChatImage sessionId={props.sessionId} blobPath={im().blobPath} mime={im().mime} />}
+        {(im) => <ChatImage sessionId={props.sessionId} blobPath={im().blobPath} mime={im().mime} dataTuiRow={props.dataTuiRow} />}
       </Show>
     }>
-      {(t) => <div class="tr-md" data-testid="omp-chat-msg" innerHTML={renderMarkdown(t().text)} />}
+      {(t) => <div class="tr-md" data-testid="omp-chat-msg" data-tui-row={props.dataTuiRow} innerHTML={renderMarkdown(t().text)} />}
     </Show>
   );
 }

@@ -3,7 +3,7 @@
 // the ▲ / ◀▼▶ arrows, PgUp/PgDn, Enter, mouse toggle). Each key sends the real
 // terminal byte sequence (Esc = 0x1b, arrows = CSI A/B/C/D, Enter = CR);
 // nothing here parses the terminal. Text composing lives in the separate chat
-// FAB (TerminalChatButton). Open/closed state is module-level (shared across
+// FAB (TerminalComposeButton). Open/closed state is module-level (shared across
 // every deck-mounted sheet) and persisted, so toggling one toggles all and the
 // choice survives reload. Styling: styles/voice-input.css (.term-nav,
 // .term-nav-toggle). Caller: CellTerminal.tsx (compact/touch/keyboardOnDesktop).

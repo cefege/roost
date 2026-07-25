@@ -21,6 +21,9 @@ interface Props {
   sessionId: string;
   messageId: string;
   blockIndex: number;
+  /** Parity-oracle stamp: the JSON TuiRow this element paints (see
+   *  @roost/shared/chat/rows). Undefined on elements that anchor no row. */
+  dataTuiRow?: string;
 }
 
 export function SummaryCard(props: Props) {
@@ -41,6 +44,7 @@ export function SummaryCard(props: Props) {
 
   return (
     <details class="tr-summary" data-testid="omp-chat-summary" data-variant={props.block.variant}
+      data-tui-row={props.dataTuiRow}
       onToggle={(e) => setOpen(e.currentTarget.open)}>
       <summary class="tr-summary-head">
         {props.block.variant === "compaction"

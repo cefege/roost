@@ -26,9 +26,11 @@ export function stageRank(status: string | null | undefined): number {
   return STAGE_PRIORITY[status] ?? 0;
 }
 
-/** ClaudeFeedGroup variant: non-claude sessions sort below all claude
- * sessions (return -1) so the claude-only feed stays claude-first. */
+/** Agent-feed variant: a session with no agent identity (plain shell) sorts
+ *  below every agent one (return -1) so the feed stays agent-first. Both agent
+ *  kinds qualify — a claude PTY and a `kind:"agent"` omp session each carry
+ *  AgentState. */
 export function claudeStageOf(s: Session): number {
-  if (s.kind !== "claude") return -1;
+  if (s.kind === "shell") return -1;
   return stageRank(s.agent?.status);
 }

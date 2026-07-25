@@ -27,7 +27,10 @@ export const ClientControlFrame = z.discriminatedUnion("kind", [
   // cause: numeric roost.v1.ResizeCause — the browser event that produced this
   // claim (mount/resize/visible/withdraw). Worker hint only (e.g. force a full
   // cell frame on a re-attach). Optional/0 = legacy (treat as VIEWPORT).
-  Base.extend({ kind: z.literal("resize"), session_id: SessionId, cols: z.number().int().nonnegative(), rows: z.number().int().nonnegative(), client_seq: z.number().int().nonnegative().optional(), cause: z.number().int().nonnegative().optional() }),
+  // held_sb_total: scrollback rows this viewer already holds — the worker sizes
+  // the claim snapshot's tail to reach that row so the frame EXTENDS the
+  // viewer's painted history instead of wiping it. Absent = default tail.
+  Base.extend({ kind: z.literal("resize"), session_id: SessionId, cols: z.number().int().nonnegative(), rows: z.number().int().nonnegative(), client_seq: z.number().int().nonnegative().optional(), cause: z.number().int().nonnegative().optional(), held_sb_total: z.number().int().nonnegative().optional() }),
   Base.extend({
     kind: z.literal("spawn-shell"),
     folder: z.string(),
@@ -47,6 +50,17 @@ export const ClientControlFrame = z.discriminatedUnion("kind", [
     initial_mode: ClaudeMode,
     cols: z.number().int().positive().optional(),
     rows: z.number().int().positive().optional(),
+    session_id: SessionId.optional(),
+  }),
+  // Web-UI mode: a session whose process IS an `omp --mode rpc-ui` child.
+  // No cols/rows — an agent session has no PTY.
+  Base.extend({
+    kind: z.literal("spawn-agent"),
+    folder: z.string(),
+    // Resume an existing omp transcript. Absolute path to a *.jsonl under the
+    // omp session dir; empty string starts a fresh conversation.
+    resume_session_file: z.string().default(""),
+    model: z.string().default(""),
     session_id: SessionId.optional(),
   }),
   Base.extend({ kind: z.literal("kill"), session_id: SessionId }),
@@ -144,7 +158,7 @@ export const ClientControlFrame = z.discriminatedUnion("kind", [
     kind: z.literal("respawn-if-missing"),
     request_id: z.string(),
     session_id: SessionId,
-    target_kind: z.enum(["shell", "claude"]),
+    target_kind: z.enum(["shell", "claude", "agent"]),
     cwd: z.string(),
     cols: z.number().int().positive().default(80),
     rows: z.number().int().positive().default(24),
@@ -167,13 +181,12 @@ export const ClientControlFrame = z.discriminatedUnion("kind", [
     message_id: z.string(),
     block_index: z.number().int().nonnegative(),
   }),
-  // Terminal-vs-web parity oracle for one omp session. rpc-ok data:
-  // { transcript_path, live_path, live_attached, tui_rows, roost_rows,
-  //   missing_json, extra_json }.
+  // Discoverable omp transcripts for the resume picker. rpc-ok data:
+  // { sessions: Array<{ path, cwd, title, updated_at, last_prompt, active }> }.
   Base.extend({
-    kind: z.literal("get-chat-parity"),
+    kind: z.literal("list-omp-sessions"),
     request_id: z.string(),
-    session_id: SessionId,
+    limit: z.number().int().positive().default(50),
   }),
   // Native omp chat: tunnel one RpcCommand (JSON) to the session's
   // `omp --mode rpc` child (lazy-started by the worker). rpc-ok data:

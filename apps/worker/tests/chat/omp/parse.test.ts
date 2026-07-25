@@ -10,7 +10,7 @@ import { test, expect } from "bun:test";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { RAW_CAP, type ChatMessage, type ContentBlock } from "@roost/shared/chat/wire";
-import { parseOmpLine, parseOmpStatusDelta, fullBlockText, TRUNC_CAP } from "../../../src/chat/omp/parse.ts";
+import { parseOmpLine, fullBlockText, TRUNC_CAP } from "../../../src/chat/omp/parse.ts";
 
 /** Narrow blocks[i] to a concrete kind (checked — throws if absent/mismatched). */
 function block<K extends ContentBlock["kind"]>(m: ChatMessage, i: number, kind: K): Extract<ContentBlock, { kind: K }> {
@@ -364,48 +364,6 @@ test("fullBlockText serves summary / custom / exec text untruncated", () => {
   expect(fullBlockText(cm, 0)).toBe(big);
   const bash = messageLine({ role: "bashExecution", command: "x", output: big, exitCode: 0 });
   expect(fullBlockText(bash, 0)).toBe(big);
-});
-// ── parseOmpStatusDelta: the statusline facts, off the same raw lines ────────
-// Verbatim captured lines again — the status parser reads the RAW object (the
-// SDK typings carry no contextSnapshot), so a shape drift shows up only here.
-const STATUS = {
-  modelChange: `{"type":"model_change","id":"3942ae7a","parentId":null,"timestamp":"2026-07-25T09:56:48.634Z","model":"anthropic/claude-opus-5"}`,
-  modePlan: `{"type":"mode_change","id":"5fc8f8c9","parentId":"3942ae7a","timestamp":"2026-07-25T09:56:48.797Z","mode":"plan","data":{"planFilePath":"local://PLAN.md"}}`,
-  modeNone: `{"type":"mode_change","id":"1700dbef","parentId":"6894f1bc","timestamp":"2026-07-25T09:59:58.651Z","mode":"none"}`,
-  thinking: `{"type":"thinking_level_change","id":"ff0ead9c","parentId":null,"timestamp":"2026-07-25T09:59:58.657Z","thinkingLevel":"high","configured":"auto"}`,
-  assistant: `{"type":"message","id":"511f15fc","parentId":"57546175","timestamp":"2026-07-24T18:53:47.767Z","message":{"role":"assistant","content":[{"type":"text","text":"CLICK PATH OK."}],"api":"anthropic-messages","provider":"anthropic","model":"claude-opus-4-8","usage":{"input":2,"output":12,"cacheRead":34691,"cacheWrite":68479,"totalTokens":103184,"cost":{"input":0.00001,"output":0.00030000000000000003,"cacheRead":0.0173455,"cacheWrite":0.42799375,"total":0.44564925},"cttl":{"ephemeral1h":68479}},"stopReason":"stop","timestamp":1784919224524,"responseId":"msg_011CdMPXQ1W6syzb6QxaogZC","duration":3234.544875000138,"ttft":2970.097208000021,"contextSnapshot":{"promptTokens":103172,"nonMessageTokens":18829}}}`,
-};
-
-test("model_change / mode_change / thinking_level_change → one fact each", () => {
-  expect(parseOmpStatusDelta(STATUS.modelChange)).toEqual({ model: "anthropic/claude-opus-5" });
-  expect(parseOmpStatusDelta(STATUS.modePlan)).toEqual({ mode: "plan" });
-  // "none" is what omp writes on EXIT. It is a real fact (it clears the chip),
-  // not an absence — dropping it would strand a stale "Plan" on screen.
-  expect(parseOmpStatusDelta(STATUS.modeNone)).toEqual({ mode: "none" });
-  expect(parseOmpStatusDelta(STATUS.thinking)).toEqual({ thinkingLevel: "high" });
-});
-
-test("thinking_level_change with an unresolved level falls back to `configured`", () => {
-  const line = `{"type":"thinking_level_change","id":"t1","parentId":null,"timestamp":"2026-01-01T00:00:00Z","thinkingLevel":"","configured":"auto"}`;
-  expect(parseOmpStatusDelta(line)).toEqual({ thinkingLevel: "auto" });
-});
-
-test("assistant message yields BOTH context tokens and the model fallback", () => {
-  // The fallback is load-bearing: omp writes model_change only when the model
-  // is SELECTED, so a session that never touched the picker has none at all.
-  // Both sources produce the same provider/id shape, so they cannot disagree.
-  expect(parseOmpStatusDelta(STATUS.assistant)).toEqual({
-    contextTokens: 103172,
-    model: "anthropic/claude-opus-4-8",
-  });
-});
-
-test("non-status lines → null (ill-formed, unknown type, user turn)", () => {
-  expect(parseOmpStatusDelta("not json")).toBeNull();
-  expect(parseOmpStatusDelta(`{"type":"custom"}`)).toBeNull();
-  expect(parseOmpStatusDelta(REAL.userText)).toBeNull();
-  // An assistant message with neither a snapshot nor a provider carries nothing.
-  expect(parseOmpStatusDelta(`{"type":"message","id":"a","parentId":"p","timestamp":"t","message":{"role":"assistant","content":[]}}`)).toBeNull();
 });
 
 // ── Live-corpus smoke: the end-to-end proof on a real transcript ─────────────

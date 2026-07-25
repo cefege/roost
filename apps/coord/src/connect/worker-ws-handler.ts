@@ -113,11 +113,28 @@ export function makeWorkerWsHandler(deps: WorkerServiceDeps) {
       // Fast path: in-memory bus publishes — no DB write, no ordering
       // constraint. Process immediately so an echo cell frame never waits
       // behind a DB-writing event frame (the .tail variance amplifier).
+      //
+      // `chat` is NOT here: its channel→session binding is established by the
+      // `opened` event, which rides the ordered chain behind an `await
+      // appendEvent`. A chat frame that overtook it landed on an unmapped
+      // channel and was dropped — and the frames in that window are exactly the
+      // reset/seed ones. The bridge coalesces at 60 ms, so ordering is free.
       const fcase = frame.frame.case;
-      if (fcase === "binary" || fcase === "cellGrid" || fcase === "claudeStatus" || fcase === "chat") {
+      if (fcase === "binary" || fcase === "cellGrid" || fcase === "claudeStatus") {
         void conn.handleUpstream(frame).catch((e) => {
           log.warn("worker-ws", "handle_failed", { worker_fp: ws.data.fp, error: String(e) });
         });
+        return;
+      }
+      if (fcase === "chat") {
+        // Ordered, so the `opened` bind lands first — but NOT fatal. A bad chat
+        // frame is one lost row; closing the socket over it would replay every
+        // unacked event. `.catch` resolves, so the chain keeps its ordering.
+        ws.data.tail = ws.data.tail
+          .then(() => conn.handleUpstream(frame))
+          .catch((e) => {
+            log.warn("worker-ws", "chat_handle_failed", { worker_fp: ws.data.fp, error: String(e) });
+          });
         return;
       }
       // Slow path: event frames need serialization to preserve appendEvent

@@ -90,6 +90,26 @@ export async function spawnInWorkspace(
   return sid;
 }
 
+/** Web-UI mode: a session whose process IS an `omp --mode rpc-ui` child.
+ *  No cols/rows — it has no PTY, so estimateWtermSize() is meaningless here.
+ *  resumeSessionFile: absolute path to an existing omp transcript to continue
+ *  (Step 7's picker); "" starts a fresh conversation. */
+export async function spawnAgent(
+  workerFp: WorkerFp,
+  folder = "~",
+  opts: { sessionId?: string; resumeSessionFile?: string; model?: string } = {},
+): Promise<string> {
+  const result = await withSpawnRetry(() => coordClient.sessionsSpawn({
+    workerFp,
+    kind: "agent",
+    folder,
+    ...(opts.sessionId ? { sessionId: opts.sessionId } : {}),
+    ...(opts.resumeSessionFile ? { resumeSessionFile: opts.resumeSessionFile } : {}),
+    ...(opts.model ? { model: opts.model } : {}),
+  }));
+  return result.sessionId;
+}
+
 
 async function spawnClaude(
   workerFp: WorkerFp,

@@ -6,6 +6,7 @@
 
 import { createMemo, createEffect, createSignal, untrack, For, Index, Switch, Match, Show, onMount, onCleanup } from "solid-js";
 import type { ChatMessage, ContentBlock } from "@roost/shared/chat/wire";
+import { roostMessageRows } from "@roost/shared/chat/rows";
 import { ompChatForSession, backfillOmpChat } from "../../../store/chatOmp.ts";
 import { rootStore } from "../../../store/root.ts";
 import { enqueueAttachmentTo } from "../../../lib/attachments.ts";
@@ -13,6 +14,7 @@ import { buildToolIndex, type ToolMatch } from "./renderPlan.ts";
 import { ProseBlock } from "./ProseBlock.tsx";
 import { ThinkingBlock } from "./ThinkingBlock.tsx";
 import { canonicalizeThinking, groupThinking } from "./thinkingText.ts";
+import { latestTodoPhases, buildTodoHud, phaseRomanNumeral } from "./todoHud.ts";
 import { ToolCard } from "./ToolCard.tsx";
 import { Composer, type Pending } from "./Composer.tsx";
 import { ChatWelcome } from "./ChatWelcome.tsx";
@@ -113,6 +115,14 @@ export function OmpChatPane(props: Props) {
   // Per-callId index across ALL messages (a toolResult is a separate entry).
   const toolIndex = createMemo(() => buildToolIndex(state().messages));
 
+  // Pinned Todos HUD: omp's anchored todoContainer has no wire representation,
+  // so the board is re-derived from the newest successful `todo` toolResult.
+  // Its collapse switch is per-pane and non-persistent for the same reason as
+  // `expandThinking` below — the terminal's own toggle resets per view.
+  const [todoExpanded, setTodoExpanded] = createSignal(false);
+  const todoPhases = createMemo(() => latestTodoPhases(state().messages));
+  const todoHud = createMemo(() => buildTodoHud(todoPhases(), todoExpanded()));
+
   // Stick-to-bottom: scroll to end on append unless the user scrolled up.
   const [stick, setStick] = createSignal(true);
   const [scrolled, setScrolled] = createSignal(false);
@@ -199,43 +209,41 @@ export function OmpChatPane(props: Props) {
       {/* Roost-native mirror of the bar omp paints into its own input-box top
           border. Every chip is independently gated: an unknown fact renders
           nothing rather than a placeholder. Read-only by design — the
-          interactive model picker lives on the composer, native engine only. */}
-      <Show when={state().engine !== "" || hasThinking()}>
-        <div class="omp-chat__status" data-testid="omp-chat-status">
-          <Show when={hasThinking()}>
-            <button type="button" class="omp-chat__status-toggle" data-testid="omp-chat-thinking-all"
-              aria-pressed={expandThinking()} onClick={() => setExpandThinking((v) => !v)}>thinking</button>
-          </Show>
-          <Show when={state().model}>
-            <span class="omp-chat__chip" data-testid="omp-chat-status-model" title={state().model}>{modelLabel()}</span>
-          </Show>
-          {/* "none" is what omp writes on EXITING a mode — not a mode to show. */}
-          <Show when={state().mode && state().mode !== "none" && state().mode !== "default"}>
-            <span class="omp-chat__chip" data-testid="omp-chat-status-mode">{cap(state().mode)}</span>
-          </Show>
-          <Show when={session()?.cwd}>
-            {(cwd) => (
-              <span class="omp-chat__chip" data-testid="omp-chat-status-cwd" title={cwd()}>{shortCwd(cwd())}</span>
-            )}
-          </Show>
-          <Show when={session()?.git_branch}>
-            {(branch) => (
-              <span class="df-flat-branch" data-testid="omp-chat-status-branch" title={`On branch ${branch()}`}>
-                <svg class="df-flat-branch-icon" width="11" height="11" viewBox="0 0 24 24" fill="none"
-                  stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <line x1="6" y1="3" x2="6" y2="15" /><circle cx="18" cy="6" r="3" />
-                  <circle cx="6" cy="18" r="3" /><path d="M18 9a9 9 0 0 1-9 9" />
-                </svg>
-                <span class="df-flat-branch-text">{branch()}</span>
-              </span>
-            )}
-          </Show>
-          {/* margin-left:auto lives on -ctx, so the context chip sits right. */}
-          <Show when={state().contextTokens > 0}>
-            <span class="omp-chat__status-ctx" data-testid="omp-chat-status-ctx" data-level={ctxLevel()}>{ctxLabel()}</span>
-          </Show>
-        </div>
-      </Show>
+          interactive model picker lives on the composer. */}
+      <div class="omp-chat__status" data-testid="omp-chat-status">
+        <Show when={hasThinking()}>
+          <button type="button" class="omp-chat__status-toggle" data-testid="omp-chat-thinking-all"
+            aria-pressed={expandThinking()} onClick={() => setExpandThinking((v) => !v)}>thinking</button>
+        </Show>
+        <Show when={state().model}>
+          <span class="omp-chat__chip" data-testid="omp-chat-status-model" title={state().model}>{modelLabel()}</span>
+        </Show>
+        {/* "none" is what omp writes on EXITING a mode — not a mode to show. */}
+        <Show when={state().mode && state().mode !== "none" && state().mode !== "default"}>
+          <span class="omp-chat__chip" data-testid="omp-chat-status-mode">{cap(state().mode)}</span>
+        </Show>
+        <Show when={session()?.cwd}>
+          {(cwd) => (
+            <span class="omp-chat__chip" data-testid="omp-chat-status-cwd" title={cwd()}>{shortCwd(cwd())}</span>
+          )}
+        </Show>
+        <Show when={session()?.git_branch}>
+          {(branch) => (
+            <span class="df-flat-branch" data-testid="omp-chat-status-branch" title={`On branch ${branch()}`}>
+              <svg class="df-flat-branch-icon" width="11" height="11" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <line x1="6" y1="3" x2="6" y2="15" /><circle cx="18" cy="6" r="3" />
+                <circle cx="6" cy="18" r="3" /><path d="M18 9a9 9 0 0 1-9 9" />
+              </svg>
+              <span class="df-flat-branch-text">{branch()}</span>
+            </span>
+          )}
+        </Show>
+        {/* margin-left:auto lives on -ctx, so the context chip sits right. */}
+        <Show when={state().contextTokens > 0}>
+          <span class="omp-chat__status-ctx" data-testid="omp-chat-status-ctx" data-level={ctxLevel()}>{ctxLabel()}</span>
+        </Show>
+      </div>
       <Show when={state().streaming}>
         <md-linear-progress class="omp-chat__progress" prop:indeterminate={true} />
       </Show>
@@ -243,8 +251,15 @@ export function OmpChatPane(props: Props) {
         <Show when={state().status !== "loading"} fallback={<div class="omp-chat__skeleton">Loading chat…</div>}>
           {/* Card sits ABOVE the rows rather than replacing them: a boot-time
               developer notice must stay visible while the pane is still
-              conversation-less. */}
-          <Show when={!started()}>
+              conversation-less. Gated on `resolved`, not on `!started()`: a
+              backfill that FAILED has no messages either, and greeting the user
+              over a dead pipeline is how this bug stayed invisible. */}
+          <Show when={state().status === "failed"}>
+            <div class="omp-chat__failed" data-testid="omp-chat-failed">
+              Chat unavailable — the worker did not return this conversation.
+            </div>
+          </Show>
+          <Show when={state().status !== "failed" && !started()}>
             <ChatWelcome sessionId={props.sessionId} focused={props.focused} />
           </Show>
           <For each={state().messages}>
@@ -263,6 +278,49 @@ export function OmpChatPane(props: Props) {
           aria-label="Scroll to latest" onClick={toBottom}>
           <Icon name="arrow_downward" />
         </button>
+      </Show>
+      {/* Anchored directly above the composer, where the terminal pins it — NOT
+          inside .omp-chat__thread, which scrolls the HUD out of view. */}
+      <Show when={todoHud()}>
+        {(hud) => (
+          <div class="omp-todo" data-testid="omp-chat-todo">
+            <button type="button" class="omp-todo__header" data-testid="omp-chat-todo-toggle"
+              aria-expanded={todoExpanded()} onClick={() => setTodoExpanded((v) => !v)}>
+              <span class="omp-todo__title">Todos</span>
+              <Show when={hud().phaseCount > 1}>
+                <span class="omp-todo__count">{` · ${hud().activeIndex}/${hud().phaseCount}`}</span>
+              </Show>
+            </button>
+            <div class="omp-todo__body">
+              <For each={hud().phases}>
+                {(p) => (
+                  <>
+                    <div class="omp-todo__phase" data-active={String(p.active)}>
+                      <span class="omp-todo__phase-name">
+                        {hud().phaseCount > 1 ? `${phaseRomanNumeral(p.index)}. ${p.name}` : p.name}
+                      </span>
+                      <span class="omp-todo__phase-progress">{` · ${p.done}/${p.total}`}</span>
+                    </div>
+                    <For each={p.tasks}>
+                      {(t) => (
+                        <div class="omp-todo__task" data-status={t.status}>
+                          <span class="omp-todo__box">{t.status === "completed" ? "[x]" : "[ ]"}</span>
+                          <span class="omp-todo__text">{t.content}</span>
+                          <Show when={t.status === "blocked"}>
+                            <span class="omp-todo__blocker">{t.blocker ? ` (blocked: ${t.blocker})` : " (blocked)"}</span>
+                          </Show>
+                        </div>
+                      )}
+                    </For>
+                    <Show when={p.summary}>
+                      <div class="omp-todo__more">{p.summary}</div>
+                    </Show>
+                  </>
+                )}
+              </For>
+            </div>
+          </div>
+        )}
       </Show>
       <Composer
         sessionId={props.sessionId}
@@ -294,6 +352,16 @@ const SELF_LABELLED: Partial<Record<ContentBlock["kind"], true>> = {
 };
 
 function MessageRow(props: { msg: ChatMessage; sessionId: string; expandThinking: boolean; toolIndex: Map<string, ToolMatch>; streaming: boolean }) {
+  // The parity oracle's row projection, anchored to the block that paints each
+  // row (-1 = this wrapper). Stamped as `data-tui-row` so the browser column of
+  // `roost api chat-sbs` reads PAINTED rows, not stored ones — a row hidden by
+  // CSS or eaten by the skeleton has no client rect and must not count.
+  const stamps = createMemo(() => {
+    const m = new Map<number, string>();
+    for (const a of roostMessageRows(props.msg)) m.set(a.blockIndex, JSON.stringify(a.row));
+    return m;
+  });
+
   // Agent-attributed user input collapses, exactly as omp's
   // CollapsedSyntheticMessageComponent does (user-message.ts:84): an advisor
   // "Session update" replay is hundreds of KiB and buries every real turn.
@@ -311,7 +379,8 @@ function MessageRow(props: { msg: ChatMessage; sessionId: string; expandThinking
   return (
     // data-streaming marks the ONE row the agent is still writing into, so the
     // reader (and the browser oracle) can watch growth on a stable node.
-    <div class={`tr-row tr-row--${ROW_KIND[props.msg.role]}`} data-streaming={props.streaming ? "true" : undefined}>
+    <div class={`tr-row tr-row--${ROW_KIND[props.msg.role]}`} data-streaming={props.streaming ? "true" : undefined}
+      data-tui-row={stamps().get(-1)}>
       <div class="tr-gutter" title={props.msg.ts}>{GUTTER_LABEL[props.msg.role]}</div>
       <div class="tr-body">
         <Show when={props.msg.role === "developer" && !props.msg.blocks.every((b) => SELF_LABELLED[b.kind])}>
@@ -319,11 +388,11 @@ function MessageRow(props: { msg: ChatMessage; sessionId: string; expandThinking
         </Show>
         <Show when={props.msg.role === "user" && props.msg.synthetic}
           fallback={<MessageBlocks msg={props.msg} sessionId={props.sessionId}
-            expandThinking={props.expandThinking} toolIndex={props.toolIndex} />}>
+            expandThinking={props.expandThinking} toolIndex={props.toolIndex} stamps={stamps()} />}>
           <details class="tr-synthetic" data-testid="omp-chat-synthetic">
             <summary class="tr-synthetic-head">{head()} (expand)</summary>
             <MessageBlocks msg={props.msg} sessionId={props.sessionId}
-              expandThinking={props.expandThinking} toolIndex={props.toolIndex} />
+              expandThinking={props.expandThinking} toolIndex={props.toolIndex} stamps={stamps()} />
           </details>
         </Show>
       </div>
@@ -332,8 +401,9 @@ function MessageRow(props: { msg: ChatMessage; sessionId: string; expandThinking
 }
 
 /** The message's blocks in transcript order. Its own component only so the
- *  synthetic disclosure can wrap the loop without it existing twice. */
-function MessageBlocks(props: { msg: ChatMessage; sessionId: string; expandThinking: boolean; toolIndex: Map<string, ToolMatch> }) {
+ *  synthetic disclosure can wrap the loop without it existing twice.
+ *  `stamps` maps a block index to the parity row that block paints. */
+function MessageBlocks(props: { msg: ChatMessage; sessionId: string; expandThinking: boolean; toolIndex: Map<string, ToolMatch>; stamps: Map<number, string> }) {
   const grouped = createMemo(() => groupThinking(props.msg.blocks));
   return (
     // Index, not For: it keys by position, so a streaming message that
@@ -348,13 +418,15 @@ function MessageBlocks(props: { msg: ChatMessage; sessionId: string; expandThink
             <Match when={run()}>
               {(r) => (
                 <ThinkingBlock sessionId={props.sessionId} messageId={props.msg.id}
-                  parts={r().parts} expandAll={props.expandThinking} />
+                  parts={r().parts} expandAll={props.expandThinking}
+                  dataTuiRow={props.stamps.get(r().index)} />
               )}
             </Match>
             <Match when={blk()}>
               {(b) => (
                 <BlockView block={b().block} msg={props.msg} blockIndex={b().index}
-                  sessionId={props.sessionId} toolIndex={props.toolIndex} />
+                  sessionId={props.sessionId} toolIndex={props.toolIndex}
+                  dataTuiRow={props.stamps.get(b().index)} />
               )}
             </Match>
           </Switch>
@@ -364,7 +436,7 @@ function MessageBlocks(props: { msg: ChatMessage; sessionId: string; expandThink
   );
 }
 
-function BlockView(props: { block: ContentBlock; msg: ChatMessage; blockIndex: number; sessionId: string; toolIndex: Map<string, ToolMatch> }) {
+function BlockView(props: { block: ContentBlock; msg: ChatMessage; blockIndex: number; sessionId: string; toolIndex: Map<string, ToolMatch>; dataTuiRow?: string }) {
   const block = props.block;
   switch (block.kind) {
     case "text":
@@ -372,7 +444,7 @@ function BlockView(props: { block: ContentBlock; msg: ChatMessage; blockIndex: n
       // Inline images live on non-toolResult messages; toolResult images fold
       // into the tool card (rendered below), so skip them here.
       if (block.kind === "image" && props.msg.role === "toolResult") return null;
-      return <ProseBlock block={block} sessionId={props.sessionId} />;
+      return <ProseBlock block={block} sessionId={props.sessionId} dataTuiRow={props.dataTuiRow} />;
     case "toolCall": {
       // Accessor, NOT a captured value: this component body runs once, but the
       // tool's index entry keeps changing as start → update → end → result
@@ -386,6 +458,7 @@ function BlockView(props: { block: ContentBlock; msg: ChatMessage; blockIndex: n
           results={m()?.results}
           event={m()?.event}
           images={m()?.images}
+          dataTuiRow={props.dataTuiRow}
         />
       );
     }
@@ -412,23 +485,23 @@ function BlockView(props: { block: ContentBlock; msg: ChatMessage; blockIndex: n
       // Native RPC chat only — the mirror engine never produces these.
       return <ApprovalCard sessionId={props.sessionId} block={block} />;
     case "notice":
-      return <NoticeRow block={block} />;
+      return <NoticeRow block={block} dataTuiRow={props.dataTuiRow} />;
     case "summary":
       return (
         <SummaryCard block={block} sessionId={props.sessionId}
-          messageId={props.msg.id} blockIndex={props.blockIndex} />
+          messageId={props.msg.id} blockIndex={props.blockIndex} dataTuiRow={props.dataTuiRow} />
       );
     case "custom":
       return (
         <CustomCard block={block} sessionId={props.sessionId}
-          messageId={props.msg.id} blockIndex={props.blockIndex} />
+          messageId={props.msg.id} blockIndex={props.blockIndex} dataTuiRow={props.dataTuiRow} />
       );
     case "exec":
       return (
         <ExecBlock block={block} sessionId={props.sessionId}
-          messageId={props.msg.id} blockIndex={props.blockIndex} />
+          messageId={props.msg.id} blockIndex={props.blockIndex} dataTuiRow={props.dataTuiRow} />
       );
     case "fileMention":
-      return <FileMentionRow block={block} />;
+      return <FileMentionRow block={block} dataTuiRow={props.dataTuiRow} />;
   }
 }

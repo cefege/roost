@@ -68,7 +68,7 @@ function usage(): never {
   console.error("  cutover           migrate from coordinator.db → coordinator_v2.db");
   console.error("  status            health readout (tailscale, agents, coord, workers)");
   console.error("  doctor [--since]  daily anomaly digest from err logs (default 24h)");
-  console.error("  api <verb>        headless introspect/drive (sessions|cells|input|message|rename|assign|attach|spawn|kill|workers|workspaces|ws-*|tasks|task-*|ui|ui-state|agent|events)");
+  console.error("  api <verb>        headless introspect/drive (sessions|cells|omp-sessions|input|message|rename|assign|attach|spawn|kill|workers|workspaces|ws-*|tasks|task-*|ui|ui-state|agent|events)");
   console.error("  add-mac [--label X]  print a copy-paste command to add another Mac (run on the coordinator)");
   console.error("  join                install + register this Mac's worker (used by join.sh; needs ROOST_COORDINATOR_URL + ROOST_BOOTSTRAP_TOKEN)");
   console.error("  update            self-update the binary from the latest GitHub release");

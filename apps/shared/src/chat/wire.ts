@@ -223,19 +223,16 @@ export const ChatFrame = z.object({
   seq: z.number().int().nonnegative(),
   reset: z.boolean().default(false),
   streaming: z.boolean().default(false),
-  // Status the omp TUI keeps permanently on screen. Populated by BOTH engines:
-  // the native RPC engine reads it off get_state, the mirror engine folds it
-  // out of the transcript tailer. `engine` names the producer and doubles as
-  // the "this frame carries status" marker; the rest are empty/zero until the
-  // first fact lands. The percentage is NOT on the wire: the client derives it
-  // from tokens/window so an unknown window stays distinguishable from 0%.
+  // Status the omp TUI keeps permanently on screen, read off the RPC child's
+  // get_state. Empty/zero until the first fact lands. The percentage is NOT on
+  // the wire: the client derives it from tokens/window so an unknown window
+  // stays distinguishable from 0%.
   model: z.string().default(""),
   modelName: z.string().default(""),
   thinkingLevel: z.string().default(""),
   contextTokens: z.number().int().nonnegative().default(0),
   contextWindow: z.number().int().nonnegative().default(0),
   mode: z.string().default(""),
-  engine: z.string().default(""),
 });
 export type ChatFrame = z.infer<typeof ChatFrame>;
 
@@ -338,7 +335,7 @@ export function chatFrameToProto(f: ChatFrame): PbChatFrame {
     streaming: f.streaming,
     model: f.model, modelName: f.modelName, thinkingLevel: f.thinkingLevel,
     contextTokens: f.contextTokens, contextWindow: f.contextWindow,
-    mode: f.mode, engine: f.engine,
+    mode: f.mode,
   });
 }
 
@@ -447,6 +444,6 @@ export function chatFrameFromProto(p: PbChatFrame): ChatFrame {
     streaming: p.streaming,
     model: p.model, modelName: p.modelName, thinkingLevel: p.thinkingLevel,
     contextTokens: p.contextTokens, contextWindow: p.contextWindow,
-    mode: p.mode, engine: p.engine,
+    mode: p.mode,
   });
 }

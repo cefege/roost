@@ -1,21 +1,54 @@
 // Browser-command handlers: omp chat history backfill (get-chat-history /
-// get-chat-block) + the terminal-vs-web parity oracle (get-chat-parity).
+// get-chat-block) and the chat-command tunnel to a session's RPC child.
 // Mirrors browser-command-terminal.ts::handleGetScrollbackCells.
 // Serves the in-memory transcript cache (history) + a file re-read (full block).
 
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
 import type { ClientControlFrame } from "@roost/shared/wire";
 import type { CoordLink } from "./transport/CoordLink.ts";
 import type { SessionManager } from "./session-manager.ts";
-import { getChatHistory, getChatBlockText } from "./session-chat.ts";
-import { rpcChatCommand, rpcChatFullBlock, republishRpcChatState } from "./chat/omp/rpc-chat.ts";
-import { tuiRows, roostRows, type TuiRow } from "./chat/omp/tui-rows.ts";
-import { OMP_LIVE_DIR } from "./session-constants.ts";
+import type { SessionRecord } from "./session-record.ts";
+import { getChatHistory, getChatBlockText } from "./chat/omp/history.ts";
+import { parseOmpLine } from "./chat/omp/parse.ts";
+import { upsertChatMessage } from "./chat/omp/chat-record.ts";
+import { ensureRpcChat, rpcChatActive, rpcChatCommand, rpcChatFullBlock, republishRpcChatState } from "./chat/omp/rpc-chat.ts";
+import { loadOmpSessionFile } from "./chat/omp/session-store.ts";
+import { listOmpSessions } from "./chat/omp/session-discovery.ts";
+import { log } from "@roost/shared";
 
-/** Cap on rows serialized into either diff array. One rpc-ok frame is bounded
- *  at 1 MiB, and a diff longer than this is a systemic break, not a detail. */
-const PARITY_DIFF_CAP = 200;
+
+
+/** Refill `rec.chatMessages` for an rpc session straight from omp's session
+ *  JSONL, WITHOUT spawning a child.
+ *
+ *  The mirror engine gets this for free: session-resume re-arms the transcript
+ *  watcher, which re-reads from offset 0. The rpc engine had no equivalent, so
+ *  after a worker restart its rows lived only inside a child that had not been
+ *  started yet — the pane rendered empty and the parity oracle scored a real
+ *  chat as `mismatch` (13 terminal rows vs 0). Measured in production.
+ *
+ *  A file parse, not a spawn: a cold `omp --mode rpc-ui` costs ~16 s, and
+ *  paying that per session at boot to answer "what is in this thread" is
+ *  absurd when the answer is already on disk in the format parse.ts reads.
+ *  The child still starts lazily; when it does, reloadHistory resets and
+ *  re-seeds under its own ids, replacing everything written here.
+ *
+ *  No-op unless the row list is EMPTY — a live child's rows always win. */
+function hydrateRpcRows(rec: SessionRecord, path: string, lines: string[]): void {
+	if ((rec.chatMessages?.length ?? 0) > 0) return;
+	// These rows carry REAL transcript entry ids, so `getChatBlockText` can serve
+	// their "show full" — but only if it knows the file. refreshStatus normally
+	// sets this, and it has not run: no child has booted.
+	rec.chatTranscriptPath ??= path;
+	rec.chatMessages = [];
+	rec.chatMsgSeqs = [];
+	for (const line of lines) {
+		const msg = parseOmpLine(line);
+		if (!msg) continue;
+		rec.chat_seq += 1;
+		upsertChatMessage(rec, msg, rec.chat_seq);
+	}
+}
 
 /** Serve a slice of cached chat history. rpc-ok data:
  *  { messages, next_seq, truncated }. Empty messages when no watcher is running
@@ -30,6 +63,34 @@ export async function handleGetChatHistory(
 	if (!rec) {
 		coordLink.send({ kind: "rpc-error", request_id, message: "session not found" });
 		return;
+	}
+	// A worker restart leaves the durable sessionId→JSONL mapping but neither a
+	// child nor any in-memory rows, so the pane rendered an empty thread until
+	// the user typed. Two separate fixes, in order:
+	//
+	// 1. HYDRATE from the transcript, synchronously. It is a file parse, and it
+	//    means this very response carries the thread instead of promising it.
+	// 2. PRE-WARM the child, NOT awaited. A cold `omp --mode rpc-ui` takes ~16 s
+	//    (extensions + MCP mounts) and this RPC's deadline is 8 s
+	//    (handlers-sessions.ts:397), so awaiting turned every chat pane open
+	//    into a guaranteed timeout. Warming it here is also what keeps the
+	//    user's first prompt inside chat-command's 35 s deadline. When it
+	//    finishes, reloadHistory resets and re-seeds under the child's own ids
+	//    through the SAME push channel the pane renders from, replacing step 1.
+	const rpcFile = loadOmpSessionFile(frame.session_id);
+	if (rpcFile !== null) {
+		// Skip when a child is already live — its rpc-N rows are authoritative,
+		// and interleaving transcript ids underneath them would double the thread.
+		if (!rpcChatActive(frame.session_id)) {
+			try { hydrateRpcRows(rec, rpcFile, (await readFile(rpcFile, "utf8")).split("\n")); }
+			catch (err) { log.warn("omp-rpc", "history_hydrate_failed", { sid: frame.session_id, err: String(err) }); }
+		}
+		try { ensureRpcChat(sessionMgr, rec); }
+		catch (err) {
+			// A dead omp binary must not fail the history RPC: the pane would
+			// paint its status:"failed" state for a recoverable condition.
+			log.warn("omp-rpc", "history_boot_failed", { sid: frame.session_id, err: String(err) });
+		}
 	}
 	const afterSeq = frame.after_seq ?? rec.chat_seq;
 	const page = getChatHistory(rec, afterSeq, frame.max_messages);
@@ -50,8 +111,11 @@ export async function handleGetChatHistory(
 }
 
 /** Full untruncated text of one ContentBlock. rpc-ok data: { text }.
- *  Native RPC chats keep the full text in memory (their synthetic message ids
- *  match no transcript entry); mirror chats re-read the transcript file. */
+ *
+ *  Two id spaces, tried in order: the live child keeps untruncated text in
+ *  memory under its synthetic `rpc-N` ids, while a cold thread refilled by
+ *  `hydrateRpcRows` carries REAL omp entry ids and is re-read off disk.
+ *  Whichever the row came from, one of the two serves it. */
 export async function handleGetChatBlock(
 	frame: Extract<ClientControlFrame, { kind: "get-chat-block" }>,
 	request_id: string,
@@ -93,62 +157,21 @@ export async function handleChatCommand(
 	coordLink.send({ kind: "rpc-ok", request_id, data: { response_json: JSON.stringify(result.response) } });
 }
 
-/** Terminal-vs-web parity oracle. Projects the raw transcript onto the rows
- *  omp's TUI would paint, projects rec.chatMessages onto the same row type, and
- *  diffs them POSITIONALLY: walk both together, and on a mismatch record the
- *  tuiRows entry as missing and advance that side (so one inserted row does not
- *  report every later row as different). rpc-ok data mirrors
- *  SessionsGetChatParityResponse field-for-field. */
-export async function handleGetChatParity(
-	frame: Extract<ClientControlFrame, { kind: "get-chat-parity" }>,
+/** Resumable omp transcripts on this machine, newest first. rpc-ok data:
+ *  { sessions: OmpSessionEntry[] }. A read-only scan — it never touches a
+ *  session, a child, or the terminal that wrote the file. */
+export function handleListOmpSessions(
+	frame: Extract<ClientControlFrame, { kind: "list-omp-sessions" }>,
 	request_id: string,
-	deps: { coordLink: CoordLink; sessionMgr: SessionManager },
-): Promise<void> {
-	const { coordLink, sessionMgr } = deps;
-	const rec = sessionMgr.getBySessionId(frame.session_id);
-	if (!rec) {
-		coordLink.send({ kind: "rpc-error", request_id, message: "session not found" });
-		return;
+	deps: { coordLink: CoordLink },
+): void {
+	const { coordLink } = deps;
+	try {
+		coordLink.send({ kind: "rpc-ok", request_id, data: { sessions: listOmpSessions(frame.limit) } });
+	} catch (err) {
+		coordLink.send({
+			kind: "rpc-error", request_id,
+			message: err instanceof Error ? err.message : String(err),
+		});
 	}
-	const transcriptPath = rec.chatTranscriptPath ?? "";
-	let lines: string[] = [];
-	if (transcriptPath) {
-		try { lines = (await readFile(transcriptPath, "utf8")).split("\n"); }
-		catch { /* unreadable → empty projection, reported as a row-count gap */ }
-	}
-	const livePath = join(OMP_LIVE_DIR, `${rec.sessionId}.ndjson`);
-
-	const tui = tuiRows(lines);
-	const roost = roostRows(rec.chatMessages ?? []);
-	const missing: TuiRow[] = [];
-	const extra: TuiRow[] = [];
-	const same = (a: TuiRow, b: TuiRow): boolean => JSON.stringify(a) === JSON.stringify(b);
-	let i = 0, j = 0;
-	while (i < tui.length && j < roost.length) {
-		if (same(tui[i]!, roost[j]!)) { i++; j++; continue; }
-		// Prefer resyncing: if the TUI row shows up later on the Roost side the
-		// gap is an EXTRA Roost row, otherwise the TUI row is missing.
-		if (roost.slice(j + 1, j + 4).some((r) => same(tui[i]!, r))) extra.push(roost[j++]!);
-		else missing.push(tui[i++]!);
-	}
-	while (i < tui.length) missing.push(tui[i++]!);
-	while (j < roost.length) extra.push(roost[j++]!);
-
-	coordLink.send({
-		kind: "rpc-ok",
-		request_id,
-		data: {
-			transcript_path: transcriptPath,
-			// Both gate on the sidecar's `hello`, not on the watcher existing: the
-			// watcher polls a path that may never appear (omp never started in this
-			// pane), and chatLiveStreaming only flips on agent_start/agent_end, so
-			// an attached-but-idle bridge would read as detached.
-			live_path: rec.chatLiveAttached === true ? livePath : "",
-			live_attached: rec.chatLiveAttached === true,
-			tui_rows: tui.length,
-			roost_rows: roost.length,
-			missing_json: JSON.stringify(missing.slice(0, PARITY_DIFF_CAP)),
-			extra_json: JSON.stringify(extra.slice(0, PARITY_DIFF_CAP)),
-		},
-	});
 }

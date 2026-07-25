@@ -327,8 +327,7 @@ message ChatFrame {
   uint64 seq = 3;                    // monotonic line count (tailer offset)
   bool reset = 4;                    // true → drop client history and reseed
   bool streaming = 5;                // true → agent turn in flight (RPC chat)
-  // Status the omp TUI keeps on screen. Both engines populate it: the native
-  // RPC engine off get_state, the mirror engine off the transcript tailer.
+  // Status the omp TUI keeps on screen, read off the RPC child's get_state.
   string model = 6;                  // "provider/model"
   reserved 7;                        // was context_pct; the percent is derived client-side from tokens/window
   uint32 context_tokens = 8;         // tokens in context
@@ -337,5 +336,6 @@ message ChatFrame {
   string mode = 11;                  // omp mode_change: "plan" | "none" | …; "" = default/unknown
   reserved 12;                       // was cost_usd; omp bills "(sub)", not a dollar figure — deliberately not mirrored
   uint32 context_window = 13;        // model context window; 0 = unknown → render "<tokens>/?"
-  string engine = 14;                // "rpc" | "mirror" — which producer built this frame
+  reserved 14;                       // was engine ("rpc"|"mirror"); one engine now — every ChatFrame comes from the session's own RPC child
+  reserved "engine";
 }
