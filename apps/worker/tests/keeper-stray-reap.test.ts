@@ -13,7 +13,7 @@
 
 import { join } from "node:path";
 import { tmpdir, homedir } from "node:os";
-import { existsSync, unlinkSync } from "node:fs";
+import { rmSync } from "node:fs";
 
 const SOCK_DIR = join(tmpdir(), `roost-test-stray-reap-${process.pid}`);
 process.env.ROOST_WORKER_DATA_DIR = SOCK_DIR;
@@ -66,6 +66,8 @@ async function waitFor(predicate: () => Promise<boolean> | boolean, deadlineMs: 
   return Boolean(await predicate());
 }
 
+/** Fallback reap: a keeper this process ADOPTED rather than spawned has no
+ *  _keeperProc handle, so match it by the socket path in its argv. */
 function killKeeperBySock(): void {
   const out = Bun.spawnSync(["pgrep", "-f", SOCK_PATH]).stdout.toString().trim();
   for (const line of out.split("\n")) {
@@ -77,9 +79,18 @@ function killKeeperBySock(): void {
 }
 
 afterAll(() => {
+  // dispose() deliberately leaves the keeper RUNNING — in prod it must survive
+  // a worker restart (multiplexed-client.ts:167). So this test owns the reap:
+  // grab the spawned pid BEFORE dispose drops the socket, kill it directly,
+  // and only then fall back to pgrep. Killing by handle is what makes teardown
+  // deterministic; pgrep alone left orphan keepers behind.
+  const keeperPid = pool._keeperProc?.pid;
   pool.dispose();
+  if (keeperPid) try { process.kill(keeperPid, "SIGKILL"); } catch { /* already dead */ }
   killKeeperBySock();
-  if (existsSync(SOCK_PATH)) try { unlinkSync(SOCK_PATH); } catch { /* ignore */ }
+  // rmSync, not unlinkSync(SOCK_PATH): unlinking only the socket left the
+  // per-pid SOCK_DIR in $TMPDIR after every single run.
+  rmSync(SOCK_DIR, { recursive: true, force: true });
 });
 
 describe("keeper-stray-reap — reverse-reap kills untracked keeper PTYs, two-strike", () => {
@@ -87,11 +98,11 @@ describe("keeper-stray-reap — reverse-reap kills untracked keeper PTYs, two-st
     const mgr = freshMgr();
     // Silence the manager's unrelated background sweeps (detect/viewport/auto-
     // stray) so this test drives reapStrayKeeperChannels() by hand and the
-    // detect sweep doesn't trip over the minimal injected record.
-    const timers = mgr as unknown as Record<string, ReturnType<typeof setInterval>>;
-    clearInterval(timers.detectSweepTimer);
-    clearInterval(timers.viewportReaperTimer);
-    clearInterval(timers.strayReaperTimer);
+    // detect sweep doesn't trip over the minimal injected record. dispose()
+    // clears exactly those three intervals (session-lifecycle.ts:323) and is
+    // idempotent — reaching into private timer handles is no longer needed,
+    // and leaving them live let a post-teardown sweep respawn a keeper.
+    mgr.dispose();
 
     // Two real PTYs on the isolated keeper. Only TRACKED_CH is registered in
     // this.sessions — STRAY_CH is a ghost (as if its session row was deleted

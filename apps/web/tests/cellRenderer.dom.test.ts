@@ -483,16 +483,19 @@ describe("CellGridRenderer DOM — held-window eviction", () => {
     expect(total).toBe(idx); // sanity: total tracks the last appended index
   });
 
-  test("setEvictionFrozen(true) grows past the cap; thaw trims back on next append", () => {
+  test("eviction freezes off the intent, not off a caller-set flag", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
     r.apply(fullFrame(80, [row(0, "v")], seq(100).map((i) => row(i, `h${i}`))));
-    r.setEvictionFrozen(true);
-    const { idx } = grow(r, 100, 12); // frozen → no trim
+    // Scroll up into history: the anchor intent IS the freeze.
+    c.scrollTop = PAD_TOP + 50 * ROW_PX;
+    r.captureScrollIntent();
+    expect(r.following()).toBe(false);
+    const { idx } = grow(r, 100, 12); // anchored → no trim
     expect(r.currentFrame!.scrollbackRows.length).toBe(100 + 12 * BLOCK);
     expect(r.currentFrame!.scrollbackRows.length).toBeGreaterThan(MAX_HELD_SCROLLBACK_ROWS);
-    // Thaw + one more append → trims back under the cap, invariant intact.
-    r.setEvictionFrozen(false);
+    // Back to the tail + one more append → trims back under the cap, invariant intact.
+    r.followTail();
     const append = seq(BLOCK).map((k) => row(idx + k, `s${idx + k}`));
     r.apply(appDelta(append, idx + BLOCK, 99));
     const f = r.currentFrame!;
@@ -574,17 +577,21 @@ describe("CellGridRenderer DOM — held-window eviction", () => {
     r.apply(appDelta(seq(BLOCK).map((k) => row(idx - BLOCK + k, `s${idx - BLOCK + k}`)), running, 99));
     expect(c.scrollHeight - c.scrollTop - c.clientHeight).toBe(0);
 
-    // Now the scrolled-up reader: anchor 800 rows into the held window, deep
-    // enough that the next eviction can't drop the anchored row itself.
+    // Now the scrolled-up reader: the anchor intent IS the eviction freeze
+    // (_evictScrollback returns unless following()), so live output must not
+    // trim history out from under them and their row must not move.
     c.scrollTop = PAD_TOP + 800 * ROW_PX;
     r.captureScrollIntent();
     // The absolute scrollback row sitting at the top of the visible area.
     const topRow = () => r.currentFrame!.sbBase + (c.scrollTop - PAD_TOP) / ROW_PX;
     const anchored = topRow();
     const baseBefore = r.currentFrame!.sbBase;
+    const heldBefore = r.currentFrame!.scrollbackRows.length;
     idx += BLOCK; running += BLOCK;
     r.apply(appDelta(seq(BLOCK).map((k) => row(idx - BLOCK + k, `s${idx - BLOCK + k}`)), running, 100));
-    expect(r.currentFrame!.sbBase).toBeGreaterThan(baseBefore); // eviction really ran
+    expect(r.currentFrame!.sbBase).toBe(baseBefore); // frozen: history kept intact
+    expect(r.currentFrame!.scrollbackRows.length).toBe(heldBefore + BLOCK);
+    expect(r.currentFrame!.scrollbackRows.length).toBeGreaterThan(MAX_HELD_SCROLLBACK_ROWS);
     expect(topRow()).toBe(anchored);
   });
 });
@@ -709,5 +716,138 @@ describe("CellGridRenderer DOM — scroll intent", () => {
     expect(r.isSelfScroll()).toBe(false);
     r.syncScroll();
     expect(r.isSelfScroll()).toBe(true);
+  });
+
+  test("a reveal RE-DERIVES the anchor against the new box instead of jumping to the tail", () => {
+    // Park→reveal: the pane's box changes while it is hidden (the deck's slot
+    // commit), then CellTerminal's inLayout effect re-derives. It used to call
+    // followTail() there — the reveal threw the reader's position away, which
+    // is the whole "switching tabs moves my scroll" report. Re-derivation must
+    // land the SAME absolute row at the top edge under the new clientHeight.
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    c.clientHeight = 600;
+    r.apply(fullFrame(80, [row(0, "v")], nRows(400)));
+    c.scrollTop = PAD_TOP + 50 * ROW_PX;
+    r.captureScrollIntent();
+    const topRow = () => r.currentFrame!.sbBase + (c.scrollTop - PAD_TOP) / ROW_PX;
+    const anchored = topRow();
+
+    c.clientHeight = 900; // the reveal's taller box
+    r.syncScroll();
+    expect(r.following()).toBe(false);
+    expect(r.scrollIntent().kind).toBe("anchor");
+    expect(topRow()).toBe(anchored);
+  });
+
+  test("a catch-up full frame merges under an anchor — no wipe, no lost place", () => {
+    // The frame shape the worker's claim-tail sizing (held_scrollback_total)
+    // now always produces for a returning viewer: sbBase still inside the held
+    // window, so mergeFullFrame extends instead of renderFull wiping. Before
+    // the sizing, a parked pane that produced > 250 rows got sbBase =
+    // total-250, the anchored row fell below it and syncScroll clamped k to 0 —
+    // the pane landed at the top of a shallow window and lurched back down one
+    // backfill chunk at a time.
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    const sb: FakeEl = c.children[0];
+    c.clientHeight = 500;
+    r.apply(tailFrame(80, [row(0, "v")], nRows(300, 700), 1000));
+    expect(r.currentFrame!.sbBase).toBe(700);
+    c.scrollTop = PAD_TOP + 50 * ROW_PX; // absolute row 750
+    r.captureScrollIntent();
+    const firstBefore = sbRows(sb)[0];
+    const topRow = () => r.currentFrame!.sbBase + (c.scrollTop - PAD_TOP) / ROW_PX;
+    expect(topRow()).toBe(750);
+
+    // 200 rows arrived while parked; the tail reaches back to row 700.
+    r.apply(tailFrame(80, [row(0, "v")], nRows(500, 700), 1200));
+    expect(sbRows(sb)[0]).toBe(firstBefore);   // merged — the paint survived
+    expect(r.currentFrame!.sbBase).toBe(700);  // held window kept its depth
+    expect(r.currentFrame!.scrollbackRows.length).toBe(500);
+    expect(topRow()).toBe(750);
+  });
+
+  test("a post-write layout clamp still reads as OUR write, not a gesture", () => {
+    // deckOps.selectTabOp commits the layout twice on a spotlit tab switch; the
+    // second commit grows the pane AFTER the reveal already pinned scrollTop,
+    // so the browser re-clamps and delivers a scroll event. Treating that as a
+    // gesture froze the clamped position as the user's intent.
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    c.clientHeight = 500;
+    r.apply(fullFrame(80, [row(0, "v")], nRows(400)));
+    r.followTail();
+    c.clientHeight = 540;                          // the late, taller box
+    c.scrollTop = c.scrollHeight - c.clientHeight; // the browser's clamp
+    expect(r.isSelfScroll()).toBe(true);
+    c.scrollTop -= 20 * ROW_PX;                    // a real wheel gesture
+    expect(r.isSelfScroll()).toBe(false);
+  });
+
+  // The three below cover the ASYNC-GESTURE race. Scroll events are delivered
+  // asynchronously, so a frame can land between the compositor moving
+  // scrollTop and the listener running. Every other test here calls
+  // captureScrollIntent() by hand immediately after moving scrollTop — the one
+  // ordering that hides the bug. These move scrollTop, apply a frame, and only
+  // then ask what the listener would have seen.
+
+  test("a frame landing mid-gesture does not yank the view back", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    c.clientHeight = 500;
+    r.apply(fullFrame(80, [row(0, "v")], nRows(400)));
+    expect(r.following()).toBe(true);
+    // The compositor's half of a wheel gesture: 6 rows up, no scroll event yet.
+    c.scrollTop -= 6 * ROW_PX;
+    const held = c.scrollTop;
+    // A streaming delta lands in that window.
+    r.apply({ ...deltaFrame(80, 1, [row(0, "v")], [row(400, "new")], 2), scrollbackTotal: 401 });
+    expect(c.scrollTop).toBe(held);              // pre-fix: yanked to the new bottom
+    expect(r.following()).toBe(false);           // pre-fix: still "tail"
+    expect(r.scrollIntent().kind).toBe("anchor");
+    // And the listener firing late must not re-read it as a fresh gesture.
+    expect(r.isSelfScroll()).toBe(true);
+  });
+
+  test("an anchored reader keeps their pixel through a streaming frame", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    c.clientHeight = 500;
+    r.apply(fullFrame(80, [row(0, "v")], nRows(400)));
+    c.scrollTop = PAD_TOP + 100 * ROW_PX;
+    r.captureScrollIntent();
+    expect(r.scrollIntent()).toEqual({ kind: "anchor", row: 100, off: 0 });
+    // The reader scrolls up 5 more rows — compositor only, no event yet — and
+    // a streaming frame lands in that window. Pre-fix the frame re-derived from
+    // the STALE anchor (row 100) and slammed the view 80px back down; at
+    // 10-30 frames/s of output that is the reported zigzag.
+    c.scrollTop -= 5 * ROW_PX;
+    const held = c.scrollTop;
+    r.apply({ ...deltaFrame(80, 1, [row(0, "v")], nRows(5, 400), 2), scrollbackTotal: 405 });
+    expect(c.scrollTop).toBe(held);
+    expect(r.scrollIntent()).toEqual({ kind: "anchor", row: 95, off: 0 });
+  });
+
+  test("an unreachable anchor re-declares to the oldest reachable row", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    c.clientHeight = 500;
+    // Hold 2000 rows of a 2000-row history, anchored at absolute row 300.
+    r.apply(fullFrame(80, [row(0, "v")], nRows(2000)));
+    c.scrollTop = PAD_TOP + 300 * ROW_PX;
+    r.captureScrollIntent();
+    expect(r.scrollIntent()).toEqual({ kind: "anchor", row: 300, off: 0 });
+    // A rebuild ships a 250-row tail of a 5000-row total — row 300 is gone.
+    r.apply(tailFrame(100, [row(0, "v")], nRows(250, 4750), 5000));
+    expect(r.currentFrame!.sbBase).toBe(4750);
+    expect(r.scrollIntent()).toEqual({ kind: "anchor", row: 4750, off: 0 });
+    // Backfill prepends must now land ABOVE the reader, not slide under them.
+    const topText = () => rowText(r.currentFrame!.scrollbackRows[(c.scrollTop - PAD_TOP) / ROW_PX]!);
+    const first = topText();
+    r.prependScrollback(nRows(250, 4500));
+    expect(topText()).toBe(first);               // pre-fix: walked h4750 → h4500
+    r.prependScrollback(nRows(250, 4250));
+    expect(topText()).toBe(first);               // pre-fix: → h4250
   });
 });

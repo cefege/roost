@@ -48,11 +48,24 @@ export async function handleGetScrollbackCells(
 			return;
 		}
 	}
+	const core = rec.wtermCore;
+	// kind:"agent" has no grid to read. Only CellTerminal asks for scrollback and
+	// an agent session never mounts one, so this is a belt-and-braces refusal.
+	if (!core) {
+		coordLink.send({ kind: "rpc-error", request_id, message: "session has no terminal" });
+		return;
+	}
 	try {
-		const total = rec.wtermCore.getScrollbackCount();
+		// Monotonic index space (grid-to-cells.ts): the SPA's row indices are
+		// sbDropped-based, so clamp the request into [sbDropped, sbDropped+count].
+		// A request reaching below sbDropped names rows the ring genuinely
+		// dropped; returning fewer rows makes the SPA's overlap check fail and
+		// its backfill controller park, which is the correct outcome.
+		const sbDropped = rec.cell_emit.sbDropped;
+		const total = sbDropped + core.getScrollbackCount();
 		const endRow = Math.min(frame.end_row, total);
-		const startRow = Math.max(0, endRow - Math.min(frame.max_rows, SCROLLBACK_CELLS_MAX_ROWS));
-		const rows = readScrollbackRangeCells(rec.wtermCore, startRow, endRow);
+		const startRow = Math.max(sbDropped, endRow - Math.min(frame.max_rows, SCROLLBACK_CELLS_MAX_ROWS));
+		const rows = readScrollbackRangeCells(core, startRow, endRow, sbDropped);
 		diag("scrollback.cells", {
 			sid: rec.sessionId,
 			channel_id: rec.channelId,
@@ -60,12 +73,13 @@ export async function handleGetScrollbackCells(
 			start_row: startRow,
 			end_row: endRow,
 			total,
+			sb_dropped: sbDropped,
 			rows: rows.length,
 		});
 		coordLink.send({
 			kind: "rpc-ok",
 			request_id,
-			data: { rows, cols: rec.wtermCore.getCols(), total, start_row: startRow, end_row: endRow },
+			data: { rows, cols: core.getCols(), total, start_row: startRow, end_row: endRow },
 		});
 	} catch (err) {
 		coordLink.send({
@@ -99,6 +113,7 @@ export function handleResize(
 			frame.rows,
 			frame.client_seq,
 			frame.cause,
+			frame.held_sb_total,
 		);
 	return;
 }

@@ -12,7 +12,7 @@
 // be non-flaky; SIGKILL closes the UDS immediately → deterministic s.on("close").
 
 import { describe, test, expect, afterAll } from "bun:test";
-import { existsSync, unlinkSync } from "node:fs";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { MultiplexedKeeperPool, type MuxChannelCallbacks } from "../src/keeper/multiplexed-client.ts";
@@ -26,9 +26,15 @@ const pool = new MultiplexedKeeperPool();
 let _nextCh = 800;
 
 afterAll(() => {
+  // dispose() leaves the keeper running by design; capture the spawned pid
+  // first and kill it directly, with the sock-path pgrep as fallback for a
+  // keeper respawned after a kill-9 test.
+  const keeperPid = pool._keeperProc?.pid;
   pool.dispose();
+  if (keeperPid) try { process.kill(keeperPid, "SIGKILL"); } catch { /* already dead */ }
   killKeeperBySock(); // reap any keeper left running after a kill-9 test
-  if (existsSync(SOCK_PATH)) try { unlinkSync(SOCK_PATH); } catch { /* ignore */ }
+  // Whole dir: unlinking only the socket left SOCK_DIR in $TMPDIR every run.
+  rmSync(SOCK_DIR, { recursive: true, force: true });
 });
 
 const noopCallbacks: MuxChannelCallbacks = {

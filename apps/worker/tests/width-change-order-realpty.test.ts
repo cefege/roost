@@ -9,7 +9,7 @@
 import { gridToCellFrame } from "@roost/shared/cell";
 import type { TerminalCore } from "@wterm/core";
 import { describe, test, expect, afterAll, beforeAll } from "bun:test";
-import { existsSync, unlinkSync } from "node:fs";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { SessionManager } from "../src/session-manager.ts";
@@ -33,8 +33,10 @@ beforeAll(async () => {
   await getMultiplexedPool().ensure();
 });
 afterAll(() => {
-  const s = join(SOCK_DIR, "mux-keeper.sock");
-  if (existsSync(s)) try { unlinkSync(s); } catch { /* ignore */ }
+  // Whole dir: unlinking only the socket left SOCK_DIR in $TMPDIR every run.
+  // No keeper kill here on purpose — see the beforeAll note above: this file
+  // shares the pool singleton and killing the keeper breaks sibling files.
+  rmSync(SOCK_DIR, { recursive: true, force: true });
 });
 const FP = "ab".repeat(32);
 
@@ -75,7 +77,7 @@ async function resizeTo(m: SessionManager, ch: number, cols: number, rows: numbe
   await asInternal(m)._wtermRebuildChain.get(ch);
 }
 async function servedHistory(m: SessionManager, ch: number): Promise<string> {
-  const core = m.sessions.get(ch)!.wtermCore;
+  const core = m.sessions.get(ch)!.wtermCore!;
   return cellGridText(core);
 }
 function markerSequence(text: string): number[] {
@@ -124,6 +126,11 @@ describe("OPT2 deterministic-rebuild model: real shell width-change preserves or
     expect(isNonDecreasing(markerSequence(at159b))).toBe(true);
 
     m.kill(ch);
+    // Without this the manager's viewport/detect/stray intervals outlive the
+    // file, and a later sweep calls into the keeper pool — respawning a keeper
+    // on whatever SOCK_DIR the process-global env points at (the full-suite
+    // leak: one orphan keeper + one $TMPDIR dir per run).
+    m.dispose();
     await sleep(300);
   }, 40000);
 });

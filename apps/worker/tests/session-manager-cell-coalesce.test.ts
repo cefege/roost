@@ -8,7 +8,9 @@
 import { describe, test, expect } from "bun:test";
 import { SessionManager } from "../src/session-manager.ts";
 import { asSessionId, asChannelId, asWorkerFp } from "@roost/shared";
-import { initCellEmitState } from "@roost/shared/cell";
+import { initCellEmitState, SB_SNAPSHOT_TAIL_ROWS } from "@roost/shared/cell";
+import { protoToCellFrame } from "@roost/shared/cell/cell-proto";
+import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
 import { WasmBridge } from "@wterm/core";
 
 function mgrWithCellCounter(): { mgr: SessionManager; frames: unknown[] } {
@@ -74,6 +76,27 @@ describe("cell-delta coalescing (Phase-3)", () => {
     await sleep(40);
     expect(frames.length).toBe(2);
   });
+
+  test("a continuously producing channel stays on ONE frame per coalesce window", async () => {
+    // The trailing timer must RE-ARM while the channel keeps producing. Without
+    // the re-arm the window closes after one flush and the next chunk starts a
+    // fresh leading edge microseconds later: leading+trailing pairs, ~2x the
+    // intended rate, and every extra frame is one scroll re-derive on every
+    // viewer (the streaming-scroll zigzag).
+    const { mgr, frames } = mgrWithCellCounter();
+    await injectCellSession(mgr, 1);
+    mgr.claimViewport(1, "v", 80, 24, 1, 1); frames.length = 0;
+    const t0 = Date.now();
+    while (Date.now() - t0 < 200) {
+      append(mgr, 1, "streaming\r\n");
+      await sleep(2);
+    }
+    const elapsed = Date.now() - t0;
+    await sleep(40);
+    // +2 slack: the leading-edge frame plus the final trailing flush.
+    expect(frames.length).toBeLessThanOrEqual(Math.ceil(elapsed / 16) + 2);
+    expect(frames.length).toBeGreaterThan(1); // frames really did flow
+  });
 });
 
 // Seq-epoch reset on reload: a fresh page's per-mount claim counter resets to 1,
@@ -118,5 +141,44 @@ describe("B: skip cell emit when nobody is watching", () => {
     append(mgr, 1, "fg\r\n");                        // now watched
     await sleep(40);
     expect(frames.length).toBe(2);                  // deltas flow again
+  });
+});
+
+// Catch-up claim tail: a returning viewer reports how much scrollback it still
+// holds (SessionsResizeRequest.held_scrollback_total → claimViewport's
+// heldSbTotal). The claim snapshot's tail must then reach BACK to that row so
+// the viewer's mergeFullFrame EXTENDS its painted history. With a fixed
+// 250-row tail, any pane that fell further behind while parked got a full
+// rebuild instead — sbBase jumped to total-250, the row-space anchor fell below
+// the window and the pane landed at the top of it: the "switching tabs moves my
+// scroll position / it jumps around for a few seconds" class.
+describe("claim snapshot tail sizes to the returning viewer's gap", () => {
+  test("heldSbTotal → tail reaches the viewer's boundary row; omitted → default tail", async () => {
+    const { mgr, frames } = mgrWithCellCounter();
+    await injectCellSession(mgr, 1);
+    const core = mgr.sessions.get(1)!.wtermCore!;
+    core.writeRaw(new TextEncoder().encode(
+      Array.from({ length: 1200 }, (_, i) => `catchup-${i}`).join("\r\n") + "\r\n",
+    ));
+    const total = core.getScrollbackCount();
+    expect(total).toBeGreaterThanOrEqual(1000);
+
+    // Viewer holds up to absolute row (total-900)-1 → needs 901 rows back.
+    mgr.claimViewport(1, "v", 80, 24, 1, 1, total - 900);
+    expect(frames.length).toBe(1);
+    const caught = protoToCellFrame(frames[0] as PbCellGridFrame);
+    expect(caught.full).toBe(true);
+    expect(caught.scrollbackTotal).toBe(total);
+    // The tail includes the viewer's last held row → mergeFullFrame can splice.
+    expect(caught.sbBase).toBeLessThanOrEqual(total - 900 - 1);
+    expect(caught.scrollbackRows.length).toBe(caught.scrollbackTotal - caught.sbBase);
+
+    // No held total (fresh viewer / legacy SPA) → unchanged default tail.
+    frames.length = 0;
+    mgr.claimViewport(1, "v", 80, 24, 2, 1);
+    expect(frames.length).toBe(1);
+    const plain = protoToCellFrame(frames[0] as PbCellGridFrame);
+    expect(plain.sbBase).toBe(total - SB_SNAPSHOT_TAIL_ROWS);
+    expect(plain.scrollbackRows.length).toBe(SB_SNAPSHOT_TAIL_ROWS);
   });
 });

@@ -14,6 +14,7 @@ import { asSessionId, asChannelId, asWorkerFp } from "@roost/shared";
 import { gridToCellFrame } from "@roost/shared/cell";
 import { WasmBridge } from "@wterm/core";
 import type { TerminalCore } from "@wterm/core";
+import { initCellEmitState } from "@roost/shared/cell";
 
 function cellGridText(core: TerminalCore): string {
   const frame = gridToCellFrame(core, 0);
@@ -51,6 +52,7 @@ async function injectSession(
     mode_carry: new Uint8Array(0),
     osc7_carry: new Uint8Array(0),
     wtermCore,
+    cell_emit: initCellEmitState(),
   };
   (mgr as unknown as { sessions: Map<number, unknown> }).sessions.set(channelId, record);
 }

@@ -24,6 +24,10 @@ import { _sha8, SCROLLBACK_CAP_BYTES, MODE_CARRY_MAX } from "./session-constants
 export function appendScrollback(this: SessionManager, channelId: number, chunk: Buffer): number {
 	const rec = this.sessions.get(channelId);
 	if (!rec) return -1;
+	// Unreachable for kind:"agent" (no keeper channel ever forwards bytes to it),
+	// but the ring and the grid are one code path — narrow once, here.
+	const core = rec.wtermCore;
+	if (!core) return -1;
 	const next = new Uint8Array(rec.scrollback.length + chunk.length);
 	next.set(rec.scrollback, 0);
 	next.set(chunk, rec.scrollback.length);
@@ -55,7 +59,7 @@ export function appendScrollback(this: SessionManager, channelId: number, chunk:
 	// we've fed it — its job here is solely to support clean fresh-mount
 	// replay at the headless cols/rows. Live deltas still ride the raw
 	// ring above.
-	rec.wtermCore.writeRaw(new Uint8Array(chunk));
+	core.writeRaw(new Uint8Array(chunk));
 	// Answer terminal capability probes so the app that asked hears back. Two
 	// sources: (1) DSR (ESC[6n cursor pos) the core DOES answer → getResponse();
 	// (2) Primary DA (ESC[c) + XTVERSION (ESC[>0q) the core does NOT answer →
@@ -63,7 +67,7 @@ export function appendScrollback(this: SessionManager, channelId: number, chunk:
 	// inconsistently (it probes DA x2 at startup + times out). Reply goes BACK
 	// into the PTY (stdin). Live chunk ONLY — replay/rebuild sites discard.
 	this._answerTerminalQueries(
-		rec.wtermCore,
+		core,
 		channelId,
 		new Uint8Array(chunk),
 	);

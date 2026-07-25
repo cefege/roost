@@ -9,29 +9,37 @@
 // the core.
 
 import type { TerminalCore } from "@wterm/core";
-import { gridToCellFrame, gridDeltaFrame } from "./grid-to-cells.ts";
+import { gridToCellFrame, gridDeltaFrame, scrollbackShift, scrollbackTailSig } from "./grid-to-cells.ts";
 import type { CellGridFrame } from "./types.ts";
 
 export interface CellEmitState {
   seq: number;
+  /** Last emitted scrollbackTotal, in MONOTONIC index space (sbDropped + retained). */
   lastSbTotal: number;
   sentFull: boolean;
   cols: number;
   rows: number;
   alt: boolean;
+  /** Lines this core's ring has evicted — the origin of the monotonic index
+   *  space (see grid-to-cells.ts). Only ever grows within one core's life. */
+  sbDropped: number;
+  /** Identity probe for the newest retained lines at the last emit; recovers
+   *  the eviction count the saturated ring's pinned row count cannot report. */
+  tailSig: string;
 }
 
 export function initCellEmitState(): CellEmitState {
-  return { seq: 0, lastSbTotal: 0, sentFull: false, cols: 0, rows: 0, alt: false };
+  return { seq: 0, lastSbTotal: 0, sentFull: false, cols: 0, rows: 0, alt: false, sbDropped: 0, tailSig: "" };
 }
 
 /** Reframe (full frame) on first emit, force (attach/rebuild), dimension
- *  change, alt-screen toggle, or scrollback shrink (reset/eviction) — none
- *  expressible as an additive delta, so applyDelta (diff-grid.ts) can never
- *  mis-apply a delta across one of these transitions. Otherwise a dirty-row
- *  delta. `tailRows` caps a full frame's scrollback to the newest N lines
- *  (worker passes SB_SNAPSHOT_TAIL_ROWS; the [0, sbBase) rest is pulled via
- *  get-scrollback-cells); unset = complete history. */
+ *  change, alt-screen toggle, a monotonic-total rewind (reset), or a shift the
+ *  scan could not resolve — none expressible as an additive delta, so
+ *  applyDelta (diff-grid.ts) can never mis-apply a delta across one of these
+ *  transitions. Otherwise a dirty-row delta. `tailRows` caps a full frame's
+ *  scrollback to the newest N lines (worker passes SB_SNAPSHOT_TAIL_ROWS; the
+ *  [0, sbBase) rest is pulled via get-scrollback-cells); unset = complete
+ *  retained history. */
 export function nextCellFrame(
   core: TerminalCore, st: CellEmitState, force: boolean, tailRows?: number,
 ): { frame: CellGridFrame; state: CellEmitState } {
@@ -39,13 +47,29 @@ export function nextCellFrame(
   const rows = core.getRows();
   const total = core.getScrollbackCount();
   const alt = core.usingAltScreen();
+  // Below the ring cap the count delta already tells us nothing was evicted.
+  // AT the cap it pins, so the count can no longer see lines scrolling off and
+  // absolute indices silently re-alias (measured: 500 lines pushed, append=[],
+  // absolute row 0 went LINE-78 -> LINE-578). Recover the shift explicitly.
+  const shift = total === st.lastSbTotal - st.sbDropped && total > 0
+    ? scrollbackShift(core, st.tailSig)
+    : 0;
+  const sbDropped = st.sbDropped + (shift ?? 0);
+  const monoTotal = sbDropped + total;
   const reframe = force || !st.sentFull
     || cols !== st.cols || rows !== st.rows
     || alt !== st.alt
-    || total < st.lastSbTotal;
+    || monoTotal < st.lastSbTotal
+    || shift === null;
   const seq = st.seq + 1;
   const frame = reframe
-    ? gridToCellFrame(core, seq, tailRows)
-    : gridDeltaFrame(core, st.lastSbTotal, seq);
-  return { frame, state: { seq, lastSbTotal: total, sentFull: true, cols, rows, alt } };
+    ? gridToCellFrame(core, seq, tailRows, sbDropped)
+    : gridDeltaFrame(core, st.lastSbTotal, seq, sbDropped);
+  return {
+    frame,
+    state: {
+      seq, lastSbTotal: monoTotal, sentFull: true, cols, rows, alt,
+      sbDropped, tailSig: scrollbackTailSig(core),
+    },
+  };
 }

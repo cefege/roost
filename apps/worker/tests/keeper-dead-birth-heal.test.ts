@@ -10,6 +10,7 @@
 import { describe, test, expect } from "bun:test";
 import { SessionManager } from "../src/session-manager.ts";
 import { asSessionId, asChannelId, asWorkerFp } from "@roost/shared";
+import { initCellEmitState } from "@roost/shared/cell";
 
 function freshMgr(): { mgr: SessionManager; calls: { n: number } } {
   const calls = { n: 0 };
@@ -40,7 +41,7 @@ function injectSession(mgr: SessionManager, channelId: number, headSeq: number, 
     osc7_carry: new Uint8Array(0),
     wtermCore: null as never,
     session_trace_id: "t",
-    cell_emit: {} as never,
+    cell_emit: initCellEmitState(),
     spawnedAtMs: Date.now() - ageMs,
   };
   (mgr as unknown as { sessions: Map<number, unknown> }).sessions.set(channelId, record);

@@ -18,6 +18,7 @@ import { SessionManager } from "../src/session-manager.ts";
 import { asSessionId, asChannelId, asWorkerFp } from "@roost/shared";
 import { VIEWER_WITHDRAW_GRACE_MS } from "@roost/shared/viewport";
 import { WasmBridge } from "@wterm/core";
+import { initCellEmitState } from "@roost/shared/cell";
 
 // withdrawViewport defers removal by VIEWER_WITHDRAW_GRACE_MS (hysteresis,
 // so a refresh's re-claim cancels it). Tests that withdraw then assert the
@@ -59,6 +60,7 @@ export async function injectSession(mgr: SessionManager, initCols: number, initR
     mode_carry: new Uint8Array(0),
     osc7_carry: new Uint8Array(0),
     wtermCore,
+    cell_emit: initCellEmitState(),
   };
   (mgr as unknown as { sessions: Map<number, unknown> }).sessions.set(CID, record);
 }

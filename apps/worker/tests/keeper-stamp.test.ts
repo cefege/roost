@@ -6,7 +6,7 @@
 // HelloResp handshake against a real keeper subprocess and asserts agreement.
 
 import { describe, test, expect, afterAll } from "bun:test";
-import { existsSync, unlinkSync } from "node:fs";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { MultiplexedKeeperPool, probeKeeperCompatible, type MuxChannelCallbacks } from "../src/keeper/multiplexed-client.ts";
@@ -21,8 +21,13 @@ const pool = new MultiplexedKeeperPool();
 let _nextCh = 700;
 
 afterAll(() => {
+  // Private pool on its own SOCK_DIR — the keeper it spawned is ours to reap.
+  // dispose() leaves it running by design, so capture the pid first.
+  const keeperPid = pool._keeperProc?.pid;
   pool.dispose();
-  if (existsSync(SOCK_PATH)) try { unlinkSync(SOCK_PATH); } catch { /* ignore */ }
+  if (keeperPid) try { process.kill(keeperPid, "SIGKILL"); } catch { /* already dead */ }
+  // Whole dir: unlinking only the socket left SOCK_DIR in $TMPDIR every run.
+  rmSync(SOCK_DIR, { recursive: true, force: true });
 });
 
 const noop: MuxChannelCallbacks = { onOutput: () => {}, onExit: () => {}, onError: () => {} };

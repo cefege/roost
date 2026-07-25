@@ -19,7 +19,7 @@
 // failure modes get a new test case, not a bigger existing test.
 
 import { describe, test, expect, afterAll } from "bun:test";
-import { existsSync, unlinkSync } from "node:fs";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { MultiplexedKeeperPool, type MuxChannelCallbacks } from "../src/keeper/multiplexed-client.ts";
@@ -29,8 +29,15 @@ process.env.ROOST_WORKER_DATA_DIR = SOCK_DIR;
 process.env.ROOST_KEEPER_QUIET = "1";
 
 afterAll(() => {
-  const sock = join(SOCK_DIR, "mux-keeper.sock");
-  if (existsSync(sock)) try { unlinkSync(sock); } catch { /* ignore */ }
+  // This file owns a PRIVATE pool (not the getMultiplexedPool() singleton) on
+  // its own SOCK_DIR, so the keeper it spawned is ours alone to reap. dispose()
+  // deliberately leaves it running (prod keepers outlive worker restarts), so
+  // without this every suite run left a keeper alive forever.
+  const keeperPid = pool._keeperProc?.pid;
+  pool.dispose();
+  if (keeperPid) try { process.kill(keeperPid, "SIGKILL"); } catch { /* already dead */ }
+  // Whole dir: unlinking only the socket left SOCK_DIR in $TMPDIR every run.
+  rmSync(SOCK_DIR, { recursive: true, force: true });
 });
 
 // One pool per test file — keeper subprocess + UDS reused across cases.

@@ -10,8 +10,11 @@
 // FULL frame bumps the local epoch, cancelling any in-flight loop; the loop
 // re-validates each response against the renderer's live anchor (cols +
 // overlap-row text identity) and parks on any mismatch — the reframe that
-// moved the epoch re-arms it. History always arrives; only its timing is lazy
-// (CLAUDE.md L11: never trade history away).
+// moved the epoch re-arms it. History always REMAINS REACHABLE; the eager
+// drain stops at the held-window cap (MAX_HELD_SCROLLBACK_ROWS, the same
+// window the evictor enforces) and a reader approaching the painted top
+// uncaps it one chunk at a time, so nothing is ever traded away
+// (CLAUDE.md L11) — only fetched when someone looks.
 //
 // Owner: CellTerminal.tsx (one controller per pane; onFullFrame from the cell
 // handler, onUserScrollUp from the container scroll listener).
@@ -19,7 +22,7 @@
 import { coordClient } from "../connect.ts";
 import { diag } from "@roost/shared/diag";
 import { cellRowFromProto } from "@roost/shared/cell/cell-proto";
-import { rowText, type CellGridRenderer } from "./cellRenderer.ts";
+import { rowText, MAX_HELD_SCROLLBACK_ROWS, type CellGridRenderer } from "./cellRenderer.ts";
 
 // Grace after a full frame before fetching — lets the attach burst (N panes
 // re-claiming on tab-visible) settle; a user scroll-up starts immediately.
@@ -71,8 +74,20 @@ export function createScrollbackBackfill(opts: {
     try {
       let retried = false;
       while (!disposed && myEpoch === epoch) {
-        const anchor = opts.renderer()?.backfillAnchor();
-        if (!anchor || anchor.sbBase <= 0) return;
+        const r0 = opts.renderer();
+        const anchor = r0?.backfillAnchor();
+        if (!r0 || !anchor || anchor.sbBase <= 0) return;
+        // Eager drain stops at the window the evictor enforces. While the pane
+        // follows the live tail, pulling past MAX_HELD_SCROLLBACK_ROWS only
+        // feeds _evictScrollback, which trims the rows straight back off and
+        // moves sbBase — the post-await guard below then parks this loop with
+        // history still missing. Past the cap only a reader within one viewport
+        // of the painted top pulls more, one chunk per approach, re-triggered
+        // by the scroll events the gesture keeps producing: draining the whole
+        // ring the moment the user left the bottom built 250 rows of DOM per
+        // animation frame mid-gesture. History is never traded away — only
+        // fetched when someone looks.
+        if (anchor.total - anchor.sbBase >= MAX_HELD_SCROLLBACK_ROWS && !r0.nearHistoryTop()) return;
         let resp;
         try {
           // +1: re-fetch the first held row as the OVERLAP row — its text

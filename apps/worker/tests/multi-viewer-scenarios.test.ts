@@ -17,6 +17,7 @@ import { VIEWER_WITHDRAW_GRACE_MS } from "@roost/shared/viewport";
 import { WasmBridge } from "@wterm/core";
 import { gridToCellFrame } from "@roost/shared/cell";
 import type { TerminalCore } from "@wterm/core";
+import { initCellEmitState } from "@roost/shared/cell";
 
 // withdrawViewport defers removal by VIEWER_WITHDRAW_GRACE_MS; wait past it
 // before asserting the post-withdraw claim count / recomputed SCD.
@@ -56,6 +57,7 @@ async function injectSession(mgr: SessionManager, cols: number, rows: number): P
     mode_carry: new Uint8Array(0),
     osc7_carry: new Uint8Array(0),
     wtermCore,
+    cell_emit: initCellEmitState(),
   });
 }
 
@@ -67,7 +69,7 @@ function cellGridText(core: TerminalCore): string {
   return lines.join("\n");
 }
 function getCore(mgr: SessionManager): TerminalCore {
-  return mgr.sessions.get(CID)!.wtermCore;
+  return mgr.sessions.get(CID)!.wtermCore!;
 }
 
 function applied(mgr: SessionManager): { cols: number; rows: number } | undefined {

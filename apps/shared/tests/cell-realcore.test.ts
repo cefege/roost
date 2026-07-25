@@ -131,4 +131,62 @@ describe("real-core full → delta → applyDelta reconstruct", () => {
     expect(next.frame.full).toBe(true);
     expect(next.frame.altScreen).toBe(true);
   });
+
+  // The ring is bounded. Once it saturates getScrollbackCount() PINS, and the
+  // old "N-th oldest retained" index origin then slid by one on every eviction:
+  // appends computed from the count delta went empty (the SPA's scrollback
+  // simply stopped growing), the reframe predicate `total < lastSbTotal` never
+  // fired, and every absolute index the SPA held silently re-aliased to a
+  // different line. Content is uniform-width `CELLLINE-%d` on purpose — that is
+  // the workload that saturates a ring, and a length-only tail probe aliases
+  // every line of it to the same signature.
+  test("scrollback keeps flowing and indices stay stable after the ring saturates", async () => {
+    const core = await WasmBridge.load();
+    core.init(80, 24);
+    const enc = new TextEncoder();
+    let next = 1;
+    const write = (n: number): void => {
+      for (let i = 0; i < n; i++) core.writeRaw(enc.encode(`CELLLINE-${next++}\r\n`));
+    };
+    let st = initCellEmitState();
+    const emit = () => {
+      const r = nextCellFrame(core, st, false);
+      st = r.state;
+      core.clearDirty();
+      return r.frame;
+    };
+    // Chunks of 100 — what one coalesce window realistically ships, and well
+    // inside SB_SHIFT_SCAN_MAX so the shift resolves instead of reframing.
+    const CHUNK = 100;
+    for (let b = 0; b < 20; b++) { write(CHUNK); emit(); }
+    const retained = core.getScrollbackCount();
+    write(CHUNK); emit();
+    expect(core.getScrollbackCount()).toBe(retained); // the count has PINNED
+
+    // Locate a still-retained line by its monotonic index.
+    const rowsOf = (f: { scrollbackRows: { index: number; spans: { text: string }[] }[] }) =>
+      f.scrollbackRows.map((r) => [r.index, r.spans.map((s) => s.text).join("")] as const);
+    const marker = `CELLLINE-${next - 50}`;
+    const beforeRows = rowsOf(gridToCellFrame(core, 0, undefined, st.sbDropped));
+    const beforeIdx = beforeRows.find(([, t]) => t === marker)?.[0];
+    expect(beforeIdx).toBeDefined();
+    const totalBefore = st.lastSbTotal;
+
+    // Three more windows of output — 300 lines the pinned count cannot see.
+    let appended = 0;
+    for (let b = 0; b < 3; b++) {
+      write(CHUNK);
+      const f = emit();
+      expect(f.full).toBe(false); // the shift resolved; no reframe needed
+      appended += f.scrollbackAppend.length;
+    }
+    expect(appended).toBe(3 * CHUNK);        // pre-fix: 0 — history stopped flowing
+    expect(st.lastSbTotal).toBe(totalBefore + 3 * CHUNK); // pre-fix: unchanged
+
+    const afterRows = rowsOf(gridToCellFrame(core, 0, undefined, st.sbDropped));
+    const afterIdx = afterRows.find(([, t]) => t === marker)?.[0];
+    expect(afterIdx).toBe(beforeIdx!);       // pre-fix: slid down by 300
+    // And the index still names that line, not merely an equal number.
+    expect(afterRows.find(([i]) => i === beforeIdx)?.[1]).toBe(marker);
+  });
 });

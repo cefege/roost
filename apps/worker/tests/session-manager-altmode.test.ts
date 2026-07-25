@@ -11,6 +11,7 @@ import { describe, test, expect } from "bun:test";
 import { SessionManager } from "../src/session-manager.ts";
 import { asSessionId, asChannelId, asWorkerFp } from "@roost/shared";
 import { WasmBridge } from "@wterm/core";
+import { initCellEmitState } from "@roost/shared/cell";
 
 function freshMgr(): SessionManager {
   return new SessionManager({
@@ -44,6 +45,7 @@ async function injectSession(mgr: SessionManager, channelId: number, bytes: stri
     mode_carry: new Uint8Array(0),
     osc7_carry: new Uint8Array(0),
     wtermCore,
+    cell_emit: initCellEmitState(),
   };
   (mgr as unknown as { sessions: Map<number, unknown> }).sessions.set(channelId, record);
 }

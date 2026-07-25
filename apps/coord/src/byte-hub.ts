@@ -173,6 +173,9 @@ export function publishChat(workerFp: WorkerFp, channelId: ChannelId, frame: Cha
   const sessionId = _channelToSession.get(_key(workerFp, channelId));
   if (!sessionId) {
     diag("byte-hub.drop_unmapped_chat", { worker_fp: workerFp, channel_id: channelId });
+    // Unlike PTY bytes there is no re-send and no replay: a dropped chat frame
+    // is permanent data loss, so it gets a line even without ROOST_DIAG=1.
+    log.warn("byte-hub", "drop_unmapped_chat", { worker_fp: workerFp, channel_id: channelId, seq: Number(frame.seq) });
     _recordUnmappedDrop(workerFp, channelId);
     return;
   }

@@ -18,6 +18,7 @@ import { asSessionId, asChannelId, asWorkerFp } from "@roost/shared";
 import { WasmBridge } from "@wterm/core";
 import { gridToCellFrame } from "@roost/shared/cell";
 import type { TerminalCore } from "@wterm/core";
+import { initCellEmitState } from "@roost/shared/cell";
 
 const SID = asSessionId("00000000-0000-0000-0000-000000000000");
 const CID = 1;
@@ -48,6 +49,7 @@ async function injectSession(mgr: SessionManager, bytes: Uint8Array, cols: numbe
     mode_carry: new Uint8Array(0),
     osc7_carry: new Uint8Array(0),
     wtermCore,
+    cell_emit: initCellEmitState(),
   });
 }
 
@@ -73,7 +75,7 @@ describe("server↔client wterm-core parity (cell-grid round-trip)", () => {
     const mgr = freshMgr();
     const seed = new TextEncoder().encode("hello world\r\nsecond line\r\nthird\r\n");
     await injectSession(mgr, seed, 80, 24);
-    const serverCore = mgr.sessions.get(CID)!.wtermCore;
+    const serverCore = mgr.sessions.get(CID)!.wtermCore!;
     const clientCore = await makeClientCore(seed, 80, 24);
     expect(cellGridText(clientCore)).toBe(cellGridText(serverCore));
   });
@@ -82,7 +84,7 @@ describe("server↔client wterm-core parity (cell-grid round-trip)", () => {
     const mgr = freshMgr();
     const seed = new TextEncoder().encode("\x1b[1;31;104mWARN\x1b[0m normal\r\n");
     await injectSession(mgr, seed, 40, 8);
-    const serverCore = mgr.sessions.get(CID)!.wtermCore;
+    const serverCore = mgr.sessions.get(CID)!.wtermCore!;
     const clientCore = await makeClientCore(seed, 40, 8);
     expect(cellGridText(clientCore)).toBe(cellGridText(serverCore));
   });
@@ -93,7 +95,7 @@ describe("server↔client wterm-core parity (cell-grid round-trip)", () => {
       "before\r\n\x1b[?1049hALT-SCREEN-PAINT\x1b[?1049lafter\r\n"
     );
     await injectSession(mgr, seed, 60, 12);
-    const serverCore = mgr.sessions.get(CID)!.wtermCore;
+    const serverCore = mgr.sessions.get(CID)!.wtermCore!;
     const clientCore = await makeClientCore(seed, 60, 12);
     expect(cellGridText(clientCore)).toBe(cellGridText(serverCore));
   });
@@ -102,7 +104,7 @@ describe("server↔client wterm-core parity (cell-grid round-trip)", () => {
     const mgr = freshMgr();
     const seed = new TextEncoder().encode("\x1b[5;10HX\x1b[Horigin");
     await injectSession(mgr, seed, 40, 12);
-    const serverCore = mgr.sessions.get(CID)!.wtermCore;
+    const serverCore = mgr.sessions.get(CID)!.wtermCore!;
     const clientCore = await makeClientCore(seed, 40, 12);
     expect(cellGridText(clientCore)).toBe(cellGridText(serverCore));
   });
@@ -111,7 +113,7 @@ describe("server↔client wterm-core parity (cell-grid round-trip)", () => {
     const mgr = freshMgr();
     const seed = new TextEncoder().encode("héllo 🐙 中文 ñ\r\n");
     await injectSession(mgr, seed, 40, 8);
-    const serverCore = mgr.sessions.get(CID)!.wtermCore;
+    const serverCore = mgr.sessions.get(CID)!.wtermCore!;
     const clientCore = await makeClientCore(seed, 40, 8);
     expect(cellGridText(clientCore)).toBe(cellGridText(serverCore));
   });

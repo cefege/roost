@@ -19,7 +19,7 @@
 // `kill(pid,0)`→ESRCH, same as keeper-death-reconcile.test.ts.
 
 import { describe, test, expect, afterAll } from "bun:test";
-import { existsSync, unlinkSync } from "node:fs";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { MultiplexedKeeperPool, type MuxChannelCallbacks } from "../src/keeper/multiplexed-client.ts";
@@ -45,8 +45,14 @@ afterAll(() => {
   for (const mark of [FG_MARK, BG_MARK, HUP_MARK]) for (const pid of pgrepF(mark)) {
     try { process.kill(pid, "SIGKILL"); } catch { /* gone */ }
   }
+  // dispose() leaves the keeper running by design, so reap it by the handle we
+  // hold — captured before dispose() drops the socket.
+  const keeperPid = pool._keeperProc?.pid;
   pool.dispose();
-  if (existsSync(SOCK_PATH)) try { unlinkSync(SOCK_PATH); } catch { /* ignore */ }
+  if (keeperPid) try { process.kill(keeperPid, "SIGKILL"); } catch { /* already dead */ }
+  for (const pid of pgrepF(SOCK_PATH)) try { process.kill(pid, "SIGKILL"); } catch { /* gone */ }
+  // Whole dir: unlinking only the socket left SOCK_DIR in $TMPDIR every run.
+  rmSync(SOCK_DIR, { recursive: true, force: true });
 });
 
 /** pgrep -f <pattern> → array of matching pids (pgrep excludes its own pid). */

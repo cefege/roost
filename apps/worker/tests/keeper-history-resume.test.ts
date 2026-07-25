@@ -11,7 +11,7 @@
 // seq-epoch reset. CLAUDE.md L11.
 
 import { describe, test, expect, afterAll } from "bun:test";
-import { existsSync, unlinkSync } from "node:fs";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { MultiplexedKeeperPool, type MuxChannelCallbacks } from "../src/keeper/multiplexed-client.ts";
@@ -24,9 +24,13 @@ const pool = new MultiplexedKeeperPool();
 let _nextCh = 700;
 
 afterAll(() => {
+  // Private pool on its own SOCK_DIR — the keeper it spawned is ours to reap.
+  // dispose() leaves it running by design, so capture the pid first.
+  const keeperPid = pool._keeperProc?.pid;
   pool.dispose();
-  const sock = join(SOCK_DIR, "mux-keeper.sock");
-  if (existsSync(sock)) try { unlinkSync(sock); } catch { /* ignore */ }
+  if (keeperPid) try { process.kill(keeperPid, "SIGKILL"); } catch { /* already dead */ }
+  // Whole dir: unlinking only the socket left SOCK_DIR in $TMPDIR every run.
+  rmSync(SOCK_DIR, { recursive: true, force: true });
 });
 
 /** Spawn raw-mode cat on a fresh channel; returns helpers to send input

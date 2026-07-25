@@ -27,7 +27,7 @@ describe("chat relay (publishChat → globalChatBus)", () => {
         blocks: [{ kind: "text", text: "hello" }],
       }],
       seq: 1, reset: false, streaming: false, model: "", modelName: "", thinkingLevel: "",
-      contextTokens: 0, contextWindow: 0, mode: "", engine: "mirror",
+      contextTokens: 0, contextWindow: 0, mode: "",
     };
     const pb = chatFrameToProto(wire);
 
@@ -51,7 +51,7 @@ describe("chat relay (publishChat → globalChatBus)", () => {
   test("publishChat drops unmapped channel (no crash, no publish)", async () => {
     const wire: ChatFrame = {
       sessionId: "", append: [], seq: 0, reset: true, streaming: false, model: "", modelName: "", thinkingLevel: "",
-      contextTokens: 0, contextWindow: 0, mode: "", engine: "mirror",
+      contextTokens: 0, contextWindow: 0, mode: "",
     };
     let fired = false;
     const unsub = globalChatBus.subscribe(() => { fired = true; });
