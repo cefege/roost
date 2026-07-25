@@ -44,6 +44,7 @@ import { OmpChatPane } from "./chat/omp/OmpChatPane.tsx";
 import { ompChatEnabled } from "../store/chatOmp.ts";
 import { ompChatViewForSession, toggleOmpChatView } from "../store/uiStore.ts";
 import { TerminalStatusBadge } from "./TerminalStatusBadge.tsx";
+import { IconButton } from "./Settings/md/IconButton.tsx";
 import { mouseForwardEnabled } from "../lib/mouseForwardPref.ts";
 import { isCompact, isTouchDevice } from "../lib/windowSizeClass.ts";
 import { micOnDesktop } from "../lib/micOnDesktop.ts";
@@ -1205,6 +1206,8 @@ export function CellTerminal(props: CellTerminalProps) {
 
 	return (
 		<div
+			data-testid="cell-terminal-pane"
+			data-session-id={props.session.id}
 			style={{
 				position: "absolute",
 				inset: "0",
@@ -1275,20 +1278,19 @@ export function CellTerminal(props: CellTerminalProps) {
           pane between the cell terminal and the OmpChatPane overlay. Hidden for
           non-omp sessions (claude/shell/pi). */}
 			<Show when={ompChatEnabled(props.session.id)}>
-				<button
-					class="omp-chat-toggle"
+				<IconButton
+					icon={ompChatViewForSession(props.session.id) === "chat" ? "terminal" : "forum"}
+					label={ompChatViewForSession(props.session.id) === "chat" ? "Switch to terminal" : "Switch to chat"}
 					data-testid="omp-chat-toggle"
 					title={ompChatViewForSession(props.session.id) === "chat" ? "Switch to terminal" : "Switch to chat"}
 					onClick={() => toggleOmpChatView(props.session.id)}
 					style={{
-						position: "absolute", right: "12px", top: "12px", "z-index": "10",
-						padding: "6px 8px", border: "1px solid var(--md-sys-color-outline-variant)",
-						"border-radius": "8px", background: "var(--md-sys-color-surface-container-high)",
-						color: "var(--md-sys-color-on-surface)", cursor: "pointer", "font-size": "12px",
+						position: "absolute", right: "var(--md-space-3)", top: "var(--md-space-3)", "z-index": "10",
+						"--md-icon-button-icon-size": "18px",
+						"--md-icon-button-state-layer-width": "36px",
+						"--md-icon-button-state-layer-height": "36px",
 					}}
-				>
-					{ompChatViewForSession(props.session.id) === "chat" ? "▭ Terminal" : "✉ Chat"}
-				</button>
+				/>
 			</Show>
 			{/* Launch-agent FAB — shells only, shown only at a plain shell prompt
           (regex on the live viewport tail) AND not while voice-recording

@@ -17,6 +17,7 @@ import { isChatFolder } from "../../../lib/quickChat.ts";
 import { addToast } from "../../../lib/toastStore.ts";
 import { inputChannel } from "../../../ws/input-channel.ts";
 import { buildPtyPayload, CR_BYTES, enterDelayMs } from "../../../lib/ptyPaste.ts";
+import { Button } from "../../Settings/md/Button.tsx";
 
 interface Props {
   sessionId: string;
@@ -102,15 +103,16 @@ export function Composer(props: Props) {
           prompt (the worker queues it as a followUp), so hiding Send would
           wrongly imply follow-ups are blocked. */}
       <Show when={chat().streaming}>
-        <button class="omp-composer__stop" onClick={() => void abort()}>Stop</button>
+        <Button variant="text" data-testid="omp-chat-stop" onClick={() => void abort()}>Stop</Button>
       </Show>
-      <button
-        class="omp-composer__send"
+      <Button
+        variant="filled"
+        data-testid="omp-chat-send"
         onClick={() => send()}
         disabled={sending() || text().trim().length === 0}
       >
         <Show when={!sending()} fallback="…">Send</Show>
-      </button>
+      </Button>
     </div>
   );
 }

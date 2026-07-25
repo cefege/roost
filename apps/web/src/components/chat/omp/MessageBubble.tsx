@@ -41,8 +41,8 @@ function ImageBlock(props: { blobPath: string; mime: string }) {
   // data: URLs render directly; absolute paths need a byte fetch (v1: placeholder).
   const isDataUrl = () => props.blobPath.startsWith("data:");
   return (
-    <Show when={isDataUrl()} fallback={<span class="omp-md" style={{ opacity: "0.6" }}>[image: {props.mime}]</span>}>
-      <img src={props.blobPath} alt="" style={{ "max-width": "100%", "border-radius": "6px", margin: "4px 0" }} />
+    <Show when={isDataUrl()} fallback={<span class="omp-md" style={{ color: "var(--md-on-surface-dim)" }}>[image: {props.mime}]</span>}>
+      <img src={props.blobPath} alt="" style={{ "max-width": "100%", "border-radius": "var(--md-shape-sm)", margin: "var(--md-space-1) 0" }} />
     </Show>
   );
 }

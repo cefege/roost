@@ -47,7 +47,7 @@ export function ToolCard(props: Props) {
 
   return (
     <div class="omp-tool" classList={{ "omp-tool--error": isError(), "omp-tool--running": running() }} data-testid="omp-chat-tool">
-      <div class="omp-tool__head" onClick={() => setOverride(!collapsed())}>
+      <button type="button" class="omp-tool__head" aria-expanded={!collapsed()} onClick={() => setOverride(!collapsed())}>
         <span class="omp-tool__chevron">{collapsed() ? "▸" : "▾"}</span>
         <span class="omp-tool__name">{name()}</span>
         <Show when={summary()}><span class="omp-tool__summary">{summary()}</span></Show>
@@ -56,7 +56,7 @@ export function ToolCard(props: Props) {
           <Show when={isError()}>error</Show>
           <Show when={collapsed() && !isError()}>{resultLines()} lines</Show>
         </span>
-      </div>
+      </button>
 
       <Show when={!collapsed()}>
         <div class="omp-tool__body">

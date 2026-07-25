@@ -609,50 +609,48 @@ aside[data-overscroll="bottom"] {
 
 /* ── Code | Chat segmented toggle — pinned at the top of the sidebar body,
    switches the row list between workspaces (Code) and quick AI chats (Chat).
-   Pill container + two equal-width segments; active segment raised. ── */
+   Hand-rolled: @material/web ships no segmented-button component, and md-tabs
+   would restructure the role="tablist" DOM FolderList.tsx depends on. Styling
+   follows M3 segmented-button: 40px height, tonal selected fill, no elevation. ── */
 .df-fld-tabs {
   display: flex;
-  gap: 2px;
-  margin: 4px 8px 8px;
-  padding: 3px;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--text-hi) 6%, transparent);
+  gap: var(--md-space-1);
+  margin: var(--md-space-1) var(--md-space-2) var(--md-space-2);
+  padding: var(--md-space-1);
+  border-radius: var(--md-shape-md);
+  background: var(--md-sys-color-surface-container-low);
 }
 .df-fld-tab {
   flex: 1;
-  padding: 6px 0;
+  padding: 0;
+  min-height: var(--md-space-8);
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--md-shape-sm);
   background: transparent;
-  color: var(--text-lo);
+  color: var(--md-sys-color-on-surface-variant);
+  font-family: inherit;
   font-size: var(--md-label-l-size);
-  font-weight: 600;
+  line-height: var(--md-label-l-line);
+  font-weight: var(--md-label-l-weight);
   cursor: pointer;
+  transition:
+    background-color var(--md-sys-motion-duration-short2) var(--md-sys-motion-easing-standard),
+    color var(--md-sys-motion-duration-short2) var(--md-sys-motion-easing-standard);
 }
 .df-fld-tab:hover {
-  color: var(--text-mid, var(--text-hi));
+  background: var(--md-state-hover);
 }
+.df-fld-tab:active {
+  background: var(--md-state-pressed);
+}
+.df-fld-tab:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: -2px;
+}
+/* M3 selected segment is a tonal fill, not a raised tile. */
 .df-fld-tab[data-active="true"] {
-  background: var(--surface-0);
-  color: var(--text-hi);
-  box-shadow: var(--md-elev-1);
-}
-/* "+ New chat" — one-tap quick-chat action, shown only on the Chat tab. */
-.df-fld-newchat {
-  display: block;
-  width: calc(100% - 16px);
-  margin: 0 8px 8px;
-  padding: 8px 0;
-  border: 0;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--text-hi) 8%, transparent);
-  color: var(--text-hi);
-  font-size: var(--md-label-l-size);
-  font-weight: 600;
-  cursor: pointer;
-}
-.df-fld-newchat:hover {
-  background: color-mix(in srgb, var(--text-hi) 14%, transparent);
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
 }
 
 /* "+ New terminal" CTA + composer (flat sidebar's session-create surface).

@@ -20,6 +20,7 @@ import { createStore, reconcile } from "solid-js/store";
 import { A, useNavigate, useLocation } from "@solidjs/router";
 import { rootStore } from "../../store/root.ts";
 import { closeSidebar } from "../../store/uiStore.ts";
+import { Button } from "../Settings/md/Button.tsx";
 import { allSessions, activeSessionForPath, folderRowTargetId } from "../../store/selectors.ts";
 import { mostRecentUnread } from "../../lib/attention.ts";
 import { markSeen, seedSeenOnce } from "../../lib/sessionSeen.ts";
@@ -349,9 +350,15 @@ export function FolderList() {
           onClick={() => setSidebarTab("chat")}>Chat</button>
       </div>
       <Show when={sidebarTab() === "chat"}>
-        <button type="button" class="df-fld-newchat" data-testid="sidebar-new-chat"
+        <Button
+          variant="tonal"
+          icon="add"
+          data-testid="sidebar-new-chat"
+          aria-label="New chat"
+          title="New chat"
+          style={{ display: "block", width: "calc(100% - var(--md-space-4))", margin: "0 var(--md-space-2) var(--md-space-2)" }}
           onClick={() => { closeSidebar(); void startQuickChat(navigate); }}
-          aria-label="New chat" title="New chat">+ New chat</button>
+        >New chat</Button>
       </Show>
       <div class="df-flat-group">
         <For each={visibleRows()}>

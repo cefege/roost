@@ -10,6 +10,7 @@ import { createSignal, For, Show } from "solid-js";
 import type { ApprovalBlock } from "@roost/shared/chat/wire";
 import { coordClient } from "../../../connect.ts";
 import { addToast } from "../../../lib/toastStore.ts";
+import { Button } from "../../Settings/md/Button.tsx";
 
 interface Props {
   sessionId: string;
@@ -48,18 +49,18 @@ export function ApprovalCard(props: Props) {
       >
         <Show when={props.block.method === "confirm"}>
           <div class="omp-approval__actions">
-            <button class="omp-approval__btn" disabled={busy()} onClick={() => void answer({ confirmed: true })}>Approve</button>
-            <button class="omp-approval__btn" disabled={busy()} onClick={() => void answer({ confirmed: false })}>Deny</button>
+            <Button variant="filled" disabled={busy()} onClick={() => void answer({ confirmed: true })}>Approve</Button>
+            <Button variant="text" disabled={busy()} onClick={() => void answer({ confirmed: false })}>Deny</Button>
           </div>
         </Show>
         <Show when={props.block.method === "select"}>
           <div class="omp-approval__actions">
             <For each={props.block.options}>
               {(opt) => (
-                <button class="omp-approval__btn" disabled={busy()} onClick={() => void answer({ value: opt })}>{opt}</button>
+                <Button variant="tonal" disabled={busy()} onClick={() => void answer({ value: opt })}>{opt}</Button>
               )}
             </For>
-            <button class="omp-approval__btn" disabled={busy()} onClick={() => void answer({ cancelled: true })}>Dismiss</button>
+            <Button variant="text" disabled={busy()} onClick={() => void answer({ cancelled: true })}>Dismiss</Button>
           </div>
         </Show>
         <Show when={props.block.method === "input"}>
@@ -71,8 +72,8 @@ export function ApprovalCard(props: Props) {
               onInput={(e) => setText(e.currentTarget.value)}
               onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void answer({ value: text() }); } }}
             />
-            <button class="omp-approval__btn" disabled={busy()} onClick={() => void answer({ value: text() })}>Submit</button>
-            <button class="omp-approval__btn" disabled={busy()} onClick={() => void answer({ cancelled: true })}>Dismiss</button>
+            <Button variant="filled" disabled={busy()} onClick={() => void answer({ value: text() })}>Submit</Button>
+            <Button variant="text" disabled={busy()} onClick={() => void answer({ cancelled: true })}>Dismiss</Button>
           </div>
         </Show>
       </Show>
