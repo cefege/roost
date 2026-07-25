@@ -37,7 +37,10 @@ g.window = {
 };
 
 // Dynamic import on purpose: the module must initialize AFTER the stubs above.
-const { lastSeenAt, markSeen, seedSeenOnce } = await import("../src/lib/sessionSeen.ts");
+// __resetPersistForTests rewinds the shared-registry state an earlier file may
+// have left behind (see beforeEach) — import order must not decide the result.
+const { lastSeenAt, markSeen, seedSeenOnce, __resetPersistForTests } =
+  await import("../src/lib/sessionSeen.ts");
 
 const SEEN_KEY = "roost.sidebar.seen";
 
@@ -48,6 +51,11 @@ function seenWrites(): number {
 describe("sessionSeen", () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    // Another test file may have imported this module and armed its debounce
+    // before our window/localStorage stubs existed; rewind so the timer and
+    // the pagehide hook belong to THIS suite.
+    __resetPersistForTests();
+    _pagehideHandlers.length = 0;
     _setItemLog.length = 0;
   });
   // Drain any pending debounce inside the SAME fake-timer session so no

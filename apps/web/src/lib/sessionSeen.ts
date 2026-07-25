@@ -76,6 +76,20 @@ function _schedulePersist(): void {
   }, PERSIST_DEBOUNCE_MS) as unknown as number;
 }
 
+/** Test seam: drop the pending debounce and the pagehide latch. bun test
+ *  shares ONE module registry across files, so a suite that merely calls
+ *  markSeen (folderGroupsPriority) leaves _persistTimer armed and _flushHooked
+ *  latched against its own window. The next suite's _schedulePersist() then
+ *  returns early at the timer guard and never re-registers pagehide, so its
+ *  fake-timer advance flushes nothing. Production has one window and one
+ *  lifetime; only tests need to rewind this. */
+export function __resetPersistForTests(): void {
+  if (_persistTimer) clearTimeout(_persistTimer);
+  _persistTimer = 0;
+  _persistPending = false;
+  _flushHooked = false;
+}
+
 /** Mark a session seen up to `ts` (default now). Monotonic; no-op if older —
  *  the no-op branch fires NO reactive notification at all. untrack on the
  *  guard read so effect-hosted callers (FolderList/TerminalDeck) don't
