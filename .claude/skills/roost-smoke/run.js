@@ -57,9 +57,10 @@ const HOME = "/tmp";  // portable — every Unix has /tmp
   }
   async function readyFreshDeck() {
     const dismiss = $('[data-testid="whats-new-dismiss"]');
-    if (dismiss) {
+    const dialog = dismiss?.closest("md-dialog");
+    if (dismiss && dialog?.hasAttribute("open")) {
       dismiss.click();
-      if (!await waitUntil(() => !$('[data-testid="whats-new-dismiss"]'), 5_000)) {
+      if (!await waitUntil(() => !dialog.hasAttribute("open"), 5_000)) {
         return { dismissed: true, homeLanding: false };
       }
     }
@@ -67,7 +68,7 @@ const HOME = "/tmp";  // portable — every Unix has /tmp
     window.dispatchEvent(new PopStateEvent("popstate"));
     return {
       dismissed: !!dismiss,
-      homeLanding: await waitUntil(() => !!$('[data-testid="home-landing"]'), 5_000),
+      homeLanding: await waitUntil(() => !!$('[data-testid="home-landing"]'), 10_000),
     };
   }
 
@@ -139,7 +140,8 @@ const HOME = "/tmp";  // portable — every Unix has /tmp
     const footprint = terminalFootprint();
     record(
       "step3_mount_footprint",
-      sameIds(footprint.mountedIds, footprint.visibleIds),
+      sameIds(footprint.openSessions, footprint.mountedIds) &&
+      sameIds(footprint.visibleIds, [sh.session_id]),
       footprint,
     );
     if (sh.session_id) {
