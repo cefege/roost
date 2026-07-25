@@ -67,7 +67,6 @@ import { coordClient } from "../connect.ts";
 import { ResizeCause } from "@roost/shared/proto/coordinator_pb";
 import { isResizeDragging, arrangeEpoch } from "../lib/resizeDrag.ts";
 import { diag, signal } from "@roost/shared/diag";
-import { springStep, isSpringAtRest, SPRING_STIFF, type SpringState } from "../lib/spring.ts";
 import { getSessionTraceId } from "../lib/diag.ts";
 import { recordInputRtt } from "../lib/leakWatch.ts";
 import type { Session } from "@roost/shared/wire";
@@ -105,20 +104,6 @@ const CLAIM_DEBOUNCE_MS = 150;
 // refresh/tab-switch re-claims. 30s = ¼ TTL, matching the "viewers refresh
 // every 30s" the worker's reaper comment already assumes.
 const CLAIM_HEARTBEAT_MS = 30_000;
-
-// Reveal re-pin burst: after a hidden→visible re-claim snapshot paints, the
-// content-visibility scrollback blocks reflow from their contain-intrinsic-size
-// estimate to real height over the next few frames, moving the true bottom. Re-
-// assert scrollToBottom across this window instead of trusting one synchronous
-// atBottom() read (which sees the pre-reflow estimate). ~12 frames ≈ 200ms @60fps.
-const REPIN_SETTLE_FRAMES = 12;
-
-// A finger must travel this far before a touch counts as a scroll (vs a tap-to-
-// focus). Below it, follow intent is left untouched so tapping never breaks it.
-const TOUCH_SCROLL_SLOP_PX = 8;
-// Keep auto-pin suppressed this long after the finger lifts so iOS/Android fling
-// momentum settles before follow re-syncs to the resting position.
-const TOUCH_MOMENTUM_GRACE_MS = 300;
 
 // Shared 500ms cursor-poll ticker — one interval for ALL mounted panes (was one
 // per open session; the deck keeps every open session mounted). Ref-counted like
@@ -204,26 +189,29 @@ export function CellTerminal(props: CellTerminalProps) {
 	// sendClaim → sees inLayout=false → would withdraw AGAIN. Reset on claim.
 	let _lastSent: "claim" | "withdraw" | null = null;
 	let unmounted = false;
-// Stick-to-bottom intent captured across withdrawal. The per-frame wasBottom
-// read (cellRenderer.atBottom) is unreliable right after a pane is revealed:
-// parking a pane off-screen reverts its content-visibility scrollback blocks
-// (sidebar.css .cell-block) to placeholder sizes, corrupting scrollHeight/
-// scrollTop, so atBottom() misreads false and the if(wasBottom) re-pin is
-// skipped. _following is maintained only while the pane is live+visible
-// (cell handler + scroll listener), so it holds the trustworthy pre-withdrawal
-// intent; _repinPending forces a re-pin on the first frame(s) after reveal.
-let _following = true;     // user stuck to bottom? (default: a fresh pane follows)
-let _repinPending = false; // a reveal happened while _following → re-pin on next frame(s)
-let _settling = false;              // true while the reveal re-pin burst is scrolling — self-inflicted scrolls, ignore them. Bounded: only a FULL frame re-arms the countdown (see startRepinSettle), so a stream of delta frames can never keep it latched.
-let _settleRaf: number | null = null;
-let _flushRaf: number | null = null;
-let _settleFrames = 0;
-let _jumping = false; // true while the smooth jump-to-bottom animation runs — ignore the scroll listener
-let _lastPinTop = Number.NaN; // scrollTop right after the last scheduleFlush scrollToBottom pin. NaN until the first pin (NaN comparisons are false → never suppresses a real scroll before then). onBackfillScroll uses this to tell the pin's OWN async scroll event (scrollTop still == the target, possibly with scrollHeight since grown below it) from a genuine wheel/touch scroll-up (scrollTop now strictly BELOW the target). Position-based, not time-based, so a real scroll-up is honored the instant it moves — the one-frame flag it replaced re-armed every frame during streaming and blinded wheel-up the whole time output was pouring.
-let _touchScrolling = false; // finger actively dragging a main-screen (non-alt) pane → suppress auto-pin
-let _touchStartY = 0;        // clientY at touchstart, to measure drag distance vs slop
-let _touchMoved = false;     // this touch has passed the slop → it's a scroll, not a tap
-let _touchGraceTimer: ReturnType<typeof setTimeout> | null = null;
+	// ── stick-to-bottom: the WHOLE rule ──────────────────────────────────
+	// At the bottom → stay at the bottom as output arrives. Scroll up → release,
+	// and stay released while output keeps arriving. Scroll back to the bottom →
+	// stick again. Nothing else.
+	//
+	// 2026-07-25 rewrite. The previous machine had eleven interacting flags — a
+	// 12-frame reveal re-pin burst (which made scroll-up impossible for ~200ms
+	// after every tab switch), a NaN-sentinel pin-echo suppressor, touch slop +
+	// a 300ms momentum grace, and a 600ms spring jump chasing a moving bottom.
+	// They fought each other; that was the "it jumps around". Do not add a flag
+	// here. If the view misbehaves, the bug is a lying scrollHeight — fix it at
+	// the source (cellRenderer.sizeBlock), not with another guard.
+	let stick = true;   // pinned to the live tail
+	// lastTop exists for exactly ONE reason: scroll events are delivered
+	// asynchronously, so a PROGRAMMATIC scrollTop write echoes back here a frame
+	// later looking like user input. Two writers do it — the pin, and
+	// cellRenderer._evictScrollback, which restores distance-from-bottom after
+	// trimming leading blocks and thereby LOWERS scrollTop. Both run in the cell
+	// handler's task and end with lastTop resynced (pinToBottom), so their echo
+	// arrives with scrollTop === lastTop. Only a scrollTop that actually
+	// DECREASED relative to our last write is a user scroll-up.
+	let lastTop = 0;
+	let _flushRaf: number | null = null; // coalesces the per-frame jump-FAB read into one rAF
 	const [altScreen, setAltScreen] = createSignal(false); // tracks frame.altScreen — gates mouse/touch forwarding + wheel passivity
 	// Show the jump-to-bottom FAB once the user has scrolled up more than one
 	// full viewport from the bottom (i.e. scrolling back manually would be tedious).
@@ -395,105 +383,48 @@ let _touchGraceTimer: ReturnType<typeof setTimeout> | null = null;
 		sendClaim(cause);
 	}
 
-	// Drive the reveal re-pin across the reflow window. A FULL frame (the
-	// re-claim snapshot) re-arms the countdown — its content-visibility blocks
-	// are what reflow. Delta frames must NEVER re-arm it: under streaming they
-	// land every ~16ms (worker CELL_EMIT_COALESCE_MS), and resetting the counter
-	// on each one livelocked the burst — _settling swallowed every scroll event
-	// while the rAF re-pinned to the bottom, so scroll-up was impossible for as
-	// long as output streamed.
-	function startRepinSettle(restart: boolean): void {
-		if (restart) _settleFrames = 0;
-		_settling = true;
-		if (_settleRaf != null) return; // loop already running
-		const step = () => {
-			if (unmounted || !renderer || !_repinPending) { _settling = false; _settleRaf = null; return; }
-			renderer.scrollToBottom();
-			if (++_settleFrames >= REPIN_SETTLE_FRAMES) {
-				_repinPending = false;
-				_settling = false;
-				_settleRaf = null;
-				return;
-			}
-			_settleRaf = requestAnimationFrame(step);
-		};
-		_settleRaf = requestAnimationFrame(step);
-	}
-
 	// One viewport-height of slack: below this the plain scroll is trivial, so the
 	// FAB would just be noise. altScreen has no scrollback → never show.
 	function updateJumpDownVis(): void {
-		if (!displayRef || _jumping || altScreen()) { setShowJumpDown(false); return; }
+		if (!displayRef || altScreen()) { setShowJumpDown(false); return; }
 		const fromBottom = displayRef.scrollHeight - displayRef.scrollTop - displayRef.clientHeight;
 		setShowJumpDown(fromBottom > displayRef.clientHeight);
 	}
 
-	// Coalesced post-frame layout work: the ONLY synchronous scrollHeight reads on
-	// the cell-apply path. Deferring them to a single rAF (guarded, so N frames in
-	// one frame collapse to one flush) lets the browser lay out the whole document
-	// ONCE per animation frame instead of once per live pane per frame — the fix
-	// for input jank that scales with open-terminal count. apply() itself is
-	// writes-only, so the DOM is dirty-but-uncomputed when this runs.
+	// Pin to the live tail, synchronously. MUST run in the same task as
+	// renderer.apply(): apply() WRITES scrollTop itself — _evictScrollback
+	// restores distance-from-bottom after trimming leading blocks, which LOWERS
+	// scrollTop — and the browser delivers that scroll event asynchronously, one
+	// frame later, where it is indistinguishable from a user scroll-up (that IS
+	// the "pane drifts off the bottom while streaming" race; it fires the moment
+	// history first exceeds MAX_HELD_SCROLLBACK_ROWS). Pinning here means the
+	// coalesced scroll event always arrives with scrollTop === lastTop, so the
+	// listener reads "not a scroll-up" and `stick` survives. Costs one forced
+	// layout per LIVE pane per frame; a rAF-deferred pin loses the race.
+	function pinToBottom(): void {
+		if (!renderer || !displayRef) return;
+		renderer.scrollToBottom();
+		lastTop = displayRef.scrollTop; // a pin is never a scroll-up
+	}
+
+	// Coalesced post-frame FAB visibility. One guarded rAF per animation frame (N
+	// cell frames in one animation frame collapse to one read), and it runs after
+	// layout has settled, so the jump-FAB never flickers off a mid-apply geometry.
 	function scheduleFlush(): void {
 		if (_flushRaf != null) return;
 		_flushRaf = requestAnimationFrame(() => {
 			_flushRaf = null;
-			if (unmounted || !renderer || !displayRef || props.inLayout === false || !isPageVisible()) return;
-			if (_following && !_touchScrolling && !_settling) {
-				// Pin and record where it landed. onBackfillScroll ignores events
-				// whose scrollTop still matches this target (the pin's own async
-				// event can fire AFTER scrollHeight grew from the next cell frame,
-				// which would otherwise make atBottom() misread false and flip
-				// _following off). A real wheel/touch scroll-up moves scrollTop
-				// below this target and is honored immediately.
-				renderer.scrollToBottom();
-				_lastPinTop = displayRef.scrollTop;
-			}
+			if (unmounted || !renderer || !displayRef) return;
+			if (props.inLayout === false || !isPageVisible()) return;
 			updateJumpDownVis();
 		});
 	}
 
-	// Spring-driven scroll to the true bottom, then an instant snap to pin. The
-	// target is recomputed each frame so content-visibility block reflow
-	// (scrollHeight growth as off-screen .cell-block blocks reveal) can't leave
-	// us landing short; the spring naturally chases the moving target. Shares the
-	// app motion vocabulary (lib/spring.ts) instead of a bespoke easeOutCubic.
+	// Jump-to-latest FAB: re-stick and pin, instantly.
 	function jumpToBottom(): void {
-		if (!displayRef || !renderer) return;
+		stick = true;
+		pinToBottom();
 		setShowJumpDown(false);
-		_following = true;
-		// Respect reduced motion — jump instantly.
-		if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
-			renderer.scrollToBottom();
-			return;
-		}
-		_jumping = true;
-		const el = displayRef;
-		let state: SpringState = { position: el.scrollTop, velocity: 0 };
-		let last = performance.now();
-		const t0 = last;
-		const step = (now: number) => {
-			if (unmounted || !renderer || !_jumping) { _jumping = false; return; }
-			const dtMs = Math.min(now - last, 64); // clamp after a stall
-			last = now;
-			const target = el.scrollHeight - el.clientHeight;
-			state = springStep(state, target, SPRING_STIFF, dtMs);
-			// Hand off to the normal follow/pin machinery once at rest, within a
-			// line of the true bottom, or after a wall-clock cap. The cap + the
-			// near-bottom check are load-bearing: while output is STREAMING the
-			// target grows every frame, so the spring never reaches rest — without
-			// a bound the rAF would spin forever with _jumping stuck true.
-			const nearBottom = target - state.position < 24; // ~one row of slack
-			if (isSpringAtRest(state, target) || nearBottom || now - t0 > 600) {
-				renderer.scrollToBottom(); // instant final snap → follow takes over
-				_following = true;
-				_jumping = false;
-			} else {
-				el.scrollTop = state.position;
-				requestAnimationFrame(step);
-			}
-		};
-		requestAnimationFrame(step);
 	}
 
 	onMount(async () => {
@@ -518,48 +449,23 @@ let _touchGraceTimer: ReturnType<typeof setTimeout> | null = null;
 			sessionId: props.session.id,
 			renderer: () => renderer,
 		});
-		// The user asked to leave the bottom. AUTHORITATIVE: every programmatic
-		// scroll source is torn down here, so nothing can drag the view back —
-		// the reveal re-pin burst, its rAF, the pending re-pin intent, and any
-		// in-flight jump-to-bottom animation. Idempotent (backfill.start()
-		// dedupes on its active-loop epoch), so wheel-then-scroll-event double
-		// fires are free. Follow re-engages only from onBackfillScroll's
-		// atBottom() read or the jump-to-bottom FAB.
-		function stopFollowing(): void {
-			_following = false;
-			_repinPending = false;
-			_settling = false;
-			if (_settleRaf != null) { cancelAnimationFrame(_settleRaf); _settleRaf = null; }
-			_jumping = false;
-			// Retire the pin target: nothing pins while unfollowed, so a kept
-			// _lastPinTop would go stale-low and the `scrollTop >= _lastPinTop`
-			// suppressor in onBackfillScroll would then swallow every NON-bottom
-			// event on the way back down, leaving the jump-FAB visibility stale
-			// (the at-bottom event is unaffected — the suppressor is gated on
-			// !atB). NaN compares false → every scroll is honored until the next
-			// real pin.
-			_lastPinTop = Number.NaN;
-			backfill.onUserScrollUp();
+		// The ONLY place `stick` changes from user action. Gated to live+visible:
+		// a parked pane (visibility:hidden, off-screen — TerminalDeck.termStyle)
+		// can emit scroll events whose geometry is not what the user sees.
+		const onScroll = () => {
+			if (!renderer || !displayRef) return;
+			if (props.inLayout === false || !isPageVisible()) return;
+			const top = displayRef.scrollTop;
+			const movedUp = top < lastTop; // ANY decrease is a scroll-up
+			lastTop = top;
+			if (renderer.atBottom()) stick = true;
+			else if (movedUp) {
+				stick = false;
+				backfill.onUserScrollUp(); // idempotent — dedupes on its active-loop epoch
+			}
 			updateJumpDownVis();
-		}
-		const onBackfillScroll = () => {
-			// Gate to visible+in-layout: a parked pane's content-visibility blocks
-			// revert to placeholders and can fire spurious scroll events whose
-			// atBottom() misreads would corrupt _following / arm backfill pointlessly.
-			if (_settling || _jumping || props.inLayout === false || !isPageVisible() || !renderer || !displayRef) return;
-			const atB = renderer.atBottom();
-			// Stale post-pin echo: the pin's own scroll event can land AFTER a new
-			// cell frame grew scrollHeight, so atBottom() misreads false while
-			// scrollTop is still exactly where the pin put it. A real scroll-up
-			// moves scrollTop strictly BELOW the pin target, so `>=` is the exact
-			// discriminator — the old ±2px band also swallowed genuine 1-2px
-			// trackpad scrolls. NaN-safe: _lastPinTop starts NaN (comparison false
-			// → the event is honored) until the first pin.
-			if (!atB && displayRef.scrollTop >= _lastPinTop) return;
-			if (atB) { _following = true; updateJumpDownVis(); }
-			else stopFollowing();
 		};
-		displayRef!.addEventListener("scroll", onBackfillScroll, { passive: true });
+		displayRef!.addEventListener("scroll", onScroll, { passive: true });
 		// Predictive local echo — speculative client overlay, gated on
 		// SRTT + alt-screen; no-op on a fast link. See lib/predictiveEcho.ts.
 		predictor = new PredictiveEcho(renderer.predictionHost, {
@@ -620,7 +526,7 @@ let _touchGraceTimer: ReturnType<typeof setTimeout> | null = null;
 					cursor_col: frame.cursorCol,
 				});
 				setAltScreen(frame.altScreen);
-				if (renderer) renderer.setEvictionFrozen(!_following);
+				if (renderer) renderer.setEvictionFrozen(!stick);
 				const _ap = performance.now();
 				renderer.apply(frame);
 				diag("cell.apply_dur", { sid: props.session.id, dur_ms: performance.now() - _ap });
@@ -635,16 +541,18 @@ let _touchGraceTimer: ReturnType<typeof setTimeout> | null = null;
 				lastCurRow = frame.cursorRow;
 				lastCurCol = frame.cursorCol;
 				predictor?.onFrame(frame); // reconcile predictions against the authoritative grid
-				// Only a LIVE (in-layout + page-visible) pane updates the stick-to-bottom
-				// intent. A frame arriving while parked (in-flight after a withdraw, or a
-				// late emit) must not touch _following: that would erase the pre-withdrawal
-				// intent, so the reveal never arms _repinPending and never re-pins. The
-				// scroll listener is already gated the same way (spurious parked scrolls).
+				// Only a LIVE (in-layout + page-visible) pane pins. A frame arriving
+				// while parked — in flight after a withdraw, or a late emit — must not
+				// move a viewport the user is not looking at.
 				if (props.inLayout !== false && isPageVisible()) {
-					const pin = _following || _repinPending;
-					if (!_touchScrolling) _following = pin;
-					if (_repinPending) startRepinSettle(frame.full); // reveal burst; only a snapshot frame re-arms it
-					scheduleFlush();                        // batched pin + jump-FAB, one rAF/frame
+					if (stick) pinToBottom(); // same task as apply() — see pinToBottom
+					scheduleFlush();          // jump-FAB visibility, coalesced
+				} else if (displayRef) {
+					// Parked: never move a viewport the user isn't looking at, but
+					// apply()'s eviction may still have lowered scrollTop. Resync so
+					// lastTop can't go stale-high and make the first scroll event
+					// after the reveal look like a user scroll-up.
+					lastTop = displayRef.scrollTop;
 				}
 				if (frame.full) backfill.onFullFrame();
 				setAtShellPrompt(SHELL_PROMPT_RE.test(renderer.viewportTail()));
@@ -863,13 +771,6 @@ let _touchGraceTimer: ReturnType<typeof setTimeout> | null = null;
 		let lastMotionCell: { col: number; row: number } | null = null;
 
 		const onWheelForward = (ev: WheelEvent) => {
-			// Scroll-up intent straight off the INPUT event — authoritative and
-			// immune to the per-frame auto-pin. scrollTop > 0 gates out the no-op
-			// wheel at the top of history and a pane too short to scroll (which
-			// would otherwise strand it un-following at the bottom). A ≤2px brush
-			// still leaves atBottom() true, and the scroll event that follows
-			// re-engages follow, so a trackpad twitch can't stick.
-			if (!altScreen() && ev.deltaY < 0 && displayRef && displayRef.scrollTop > 0) stopFollowing();
 			if (!forwardActive() || modifierBypass(ev)) return;
 			const { col, row } = cellOf(ev.clientX, ev.clientY);
 			sendSeq(`\x1b[<${ev.deltaY < 0 ? 64 : 65};${col};${row}M`);
@@ -934,11 +835,6 @@ let _touchGraceTimer: ReturnType<typeof setTimeout> | null = null;
 		let touchCol = 1,
 			touchRow = 1;
 		const onTouchStart = (ev: TouchEvent) => {
-			if (!altScreen() && ev.touches.length === 1) {
-				_touchStartY = ev.touches[0]!.clientY;
-				_touchMoved = false;
-				if (_touchGraceTimer) { clearTimeout(_touchGraceTimer); _touchGraceTimer = null; }
-			}
 			if (!forwardActive() || ev.touches.length !== 1) {
 				touchY = null;
 				return;
@@ -950,15 +846,7 @@ let _touchGraceTimer: ReturnType<typeof setTimeout> | null = null;
 			touchRow = c.row;
 		};
 		const onTouchMove = (ev: TouchEvent) => {
-			if (!altScreen()) {
-				if (!_touchMoved && ev.touches.length === 1 &&
-					Math.abs(ev.touches[0]!.clientY - _touchStartY) > TOUCH_SCROLL_SLOP_PX) {
-					_touchMoved = true;
-					_touchScrolling = true;
-					stopFollowing(); // user is scrolling into history → stop following
-				}
-				return; // native scroll owns the movement; never preventDefault outside alt-screen
-			}
+			if (!altScreen()) return; // native scroll owns the movement; never preventDefault outside alt-screen
 			if (touchY === null || !forwardActive() || ev.touches.length !== 1)
 				return;
 			const y = ev.touches[0]!.clientY;
@@ -972,22 +860,7 @@ let _touchGraceTimer: ReturnType<typeof setTimeout> | null = null;
 			touchY = y - dy; // carry sub-notch remainder
 			ev.preventDefault(); // suppress native scroll only while forwarding
 		};
-		const onTouchEnd = () => {
-			touchY = null;
-			if (_touchMoved) {
-				_touchMoved = false;
-				clearTimeout(_touchGraceTimer ?? undefined);
-				_touchGraceTimer = setTimeout(() => {
-					_touchGraceTimer = null;
-					_touchScrolling = false;
-					// Re-sync follow intent to where the fling actually landed.
-					if (renderer && props.inLayout !== false && isPageVisible()) {
-						_following = renderer.atBottom();
-						updateJumpDownVis();
-					}
-				}, TOUCH_MOMENTUM_GRACE_MS);
-			}
-		};
+		const onTouchEnd = () => { touchY = null; };
 
 		displayRef!.addEventListener("mousedown", onMouseDownFwd);
 		displayRef!.addEventListener("touchstart", onTouchStart, { passive: true });
@@ -1061,7 +934,6 @@ let _touchGraceTimer: ReturnType<typeof setTimeout> | null = null;
 				sendWithdraw();
 				return;
 			}
-			_repinPending = _following; // park corrupted scroll state; re-pin on the re-claim snapshot
 			sendClaimNow(ResizeCause.TAB_VISIBLE);
 		}));
 		// Focus gate: only the FOCUSED pane's terminal grabs the keyboard. Touch
@@ -1199,7 +1071,7 @@ let _touchGraceTimer: ReturnType<typeof setTimeout> | null = null;
 		// G9: withdraw on hide, re-claim on show — a background tab must not pin
 		// the SCD-min size for foreground viewers.
 		const onVisibility = () => {
-			if (isPageVisible()) { _repinPending = _following; sendClaimNow(ResizeCause.TAB_VISIBLE); }
+			if (isPageVisible()) sendClaimNow(ResizeCause.TAB_VISIBLE);
 			else sendWithdraw();
 		};
 		document.addEventListener("visibilitychange", onVisibility);
@@ -1211,7 +1083,6 @@ let _touchGraceTimer: ReturnType<typeof setTimeout> | null = null;
 		// snapshot on the live new socket.
 		createEffect(on(syncStreamOpen, (open) => {
 			if (!open || props.inLayout === false || !isPageVisible()) return;
-			_repinPending = _following; // WS reconnect re-emits a snapshot; re-pin if was following
 			sendClaimNow(ResizeCause.TAB_VISIBLE);
 		}, { defer: true }));
 
@@ -1227,7 +1098,6 @@ let _touchGraceTimer: ReturnType<typeof setTimeout> | null = null;
 		};
 		const onPageShow = () => {
 			if (isPageVisible() && props.inLayout !== false) {
-				_repinPending = _following;
 				sendClaimNow(ResizeCause.TAB_VISIBLE);
 			}
 		};
@@ -1295,7 +1165,7 @@ let _touchGraceTimer: ReturnType<typeof setTimeout> | null = null;
 				document.removeEventListener("mousedown", onDocMousedown, true);
 				sendWithdraw(); // release this viewer's claim immediately on nav-away
 				backfill.dispose();
-				displayRef?.removeEventListener("scroll", onBackfillScroll);
+				displayRef?.removeEventListener("scroll", onScroll);
 				displayRef?.removeEventListener("mousedown", onDisplayDown);
 				displayRef?.removeEventListener("click", onDisplayClick);
 				displayRef?.removeEventListener("mousedown", onMouseDownFwd);
@@ -1305,9 +1175,7 @@ let _touchGraceTimer: ReturnType<typeof setTimeout> | null = null;
 				displayRef?.removeEventListener("paste", onPaste);
 				resizeObs?.disconnect();
 				if (claimTimer) clearTimeout(claimTimer);
-				if (_settleRaf != null) { cancelAnimationFrame(_settleRaf); _settleRaf = null; }
 				if (_flushRaf != null) { cancelAnimationFrame(_flushRaf); _flushRaf = null; }
-				if (_touchGraceTimer) { clearTimeout(_touchGraceTimer); _touchGraceTimer = null; }
 				predictor?.dispose();
 				renderer?.dispose();
 				unregPreview();
@@ -1448,8 +1316,8 @@ let _touchGraceTimer: ReturnType<typeof setTimeout> | null = null;
 				<TerminalStatusBadge session={props.session} />
 			</Show>
 			{/* Jump-to-latest FAB — bottom-center, shown only when scrolled up > 1
-          viewport (never in alt-screen). Tap → fixed-duration eased scroll to
-          the bottom + pin, resuming live-follow. */}
+          viewport (never in alt-screen). Tap → instant scroll to the bottom,
+          resuming live-follow. */}
 			<Show when={showJumpDown() && props.inLayout !== false && !chatViewActive()}>
 				<button
 					type="button"

@@ -37,10 +37,25 @@ function sanitizeTitle(raw: string): string {
   return raw.replace(CONTROL_RE, "").slice(0, MAX_TITLE);
 }
 
+// omp animates its title while the agent works: `π ⠋ label` cycles ten Braille
+// frames at 80ms (title-generator.ts TITLE_SPINNER_INTERVAL_MS). Every frame is
+// a different string, so a raw !== compare publishes ~12 frames/sec per working
+// pane to EVERY browser. Compare on a form with the spinner collapsed: the
+// idle→working edge and any label change still publish instantly, the animation
+// does not. The ORIGINAL title is what gets published — only the comparison is
+// normalized, so nothing downstream sees a doctored value.
+// eslint-disable-next-line no-control-regex
+const SPINNER_RE = /[\u2800-\u28FF]/g;
+
+function dedupKey(title: string): string {
+  return title.replace(SPINNER_RE, "\u2800");
+}
+
 interface Entry {
   carry: string;                 // un-terminated OSC tail from the previous chunk
   decoder: TextDecoder;          // streaming UTF-8 so a multi-byte char split survives
   last: string | null;           // last published title (null = none yet)
+  lastKey: string | null;        // that title with the spinner collapsed (dedup)
 }
 
 const _entries = new Map<string, Entry>();
@@ -61,7 +76,7 @@ export function startTerminalTitleHub(): () => void {
     if (bytes.byteLength === 0) return;
     let e = _entries.get(session_id);
     if (!e) {
-      e = { carry: "", decoder: new TextDecoder("utf-8", { fatal: false }), last: null };
+      e = { carry: "", decoder: new TextDecoder("utf-8", { fatal: false }), last: null, lastKey: null };
       _entries.set(session_id, e);
     }
     // Always decode (advances the streaming decoder past a split multi-byte
@@ -86,7 +101,9 @@ export function startTerminalTitleHub(): () => void {
 
     if (latest === null) return;
     const title = sanitizeTitle(latest);
-    if (title !== e.last) {
+    const key = dedupKey(title);
+    if (key !== e.lastKey) {
+      e.lastKey = key;
       e.last = title;
       titleBus.publish({ session_id, title });
       diag("terminal_title.change", { sid: session_id, title });

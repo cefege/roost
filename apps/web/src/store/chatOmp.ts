@@ -21,17 +21,17 @@ import { diag } from "@roost/shared/diag";
 // is append-only and grows unbounded on a long-lived π session.
 const MAX_CHAT_MSGS = 2000;
 
-/** omp identity on the SPA side (chat toggle gate). omp emits "π > <breadcrumb>"
- *  (older builds "π: <summary>"); match those two. EXCLUDE pi's "π - <dir>" so
- *  the toggle never appears on a pi pane. Absent/other → toggle hidden. */
+/** omp identity on the SPA side (chat toggle gate). A PURE read: the latch is
+ *  written once, where the title lands (sync.ts). Reading terminal_title here
+ *  would re-run every consumer on all ~12.5 spinner frames a working pane
+ *  emits per second, for a value that cannot change. */
 export function ompChatEnabled(sessionId: string): boolean {
 	// Native quick-chats (scratch folder under ~/.roost/chats) are chat-eligible
 	// by construction — the engine is the worker's `omp --mode rpc` child, no
-	// TUI/title involved. Terminal omp sessions stay title-gated.
+	// TUI/title involved. Terminal omp sessions latch off their OSC title.
 	const cwd = rootStore.sessions[sessionId]?.cwd;
 	if (cwd && isChatFolder(cwd)) return true;
-	const title = rootStore.terminal_title[sessionId];
-	return !!title && (title.startsWith("\u03C0 >") || title.startsWith("\u03C0:"));
+	return rootStore.omp_eligible[sessionId] === true;
 }
 
 /** Current chat state for a session (creates an empty slot lazily). */

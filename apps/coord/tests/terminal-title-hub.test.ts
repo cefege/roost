@@ -3,7 +3,7 @@
 // change-only publishing, and non-title OSC (hyperlink) rejection.
 
 import { describe, it, expect } from "bun:test";
-import { startTerminalTitleHub } from "../src/terminal-title-hub.ts";
+import { startTerminalTitleHub, getTitleSnapshot } from "../src/terminal-title-hub.ts";
 import { globalBytesBus, titleBus } from "../src/buses.ts";
 
 function collect(sessionId: string): { got: string[]; stop: () => void } {
@@ -76,5 +76,40 @@ describe("terminal-title-hub", () => {
     feed(sid, "\x1b]0;line1\ttab\rmid\x07");   // \t and \r inside the body
     c.stop();
     expect(c.got).toEqual(["line1tabmid"]);
+  });
+
+  // omp animates its title while the agent works: `π ⠋ label` cycles ten Braille
+  // frames at 80ms. Each frame is a different string, so a raw !== compare fans
+  // ~12 publishes/sec per working pane to every browser.
+  it("collapses the omp spinner animation to ONE publish", () => {
+    const sid = "title-spinner";
+    const c = collect(sid);
+    for (const f of ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴"]) feed(sid, `\x1b]0;\u03C0 ${f} build the thing\x07`);
+    c.stop();
+    expect(c.got).toEqual(["\u03C0 ⠋ build the thing"]);
+  });
+
+  it("still publishes the idle→working edge and any label change instantly", () => {
+    const sid = "title-edges";
+    const c = collect(sid);
+    feed(sid, "\x1b]0;\u03C0 > waiting\x07");        // idle
+    feed(sid, "\x1b]0;\u03C0 ⠋ waiting\x07");        // → working: state edge
+    feed(sid, "\x1b]0;\u03C0 ⠙ waiting\x07");        // spinner tick: suppressed
+    feed(sid, "\x1b]0;\u03C0 ⠙ other task\x07");     // label change
+    c.stop();
+    expect(c.got).toEqual([
+      "\u03C0 > waiting",
+      "\u03C0 ⠋ waiting",
+      "\u03C0 ⠙ other task",
+    ]);
+  });
+
+  it("snapshot replays the REAL frame, not the dedup sentinel", () => {
+    const sid = "title-snapshot";
+    const c = collect(sid);
+    feed(sid, "\x1b]0;\u03C0 ⠸ shipping\x07");
+    const snap = getTitleSnapshot().find((e) => e.session_id === sid);
+    c.stop();
+    expect(snap?.title).toBe("\u03C0 ⠸ shipping");
   });
 });

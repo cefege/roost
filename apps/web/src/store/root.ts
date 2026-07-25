@@ -76,6 +76,10 @@ export interface RootState {
    *  selectors live in store/chatOmp.ts; state mounts here so sync.ts's
    *  single reactive flush covers chat frames too. key = SessionId. */
   chat_omp: Record<string, ChatOmpState>;
+  /** Sessions whose OSC title has EVER identified omp. The title is live state
+   *  (omp rewrites it per run state, a child can overwrite it), but the engine
+   *  behind a pane does not change — so eligibility latches. Pruned on close. */
+  omp_eligible: Record<string, boolean>;
 }
 
 export type ChatOmpStatus = "idle" | "loading" | "resolved";
@@ -106,6 +110,7 @@ const initialState: RootState = {
   session_viewers: {},
   browser_unauthorized: false,
   chat_omp: {},
+  omp_eligible: {},
 };
 
 export const [rootStore, setRootStore] = createStore<RootState>(initialState);

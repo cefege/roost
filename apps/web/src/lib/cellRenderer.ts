@@ -22,6 +22,32 @@ import {
 } from "@roost/shared/cell";
 
 const SB_BLOCK = 250; // scrollback rows per content-visibility block; keep in sync with .cell-block contain-intrinsic-size in sidebar.css (SB_BLOCK × 1.2em = 300em). Perf tuning only — any positive value renders identically.
+
+// Height of one .cell-row, in em. Every row is exactly one line box: .cell-grid
+// sets line-height:1.2, .cell-row is white-space:pre (never wraps), and blank
+// rows carry a space (renderRow) so nothing can collapse or grow one. Keep in
+// sync with .cell-grid { line-height } in styles/sidebar.css.
+const ROW_EM = 1.2;
+
+// Pin a scrollback block's content-visibility placeholder to its EXACT height.
+// A skipped block reports contain-intrinsic-size, not its content — so with the
+// stylesheet's flat 300em estimate every partial block (backfill chunks, the
+// open tail block) overstates scrollHeight by up to 300em, and the instant the
+// block materializes (scrolled into view, or a parked pane revealed) it reflows
+// to its real height and every row below it shifts. That reflow IS the "scroll
+// jumps around" class. Exact placeholder ⇒ reveal is a layout no-op ⇒
+// scrollHeight never lies ⇒ a single pin always lands on the true bottom.
+function sizeBlock(blk: HTMLElement, rows: number): void {
+  blk.style.setProperty("contain-intrinsic-size", `${(rows * ROW_EM).toFixed(2)}em`);
+}
+
+/** Slack for "at the bottom", in px. scrollTop is fractional on hi-DPI while
+ *  scrollHeight/clientHeight are integers, so an exact pin can still measure
+ *  1-2px short. Well under one row (1.2 × 13px = 15.6px), so a genuine one-line
+ *  scroll-up is never mistaken for the bottom. Shared with lib/smoke.ts's
+ *  renderProbe so the harness and the renderer agree by construction. */
+export const BOTTOM_EPSILON_PX = 4;
+
 // Per-renderer cap on held scrollback rows. CellGridRenderer._evictScrollback
 // trims oldest whole content-visibility blocks once the held window grows past
 // this — the client-side fix for long-uptime DOM growth (.cell-scrollback was
@@ -175,7 +201,7 @@ export class CellGridRenderer {
   // Eviction freeze: while the user is scrolled up reading history, live
   // output must NOT trim history out from under them (CLAUDE.md L11: never
   // trade history away). CellTerminal drives this from its stick-to-bottom
-  // intent (_following) — frozen when scrolled up, thawed when pinned at the
+  // intent (`stick`) — frozen when scrolled up, thawed when pinned at the
   // bottom (the unbounded streaming case where eviction must run).
   private _evictionFrozen = false;
 
@@ -288,7 +314,7 @@ export class CellGridRenderer {
     this._flushIfReleased();
   }
   /** Freeze/thaw scrollback eviction. Frozen while the user is scrolled up
-   *  reading history (CellTerminal _following === false) so live output never
+   *  reading history (CellTerminal `stick === false`) so live output never
    *  trims history out from under the viewport. Thawed at the bottom. */
   setEvictionFrozen(frozen: boolean): void { this._evictionFrozen = frozen; }
 
@@ -326,6 +352,7 @@ export class CellGridRenderer {
   private _appendScrollback(rows: readonly CellRow[]): void {
     for (const r of rows) {
       if (!this._curBlock || this._curBlockRows >= SB_BLOCK) {
+        if (this._curBlock) sizeBlock(this._curBlock, this._curBlockRows);
         const blk = this.doc.createElement("div");
         blk.className = "cell-block";
         this.scrollbackEl.appendChild(blk);
@@ -335,6 +362,7 @@ export class CellGridRenderer {
       this._curBlock.appendChild(renderRow(r, this.doc));
       this._curBlockRows++;
     }
+    if (this._curBlock) sizeBlock(this._curBlock, this._curBlockRows);
     this._evictScrollback();
   }
 
@@ -358,7 +386,7 @@ export class CellGridRenderer {
     // ONCE before the loop and restore ONCE after, mirroring prependScrollback.
     // Without this, removing a leading block shrinks scrollHeight and fires a
     // position-changing scroll event whose atBottom() misread flips
-    // CellTerminal._following false (the "pane jumps off the bottom" race).
+    // CellTerminal's `stick` false (the "pane jumps off the bottom" race).
     const el = this.container;
     const fromBottom = el.scrollHeight - el.scrollTop;
     let removed = false;
@@ -398,6 +426,7 @@ export class CellGridRenderer {
     let blkRows = 0;
     for (const r of rows) {
       if (!blk || blkRows >= SB_BLOCK) {
+        if (blk) sizeBlock(blk, blkRows);
         blk = this.doc.createElement("div");
         blk.className = "cell-block";
         frag.appendChild(blk);
@@ -406,6 +435,7 @@ export class CellGridRenderer {
       blk.appendChild(renderRow(r, this.doc));
       blkRows++;
     }
+    if (blk) sizeBlock(blk, blkRows);
     const el = this.container;
     const fromBottom = el.scrollHeight - el.scrollTop;
     this.scrollbackEl.prepend(frag);
@@ -546,7 +576,7 @@ export class CellGridRenderer {
   /** Is the viewport scrolled to the bottom (live tail visible)? */
   atBottom(): boolean {
     const el = this.container;
-    return el.scrollHeight - el.scrollTop - el.clientHeight <= 2;
+    return el.scrollHeight - el.scrollTop - el.clientHeight <= BOTTOM_EPSILON_PX;
   }
 
   scrollToBottom(): void {

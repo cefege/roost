@@ -1160,9 +1160,12 @@ aside[data-testid="sidebar-drawer"]::-webkit-scrollbar-thumb:hover,
 /* Scrollback rows are packed into .cell-block groups (CellGridRenderer). Skipping
    layout/paint of off-screen blocks keeps a reveal reflow + scrollHeight reads
    O(blocks) not O(history) — the fix for the deep-history pane-switch freeze.
-   contain-intrinsic-size = SB_BLOCK(250) rows × line-height 1.2em = 300em; keep
-   in sync with SB_BLOCK in cellRenderer.ts. `auto` remembers the real size once
-   a block has rendered (partial last block), so scrollHeight never drifts. */
+   The 300em below is only a fallback: CellGridRenderer.sizeBlock() sets an EXACT
+   inline contain-intrinsic-size (rows × 1.2em) on every block, so a skipped
+   block's placeholder equals its real height and revealing it reflows nothing.
+   The flat estimate used to overstate every partial block, which is what made
+   the view lurch when history materialized. SB_BLOCK(250) × 1.2em = 300em; keep
+   ROW_EM in cellRenderer.ts in sync with the line-height on .cell-grid above. */
 .cell-grid .cell-scrollback .cell-block {
   content-visibility: auto;
   contain-intrinsic-size: auto 300em;

@@ -22,7 +22,8 @@ applyTheme(loadTheme());
 const SID = "00000000-0000-0000-0000-000000000001";
 
 // Force omp eligibility + chat view mode.
-setRootStore("terminal_title", SID, "π: render check");
+setRootStore("terminal_title", SID, "π > render check");
+setRootStore("omp_eligible", SID, true);
 setOmpChatView(SID, "chat");
 
 // A realistic conversation: user msg, assistant (thinking+text+toolCall),

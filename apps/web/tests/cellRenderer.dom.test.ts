@@ -520,8 +520,8 @@ describe("CellGridRenderer DOM — held-window eviction", () => {
     // Regression for the "pane jumps off the bottom" race: _evictScrollback
     // trimmed leading blocks WITHOUT restoring scrollTop (unlike its sibling
     // prependScrollback). Under real DOM + content-visibility that fires a
-    // position-changing scroll event → CellTerminal.onBackfillScroll misreads
-    // atBottom() → flips _following false → the per-frame auto-pin skips and
+    // position-changing scroll event → CellTerminal's scroll listener misreads
+    // atBottom() → flips `stick` false → the per-frame auto-pin skips and
     // the pane drifts off the live tail. The fix captures fromBottom once
     // before the loop and restores once after (prependScrollback's pattern),
     // so eviction emits NO net movement. This locks it with a faithful DOM
@@ -558,5 +558,34 @@ describe("CellGridRenderer DOM — held-window eviction", () => {
     // distance-from-bottom grew by exactly BLOCK. Pre-fix (no restore write):
     // scrollTop unchanged, scrollHeight shrank by 180 → distance = BLOCK - 180.
     expect(c.scrollHeight - c.scrollTop - c.clientHeight).toBe(BLOCK);
+  });
+});
+
+describe("CellGridRenderer DOM — content-visibility placeholder exactness", () => {
+  const BLOCK = 250; // mirrors cellRenderer SB_BLOCK
+  const seqN = (n: number) => Array.from({ length: n }, (_, i) => i);
+  // FakeStyle records setProperty() calls as own keys; read one back by name.
+  const csz = (el: FakeEl): string | undefined =>
+    (el.style as unknown as Record<string, string>)["contain-intrinsic-size"];
+
+  test("a block's skipped-state placeholder is its EXACT height, partial or full", () => {
+    // A skipped content-visibility block reports contain-intrinsic-size, not its
+    // content. A flat estimate overstates every partial block, so the block
+    // reflows when it materializes and every row below it shifts — the "scroll
+    // jumps around" class. Placeholder must equal truth for BOTH shapes.
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    const sb: FakeEl = c.children[0];
+    r.apply(fullFrame(80, [row(0, "v")], seqN(7).map((i) => row(i, `s${i}`))));
+    expect(sb.children.length).toBe(1);
+    expect(csz(sb.children[0])).toBe("8.40em");   // 7 rows × 1.2em
+
+    // Cross a block boundary: the closed block is exactly SB_BLOCK rows, the new
+    // open block carries the remainder.
+    const append = seqN(BLOCK).map((k) => row(7 + k, `s${7 + k}`));
+    r.apply({ ...deltaFrame(80, 1, [row(0, "v")], append, 2), scrollbackTotal: 7 + BLOCK });
+    expect(sb.children.length).toBe(2);
+    expect(csz(sb.children[0])).toBe("300.00em"); // 250 × 1.2em, the full block
+    expect(csz(sb.children[1])).toBe("8.40em");   // 257 - 250 = 7 rows
   });
 });

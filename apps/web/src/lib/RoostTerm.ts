@@ -185,17 +185,4 @@ export class RoostTerm {
   write(data: string | Uint8Array): void { this.inner.write(data); }
   resize(cols: number, rows: number): void { this.inner.resize(cols, rows); }
   focus(): void { this.forceFocus(); }
-
-  /** Forwards to WTerm's private `_scrollToBottom` so the wrapper
-   * doesn't break CellTerminal.tsx's follow-bottom-on-output behavior.
-   * wterm exposes this as a "private" method on the class but the
-   * call site in CellTerminal.tsx duck-types it; we just need to keep
-   * the access path working after the wrap. Without this, live PTY
-   * bytes write to wterm but the viewport stays scrolled-up (new
-   * content piles up below the visible area) — the user sees
-   * nothing change despite their input reaching the PTY. */
-  scrollToBottom(): void {
-    const inner = this.inner as unknown as { _scrollToBottom?: () => void };
-    try { inner._scrollToBottom?.(); } catch { /* ignore */ }
-  }
 }

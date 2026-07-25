@@ -51,10 +51,9 @@ export function isSpringAtRest(state: SpringState, target: number): boolean {
 }
 
 // Chrome-ish presets. SNAP: crisp tab-reorder/settle (slightly underdamped for
-// a hint of life). GENTLE: overscroll rubber-band release. STIFF: smooth-scroll.
+// a hint of life). GENTLE: overscroll rubber-band release.
 export const SPRING_SNAP: SpringConfig = { stiffness: 700, damping: 45, mass: 1 };
 export const SPRING_GENTLE: SpringConfig = { stiffness: 300, damping: 30, mass: 1 };
-export const SPRING_STIFF: SpringConfig = { stiffness: 900, damping: 60, mass: 1 };
 
 // rAF driver over springStep. onFrame receives each position; resolves once at
 // rest (snapped exactly to target). Returns a cancel fn. Impure (rAF/perf) so it

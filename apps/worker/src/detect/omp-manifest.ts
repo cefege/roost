@@ -8,7 +8,7 @@
 // (pi.toml is literally one rule: working = body "Working..."); a KNOWN agent
 // with no active signal falls back to IDLE (never "hold previous"). Roost has no
 // launch-time autodetect — identity comes from the SCRAPE — so we anchor identity
-// on omp's STABLE OSC title `π: <summary>` (U+03C0 then ":") and self-gate every
+// on omp's OSC title `π <sep> <label>` (U+03C0; sep carries run state) and gate every
 // rule on it:
 //   working:  omp title + a body braille-spinner line with an "esc" cancel hint.
 //   approval: omp title + a body tool-approval / ↑↓ select prompt.
@@ -27,14 +27,16 @@
 
 import type { Rule } from "./manifest-engine.ts";
 
-// omp identity — the OSC title omp emits: `π: <summary>` (π = U+03C0, then ":").
-// Static across states (carries no status) but omp-specific: a plain shell never
-// sets a "π:" window title, and pi's title is "π - <dir>" (space-dash, no colon)
-// so this never steals a pi pane. The worker feeds detection the raw-stream title
+// omp identity — the OSC title omp emits. The separator carries the RUN STATE
+// (title-generator.ts::buildTerminalTitleWithState): `π > label` idle,
+// `π ⠋ label` working (Braille spinner), `π ! label` blocked on the user, and
+// `π: label` only when tui.titleState is off. This anchored on `^π:` alone, so
+// on a default install it matched NOTHING and every omp rule below was dead.
+// pi titles itself `π - <dir>`, so `-` stays out of the separator set. The worker feeds detection the raw-stream title
 // (UTF-8 intact — session-manager.ts lastOscTitle), so the π survives. `region` is
 // pinned to osc_title so this gate works INSIDE a whole_recent (body) rule.
 const OMP_TITLE: Rule["all"] = [
-	{ region: "osc_title", regex: ["^\\x{03C0}:"] },
+	{ region: "osc_title", regex: ["^\\x{03C0}(?::|[ ](?:[>!]|[\\x{2800}-\\x{28FF}]))"] },
 ];
 
 // omp working spinner line: a braille frame (U+2800–U+28FF) followed on the SAME
@@ -90,6 +92,6 @@ export const OMP_RULES: Rule[] = [
 		priority: 250,
 		region: "osc_title",
 		visible_idle: true,
-		regex: ["^\\x{03C0}:"],
+		regex: ["^\\x{03C0}(?::|[ ](?:[>!]|[\\x{2800}-\\x{28FF}]))"],
 	},
 ];

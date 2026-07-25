@@ -14,6 +14,7 @@ import { rootStore, setRootStore } from "../store/root.ts";
 import { setOmpChatView, ompChatViewForSession } from "../store/uiStore.ts";
 import { ompChatEnabled } from "../store/chatOmp.ts";
 import { setForceVisible } from "./pageVisible.ts";
+import { BOTTOM_EPSILON_PX } from "./cellRenderer.ts";
 
 interface SmokeApi {
   /** Send raw bytes via the coord RPC — BYPASSES the wterm textarea + focus
@@ -131,7 +132,8 @@ export function maybeInstallSmokeBackdoor(): void {
       // omp-only affordance: to drive the overlay in a test we force this tab's
       // π: eligibility (real prod eligibility comes from the live OSC title).
       if (mode === "chat" && !ompChatEnabled(sessionId)) {
-        setRootStore("terminal_title", sessionId, "\u03C0: smoke");
+        setRootStore("terminal_title", sessionId, "\u03C0 > smoke");
+        setRootStore("omp_eligible", sessionId, true);
       }
       setOmpChatView(sessionId, mode);
       return { view: ompChatViewForSession(sessionId), eligible: ompChatEnabled(sessionId) };
@@ -168,7 +170,7 @@ export function maybeInstallSmokeBackdoor(): void {
         found: true, mode: isCell ? "cell" as const : "byte" as const,
         scrollTop: Math.round(c.scrollTop), scrollHeight: Math.round(c.scrollHeight),
         clientHeight: Math.round(c.clientHeight), fromBottom: Math.round(fromBottom),
-        atBottom: fromBottom <= 2,
+        atBottom: fromBottom <= BOTTOM_EPSILON_PX,
         rowCount: rows.length, nonEmptyRows: nonEmpty.length,
         firstLine: nonEmpty[0] ?? "", lastLine: nonEmpty[nonEmpty.length - 1] ?? "",
       };

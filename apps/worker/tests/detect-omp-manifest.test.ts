@@ -27,8 +27,15 @@ async function coreWith(text: string): Promise<WasmBridge> {
 }
 
 // The omp OSC title the worker parses from the raw byte stream (UTF-8, π intact)
-// and passes to detectAgentScreen. Real shape captured live: "π: <task summary>".
-const OMP_TITLE = "π: Fix stuck agent status detector";
+// and passes to detectAgentScreen. The separator carries the RUN STATE, and
+// tui.titleState defaults TRUE, so `π: <label>` — what this file used to pin —
+// is the OPT-OUT form that a stock omp never emits. Fixtures below are the
+// default shapes; the suite stayed green for months while the manifest's `^π:`
+// anchor matched none of them and detection was completely dead.
+const OMP_TITLE = "π ⠸ Fix stuck agent status detector";      // working (spinner)
+const OMP_TITLE_IDLE = "π > Fix stuck agent status detector";  // user's turn
+const OMP_TITLE_LEGACY = "π: Fix stuck agent status detector"; // tui.titleState off
+const PI_TITLE = "π - ~/Code/idea";                            // pi, NOT omp
 const HR = "─".repeat(80);
 // omp's real approval screen: Allow tool + Approve/Deny + the BARE-WORD select
 // hint (no "to"), a spinner, and NO footer.
@@ -39,6 +46,27 @@ const OMP_APPROVAL_BODY =
 	` up/down navigate  enter select  esc cancel\r\n${HR}\r\n`;
 
 describe("omp manifest (detect-omp-manifest)", () => {
+	// Identity must hold in EVERY run state. The manifest anchored on `π:` alone
+	// and so matched none of the default shapes: detection was dead in prod while
+	// this suite was green, because the suite only ever fed it `π:`.
+	test.each([
+		["working spinner", OMP_TITLE],
+		["idle", OMP_TITLE_IDLE],
+		["tui.titleState off", OMP_TITLE_LEGACY],
+	])("identity holds for %s", async (_label, title) => {
+		const core = await coreWith(` Hello! How can I help?\r\n`);
+		const det = detectAgentScreen(core, title);
+		expect(det.state).toBe("idle");
+		expect(det.matchedRuleId).toBe("omp_idle_title");
+	});
+
+	test("pi is not omp: π - <dir> must not match any omp rule", async () => {
+		const core = await coreWith(` Hello! How can I help?\r\n`);
+		const det = detectAgentScreen(core, PI_TITLE);
+		expect(det.matchedRuleId).not.toBe("omp_idle_title");
+		expect(det.state).not.toBe("idle");
+	});
+
 	test("working (agent turn): π: title + ⠇ Working… ⟨esc⟩ → running", async () => {
 		const core = await coreWith(` do a thing\r\n\r\n ⠇ Working… ⟨esc⟩\r\n`);
 		const det = detectAgentScreen(core, OMP_TITLE);

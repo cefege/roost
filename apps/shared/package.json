@@ -20,6 +20,7 @@
     "./cell": "./src/cell/index.ts",
     "./cell/cell-proto": "./src/cell/cell-proto.ts",
     "./chat/wire": "./src/chat/wire.ts",
+    "./chat/omp-title": "./src/chat/omp-title.ts",
     "./proto/*": "./src/gen/roost/v1/*.ts"
   },
   "scripts": {
