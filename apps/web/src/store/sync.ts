@@ -27,7 +27,7 @@ import { signal, diag } from "@roost/shared/diag";
 import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
 import type { ChatFrame as PbChatFrame } from "@roost/shared/proto/sync_pb";
 import { _dispatchBytes, _dispatchCell, _dispatchPresence } from "./sync-dispatch.ts";
-import { applyOmpChatFrame } from "./chatOmp.ts";
+import { applyOmpChatFrame, resyncOmpChats } from "./chatOmp.ts";
 import { isOmpTitle } from "@roost/shared/chat/omp-title";
 import { startStaleWatchdog } from "./sync-watchdog.ts";
 // Worker-routability signal lives in sync-routable.ts (leaf): _runConnectSync
@@ -402,6 +402,10 @@ export async function _runConnectSync(): Promise<void> {
         backoff = 1000;
         if (gen === _wsGen) setOpen(true);
         _stopWatchdog = startStaleWatchdog(ws, { onStale: () => { _initiateWsClose("stale"); } });
+        // Chat frames ride a bus coord does NOT re-seed on reconnect, so
+        // anything published while this socket was down is unrecoverable from
+        // the stream. Re-pull the transcripts we hold. No-op on first connect.
+        resyncOmpChats();
       };
       ws.onmessage = (ev) => {
         try {

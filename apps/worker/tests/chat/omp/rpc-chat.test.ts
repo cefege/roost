@@ -35,7 +35,11 @@ interface Harness {
 	rec: SessionRecord;
 	host: RpcChatHost;
 	frames: ChatFrame[];
+	/** Commands that reached the child, in order. Excludes the fixture's own
+	 *  `__argv` boot record — that is launch bookkeeping, not a command. */
 	log(): Record<string, unknown>[];
+	/** How the child was launched (fixture's `__argv` boot record). */
+	argv(): string[] | undefined;
 }
 
 function harness(sid: string): Harness {
@@ -43,6 +47,9 @@ function harness(sid: string): Harness {
 	process.env.FAKE_OMP_LOG = logPath;
 	process.env.FAKE_OMP_SESSION_FILE = join(tmp, `${sid}-session.jsonl`);
 	const frames: ChatFrame[] = [];
+	const raw = (): Record<string, unknown>[] => (existsSync(logPath)
+		? readFileSync(logPath, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l) as Record<string, unknown>)
+		: []);
 	const rec = {
 		sessionId: sid, channelId: 1, cwd: tmp, chat_seq: 0,
 		chatMessages: [] as ChatMessage[], chatMsgSeqs: [] as number[],
@@ -53,7 +60,8 @@ function harness(sid: string): Harness {
 			getBySessionId: (id) => (id === sid ? rec : undefined),
 			sendChatFrameUpstream: (_c, f) => { frames.push(f); },
 		},
-		log: () => (existsSync(logPath) ? readFileSync(logPath, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l) as Record<string, unknown>) : []),
+		log: () => raw().filter((f) => f.type !== "__argv"),
+		argv: () => raw().find((f) => f.type === "__argv")?.argv as string[] | undefined,
 	};
 }
 
@@ -231,5 +239,98 @@ test("respawn keeps the mapping; only a true close forgets it", async () => {
 		expect(loadOmpSessionFile("s-keep")).toBeNull();
 	} finally {
 		disposeRpcChat("s-keep");
+	}
+});
+
+test("omp is launched with a UI, or it has no way to ask the user anything", async () => {
+	const h = harness("s-argv");
+	try {
+		await rpcChatCommand(h.host, h.rec, JSON.stringify({ type: "get_state" }));
+		const argv = h.argv();
+		// omp gates its `ask` tool on `hasUI = isInteractive || mode === "rpc-ui"`
+		// (main.ts). Under plain `--mode rpc` the tool is never registered, so no
+		// select/confirm/input request can EVER reach the pane — the chat looks
+		// like it simply refuses to ask questions. Nothing else in this suite
+		// notices the difference, hence this assert on the spawn argv itself.
+		expect(argv).toEqual(["--mode", "rpc-ui"]);
+	} finally {
+		disposeRpcChat("s-argv");
+	}
+});
+
+test("an N-option decision reaches the pane, and 'Other' opens the free-text branch", async () => {
+	const h = harness("s-decide");
+	try {
+		await rpcChatCommand(h.host, h.rec, JSON.stringify({ type: "prompt", message: "__decide" }));
+		await waitFor("select block", () => findBlock(h.rec.chatMessages ?? [], "approval") !== undefined);
+
+		// Every option survives the mapping — an empty `options` renders a card
+		// with nothing to click, which is indistinguishable from "no decision".
+		expect(findBlock(h.rec.chatMessages ?? [], "approval")).toEqual({
+			kind: "approval", requestId: "ui-sel", method: "select", title: "Pick a colour",
+			message: "", options: ["Red", "Green", "Blue", "Other (type your own)"],
+			resolved: false, answer: "",
+		});
+
+		// Picking "Other" is not an answer: omp follows it with an `editor`
+		// request it AWAITS. Dropping that (the pre-fix behavior) hangs the turn
+		// forever with no card and no error.
+		const ans = await rpcChatCommand(h.host, h.rec, JSON.stringify({ type: "extension_ui_response", id: "ui-sel", value: "Other (type your own)" }));
+		expect(ans.ok).toBe(true);
+		await waitFor("editor block", () =>
+			(h.rec.chatMessages ?? []).some((m) => m.blocks.some((b) => b.kind === "approval" && b.requestId === "ui-ed")));
+
+		const editor = (h.rec.chatMessages ?? [])
+			.flatMap((m) => m.blocks)
+			.find((b) => b.kind === "approval" && b.requestId === "ui-ed");
+		// prefill rides in `message` — the pane seeds its text field from it.
+		expect(editor).toMatchObject({ method: "editor", message: "Red", resolved: false });
+
+		// The answered select is retired, so its buttons stop being offered.
+		const sel = (h.rec.chatMessages ?? [])
+			.flatMap((m) => m.blocks)
+			.find((b) => b.kind === "approval" && b.requestId === "ui-sel");
+		expect(sel).toMatchObject({ resolved: true, answer: "Other (type your own)" });
+
+		// And the free-text reply round-trips like any other answer.
+		const typed = await rpcChatCommand(h.host, h.rec, JSON.stringify({ type: "extension_ui_response", id: "ui-ed", value: "Teal" }));
+		expect(typed.ok).toBe(true);
+		expect((h.rec.chatMessages ?? []).flatMap((m) => m.blocks)
+			.find((b) => b.kind === "approval" && b.requestId === "ui-ed")).toMatchObject({ resolved: true, answer: "Teal" });
+	} finally {
+		disposeRpcChat("s-decide");
+	}
+});
+
+test("omp withdrawing a question retires the card instead of leaving dead buttons", async () => {
+	const h = harness("s-withdraw");
+	try {
+		await rpcChatCommand(h.host, h.rec, JSON.stringify({ type: "prompt", message: "__withdraw" }));
+		await waitFor("cancelled card", () =>
+			(h.rec.chatMessages ?? []).some((m) => m.blocks.some((b) => b.kind === "approval" && b.resolved)));
+		expect(findBlock(h.rec.chatMessages ?? [], "approval")).toMatchObject({
+			requestId: "ui-w1", resolved: true, answer: "cancelled",
+		});
+		// The card is retired, so a late answer has nothing to answer.
+		const late = await rpcChatCommand(h.host, h.rec, JSON.stringify({ type: "extension_ui_response", id: "ui-w1", value: "Red" }));
+		expect(late).toEqual({ ok: false, error: "unknown ui request" });
+	} finally {
+		disposeRpcChat("s-withdraw");
+	}
+});
+
+test("an unrenderable UI request is declined, never left hanging", async () => {
+	const h = harness("s-mystery");
+	try {
+		await rpcChatCommand(h.host, h.rec, JSON.stringify({ type: "prompt", message: "__mystery" }));
+		// omp AWAITS every dialog request it did not document as fire-and-forget.
+		// A method we cannot render must therefore be declined immediately;
+		// returning silently wedges the turn with no output and no error.
+		await waitFor("decline posted", () =>
+			h.log().some((f) => f.type === "extension_ui_response" && f.id === "ui-m1" && f.cancelled === true));
+		// And it must NOT have produced a card nobody can answer.
+		expect(findBlock(h.rec.chatMessages ?? [], "approval")).toBeUndefined();
+	} finally {
+		disposeRpcChat("s-mystery");
 	}
 });

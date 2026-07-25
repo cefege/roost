@@ -65,7 +65,13 @@ export class OmpRpcDriver {
 		// bun, so its own binary dir is the authoritative bun location.
 		const bunDir = process.execPath.slice(0, process.execPath.lastIndexOf("/"));
 		const path = `${bunDir}:${process.env.PATH ?? ""}`;
-		const proc = Bun.spawn([bin, "--mode", "rpc"], {
+		// `rpc-ui`, NOT `rpc`: main.ts sets `hasUI = isInteractive || mode ===
+		// "rpc-ui"`, and AskTool.createIf returns null without it — so a plain
+		// `--mode rpc` child cannot ask the user ANYTHING. Every multi-option
+		// decision (the `ask` tool) is simply absent from its toolset, which is
+		// why the chat never showed one. rpc-ui is otherwise a strict superset:
+		// same applyRpcDefaultSettingOverrides, plus PI_NO_PTY=1.
+		const proc = Bun.spawn([bin, "--mode", "rpc-ui"], {
 			cwd: this.#opts.cwd,
 			stdin: "pipe",
 			stdout: "pipe",

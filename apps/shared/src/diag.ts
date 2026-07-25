@@ -128,6 +128,7 @@ export type SignalKind =
   | "keeper.restart_degraded"   // worker force-restarted a degraded survivor keeper (self-heal; grace-gated to avoid loops)
   | "spawn.no_ack"              // keeper never acked a Spawn frame within timeout → session hangs (degraded/wedged keeper)
   | "scrollback.gap"            // ring rolled past lastSeq → silent history hole on resume (observability, NOT a band-aid trigger)
+  | "chat.frame_drop"           // SPA could not parse a ChatFrame → the WHOLE batch (incl. co-batched assistant text) is discarded and the pane silently stops growing
   | "scrollback.replay_storm"   // OPT2-3 coalescing replay hit MAX_COALESCED_REPLAYS → resizes never settled (storm past viewport hysteresis)
   | "voice.ws_failed"
   | "agent.stuck"

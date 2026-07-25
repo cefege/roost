@@ -8,12 +8,13 @@
 // reset → reseed, else splice append by seq (dedup by message id).
 
 import { rootStore, setRootStore, type ChatOmpState } from "./root.ts";
+import { reconcile } from "solid-js/store";
 import { isChatFolder } from "../lib/quickChat.ts";
 import { chatFrameFromProto, chatMessageFromProto, type ChatFrame, type ChatMessage } from "@roost/shared/chat/wire";
 import { coordClient } from "../connect.ts";
 import { asSessionId } from "@roost/shared/wire";
 import type { ChatFrame as PbChatFrame, ChatMessage as PbChatMessage } from "@roost/shared/proto/sync_pb";
-import { diag } from "@roost/shared/diag";
+import { diag, signal } from "@roost/shared/diag";
 
 // Cap in-memory transcript tail per session. Matches the 2000-row scrollback
 // cap philosophy: the chat reader pages older history via backfillOmpChat, so
@@ -46,7 +47,12 @@ export function applyOmpChatFrame(pb: PbChatFrame): void {
 	let frame: ChatFrame;
 	try { frame = chatFrameFromProto(pb); }
 	catch (e) {
-		diag("chat.parse_skip", { reason: "frame_zod", msg: String(e) });
+		// signal(), not diag(): one unparseable message discards the WHOLE frame,
+		// including any co-batched assistant text, and the pane just stops
+		// growing. diag is a no-op without ROOST_DIAG=1, so that failure used to
+		// leave no trace at all — same always-on channel the sessions/
+		// sessionPresence cases in sync.ts use for corruption.
+		signal("chat.frame_drop", { reason: "frame_zod", msg: String(e) });
 		return;
 	}
 	const sid = frame.sessionId;
@@ -88,8 +94,16 @@ export function applyOmpChatFrame(pb: PbChatFrame): void {
 		if (i === undefined) { at.set(m.id, merged.length); merged.push(m); }
 		else merged[i] = m;
 	}
+	const trimmed = merged.length > MAX_CHAT_MSGS ? merged.slice(-MAX_CHAT_MSGS) : merged;
+	// reconcile, NOT a plain array set: a streaming message is re-emitted as a
+	// NEW object under the SAME id every ~60ms, and `<For each={messages}>` keys
+	// by reference — a bare set therefore unmounts and rebuilds the whole bubble
+	// (markdown re-rendered from scratch, selection and scroll anchor lost) on
+	// every token batch. That thrash is what made live output look like it
+	// arrived in one lump at the end. Keyed reconcile patches the changed row's
+	// fields in place, so only the text node updates.
+	setRootStore("chat_omp", sid, "messages", reconcile(trimmed, { key: "id" }));
 	setRootStore("chat_omp", sid, {
-		messages: merged.length > MAX_CHAT_MSGS ? merged.slice(-MAX_CHAT_MSGS) : merged,
 		seq: Math.max(cur.seq, frame.seq),
 		status: "resolved",
 	});
@@ -121,33 +135,38 @@ export function chatOmpStats(): { sessions: number; msgs: number } {
 	return { sessions: ids.length, msgs };
 }
 
-/** Backfill chat history on first chat-view enter / browser reconnect.
- *  Pages older history via after_seq (lowest held seq − 1). No-op when already
- *  resolved. Marks status "loading" while in flight so the pane shows a skeleton. */
-export async function backfillOmpChat(sessionId: string): Promise<void> {
+/** Backfill chat history on first chat-view enter / firehose reconnect.
+ *  No-op when already resolved unless `force`. Marks status "loading" only when
+ *  there is nothing on screen yet — a reconnect resync must never blank a
+ *  transcript the user is reading. Always pulls the NEWEST page: the RPC's
+ *  `after_seq` is a BACKWARD cursor (worker keeps entries with seq <= it, to
+ *  page OLDER history), so there is no forward "everything since X" catch-up
+ *  to lean on — a resync refetches the tail and dedups by id. */
+export async function backfillOmpChat(sessionId: string, force = false): Promise<void> {
 	const cur = rootStore.chat_omp[sessionId];
-	if (cur?.status === "resolved") return;
-	setRootStore("chat_omp", sessionId, {
-		messages: cur?.messages ?? [],
-		seq: cur?.seq ?? 0,
-		status: "loading",
-		streaming: cur?.streaming ?? false,
-		model: cur?.model ?? "", contextPct: cur?.contextPct ?? 0, contextTokens: cur?.contextTokens ?? 0,
-	});
+	if (!force && cur?.status === "resolved") return;
+	if (!cur || cur.messages.length === 0) {
+		setRootStore("chat_omp", sessionId, {
+			messages: cur?.messages ?? [],
+			seq: cur?.seq ?? 0,
+			status: "loading",
+			streaming: cur?.streaming ?? false,
+			model: cur?.model ?? "", contextPct: cur?.contextPct ?? 0, contextTokens: cur?.contextTokens ?? 0,
+		});
+	}
 	try {
 		const res = await coordClient.sessionsGetChatHistory({
 			sessionId: asSessionId(sessionId),
 			maxMessages: 500,
 		});
-		const messages = res.messages.map((m) => {
-			// Connect returns proto-typed ChatMessage; adapt via the wire boundary.
-			return protoMsgToWire(m);
-		});
+		const messages = res.messages.map(protoMsgToWire);
 		const existing = rootStore.chat_omp[sessionId];
 		const liveMsgs = existing?.messages ?? [];
-		const liveIds = new Set(liveMsgs.map((m) => m.id));
-		// Merge: history (oldest) ++ live frames not yet in history.
-		const merged = [...messages.filter((m) => !liveIds.has(m.id)), ...liveMsgs];
+		// History is the worker's authoritative transcript, so it OWNS the order.
+		// Live frames only contribute ids history does not have yet — frames that
+		// landed while this fetch was in flight, which are by definition newest.
+		const known = new Set(messages.map((m) => m.id));
+		const merged = [...messages, ...liveMsgs.filter((m) => !known.has(m.id))];
 		setRootStore("chat_omp", sessionId, {
 			messages: merged,
 			seq: Math.max(existing?.seq ?? 0, Number(res.nextSeq)),
@@ -161,6 +180,18 @@ export async function backfillOmpChat(sessionId: string): Promise<void> {
 		setRootStore("chat_omp", sessionId, "status", "resolved");
 		diag("chat.parse_skip", { reason: "backfill_failed", msg: String(e) });
 	}
+}
+
+/** Re-pull every held chat transcript after the firehose reconnects.
+ *  globalChatBus is a 64-frame in-memory ring with NO reconnect replay (unlike
+ *  titleBus/claudeStatusBus, which coord re-seeds), so a frame published while
+ *  the socket was silently stalled — Chrome throttles a backgrounded tab's WS
+ *  without surfacing an error — is gone from the live feed for good, and the
+ *  transcript just stops growing mid-reply. The worker still holds the whole
+ *  thing, so ask it again. Scoped to sessions we actually hold chat state for,
+ *  never every session. */
+export function resyncOmpChats(): void {
+	for (const sid of Object.keys(rootStore.chat_omp)) void backfillOmpChat(sid, true);
 }
 
 /** Fetch the full untruncated text of one ContentBlock (thinking/tool_result). */

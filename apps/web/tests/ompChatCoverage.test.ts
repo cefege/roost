@@ -105,6 +105,13 @@ test("same message id upserts in place — second frame's blocks win", () => {
   expect(ompChatForSession(SID).messages.map((m) => m.id)).toEqual(["m1", "m2"]);
 });
 
+// NOTE: the streaming row-identity contract (keyed reconcile keeps `<For>` from
+// remounting a growing message) CANNOT be asserted here — `bun test` resolves
+// solid-js/store to its SERVER build, whose `reconcile` is a plain replace with
+// no identity preservation. It is proven in the browser instead, by
+// step15_chat_stream_round_trip in .claude/skills/roost-smoke/run.js, which
+// asserts the assistant bubble's DOM node survives its own text growing.
+
 test("ChatFrame.streaming lands on chat_omp[sid].streaming, payload or not", () => {
   push([], 0, { reset: true });
   expect(ompChatForSession(SID).streaming).toBe(false);

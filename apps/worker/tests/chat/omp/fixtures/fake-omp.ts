@@ -13,6 +13,14 @@
 //                         extension_ui_request. The turn STAYS open (streaming)
 //                         until the UI request is answered — that is the window
 //                         a test uses to send a mid-turn prompt.
+//   prompt "__decide"   → ack, then a `select` request carrying N options,
+//                         mirroring what a real `omp --mode rpc-ui` ask tool
+//                         emits. Answering it emits the `editor` follow-up the
+//                         "Other (type your own)" branch produces.
+//   prompt "__withdraw" → ack, a `select` request, then a `cancel` naming it.
+//   prompt "__mystery"  → ack, then an extension_ui_request with a method the
+//                         worker cannot render. omp awaits it, so a silent drop
+//                         would wedge the turn forever.
 //   extension_ui_response → agent_end (turn closes)
 //   prompt "__die"      → ack, then exit(0) (child-death / respawn path)
 //   get_state           → sessionFile + isStreaming
@@ -28,9 +36,19 @@ const LOG = process.env.FAKE_OMP_LOG ?? "";
 // prunes mappings whose file has vanished, so a fixture that only *names* a
 // path would look like a cache bug on the next load.
 writeFileSync(SESSION_FILE, `${JSON.stringify({ type: "session", version: 3 })}\n`);
+// Record how we were launched. The `ask` tool only exists when omp runs with a
+// UI (`hasUI = isInteractive || mode === "rpc-ui"`), so the spawn argv is the
+// difference between a chat that can ask the user a question and one that
+// structurally cannot — a regression there is invisible in every other assert.
+if (LOG) appendFileSync(LOG, `${JSON.stringify({ type: "__argv", argv: process.argv.slice(2) })}\n`);
 
 function out(frame: Record<string, unknown>): void {
 	process.stdout.write(`${JSON.stringify(frame)}\n`);
+}
+
+/** N-option decision, the shape a real rpc-ui `ask` tool emits. */
+function askSelect(id: string): void {
+	out({ type: "extension_ui_request", id, method: "select", title: "Pick a colour", options: ["Red", "Green", "Blue", "Other (type your own)"] });
 }
 
 
@@ -78,11 +96,33 @@ for await (const chunk of Bun.stdin.stream()) {
 		const id = typeof cmd.id === "string" ? cmd.id : undefined;
 		const type = String(cmd.type);
 
-		if (type === "extension_ui_response") { out({ type: "agent_end", messages: [] }); continue; }
+		if (type === "extension_ui_response") {
+			// "Other (type your own)" is not an answer — the real ask tool follows
+			// it with a free-text `editor` request, which omp AWAITS.
+			if (cmd.id === "ui-sel" && cmd.value === "Other (type your own)") {
+				out({ type: "extension_ui_request", id: "ui-ed", method: "editor", title: "Pick a colour\n\nEnter your response:", prefill: "Red", promptStyle: true });
+				continue;
+			}
+			out({ type: "agent_end", messages: [] });
+			continue;
+		}
 
 		if (type === "prompt") {
 			out({ id, type: "response", command: "prompt", success: true, data: { agentInvoked: true } });
 			if (cmd.message === "__die") { await Bun.sleep(5); process.exit(0); }
+			if (cmd.message === "__decide") { out({ type: "agent_start" }); askSelect("ui-sel"); continue; }
+			if (cmd.message === "__withdraw") {
+				out({ type: "agent_start" });
+				askSelect("ui-w1");
+				await Bun.sleep(20);
+				out({ type: "extension_ui_request", id: "ui-w2", method: "cancel", targetId: "ui-w1" });
+				continue;
+			}
+			if (cmd.message === "__mystery") {
+				out({ type: "agent_start" });
+				out({ type: "extension_ui_request", id: "ui-m1", method: "someFutureDialog", title: "?" });
+				continue;
+			}
 			void runTurn();
 			continue;
 		}

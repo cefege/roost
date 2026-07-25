@@ -18,6 +18,8 @@
 //   message_start/update/end     → one upserted ChatMessage per assistant turn
 //   tool_execution_start/end     → one upserted toolEvent message per toolCallId
 //   extension_ui_request         → an approval block the pane answers inline
+//                                  (select/confirm/input/editor); `cancel`
+//                                  retires a card omp gave up on
 //   notice                       → developer text row
 //   everything else              → ignored (tool_execution_update carries partial
 //                                  results ToolEventBlock cannot model; the final
@@ -45,9 +47,21 @@ const ALLOWED_COMMANDS: Record<string, true> = {
 	compact: true, set_auto_compaction: true, new_session: true, set_session_name: true,
 };
 
-/** UI methods that ask the user a question. The rest (notify/setStatus/
- *  setWidget/setTitle/cancel/open_url/editor) carry no decision to render. */
-const UI_DECISION_METHODS: Record<string, true> = { confirm: true, select: true, input: true };
+/** UI methods that ask the user a question and BLOCK the turn until answered
+ *  (omp awaits every one of these — see rpc-mode's #createDialogPromise).
+ *  `editor` is the `ask` tool's "Other (type your own)" branch: free text,
+ *  same {value}/{cancelled} reply shape as `input`, so the pane reuses that
+ *  card. Its optional prefill rides in the block's `message`. */
+const UI_DECISION_METHODS: Record<string, true> = { confirm: true, select: true, input: true, editor: true };
+
+/** UI methods omp fires and forgets — no response is awaited, so dropping one
+ *  costs nothing. Anything OUTSIDE this set and outside UI_DECISION_METHODS is
+ *  presumed awaited and gets an immediate decline: a request we neither render
+ *  nor answer wedges the turn forever, which is the worst failure this pane has. */
+const UI_FIRE_AND_FORGET_METHODS: Record<string, true> = {
+	notify: true, setStatus: true, setWidget: true, setTitle: true,
+	set_editor_text: true, open_url: true,
+};
 
 /** Coalesce per-token message_update remaps. Without this every token becomes
  *  a ChatFrame on the coord bus. */
@@ -365,7 +379,23 @@ function onEvent(host: RpcChatHost, entry: RpcChatEntry, frame: RpcFrame): void 
 		case "extension_ui_request": {
 			const requestId = typeof frame.id === "string" ? frame.id : "";
 			const method = typeof frame.method === "string" ? frame.method : "";
-			if (!requestId || UI_DECISION_METHODS[method] !== true) return;
+			if (!requestId) return;
+			// omp withdrew a question (turn aborted, timeout): retire the card so
+			// the pane stops offering buttons that answer nothing.
+			if (method === "cancel") {
+				const targetId = typeof frame.targetId === "string" ? frame.targetId : "";
+				retireUiRequest(host, entry, targetId, "cancelled");
+				return;
+			}
+			if (UI_DECISION_METHODS[method] !== true) {
+				// Unknown AND not known-fire-and-forget ⇒ omp is awaiting a reply we
+				// will never render. Decline it now; a silent drop hangs the turn.
+				if (UI_FIRE_AND_FORGET_METHODS[method] !== true) {
+					log.warn("omp-rpc", "ui_request_declined", { sid: entry.sessionId, method });
+					entry.driver.post({ type: "extension_ui_response", id: requestId, cancelled: true });
+				}
+				return;
+			}
 			flushPending(host, entry);
 			const id = `rpc-${entry.nextMsg++}`;
 			entry.pendingUi.set(requestId, id);
@@ -374,8 +404,10 @@ function onEvent(host: RpcChatHost, entry: RpcChatEntry, frame: RpcFrame): void 
 				blocks: [{
 					kind: "approval", requestId, method,
 					title: typeof frame.title === "string" ? frame.title : "",
+					// input → placeholder (hint text); editor → prefill (seed text).
 					message: typeof frame.message === "string" ? frame.message
-						: typeof frame.placeholder === "string" ? frame.placeholder : "",
+						: typeof frame.placeholder === "string" ? frame.placeholder
+						: typeof frame.prefill === "string" ? frame.prefill : "",
 					options: Array.isArray(frame.options) ? frame.options.filter((o): o is string => typeof o === "string") : [],
 					resolved: false, answer: "",
 				}],
@@ -577,6 +609,19 @@ export function ensureRpcChat(host: RpcChatHost, rec: SessionRecord): RpcChatEnt
 	return entry;
 }
 
+/** Mark a pending approval card answered and stop tracking its request id.
+ *  Shared by the pane's own reply and by omp withdrawing the question. */
+function retireUiRequest(host: RpcChatHost, entry: RpcChatEntry, requestId: string, answer: string): void {
+	const msgId = requestId ? entry.pendingUi.get(requestId) : undefined;
+	if (msgId === undefined) return;
+	entry.pendingUi.delete(requestId);
+	const prev = host.getBySessionId(entry.sessionId)?.chatMessages?.find((m) => m.id === msgId);
+	const block = prev?.blocks[0];
+	if (prev && block?.kind === "approval") {
+		upsertMessage(host, entry, { ...prev, blocks: [{ ...block, resolved: true, answer }] });
+	}
+}
+
 /** Answer an omp extension_ui_request from the chat pane. Bypasses send():
  *  UI responses get no correlated `response` frame back. */
 function answerUiRequest(
@@ -584,21 +629,16 @@ function answerUiRequest(
 ): { ok: true; response: RpcFrame } | { ok: false; error: string } {
 	const requestId = typeof cmd.id === "string" ? cmd.id : "";
 	const entry = entries.get(String(rec.sessionId));
-	const msgId = requestId ? entry?.pendingUi.get(requestId) : undefined;
-	if (!entry || msgId === undefined) return { ok: false, error: "unknown ui request" };
+	if (!entry || (requestId ? entry.pendingUi.get(requestId) : undefined) === undefined) {
+		return { ok: false, error: "unknown ui request" };
+	}
 	try { entry.driver.post(cmd); }
 	catch (err) { return { ok: false, error: err instanceof Error ? err.message : String(err) }; }
-	entry.pendingUi.delete(requestId);
 
-	const answer = cmd.cancelled === true ? "cancelled"
+	retireUiRequest(host, entry, requestId, cmd.cancelled === true ? "cancelled"
 		: typeof cmd.value === "string" ? cmd.value
 		: cmd.confirmed === true ? "approved"
-		: "denied";
-	const prev = host.getBySessionId(entry.sessionId)?.chatMessages?.find((m) => m.id === msgId);
-	const block = prev?.blocks[0];
-	if (prev && block?.kind === "approval") {
-		upsertMessage(host, entry, { ...prev, blocks: [{ ...block, resolved: true, answer }] });
-	}
+		: "denied");
 	return { ok: true, response: { type: "ack" } };
 }
 

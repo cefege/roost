@@ -58,8 +58,8 @@ export function chatWorkerCandidates(): WorkerFp[] {
   return out;
 }
 
-// One-tap chat: mkdir scratch → spawn shell → wait for the row → probe → navigate.
-// NATIVE engine: the chat is driven by the worker's `omp --mode rpc` child
+// One-tap chat: mkdir scratch → spawn shell → wait for the row → probe.
+// NATIVE engine: the chat is driven by the worker's `omp --mode rpc-ui` child
 // (sessionsChatCommand), NOT a TUI in the PTY — the terminal stays a plain
 // companion shell in the same folder.
 //
@@ -68,9 +68,11 @@ export function chatWorkerCandidates(): WorkerFp[] {
 // just sees a chat that silently does nothing. Probing first turns that into
 // "try the next machine", and only a total failure reaches the user — naming
 // the machines it tried.
-export async function startQuickChat(navigate: Navigator): Promise<void> {
+/** Create a quick chat and return its session id. Throws when no candidate
+ *  machine can serve one; the caller owns navigation and user-facing errors. */
+export async function createQuickChat(): Promise<string> {
   const candidates = chatWorkerCandidates();
-  if (candidates.length === 0) { addToast("No machine connected", "err"); return; }
+  if (candidates.length === 0) throw new Error("No machine connected");
 
   // One folder name per click, reused across retries: each candidate is a
   // different machine, so a retry cannot collide, and a failed attempt leaves
@@ -101,13 +103,21 @@ export async function startQuickChat(navigate: Navigator): Promise<void> {
         new Promise((_, reject) =>
           setTimeout(() => reject(new Error(`${host} did not answer in ${PROBE_TIMEOUT_MS / 1000}s`)), PROBE_TIMEOUT_MS)),
       ]);
-      navigate(`/s/${sid}`);
-      return;
+      return sid;
     } catch (e) {
       lastErr = e instanceof Error ? e.message : String(e);
       // Leave no dead chat row behind on a machine that cannot serve it.
       void coordClient.sessionsKill({ sessionId: sid }).catch(() => { /* already gone */ });
     }
   }
-  addToast(`No machine can run a chat (tried ${tried.join(", ")}): ${lastErr}`, "err");
+  throw new Error(`No machine can run a chat (tried ${tried.join(", ")}): ${lastErr}`);
+}
+
+// UI entry point: create the chat, go to it, and surface any failure as a toast.
+export async function startQuickChat(navigate: Navigator): Promise<void> {
+  try {
+    navigate(`/s/${await createQuickChat()}`);
+  } catch (e) {
+    addToast(e instanceof Error ? e.message : String(e), "err");
+  }
 }
