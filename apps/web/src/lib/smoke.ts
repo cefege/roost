@@ -12,7 +12,8 @@ import { coordClient } from "../connect.ts";
 import { forceSyncReconnect as forceSyncReconnectImpl, cellFrameCount as cellFrameCountImpl } from "../store/sync.ts";
 import { rootStore, setRootStore } from "../store/root.ts";
 import { setOmpChatView, ompChatViewForSession } from "../store/uiStore.ts";
-import { ompChatEnabled } from "../store/chatOmp.ts";
+import { ompChatEnabled, ompChatForSession } from "../store/chatOmp.ts";
+import { createQuickChat } from "./quickChat.ts";
 import { setForceVisible } from "./pageVisible.ts";
 import { BOTTOM_EPSILON_PX } from "./cellRenderer.ts";
 
@@ -103,6 +104,22 @@ interface SmokeApi {
    *  overlay renders even before a live OSC title propagates. Returns the
    *  resulting view + whether the session is omp-eligible. */
   setChatView(sessionId: string, mode: "chat" | "terminal"): { view: "chat" | "terminal"; eligible: boolean };
+  /** Create a native quick chat (mkdir scratch → spawn → probe) and return its
+   *  session id, registered in _spawned so killSpawned() reaps it. */
+  quickChat(): Promise<{ session_id: string }>;
+  /** Send a prompt through the SAME RPC the Composer uses. Returns the parsed
+   *  { success } envelope so the harness can assert the worker accepted it. */
+  chatPrompt(sessionId: string, message: string): Promise<{ success: boolean; error?: string }>;
+  /** Sampling probe for the chat transcript. Polling this over a turn is how
+   *  the harness proves output arrives INCREMENTALLY (many distinct growing
+   *  assistant lengths) rather than in one lump at message_end. */
+  chatState(sessionId: string): {
+    status: string; streaming: boolean; model: string; msgCount: number;
+    lastAssistantId: string; lastAssistantLen: number;
+    approvals: { requestId: string; method: string; title: string; options: string[]; resolved: boolean }[];
+  };
+  /** Answer a pending approval exactly as ApprovalCard does. */
+  chatApprove(sessionId: string, requestId: string, reply: Record<string, unknown>): Promise<void>;
 }
 
 export function maybeInstallSmokeBackdoor(): void {
@@ -137,6 +154,47 @@ export function maybeInstallSmokeBackdoor(): void {
       }
       setOmpChatView(sessionId, mode);
       return { view: ompChatViewForSession(sessionId), eligible: ompChatEnabled(sessionId) };
+    },
+    async quickChat() {
+      const sid = await createQuickChat();
+      // Cleanup goes through the spawned allowlist, never a scan of live
+      // sessions (feedback_never_mass_kill_live_sessions).
+      spawned.push(sid);
+      return { session_id: sid };
+    },
+    async chatPrompt(sessionId, message) {
+      const res = await coordClient.sessionsChatCommand({
+        sessionId,
+        commandJson: JSON.stringify({ type: "prompt", message }),
+      });
+      const parsed = JSON.parse(res.responseJson || "{}") as { success?: boolean; error?: string };
+      return { success: parsed?.success === true, error: parsed?.error };
+    },
+    chatState(sessionId) {
+      const s = ompChatForSession(sessionId);
+      let lastAssistantId = "";
+      let lastAssistantLen = 0;
+      const approvals: { requestId: string; method: string; title: string; options: string[]; resolved: boolean }[] = [];
+      for (const m of s.messages) {
+        for (const b of m.blocks) {
+          if (b.kind === "approval") {
+            approvals.push({ requestId: b.requestId, method: b.method, title: b.title, options: [...b.options], resolved: b.resolved });
+          }
+        }
+        if (m.role !== "assistant") continue;
+        const len = m.blocks.reduce((n, b) => n + (b.kind === "text" ? b.text.length : 0), 0);
+        if (len > 0) { lastAssistantId = m.id; lastAssistantLen = len; }
+      }
+      return {
+        status: s.status, streaming: s.streaming, model: s.model,
+        msgCount: s.messages.length, lastAssistantId, lastAssistantLen, approvals,
+      };
+    },
+    async chatApprove(sessionId, requestId, reply) {
+      await coordClient.sessionsChatCommand({
+        sessionId,
+        commandJson: JSON.stringify({ type: "extension_ui_response", id: requestId, ...reply }),
+      });
     },
     paneFocused(sessionId) {
       const slot = document.querySelector(`[data-testid="terminal-slot-${sessionId}"]`);

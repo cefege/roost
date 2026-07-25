@@ -368,6 +368,183 @@ const HOME = "/tmp";  // portable — every Unix has /tmp
     await window.__smoke.kill(sh.session_id).catch(() => null);
   } catch (e) { record("step13_resize_wobble_holds_scrollback", false, String(e)); }
 
+  // ── Step 14: quick chat spawns and the native pane renders ─────────
+  // Proves the whole one-tap path: candidate pick → filesMkdir → spawnShell →
+  // get_state probe (which boots `omp --mode rpc-ui`) → sidebar bucket →
+  // chat-view routing. A quick chat is eligible BY CWD (ompChatEnabled →
+  // isChatFolder), so no OSC title and no setChatView is involved — if the
+  // pane does not render, routing or eligibility is genuinely broken.
+  let chatSid = null;
+  try {
+    const qc = await window.__smoke.quickChat();
+    chatSid = qc.session_id;
+    history.pushState({}, "", `/s/${chatSid}`);
+    window.dispatchEvent(new PopStateEvent("popstate"));
+    const paneSel = `[data-testid="omp-chat-pane"][data-session-id="${chatSid}"]`;
+    const t0 = performance.now();
+    let hadPane = false, hadComposer = false;
+    while (performance.now() - t0 < 15000) {
+      const pane = $(paneSel);
+      hadPane = !!pane;
+      hadComposer = !!(pane && pane.querySelector('[data-testid="omp-chat-composer"]'));
+      if (hadPane && hadComposer) break;
+      await sleep(200);
+    }
+    record("step14_quick_chat_spawn_and_render", hadPane && hadComposer, {
+      sessionId: chatSid, ms: Math.round(performance.now() - t0), hadPane, hadComposer,
+    });
+  } catch (e) { record("step14_quick_chat_spawn_and_render", false, String(e)); }
+
+  // ── Step 15: a prompt streams back INCREMENTALLY ───────────────────
+  // The bug this exists for: output appeared to arrive in one lump. Two
+  // independent observations settle it — (a) the assistant text length grows
+  // across several samples, so frames really are incremental; (b) the bubble's
+  // DOM node is the SAME element throughout, so the keyed reconcile in
+  // chatOmp.ts is holding and <For> is not tearing the row down and rebuilding
+  // it (markdown re-parsed, selection lost) on every 60ms frame.
+  try {
+    if (!chatSid) throw new Error("step14 produced no session");
+    const paneSel = `[data-testid="omp-chat-pane"][data-session-id="${chatSid}"]`;
+    const res = await window.__smoke.chatPrompt(chatSid, "Write exactly four sentences about the ocean. No preamble.");
+    if (!res.success) throw new Error(`worker rejected the prompt: ${res.error ?? "no error given"}`);
+
+    const lens = [];       // distinct growing assistant text lengths
+    let firstNode = null, sameNode = true, sawUser = false, sawStreaming = false, lastGrowth = 0;
+    const t0 = performance.now();
+    while (performance.now() - t0 < 90000) {
+      const pane = $(paneSel);
+      if (pane) {
+        if (pane.querySelector('[data-testid="omp-chat-msg"].omp-msg--user')) sawUser = true;
+        if (pane.querySelector('[data-testid="omp-chat-composer"][data-streaming="true"]')) sawStreaming = true;
+        const bubbles = Array.from(pane.querySelectorAll('[data-testid="omp-chat-msg"].omp-msg--assistant'));
+        const node = bubbles[bubbles.length - 1] ?? null;
+        const len = node ? node.textContent.trim().length : 0;
+        if (len > 0) {
+          if (!firstNode) firstNode = node;
+          else if (node !== firstNode) sameNode = false;
+          if (lens[lens.length - 1] !== len) { lens.push(len); lastGrowth = performance.now(); }
+        }
+      }
+      const st = window.__smoke.chatState(chatSid);
+      // Only trust "the turn is over" AFTER the turn was observed to start —
+      // right after chatPrompt resolves, `streaming` has not flipped true yet,
+      // and exiting on that first tick would report a one-sample stream for a
+      // perfectly healthy one.
+      if (sawStreaming && lens.length > 0 && !st.streaming) break;
+      // Fallback: a fast reply can finish between two 200ms samples and we may
+      // never catch data-streaming="true". Settle on the text instead.
+      if (lens.length >= 2 && performance.now() - lastGrowth > 3000) break;
+      await sleep(200);
+    }
+    const st = window.__smoke.chatState(chatSid);
+    const errorBoundary = !!$('[data-testid="error-boundary"]');
+    // Two growing samples is the whole point: one sample means the reply only
+    // ever appeared complete, which is the reported symptom, not a pass.
+    // isConnected catches the remount directly — a rebuilt row leaves the node
+    // we captured detached, which is exactly the pre-reconcile behavior.
+    const stillMounted = !!firstNode && firstNode.isConnected;
+    record("step15_chat_stream_round_trip",
+      lens.length >= 2 && sameNode && stillMounted && sawUser && !errorBoundary, {
+        growthSamples: lens.length, lens: lens.slice(0, 12), finalLen: lens[lens.length - 1] ?? 0,
+        sameNode, stillMounted, sawUser, sawStreaming, errorBoundary,
+        model: st.model, msgCount: st.msgCount, ms: Math.round(performance.now() - t0),
+      });
+  } catch (e) { record("step15_chat_stream_round_trip", false, String(e)); }
+
+  // ── Step 16: an N-option decision renders and is answerable ────────
+  // omp only registers its `ask` tool when it runs with a UI (hasUI =
+  // isInteractive || mode === "rpc-ui"). Under the old `--mode rpc` child the
+  // tool did not exist, so the agent could never offer a choice and this card
+  // could never appear. Asserting the OPTION BUTTONS — not just the card —
+  // also covers the worker's `options` mapping degrading to an empty array.
+  try {
+    if (!chatSid) throw new Error("step14 produced no session");
+    const paneSel = `[data-testid="omp-chat-pane"][data-session-id="${chatSid}"]`;
+    const ASK = "Use the ask tool right now to ask me one question: 'Pick a colour' with options Red, Green and Blue. Do nothing else.";
+    let card = null, buttons = 0, pending = null, attempts = 0, panePresent = false, cardsAnywhere = 0;
+    const t0 = performance.now();
+    // Two attempts: whether the model reaches for `ask` on any single turn is
+    // not a contract, and one re-ask is cheaper than a flaky gate. Still a FAIL
+    // if it never asks — the capability is then unproven, and a green here
+    // would be exactly the lie this step exists to prevent.
+    while (attempts < 2 && !pending) {
+      attempts++;
+      const res = await window.__smoke.chatPrompt(chatSid, ASK);
+      if (!res.success) throw new Error(`worker rejected the prompt: ${res.error ?? "no error given"}`);
+      const deadline = performance.now() + 90000;
+      let turnStarted = false;
+      while (performance.now() < deadline) {
+        const st = window.__smoke.chatState(chatSid);
+        if (st.streaming) turnStarted = true;
+        pending = st.approvals.find((a) => !a.resolved) ?? null;
+        card = $(`${paneSel} [data-testid="omp-chat-approval"]`);
+        // The card's controls are md-* custom elements, NOT <button> — count the
+        // tagged option controls so an empty `options` array cannot pass.
+        buttons = card ? card.querySelectorAll('[data-testid="omp-chat-approval-option"]').length : 0;
+        panePresent = !!$(paneSel);
+        cardsAnywhere = $$('[data-testid="omp-chat-approval"]').length;
+        if (pending && card && buttons >= 3) break;
+        // "Turn ended without asking" is only meaningful once the turn began —
+        // `streaming` is still false for a moment after chatPrompt resolves.
+        if (turnStarted && !pending && !st.streaming) break;
+        await sleep(200);
+      }
+    }
+    const options = pending ? pending.options : [];
+    let answered = false;
+    if (pending) {
+      await window.__smoke.chatApprove(chatSid, pending.requestId, { value: options[0] ?? "Red" });
+      const t1 = performance.now();
+      while (performance.now() - t1 < 15000) {
+        const a = window.__smoke.chatState(chatSid).approvals.find((x) => x.requestId === pending.requestId);
+        if (a && a.resolved) { answered = true; break; }
+        await sleep(200);
+      }
+    }
+    record("step16_chat_decision_multi_option",
+      !!pending && pending.method === "select" && options.length >= 3 && buttons >= 3 && answered, {
+        method: pending ? pending.method : null, options, buttons, answered, attempts,
+        panePresent, cardsAnywhere,
+        reason: pending ? "" : "model never called the ask tool",
+        ms: Math.round(performance.now() - t0),
+      });
+  } catch (e) { record("step16_chat_decision_multi_option", false, String(e)); }
+
+  // ── Step 17: the chat toggle survives every omp run state ──────────
+  // The 2c93d49a regression, driven with no omp process and no model cost.
+  // omp encodes run state in the OSC title separator; the bug was call sites
+  // anchored on `π >` / `π:`, the two forms a stock omp emits least.
+  try {
+    const workers = window.__smoke.state().workers;
+    const fp = (firstSession && firstSession.workerFp)
+      ?? Object.keys(workers).find((f) => workers[f].reachable_addr) ?? Object.keys(workers)[0];
+    if (!fp) throw new Error("no workers");
+    const sh = await window.__smoke.spawnShell(fp, HOME);
+    history.pushState({}, "", `/s/${sh.session_id}`);
+    window.dispatchEvent(new PopStateEvent("popstate"));
+    await sleep(1500);
+    // Per-pane scoping (data-session-id, added by d691e13c): a bare
+    // querySelector for the toggle is the wrong-pane trap this closes.
+    const hasToggle = () => !!$(`[data-testid="cell-terminal-pane"][data-session-id="${sh.session_id}"] [data-testid="omp-chat-toggle"]`);
+    const preTitle = hasToggle();
+    const emit = async (title) => {
+      await window.__smoke.input(sh.session_id, `printf '\\033]0;${title}\\007'\n`);
+      await sleep(1200);
+      return hasToggle();
+    };
+    const working = await emit("\u03c0 \u2839 smoke-working");    // spinner frame
+    const attention = await emit("\u03c0 ! smoke-attention");      // blocked on the user
+    const piOverwrite = await emit("\u03c0 - /tmp");               // pi's form; eligibility must LATCH
+    record("step17_chat_toggle_survives_run_state",
+      working && attention && piOverwrite,
+      { preTitle, working, attention, piOverwrite, title: window.__smoke.state().sessions[sh.session_id]?.terminal_title ?? "" });
+    await window.__smoke.kill(sh.session_id).catch(() => null);
+  } catch (e) { record("step17_chat_toggle_survives_run_state", false, String(e)); }
+
+  // Never leave this run's quick chat behind. Allowlist only — NEVER a scan of
+  // state().sessions (feedback_never_mass_kill_live_sessions).
+  await window.__smoke.killSpawned().catch(() => null);
+
   const passed = steps.filter((s) => s.pass).length;
   const total = steps.length;
   return { steps, summary: `${passed}/${total} passed` };
