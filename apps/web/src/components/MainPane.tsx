@@ -4,7 +4,7 @@
 // pane; tapping it closes the drawer (via closeSidebar).
 
 import { useParams, useLocation, useNavigate } from "@solidjs/router";
-import { createMemo, createEffect, on, onCleanup, untrack, Show, lazy } from "solid-js";
+import { createMemo, createEffect, on, untrack, Show, lazy } from "solid-js";
 import { rootStore } from "../store/root.ts";
 import { resolveSessionByFolder, resolveSessionByWorkspace, newestOpenSessionForFolderKey } from "../store/selectors.ts";
 import { decodeFolderPath } from "../lib/terminalHref.ts";
@@ -41,18 +41,6 @@ export function MainPane() {
 
   const navigate = useNavigate();
 
-  // The smoke backdoor needs the same router navigation path as a real sidebar
-  // click. Synthetic popstate does not update Solid Router's params reliably.
-  const onSmokeNavigate = (event: Event) => {
-    const href = (event as CustomEvent<string>).detail;
-    if (typeof href === "string") navigate(href);
-  };
-  let smokeEnabled = false;
-  try { smokeEnabled = localStorage.getItem("roostSmoke") === "1"; } catch { /* unavailable document */ }
-  if (typeof window !== "undefined" && smokeEnabled) {
-    window.addEventListener("roost-smoke-navigate", onSmokeNavigate);
-    onCleanup(() => window.removeEventListener("roost-smoke-navigate", onSmokeNavigate));
-  }
 
   const activeSession = createMemo((): Session | null => {
     // /t/:workerFp/*folderPath — stable route, resolves by (server, spawn

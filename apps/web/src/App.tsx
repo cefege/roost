@@ -2,7 +2,7 @@
 // Boots sync on mount (store/sync.ts). No SolidStart Router — plain @solidjs/router.
 // AppErrorBoundary outermost; ConnectionBanner + WhatsNewDialog always mounted.
 
-import { Router, Route, Navigate } from "@solidjs/router";
+import { Router, Route, Navigate, useNavigate } from "@solidjs/router";
 import { createMemo, Show, onMount, onCleanup, lazy } from "solid-js";
 import type { JSX } from "solid-js";
 import { ROUTES } from "./routes.ts";
@@ -96,10 +96,27 @@ export function App() {
   // Solid Router v0.16 passes RouteSectionProps; `children` is optional
   // there but RootShell always renders it as the slot. Accept the wider
   // type + fall back to `<></>` when missing.
+  function SmokeRouterBridge() {
+    const navigate = useNavigate();
+    onMount(() => {
+      let enabled = false;
+      try { enabled = localStorage.getItem("roostSmoke") === "1"; } catch { /* unavailable document */ }
+      if (!enabled) return;
+      const onNavigate = (event: Event) => {
+        const href = (event as CustomEvent<string>).detail;
+        if (typeof href === "string") navigate(href);
+      };
+      window.addEventListener("roost-smoke-navigate", onNavigate);
+      onCleanup(() => window.removeEventListener("roost-smoke-navigate", onNavigate));
+    });
+    return null;
+  }
+
   function RootShell(props: { children?: JSX.Element }) {
     return (
       <>
         {props.children}
+        <SmokeRouterBridge />
         <UiBridge />
         <CommandPalette />
         <HelpOverlay />
