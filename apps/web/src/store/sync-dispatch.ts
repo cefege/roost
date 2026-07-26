@@ -10,28 +10,18 @@ import { protoToCellFrame } from "@roost/shared/cell/cell-proto";
 import type { CellGridFrame } from "@roost/shared/cell";
 import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
 import { recordCellLag } from "../lib/diag.ts";
+import { processOsc8Chunk, pruneOsc8Tracker } from "../lib/terminalOsc8.ts";
 
-// Bytes are live-forward only: CellTerminal's handler feeds the hidden input
-// wterm + OSC trackers. Terminal content recovers via the worker's TAIL cell
-// frame on re-claim — viewport + newest SB_SNAPSHOT_TAIL_ROWS — with deeper
-// history pulled by lib/scrollbackBackfill.ts via SessionsGetScrollbackCells.
-// (Byte-mode getScrollbackSince gap-fallback died with the byte path; cell-phase-3
-// cell frames carry immutable rows, eliminating the reflow corruption class.)
-type BytesHandler = (chunk: Uint8Array | string) => void;
+// Bytes are live-forward only for OSC 7/8 tracking. Terminal content recovers
+// through immutable cell frames on a later viewport claim.
 type PresenceHandler = (msg: unknown) => void;
 // R11 cell-grid cell-shipping. CellTerminal (cell mode) registers a per-session
 // handler that feeds frames into its CellGridRenderer.
 type CellHandler = (frame: CellGridFrame) => void;
 
-const _bytesHandlers = new Map<string, BytesHandler>();
 const _presenceHandlers = new Map<string, PresenceHandler>();
 const _cellHandlers = new Map<string, CellHandler>();
 const _cellFrameCounts = new Map<string, number>();
-
-export function registerBytesHandler(sessionId: string, fn: BytesHandler): () => void {
-  _bytesHandlers.set(sessionId, fn);
-  return () => { if (_bytesHandlers.get(sessionId) === fn) _bytesHandlers.delete(sessionId); };
-}
 export function registerCellHandler(sessionId: string, fn: CellHandler): () => void {
   _cellHandlers.set(sessionId, fn);
   return () => { if (_cellHandlers.get(sessionId) === fn) _cellHandlers.delete(sessionId); };
@@ -128,8 +118,7 @@ function _osc7CarryOf(rest: string): string {
 }
 
 export function _dispatchBytes(sessionId: string, data: unknown): void {
-  const fn = _bytesHandlers.get(sessionId);
-  let chunk: Uint8Array | string | null = null;
+  let chunk: Uint8Array | null = null;
   if (data instanceof Uint8Array) chunk = data;
   else if (data && typeof data === "object") {
     // A JSON serializer turns Uint8Array into a number-keyed object
@@ -140,9 +129,12 @@ export function _dispatchBytes(sessionId: string, data: unknown): void {
       for (let i = 0; i < keys.length; i++) arr[i] = (data as Record<string, number>)[String(i)] ?? 0;
       chunk = arr;
     }
-  } else if (typeof data === "string") chunk = data;
-  if (chunk instanceof Uint8Array) _parseOsc7(sessionId, chunk);
-  if (fn && chunk !== null) fn(chunk);
+  } else if (typeof data === "string") {
+    chunk = new TextEncoder().encode(data);
+  }
+  if (!chunk) return;
+  _parseOsc7(sessionId, chunk);
+  processOsc8Chunk(sessionId, chunk);
 }
 
 export function _dispatchPresence(sessionId: string, data: unknown): void {
@@ -157,4 +149,5 @@ export function _dispatchPresence(sessionId: string, data: unknown): void {
  *  is still alive). */
 export function pruneOscBuffer(sessionId: string): void {
   _oscBuffer.delete(sessionId);
+  pruneOsc8Tracker(sessionId);
 }

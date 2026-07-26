@@ -85,6 +85,7 @@ function sameSlot(a: SessionSlot | null, b: SessionSlot | null): boolean {
 export function TerminalDeck(props: { activeSessionId: string | null }) {
   const navigate = useNavigate();
   const openSessions = createMemo(() => Object.values(rootStore.sessions).filter((s) => s.status === "open"));
+  const [warmSessionIds, setWarmSessionIds] = createSignal<ReadonlySet<string>>(new Set());
 
   const activeSession = createMemo(() => (props.activeSessionId ? rootStore.sessions[props.activeSessionId] ?? null : null));
   const newTermFolder = createMemo(() => { const s = activeSession(); return s ? shortCwd(s.cwd) : ""; });
@@ -244,6 +245,33 @@ export function TerminalDeck(props: { activeSessionId: string | null }) {
       if (cur) m.set(sw0.neighborId, { rect: cur.rect, paneId: cur.paneId, focused: false });
     }
     return m;
+  });
+
+  // A selected cold session mounts in this render via slotBySession. Once a
+  // session has been visible, retain its terminal slot for this deck lifetime.
+  createEffect(() => {
+    const openIds = new Set<string>(openSessions().map((session) => session.id));
+    const selectedIds = slotBySession();
+    setWarmSessionIds((previous) => {
+      let changed = false;
+      const next = new Set<string>();
+      for (const id of previous) {
+        if (openIds.has(id)) next.add(id);
+        else changed = true;
+      }
+      for (const id of selectedIds.keys()) {
+        if (!next.has(id)) {
+          next.add(id);
+          changed = true;
+        }
+      }
+      return changed ? next : previous;
+    });
+  });
+  const mountedSessions = createMemo(() => {
+    const warmIds = warmSessionIds();
+    const selectedIds = slotBySession();
+    return openSessions().filter((session) => warmIds.has(session.id) || selectedIds.has(session.id));
   });
 
   // Ref-stable pane list for the strips <For>: reuse the prior PaneView object
@@ -757,9 +785,9 @@ export function TerminalDeck(props: { activeSessionId: string | null }) {
         </div>
       </Show>
 
-      {/* Every open session mounts once; visible ones are positioned in their
-           pane rectangles rather than remounted on navigation or re-tiling. */}
-      <For each={openSessions()}>
+      {/* Cold sessions stay unmounted; selected and previously visible sessions
+           retain stable slots for this deck lifetime. */}
+      <For each={mountedSessions()}>
         {(s) => {
           const slot = createMemo(() => slotBySession().get(s.id) ?? null, undefined, { equals: sameSlot });
           return (

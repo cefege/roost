@@ -83,7 +83,7 @@ function _injectCssOnce(): void {
   document.head.appendChild(style);
 }
 
-import type { Osc8Tracker } from "./terminal-osc8.ts";
+import type { Osc8Tracker } from "../lib/terminalOsc8.ts";
 
 // DOM applier: run the pure algorithm over the rows' text, then wrap each
 // row-local segment in an <a>. Text spans crossing wterm's per-cell <span>s

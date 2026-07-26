@@ -33,9 +33,8 @@ import { startStaleWatchdog } from "./sync-watchdog.ts";
 import { setOpen } from "./sync-stream-open.ts";
 import { setRoutableFps } from "./sync-routable.ts";
 export { workerOnline } from "./sync-routable.ts";
-// Per-session PTY fan-out lives in sync-dispatch.ts (leaf module). Re-export
-// the registrars so consumers keep importing them from store/sync.ts.
-export { registerBytesHandler, registerCellHandler, registerPresenceHandler, cellFrameCount } from "./sync-dispatch.ts";
+// Per-session cell/presence fan-out lives in sync-dispatch.ts (leaf module).
+export { registerCellHandler, registerPresenceHandler, cellFrameCount } from "./sync-dispatch.ts";
 // Per-domain delta handlers + keeper-death detector + delta-sub registries
 // live in sync-handlers.ts; the firehose calls them and iterates the sub Sets.
 import {

@@ -84,11 +84,6 @@ The harness script at `.claude/skills/roost-smoke/run.js` runs its terminal flow
 - `\[spawn-buttons\] (failed|timed out)`
 - Toast text `did not (ack|respond)`
 
-**Known-red as of 2026-07-25** (verified identical against stashed HEAD, so it
-is pre-existing, not a licence to ignore a red):
-`step13_resize_wobble_holds_scrollback` (`d0:0` — scrollback rows never
-counted in cell mode). Re-baseline before blaming your change: stash, rebuild
-`@roost/web`, restart coord, re-run.
 
 ## On failure
 

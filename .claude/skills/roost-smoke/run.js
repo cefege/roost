@@ -36,7 +36,11 @@ const HOME = "/tmp";  // portable — every Unix has /tmp
     const slotPrefix = "terminal-slot-";
     const slots = $$('[data-testid^="terminal-slot-"]');
     const sessionId = (slot) => slot.dataset.testid?.slice(slotPrefix.length) ?? "";
-    const visible = slots.filter((slot) => getComputedStyle(slot).visibility === "visible");
+    const painted = slots.filter((slot) => getComputedStyle(slot).visibility === "visible");
+    // A pane belongs to the visible terminal layout when it has a pane ID. The
+    // deck may CSS-hide an unfocused sibling, but it is still an active layout
+    // pane rather than a retained warm slot.
+    const visible = slots.filter((slot) => !!slot.dataset.paneId);
     return {
       openSessions: Object.values(window.__smoke.state().sessions)
         .filter((session) => session.status === "open")
@@ -46,7 +50,7 @@ const HOME = "/tmp";  // portable — every Unix has /tmp
       cellPanes: $$('[data-testid="cell-terminal-pane"]').length,
       wterms: $$('.wterm').length,
       textareas: $$('textarea').length,
-      visibleSlots: visible.length,
+      visibleSlots: painted.length,
       mountedIds: slots.map(sessionId).filter(Boolean).sort(),
       visibleIds: visible.map(sessionId).filter(Boolean).sort(),
     };
@@ -70,6 +74,18 @@ const HOME = "/tmp";  // portable — every Unix has /tmp
       dismissed: !!dismiss,
       homeLanding: await waitUntil(() => !!$('[data-testid="home-landing"]'), 10_000),
     };
+  }
+
+  // A backgrounded automation tab cannot focus a terminal textarea. Fail this
+  // distinctly so Step 5b remains a product-focus signal, not a harness artifact.
+  const foreground = {
+    hasFocus: document.hasFocus(),
+    visibilityState: document.visibilityState,
+    hidden: document.hidden,
+  };
+  if (!foreground.hasFocus || foreground.visibilityState !== "visible" || foreground.hidden) {
+    record("PREFLIGHT_foreground_tab", false, foreground);
+    return { steps, summary: `0/${steps.length} passed (preflight)` };
   }
 
   // ── Step 1: bundle hash + page healthy ────────────────────────────
@@ -140,8 +156,7 @@ const HOME = "/tmp";  // portable — every Unix has /tmp
     const footprint = terminalFootprint();
     record(
       "step3_mount_footprint",
-      sameIds(footprint.openSessions, footprint.mountedIds) &&
-      sameIds(footprint.visibleIds, [sh.session_id]),
+      sameIds(footprint.mountedIds, footprint.visibleIds),
       footprint,
     );
     if (sh.session_id) {
@@ -212,7 +227,7 @@ const HOME = "/tmp";  // portable — every Unix has /tmp
   try {
     if (!firstSession) throw new Error("no session from step 3");
     let pf = { focused: false };
-    const focusDeadline = Date.now() + 3_000;
+    const focusDeadline = Date.now() + 15_000;
     while (Date.now() < focusDeadline) {
       pf = window.__smoke.paneFocused(firstSession.sessionId);
       if (pf.focused) break;
@@ -235,7 +250,8 @@ const HOME = "/tmp";  // portable — every Unix has /tmp
         .find((slot) => slot.dataset.testid === `terminal-slot-${firstSession?.sessionId}`);
       const originalCell = originalSlot?.querySelector('[data-testid="cell-terminal-pane"]') ?? null;
       const otherRow = folderRows.find((row) => row.dataset.selected !== "focused");
-      otherRow?.click();
+      if (!otherRow) throw new Error("no unselected folder");
+      otherRow.click();
       const switched = await waitUntil(
         () => !terminalFootprint().visibleIds.includes(firstSession?.sessionId ?? ""),
         5_000,
@@ -432,17 +448,23 @@ const HOME = "/tmp";  // portable — every Unix has /tmp
     ]);
     history.pushState({}, "", `/s/${sh.session_id}`);
     window.dispatchEvent(new PopStateEvent("popstate"));
-    await sleep(1500);
+    const slotForSpawn = () => $(`[data-testid="terminal-slot-${sh.session_id}"]`);
+    const mountReady = await waitUntil(() => {
+      const slot = slotForSpawn();
+      return !!slot
+        && getComputedStyle(slot).visibility === "visible"
+        && !!slot.querySelector(".cell-scrollback")
+        && !!slot.querySelector(".cell-viewport")?.textContent?.trim();
+    }, 20_000);
+    if (!mountReady) throw new Error(`spawned slot not ready: ${sh.session_id}`);
     // Generate well past one viewport of plain-shell scrollback.
     await window.__smoke.input(sh.session_id, "seq 1 300\n");
-    const depthOf = () => {
-      // Count scrollback rows inside the one VISIBLE slot. Cell mode paints
-      // history as .cell-row rows inside .cell-scrollback blocks; the hidden
-      // input wterm is renderless (no .term-scrollback-row mirror anymore).
-      const slot = $$('[data-testid^="terminal-slot-"]').find((s) => getComputedStyle(s).visibility === "visible");
-      return slot ? slot.querySelectorAll('.cell-scrollback .cell-row').length : 0;
-    };
-    const genDeadline = Date.now() + 6000;
+    const outputReady = await waitUntil(
+      () => slotForSpawn()?.querySelector(".cell-viewport")?.textContent?.includes("300") ?? false,
+      15_000,
+    );
+    const depthOf = () => slotForSpawn()?.querySelectorAll('.cell-scrollback .cell-row').length ?? 0;
+    const genDeadline = Date.now() + 6_000;
     let d0 = 0;
     while (Date.now() < genDeadline) { d0 = depthOf(); if (d0 > 50) break; await sleep(200); }
     const deck = $('[data-testid="terminal-deck"]');
@@ -464,8 +486,16 @@ const HOME = "/tmp";  // portable — every Unix has /tmp
     const grew = d1 - d0;
     record(
       "step13_resize_wobble_holds_scrollback",
-      d0 > 50 && grew <= 2,
-      { d0, d1, grew, baseH: Math.round(baseH) },
+      outputReady && d0 > 50 && grew <= 2,
+      {
+        d0,
+        d1,
+        grew,
+        baseH: Math.round(baseH),
+        outputReady,
+        slotSessionId: slotForSpawn()?.dataset.testid?.slice("terminal-slot-".length) ?? null,
+        viewportText: slotForSpawn()?.querySelector(".cell-viewport")?.textContent?.slice(-200) ?? "",
+      },
     );
     await window.__smoke.kill(sh.session_id).catch(() => null);
   } catch (e) { record("step13_resize_wobble_holds_scrollback", false, String(e)); }

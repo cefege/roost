@@ -46,12 +46,11 @@ import { mouseForwardEnabled } from "../lib/mouseForwardPref.ts";
 import { isCompact, isTouchDevice } from "../lib/windowSizeClass.ts";
 import { micOnDesktop } from "../lib/micOnDesktop.ts";
 import { keyboardOnDesktop } from "../lib/keyboardOnDesktop.ts";
-import { Osc8Tracker } from "./terminal-osc8.ts";
+import { osc8TrackerFor } from "../lib/terminalOsc8.ts";
 import { attachTerminalLinks, type ResolveFile } from "./terminal-links.ts";
 import { downloadWorkerFileByHref } from "../lib/downloadWorkerFile.ts";
 import { registerRenderer } from "../lib/terminalPreview.ts";
 import {
-	registerBytesHandler,
 	registerCellHandler,
 	registerPresenceHandler,
 } from "../store/sync.ts";
@@ -405,8 +404,26 @@ export function CellTerminal(props: CellTerminalProps) {
 		// post-await onCleanup to this owner so teardown actually fires on unmount.
 		const cellOwner = getOwner();
 
-		// ── output: cells ────────────────────────────────────────────────
-		renderer = new CellGridRenderer(displayRef!);
+		// Initialize the input oracle before allocating any renderer, subscription,
+		// observer, timer, or global listener. A failed init then has no leaked
+		// post-await setup to unwind.
+		const initializedTerm = new RoostTerm(inputHostRef!, {
+			autoFocus: props.focused === true && !isTouchDevice(),
+			renderless: true,
+		});
+		term = initializedTerm;
+		await initializedTerm.init();
+		if (unmounted) {
+			initializedTerm.destroy();
+			term = null;
+			return;
+		}
+		if (props.inLayout === true && props.focused === true && !isTouchDevice()) {
+			initializedTerm.forceFocus();
+		}
+		runWithOwner(cellOwner, () => {
+			// ── output: cells ────────────────────────────────────────────────
+			renderer = new CellGridRenderer(displayRef!);
 		const unregPreview = registerRenderer(props.session.id, renderer);
 		// Lazy-history backfill: full frames carry only a scrollback tail
 		// (sbBase); the controller pulls the rest per-viewer after the attach
@@ -568,44 +585,17 @@ export function CellTerminal(props: CellTerminalProps) {
 			});
 		}, CLAIM_HEARTBEAT_MS);
 
-		// ── input + mode oracle: hidden wterm ────────────────────────────
-		// autoFocus off on touch — popping the on-screen keyboard on pane mount/
-		// selection is unwanted; an explicit tap focuses (onDisplayClick).
-		term = new RoostTerm(inputHostRef!, {
-			autoFocus: props.focused === true && !isTouchDevice(),
-			// Cells own the display; this wterm exists for mode state + onData
-			// only. Renderless keeps its never-shown mirror grid out of the DOM
-			// (~22k nodes/session otherwise — the focus-flip flush stall).
-			renderless: true,
-		});
-		await term.init();
-		if (unmounted) {
-			term.destroy();
-			return;
-		}
 		syncInputModes(); // flush modes seen before the hidden wterm existed
-		term.onData = (data: string) => {
+		initializedTerm.onData = (data: string) => {
 			const bytes = new TextEncoder().encode(data);
 			predictor?.predict(bytes); // speculative echo before the round-trip
 			inputChannel.sendInput(props.session.id, bytes);
 			recordInput(props.session.id, data); // typed text → keyterm context
 		};
-		// DECCKM / bracketed-paste modes come from the cell frame (see syncInputModes),
-		// NOT from re-parsing this byte stream. The byte stream is retained ONLY for
-		// OSC 8 link tracking below.
-		// OSC 8 hyperlink tracker — parses the byte stream for ESC]8;;URI links
-		// (claude / ls --hyperlink) so attachTerminalLinks can wrap their visible
-		// text in <a>. Same stream that feeds the hidden input oracle. Client-side,
-		// no wire change (the cell wire carries no link metadata).
-		const osc8 = new Osc8Tracker();
-		let unsubBytes: () => void;
-		runWithOwner(cellOwner, () => {
-			unsubBytes = registerBytesHandler(props.session.id, (chunk) => {
-				const bytes =
-					typeof chunk === "string" ? new TextEncoder().encode(chunk) : chunk;
-				osc8.process(bytes);
-			});
-		});
+		// DECCKM / bracketed-paste modes come from the cell frame (see syncInputModes).
+		// OSC 8 is tracked in sync-dispatch so links emitted before this pane was
+		// first visited remain available when its renderer mounts.
+		const osc8 = osc8TrackerFor(props.session.id);
 		// Linkify rendered .cell-row text (OSC 8 links + regex URLs), Cmd/Ctrl-gated.
 		const detachLinks = attachTerminalLinks(displayRef!, osc8, {
 			resolveFile,
@@ -895,18 +885,15 @@ export function CellTerminal(props: CellTerminalProps) {
 			renderer?.syncScroll();
 			sendClaimNow(ResizeCause.TAB_VISIBLE);
 		}));
-		// Focus gate: only the FOCUSED pane's terminal grabs the keyboard. Touch
+		// Focus gate: only the focused pane's terminal grabs the keyboard. Touch
 		// devices skip it (an explicit tap on the display still focuses) so selecting
-		// a pane doesn't pop the on-screen keyboard. Cold-mount focus (textarea not
-		// yet in DOM while WASM init runs) is covered by RoostTerm's autoFocus
-		// (fires forceFocus after init, see the constructor above) — this effect
-		// handles the become-focused-later flips, when init is long done.
+		// a pane doesn't pop the on-screen keyboard. This effect is intentionally
+		// non-deferred: selection must focus in the same reactive turn.
 		const focusGate = createMemo(
 			() => props.inLayout === true && props.focused === true,
 		);
 		createEffect(() => {
-			if (focusGate() && !isTouchDevice())
-				queueMicrotask(() => term?.forceFocus());
+			if (focusGate() && !isTouchDevice()) term?.forceFocus();
 		});
 
 		// Per-pane GLOBAL listeners (window/document) attach only while this pane
@@ -1118,7 +1105,6 @@ export function CellTerminal(props: CellTerminalProps) {
 		runWithOwner(cellOwner, () =>
 			onCleanup(() => {
 				unsubCell();
-				unsubBytes();
 				unsubPresence();
 				detachLinks();
 				releaseCursorPoll();
@@ -1151,7 +1137,10 @@ export function CellTerminal(props: CellTerminalProps) {
 				term = null;
 			}),
 		);
+		});
 		} catch (e) {
+			term?.destroy();
+			term = null;
 			// A renderer/term init throw here is an unhandled rejection = silent
 			// dead pane (the "can't input" class). Surface it as a corruption signal.
 			signal("diag.corruption_signal", {

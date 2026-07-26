@@ -191,6 +191,25 @@ export class Osc8Tracker {
   }
 }
 
+const trackersBySession = new Map<string, Osc8Tracker>();
+
+export function osc8TrackerFor(sessionId: string): Osc8Tracker {
+  let tracker = trackersBySession.get(sessionId);
+  if (!tracker) {
+    tracker = new Osc8Tracker();
+    trackersBySession.set(sessionId, tracker);
+  }
+  return tracker;
+}
+
+export function processOsc8Chunk(sessionId: string, chunk: Uint8Array): void {
+  osc8TrackerFor(sessionId).process(chunk);
+}
+
+export function pruneOsc8Tracker(sessionId: string): void {
+  trackersBySession.delete(sessionId);
+}
+
 function _concat(a: Uint8Array, b: Uint8Array): Uint8Array {
   const out = new Uint8Array(a.length + b.length);
   out.set(a, 0); out.set(b, a.length);
