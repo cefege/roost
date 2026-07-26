@@ -105,7 +105,11 @@ export class RoostTerm {
     try {
       if (ta && document.activeElement === ta) ta.blur();
       this.inner.focus();
-      if (ta) {
+      // WTerm's focus helper can no-op in renderless mode even when its hidden
+      // textarea is connected. The textarea is the input contract, so finish
+      // the focus operation directly when the wrapper did not land there.
+      if (ta && document.activeElement !== ta) ta.focus();
+      if (ta && document.activeElement === ta) {
         ta.dispatchEvent(new FocusEvent("focus", { bubbles: true }));
       }
     } catch { /* ignore */ }
