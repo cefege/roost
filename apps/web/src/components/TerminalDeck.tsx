@@ -120,10 +120,10 @@ export function TerminalDeck(props: { activeSessionId: string | null }) {
   // back/forward, spawn) selects + focuses the active session's pane. In-deck
   // clicks already commit focus synchronously (doFocusPane/doSelect), so the
   // priority ring is instant and no longer waits on the startTransition-gated
-  // navigate. on() untracks the body, so this fires ONLY when activeSessionId
-  // changes — never on a local focus commit — so it cannot clobber a fresh
-  // click back to the URL's stale session. No-op when already in sync.
-  createEffect(on(() => props.activeSessionId, (active) => {
+  // The session may arrive from sync *after* the URL changes. Track its
+  // folder's live IDs as well as the URL so that first route does not miss the
+  // selection and leave a prior warm pane visible.
+  createEffect(on(() => [props.activeSessionId, liveIds()] as const, ([active]) => {
     if (!active) return;
     const fk = folderKey();
     if (!fk) return;
