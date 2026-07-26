@@ -68,8 +68,7 @@ const HOME = "/tmp";  // portable — every Unix has /tmp
         return { dismissed: true, homeLanding: false };
       }
     }
-    history.pushState({}, "", "/");
-    window.dispatchEvent(new PopStateEvent("popstate"));
+    window.__smoke.navigate("/");
     return {
       dismissed: !!dismiss,
       homeLanding: await waitUntil(() => !!$('[data-testid="home-landing"]'), 10_000),
@@ -138,8 +137,7 @@ const HOME = "/tmp";  // portable — every Unix has /tmp
     ]);
     const dt = performance.now() - t0;
     // Navigate to the session (flat mode uses /s/<id>)
-    history.pushState({}, "", `/s/${sh.session_id}`);
-    window.dispatchEvent(new PopStateEvent("popstate"));
+    window.__smoke.navigate(`/s/${sh.session_id}`);
     // Poll for wterm visible
     const visDeadline = Date.now() + 5_000;
     let visibleWterm = 0;
@@ -273,8 +271,7 @@ const HOME = "/tmp";  // portable — every Unix has /tmp
         sameIds(afterSwitch.mountedIds, expectedMountedIds),
         { before, afterSwitch, expectedMountedIds },
       );
-      history.pushState({}, "", `/s/${firstSession?.sessionId}`);
-      window.dispatchEvent(new PopStateEvent("popstate"));
+      window.__smoke.navigate(`/s/${firstSession?.sessionId}`);
       const restored = await waitUntil(
         () => terminalFootprint().visibleIds.includes(firstSession?.sessionId ?? "")
           && originalSlot?.isConnected
@@ -394,8 +391,7 @@ const HOME = "/tmp";  // portable — every Unix has /tmp
       new Promise((_, rj) => setTimeout(() => rj(new Error("spawn 5s")), 5000)),
     ]);
     await sleep(800);
-    history.pushState({}, "", `/s/${sh.session_id}`);
-    window.dispatchEvent(new PopStateEvent("popstate"));
+    window.__smoke.navigate(`/s/${sh.session_id}`);
     await sleep(2500);
     await window.__smoke.input(sh.session_id, "cd /tmp\n");
     // Poll for cwd update from OSC 7 → store
@@ -446,8 +442,7 @@ const HOME = "/tmp";  // portable — every Unix has /tmp
       window.__smoke.spawnShell(fp, HOME),
       new Promise((_, rj) => setTimeout(() => rj(new Error("spawn 5s")), 5000)),
     ]);
-    history.pushState({}, "", `/s/${sh.session_id}`);
-    window.dispatchEvent(new PopStateEvent("popstate"));
+    window.__smoke.navigate(`/s/${sh.session_id}`);
     const slotForSpawn = () => $(`[data-testid="terminal-slot-${sh.session_id}"]`);
     const mountReady = await waitUntil(() => {
       const slot = slotForSpawn();

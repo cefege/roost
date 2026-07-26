@@ -70,6 +70,8 @@ interface SmokeApi {
   forceSyncReconnect(): void;
   /** How many cell frames have arrived for this session (smoke verification). */
   cellFrameCount(sessionId: string): number;
+  /** Navigate through the live Solid router, rather than synthetic popstate. */
+  navigate(href: string): void;
   /** Kill a session via the standard mutation. */
   kill(sessionId: string): Promise<{ accepted: boolean }>;
   /** Spawn a shell on a worker; returns { session_id, channel_id }. */
@@ -213,6 +215,9 @@ export function maybeInstallSmokeBackdoor(): void {
     },
     forceVisible(on) {
       setForceVisible(on);
+    },
+    navigate(href) {
+      window.dispatchEvent(new CustomEvent("roost-smoke-navigate", { detail: href }));
     },
     async kill(sessionId) {
       const res = await coordClient.sessionsKill({ sessionId });
