@@ -57,6 +57,31 @@ export function runKeeper(sockPath: string): void {
     return dir;
   })();
 
+  // Bash has no chpwd hook and no ZDOTDIR equivalent, so cwd tracking rides
+  // on PROMPT_COMMAND from an rcfile we pass with --rcfile. Without it the
+  // sidebar row label pins to the spawn directory forever on any box whose
+  // login shell is bash (every stock Linux worker).
+  const BASH_RC_PATH = (() => {
+    const dir = path.join(os.tmpdir(), "roost-bash-osc7");
+    const file = path.join(dir, "roost.bashrc");
+    try {
+      fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+      fs.writeFileSync(file, [
+        "# roost: source the user's real bashrc first so PATH/aliases still load",
+        'if [ -f "$HOME/.bashrc" ]; then . "$HOME/.bashrc"; fi',
+        "# roost: emit OSC 7 (file://host/cwd) after every command so the SPA",
+        "# sidebar row label tracks `cd`. session-manager._scanOsc7 parses it.",
+        `roost_emit_osc7() { printf '\\033]7;file://%s%s\\033\\\\' "\${HOSTNAME}" "$PWD"; }`,
+        'PROMPT_COMMAND="roost_emit_osc7${PROMPT_COMMAND:+; $PROMPT_COMMAND}"',
+        "roost_emit_osc7",
+        "",
+      ].join("\n"));
+    } catch (e) {
+      _log("error", "multiplexed-keeper", "bashrc_write_failed", { error: String(e) });
+    }
+    return file;
+  })();
+
   try { fs.unlinkSync(sockPath); } catch { /* ignore */ }
   const dir = path.dirname(sockPath);
   try { fs.mkdirSync(dir, { recursive: true, mode: 0o700 }); } catch { /* ignore */ }
@@ -76,9 +101,9 @@ export function runKeeper(sockPath: string): void {
   }
 
   // Single source of truth for keeper state, handed to the extracted frame
-  // handler so `channels`/`broadcast`/`ZSH_OVERRIDE_DIR` live in exactly one
+  // handler so `channels`/`broadcast`/the shell overrides live in exactly one
   // place (this entry) — the handler mutates them through the same references.
-  const frameCtx: FrameHandlerCtx = { channels, broadcast, ZSH_OVERRIDE_DIR };
+  const frameCtx: FrameHandlerCtx = { channels, broadcast, ZSH_OVERRIDE_DIR, BASH_RC_PATH };
 
   const server = net.createServer((socket) => {
     const client: ClientState = { buf: Buffer.alloc(0), socket };

@@ -4,18 +4,22 @@
 
 import { spawn } from "bun";
 import { existsSync, statSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { workerLogDir } from "@roost/shared/paths";
 
 const LOG_ROTATE_WARN_BYTES = 100 * 1024 * 1024; // 100 MB
 
+// The coordinator is macOS-only, but `roost logs coord` on Linux should
+// point at the same XDG state dir the worker uses rather than a literal
+// ~/Library path that can never exist there.
+const coordLogDir = process.platform === "darwin"
+  ? join(homedir(), "Library", "Logs", "RoostCoord")
+  : join(process.env.XDG_STATE_HOME ?? join(homedir(), ".local", "state"), "RoostCoord");
+
 const PATHS: Record<string, string[]> = {
-  coord: [
-    `${process.env.HOME}/Library/Logs/RoostCoord/main.out.log`,
-    `${process.env.HOME}/Library/Logs/RoostCoord/main.err.log`,
-  ],
-  worker: [
-    `${process.env.HOME}/Library/Logs/RoostWorker/main.out.log`,
-    `${process.env.HOME}/Library/Logs/RoostWorker/main.err.log`,
-  ],
+  coord: [join(coordLogDir, "main.out.log"), join(coordLogDir, "main.err.log")],
+  worker: [join(workerLogDir(), "main.out.log"), join(workerLogDir(), "main.err.log")],
 };
 
 function parseArgs(args: string[]): { app: string | undefined; tailLines: string } {
@@ -42,10 +46,13 @@ function warnLargeFiles(paths: string[]): void {
     const sz = statSync(p).size;
     if (sz > LOG_ROTATE_WARN_BYTES) {
       const mb = (sz / (1024 * 1024)).toFixed(0);
+      // newsyslog is macOS-only; on Linux the truncate is the whole remedy.
+      const rotate = process.platform === "darwin"
+        ? ` Rotate via: sudo newsyslog -vf /etc/newsyslog.d/roost-coord.conf or`
+        : "";
       console.warn(
         `[roost-logs] ${p} is ${mb}MB (>${LOG_ROTATE_WARN_BYTES / 1024 / 1024}MB).` +
-        ` Rotate via: sudo newsyslog -vf /etc/newsyslog.d/roost-coord.conf` +
-        ` or truncate: > "${p}"`,
+        `${rotate} truncate: > "${p}"`,
       );
     }
   }

@@ -171,7 +171,7 @@ function WorkerRow(props: { worker: Worker }) {
           }
         >
           <div style={{ display: "flex", "align-items": "center", gap: "var(--md-space-3)" }}>
-            <Icon name="desktop_mac" size="lg" style={{ color: "var(--md-sys-color-primary)" }} />
+            <Icon name={w().os === "linux" ? "dns" : "desktop_mac"} size="lg" style={{ color: "var(--md-sys-color-primary)" }} />
             <div style={{ flex: 1, "min-width": 0 }}>
               <div class="md-title-m" style={{ color: "var(--md-sys-color-on-surface)" }}>{w().label}</div>
               <div class="md-body-s" style={{ color: "var(--md-sys-color-on-surface-variant)" }}>
@@ -265,10 +265,12 @@ function WorkerRow(props: { worker: Worker }) {
               <span data-testid={`machines-coordinator-pill-${w().fp}`} class="md-label-m">Coordinator</span>
             </Show>
             <Show when={!isCoordinator()}>
+              {/* coord-move preflight rejects a non-darwin target
+                  (orchestrator.ts target_not_darwin), so it can only fail. */}
               <Button
                 variant="tonal"
                 data-testid={`machines-move-coordinator-btn-${w().fp}`}
-                disabled={isStale() || !w().reachable_addr || w().git_sha !== rootStore.coord_identity?.git_sha}
+                disabled={isStale() || !w().reachable_addr || w().os !== "darwin" || w().git_sha !== rootStore.coord_identity?.git_sha}
                 onClick={() => setMoveDialog(true)}
               >
                 Move coordinator here

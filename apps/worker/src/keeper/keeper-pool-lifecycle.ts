@@ -6,8 +6,7 @@
 import { createConnection } from "node:net";
 import { existsSync, mkdirSync, unlinkSync, openSync, closeSync } from "node:fs";
 import { join, basename } from "node:path";
-import { homedir } from "node:os";
-import { signal, diag } from "@roost/shared";
+import { signal, diag, workerLogDir } from "@roost/shared";
 import { MuxFrameType, decodeMuxFrames } from "./protocol-v2.ts";
 import { KEEPER_BUILD_STAMP } from "./keeper-stamp.ts";
 import { muxSocketPath, MUX_KEEPER_MAIN_TS, BUN_BIN } from "./keeper-pool-config.ts";
@@ -61,7 +60,7 @@ export async function ensureConnection(pool: MultiplexedKeeperPool): Promise<voi
       const quiet = process.env.ROOST_KEEPER_QUIET === "1";
       let keeperStderr: "ignore" | number = "ignore";
       if (!quiet) {
-        const logDir = join(homedir(), "Library", "Logs", "RoostWorker");
+        const logDir = workerLogDir();
         try { mkdirSync(logDir, { recursive: true }); } catch { /* ignore */ }
         const keeperLogPath = join(logDir, "keeper.err.log");
         keeperStderr = openSync(keeperLogPath, "a", 0o644);

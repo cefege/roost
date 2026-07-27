@@ -4,7 +4,7 @@
 // client. Internal-only — not part of the public import surface.
 
 import { join } from "node:path";
-import { homedir } from "node:os";
+import { workerDataDir } from "@roost/shared";
 
 // Bun runs .ts directly (no transpile step). multiplexed-main.ts is the
 // keeper entry — same source the worker imports types from, no build
@@ -12,9 +12,7 @@ import { homedir } from "node:os";
 export const MUX_KEEPER_MAIN_TS = new URL("./multiplexed-main.ts", import.meta.url).pathname;
 
 export function muxSocketPath(): string {
-  const dataDir = process.env.ROOST_WORKER_DATA_DIR
-    ?? join(homedir(), "Library", "Application Support", "RoostWorkerV2");
-  return join(dataDir, "mux-keeper.sock");
+  return join(workerDataDir(), "mux-keeper.sock");
 }
 
 // Always use the same Bun binary the worker is currently running on —

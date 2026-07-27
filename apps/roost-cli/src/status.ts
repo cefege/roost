@@ -10,6 +10,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { log } from "@roost/shared/log";
+import { WORKER_UNIT } from "./service-ctl.ts";
 
 const COORD_LABEL = "com.roost.coordinator-v2";
 const WORKER_LABEL = "com.roost.worker-v2";
@@ -120,7 +121,14 @@ export function tailnetSuffix(): string | null {
   return fqdn ? fqdn.split(".").slice(1).join(".").replace(/\.$/, "") || null : null;
 }
 
+/** Worker/coord service loaded? launchd on macOS, systemd --user on Linux.
+ *  There is no Linux coordinator (see coord-move preflight), so only the
+ *  worker unit has a Linux answer — the coord row reads ✗ there by design. */
 function launchAgentLoaded(label: string): boolean {
+  if (process.platform === "linux") {
+    if (label !== WORKER_LABEL) return false;
+    return runCapture(["systemctl", "--user", "is-active", WORKER_UNIT]).exit === 0;
+  }
   const uid = process.getuid?.() ?? "";
   return runCapture(["launchctl", "print", `gui/${uid}/${label}`]).exit === 0;
 }

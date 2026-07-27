@@ -7,7 +7,7 @@
 // output captured on macOS.
 
 import { test, expect } from "bun:test";
-import { parseReachableListenPorts } from "../src/listening-ports.ts";
+import { parseReachableListenPorts, parseSsListenPorts } from "../src/listening-ports.ts";
 
 const HEADER = "COMMAND   PID USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME";
 
@@ -59,4 +59,32 @@ test("empty / header-only / non-LISTEN noise → []", () => {
   expect(parseReachableListenPorts(
     "node 1 m 5u IPv4 0x0 0t0 TCP 100.64.1.2:5173->100.64.1.9:52233 (ESTABLISHED)",
   )).toEqual([]);
+});
+
+// Linux worker: `ss -ltnpH` replaces lsof (AlmaLinux has iproute2, no lsof).
+// ss has no pid selector, so ownership is filtered in the parser — a row for
+// some other user's daemon must not chip this session's folder. Rows are
+// verbatim `ss -ltnpH` output.
+test("ss: non-loopback row owned by the tree is kept", () => {
+  const out = `LISTEN 0      511          0.0.0.0:8099       0.0.0.0:*    users:(("python3",pid=4242,fd=3))`;
+  expect(parseSsListenPorts(out, new Set([4242]))).toEqual([8099]);
+});
+
+test("ss: loopback bind is dropped even when owned", () => {
+  const out = `LISTEN 0      128        127.0.0.1:5432      0.0.0.0:*    users:(("postgres",pid=4242,fd=6))`;
+  expect(parseSsListenPorts(out, new Set([4242]))).toEqual([]);
+});
+
+test("ss: reachable row owned by a pid outside the tree is dropped", () => {
+  const out = `LISTEN 0      511          0.0.0.0:8099       0.0.0.0:*    users:(("nginx",pid=999,fd=3))`;
+  expect(parseSsListenPorts(out, new Set([4242]))).toEqual([]);
+});
+
+test("ss: [::] and [::1], multi-pid rows, empty input", () => {
+  const out = [
+    `LISTEN 0      511             [::]:8080          [::]:*    users:(("bun",pid=10,fd=20),("bun",pid=11,fd=20))`,
+    `LISTEN 0      128            [::1]:9229          [::]:*    users:(("node",pid=10,fd=21))`,
+  ].join("\n");
+  expect(parseSsListenPorts(out, new Set([11]))).toEqual([8080]);
+  expect(parseSsListenPorts("", new Set([11]))).toEqual([]);
 });

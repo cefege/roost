@@ -42,7 +42,7 @@ export async function addMac(args: string[]): Promise<void> {
     `ROOST_COORDINATOR_URL=${JSON.stringify(coordUrl)} ` +
     `ROOST_BOOTSTRAP_TOKEN=${JSON.stringify(token)}${labelEnv} bash`;
 
-  console.log("Run this on the NEW Mac (Tailscale must be running there):");
+  console.log("Run this on the NEW machine (Tailscale must be running there):");
   console.log("");
   console.log(cmd);
   console.log("");

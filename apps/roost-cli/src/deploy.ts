@@ -1,7 +1,8 @@
-// `roost deploy <host>` — push the v2 worker tree to a tailnet host, run
-// `bun install`, (re)install the LaunchAgent via apps/worker/scripts/install.sh,
-// kickstart the agent. Idempotent — first deploy installs, subsequent
-// deploys just refresh + kickstart.
+// `roost deploy <host>` — refresh the v2 worker on a tailnet host.
+//
+// macOS target: rsync the worker tree, `bun install`, (re)install the
+// LaunchAgent via apps/worker/scripts/install.sh, kickstart it. Idempotent —
+// first deploy installs, subsequent deploys just refresh + kickstart.
 //
 // Layout on remote:
 //   ~/RoostWorkerV2/
@@ -10,14 +11,18 @@
 //     package.json + bun.lock
 //     node_modules/          (bun install)
 //
+// Linux target: forks to deploy-linux.ts, which updates the git checkout
+// join.sh left at /srv/roost and drives the systemd --user unit instead.
+//
 // LaunchAgent label: com.roost.worker-v2 (avoids collision with legacy
 // com.roost.worker until R6.5).
 
 import { tailnetSuffix } from "./status.ts";
-import { run, runOrDie, SSH_OPTS, RSYNC_RSH, sshExec } from "./deploy-exec.ts";
+import { run, runOrDie, SSH_OPTS, RSYNC_RSH, sshExec, resolveLocalGitShaOrDie } from "./deploy-exec.ts";
 import { _isSelfHost } from "./deploy-self-host.ts";
 import { _backfillEnvFromPlist } from "./deploy-plist-env.ts";
 import { _deployLocal } from "./deploy-local.ts";
+import { deployLinux } from "./deploy-linux.ts";
 
 // Re-export the public surface external modules import from ./deploy.ts —
 // keeper-refresh.ts pulls { _isSelfHost, sshExec }; main/push/quickstart use deploy.
@@ -58,6 +63,27 @@ export async function deploy(args: string[]): Promise<void> {
     process.exit(3);
   }
   console.log(`   bun: ${bunCheck.stdout.trim().split("\n").slice(-2).join(" @ ")}`);
+
+  // Linux targets hold a full git checkout (join.sh clones the repo), so
+  // they update in place — no rsync of a slim tree, no tailscale cert.
+  const unameOut = await sshExec(host, "uname -s");
+  if (unameOut.stdout.trim() === "Linux") {
+    const gitSha = resolveLocalGitShaOrDie();
+    const filled = await _backfillEnvFromPlist(host);
+    if (filled.length > 0) {
+      console.log(`>> reused from the installed unit on ${host}: ${filled.join(", ")}`);
+    }
+    if (!process.env.ROOST_COORDINATOR_URL) {
+      console.error("ERROR: ROOST_COORDINATOR_URL env var required (no prior install on target to reuse).");
+      process.exit(6);
+    }
+    const passthroughEnv = ["ROOST_COORDINATOR_URL", "ROOST_BOOTSTRAP_TOKEN", "ROOST_WORKER_LABEL", "ROOST_REACHABLE_ADDR"]
+      .filter((k) => process.env[k])
+      .map((k) => `${k}=${JSON.stringify(process.env[k])}`)
+      .join(" ") + (gitSha ? ` GIT_SHA=${JSON.stringify(gitSha)}` : "");
+    await deployLinux(host, { gitSha, passthroughEnv });
+    return;
+  }
 
   console.log(`>> ensure ${REMOTE_DIR}/ on ${host}`);
   await sshExec(host, `mkdir -p ${REMOTE_DIR}`);
@@ -169,29 +195,7 @@ export async function deploy(args: string[]): Promise<void> {
   // Otherwise rsync ships post-commit working-tree contents but the GIT_SHA
   // stamp captures the prior HEAD — drift badge fires falsely until the next
   // deploy after commit. Hit me once already (sb29 → sb30 keeper-bump deploy).
-  let localGitSha = "";
-  try {
-    const r = Bun.spawnSync(["git", "rev-parse", "HEAD"]);
-    if (r.exitCode === 0) localGitSha = r.stdout.toString().trim();
-  } catch (e) { console.error("git check failed:", String(e)); }
-  let isDirty = false;
-  try {
-    const st = Bun.spawnSync(["git", "status", "--porcelain"]);
-    if (st.exitCode === 0 && st.stdout.toString().trim().length > 0) isDirty = true;
-  } catch (e) { console.error("git check failed:", String(e)); }
-  if (isDirty) {
-    if (process.env.ROOST_ALLOW_DIRTY === "1") {
-      console.warn(`>> WARN: uncommitted changes — stamping GIT_SHA=${localGitSha}-dirty (ROOST_ALLOW_DIRTY=1)`);
-      localGitSha = localGitSha ? `${localGitSha}-dirty` : "";
-    } else {
-      console.error("ERROR: uncommitted changes in working tree.");
-      console.error("  Commit first, OR re-run with ROOST_ALLOW_DIRTY=1 to ship the dirty state");
-      console.error("  with a `-dirty` GIT_SHA suffix (the drift badge will then keep firing");
-      console.error("  until you commit + deploy clean, which is the point).");
-      console.error("  Run `git status` to see what's pending.");
-      process.exit(7);
-    }
-  }
+  const localGitSha = resolveLocalGitShaOrDie();
   const gitShaEnv = localGitSha ? ` GIT_SHA=${JSON.stringify(localGitSha)}` : "";
   const filled = await _backfillEnvFromPlist(host);
   if (filled.length > 0) {

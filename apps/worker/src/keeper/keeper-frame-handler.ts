@@ -28,10 +28,11 @@ export interface FrameHandlerCtx {
   channels: Map<number, Channel>;
   broadcast: (frame: Buffer) => void;
   ZSH_OVERRIDE_DIR: string;
+  BASH_RC_PATH: string;
 }
 
 export function handleFrame(ctx: FrameHandlerCtx, client: ClientState, f: { type: MuxFrameType; channelId: number; payload: Buffer }): void {
-  const { channels, broadcast, ZSH_OVERRIDE_DIR } = ctx;
+  const { channels, broadcast, ZSH_OVERRIDE_DIR, BASH_RC_PATH } = ctx;
   switch (f.type) {
     case MuxFrameType.Spawn: {
       const req = decodeSpawnRequest(f.payload);
@@ -46,7 +47,19 @@ export function handleFrame(ctx: FrameHandlerCtx, client: ClientState, f: { type
         client.socket.write(encodeMuxFrame(MuxFrameType.SpawnErr, req.channel_id, JSON.stringify({ error: "channel_id in use" })));
         return;
       }
-      const argv = req.argv ?? [process.env.SHELL ?? "/bin/sh"];
+      // A plain-shell spawn (session-spawn.ts / session-resume.ts) sends a
+      // one-element argv; anything a caller built itself is spawned verbatim.
+      const plainShell = (req.argv?.length ?? 0) <= 1;
+      const shell = req.argv?.[0] ?? process.env.SHELL ?? "/bin/sh";
+      // isZsh keeps its historical last-token test so an explicit
+      // ["/bin/zsh","-lc",cmd] doesn't get the interactive ZDOTDIR override.
+      const isZsh = /(^|\/)zsh$/.test((req.argv ?? [shell]).at(-1) ?? "");
+      const isBash = /(^|\/)bash$/.test(shell);
+      // bash has no ZDOTDIR: point it at the roost rcfile, which sources the
+      // user's ~/.bashrc and then installs the OSC 7 PROMPT_COMMAND hook.
+      const argv = plainShell
+        ? (isBash ? [shell, "--rcfile", BASH_RC_PATH] : [shell])
+        : req.argv!;
       const spawnedAtMs = Date.now();
       try {
         // ZDOTDIR points zsh at our override .zshrc which unsetopts
@@ -54,7 +67,6 @@ export function handleFrame(ctx: FrameHandlerCtx, client: ClientState, f: { type
         // the user's real ~/.zshrc. TERM_PROGRAM=Apple_Terminal
         // triggers /etc/zshrc_Apple_Terminal so the chpwd hook emits
         // OSC 7 for cwd tracking (see session-manager._scanOsc7).
-        const isZsh = /(^|\/)(zsh)$/.test(argv.at(-1) ?? "");
         const proc = Bun.spawn(argv, {
           cwd: req.cwd,
           terminal: {
@@ -109,11 +121,16 @@ export function handleFrame(ctx: FrameHandlerCtx, client: ClientState, f: { type
             // which wterm renders natively; otherwise they quantize to 256
             // colors on a true-color display.
             COLORTERM: "truecolor",
-            LANG: process.env.LANG || "en_US.UTF-8",
-            LC_ALL: process.env.LC_ALL || "en_US.UTF-8",
+            // macOS ships en_US.UTF-8; a stock Linux box often has only
+            // C.UTF-8, and an unknown LANG makes glibc fall back to POSIX
+            // (broken box-drawing + UTF-8 input in TUIs).
+            LANG: process.env.LANG || (process.platform === "darwin" ? "en_US.UTF-8" : "C.UTF-8"),
+            LC_ALL: process.env.LC_ALL || (process.platform === "darwin" ? "en_US.UTF-8" : "C.UTF-8"),
             ...(isZsh ? { ZDOTDIR: ZSH_OVERRIDE_DIR } : {}),
             PROMPT_EOL_MARK: "",
-            TERM_PROGRAM: "Apple_Terminal",
+            // Exists solely to trigger /etc/zshrc_Apple_Terminal; on Linux
+            // it would just be a lie told to every TUI that sniffs it.
+            ...(process.platform === "darwin" ? { TERM_PROGRAM: "Apple_Terminal" } : {}),
             ...(req.env ?? {}),
           },
         });

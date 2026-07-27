@@ -20,11 +20,11 @@
 
 import { mkdirSync, writeFileSync, readdirSync, statSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
-import { homedir } from "node:os";
 import { diag } from "@roost/shared/diag";
+import { workerLogDir } from "@roost/shared/paths";
 
 const RING_CAP_BYTES = 256 * 1024;
-const DUMP_DIR = join(homedir(), "Library", "Logs", "RoostWorker");
+const DUMP_DIR = workerLogDir();
 const DUMP_LRU_MAX_FILES = 50;
 const DUMP_LRU_MAX_BYTES = 500 * 1024 * 1024;
 

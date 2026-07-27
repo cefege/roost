@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Roost pull-based worker join. Run on a NEW Mac to go from nothing →
-# registered worker, no SSH/push from the coordinator:
+# Roost pull-based worker join. Run on a NEW machine (macOS or Linux) to go
+# from nothing → registered worker, no SSH/push from the coordinator:
 #   curl -fsSL https://raw.githubusercontent.com/cefege/roost/main/join.sh | \
 #     ROOST_COORDINATOR_URL="https://<coord>.<tailnet>.ts.net:4102" \
-#     ROOST_BOOTSTRAP_TOKEN="roost_bt_…" [ROOST_WORKER_LABEL="my-mac"] bash
+#     ROOST_BOOTSTRAP_TOKEN="roost_bt_…" [ROOST_WORKER_LABEL="my-box"] bash
 #
 # Get that one-liner from `roost add-mac` on the coordinator (or the web
 # Settings → Machines → Add machine dialog). What it does: gate on Tailscale
@@ -19,8 +19,12 @@ ROOST_DIR="${ROOST_DIR:-$HOME/Roost}"
 say() { printf '>> %s\n' "$1"; }
 die() { printf 'ERROR: %s\n' "$1" >&2; shift; for h in "$@"; do printf '  %s\n' "$h" >&2; done; exit 1; }
 
-# 0. macOS only (LaunchAgents assume darwin).
-[ "$(uname -s)" = "Darwin" ] || die "Roost joins on macOS only (found $(uname -s))."
+# 0. macOS (launchd) or Linux (systemd --user). Nothing else has a service
+# installer in apps/worker/scripts/install.sh.
+case "$(uname -s)" in
+  Darwin|Linux) ;;
+  *) die "Roost joins on macOS or Linux only (found $(uname -s))." ;;
+esac
 
 # 1. Required env — the join target + credential come from `roost add-mac`.
 if [ -z "${ROOST_COORDINATOR_URL:-}" ] || [ -z "${ROOST_BOOTSTRAP_TOKEN:-}" ]; then
@@ -36,8 +40,8 @@ fi
 say "checking Tailscale"
 if ! command -v tailscale >/dev/null 2>&1; then
   die "Tailscale is required and not installed." \
-      "Install it:  brew install tailscale   (or the Mac App Store app)" \
-      "Then:        tailscale up   (approve the network extension in System Settings)" \
+      "Install it:  brew install tailscale (macOS) / https://tailscale.com/download/linux" \
+      "Then:        tailscale up   (approve the network extension in System Settings on macOS)" \
       "Re-run this command afterward."
 fi
 TS_STATE="$(tailscale status --json 2>/dev/null | grep -o '"BackendState":[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"$/\1/' || true)"

@@ -57,3 +57,32 @@ export async function sshExec(host: string, remoteCmd: string): Promise<{ exit: 
   const wrapped = `export PATH="/opt/homebrew/bin:$HOME/.bun/bin:$PATH"; ${remoteCmd}`;
   return run(["ssh", ...SSH_OPTS, host, wrapped], { quiet: true });
 }
+
+/** Local git HEAD to stamp into the deployed service's GIT_SHA, with the
+ *  dirty-tree guard every deploy path shares. Refuses (exit 7) on
+ *  uncommitted changes unless ROOST_ALLOW_DIRTY=1, because otherwise the
+ *  shipped tree and the stamp disagree and the SPA's drift badge fires
+ *  falsely until the next clean deploy. */
+export function resolveLocalGitShaOrDie(): string {
+  let sha = "";
+  try {
+    const r = Bun.spawnSync(["git", "rev-parse", "HEAD"]);
+    if (r.exitCode === 0) sha = r.stdout.toString().trim();
+  } catch (e) { console.error("git check failed:", String(e)); }
+  let isDirty = false;
+  try {
+    const st = Bun.spawnSync(["git", "status", "--porcelain"]);
+    if (st.exitCode === 0 && st.stdout.toString().trim().length > 0) isDirty = true;
+  } catch (e) { console.error("git check failed:", String(e)); }
+  if (!isDirty) return sha;
+  if (process.env.ROOST_ALLOW_DIRTY === "1") {
+    console.warn(`>> WARN: uncommitted changes — stamping GIT_SHA=${sha}-dirty (ROOST_ALLOW_DIRTY=1)`);
+    return sha ? `${sha}-dirty` : "";
+  }
+  console.error("ERROR: uncommitted changes in working tree.");
+  console.error("  Commit first, OR re-run with ROOST_ALLOW_DIRTY=1 to ship the dirty state");
+  console.error("  with a `-dirty` GIT_SHA suffix (the drift badge will then keep firing");
+  console.error("  until you commit + deploy clean, which is the point).");
+  console.error("  Run `git status` to see what's pending.");
+  process.exit(7);
+}

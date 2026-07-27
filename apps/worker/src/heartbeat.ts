@@ -1,14 +1,18 @@
 // 30-second heartbeat loop. Samples host metrics (CPU / memory / disk / network
-// via macOS subprocess tools) and sends them to coord via Connect
-// workersHeartbeat, along with git sha, the keeper-stale stamp, and the live
-// tailnet reachable_addr. Callers: main.ts (started after runInstall completes).
+// via the platform sampler in host-sample-{darwin,linux}.ts) and sends them to
+// coord via Connect workersHeartbeat, along with git sha, the keeper-stale
+// stamp, and the live tailnet reachable_addr.
+// Callers: main.ts (started after runInstall completes).
 
 import type { CoordClient } from "./coord-client.ts";
 import { log, signal } from "@roost/shared";
 import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
 import { KEEPER_BUILD_STAMP } from "./keeper/keeper-stamp.ts";
 import { resolveTailnetDnsName } from "./install.ts";
-import { execSync } from "node:child_process";
+import { sampleHost as sampleDarwin } from "./host-sample-darwin.ts";
+import { sampleHost as sampleLinux } from "./host-sample-linux.ts";
+
+const sampleHost = process.platform === "linux" ? sampleLinux : sampleDarwin;
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
 // Consecutive heartbeat failures. Reset to 0 on a successful beat; when
@@ -54,102 +58,11 @@ function currentReachableAddr(): string | undefined {
 // 60s rolling average between the two real samples.
 const HOST_METRICS_INTERVAL_MS = 60_000;
 
-// macOS page size: 16384 on Apple Silicon, 4096 on Intel. The previous
-// hard-coded 16384 over-reported memory by 4x on Intel Macs. Read once
-// at module load; pagesize doesn't change at runtime.
-function _readPageSize(): number {
-	try {
-		const out = execSync("/usr/sbin/sysctl -n hw.pagesize", {
-			encoding: "utf8",
-			timeout: 1000,
-		});
-		const n = Number(out.trim());
-		return Number.isFinite(n) && n > 0 ? n : 16384;
-	} catch {
-		return 16384;
-	}
-}
-const PAGE_SIZE = _readPageSize();
-
 // Bandwidth needs two samples to compute bytes-per-second. Hold the
 // previous reading so each heartbeat reports the rate over the last
 // interval. First sample yields 0 bps (no baseline yet).
 let _prevNet: { rxBytes: number; txBytes: number; sampledAtMs: number } | null =
 	null;
-
-// Detect the primary network interface — the one routing to the default
-// gateway. Falls back to en0 if route lookup fails.
-function _detectPrimaryIface(): string {
-	try {
-		const out = execSync("/sbin/route -n get default", {
-			encoding: "utf8",
-			timeout: 1000,
-		});
-		const m = out.match(/interface:\s+(\S+)/);
-		if (m?.[1]) return m[1];
-	} catch {
-		/* fall through */
-	}
-	return "en0";
-}
-const PRIMARY_IFACE = _detectPrimaryIface();
-
-// CPU% via `top -l 1 -n 0`. Prints one snapshot then exits; the CPU
-// usage line aggregates user+sys across all cores. We report
-// 100 - idle so a single-core saturated process on an 8-core machine
-// reports ~12.5%, matching what Activity Monitor's "CPU Usage" gauge
-// shows. `-n 0` skips per-process listing (faster + smaller stdout).
-function _sampleCpuPct(): number {
-	try {
-		const out = execSync("/usr/bin/top -l 1 -n 0", {
-			encoding: "utf8",
-			timeout: 2000,
-		});
-		const m = out.match(
-			/CPU usage:\s+[\d.]+%\s+user,\s+[\d.]+%\s+sys,\s+([\d.]+)%\s+idle/,
-		);
-		if (m?.[1]) {
-			const idle = Number(m[1]);
-			if (Number.isFinite(idle)) return Math.max(0, Math.min(100, 100 - idle));
-		}
-	} catch {
-		/* fall through */
-	}
-	return 0;
-}
-
-// Per-interface RX/TX byte counters via `netstat -ibn`. The `-I <iface>`
-// form has been observed to truncate to 32-bit counters on some macOS
-// builds; the global `-ibn` shows 64-bit values for all interfaces and
-// we filter by iface name.
-function _sampleNetBytes(
-	iface: string,
-): { rxBytes: number; txBytes: number } | null {
-	try {
-		const out = execSync("/usr/sbin/netstat -ibn", {
-			encoding: "utf8",
-			timeout: 1000,
-		});
-		for (const line of out.split("\n")) {
-			const parts = line.trim().split(/\s+/);
-			// Header columns vary slightly across macOS versions but the iface
-			// name is always parts[0]; we want the first non-Link row for the
-			// requested iface (Link rows have <Link#N> in column 3).
-			if (parts[0] !== iface) continue;
-			if (parts[2]?.startsWith("<Link")) continue;
-			// Columns: Name Mtu Network Address Ipkts Ierrs Ibytes Opkts Oerrs Obytes …
-			const ibytesIdx = 6;
-			const obytesIdx = 9;
-			const rx = Number(parts[ibytesIdx]);
-			const tx = Number(parts[obytesIdx]);
-			if (Number.isFinite(rx) && Number.isFinite(tx))
-				return { rxBytes: rx, txBytes: tx };
-		}
-	} catch {
-		/* fall through */
-	}
-	return null;
-}
 
 type HostMetrics = {
 	cpu_pct: number;
@@ -174,52 +87,17 @@ function collectHostMetrics(): HostMetrics {
 		return _cachedHostMetrics;
 	}
 	const sampled_at_ms = Date.now();
-	const cpu_pct = _sampleCpuPct();
-	let mem_used_bytes = 0;
-	let mem_total_bytes = 0;
-	let disk_used_bytes = 0;
-	let disk_total_bytes = 0;
+	const {
+		cpu_pct,
+		mem_used_bytes,
+		mem_total_bytes,
+		disk_used_bytes,
+		disk_total_bytes,
+		net,
+	} = sampleHost();
 	let net_rx_bps = 0;
 	let net_tx_bps = 0;
 
-	try {
-		const vmstat = execSync("vm_stat", { encoding: "utf8", timeout: 1000 });
-		const active = Number(
-			(vmstat.match(/Pages active:\s+(\d+)/) ?? [])[1] ?? 0,
-		);
-		const wired = Number(
-			(vmstat.match(/Pages wired down:\s+(\d+)/) ?? [])[1] ?? 0,
-		);
-		const compressed = Number(
-			(vmstat.match(/Pages occupied by compressor:\s+(\d+)/) ?? [])[1] ?? 0,
-		);
-		// Absolute path: LaunchAgent shell PATH doesn't include /usr/sbin, so
-		// bare `sysctl` floods stderr with `/bin/sh: sysctl: command not found`
-		// every 30s. Same reason vm_stat works — it lives in /usr/bin which
-		// is on the default PATH.
-		const total = Number(
-			(
-				execSync("/usr/sbin/sysctl -n hw.memsize", {
-					encoding: "utf8",
-					timeout: 1000,
-				}) ?? "0"
-			).trim(),
-		);
-		mem_total_bytes = total;
-		// Apple's "Memory Used" = wired + compressed + active (app memory).
-		// Activity Monitor adds purgeable separately; we approximate.
-		mem_used_bytes = (active + wired + compressed) * PAGE_SIZE;
-
-		const dfOut = execSync("df -k /", { encoding: "utf8", timeout: 1000 });
-		const dfLine = dfOut.split("\n")[1] ?? "";
-		const dfParts = dfLine.trim().split(/\s+/);
-		disk_total_bytes = Number(dfParts[1] ?? 0) * 1024;
-		disk_used_bytes = Number(dfParts[2] ?? 0) * 1024;
-	} catch {
-		// Non-fatal — heartbeat continues with last known values.
-	}
-
-	const net = _sampleNetBytes(PRIMARY_IFACE);
 	if (net && _prevNet) {
 		const dtSec = (sampled_at_ms - _prevNet.sampledAtMs) / 1000;
 		if (dtSec > 0) {
@@ -253,7 +131,7 @@ function getGitSha(): string | undefined {
 
 /** Start the 30s heartbeat loop. Resolves after the first successful beat. */
 export async function startHeartbeat(opts: {
-	client: CoordClient;
+	client: () => CoordClient;
 }): Promise<void> {
 	const { client } = opts;
 	const beat = async () => {
@@ -270,7 +148,7 @@ export async function startHeartbeat(opts: {
 						? runningKeeperStamp
 						: "";
 			const reachable_addr = currentReachableAddr();
-			await client.workersHeartbeat({
+			await client().workersHeartbeat({
 				hostMetrics: host_metrics
 					? {
 							cpuPct: host_metrics.cpu_pct,

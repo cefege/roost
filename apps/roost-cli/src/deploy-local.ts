@@ -1,5 +1,6 @@
-import { run } from "./deploy-exec.ts";
+import { run, resolveLocalGitShaOrDie } from "./deploy-exec.ts";
 import { _backfillEnvFromPlist } from "./deploy-plist-env.ts";
+import { restartWorkerCmd, verifyWorkerCmd, WORKER_AGENT, WORKER_UNIT, type ServiceOs } from "./service-ctl.ts";
 
 /** Localhost fast-path: run install.sh directly on the box that
  *  initiated the deploy, no ssh + no rsync (the source is already
@@ -8,28 +9,9 @@ import { _backfillEnvFromPlist } from "./deploy-plist-env.ts";
 export async function _deployLocal(host: string): Promise<void> {
   console.log(`>> local deploy on ${host} (source already in place — skipping ssh + rsync)`);
 
-  // Dirty guard — matches the remote path so a sb31 violation hits
-  // the user the same way regardless of which host they target.
-  let localGitSha = "";
-  try {
-    const r = Bun.spawnSync(["git", "rev-parse", "HEAD"]);
-    if (r.exitCode === 0) localGitSha = r.stdout.toString().trim();
-  } catch (e) { console.error("git check failed:", String(e)); }
-  let isDirty = false;
-  try {
-    const st = Bun.spawnSync(["git", "status", "--porcelain"]);
-    if (st.exitCode === 0 && st.stdout.toString().trim().length > 0) isDirty = true;
-  } catch (e) { console.error("git check failed:", String(e)); }
-  if (isDirty) {
-    if (process.env.ROOST_ALLOW_DIRTY === "1") {
-      console.warn(`>> WARN: uncommitted changes — stamping GIT_SHA=${localGitSha}-dirty (ROOST_ALLOW_DIRTY=1)`);
-      localGitSha = localGitSha ? `${localGitSha}-dirty` : "";
-    } else {
-      console.error("ERROR: uncommitted changes in working tree.");
-      console.error("  Commit first, OR re-run with ROOST_ALLOW_DIRTY=1");
-      process.exit(7);
-    }
-  }
+  // Dirty guard — the same one the remote path uses, so a sb31 violation
+  // hits the user identically regardless of which host they target.
+  const localGitSha = resolveLocalGitShaOrDie();
 
   console.log(`>> verify bun`);
   console.log(`   bun: ${process.execPath}`);
@@ -43,7 +25,9 @@ export async function _deployLocal(host: string): Promise<void> {
     process.exit(6);
   }
 
-  console.log(`>> install LaunchAgent (com.roost.worker-v2) locally`);
+  const os: ServiceOs = process.platform === "linux" ? "linux" : "darwin";
+  const service = os === "linux" ? WORKER_UNIT : WORKER_AGENT;
+  console.log(`>> install worker service (${service}) locally`);
   const installSh = await run(
     // Absolute path from this module (../../../ = repo root) so it resolves no
     // matter the process cwd — the `roost` npm alias runs with cwd apps/roost-cli.
@@ -64,10 +48,10 @@ export async function _deployLocal(host: string): Promise<void> {
   }
   console.log(installSh.stdout.trim().split("\n").map((l) => `   ${l}`).join("\n"));
 
-  console.log(`>> kickstart com.roost.worker-v2 locally`);
-  const kick = await run(["launchctl", "kickstart", "-k", `gui/${process.getuid?.() ?? ""}/com.roost.worker-v2`], { quiet: true });
+  console.log(`>> restart ${service} locally`);
+  const kick = await run(["bash", "-c", restartWorkerCmd(os)], { quiet: true });
   if (kick.exit !== 0) {
-    console.error(`kickstart failed (exit ${kick.exit}):`);
+    console.error(`restart failed (exit ${kick.exit}):`);
     console.error(kick.stdout);
     console.error(kick.stderr);
     process.exit(4);
@@ -77,10 +61,7 @@ export async function _deployLocal(host: string): Promise<void> {
   const { promise: settled, resolve: markSettled } = Promise.withResolvers<void>();
   setTimeout(markSettled, 1500);
   await settled;
-  const verify = await run(
-    ["bash", "-c", `launchctl print gui/$(id -u)/com.roost.worker-v2 2>&1 | grep -E '^\\s*(state|pid|active count)' | head -5`],
-    { quiet: true },
-  );
+  const verify = await run(["bash", "-c", verifyWorkerCmd(os)], { quiet: true });
   console.log(verify.stdout.trim().split("\n").map((l) => `   ${l}`).join("\n"));
 
   console.log(`>> done — ${host} v2 worker deployed (local)`);

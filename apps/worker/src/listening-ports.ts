@@ -4,14 +4,17 @@
 // SessionEvent → chips in apps/web/src/components/sidebar/FolderList.tsx.
 // Called by session-manager.ts (_startPorts) on spawn + a 90s poll.
 //
-// macOS/BSD tools (ps + lsof). Every failure path yields [] — never throws.
-// Mirrors pr-status.ts.
+// macOS/BSD: ps + lsof. Linux: ps + `ss` (AlmaLinux ships iproute2, not
+// lsof). Every failure path yields [] — never throws. Mirrors pr-status.ts.
 
-// The worker runs under a LaunchAgent whose PATH is minimal (/usr/bin:/bin) —
-// lsof lives in /usr/sbin, absent from it, so a bare `lsof` spawn ENOENTs and
-// the port scan silently returns []. Augment PATH for every tool spawn.
+// The worker runs under a service manager whose PATH is minimal
+// (/usr/bin:/bin) — lsof lives in /usr/sbin on macOS and ss in /usr/sbin on
+// Linux, absent from it, so a bare spawn ENOENTs and the port scan silently
+// returns []. Augment PATH for every tool spawn.
 // (CLAUDE.md L11 LaunchAgent-env class, same as the TERM=unknown row.)
-const TOOL_PATH = `/opt/homebrew/bin:/usr/local/bin:/usr/sbin:/usr/bin:/bin:${process.env.PATH ?? ""}`;
+const TOOL_PATH = process.platform === "linux"
+  ? `/usr/local/bin:/usr/sbin:/usr/bin:/bin:${process.env.PATH ?? ""}`
+  : `/opt/homebrew/bin:/usr/local/bin:/usr/sbin:/usr/bin:/bin:${process.env.PATH ?? ""}`;
 
 async function run(cmd: string[]): Promise<string | null> {
   try {
@@ -73,12 +76,47 @@ export function parseReachableListenPorts(lsofOutput: string): number[] {
   return [...ports].sort((a, b) => a - b);
 }
 
+/** Same contract as parseReachableListenPorts, for `ss -ltnpH` rows:
+ *  `LISTEN 0 511 0.0.0.0:5173 0.0.0.0:* users:(("bun",pid=1234,fd=20))`
+ *  ss has no `-p <pids>` filter, so the pid set is applied here. */
+export function parseSsListenPorts(out: string, pids: Set<number>): number[] {
+  const ports = new Set<number>();
+  for (const line of out.split("\n")) {
+    const fields = line.trim().split(/\s+/);
+    const local = fields[3];
+    if (!local) continue;
+    const cut = local.lastIndexOf(":");
+    if (cut <= 0) continue;
+    const host = local.slice(0, cut);
+    const port = Number(local.slice(cut + 1));
+    if (!Number.isInteger(port) || port <= 0) continue;
+    // Same loopback rule as the lsof parser: a 127.x/::1 bind never answers
+    // on the worker's tailnet IP, so its chip would be a dead link.
+    if (host === "[::1]" || host === "::1" || /^127\./.test(host)) continue;
+    // Keep the row only if it belongs to this session's process tree.
+    let owned = false;
+    for (const m of line.matchAll(/\bpid=(\d+)/g)) {
+      if (pids.has(Number(m[1]))) { owned = true; break; }
+    }
+    if (!owned) continue;
+    ports.add(port);
+  }
+  return [...ports].sort((a, b) => a - b);
+}
+
 /** Distinct reachable LISTEN ports held by `root`'s process tree, ascending.
  *  [] on any failure / none. `lsof -p` takes a comma-list. */
 export async function readListeningPorts(root: number | null | undefined): Promise<number[]> {
   if (!root || root <= 0) return [];
   const pids = await descendantPids(root);
   if (pids.length === 0) return [];
+  if (process.platform === "linux") {
+    // ss has no pid selector; list every listening socket with its owning
+    // process and filter to the tree here.
+    const out = await run(["ss", "-ltnpH"]);
+    if (!out) return [];
+    return parseSsListenPorts(out, new Set(pids));
+  }
   // -a ANDs the pid filter with the LISTEN filter. WITHOUT it lsof ORs
   // different selection types → returns EVERY listening socket on the host,
   // not just this session's tree (verified: leaked redis/chrome/system ports).
