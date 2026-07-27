@@ -6,6 +6,7 @@ import { BoundedBus } from "./buses.ts";
 import { busToAsyncIterable } from "./sse.ts";
 import { signal } from "@roost/shared/diag";
 import type { SignalKind } from "@roost/shared/diag";
+import { resolveTailnetDnsName } from "@roost/shared/tailnet";
 
 export type DeployStreamMsg =
   | { kind: "line"; text: string }
@@ -52,14 +53,8 @@ export function startDeploy(host: string): DeployStartResult {
     coordUrl = `https://${process.env.ROOST_REACHABLE_ADDR}:${port}`;
   }
   if (!coordUrl) {
-    try {
-      const r = Bun.spawnSync(["/opt/homebrew/bin/tailscale", "status", "--json"]);
-      if (r.exitCode === 0) {
-        const status = JSON.parse(r.stdout.toString()) as { Self?: { DNSName?: string } };
-        const dns = status.Self?.DNSName?.replace(/\.$/, "") ?? "";
-        if (dns && dns.endsWith(".ts.net")) coordUrl = `https://${dns}:${port}`;
-      }
-    } catch { /* tailscale missing */ }
+    const dns = resolveTailnetDnsName();
+    if (dns.endsWith(".ts.net")) coordUrl = `https://${dns}:${port}`;
   }
   if (!coordUrl || coordUrl.includes("//localhost") || coordUrl.includes("//127.0.0.1") || coordUrl.includes(".local:")) {
     return { ok: false, error: `coord has no tailnet-reachable URL (resolved="${coordUrl ?? "none"}"). Set ROOST_REACHABLE_ADDR=<tailnet-fqdn>.` };

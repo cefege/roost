@@ -10,15 +10,16 @@ import { existsSync } from "node:fs";
 
 const REFRESH_INTERVAL_MS = 60_000;
 const STATUS_TIMEOUT_MS = 2_000;
-// Prefer the standalone CLI: in the coord's LaunchAgent context the GUI app
-// binary can't reach the daemon and prints a non-JSON error ("The Tailscale
-// ..."), whereas the Homebrew CLI connects to the same tailscaled and returns
-// clean JSON. Fall back to the GUI app binary if the CLI isn't installed.
+// Prefer whatever is on PATH (the only thing that exists on Linux), then the
+// standalone macOS CLI: in the coord's LaunchAgent context the GUI app binary
+// can't reach the daemon and prints a non-JSON error ("The Tailscale ..."),
+// whereas the Homebrew CLI connects to the same tailscaled and returns clean
+// JSON. Fall back to the GUI app binary if the CLI isn't installed.
 const TAILSCALE_BIN = [
   "/opt/homebrew/bin/tailscale",
   "/usr/local/bin/tailscale",
   "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
-].find((p) => existsSync(p)) ?? "/opt/homebrew/bin/tailscale";
+].find((p) => existsSync(p)) ?? "tailscale";
 
 interface TailscalePeer {
   HostName?: string;

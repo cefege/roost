@@ -16,8 +16,9 @@ import { deploy } from "./deploy.ts";
 import { resolveTailscale, ensureTailscale, statusReport, printStatusReport } from "./status.ts";
 import { ROOST_VERSION } from "./version.ts";
 import { installCoordAgent, installWorkerAgent } from "./install-binary-agents.ts";
+import { coordDataDir } from "@roost/shared/paths";
 
-const COORD_DATA_DIR = join(homedir(), "Library", "Application Support", "RoostCoordinatorV2");
+const COORD_DATA_DIR = coordDataDir();
 const COORD_DB = join(COORD_DATA_DIR, "coordinator_v2.db");
 const COORD_TLS_DIR = join(COORD_DATA_DIR, "tls");
 const WEB_DIST_INDEX = "apps/web/dist/index.html";
@@ -243,7 +244,7 @@ export async function quickstart(args: string[]): Promise<void> {
   logStep("opening the app (browser self-authorizes via ?pair)");
   const token = mintBrowserToken(`quickstart-${fqdn}`);
   const openUrl = `${coordUrl}/?pair=${token}`;
-  await runInherit(["open", openUrl]);
+  await runInherit([process.platform === "linux" ? "xdg-open" : "open", openUrl]);
 
   const shim = binary ? null : installRoostShim(process.cwd());
   console.log(`\n✓ Roost is running.`);

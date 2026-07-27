@@ -17,12 +17,14 @@
 import { existsSync, readdirSync, createReadStream } from "node:fs";
 import { createInterface } from "node:readline";
 import { createGunzip } from "node:zlib";
+import { coordLogDir, workerLogDir } from "@roost/shared/paths";
 
-const LOG_DIR = `${process.env.HOME}/Library/Logs`;
+const COORD_LOGS = coordLogDir();
+const WORKER_LOGS = workerLogDir();
 const SOURCES: Array<{ app: string; dir: string; base: string }> = [
-  { app: "coord", dir: `${LOG_DIR}/RoostCoord`, base: "main.err.log" },
-  { app: "worker", dir: `${LOG_DIR}/RoostWorker`, base: "main.err.log" },
-  { app: "keeper", dir: `${LOG_DIR}/RoostWorker`, base: "keeper.err.log" },
+  { app: "coord", dir: COORD_LOGS, base: "main.err.log" },
+  { app: "worker", dir: WORKER_LOGS, base: "main.err.log" },
+  { app: "keeper", dir: WORKER_LOGS, base: "keeper.err.log" },
 ];
 
 // Signal kinds that are genuine errors (vs warnings worth surfacing). Used
