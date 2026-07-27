@@ -240,6 +240,18 @@ bootstrap_systemd() {
   # takes the worker AND the detached keeper with it.
   loginctl enable-linger "$USER" 2>/dev/null || sudo -n loginctl enable-linger "$USER" 2>/dev/null || \
     echo "WARN: could not enable linger — the worker will stop when you log out" >&2
+  # `tailscale serve` is a write to tailscaled and needs root or an operator
+  # grant. Only matters if this box is ever made a coordinator: the coord
+  # installer's serve_front runs as this user and merely WARNS on failure, so
+  # without the grant a relocated coordinator binds loopback and is unreachable
+  # at the https URL it advertises. Best-effort like linger above — CoordTarget
+  # probes the capability at move preflight and blocks there, so a failure here
+  # is a warning, not a broken install. Adds no privilege: anyone who can
+  # `sudo -n` here can already run `sudo tailscale serve` directly.
+  if command -v tailscale >/dev/null 2>&1; then
+    sudo -n tailscale set --operator="$USER" 2>/dev/null || \
+      echo "WARN: could not grant tailscale serve to $USER — run 'sudo tailscale set --operator=$USER' if this box should be able to host the coordinator" >&2
+  fi
   systemctl --user daemon-reload
   systemctl --user enable --now "${LABEL}.service"
   systemctl --user restart "${LABEL}.service"
