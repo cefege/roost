@@ -460,8 +460,19 @@ export class CoordTarget {
   }
 
   private async buildSourceSpa(): Promise<void> {
-    const child = Bun.spawn(["bun", "run", "build"], { cwd: join(process.cwd(), "apps", "web"), stdout: "ignore", stderr: "ignore" });
-    if (await child.exited !== 0) throw new Error("target web build failed");
+    const webDir = join(process.cwd(), "apps", "web");
+    const child = Bun.spawn(["bun", "run", "build"], { cwd: webDir, stdout: "pipe", stderr: "pipe" });
+    // Both pipes must be drained: vite is chatty on stdout and an unread pipe
+    // buffer blocks the child, hanging PREPARE.
+    const [out, err, code] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ]);
+    if (code !== 0) {
+      const detail = `${err}\n${out}`.trim().split("\n").filter(Boolean).slice(-3).join("; ");
+      throw new Error(`target web build failed in ${webDir} (exit ${code})${detail ? `: ${detail}` : ""}`);
+    }
   }
 
   private async runInstaller(command: "write-plist" | "install" | "uninstall", handoffId: string): Promise<void> {
@@ -477,6 +488,10 @@ export class CoordTarget {
         ROOST_COORDINATOR_PUBLIC_URL: this.#prepared?.targetUrl ?? process.env.ROOST_COORDINATOR_PUBLIC_URL,
         ROOST_COORD_PLIST: this.paths.servicePath,
         ROOST_COORD_UNIT: this.paths.servicePath,
+        // The deployed tree has no .git, so install.sh's `git rev-parse` fallback
+        // yields nothing and the relocated coord reports "dev" — which lights the
+        // drift badge on every worker and makes preflight refuse the move back.
+        ROOST_GIT_SHA: this.runtime.gitSha,
         // Compiled-binary deploys: without this install.sh takes the
         // from-source branch and writes ExecStart=<bun> $HOME/apps/coord/src/main.ts,
         // which crash-loops under KeepAlive.
@@ -486,9 +501,20 @@ export class CoordTarget {
         // advertise the old host.
         ROOST_SKIP_ENV_LOCAL: "1",
       },
-      stdout: "ignore", stderr: "ignore",
+      // Captured, not ignored: every installer failure used to surface as a
+      // bare "coordinator <cmd> failed" with the child's actual diagnosis
+      // thrown away, and this error text is what the SPA shows the operator.
+      stdout: "pipe", stderr: "pipe",
     });
-    if (await child.exited !== 0) throw new Error(`coordinator ${command} failed`);
+    const [out, err, code] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ]);
+    if (code !== 0) {
+      const detail = `${err}\n${out}`.trim().split("\n").filter(Boolean).slice(-4).join("; ");
+      throw new Error(`coordinator ${command} failed (exit ${code})${detail ? `: ${detail}` : ` running ${script}`}`);
+    }
   }
 
   private fsyncDirectory(path: string): void {

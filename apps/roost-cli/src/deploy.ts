@@ -88,7 +88,11 @@ export async function deploy(args: string[]): Promise<void> {
   console.log(`>> ensure ${REMOTE_DIR}/ on ${host}`);
   await sshExec(host, `mkdir -p ${REMOTE_DIR}`);
 
-  console.log(`>> rsync apps/worker/ + apps/shared/ → ${host}:${REMOTE_DIR}/`);
+  // Every worker ships the coordinator too: CoordTarget resolves the installer
+  // and the SPA build against process.cwd(), so a Mac that only has
+  // apps/worker can never accept a coordinator move. The Linux path already
+  // deploys a full checkout — this keeps the two consistent.
+  console.log(`>> rsync apps/{worker,shared,coord,web}/ → ${host}:${REMOTE_DIR}/`);
   await Promise.all([
     runOrDie([
       "rsync", "-az", "-e", RSYNC_RSH, "--delete",
@@ -100,6 +104,18 @@ export async function deploy(args: string[]): Promise<void> {
       "--exclude", "node_modules",
       "apps/shared/", `${host}:${REMOTE_DIR}/apps/shared/`,
     ], "rsync apps/shared"),
+    runOrDie([
+      "rsync", "-az", "-e", RSYNC_RSH, "--delete",
+      "--exclude", "node_modules", "--exclude", "tests", "--exclude", "test-results",
+      "apps/coord/", `${host}:${REMOTE_DIR}/apps/coord/`,
+    ], "rsync apps/coord"),
+    runOrDie([
+      // dist is excluded on purpose: CoordTarget builds it on the target at
+      // PREPARE, and a stale copy would be served in preference to that.
+      "rsync", "-az", "-e", RSYNC_RSH, "--delete",
+      "--exclude", "node_modules", "--exclude", "dist", "--exclude", "tests",
+      "apps/web/", `${host}:${REMOTE_DIR}/apps/web/`,
+    ], "rsync apps/web"),
   ]);
 
   // bun.lock from the dev tree was computed against the full workspace
@@ -124,17 +140,19 @@ export async function deploy(args: string[]): Promise<void> {
     name: "roost-worker-deploy",
     private: true,
     type: "module",
-    workspaces: ["apps/worker", "apps/shared"],
+    workspaces: ["apps/worker", "apps/shared", "apps/coord", "apps/web"],
     dependencies: workerPkg.dependencies ?? {},
     engines: { bun: ">=1.3.14" },
   }, null, 2);
   await sshExec(host, `cat > ${REMOTE_DIR}/package.json <<'PKG_EOF'\n${deployPackageJson}\nPKG_EOF`);
 
-  console.log(`>> bun install --production on ${host}`);
+  // NOT --production: apps/web's build needs vite + vite-plugin-solid, which
+  // are devDependencies. Without them a coordinator move fails at PREPARE.
+  console.log(`>> bun install on ${host}`);
   const installRes = await sshExec(
     host,
     // `set -o pipefail` so the tail filter doesn't mask a non-zero exit.
-    `set -eo pipefail; cd ${REMOTE_DIR} && bun install --production 2>&1 | tail -25`,
+    `set -eo pipefail; cd ${REMOTE_DIR} && bun install 2>&1 | tail -25`,
   );
   if (installRes.exit !== 0) {
     console.error("bun install failed:");
