@@ -197,6 +197,9 @@ export async function runWorker() {
 						() => coordLink.unackedEventCount(),
 						(url, force) => coordLink.relocate(url, force),
 					);
+					// No-op on every worker but the new host: only the move target
+					// has a handoffs/<id>/ staging + rollback directory.
+					coordTarget.finalizeCommit(request.handoff_id);
 					reannounceAfterRelocation(request.target_url);
 					return;
 				}

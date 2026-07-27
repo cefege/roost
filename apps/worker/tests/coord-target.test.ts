@@ -268,3 +268,37 @@ test("a start for a different handoff while one is in flight reports the conflic
   await h.target.appendSnapshot({ handoff_id: HANDOFF_A, seq: 1, data: h.bytes.subarray(mid), last: true });
   expectPromoted(h);
 });
+
+test("promotion discards a -wal/-shm pair left by the database it replaces", async () => {
+  // A move back onto a retired source lands on a box whose old coordinator
+  // owned coordinator_v2.db in WAL mode. Those sidecars belong to an inode
+  // that is about to disappear; SQLite would replay them into the new file.
+  const h = await harness();
+  fs.writeFileSync(`${h.paths.dbPath}-wal`, "stale-wal-from-the-previous-database");
+  fs.writeFileSync(`${h.paths.dbPath}-shm`, "stale-shm");
+
+  await h.prepare(HANDOFF_A);
+  h.start(HANDOFF_A);
+  await h.target.appendSnapshot({ handoff_id: HANDOFF_A, seq: 0, data: h.bytes, last: true });
+
+  expect(fs.existsSync(`${h.paths.dbPath}-wal`)).toBeFalse();
+  expect(fs.existsSync(`${h.paths.dbPath}-shm`)).toBeFalse();
+  expectPromoted(h);
+});
+
+test("finalizeCommit removes the staged rollback, which holds the coordinator key", async () => {
+  // captureRollback copies the pre-move DB and signing key aside so a failed
+  // move can be undone. abort() deletes them; before finalizeCommit the commit
+  // path never did, so every completed move left another copy on disk.
+  const h = await harness();
+  await h.prepare(HANDOFF_A);
+  const rollbackKey = join(h.handoffDir(HANDOFF_A), "rollback", "ssh_ed25519.key");
+  expect(fs.existsSync(rollbackKey)).toBeTrue();
+
+  h.target.finalizeCommit(HANDOFF_A);
+
+  expect(fs.existsSync(rollbackKey)).toBeFalse();
+  expect(fs.existsSync(h.handoffDir(HANDOFF_A))).toBeFalse();
+  // A worker that never hosted the move has no such directory: must not throw.
+  expect(() => h.target.finalizeCommit(HANDOFF_B)).not.toThrow();
+});

@@ -205,6 +205,9 @@ export class CoordTarget {
     // Preserve the pre-move landing before write-plist can replace it.
     this.captureRollback(join(handoffDir, "rollback"));
     await this.captureServeConfig(join(handoffDir, "rollback"));
+    // Captured first, so the rollback still records the retired coordinator's
+    // service definition and can reinstate it.
+    await this.stopRetiredCoordinator(request.handoff_id);
     await this.runInstaller("write-plist", request.handoff_id);
     if (!process.env.ROOST_EXEC_BIN) await this.buildSourceSpa();
     // Durable: the worker exits on any unhandled rejection, and PREPARE →
@@ -320,6 +323,10 @@ export class CoordTarget {
         throw new Error("coordinator key fingerprint does not match source");
       }
 
+      // A -wal/-shm pair left by whatever database previously lived at this
+      // path would be replayed into the one we are about to rename in. The
+      // retired coordinator that owned them was stopped at PREPARE.
+      for (const suffix of ["-wal", "-shm"]) fs.rmSync(`${this.paths.dbPath}${suffix}`, { force: true });
       fs.renameSync(inflight.file, this.paths.dbPath);
       fs.renameSync(join(dir, "ssh_ed25519.key"), this.paths.keyPath);
       fs.renameSync(join(dir, "authorized_keys.roost"), this.paths.authorizedKeysPath);
@@ -457,6 +464,33 @@ export class CoordTarget {
       // No readable handoff file: this is a plain active coordinator.
     }
     throw new Error("target already has an active coordinator");
+  }
+
+  /** The rollback captured at PREPARE holds a full DB copy plus the coordinator
+   *  signing key. abort() removes it; the commit path never did, so every
+   *  completed move left one more copy on disk forever. Safe here: the source
+   *  has already retired by the time a COMMIT frame reaches this worker. */
+  finalizeCommit(handoffId: string): void {
+    fs.rmSync(join(this.paths.dataDir, "handoffs", handoffId), { recursive: true, force: true });
+  }
+
+  /** assertNoActiveCoordinator lets a retired SOURCE box accept a move back,
+   *  but that coordinator is still RUNNING and still holds coordinator_v2.db
+   *  open in WAL mode. Promotion renames a new database over that exact path,
+   *  so the old process would go on writing a -wal belonging to an inode that
+   *  no longer exists — silent corruption of the DB that just arrived.
+   *  Unlinking -wal at promotion is not enough on its own: a live process
+   *  recreates it immediately. The process has to go first. */
+  private async stopRetiredCoordinator(handoffId: string): Promise<void> {
+    if (!await this.runtime.isCoordServiceActive(coordLabel())) return;
+    try {
+      await this.runInstaller("uninstall", handoffId);
+      log.info("coord-target", "retired_coordinator_stopped", { handoff_id: handoffId });
+    } catch (error) {
+      // Non-fatal: the promotion below also unlinks -wal/-shm, and the rollback
+      // captured above can reinstate the service definition.
+      log.warn("coord-target", "retired_coordinator_stop_failed", { handoff_id: handoffId, error: String(error) });
+    }
   }
 
   private async buildSourceSpa(): Promise<void> {
