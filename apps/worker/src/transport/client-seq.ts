@@ -9,12 +9,10 @@
 
 import { existsSync, readFileSync, writeFileSync, renameSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
-import { homedir } from "node:os";
+import { workerDataDir } from "@roost/shared/paths";
 
 function defaultPath(): string {
-  const dataDir = process.env.ROOST_WORKER_DATA_DIR
-    ?? join(homedir(), "Library", "Application Support", "RoostWorkerV2");
-  return join(dataDir, "client-seq.txt");
+  return join(workerDataDir(), "client-seq.txt");
 }
 
 // Watermark step. On boot, we persist `loaded + WATERMARK_STEP` so the
