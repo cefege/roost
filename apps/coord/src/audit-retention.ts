@@ -27,19 +27,20 @@ const BATCH_SIZE = 10_000;
 // To extend: add a method name here. Never add anything auth-, pair-, delete-
 // or lifecycle-related, and never replace this with a wildcard.
 //
-// Current entries, with their share of the live table at the time of writing:
-//   SessionsInput               41.8k — keystrokes; genuine audit, but the
-//                                       volume driver and the reason this exists
-//   UiReportState               40.3k — SPA reporting its own view state
-//   SessionsGetScrollbackCells  32.3k — SPA polling terminal render state
-//   TranscriptionGetConfig      27.4k — SPA polling a config read
-// The last three are non-mutating chatter. SessionsSpawn (1.2k) is deliberately
-// absent: it is session lifecycle, low volume, and worth keeping forever.
+// SessionsInput is the only entry, and the reason this module exists: ~42k rows
+// of "who typed into which session", which is real audit data — it has to age
+// out rather than be skipped at write time.
+//
+// UiReportState, SessionsGetScrollbackCells and TranscriptionGetConfig were
+// briefly here too. They are non-mutating SPA polling, so they belong in
+// AUDIT_SKIP_METHODS and are never written at all: sweeping them meant paying
+// an INSERT per RPC to delete the row days later. Add future no-signal chatter
+// there, not here.
+//
+// SessionsSpawn (1.2k) is deliberately absent from both: session lifecycle,
+// low volume, worth keeping forever.
 const AUDIT_SWEEP_METHODS: readonly string[] = [
   "SessionsInput",
-  "UiReportState",
-  "SessionsGetScrollbackCells",
-  "TranscriptionGetConfig",
 ];
 
 export interface AuditSweepOptions {

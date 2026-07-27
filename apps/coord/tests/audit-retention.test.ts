@@ -55,17 +55,21 @@ describe("audit retention sweep", () => {
     const sqlite = await fixture();
     seed(sqlite, [
       { ts: NOW - 91 * DAY_MS, path: `${SVC}/SessionsInput` },
-      { ts: NOW - 200 * DAY_MS, path: `${SVC}/UiReportState` },
+      { ts: NOW - 200 * DAY_MS, path: `${SVC}/SessionsInput` },
       { ts: NOW - 89 * DAY_MS, path: `${SVC}/SessionsInput` },
-      { ts: NOW - 1 * DAY_MS, path: `${SVC}/SessionsGetScrollbackCells` },
+      // Ancient, but not in the sweep allowlist: must survive on identity,
+      // not on age.
+      { ts: NOW - 200 * DAY_MS, path: `${SVC}/PairApprove` },
     ]);
 
     const deleted = await sweepAuditLog(sqlite, { retentionDays: 90, now: NOW });
 
     expect(deleted).toBe(2);
+    // pathsLeft orders by id, i.e. seed order: the in-window SessionsInput was
+    // seeded before PairApprove.
     expect(pathsLeft(sqlite)).toEqual([
       `${SVC}/SessionsInput`,
-      `${SVC}/SessionsGetScrollbackCells`,
+      `${SVC}/PairApprove`,
     ]);
   });
 
