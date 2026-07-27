@@ -116,6 +116,13 @@ export async function deploy(args: string[]): Promise<void> {
       "--exclude", "node_modules", "--exclude", "dist", "--exclude", "tests",
       "apps/web/", `${host}:${REMOTE_DIR}/apps/web/`,
     ], "rsync apps/web"),
+    runOrDie([
+      // Every apps/*/tsconfig.json extends this, and vite resolves the whole
+      // extends chain (the @roost/* path aliases live in it) — without it the
+      // target's SPA build dies before it emits anything.
+      "rsync", "-az", "-e", RSYNC_RSH,
+      "tsconfig.base.json", "bunfig.toml", `${host}:${REMOTE_DIR}/`,
+    ], "rsync root config"),
   ]);
 
   // bun.lock from the dev tree was computed against the full workspace
