@@ -21,7 +21,10 @@ export function hasCoordinatorRelocationFragment(): boolean {
   return Boolean(params.get("move") && params.get("handoff"));
 }
 
-function coordBase(): string {
+/** The coordinator this SPA is actually talking to: the Settings → Connection
+ *  override when set, else same-origin. Callers that build install commands
+ *  must use this, not `location.origin`. */
+export function coordBase(): string {
   // A relocation URL is deliberately same-origin on its destination. Ignore a
   // stale per-browser override before creating the singleton transport, or the
   // one-time destination redemption would be sent back to the retired source.

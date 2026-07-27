@@ -4,7 +4,7 @@
 // Callers: MachinesPane.tsx.
 
 import { createSignal, Show } from "solid-js";
-import { coordClient } from "../connect.ts";
+import { coordBase, coordClient } from "../connect.ts";
 import { TextField, Button, IconButton } from "./Settings/md/primitives.tsx";
 import { animateOverlayPanel } from "../lib/overlayMotion.ts";
 
@@ -57,13 +57,15 @@ export function MachineDeployDialog(props: MachineDeployDialogProps) {
     try {
       const lbl = label().trim();
       const result = await coordClient.authMintBootstrap({ kind: "worker", label: lbl });
-      // Compose the pasteable one-liner the user runs on the new Mac. It
+      // Compose the pasteable one-liner the user runs on the new machine. It
       // fetches join.sh and self-installs + registers the worker over the
-      // tailnet. location.origin on a tailnet-loaded SPA is exactly
-      // https://<coord-fqdn>:4102 = the worker's ROOST_COORDINATOR_URL.
+      // tailnet. The ACTIVE coordinator is coordBase() — Settings → Connection
+      // can point this SPA at a different coord than the origin serving it, and
+      // with that override set `location.origin` would enrol the worker with
+      // the wrong coordinator.
       const labelEnv = lbl ? ` ROOST_WORKER_LABEL=${JSON.stringify(lbl)}` : "";
       const cmd = `curl -fsSL https://raw.githubusercontent.com/cefege/roost/main/join.sh | `
-        + `ROOST_COORDINATOR_URL=${JSON.stringify(location.origin)} `
+        + `ROOST_COORDINATOR_URL=${JSON.stringify(coordBase() || location.origin)} `
         + `ROOST_BOOTSTRAP_TOKEN=${JSON.stringify(result.token)}${labelEnv} bash`;
       setDeployCmd(cmd);
     } catch (e) {

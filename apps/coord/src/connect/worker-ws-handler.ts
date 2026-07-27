@@ -54,6 +54,11 @@ export async function handleWorkerWsUpgrade(
   const url = new URL(req.url);
   const m = WS_PATH_RE.exec(url.pathname);
   if (!m) return null;
+  // WS handshakes are GET, so main.ts's retired gate cannot see them. Reject
+  // ONLY on `retired`: the link must stay open through `source_draining` to
+  // buffer unacked events and receive ACTIVATE. Rejecting once retired is what
+  // makes coord-relocation-recovery's link-closed guard engage.
+  if (deps.move?.gate.mode === "retired") return new Response("coordinator relocated", { status: 410 });
   const fp = m[1]!;
   const addr = server.requestIP?.(req)?.address ?? undefined;
   const token = url.searchParams.get("token");
@@ -82,12 +87,19 @@ export async function handleWorkerWsUpgrade(
 export function makeWorkerWsHandler(deps: WorkerServiceDeps) {
   return {
     open(ws: ServerWebSocket<WorkerWsData>): void {
-      const send = (f: CoordWorkerDown): void => {
-        try { ws.send(toBinary(CoordWorkerDownSchema, f)); }
-        catch (e) { log.warn("worker-ws", "send_failed", { worker_fp: ws.data.fp, error: String(e) }); }
+      // Return Bun's send result (0 = dropped, -1 = backpressure, >0 = bytes)
+      // and re-throw: the snapshot pump must learn a chunk was lost instead of
+      // sending `last: true` over a hole. The PTY/browser-command hot path is
+      // contained by getWorkerHubSocket's own try/catch.
+      const send = (f: CoordWorkerDown): number => {
+        try { return ws.send(toBinary(CoordWorkerDownSchema, f)); }
+        catch (e) {
+          log.warn("worker-ws", "send_failed", { worker_fp: ws.data.fp, error: String(e) });
+          throw e;
+        }
       };
       const requestClose = (): void => { try { ws.close(); } catch { /* ignore */ } };
-      ws.data.conn = makeWorkerConn(deps, ws.data.caller, send, requestClose);
+      ws.data.conn = makeWorkerConn(deps, ws.data.caller, send, requestClose, () => ws.getBufferedAmount());
       log.info("worker-ws", "open", { worker_fp: ws.data.fp });
     },
     message(ws: ServerWebSocket<WorkerWsData>, message: string | Buffer): void {

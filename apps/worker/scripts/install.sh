@@ -87,6 +87,19 @@ GIT_SHA_RESOLVED="${GIT_SHA:-$(cd "$REPO_ROOT" && git rev-parse HEAD 2>/dev/null
 if [[ -n "$GIT_SHA_RESOLVED" ]]; then
   GIT_SHA_PLIST=$'\n    <key>GIT_SHA</key>\n    <string>'"${GIT_SHA_RESOLVED}"$'</string>'
 fi
+# ROOST_EXEC_BIN / ROOST_WORKDIR must reach the RUNNING worker, not just the
+# installer: CoordTarget branches on ROOST_EXEC_BIN to decide whether it must
+# `bun run build` the SPA, and forwards it to the coordinator installer so the
+# bootstrapped coord uses the compiled binary rather than a from-source
+# ExecStart that crash-loops.
+EXEC_BIN_PLIST=""
+WORKDIR_PLIST=""
+if [[ -n "${ROOST_EXEC_BIN:-}" ]]; then
+  EXEC_BIN_PLIST=$'\n    <key>ROOST_EXEC_BIN</key>\n    <string>'"${ROOST_EXEC_BIN}"$'</string>'
+fi
+if [[ -n "${ROOST_WORKDIR:-}" ]]; then
+  WORKDIR_PLIST=$'\n    <key>ROOST_WORKDIR</key>\n    <string>'"${ROOST_WORKDIR}"$'</string>'
+fi
 
 cmd="${1:-status}"
 
@@ -126,7 +139,7 @@ write_plist() {
     <key>ROOST_COORDINATOR_URL</key>
     <string>${ROOST_COORDINATOR_URL}</string>
     <key>ROOST_DIAG</key>
-    <string>\${ROOST_DIAG:-0}</string>${BOOTSTRAP_TOKEN_PLIST}${LABEL_PLIST}${REACHABLE_ADDR_PLIST}${TLS_PLIST}${GIT_SHA_PLIST}
+    <string>\${ROOST_DIAG:-0}</string>${BOOTSTRAP_TOKEN_PLIST}${LABEL_PLIST}${REACHABLE_ADDR_PLIST}${TLS_PLIST}${GIT_SHA_PLIST}${EXEC_BIN_PLIST}${WORKDIR_PLIST}
   </dict>
   <key>RunAtLoad</key>
   <true/>
@@ -199,6 +212,8 @@ EOF
     [[ -n "${ROOST_WORKER_LABEL:-}" ]]    && echo "Environment=ROOST_WORKER_LABEL=${ROOST_WORKER_LABEL}"
     [[ -n "${ROOST_REACHABLE_ADDR:-}" ]]  && echo "Environment=ROOST_REACHABLE_ADDR=${ROOST_REACHABLE_ADDR}"
     [[ -n "$GIT_SHA_RESOLVED" ]]          && echo "Environment=GIT_SHA=${GIT_SHA_RESOLVED}"
+    [[ -n "${ROOST_EXEC_BIN:-}" ]]        && echo "Environment=ROOST_EXEC_BIN=${ROOST_EXEC_BIN}"
+    [[ -n "${ROOST_WORKDIR:-}" ]]         && echo "Environment=ROOST_WORKDIR=${ROOST_WORKDIR}"
     # KillMode=process is load-bearing: the keeper is spawned detached but
     # lands in this unit's cgroup, and the default control-group kill would
     # take every PTY down on each worker restart — destroying the "keeper

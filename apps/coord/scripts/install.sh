@@ -1,26 +1,55 @@
 #!/usr/bin/env bash
-# install / uninstall the v2 coord LaunchAgent. Binds :4102 (new port;
-# legacy stays at :4101 until R4.5 cutover). Runs `bun apps/coord/src/main.ts`
-# directly — no bundle step required (Bun runs .ts natively).
+# install / uninstall the v2 coord service. macOS → launchd LaunchAgent;
+# Linux → systemd --user unit. Binds :4102 (new port; legacy stays at :4101
+# until R4.5 cutover). Runs `bun apps/coord/src/main.ts` directly — no bundle
+# step required (Bun runs .ts natively).
 # REWRITE.md R0.13.
 
 set -euo pipefail
 
 REPO_ROOT="${ROOST_REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd -P)}"
 # Load YOUR setup from repo-root .env.local (gitignored) — one place for ROOST_*.
-set -a; [ -f "$REPO_ROOT/.env.local" ] && source "$REPO_ROOT/.env.local"; set +a
+# CoordTarget sets ROOST_SKIP_ENV_LOCAL=1: on a relocation the deployed repo's
+# .env.local carries the SOURCE coordinator's public URL, and sourcing it would
+# make the new coordinator advertise the machine it just moved off.
+if [[ -z "${ROOST_SKIP_ENV_LOCAL:-}" ]]; then
+  set -a; [ -f "$REPO_ROOT/.env.local" ] && source "$REPO_ROOT/.env.local"; set +a
+fi
 # Labels/paths overridable (binary-mode quickstart + isolated test installs);
 # defaults are the daily-driver source install — unchanged when unset.
-LABEL="${ROOST_COORD_LABEL:-com.roost.coordinator-v2}"
-PLIST="${ROOST_COORD_PLIST:-$HOME/Library/LaunchAgents/${LABEL}.plist}"
-DATA_DIR="${ROOST_COORD_DATA_DIR:-$HOME/Library/Application Support/RoostCoordinatorV2}"
+OS="$(uname -s)"
+IS_LINUX=false
+if [[ "$OS" == "Linux" ]]; then
+  IS_LINUX=true
+  LABEL="${ROOST_COORD_LABEL:-roost-coord}"
+  UNIT="${ROOST_COORD_UNIT:-$HOME/.config/systemd/user/${LABEL}.service}"
+  DATA_DIR="${ROOST_COORD_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/RoostCoordinatorV2}"
+  LOG_DIR="${ROOST_COORD_LOG_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/RoostCoord}"
+else
+  LABEL="${ROOST_COORD_LABEL:-com.roost.coordinator-v2}"
+  PLIST="${ROOST_COORD_PLIST:-$HOME/Library/LaunchAgents/${LABEL}.plist}"
+  DATA_DIR="${ROOST_COORD_DATA_DIR:-$HOME/Library/Application Support/RoostCoordinatorV2}"
+  LOG_DIR="${ROOST_COORD_LOG_DIR:-$HOME/Library/Logs/RoostCoord}"
+fi
 DB_PATH="${ROOST_COORDINATOR_DB:-$DATA_DIR/coordinator_v2.db}"
 AUTH_KEYS="${ROOST_COORDINATOR_AUTHORIZED_KEYS:-$DATA_DIR/authorized_keys.roost}"
 COORD_KEY="${ROOST_COORDINATOR_KEY_PATH:-$DATA_DIR/ssh_ed25519.key}"
 HANDOFF_PATH="${ROOST_COORDINATOR_HANDOFF_PATH:-$DATA_DIR/coord-handoff.json}"
 PUBLIC_URL="${ROOST_COORDINATOR_PUBLIC_URL:-}"
-LOG_DIR="${ROOST_COORD_LOG_DIR:-$HOME/Library/Logs/RoostCoord}"
-BUN_BIN="${BUN_BIN:-$(command -v bun || echo /opt/homebrew/bin/bun)}"
+# Resolve bun the same way the worker installer does: explicit override,
+# `command -v`, then a fallback list including ~/.bun/bin so a tarball install
+# on a box without Homebrew (every Linux box) also works.
+_find_bin() {
+  local name="$1"; shift
+  local v
+  v=$(command -v "$name" 2>/dev/null) || true
+  if [ -n "$v" ] && [ -x "$v" ]; then echo "$v"; return 0; fi
+  for p in "$@"; do
+    if [ -x "$p" ]; then echo "$p"; return 0; fi
+  done
+  echo "/opt/homebrew/bin/$name"
+}
+BUN_BIN="${BUN_BIN:-$(_find_bin bun /usr/local/bin/bun "$HOME/.bun/bin/bun")}"
 
 # FRONTED mode (DEFAULT): coord serves PLAINTEXT on loopback behind
 # `tailscale serve`, which terminates TLS with the tailnet cert. This dodges
@@ -44,7 +73,7 @@ TLS_KEY_PATH="${ROOST_TLS_KEY_PATH:-}"
 # mode where coord came up plaintext on :4102 and rejected every https
 # client until env vars were re-exported.
 if [[ "$FRONTED" != "1" && ( -z "$TLS_CERT_PATH" || -z "$TLS_KEY_PATH" ) ]]; then
-  TLS_DIR="$HOME/Library/Application Support/RoostCoordinatorV2/tls"
+  TLS_DIR="$DATA_DIR/tls"
   if [[ -d "$TLS_DIR" ]]; then
     # ls -t newest first; null-safe via `|| true` (set -e otherwise aborts on empty dir)
     AUTO_CRT="$(ls -t "$TLS_DIR"/*.crt 2>/dev/null | head -1 || true)"
@@ -193,30 +222,116 @@ bootstrap() {
   echo "bootstrapped gui/$UID/${LABEL}"
 }
 
+# systemd --user counterpart of write_plist: same env-key set, same computed
+# BIND/TRUST_PROXY/TLS values. No KillMode=process — that exists in the worker
+# unit for the detached keeper, and coord has no such child.
+write_unit() {
+  mkdir -p "$(dirname "$UNIT")" "$DATA_DIR" "$LOG_DIR"
+  local prog_bin prog_arg2 workdir web_dist
+  if [[ -n "${ROOST_EXEC_BIN:-}" ]]; then
+    prog_bin="${ROOST_EXEC_BIN}"; prog_arg2="coord"
+  else
+    prog_bin="${BUN_BIN}"; prog_arg2="${REPO_ROOT}/apps/coord/src/main.ts"
+  fi
+  workdir="${ROOST_WORKDIR:-$REPO_ROOT}"
+  web_dist="${ROOST_WEB_DIST_PATH:-$REPO_ROOT/apps/web/dist}"
+  {
+    cat <<EOF
+[Unit]
+Description=Roost coordinator
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=${workdir}
+ExecStart=${prog_bin} ${prog_arg2}
+Environment=HOME=${HOME}
+Environment=PATH=${HOME}/.bun/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+Environment=ROOST_COORDINATOR_BIND=${BIND_VALUE}
+Environment=ROOST_COORDINATOR_DB=${DB_PATH}
+Environment=ROOST_COORDINATOR_AUTHORIZED_KEYS=${AUTH_KEYS}
+Environment=ROOST_COORDINATOR_KEY_PATH=${COORD_KEY}
+Environment=ROOST_COORDINATOR_HANDOFF_PATH=${HANDOFF_PATH}
+Environment=ROOST_COORDINATOR_PUBLIC_URL=${PUBLIC_URL}
+Environment=ROOST_COORD_DATA_DIR=${DATA_DIR}
+Environment=ROOST_COORD_LOG_DIR=${LOG_DIR}
+Environment=ROOST_WEB_DIST_PATH=${web_dist}
+Environment=ROOST_DIAG=${ROOST_DIAG:-0}
+EOF
+    if [[ "$FRONTED" != "1" && -n "$TLS_CERT_PATH" && -n "$TLS_KEY_PATH" ]]; then
+      echo "Environment=ROOST_TLS_CERT_PATH=${TLS_CERT_PATH}"
+      echo "Environment=ROOST_TLS_KEY_PATH=${TLS_KEY_PATH}"
+    fi
+    [[ -n "$GIT_SHA_RESOLVED" ]]      && echo "Environment=ROOST_GIT_SHA=${GIT_SHA_RESOLVED}"
+    [[ "$FRONTED" == "1" ]]           && echo "Environment=ROOST_TRUST_PROXY=1"
+    [[ -n "${ROOST_EXEC_BIN:-}" ]]    && echo "Environment=ROOST_EXEC_BIN=${ROOST_EXEC_BIN}"
+    # RestartSec=1 is the systemd analogue of the plist's ThrottleInterval 1:
+    # a Bun crash must not freeze every browser's Sync stream for 10s.
+    cat <<EOF
+Restart=always
+RestartSec=1
+TimeoutStopSec=10
+StandardOutput=append:${LOG_DIR}/main.out.log
+StandardError=append:${LOG_DIR}/main.err.log
+
+[Install]
+WantedBy=default.target
+EOF
+  } > "$UNIT"
+  chmod 0600 "$UNIT"
+  echo "wrote $UNIT"
+}
+
+bootstrap_systemd() {
+  export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+  # Linger is mandatory: without it the user manager exits at logout and takes
+  # the coordinator with it.
+  loginctl enable-linger "$USER" 2>/dev/null || sudo -n loginctl enable-linger "$USER" 2>/dev/null || \
+    echo "WARN: could not enable linger - the coordinator will stop when you log out" >&2
+  systemctl --user daemon-reload
+  systemctl --user enable --now "${LABEL}.service"
+  systemctl --user restart "${LABEL}.service"
+  echo "started ${LABEL}.service"
+}
+
+# Unchanged across platforms: a bare-`tailscale` PATH lookup that works on Linux.
+serve_front() {
+  if [[ "$FRONTED" == "1" ]]; then
+    echo ">> tailscale serve --https=${TAILNET_HTTPS_PORT} -> http://127.0.0.1:${COORD_LOOPBACK_PORT} (TLS off Bun)"
+    if tailscale serve --bg --https="${TAILNET_HTTPS_PORT}" "http://127.0.0.1:${COORD_LOOPBACK_PORT}"; then
+      echo "   tailscale serve configured (persists in tailscaled state)"
+    else
+      echo "   WARN: tailscale serve failed - coord is reachable on loopback :${COORD_LOOPBACK_PORT} only" >&2
+      echo "   run manually: tailscale serve --bg --https=${TAILNET_HTTPS_PORT} http://127.0.0.1:${COORD_LOOPBACK_PORT}" >&2
+    fi
+  fi
+}
+
 case "$cmd" in
   install)
-    write_plist
-    bootstrap
-    if [[ "$FRONTED" == "1" ]]; then
-      echo ">> tailscale serve --https=${TAILNET_HTTPS_PORT} → http://127.0.0.1:${COORD_LOOPBACK_PORT} (TLS off Bun)"
-      if tailscale serve --bg --https="${TAILNET_HTTPS_PORT}" "http://127.0.0.1:${COORD_LOOPBACK_PORT}"; then
-        echo "   tailscale serve configured (persists in tailscaled state)"
-      else
-        echo "   WARN: tailscale serve failed — coord is reachable on loopback :${COORD_LOOPBACK_PORT} only" >&2
-        echo "   run manually: tailscale serve --bg --https=${TAILNET_HTTPS_PORT} http://127.0.0.1:${COORD_LOOPBACK_PORT}" >&2
-      fi
-    fi
+    if $IS_LINUX; then write_unit; bootstrap_systemd; else write_plist; bootstrap; fi
+    serve_front
     echo
-    echo "Coord v2 starting (FRONTED=${FRONTED}) — tailnet https://<host>:${TAILNET_HTTPS_PORT}. Logs:"
+    echo "Coord v2 starting (FRONTED=${FRONTED}) - tailnet https://<host>:${TAILNET_HTTPS_PORT}. Logs:"
     echo "  bun apps/roost-cli/src/main.ts logs coord"
     ;;
+  # The verb name stays `write-plist` on both platforms: CoordTarget invokes it
+  # by that literal, exactly as the worker installer already does.
   write-plist)
-    write_plist
+    if $IS_LINUX; then write_unit; else write_plist; fi
     ;;
   uninstall)
-    launchctl bootout "gui/$UID/${LABEL}" 2>/dev/null || true
-    rm -f "$PLIST"
-    echo "removed ${PLIST}"
+    if $IS_LINUX; then
+      export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+      systemctl --user disable --now "${LABEL}.service" 2>/dev/null || true
+      rm -f "$UNIT"
+      systemctl --user daemon-reload 2>/dev/null || true
+      echo "removed ${UNIT}"
+    else
+      launchctl bootout "gui/$UID/${LABEL}" 2>/dev/null || true
+      rm -f "$PLIST"
+      echo "removed ${PLIST}"
+    fi
     echo "(DB + keys left at ${DATA_DIR})"
     ;;
   reinstall)
@@ -224,10 +339,15 @@ case "$cmd" in
     "$0" install
     ;;
   status)
-    launchctl print "gui/$UID/${LABEL}" 2>&1 | head -8 || echo "not loaded"
+    if $IS_LINUX; then
+      export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+      systemctl --user status "${LABEL}.service" --no-pager 2>&1 | head -8 || echo "not loaded"
+    else
+      launchctl print "gui/$UID/${LABEL}" 2>&1 | head -8 || echo "not loaded"
+    fi
     ;;
   *)
-    echo "usage: $0 {install|uninstall|reinstall|status}"
+    echo "usage: $0 {install|uninstall|reinstall|status|write-plist}"
     exit 1
     ;;
 esac

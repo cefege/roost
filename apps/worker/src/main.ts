@@ -22,6 +22,7 @@ import { WorkerCoordRelocation } from "./coord-relocation.ts";
 import { createCoordRelocationRecovery } from "./coord-relocation-recovery.ts";
 import { asWorkerFp } from "@roost/shared";
 import { log, diag, signal, workerDataDir } from "@roost/shared";
+import { coordDataDir, coordServicePath, workerServicePath } from "@roost/shared/paths";
 import { createHash } from "node:crypto";
 const _workerSha8 = (b: Uint8Array): string =>
 	createHash("sha256").update(b).digest("hex").slice(0, 8);
@@ -75,20 +76,23 @@ export async function runWorker() {
 	diag("worker.boot", { step: "key" });
 	const key = await loadWorkerKey(cfg.workerKeyPath);
 	const workerFp = asWorkerFp(key.fingerprint);
+	const coordDataRoot = coordDataDir();
 	const coordTarget = new CoordTarget({
-		dataDir: process.env.ROOST_COORDINATOR_DATA_DIR ?? join(homedir(), "Library", "Application Support", "RoostCoordinatorV2"),
-		dbPath: process.env.ROOST_COORDINATOR_DB ?? join(homedir(), "Library", "Application Support", "RoostCoordinatorV2", "coordinator_v2.db"),
-		keyPath: process.env.ROOST_COORDINATOR_KEY_PATH ?? join(homedir(), "Library", "Application Support", "RoostCoordinatorV2", "ssh_ed25519.key"),
-		authorizedKeysPath: process.env.ROOST_COORDINATOR_AUTHORIZED_KEYS ?? join(homedir(), "Library", "Application Support", "RoostCoordinatorV2", "authorized_keys.roost"),
-		handoffPath: process.env.ROOST_COORDINATOR_HANDOFF_PATH ?? join(homedir(), "Library", "Application Support", "RoostCoordinatorV2", "coord-handoff.json"),
-		plistPath: process.env.ROOST_COORD_PLIST ?? join(homedir(), "Library", "LaunchAgents", `${process.env.ROOST_COORD_LABEL ?? "com.roost.coordinator-v2"}.plist`),
+		dataDir: coordDataRoot,
+		dbPath: process.env.ROOST_COORDINATOR_DB ?? join(coordDataRoot, "coordinator_v2.db"),
+		keyPath: process.env.ROOST_COORDINATOR_KEY_PATH ?? join(coordDataRoot, "ssh_ed25519.key"),
+		authorizedKeysPath: process.env.ROOST_COORDINATOR_AUTHORIZED_KEYS ?? join(coordDataRoot, "authorized_keys.roost"),
+		handoffPath: process.env.ROOST_COORDINATOR_HANDOFF_PATH ?? join(coordDataRoot, "coord-handoff.json"),
+		servicePath: coordServicePath(),
 	});
 	const relocation = new WorkerCoordRelocation(
 		join(SUPPORT, "coord-relocation.json"),
-		process.env.ROOST_WORKER_PLIST ?? join(homedir(), "Library", "LaunchAgents", `${process.env.ROOST_WORKER_AGENT_LABEL ?? "com.roost.worker-v2"}.plist`),
+		workerServicePath(),
 	);
 	const recoveredRelocation = relocation.load();
-	if (recoveredRelocation?.state === "ACTIVATED") cfg.coordinatorUrl = recoveredRelocation.target_url;
+	// COMMITTED counts too: commit() now keeps the journal so a service restart
+	// before the next full login still finds the new endpoint.
+	if (recoveredRelocation && recoveredRelocation.state !== "STAGED") cfg.coordinatorUrl = recoveredRelocation.target_url;
 	let client = createCoordClient({ cfg, getJwt: () => mintJwt(key, "roost-coordinator") });
 	const setCoordinatorEndpoint = (url: string): void => {
 		cfg.coordinatorUrl = url;
@@ -173,32 +177,68 @@ export async function runWorker() {
 		onCoordMovePrepare: (request) => coordTarget.prepare(request),
 		onCoordMoveSnapshotStart: (request) => coordTarget.startSnapshot(request),
 		onCoordMoveSnapshotChunk: (chunk) => coordTarget.appendSnapshot(chunk),
-		onCoordRelocate: (request) => {
-			if (request.action === "STAGE") {
-				relocation.stage(request);
-				return;
-			}
-			if (request.action === "ACTIVATE") {
-				relocation.activate(request);
-				setCoordinatorEndpoint(request.target_url);
-				setTimeout(() => coordLink.relocate(request.target_url), 0);
-				return;
-			}
-			if (request.action === "COMMIT") {
-				return relocation.commit(
-					() => coordLink.unackedEventCount(),
-					(url, force) => coordLink.relocate(url, force),
-				);
-			}
-			if (request.action === "ABORT") {
-				return coordTarget.abort(request.handoff_id).then(() => relocation.abort((url) => {
-					setCoordinatorEndpoint(url);
-					coordLink.relocate(url);
-				}));
+		onCoordRelocate: async (request) => {
+			// No logging here at all meant `roost logs worker` showed nothing
+			// during a failed move — errors only ever surfaced if the
+			// coordinator happened to persist them.
+			try {
+				if (request.action === "STAGE") {
+					relocation.stage(request);
+					return;
+				}
+				if (request.action === "ACTIVATE") {
+					relocation.activate(request);
+					setCoordinatorEndpoint(request.target_url);
+					setTimeout(() => coordLink.relocate(request.target_url), 0);
+					return;
+				}
+				if (request.action === "COMMIT") {
+					await relocation.commit(
+						() => coordLink.unackedEventCount(),
+						(url, force) => coordLink.relocate(url, force),
+					);
+					reannounceAfterRelocation(request.target_url);
+					return;
+				}
+				if (request.action === "ABORT") {
+					await coordTarget.abort(request.handoff_id);
+					await relocation.abort(request.handoff_id, (url) => {
+						setCoordinatorEndpoint(url);
+						coordLink.relocate(url);
+					});
+				}
+			} catch (error) {
+				log.error("worker", "coord_relocate_failed", {
+					action: request.action, handoff_id: request.handoff_id, error: String(error),
+				});
+				signal("worker.coord_relocate_failed", {
+					action: request.action, handoff_id: request.handoff_id,
+					error: String(error), cooldownKey: request.handoff_id,
+				});
+				throw error;
 			}
 		},
 		onBrowserCommand: (msg) => handleBrowserCommand(msg, { coordLink, sessionMgr }),
 	});
+	// The unacked replay that carries events across the cutover is in-memory and
+	// capped, and emitSnapshot/reconcileOpenSessions run only at boot — nothing
+	// re-announces after a relocation. emitSnapshot is a pure re-announce the
+	// coordinator's projection folds idempotently, so the happy path pays one
+	// extra message and the lossy paths get a repair pass.
+	function reannounceAfterRelocation(targetUrl: string): void {
+		void (async () => {
+			const deadline = Date.now() + 60_000;
+			while (Date.now() < deadline) {
+				if (coordLink.state().kind === "open" && cfg.coordinatorUrl === targetUrl) {
+					await emitSnapshot({ mgr: sessionMgr, sink, workerFp });
+					log.info("worker", "coord_relocate_reannounced", { target_url: targetUrl });
+					return;
+				}
+				await Bun.sleep(500);
+			}
+			log.warn("worker", "coord_relocate_reannounce_timeout", { target_url: targetUrl });
+		})().catch((error) => log.warn("worker", "coord_relocate_reannounce_failed", { error: String(error) }));
+	}
 	const recoverRelocation = createCoordRelocationRecovery({
 		relocation,
 		link: coordLink,
@@ -208,7 +248,9 @@ export async function runWorker() {
 				getJwt: () => mintJwt(key, "roost-coordinator"),
 			}).coordinatorMoveStatus({ handoffId }, { timeoutMs: 5_000 }),
 		setCoordinatorEndpoint,
+		reannounce: reannounceAfterRelocation,
 		abortTarget: (handoffId) => coordTarget.abort(handoffId),
+		currentCoordinatorUrl: () => cfg.coordinatorUrl,
 	});
 	// A crashed source may miss the ACTIVATE frame. Query both public move
 	// statuses after a sustained outage; recovery never blocks boot or the

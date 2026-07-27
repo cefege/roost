@@ -4,6 +4,10 @@ import { createHash } from "node:crypto";
 import { resolveTailnetDnsName } from "@roost/shared/tailnet";
 import { Database } from "bun:sqlite";
 import { COORD_INSTALL_SH } from "@roost/shared/install-scripts";
+import { coordServiceLabel } from "@roost/shared/paths";
+import { log } from "@roost/shared/log";
+
+const coordLabel = (): string => coordServiceLabel();
 
 export interface CoordTargetPaths {
   dataDir: string;
@@ -11,7 +15,8 @@ export interface CoordTargetPaths {
   keyPath: string;
   authorizedKeysPath: string;
   handoffPath: string;
-  plistPath: string;
+  /** launchd plist on darwin, systemd user unit on linux. */
+  servicePath: string;
 }
 
 interface InflightSnapshot {
@@ -38,31 +43,61 @@ interface RollbackPresent {
   key: boolean;
   authorizedKeys: boolean;
   handoff: boolean;
-  plist: boolean;
+  service: boolean;
 }
 
 interface CoordTargetRuntime {
   platform: string;
   gitSha: string;
   tailnetDnsName(): string;
-  isLaunchAgentActive(label: string): Promise<boolean>;
-  restoreLaunchAgent(label: string, plistPath: string): Promise<void>;
+  isCoordServiceActive(label: string): Promise<boolean>;
+  restoreCoordService(label: string, servicePath: string): Promise<void>;
+  /** One reachability probe of the relocated coordinator's advertised URL.
+   *  Injectable so tests need no listening socket. */
+  coordHealthy?(targetUrl: string): Promise<boolean>;
+}
+
+function systemdEnv(): Record<string, string | undefined> {
+  return { ...process.env, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR ?? `/run/user/${process.getuid?.() ?? 0}` };
+}
+
+/** MiscHealth is a public Connect endpoint, so no JWT is needed. */
+async function defaultCoordHealthy(targetUrl: string): Promise<boolean> {
+  const response = await fetch(`${targetUrl.replace(/\/$/, "")}/roost.v1.CoordinatorService/MiscHealth`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: "{}",
+  }).catch(() => null);
+  return response?.ok === true;
 }
 
 const defaultRuntime: CoordTargetRuntime = {
   platform: process.platform,
   gitSha: process.env.GIT_SHA ?? process.env.ROOST_GIT_SHA ?? "dev",
   tailnetDnsName: resolveTailnetDnsName,
-  async isLaunchAgentActive(label) {
-    const child = Bun.spawn(["launchctl", "print", `gui/${process.getuid?.() ?? 0}/${label}`], { stdout: "ignore", stderr: "ignore" });
+  async isCoordServiceActive(label) {
+    if (process.platform === "darwin") {
+      const child = Bun.spawn(["launchctl", "print", `gui/${process.getuid?.() ?? 0}/${label}`], { stdout: "ignore", stderr: "ignore" });
+      return await child.exited === 0;
+    }
+    const child = Bun.spawn(["systemctl", "--user", "is-active", `${label}.service`], {
+      stdout: "ignore", stderr: "ignore", env: systemdEnv(),
+    });
     return await child.exited === 0;
   },
-  async restoreLaunchAgent(label, plistPath) {
-    const uid = process.getuid?.() ?? 0;
-    const bootout = Bun.spawn(["launchctl", "bootout", `gui/${uid}/${label}`], { stdout: "ignore", stderr: "ignore" });
-    await bootout.exited;
-    const bootstrap = Bun.spawn(["launchctl", "bootstrap", `gui/${uid}`, plistPath], { stdout: "ignore", stderr: "ignore" });
-    if (await bootstrap.exited !== 0) throw new Error("failed to restore prior coordinator LaunchAgent");
+  async restoreCoordService(label, servicePath) {
+    if (process.platform === "darwin") {
+      const uid = process.getuid?.() ?? 0;
+      const bootout = Bun.spawn(["launchctl", "bootout", `gui/${uid}/${label}`], { stdout: "ignore", stderr: "ignore" });
+      await bootout.exited;
+      const bootstrap = Bun.spawn(["launchctl", "bootstrap", `gui/${uid}`, servicePath], { stdout: "ignore", stderr: "ignore" });
+      if (await bootstrap.exited !== 0) throw new Error("failed to restore prior coordinator LaunchAgent");
+      return;
+    }
+    const reload = Bun.spawn(["systemctl", "--user", "daemon-reload"], { stdout: "ignore", stderr: "ignore", env: systemdEnv() });
+    await reload.exited;
+    const restart = Bun.spawn(["systemctl", "--user", "restart", `${label}.service`], { stdout: "ignore", stderr: "ignore", env: systemdEnv() });
+    if (await restart.exited !== 0) throw new Error("failed to restore prior coordinator systemd unit");
   },
 };
 
@@ -132,7 +167,10 @@ export class CoordTarget {
     estimated_db_size: bigint;
     expected_git_sha: string;
   }): Promise<void> {
-    if (this.runtime.platform !== "darwin") throw new Error("Automatic coordinator moves currently require macOS.");
+    // No platform gate: install.sh and the service helpers are dual-platform.
+    // A stale in-flight receive (coord crashed, socket dropped) leaves an open
+    // fd behind that would make every retry report "was not prepared".
+    this.#discardInflight();
     if (this.runtime.gitSha !== request.expected_git_sha) {
       throw new Error(`worker version ${this.runtime.gitSha} does not match coordinator`);
     }
@@ -145,7 +183,7 @@ export class CoordTarget {
       throw new Error("target URL does not match this worker's Tailscale address");
     }
     assertWritableDirectory(this.paths.dataDir);
-    assertWritableDirectory(dirname(this.paths.plistPath), true);
+    assertWritableDirectory(dirname(this.paths.servicePath), true);
     const stat = fs.statfsSync(existingDirectory(this.paths.dataDir));
     const available = Number(stat.bavail) * Number(stat.bsize);
     const required = Number(request.estimated_db_size) * 2 + 256 * 1024 * 1024;
@@ -169,6 +207,35 @@ export class CoordTarget {
     await this.captureServeConfig(join(handoffDir, "rollback"));
     await this.runInstaller("write-plist", request.handoff_id);
     if (!process.env.ROOST_EXEC_BIN) await this.buildSourceSpa();
+    // Durable: the worker exits on any unhandled rejection, and PREPARE →
+    // snapshot can span a full `bun run build`. An in-memory-only record turns
+    // any restart in that window into a dead move.
+    fs.writeFileSync(join(handoffDir, "prepared.json"), JSON.stringify(this.#prepared), { mode: 0o600 });
+    this.fsyncDirectory(handoffDir);
+  }
+
+  /** Reloads the PREPARE record written above when this process restarted
+   *  between PREPARE and the snapshot. */
+  #loadPrepared(handoffId: string): PreparedTarget | null {
+    if (this.#prepared?.handoffId === handoffId) return this.#prepared;
+    try {
+      const parsed = JSON.parse(
+        fs.readFileSync(join(this.paths.dataDir, "handoffs", handoffId, "prepared.json"), "utf8"),
+      ) as PreparedTarget;
+      if (parsed.handoffId !== handoffId) return null;
+      this.#prepared = parsed;
+      return parsed;
+    } catch {
+      return null;
+    }
+  }
+
+  #discardInflight(): void {
+    const inflight = this.#inflight;
+    if (!inflight) return;
+    this.#inflight = null;
+    try { fs.closeSync(inflight.fd); } catch { /* already closed */ }
+    fs.rmSync(inflight.file, { force: true });
   }
 
   startSnapshot(request: {
@@ -181,8 +248,16 @@ export class CoordTarget {
     secret_sha256: string;
     expected_worker_fps: string[];
   }): void {
-    if (this.#inflight || !this.#prepared || this.#prepared.handoffId !== request.handoff_id) {
-      throw new Error("coordinator target was not prepared");
+    const prepared = this.#loadPrepared(request.handoff_id);
+    if (!prepared) throw new Error("coordinator target was not prepared");
+    if (this.#inflight) {
+      // A retried START (our rpc-ok was lost) must restart this handoff's
+      // receive, not be rejected as "not prepared" — the source never
+      // re-sends PREPARE from COPYING_STATE.
+      if (this.#inflight.handoffId !== request.handoff_id) {
+        throw new Error("another coordinator snapshot is already in flight");
+      }
+      this.#discardInflight();
     }
     const dir = join(this.paths.dataDir, "handoffs", request.handoff_id);
     const file = join(dir, "coordinator_v2.snapshot");
@@ -191,9 +266,9 @@ export class CoordTarget {
     fs.writeFileSync(join(dir, "authorized_keys.roost"), request.authorized_keys, { mode: 0o600 });
     fs.writeFileSync(join(dir, "target-handoff.json"), JSON.stringify({
       version: 1, handoff_id: request.handoff_id, role: "TARGET", phase: "WAITING_FOR_WORKERS",
-      source_url: this.#prepared.sourceUrl, target_url: this.#prepared.targetUrl, target_worker_fp: "target-pending",
+      source_url: prepared.sourceUrl, target_url: prepared.targetUrl, target_worker_fp: "target-pending",
       expected_worker_fps: request.expected_worker_fps, commit_acked_worker_fps: [],
-      expected_coord_kid: this.#prepared.expectedCoordKid, expected_git_sha: this.#prepared.expectedGitSha,
+      expected_coord_kid: prepared.expectedCoordKid, expected_git_sha: prepared.expectedGitSha,
       secret_sha256: request.secret_sha256, started_at_ms: Date.now(), updated_at_ms: Date.now(),
     }), { mode: 0o600 });
     this.fsyncDirectory(dir);
@@ -209,6 +284,9 @@ export class CoordTarget {
     if (!inflight || inflight.handoffId !== chunk.handoff_id) throw new Error("unknown coordinator snapshot");
     const dir = dirname(inflight.file);
     try {
+      // The transport gives no exactly-once guarantee, so a replayed chunk is
+      // routine; only a forward gap means bytes are genuinely missing.
+      if (chunk.seq < inflight.nextSeq) return;
       if (chunk.seq !== inflight.nextSeq) {
         throw new Error(`snapshot chunk out of order: expected ${inflight.nextSeq}, got ${chunk.seq}`);
       }
@@ -237,7 +315,8 @@ export class CoordTarget {
       } finally {
         check.close();
       }
-      if (coordinatorKeyFingerprint(fs.readFileSync(join(dir, "ssh_ed25519.key"))) !== this.#prepared?.expectedCoordKid) {
+      const prepared = this.#loadPrepared(chunk.handoff_id);
+      if (coordinatorKeyFingerprint(fs.readFileSync(join(dir, "ssh_ed25519.key"))) !== prepared?.expectedCoordKid) {
         throw new Error("coordinator key fingerprint does not match source");
       }
 
@@ -247,17 +326,15 @@ export class CoordTarget {
       fs.renameSync(join(dir, "target-handoff.json"), this.paths.handoffPath);
       this.fsyncDirectory(dirname(this.paths.dbPath));
       await this.runInstaller("install", inflight.handoffId);
+      await this.assertRelocatedCoordReachable(prepared.targetUrl);
     } catch (error) {
       if (this.#inflight === inflight) {
         try { fs.closeSync(inflight.fd); } catch { /* already closed */ }
         this.#inflight = null;
       }
       try {
+        // abort() removes the whole handoff directory once the rollback lands.
         await this.abort(inflight.handoffId);
-        for (const file of ["coordinator_v2.snapshot", "ssh_ed25519.key", "authorized_keys.roost", "target-handoff.json"]) {
-          fs.rmSync(join(dir, file), { force: true });
-        }
-        this.fsyncDirectory(dir);
       } catch (rollbackError) {
         throw new Error(`${(error as Error).message}; target rollback failed: ${(rollbackError as Error).message}`);
       }
@@ -266,24 +343,64 @@ export class CoordTarget {
   }
 
   async abort(handoffId: string): Promise<void> {
-    const rollback = join(this.paths.dataDir, "handoffs", handoffId, "rollback");
+    // Any half-received snapshot is dead once we roll back; leaving the fd open
+    // wedges every retry behind "coordinator target was not prepared". Only
+    // ours, though: a late or duplicate ABORT for a previous handoff must not
+    // destroy an unrelated in-flight receive.
+    if (this.#inflight?.handoffId === handoffId) this.#discardInflight();
+    // The PREPARE record is about to be deleted with the directory below; a
+    // stale in-memory copy would let a late START open a file under a
+    // directory that no longer exists instead of reporting "not prepared".
+    if (this.#prepared?.handoffId === handoffId) this.#prepared = null;
+    const handoffDir = join(this.paths.dataDir, "handoffs", handoffId);
+    const rollback = join(handoffDir, "rollback");
     let present: RollbackPresent;
     try { present = JSON.parse(fs.readFileSync(join(rollback, "present.json"), "utf8")) as RollbackPresent; } catch { return; }
-    await this.runInstaller("uninstall", handoffId);
-    for (const [canonical, name, existed] of [
-      [this.paths.dbPath, "coordinator_v2.db", present.db],
-      [this.paths.keyPath, "ssh_ed25519.key", present.key],
-      [this.paths.authorizedKeysPath, "authorized_keys.roost", present.authorizedKeys],
-      [this.paths.handoffPath, "coord-handoff.json", present.handoff],
-      [this.paths.plistPath, "coordinator.plist", present.plist],
-    ] as const) {
+    // Uninstall first: install.sh's `uninstall` only stops the service and
+    // removes the unit (it leaves DB + keys alone), and a coordinator still
+    // holding dbPath open would be corrupted by copying over it. Non-fatal
+    // though — a throwing uninstall must not strand an unrestored filesystem.
+    try {
+      await this.runInstaller("uninstall", handoffId);
+    } catch (error) {
+      log.warn("coord-target", "uninstall_failed", { handoff_id: handoffId, error: String(error) });
+    }
+    for (const [canonical, name, existed] of this.rollbackSlots(present)) {
       const backup = join(rollback, name);
       if (existed) fs.copyFileSync(backup, canonical);
       else fs.rmSync(canonical, { force: true });
     }
     this.fsyncDirectory(dirname(this.paths.dbPath));
     await this.restoreServeConfig(rollback);
-    if (present.plist) await this.runtime.restoreLaunchAgent(process.env.ROOST_COORD_LABEL ?? "com.roost.coordinator-v2", this.paths.plistPath);
+    if (present.service) await this.runtime.restoreCoordService(coordLabel(), this.paths.servicePath);
+    // startSnapshot stages the SOURCE coordinator's private key in here and
+    // nothing else removes it. The rollback has just been applied, so the
+    // directory — rollback copies included — is dead weight.
+    fs.rmSync(handoffDir, { recursive: true, force: true });
+  }
+
+  /** install.sh's `serve_front` only warns when `tailscale serve` fails, and we
+   *  spawn it with stdio ignored — so a target that bound loopback but is
+   *  unreachable at its advertised URL looks like a clean install. Failing here
+   *  rolls back before the source burns its 60s worker drain. */
+  private async assertRelocatedCoordReachable(targetUrl: string): Promise<void> {
+    const probe = this.runtime.coordHealthy ?? defaultCoordHealthy;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      // The freshly installed service needs a moment to bind.
+      if (attempt > 0) await Bun.sleep(2_000);
+      if (await probe(targetUrl)) return;
+    }
+    throw new Error(`relocated coordinator is not reachable at ${targetUrl}`);
+  }
+
+  private rollbackSlots(present: RollbackPresent): readonly (readonly [string, string, boolean])[] {
+    return [
+      [this.paths.dbPath, "coordinator_v2.db", present.db],
+      [this.paths.keyPath, "ssh_ed25519.key", present.key],
+      [this.paths.authorizedKeysPath, "authorized_keys.roost", present.authorizedKeys],
+      [this.paths.handoffPath, "coord-handoff.json", present.handoff],
+      [this.paths.servicePath, "coordinator.service-definition", present.service],
+    ] as const;
   }
 
   private captureRollback(rollback: string): void {
@@ -292,15 +409,11 @@ export class CoordTarget {
     const present: RollbackPresent = {
       db: fs.existsSync(this.paths.dbPath), key: fs.existsSync(this.paths.keyPath),
       authorizedKeys: fs.existsSync(this.paths.authorizedKeysPath), handoff: fs.existsSync(this.paths.handoffPath),
-      plist: fs.existsSync(this.paths.plistPath),
+      service: fs.existsSync(this.paths.servicePath),
     };
-    for (const [canonical, name, exists] of [
-      [this.paths.dbPath, "coordinator_v2.db", present.db],
-      [this.paths.keyPath, "ssh_ed25519.key", present.key],
-      [this.paths.authorizedKeysPath, "authorized_keys.roost", present.authorizedKeys],
-      [this.paths.handoffPath, "coord-handoff.json", present.handoff],
-      [this.paths.plistPath, "coordinator.plist", present.plist],
-    ] as const) if (exists) fs.copyFileSync(canonical, join(rollback, name));
+    for (const [canonical, name, exists] of this.rollbackSlots(present)) {
+      if (exists) fs.copyFileSync(canonical, join(rollback, name));
+    }
     fs.writeFileSync(join(rollback, "present.json"), JSON.stringify(present), { mode: 0o600 });
     this.fsyncDirectory(rollback);
   }
@@ -308,20 +421,42 @@ export class CoordTarget {
   private async captureServeConfig(rollback: string): Promise<void> {
     const config = join(rollback, "tailscale-serve.json");
     const child = Bun.spawn([process.env.ROOST_TAILSCALE_BIN ?? "tailscale", "serve", "get-config", config, "--all"], { stdout: "ignore", stderr: "ignore" });
-    if (await child.exited !== 0) throw new Error("failed to snapshot Tailscale Serve configuration");
-    fs.chmodSync(config, 0o600);
+    // Non-fatal, symmetric with restoreServeConfig: a box that never configured
+    // Serve has nothing to restore, and hard-failing PREPARE there would mean a
+    // fresh worker could not take the coordinator role at all.
+    if (await child.exited !== 0) {
+      log.warn("coord-target", "capture_serve_config_failed", { config });
+      return;
+    }
+    if (fs.existsSync(config)) fs.chmodSync(config, 0o600);
     this.fsyncDirectory(rollback);
   }
-
   private async restoreServeConfig(rollback: string): Promise<void> {
     const config = join(rollback, "tailscale-serve.json");
+    // `serve get-config` on a machine with no serve config yields an empty
+    // document that `set-config` rejects; the throw used to escape abort() and
+    // surface as "target rollback failed".
+    let captured: string;
+    try { captured = fs.readFileSync(config, "utf8").trim(); } catch { return; }
+    if (!captured || captured === "{}" || captured === "null") return;
     const child = Bun.spawn([process.env.ROOST_TAILSCALE_BIN ?? "tailscale", "serve", "set-config", config, "--all"], { stdout: "ignore", stderr: "ignore" });
-    if (await child.exited !== 0) throw new Error("failed to restore Tailscale Serve configuration");
+    if (await child.exited !== 0) {
+      log.warn("coord-target", "restore_serve_config_failed", { config });
+    }
   }
 
+  /** A retired source coordinator is deliberately left running to serve
+   *  discovery, so a live coordinator service alone must not block the role
+   *  coming back. Only a coordinator that is NOT a committed source does. */
   private async assertNoActiveCoordinator(): Promise<void> {
-    const label = process.env.ROOST_COORD_LABEL ?? "com.roost.coordinator-v2";
-    if (await this.runtime.isLaunchAgentActive(label)) throw new Error("target already has an active coordinator");
+    if (!await this.runtime.isCoordServiceActive(coordLabel())) return;
+    try {
+      const local = JSON.parse(fs.readFileSync(this.paths.handoffPath, "utf8")) as { role?: string; phase?: string };
+      if (local.role === "SOURCE" && local.phase === "COMMITTED") return;
+    } catch {
+      // No readable handoff file: this is a plain active coordinator.
+    }
+    throw new Error("target already has an active coordinator");
   }
 
   private async buildSourceSpa(): Promise<void> {
@@ -340,7 +475,16 @@ export class CoordTarget {
         ROOST_COORDINATOR_DB: this.paths.dbPath, ROOST_COORDINATOR_KEY_PATH: this.paths.keyPath,
         ROOST_COORDINATOR_AUTHORIZED_KEYS: this.paths.authorizedKeysPath, ROOST_COORDINATOR_HANDOFF_PATH: this.paths.handoffPath,
         ROOST_COORDINATOR_PUBLIC_URL: this.#prepared?.targetUrl ?? process.env.ROOST_COORDINATOR_PUBLIC_URL,
-        ROOST_COORD_PLIST: this.paths.plistPath,
+        ROOST_COORD_PLIST: this.paths.servicePath,
+        ROOST_COORD_UNIT: this.paths.servicePath,
+        // Compiled-binary deploys: without this install.sh takes the
+        // from-source branch and writes ExecStart=<bun> $HOME/apps/coord/src/main.ts,
+        // which crash-loops under KeepAlive.
+        ROOST_EXEC_BIN: process.env.ROOST_EXEC_BIN,
+        // The deployed repo's .env.local normally carries the SOURCE
+        // coordinator's public URL; sourcing it would make the new coordinator
+        // advertise the old host.
+        ROOST_SKIP_ENV_LOCAL: "1",
       },
       stdout: "ignore", stderr: "ignore",
     });

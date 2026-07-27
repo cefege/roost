@@ -7,23 +7,36 @@
 
 import { Database } from "bun:sqlite";
 import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { log } from "@roost/shared/log";
-import { WORKER_UNIT } from "./service-ctl.ts";
+import { coordDataDir, coordServicePath } from "@roost/shared/paths";
+import { COORD_UNIT, WORKER_UNIT } from "./service-ctl.ts";
 
 const COORD_LABEL = "com.roost.coordinator-v2";
 const WORKER_LABEL = "com.roost.worker-v2";
-const COORD_DATA_DIR = join(homedir(), "Library", "Application Support", "RoostCoordinatorV2");
+const COORD_DATA_DIR = coordDataDir();
 const COORD_DB = join(COORD_DATA_DIR, "coordinator_v2.db");
-const COORD_PLIST = join(homedir(), "Library", "LaunchAgents", `${COORD_LABEL}.plist`);
+const COORD_PLIST = coordServicePath();
 const WORKER_STALE_MS = 90_000;
+// Default of cfg.handoffPath (apps/shared/src/config.ts:71); the CLI does not
+// load the coord config, so honour the same env override by hand.
+const COORD_HANDOFF = process.env.ROOST_COORDINATOR_HANDOFF_PATH ?? join(COORD_DATA_DIR, "coord-handoff.json");
 
 interface WorkerStatus {
   label: string;
   lastSeenMs: number;
   ageMs: number;
   stale: boolean;
+}
+
+/** Coordinator-move state as the coord persists it (coord-move/state.ts).
+ *  Structural on purpose — roost-cli imports @roost/shared only, never coord. */
+export interface HandoffStatus {
+  role: "SOURCE" | "TARGET";
+  phase: string;
+  handoffId: string;
+  sourceUrl: string;
+  targetUrl: string;
 }
 
 export interface StatusReport {
@@ -34,6 +47,7 @@ export interface StatusReport {
   workers: WorkerStatus[];
   tlsCertConfigured: boolean;
   url: string | null;
+  handoff: HandoffStatus | null;
 }
 
 function runCapture(cmd: string[]): { exit: number; stdout: string } {
@@ -121,13 +135,11 @@ export function tailnetSuffix(): string | null {
   return fqdn ? fqdn.split(".").slice(1).join(".").replace(/\.$/, "") || null : null;
 }
 
-/** Worker/coord service loaded? launchd on macOS, systemd --user on Linux.
- *  There is no Linux coordinator (see coord-move preflight), so only the
- *  worker unit has a Linux answer — the coord row reads ✗ there by design. */
+/** Worker/coord service loaded? launchd on macOS, systemd --user on Linux. */
 function launchAgentLoaded(label: string): boolean {
   if (process.platform === "linux") {
-    if (label !== WORKER_LABEL) return false;
-    return runCapture(["systemctl", "--user", "is-active", WORKER_UNIT]).exit === 0;
+    const unit = label === WORKER_LABEL ? WORKER_UNIT : COORD_UNIT;
+    return runCapture(["systemctl", "--user", "is-active", unit]).exit === 0;
   }
   const uid = process.getuid?.() ?? "";
   return runCapture(["launchctl", "print", `gui/${uid}/${label}`]).exit === 0;
@@ -185,6 +197,24 @@ function tlsCertConfigured(): boolean {
   }
 }
 
+/** Read coord-handoff.json (snake_case on disk). null on missing, unreadable
+ *  or half-written JSON — a broken handoff file must never fail `roost status`. */
+function readHandoff(): HandoffStatus | null {
+  if (!existsSync(COORD_HANDOFF)) return null;
+  try {
+    const j = JSON.parse(readFileSync(COORD_HANDOFF, "utf8")) as Record<string, unknown>;
+    const { phase, handoff_id: handoffId, source_url: sourceUrl, target_url: targetUrl } = j;
+    const role = j.role === "SOURCE" ? "SOURCE" : j.role === "TARGET" ? "TARGET" : null;
+    if (!role) return null;
+    if (typeof phase !== "string" || typeof handoffId !== "string"
+      || typeof sourceUrl !== "string" || typeof targetUrl !== "string") return null;
+    return { role, phase, handoffId, sourceUrl, targetUrl };
+  } catch (error) {
+    log.warn("status", "handoff_read_failed", { error: String(error) });
+    return null;
+  }
+}
+
 export async function statusReport(): Promise<StatusReport> {
   const ts = resolveTailscale();
   const coord = await coordHealth(ts.fqdn);
@@ -196,6 +226,7 @@ export async function statusReport(): Promise<StatusReport> {
     workers: workerInventory(),
     tlsCertConfigured: tlsCertConfigured(),
     url: ts.fqdn ? `https://${ts.fqdn}:4102` : null,
+    handoff: readHandoff(),
   };
 }
 
@@ -220,8 +251,19 @@ export function printStatusReport(r: StatusReport): void {
   console.log(`  ${mark(r.workerAgentLoaded)} worker LaunchAgent (${WORKER_LABEL})`);
   if (!r.workerAgentLoaded) console.log(`      → bun apps/roost-cli/src/main.ts deploy localhost`);
 
-  console.log(`  ${mark(r.coord.reachable)} coord reachable${r.coord.gitSha ? ` (git ${r.coord.gitSha.slice(0, 8)})` : ""}`);
-  if (!r.coord.reachable) console.log(`      → check logs: bun apps/roost-cli/src/main.ts logs coord`);
+  // A SOURCE handoff at COMMITTED means the coordinator legitimately moved off
+  // this box — what handlers-auth.ts reports to the SPA as relocatedToUrl. Its
+  // local absence is then the expected end state, not a fault. Suppressed only
+  // when the coord is gone *because* of that; every other failure is untouched.
+  const relocated = r.handoff?.role === "SOURCE" && r.handoff.phase === "COMMITTED";
+  if (!(relocated && !r.coord.reachable)) {
+    console.log(`  ${mark(r.coord.reachable)} coord reachable${r.coord.gitSha ? ` (git ${r.coord.gitSha.slice(0, 8)})` : ""}`);
+    if (!r.coord.reachable) console.log(`      → check logs: bun apps/roost-cli/src/main.ts logs coord`);
+  }
+
+  if (r.handoff) {
+    console.log(`  coordinator move ${r.handoff.phase} (${r.handoff.role}, → ${r.handoff.targetUrl})`);
+  }
 
   console.log(`  ${mark(r.tlsCertConfigured)} coord TLS cert configured`);
   if (!r.tlsCertConfigured) console.log(`      → mint: tailscale cert <fqdn> ; then reinstall coord (phones/other devices need HTTPS)`);
@@ -244,7 +286,8 @@ export async function status(_args: string[]): Promise<void> {
   printStatusReport(report);
   // Non-zero exit when anything critical is down, so `roost status` is usable
   // as a scriptable gate (quickstart, CI, the install.sh tail).
+  const relocatedAway = report.handoff?.role === "SOURCE" && report.handoff.phase === "COMMITTED";
   const healthy = report.tailscale.running && report.coordAgentLoaded
-    && report.workerAgentLoaded && report.coord.reachable;
+    && report.workerAgentLoaded && (report.coord.reachable || relocatedAway);
   process.exit(healthy ? 0 : 1);
 }

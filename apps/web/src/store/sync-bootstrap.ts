@@ -102,7 +102,7 @@ export async function refreshCoordAndWorkers(): Promise<void> {
     (value) => ({ status: "fulfilled" as const, value }),
     (reason) => ({ status: "rejected" as const, reason }),
   );
-  if (identity.status === "fulfilled" && await relocateRetiredBrowser(identity.value)) return;
+  if (identity.status === "fulfilled" && await relocateRetiredBrowser(identity.value) !== "failed") return;
   const workers = await Promise.resolve(coordClient.workersList({})).then(
     (value) => ({ status: "fulfilled" as const, value }),
     (reason) => ({ status: "rejected" as const, reason }),
@@ -195,7 +195,7 @@ async function _bootstrap(): Promise<void> {
       (value) => ({ status: "fulfilled" as const, value }),
       (reason) => ({ status: "rejected" as const, reason }),
     );
-    if (initialIdentity.status === "fulfilled" && await relocateRetiredBrowser(initialIdentity.value)) return;
+    if (initialIdentity.status === "fulfilled" && await relocateRetiredBrowser(initialIdentity.value) !== "failed") return;
 
     // Phase 1: attempt loopback browser self-register. If coord recognizes
     // our kid already (cached from a previous boot), this is a no-op upsert.
@@ -215,6 +215,19 @@ async function _bootstrap(): Promise<void> {
         coordClient.authCoordIdentity({}),
         coordClient.pairList({}),
       ]);
+    // BEFORE the retry gate below: on a retired source every authed list
+    // rejects with a non-Unauthenticated error, so `wFail && sFail` returns
+    // early — and relocated_to_url would never be stored, leaving
+    // ConnectionBanner's "Open new coordinator" button permanently unrendered.
+    if (identity.status === "fulfilled") {
+      setRootStore("coord_identity", {
+        fingerprint_hex: identity.value.fingerprintHex,
+        git_sha: identity.value.gitSha,
+        public_url: identity.value.publicUrl,
+        relocated_to_url: identity.value.relocatedToUrl,
+        handoff_id: identity.value.handoffId,
+      });
+    }
 
     // Detect "this browser isn't trusted by the coord" — Connect-ES
      // throws ConnectError with `code: "unauthenticated"` on a missing /
@@ -353,15 +366,6 @@ async function _bootstrap(): Promise<void> {
         };
       }
       setRootStore("mcp_relays", rec);
-    }
-    if (identity.status === "fulfilled") {
-      setRootStore("coord_identity", {
-        fingerprint_hex: identity.value.fingerprintHex,
-        git_sha: identity.value.gitSha,
-        public_url: identity.value.publicUrl,
-        relocated_to_url: identity.value.relocatedToUrl,
-        handoff_id: identity.value.handoffId,
-      });
     }
     if (pairRequests.status === "fulfilled") {
       const rec: Record<string, PairRequest> = {};

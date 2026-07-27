@@ -53,8 +53,9 @@ export interface WorkerConn {
 export function makeWorkerConn(
   deps: WorkerServiceDeps,
   caller: { fingerprint: string },
-  send: (frame: CoordWorkerDown) => void,
+  send: (frame: CoordWorkerDown) => number,
   requestClose: () => void,
+  bufferedAmount?: () => number,
 ): WorkerConn {
   let workerFp: string | null = null;
   let done = false;
@@ -64,7 +65,16 @@ export function makeWorkerConn(
   // connection A's delayed cleanup must not delete connection B's entry —
   // else getWorkerHubSocket(fp) returns null and every browser-command
   // silently no-ops (the pane-X-doing-nothing bug).
-  const myHandle: WorkerHandle = { workerFp: "", send, close: requestClose };
+  const myHandle: WorkerHandle = { workerFp: "", send, close: requestClose, bufferedAmount };
+  // `send` re-throws transport failures so the coordinator-move snapshot pump
+  // can detect a lost chunk. Every other downstream frame is best-effort: a
+  // dead socket is already closing, and letting the throw escape here would
+  // either kill a timer tick or be misfiled as a DB durability fault by the
+  // ws handler's `event.append_failed` path.
+  const trySend = (what: string, frame: CoordWorkerDown): void => {
+    try { send(frame); }
+    catch (e) { log.warn("worker-service", "send_failed", { what, worker_fp: workerFp ?? caller.fingerprint, error: String(e) }); }
+  };
   const _deleteIfStillMine = (fp: string): void => {
     if (connectWorkers.get(fp) === myHandle) {
       connectWorkers.delete(fp);
@@ -110,7 +120,7 @@ export function makeWorkerConn(
         // gaps between 270s JWT refreshes.
         keepaliveTimer = setInterval(() => {
           if (done) return;
-          send(create(CoordWorkerDownSchema, {
+          trySend("keepalive", create(CoordWorkerDownSchema, {
             frame: { case: "ping", value: create(DPingSchema, { ts: BigInt(Date.now()) }) },
           }));
         }, 30_000);
@@ -131,7 +141,7 @@ export function makeWorkerConn(
           log.warn("worker-service", "prime_channel_map_failed", { error: String(e) });
           signal("worker.protocol_violation", { reason: "prime_channel_map_failed", worker_fp: fp, cooldownKey: fp });
         }
-        send(create(CoordWorkerDownSchema, {
+        trySend("hello_ack", create(CoordWorkerDownSchema, {
           frame: { case: "helloAck", value: create(DHelloAckSchema, {
             coordPubkeyB64: deps.coordKey.verifyingKeyB64(),
             coordPubkeyKid: deps.coordKey.verifyingKeyKid(),
@@ -198,7 +208,7 @@ export function makeWorkerConn(
           lease?.release();
         }
         if (clientSeq > 0) {
-          send(create(CoordWorkerDownSchema, {
+          trySend("event_ack", create(CoordWorkerDownSchema, {
             frame: { case: "eventAck", value: create(DEventAckSchema, {
               clientSeq: BigInt(clientSeq),
             })},

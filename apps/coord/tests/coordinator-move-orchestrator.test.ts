@@ -7,7 +7,7 @@ import { openDb } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
 import { loadOrCreateCoordKey } from "../src/coord-key.ts";
 import { CoordinatorMoveOrchestrator } from "../src/coord-move/orchestrator.ts";
-import { HandoffStateStore } from "../src/coord-move/state.ts";
+import { HandoffStateStore, type HandoffState } from "../src/coord-move/state.ts";
 import { CoordinatorWriteGate } from "../src/coord-move/write-gate.ts";
 import { COORD_GIT_SHA } from "../src/git-sha.ts";
 import type { CoordConfig } from "@roost/shared/config";
@@ -75,6 +75,9 @@ function whenPhase(store: HandoffStateStore, phase: string): Promise<void> {
   return reached;
 }
 
+/** The private half of the orchestrator, for branches with no public entry. */
+interface MoveInternals { execute(state: HandoffState): Promise<void> }
+
 
 describe("CoordinatorMoveOrchestrator", () => {
   test("durably stages, drains, transfers, and retires the source only after target commit", async () => {
@@ -86,7 +89,7 @@ describe("CoordinatorMoveOrchestrator", () => {
     let published!: () => void;
     const relocationPublished = new Promise<void>((done) => { published = done; });
     const move = new CoordinatorMoveOrchestrator({
-      db: f.db, cfg: f.cfg, coordKey: f.coordKey,
+      cfg: f.cfg, coordKey: f.coordKey,
       store, runtime: runtime(calls, target, published),
       workers: async () => workers,
     });
@@ -120,7 +123,7 @@ describe("CoordinatorMoveOrchestrator", () => {
       if (count === 4) replayed();
     });
     const move = new CoordinatorMoveOrchestrator({
-      db: f.db, cfg: f.cfg, coordKey: f.coordKey, store: state, runtime: targetRuntime,
+      cfg: f.cfg, coordKey: f.coordKey, store: state, runtime: targetRuntime,
       workers: async () => [worker("target"), worker("worker-a")],
     });
 
@@ -161,7 +164,7 @@ describe("CoordinatorMoveOrchestrator", () => {
       started_at_ms: Date.now(), updated_at_ms: Date.now(), error: "source crashed",
     });
     const move = new CoordinatorMoveOrchestrator({
-      db: f.db, cfg: f.cfg, coordKey: f.coordKey, store, runtime: runtime(calls, { committed: false }),
+      cfg: f.cfg, coordKey: f.coordKey, store, runtime: runtime(calls, { committed: false }),
       workers: async () => [worker("target")],
     });
 
@@ -192,7 +195,7 @@ describe("CoordinatorMoveOrchestrator", () => {
     };
     const failed = whenPhase(store, "FAILED");
     const move = new CoordinatorMoveOrchestrator({
-      db: f.db, cfg: f.cfg, coordKey: f.coordKey, store, runtime: recoveredRuntime,
+      cfg: f.cfg, coordKey: f.coordKey, store, runtime: recoveredRuntime,
       workers: async () => [worker("target"), worker("worker-a")],
     });
 
@@ -203,4 +206,107 @@ describe("CoordinatorMoveOrchestrator", () => {
     expect(move.gate.mode).toBe("active");
     f.sqlite.close();
   });
+
+  // The gate is read by auth-interceptor, worker-conn and sync-ws-handler; a
+  // non-active mode with no terminal phase left to drive it rejects every
+  // mutation and every firehose upgrade with nothing left to reopen it.
+  for (const phase of ["FAILED", "ROLLED_BACK"] as const) {
+    test(`recovering a target handoff already ${phase} reopens writes`, async () => {
+      const f = await fixture();
+      const calls: string[] = [];
+      const store = new HandoffStateStore(f.cfg.handoffPath);
+      const handoffId = "00000000-0000-4000-8000-000000000005";
+      store.write({
+        version: 1, handoff_id: handoffId, role: "TARGET", phase,
+        source_url: "https://source.ts.net:4102", target_url: "https://target.ts.net:4102", target_worker_fp: "target",
+        expected_worker_fps: ["target"], commit_acked_worker_fps: [], expected_coord_kid: f.coordKey.verifyingKeyKid(),
+        expected_git_sha: COORD_GIT_SHA, secret_sha256: "f".repeat(64),
+        started_at_ms: Date.now(), updated_at_ms: Date.now(), error: "rolled back before restart",
+      });
+      const move = new CoordinatorMoveOrchestrator({
+        cfg: f.cfg, coordKey: f.coordKey, store, runtime: runtime(calls, { committed: false }),
+        workers: async () => [worker("target")],
+      });
+
+      await move.recover();
+
+      expect(move.gate.mode).toBe("active");
+      // A terminal target owns nothing: no commit replay, no rollback retry.
+      expect(calls).toEqual([]);
+      expect(store.load()?.phase).toBe(phase);
+      f.sqlite.close();
+    });
+  }
+
+  test("a target abort that fails to reach a worker restores writes instead of holding the gate", async () => {
+    const f = await fixture();
+    const calls: string[] = [];
+    const store = new HandoffStateStore(f.cfg.handoffPath);
+    const handoffId = "00000000-0000-4000-8000-000000000006";
+    store.write({
+      version: 1, handoff_id: handoffId, role: "TARGET", phase: "WAITING_FOR_WORKERS",
+      source_url: "https://source.ts.net:4102", target_url: "https://target.ts.net:4102", target_worker_fp: "target",
+      expected_worker_fps: ["target"], commit_acked_worker_fps: [], expected_coord_kid: f.coordKey.verifyingKeyKid(),
+      expected_git_sha: COORD_GIT_SHA, secret_sha256: createHash("sha256").update("secret").digest("hex"),
+      started_at_ms: Date.now(), updated_at_ms: Date.now(),
+    });
+    const targetRuntime = runtime(calls, { committed: false });
+    targetRuntime.abortWorker = async () => {
+      calls.push("abort-worker");
+      throw new Error("worker abort failed");
+    };
+    const move = new CoordinatorMoveOrchestrator({
+      cfg: f.cfg, coordKey: f.coordKey, store, runtime: targetRuntime,
+      workers: async () => [worker("target")],
+    });
+
+    await expect(move.internalAbort(handoffId, "secret")).rejects.toThrow("worker abort failed");
+
+    // The abort path is the recovery mechanism; wedging here is unrecoverable.
+    expect(move.gate.mode).toBe("active");
+    expect(store.load()?.phase).toBe("FAILED");
+    expect(calls).toEqual(["abort-worker"]);
+    f.sqlite.close();
+  });
+
+  test("a source that throws at COMMITTING still reaches a terminal phase without a restart", async () => {
+    const f = await fixture();
+    const calls: string[] = [];
+    const store = new HandoffStateStore(f.cfg.handoffPath);
+    const seeded = store.write({
+      version: 1, handoff_id: "00000000-0000-4000-8000-000000000007", role: "SOURCE", phase: "COMMITTING",
+      source_url: "https://source.ts.net:4102", target_url: "https://target.ts.net:4102", target_worker_fp: "target",
+      expected_worker_fps: ["target", "worker-a"], commit_acked_worker_fps: [], expected_coord_kid: f.coordKey.verifyingKeyKid(),
+      expected_git_sha: COORD_GIT_SHA, secret_sha256: createHash("sha256").update("secret").digest("hex"), secret: "secret",
+      started_at_ms: Date.now(), updated_at_ms: Date.now(),
+    });
+    const target = { committed: false };
+    const sourceRuntime = runtime(calls, target);
+    let commitAttempts = 0;
+    sourceRuntime.commitTarget = async () => {
+      calls.push("commit-target");
+      commitAttempts += 1;
+      if (commitAttempts === 1) throw new Error("target commit rejected");
+      target.committed = true;
+    };
+    const move = new CoordinatorMoveOrchestrator({
+      cfg: f.cfg, coordKey: f.coordKey, store, runtime: sourceRuntime,
+      // worker-a has dropped out of the registry, so advance() throws while the
+      // durable phase is already COMMITTING.
+      workers: async () => [worker("target")],
+    });
+
+    // recover() intercepts a COMMITTING source before execute() ever runs, so
+    // this catch branch has no public entry point to drive it from.
+    const internals = move as unknown as MoveInternals;
+    await internals.execute(seeded);
+
+    // COMMITTING is not terminal: returning here would leave the source retired
+    // with no in-process retry, recoverable only by a coord restart.
+    expect(store.load()?.phase).toBe("COMMITTED");
+    expect(move.gate.mode).toBe("retired");
+    expect(commitAttempts).toBe(2);
+    expect(calls).toContain(`relocate:${seeded.handoff_id}`);
+    f.sqlite.close();
+  }, 20_000);
 });

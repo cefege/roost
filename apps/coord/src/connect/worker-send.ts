@@ -10,6 +10,7 @@ import {
 } from "@roost/shared/proto/worker_transport_pb";
 import { createPendingRpc } from "../router/pending-rpcs.ts";
 import { connectWorkers } from "./worker-registry.ts";
+import { log } from "@roost/shared/log";
 
 /** Socket-shape shim: presents the worker-conn registry to call sites
  * as a `.send(string|Uint8Array)` handle so router.ts/files.ts/scrollback
@@ -19,31 +20,38 @@ export function getWorkerHubSocket(workerFp: string): { send(data: string | Uint
   if (!w) return null;
   return {
     send(data: string | Uint8Array): void {
-      if (typeof data === "string") {
-        // browser-command JSON envelope: { kind: "browser-command", browser_id, viewer_id, request_id, frame }
-        const parsed = JSON.parse(data) as {
-          kind: "browser-command";
-          browser_id: string; viewer_id: string; request_id: string; frame: unknown;
-        };
-        w.send(create(CoordWorkerDownSchema, {
-          frame: { case: "browserCommand", value: create(DBrowserCommandSchema, {
-            browserId: parsed.browser_id,
-            viewerId: parsed.viewer_id,
-            requestId: parsed.request_id,
-            frameJson: JSON.stringify(parsed.frame),
-          })},
-        }));
-      } else {
-        // Raw binary frame: [2-byte BE channel][1-byte direction][payload]
-        if (data.length < 3) return;
-        const channelId = (data[0]! << 8) | data[1]!;
-        const direction = data[2]!;
-        const payload = data.subarray(3);
-        w.send(create(CoordWorkerDownSchema, {
-          frame: { case: "binary", value: create(DBinarySchema, {
-            channelId, direction, data: payload,
-          })},
-        }));
+      // Hot path (PTY bytes, browser commands): callers in router/files/
+      // scrollback assume this never throws. w.send now surfaces transport
+      // failures, so contain them here.
+      try {
+        if (typeof data === "string") {
+          // browser-command JSON envelope: { kind: "browser-command", browser_id, viewer_id, request_id, frame }
+          const parsed = JSON.parse(data) as {
+            kind: "browser-command";
+            browser_id: string; viewer_id: string; request_id: string; frame: unknown;
+          };
+          w.send(create(CoordWorkerDownSchema, {
+            frame: { case: "browserCommand", value: create(DBrowserCommandSchema, {
+              browserId: parsed.browser_id,
+              viewerId: parsed.viewer_id,
+              requestId: parsed.request_id,
+              frameJson: JSON.stringify(parsed.frame),
+            })},
+          }));
+        } else {
+          // Raw binary frame: [2-byte BE channel][1-byte direction][payload]
+          if (data.length < 3) return;
+          const channelId = (data[0]! << 8) | data[1]!;
+          const direction = data[2]!;
+          const payload = data.subarray(3);
+          w.send(create(CoordWorkerDownSchema, {
+            frame: { case: "binary", value: create(DBinarySchema, {
+              channelId, direction, data: payload,
+            })},
+          }));
+        }
+      } catch (e) {
+        log.warn("worker-send", "hub_send_failed", { worker_fp: workerFp, error: String(e) });
       }
     },
   };
@@ -130,8 +138,8 @@ export function sendCoordinatorSnapshotStart(workerFp: string, message: {
 }
 export function sendCoordinatorSnapshotChunk(workerFp: string, message: {
   handoffId: string; seq: number; data: Uint8Array; last: boolean;
-}): void {
+}): number {
   const worker = connectWorkers.get(workerFp);
   if (!worker) throw new Error("worker offline");
-  worker.send(create(CoordWorkerDownSchema, { frame: { case: "coordMoveSnapshotChunk", value: create(DCoordMoveSnapshotChunkSchema, message) } }));
+  return worker.send(create(CoordWorkerDownSchema, { frame: { case: "coordMoveSnapshotChunk", value: create(DCoordMoveSnapshotChunkSchema, message) } }));
 }

@@ -65,6 +65,9 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
   let _didOpen = false;
   let refreshTimer: ReturnType<typeof setTimeout> | null = null;
   let disposed = false;
+  // Pending backoff dial. Held so relocate()/dispose() can cancel it — an
+  // uncancelled timer means a second concurrent socket.
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let writer: ((f: CoordWorkerUp) => void) | null = null;
   let closeStream: (() => void) | null = null;
   const pending: Array<UpstreamFrame | { binary: Uint8Array }> = [];
@@ -478,13 +481,23 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
     setState({ kind: "reconnecting", nextDialAtMs, backoffMs });
     const d = backoffMs;
     backoffMs = Math.min(backoffMs * BACKOFF_MULTIPLIER, _cap);
-    setTimeout(() => { if (!disposed) void dial(); }, d);
+    reconnectTimer = setTimeout(() => { reconnectTimer = null; if (!disposed) void dial(); }, d);
   }
 
   function relocate(targetUrl: string, force = false): void {
     if (disposed || (!force && coordHttpUrl === targetUrl)) return;
+    // cleanup() nulls closeStream, so during reconnect backoff the else-branch
+    // below always fires — while the pending backoff timer fires its OWN dial.
+    // Two live sockets both install ws.onmessage → handleDownstream, so every
+    // browser command, PTY input byte and coordRelocate frame executes twice
+    // (doubled characters in the terminal). Cancel the pending dial first.
+    if (reconnectTimer !== null) { clearTimeout(reconnectTimer); reconnectTimer = null; }
     coordHttpUrl = targetUrl;
     backoffMs = BACKOFF_INITIAL_MS;
+    // A worker auth-rejected by the source would otherwise carry a 5-minute
+    // backoff cap into the healthy target and sit offline for minutes.
+    dialAttempt = 0;
+    _authRejectCount = 0;
     relocating = true;
     if (closeStream) {
       closeStream();
@@ -496,6 +509,7 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
 
   function dispose(): void {
     disposed = true;
+    if (reconnectTimer !== null) { clearTimeout(reconnectTimer); reconnectTimer = null; }
     clearRefreshTimer();
     try { closeStream?.(); } catch { /* ignore */ }
     setState({ kind: "closed" });

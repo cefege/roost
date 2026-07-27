@@ -149,6 +149,7 @@ export type SignalKind =
   | "transport.event_drop"      // SessionEvent evicted from the unacked outbox on overflow (at-least-once broken = data loss)
   | "heartbeat.stalled"         // N consecutive heartbeat failures to coord (worker invisible to fleet)
   | "scrollback.history_lost"   // resume fell back to an empty ring after getHistory failed (full scrollback wipe)
+  | "worker.coord_relocate_failed" // worker STAGE/ACTIVATE/COMMIT/ABORT of a coordinator move threw; kv.action,handoff_id
   | "deploy.failed"             // detached `roost deploy <host>` timed out / exited non-zero / failed to spawn
   | "deploy.cert_skipped"       // deploy continued on plain-ws after `tailscale cert` failed (worker without TLS)
   | "auth.jwt_sign_fail";       // SPA/worker failed to sign the coordinator JWT (RPCs go out unauthenticated)

@@ -53,7 +53,13 @@ export async function handleSyncWsUpgrade(
 ): Promise<Response | undefined | null> {
   const url = new URL(req.url);
   if (url.pathname !== WS_PATH) return null;
-  if (deps.move?.gate.mode === "source_draining") return new Response("coordinator move in progress", { status: 503 });
+  // WS handshakes are GET, so main.ts's retired gate (`req.method !== "GET"`)
+  // cannot see them. Any non-active mode must fail fast here, or a browser
+  // reconnecting mid-move attaches to a frozen DB and gets keepalives forever
+  // instead of falling into the AuthCoordIdentity discovery path.
+  if (deps.move && deps.move.gate.mode !== "active") {
+    return new Response("coordinator move in progress", { status: deps.move.gate.mode === "retired" ? 410 : 503 });
+  }
   const addr = server.requestIP(req)?.address ?? undefined;
   const token = url.searchParams.get("token");
   if (!token) return new Response("unauthorized", { status: 401 });

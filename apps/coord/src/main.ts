@@ -99,7 +99,6 @@ export async function runCoord() {
   const jwtCache = newJwtCache();
   let publishRelocation: ((handoffId: string, sourceUrl: string, targetUrl: string) => void) | null = null;
   const move = new CoordinatorMoveOrchestrator({
-    db,
     cfg,
     coordKey,
     store: new HandoffStateStore(cfg.handoffPath),
@@ -121,10 +120,6 @@ export async function runCoord() {
         online: connectWorkers.has(worker.fp),
       })),
   });
-  await move.recover();
-
-
-
   const coord = createCoord({ db, coordKey, cfg, jwtCache, move });
   const spaResponse = createSpaResponder(cfg.webDistPath, WEB_ASSETS);
 
@@ -252,14 +247,20 @@ export async function runCoord() {
     maxRequestBodySize: 1024 * 1024 * 1024 * 256, // 256 GiB
     async fetch(req, server) {
       const internal = await handleInternalHandoffRequest(req, move);
+      // Above the retired gate: this route carries its own constant-time
+      // secret auth and executes internalCommit/internalAbort side effects,
+      // so 410-ing its response would drop a commit that already happened.
+      if (internal) return internal;
       const path = new URL(req.url).pathname;
       const retiredDiscoveryPath = path === "/roost.v1.CoordinatorService/AuthCoordIdentity"
         || path === "/roost.v1.CoordinatorService/AuthMintCoordinatorRelocation"
-        || path === "/roost.v1.CoordinatorService/CoordinatorMoveStatus";
+        || path === "/roost.v1.CoordinatorService/CoordinatorMoveStatus"
+        // Public, leaks nothing, and 410-ing it paints the SPA's red
+        // "Coordinator unreachable" banner over the relocation in progress.
+        || path === "/roost.v1.CoordinatorService/MiscHealth";
       if (move.gate.mode === "retired" && req.method !== "GET" && !retiredDiscoveryPath) {
         return new Response("coordinator relocated", { status: 410 });
       }
-      if (internal) return internal;
       // Worker raw-WS transport (/ws/coord-worker/:fp). If this is that
       // upgrade, authenticate + hijack here (Bun-specific); null = not our
       // path → fall through to the portable coord.fetch.
@@ -308,6 +309,11 @@ export async function runCoord() {
   });
 
   log.info("main", "listening", { bind: `${host}:${server.port}`, tls: !!tls, http2: !!tls, uptime_ms: Date.now() - bootMs });
+  // AFTER Bun.serve: recovery stages/commits/aborts workers, and `online` is
+  // computed from the worker-WS registry this server populates. Running it
+  // first guarantees an empty registry, an immediate `worker offline`, and a
+  // blind rollback — plus up to ~15s of delayed first byte.
+  void move.recover().catch((error) => log.error("coord", "move_recover_failed", { error: String(error) }));
 
   scheduleBackups(cfg.dbPath);
 

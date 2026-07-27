@@ -33,6 +33,10 @@ export async function handleInternalHandoffRequest(request: Request, move: Coord
     }
     return new Response("not found", { status: 404 });
   } catch (error) {
-    return new Response((error as Error).message, { status: 412 });
+    // internalStatus rejects an unknown id or a bad secret with the same
+    // message; that is an auth failure, not a precondition failure. The caller
+    // (abortTarget) branches on 4xx-vs-transport, so the distinction matters.
+    const message = (error as Error).message;
+    return new Response(message, { status: message === "handoff not found" ? 401 : 412 });
   }
 }

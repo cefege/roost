@@ -199,7 +199,7 @@ describe("sessionsResize — tab-id composite + viewer bookkeeping", () => {
   beforeAll(() => {
     __setConnectWorkerForTest(FAKE_WORKER_FP, {
       workerFp: FAKE_WORKER_FP,
-      send: (frame: unknown) => { workerSends.push(frame); },
+      send: (frame: unknown) => workerSends.push(frame),
     });
   });
   afterAll(() => { __setConnectWorkerForTest(FAKE_WORKER_FP, null); });
@@ -268,7 +268,7 @@ describe("sessionsResize — tab-id composite + viewer bookkeeping", () => {
     // Re-attach the fake worker for any later tests.
     __setConnectWorkerForTest(FAKE_WORKER_FP, {
       workerFp: FAKE_WORKER_FP,
-      send: (frame: unknown) => { workerSends.push(frame); },
+      send: (frame: unknown) => workerSends.push(frame),
     });
   });
 

@@ -24,18 +24,24 @@ const handoff: HandoffState = {
   updated_at_ms: 1,
 };
 
+function authedContext(): HandlerContext {
+  // Mirrors what makeAuthInterceptor sets: requireAuth reads the caller
+  // context key and nothing else off ctx.values.
+  return { values: { get: () => ({ fingerprint: "fp", label: "l" }) } } as unknown as HandlerContext;
+}
+
 function anonymousContext(): HandlerContext {
   return { values: { get: () => null } } as unknown as HandlerContext;
 }
 
-test("coordinator move status is public only for its exact handoff", async () => {
+test("coordinator move status requires auth and matches only its exact handoff", async () => {
   const handlers = makeCoordinatorMoveHandlers({
     move: { status: (handoffId: string) => handoffId === handoff.handoff_id ? handoff : null },
   } as unknown as ConnectDeps);
 
   await expect(handlers.coordinatorMoveStatus(
     create(CoordinatorMoveStatusRequestSchema, { handoffId: handoff.handoff_id }),
-    anonymousContext(),
+    authedContext(),
   )).resolves.toMatchObject({
     sourceUrl: handoff.source_url,
     targetUrl: handoff.target_url,
@@ -43,6 +49,11 @@ test("coordinator move status is public only for its exact handoff", async () =>
 
   await expect(handlers.coordinatorMoveStatus(
     create(CoordinatorMoveStatusRequestSchema, { handoffId: "00000000-0000-4000-8000-000000000002" }),
-    anonymousContext(),
+    authedContext(),
   )).rejects.toMatchObject({ code: Code.NotFound });
+
+  await expect(handlers.coordinatorMoveStatus(
+    create(CoordinatorMoveStatusRequestSchema, { handoffId: handoff.handoff_id }),
+    anonymousContext(),
+  )).rejects.toMatchObject({ code: Code.Unauthenticated });
 });

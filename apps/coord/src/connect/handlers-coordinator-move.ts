@@ -53,6 +53,10 @@ export function makeCoordinatorMoveHandlers(
       }
     },
     async coordinatorMoveStatus(req, ctx) {
+      // Both real callers already carry a JWT (the SPA's auth interceptor, and
+      // the worker's createCoordClient); without this any tailnet peer holding
+      // a handoff id reads phase, both URLs and the error text.
+      requireAuth(ctx.values);
       const state = requireMoveService(deps).status(req.handoffId);
       if (!state) throw new ConnectError("handoff not found", Code.NotFound);
       return create(CoordinatorMoveStatusResponseSchema, {

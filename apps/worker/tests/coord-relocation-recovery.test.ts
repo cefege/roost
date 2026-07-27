@@ -41,6 +41,7 @@ test("relocation recovery activates a staged target only after the source has be
       return { phase: CoordinatorMovePhase.WAITING_FOR_WORKERS };
     },
     setCoordinatorEndpoint: (url) => { endpoints.push(url); },
+    reannounce: () => {},
     abortTarget: async () => {},
     now: () => now,
   });
@@ -71,6 +72,7 @@ test("relocation recovery starts its outage timer after the last reachable sourc
       return { phase: CoordinatorMovePhase.WAITING_FOR_WORKERS };
     },
     setCoordinatorEndpoint: () => {},
+    reannounce: () => {},
     abortTarget: async () => {},
     now: () => now,
   });
@@ -104,6 +106,7 @@ test("relocation recovery rejects a target that has not durably accepted the han
       return { phase: CoordinatorMovePhase.PREPARING_TARGET };
     },
     setCoordinatorEndpoint: () => {},
+    reannounce: () => {},
     abortTarget: async () => {},
     unavailableAfterMs: 0,
   });
@@ -126,6 +129,7 @@ test("relocation recovery leaves a reachable source authoritative", async () => 
     link: link(relocations),
     statusAt: async () => ({ phase: CoordinatorMovePhase.COMMITTING }),
     setCoordinatorEndpoint: () => {},
+    reannounce: () => {},
     abortTarget: async () => {},
     now: () => now,
     unavailableAfterMs: 0,
@@ -145,7 +149,7 @@ test("relocation recovery restores target staging before returning to a rolled-b
   const recovery = createCoordRelocationRecovery({
     relocation: {
       load: () => journal,
-      abort: async (relocate: (url: string) => void) => {
+      abort: async (_handoffId: string, relocate: (url: string) => void) => {
         calls.push("worker-abort");
         relocate(journal.source_url);
       },
@@ -153,6 +157,7 @@ test("relocation recovery restores target staging before returning to a rolled-b
     link: link(relocations),
     statusAt: async () => ({ phase: CoordinatorMovePhase.ROLLED_BACK }),
     setCoordinatorEndpoint: (url) => { calls.push(`endpoint:${url}`); },
+    reannounce: () => {},
     abortTarget: async (handoffId) => { calls.push(`target-abort:${handoffId}`); },
     unavailableAfterMs: 0,
   });

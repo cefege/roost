@@ -8,9 +8,12 @@ import { workerRoutableBus } from "../buses.ts";
 
 export interface WorkerHandle {
   workerFp: string;
-  send: (frame: CoordWorkerDown) => void;
+  /** Bun ws.send result: 0 = dropped, -1 = enqueued under backpressure, >0 = bytes. */
+  send: (frame: CoordWorkerDown) => number;
   /** Closes only this transport connection; used to replay held events at commit. */
   close?: () => void;
+  /** Bytes still queued on the socket; drives snapshot-pump backpressure. */
+  bufferedAmount?: () => number;
 }
 
 // Registry of currently-attached workers, keyed by fp. Populated when a

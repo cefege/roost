@@ -144,7 +144,19 @@ export const ConnectionBanner: Component = () => {
           <Button
             variant="tonal"
             data-testid="connection-banner-coordinator-moved"
-            onClick={() => location.assign(relocatedTo()!)}
+            onClick={() => void (async () => {
+              // The authenticated mint carries the one-time credential AND
+              // preserves the route. A bare location.assign drops both — the
+              // user lands unpaired on the new coordinator's root.
+              const { relocateRetiredBrowser } = await import("../auth/coordinator-relocation.ts");
+              // rootStore stores coord_identity snake_case; the relocation
+              // helper takes the wire camelCase shape.
+              if (await relocateRetiredBrowser({
+                relocatedToUrl: rootStore.coord_identity?.relocated_to_url ?? relocatedTo() ?? undefined,
+                handoffId: rootStore.coord_identity?.handoff_id,
+              }) !== "failed") return;
+              location.assign(new URL(location.pathname + location.search, relocatedTo()!).href);
+            })()}
           >Open new coordinator</Button>
         </Show>
       </div>

@@ -227,7 +227,12 @@ export function makeAuthHandlers(
       }
       const now = Math.floor(Date.now() / 1000);
       const token = await deps.coordKey.sign({
-        aud: "roost-coordinator-relocation", sub: caller.fingerprint, iat: now, exp: now + 300,
+        // 60s, not 300s: this is an unbound bearer credential that enrolls an
+        // arbitrary ed25519 key into the target's authorized_keys, and the
+        // fragment→redeem hop is a single navigation. It cannot be bound to
+        // claims.sub — source and target are different origins, so the browser
+        // necessarily mints a fresh keypair on the destination.
+        aud: "roost-coordinator-relocation", sub: caller.fingerprint, iat: now, exp: now + 60,
         handoff_id: handoff.handoff_id, target_url: handoff.target_url, jti: randomUUID(),
       });
       return create(AuthMintCoordinatorRelocationResponseSchema, { token, targetUrl: handoff.target_url });
@@ -258,9 +263,20 @@ export function makeAuthHandlers(
             fingerprint, public_key: pubkey, label: req.label, added_at: now,
           }).onConflict((oc) => oc.column("fingerprint").doUpdateSet({ label: req.label })).execute();
         });
-      } catch {
-        throw new ConnectError("relocation token already used", Code.Unauthenticated);
+      } catch (error) {
+        // Only a bootstrap_tokens.token collision means "already used". The
+        // target is concurrently running replayCommittedWorkers, so SQLITE_BUSY
+        // is likely — reporting that as Unauthenticated silently unpairs a
+        // browser that did nothing wrong.
+        const message = String((error as Error)?.message ?? error);
+        if (/UNIQUE|PRIMARY KEY|constraint failed: bootstrap_tokens/i.test(message)) {
+          throw new ConnectError("relocation token already used", Code.Unauthenticated);
+        }
+        throw new ConnectError(`relocation redeem failed: ${message}`, Code.Unavailable);
       }
+      // The upsert above rewrote the label; without this the new coordinator
+      // shows a stale presence label for up to CACHE_TTL_MS.
+      _invalidateLabel(fingerprint);
       return create(AuthRedeemCoordinatorRelocationResponseSchema, { fingerprint, label: req.label });
     },
 
