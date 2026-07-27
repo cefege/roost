@@ -309,7 +309,10 @@ test("a linux target that cannot configure tailscale serve is rejected at CHECK"
   // at the https URL it advertises — discovered only after the DB is swapped.
   const h = await harness();
   const denied = join(dirname(process.env.ROOST_TAILSCALE_BIN!), "tailscale-denied");
-  fs.writeFileSync(denied, "#!/bin/bash\nif [[ \"$1\" == \"serve\" ]]; then echo 'Access denied: serve config denied' >&2; exit 1; fi\nexit 0\n");
+  // Two stderr lines, as the real binary emits: the fault, then the remedy.
+  // The second is what makes the blocker actionable, so it is asserted below —
+  // otherwise trimming the message back to one line would keep tests green.
+  fs.writeFileSync(denied, "#!/bin/bash\nif [[ \"$1\" == \"serve\" ]]; then\n  echo 'Access denied: serve config denied' >&2\n  echo \"To not require root, use 'sudo tailscale set --operator=\\$USER' once.\" >&2\n  exit 1\nfi\nexit 0\n");
   fs.chmodSync(denied, 0o700);
   const previous = process.env.ROOST_TAILSCALE_BIN;
   process.env.ROOST_TAILSCALE_BIN = denied;
@@ -321,7 +324,7 @@ test("a linux target that cannot configure tailscale serve is rejected at CHECK"
     await expect(linux.prepare({
       handoff_id: HANDOFF_B, source_url: "https://source.example:4102", target_url: "https://target.ts.net:4102",
       expected_coord_kid: "kid", expected_git_sha: "sha", estimated_db_size: 1n, action: "CHECK",
-    })).rejects.toThrow("cannot configure tailscale serve");
+    })).rejects.toThrow(/cannot configure tailscale serve.*Access denied.*--operator/s);
   } finally {
     process.env.ROOST_TAILSCALE_BIN = previous;
   }
