@@ -189,6 +189,7 @@ export class CoordTarget {
     const required = Number(request.estimated_db_size) * 2 + 256 * 1024 * 1024;
     if (available < required) throw new Error(`insufficient disk: required ${required}, available ${available}`);
     await this.assertNoActiveCoordinator();
+    await this.assertCanFrontCoordinator();
     if (request.action === "CHECK") return;
 
     fs.mkdirSync(this.paths.dataDir, { recursive: true, mode: 0o700 });
@@ -464,6 +465,36 @@ export class CoordTarget {
       // No readable handoff file: this is a plain active coordinator.
     }
     throw new Error("target already has an active coordinator");
+  }
+
+  /** install.sh's serve_front runs `tailscale serve` as the worker's user and
+   *  only WARNS when it fails. On Linux that write needs root or an operator
+   *  grant, so without one the relocated coordinator binds loopback and is
+   *  unreachable at the https URL it advertises — the move gets all the way to
+   *  a swapped database before anything notices.
+   *
+   *  Probing has to attempt a real write: `tailscale serve status` exits 0
+   *  without the grant, so reads cannot tell the two states apart. Verified on
+   *  a Linux node — denied: "Access denied: serve config denied" (exit 1);
+   *  granted: exit 0. A throwaway high port keeps it off anything real, and it
+   *  is turned straight back off. */
+  private async assertCanFrontCoordinator(): Promise<void> {
+    // Only the fronted mode invokes serve_front (install.sh:299); a direct-TLS
+    // target never calls `tailscale serve`, so its capability is irrelevant.
+    if (process.env.ROOST_FRONTED === "0") return;
+    if (this.runtime.platform === "darwin") return; // GUI client runs as the user
+    const ts = process.env.ROOST_TAILSCALE_BIN ?? "tailscale";
+    const probe = Bun.spawn([ts, "serve", "--bg", "--https=65535", "http://127.0.0.1:1"], {
+      stdout: "pipe", stderr: "pipe",
+    });
+    const [err, code] = await Promise.all([new Response(probe.stderr).text(), probe.exited]);
+    if (code === 0) {
+      await Bun.spawn([ts, "serve", "--https=65535", "off"], { stdout: "ignore", stderr: "ignore" }).exited;
+      return;
+    }
+    throw new Error(
+      `target cannot configure tailscale serve, so the relocated coordinator would be unreachable at its public URL: ${err.trim().split("\n")[0] || `exit ${code}`}`,
+    );
   }
 
   /** The rollback captured at PREPARE holds a full DB copy plus the coordinator

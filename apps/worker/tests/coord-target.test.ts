@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { Database } from "bun:sqlite";
 import { loadOrCreateCoordKey } from "../../coord/src/coord-key.ts";
 import { CoordTarget, type CoordTargetPaths } from "../src/coord-target.ts";
@@ -301,4 +301,50 @@ test("finalizeCommit removes the staged rollback, which holds the coordinator ke
   expect(fs.existsSync(h.handoffDir(HANDOFF_A))).toBeFalse();
   // A worker that never hosted the move has no such directory: must not throw.
   expect(() => h.target.finalizeCommit(HANDOFF_B)).not.toThrow();
+});
+
+test("a linux target that cannot configure tailscale serve is rejected at CHECK", async () => {
+  // install.sh's serve_front only warns when `tailscale serve` fails, so
+  // without this the coordinator installs, binds loopback, and is unreachable
+  // at the https URL it advertises — discovered only after the DB is swapped.
+  const h = await harness();
+  const denied = join(dirname(process.env.ROOST_TAILSCALE_BIN!), "tailscale-denied");
+  fs.writeFileSync(denied, "#!/bin/bash\nif [[ \"$1\" == \"serve\" ]]; then echo 'Access denied: serve config denied' >&2; exit 1; fi\nexit 0\n");
+  fs.chmodSync(denied, 0o700);
+  const previous = process.env.ROOST_TAILSCALE_BIN;
+  process.env.ROOST_TAILSCALE_BIN = denied;
+  try {
+    const linux = new CoordTarget(h.paths, {
+      platform: "linux", gitSha: "sha", tailnetDnsName: () => "target.ts.net",
+      isCoordServiceActive: async () => false, restoreCoordService: async () => {}, coordHealthy: async () => true,
+    });
+    await expect(linux.prepare({
+      handoff_id: HANDOFF_B, source_url: "https://source.example:4102", target_url: "https://target.ts.net:4102",
+      expected_coord_kid: "kid", expected_git_sha: "sha", estimated_db_size: 1n, action: "CHECK",
+    })).rejects.toThrow("cannot configure tailscale serve");
+  } finally {
+    process.env.ROOST_TAILSCALE_BIN = previous;
+  }
+});
+
+test("the serve capability probe is skipped for a direct-TLS target", async () => {
+  // serve_front only runs when FRONTED==1 (install.sh:299); a direct-TLS box
+  // never invokes `tailscale serve`, so its capability is irrelevant and must
+  // not manufacture a blocker.
+  const h = await harness();
+  const previous = process.env.ROOST_FRONTED;
+  process.env.ROOST_FRONTED = "0";
+  try {
+    const linux = new CoordTarget(h.paths, {
+      platform: "linux", gitSha: "sha", tailnetDnsName: () => "target.ts.net",
+      isCoordServiceActive: async () => false, restoreCoordService: async () => {}, coordHealthy: async () => true,
+    });
+    await linux.prepare({
+      handoff_id: HANDOFF_B, source_url: "https://source.example:4102", target_url: "https://target.ts.net:4102",
+      expected_coord_kid: "kid", expected_git_sha: "sha", estimated_db_size: 1n, action: "CHECK",
+    });
+  } finally {
+    if (previous === undefined) delete process.env.ROOST_FRONTED;
+    else process.env.ROOST_FRONTED = previous;
+  }
 });
