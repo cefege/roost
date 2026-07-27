@@ -9,8 +9,8 @@ import { isPageVisible } from "../../lib/pageVisible.ts";
 export const ROW_BASE = { "padding-left": "28px" } as const;
 
 // relTimeTickMs — one page-lifetime 30s ticker shared by every row so relTime
-// labels age even when the store is silent (an idle claude emits no bytes, so
-// no lastActivity frame arrives to retrigger the memo).
+// labels age even when the store is silent, so no lastActivity frame arrives
+// to retrigger the memo.
 export const [relTimeTickMs, setRelTimeTickMs] = createSignal(Date.now());
 // Hidden-tab gate: don't churn the reactive graph while hidden; labels
 // catch up on the first tick after the tab is visible again.
@@ -23,8 +23,8 @@ export const STATUS_DOT: Record<string, string> = {
   done: "var(--color-info)",
 };
 
-// Human-readable Claude stage names for the flat-list status pill.
-// Exported so HomeLanding's recent-tiles render the SAME stage vocabulary.
+// Human-readable OMP stage names for the flat-list status pill.
+// Exported so HomeLanding's recent tiles render the same vocabulary.
 export const STAGE_LABEL: Record<string, string> = {
   "needs-input": "needs input",
   "running": "running",

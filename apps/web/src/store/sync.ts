@@ -6,7 +6,7 @@
 import { batch } from "solid-js";
 import { reconcile } from "solid-js/store";
 import { setRootStore, rootStore } from "./root.ts";
-import type { ClaudeStatus, PairRequest } from "./root.ts";
+import type { PairRequest } from "./root.ts";
 import type { PairRequestDeltaProto } from "@roost/shared/proto/events_pb";
 import type { UiCommandFrame, FirehoseFrame } from "@roost/shared/proto/sync_pb";
 import { FirehoseFrameSchema } from "@roost/shared/proto/sync_pb";
@@ -14,6 +14,7 @@ import { fromBinary } from "@bufbuild/protobuf";
 import { protoToEvent } from "@roost/shared/wire/event-proto";
 import { signCoordinatorJwt } from "../auth/web-key.ts";
 import { _dispatchUiCommand } from "../lib/uiCommandDispatch.ts";
+import { relocateBrowserToCoordinator } from "../auth/coordinator-relocation.ts";
 import {
   _workspaceProtoToWire, _taskProtoToWire, _webhookProtoToWire,
   _permProtoToWire, _mcpProtoToWire, _presenceProtoToWire,
@@ -231,6 +232,11 @@ function _dispatchSyncFrame(frame: FirehoseFrame): void {
             }
             break;
           }
+          case "coordinatorRelocation": {
+            const relocation = v as { handoffId: string; targetUrl: string };
+            void relocateBrowserToCoordinator(relocation.handoffId, relocation.targetUrl);
+            break;
+          }
           case "bytes": {
             const b = v as { sessionId: string; data: Uint8Array; seq: bigint };
             _dispatchBytes(b.sessionId, b.data);
@@ -270,14 +276,6 @@ function _dispatchSyncFrame(frame: FirehoseFrame): void {
             } catch (e) {
               signal("diag.corruption_signal", { kind: "sync_json_parse", frame: "sessionPresence", msg: String(e), cooldownKey: "sync" });
             }
-            break;
-          }
-          case "claudeStatus": {
-            // Coord-authoritative agent status (claude-status-hub: manifest +
-            // arbiter). The single detection authority — SessionRow / TabBar /
-            // isClaudeSession read rootStore.claude_status[sid].
-            const c = v as { sessionId: string; status: string };
-            setRootStore("claude_status", c.sessionId, c.status as ClaudeStatus);
             break;
           }
           case "terminalTitle": {

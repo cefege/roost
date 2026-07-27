@@ -101,7 +101,7 @@ describe("snapshot reconciliation", () => {
       id: SID2,
       worker_fp: FP,
       channel: asChannelId(2),
-      kind: "claude",
+      kind: "shell",
       cwd: "/other",
       workspace_id: null,
       status: "open",
@@ -148,12 +148,10 @@ describe("projection correctness", () => {
   });
 
   test("bare partial agent patch into null agent produces complete AgentState", () => {
-    // Real-world scenario: hook fires before stream-json init message.
-    // Patch is just { kind: "claude", status: "running" }. Fold must
-    // seed defaults so the resulting AgentState has every required field.
+    // A sparse agent patch must seed the required default fields.
     const events: SessionEvent[] = [
       openEvent(SID),
-      { kind: "agent", session_id: SID, patch: { kind: "claude", status: "running" }, ts: 1001 },
+      { kind: "agent", session_id: SID, patch: { kind: "agent", status: "running" }, ts: 1001 },
     ];
     const agent = foldAll(events).get(SID)?.agent;
     expect(agent).not.toBeNull();
@@ -175,8 +173,8 @@ describe("projection correctness", () => {
     // contain all three.
     const events: SessionEvent[] = [
       openEvent(SID),
-      { kind: "agent", session_id: SID, patch: { kind: "claude", status: "running" }, ts: 1001 },
-      { kind: "agent", session_id: SID, patch: { model: "claude-opus-4-7", mode: "plan" }, ts: 1002 },
+      { kind: "agent", session_id: SID, patch: { kind: "agent", status: "running" }, ts: 1001 },
+      { kind: "agent", session_id: SID, patch: { model: "adapter", mode: "plan" }, ts: 1002 },
       {
         kind: "agent",
         session_id: SID,
@@ -186,7 +184,7 @@ describe("projection correctness", () => {
     ];
     const agent = foldAll(events).get(SID)?.agent;
     expect(agent!.status).toBe("needs-input");
-    expect(agent!.model).toBe("claude-opus-4-7");
+    expect(agent!.model).toBe("adapter");
     expect(agent!.mode).toBe("plan");
     expect(agent!.permission_request?.id).toBe("p1");
     expect(agent!.sub_agents).toEqual([]); // still default
@@ -198,7 +196,7 @@ describe("projection correctness", () => {
       {
         kind: "agent",
         session_id: SID,
-        patch: { kind: "claude", mode: "default", model: "claude-3-5-sonnet", status: "running", tokens: { in: 0, out: 0, cached: 0 }, cost_usd: 0, last_message: null, current_tool: null, current_block: null, permission_request: null, sub_agents: [] },
+        patch: { kind: "agent", mode: "default", model: "adapter", status: "running", tokens: { in: 0, out: 0, cached: 0 }, cost_usd: 0, last_message: null, current_tool: null, current_block: null, permission_request: null, sub_agents: [] },
         ts: 1001,
       },
       {
@@ -211,6 +209,6 @@ describe("projection correctness", () => {
     const result = foldAll(events);
     const agent = result.get(SID)?.agent;
     expect(agent?.status).toBe("idle");
-    expect(agent?.model).toBe("claude-3-5-sonnet");
+    expect(agent?.model).toBe("adapter");
   });
 });

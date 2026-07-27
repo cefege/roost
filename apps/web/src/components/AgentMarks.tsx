@@ -1,18 +1,5 @@
-// AgentMarks — official brand/product marks for the launcher's builtin agents,
-// keyed by AgentDef.id. Paths inlined verbatim (ClaudeMark pattern: canonical
-// path, currentColor) so the icons stay official instead of hand-rolled.
-// Rule: PRODUCT mark over parent-company mark (Codex blob, not OpenAI blossom;
-// Gemini spark, not Google G; Grok swoosh, not xAI wordmark).
-// Provenance: @lobehub/icons-static-svg@1.91.0 (MIT) — codex, gemini, opencode,
-// cursor, amp, githubcopilot, grok; factory.ai homepage header svg — droid;
-// sidebar/StatusGlyph.tsx — claude. All marks remain trademarks of their owners.
-// pi / omp have no published vector mark (checked earendil-works/pi + omp://
-// docs) → hand-set here: pi = geometric π, omp = "OMπ" wordmark sharing the
-// same π geometry (Author 2026-07-11). Custom commands stay text-glyph.
-// Callers: AgentGlyph.tsx (FAB + settings tile).
-
+// AgentMarks — official brand/product marks for launcher's builtin agents.
 import type { Component } from "solid-js";
-import { ClaudeMark } from "./sidebar/StatusGlyph.tsx";
 
 const CodexMark: Component = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
@@ -91,7 +78,6 @@ const OmpMark: Component = () => (
 /** Brand mark per builtin agent id. Absent id (custom commands) → caller
  *  renders the agent's text glyph. */
 export const AGENT_MARKS: Record<string, Component> = {
-  claude: ClaudeMark,
   codex: CodexMark,
   gemini: GeminiMark,
   opencode: OpenCodeMark,

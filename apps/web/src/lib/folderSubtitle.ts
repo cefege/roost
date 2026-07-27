@@ -10,7 +10,7 @@
 import type { Session } from "@roost/shared/wire";
 import { rootStore } from "../store/root.ts";
 import { workerOnline } from "../store/sync.ts";
-import { liveStatus } from "./attention.ts";
+import { liveStatus, latestAssistantOutput } from "./attention.ts";
 
 export type Attention = "needs" | "running" | "idle";
 
@@ -20,15 +20,12 @@ export function activityLine(lead: Session, attention: Attention): string {
     // worker present but unreachable → stranded (same guard as needsAttention).
     const w = rootStore.workers[lead.worker_fp];
     if (w && !workerOnline(w)) return "Machine offline — reopen to refresh";
-    // idle/done with unseen output — folded into needs by needsAttention().
-    const done = lead.agent?.last_message?.text?.trim();
-    return done ? done.split("\n")[0] : "Finished";
+    // idle output that arrived after the user last looked.
+    const output = latestAssistantOutput(lead)?.text;
+    return output ? output.split("\n")[0] : "Finished";
   }
-  const msg = lead.agent?.last_message?.text?.trim();
-  if (msg) return msg.split("\n")[0];
-  if (attention === "running") {
-    const tool = lead.agent?.current_tool?.name;
-    return tool ? `${tool}…` : "Working…";
-  }
+  const output = latestAssistantOutput(lead)?.text;
+  if (output) return output.split("\n")[0];
+  if (attention === "running") return "Working…";
   return ""; // idle + no message → calm, blank subtitle (branch is a chip now)
 }

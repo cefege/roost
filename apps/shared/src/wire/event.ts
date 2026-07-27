@@ -59,9 +59,8 @@ export const SessionEvent = z.discriminatedUnion("kind", [
   }),
   Base.extend({
     // Worker rebooted; the keeper PTY for this session died. Worker
-    // spawned a fresh PTY at the same cwd/kind and re-bound it to the
-    // same session_id. Sidebar row stays in place; agent state clears
-    // so claude re-initializes.
+    // spawned a fresh PTY at the same cwd and re-bound it to the same
+    // session_id. Sidebar row stays in place; structured state clears.
     kind: z.literal("respawned"),
     session_id: SessionId,
     new_channel: ChannelId,
@@ -161,7 +160,7 @@ export function foldEvent(
       // fields from defaultAgentState() so the runtime object always
       // satisfies AgentState — no unsafe casts.
       const base: AgentState = s.agent ?? defaultAgentState();
-      const merged: AgentState = { ...base, ...e.patch, kind: "claude" };
+      const merged: AgentState = { ...base, ...e.patch, kind: "agent" };
       next.set(e.session_id, { ...s, agent: merged });
       return next;
     }
@@ -181,14 +180,11 @@ export function foldEvent(
       // (This mirrors coord's SQL snapshot reconcile in event-log.ts — both stop
       // pruning ghosts, keeping the SPA + coord projections in agreement.)
       for (const s of e.sessions) {
-        // workspace_id is coord/DB-owned: the worker doesn't track it and
-        // announces null in every snapshot. Preserve the prior assignment
-        // so a worker restart doesn't null it out and collapse sidebar
-        // grouping for every connected viewer. Field-additive for the
-        // non-authoritative field — matches coord's snapshot upsert, which
-        // omits workspace_id from its doUpdateSet (event-log.ts). `agent`
-        // is NOT preserved: it genuinely dies with the worker's claude
-        // bridge on restart, so the announced null is the truth.
+        // workspace_id and custom_title are coord/DB-owned: the worker
+        // announces null in every snapshot. Preserve prior values so a worker
+        // restart does not drop a rename or collapse sidebar grouping.
+        // Structured state is not preserved: it belongs to a live bridge, so
+        // the announced null is authoritative after restart.
         const before = prev.get(s.id);
         // workspace_id AND custom_title are coord/DB-owned — the worker
         // announces them null in every snapshot. Preserve prior values so a
@@ -210,7 +206,7 @@ export function foldEvent(
     case "respawned": {
       const s = prev.get(e.session_id);
       if (!s) return prev;
-      // New keeper channel, no claude state yet. Status forced open in
+      // New keeper channel, no structured state yet. Status is forced open in
       // case a prior 'closed' was projected before the respawn lands.
       next.set(e.session_id, {
         ...s,

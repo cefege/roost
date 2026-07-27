@@ -19,7 +19,7 @@ function stripEventId<T extends Record<string, unknown>>(o: T): Omit<T, "_event_
 
 describe("eventToProto round-trip", () => {
   it("opened", () => {
-    fc.assert(fc.property(sidArb, wfpArb, channelArb, fc.constantFrom("shell", "claude"), fc.string(), tsArb, (sid, wfp, ch, sk, cwd, ts) => {
+    fc.assert(fc.property(sidArb, wfpArb, channelArb, fc.constant("shell"), fc.string(), tsArb, (sid, wfp, ch, sk, cwd, ts) => {
       const e = SessionEvent.parse({ kind: "opened", session_id: sid, worker_fp: wfp, channel: ch, session_kind: sk, cwd, ts });
       const proto = eventToProto(e, 42);
       expect(proto).not.toBeNull();
@@ -80,7 +80,7 @@ describe("eventToProto round-trip", () => {
     const sid = asSessionId("00000000-0000-4000-8000-000000000001");
     const e = SessionEvent.parse({
       kind: "agent", session_id: sid,
-      patch: { kind: "claude", current_tool: null }, ts: 1,
+      patch: { kind: "agent", current_tool: null }, ts: 1,
     });
     const back = protoToEvent(eventToProto(e, 1)!) as any;
     expect(back.patch.current_tool).toBeNull();
@@ -90,7 +90,7 @@ describe("eventToProto round-trip", () => {
     const sid = asSessionId("00000000-0000-4000-8000-000000000002");
     const e = SessionEvent.parse({
       kind: "agent", session_id: sid,
-      patch: { kind: "claude", current_tool: { name: "Read", input_summary: "/etc/hosts" } }, ts: 1,
+      patch: { kind: "agent", current_tool: { name: "Read", input_summary: "/etc/hosts" } }, ts: 1,
     });
     const back = protoToEvent(eventToProto(e, 1)!) as any;
     expect(back.patch.current_tool).toEqual({ name: "Read", input_summary: "/etc/hosts" });
@@ -100,7 +100,7 @@ describe("eventToProto round-trip", () => {
     const sid = asSessionId("00000000-0000-4000-8000-000000000003");
     const e = SessionEvent.parse({
       kind: "agent", session_id: sid,
-      patch: { kind: "claude", status: "running" }, ts: 1,
+      patch: { kind: "agent", status: "running" }, ts: 1,
     });
     const back = protoToEvent(eventToProto(e, 1)!) as any;
     expect("current_tool" in back.patch).toBe(false);
@@ -110,7 +110,7 @@ describe("eventToProto round-trip", () => {
     const sid = asSessionId("00000000-0000-4000-8000-000000000020");
     const e = SessionEvent.parse({
       kind: "agent", session_id: sid,
-      patch: { kind: "claude", last_message: null }, ts: 1,
+      patch: { kind: "agent", last_message: null }, ts: 1,
     });
     const back = protoToEvent(eventToProto(e, 1)!) as any;
     expect(back.patch.last_message).toBeNull();
@@ -120,7 +120,7 @@ describe("eventToProto round-trip", () => {
     const sid = asSessionId("00000000-0000-4000-8000-000000000021");
     const e = SessionEvent.parse({
       kind: "agent", session_id: sid,
-      patch: { kind: "claude", current_block: null }, ts: 1,
+      patch: { kind: "agent", current_block: null }, ts: 1,
     });
     const back = protoToEvent(eventToProto(e, 1)!) as any;
     expect(back.patch.current_block).toBeNull();
@@ -130,7 +130,7 @@ describe("eventToProto round-trip", () => {
     const sid = asSessionId("00000000-0000-4000-8000-000000000022");
     const e = SessionEvent.parse({
       kind: "agent", session_id: sid,
-      patch: { kind: "claude", permission_request: null }, ts: 1,
+      patch: { kind: "agent", permission_request: null }, ts: 1,
     });
     const back = protoToEvent(eventToProto(e, 1)!) as any;
     expect(back.patch.permission_request).toBeNull();
@@ -141,7 +141,7 @@ describe("eventToProto round-trip", () => {
     const e = SessionEvent.parse({
       kind: "agent", session_id: sid,
       patch: {
-        kind: "claude", status: "idle", cost_usd: 0.42,
+        kind: "agent", status: "idle", cost_usd: 0.42,
         tokens: { in: 1000, out: 500, cached: 200 },
         last_message: { role: "assistant", text: "done", ts: 1781500000 },
       },
@@ -191,12 +191,12 @@ describe("eventToProto round-trip", () => {
         id: asSessionId("00000000-0000-4000-8000-000000000011"),
         worker_fp: wfp,
         channel: asChannelId(2),
-        kind: "claude" as const,
+        kind: "shell" as const,
         cwd: "/home/y",
         workspace_id: asWorkspaceId("00000000-0000-4000-8000-000000000100"),
         status: "open" as const,
         agent: {
-          kind: "claude" as const, mode: "default" as const, model: "opus-4.7", status: "running" as const,
+          kind: "agent" as const, mode: "default" as const, model: "adapter", status: "running" as const,
           tokens: { in: 12, out: 7, cached: 3 }, cost_usd: 0.05,
           last_message: { role: "assistant" as const, text: "hi", ts: 1781500001 },
           current_tool: { name: "Read", input_summary: "/etc/hosts" },

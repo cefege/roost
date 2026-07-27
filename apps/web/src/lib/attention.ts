@@ -1,46 +1,40 @@
-// The one definition of "this session needs you", shared by the sidebar's
-// attention band AND the ⌘⇧U jump-to-most-recent-unread. The
-// multi-signal model, Roost flavor: agent blocked on input, OR its worker went
-// offline (connection-trouble), OR a finished agent (idle/done) produced output
-// newer than when you last looked (unread). See lib/sessionSeen.ts for "seen".
-
-import type { Session } from "@roost/shared/wire";
+import type { AgentStatus, LastMessage, Session } from "@roost/shared/wire";
 import { rootStore } from "../store/root.ts";
 import { workerOnline } from "../store/sync.ts";
 import { lastSeenAt } from "./sessionSeen.ts";
 
-/** Resolved live status: server agent.status, falling back to grid-scraped. */
-export function liveStatus(s: Session): string | undefined {
-  return s.agent?.status ?? rootStore.claude_status[s.id];
+export function liveStatus(session: Session): AgentStatus | undefined {
+  return session.agent?.status;
+}
+
+export function latestAssistantOutput(session: Session): LastMessage | null {
+  const message = session.agent?.last_message;
+  return message?.role === "assistant" ? message : null;
 }
 
 export type AttentionKind = "blocked" | "offline" | "done" | null;
 
-/** Reactive (reads store + seen-map): WHY this session wants your attention,
- *  or null. Precedence: needs-input → offline worker → idle/done with unseen
- *  output. One source of truth for the sidebar sort and the folder badge. */
+/** Reactive: requested approval, offline worker, then unseen idle output. */
 export function attentionKind(s: Session): AttentionKind {
-  const st = liveStatus(s);
-  if (st === "needs-input") return "blocked";
-  const w = rootStore.workers[s.worker_fp];
-  if (w && !workerOnline(w)) return "offline"; // stranded on an offline/asleep Mac
-  if (st === "idle" || st === "done") {
-    const lm = s.agent?.last_message?.ts ?? 0;
-    if (lm > 0 && lm > lastSeenAt(s.id)) return "done"; // finished with unseen output
-  }
-  return null;
+  const status = liveStatus(s);
+  if (status === "needs-input") return "blocked";
+  const worker = rootStore.workers[s.worker_fp];
+  if (worker && !workerOnline(worker)) return "offline";
+  const outputAt = latestAssistantOutput(s)?.ts ?? 0;
+  return status === "idle" && outputAt > lastSeenAt(s.id) ? "done" : null;
 }
 
-/** Reactive (reads store + seen-map): does this session want your attention? */
+/** Reactive: does this session want the user's attention? */
 export function needsAttention(s: Session): boolean {
   return attentionKind(s) !== null;
 }
 
+/** The latest OMP output, falling back to session creation for stable ordering. */
 function activityTs(s: Session): number {
-  return s.agent?.last_message?.ts ?? s.created_at;
+  return latestAssistantOutput(s)?.ts || s.created_at;
 }
 
-/** The most-recently-active session needing attention, or null (⌘⇧U target). */
+/** The most-recently-active session needing attention, or null. */
 export function mostRecentUnread(sessions: Session[]): Session | null {
   let best: Session | null = null;
   for (const s of sessions) {

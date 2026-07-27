@@ -5,8 +5,7 @@
 //
 // DESTRUCTIVE: SIGTERM to the keeper reaps every PTY child (reap fix) — the
 // worker's setOnKeeperDeath then re-spawns sessions under the same ids, but
-// they LOSE scrollback, running subprocesses, and claude conversation context
-// (only session id + cwd survive). Hence the --yes gate.
+// they lose scrollback and running subprocesses. Hence the --yes gate.
 //
 // Mechanism: SIGTERM the keeper process (`pkill -f multiplexed-main.ts`), self
 // locally or remote via ssh (reuses deploy.ts helpers). No coord RPC.
@@ -23,7 +22,7 @@ export async function keeperRefresh(args: string[]): Promise<void> {
   }
   if (!args.includes("--yes")) {
     console.error(`Refreshing the keeper on ${host} will re-spawn every live session there,`);
-    console.error("losing its scrollback, running subprocesses, and claude conversation context");
+    console.error("losing its scrollback and running subprocesses");
     console.error("(session ids + cwd survive). Re-run with --yes to proceed.");
     process.exit(1);
   }

@@ -3,22 +3,13 @@
 
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
-import { join, basename } from "node:path";
+import { join } from "node:path";
 import { createWtermCore } from "@roost/shared/wterm-core-factory";
 
-// Hex8 of sha256(bytes). Cheap content-fingerprint for the diag stream
-// so claude can correlate the same chunk across spa+coord+worker logs.
+// Hex8 of sha256(bytes). Cheap content-fingerprint for the diagnostic stream.
 export function _sha8(bytes: Uint8Array | Buffer): string {
 	return createHash("sha256").update(bytes).digest("hex").slice(0, 8);
 }
-
-// Hook exec = absolute bun + absolute script (source tree; rsync deploys
-// preserve layout). launchd PATH is minimal and the hook script path may
-// contain a space — both paths quoted, neither relies on PATH lookup.
-const HOOK_SCRIPT = join(import.meta.dir, "cli", "hook.ts");
-export const HOOK_CMD = basename(process.execPath) === "bun"
-	? `"${process.execPath}" run "${HOOK_SCRIPT}"`
-	: `"${process.execPath}" hook`;
 
 // 8 MB sliding scrollback window kept on the worker per session.
 // Matches the keeper's ring (sb30) so getScrollback can serve a fresh
@@ -46,89 +37,7 @@ export const MODE_CARRY_MAX = 7;
 // on a local/LAN worker; bounds frame rate under floods.
 export const CELL_EMIT_COALESCE_MS = 16;
 
-// herdr agent-status detection. Debounce off the PTY byte path so a multi-chunk
-// claude repaint is scraped once from the settled grid.
-export const DETECT_DEBOUNCE_MS = 150;
 
-// working→idle HOLD (herdr AGENT_PENDING_IDLE_CAP): don't commit idle the instant
-// the spinner blinks off mid-turn; wait until the byte stream stays quiet this
-// long. A visible blocker/idle screen bypasses the hold (arbiter handles it).
-// 800ms was too short: claude pauses >1s mid-turn (thinking, waiting on a tool)
-// and briefly shows the ✳ idle title → premature idle commit → running↔idle
-// flap (measured 1085/1154/1785ms gaps). 3s absorbs those pauses; a genuinely
-// finished turn still commits idle ~3s later, imperceptible for a sidebar chip.
-// needs-input is NOT gated by this (blocker bypasses the hold) so prompts still
-// light instantly.
-export const AGENT_WORKING_GRACE_MS = 3000;
-
-// herdr-style idle re-scan. Byte-driven detection only fires while an agent
-// produces output, so an agent idle + quiet since a worker restart never gets
-// scraped and shows no chip. A periodic sweep re-runs detection on every session
-// so idle agents surface a status too (herdr scrapes on a timer). _runDetect
-// dedups, so a steady session re-emits nothing — only the cheap scrape recurs.
-// ponytail: O(sessions) grid-reads per tick; fine for a normal fleet, raise the
-// interval if a very large fleet shows CPU.
-export const DETECT_SWEEP_INTERVAL_MS = 4000;
-
-// Last complete OSC 0/2 window-title in a raw chunk, UTF-8 intact — the wterm
-// core's OSC parser is ASCII-only and strips claude's braille spinner, so we
-// parse the title off the raw stream instead. Returns null if no complete title
-// is present. ponytail: no cross-chunk carry — claude re-emits the title every
-// frame, so a title split across a chunk boundary heals on the next repaint.
-export function extractOscTitle(bytes: Uint8Array): string | null {
-	let result: string | null = null;
-	for (let i = 0; i + 1 < bytes.length; i++) {
-		if (bytes[i] !== 0x1b || bytes[i + 1] !== 0x5d) continue; // ESC ]
-		let j = i + 2;
-		const psStart = j;
-		while (j < bytes.length && bytes[j] !== 0x3b && j - psStart < 3) j++; // Ps then ';'
-		if (bytes[j] !== 0x3b) continue;
-		const ps = new TextDecoder().decode(bytes.subarray(psStart, j));
-		if (ps !== "0" && ps !== "2") continue; // 0/2 = window title
-		const titleStart = ++j;
-		while (
-			j < bytes.length &&
-			bytes[j] !== 0x07 &&
-			!(bytes[j] === 0x1b && bytes[j + 1] === 0x5c)
-		)
-			j++;
-		if (j >= bytes.length) continue; // incomplete (spans chunks) — skip
-		result = new TextDecoder().decode(bytes.subarray(titleStart, j));
-		i = j;
-	}
-	return result;
-}
-
-/** Cross-chunk-safe OSC 0/2 title extraction. Some terminal agents set their
- *  title only at boot, so a title split across PTY reads must be carried or it
- *  is lost. Carries the trailing bytes of an unterminated OSC (bounded) into
- *  the next chunk. Returns the latest complete title + the new carry to persist. */
-export function extractOscTitleStateful(
-	carry: Uint8Array,
-	chunk: Uint8Array,
-): { title: string | null; carry: Uint8Array } {
-	const buf = carry.length ? Buffer.concat([carry, chunk]) : chunk;
-	const title = extractOscTitle(buf);
-	// Find the last OSC start; carry it forward only if it has no terminator yet.
-	let lastStart = -1;
-	for (let i = buf.length - 2; i >= 0; i--) {
-		if (buf[i] === 0x1b && buf[i + 1] === 0x5d) { lastStart = i; break; }
-	}
-	let next: Uint8Array = EMPTY_BYTES;
-	if (lastStart >= 0) {
-		let terminated = false;
-		for (let j = lastStart + 2; j < buf.length; j++) {
-			if (buf[j] === 0x07 || (buf[j] === 0x1b && buf[j + 1] === 0x5c)) { terminated = true; break; }
-		}
-		if (!terminated) {
-			const tail = buf.subarray(lastStart);
-			next = tail.length > 1024 ? tail.subarray(tail.length - 1024) : tail;
-		}
-	}
-	return { title, carry: next };
-}
-
-const EMPTY_BYTES = new Uint8Array(0);
 
 // Multi-viewer PTY size: SCD (smallest-common-denominator) policy. PTY
 // size = min(cols) × min(rows) across all active viewer claims so no

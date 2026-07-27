@@ -21,7 +21,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file roost/v1/worker_transport.proto.
  */
 export const file_roost_v1_worker_transport: GenFile = /*@__PURE__*/
-  fileDesc("Ch9yb29zdC92MS93b3JrZXJfdHJhbnNwb3J0LnByb3RvEghyb29zdC52MSIsCgZXSGVsbG8SEQoJd29ya2VyX2ZwGAEgASgJEg8KB3ZlcnNpb24YAiABKAkiEwoFV1BvbmcSCgoCdHMYASABKAQiTwoNV1Nlc3Npb25FdmVudBIqCgVldmVudBgBIAEoCzIbLnJvb3N0LnYxLlNlc3Npb25FdmVudFByb3RvEhIKCmNsaWVudF9zZXEYAiABKAQiLwoGV1JwY09rEhIKCnJlcXVlc3RfaWQYASABKAkSEQoJZGF0YV9qc29uGAIgASgJIjAKCVdScGNFcnJvchISCgpyZXF1ZXN0X2lkGAEgASgJEg8KB21lc3NhZ2UYAiABKAkiLQoNV1RyYW5zZmVyTGluZRIOCgZqb2JfaWQYASABKAkSDAoEdGV4dBgCIAEoCSI8Cg1XVHJhbnNmZXJEb25lEg4KBmpvYl9pZBgBIAEoCRIMCgRleGl0GAIgASgFEg0KBWVycm9yGAMgASgJIksKB1dCaW5hcnkSEgoKY2hhbm5lbF9pZBgBIAEoDRIRCglkaXJlY3Rpb24YAiABKA0SCwoDc2VxGAMgASgEEgwKBGRhdGEYBCABKAwiGgoLV1JlZnJlc2hKd3QSCwoDand0GAEgASgJIkkKCVdDZWxsR3JpZBISCgpjaGFubmVsX2lkGAEgASgNEigKBWZyYW1lGAIgASgLMhkucm9vc3QudjEuUGJDZWxsR3JpZEZyYW1lIjMKDVdDbGF1ZGVTdGF0dXMSEgoKY2hhbm5lbF9pZBgBIAEoDRIOCgZzdGF0dXMYAiABKAki5wMKDUNvb3JkV29ya2VyVXASIQoFaGVsbG8YASABKAsyEC5yb29zdC52MS5XSGVsbG9IABIfCgRwb25nGAIgASgLMg8ucm9vc3QudjEuV1BvbmdIABIoCgVldmVudBgDIAEoCzIXLnJvb3N0LnYxLldTZXNzaW9uRXZlbnRIABIiCgZycGNfb2sYBiABKAsyEC5yb29zdC52MS5XUnBjT2tIABIoCglycGNfZXJyb3IYByABKAsyEy5yb29zdC52MS5XUnBjRXJyb3JIABIwCg10cmFuc2Zlcl9saW5lGAggASgLMhcucm9vc3QudjEuV1RyYW5zZmVyTGluZUgAEjAKDXRyYW5zZmVyX2RvbmUYCSABKAsyFy5yb29zdC52MS5XVHJhbnNmZXJEb25lSAASIwoGYmluYXJ5GAogASgLMhEucm9vc3QudjEuV0JpbmFyeUgAEiwKC3JlZnJlc2hfand0GAsgASgLMhUucm9vc3QudjEuV1JlZnJlc2hKd3RIABIoCgljZWxsX2dyaWQYDCABKAsyEy5yb29zdC52MS5XQ2VsbEdyaWRIABIwCg1jbGF1ZGVfc3RhdHVzGA0gASgLMhcucm9vc3QudjEuV0NsYXVkZVN0YXR1c0gAQgcKBWZyYW1lIj8KCURIZWxsb0FjaxIYChBjb29yZF9wdWJrZXlfYjY0GAEgASgJEhgKEGNvb3JkX3B1YmtleV9raWQYAiABKAkiEwoFRFBpbmcSCgoCdHMYASABKAQiYAoPREJyb3dzZXJDb21tYW5kEhIKCmJyb3dzZXJfaWQYASABKAkSEQoJdmlld2VyX2lkGAIgASgJEhIKCnJlcXVlc3RfaWQYAyABKAkSEgoKZnJhbWVfanNvbhgEIAEoCSI+CgdEQmluYXJ5EhIKCmNoYW5uZWxfaWQYASABKA0SEQoJZGlyZWN0aW9uGAIgASgNEgwKBGRhdGEYAyABKAwiHwoJREV2ZW50QWNrEhIKCmNsaWVudF9zZXEYASABKAQiiQEKEERBdHRhY2htZW50Q2h1bmsSEgoKcmVxdWVzdF9pZBgBIAEoCRISCgpzZXNzaW9uX2lkGAIgASgJEhAKCGZpbGVuYW1lGAMgASgJEhIKCnNob3J0X3BhdGgYBCABKAgSDAoEZGF0YRgFIAEoDBIMCgRsYXN0GAYgASgIEgsKA3NlcRgHIAEoDSKiAgoPQ29vcmRXb3JrZXJEb3duEigKCWhlbGxvX2FjaxgBIAEoCzITLnJvb3N0LnYxLkRIZWxsb0Fja0gAEh8KBHBpbmcYAiABKAsyDy5yb29zdC52MS5EUGluZ0gAEjQKD2Jyb3dzZXJfY29tbWFuZBgDIAEoCzIZLnJvb3N0LnYxLkRCcm93c2VyQ29tbWFuZEgAEiMKBmJpbmFyeRgEIAEoCzIRLnJvb3N0LnYxLkRCaW5hcnlIABIoCglldmVudF9hY2sYBSABKAsyEy5yb29zdC52MS5ERXZlbnRBY2tIABI2ChBhdHRhY2htZW50X2NodW5rGAYgASgLMhoucm9vc3QudjEuREF0dGFjaG1lbnRDaHVua0gAQgcKBWZyYW1lMlEKDVdvcmtlclNlcnZpY2USQAoGQXR0YWNoEhcucm9vc3QudjEuQ29vcmRXb3JrZXJVcBoZLnJvb3N0LnYxLkNvb3JkV29ya2VyRG93bigBMAFiBnByb3RvMw", [file_roost_v1_events, file_roost_v1_cell]);
+  fileDesc("Ch9yb29zdC92MS93b3JrZXJfdHJhbnNwb3J0LnByb3RvEghyb29zdC52MSIsCgZXSGVsbG8SEQoJd29ya2VyX2ZwGAEgASgJEg8KB3ZlcnNpb24YAiABKAkiEwoFV1BvbmcSCgoCdHMYASABKAQiTwoNV1Nlc3Npb25FdmVudBIqCgVldmVudBgBIAEoCzIbLnJvb3N0LnYxLlNlc3Npb25FdmVudFByb3RvEhIKCmNsaWVudF9zZXEYAiABKAQiLwoGV1JwY09rEhIKCnJlcXVlc3RfaWQYASABKAkSEQoJZGF0YV9qc29uGAIgASgJIjAKCVdScGNFcnJvchISCgpyZXF1ZXN0X2lkGAEgASgJEg8KB21lc3NhZ2UYAiABKAkiLQoNV1RyYW5zZmVyTGluZRIOCgZqb2JfaWQYASABKAkSDAoEdGV4dBgCIAEoCSI8Cg1XVHJhbnNmZXJEb25lEg4KBmpvYl9pZBgBIAEoCRIMCgRleGl0GAIgASgFEg0KBWVycm9yGAMgASgJIksKB1dCaW5hcnkSEgoKY2hhbm5lbF9pZBgBIAEoDRIRCglkaXJlY3Rpb24YAiABKA0SCwoDc2VxGAMgASgEEgwKBGRhdGEYBCABKAwiGgoLV1JlZnJlc2hKd3QSCwoDand0GAEgASgJIkkKCVdDZWxsR3JpZBISCgpjaGFubmVsX2lkGAEgASgNEigKBWZyYW1lGAIgASgLMhkucm9vc3QudjEuUGJDZWxsR3JpZEZyYW1lIrUDCg1Db29yZFdvcmtlclVwEiEKBWhlbGxvGAEgASgLMhAucm9vc3QudjEuV0hlbGxvSAASHwoEcG9uZxgCIAEoCzIPLnJvb3N0LnYxLldQb25nSAASKAoFZXZlbnQYAyABKAsyFy5yb29zdC52MS5XU2Vzc2lvbkV2ZW50SAASIgoGcnBjX29rGAYgASgLMhAucm9vc3QudjEuV1JwY09rSAASKAoJcnBjX2Vycm9yGAcgASgLMhMucm9vc3QudjEuV1JwY0Vycm9ySAASMAoNdHJhbnNmZXJfbGluZRgIIAEoCzIXLnJvb3N0LnYxLldUcmFuc2ZlckxpbmVIABIwCg10cmFuc2Zlcl9kb25lGAkgASgLMhcucm9vc3QudjEuV1RyYW5zZmVyRG9uZUgAEiMKBmJpbmFyeRgKIAEoCzIRLnJvb3N0LnYxLldCaW5hcnlIABIsCgtyZWZyZXNoX2p3dBgLIAEoCzIVLnJvb3N0LnYxLldSZWZyZXNoSnd0SAASKAoJY2VsbF9ncmlkGAwgASgLMhMucm9vc3QudjEuV0NlbGxHcmlkSABCBwoFZnJhbWUiPwoJREhlbGxvQWNrEhgKEGNvb3JkX3B1YmtleV9iNjQYASABKAkSGAoQY29vcmRfcHVia2V5X2tpZBgCIAEoCSITCgVEUGluZxIKCgJ0cxgBIAEoBCJgCg9EQnJvd3NlckNvbW1hbmQSEgoKYnJvd3Nlcl9pZBgBIAEoCRIRCgl2aWV3ZXJfaWQYAiABKAkSEgoKcmVxdWVzdF9pZBgDIAEoCRISCgpmcmFtZV9qc29uGAQgASgJIj4KB0RCaW5hcnkSEgoKY2hhbm5lbF9pZBgBIAEoDRIRCglkaXJlY3Rpb24YAiABKA0SDAoEZGF0YRgDIAEoDCIfCglERXZlbnRBY2sSEgoKY2xpZW50X3NlcRgBIAEoBCKJAQoQREF0dGFjaG1lbnRDaHVuaxISCgpyZXF1ZXN0X2lkGAEgASgJEhIKCnNlc3Npb25faWQYAiABKAkSEAoIZmlsZW5hbWUYAyABKAkSEgoKc2hvcnRfcGF0aBgEIAEoCBIMCgRkYXRhGAUgASgMEgwKBGxhc3QYBiABKAgSCwoDc2VxGAcgASgNIsQBChFEQ29vcmRNb3ZlUHJlcGFyZRISCgpyZXF1ZXN0X2lkGAEgASgJEhIKCmhhbmRvZmZfaWQYAiABKAkSEgoKc291cmNlX3VybBgDIAEoCRISCgp0YXJnZXRfdXJsGAQgASgJEhoKEmV4cGVjdGVkX2Nvb3JkX2tpZBgFIAEoCRIYChBleHBlY3RlZF9naXRfc2hhGAYgASgJEhkKEWVzdGltYXRlZF9kYl9zaXplGAcgASgEEg4KBmFjdGlvbhgIIAEoCSLJAQoXRENvb3JkTW92ZVNuYXBzaG90U3RhcnQSEgoKcmVxdWVzdF9pZBgBIAEoCRISCgpoYW5kb2ZmX2lkGAIgASgJEhIKCnRvdGFsX3NpemUYAyABKAQSDgoGc2hhMjU2GAQgASgJEhUKDWNvb3JkX2tleV9wZW0YBSABKAwSFwoPYXV0aG9yaXplZF9rZXlzGAYgASgMEhUKDXNlY3JldF9zaGEyNTYYByABKAkSGwoTZXhwZWN0ZWRfd29ya2VyX2ZwcxgIIAMoCSJWChdEQ29vcmRNb3ZlU25hcHNob3RDaHVuaxISCgpoYW5kb2ZmX2lkGAEgASgJEgsKA3NlcRgCIAEoDRIMCgRkYXRhGAMgASgMEgwKBGxhc3QYBCABKAgicAoORENvb3JkUmVsb2NhdGUSEgoKcmVxdWVzdF9pZBgBIAEoCRISCgpoYW5kb2ZmX2lkGAIgASgJEhIKCnNvdXJjZV91cmwYAyABKAkSEgoKdGFyZ2V0X3VybBgEIAEoCRIOCgZhY3Rpb24YBSABKAkioQQKD0Nvb3JkV29ya2VyRG93bhIoCgloZWxsb19hY2sYASABKAsyEy5yb29zdC52MS5ESGVsbG9BY2tIABIfCgRwaW5nGAIgASgLMg8ucm9vc3QudjEuRFBpbmdIABI0Cg9icm93c2VyX2NvbW1hbmQYAyABKAsyGS5yb29zdC52MS5EQnJvd3NlckNvbW1hbmRIABIjCgZiaW5hcnkYBCABKAsyES5yb29zdC52MS5EQmluYXJ5SAASKAoJZXZlbnRfYWNrGAUgASgLMhMucm9vc3QudjEuREV2ZW50QWNrSAASNgoQYXR0YWNobWVudF9jaHVuaxgGIAEoCzIaLnJvb3N0LnYxLkRBdHRhY2htZW50Q2h1bmtIABI5ChJjb29yZF9tb3ZlX3ByZXBhcmUYByABKAsyGy5yb29zdC52MS5EQ29vcmRNb3ZlUHJlcGFyZUgAEkYKGWNvb3JkX21vdmVfc25hcHNob3Rfc3RhcnQYCCABKAsyIS5yb29zdC52MS5EQ29vcmRNb3ZlU25hcHNob3RTdGFydEgAEkYKGWNvb3JkX21vdmVfc25hcHNob3RfY2h1bmsYCSABKAsyIS5yb29zdC52MS5EQ29vcmRNb3ZlU25hcHNob3RDaHVua0gAEjIKDmNvb3JkX3JlbG9jYXRlGAogASgLMhgucm9vc3QudjEuRENvb3JkUmVsb2NhdGVIAEIHCgVmcmFtZTJRCg1Xb3JrZXJTZXJ2aWNlEkAKBkF0dGFjaBIXLnJvb3N0LnYxLkNvb3JkV29ya2VyVXAaGS5yb29zdC52MS5Db29yZFdvcmtlckRvd24oATABYgZwcm90bzM", [file_roost_v1_events, file_roost_v1_cell]);
 
 /**
  * @generated from message roost.v1.WHello
@@ -264,33 +264,6 @@ export const WCellGridSchema: GenMessage<WCellGrid> = /*@__PURE__*/
   messageDesc(file_roost_v1_worker_transport, 9);
 
 /**
- * Volatile herdr agent status (running|needs-input|idle) keyed by channel_id;
- * coord maps channel→session (byte-hub) and republishes to claudeStatusBus →
- * FirehoseFrame.claude_status. NOT durable (never in the events table): the
- * worker screen-scrapes its wtermCore grid (detect/) and emits on change.
- *
- * @generated from message roost.v1.WClaudeStatus
- */
-export type WClaudeStatus = Message<"roost.v1.WClaudeStatus"> & {
-  /**
-   * @generated from field: uint32 channel_id = 1;
-   */
-  channelId: number;
-
-  /**
-   * @generated from field: string status = 2;
-   */
-  status: string;
-};
-
-/**
- * Describes the message roost.v1.WClaudeStatus.
- * Use `create(WClaudeStatusSchema)` to create a new message.
- */
-export const WClaudeStatusSchema: GenMessage<WClaudeStatus> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 10);
-
-/**
  * @generated from message roost.v1.CoordWorkerUp
  */
 export type CoordWorkerUp = Message<"roost.v1.CoordWorkerUp"> & {
@@ -362,12 +335,6 @@ export type CoordWorkerUp = Message<"roost.v1.CoordWorkerUp"> & {
      */
     value: WCellGrid;
     case: "cellGrid";
-  } | {
-    /**
-     * @generated from field: roost.v1.WClaudeStatus claude_status = 13;
-     */
-    value: WClaudeStatus;
-    case: "claudeStatus";
   } | { case: undefined; value?: undefined };
 };
 
@@ -376,7 +343,7 @@ export type CoordWorkerUp = Message<"roost.v1.CoordWorkerUp"> & {
  * Use `create(CoordWorkerUpSchema)` to create a new message.
  */
 export const CoordWorkerUpSchema: GenMessage<CoordWorkerUp> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 11);
+  messageDesc(file_roost_v1_worker_transport, 10);
 
 /**
  * @generated from message roost.v1.DHelloAck
@@ -398,7 +365,7 @@ export type DHelloAck = Message<"roost.v1.DHelloAck"> & {
  * Use `create(DHelloAckSchema)` to create a new message.
  */
 export const DHelloAckSchema: GenMessage<DHelloAck> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 12);
+  messageDesc(file_roost_v1_worker_transport, 11);
 
 /**
  * @generated from message roost.v1.DPing
@@ -415,7 +382,7 @@ export type DPing = Message<"roost.v1.DPing"> & {
  * Use `create(DPingSchema)` to create a new message.
  */
 export const DPingSchema: GenMessage<DPing> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 13);
+  messageDesc(file_roost_v1_worker_transport, 12);
 
 /**
  * @generated from message roost.v1.DBrowserCommand
@@ -449,7 +416,7 @@ export type DBrowserCommand = Message<"roost.v1.DBrowserCommand"> & {
  * Use `create(DBrowserCommandSchema)` to create a new message.
  */
 export const DBrowserCommandSchema: GenMessage<DBrowserCommand> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 14);
+  messageDesc(file_roost_v1_worker_transport, 13);
 
 /**
  * @generated from message roost.v1.DBinary
@@ -476,7 +443,7 @@ export type DBinary = Message<"roost.v1.DBinary"> & {
  * Use `create(DBinarySchema)` to create a new message.
  */
 export const DBinarySchema: GenMessage<DBinary> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 15);
+  messageDesc(file_roost_v1_worker_transport, 14);
 
 /**
  * D-4b ack — coord echoes the worker's client_seq after a successful
@@ -497,7 +464,7 @@ export type DEventAck = Message<"roost.v1.DEventAck"> & {
  * Use `create(DEventAckSchema)` to create a new message.
  */
 export const DEventAckSchema: GenMessage<DEventAck> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 16);
+  messageDesc(file_roost_v1_worker_transport, 15);
 
 /**
  * Streamed file upload SPA→coord→worker. Coord relays the AttachFileChunk
@@ -562,7 +529,184 @@ export type DAttachmentChunk = Message<"roost.v1.DAttachmentChunk"> & {
  * Use `create(DAttachmentChunkSchema)` to create a new message.
  */
 export const DAttachmentChunkSchema: GenMessage<DAttachmentChunk> = /*@__PURE__*/
+  messageDesc(file_roost_v1_worker_transport, 16);
+
+/**
+ * @generated from message roost.v1.DCoordMovePrepare
+ */
+export type DCoordMovePrepare = Message<"roost.v1.DCoordMovePrepare"> & {
+  /**
+   * @generated from field: string request_id = 1;
+   */
+  requestId: string;
+
+  /**
+   * @generated from field: string handoff_id = 2;
+   */
+  handoffId: string;
+
+  /**
+   * @generated from field: string source_url = 3;
+   */
+  sourceUrl: string;
+
+  /**
+   * @generated from field: string target_url = 4;
+   */
+  targetUrl: string;
+
+  /**
+   * @generated from field: string expected_coord_kid = 5;
+   */
+  expectedCoordKid: string;
+
+  /**
+   * @generated from field: string expected_git_sha = 6;
+   */
+  expectedGitSha: string;
+
+  /**
+   * @generated from field: uint64 estimated_db_size = 7;
+   */
+  estimatedDbSize: bigint;
+
+  /**
+   * CHECK | PREPARE
+   *
+   * @generated from field: string action = 8;
+   */
+  action: string;
+};
+
+/**
+ * Describes the message roost.v1.DCoordMovePrepare.
+ * Use `create(DCoordMovePrepareSchema)` to create a new message.
+ */
+export const DCoordMovePrepareSchema: GenMessage<DCoordMovePrepare> = /*@__PURE__*/
   messageDesc(file_roost_v1_worker_transport, 17);
+
+/**
+ * @generated from message roost.v1.DCoordMoveSnapshotStart
+ */
+export type DCoordMoveSnapshotStart = Message<"roost.v1.DCoordMoveSnapshotStart"> & {
+  /**
+   * @generated from field: string request_id = 1;
+   */
+  requestId: string;
+
+  /**
+   * @generated from field: string handoff_id = 2;
+   */
+  handoffId: string;
+
+  /**
+   * @generated from field: uint64 total_size = 3;
+   */
+  totalSize: bigint;
+
+  /**
+   * @generated from field: string sha256 = 4;
+   */
+  sha256: string;
+
+  /**
+   * @generated from field: bytes coord_key_pem = 5;
+   */
+  coordKeyPem: Uint8Array;
+
+  /**
+   * @generated from field: bytes authorized_keys = 6;
+   */
+  authorizedKeys: Uint8Array;
+
+  /**
+   * @generated from field: string secret_sha256 = 7;
+   */
+  secretSha256: string;
+
+  /**
+   * @generated from field: repeated string expected_worker_fps = 8;
+   */
+  expectedWorkerFps: string[];
+};
+
+/**
+ * Describes the message roost.v1.DCoordMoveSnapshotStart.
+ * Use `create(DCoordMoveSnapshotStartSchema)` to create a new message.
+ */
+export const DCoordMoveSnapshotStartSchema: GenMessage<DCoordMoveSnapshotStart> = /*@__PURE__*/
+  messageDesc(file_roost_v1_worker_transport, 18);
+
+/**
+ * @generated from message roost.v1.DCoordMoveSnapshotChunk
+ */
+export type DCoordMoveSnapshotChunk = Message<"roost.v1.DCoordMoveSnapshotChunk"> & {
+  /**
+   * @generated from field: string handoff_id = 1;
+   */
+  handoffId: string;
+
+  /**
+   * @generated from field: uint32 seq = 2;
+   */
+  seq: number;
+
+  /**
+   * @generated from field: bytes data = 3;
+   */
+  data: Uint8Array;
+
+  /**
+   * @generated from field: bool last = 4;
+   */
+  last: boolean;
+};
+
+/**
+ * Describes the message roost.v1.DCoordMoveSnapshotChunk.
+ * Use `create(DCoordMoveSnapshotChunkSchema)` to create a new message.
+ */
+export const DCoordMoveSnapshotChunkSchema: GenMessage<DCoordMoveSnapshotChunk> = /*@__PURE__*/
+  messageDesc(file_roost_v1_worker_transport, 19);
+
+/**
+ * @generated from message roost.v1.DCoordRelocate
+ */
+export type DCoordRelocate = Message<"roost.v1.DCoordRelocate"> & {
+  /**
+   * @generated from field: string request_id = 1;
+   */
+  requestId: string;
+
+  /**
+   * @generated from field: string handoff_id = 2;
+   */
+  handoffId: string;
+
+  /**
+   * @generated from field: string source_url = 3;
+   */
+  sourceUrl: string;
+
+  /**
+   * @generated from field: string target_url = 4;
+   */
+  targetUrl: string;
+
+  /**
+   * STAGE | ACTIVATE | COMMIT | ABORT
+   *
+   * @generated from field: string action = 5;
+   */
+  action: string;
+};
+
+/**
+ * Describes the message roost.v1.DCoordRelocate.
+ * Use `create(DCoordRelocateSchema)` to create a new message.
+ */
+export const DCoordRelocateSchema: GenMessage<DCoordRelocate> = /*@__PURE__*/
+  messageDesc(file_roost_v1_worker_transport, 20);
 
 /**
  * @generated from message roost.v1.CoordWorkerDown
@@ -607,6 +751,30 @@ export type CoordWorkerDown = Message<"roost.v1.CoordWorkerDown"> & {
      */
     value: DAttachmentChunk;
     case: "attachmentChunk";
+  } | {
+    /**
+     * @generated from field: roost.v1.DCoordMovePrepare coord_move_prepare = 7;
+     */
+    value: DCoordMovePrepare;
+    case: "coordMovePrepare";
+  } | {
+    /**
+     * @generated from field: roost.v1.DCoordMoveSnapshotStart coord_move_snapshot_start = 8;
+     */
+    value: DCoordMoveSnapshotStart;
+    case: "coordMoveSnapshotStart";
+  } | {
+    /**
+     * @generated from field: roost.v1.DCoordMoveSnapshotChunk coord_move_snapshot_chunk = 9;
+     */
+    value: DCoordMoveSnapshotChunk;
+    case: "coordMoveSnapshotChunk";
+  } | {
+    /**
+     * @generated from field: roost.v1.DCoordRelocate coord_relocate = 10;
+     */
+    value: DCoordRelocate;
+    case: "coordRelocate";
   } | { case: undefined; value?: undefined };
 };
 
@@ -615,7 +783,7 @@ export type CoordWorkerDown = Message<"roost.v1.CoordWorkerDown"> & {
  * Use `create(CoordWorkerDownSchema)` to create a new message.
  */
 export const CoordWorkerDownSchema: GenMessage<CoordWorkerDown> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 18);
+  messageDesc(file_roost_v1_worker_transport, 21);
 
 /**
  * @generated from service roost.v1.WorkerService

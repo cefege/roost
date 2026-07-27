@@ -15,7 +15,6 @@
 import { batch } from "solid-js";
 import { reconcile } from "solid-js/store";
 import type { SessionEvent, Session } from "@roost/shared/wire";
-import type { ClaudeStatus } from "./root.ts";
 import { foldEvent } from "@roost/shared/wire";
 import { signal } from "@roost/shared/diag";
 import { rootStore, setRootStore } from "./root.ts";
@@ -67,7 +66,6 @@ export function foldEventIntoStore(event: SessionEvent): void {
         // Drop the session's volatile coord-streamed slices too — they're keyed
         // by session id and have no other reaper, so they'd leak one entry per
         // closed session for the life of the tab (the days-long-uptime bloat).
-        setRootStore("claude_status", id, undefined as unknown as ClaudeStatus);
         setRootStore("terminal_title", id, undefined as unknown as string);
         setRootStore("last_activity", id, undefined as unknown as never);
         setRootStore("session_viewers", id, undefined as unknown as never);
@@ -78,13 +76,9 @@ export function foldEventIntoStore(event: SessionEvent): void {
     }
     for (const [id, s] of next) {
       if (prev.get(id) === s) continue;
-      // reconcile for EXISTING sessions: foldEvent object-replaces the whole
-      // Session (and its nested `agent`) per event, so a plain set would
-      // invalidate every `s.agent?.*` reader app-wide on every agent tick.
-      // reconcile diffs into the live proxy → only genuinely-changed leaves
-      // notify. foldEvent always returns COMPLETE Session objects (verified
-      // event.ts `agent`/`snapshot` arms spread the full prior session), so
-      // whole-object reconcile is safe. New sessions take the plain set.
+      // Reconcile existing session records instead of replacing their proxies:
+      // event folds return complete objects, but only changed leaves should
+      // notify subscribers. New sessions can take the plain set.
       if (rootStore.sessions[id]) setRootStore("sessions", id, reconcile(s));
       else setRootStore("sessions", id, s);
     }

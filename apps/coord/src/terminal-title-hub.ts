@@ -4,12 +4,8 @@
 // variant `ESC ] 2 ; <title>`, BEL- or ST-terminated) out of the SAME bytes
 // coord already relays (globalBytesBus), and publishes the latest title per
 // session to titleBus on CHANGE → the Sync stream fans it to every browser.
-//
-// Mirrors claude-status-hub (one per coord, started from createCoord), but
-// needs no headless grid — the title is a discrete in-band escape, parsed
-// directly from the byte stream. Replaces the dead per-browser RoostTerm.onTitle
-// path (orphaned when Terminal.tsx was deleted) so the sidebar title is one
-// coord-authoritative value every viewer + every Mac agrees on.
+// Parses a discrete in-band escape directly from relayed terminal bytes.
+// This centralizes sidebar titles instead of relying on browser-local state.
 //
 // Depends on: buses (globalBytesBus in, titleBus out, sessionBus reap).
 
@@ -109,8 +105,7 @@ export function startTerminalTitleHub(): () => void {
       diag("terminal_title.change", { sid: session_id, title });
     }
   });
-
-  // Drop a session's parser state when it closes (mirrors claude-status-hub).
+  // Drop a closed session's parser state.
   const unsubSessions = sessionBus.subscribe((ev) => {
     if (ev.kind !== "closed") return;
     _entries.delete(ev.session_id);

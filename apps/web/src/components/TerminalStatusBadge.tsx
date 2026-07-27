@@ -1,4 +1,4 @@
-// TerminalStatusBadge — per-terminal Claude status tag. Renders as a
+// TerminalStatusBadge — per-terminal OMP status tag. Renders as a
 // non-interactive flex child of CellTerminal's `.term-pane-corner` top-right
 // slot. The slot owns positioning; this component owns the status pill. Its
 // live attention level (Working / Needs input / Done / Idle) matches the pane's
@@ -9,12 +9,12 @@
 import { Show, createMemo, type Component } from "solid-js";
 import type { Session } from "@roost/shared/wire";
 import { attentionOf, presentationOf } from "../lib/agentStatus.ts";
-import { isClaudeSession } from "../lib/isClaudeSession.ts";
+import { isAgentSession } from "../lib/isAgentSession.ts";
 
 export const TerminalStatusBadge: Component<{ session: Session }> = (props) => {
   const level = createMemo(() => attentionOf(props.session));
   const vis = createMemo(() => presentationOf(level()));
-  const show = createMemo(() => isClaudeSession(props.session) && level() !== "unknown");
+  const show = createMemo(() => isAgentSession(props.session) && level() !== "unknown");
   return (
     <Show when={show()}>
       <span

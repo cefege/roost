@@ -17,8 +17,7 @@
 import { create, toBinary, fromBinary } from "@bufbuild/protobuf";
 import {
   CoordWorkerUpSchema, CoordWorkerDownSchema, WHelloSchema,
-  WRefreshJwtSchema, WSessionEventSchema,
-  WCellGridSchema, WClaudeStatusSchema,
+  WRefreshJwtSchema, WSessionEventSchema, WCellGridSchema,
 } from "@roost/shared/proto/worker_transport_pb";
 import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
 import { ClientSeq } from "./client-seq.ts";
@@ -49,6 +48,8 @@ let _reconnectFailures = 0;
 
 export function startCoordLink(deps: CoordLinkDeps): CoordLink {
   const ttlSecs = deps.jwtTtlSecs ?? 300;
+  let coordHttpUrl = deps.coordHttpUrl;
+  let relocating = false;
   let state: CoordLinkState = { kind: "idle" };
   let backoffMs = BACKOFF_INITIAL_MS;
   // Monotonic dial counter. Stamped onto every `connecting` state
@@ -77,6 +78,7 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
   // so there's no seq collision, but the worker has no record to replay.
   // Persisting `unacked` would mean an fsync per emit; not worth it
   // until we see real loss in practice.
+  const snapshotRequestIds = new Map<string, string>();
   const clientSeq = new ClientSeq();
   const unacked = new Map<number, SessionEvent>();
 
@@ -188,13 +190,7 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
     try { writer(up); return true; } catch { diag("transport.frame_dropped", { reason: "writer_throw", kind: "cellGrid" }); return false; }
   }
 
-  function sendClaudeStatus(channelId: number, status: string): boolean {
-    if (disposed || !writer) return false;
-    const up = create(CoordWorkerUpSchema, {
-      frame: { case: "claudeStatus", value: create(WClaudeStatusSchema, { channelId, status }) },
-    });
-    try { writer(up); return true; } catch { diag("transport.frame_dropped", { reason: "writer_throw", kind: "claudeStatus" }); return false; }
-  }
+
 
 
   async function dial(): Promise<void> {
@@ -217,7 +213,7 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
     // upstream so the worker's rpc-ok replies stalled → sessionsSpawn hung.
     // Same CoordWorkerUp/Down proto frames, carried as BINARY WS messages.
     // Auth: query-param JWT (Bun's client WebSocket has no custom-header API).
-    const wsBase = deps.coordHttpUrl.replace(/^http/, "ws");
+    const wsBase = coordHttpUrl.replace(/^http/, "ws");
     const url = `${wsBase}/ws/coord-worker/${deps.workerFp}?token=${encodeURIComponent(jwt)}`;
     let ws: WebSocket;
     try {
@@ -253,7 +249,14 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
       // If ws.onopen never fired, the upgrade was rejected (auth failure).
       // Track consecutive non-open dials for backoff escalation.
       if (!_didOpen) _authRejectCount++;
-      if (!disposed) scheduleReconnect();
+      if (!disposed) {
+        if (relocating) {
+          relocating = false;
+          void dial();
+        } else {
+          scheduleReconnect();
+        }
+      }
     };
 
     ws.onopen = () => {
@@ -383,6 +386,64 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
         });
         return;
       }
+      case "coordMovePrepare": {
+        const move = v as { requestId: string; handoffId: string; sourceUrl: string; targetUrl: string; expectedCoordKid: string; expectedGitSha: string; estimatedDbSize: bigint; action: "CHECK" | "PREPARE" };
+        if (!deps.onCoordMovePrepare) {
+          send({ kind: "rpc-error", request_id: move.requestId, message: "coordinator move unsupported by this worker" });
+          return;
+        }
+        void Promise.resolve(deps.onCoordMovePrepare({
+          request_id: move.requestId, handoff_id: move.handoffId, source_url: move.sourceUrl, target_url: move.targetUrl,
+          expected_coord_kid: move.expectedCoordKid, expected_git_sha: move.expectedGitSha, estimated_db_size: move.estimatedDbSize, action: move.action,
+        })).then(() => send({ kind: "rpc-ok", request_id: move.requestId, data: {} }))
+          .catch((error) => send({ kind: "rpc-error", request_id: move.requestId, message: (error as Error).message }));
+        return;
+      }
+      case "coordMoveSnapshotStart": {
+        const snapshot = v as { requestId: string; handoffId: string; totalSize: bigint; sha256: string; coordKeyPem: Uint8Array; authorizedKeys: Uint8Array; secretSha256: string; expectedWorkerFps: string[] };
+        if (!deps.onCoordMoveSnapshotStart) {
+          send({ kind: "rpc-error", request_id: snapshot.requestId, message: "coordinator move unsupported by this worker" });
+          return;
+        }
+        void Promise.resolve(deps.onCoordMoveSnapshotStart({
+          request_id: snapshot.requestId, handoff_id: snapshot.handoffId, total_size: snapshot.totalSize, sha256: snapshot.sha256,
+          coord_key_pem: snapshot.coordKeyPem, authorized_keys: snapshot.authorizedKeys, secret_sha256: snapshot.secretSha256,
+          expected_worker_fps: snapshot.expectedWorkerFps,
+        })).then(() => snapshotRequestIds.set(snapshot.handoffId, snapshot.requestId))
+          .catch((error) => send({ kind: "rpc-error", request_id: snapshot.requestId, message: (error as Error).message }));
+        return;
+      }
+      case "coordMoveSnapshotChunk": {
+        const chunk = v as { handoffId: string; seq: number; data: Uint8Array; last: boolean };
+        if (!deps.onCoordMoveSnapshotChunk) return;
+        void Promise.resolve(deps.onCoordMoveSnapshotChunk({
+          handoff_id: chunk.handoffId, seq: chunk.seq, data: chunk.data, last: chunk.last,
+        })).then(() => {
+          if (!chunk.last) return;
+          const requestId = snapshotRequestIds.get(chunk.handoffId);
+          if (!requestId) return;
+          snapshotRequestIds.delete(chunk.handoffId);
+          send({ kind: "rpc-ok", request_id: requestId, data: {} });
+        }).catch((error) => {
+          const requestId = snapshotRequestIds.get(chunk.handoffId);
+          if (!requestId) return;
+          snapshotRequestIds.delete(chunk.handoffId);
+          send({ kind: "rpc-error", request_id: requestId, message: (error as Error).message });
+        });
+        return;
+      }
+      case "coordRelocate": {
+        const relocate = v as { requestId: string; handoffId: string; sourceUrl: string; targetUrl: string; action: "STAGE" | "ACTIVATE" | "COMMIT" | "ABORT" };
+        if (!deps.onCoordRelocate) {
+          send({ kind: "rpc-error", request_id: relocate.requestId, message: "coordinator move unsupported by this worker" });
+          return;
+        }
+        void Promise.resolve(deps.onCoordRelocate({
+          request_id: relocate.requestId, handoff_id: relocate.handoffId, source_url: relocate.sourceUrl, target_url: relocate.targetUrl, action: relocate.action,
+        })).then(() => send({ kind: "rpc-ok", request_id: relocate.requestId, data: {} }))
+          .catch((error) => send({ kind: "rpc-error", request_id: relocate.requestId, message: (error as Error).message }));
+        return;
+      }
       case "eventAck": {
         // D-4b: drop the acked entry from the unacked outbox so it
         // doesn't replay on the next reconnect.
@@ -420,6 +481,19 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
     setTimeout(() => { if (!disposed) void dial(); }, d);
   }
 
+  function relocate(targetUrl: string): void {
+    if (disposed || coordHttpUrl === targetUrl) return;
+    coordHttpUrl = targetUrl;
+    backoffMs = BACKOFF_INITIAL_MS;
+    relocating = true;
+    if (closeStream) {
+      closeStream();
+    } else {
+      relocating = false;
+      void dial();
+    }
+  }
+
   function dispose(): void {
     disposed = true;
     clearRefreshTimer();
@@ -428,6 +502,5 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
   }
 
   void dial();
-
-  return { send, sendBinary, sendCellGrid, sendClaudeStatus, state: () => state, dispose };
+  return { send, sendBinary, sendCellGrid, state: () => state, relocate, unackedEventCount: () => unacked.size, dispose };
 }

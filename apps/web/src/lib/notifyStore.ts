@@ -1,13 +1,6 @@
-// Attention notification store — the core engine. Watches rootStore.sessions
-// and rootStore.claude_status for agent-status transitions (working → idle /
-// needs-input) and emits notifications. The notification log is a reactive
-// signal (most-recent-first); side-effects (toast + OS notification + sound)
-// fan out via _dispatchNotification (step 4 wires that in).
-//
-// This builds on the existing attention infrastructure:
-// - liveStatus() (attention.ts) = s.agent?.status ?? rootStore.claude_status[id]
-// - activeSessionForPath (selectors.ts) = the URL-active session
-// - isPageVisible (pageVisible.ts) = tab-visibility signal
+// Attention notification store. Watches OMP transcript state for lifecycle
+// transitions (working → idle / needs-input) and fans out toast, OS
+// notification, and sound effects.
 // - sessionTitle (sessionTitle.ts) = display name for a session
 //
 // No new attention-detection logic — just a transition wrapper over existing
@@ -20,7 +13,7 @@ import { liveStatus } from "./attention.ts";
 import { activeSessionForPath } from "../store/selectors.ts";
 import { isPageVisible } from "./pageVisible.ts";
 import { sessionTitle } from "./sessionTitle.ts";
-import { isClaudeSession } from "./isClaudeSession.ts";
+import { isAgentSession } from "./isAgentSession.ts";
 import { folderKeyOf } from "./folderKey.ts";
 import { notifyPrefs } from "./notifyPrefs.ts";
 import { pushAttentionToast } from "./attentionToastStore.ts";
@@ -247,14 +240,13 @@ const _prevStatus = new Map<string, string>();
 
 createRoot(() => {
   createEffect(() => {
-    // Iterate all sessions reactively — Solid tracks each
-    // sessions[id].agent?.status and claude_status[id] access.
+    // Iterate all sessions reactively; liveStatus reads each OMP transcript.
     const sessions = rootStore.sessions;
     const liveIds = new Set<string>();
 
     for (const s of Object.values(sessions)) {
       if (s.status !== "open") continue;
-      if (!isClaudeSession(s)) continue;
+      if (!isAgentSession(s)) continue;
       liveIds.add(s.id);
 
       const status = liveStatus(s) ?? "unknown";

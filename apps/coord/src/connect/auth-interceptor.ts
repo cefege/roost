@@ -11,6 +11,7 @@ import { Code, ConnectError, createContextKey, type Interceptor } from "@connect
 import type { KyselyDB } from "../db/connection.ts";
 import type { JwtCache } from "../jwt.ts";
 import type { CoordConfig } from "@roost/shared/config";
+import type { CoordinatorMoveService } from "../coord-move/orchestrator.ts";
 import { verifyJwt } from "../jwt.ts";
 import { writeAuditLog } from "../middleware/security.ts";
 import { signal, diag } from "@roost/shared/diag";
@@ -61,7 +62,26 @@ export interface AuthInterceptorDeps {
   db: KyselyDB;
   jwtCache: JwtCache;
   cfg: CoordConfig;
+  move?: CoordinatorMoveService;
 }
+
+// Only durable coordinator mutations take a gate lease. Read RPCs and
+// server-streaming endpoints must never hold the drain open.
+const WRITE_METHODS: Record<string, true | undefined> = {
+  WorkersRegister: true, WorkersHeartbeat: true, WorkersRename: true, WorkersDelete: true, WorkersDeployStart: true,
+  SessionsSpawn: true, SessionsAttach: true, SessionsKill: true, SessionsRename: true, SessionsResize: true,
+  SessionsUserMessage: true, SessionsInput: true, SessionsCursorPos: true, SessionsAssignWorkspace: true,
+  WorkspacesCreate: true, WorkspacesUpdate: true, WorkspacesDelete: true, WorkspacesSetSessions: true,
+  TasksEnqueue: true, TasksNextPending: true, TasksSetState: true, TasksCancel: true,
+  WebhookTokensMint: true, WebhookTokensDelete: true,
+  PermissionsCreate: true, PermissionsUpdate: true, PermissionsDelete: true,
+  McpCreate: true, McpDelete: true, McpPublish: true,
+  AuthAuthorizeBrowser: true, AuthMintBootstrap: true, AuthRedeemWorker: true, AuthRedeemBrowser: true,
+  PairCreate: true, PairApprove: true, PairDeny: true,
+  FilesMkdir: true, TranscriptionSetConfig: true, AgentConfigSet: true,
+  PushSubscribe: true, PushUnsubscribe: true, AttachFileChunk: true, DeleteAttachment: true,
+  TransfersStart: true, DiagDebugLogBatch: true,
+};
 
 export function makeAuthInterceptor(deps: AuthInterceptorDeps): Interceptor {
   return (next) => async (req) => {
@@ -93,12 +113,14 @@ export function makeAuthInterceptor(deps: AuthInterceptorDeps): Interceptor {
     req.contextValues.set(remoteAddressKey, req.header.get("x-roost-remote-addr") ?? undefined);
     req.contextValues.set(tabIdKey, req.header.get("x-roost-tab-id") ?? undefined);
     let status = 200;
+    const lease = deps.move && WRITE_METHODS[method] ? deps.move.gate.acquire() : null;
     try {
       return await next(req);
     } catch (e) {
       status = e instanceof ConnectError ? codeToHttpStatus(e.code) : 500;
       throw e;
     } finally {
+      lease?.release();
       writeAuditLog({
         db: deps.db, status, method: "POST", path, traceId,
         callerFp: caller?.fingerprint ?? null,

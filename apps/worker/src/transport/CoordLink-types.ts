@@ -24,6 +24,18 @@ export interface CoordLinkDeps {
   // Streamed file upload (att1-stream). One call per DAttachmentChunk; the
   // worker assembles by request_id and replies rpc-ok on `last`.
   onAttachmentChunk?: (msg: { request_id: string; session_id: string; filename: string; short_path: boolean; data: Uint8Array; last: boolean; seq: number }) => void;
+  onCoordMovePrepare?: (msg: {
+    request_id: string; handoff_id: string; source_url: string; target_url: string;
+    expected_coord_kid: string; expected_git_sha: string; estimated_db_size: bigint; action: "CHECK" | "PREPARE";
+  }) => Promise<void> | void;
+  onCoordMoveSnapshotStart?: (msg: {
+    request_id: string; handoff_id: string; total_size: bigint; sha256: string; coord_key_pem: Uint8Array;
+    authorized_keys: Uint8Array; secret_sha256: string; expected_worker_fps: string[];
+  }) => Promise<void> | void;
+  onCoordMoveSnapshotChunk?: (msg: { handoff_id: string; seq: number; data: Uint8Array; last: boolean }) => Promise<void> | void;
+  onCoordRelocate?: (msg: {
+    request_id: string; handoff_id: string; source_url: string; target_url: string; action: "STAGE" | "ACTIVATE" | "COMMIT" | "ABORT";
+  }) => Promise<void> | void;
 }
 
 export interface CoordLink {
@@ -32,10 +44,9 @@ export interface CoordLink {
   // R11. Volatile — dropped when the stream is down (the worker
   // re-sends a full frame on reconnect/attach), so no pending buffer.
   sendCellGrid(channelId: number, frame: PbCellGridFrame): boolean;
-  // Volatile herdr agent status (running|needs-input|idle). Same drop-on-down
-  // policy as sendCellGrid — the worker re-scrapes and re-sends on reconnect.
-  sendClaudeStatus(channelId: number, status: string): boolean;
   state(): CoordLinkState;
+  relocate(targetUrl: string): void;
+  unackedEventCount(): number;
   dispose(): void;
 }
 

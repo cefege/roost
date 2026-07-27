@@ -18,9 +18,8 @@ import { existsSync, unlinkSync } from "node:fs";
 //
 //   compatible (Hello/HelloResp version matches KEEPER_PROTOCOL_VERSION):
 //     PRESERVE the keeper. resume() probes its live channel set via
-//     ListChannels + reattaches per-channel callbacks → every running
-//     shell/claude session survives the worker restart with scrollback
-//     intact.
+//     ListChannels + reattaches per-channel callbacks → every running shell
+//     session survives the worker restart with scrollback intact.
 //
 //   incompatible (no Hello response within 800ms OR version mismatch):
 //     KILL it. Old keepers either pre-date Hello (silently drop it) or

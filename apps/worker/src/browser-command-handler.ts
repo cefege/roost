@@ -8,7 +8,7 @@ import { log } from "@roost/shared";
 import type { ClientControlFrame } from "@roost/shared/wire";
 import type { CoordLink } from "./transport/CoordLink.ts";
 import type { SessionManager } from "./session-manager.ts";
-import { handleAttach, handleKill, handleRespawnIfMissing, handleSpawnClaude, handleSpawnShell } from "./browser-command-spawn.ts";
+import { handleAttach, handleKill, handleRespawnIfMissing, handleSpawnShell } from "./browser-command-spawn.ts";
 import { handleGetHome, handleListDir, handleMkdir, handleReadFile, handleReadFileChunk } from "./browser-command-files.ts";
 import { handleGetScrollbackCells, handleResize } from "./browser-command-terminal.ts";
 import { handleStartTransfer } from "./browser-command-transfer.ts";
@@ -36,10 +36,6 @@ export function handleBrowserCommand(
 		}
 		case "spawn-shell": {
 			handleSpawnShell(frame, request_id, { coordLink, sessionMgr });
-			return;
-		}
-		case "spawn-claude": {
-			handleSpawnClaude(frame, request_id, { coordLink, sessionMgr });
 			return;
 		}
 		case "attach": {
@@ -105,10 +101,12 @@ export function handleBrowserCommand(
 			return;
 		}
 		case "user-message":
+		case "get-omp-transcript-page":
+		case "omp-abort":
+			coordLink.send({ kind: "rpc-error", request_id, message: "Structured OMP is not supported" });
+			return;
 		case "cursor-pos":
-		case "set-mode":
 		case "set-title":
-		case "permission-response":
 		case "detach":
 		case "list-skills":
 		case "git-diff": {

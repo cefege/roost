@@ -24,17 +24,6 @@ export interface PairRequest {
   created_at_ms: number;
 }
 
-/**
- * claude_status — a per-session MIRROR of the session's `agent.status` (the
- * worker arbiter's single authority), written by the projector when an agent
- * patch folds. It exists so the few direct readers (TabBar dot, search-result
- * rows) keep a flat lookup without reaching into sessions[id].agent. The old
- * coord grid-scrape (claude-status-hub / @roost/shared/claude-status) was deleted
- * in the detection consolidation — there is now ONE detection algorithm.
- * `ClaudeStatus` is kept as an alias of the wire `AgentStatus` so existing
- * importers resolve unchanged.
- */
-export type ClaudeStatus = "running" | "running-workflow" | "needs-input" | "idle" | "unknown";
 
 export interface RootState {
   workers: Record<string, Worker>;           // key = WorkerFp
@@ -44,12 +33,9 @@ export interface RootState {
   permission_rules: Record<string, PermissionRule>; // key = PermissionRuleId
   mcp_relays: Record<string, McpRelay>;      // key = McpRelayId
   pair_requests: Record<string, PairRequest>; // key = ephemeral_id
-  coord_identity: { fingerprint_hex: string; git_sha: string } | null;
-  claude_status: Record<string, ClaudeStatus>; // key = SessionId
-  /** OSC-0/OSC-2 title from the wterm core. Empty when the shell/claude
-   *  hasn't set one yet. Written by Terminal.tsx's onTitle callback;
-   *  consumed by sidebar/SessionRow.tsx as the preferred row label
-   *  (a display-priority pattern). */
+  coord_identity: { fingerprint_hex: string; git_sha: string; public_url: string; relocated_to_url?: string; handoff_id?: string } | null;
+  /** OSC-0/OSC-2 title from the terminal core. Empty until the program sets
+   *  one. */
   terminal_title: Record<string, string>;
   /** Coord-stamped last-activity timestamp (ms) per session, from PTY byte
    *  flow (last-activity-hub, throttled). Used by the sidebar "Last activity"
@@ -81,7 +67,6 @@ const initialState: RootState = {
   mcp_relays: {},
   pair_requests: {},
   coord_identity: null,
-  claude_status: {},
   terminal_title: {},
   last_activity: {},
   session_viewers: {},

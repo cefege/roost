@@ -1,21 +1,14 @@
-// Worker entry point. Boot sequence (post phase-24):
-//   1. loadWorkerConfig
-//   2. loadWorkerKey + mintJwt factory
-//   3. runInstall (ensure keypair + redeem bootstrap token)
-//   4. startCoordLink (outbound WSS dial to coord, bidir)
-//   5. startHeartbeat (30s loop)
-//   6. startHookListener (UDS for claude --settings hooks)
-//   7. emitSnapshot (re-announce live sessions on reconnect)
+// Worker entry point.
 //
-// Worker has NO inbound port — every command arrives via CoordLink's
-// outbound WebSocket. LaunchAgent: com.roost.worker-v2.
+// Boot sequence: config, credentials, OMP bridge installation, outbound
+// coordinator link, heartbeat, and live-session snapshot.
+// Worker has no inbound port: all browser commands arrive through CoordLink.
 
 import { loadWorkerConfig } from "./config.ts";
 import { loadWorkerKey, mintJwt } from "./jwt.ts";
 import { createCoordClient } from "./coord-client.ts";
 import { runInstall } from "./install.ts";
 import { startHeartbeat } from "./heartbeat.ts";
-import { startHookListener } from "./claude/hooks.ts";
 import { SessionManager } from "./session-manager.ts";
 import { emitSnapshot } from "./snapshot.ts";
 import { startCoordLink } from "./transport/CoordLink.ts";
@@ -24,6 +17,7 @@ import { handleBrowserCommand } from "./browser-command-handler.ts";
 import { handleKeeperSurvivor } from "./boot-keeper.ts";
 import { setupReconcile } from "./boot-reconcile.ts";
 import { coordLinkSink } from "./event-sink.ts";
+import { CoordTarget } from "./coord-target.ts";
 import { asWorkerFp } from "@roost/shared";
 import { log, diag, signal } from "@roost/shared";
 import { createHash } from "node:crypto";
@@ -81,6 +75,14 @@ export async function runWorker() {
 	diag("worker.boot", { step: "key" });
 	const key = await loadWorkerKey(cfg.workerKeyPath);
 	const workerFp = asWorkerFp(key.fingerprint);
+	const coordTarget = new CoordTarget({
+		dataDir: process.env.ROOST_COORDINATOR_DATA_DIR ?? join(homedir(), "Library", "Application Support", "RoostCoordinatorV2"),
+		dbPath: process.env.ROOST_COORDINATOR_DB ?? join(homedir(), "Library", "Application Support", "RoostCoordinatorV2", "coordinator_v2.db"),
+		keyPath: process.env.ROOST_COORDINATOR_KEY_PATH ?? join(homedir(), "Library", "Application Support", "RoostCoordinatorV2", "ssh_ed25519.key"),
+		authorizedKeysPath: process.env.ROOST_COORDINATOR_AUTHORIZED_KEYS ?? join(homedir(), "Library", "Application Support", "RoostCoordinatorV2", "authorized_keys.roost"),
+		handoffPath: process.env.ROOST_COORDINATOR_HANDOFF_PATH ?? join(homedir(), "Library", "Application Support", "RoostCoordinatorV2", "coord-handoff.json"),
+	});
+
 
 	const client = createCoordClient({
 		cfg,
@@ -113,15 +115,6 @@ export async function runWorker() {
 		workerFp,
 		workerVersion: "v2",
 		mintJwt: () => mintJwt(key, "roost-coordinator"),
-		onHelloAck: ({ coord_pubkey_kid }) => {
-			log.info("worker", "coord_link_identity", {
-				coord_kid: coord_pubkey_kid,
-			});
-			// Coord's claude_status cache is in-memory (empty after a coord restart)
-			// and detection only emits on change — re-announce current statuses so
-			// idle claudes don't show as plain terminals until their next transition.
-			sessionMgr.resendClaudeStatuses();
-		},
 		// phase-24c-1: PTY input routed via sessions.input mutation arrives
 		// here as a downstream binary frame. Demux by channel_id, only
 		// accept DIR_TO_PTY (1), forward to keeper.
@@ -171,8 +164,17 @@ export async function runWorker() {
 		// ClientControlFrame. Handle the variants that map cleanly to
 		// existing SessionManager methods; the rest land in subsequent
 		// sub-commits (spawn/input/attach/detach/presence).
-		onBrowserCommand: (msg) =>
-			handleBrowserCommand(msg, { coordLink, sessionMgr }),
+		onCoordMovePrepare: (request) => coordTarget.prepare(request),
+		onCoordMoveSnapshotStart: (request) => coordTarget.startSnapshot(request),
+		onCoordMoveSnapshotChunk: (chunk) => coordTarget.appendSnapshot(chunk),
+		onCoordRelocate: (request) => {
+			if (request.action === "ACTIVATE") coordLink.relocate(request.target_url);
+			if (request.action === "ABORT") {
+				coordTarget.abort(request.handoff_id);
+				coordLink.relocate(request.source_url);
+			}
+		},
+		onBrowserCommand: (msg) => handleBrowserCommand(msg, { coordLink, sessionMgr }),
 	});
 	// phase-25d: teeSink retired. Single emit boundary via CoordLink.
 	// tRPC sessions.emit + the trpcSink branch deleted; CoordLink has
@@ -184,31 +186,17 @@ export async function runWorker() {
 	const { startAttachmentReaper } = await import("./attachment-reaper.ts");
 	startAttachmentReaper();
 
-	// Hook listener UDS.
-	const hookSocketPath = join(SUPPORT, "hook.sock");
-	startHookListener(hookSocketPath, (patch) => {
-		if (!patch.sessionId || !patch.agentPatch) return;
-		const rec = sessionMgr.getBySessionId(patch.sessionId);
-		if (!rec) return;
-		// applyAgentPatch = emit `agent` SessionEvent + advance the channel FSM.
-		sessionMgr.applyAgentPatch({
-			sessionId: rec.sessionId,
-			patch: patch.agentPatch,
-		});
-	});
 
 	// Session manager. phase-24d-1: ALL PTY bytes flow upstream on
 	// CoordLink — no inbound worker WSS exists anymore.
 	const sessionMgr = new SessionManager({
 		workerFp,
 		sink,
-		hookSocketPath,
 		sendBinaryUpstream: (bytes) => coordLink.sendBinary(bytes),
 		sendCellGridUpstream: (channelId, frame) =>
 			coordLink.sendCellGrid(channelId, frame),
-		sendClaudeStatusUpstream: (channelId, status) =>
-			coordLink.sendClaudeStatus(channelId, status),
 	});
+
 
 	// Worker has NO inbound port. Browser commands arrive as
 	// `browser-command` frames on CoordLink downstream. PTY bytes flow

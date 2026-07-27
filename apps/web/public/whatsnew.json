@@ -13,7 +13,7 @@
       "Theme persistence: light / dark / auto follows prefers-color-scheme and survives reload",
       "Coordinator health banner: offline or coord-unreachable state surfaced inline without a full reload",
       "wterm-only terminal: raw stream-json rendering, no xterm, no overlays",
-      "Claude hook coverage: 30 events wired from spawn through agent-idle"
+      "Structured OMP bridge coverage from session start through transcript recovery"
     ]
   }
 ]

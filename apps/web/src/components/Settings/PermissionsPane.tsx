@@ -70,7 +70,7 @@ export function PermissionsPane() {
     <div data-testid="permissions-pane" style={{ display: "flex", "flex-direction": "column", gap: "var(--md-space-5)" }}>
       <Card
         title="Permission rules"
-        supporting="When Claude asks for permission, Roost checks these rules in order — first match wins. No match → the request lands in the inbox for manual review."
+        supporting="Permission rules are evaluated in order: first match wins. No match → the request lands in the inbox for manual review."
       >
         <form
           data-testid="permission-rules-create"

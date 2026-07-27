@@ -45,11 +45,9 @@ export function SessionRowContextMenu(props: SessionRowContextMenuProps) {
 		});
 	}
 
-	// Manual restart for one specific session — kill + respawn at the same
-	// cwd / kind / mode. The new session gets a fresh session_id; the row
-	// briefly disappears and a sibling appears at the same workspace
-	// position. Auto-respawn on worker reboot uses a different path (worker
-	// emits `respawned` keeping session_id stable).
+	// Manual restart for one specific terminal. The new session gets a fresh
+	// session_id; the row briefly disappears and a sibling appears at the same
+	// workspace position.
 	async function handleRestart() {
 		props.onClose();
 		const { addToast } = await import("../../lib/toastStore.ts");
@@ -60,9 +58,6 @@ export function SessionRowContextMenu(props: SessionRowContextMenuProps) {
 				workerFp: s.worker_fp,
 				kind: s.kind,
 				folder: s.cwd,
-				...(s.kind === "claude" && s.agent?.mode
-					? { initialMode: s.agent.mode }
-					: {}),
 			});
 			await coordClient.sessionsKill({ sessionId: s.id });
 			navigate(`/s/${res.sessionId}`);
@@ -100,9 +95,6 @@ export function SessionRowContextMenu(props: SessionRowContextMenuProps) {
 				workerFp: s.worker_fp,
 				kind: s.kind,
 				folder: s.cwd,
-				...(s.kind === "claude" && s.agent?.mode
-					? { initialMode: s.agent.mode }
-					: {}),
 			});
 			navigate(`/s/${res.sessionId}`);
 		} catch (err) {

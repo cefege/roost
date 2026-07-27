@@ -1,5 +1,5 @@
-// computeFolderActivity — cumulative session counts per folder.
-// Tests terminal/agent aggregation including subtree descendants.
+// computeFolderActivity — cumulative terminal counts per folder.
+// Tests terminal aggregation including subtree descendants.
 
 import { expect, test, describe } from "bun:test";
 import { asWorkerFp, asSessionId, asChannelId } from "@roost/shared/wire";
@@ -19,7 +19,6 @@ function sess(over: Record<string, unknown>): Session {
     spawn_cwd: "/x",
     workspace_id: null,
     status: "open",
-    agent: null,
     created_at: 1000,
     closed_at: null,
     custom_title: null,
@@ -70,48 +69,18 @@ describe("computeFolderActivity", () => {
     expect(result.get("/a")).toEqual({ terminals: 1, agentsRunning: 0, needsInput: 0 });
   });
 
-  test("agent running counted", () => {
+  test("OMP running and needs-input states are aggregated", () => {
+    const waiting = asSessionId("00000000-0000-4000-8000-000000000001");
+    const working = asSessionId("00000000-0000-4000-8000-000000000002");
     const sessions = [
-      sess({
-        cwd: "/a",
-        kind: "claude",
-        agent: { kind: "claude", status: "running", last_message: null, current_tool: null, current_block: null },
-      }),
+      sess({ id: waiting, cwd: "/a" }),
+      sess({ id: working, cwd: "/a" }),
     ];
-    const result = computeFolderActivity(sessions, FP, ["/a"]);
-    expect(result.get("/a")).toEqual({ terminals: 1, agentsRunning: 1, needsInput: 0 });
-  });
-
-  test("agent needs-input counted as running + needs", () => {
-    const sessions = [
-      sess({
-        cwd: "/a",
-        kind: "claude",
-        agent: { kind: "claude", status: "needs-input", last_message: null, current_tool: null, current_block: null },
-      }),
-    ];
-    const result = computeFolderActivity(sessions, FP, ["/a"]);
-    expect(result.get("/a")).toEqual({ terminals: 1, agentsRunning: 1, needsInput: 1 });
-  });
-
-  test("multiple agents: running and needs-input summed separately", () => {
-    const sessions = [
-      sess({
-        id: asSessionId("00000000-0000-4000-8000-000000000001"),
-        cwd: "/a",
-        kind: "claude",
-        agent: { kind: "claude", status: "needs-input", last_message: null, current_tool: null, current_block: null },
-      }),
-      sess({
-        id: asSessionId("00000000-0000-4000-8000-000000000002"),
-        cwd: "/a",
-        kind: "claude",
-        agent: { kind: "claude", status: "running", last_message: null, current_tool: null, current_block: null },
-      }),
-    ];
-    const result = computeFolderActivity(sessions, FP, ["/a"]);
+    const states = new Map([[waiting, "needs-input"], [working, "running"]]);
+    const result = computeFolderActivity(sessions, FP, ["/a"], (session) => states.get(session.id) as "needs-input" | "running");
     expect(result.get("/a")).toEqual({ terminals: 2, agentsRunning: 2, needsInput: 1 });
   });
+
 
   test("trailing slash on path handled", () => {
     const sessions = [sess({ cwd: "/a" })];

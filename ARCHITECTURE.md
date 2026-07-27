@@ -31,8 +31,8 @@ package. Everything speaks one RPC framework end to end
   Worker       Worker                Worker     (Bun · one per Mac)
   Mac A        Mac B                 Mac C
      │  a keeper subprocess hosts every PTY over one UDS and
-     │  outlives worker restarts; hooks (Claude Code) or
-     │  screen-scrape (pi, oh-my-pi) track each agent's state
+     │  outlives worker restarts; the local OMP bridge publishes
+     │  structured transcript and approval state.
 ```
 
 ## The three apps
@@ -47,9 +47,8 @@ package. Everything speaks one RPC framework end to end
   `sessions` projection, and fan-out to browsers. It never holds PTY state of
   its own.
 - **Worker** (`apps/worker/`) — runs once per Mac, purely outbound. It dials
-  the coordinator, owns the PTYs (via a single multiplexed keeper subprocess),
-  runs a per-channel state machine, and turns each agent's hooks (Claude Code) or screen-scraped TUI state (pi, oh-my-pi) into agent
-  events. There is no inbound port on a worker.
+  the coordinator and owns PTYs via one multiplexed keeper subprocess. The
+  OMP bridge is a separate local control channel; there is no inbound worker port.
 - **Shared** (`apps/shared/`) — the wire source of truth: protobuf definitions,
   generated TS, Zod schemas, and the `foldEvent` reducer (below).
 
@@ -74,11 +73,10 @@ worker's WebSocket; the worker writes them into the keeper, which writes the
 PTY. Output flows back the same way and rides the `Sync` stream's bytes channel
 out to every browser watching that session.
 
-**B. Agent state (agent turn → sidebar).** Claude Code fires hooks; pi and oh-my-pi are screen-scraped from the rendered grid.
-The worker turns those into `agent` `SessionEvent`s, which travel up as
-proto frames, get appended + projected by the coordinator, and reach the SPA on
-the `Sync` stream. The sidebar chip (working / needs-input / idle, plus model
-and cost) is a selector over that projected state.
+**B. OMP state (bridge → sidebar).** The local OMP bridge publishes transcript,
+tool, phase, and approval events. The coordinator relays them to the SPA, which
+projects them per session. Approval requests become the sidebar's
+`needs-input` state; the terminal itself is never screen-scraped.
 
 ## Terminal fidelity (the hard part)
 
@@ -121,7 +119,7 @@ failure modes and their fixes are catalogued in `CLAUDE.md`.
   `connect/handlers-*.ts` · `connect/auth-interceptor.ts` · `event-log.ts` ·
   `buses.ts` · `db/`
 - **Worker:** `apps/worker/src/main.ts` · `session-manager.ts` ·
-  `transport/CoordLink.ts` · `keeper/multiplexed-main.ts` · `claude/hooks.ts` ·
-  `detect/` (agent screen-scrape) · `fsm.ts`
+  `transport/CoordLink.ts` · `keeper/multiplexed-main.ts` ·
+  `omp-bridge-server.ts` · `fsm.ts`
 - **Shared:** `apps/shared/proto/roost/v1/*.proto` · `src/wire/event.ts`
   (`foldEvent`)

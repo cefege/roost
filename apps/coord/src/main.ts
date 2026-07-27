@@ -12,6 +12,11 @@ import { installByteHubBusHook } from "./byte-hub.ts";
 import { createCoord } from "./coord-factory.ts";
 import { handleWorkerWsUpgrade, makeWorkerWsHandler, type WorkerWsData } from "./connect/worker-ws-handler.ts";
 import { handleSyncWsUpgrade, makeSyncWsHandler, type SyncWsData } from "./connect/sync-ws-handler.ts";
+import { CoordinatorMoveOrchestrator } from "./coord-move/orchestrator.ts";
+import { HandoffStateStore } from "./coord-move/state.ts";
+import { createBunCoordinatorMoveRuntime } from "./coord-move/bun-runtime.ts";
+import { handleInternalHandoffRequest } from "./coord-move/internal-http.ts";
+import { connectWorkers } from "./connect/worker-registry.ts";
 import type { WorkerServiceDeps } from "./connect/worker-service.ts";
 import type { ServerWebSocket } from "bun";
 import { workspaceBus } from "./buses.ts";
@@ -111,17 +116,46 @@ export async function runCoord() {
 
   const jwtCache = newJwtCache();
 
-  const coord = createCoord({ db, coordKey, cfg, jwtCache });
+  let publishRelocation: ((handoffId: string, sourceUrl: string, targetUrl: string) => void) | null = null;
+  const move = new CoordinatorMoveOrchestrator({
+    db,
+    cfg,
+    coordKey,
+    store: new HandoffStateStore(cfg.handoffPath),
+    runtime: createBunCoordinatorMoveRuntime({
+      sqlite,
+      dbPath: cfg.dbPath,
+      coordKeyPath: cfg.coordKeyPath,
+      authorizedKeysPath: cfg.authorizedKeysPath,
+      handoffPath: cfg.handoffPath,
+      publishRelocation: (state) => publishRelocation?.(state.handoffId, state.sourceUrl, state.targetUrl),
+    }),
+    workers: async () => (await db.selectFrom("workers").select(["fp", "label", "os", "git_sha", "reachable_addr"]).execute())
+      .map((worker) => ({
+        fp: worker.fp,
+        label: worker.label,
+        os: worker.os,
+        gitSha: worker.git_sha,
+        reachableAddr: worker.reachable_addr,
+        online: connectWorkers.has(worker.fp),
+      })),
+  });
+  await move.recover();
+
+
+
+  const coord = createCoord({ db, coordKey, cfg, jwtCache, move });
 
   // Raw-WS worker transport deps (Bun-specific; coord-factory stays
   // fetch-only/portable). The WS handler (worker-ws-handler.ts) reuses the
   // shared worker-conn registry + makeWorkerConn from worker-service.ts.
-  const wsDeps: WorkerServiceDeps = { db, coordKey, jwtCache, cfg };
+  const wsDeps: WorkerServiceDeps = { db, coordKey, jwtCache, cfg, move };
   const workerWs = makeWorkerWsHandler(wsDeps);
   // Sync firehose raw-WS (/ws/coord-sync). Same wsDeps shape (ConnectDeps ⊇
   // { db, coordKey, cfg, jwtCache }); the feed itself is shared with the
   // former Connect sync via startSyncFeed (handlers-streaming.ts).
-  const syncWs = makeSyncWsHandler(wsDeps);
+  const syncWs = makeSyncWsHandler({ ...wsDeps, move });
+  publishRelocation = (handoffId, sourceUrl, targetUrl) => syncWs.publishRelocation(handoffId, sourceUrl, targetUrl);
 
   // ONE Bun websocket handler multiplexing both raw-WS transports. Dispatch on
   // the discriminant stamped at upgrade (ws.data.kind). ServerWebSocket is
@@ -317,6 +351,8 @@ export async function runCoord() {
     // per-connection volume so the long-lived bidi isn't body-capped.
     maxRequestBodySize: 1024 * 1024 * 1024 * 256, // 256 GiB
     async fetch(req, server) {
+      const internal = await handleInternalHandoffRequest(req, move);
+      if (internal) return internal;
       // Worker raw-WS transport (/ws/coord-worker/:fp). If this is that
       // upgrade, authenticate + hijack here (Bun-specific); null = not our
       // path → fall through to the portable coord.fetch.

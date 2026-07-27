@@ -64,7 +64,7 @@ export async function handleWorkerWsUpgrade(
       db: deps.db, cache: deps.jwtCache, jwtMaxAgeSecs: deps.cfg.jwtMaxAgeSecs,
     });
   } catch (e) {
-    log.warn("worker-ws", "upgrade_jwt_failed", { error: String(e) });
+    log.warn("worker-ws", "upgrade_jwt_failed", { error: String(e), url_fp: fp, forwarded_for: req.headers.get("x-forwarded-for") });
     signal("worker.auth_rejected", { reason: "jwt_invalid", addr, cooldownKey: addr ?? "worker-auth" });
     return new Response("unauthorized", { status: 401 });
   }
@@ -115,7 +115,7 @@ export function makeWorkerWsHandler(deps: WorkerServiceDeps) {
       // behind a DB-writing event frame (the .tail variance amplifier).
       //
       const fcase = frame.frame.case;
-      if (fcase === "binary" || fcase === "cellGrid" || fcase === "claudeStatus") {
+      if (fcase === "binary" || fcase === "cellGrid") {
         void conn.handleUpstream(frame).catch((e) => {
           log.warn("worker-ws", "handle_failed", { worker_fp: ws.data.fp, error: String(e) });
         });

@@ -105,6 +105,9 @@ export async function refreshCoordAndWorkers(): Promise<void> {
     setRootStore("coord_identity", {
       fingerprint_hex: identity.value.fingerprintHex,
       git_sha: identity.value.gitSha,
+      public_url: identity.value.publicUrl,
+      relocated_to_url: identity.value.relocatedToUrl,
+      handoff_id: identity.value.handoffId,
     });
   }
   // Refresh path mirror of bootstrap's unauth detection: clear or
@@ -266,14 +269,9 @@ async function _bootstrap(): Promise<void> {
     if (sessions.status === "fulfilled") {
       const rec: Record<string, Session> = {};
       for (const s of sessions.value.sessions) {
-        // sessionFromProto unpacks the proto AgentState into the wire
-        // Session shape sidebar selectors read. Wrapped in try/catch
-        // per row — Zod's strict parse throws on enum/min(1)
-        // violations; one bad row would otherwise tank the entire
-        // bootstrap via the outer try/catch and leave workspaces /
-        // tasks / permissions / mcp unset for the cold tab. Better to
-        // skip the single bad row and surface it via the projector's
-        // live-stream fold (which is also Zod-validated but per-event).
+        // sessionFromProto validates each complete session row. A bad row must
+        // not abort bootstrap for workers, workspaces, tasks, or permissions;
+        // skip it and surface the same validation failure from live projection.
         try {
           rec[s.id] = sessionFromProto(s);
         } catch (e) {
@@ -346,6 +344,9 @@ async function _bootstrap(): Promise<void> {
       setRootStore("coord_identity", {
         fingerprint_hex: identity.value.fingerprintHex,
         git_sha: identity.value.gitSha,
+        public_url: identity.value.publicUrl,
+        relocated_to_url: identity.value.relocatedToUrl,
+        handoff_id: identity.value.handoffId,
       });
     }
     if (pairRequests.status === "fulfilled") {

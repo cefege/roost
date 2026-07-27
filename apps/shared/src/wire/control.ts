@@ -5,7 +5,6 @@
 
 import { z } from "zod";
 import { ChannelId, SessionId, TraceId } from "./brand.ts";
-import { ClaudeMode } from "./session.ts";
 
 const Base = z.object({ trace_id: TraceId.optional() });
 
@@ -44,18 +43,8 @@ export const ClientControlFrame = z.discriminatedUnion("kind", [
     // caller-minted id (optimistic spawn); worker reuses it verbatim
     session_id: SessionId.optional(),
   }),
-  Base.extend({
-    kind: z.literal("spawn-claude"),
-    folder: z.string(),
-    initial_mode: ClaudeMode,
-    cols: z.number().int().positive().optional(),
-    rows: z.number().int().positive().optional(),
-    session_id: SessionId.optional(),
-  }),
   Base.extend({ kind: z.literal("kill"), session_id: SessionId }),
-  Base.extend({ kind: z.literal("set-mode"), session_id: SessionId, mode: ClaudeMode }),
   Base.extend({ kind: z.literal("user-message"), session_id: SessionId, text: z.string() }),
-  Base.extend({ kind: z.literal("permission-response"), session_id: SessionId, request_id: z.string(), choice: z.string() }),
   Base.extend({ kind: z.literal("read-file"), request_id: z.string(), path: z.string(), max_lines: z.number().int().positive().optional() }),
   // chunked byte-range read backing the SPA's progress-tracking download.
   // rpc-ok data: { content_b64, size, eof }.
@@ -84,6 +73,8 @@ export const ClientControlFrame = z.discriminatedUnion("kind", [
     end_row: z.number().int().nonnegative(),
     max_rows: z.number().int().positive(),
   }),
+  Base.extend({ kind: z.literal("get-omp-transcript-page"), request_id: z.string(), session_id: SessionId, cursor: z.string().optional(), limit: z.literal(128) }),
+  Base.extend({ kind: z.literal("omp-abort"), request_id: z.string(), session_id: SessionId }),
   // Cross-worker rsync: coord asks the SOURCE worker to spawn rsync
   // sending src_path to dst_host:dst_path. Source worker streams
   // stdout/stderr back via transfer-line frames and emits
@@ -147,7 +138,6 @@ export const ClientControlFrame = z.discriminatedUnion("kind", [
     kind: z.literal("respawn-if-missing"),
     request_id: z.string(),
     session_id: SessionId,
-    target_kind: z.enum(["shell", "claude"]),
     cwd: z.string(),
     cols: z.number().int().positive().default(80),
     rows: z.number().int().positive().default(24),

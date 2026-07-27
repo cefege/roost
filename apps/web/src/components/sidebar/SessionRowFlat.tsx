@@ -7,10 +7,8 @@
 
 import { createMemo, Show } from "solid-js";
 import type { Session } from "@roost/shared/wire";
-import { lastMessageOf } from "../../store/selectors.ts";
 import { shortCwd } from "../../lib/sidebarFormat.ts";
-import { folderHeadline, cloudSubtitle } from "../../lib/sessionTitle.ts";
-import { CostChip } from "./CostChip.tsx";
+import { folderHeadline, programSubtitle } from "../../lib/sessionTitle.ts";
 import { ViewersChip } from "./ViewersChip.tsx";
 import { STAGE_LABEL } from "./SessionRow.constants.ts";
 import { FolderGlyph } from "../FolderGlyph.tsx";
@@ -26,8 +24,7 @@ interface SessionRowFlatProps {
 }
 
 export function SessionRowFlat(props: SessionRowFlatProps) {
-  const cloudSub = createMemo(() => cloudSubtitle(props.session));
-  const lastMsg = createMemo(() => lastMessageOf(props.session));
+  const programSub = createMemo(() => programSubtitle(props.session));
   return (
     <span class="df-flat-body">
       <span class="df-flat-top">
@@ -38,15 +35,13 @@ export function SessionRowFlat(props: SessionRowFlatProps) {
           title={props.session.status === "open" ? "Opened" : "Closed"}
         >{props.relTime}</span>
       </span>
-      {/* Subtitle — what the program reports (claude task / command / last
-          message). Smaller + dimmer than the folder headline; skipped on a
-          fresh shell with nothing to say. */}
-      <Show when={cloudSub()}>
+      {/* Structured program detail; omitted for a fresh terminal. */}
+      <Show when={programSub()}>
         <span
           class="df-flat-subtitle"
           data-testid={`session-subtitle-${props.session.id}`}
-          title={cloudSub()!}
-        >{cloudSub()}</span>
+          title={programSub()!}
+        >{programSub()}</span>
       </Show>
       {/* Line — location: server · path. Always shown, so "where it
           lives" survives even when the activity line swaps to a question. */}
@@ -76,33 +71,29 @@ export function SessionRowFlat(props: SessionRowFlatProps) {
           <span class="df-flat-path-text">{shortCwd(props.session.cwd)}</span>
         </span>
       </span>
-      {/* Line 3 — activity: status · viewers · cost on its own line, so
-          "running" reads loud instead of fighting server·path for width. A
-          needs-input agent swaps the line for the question it's blocked on
-          (the actionable info outranks the chips). */}
+      {/* Activity line. A pending OMP approval shows its actionable detail. */}
       <Show
-        when={!props.offline && props.stage === "needs-input" && lastMsg()?.text}
+        when={!props.offline && props.stage === "needs-input" && programSub()}
         fallback={
-      <span class="df-flat-activity">
-        <Show when={props.displayStage}>
-          {(st) => (
-            <span
-              class="df-stage-text"
-              data-stage={st()}
-              data-testid={`session-stage-${props.session.id}`}
-            >{STAGE_LABEL[st()] ?? st()}</span>
-          )}
-        </Show>
-        <ViewersChip sessionId={props.session.id} />
-        <CostChip session={props.session} />
-      </span>
+          <span class="df-flat-activity">
+            <Show when={props.displayStage}>
+              {(stage) => (
+                <span
+                  class="df-stage-text"
+                  data-stage={stage()}
+                  data-testid={`session-stage-${props.session.id}`}
+                >{STAGE_LABEL[stage()] ?? stage()}</span>
+              )}
+            </Show>
+            <ViewersChip sessionId={props.session.id} />
+          </span>
         }
       >
         <span
           class="df-flat-question"
           data-testid={`session-question-${props.session.id}`}
-          title={lastMsg()!.text}
-        >{lastMsg()!.text.slice(0, 140)}</span>
+          title={programSub()!}
+        >{programSub()!.slice(0, 140)}</span>
       </Show>
     </span>
   );

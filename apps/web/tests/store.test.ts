@@ -24,7 +24,7 @@ function makeOpenedEvent(overrides: Partial<Extract<SessionEvent, { kind: "opene
     session_id: SESSION_ID,
     worker_fp: FP,
     channel: asChannelId(1),
-    session_kind: "claude",
+    session_kind: "shell",
     cwd: "/home/user/project",
     ts: 1000,
     ...overrides,
@@ -35,7 +35,7 @@ function makeAgentEvent(patch: Partial<import("@roost/shared/wire").AgentState> 
   return {
     kind: "agent",
     session_id: SESSION_ID,
-    patch: { kind: "claude", mode: "default", model: "claude-opus-4-5", status: "running", tokens: { in: 100, out: 50, cached: 0 }, cost_usd: 0.01, last_message: null, current_tool: null, current_block: null, permission_request: null, sub_agents: [], ...patch },
+    patch: { kind: "agent", mode: "default", model: "agent-model", status: "running", tokens: { in: 100, out: 50, cached: 0 }, cost_usd: 0.01, last_message: null, current_tool: null, current_block: null, permission_request: null, sub_agents: [], ...patch },
     ts: 2000,
   };
 }
@@ -64,7 +64,7 @@ describe("foldEvent determinism", () => {
     expect(session).toBeDefined();
     expect(session!.agent).not.toBeNull();
     expect(session!.agent!.status).toBe("running");
-    expect(session!.agent!.model).toBe("claude-opus-4-5");
+    expect(session!.agent!.model).toBe("agent-model");
   });
 
   test("bare partial patch into null agent fills all required fields", () => {
@@ -72,7 +72,7 @@ describe("foldEvent determinism", () => {
     // Before defaultAgentState() seeding, this produced an invalid AgentState.
     const events: SessionEvent[] = [
       makeOpenedEvent(),
-      { kind: "agent", session_id: SESSION_ID, patch: { kind: "claude", status: "needs-input" }, ts: 1500 },
+      { kind: "agent", session_id: SESSION_ID, patch: { kind: "agent", status: "needs-input" }, ts: 1500 },
     ];
     const agent = foldAll(events).get(SESSION_ID)?.agent;
     expect(agent).not.toBeNull();
@@ -142,7 +142,7 @@ describe("Swarm ⊆ All invariant", () => {
   test("shell session (no agent) appears in All but not Swarm", () => {
     const shellSessionId = asSessionId("00000000-0000-0000-0000-000000000003");
     const events: SessionEvent[] = [
-      makeOpenedEvent({ session_id: SESSION_ID, session_kind: "claude" }),
+      makeOpenedEvent({ session_id: SESSION_ID, session_kind: "shell" }),
       makeAgentEvent(),
       {
         kind: "opened",
@@ -162,7 +162,7 @@ describe("Swarm ⊆ All invariant", () => {
     expect(all.some((s) => s.id === shellSessionId)).toBe(true);
     // Shell session is NOT in Swarm.
     expect(swarm.some((s) => s.id === shellSessionId)).toBe(false);
-    // Claude session IS in Swarm.
+    // Agent-backed session IS in Swarm.
     expect(swarm.some((s) => s.id === SESSION_ID)).toBe(true);
   });
 });
@@ -299,7 +299,7 @@ describe("projection agreement — foldEventIntoStore === shared foldAll", () =>
     // Worker restarts → re-announces the session in a snapshot with
     // workspace_id:null (it doesn't track that field). Grouping must survive.
     const snap: Session = {
-      id: SESSION_ID, worker_fp: FP, channel: asChannelId(2), kind: "claude",
+      id: SESSION_ID, worker_fp: FP, channel: asChannelId(2), kind: "shell",
       cwd: "/home/user/project", workspace_id: null, status: "open", agent: null,
       created_at: 1000, closed_at: null, custom_title: null,
     };

@@ -125,7 +125,7 @@ describe("extractKeyterms", () => {
 	});
 
 	// KTF3-JUNK-TOKENS regression: a pi harness paints box-drawing headers,
-	// spinner frames, ANSI residue and CJK paths Claude Code never did. Those
+	// spinner frames, ANSI residue, and CJK paths ordinary prompts never did. Those
 	// survived `keep` and reached buildUrl → 1006 handshake reset (recording
 	// never starts). Every emitted keyterm MUST be printable-ASCII & speakable.
 	test("drops handshake-hostile pi-grid junk; every emitted term is speakable", () => {

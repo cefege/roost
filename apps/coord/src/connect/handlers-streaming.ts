@@ -1,11 +1,6 @@
-// Sync firehose — the one server-streaming RPC. Multiplexes the in-memory
-// buses (sessions / presence / workspace / task / permission / mcp / webhook /
-// audit / bytes / session-presence / cell / claude-status / worker-routable /
-// pair / ui) onto a single FirehoseFrame stream, with reconnect backfill of
-// the durable sessionBus via sinceEventId. Each bus payload is adapted to its
-// proto frame shape. Spread into router.ts's single
-// router.service() literal. Split out of router.ts (400-line cap); kept apart
-// from the unary domains because it owns all the bus wiring + frame adapters.
+// Sync firehose — one server-streaming RPC for in-memory state buses,
+// including terminal bytes, cell frames, OMP bridge events, and browser UI
+// coordination.
 
 import type { ServiceImpl } from "@connectrpc/connect";
 import { ConnectError, Code } from "@connectrpc/connect";
@@ -13,8 +8,8 @@ import { create } from "@bufbuild/protobuf";
 import { CoordinatorService } from "@roost/shared/proto/coordinator_pb";
 import {
   FirehoseFrameSchema, type FirehoseFrame, BytesFrameSchema, SessionPresenceSchema,
-  ClaudeStatusFrameSchema, WorkerRoutableFrameSchema, TerminalTitleFrameSchema,
-  LastActivityFrameSchema, UiStateFrameSchema, UiCommandFrameSchema,
+  WorkerRoutableFrameSchema, TerminalTitleFrameSchema, LastActivityFrameSchema,
+  UiStateFrameSchema, UiCommandFrameSchema,
 } from "@roost/shared/proto/sync_pb";
 import { eventToProto } from "@roost/shared/wire/event-proto";
 import {
@@ -36,7 +31,7 @@ import {
 import {
   sessionBus, presenceBus, workspaceBus, taskBus, webhookBus,
   permissionBus, mcpBus, globalBytesBus, globalPresenceBus, auditBus,
-  claudeStatusBus, titleBus, lastActivityBus, workerRoutableBus, globalCellBus,
+  titleBus, lastActivityBus, workerRoutableBus, globalCellBus,
   pairBus, uiBus, type TaskBusMsg, type PairRequestDelta, type AuditRow,
 } from "../buses.ts";
 import { getEventsSince } from "../event-log.ts";
@@ -44,7 +39,6 @@ import { listRoutableFps } from "./worker-service.ts";
 import { getTitleSnapshot } from "../terminal-title-hub.ts";
 import { getUiStateSnapshot } from "./handlers-ui.ts";
 import { getLastActivitySnapshot } from "../last-activity-hub.ts";
-import { snapshotClaudeStatuses } from "../byte-hub.ts";
 import { requireAuth } from "./auth-interceptor.ts";
 import { log } from "@roost/shared/log";
 import { signal } from "@roost/shared/diag";
@@ -305,12 +299,6 @@ export function startSyncFeed(
       frame.coordFanoutMs = BigInt(Date.now());
       push(create(FirehoseFrameSchema, { frame: { case: "cellGrid", value: frame } }));
     }),
-    claudeStatusBus.subscribe(({ session_id, status }) =>
-      push(create(FirehoseFrameSchema, {
-        frame: { case: "claudeStatus", value: create(ClaudeStatusFrameSchema, {
-          sessionId: session_id, status,
-        })},
-      }))),
     titleBus.subscribe(({ session_id, title }) =>
       push(create(FirehoseFrameSchema, {
         frame: { case: "terminalTitle", value: create(TerminalTitleFrameSchema, {
@@ -360,17 +348,6 @@ export function startSyncFeed(
     }));
   }
 
-  // Seed the CURRENT claude_status per session (claudeStatusBus is volatile
-  // live-delta — B10). Without this a browser connecting AFTER a claude
-  // session's last running/idle transition never learns it's a claude and
-  // renders it as a plain terminal. isClaudeSession reads claude_status.
-  for (const { session_id, status } of snapshotClaudeStatuses()) {
-    push(create(FirehoseFrameSchema, {
-      frame: { case: "claudeStatus", value: create(ClaudeStatusFrameSchema, {
-        sessionId: session_id, status,
-      })},
-    }));
-  }
 
   // Seed the CURRENT last-activity ms per session so the "Last activity"
   // filter can age out idle open sessions immediately on page load

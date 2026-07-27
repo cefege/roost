@@ -1,4 +1,4 @@
-// Canonical Zod ↔ proto adapters for AgentState + nested types + Session.
+// Canonical Zod ↔ proto adapters for structured AgentState + Session.
 // Single source of truth — every caller composes from here.
 //
 // Callers:
@@ -118,7 +118,7 @@ export function agentStateToProto(a: AgentState): PbAgentState {
 // loud error rather than a silent enum-widened-string in the store.
 export function agentStateFromProto(p: PbAgentState): AgentState {
   return AgentStateZ.parse({
-    kind: "claude",
+    kind: "agent",
     mode: p.mode,
     model: p.model,
     status: p.status,

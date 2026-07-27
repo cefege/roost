@@ -17,9 +17,10 @@ import type { CoordWorkerUp, CoordWorkerDown } from "@roost/shared/proto/worker_
 import type { CoordKey } from "../coord-key.ts";
 import type { CoordConfig } from "@roost/shared/config";
 import type { JwtCache } from "../jwt.ts";
+import type { CoordinatorMoveService } from "../coord-move/orchestrator.ts";
 import { verifyJwt } from "../jwt.ts";
 import { appendEvent } from "../event-log.ts";
-import { publishBytes, publishCellGrid, publishClaudeStatus, primeChannelMap } from "../byte-hub.ts";
+import { publishBytes, publishCellGrid, primeChannelMap } from "../byte-hub.ts";
 import { resolvePendingRpc, rejectPendingRpc, rejectPendingRpcsForWorker } from "../router/pending-rpcs.ts";
 import { protoToEvent } from "@roost/shared/wire/event-proto";
 import { asWorkerFp, asChannelId, SessionKind } from "@roost/shared/wire";
@@ -33,6 +34,7 @@ export interface WorkerServiceDeps {
   coordKey: CoordKey;
   jwtCache: JwtCache;
   cfg: CoordConfig;
+  move?: CoordinatorMoveService;
 }
 
 // ─── makeWorkerConn — transport-agnostic per-connection worker link ──
@@ -174,6 +176,13 @@ export function makeWorkerConn(
           signal("worker.protocol_violation", { reason: "event_decode_returned_null", worker_fp: workerFp, cooldownKey: workerFp });
           return;
         }
+        if (deps.move?.gate.mode !== undefined && deps.move.gate.mode !== "active") {
+          // Pending targets and draining/retired sources keep the worker link
+          // alive but deliberately withhold the event ack; CoordLink replays
+          // its preserved unacked entry once the committed coordinator accepts it.
+          return;
+        }
+        const lease = deps.move?.gate.acquire();
         try {
           await appendEvent(deps.db, ev, {
             worker_fp: workerFp ?? null,
@@ -185,6 +194,8 @@ export function makeWorkerConn(
           });
           signal("event.append_failed", { error: String(e), worker_fp: workerFp, cooldownKey: "events" });
           throw e; // surface DB durability faults; caller tears down + worker retries.
+        } finally {
+          lease?.release();
         }
         if (clientSeq > 0) {
           send(create(CoordWorkerDownSchema, {
@@ -206,13 +217,6 @@ export function makeWorkerConn(
         const cg = f.frame.value;
         if (workerFp && cg.frame) {
           publishCellGrid(asWorkerFp(workerFp), asChannelId(cg.channelId), cg.frame);
-        }
-        return;
-      }
-      case "claudeStatus": {
-        const cs = f.frame.value;
-        if (workerFp) {
-          publishClaudeStatus(asWorkerFp(workerFp), asChannelId(cs.channelId), cs.status);
         }
         return;
       }
@@ -279,12 +283,9 @@ async function _respawnMissingForWorker(
   log.info("worker-service", "respawn_missing_dispatch", { worker_fp: workerFp, count: rows.length });
   for (const row of rows) {
     const requestId = randomUUID();
-    // Parse, don't coerce: the old `row.kind === "claude" ? "claude" : "shell"`
-    // ternary silently respawned an `agent` session as a bare shell. `kind` is
-    // an unconstrained text column, so an unreadable row is SKIPPED — throwing
-    // would abort the respawn of every remaining session on this worker.
-    const kind = SessionKind.safeParse(row.kind);
-    if (!kind.success) {
+    // Only shell terminals are a supported session kind. Historical rows with
+    // another value remain visible but are not recreated.
+    if (row.kind !== "shell") {
       log.warn("worker-service", "respawn_unknown_kind", {
         worker_fp: workerFp, session_id: row.id, kind: row.kind,
       });
@@ -294,7 +295,6 @@ async function _respawnMissingForWorker(
       kind: "respawn-if-missing" as const,
       request_id: requestId,
       session_id: row.id,
-      target_kind: kind.data,
       cwd: row.cwd,
       cols: 80,
       rows: 24,

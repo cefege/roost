@@ -3,6 +3,7 @@
 
 import { z } from "zod";
 import { homedir } from "node:os";
+import { resolveTailnetDnsName } from "./tailnet.ts";
 import { join } from "node:path";
 
 // Default coord data dir — MUST match apps/coord/scripts/install.sh
@@ -13,6 +14,26 @@ import { join } from "node:path";
 // anything useful.
 function coordDataDir(env: Record<string, string | undefined>): string {
   return join(env.HOME ?? homedir(), "Library", "Application Support", "RoostCoordinatorV2");
+}
+
+function normalizePublicUrl(raw: string | undefined): string | undefined {
+  if (!raw) {
+    const dnsName = resolveTailnetDnsName();
+    return dnsName ? `https://${dnsName}:4102` : undefined;
+  }
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error("ROOST_COORDINATOR_PUBLIC_URL must be a valid HTTPS origin");
+  }
+  if (
+    url.protocol !== "https:" || url.username || url.password || url.search ||
+    url.hash || url.pathname !== "/"
+  ) {
+    throw new Error("ROOST_COORDINATOR_PUBLIC_URL must be an HTTPS origin without credentials, query, fragment, or path");
+  }
+  return url.origin;
 }
 
 // ─── coord config ──────────────────────────────────────────────────────
@@ -33,6 +54,8 @@ export const CoordConfig = z.object({
   // and avoiding mixed-content when a worker serves WSS.
   tlsCertPath: z.string().optional(),
   tlsKeyPath: z.string().optional(),
+  publicUrl: z.string().url().optional(),
+  handoffPath: z.string(),
 });
 export type CoordConfig = z.infer<typeof CoordConfig>;
 
@@ -54,6 +77,8 @@ export function loadCoordConfig(env: Record<string, string | undefined> = proces
     logDir: env.ROOST_COORDINATOR_LOG_DIR,
     tlsCertPath: env.ROOST_TLS_CERT_PATH,
     tlsKeyPath: env.ROOST_TLS_KEY_PATH,
+    publicUrl: normalizePublicUrl(env.ROOST_COORDINATOR_PUBLIC_URL),
+    handoffPath: env.ROOST_COORDINATOR_HANDOFF_PATH ?? join(dataDir, "coord-handoff.json"),
   });
 }
 

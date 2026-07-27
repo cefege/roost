@@ -264,11 +264,10 @@ git history on `n6/solid-rewrite` if you need v1 source for reference.
       per-chip stores. Add a selector + a JSX line; do NOT add a new store.
     - Worker: `apps/worker/src/{main,session-manager,fsm,heartbeat,
       snapshot,coord-client,jwt,wterm-serialize,attachment-reaper}.ts`
-      + `transport/CoordLink.ts` + `keeper/{multiplexed-main,multiplexed-client,protocol-v2}.ts`
-      + `claude/hooks.ts` + `detect/` (agent screen-scrape). Worker is purely OUTBOUND —
-      no `ws-server.ts` / inbound HTTP/WS surface (CoordLink dials
-      coord). Wire shape = `@roost/shared`. Add an event variant in
-      `apps/shared/src/wire/event.ts` first, then fold + emit + project.
+      + `transport/CoordLink.ts` + `keeper/{multiplexed-main,multiplexed-client,protocol-v2}.ts`.
+      Worker is purely OUTBOUND — no `ws-server.ts` / inbound HTTP/WS surface
+      (CoordLink dials coord). Wire shape = `@roost/shared`. Add an event variant
+      in `apps/shared/src/wire/event.ts` first, then fold + emit + project.
     - Coord: `apps/coord/src/main.ts` + `coord-factory.ts` +
       `connect/{router,auth-interceptor,worker-service,bun-handler}.ts`.
       `connect/router.ts::buildConnectRouter` is now PURE WIRING (~84 lines):
@@ -409,7 +408,7 @@ lsof -iTCP -sTCP:LISTEN -P -n | grep bun
   `<img>` overlays.
 - **Sidebar:** `src/components/sidebar/{SidebarRoot,SidebarSearch,
   SidebarFilterMenu,SidebarEmptyState,AllView,MachineSection,
-  SessionRow,StatusGlyph,CostChip,NeedsInputChip}.tsx` — all read from
+  SessionRow,StatusGlyph,NeedsInputChip}.tsx` — all read from
   the same `store.sessions` Map. Per-URL filtering (`/swarm`, `/queue`,
   `/inbox`) is computed in selectors over the same root state, NOT in
   separate view files.
@@ -555,23 +554,11 @@ lsof -iTCP -sTCP:LISTEN -P -n | grep bun
 - **Attachment reaper:** `src/attachment-reaper.ts` — 1h sweep of
   `~/.roost/attachments/<sid>/`: deletes files >24h old, enforces 1 GB
   LRU cap, removes empty session dirs.
-- **Agent integration:** terminal-only. `src/claude/hooks.ts` instruments
-  Claude sessions with hooks; `src/detect/` screen-scrapes any terminal
-  agent that has a manifest. Roost never owns an omp subprocess, never tails
-  its transcripts, and never renders an omp web UI. The terminal is the
-  sole surface for shell, Claude, omp, pi, and every other agent.
-  - `claude/hooks.ts` — `buildHooksSettings()` + hook UDS listener. `spawnClaude`
-    (`session-manager.ts`) runs claude with `--settings <hooks_json>
-    --input/output-format=stream-json --include-hook-events`; each hook POSTs a
-    JSON line to the worker hook UDS → `handleHookLine` →
-    `SessionManager.applyAgentPatch` → `agent` SessionEvent. The `stream-json`
-    stream is spawned but NOT consumed as a transcript. The shadow
-    `ClaudeBridge` + `parser.ts` that once parsed stdout were deleted 2026-07-04.
-  - `detect/` — generic terminal screen-scrape (`screen-detect.ts` +
-    `manifest-engine.ts` + `claude-manifest.ts` + `pi-manifest.ts` +
-    `omp-manifest.ts`) over the rendered wterm grid → volatile
-    `claudeStatusBus`. The ONLY status source for agents without hooks, e.g.
-    pi and omp.
+- **Agent integration:** generic structured state. `AgentState` is carried by
+  `agent` SessionEvents for integrations that provide it; ordinary shells retain
+  `agent: null`. `session.agent !== null` is the only generic agent-session
+  predicate. Roost does not screen-scrape terminal output or maintain
+  Claude-specific hook state; the terminal remains the interactive surface.
 - **Snapshot:** `src/snapshot.ts` — emit `snapshot` SessionEvent on
   coord reconnect (R3.1 reconciliation).
 - **Run / dev:** `bun apps/worker/src/main.ts`.

@@ -6,9 +6,11 @@
 // Callers: main.ts.
 
 import { log } from "@roost/shared";
+import { resolveTailnetDnsName } from "@roost/shared/tailnet";
 import type { CoordClient } from "./coord-client.ts";
 import type { WorkerConfig as WorkerConfigType } from "@roost/shared";
 import { loadWorkerKey } from "./jwt.ts";
+export { resolveTailnetDnsName } from "@roost/shared/tailnet";
 
 // Boot-time coord RPCs MUST time out. runInstall runs BEFORE heartbeat +
 // CoordLink start, so a hang here stalls the whole worker boot. A coord
@@ -20,35 +22,6 @@ import { loadWorkerKey } from "./jwt.ts";
 // self-heal once coord is back.
 const BOOT_RPC_TIMEOUT_MS = 10_000;
 
-// vnc:// / smb:// targets are the LIVE tailnet MagicDNS name, not a value
-// frozen at install. ROOST_REACHABLE_ADDR went stale the moment a machine was
-// renamed in tailscale: the dead name shipped to the SPA and Screen
-// Sharing.app couldn't resolve it. Re-resolve every boot so
-// renames self-correct. PATH is minimal under a LaunchAgent — probe known
-// install dirs. Returns "" when tailscale isn't reachable (env fallback wins).
-const TAILSCALE_BINS = [
-  "tailscale",
-  "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
-  "/opt/homebrew/bin/tailscale",
-  "/usr/local/bin/tailscale",
-];
-export function resolveTailnetDnsName(bins: readonly string[] = TAILSCALE_BINS): string {
-  for (const bin of bins) {
-    try {
-      // Bound the spawn: early post-login the Tailscale.app CLI shim talks to
-      // a GUI agent that isn't ready yet and `status --json` hangs forever.
-      // Unbounded Bun.spawnSync then wedges the worker's main thread and the
-      // whole boot (observed: 7.5min stuck on a hung `Tailscale status` child).
-      // 2s timeout → SIGKILL → exitCode!=0 → fall through to ROOST_REACHABLE_ADDR.
-      const r = Bun.spawnSync([bin, "status", "--json"], { timeout: 2000, killSignal: "SIGKILL" });
-      if (r.exitCode !== 0) continue;
-      const j = JSON.parse(r.stdout.toString()) as { Self?: { DNSName?: string } };
-      const dns = (j.Self?.DNSName ?? "").toLowerCase().replace(/\.$/, "");
-      if (dns) return dns;
-    } catch { /* try next bin */ }
-  }
-  return "";
-}
 
 /**
  * Redeem bootstrap token (if present) + register with coord.

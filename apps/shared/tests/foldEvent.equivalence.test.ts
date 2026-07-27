@@ -42,7 +42,7 @@ const workerFpArb = fc.constantFrom(
 );
 const channelArb = fc.integer({ min: 1, max: 200 }).map((n) => n as ChannelId);
 const cwdArb = fc.constantFrom("/", "/tmp", "/Users/you", "/var/log");
-const sessionKindArb = fc.constantFrom("shell" as const, "claude" as const);
+const sessionKindArb = fc.constant("shell" as const);
 const tsArb = fc.integer({ min: 1, max: 2_000_000_000_000 });
 
 function openedEvent(id: SessionId, fp: WorkerFp, ts: number): SessionEvent {

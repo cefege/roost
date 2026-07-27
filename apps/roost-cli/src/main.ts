@@ -21,7 +21,6 @@ import { addMac } from "./add-mac.ts";
 import { coord } from "./coord.ts";
 import { worker } from "./worker.ts";
 import { keeper } from "./keeper.ts";
-import { hook } from "./hook.ts";
 import { update } from "./update.ts";
 import { version } from "./version.ts";
 
@@ -30,7 +29,6 @@ const SUBCOMMANDS = {
   coord,
   worker,
   keeper,
-  hook,
   update,
   version,
   dev,

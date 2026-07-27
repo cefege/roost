@@ -1,22 +1,23 @@
-// Per-folder activity derived from the session store — how many terminals
-// and running agents live inside a folder or its subtree. Pure client-side
-// join of the filesystem listing (BrowsePage) with the session array.
+// Per-folder activity derived from terminal sessions and OMP transcript state.
+// It counts terminals in a folder or subtree and derives active/blocked agents
+// through the shared OMP attention projection.
 // Zero RPCs: all data is already in memory.
 //
 // Cumulative: for folder /Users/you/Code, counts sessions in
 // /Users/you/Code AND /Users/you/Code/roost AND .../idea/apps/web —
-// every descendant. The user asked for this ("in total, this many agents").
+// every descendant.
 //
 // Called by: BrowsePage.tsx (the "+" folder browser).
 
-import type { Session } from "@roost/shared/wire";
+import type { AgentStatus, Session } from "@roost/shared/wire";
+import { liveStatus } from "./attention.ts";
 
 export interface FolderActivity {
   /** Total sessions whose cwd is this folder or any descendant. */
   terminals: number;
-  /** Of those, claude sessions with status running or needs-input. */
+  /** Of those, OMP sessions currently running or awaiting user input. */
   agentsRunning: number;
-  /** Of those, claude sessions specifically blocked awaiting user input. */
+  /** Of those, OMP sessions specifically blocked awaiting user input. */
   needsInput: number;
 }
 
@@ -34,6 +35,7 @@ export function computeFolderActivity(
   sessions: Session[],
   workerFp: string,
   folderPaths: string[],
+  statusOf: (session: Session) => AgentStatus | undefined = liveStatus,
 ): Map<string, FolderActivity> {
   const serverSessions = sessions.filter((s) => String(s.worker_fp) === workerFp);
   const out = new Map<string, FolderActivity>();
@@ -52,7 +54,7 @@ export function computeFolderActivity(
       const cwd = stripTrailingSlash(s.cwd);
       if (cwd !== base && !cwd.startsWith(prefix)) continue;
       terminals++;
-      const st = s.agent?.status;
+      const st = statusOf(s);
       if (st === "needs-input") {
         agentsRunning++;
         needsInput++;

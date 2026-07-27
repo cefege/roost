@@ -1,6 +1,7 @@
-// D-3: shell-implies-agent-null invariant on Session schema.
+// Session schema accepts shell terminals with optional adapter state.
 
 import { describe, it, expect } from "bun:test";
+import { sessionFromProto, sessionToProto } from "../src/wire/agent-proto.ts";
 import { Session, asSessionId, asWorkerFp, asChannelId } from "../src/wire/index.ts";
 
 const base = {
@@ -14,28 +15,32 @@ const base = {
   closed_at: null,
   custom_title: null,
 };
-const claudeAgent = {
-  kind: "claude" as const, mode: "default" as const, model: "x", status: "running" as const,
+const agent = {
+  kind: "agent" as const, mode: "default" as const, model: "adapter", status: "running" as const,
   tokens: { in: 0, out: 0, cached: 0 }, cost_usd: 0,
   last_message: null, current_tool: null, current_block: null,
   permission_request: null, sub_agents: [],
 };
 
-describe("Session.kind/agent invariant", () => {
-  it("accepts shell + agent:null", () => {
+describe("Session kind and adapter state", () => {
+  it("accepts shell without adapter state", () => {
     expect(() => Session.parse({ ...base, kind: "shell", agent: null })).not.toThrow();
   });
-  it("accepts claude + agent:null (brief window before first agent event)", () => {
-    expect(() => Session.parse({ ...base, kind: "claude", agent: null })).not.toThrow();
+  it("accepts shell with adapter state", () => {
+    expect(() => Session.parse({ ...base, kind: "shell", agent })).not.toThrow();
   });
-  it("accepts claude + agent:populated", () => {
-    expect(() => Session.parse({ ...base, kind: "claude", agent: claudeAgent })).not.toThrow();
+  it("rejects retired and unsupported session kinds", () => {
+    expect(Session.safeParse({ ...base, kind: "claude", agent: null }).success).toBe(false);
+    expect(Session.safeParse({ ...base, kind: "unsupported", agent: null }).success).toBe(false);
   });
-  it("rejects shell + agent:populated", () => {
-    const r = Session.safeParse({ ...base, kind: "shell", agent: claudeAgent });
-    expect(r.success).toBe(false);
-    if (!r.success) {
-      expect(r.error.issues[0].message).toMatch(/shell session must have agent:null/);
-    }
+});
+
+describe("Session protobuf ingress", () => {
+  it("rejects a retired kind at the protobuf boundary", () => {
+    const shell = { ...base, kind: "shell" as const, agent: null };
+    const proto = sessionToProto(shell);
+    expect(sessionFromProto(proto)).toEqual(shell);
+    proto.kind = "claude";
+    expect(() => sessionFromProto(proto)).toThrow(/kind/);
   });
 });

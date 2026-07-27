@@ -17,6 +17,7 @@ import type { KyselyDB } from "./db/connection.ts";
 import type { CoordKey } from "./coord-key.ts";
 import type { CoordConfig } from "@roost/shared/config";
 import type { JwtCache } from "./jwt.ts";
+import type { CoordinatorMoveService } from "./coord-move/orchestrator.ts";
 
 interface CoordHandlerContext {
   /** Optional client IP from the runtime — used for loopback checks +
@@ -34,6 +35,7 @@ export interface CoordDeps {
   coordKey: CoordKey;
   cfg: CoordConfig;
   jwtCache: JwtCache;
+  move?: CoordinatorMoveService;
 }
 
 export interface CoordHandle {
@@ -50,11 +52,9 @@ export function createCoord(deps: CoordDeps): CoordHandle {
   const connectRouter = buildConnectRouter(deps);
   const connectHandler = makeConnectBunHandler(connectRouter);
 
-  // Agent-status detection runs WORKER-side (herdr engine in apps/worker/src/
-  // detect/ scrapes each session's wtermCore grid). The worker emits WClaudeStatus
-  // → byte-hub::publishClaudeStatus → claudeStatusBus → the Sync firehose fans it
-  // to the SPA chip. Coord only republishes; it can't run the detect/ WASM (it
-  // segfaults Bun at coord boot), which is why detection isn't a coord hub here.
+  // Agent-status detection runs on the worker: it scrapes each session's
+  // terminal grid, emits WAgentStatus, and the coordinator relays that
+  // volatile projection to the Sync firehose.
   // Coord-authoritative OSC terminal title: parse it off the same relayed byte
   // stream, broadcast changes via Sync (mirrors the status hub; no headless
   // grid needed). Replaces the dead per-browser onTitle path.

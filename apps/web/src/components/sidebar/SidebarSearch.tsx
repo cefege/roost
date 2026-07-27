@@ -1,5 +1,5 @@
 // Sidebar search input. Cmd-F focuses it; Esc clears and blurs.
-// Filters rootStore.sessions by cwd / agent last_message / workspace name.
+// Filters rootStore.sessions by cwd / latest OMP output / workspace name.
 // Props: query (string), onChange (setter). Called by SidebarRoot or AllView.
 // Depends on: no store reads — pure controlled input; filtering is caller's job.
 //

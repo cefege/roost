@@ -1,9 +1,4 @@
-// One row per session in any sidebar view. Two densities:
-//   "full" (default) — tree view: status glyph + title + needs-input +
-//     scraped-status badge + viewers + cost + close.
-//   "flat" — flat recency list: status glyph + title + needs-input +
-//     relative-time hint + close. Drops the competing chips (cost/viewers/
-//     scraped-badge) so the list reads calmly at a glance.
+// One row per terminal session in tree or flat sidebar density.
 // Props: session, density. Navigates to /s/:sessionId on click.
 
 import { A, useLocation, useNavigate } from "@solidjs/router";
@@ -18,10 +13,8 @@ import { activeSessionForPath } from "../../store/selectors.ts";
 import { relTimeSince } from "../../lib/relTime.ts";
 import { shortServerLabel } from "../../lib/sidebarFormat.ts";
 import { sessionTitle } from "../../lib/sessionTitle.ts";
-import { CostChip } from "./CostChip.tsx";
-import { NeedsInputChip } from "./NeedsInputChip.tsx";
+import { liveStatus } from "../../lib/attention.ts";
 import { StatusGlyph } from "./StatusGlyph.tsx";
-import { isClaudeSession } from "../../lib/isClaudeSession.ts";
 import { ViewersChip } from "./ViewersChip.tsx";
 import { SessionRowContextMenu } from "./SessionRowContextMenu.tsx";
 import { closeSidebar } from "../../store/uiStore.ts";
@@ -29,7 +22,7 @@ import { colorForFp } from "../../lib/fpColor.ts";
 import { IconButton } from "../Settings/md/IconButton.tsx";
 import "@material/web/ripple/ripple.js";
 import { SessionRowFlat } from "./SessionRowFlat.tsx";
-import { ROW_BASE, STATUS_DOT, relTimeTickMs, STAGE_LABEL } from "./SessionRow.constants.ts";
+import { ROW_BASE, relTimeTickMs, STAGE_LABEL } from "./SessionRow.constants.ts";
 
 interface SessionRowProps {
   session: Session;
@@ -47,9 +40,7 @@ export function SessionRow(props: SessionRowProps) {
   const navigate = useNavigate();
   const session = () => props.session;
   const density = () => props.density ?? "full";
-  const scrapedStatus = createMemo(
-    () => rootStore.claude_status[session().id] ?? "unknown",
-  );
+  const ompStatus = createMemo(() => liveStatus(session()));
   // Server (Mac) identity for the flat list — plain text on the supporting
   // line (no color: arbitrary hues read as status). Owner prefix stripped.
   const serverLabel = createMemo(() =>
@@ -60,24 +51,13 @@ export function SessionRow(props: SessionRowProps) {
     const w = rootStore.workers[session().worker_fp];
     return w ? workerOnline(w) : false;
   });
-  // Claude stage for the flat-list status pill. Resolves agent.status,
-  // falling back to the grid-scraped status. null = no stage to show
-  // (plain shell / unknown) — those read their open/closed via the glyph.
-  const stage = createMemo<string | null>(() => {
-    const s = session().agent?.status ?? scrapedStatus();
-    return !s || s === "unknown" ? null : s;
-  });
-  // When the worker is unreachable its sessions keep their LAST agent status
-  // in the store (the worker stopped emitting). Showing "needs input" then is
-  // wrong — you can't answer an offline machine. Surface "offline" instead and
-  // suppress every live agent chip/glyph below.
+  // OMP transcript phase drives the flat-list status pill.
+  const stage = createMemo<string | null>(() => ompStatus() ?? null);
+  // An unreachable worker must render offline rather than stale OMP state.
   const offline = createMemo(() => !serverOnline());
   const displayStage = createMemo<string | null>(() => (offline() ? "offline" : stage()));
-  // Recency hint. Claude sessions WAITING on the user (needs-input/idle/done)
-  // show how long they've been waiting: last_activity[sid] = coord-stamped
-  // last PTY byte ≈ the moment claude stopped output and asked. Everything
-  // else (terminals, running, closed) keeps created_at/closed_at — nobody
-  // cares how long a shell has been open (Author 2026-07-03).
+  // Waiting and idle OMP sessions show elapsed time since their last terminal
+  // activity; active and closed sessions use their lifecycle timestamp.
   const relTime = createMemo(() => {
     relTimeTickMs(); // 30s ticker so the label ages while nothing else changes
     const s = session();
@@ -112,11 +92,6 @@ export function SessionRow(props: SessionRowProps) {
     return m !== null && m[1] === session().channel.toString();
   });
 
-  const statusColor = createMemo(() => {
-    const ag = session().agent;
-    if (!ag) return session().status === "open" ? "var(--text-lo)" : "var(--border-strong)";
-    return STATUS_DOT[ag.status] ?? "var(--text-lo)";
-  });
 
 
   // ── Swipe-to-close (touch only) ───────────────────────────────────────────
@@ -260,16 +235,7 @@ export function SessionRow(props: SessionRowProps) {
       <md-ripple />
       <span class="df-leading">
         <StatusGlyph
-          status={(() => {
-            // Offline worker → no live status; render the calm idle glyph.
-            if (offline()) return undefined;
-            const s = session().agent?.status ?? scrapedStatus();
-            // StatusGlyph only knows the agent-state vocabulary; map
-            // the scraper's "running-workflow" to its closest match
-            // "running" so the glyph still spins.
-            return (s === "running-workflow" ? "running" : s) as "running" | "needs-input" | "idle" | "done" | undefined;
-          })()}
-          isClaude={isClaudeSession(session())}
+          status={offline() ? undefined : ompStatus()}
         />
       </span>
       <Show
@@ -280,39 +246,7 @@ export function SessionRow(props: SessionRowProps) {
             <Show when={offline()}>
               <span class="df-stage-text" data-stage="offline" data-testid={`session-offline-${session().id}`}>offline</span>
             </Show>
-            <Show when={!offline() && (session().agent?.status ?? scrapedStatus()) === "needs-input"}>
-              <NeedsInputChip count={1} title={session().cwd} />
-            </Show>
-            <Show when={!offline() && !session().agent && scrapedStatus() !== "unknown"}>
-              <span
-                data-testid={`session-scraped-status-${session().id}`}
-                data-status={scrapedStatus()}
-                title={`claude ${scrapedStatus() === "running-workflow" ? "running, blocked on sub-task" : scrapedStatus()} (scraped from terminal)`}
-                style={{
-                  "font-size": "10px",
-                  "font-weight": "600",
-                  "line-height": "1",
-                  padding: "3px 7px",
-                  "border-radius": "10px",
-                  "margin-right": "6px",
-                  "text-transform": "uppercase",
-                  "letter-spacing": "0.5px",
-                  "white-space": "nowrap",
-                  background: (scrapedStatus() === "running" || scrapedStatus() === "running-workflow") ? "var(--term-color-10)"
-                             : scrapedStatus() === "needs-input" ? "var(--term-color-9)"
-                             : "var(--term-color-8)",
-                  color: "var(--term-bg)",
-                  "box-shadow": "0 0 0 1px rgba(0,0,0,0.25)",
-                  animation: (scrapedStatus() === "running" || scrapedStatus() === "running-workflow") ? "df-pulse 1.4s ease-in-out infinite" : "none",
-                }}
-              >
-                {scrapedStatus() === "needs-input" ? "input?"
-                  : scrapedStatus() === "running-workflow" ? "running (workflow)"
-                  : scrapedStatus()}
-              </span>
-            </Show>
             <ViewersChip sessionId={session().id} />
-            <CostChip session={session()} />
           </>
         }
       >

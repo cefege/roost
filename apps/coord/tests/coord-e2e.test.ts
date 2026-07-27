@@ -38,6 +38,8 @@ beforeAll(async () => {
     relaxedCsp: false,
     corsAllowedOrigins: [],
     logDir: workdir,
+    publicUrl: undefined,
+    handoffPath: join(workdir, "coord-handoff.json"),
   };
   coord = createCoord({ db, coordKey, cfg, jwtCache });
   cleanup = () => {

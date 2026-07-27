@@ -12,6 +12,7 @@ import { useNavigate } from "@solidjs/router";
 import { rootStore } from "../store/root.ts";
 import { markSeen } from "../lib/sessionSeen.ts";
 import { pageVisible } from "../lib/pageVisible.ts";
+import { latestAssistantOutput } from "../lib/attention.ts";
 import { CellTerminal } from "./CellTerminal.tsx";
 import { PaneStrip } from "./PaneStrip.tsx";
 import { MobileDeckBar } from "./MobileDeckBar.tsx";
@@ -317,15 +318,14 @@ export function TerminalDeck(props: { activeSessionId: string | null }) {
     { equals: (a, b) => a.length === b.length && a.every((id, i) => id === b[i]) },
   );
 
-  // Mark every ON-SCREEN pane's selected tab "seen" while the tab is foregrounded
-  // (P3.3). Tiling shows several panes at once, so seeing can't be URL-active-only
-  // — else visible idle panes wrongly read "Done". After this, "Done = idle &
-  // unseen" (attention.ts) fires ONLY for agents that finished OFF-SCREEN. Reads
-  // last_message.ts so fresh output while watched re-stamps. markSeen is monotonic.
+  // Mark every ON-SCREEN pane's selected tab "seen" while foregrounded.
+  // Tiling shows several panes at once, so seeing can't be URL-active-only.
+  // New OMP assistant output while watched re-stamps the monotonic marker.
   createEffect(() => {
     if (!pageVisible()) return;
     for (const id of visibleSelectedTabs()) {
-      void rootStore.sessions[id]?.agent?.last_message?.ts;
+      const session = rootStore.sessions[id];
+      if (session) void latestAssistantOutput(session)?.ts;
       markSeen(id);
     }
   });

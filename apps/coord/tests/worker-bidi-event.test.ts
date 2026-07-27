@@ -44,7 +44,7 @@ describe("worker→coord event frame (R-2 typed wire)", () => {
     const ev = SessionEvent.parse({
       kind: "agent",
       session_id: asSessionId("00000000-0000-4000-8000-000000000002"),
-      patch: { kind: "claude", current_tool: null, status: "idle" },
+      patch: { kind: "agent", current_tool: null, status: "idle" },
       ts: 1781500001,
     });
     const proto = eventToProto(ev, 0);

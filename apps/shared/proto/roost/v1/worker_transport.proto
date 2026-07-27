@@ -41,11 +41,7 @@ message WRefreshJwt { string jwt = 1; }
 // maps channel→session (byte-hub) and fans out via FirehoseFrame.cell_grid.
 message WCellGrid { uint32 channel_id = 1; PbCellGridFrame frame = 2; }
 
-// Volatile herdr agent status (running|needs-input|idle) keyed by channel_id;
-// coord maps channel→session (byte-hub) and republishes to claudeStatusBus →
-// FirehoseFrame.claude_status. NOT durable (never in the events table): the
-// worker screen-scrapes its wtermCore grid (detect/) and emits on change.
-message WClaudeStatus { uint32 channel_id = 1; string status = 2; }
+
 
 
 message CoordWorkerUp {
@@ -64,7 +60,6 @@ message CoordWorkerUp {
     WBinary binary = 10;
     WRefreshJwt refresh_jwt = 11;
     WCellGrid cell_grid = 12;
-    WClaudeStatus claude_status = 13;
   }
 }
 
@@ -99,6 +94,43 @@ message DAttachmentChunk {
   uint32 seq = 7;         // 0-based chunk index; worker rejects out-of-order
 }
 
+message DCoordMovePrepare {
+  string request_id = 1;
+  string handoff_id = 2;
+  string source_url = 3;
+  string target_url = 4;
+  string expected_coord_kid = 5;
+  string expected_git_sha = 6;
+  uint64 estimated_db_size = 7;
+  string action = 8; // CHECK | PREPARE
+}
+
+message DCoordMoveSnapshotStart {
+  string request_id = 1;
+  string handoff_id = 2;
+  uint64 total_size = 3;
+  string sha256 = 4;
+  bytes coord_key_pem = 5;
+  bytes authorized_keys = 6;
+  string secret_sha256 = 7;
+  repeated string expected_worker_fps = 8;
+}
+
+message DCoordMoveSnapshotChunk {
+  string handoff_id = 1;
+  uint32 seq = 2;
+  bytes data = 3;
+  bool last = 4;
+}
+
+message DCoordRelocate {
+  string request_id = 1;
+  string handoff_id = 2;
+  string source_url = 3;
+  string target_url = 4;
+  string action = 5; // STAGE | ACTIVATE | COMMIT | ABORT
+}
+
 message CoordWorkerDown {
   oneof frame {
     DHelloAck hello_ack = 1;
@@ -107,6 +139,10 @@ message CoordWorkerDown {
     DBinary binary = 4;
     DEventAck event_ack = 5;
     DAttachmentChunk attachment_chunk = 6;
+    DCoordMovePrepare coord_move_prepare = 7;
+    DCoordMoveSnapshotStart coord_move_snapshot_start = 8;
+    DCoordMoveSnapshotChunk coord_move_snapshot_chunk = 9;
+    DCoordRelocate coord_relocate = 10;
   }
 }
 

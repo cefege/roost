@@ -10,17 +10,16 @@ import type { Session, WorkerFp } from "@roost/shared/wire";
 import { rootStore } from "../store/root.ts";
 import { allSessions } from "../store/selectors.ts";
 import { isPendingClose } from "./pendingClose.ts";
-import { liveStatus, attentionKind } from "./attention.ts";
+import { liveStatus, attentionKind, latestAssistantOutput } from "./attention.ts";
 import { activityLine, type Attention } from "./folderSubtitle.ts";
 import { shortServerLabel } from "./sidebarFormat.ts";
 import { workerOnline } from "../store/sync.ts";
 import { folderKeyOf, folderPathOf, folderDisplayName } from "./folderKey.ts";
-import { isClaudeSession } from "./isClaudeSession.ts";
 import { unreadByFolder } from "./notifyStore.ts";
 
 export type { Attention };
 
-export type GlyphStatus = "running" | "needs-input" | "idle" | "done" | undefined;
+export type GlyphStatus = "running" | "needs-input" | "idle" | undefined;
 
 // Lead-session PR status, shaped for the row badge. null = no PR to show.
 export interface PrBadge {
@@ -39,7 +38,6 @@ export interface FolderGroup {
   attention: Attention;   // coarse band (needs → running → idle), derived from priority
   priority: number;       // fine sort key: blocked=3 > offline|done=2 > running=1 > idle=0
   online: boolean;        // worker reachable → server-icon online dot
-  isClaude: boolean;      // leading glyph: claude mark vs terminal $
   glyphStatus: GlyphStatus; // leading glyph status color/icon
   subtitle: string;       // latest activity line ("" = none, row shows one line)
   latestActivity: number;  // sort key + row stamp: newest real activity
@@ -64,20 +62,17 @@ export const PR_CHECK_COLOR: Record<PrBadge["checks"], string> = {
   pending: "var(--text-lo)", none: "var(--text-lo)",
 };
 
-// Map the folder lead's live status into StatusGlyph's vocabulary (same
-// coercion SessionRow uses: running-workflow → running; unknown → undefined).
-// Names a non-obvious coercion that would read as a bug if inlined.
+// Map the lead's OMP transcript state into StatusGlyph's vocabulary.
 function glyphStatusOf(lead: Session): GlyphStatus {
-  const s = liveStatus(lead);
-  if (s === "running-workflow") return "running";
-  if (s === "running" || s === "needs-input" || s === "idle" || s === "done") return s;
-  return undefined;
+  const status = liveStatus(lead);
+  return status === "running" || status === "needs-input" || status === "idle"
+    ? status
+    : undefined;
 }
 
-// Lead's last-message ts, falling back to session creation. Fallback inside
-// recencyOf for sessions with no coord last-PTY-byte stamp yet.
+// Transcript output time, falling back to session creation until OMP publishes.
 function activityTsOf(s: Session): number {
-  return s.agent?.last_message?.ts ?? s.created_at;
+  return latestAssistantOutput(s)?.ts ?? s.created_at;
 }
 
 // Most-recent real activity for a session: coord's last-PTY-byte stamp
@@ -111,10 +106,7 @@ function folderPriority(sessions: Session[]): number {
     if (k === "offline" || k === "done") p = 2;
   }
   if (p > 0) return p;
-  return sessions.some((s) => {
-    const st = liveStatus(s);
-    return st === "running" || st === "running-workflow";
-  }) ? 1 : 0;
+  return sessions.some((session) => liveStatus(session) === "running") ? 1 : 0;
 }
 
 // `input` defaults to the reactive allSessions() (default evaluated at call
@@ -145,7 +137,6 @@ export function buildFolderGroups(input: Session[] = allSessions()): FolderGroup
       attention,
       priority: pr,
       online: workerOnline(rootStore.workers[head.worker_fp]),
-      isClaude: isClaudeSession(lead),
       glyphStatus: gs,
       subtitle: activityLine(lead, attention),
       latestActivity,

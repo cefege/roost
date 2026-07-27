@@ -71,7 +71,7 @@ describe("agent-proto primitives", () => {
 
   it("AgentState round-trips with all-fields-populated", () => {
     const a = {
-      kind: "claude" as const, mode: "default" as const, model: "claude-opus-4-7", status: "running" as const,
+      kind: "agent" as const, mode: "default" as const, model: "agent-model", status: "running" as const,
       tokens: { in: 100, out: 50, cached: 25 }, cost_usd: 0.42,
       last_message: { role: "assistant" as const, text: "hi", ts: 1781500000 },
       current_tool: { name: "Read", input_summary: "/etc/hosts" },
@@ -84,7 +84,7 @@ describe("agent-proto primitives", () => {
 
   it("AgentState round-trips with all-nullable-fields-null", () => {
     const a = {
-      kind: "claude" as const, mode: "default" as const, model: "", status: "idle" as const,
+      kind: "agent" as const, mode: "default" as const, model: "", status: "idle" as const,
       tokens: { in: 0, out: 0, cached: 0 }, cost_usd: 0,
       last_message: null, current_tool: null, current_block: null,
       permission_request: null, sub_agents: [],
@@ -105,13 +105,13 @@ describe("agent-proto Session", () => {
     }));
   });
 
-  it("Session with agent (claude) + workspace_id + closed_at round-trips", () => {
+  it("Session with adapter state + workspace_id + closed_at round-trips", () => {
     fc.assert(fc.property(sidArb, wfpArb, wsidArb, channelArb, fc.string(), tsArb, tsArb, (sid, wfp, wsid, ch, cwd, t1, t2) => {
       const s = {
-        id: sid, worker_fp: wfp, channel: ch, kind: "claude" as const, cwd,
+        id: sid, worker_fp: wfp, channel: ch, kind: "shell" as const, cwd,
         workspace_id: wsid, status: "closed" as const,
         agent: {
-          kind: "claude" as const, mode: "default" as const, model: "x", status: "done" as const,
+          kind: "agent" as const, mode: "default" as const, model: "adapter", status: "done" as const,
           tokens: { in: 1, out: 2, cached: 3 }, cost_usd: 0.01,
           last_message: null, current_tool: null, current_block: null,
           permission_request: null, sub_agents: [],

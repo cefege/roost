@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     id           TEXT    PRIMARY KEY,   -- uuid
     worker_fp    TEXT    NOT NULL REFERENCES workers(fp),
     channel      INTEGER NOT NULL,      -- worker-local PTY id
-    kind         TEXT    NOT NULL,      -- 'shell' | 'claude'
+    kind         TEXT    NOT NULL,      -- 'shell'
     cwd          TEXT    NOT NULL,
     workspace_id TEXT,                  -- NULL = orphan
     status       TEXT    NOT NULL,      -- 'open' | 'closed'

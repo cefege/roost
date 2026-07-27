@@ -9,7 +9,6 @@ export interface AgentDef {
 // components/AgentMarks.tsx (keyed by id); glyph shows when no mark exists
 // (custom commands) or one is ever removed.
 export const BUILTIN_AGENTS: AgentDef[] = [
-  { id: "claude",   label: "Claude Code",        command: "claude",        color: "#D97757", glyph: "" },
   { id: "codex",    label: "OpenAI Codex",       command: "codex",         color: "#10A37F", glyph: "Cx" },
   { id: "gemini",   label: "Gemini CLI",         command: "gemini",        color: "#1A73E8", glyph: "G"  },
   { id: "opencode", label: "OpenCode",           command: "opencode",      color: "#F59E0B", glyph: "OC" },
@@ -26,22 +25,22 @@ const AGENTS_BY_ID: Record<string, AgentDef> = Object.fromEntries(BUILTIN_AGENTS
 export interface ResolvedAgent {
   id: string; label: string; command: string; color: string; glyph: string; isCustom: boolean;
 }
-const CLAUDE = AGENTS_BY_ID["claude"]!;
+const DEFAULT_AGENT = AGENTS_BY_ID["omp"]!;
 const CUSTOM_COLOR = "#6E7681";
 
-/** Pure: (stored choice) → effective agent. Unknown id → claude. Empty custom → claude. */
+/** Pure: stored choice resolves to a supported agent; unknown ids use OMP. */
 export function resolveAgentFrom(selected: string, custom: string): ResolvedAgent {
   if (selected === "custom") {
     const cmd = custom.trim();
-    if (!cmd) return { ...CLAUDE, isCustom: false };
+    if (!cmd) return { ...DEFAULT_AGENT, isCustom: false };
     return { id: "custom", label: "Custom", command: cmd, color: CUSTOM_COLOR,
              glyph: cmd[0]!.toUpperCase(), isCustom: true };
   }
-  const def = AGENTS_BY_ID[selected] ?? CLAUDE;
+  const def = AGENTS_BY_ID[selected] ?? DEFAULT_AGENT;
   return { ...def, isCustom: false };
 }
 
-const [selectedSig, setSelectedSig] = createSignal("claude");
+const [selectedSig, setSelectedSig] = createSignal("omp");
 const [customSig, setCustomSig] = createSignal("");
 const [autoLaunchSig, setAutoLaunchSig] = createSignal(false);
 export const currentSelected = selectedSig;
@@ -53,10 +52,10 @@ export const resolveAgent = (): ResolvedAgent => resolveAgentFrom(selectedSig(),
 export async function loadAgentConfig(): Promise<void> {
   try {
     const c = await coordClient.agentConfigGet({});
-    setSelectedSig(c.selected || "claude");
+    setSelectedSig(c.selected || "omp");
     setCustomSig(c.customCommand ?? "");
     setAutoLaunchSig(c.autoLaunch ?? false);
-  } catch { /* first-paint before auth / offline: keep claude default */ }
+  } catch { /* first-paint before auth / offline: keep OMP default */ }
 }
 /** Persist + update local signals so this device reflects immediately. */
 export async function saveAgentConfig(selected: string, customCommand: string): Promise<void> {

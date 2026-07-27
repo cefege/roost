@@ -4,7 +4,11 @@
 // CoordWorkerDown frame on its live send handle.
 
 import { create } from "@bufbuild/protobuf";
-import { CoordWorkerDownSchema, DBrowserCommandSchema, DBinarySchema, DAttachmentChunkSchema } from "@roost/shared/proto/worker_transport_pb";
+import {
+  CoordWorkerDownSchema, DBrowserCommandSchema, DBinarySchema, DAttachmentChunkSchema,
+  DCoordMovePrepareSchema, DCoordMoveSnapshotStartSchema, DCoordMoveSnapshotChunkSchema, DCoordRelocateSchema,
+} from "@roost/shared/proto/worker_transport_pb";
+import { createPendingRpc } from "../router/pending-rpcs.ts";
 import { connectWorkers } from "./worker-registry.ts";
 
 /** Socket-shape shim: presents the worker-conn registry to call sites
@@ -85,4 +89,49 @@ export function sendAttachmentChunk(
     }));
     return true;
   } catch { return false; }
+}
+
+export async function sendCoordinatorMovePrepare(workerFp: string, message: {
+  handoffId: string; sourceUrl: string; targetUrl: string; expectedCoordKid: string;
+  expectedGitSha: string; estimatedDbSize: bigint; action: "CHECK" | "PREPARE";
+}, timeoutMs = 180_000): Promise<unknown> {
+  const worker = connectWorkers.get(workerFp);
+  if (!worker) throw new Error("worker offline");
+  const pending = createPendingRpc(timeoutMs, workerFp);
+  worker.send(create(CoordWorkerDownSchema, { frame: { case: "coordMovePrepare", value: create(DCoordMovePrepareSchema, {
+    requestId: pending.request_id, ...message,
+  }) } }));
+  return pending.promise;
+}
+
+export async function sendCoordinatorRelocate(workerFp: string, message: {
+  handoffId: string; sourceUrl: string; targetUrl: string; action: "STAGE" | "ACTIVATE" | "COMMIT" | "ABORT";
+}, timeoutMs = 30_000): Promise<unknown> {
+  const worker = connectWorkers.get(workerFp);
+  if (!worker) throw new Error("worker offline");
+  const pending = createPendingRpc(timeoutMs, workerFp);
+  worker.send(create(CoordWorkerDownSchema, { frame: { case: "coordRelocate", value: create(DCoordRelocateSchema, {
+    requestId: pending.request_id, ...message,
+  }) } }));
+  return pending.promise;
+}
+
+export function sendCoordinatorSnapshotStart(workerFp: string, message: {
+  handoffId: string; totalSize: bigint; sha256: string; coordKeyPem: Uint8Array;
+  authorizedKeys: Uint8Array; secretSha256: string; expectedWorkerFps: string[];
+}, timeoutMs = 120_000): { requestId: string; promise: Promise<unknown> } {
+  const worker = connectWorkers.get(workerFp);
+  if (!worker) throw new Error("worker offline");
+  const pending = createPendingRpc(timeoutMs, workerFp);
+  worker.send(create(CoordWorkerDownSchema, { frame: { case: "coordMoveSnapshotStart", value: create(DCoordMoveSnapshotStartSchema, {
+    requestId: pending.request_id, ...message,
+  }) } }));
+  return { requestId: pending.request_id, promise: pending.promise };
+}
+export function sendCoordinatorSnapshotChunk(workerFp: string, message: {
+  handoffId: string; seq: number; data: Uint8Array; last: boolean;
+}): void {
+  const worker = connectWorkers.get(workerFp);
+  if (!worker) throw new Error("worker offline");
+  worker.send(create(CoordWorkerDownSchema, { frame: { case: "coordMoveSnapshotChunk", value: create(DCoordMoveSnapshotChunkSchema, message) } }));
 }

@@ -16,6 +16,7 @@ import { workerOnline } from "../../store/sync.ts";
 import { coordClient } from "../../connect.ts";
 import { addToast } from "../../lib/toastStore.ts";
 import { MachineDeployDialog } from "../MachineDeployDialog.tsx";
+import { CoordinatorMoveDialog } from "./CoordinatorMoveDialog.tsx";
 import { Card, Button, MetricTile, EmptyState, Icon, TextField } from "./md/primitives.tsx";
 import { formatBytes } from "../../lib/format.ts";
 
@@ -47,6 +48,13 @@ function WorkerRow(props: { worker: Worker }) {
   const [confirmDelete, setConfirmDelete] = createSignal(false);
   const [deleteBusy, setDeleteBusy] = createSignal(false);
   let confirmTimer: ReturnType<typeof setTimeout> | null = null;
+  const [moveDialog, setMoveDialog] = createSignal(false);
+  const isCoordinator = () => {
+    const url = rootStore.coord_identity?.public_url;
+    if (!url || !w().reachable_addr) return false;
+    try { return new URL(url).hostname.toLowerCase() === w().reachable_addr!.toLowerCase(); }
+    catch { return false; }
+  };
 
   function beginRename() {
     setRenameLabel(w().label);
@@ -136,6 +144,7 @@ function WorkerRow(props: { worker: Worker }) {
 
   return (
     <div data-testid={`machines-worker-row-${w().fp}`} style={{ opacity: deleteBusy() ? 0.4 : 1, transition: "opacity 0.15s" }}>
+      <Show when={moveDialog()}><CoordinatorMoveDialog targetWorkerFp={w().fp} onClose={() => setMoveDialog(false)} /></Show>
       <Card variant="elevated" trailing={headerTrailing}>
         <Show
           when={!renaming()}
@@ -252,6 +261,19 @@ function WorkerRow(props: { worker: Worker }) {
             >
               Rename
             </Button>
+            <Show when={isCoordinator()}>
+              <span data-testid={`machines-coordinator-pill-${w().fp}`} class="md-label-m">Coordinator</span>
+            </Show>
+            <Show when={!isCoordinator()}>
+              <Button
+                variant="tonal"
+                data-testid={`machines-move-coordinator-btn-${w().fp}`}
+                disabled={isStale() || !w().reachable_addr || w().git_sha !== rootStore.coord_identity?.git_sha}
+                onClick={() => setMoveDialog(true)}
+              >
+                Move coordinator here
+              </Button>
+            </Show>
             <Show
               when={confirmDelete()}
               fallback={

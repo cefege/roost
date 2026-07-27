@@ -28,8 +28,8 @@ export function setupReconcile(deps: {
 	//     previous bun process and died with it). respawn() spawns a fresh
 	//     keeper at the same cwd + kind under the SAME session_id, emitting
 	//     a `respawned` event so the sidebar row stays in place.
-	// What's lost in (b): scrollback, running subprocesses, claude
-	// conversation context, exported env vars. What survives: cwd, kind,
+	// What's lost in (b): scrollback, running subprocesses, terminal
+	// context, exported env vars. What survives: cwd, kind,
 	// workspace assignment, sidebar position, `↑`-history (per-cwd HISTFILE).
 	// Reconcile sessions coord still believes open against live keeper PTYs:
 	// resume() the survivors, respawn() the dead. Runs at boot AND whenever
@@ -75,19 +75,11 @@ export function setupReconcile(deps: {
 				const respawnArgs = {
 					oldSessionId: o.session.id as never,
 					cwd: o.session.cwd,
-					kind: o.session.kind as "shell" | "claude",
-					initialMode: o.session.agent?.mode,
+					kind: "shell" as const,
 				};
 				let ok = false;
-				// Up to 2 attempts. A TRANSIENT failure (keeper not yet ready — we may be
-				// mid-restart, so pool.spawn rejects with "socket closed"/"not connected")
-				// is NOT terminal: give the keeper a beat to settle and retry once. Only a
-				// TERMINAL cause (cwd ENOENT, claude binary missing) closes the session.
-				// Previously every failure closed → a keeper-restart storm collaterally
-				// killed recoverable sessions (CLAUDE.md keeper-degradation memory).
-				// Up to 3 attempts with backoff — a freshly-rebooted Mac's keeper can take
-				// a couple seconds to accept spawns; 2×300ms gave up too early and
-				// tombstoned recoverable sessions.
+				// Transient keeper readiness failures are retried; a terminal spawn
+				// error closes the stale session.
 				for (let attempt = 1; attempt <= 3; attempt++) {
 					try {
 						await sessionMgr.respawn(respawnArgs);

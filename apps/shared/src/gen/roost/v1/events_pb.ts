@@ -44,7 +44,7 @@ export type OpenedEvt = Message<"roost.v1.OpenedEvt"> & {
   channel: number;
 
   /**
-   * "shell" | "claude"
+   * "shell"
    *
    * @generated from field: string session_kind = 4;
    */
@@ -325,7 +325,7 @@ export const PermissionRequestOpSchema: GenMessage<PermissionRequestOp> = /*@__P
  */
 export type AgentStatePatch = Message<"roost.v1.AgentStatePatch"> & {
   /**
-   * ClaudeMode enum as string
+   * adapter-defined mode string
    *
    * @generated from field: optional string mode = 1;
    */
@@ -458,7 +458,7 @@ export const SnapshotEvtSchema: GenMessage<SnapshotEvt> = /*@__PURE__*/
  * Worker rebooted; session's keeper PTY is gone but the row identity
  * stays (same session_id, same cwd, same kind, same workspace). Fold
  * updates the session's `channel` to the new keeper allocation and
- * clears `agent` so claude re-initializes from the next agent event.
+ * clears structured state while it reconnects.
  *
  * @generated from message roost.v1.RespawnedEvt
  */

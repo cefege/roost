@@ -12,6 +12,15 @@ export interface CoordKey {
   sign(claims: SignClaims): Promise<string>;
   verifyingKeyB64(): string;
   verifyingKeyKid(): string;
+  verifyRelocation(token: string): Promise<{
+    aud: string;
+    sub: string;
+    iat: number;
+    exp: number;
+    handoff_id: string;
+    target_url: string;
+    jti: string;
+  }>;
 }
 
 // OpenSSH unencrypted ed25519 wire layout constants.
@@ -188,6 +197,13 @@ export async function loadOrCreateCoordKey(keyPath: string): Promise<CoordKey> {
   const pkcs8Der = seedToPkcs8(privSeed);
   const cryptoKey = await importEd25519PrivkeyPkcs8(pkcs8Der);
   const fp = await fingerprintOf(pubRaw);
+  const verificationKey = await crypto.subtle.importKey(
+    "raw",
+    pubRaw.buffer.slice(pubRaw.byteOffset, pubRaw.byteOffset + pubRaw.byteLength) as ArrayBuffer,
+    { name: "Ed25519" },
+    false,
+    ["verify"],
+  );
   const pubB64 = Buffer.from(pubRaw).toString("base64url");
 
   log.info("coord-key", "loaded", { fp, path: keyPath });
@@ -201,6 +217,34 @@ export async function loadOrCreateCoordKey(keyPath: string): Promise<CoordKey> {
     },
     verifyingKeyKid(): string {
       return fp;
+    },
+    async verifyRelocation(token) {
+      const [headerB64, payloadB64, signatureB64, ...rest] = token.split(".");
+      if (!headerB64 || !payloadB64 || !signatureB64 || rest.length > 0) throw new Error("bad relocation token");
+      const signature = new Uint8Array(Buffer.from(signatureB64, "base64url"));
+      const signed = new TextEncoder().encode(`${headerB64}.${payloadB64}`);
+      const valid = await crypto.subtle.verify(
+        { name: "Ed25519" },
+        verificationKey,
+        signature.buffer.slice(signature.byteOffset, signature.byteOffset + signature.byteLength) as ArrayBuffer,
+        signed.buffer.slice(signed.byteOffset, signed.byteOffset + signed.byteLength) as ArrayBuffer,
+      );
+      if (!valid) throw new Error("invalid relocation token signature");
+      let claims: Record<string, unknown>;
+      try {
+        claims = JSON.parse(Buffer.from(payloadB64, "base64url").toString("utf8")) as Record<string, unknown>;
+      } catch {
+        throw new Error("bad relocation token payload");
+      }
+      if (
+        claims.aud !== "roost-coordinator-relocation" || typeof claims.sub !== "string" ||
+        typeof claims.iat !== "number" || typeof claims.exp !== "number" ||
+        typeof claims.handoff_id !== "string" || typeof claims.target_url !== "string" ||
+        typeof claims.jti !== "string" || claims.exp <= Math.floor(Date.now() / 1000)
+      ) throw new Error("invalid relocation token claims");
+      return claims as {
+        aud: string; sub: string; iat: number; exp: number; handoff_id: string; target_url: string; jti: string;
+      };
     },
   };
 }

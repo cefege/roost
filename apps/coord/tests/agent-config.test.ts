@@ -1,7 +1,4 @@
-// Default-agent (launch-button) config storage over the app_settings KV.
-// Fresh db → claude default; round-trips a built-in and a custom command;
-// empty selected falls back to claude. Drives the REAL get/set over an
-// in-memory migrated DB (same harness as task-bus-publish.test.ts).
+// Default-agent launcher configuration over app_settings.
 
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -25,8 +22,8 @@ beforeAll(async () => {
 afterAll(() => { closeDb?.(); rmSync(workdir, { recursive: true, force: true }); });
 
 describe("agent-config", () => {
-  test("fresh db → claude default, empty custom", async () => {
-    expect(await getAgentConfig(db)).toEqual({ selected: "claude", customCommand: "", autoLaunch: false });
+  test("fresh db → OMP default, empty custom", async () => {
+    expect(await getAgentConfig(db)).toEqual({ selected: "omp", customCommand: "", autoLaunch: false });
   });
 
   test("built-in selection round-trips", async () => {
@@ -39,15 +36,15 @@ describe("agent-config", () => {
     expect(await getAgentConfig(db)).toEqual({ selected: "custom", customCommand: "aider", autoLaunch: false });
   });
 
-  test("empty selected falls back to claude", async () => {
+  test("empty selected falls back to OMP", async () => {
     await setAgentConfig(db, { selected: "", customCommand: "", autoLaunch: false });
-    expect((await getAgentConfig(db)).selected).toBe("claude");
+    expect((await getAgentConfig(db)).selected).toBe("omp");
   });
 
   test("auto-launch toggle round-trips", async () => {
-    await setAgentConfig(db, { selected: "claude", customCommand: "", autoLaunch: true });
+    await setAgentConfig(db, { selected: "omp", customCommand: "", autoLaunch: true });
     expect((await getAgentConfig(db)).autoLaunch).toBe(true);
-    await setAgentConfig(db, { selected: "claude", customCommand: "", autoLaunch: false });
+    await setAgentConfig(db, { selected: "omp", customCommand: "", autoLaunch: false });
     expect((await getAgentConfig(db)).autoLaunch).toBe(false);
   });
 });

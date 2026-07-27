@@ -14,6 +14,7 @@
     "./log": "./src/log.ts",
     "./diag": "./src/diag.ts",
     "./json": "./src/json.ts",
+    "./tailnet": "./src/tailnet.ts",
     "./viewport": "./src/viewport.ts",
     "./wterm-wasm": "./src/wterm-wasm.ts",
     "./wterm-core-factory": "./src/wterm-core-factory.ts",
@@ -27,7 +28,7 @@
     "proto:gen": "buf generate"
   },
   "dependencies": {
-    "@bufbuild/protobuf": "^2.12.0",
+    "@bufbuild/protobuf": "2.12.0",
     "@wterm/core": "0.3.0",
     "zod": "^3.23.8"
   },

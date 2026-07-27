@@ -4,9 +4,10 @@
 // Callers: App.tsx (always mounted; internal Show gate).
 // Exposes: data-testid="connection-banner" data-banner-reason="offline"|"coord-unreachable"|"coord-mixed-content"
 
-import { type Component, createSignal, onMount, onCleanup, Show } from "solid-js";
+import { type Component, createEffect, createSignal, onMount, onCleanup, Show } from "solid-js";
 import { Button } from "./Settings/md/Button.tsx";
 import { isPageVisible } from "../lib/pageVisible.ts";
+import { rootStore } from "../store/root.ts";
 
 export interface CoordHealthSnapshot {
   lastSuccessMs: number | null;
@@ -14,7 +15,7 @@ export interface CoordHealthSnapshot {
   lastResult: { kind: string; error?: string } | null;
 }
 
-type BannerReason = "offline" | "coord-unreachable" | "coord-mixed-content" | null;
+type BannerReason = "offline" | "coord-unreachable" | "coord-mixed-content" | "coordinator-moved" | null;
 
 const COORD_STALE_MS = 10_000;
 
@@ -28,8 +29,18 @@ export const ConnectionBanner: Component = () => {
   // "unreachable" — shown as a tooltip so the banner is diagnosable instead of
   // a bare "unreachable". Empty when the trigger was staleness, not an error.
   const [detail, setDetail] = createSignal<string>("");
+  const [relocatedTo, setRelocatedTo] = createSignal<string | null>(null);
+  createEffect(() => {
+    setRelocatedTo(rootStore.coord_identity?.relocated_to_url ?? null);
+    evaluate();
+  });
 
   function evaluate(): void {
+    if (relocatedTo()) {
+      setDetail("");
+      setReason("coordinator-moved");
+      return;
+    }
     if (!navigator.onLine) {
       setReason("offline");
       return;
@@ -127,6 +138,14 @@ export const ConnectionBanner: Component = () => {
         </Show>
         <Show when={reason() === "coord-mixed-content"}>
           <span>Coordinator HTTP blocked (mixed content) — use HTTPS</span>
+        </Show>
+        <Show when={reason() === "coordinator-moved"}>
+          <span>This coordinator is retired — read-only discovery only</span>
+          <Button
+            variant="tonal"
+            data-testid="connection-banner-coordinator-moved"
+            onClick={() => location.assign(relocatedTo()!)}
+          >Open new coordinator</Button>
         </Show>
       </div>
     </Show>

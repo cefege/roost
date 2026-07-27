@@ -5,7 +5,7 @@
 
 import type { SessionManager } from "./session-manager.ts";
 import type { SessionRecord } from "./session-record.ts";
-import type { SessionId, ChannelId, AgentState } from "@roost/shared";
+import type { SessionId, ChannelId } from "@roost/shared";
 import { log, diag, signal } from "@roost/shared";
 import type { ChannelState, FsmEvent } from "./fsm.ts";
 import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
@@ -211,20 +211,6 @@ export function _dropChannelState(this: SessionManager, channelId: number): void
 		clearTimeout(cellTimer);
 		this.cellEmitTimers.delete(channelId);
 	}
-	const detectTimer = this.detectTimers.get(channelId);
-	if (detectTimer !== undefined) {
-		clearTimeout(detectTimer);
-		this.detectTimers.delete(channelId);
-	}
-	const reevalTimer = this.reevalTimers.get(channelId);
-	if (reevalTimer !== undefined) {
-		clearTimeout(reevalTimer);
-		this.reevalTimers.delete(channelId);
-	}
-	this.committedStatus.delete(channelId);
-	this.lastByteAt.delete(channelId);
-	this.lastOscTitle.delete(channelId);
-	this.oscTitleCarry.delete(channelId);
 }
 
 /** Diag snapshot helper for diag.snapshot RPC. */
@@ -276,44 +262,13 @@ export function _onTransition(
 	}
 }
 
-/** A patch from the claude hooks (main.ts hook listener). Emits the `agent`
- *  SessionEvent with the rich fields (last_message, current_tool) AND the
- *  hook-driven status, and advances the channel FSM. Hook status must obey
- *  the STATUS CONTRACT in claude/hooks.ts (agent.status shadows the
- *  claude_status scrape in the SPA's liveStatus). */
-export function applyAgentPatch(this: SessionManager, p: {
-	sessionId: SessionId;
-	patch: Partial<AgentState>;
-}): void {
-	this.emitEvent({
-		kind: "agent",
-		session_id: p.sessionId,
-		patch: p.patch,
-		ts: Date.now(),
-	});
-	const r = this.getBySessionId(p.sessionId);
-	if (!r) return;
-	const status = p.patch.status;
-	if (status === "running") r.fsm.send({ kind: "agent-running" });
-	else if (status === "needs-input")
-		r.fsm.send({ kind: "agent-needs-input" });
-	else if (status === "idle" || status === "done")
-		r.fsm.send({ kind: "agent-idle" });
-}
 
-/** Stop the class-level reaper/sweep intervals. Per-record timers (git/ports
- *  polls, cell/detect/reeval debounces) clear on their own close paths; these
- *  three run for the manager's whole lifetime, so they leak the event loop
- *  unless a teardown clears them. Idempotent: nulls each handle after clearing
- *  so a double-dispose is a no-op. */
+/** Stop the class-level reaper intervals. Per-record timers clear on their
+ * close paths; these run for the manager's whole lifetime. */
 export function dispose(this: SessionManager): void {
 	if (this.viewportReaperTimer !== null) {
 		clearInterval(this.viewportReaperTimer);
 		this.viewportReaperTimer = null;
-	}
-	if (this.detectSweepTimer !== null) {
-		clearInterval(this.detectSweepTimer);
-		this.detectSweepTimer = null;
 	}
 	if (this.strayReaperTimer !== null) {
 		clearInterval(this.strayReaperTimer);

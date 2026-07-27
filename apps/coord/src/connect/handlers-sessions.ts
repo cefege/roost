@@ -20,7 +20,7 @@ import {
 import { sessionToProto } from "@roost/shared/wire/agent-proto";
 import { cellRowToProto } from "@roost/shared/cell/cell-proto";
 import type { CellRow } from "@roost/shared/cell";
-import { asSessionId, asWorkspaceId, ClaudeMode } from "@roost/shared/wire";
+import { asSessionId, asWorkspaceId } from "@roost/shared/wire";
 import { safeJsonParse } from "@roost/shared/json";
 import type { ClientControlFrame } from "@roost/shared/wire";
 import { log } from "@roost/shared/log";
@@ -96,19 +96,12 @@ async function _forwardSimple(
 
 /** SessionsSpawnRequest → the worker control frame for its kind. */
 export function _spawnFrameFor(req: {
-  kind: string; folder: string; cols?: number; rows?: number;
-  sessionId?: string; initialMode?: string;
+  kind: string; folder: string; cols?: number; rows?: number; sessionId?: string;
 }): ClientControlFrame {
   const sid = req.sessionId ? { session_id: asSessionId(req.sessionId) } : {};
   switch (req.kind) {
     case "shell":
       return { kind: "spawn-shell", folder: req.folder, cols: req.cols, rows: req.rows, ...sid };
-    case "claude":
-      return {
-        kind: "spawn-claude", folder: req.folder,
-        initial_mode: ClaudeMode.parse(req.initialMode ?? "default"),
-        cols: req.cols, rows: req.rows, ...sid,
-      };
     default:
       throw new ConnectError(`unknown session kind ${req.kind}`, Code.InvalidArgument);
   }
@@ -400,6 +393,7 @@ export function makeSessionHandlers(
         endRow: BigInt(res.end_row),
       });
     },
+
 
   };
 }

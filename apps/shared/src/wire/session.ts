@@ -4,17 +4,7 @@
 import { z } from "zod";
 import { ChannelId, SessionId, WorkerFp, WorkspaceId } from "./brand.ts";
 
-// ─── AgentState (claude only; null for plain shell) ─────────────────────
-
-export const ClaudeMode = z.enum([
-  "default",
-  "acceptEdits",
-  "plan",
-  "bypassPermissions",
-  "dontAsk",
-  "auto",
-]);
-export type ClaudeMode = z.infer<typeof ClaudeMode>;
+// ─── Structured agent state ───────────────────────────────────────────────
 
 export const AgentStatus = z.enum(["running", "needs-input", "idle", "done"]);
 export type AgentStatus = z.infer<typeof AgentStatus>;
@@ -64,8 +54,8 @@ export const SubAgentRow = z.object({
 export type SubAgentRow = z.infer<typeof SubAgentRow>;
 
 export const AgentState = z.object({
-  kind: z.literal("claude"),
-  mode: ClaudeMode,
+  kind: z.literal("agent"),
+  mode: z.string(),
   model: z.string(),
   status: AgentStatus,
   tokens: Tokens,
@@ -75,9 +65,8 @@ export const AgentState = z.object({
   current_block: CurrentBlock.nullable(),
   permission_request: PermissionRequest.nullable(),
   sub_agents: z.array(SubAgentRow),
-  // A1: live state is stale (worker restarted; the bridge that produces
-  // agent state can't be re-attached). Terminal still works; reopen to
-  // refresh. Optional — absent/false on every live agent.
+  // Live structured state can be stale after its bridge restarts. Optional:
+  // absent/false means no stale marker is needed.
   stale: z.boolean().optional(),
 });
 export type AgentState = z.infer<typeof AgentState>;
@@ -88,7 +77,7 @@ export type AgentState = z.infer<typeof AgentState>;
 // Worker emitters set what they know; defaults fill the rest.
 export function defaultAgentState(): AgentState {
   return {
-    kind: "claude",
+    kind: "agent",
     mode: "default",
     model: "",
     status: "running",
@@ -104,7 +93,7 @@ export function defaultAgentState(): AgentState {
 
 // ─── Session ────────────────────────────────────────────────────────────
 
-export const SessionKind = z.enum(["shell", "claude"]);
+export const SessionKind = z.literal("shell");
 export type SessionKind = z.infer<typeof SessionKind>;
 
 export const SessionStatus = z.enum(["open", "closed"]);
@@ -123,16 +112,15 @@ export const Session = z.object({
   spawn_cwd: z.string().nullable().optional(),
   workspace_id: WorkspaceId.nullable(),     // null = orphan → Inbox bucket
   status: SessionStatus,
-  agent: AgentState.nullable(),             // null for plain shell
+  agent: AgentState.nullable(),             // optional structured agent state
   created_at: z.number().int().positive(),
   closed_at: z.number().int().positive().nullable(),
   // User rename (sticky override of the auto title). null = no override.
   // Coord/DB-owned: the worker doesn't track it, so snapshot fold preserves
   // the prior value (like workspace_id). See sessionTitle.ts precedence.
   custom_title: z.string().nullable(),
-  // Local git branch of cwd, resolved on the worker host. Optional +
-  // additive (like AgentState.stale): absent = not resolved / not a repo.
-  // Set by the `git` SessionEvent; feeds the cell-grid folder-row subtitle.
+  // Local git branch of cwd, resolved on the worker host. Optional + additive:
+  // absent = not resolved / not a repo. Set by the `git` SessionEvent.
   git_branch: z.string().nullable().optional(),
   // GitHub "owner/repo" of the session's origin remote (github.com only).
   // Additive/optional; feeds bare #123 / commit-SHA terminal links.
@@ -147,11 +135,5 @@ export const Session = z.object({
   // TCP ports the session's process tree is LISTENing on (worker lsof).
   // Additive/optional; feeds :5174 folder-row chips. Set by `ports` event.
   ports: z.array(z.number().int()).optional(),
-}).refine(
-  // D-3 invariant: shell sessions cannot carry agent state. Claude
-  // sessions MAY have agent:null briefly between spawn and the first
-  // `agent` SessionEvent that seeds AgentState.
-  (s) => s.kind !== "shell" || s.agent === null,
-  { message: "shell session must have agent:null" },
-);
+});
 export type Session = z.infer<typeof Session>;

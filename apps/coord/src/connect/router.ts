@@ -21,6 +21,7 @@ import { makeSessionHandlers } from "./handlers-sessions.ts";
 import { makeStreamingHandlers } from "./handlers-streaming.ts";
 import { makeUiHandlers } from "./handlers-ui.ts";
 import { makePushHandlers } from "./handlers-push.ts";
+import { makeCoordinatorMoveHandlers } from "./handlers-coordinator-move.ts";
 import { _setViewerTrackerDb } from "./viewer-tracker.ts";
 
 import type { KyselyDB } from "../db/connection.ts";
@@ -29,6 +30,7 @@ import type { CoordConfig } from "@roost/shared/config";
 import type { JwtCache } from "../jwt.ts";
 import { startTailnetResolver } from "../tailnet-resolver.ts";
 import { makeAuthInterceptor } from "./auth-interceptor.ts";
+import type { CoordinatorMoveService } from "../coord-move/orchestrator.ts";
 
 // ─── deps + helpers ───────────────────────────────────────────────────────
 
@@ -37,6 +39,7 @@ export interface ConnectDeps {
   coordKey: CoordKey;
   cfg: CoordConfig;
   jwtCache: JwtCache;
+  move?: CoordinatorMoveService;
 }
 
 // ─── ConnectRouter build ──────────────────────────────────────────────────
@@ -45,7 +48,7 @@ export function buildConnectRouter(deps: ConnectDeps): ConnectRouter {
   _setViewerTrackerDb(deps.db);
   startTailnetResolver();
   const interceptor = makeAuthInterceptor({
-    db: deps.db, jwtCache: deps.jwtCache, cfg: deps.cfg,
+    db: deps.db, jwtCache: deps.jwtCache, cfg: deps.cfg, move: deps.move,
   });
 
   const router = createConnectRouter({
@@ -78,6 +81,7 @@ export function buildConnectRouter(deps: ConnectDeps): ConnectRouter {
     ...makeUiHandlers(deps),
     ...makePushHandlers(deps),
     ...makeStreamingHandlers(deps),
+    ...makeCoordinatorMoveHandlers(deps),
   });
 
   // coord↔worker transport is the raw WebSocket at /ws/coord-worker/:fp

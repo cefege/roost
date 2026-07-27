@@ -10,12 +10,13 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@bufbuild/protobuf": "^2.12.0",
+    "@bufbuild/protobuf": "2.12.0",
     "@connectrpc/connect": "^2.1.2",
     "@roost/shared": "workspace:*",
     "kysely": "^0.29.2",
     "kysely-bun-sqlite": "^0.4.0",
-    "web-push": "^3.6.7"
+    "web-push": "^3.6.7",
+    "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/web-push": "^3.6.4",

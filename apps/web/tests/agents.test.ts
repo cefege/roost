@@ -2,8 +2,7 @@
 // (selected, custom) choice to the effective agent the FAB launches:
 //   - a built-in id → that agent's command, isCustom false,
 //   - "custom" + text → the text as command, isCustom true, glyph = first char,
-//   - "custom" + empty → claude fallback,
-//   - unknown id → claude fallback.
+//   - "custom" + empty or an unknown id → OMP fallback.
 
 import { describe, test, expect } from "bun:test";
 import { resolveAgentFrom } from "../src/lib/agents.ts";
@@ -22,11 +21,11 @@ describe("resolveAgentFrom", () => {
     expect(r.glyph).toBe("A");
   });
 
-  test("empty custom falls back to claude", () => {
-    expect(resolveAgentFrom("custom", "").command).toBe("claude");
+  test("empty custom falls back to OMP", () => {
+    expect(resolveAgentFrom("custom", "").command).toBe("omp");
   });
 
-  test("unknown id falls back to claude", () => {
-    expect(resolveAgentFrom("zzz", "").command).toBe("claude");
+  test("unknown id falls back to OMP", () => {
+    expect(resolveAgentFrom("zzz", "").command).toBe("omp");
   });
 });

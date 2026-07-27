@@ -16,12 +16,13 @@
       "name": "@roost/coord",
       "version": "2.0.0",
       "dependencies": {
-        "@bufbuild/protobuf": "^2.12.0",
+        "@bufbuild/protobuf": "2.12.0",
         "@connectrpc/connect": "^2.1.2",
         "@roost/shared": "workspace:*",
         "kysely": "^0.29.2",
         "kysely-bun-sqlite": "^0.4.0",
         "web-push": "^3.6.7",
+        "zod": "^3.23.8",
       },
       "devDependencies": {
         "@types/web-push": "^3.6.4",
@@ -35,7 +36,8 @@
         "roost": "./src/main.ts",
       },
       "dependencies": {
-        "@bufbuild/protobuf": "^2.12.0",
+        "@bufbuild/protobuf": "2.12.0",
+        "@connectrpc/connect": "^2.1.2",
         "@roost/shared": "workspace:*",
       },
     },
@@ -43,7 +45,7 @@
       "name": "@roost/shared",
       "version": "2.0.0",
       "dependencies": {
-        "@bufbuild/protobuf": "^2.12.0",
+        "@bufbuild/protobuf": "2.12.0",
         "@wterm/core": "0.3.0",
         "zod": "^3.23.8",
       },
@@ -57,7 +59,7 @@
       "name": "@roost/web",
       "version": "2.0.0",
       "dependencies": {
-        "@bufbuild/protobuf": "^2.12.0",
+        "@bufbuild/protobuf": "2.12.0",
         "@connectrpc/connect": "^2.1.2",
         "@connectrpc/connect-web": "^2.1.2",
         "@material/web": "^2.4.1",
@@ -79,7 +81,7 @@
       "name": "@roost/worker",
       "version": "2.0.0",
       "dependencies": {
-        "@bufbuild/protobuf": "^2.12.0",
+        "@bufbuild/protobuf": "2.12.0",
         "@connectrpc/connect": "^2.1.2",
         "@connectrpc/connect-node": "^2.1.2",
         "@earendil-works/pi-coding-agent": "^0.82.0",

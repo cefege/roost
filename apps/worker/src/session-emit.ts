@@ -1,6 +1,5 @@
-// Upstream byte/cell emit + herdr agent-status detection. Split out of
-// session-manager.ts (400-line cap); bodies byte-for-byte unchanged, called
-// with a SessionManager `this` (see wrappers in session-manager.ts).
+// Upstream PTY-byte and cell-grid emission. Called with a SessionManager `this`
+// (see wrappers in session-manager.ts).
 
 import type { SessionManager } from "./session-manager.ts";
 import type { ChannelId } from "@roost/shared";
@@ -8,21 +7,14 @@ import { log, diag, signal } from "@roost/shared";
 import { DIR_FROM_PTY } from "@roost/shared/wire";
 import { nextCellFrame, SB_SNAPSHOT_TAIL_ROWS } from "@roost/shared/cell";
 import { cellFrameToProto } from "@roost/shared/cell/cell-proto";
-import { detectAgentScreen, screenStatus } from "./detect/screen-detect.ts";
-import { resolveAgentStatus } from "./detect/arbiter.ts";
 import type { MuxChannelCallbacks } from "./keeper/multiplexed-client.ts";
 import {
-	extractOscTitleStateful,
 	RECENTLY_CLOSED_TTL_MS,
 	KEEPER_DEGRADED_WINDOW_MS,
 	KEEPER_DEGRADED_THRESHOLD,
-	DETECT_DEBOUNCE_MS,
-	AGENT_WORKING_GRACE_MS,
 	CELL_EMIT_COALESCE_MS,
 } from "./session-constants.ts";
 
-// Empty carry seed for extractOscTitleStateful (per-channel OSC title bridging).
-const EMPTY_OSC_CARRY = new Uint8Array(0);
 
 // Leading-edge sentinel: marks a microtask-queued cell emit in cellEmitTimers.
 // clearTimeout(LEADING_SENTINEL) is a no-op (coerces to NaN), so existing
@@ -109,94 +101,10 @@ export function emitUpstreamChunk(this: SessionManager, channelId: number, chunk
 	// re-claims → emitCellSnapshot repaints the whole grid. Saves CPU+wire for
 	// background sessions (the many-parallel-agents case).
 	if (this._hasActiveViewer(channelId)) this._scheduleCellEmit(channelId);
-	// herdr agent-status detection. Runs on EVERY session, not just kind:"claude"
-	// — users run claude INSIDE a shell session (the worker only tags a pane
-	// "claude" when spawned via spawnClaude), so gating on kind blinds the common
-	// case. The claude manifest is the real filter: a plain shell screen yields
-	// `unknown` → no status emitted. NOT viewer-gated — an idle background agent
-	// must still light its sidebar chip; the byte clock feeds the working→idle hold.
-	if (this.sessions.has(channelId)) {
-		const { title, carry } = extractOscTitleStateful(this.oscTitleCarry.get(channelId) ?? EMPTY_OSC_CARRY, chunk);
-		this.oscTitleCarry.set(channelId, carry);
-		// The OSC title feeds the sidebar name and detect/'s scrape, and nothing
-		// else. Terminal mode is self-contained: this file consumes only PTY
-		// bytes and produces only terminal state.
-		if (title !== null) this.lastOscTitle.set(channelId, title);
-		this.lastByteAt.set(channelId, Date.now());
-		this._scheduleDetect(channelId);
-	}
+	// Worker-side terminal handling ends here. Structured agent state is supplied
+	// by the OMP bridge, not inferred from an arbitrary terminal grid.
 }
 
-/** Arm a debounced screen-scrape for a claude channel; a byte burst coalesces
- *  into one read of the settled grid (DETECT_DEBOUNCE_MS). */
-export function _scheduleDetect(this: SessionManager, channelId: number): void {
-	if (this.detectTimers.has(channelId)) return;
-	const timer = setTimeout(() => {
-		this.detectTimers.delete(channelId);
-		this._runDetect(channelId);
-	}, DETECT_DEBOUNCE_MS);
-	this.detectTimers.set(channelId, timer);
-}
-
-/** herdr idle re-scan: re-run detection on every live session so idle agents
- *  (no byte activity to trigger the byte-path scrape) still surface a status.
- *  _runDetect dedups, so steady sessions re-emit nothing. */
-export function _sweepDetect(this: SessionManager): void {
-	for (const channelId of this.sessions.keys()) this._runDetect(channelId);
-}
-
-/** Scrape rec.wtermCore via the herdr engine, arbitrate screen + byte-activity
- *  into a stable status, emit upstream on CHANGE. reevalForIdle re-checks once
- *  the stream goes quiet so a held working→idle edge eventually commits. */
-export function _runDetect(this: SessionManager, channelId: number): void {
-	const rec = this.sessions.get(channelId);
-	if (!rec) return;
-	const core = rec.wtermCore;
-	// The live spawn/resume paths always create a core before registering the
-	// record. Keep the guard for teardown races and narrow test fixtures.
-	if (!core) return;
-	const det = detectAgentScreen(
-		core,
-		this.lastOscTitle.get(channelId),
-	);
-	const recentBytes =
-		Date.now() - (this.lastByteAt.get(channelId) ?? 0) <
-		AGENT_WORKING_GRACE_MS;
-	const prev = this.committedStatus.get(channelId);
-	const { next, reevalForIdle } = resolveAgentStatus({
-		prev,
-		screenStatus: screenStatus(det),
-		screenBlocker: det.visibleBlocker,
-		recentBytes,
-	});
-	if (next !== undefined && next !== prev) {
-		this.committedStatus.set(channelId, next);
-		this.sendClaudeStatusUpstream?.(channelId, next);
-		log.debug("session-manager", "claude_status", {
-			channelId,
-			status: next,
-		});
-	}
-	if (reevalForIdle && !this.reevalTimers.has(channelId)) {
-		const t = setTimeout(() => {
-			this.reevalTimers.delete(channelId);
-			this._runDetect(channelId);
-		}, AGENT_WORKING_GRACE_MS);
-		this.reevalTimers.set(channelId, t);
-	}
-}
-
-/** Re-emit the last committed claude_status for every channel. Called on coord
- *  (re)connect (onHelloAck): the coord's claudeStatusBus + snapshot cache are
- *  in-memory and empty after a coord restart, and detection only emits on
- *  CHANGE — so without this an idle claude stays invisible (shows as a plain
- *  terminal) until its next transition. The coord primes its channel→session
- *  map from the DB on the same hello, so these frames map correctly. */
-export function resendClaudeStatuses(this: SessionManager): void {
-	for (const [channelId, status] of this.committedStatus) {
-		this.sendClaudeStatusUpstream?.(channelId, status);
-	}
-}
 
 /** Is any live viewer claiming this channel? Withdrawn viewers are removed
  *  (deferred withdraw) and crashed ones reaped at VIEWPORT_CLAIM_TTL_MS, so a
@@ -205,24 +113,16 @@ export function _hasActiveViewer(this: SessionManager, channelId: number): boole
 	return (this.viewportClaims.get(channelId)?.size ?? 0) > 0;
 }
 
-/** Phase-3 (rate governor): leading-edge cell emit + trailing coalesce.
- *  The FIRST chunk in a burst queues a microtask (fires at end of the current
- *  event-loop tick, after all PtyOut chunks from the same UDS read have settled
- *  into wtermCore) so the grid read is complete. Eliminates the 16ms delay for
- *  the common single-keystroke echo. A trailing CELL_EMIT_COALESCE_MS timer
- *  then absorbs subsequent chunks (ls, claude repaint) and flushes the latest
- *  grid once — bounds frame rate under floods. A forced full frame
- *  (emitCellFrame force=true) cancels any pending timer/sentinel — it already
- *  covers the latest. */
+/** Rate governor: leading-edge cell emit plus trailing coalesce.
+ * The FIRST chunk in a burst queues a microtask after its UDS read settles into
+ * wtermCore. A trailing CELL_EMIT_COALESCE_MS timer absorbs subsequent chunks. */
 export function _scheduleCellEmit(this: SessionManager, channelId: number): void {
 	// Trailing burst — a leading emit already fired this tick, or a trailing
 	// timer is pending. Absorb: wtermCore already holds these bytes.
 	if (this.cellEmitTimers.has(channelId)) { this.cellDirty.add(channelId); return; }
 
 	// Leading edge: queue a microtask so all PtyOut chunks delivered in this
-	// event-loop tick settle into wtermCore before the grid read. Eliminates
-	// the 16ms delay for the first echo chunk while preserving coalescing for
-	// multi-chunk bursts (ls, claude repaint).
+	// the common single-keystroke echo while preserving coalescing for bursts.
 	this.cellEmitTimers.set(channelId, LEADING_SENTINEL);
 	queueMicrotask(() => {
 		this.cellEmitTimers.delete(channelId);
@@ -291,7 +191,7 @@ export function emitCellFrame(this: SessionManager, channelId: number, force: bo
 	// session_id left empty: coord's publishCellGrid stamps it from the
 	// channel→session map (byte-hub.ts), overwriting anything sent here.
 	const pb = cellFrameToProto(frame, "");
-	pb.ptyOutMs = BigInt(this.lastByteAt.get(channelId) ?? 0);
+	pb.ptyOutMs = BigInt(Date.now());
 	pb.workerEmitMs = BigInt(Date.now());
 	send(channelId, pb);
 }

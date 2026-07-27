@@ -88,8 +88,8 @@ function agentPatchToProto(patch: Partial<AgentState>): AgentStatePatch {
 }
 
 // Proto AgentStatePatch → Zod Partial<AgentState>. Does NOT synthesize
-// `kind`; the projector re-asserts `kind: "claude"` on every fold
-// (foldEvent in event.ts) so the field is redundant on the wire.
+// `kind`; the projector re-asserts `kind: "agent"` on every fold
+// (foldEvent in event.ts), so the field is redundant on the wire.
 function agentProtoToPatch(p: AgentStatePatch): Partial<AgentState> {
   const out: Partial<AgentState> = {};
   if (p.mode !== undefined) out.mode = p.mode as AgentState["mode"];

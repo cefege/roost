@@ -18,7 +18,6 @@ import { asWorkerFp, asSessionId, asChannelId } from "@roost/shared/wire";
 import type { SessionEvent } from "@roost/shared/wire";
 import { foldEventIntoStore } from "../src/store/projector.ts";
 import { rootStore, setRootStore } from "../src/store/root.ts";
-import type { ClaudeStatus } from "../src/store/root.ts";
 import { getSessionTraceId, sessionTraceSize } from "../src/lib/diag.ts";
 import { InputChannel, inputMapSizes } from "../src/ws/input-channel.ts";
 
@@ -32,7 +31,7 @@ function opened(id: string, cwd: string): SessionEvent {
     session_id: asSessionId(id),
     worker_fp: FP,
     channel: asChannelId(1),
-    session_kind: "claude",
+    session_kind: "shell",
     cwd,
     ts: 1000,
   } as SessionEvent;
@@ -43,7 +42,7 @@ function agentTick(id: string, text: string, ts: number): SessionEvent {
     kind: "agent",
     session_id: asSessionId(id),
     patch: {
-      kind: "claude",
+      kind: "agent",
       status: "running",
       last_message: { role: "assistant", text, ts },
     },
@@ -80,7 +79,6 @@ describe("session store row stability (projector reconcile)", () => {
   test("closed reaps the session, its volatile slices, AND the per-session accumulators", () => {
     // Seed every per-session accumulator the close reaper owns so each drop is
     // observable. _sessionTrace and _lastSendTs have no other reaper.
-    setRootStore("claude_status", SID_A, "working" as ClaudeStatus);
     getSessionTraceId(SID_A);                                         // → diag _sessionTrace[SID_A]
     new InputChannel(async () => {}).sendInput(SID_A, new Uint8Array([65])); // → _lastSendTs[SID_A]
     const traceBefore = sessionTraceSize();
@@ -89,7 +87,6 @@ describe("session store row stability (projector reconcile)", () => {
     foldEventIntoStore({ kind: "closed", session_id: SID_A, ts: 4000 } as SessionEvent);
 
     expect(rootStore.sessions[SID_A]).toBeUndefined();
-    expect(rootStore.claude_status[SID_A]).toBeUndefined();
     expect(sessionTraceSize()).toBe(traceBefore - 1);
     expect(inputMapSizes()).toBe(mapsBefore - 1);
     // Sibling untouched by the deletion.

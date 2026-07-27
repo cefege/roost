@@ -30,12 +30,8 @@ export async function emitSnapshot(opts: {
     cwd: r.cwd,
     workspace_id: null,
     status: "open" as const,
-    // agent: null for every session. The PTY claude carries the hooks
-    // --settings + $ROOST_HOOK_SOCKET env and SURVIVES worker restarts
-    // (keeper-owned) — its hooks re-POST to the same socket path the new
-    // worker rebinds, so live agent events repopulate the state on the
-    // next hook firing. The A1 stale-badge path (bridge era: hooks died
-    // with the worker) is retired with the shadow ClaudeBridge.
+    // Structured state belongs to a live bridge and is not reconstructed by a
+    // keeper snapshot. The transcript bridge repopulates independently.
     agent: null,
     created_at: Date.now(),
     closed_at: null,

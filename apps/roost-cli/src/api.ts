@@ -1,5 +1,5 @@
 // roost api — headless introspection + drive over the coord Connect RPCs.
-// Lets Claude Code read a terminal's grid/scrollback, list the sidebar
+// Lets an automation client read a terminal's grid/scrollback, list the sidebar
 // (sessions/workers/workspaces), inject input, spawn/kill, manage workspaces
 // + tasks, and SEE/DRIVE the browser's pane tiling (ui-state / ui verbs).
 // Reuses the worker's headless auth (loadWorkerKey + mintJwt) +
@@ -11,6 +11,7 @@
 // offscreen-textarea focus-dead bug and client-side render corruption still
 // need humanchrome / window.__smoke DOM probes.
 
+import { Code, ConnectError } from "@connectrpc/connect";
 import { basename, join } from "node:path";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
@@ -19,6 +20,7 @@ import { loadWorkerKey, mintJwt } from "../../worker/src/jwt.ts";
 import { createCoordClient, type CoordClient } from "../../worker/src/coord-client.ts";
 import { protoToEvent } from "@roost/shared/wire/event-proto";
 import { diag } from "@roost/shared/diag";
+export type AuthorizedApiClient = CoordClient;
 import { openSyncWs } from "./sync-ws.ts";
 
 // Self-authorization hook, armed by buildApiClient once the key is loaded.
@@ -50,6 +52,33 @@ export async function buildApiClient(): Promise<CoordClient> {
       label: "roost-cli",
     })).fingerprint;
   return createCoordClient({ cfg, getJwt: () => mintJwt(key, "roost-coordinator") });
+}
+
+export async function buildAuthorizedApiClient(options: {
+  coordinatorUrl: string;
+  keyPath: string;
+  label: string;
+}): Promise<AuthorizedApiClient> {
+  const cfg = loadWorkerConfig({
+    ROOST_COORDINATOR_URL: options.coordinatorUrl,
+    ROOST_WORKER_KEY_PATH: options.keyPath,
+    ROOST_WORKER_LABEL: options.label,
+  });
+  const key = await loadWorkerKey(options.keyPath);
+  const client = createCoordClient({ cfg, getJwt: () => mintJwt(key, "roost-coordinator") });
+
+  try {
+    await client.workersList({});
+  } catch (error) {
+    if (!(error instanceof ConnectError) || error.code !== Code.Unauthenticated) throw error;
+    await client.authAuthorizeBrowser({
+      sshPubkeyB64: Buffer.from(key.pubKey).toString("base64"),
+      label: options.label,
+    });
+    await client.workersList({});
+  }
+
+  return client;
 }
 
 /** Mint a one-shot worker bootstrap token from the coord — the primitive
@@ -285,8 +314,7 @@ async function dispatch(c: CoordClient, verb: string, rest: string[]): Promise<v
     case "spawn": {
       const workerFp = requireArg(rest[0], "workerFp");
       const folder = requireArg(rest[1], "folder");
-      const kind = rest.includes("--claude") ? "claude" : "shell";
-      const r = await c.sessionsSpawn({ workerFp, kind, folder });
+      const r = await c.sessionsSpawn({ workerFp, kind: "shell", folder });
       console.log(JSON.stringify({ sessionId: r.sessionId, channelId: r.channelId }));
       break;
     }
@@ -310,11 +338,9 @@ async function dispatch(c: CoordClient, verb: string, rest: string[]): Promise<v
     }
     case "events": {
       // LIVE wire-delta monitor for one session over a --secs window. Prints
-      // every non-binary Sync frame referencing the session — sessionEvent
-      // (lifecycle) PLUS claudeStatus/terminalTitle/lastActivity/etc. (the
-      // volatile deltas that actually drive the sidebar chips). Answers "when I
-      // act on this pane, what does the coord emit?" — the projection-drift /
-      // "store doesn't reflect variant" debugger. Run it, then in another shell
+      // every non-binary Sync frame referencing the session — lifecycle plus
+      // terminalTitle, lastActivity, OMP bridge events, and other volatile
+      // deltas that drive the sidebar.
       // `input`/`kill`/resize the session and watch the deltas land.
       //
       // Live-only (sinceEventId:0 → no historical backfill; the coord gates

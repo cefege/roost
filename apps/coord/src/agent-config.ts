@@ -2,14 +2,14 @@
 // selected agent id and an optional custom command in app_settings so every
 // device shares one choice (same KV contract as transcription). The server keeps
 // raw strings and does NOT validate `selected` against the catalog — the SPA owns
-// the catalog and resolves unknown ids to claude client-side.
+// the catalog and resolves unknown ids to OMP client-side.
 // Callers: connect/router.ts agentConfig* handlers.
 
 import type { Kysely } from "kysely";
 import type { DB } from "./db/schema.ts";
 
 const K = { selected: "agent.selected", custom: "agent.custom_command", autoLaunch: "agent.auto_launch" } as const;
-const DEFAULT_SELECTED = "claude";
+const DEFAULT_SELECTED = "omp";
 
 export interface AgentConfigShape {
   selected: string;

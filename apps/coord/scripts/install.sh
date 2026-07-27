@@ -6,7 +6,7 @@
 
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd -P)"
+REPO_ROOT="${ROOST_REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd -P)}"
 # Load YOUR setup from repo-root .env.local (gitignored) — one place for ROOST_*.
 set -a; [ -f "$REPO_ROOT/.env.local" ] && source "$REPO_ROOT/.env.local"; set +a
 # Labels/paths overridable (binary-mode quickstart + isolated test installs);
@@ -17,6 +17,8 @@ DATA_DIR="${ROOST_COORD_DATA_DIR:-$HOME/Library/Application Support/RoostCoordin
 DB_PATH="$DATA_DIR/coordinator_v2.db"
 AUTH_KEYS="$DATA_DIR/authorized_keys.roost"
 COORD_KEY="$DATA_DIR/ssh_ed25519.key"
+HANDOFF_PATH="${ROOST_COORDINATOR_HANDOFF_PATH:-$DATA_DIR/coord-handoff.json}"
+PUBLIC_URL="${ROOST_COORDINATOR_PUBLIC_URL:-}"
 LOG_DIR="${ROOST_COORD_LOG_DIR:-$HOME/Library/Logs/RoostCoord}"
 BUN_BIN="${BUN_BIN:-$(command -v bun || echo /opt/homebrew/bin/bun)}"
 
@@ -129,6 +131,10 @@ write_plist() {
     <string>${AUTH_KEYS}</string>
     <key>ROOST_COORDINATOR_KEY_PATH</key>
     <string>${COORD_KEY}</string>
+    <key>ROOST_COORDINATOR_HANDOFF_PATH</key>
+    <string>${HANDOFF_PATH}</string>
+    <key>ROOST_COORDINATOR_PUBLIC_URL</key>
+    <string>${PUBLIC_URL}</string>
     <key>ROOST_WEB_DIST_PATH</key>
     <string>${web_dist}</string>
     <key>ROOST_DIAG</key>

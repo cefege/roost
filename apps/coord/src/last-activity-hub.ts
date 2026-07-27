@@ -7,14 +7,8 @@
 // out (a long-idle terminal stops cluttering the list).
 //
 // Mirrors terminal-title-hub (one per coord, started from createCoord), but
-// needs no parsing — every byte IS activity. Published THROTTLED (not per byte:
-// claude redraws fire thousands of chunks) — the filter granularity is days,
-// so ~once/minute is plenty. Snapshot seeds fresh Sync subscribers so a page
-// load knows every session's last activity immediately (the bus is volatile).
-//
-// "We don't care for shells" (Author 2026-06-27): this stamps ALL sessions, but
-// the consumer only ages out OPEN sessions, and claude sessions are the ones
-// that matter — they get accurate timestamps because their bytes flow here.
+// No parsing is needed: every byte is activity. Published throttled rather than
+// per byte; the consumer ages open sessions from this timestamp.
 //
 // Depends on: buses (globalBytesBus in, lastActivityBus out, sessionBus reap).
 

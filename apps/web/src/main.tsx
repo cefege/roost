@@ -14,6 +14,7 @@ import { installSpaDiag, installSignalShip } from "./lib/diag.ts";
 import { installLeakWatch } from "./lib/leakWatch.ts";
 import "./lib/keyboardInset.ts"; // side effect: track soft-keyboard inset via --kb-offset
 import { diag, signal } from "@roost/shared/diag";
+import { redeemCoordinatorRelocation } from "./auth/coordinator-relocation.ts";
 import "./styles/theme-vars.css";
 import "./styles/syntax-vars.css";
 import "./styles/sidebar.css";
@@ -82,25 +83,17 @@ window.addEventListener("pageshow", (e) => {
   diag("app.pageshow", { persisted: (e as PageTransitionEvent).persisted });
 });
 
-const root = document.getElementById("app");
-if (!root) throw new Error("no #app element");
-render(() => <App />, root);
-// Always-on leak watchdog: periodic accumulator sample + long-task correlation,
-// shipped Tier-1 so a natural multi-day run self-reports what grows / when it
-// stalls (freeze-hunt evidence we can't reproduce synthetically).
-installLeakWatch();
+async function mountApp(): Promise<void> {
+  await redeemCoordinatorRelocation();
+  const root = document.getElementById("app");
+  if (!root) throw new Error("no #app element");
+  render(() => <App />, root);
+  // Always-on leak watchdog: periodic accumulator sample + long-task correlation,
+  // shipped Tier-1 so a natural multi-day run self-reports what grows / when it
+  // stalls (freeze-hunt evidence we can't reproduce naturally).
+  installLeakWatch();
+  void loadAgentConfig();
+  if (notifyPrefs().desktop) void ensurePushSubscription();
+}
 
-// Load the default-agent (launch-button) config once on boot (fire-and-forget).
-// Until it resolves the button uses the claude default (byte-identical to today).
-void loadAgentConfig();
-
-// Web Push: if OS notifications are enabled, make sure this device is subscribed
-// (self-heal after a service-worker eviction or cleared storage). Fire-and-forget;
-// registers the SW and re-subscribes silently. Errors surface only via the
-// Settings → Notifications toggle.
-if (notifyPrefs().desktop) void ensurePushSubscription();
-
-// claude TUI status is now COORD-authoritative: coord scrapes one headless
-// grid per session (claude-status-hub) and broadcasts via the Sync stream
-// (store/sync.ts folds into rootStore.claude_status). No per-browser poller
-// → every viewer + every Mac agrees. The old local 500ms scrape is gone.
+void mountApp();

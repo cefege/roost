@@ -9,7 +9,7 @@
 // channel→session map (with its reverse index for O(1) closed-prune)
 // stays.
 
-import { sessionBus, globalBytesBus, globalCellBus, claudeStatusBus } from "./buses.ts";
+import { sessionBus, globalBytesBus, globalCellBus } from "./buses.ts";
 import type { SessionEvent, SessionId, WorkerFp, ChannelId } from "@roost/shared/wire";
 import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
 import { log } from "@roost/shared/log";
@@ -47,15 +47,6 @@ export function evictSessionWorker(sessionId: string): void {
   _sessionToWorker.delete(sessionId);
 }
 
-// SessionId → last claude_status the worker reported. claudeStatusBus is
-// fire-and-forget live-delta (B10 in handlers-streaming), and claude_status
-// is NOT in the sessions projection, so a browser connecting AFTER a claude
-// session's last transition never learns it's a claude → renders it as a plain
-// terminal. This cache lets the Sync handler replay current status on connect
-// (snapshotClaudeStatuses). Pruned on `closed` alongside the channel map.
-// ponytail: coord-local; empties on coord restart, self-heals on the session's
-// next transition. Worker-side re-emit would close that too, if it ever matters.
-const _lastClaudeStatus = new Map<SessionId, string>();
 
 function _key(workerFp: WorkerFp, channelId: ChannelId): string {
   return `${workerFp}:${channelId}`;
@@ -167,27 +158,6 @@ export function publishCellGrid(workerFp: WorkerFp, channelId: ChannelId, frame:
 }
 
 
-// herdr agent status. Worker WClaudeStatus frames carry channel_id only; map to
-// session_id and republish to claudeStatusBus → Sync firehose → SPA chip. Volatile
-// (never durable); unmapped channel = drop (the worker re-sends on `opened` bind).
-export function publishClaudeStatus(workerFp: WorkerFp, channelId: ChannelId, status: string): void {
-  const sessionId = _channelToSession.get(_key(workerFp, channelId));
-  if (!sessionId) {
-    diag("byte-hub.drop_unmapped_status", { worker_fp: workerFp, channel_id: channelId });
-    _recordUnmappedDrop(workerFp, channelId);
-    return;
-  }
-  _clearUnmappedDrop(workerFp, channelId);
-  _lastClaudeStatus.set(sessionId, status);
-  claudeStatusBus.publish({ session_id: sessionId, status });
-}
-
-// Snapshot of current per-session claude_status. The Sync handler replays this
-// on connect so a freshly-loaded SPA immediately knows which sessions are claude
-// (fixing "claude session shows as a plain terminal after reload").
-export function snapshotClaudeStatuses(): Array<{ session_id: SessionId; status: string }> {
-  return [..._lastClaudeStatus].map(([session_id, status]) => ({ session_id, status }));
-}
 
 // Subscribe to sessionBus so `opened` / `closed` / `snapshot` events
 // keep the channel→session map current. Coord restart that finds
@@ -211,7 +181,6 @@ export function installByteHubBusHook(): void {
         for (const k of keys) _channelToSession.delete(k);
         _sessionToKeys.delete(ev.session_id);
       }
-      _lastClaudeStatus.delete(ev.session_id);
       evictSessionWorker(ev.session_id);
     } else if (ev.kind === "snapshot") {
       for (const s of ev.sessions) {

@@ -12,9 +12,8 @@ import { FsmChannel } from "./fsm.ts";
 import { expandTilde } from "./util/path.ts";
 import { withHistfile } from "./keeper/histfile.ts";
 import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
-import { buildHooksSettings } from "./claude/hooks.ts";
 import { ALT_ENTER_SEQS, _scanAltModeTransitions } from "./terminal-stream-scan.ts";
-import { _createWtermCore, extractOscTitle, HOOK_CMD } from "./session-constants.ts";
+import { _createWtermCore } from "./session-constants.ts";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
@@ -26,7 +25,7 @@ import { join } from "node:path";
 export async function resume(this: SessionManager, opts: {
 	sessionId: SessionId;
 	channelId: ChannelId;
-	kind: "shell" | "claude";
+	kind: "shell";
 	cwd: string;
 }): Promise<boolean> {
 	if (this.sessions.has(opts.channelId)) return false;
@@ -68,33 +67,19 @@ export async function resume(this: SessionManager, opts: {
 				cooldownKey: opts.sessionId,
 			});
 		}
-		// Derive the REAL alt state from the resumed history, not from kind.
-		// Claude is usually main-screen (has scrollback); only prime/serialize
-		// as alt-screen if the retained ring actually contains an alt-enter.
+		// Derive the real alternate-screen state from retained terminal bytes.
 		const resumedAlt =
 			resumedBytes.length > 0
 				? _scanAltModeTransitions(resumedBytes, false)
 				: false;
 		// Replay the ring into the headless core to reconstruct the current screen
-		// for cell emit + serialize fresh-mount + agent-status detection — ALL kinds.
-		// OPT2 serves serializeWTerm(wtermCore) as fresh scrollback for shells too, and
-		// detection scrapes this grid; leaving a resumed shell's core empty served
-		// empty scrollback + a blank chip until the next byte (the claude-only gate
-		// was a stale RC1 raw-ring leftover). Recover the last OSC title from the raw
-		// ring (braille intact) so working-state detection also survives the resume.
-		if (resumedBytes.length > 0) {
-			wtermCore.writeRaw(resumedBytes);
-			const resumedTitle = extractOscTitle(resumedBytes);
-			if (resumedTitle !== null) this.lastOscTitle.set(opts.channelId, resumedTitle);
-		}
-		// RC3 fallback: ONLY when the session was genuinely in alt-screen but the
-		// enter-seq was evicted from the ring (core didn't pick it up). Never
-		// force alt on a main-screen claude — that strips its scrollback.
+		// for cell emission and fresh mounts.
+		if (resumedBytes.length > 0) wtermCore.writeRaw(resumedBytes);
+		// Restore an active alternate screen only when the retained stream shows
+		// it. Replayed terminal replies belong to historical output and must not
+		// be injected into live stdin.
 		if (resumedAlt && !wtermCore.usingAltScreen())
 			wtermCore.writeRaw(ALT_ENTER_SEQS[0]);
-		// Discard any capability replies the REPLAYED history produced — those
-		// probes were answered (or missed) when they first ran live; re-sending
-		// stale replies to the already-past-startup claude would corrupt stdin.
 		wtermCore.getResponse();
 		const record: SessionRecord = {
 			sessionId: opts.sessionId,
@@ -120,9 +105,7 @@ export async function resume(this: SessionManager, opts: {
 		this.sessions.set(opts.channelId, record);
 		this._startGitBranch(record);
 		this._startPorts(record);
-		// Seed agent-status immediately from the reconstructed grid (don't wait for
-		// the first post-resume byte / sweep) so an idle agent shows its chip at once.
-		this._scheduleDetect(opts.channelId);
+		// OMP bridge state reconnects independently of terminal byte replay.
 		log.info("session-manager", "resumed", {
 			sessionId: opts.sessionId,
 			channelId: opts.channelId,
@@ -157,8 +140,7 @@ export async function resume(this: SessionManager, opts: {
 export async function respawn(this: SessionManager, opts: {
 	oldSessionId: SessionId;
 	cwd: string;
-	kind: "shell" | "claude";
-	initialMode?: string;
+	kind: "shell";
 	cols?: number;
 	rows?: number;
 }): Promise<void> {
@@ -181,30 +163,8 @@ export async function respawn(this: SessionManager, opts: {
 	);
 	const wtermCore = await _createWtermCore(cols, rows);
 
-	let argv: string[];
-	let env: Record<string, string> | undefined;
-	if (opts.kind === "shell") {
-		argv = [process.env.SHELL ?? "/bin/bash"];
-		env = withHistfile(resolvedCwd);
-	} else {
-		const mode = opts.initialMode ?? "default";
-		argv = [
-			"/opt/homebrew/bin/claude",
-			"--input-format=stream-json",
-			"--output-format=stream-json",
-			"--verbose",
-			"--include-hook-events",
-			"--allow-dangerously-skip-permissions",
-			"--permission-mode",
-			mode,
-			"--settings",
-			buildHooksSettings(this.hookSocketPath, HOOK_CMD),
-		];
-		env = {
-			ROOST_HOOK_SOCKET: this.hookSocketPath,
-			ROOST_SURFACE_ID: opts.oldSessionId,
-		};
-	}
+	const argv = [process.env.SHELL ?? "/bin/bash"];
+	const env = withHistfile(resolvedCwd);
 
 	const record: SessionRecord = {
 		sessionId: opts.oldSessionId,
@@ -215,9 +175,7 @@ export async function respawn(this: SessionManager, opts: {
 		fsm,
 		scrollback: new Uint8Array(0),
 		head_seq: 0,
-		// Stream-driven (see spawnClaude): the respawned process re-emits its
-		// own alt-enter if it's a TUI; main-screen claude/shell stays non-alt
-		// and keeps scrollback.
+		// Stream-driven: a respawned TUI emits its own alternate-screen entry.
 		alt_mode: false,
 		mode_carry: new Uint8Array(0),
 		osc7_carry: new Uint8Array(0),
@@ -262,7 +220,6 @@ export async function respawn(this: SessionManager, opts: {
 	});
 
 	fsm.send({ kind: "attach" });
-	if (opts.kind === "claude") fsm.send({ kind: "agent-started" });
 	log.info("session-manager", "respawned", {
 		sessionId: opts.oldSessionId,
 		channelId,

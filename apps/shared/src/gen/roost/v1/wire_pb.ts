@@ -301,7 +301,7 @@ export const SubAgentRowSchema: GenMessage<SubAgentRow> = /*@__PURE__*/
  */
 export type AgentState = Message<"roost.v1.AgentState"> & {
   /**
-   * ClaudeMode enum
+   * adapter-defined mode string
    *
    * @generated from field: string mode = 1;
    */
@@ -355,11 +355,8 @@ export type AgentState = Message<"roost.v1.AgentState"> & {
   subAgents: SubAgentRow[];
 
   /**
-   * A1: this agent state is STALE — the worker restarted and the claude
-   * bridge (stream-json parser + hooks) that produces live state died with
-   * it. The keeper-PTY claude is still running and the terminal works, but
-   * chips won't update until the session is reopened/restarted. UI shows a
-   * "stale — reopen to refresh" badge instead of a confidently-wrong chip.
+   * The worker restarted and its structured-state bridge died. The keeper PTY
+   * still runs, but auxiliary state will not refresh until the bridge returns.
    *
    * @generated from field: bool stale = 11;
    */
@@ -393,7 +390,7 @@ export type Session = Message<"roost.v1.Session"> & {
   channel: number;
 
   /**
-   * shell|claude
+   * shell
    *
    * @generated from field: string kind = 4;
    */

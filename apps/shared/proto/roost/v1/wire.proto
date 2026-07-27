@@ -76,7 +76,7 @@ message SubAgentRow {
 }
 
 message AgentState {
-  string mode = 1;  // ClaudeMode enum
+  string mode = 1;  // adapter-defined mode string
   string model = 2;
   string status = 3;  // running|needs-input|idle|done
   Tokens tokens = 4;
@@ -86,11 +86,8 @@ message AgentState {
   optional CurrentBlock current_block = 8;
   optional PermissionRequest permission_request = 9;
   repeated SubAgentRow sub_agents = 10;
-  // A1: this agent state is STALE — the worker restarted and the claude
-  // bridge (stream-json parser + hooks) that produces live state died with
-  // it. The keeper-PTY claude is still running and the terminal works, but
-  // chips won't update until the session is reopened/restarted. UI shows a
-  // "stale — reopen to refresh" badge instead of a confidently-wrong chip.
+  // The worker restarted and its structured-state bridge died. The keeper PTY
+  // still runs, but auxiliary state will not refresh until the bridge returns.
   bool stale = 11;
 }
 
@@ -98,7 +95,7 @@ message Session {
   string id = 1;
   string worker_fp = 2;
   uint32 channel = 3;
-  string kind = 4;  // shell|claude
+  string kind = 4;  // shell
   string cwd = 5;
   optional string workspace_id = 6;
   string status = 7;  // open|closed

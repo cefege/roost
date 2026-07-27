@@ -23,7 +23,9 @@
 
 import type { Server, ServerWebSocket } from "bun";
 import { create, toBinary } from "@bufbuild/protobuf";
-import { FirehoseFrameSchema, KeepaliveFrameSchema, type FirehoseFrame } from "@roost/shared/proto/sync_pb";
+import {
+  CoordinatorRelocationFrameSchema, FirehoseFrameSchema, KeepaliveFrameSchema, type FirehoseFrame,
+} from "@roost/shared/proto/sync_pb";
 import { verifyJwt } from "../jwt.ts";
 import { log } from "@roost/shared/log";
 import { signal } from "@roost/shared/diag";
@@ -51,6 +53,7 @@ export async function handleSyncWsUpgrade(
 ): Promise<Response | undefined | null> {
   const url = new URL(req.url);
   if (url.pathname !== WS_PATH) return null;
+  if (deps.move?.gate.mode === "source_draining") return new Response("coordinator move in progress", { status: 503 });
   const addr = server.requestIP(req)?.address ?? undefined;
   const token = url.searchParams.get("token");
   if (!token) return new Response("unauthorized", { status: 401 });
@@ -72,8 +75,10 @@ export async function handleSyncWsUpgrade(
 }
 
 export function makeSyncWsHandler(deps: ConnectDeps, keepaliveMs: number = KEEPALIVE_INTERVAL_MS) {
+  const sockets = new Set<ServerWebSocket<SyncWsData>>();
   return {
     open(ws: ServerWebSocket<SyncWsData>): void {
+      sockets.add(ws);
       const push = (f: FirehoseFrame): void => {
         try { ws.send(toBinary(FirehoseFrameSchema, f)); }
         catch (e) { log.warn("sync-ws", "send_failed", { error: String(e) }); }
@@ -102,10 +107,19 @@ export function makeSyncWsHandler(deps: ConnectDeps, keepaliveMs: number = KEEPA
       // Server→client only. The client sends nothing on this socket.
     },
     close(ws: ServerWebSocket<SyncWsData>): void {
+      sockets.delete(ws);
       if (ws.data.keepaliveTimer) { clearInterval(ws.data.keepaliveTimer); ws.data.keepaliveTimer = null; }
       ws.data.feed?.dispose();
       ws.data.feed = null;
       log.info("sync-ws", "close", { caller_fp: ws.data.caller.fingerprint });
+    },
+    publishRelocation(handoffId: string, sourceUrl: string, targetUrl: string): void {
+      const frame = toBinary(FirehoseFrameSchema, create(FirehoseFrameSchema, {
+        frame: { case: "coordinatorRelocation", value: create(CoordinatorRelocationFrameSchema, { handoffId, sourceUrl, targetUrl }) },
+      }));
+      for (const ws of sockets) {
+        try { ws.send(frame); ws.close(); } catch { /* close handler cleans up */ }
+      }
     },
   };
 }

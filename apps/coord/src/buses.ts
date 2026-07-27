@@ -86,12 +86,6 @@ export const auditBus       = new BoundedBus<AuditRow>(256);
 // pending pair requests — low traffic (a handful per pairing ceremony).
 export const pairBus        = new BoundedBus<PairRequestDelta>(32);
 
-// herdr agent TUI status, fanned out to browsers via the Sync firehose. VOLATILE
-// — never written to the events table; one value per session, published on CHANGE.
-// Fed by the WORKER: it screen-scrapes its wtermCore grid (apps/worker/src/detect/)
-// and emits WClaudeStatus → byte-hub::publishClaudeStatus republishes here.
-// (Detection can't run on coord — the detect/ engine's WASM segfaults Bun.)
-export const claudeStatusBus = new BoundedBus<{ session_id: string; status: string }>(256);
 
 // OSC 0/2 terminal title, parsed CENTRALLY by coord (terminal-title-hub) from
 // the same relayed byte stream and fanned out via Sync. VOLATILE —

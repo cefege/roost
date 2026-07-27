@@ -1,11 +1,5 @@
-// The ONE agent-attention vocab — shared by the sidebar sort, the pane/tab dots,
-// and any status surface. Rolls a session's raw status (running / needs-input /
-// idle / … via liveStatus, plus the seen-map via needsAttention) up to herdr's
-// 5-level attention model: blocked > done > working > idle > unknown. "done" =
-// a finished agent whose output you haven't seen (idle/done & unseen — falls out
-// of needsAttention's idle branch, attention.ts:23). Replaces 3 duplicated
-// status→color maps (PaneStrip / SessionRow / StatusGlyph);
-// uses --md-* design-system roles only.
+// OMP-derived terminal attention, shared by sidebar, pane, and tab status
+// surfaces. The transcript is authoritative; terminal screen contents are not.
 
 import type { Session } from "@roost/shared/wire";
 import { rootStore } from "../store/root.ts";
@@ -22,18 +16,17 @@ export function isActionable(level: AttentionLevel): boolean {
   return rankOf(level) >= rankOf("working");
 }
 
-/** Reactive: roll ONE session up to its attention level (reads store + seen-map). */
+/** Reactive: roll one OMP-backed session up to its visual attention level. */
 export function attentionOf(s: Session): AttentionLevel {
   if (needsAttention(s)) {
-    // needsAttention = needs-input | offline worker | (idle/done & unseen output)
-    const st = liveStatus(s);
-    const w = rootStore.workers[s.worker_fp];
-    const offline = !!w && !workerOnline(w);
-    return st === "needs-input" || offline ? "blocked" : "done";
+    const status = liveStatus(s);
+    const worker = rootStore.workers[s.worker_fp];
+    if (status === "needs-input" || (worker && !workerOnline(worker))) return "blocked";
+    return "done";
   }
-  const st = liveStatus(s);
-  if (st === "running" || st === "running-workflow") return "working";
-  if (st === "idle" || st === "done") return "idle"; // finished + seen → calm
+  const status = liveStatus(s);
+  if (status === "running") return "working";
+  if (status === "idle") return "idle";
   return "unknown";
 }
 

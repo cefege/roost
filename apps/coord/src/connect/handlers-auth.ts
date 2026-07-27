@@ -12,6 +12,7 @@ import {
   CoordinatorService,
   AuthCoordIdentityResponseSchema, AuthAuthorizeBrowserResponseSchema,
   AuthMintBootstrapResponseSchema, AuthRedeemWorkerResponseSchema, AuthRedeemBrowserResponseSchema,
+  AuthMintCoordinatorRelocationResponseSchema, AuthRedeemCoordinatorRelocationResponseSchema,
   PairCreateResponseSchema, PairPollResponseSchema, PairListResponseSchema,
   PairApproveResponseSchema, PairDenyResponseSchema,
 } from "@roost/shared/proto/coordinator_pb";
@@ -29,6 +30,7 @@ import type { ConnectDeps } from "./router.ts";
 type AuthMethods =
   | "authCoordIdentity" | "authAuthorizeBrowser" | "authMintBootstrap"
   | "authRedeemWorker" | "authRedeemBrowser"
+  | "authMintCoordinatorRelocation" | "authRedeemCoordinatorRelocation"
   | "pairCreate" | "pairPoll" | "pairList" | "pairApprove" | "pairDeny";
 
 export function makeAuthHandlers(
@@ -38,9 +40,13 @@ export function makeAuthHandlers(
     // ─── auth ──────────────────────────────────────────────────────────
     async authCoordIdentity(_req, _ctx) {
       // public
+      const handoff = deps.move?.current();
       return create(AuthCoordIdentityResponseSchema, {
         fingerprintHex: deps.coordKey.verifyingKeyKid(),
         gitSha: COORD_GIT_SHA,
+        publicUrl: deps.cfg.publicUrl ?? "",
+        relocatedToUrl: handoff?.role === "SOURCE" && handoff.phase === "COMMITTED" ? handoff.target_url : undefined,
+        handoffId: handoff?.handoff_id,
       });
     },
 
@@ -129,6 +135,51 @@ export function makeAuthHandlers(
       return create(AuthRedeemBrowserResponseSchema, { fingerprint: fp, label: req.label });
     },
 
+    async authMintCoordinatorRelocation(req, ctx) {
+      const caller = requireAuth(ctx.values);
+      const handoff = deps.move?.current();
+      if (!handoff || handoff.handoff_id !== req.handoffId || deps.move?.gate.mode !== "active") {
+        throw new ConnectError("coordinator relocation is not available", Code.FailedPrecondition);
+      }
+      const now = Math.floor(Date.now() / 1000);
+      const token = await deps.coordKey.sign({
+        aud: "roost-coordinator-relocation", sub: caller.fingerprint, iat: now, exp: now + 300,
+        handoff_id: handoff.handoff_id, target_url: handoff.target_url, jti: randomUUID(),
+      });
+      return create(AuthMintCoordinatorRelocationResponseSchema, { token, targetUrl: handoff.target_url });
+    },
+
+    async authRedeemCoordinatorRelocation(req, _ctx) {
+      const handoff = deps.move?.current();
+      if (!handoff || handoff.role !== "TARGET" || handoff.phase !== "COMMITTED") {
+        throw new ConnectError("coordinator relocation is not committed", Code.FailedPrecondition);
+      }
+      let claims;
+      try { claims = await deps.coordKey.verifyRelocation(req.token); }
+      catch (error) { throw new ConnectError((error as Error).message, Code.Unauthenticated); }
+      if (claims.handoff_id !== handoff.handoff_id || claims.target_url !== handoff.target_url) {
+        throw new ConnectError("relocation token targets a different coordinator", Code.Unauthenticated);
+      }
+      const pubkey = decodeEd25519Pubkey(req.sshPubkeyB64);
+      if (!pubkey) throw new ConnectError("invalid ssh_pubkey_b64", Code.InvalidArgument);
+      const fingerprint = await fingerprintOf(pubkey);
+      const now = Date.now();
+      try {
+        await deps.db.transaction().execute(async (trx) => {
+          await trx.insertInto("bootstrap_tokens").values({
+            token: `roost_move_${claims.jti}`, kind: "browser", label: req.label,
+            created_at_ms: now, expires_at_ms: claims.exp * 1000, used_at_ms: now, used_by_fp: fingerprint,
+          }).execute();
+          await trx.insertInto("authorized_keys").values({
+            fingerprint, public_key: pubkey, label: req.label, added_at: now,
+          }).onConflict((oc) => oc.column("fingerprint").doUpdateSet({ label: req.label })).execute();
+        });
+      } catch {
+        throw new ConnectError("relocation token already used", Code.Unauthenticated);
+      }
+      return create(AuthRedeemCoordinatorRelocationResponseSchema, { fingerprint, label: req.label });
+    },
+
     // ─── pair ──────────────────────────────────────────────────────────
     async pairCreate(req, _ctx) {
       // public
@@ -140,12 +191,8 @@ export function makeAuthHandlers(
       const ephemeral_id = Array.from(ephBuf).map(b => b.toString(16).padStart(2, "0")).join("");
       const now = Date.now();
       await deps.db.insertInto("pair_requests").values({
-        id, ephemeral_id, public_key: pubkey,
-        label: req.label, status: "pending",
-        created_at_ms: now, decided_at_ms: null,
+        id, ephemeral_id, public_key: pubkey, label: req.label, status: "pending", created_at_ms: now, decided_at_ms: null,
       }).execute();
-      // Firehose delta (perf sweep C2.4): authed browsers see the new pending
-      // request immediately — no pairList poll.
       pairBus.publish({ kind: "pending", ephemeral_id, label: req.label, created_at_ms: now });
       log.info("pair.connect", "created", { ephemeral_id, label: req.label });
       return create(PairCreateResponseSchema, { ephemeralId: ephemeral_id });

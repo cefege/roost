@@ -41,13 +41,6 @@ message SessionPresence {
   string payload_json = 2;
 }
 
-// claude TUI status, scraped centrally by coord (claude-status-hub) and
-// fanned out here. Volatile (re-derived continuously) — NOT backfilled on
-// reconnect; the next output settle re-publishes the current value.
-message ClaudeStatusFrame {
-  string session_id = 1;
-  string status = 2;  // running | running-workflow | needs-input | idle | unknown
-}
 
 // OSC 0/2 terminal title, parsed centrally by coord (terminal-title-hub) from
 // the same relayed byte stream and fanned out here. Volatile (re-derived from
@@ -67,11 +60,18 @@ message LastActivityFrame {
   double ts_ms = 2;
 }
 
+
 // Live worker routability = coord's raw-WS membership (connectWorkers). Full
 // current set, published on every connect/disconnect + seeded on Sync connect.
 // SPA replaces its routable set wholesale → the online indicator stops lying.
 message WorkerRoutableFrame {
   repeated string fps = 1;
+}
+
+message CoordinatorRelocationFrame {
+  string handoff_id = 1;
+  string source_url = 2;
+  string target_url = 3;
 }
 
 message FirehoseFrame {
@@ -89,7 +89,6 @@ message FirehoseFrame {
     PermissionRuleDeltaProto permission_delta = 15;
     McpStreamMessageProto mcp_msg = 16;
     WorkerPresenceProto worker_presence = 17;
-    ClaudeStatusFrame claude_status = 18;
     WorkerRoutableFrame worker_routable = 19;
     // R11 cell-grid cell-shipping — pre-rendered grid, SPA paints + never reflows.
     PbCellGridFrame cell_grid = 20;
@@ -111,6 +110,7 @@ message FirehoseFrame {
     // WS-level pings to JS, so this MUST be a data frame that arrives in
     // onmessage.
     KeepaliveFrame keepalive = 26;
+    CoordinatorRelocationFrame coordinator_relocation = 27;
   }
 }
 

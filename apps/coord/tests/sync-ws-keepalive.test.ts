@@ -47,6 +47,8 @@ beforeAll(async () => {
     relaxedCsp: false,
     corsAllowedOrigins: [],
     logDir: workdir,
+    publicUrl: undefined,
+    handoffPath: join(workdir, "coord-handoff.json"),
   };
   const deps: ConnectDeps = { db, coordKey, jwtCache, cfg };
 

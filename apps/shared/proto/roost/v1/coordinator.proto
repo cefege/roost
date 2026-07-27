@@ -104,9 +104,8 @@ message SessionsListResponse { repeated Session sessions = 1; }
 
 message SessionsSpawnRequest {
   string worker_fp = 1;
-  string kind = 2;  // shell|claude
+  string kind = 2;  // shell
   string folder = 3;
-  optional string initial_mode = 4;  // ClaudeMode
   optional uint32 cols = 5;
   optional uint32 rows = 6;
   optional string session_id = 7;  // caller-minted id (optimistic spawn); worker reuses it verbatim
@@ -221,6 +220,7 @@ message SessionsGetScrollbackCellsResponse {
 }
 
 
+
 // ─── workspaces ───────────────────────────────────────────────────────────
 
 message WorkspacesListRequest {}
@@ -333,7 +333,13 @@ message McpPublishResponse { bool ok = 1; }
 // ─── auth ─────────────────────────────────────────────────────────────────
 
 message AuthCoordIdentityRequest {}
-message AuthCoordIdentityResponse { string fingerprint_hex = 1; string git_sha = 2; }
+message AuthCoordIdentityResponse {
+  string fingerprint_hex = 1;
+  string git_sha = 2;
+  string public_url = 3;
+  optional string relocated_to_url = 4;
+  optional string handoff_id = 5;
+}
 
 message AuthAuthorizeBrowserRequest { string ssh_pubkey_b64 = 1; string label = 2; }
 message AuthAuthorizeBrowserResponse { string fingerprint = 1; }
@@ -356,6 +362,78 @@ message AuthRedeemWorkerResponse {
 
 message AuthRedeemBrowserRequest { string token = 1; string ssh_pubkey_b64 = 2; string label = 3; }
 message AuthRedeemBrowserResponse { string fingerprint = 1; string label = 2; }
+
+// ─── coordinator move ────────────────────────────────────────────────────
+
+enum CoordinatorMovePhase {
+  COORDINATOR_MOVE_PHASE_UNSPECIFIED = 0;
+  PREPARING_TARGET = 1;
+  STAGING_WORKERS = 2;
+  DRAINING_SOURCE = 3;
+  COPYING_STATE = 4;
+  WAITING_FOR_WORKERS = 5;
+  COMMITTING = 6;
+  COMMITTED = 7;
+  ROLLING_BACK = 8;
+  ROLLED_BACK = 9;
+  FAILED = 10;
+}
+
+message CoordinatorMoveBlocker {
+  string code = 1;
+  string message = 2;
+  optional string worker_fp = 3;
+}
+
+message CoordinatorMovePreflightRequest {
+  string target_worker_fp = 1;
+}
+
+message CoordinatorMovePreflightResponse {
+  bool eligible = 1;
+  string source_url = 2;
+  string target_url = 3;
+  repeated CoordinatorMoveBlocker blockers = 4;
+}
+
+message CoordinatorMoveStartRequest {
+  string target_worker_fp = 1;
+}
+
+message CoordinatorMoveStartResponse {
+  string handoff_id = 1;
+}
+
+message CoordinatorMoveStatusRequest {
+  string handoff_id = 1;
+}
+
+message CoordinatorMoveStatusResponse {
+  CoordinatorMovePhase phase = 1;
+  string source_url = 2;
+  string target_url = 3;
+  optional string error = 4;
+}
+
+message AuthMintCoordinatorRelocationRequest {
+  string handoff_id = 1;
+}
+
+message AuthMintCoordinatorRelocationResponse {
+  string token = 1;
+  string target_url = 2;
+}
+
+message AuthRedeemCoordinatorRelocationRequest {
+  string token = 1;
+  string ssh_pubkey_b64 = 2;
+  string label = 3;
+}
+
+message AuthRedeemCoordinatorRelocationResponse {
+  string fingerprint = 1;
+  string label = 2;
+}
 
 // ─── pair ─────────────────────────────────────────────────────────────────
 
@@ -447,7 +525,7 @@ message TranscriptionTestResponse { bool ok = 1; string error = 2; }
 
 // ─── default agent (launch-button command) ─────────────────────────────────
 message AgentConfig {
-  string selected = 1;        // built-in agent id (e.g. "claude") or "custom"
+  string selected = 1;        // built-in agent id (e.g. "omp") or "custom"
   string custom_command = 2;  // custom launch string ("" when unset)
   bool auto_launch = 3;       // auto-launch agent in new terminal windows
 }
@@ -567,6 +645,13 @@ service CoordinatorService {
   rpc AuthMintBootstrap(AuthMintBootstrapRequest) returns (AuthMintBootstrapResponse);
   rpc AuthRedeemWorker(AuthRedeemWorkerRequest) returns (AuthRedeemWorkerResponse);
   rpc AuthRedeemBrowser(AuthRedeemBrowserRequest) returns (AuthRedeemBrowserResponse);
+  rpc AuthMintCoordinatorRelocation(AuthMintCoordinatorRelocationRequest) returns (AuthMintCoordinatorRelocationResponse);
+  rpc AuthRedeemCoordinatorRelocation(AuthRedeemCoordinatorRelocationRequest) returns (AuthRedeemCoordinatorRelocationResponse);
+
+  // coordinator move
+  rpc CoordinatorMovePreflight(CoordinatorMovePreflightRequest) returns (CoordinatorMovePreflightResponse);
+  rpc CoordinatorMoveStart(CoordinatorMoveStartRequest) returns (CoordinatorMoveStartResponse);
+  rpc CoordinatorMoveStatus(CoordinatorMoveStatusRequest) returns (CoordinatorMoveStatusResponse);
 
   // pair
   rpc PairCreate(PairCreateRequest) returns (PairCreateResponse);

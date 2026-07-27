@@ -8,6 +8,7 @@ import type { Navigator } from "@solidjs/router";
 import { rootStore } from "../store/root.ts";
 import { allSessions } from "../store/selectors.ts";
 import { workerOnline } from "../store/sync.ts";
+import { latestAssistantOutput } from "../lib/attention.ts";
 import { queueTaskDialogStore } from "./QueueTaskDialog.tsx";
 import type { ItemKind } from "./CommandPalettePieces.tsx";
 
@@ -87,10 +88,9 @@ export function buildDefaultItems(navigate: Navigator): PaletteItem[] {
       kind: "session",
       label: s.cwd.split("/").pop() || s.cwd,
       hint: worker?.label ?? s.worker_fp.slice(0, 8),
-      // Searchable-but-not-displayed: full cwd + the agent's last message, so
-      // ⌘K finds a session by path fragment or message content (parity with
-      // the retired scrollback-search modal).
-      search: `${s.cwd} ${s.agent?.last_message?.text ?? ""}`,
+      // Searchable-but-not-displayed: full cwd + the latest OMP assistant
+      // output, so ⌘K finds a session by path fragment or message content.
+      search: `${s.cwd} ${latestAssistantOutput(s)?.text ?? ""}`,
       href: `/s/${s.id}`,
     });
   }

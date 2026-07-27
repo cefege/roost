@@ -10,7 +10,7 @@ export type SessionRecord = {
 	sessionId: SessionId;
 	channelId: ChannelId;
 	socketPath: string;
-	kind: "shell" | "claude";
+	kind: "shell";
 	cwd: string;
 	// Local git branch of cwd (worker-resolved). undefined = not yet resolved,
 	// null = folder isn't a repo. Set by _startGitBranch; announced in
@@ -48,29 +48,15 @@ export type SessionRecord = {
 	// sb59-sb63 splice-mark + 5s-timeout band-aid per
 	// project_seqno_splice_path_a_chosen.md + CLAUDE.md L11.
 	head_seq: number;
-	// phase-ssb-altmode: alt-screen tracking. Claude/vim/less use DEC
-	// private mode 1049 (or 47/1047) to swap to an off-scrollback buffer
-	// and back. If the keeper's been running long enough that the ring
-	// evicted the original "enter alt-screen" sequence, a fresh SPA mount
-	// replays the snapshot in main-screen mode — every claude UI redraw
-	// becomes scrollback noise + live cursor-positioned updates land on
-	// the wrong rows. User-visible "two streams / wallpaper" symptom.
-	// Workaround: scan every appended chunk for the DEC private mode
-	// 1049/47/1047 transitions, track current state, prepend the right
-	// enter sequence to getScrollbackSince output iff currently alt.
-	// `mode_carry` keeps the trailing bytes of the previous chunk so a
-	// mode-set sequence split across chunk boundaries still parses.
+	// Alt-screen tracking. TUIs such as vim and less use DEC private mode
+	// 1049 (or 47/1047) to swap to an off-scrollback buffer. A fresh SPA mount
+	// must replay the retained stream in the same mode or redraws land on the
+	// wrong rows. `mode_carry` preserves a transition split across chunks.
 	alt_mode: boolean;
 	mode_carry: Uint8Array;
-	// 2026-06-15: OSC 7 cwd tracking. Plain shells (bash/zsh on macOS)
-	// emit `ESC ] 7 ; file://host/percent-encoded-path BEL` on every
-	// chpwd when TERM_PROGRAM=Apple_Terminal triggers the system zshrc /
-	// bashrc hook (see keeper/main.ts ptyEnv). claude emits cwd patches
-	// via its tool parser. Both routes land here as a `cwd` SessionEvent
-	// → coord projector → session.cwd persists → sidebar group label
-	// tracks `cd` across refresh and across browsers. `osc7_carry` holds
-	// the tail of the previous chunk so a sequence split mid-byte still
-	// matches on the next chunk.
+	// OSC 7 cwd tracking. Shells emit
+	// `ESC ] 7 ; file://host/percent-encoded-path BEL` when their directory
+	// changes. `osc7_carry` holds the tail of a split sequence.
 	osc7_carry: Uint8Array;
 	// @wterm/core WASM bridge that mirrors every PTY byte. Used for
 	// getScrollbackSince(0) fresh-mount + gap replay: serializeWTerm()

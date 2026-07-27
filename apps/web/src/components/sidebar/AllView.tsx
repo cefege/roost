@@ -10,6 +10,7 @@ import { rootStore } from "../../store/root.ts";
 import { uiStore, toggleSidebarCollapsed, closeSidebar } from "../../store/uiStore.ts";
 import { isCompact } from "../../lib/windowSizeClass.ts";
 import { allSessions } from "../../store/selectors.ts";
+import { latestAssistantOutput } from "../../lib/attention.ts";
 import { SidebarSearch } from "./SidebarSearch.tsx";
 import { SidebarEmptyState } from "./SidebarEmptyState.tsx";
 import { SessionRow } from "./SessionRow.tsx";
@@ -63,16 +64,14 @@ export function AllView() {
 
   // When query active: flat filtered session list.
   // Uses debouncedQuery so the filter only re-runs after typing settles.
-  // The message-text read is untracked: results match against last_message
-  // as of the last QUERY change, not live-updating per agent token — an
-  // agent-token batch would otherwise re-run this O(n) filter (+ toLowerCase
-  // allocs per session) the whole time search is open.
+  // The message-text read is untracked: results match against the latest OMP
+  // output as of the last query change, avoiding an O(n) re-filter per delta.
   const filteredSessions = createMemo(() => {
     const q = debouncedQuery().toLowerCase().trim();
     if (!q) return null;
     return allSessions().filter((s) => {
       if (s.cwd.toLowerCase().includes(q)) return true;
-      if (untrack(() => s.agent?.last_message?.text ?? "").toLowerCase().includes(q)) return true;
+      if (untrack(() => latestAssistantOutput(s)?.text ?? "").toLowerCase().includes(q)) return true;
       const ws = s.workspace_id ? rootStore.workspaces[s.workspace_id] : null;
       return ws?.name.toLowerCase().includes(q) ?? false;
     });
@@ -80,7 +79,6 @@ export function AllView() {
 
   return (
     <div class="df-all-view" data-testid="all-view" data-m3flat="1">
-      {/* Brand row — claude.ai/code "draggable h-11" spec. */}
       <div class="df-brand-row">
         <BrandMark size={26} class="brand-mark" />
         <span class="df-brand-title">Roost</span>

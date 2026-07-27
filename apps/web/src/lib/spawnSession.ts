@@ -1,4 +1,4 @@
-// Spawn a new shell or claude session on a worker.
+// Spawn a new shell session on a worker.
 //
 // phase-24c-1: dispatches via tRPC `sessions.spawn` mutation. Coord
 // forwards as `browser-command` to the worker over the WorkerHub WSS;
@@ -17,7 +17,7 @@ import { coordClient } from "../connect.ts";
 import { rootStore } from "../store/root.ts";
 import { estimateWtermSize } from "./wtermSizeEstimate.ts";
 import { log } from "@roost/shared/log";
-import type { WorkerFp, Session, ClaudeMode } from "@roost/shared/wire";
+import type { WorkerFp, Session } from "@roost/shared/wire";
 import { inputChannel } from "../ws/input-channel.ts";
 import { resolveAgent, autoLaunchEnabled } from "./agents.ts";
 
@@ -91,24 +91,6 @@ export async function spawnInWorkspace(
 }
 
 
-async function spawnClaude(
-  workerFp: WorkerFp,
-  folder = "~",
-  initial_mode: ClaudeMode = "default",
-  sessionId?: string,
-): Promise<string> {
-  const sz = estimateWtermSize();
-  const result = await withSpawnRetry(() => coordClient.sessionsSpawn({
-    workerFp,
-    kind: "claude",
-    folder,
-    initialMode: initial_mode,
-    cols: sz?.cols,
-    rows: sz?.rows,
-    ...(sessionId ? { sessionId } : {}),
-  }));
-  return result.sessionId;
-}
 
 /**
  * Wait for an opened session to land in the SPA store via the
