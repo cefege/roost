@@ -85,6 +85,18 @@ const WRITE_METHODS: Record<string, true | undefined> = {
   TransfersStart: true, DiagDebugLogBatch: true,
 };
 
+// High-frequency methods whose audit rows carry no forensic signal: health
+// pings, heartbeats, polling reads, and cursor/resize chatter. Auditing them
+// buried the rows that matter — DiagDebugLogBatch alone (a *receipt* for the
+// SPA uploading its own debug logs, which go to disk, not this table) was 61%
+// of a 7M-row, 1GB audit_log with no retention. A non-200 still gets written:
+// a failing heartbeat or a rejected health probe is exactly the anomaly worth
+// keeping.
+const AUDIT_SKIP_METHODS: Record<string, true | undefined> = {
+  DiagDebugLogBatch: true, MiscHealth: true, WorkersHeartbeat: true,
+  PairList: true, SessionsResize: true, SessionsCursorPos: true,
+};
+
 export function makeAuthInterceptor(deps: AuthInterceptorDeps): Interceptor {
   return (next) => async (req) => {
     let caller: Caller | null = null;
@@ -124,10 +136,12 @@ export function makeAuthInterceptor(deps: AuthInterceptorDeps): Interceptor {
       throw e;
     } finally {
       lease?.release();
-      writeAuditLog({
-        db: deps.db, status, method: "POST", path, traceId,
-        callerFp: caller?.fingerprint ?? null,
-      });
+      if (status !== 200 || !AUDIT_SKIP_METHODS[method]) {
+        writeAuditLog({
+          db: deps.db, status, method: "POST", path, traceId,
+          callerFp: caller?.fingerprint ?? null,
+        });
+      }
       if (status === 401) {
         signal("auth.rpc_rejected", {
           path,
