@@ -8,6 +8,7 @@ import { loadOrCreateCoordKey } from "./coord-key.ts";
 import { importAuthorizedKeys } from "./authorized-keys.ts";
 import { newJwtCache } from "./jwt.ts";
 import { scheduleBackups } from "./backup.ts";
+import { scheduleAuditRetention } from "./audit-retention.ts";
 import { installByteHubBusHook } from "./byte-hub.ts";
 import { createCoord } from "./coord-factory.ts";
 import { handleWorkerWsUpgrade, makeWorkerWsHandler, type WorkerWsData } from "./connect/worker-ws-handler.ts";
@@ -316,6 +317,7 @@ export async function runCoord() {
   void move.recover().catch((error) => log.error("coord", "move_recover_failed", { error: String(error) }));
 
   scheduleBackups(cfg.dbPath);
+  scheduleAuditRetention(sqlite, cfg.auditRetentionDays);
 
   const shutdown = (): void => {
     log.info("main", "shutdown");

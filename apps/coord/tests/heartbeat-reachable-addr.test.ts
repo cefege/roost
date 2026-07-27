@@ -47,6 +47,7 @@ beforeAll(async () => {
 		tlsCertPath: undefined,
 		tlsKeyPath: undefined,
 		jwtMaxAgeSecs: 300,
+		auditRetentionDays: 90,
 		relaxedCsp: false,
 		corsAllowedOrigins: [],
 		logDir: workdir,

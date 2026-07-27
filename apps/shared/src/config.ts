@@ -35,6 +35,9 @@ export const CoordConfig = z.object({
   webDistPath: z.string().optional(),         // vinxi/vite build output for SPA serve
   coordKeyPath: z.string(),                    // OpenSSH ed25519 key for JWT signing
   jwtMaxAgeSecs: z.number().int().positive().default(300),
+  // Age-out window for the high-volume audit_log rows (keystrokes, SPA polling).
+  // Auth/pair/delete rows are never swept — see apps/coord/src/audit-retention.ts.
+  auditRetentionDays: z.number().int().positive().default(90),
   corsAllowedOrigins: z.array(z.string()).default([]),
   relaxedCsp: z.boolean().default(false),
   logDir: z.string().default(coordLogDir()),
@@ -59,6 +62,9 @@ export function loadCoordConfig(env: Record<string, string | undefined> = proces
     coordKeyPath: env.ROOST_COORDINATOR_KEY_PATH ?? join(dataDir, "ssh_ed25519.key"),
     jwtMaxAgeSecs: env.ROOST_COORDINATOR_JWT_MAX_AGE_SECS
       ? Number(env.ROOST_COORDINATOR_JWT_MAX_AGE_SECS)
+      : undefined,
+    auditRetentionDays: env.ROOST_COORDINATOR_AUDIT_RETENTION_DAYS
+      ? Number(env.ROOST_COORDINATOR_AUDIT_RETENTION_DAYS)
       : undefined,
     corsAllowedOrigins: env.ROOST_CORS_ALLOWED_ORIGINS
       ? env.ROOST_CORS_ALLOWED_ORIGINS.split(",").map((s) => s.trim()).filter(Boolean)
