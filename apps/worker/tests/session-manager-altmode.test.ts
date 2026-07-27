@@ -17,7 +17,6 @@ function freshMgr(): SessionManager {
   return new SessionManager({
     workerFp: asWorkerFp("00".repeat(32)),
     sink: { emit: () => {} },
-    hookSocketPath: "/dev/null",
   });
 }
 
@@ -108,27 +107,24 @@ describe("alt-mode scanner — single-chunk transitions", () => {
   });
 });
 
-// Phase-1 (2026-06-22b): alt_mode is STREAM-DRIVEN, never hardcoded from kind.
-// Guards the "claude has no scrollback in cell mode / lost on reload" bug —
-// claude is MAIN-SCREEN (never emits ESC[?1049h) so it must stay alt_mode=false
-// to keep scrollback. Re-hardcoding alt_mode:true for kind==="claude" anywhere
-// (spawnClaude / respawn / resume record) re-breaks this.
-describe("alt-mode is kind-AGNOSTIC (Phase-1 scrollback fix)", () => {
-  test("kind:claude on main-screen output stays alt_mode=false (keeps scrollback)", async () => {
+// Alt-mode is STREAM-DRIVEN, never hardcoded from a program label. MAIN-screen
+// output keeps scrollback; only a real escape sequence enters alt-screen.
+describe("alt-mode is stream-driven", () => {
+  test("main-screen output stays alt_mode=false and keeps scrollback", async () => {
     const mgr = freshMgr();
-    await injectSession(mgr, 1, "", 0, /*altMode*/ false, /*kind*/ "claude");
-    callAppend(mgr, 1, "Welcome to Claude Code\nHISTLINE-1\nHISTLINE-2\n");
+    await injectSession(mgr, 1, "", 0, /*altMode*/ false);
+    callAppend(mgr, 1, "Welcome\nHISTLINE-1\nHISTLINE-2\n");
     expect((mgr as unknown as { sessions: Map<number, InternalSession> }).sessions.get(1)!.alt_mode).toBe(false);
   });
 
-  test("kind:claude flips alt_mode=true ONLY on a real ESC[?1049h", async () => {
+  test("only a real ESC[?1049h enables alt mode", async () => {
     const mgr = freshMgr();
-    await injectSession(mgr, 1, "", 0, false, "claude");
+    await injectSession(mgr, 1, "", 0, false);
     callAppend(mgr, 1, "prose" + ALT_ENTER_1049 + "tui");
     expect((mgr as unknown as { sessions: Map<number, InternalSession> }).sessions.get(1)!.alt_mode).toBe(true);
   });
 
-  test("kind:shell running a TUI (vim) goes alt_mode=true — carve-out is not claude-only", async () => {
+  test("a shell TUI (vim) also enters alt mode", async () => {
     const mgr = freshMgr();
     await injectSession(mgr, 1, "", 0, false, "shell");
     callAppend(mgr, 1, ALT_ENTER_1049);

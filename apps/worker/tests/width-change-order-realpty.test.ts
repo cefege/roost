@@ -8,43 +8,17 @@
 
 import { gridToCellFrame } from "@roost/shared/cell";
 import type { TerminalCore } from "@wterm/core";
-import { describe, test, expect, afterAll, beforeAll } from "bun:test";
-import { rmSync } from "node:fs";
-import { join } from "node:path";
+import { describe, test, expect } from "bun:test";
 import { tmpdir } from "node:os";
 import { SessionManager } from "../src/session-manager.ts";
-import { getMultiplexedPool } from "../src/keeper/multiplexed-client.ts";
 import { asWorkerFp } from "@roost/shared";
 
-const SOCK_DIR = join(tmpdir(), `roost-test-order-${process.pid}`);
-process.env.ROOST_WORKER_DATA_DIR = SOCK_DIR;
-process.env.ROOST_KEEPER_QUIET = "1";
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-// The keeper pool is a process-global singleton; other real-PTY test files
-// share it and tear its socket down in their afterAll, which can leave a
-// stale/dead keeper when this file runs in the full suite ("spawn failed").
-// Force a clean keeper bound to THIS file's socket dir before spawning.
-beforeAll(async () => {
-  process.env.ROOST_WORKER_DATA_DIR = SOCK_DIR;
-  try { getMultiplexedPool().dispose(); } catch { /* ignore */ }
-  await sleep(300);
-  await getMultiplexedPool().ensure();
-});
-afterAll(() => {
-  // Whole dir: unlinking only the socket left SOCK_DIR in $TMPDIR every run.
-  // No keeper kill here on purpose — see the beforeAll note above: this file
-  // shares the pool singleton and killing the keeper breaks sibling files.
-  rmSync(SOCK_DIR, { recursive: true, force: true });
-});
 const FP = "ab".repeat(32);
 
 function freshMgr(): SessionManager {
   return new SessionManager({
     workerFp: asWorkerFp("00".repeat(32)),
     sink: { emit: () => {} },
-    hookSocketPath: "/dev/null",
     sendBinaryUpstream: () => {},
   });
 }
@@ -67,7 +41,9 @@ async function waitForRing(m: SessionManager, ch: number, needle: string, timeou
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (dec.decode(asInternal(m).sessions.get(ch)!.scrollback).includes(needle)) return true;
-    await sleep(120);
+    // Real PTY integration exposes no output event; this is a bounded
+    // readiness poll against the actual keeper/PTY transport.
+    await Bun.sleep(120);
   }
   return false;
 }
@@ -97,7 +73,6 @@ describe("OPT2 deterministic-rebuild model: real shell width-change preserves or
     const rec = await m.spawnShell(tmpdir(), 80, 30);
     const ch = rec.channelId;
 
-    await sleep(400);
     await m.input(ch, new TextEncoder().encode("echo RDY$((6*7))\n"));
     expect(await waitForRing(m, ch, "RDY42", 8000)).toBe(true);
 
@@ -107,7 +82,6 @@ describe("OPT2 deterministic-rebuild model: real shell width-change preserves or
       new TextEncoder().encode("for i in $(seq 1 150); do echo \"L${i}Z line $i\"; done\n"),
     );
     expect(await waitForRing(m, ch, "L150Z", 12000)).toBe(true);
-    await sleep(300);
 
     // The user's scenario: change the width (80 → 159) and read history.
     await resizeTo(m, ch, 159, 30);
@@ -126,11 +100,6 @@ describe("OPT2 deterministic-rebuild model: real shell width-change preserves or
     expect(isNonDecreasing(markerSequence(at159b))).toBe(true);
 
     m.kill(ch);
-    // Without this the manager's viewport/detect/stray intervals outlive the
-    // file, and a later sweep calls into the keeper pool — respawning a keeper
-    // on whatever SOCK_DIR the process-global env points at (the full-suite
-    // leak: one orphan keeper + one $TMPDIR dir per run).
     m.dispose();
-    await sleep(300);
   }, 40000);
 });

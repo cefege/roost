@@ -15,7 +15,6 @@ test("kill of an orphaned (unknown) session emits a closed tombstone", () => {
   const mgr = new SessionManager({
     workerFp: asWorkerFp("00".repeat(32)),
     sink: { emit: (e) => events.push(e) },
-    hookSocketPath: "/dev/null",
   });
 
   const orphanSid = asSessionId("11111111-1111-1111-1111-111111111111");

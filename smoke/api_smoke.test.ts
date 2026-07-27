@@ -4,15 +4,8 @@
 // works end-to-end (coord + real worker + real PTY) in seconds, replacing the
 // slow humanchrome pass for data-plane-only changes. Browser-only concerns
 // (DOM paint, focus pipeline, error boundaries) stay in the roost-smoke skill.
-//
-// Gate: env ROOST_API_SMOKE=1 AND ROOST_COORD_URL — otherwise every test SKIPS
-// so a plain `bun test smoke/` stays green in CI / on dev laptops.
-//   ROOST_API_SMOKE=1 ROOST_COORD_URL=https://<coord> bun test smoke/api_smoke.test.ts
-// buildApiClient (roost-cli) honors ROOST_COORD_URL as the coordinator override.
-// Auth prerequisite: run on a Mac whose worker key (or previously-authorized
-// ~/.roost/cli-key) coord already trusts — buildApiClient does NOT self-heal
-// Unauthenticated (only the `roost api` verb path bootstraps via
-// AuthAuthorizeBrowser); run `roost api workers` once to authorize a fresh host.
+// Requires a live tailnet coordinator. The `live-api` profile is intentionally
+// separate from local smoke tests; a missing URL is a hard failure, never skip.
 //
 // No fixed sleeps anywhere: every step is a bounded 100ms poll (pollUntil),
 // so wall-clock tracks actual coord/worker latency. Target < 10s total;
@@ -20,7 +13,11 @@
 // vary; the 30s test timeout is the hard bound).
 
 import { describe, test, expect } from "bun:test";
-import { buildApiClient } from "../apps/roost-cli/src/api.ts";
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { buildAuthorizedApiClient } from "../apps/roost-cli/src/api.ts";
+import { loadWorkerConfig } from "../apps/worker/src/config.ts";
 import { openSyncWs } from "../apps/roost-cli/src/sync-ws.ts";
 // Relative import, not "@roost/shared/...": the smoke workspace declares no
 // @roost deps, so the bare specifier only resolves from files living under
@@ -28,7 +25,16 @@ import { openSyncWs } from "../apps/roost-cli/src/sync-ws.ts";
 // roost-cli importing worker modules relatively.
 import { protoToEvent } from "../apps/shared/src/wire/event-proto.ts";
 
-const GATED = process.env.ROOST_API_SMOKE === "1" && !!process.env.ROOST_COORD_URL;
+const coordinatorUrl = process.env.ROOST_COORD_URL;
+if (!coordinatorUrl) {
+  throw new Error(
+    "ROOST_COORD_URL is required; run ROOST_COORD_URL=https://<current-tailnet-coord>:4102 bun run test:live-api",
+  );
+}
+const workerConfig = loadWorkerConfig();
+const keyPath = existsSync(workerConfig.workerKeyPath)
+  ? workerConfig.workerKeyPath
+  : join(homedir(), ".roost", "cli-key");
 
 /**
  * Bounded poll: re-run `fn` every 100ms until it returns a truthy value
@@ -65,17 +71,10 @@ async function pollUntil<T>(
   }
 }
 
-describe.skipIf(!GATED)("api smoke (headless, live coord)", () => {
+describe("api smoke (headless, live coord)", () => {
   test("spawn → echo → rename → workspace lifecycle → sync stream → kill", async () => {
     const t0 = performance.now();
-    // Belt-and-braces env mapping: loadWorkerConfig reads ROOST_COORDINATOR_URL
-    // (worker/src/config.ts) while this harness is keyed on ROOST_COORD_URL.
-    // buildApiClient is contracted to honor ROOST_COORD_URL itself, but this
-    // ??= makes the client dial the right coord even if that override path
-    // shifts — a silent fall-through to localhost:4102 would fail the whole
-    // live run with a misleading Unavailable.
-    process.env.ROOST_COORDINATOR_URL ??= process.env.ROOST_COORD_URL;
-    const c = await buildApiClient();
+    const c = await buildAuthorizedApiClient({ coordinatorUrl, keyPath, label: "api-smoke" });
 
     // Cleanup ledger — the finally block below kills/deletes anything a
     // mid-flight failure left behind, so a red run never litters the live
@@ -110,16 +109,16 @@ describe.skipIf(!GATED)("api smoke (headless, live coord)", () => {
     };
 
     try {
-      // ─── 1. Spawn a shell on the first routable worker ──────────────────
-      const { routableFps } = await c.workersList({});
-      const workerFp = routableFps[0];
-      if (!workerFp) {
-        throw new Error(
-          "api smoke: no routable worker online on this coord — bring a worker up and re-run",
-        );
-      }
-      const spawn = await c.sessionsSpawn({ workerFp, kind: "shell", folder: "/tmp" });
-      const sid = spawn.sessionId;
+    // ─── 1. Spawn a shell on the first routable worker ──────────────────
+    const { routableFps } = await c.workersList({});
+    const workerFp = routableFps[0];
+    if (!workerFp) {
+      throw new Error(
+        "api smoke: no routable worker online on this coord — bring a worker up and re-run",
+      );
+    }
+    const spawn = await c.sessionsSpawn({ workerFp, kind: "shell", folder: "/tmp" });
+    const sid = spawn.sessionId;
       expect(sid).toBeTruthy();
       spawnedSessions.add(sid);
       await pollUntil(`session ${sid} reaches status=open`, async () => {
@@ -128,20 +127,22 @@ describe.skipIf(!GATED)("api smoke (headless, live coord)", () => {
       });
 
       // ─── 2. Echo round-trip: input bytes → PTY → rendered grid ──────────
-      // Random marker so a re-run against the same coord can't match stale
-      // scrollback from a previous pass. The marker appears twice (command
-      // echo + output); the OUTPUT line is exactly the marker, so an
-      // own-line match distinguishes it from the prompt line containing
-      // `echo API_SMOKE_…`.
+      // `readScrollbackRangeCells` deliberately exposes only history, not the
+      // live viewport. Emit enough follow-on rows to move the marker into
+      // scrollback before querying the RPC; its own line remains exact.
       const marker = `API_SMOKE_${crypto.randomUUID().slice(0, 8)}`;
       await c.sessionsInput({
         sessionId: sid,
-        data: new TextEncoder().encode(`echo ${marker}\n`),
+        data: new TextEncoder().encode(`printf '%s\\n' ${marker}; seq 1 128\n`),
       });
       const grid = await pollUntil(`echo marker ${marker} on its own output line`, async () => {
-        // cell-phase-4: cell frames are the sole output path. Use sessionsGetScrollbackCells
-        // to read the grid (0 → tail of scrollback).
-        const r = await c.sessionsGetScrollbackCells({ sessionId: sid, endRow: 0n, maxRows: 200 });
+        // Request a tail bounded above the current grid. The worker clamps the
+        // range; zero is a literal exclusive end row, not a tail sentinel.
+        const r = await c.sessionsGetScrollbackCells({
+          sessionId: sid,
+          endRow: BigInt(Number.MAX_SAFE_INTEGER),
+          maxRows: 200,
+        });
         const text = r.rows.map(row => row.spans.map(s => s.text || " ").join("").trimEnd()).join("\n");
         return text.split("\n").some((l: string) => l.trim() === marker) ? text : undefined;
       });
@@ -271,8 +272,7 @@ describe.skipIf(!GATED)("api smoke (headless, live coord)", () => {
   }, 30_000);
 
   test("upload (chunked) → dedup probe → chunked download round-trips >25MB", async () => {
-    process.env.ROOST_COORDINATOR_URL ??= process.env.ROOST_COORD_URL;
-    const c = await buildApiClient();
+    const c = await buildAuthorizedApiClient({ coordinatorUrl, keyPath, label: "api-smoke" });
     const spawnedSessions = new Set<string>();
     try {
       const { routableFps } = await c.workersList({});

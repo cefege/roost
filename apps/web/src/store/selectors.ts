@@ -93,14 +93,3 @@ export function activeSessionForPath(pathname: string): Session | null {
   if (w) return resolveSessionByWorkspace(w[1]);
   return null;
 }
-
-// Per-session accessors (not memos — callers wrap in createMemo if needed).
-export function lastMessageOf(session: Session) {
-  return session.agent?.last_message ?? null;
-}
-export function currentToolOf(session: Session) {
-  return session.agent?.current_tool ?? null;
-}
-export function currentBlockOf(session: Session) {
-  return session.agent?.current_block ?? null;
-}

@@ -1,13 +1,6 @@
-// Headless @wterm/core grid factory. Server-side only (Bun): the worker
-// session-manager and the coord claude-status-hub each instantiate
-// per-session grids from the roost-patched WASM (10k scrollback cap).
-// NOT imported by the web SPA — the browser loads its own core via
-// RoostTerm. Kept out of the @roost/shared root index for that reason;
-// import via the "@roost/shared/wterm-core-factory" subpath.
-//
-// Extracted from worker session-manager._createWtermCore so coord reuses
-// the identical grid semantics it must scrape (CLAUDE.md standard #10 —
-// no parallel utility).
+// Headless @wterm/core grid factory. Server-side only: the worker instantiates
+// a grid for each terminal session from Roost's patched WASM.
+// It is not imported by the web SPA, which loads its own core.
 
 import { WasmBridge, type TerminalCore } from "@wterm/core";
 import { WTERM_ROOST_WASM_PATH } from "./wterm-wasm.ts";

@@ -162,6 +162,7 @@ export class CoordinatorMoveOrchestrator implements CoordinatorMoveService {
     if (!state) return;
     if (state.role === "TARGET") {
       this.gate.setMode(state.phase === "COMMITTED" ? "active" : "target_pending");
+      if (state.phase === "COMMITTED") void this.replayCommittedWorkers(state);
       return;
     }
     if (isTerminalPhase(state.phase)) {
@@ -285,7 +286,16 @@ export class CoordinatorMoveOrchestrator implements CoordinatorMoveService {
     if (committed && committed.commit_acked_worker_fps.length === committed.expected_worker_fps.length) {
       this.options.store.write({ ...committed, phase: "COMMITTED" });
       this.gate.setMode("active");
+      await this.replayCommittedWorkers(this.status(handoffId)!);
     }
+  }
+
+  private async replayCommittedWorkers(state: HandoffState): Promise<void> {
+    const workers = await this.options.workers();
+    await Promise.allSettled(state.expected_worker_fps.map(async (workerFp) => {
+      const worker = workers.find((candidate) => candidate.fp === workerFp);
+      if (worker?.online) await this.options.runtime.commitWorker(worker, this.snapshot({ ...state, secret: "target" }, "COMMITTED"));
+    }));
   }
 
   private async estimateDbSize(): Promise<number> {

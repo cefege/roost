@@ -168,7 +168,7 @@ export function AppShell(props: ParentProps) {
     if (isMobile()) closeSidebar();
   }, { defer: true }));
 
-  // ⌘B / Ctrl+B toggles the desktop sidebar collapse (matches claude.ai/code).
+  // ⌘B / Ctrl+B toggles the desktop sidebar collapse.
   function onKeyDown(e: KeyboardEvent) {
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "b" && !e.shiftKey) {
       e.preventDefault();
@@ -308,7 +308,7 @@ export function AppShell(props: ParentProps) {
         />
       </Show>
 
-      {/* ── Mobile: slide-out drawer (claude.ai/code pattern) ── */}
+      {/* ── Mobile: slide-out drawer ── */}
       <Show when={isMobile()}>
         <aside
           data-testid="sidebar-drawer"

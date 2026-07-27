@@ -24,7 +24,6 @@ const DOWN = new Uint8Array([27, 91, 66]); // ESC [ B
 const RIGHT = new Uint8Array([27, 91, 67]); // ESC [ C
 const LEFT = new Uint8Array([27, 91, 68]); // ESC [ D
 const ENTER = new Uint8Array([13]); // CR
-// PgUp / PgDn — scroll claude's alt-screen viewport (its pager reads these).
 const PGUP = new Uint8Array([27, 91, 53, 126]); // ESC [ 5 ~
 const PGDN = new Uint8Array([27, 91, 54, 126]); // ESC [ 6 ~
 
@@ -59,7 +58,7 @@ export function TerminalNavButtons(props: Props) {
             <NavKey area="down" testid="nav-down" icon="keyboard_arrow_down" onClick={() => send(DOWN)} />
             <NavKey area="right" testid="nav-right" icon="keyboard_arrow_right" onClick={() => send(RIGHT)} />
             <NavKey area="enter" testid="nav-enter" icon="keyboard_return" onClick={() => send(ENTER)} />
-            {/* Mouse toggle: forward swipe/click to claude (scroll its fullscreen)
+            {/* Mouse toggle: forward swipe/click to the fullscreen app
                 vs native browser select/scroll. Highlighted when ON. */}
             <button
               type="button"

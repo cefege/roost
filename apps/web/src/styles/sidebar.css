@@ -1,22 +1,9 @@
-/* Sidebar — mirrored from claude.ai/code spec captured 2026-06-12.
-   Exact CSS-var values extracted from
-   `getComputedStyle(document.querySelector("aside.dframe-sidebar"))`:
-     --df-row-h: 26px
-     --df-row-font: 13px
-     --df-row-gap: 4px
-     --df-row-px: 2px
-     --df-radius-pill: 6px
-     --df-hover: rgba(255,255,255,0.05)
-     --df-selected: rgba(255,255,255,0.10)
-     --df-group-pt: 12px
-     --df-icon-size: 16px
-     --df-leading-slot: 24px
-   Sidebar bg #262626, font 13px white. */
+/* Sidebar layout. */
 
 aside[data-testid="sidebar-desktop"],
 aside[data-testid="sidebar-drawer"] {
   /* B3 — tighter density: 22px rows / 12px font / 8px section pad.
-     Previous claude.ai/code spec was 26/13/12 — too airy once we layered
+     Previous dimensions were 26/13/12 — too airy once we layered
      PINNED + RECENT groups on top of machine sections; user has 4-5
      groups stacked at once, density wins. */
   /* Phase-m3c density bump — 30px M3 compact row height, 13px font,
@@ -112,11 +99,7 @@ aside[data-overscroll="bottom"] {
   flex-shrink: 0;
 }
 
-/* Row primitive — the load-bearing claude.ai/code button.
-   class="w-full shrink-0 border-none text-left text-[length:var(--df-row-font)]
-   text-text-300 flex items-center gap-[var(--df-row-gap)] h-[var(--df-row-h)]
-   px-[var(--df-row-px)] rounded-[var(--df-radius-pill)]
-   hover:bg-[var(--df-hover)] data-[selected=focused]:bg-[var(--df-selected)]" */
+/* Row primitive. */
 /* Swipe-to-close (mobile): wrapper holds the row geometry + a red trash panel
    that the .df-row foreground slides left to reveal. The panel grows from the
    right (its width tracks the drag), so the row never needs an opaque bg. */
@@ -225,13 +208,8 @@ aside[data-overscroll="bottom"] {
   box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--text-hi) 30%, transparent);
 }
 
-/* Flat-list density = Material-3 THREE-line list item (mobile-Claude style):
-   leading status glyph, then three stacked lines —
-     line 1: headline (title) + trailing timestamp
-     line 2: location — server · path
-     line 3: activity — status · viewers · cost (or the blocked question)
-   Splitting location off line 3 lets "running" read loud instead of fighting
-   server·path for width. No per-server colors. */
+/* Flat-list density = Material-3 three-line list item:
+   leading status glyph, then three stacked lines. */
 .df-row[data-density="flat"] {
   height: 80px; /* M3 three-line list item; was 72px (two-line). 3 lines fill
                    ~50px, so 80px gives breathing room without shells (2 lines
@@ -530,7 +508,7 @@ aside[data-overscroll="bottom"] {
 }
 /* Gmail-style circular avatar: the leading glyph is a FULL circle (not a
    rounded square), sized up to read as an avatar. Status color (green/peach/
-   idle) becomes the avatar fill; claude rows get a neutral circle behind the
+   idle) becomes the avatar fill; agent rows get a neutral circle behind the
    mark. !important overrides the component's inline width/height/radius. */
 [data-m3flat] .df-flat-group .df-row .df-leading {
   width: 30px;
@@ -815,10 +793,7 @@ aside[data-testid="sidebar-drawer"]::-webkit-scrollbar-thumb:hover,
   background-clip: padding-box;
 }
 
-/* Group/section header — labelrow per claude.ai/code:
-   class="group/labelrow flex w-full min-h-[calc(...)] items-center
-   pt-[var(--df-group-pt)] pr-[var(--df-row-px)] pb-1 text-xs text-text-400/80
-   pl-[calc(var(--df-row-px)+(var(--df-leading-slot)-var(--df-icon-size))/2)]" */
+/* Group/section header. */
 .df-group-label {
   display: flex;
   align-items: center;
@@ -1003,17 +978,14 @@ aside[data-testid="sidebar-drawer"]::-webkit-scrollbar-thumb:hover,
   margin-top: 1px;
 }
 
-/* wterm theme — claude.ai/code chat colors (extracted 2026-06-12 via
-   humanchrome). Full 16-color ANSI palette in the warm-cream family so
-   shell prompts (red git status, green branch, blue path, etc.) read
-   consistently against #1f1f1e instead of mixing in wterm's stock
-   colors tuned for #1e1e1e. */
+/* wterm theme colors. Full 16-color ANSI palette in the warm-cream family
+   keeps shell prompts readable against the terminal background. */
 /* Terminal font — full, uncut JetBrains Mono Nerd Font Mono (~11.7k
    codepoints / 12.1k glyphs: every Nerd icon range — Powerline, Octicons,
    Material, Devicons, FontAwesome, Codicons in U+E000-F8FF + U+F0000+).
    DO NOT subset / PUA-strip these woff2s. An earlier strip (2 MB -> 174 KB)
    broke edge cases we can't enumerate up front: powerline/starship prompts,
-   `eza --icons`, vim/claude TUI icons all emit PUA glyphs that then render as
+   `eza --icons` and terminal apps emit PUA glyphs that otherwise render as
    tofu. The ~2 MB combined download is the accepted cost of never guessing
    which glyphs a shell might emit. If ever lost, restore the full woff2 from
    git: `git checkout 9d3c0a17 -- apps/web/public/fonts/JetBrainsMonoNerdFontMono-Regular.woff2`. */
@@ -1072,7 +1044,7 @@ aside[data-testid="sidebar-drawer"]::-webkit-scrollbar-thumb:hover,
    --terminal-grid-bg/fg are distinct names to avoid a self-collision
    against wterm's own --term-bg/--term-fg at this same .wterm scope.
    Structural (non-palette) overrides also kept here:
-   - JBM Nerd Font so claude / starship / vim icon glyphs render.
+   - JBM Nerd Font so terminal and shell icon glyphs render.
    - padding + zero border so the canvas fills our pane edge-to-edge. */
 .wterm {
   --term-bg: var(--terminal-grid-bg);
@@ -1107,6 +1079,11 @@ aside[data-testid="sidebar-drawer"]::-webkit-scrollbar-thumb:hover,
      document.body-attached so it is unaffected. */
   position: relative;
   contain: layout paint;
+  /* The cell renderer's viewport row count may be held during a bounded
+   * vertical resize wobble. Keep the scrolling root clipped to the actual
+   * pane so extra claimed rows cannot enlarge the layout or bleed outward. */
+  height: 100%;
+  box-sizing: border-box;
   padding: 12px 16px;
   /* 2026-06-16: wterm renders scrollback as .term-scrollback-row DOM
    * elements above the live grid (verified: getScrollbackCount=245,
@@ -1123,12 +1100,6 @@ aside[data-testid="sidebar-drawer"]::-webkit-scrollbar-thumb:hover,
   overflow-y: auto;
   overflow-x: hidden;
   scrollbar-gutter: stable;
-  /* CellGridRenderer OWNS scrollTop (syncScroll re-derives it from a row-space
-     intent after every mutation). Browser scroll anchoring is a competing
-     writer: measured here, an uncorrected 4200px prepend above the viewport
-     moved scrollTop by +4200 on its own — and each such adjustment emits a
-     scroll event indistinguishable from a user gesture. Turn it off. */
-  overflow-anchor: none;
 }
 
 /* Theme the text-selection tint (package terminal.css hardcodes a blue
@@ -1229,11 +1200,8 @@ aside[data-testid="sidebar-drawer"]::-webkit-scrollbar-thumb:hover,
   50%      { opacity: 0.55; }
 }
 
-/* Sleeping-mascot Zzz (StatusGlyph ClaudeMarkSleeping): two z's drift up
-   and to the right off the robot's head, then fade — staggered so they
-   read as a stream. HTML spans overlaid on the SVG (not SVG <text>) so
-   the float runs on transform/opacity only — compositor-animated, zero
-   paint work on idle rows (idle is the sidebar's steady state). */
+/* Sleeping-mascot Zzz: two z's drift up and right, then fade.
+   The HTML spans overlay the SVG so the float is compositor-animated. */
 .roost-sleeping {
   position: relative;
   display: inline-flex;
@@ -1265,9 +1233,8 @@ aside[data-testid="sidebar-drawer"]::-webkit-scrollbar-thumb:hover,
 
 /* Phase-m3f tab bar — M3 secondary-tabs spec, lives in MainPane above
    the terminal deck. One tab per OPEN session. Active gets a 2px
-   primary overline (on top, VS Code-style). Each tab carries a leading dot reflecting
-   rootStore.claude_status (running/idle/needs-input) so the user sees
-   live agent state per tab. */
+   primary overline (on top, VS Code-style). Each tab carries a leading
+   attention dot derived from the OMP bridge transcript. */
 .df-tab-bar {
   height: 40px;
   flex-shrink: 0;
@@ -1834,13 +1801,6 @@ aside[data-testid="sidebar-drawer"]::-webkit-scrollbar-thumb:hover,
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.df-tab-hovercard-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 11px;
-  color: var(--md-on-surface-variant);
-}
 .df-tab-hovercard-preview {
   height: 120px;
   margin-top: 4px;
@@ -1896,20 +1856,9 @@ aside[data-testid="sidebar-drawer"]::-webkit-scrollbar-thumb:hover,
   font-weight: 600;
   flex-shrink: 0;
 }
-.df-tab-glyph[data-claude="1"] {
-  /* Claude tabs: brand coral mark (matches sidebar isClaude branch);
-     no tile background — the icon is the identity. */
-  background: transparent;
-  color: var(--brand-coral);
-}
-.df-tab-glyph[data-claude="1"] svg { width: 14px; height: 14px; }
 .df-tab[data-active="true"] .df-tab-glyph {
   background: var(--md-primary-container);
   color: var(--md-on-primary-container);
-}
-.df-tab[data-active="true"] .df-tab-glyph[data-claude="1"] {
-  background: transparent;
-  color: var(--brand-coral);
 }
 .df-tab-label {
   flex: 1;
@@ -2064,31 +2013,10 @@ aside[data-testid="sidebar-drawer"]::-webkit-scrollbar-thumb:hover,
   50%      { transform: scale(1.05); opacity: 1; }
 }
 
-/* Phase-m3-claude-glyph — gradient tile for claude session leading
-   slot. Matches the mockup spec where claude rows get a brand-coral
-   gradient instead of the surface-container-high tile. Applied to
-   .df-leading on rows with data-is-claude="1" on the inner glyph. */
-.df-row[data-is-claude="1"] .df-leading {
-  background: linear-gradient(135deg, var(--md-primary) 0%, #ff7a52 100%);
-  color: var(--md-on-primary);
-}
-.df-row[data-selected="focused"][data-is-claude="1"] .df-leading,
-.df-row[aria-current="page"][data-is-claude="1"] .df-leading {
-  background: linear-gradient(135deg, var(--md-primary) 0%, #ff7a52 100%);
-  color: var(--md-on-primary);
-}
-
-/* ── Mobile slide-out drawer (claude.ai/code pattern) ──────────────────
-   AppShell drives the open state via the reactive data-open attribute
-   (inline style={fn(store.x)} is evaluated once and never reacts). The
-   slide + backdrop animate purely in CSS keyed on [data-open="true"].
-   Closed = off-screen left; full-screen content shows behind it. */
-/* Full-screen mobile drawer (claude.ai-app pattern): covers the whole
-   phone screen in BOTH orientations — no dimmed peek of the terminal
-   behind it. Close via the ✕ in the list header (AllView brand row,
-   compact mode) or by selecting a session (AppShell auto-closes on route
-   change). Rendered only when isPhone() (short-side ≤ phone threshold),
-   so landscape iPhone still gets the full-screen sidebar, not a panel. */
+/* ── Mobile slide-out drawer ───────────────────────────────────────────
+   AppShell drives the open state through the reactive data-open attribute.
+   It covers the phone screen in both orientations and closes when a session
+   is selected. */
 .roost-drawer {
   position: fixed;
   inset: 0;

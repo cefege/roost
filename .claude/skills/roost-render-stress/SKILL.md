@@ -15,14 +15,11 @@ perturbation that drives the corruption (viewport-size wobble →
 Hard rule (Author 2026-06-22): no terminal-render development is "done" until
 this harness runs clean in BOTH modes. Green wire tests are not evidence.
 
-THE SUBJECT MUST BE A REAL CLAUDE SESSION (Author 2026-06-22b): a plain shell
-echoing `ROOSTLINE-$i` exercises MAIN-screen scrollback — a path that was never
-broken. It passes GREEN while the actual bug is untouched = NOT a test. The
-corruption (the mobile screenshot: a claude table line stamped ~40× with tail
-mangle) lives in the **claude alt-screen redraw** on resize / multi-viewer SCD
-rebuild (`apps/worker/src/session-manager.ts::_rebuildWtermCore`, fix c03d62d0).
-Drive `__smoke.spawnClaude` and render rich content (a numbered table). Shell is
-at most a supplementary scrollback-depth check, NEVER the primary proof.
+THE SUBJECT MUST BE A REAL OMP-BACKED SESSION. Start a shell, launch `omp`,
+and wait until its bridge transcript is connected before driving it. A synthetic
+shell-only marker stream exercises main-screen scrollback but not OMP lifecycle
+or the structured-state projection. It may supplement, never replace, the
+OMP session pass.
 
 FOREGROUND GOTCHA: a backgrounded tab throttles setTimeout/rAF → the loop
 stalls AND the cell renderer stops painting → readings are stale (false PASS),
@@ -45,57 +42,50 @@ hidden tab, pin on → 264 scrollback rows painted with document.hidden===true.
 
 ## Invariants asserted, every iteration
 
-Over EVERY rendered row (probes in `apps/web/src/lib/smoke.ts`), markers must be
-UNIQUE + monotonic (`CELLLINE-<n>`; claude PROSE repeats → false dup):
-- **No duplication** — `markerScan.duplicated == []` (a marker N painted twice = the stamp-40× mangle).
-- **No mangle** — `markerScan.outOfOrder == 0` (rows out of position = re-wrap / bad re-derive). LOAD-BEARING for claude + multi-viewer.
-- **Depth** — claude alt-screen has NO scrollback and REFLOWS its TUI per width, so `max` legitimately varies (only the viewport paints). Do NOT require `max==baseline` for claude. (Shell-scrollback supplementary check still asserts depth retained + recovery.)
+Over every rendered row, marker IDs must be unique and monotonic
+(`CELLLINE-<n>`):
+- **No duplication** — `markerScan.duplicated == []`.
+- **No mangle** — `markerScan.outOfOrder == 0`.
+- **Depth** — alternate-screen views may legitimately expose a different marker
+  range after a resize; only duplicates and order are invariants there.
 
 ## Prerequisites
 
-- Live coord on the tailnet URL (resolve host via `tailscale status`; never localhost).
-- A worker with a HEALTHY keeper. A degraded long-lived keeper births dead PTYs
-  (new shells produce no output, `sessionsInput` hangs) — see
-  `feedback_claude_code_runs_inside_roost_keeper_pty`. Pick the worker whose
-  `__smoke.state().workers[].last_seen_ms` is freshest; if spawn/input hangs,
-  the keeper is degraded — that is a finding, not a harness bug.
+- Live coord on the tailnet URL; never localhost.
+- A worker with a healthy keeper. A degraded keeper produces dead PTYs and
+  stalled input; that is a product finding, not a harness failure.
 
 ## Run procedure (per mode)
 
 1. Fresh tab on the tailnet URL. Enable backdoor: `localStorage.roostSmoke="1"`.
    For cell mode also `localStorage.roostCellMode="1"`. Then `location.reload()`.
-2. Spawn a REAL CLAUDE session (NOT a shell) on the target worker and have it
-   render a table with unique monotonic markers:
+2. Spawn a shell on the target worker, launch OMP, and wait for its bridge
+   transcript before producing a unique marker table:
    ```js
    const fp = Object.values(__smoke.state().workers)
-     .find(w => w.label === "<target>").fp;   // explicit worker, e.g. worker-host
-   const { session_id } = await __smoke.spawnClaude(fp, "/tmp");
-   history.pushState({}, "", "/s/"+session_id);
+     .find(w => w.label === "<target>").fp;
+   const { session_id } = await __smoke.spawnShell(fp, "/tmp");
+   history.pushState({}, "", "/s/" + session_id);
    window.dispatchEvent(new PopStateEvent("popstate"));
-   // wait for the "❯" input prompt + "Remote Control active", then:
-   await __smoke.input(session_id,
-     "Print ONLY a markdown table, no preamble. Columns ID and WORD. Exactly 60 "+
-     "rows; row i = | CELLLINE-i | word-i | for i 1..60. Output nothing else.");
-   await __smoke.input(session_id, "\r");
+   await __smoke.input(session_id, "omp\r");
+   // Wait for rootStore.omp_transcript[session_id], then request 60 rows whose
+   // IDs are CELLLINE-1 through CELLLINE-60.
    ```
-   Poll `__smoke.markerScan(session_id,"CELLLINE-")` until `max` stops growing
-   (claude streamed the table). Only the viewport tail paints (alt-screen) — a
-   small `unique` count is correct, the stamp-40× mangle still shows as `dup`.
-3. Run the detached resize loop (perturbation matrix in `run.js`:
-   w-shrink/grow, h-shrink/grow, both, plus tiny in-band wobble; half the iters
-   wobble back to base). Drive `deck.style.width/height/maxHeight` over ~70-80
-   iters at ~400ms settle, calling `markerScan(sid,"CELLLINE-")` after each.
-   `run.js` is the SHELL variant (asserts depth/loss/recovery — valid only for a
-   shell-scrollback supplementary run). For claude, fail ONLY on
-   `duplicated.length || outOfOrder` — see step 4.
-4. Read the verdict: `{ verdict: "PASS"|"FAIL", failCount, fails:[...] }`.
-   For claude the fail condition is `duplicated.length>0 || outOfOrder>0` ONLY
-   (`DUP=`/`MANGLE`); do NOT fail on depth change. Each fail row names the op
-   (`w-shrink`/`h-grow`/`both-shrink`/…). The loop runs ~1-2 iters/s and exceeds
-   the 16s CDP cap — launch it DETACHED (write result to `window.__cR`, set a
-   `window.__cP` progress counter, wrap in try/finally so a throw still clears
-   the running flag) and poll `window.__cR` with short separate calls. Keep the
-   tab foreground the whole run.
+   Poll `__smoke.markerScan(session_id, "CELLLINE-")` until the marker range
+   settles.
+3. Set the runner inputs and inject `run.js`:
+   ```js
+   window.__stressSid = session_id;
+   window.__stressPrefix = "CELLLINE-";
+   window.__stressScreen = "alt";
+   window.__stressIter = 80;
+   ```
+   The launcher delegates to `__smoke.runRenderStress()`, which perturbs the
+   real terminal deck and probes every painted frame. For `alt`, only duplicate
+   or out-of-order markers fail; for `main`, a changed marker range also fails.
+4. Read `{ verdict, iterations, failCount, fails }`. Keep the tab foreground
+   while the run executes. Run the same loop in byte and cell mode, then run
+   the multi-viewer procedure below.
 
 ## Multi-viewer / SCD — the two-device mangle (Author 2026-06-22)
 
@@ -107,13 +97,11 @@ re-wraps already-wrapped lines → rows out of position. `markerScan.outOfOrder`
 is the detector. (Cells letterbox at the worker width and never re-wrap → this
 is the case cell mode must win; verify it does once cell's tab-switch bug is fixed.)
 
-5. Two tabs on the same claude `/s/<id>` at DIFFERENT deck sizes (set
-   `deck.style.width/height` inline; same window can't show two sizes otherwise)
-   — tab A small (the SCD-min driver), tab B noticeably LARGER (the secondary).
-   Foreground each in turn, settle, probe `__smoke.markerScan(id,"CELLLINE-")`:
-   - PASS requires BOTH tabs: `duplicated==[]` and **`outOfOrder==0`** (the
-     larger tab is the one that historically mangles — load-bearing). `max` will
-     differ between tabs (different viewport heights) — that is NOT a failure.
+5. Open two tabs for the same OMP-backed session at different deck sizes. Make
+   tab A small and tab B noticeably larger. Foreground each in turn, settle,
+   then probe `__smoke.markerScan(id, "CELLLINE-")`:
+   - PASS requires both tabs to have `duplicated == []` and `outOfOrder == 0`.
+     Different viewport heights may expose different marker ranges.
 6. Resize-hammer tab A while tab B sits passive → foreground B and probe it (a
    resizer must never mangle a passive co-viewer). Then the symmetric direction:
    resize-hammer B while A passive → foreground A and probe. Background tabs
@@ -121,8 +109,8 @@ is the case cell mode must win; verify it does once cell's tab-switch bug is fix
 
 ## Cleanup (NEVER skip, NEVER mass-kill)
 
-`await __smoke.killSpawned()` — kills ONLY this tab's spawns. NEVER iterate
-`state().sessions` to kill (`feedback_never_mass_kill_live_sessions`).
+`await __smoke.cleanupCreated()` kills and deletes only resources created by
+this smoke tab. NEVER iterate `state().sessions` to kill live sessions.
 
 ## Output
 

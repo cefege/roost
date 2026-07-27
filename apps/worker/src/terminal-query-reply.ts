@@ -3,11 +3,9 @@
 // (roost-patched wasm): the core answers cursor-DSR (ESC[6n) only and is SILENT
 // on Primary Device Attributes (ESC[c / ESC[0c) and XTVERSION (ESC[>0q).
 //
-// Real `claude` (fullscreen renderer) emits Primary DA x2 + XTVERSION at
-// startup and blocks on the reply with a short timeout. Because nobody answered,
-// claude timed out and picked its render path by WHEN the timeout fired vs its
-// first paint — the "works sometimes, not on others" inconsistency the user hit.
-// We answer honestly so claude (and vim, and anything else) feature-detects us.
+// Full-screen TUIs may issue Primary DA and XTVERSION at startup, then choose
+// a render path based on the reply. We answer honestly so any terminal client
+// can feature-detect this emulator deterministically.
 //
 // Called from session-manager.ts on every LIVE PTY chunk; the reply is written
 // BACK into the PTY (where an app reads it on stdin). DSR is handled separately
@@ -29,12 +27,9 @@ const PRIMARY_DA_REPLY = "\x1b[?1;2c";
 const XTVERSION_REPLY = "\x1bP>|wterm(roost)\x1b\\";
 
 /**
- * Reply bytes to inject into the PTY for every capability query in `chunk`, or
- * "" when there are none. Scans the raw chunk directly: these queries arrive in
- * claude's startup burst as one contiguous write, so cross-chunk splitting does
- * not happen in practice, and scanning per-chunk guarantees each query is
- * answered exactly once (no carry-window double-match). Replies are emitted in
- * the order the queries appeared.
+ * "" when there are none. Queries normally arrive as one contiguous write, so
+ * per-chunk scanning answers each query exactly once without a carry window.
+ * Replies preserve the order in which queries appeared.
  */
 export function synthQueryReplies(chunk: Uint8Array): string {
   let out = "";

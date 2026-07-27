@@ -63,16 +63,13 @@ export function appendScrollback(this: SessionManager, channelId: number, chunk:
 	// Answer terminal capability probes so the app that asked hears back. Two
 	// sources: (1) DSR (ESC[6n cursor pos) the core DOES answer → getResponse();
 	// (2) Primary DA (ESC[c) + XTVERSION (ESC[>0q) the core does NOT answer →
-	// synthesized. Unanswered DA is why claude fullscreen rendered
-	// inconsistently (it probes DA x2 at startup + times out). Reply goes BACK
-	// into the PTY (stdin). Live chunk ONLY — replay/rebuild sites discard.
+	// synthesized. The reply goes BACK into the PTY (stdin). Live chunk ONLY —
+	// replay/rebuild sites discard it.
 	this._answerTerminalQueries(
 		core,
 		channelId,
 		new Uint8Array(chunk),
 	);
-	// Agent-status detection is scraped off this byte path in emitUpstreamChunk
-	// (_scheduleDetect, claude-only) — the grid is now current for the scrape.
 	// phase-ssb-altmode: scan for DEC private mode 1049/47/1047
 	// transitions so getScrollbackSince can prepend the right enter
 	// sequence when the session is currently in alt-screen. mode_carry

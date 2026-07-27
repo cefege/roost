@@ -10,14 +10,19 @@
     "smoke"
   ],
   "scripts": {
-    "smoke": "bun test smoke/",
+    "smoke": "bun test smoke/bun_smoke.test.ts",
     "typecheck": "bun run --filter='./apps/*' typecheck",
     "knip": "knip",
-    "test": "bun test apps smoke",
+    "test": "bun apps/roost-cli/src/main.ts test all",
+    "test:unit": "bun apps/roost-cli/src/main.ts test unit",
+    "test:worker": "bun scripts/test-worker.ts",
+    "test:terminal": "bun apps/roost-cli/src/main.ts test terminal",
+    "test:live-api": "bun apps/roost-cli/src/main.ts test live-api",
     "dev": "bun run --filter='*' dev",
     "roost": "bun apps/roost-cli/src/main.ts"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.0",
     "@resvg/resvg-js": "^2.6.2",
     "@types/bun": "latest",
     "@types/node": "22",

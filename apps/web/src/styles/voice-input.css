@@ -353,48 +353,6 @@ html[data-fab-dragging="true"] .term-nav {
   user-select: none;
 }
 
-/* ── scroll-to-bottom FAB (jump to latest) ──────────────────────────────
-   Shown only when scrolled up > 1 viewport (CellTerminal Show gate). Bottom-
-   center so it never overlaps the bottom-right mic/agent/attach/plan cluster.
-   Tap → fixed-duration eased scroll to bottom + pin. */
-.jump-bottom-fab {
-  position: fixed;
-  left: 50%;
-  transform: translateX(-50%);
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 20px);
-  z-index: 50;
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  border: none;
-  cursor: pointer;
-  pointer-events: auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--md-sys-color-surface-container-high);
-  color: var(--md-sys-color-on-surface-variant);
-  box-shadow: var(--md-elev-3);
-  animation: jump-bottom-enter 160ms var(--md-ease-emphasized);
-  transition: box-shadow 200ms var(--md-ease-emphasized), transform 120ms var(--md-ease-standard);
-  -webkit-tap-highlight-color: transparent;
-}
-@media (hover: hover) {
-  .jump-bottom-fab:hover { box-shadow: var(--md-elev-4); }
-}
-.jump-bottom-fab:active { transform: translateX(-50%) scale(0.94); }
-.jump-bottom-fab:focus-visible { outline: none; }
-.jump-bottom-fab__icon {
-  font-family: "Material Symbols Rounded";
-  font-size: 24px;
-  line-height: 1;
-  font-variation-settings: "FILL" 1, "wght" 500, "GRAD" 0, "opsz" 24;
-  user-select: none;
-}
-@keyframes jump-bottom-enter {
-  from { opacity: 0; transform: translateX(-50%) translateY(8px); }
-  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
-}
 
 /* ── caption (M3 snackbar: surface-container-highest, elevation 3) ── */
 .voice-caption {

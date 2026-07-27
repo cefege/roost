@@ -8,9 +8,7 @@
 
 import { For, createMemo, createSignal, createEffect, on, onCleanup, onMount, Show, type JSX } from "solid-js";
 import { Portal } from "solid-js/web";
-import { ClaudeMark } from "./sidebar/StatusGlyph.tsx";
-import { isClaudeSession } from "../lib/isClaudeSession.ts";
-import { sessionTitle, cloudSubtitle } from "../lib/sessionTitle.ts";
+import { sessionTitle, programSubtitle } from "../lib/sessionTitle.ts";
 import { shortCwd } from "../lib/sidebarFormat.ts";
 import { IconButton } from "./Settings/md/IconButton.tsx";
 import { attentionOf, presentationOf, isActionable } from "../lib/agentStatus.ts";
@@ -19,7 +17,6 @@ import { animateSpring, SPRING_SNAP } from "../lib/spring.ts";
 import { prefersReducedMotion } from "../lib/prefersReducedMotion.ts";
 import { isCompact, isTouchDevice } from "../lib/windowSizeClass.ts";
 import { renderPreview } from "../lib/terminalPreview.ts";
-import { formatCostUsd } from "./sidebar/CostChip.tsx";
 import { ctxMenuSurfaceStyle } from "./contextMenuPrimitives.tsx";
 import type { Session } from "@roost/shared/wire";
 import "@material/web/ripple/ripple.js";
@@ -330,7 +327,6 @@ export function PaneStrip(props: PaneStripProps) {
                   const level = createMemo(() => attentionOf(s));
                   const vis = createMemo(() => presentationOf(level()));
                   const showDot = createMemo(() => isActionable(level()));
-                  const isClaude = createMemo(() => isClaudeSession(s));
                   return (
                     <button
                       type="button"
@@ -346,7 +342,7 @@ export function PaneStrip(props: PaneStripProps) {
                       }}
                     >
                       <span style={{ width: "7px", height: "7px", "border-radius": "50%", "flex-shrink": "0", background: showDot() ? vis().color : "transparent" }} />
-                      <span class="df-tab-glyph" data-claude={isClaude() ? "1" : "0"}>{isClaude() ? <ClaudeMark /> : "$"}</span>
+                      <span class="df-tab-glyph">$</span>
                       <span style={{ flex: "1", overflow: "hidden", "text-overflow": "ellipsis", "white-space": "nowrap", "min-width": "0" }}>{sessionTitle(s)}</span>
                       <Show when={s.id === props.selectedTab}>
                         <span style={{ color: "var(--md-sys-color-primary)", "flex-shrink": "0" }}>✓</span>
@@ -362,8 +358,7 @@ export function PaneStrip(props: PaneStripProps) {
     );
   }
 
-  // Desktop hover card (Chrome tab hover-card): title + process line + cwd +
-  // model/cost + live preview thumbnail. Fixed-positioned via Portal.
+  // Desktop hover card: title + process line + cwd + live preview thumbnail.
   function TabHoverCard(p: { s: Session; rect: DOMRect }) {
     let previewRef: HTMLDivElement | undefined;
     const [hasPreview, setHasPreview] = createSignal(false);
@@ -371,16 +366,13 @@ export function PaneStrip(props: PaneStripProps) {
     const level = createMemo(() => attentionOf(p.s));
     const vis = createMemo(() => presentationOf(level()));
     const showChip = createMemo(() => isActionable(level()));
-    const isClaude = createMemo(() => isClaudeSession(p.s));
-    const subtitle = createMemo(() => cloudSubtitle(p.s));
-    const model = createMemo(() => { const m = p.s.agent?.model?.trim(); return m ? m : null; });
-    const cost = createMemo(() => formatCostUsd(p.s.agent?.cost_usd));
+    const subtitle = createMemo(() => programSubtitle(p.s));
     const left = Math.max(8, Math.min(p.rect.left, window.innerWidth - 280 - 8));
     return (
       <Portal>
         <div class="df-tab-hovercard" data-testid="tab-hovercard" style={{ left: `${left}px`, top: `${p.rect.bottom + 4}px` }}>
           <div class="df-tab-hovercard-head">
-            <span class="df-tab-glyph" data-claude={isClaude() ? "1" : "0"}>{isClaude() ? <ClaudeMark /> : "$"}</span>
+            <span class="df-tab-glyph">$</span>
             <span class="df-tab-hovercard-title">{sessionTitle(p.s)}</span>
             <Show when={showChip()}>
               <span class="df-tab-hovercard-chip"><span class="df-tab-dot" style={{ background: vis().color }} />{vis().label}</span>
@@ -390,12 +382,6 @@ export function PaneStrip(props: PaneStripProps) {
             <div class="df-tab-hovercard-line">{subtitle()}</div>
           </Show>
           <div class="df-tab-hovercard-cwd">{shortCwd(p.s.cwd)}</div>
-          <Show when={isClaude() && (model() || cost())}>
-            <div class="df-tab-hovercard-meta">
-              <Show when={model()}><span>{model()}</span></Show>
-              <Show when={cost()}><span>{cost()}</span></Show>
-            </div>
-          </Show>
           <div class="df-tab-hovercard-preview" style={{ display: hasPreview() ? "block" : "none" }}>
             <div ref={previewRef} class="terminal-card-preview-text" />
           </div>
@@ -428,7 +414,6 @@ export function PaneStrip(props: PaneStripProps) {
           const level = createMemo(() => attentionOf(s));
           const vis = createMemo(() => presentationOf(level()));
           const showDot = createMemo(() => isActionable(level()));
-          const isClaude = createMemo(() => isClaudeSession(s));
           const label = createMemo(() => sessionTitle(s));
           return (
             <button
@@ -449,9 +434,7 @@ export function PaneStrip(props: PaneStripProps) {
               <Show when={showDot()}>
                 <span class="df-tab-dot" style={{ background: vis().color }} title={vis().label} aria-label={vis().label} />
               </Show>
-              <span class="df-tab-glyph" data-claude={isClaude() ? "1" : "0"}>
-                {isClaude() ? <ClaudeMark /> : "$"}
-              </span>
+              <span class="df-tab-glyph">$</span>
               <span class="df-tab-label">{label()}</span>
               <IconButton
                 icon="close"

@@ -12,9 +12,8 @@ import { coordClient } from "../connect.ts";
 import { forceSyncReconnect as forceSyncReconnectImpl, cellFrameCount as cellFrameCountImpl } from "../store/sync.ts";
 import { rootStore, setRootStore } from "../store/root.ts";
 import { setForceVisible } from "./pageVisible.ts";
-import { BOTTOM_EPSILON_PX } from "./cellRenderer.ts";
 
-interface SmokeApi {
+export interface SmokeApi {
   /** Send raw bytes via the coord RPC — BYPASSES the wterm textarea + focus
    *  pipeline. Use for variant coverage only, NEVER as the "can input?" test:
    *  it stays green when focus is dead (the cell-phase-3b input bug). For the real
@@ -34,8 +33,7 @@ interface SmokeApi {
    *  actual scroll container (.wterm, shared by byte + cell renderers). */
   renderProbe(sessionId: string): {
     found: boolean;
-    mode: "byte" | "cell" | "none";
-    scrollTop: number; scrollHeight: number; clientHeight: number;
+    mode: "cell" | "byte" | "none";
     fromBottom: number; atBottom: boolean;
     rowCount: number; nonEmptyRows: number;
     firstLine: string; lastLine: string;
@@ -76,16 +74,17 @@ interface SmokeApi {
   kill(sessionId: string): Promise<{ accepted: boolean }>;
   /** Spawn a shell on a worker; returns { session_id, channel_id }. */
   spawnShell(workerFp: string, folder: string): Promise<{ session_id: string; channel_id: number }>;
-  /** Spawn a real claude (kind:"claude", alt-screen) session. */
-  spawnClaude(workerFp: string, folder: string): Promise<{ session_id: string; channel_id: number }>;
   /** Create a workspace attached to a session — bypasses the cwd-picker UI. */
   createWorkspace(workerFp: string, folder: string, sessionId: string): Promise<{ id: string; channel: number }>;
-  /** Session ids THIS tab spawned (cleanup allowlist). */
-  _spawned: string[];
-  /** Kill ONLY this tab's spawned sessions. Use for cleanup — NEVER iterate
-   *  state().sessions to kill (that hits Author's live sessions, not just test
-   *  ones — see feedback_never_mass_kill_live_sessions). */
-  killSpawned(): Promise<{ killed: string[] }>;
+  /** Test resources created by this tab, cleaned without touching live state. */
+  cleanupCreated(): Promise<{ killedSessions: string[]; deletedWorkspaces: string[]; errors: string[] }>;
+  runFlow(): Promise<{ steps: Array<{ name: string; pass: boolean; detail: unknown }>; summary: string }>;
+  runRenderStress(options: {
+    sessionId: string;
+    prefix: string;
+    screen: "main" | "alt";
+    iterations: number;
+  }): Promise<{ verdict: "PASS" | "FAIL"; iterations: number; failCount: number; fails: unknown[] }>;
   /** att1-stream e2e: upload a synthetic file of `sizeBytes` through the REAL
    *  chunked uploadAttachment path (Blob.slice → AttachFileChunk → worker). Used
    *  to verify uploads >50 MB round-trip end-to-end. Returns the worker abs_path. */
@@ -103,18 +102,46 @@ export function maybeInstallSmokeBackdoor(): void {
   if (typeof window === "undefined") return;
   if (typeof localStorage === "undefined" || localStorage.getItem("roostSmoke") !== "1") return;
 
-  const spawned: string[] = [];
+  const spawned = new Set<string>();
+  const workspaces = new Set<string>();
   const api: SmokeApi = {
-    _spawned: spawned,
-    async killSpawned() {
-      // ONLY this tab's spawns. Guards against the 2026-06-22 mass-kill
-      // (looping state().sessions killed all of Author's live sessions).
-      const killed: string[] = [];
-      for (const sid of spawned.splice(0)) {
-        try { await coordClient.sessionsKill({ sessionId: sid }); killed.push(sid); }
-        catch { /* already gone */ }
+    async cleanupCreated() {
+      const killedSessions: string[] = [];
+      const deletedWorkspaces: string[] = [];
+      const errors: string[] = [];
+      for (const sessionId of spawned) {
+        try {
+          await coordClient.sessionsKill({ sessionId });
+          killedSessions.push(sessionId);
+        } catch (error) {
+          errors.push(`kill ${sessionId}: ${String(error)}`);
+        }
       }
-      return { killed };
+      spawned.clear();
+      for (const workspaceId of workspaces) {
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            const { workspaces: current } = await coordClient.workspacesList({});
+            const workspace = current.find((item) => item.id === workspaceId);
+            if (!workspace) break;
+            await coordClient.workspacesDelete({ id: workspace.id, ifVersion: workspace.version });
+            deletedWorkspaces.push(workspaceId);
+            break;
+          } catch (error) {
+            if (attempt === 1) errors.push(`delete workspace ${workspaceId}: ${String(error)}`);
+          }
+        }
+      }
+      workspaces.clear();
+      return { killedSessions, deletedWorkspaces, errors };
+    },
+    async runFlow() {
+      const { runFlow } = await import("./smokeHarness.ts");
+      return runFlow(api);
+    },
+    async runRenderStress(options) {
+      const { runRenderStress } = await import("./smokeHarness.ts");
+      return runRenderStress(api, options);
     },
     async input(sessionId, text) {
       await coordClient.sessionsInput({
@@ -154,7 +181,7 @@ export function maybeInstallSmokeBackdoor(): void {
         found: true, mode: isCell ? "cell" as const : "byte" as const,
         scrollTop: Math.round(c.scrollTop), scrollHeight: Math.round(c.scrollHeight),
         clientHeight: Math.round(c.clientHeight), fromBottom: Math.round(fromBottom),
-        atBottom: fromBottom <= BOTTOM_EPSILON_PX,
+        atBottom: c.scrollTop >= Math.max(0, c.scrollHeight - c.clientHeight),
         rowCount: rows.length, nonEmptyRows: nonEmpty.length,
         firstLine: nonEmpty[0] ?? "", lastLine: nonEmpty[nonEmpty.length - 1] ?? "",
       };
@@ -225,14 +252,7 @@ export function maybeInstallSmokeBackdoor(): void {
     },
     async spawnShell(workerFp, folder) {
       const res = await coordClient.sessionsSpawn({ workerFp, kind: "shell", folder });
-      spawned.push(res.sessionId);
-      return { session_id: res.sessionId, channel_id: res.channelId };
-    },
-    async spawnClaude(workerFp, folder) {
-      // kind:"claude" → worker spawns the claude bridge (alt-screen, absolute
-      // cursor). Exercises the real claude render path the harness must cover.
-      const res = await coordClient.sessionsSpawn({ workerFp, kind: "claude", folder });
-      spawned.push(res.sessionId);
+      spawned.add(res.sessionId);
       return { session_id: res.sessionId, channel_id: res.channelId };
     },
     async createWorkspace(workerFp, folder, sessionId) {
@@ -251,6 +271,7 @@ export function maybeInstallSmokeBackdoor(): void {
         folderPath: folder,
         attachSessionIds: [sessionId],
       });
+      workspaces.add(ws.workspace!.id);
       const session = rootStore.sessions[sessionId] as { channel?: number } | undefined;
       return { id: ws.workspace!.id, channel: session?.channel ?? 0 };
     },

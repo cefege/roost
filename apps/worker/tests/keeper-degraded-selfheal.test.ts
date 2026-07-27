@@ -15,7 +15,6 @@ function mgr(): { mgr: SessionManager; degradedCalls: number } {
   const m = new SessionManager({
     workerFp: asWorkerFp("00".repeat(32)),
     sink: { emit: () => {} },
-    hookSocketPath: "/dev/null",
     sendBinaryUpstream: () => {}, // present so emitUpstreamChunk reaches appendScrollback
   });
   m.setOnKeeperDegraded(() => { state.degradedCalls++; });

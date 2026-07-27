@@ -80,8 +80,7 @@ export function setJumpUnreadHandler(fn: (() => void) | null): void {
 // ⌘F is intentionally NOT handled here — it belongs to the in-place sidebar
 // filter (AllView focuses its search input). The retired GlobalScrollbackSearch
 // modal used to grab ⌘F here, which shadowed the sidebar filter (unreachable by
-// keyboard). The sidebar filter already searches cwd + last_message + workspace,
-// so the modal was redundant.
+// keyboard). The sidebar filter already searches cwd, OMP output, and workspace.
 
 // Exported for the keyboard-nav regression test (keyboardShortcuts.dom.test.ts):
 // drives a real KeyboardEvent through the exact production branch that decides

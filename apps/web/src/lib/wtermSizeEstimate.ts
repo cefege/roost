@@ -1,9 +1,8 @@
 // Best-effort estimate of the SPA's current wterm cols/rows for a new
 // session spawn. The keeper reads ROOST_PTY_COLS/ROWS at PTY start so
-// TUIs (claude, vim, …) paint to the correct width from byte 0 instead
-// of the 220×50 keeper default. Without this, claude's full-redraw
-// lands at 220 cols, then SIGWINCH-redraws after our resize message —
-// the pre-resize paint leaves wrap/duplicate artifacts in the buffer.
+// TUIs (for example vim) paint to the correct width from byte 0 instead
+// of the 220×50 keeper default. A full redraw then follows the resize
+// message, preventing pre-resize wrap/duplicate artifacts in the buffer.
 //
 // Re-measures on demand: spawn is rare enough that a fresh probe is
 // fine, and we never want a stale cache after a window/zoom change.

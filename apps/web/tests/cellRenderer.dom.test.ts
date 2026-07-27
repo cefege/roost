@@ -17,12 +17,16 @@ import { DEFAULT_COLOR, type CellGridFrame, type CellRow } from "@roost/shared/c
 
 // ── minimal fake DOM ──────────────────────────────────────────────────────
 class FakeStyle {
-  setProperty(k: string, v: string) { (this as any)[k] = v; }
+  [key: string]: unknown;
+  setProperty(k: string, v: string) { Object.defineProperty(this, k, { configurable: true, enumerable: true, value: v, writable: true }); }
+  removeProperty(k: string) {
+    const previous = typeof this[k] === "string" ? this[k] : "";
+    Reflect.deleteProperty(this, k);
+    return previous;
+  }
 }
-// Layout model. CellGridRenderer derives every scroll position from three
-// numbers — the container's padding-top, the measured .cell-row height and the
-// painted row count — so the fake must produce all three consistently or the
-// scroll-intent tripwires below assert nothing.
+// Layout model. The fake derives geometry from the painted rows so tests can
+// distinguish browser geometry from CellGridRenderer's one conditional writer.
 const PAD_TOP = 12; // .wterm padding-top (styles/sidebar.css)
 const ROW_PX = 16;  // one .cell-row line box
 
@@ -53,9 +57,9 @@ class FakeEl {
     for (const k of flat) k.parentElement = this;
     this.children.unshift(...flat);
   }
-  // Scroll surface. scrollHeight is DERIVED from the painted rows, the way real
-  // layout derives it, so eviction / prepend / rebuild move it exactly as the
-  // browser would and syncScroll has something honest to clamp against.
+  // Scroll surface. scrollHeight is derived from the painted rows, like browser
+  // layout. scrollTop's setter counts application writes after each test resets
+  // it; direct setup writes are reset before assertions.
   get scrollHeight(): number { return PAD_TOP + this.paintedRows * ROW_PX; }
   get paintedRows(): number {
     if (this.className === "cell-row") return 1;
@@ -63,11 +67,13 @@ class FakeEl {
     for (const c of this.children) n += (c as FakeEl).paintedRows ?? 0;
     return n;
   }
-  scrollTop = 0;
-  clientHeight = 0;    // viewport height — atBottom/syncScroll math (set per-test as needed)
+  private _scrollTop = 0;
+  scrollTopWrites = 0;
+  get scrollTop(): number { return this._scrollTop; }
+  set scrollTop(value: number) { this._scrollTop = value; this.scrollTopWrites++; }
+  resetScrollTopWrites(): void { this.scrollTopWrites = 0; }
+  clientHeight = 500;
   offsetTop = PAD_TOP; // scrollbackEl's offset inside .wterm (its offset parent)
-  // CellGridRenderer._setScrollTop pre-clamps, so this is a plain write.
-  scrollTo(opts: { top: number }) { this.scrollTop = opts.top; }
   // rowHeight()'s hidden probe measures one .cell-row.
   getBoundingClientRect() { return { height: ROW_PX, width: 80, top: 0, left: 0, bottom: ROW_PX, right: 80 }; }
   replaceChildren(...kids: any[]) {
@@ -281,7 +287,7 @@ describe("CellGridRenderer DOM — append-only scrollback, no reflow", () => {
     r.apply(fullFrame(80, [row(0, "v0")], [row(0, "h0")]));
     expect(c.classList.contains("alt-active")).toBe(false);
 
-    // Claude enters fullscreen → altScreen:true → alt-active latches (CSS hides
+    // A fullscreen terminal app enters altScreen:true → alt-active latches (CSS hides
     // scrollback + locks scroll: no historic junk on top, no scroll-up).
     r.apply(altFullFrame(80, [row(0, "TUI")], [row(0, "stale-h0")]));
     expect(c.classList.contains("alt-active")).toBe(true);
@@ -483,24 +489,25 @@ describe("CellGridRenderer DOM — held-window eviction", () => {
     expect(total).toBe(idx); // sanity: total tracks the last appended index
   });
 
-  test("eviction freezes off the intent, not off a caller-set flag", () => {
+  test("returning to the bottom re-enables held-window eviction", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
     r.apply(fullFrame(80, [row(0, "v")], seq(100).map((i) => row(i, `h${i}`))));
-    // Scroll up into history: the anchor intent IS the freeze.
-    c.scrollTop = PAD_TOP + 50 * ROW_PX;
-    r.captureScrollIntent();
-    expect(r.following()).toBe(false);
-    const { idx } = grow(r, 100, 12); // anchored → no trim
-    expect(r.currentFrame!.scrollbackRows.length).toBe(100 + 12 * BLOCK);
+    c.scrollTop = c.scrollHeight - c.clientHeight - ROW_PX;
+    c.resetScrollTopWrites();
+    const { idx } = grow(r, 100, 8);
+    expect(r.currentFrame!.scrollbackRows.length).toBe(100 + 8 * BLOCK);
     expect(r.currentFrame!.scrollbackRows.length).toBeGreaterThan(MAX_HELD_SCROLLBACK_ROWS);
-    // Back to the tail + one more append → trims back under the cap, invariant intact.
-    r.followTail();
-    const append = seq(BLOCK).map((k) => row(idx + k, `s${idx + k}`));
-    r.apply(appDelta(append, idx + BLOCK, 99));
+    expect(c.scrollTopWrites).toBe(0);
+
+    c.scrollTop = Math.max(0, c.scrollHeight - c.clientHeight);
+    c.resetScrollTopWrites();
+    r.apply(appDelta([row(idx, `s${idx}`)], idx + 1, 99));
     const f = r.currentFrame!;
     expect(f.scrollbackRows.length).toBeLessThanOrEqual(MAX_HELD_SCROLLBACK_ROWS);
     expect(f.scrollbackTotal - f.sbBase).toBe(f.scrollbackRows.length);
+    expect(c.scrollTop).toBe(c.scrollHeight - c.clientHeight);
+    expect(c.scrollTopWrites).toBe(1);
   });
 
   test("a partial leading block (backfill prepend) never desyncs DOM from array", () => {
@@ -533,6 +540,21 @@ describe("CellGridRenderer DOM — held-window eviction", () => {
     }
   });
 
+  test("only the mutable tail is excluded from browser anchoring", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    const scrollbackEl = c.children[0];
+    r.apply(tailFrame(80, [row(0, "v")], seq(300).map((i) => row(300 + i, `h${i}`)), 600));
+    expect((scrollbackEl.children[0] as FakeEl).style["overflow-anchor"]).toBeUndefined();
+    expect((scrollbackEl.children[1] as FakeEl).style["overflow-anchor"]).toBe("none");
+
+    r.prependScrollback([row(299, "backfill")]);
+    expect((scrollbackEl.children[2] as FakeEl).style["overflow-anchor"]).toBeUndefined();
+
+    r.apply(appDelta([row(600, "stream")], 601, 2));
+    expect((scrollbackEl.children[2] as FakeEl).style["overflow-anchor"]).toBe("none");
+  });
+
   test("after eviction, an extending tail full frame still merges; anchor base is honest", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
@@ -547,52 +569,21 @@ describe("CellGridRenderer DOM — held-window eviction", () => {
     const extTail = tailFrame(80, [row(0, "v")], [lastHeld, row(idx, `new${idx}`)], total + 1);
     expect(mergeFullFrame(after, extTail)).not.toBeNull();
   });
-  test("eviction re-derives from the intent: tail stays pinned, an anchor holds its row", () => {
-    // Regression for the "pane jumps off the bottom" race, restated in the
-    // intent model. Eviction shrinks the content ABOVE the viewport, so the
-    // pixel position it leaves behind is meaningless; there is no
-    // distance-from-bottom arithmetic left in _evictScrollback. Both intents
-    // must survive an evicting append, and the append/evict sizes here are
-    // ASYMMETRIC (250 in, 180 out) so any distance shortcut drifts by 70 rows.
+  test("eviction leaves an inspected viewport untouched", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
     c.clientHeight = 500;
-    // Partial leading block via backfill — the realistic deep-session shape
-    // (every backfill prepend is < SB_BLOCK, the overlap row being stripped).
-    const total = 2500;
-    const tailStart = total - 100;
-    r.apply(tailFrame(80, [row(0, "v")], seq(100).map((k) => row(tailStart + k, `h${k}`)), total));
-    r.prependScrollback(seq(180).map((k) => row(tailStart - 180 + k, `b${k}`)));
-    // Grow to just under the cap (6 batches: held = 280 + 6*250 = 1780).
-    let idx = total, running = total;
-    for (let i = 0; i < 6; i++) {
-      const append = seq(BLOCK).map((k) => row(idx + k, `s${idx + k}`));
-      idx += BLOCK; running += BLOCK;
-      r.apply(appDelta(append, running, i + 2));
-    }
-    expect(r.currentFrame!.scrollbackRows.length).toBeLessThanOrEqual(MAX_HELD_SCROLLBACK_ROWS);
-    expect(r.atBottom()).toBe(true); // the tail intent held it through every append
-    // One more block → over cap → eviction removes the 180-row partial head.
-    idx += BLOCK; running += BLOCK;
-    r.apply(appDelta(seq(BLOCK).map((k) => row(idx - BLOCK + k, `s${idx - BLOCK + k}`)), running, 99));
-    expect(c.scrollHeight - c.scrollTop - c.clientHeight).toBe(0);
-
-    // Now the scrolled-up reader: the anchor intent IS the eviction freeze
-    // (_evictScrollback returns unless following()), so live output must not
-    // trim history out from under them and their row must not move.
+    r.apply(fullFrame(80, [row(0, "v")], seq(2000).map((i) => row(i, `h${i}`))));
     c.scrollTop = PAD_TOP + 800 * ROW_PX;
-    r.captureScrollIntent();
-    // The absolute scrollback row sitting at the top of the visible area.
-    const topRow = () => r.currentFrame!.sbBase + (c.scrollTop - PAD_TOP) / ROW_PX;
-    const anchored = topRow();
+    const held = c.scrollTop;
     const baseBefore = r.currentFrame!.sbBase;
-    const heldBefore = r.currentFrame!.scrollbackRows.length;
-    idx += BLOCK; running += BLOCK;
-    r.apply(appDelta(seq(BLOCK).map((k) => row(idx - BLOCK + k, `s${idx - BLOCK + k}`)), running, 100));
-    expect(r.currentFrame!.sbBase).toBe(baseBefore); // frozen: history kept intact
-    expect(r.currentFrame!.scrollbackRows.length).toBe(heldBefore + BLOCK);
-    expect(r.currentFrame!.scrollbackRows.length).toBeGreaterThan(MAX_HELD_SCROLLBACK_ROWS);
-    expect(topRow()).toBe(anchored);
+    const append = seq(BLOCK).map((k) => row(2000 + k, `s${2000 + k}`));
+    c.resetScrollTopWrites();
+    r.apply(appDelta(append, 2000 + BLOCK, 99));
+    expect(r.currentFrame!.sbBase).toBe(baseBefore);
+    expect(r.currentFrame!.scrollbackRows.length).toBe(2000 + BLOCK);
+    expect(c.scrollTop).toBe(held);
+    expect(c.scrollTopWrites).toBe(0);
   });
 });
 
@@ -637,217 +628,92 @@ describe("CellGridRenderer DOM — content-visibility placeholder exactness", ()
   });
 });
 
-// ── scroll intent: the position is DECLARED, then re-derived ─────────────
-// CellGridRenderer owns scrollTop as a row-space intent ("tail", or an absolute
-// scrollback row at a pixel offset) and re-derives it after every mutation.
-// These lock the four ways the old emergent pixel position was destroyed:
-// a backfill prepend above the viewport, a wipe-and-rebuild renderFull, the
-// alt-screen display:none collapse, and our own writes echoing back as scroll
-// events that looked exactly like user gestures.
-describe("CellGridRenderer DOM — scroll intent", () => {
+// ── bottom-only scrolling ─────────────────────────────────────────────────
+// The renderer samples literal-bottom geometry before a mutation. It writes the
+// new maximum only for that one case; native browser scrolling and anchoring own
+// every other position.
+describe("CellGridRenderer DOM — bottom-only scrolling", () => {
   const nRows = (n: number, from = 0) =>
     Array.from({ length: n }, (_, i) => row(from + i, `s${from + i}`));
+  const appDelta = (append: CellRow[], total: number, seq: number): CellGridFrame =>
+    ({ ...deltaFrame(80, 1, [row(0, "v")], append, seq), scrollbackTotal: total });
 
-  test("a backfill prepend under an anchor keeps the SAME absolute row in place", () => {
+  test("a frame appended at the exact bottom pins to the new bottom", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
-    c.clientHeight = 500;
+    r.apply(fullFrame(80, [row(0, "v")], nRows(400)));
+    c.scrollTop = Math.max(0, c.scrollHeight - c.clientHeight);
+    c.resetScrollTopWrites();
+
+    r.apply(appDelta([row(400, "new")], 401, 2));
+
+    expect(c.scrollTop).toBe(c.scrollHeight - c.clientHeight);
+    expect(c.scrollTopWrites).toBe(1);
+    expect(r.atBottom()).toBe(true);
+  });
+
+
+  test("one pixel above the bottom is not pinned by a streaming frame", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    r.apply(fullFrame(80, [row(0, "v")], nRows(400)));
+    c.scrollTop = c.scrollHeight - c.clientHeight - 1;
+    const before = c.scrollTop;
+    c.resetScrollTopWrites();
+
+    r.apply(appDelta([row(400, "new")], 401, 2));
+
+    expect(c.scrollTop).toBe(before);
+    expect(c.scrollTopWrites).toBe(0);
+    expect(r.atBottom()).toBe(false);
+  });
+
+  test("a non-bottom backfill prepend performs no application scroll write", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
     const total = 1000, held = 300;
     r.apply(tailFrame(80, [row(0, "v")], nRows(held, total - held), total));
-    const sbBase0 = r.currentFrame!.sbBase; // 700
-    // Scroll up to held row 50 (absolute row 750) and declare that intent.
     c.scrollTop = PAD_TOP + 50 * ROW_PX;
-    r.captureScrollIntent();
     const before = c.scrollTop;
+    c.resetScrollTopWrites();
 
-    const chunk = 100;
-    r.prependScrollback(nRows(chunk, sbBase0 - chunk));
-    expect(r.currentFrame!.sbBase).toBe(sbBase0 - chunk);
-    // Same absolute row, now `chunk` rows further down the painted sheet.
-    expect(c.scrollTop).toBe(before + chunk * ROW_PX);
-    expect(r.currentFrame!.sbBase + (c.scrollTop - PAD_TOP) / ROW_PX).toBe(sbBase0 + 50);
+    r.prependScrollback(nRows(100, total - held - 100));
+
+    expect(c.scrollTop).toBe(before);
+    expect(c.scrollTopWrites).toBe(0);
+    expect(r.backfillAnchor()!.sbBase).toBe(total - held - 100);
+    expect(sbRows(c.children[0]).length).toBe(held + 100);
+    expect(r.currentFrame!.scrollbackRows.length).toBe(held + 100);
   });
 
-  test("a non-mergeable full frame lands on the tail instead of a browser clamp", () => {
+  test("entering alt-screen from history performs no application scroll write", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
-    const sb: FakeEl = c.children[0];
-    c.clientHeight = 500;
-    r.apply(fullFrame(80, [row(0, "v")], nRows(100)));
-    r.followTail();
-    const firstBefore = sbRows(sb)[0];
-    // Different cols → mergeFullFrame refuses → renderFull wipes and rebuilds.
-    // renderFull used to do ZERO scroll work: the landing spot was whatever the
-    // browser's clamp produced, which is the bimodal mid-history reveal.
-    r.apply(fullFrame(100, [row(0, "v")], nRows(400)));
-    expect(sbRows(sb)[0]).not.toBe(firstBefore); // really rebuilt, not merged
-    expect(c.scrollTop).toBe(c.scrollHeight - c.clientHeight);
-    expect(r.atBottom()).toBe(true);
-  });
-
-  test("alt-screen locks scroll; leaving alt returns to the live tail", () => {
-    const c = makeContainer();
-    const r = new CellGridRenderer(c as unknown as HTMLElement);
-    c.clientHeight = 500;
-    r.apply(fullFrame(80, [row(0, "v")], nRows(400)));
-    expect(r.atBottom()).toBe(true);
-    // Entering alt hides .cell-scrollback, which collapses scrollHeight and
-    // makes the browser clamp scrollTop to 0. Model that clamp directly.
-    r.apply(altFullFrame(80, [row(0, "a0"), row(1, "a1")], []));
-    c.scrollTop = 0;
-    // While alt is active there is no scrollback to anchor to and the container
-    // is overflow:hidden — syncScroll must not move anything.
-    r.apply(altDeltaFrame(80, 2, [row(0, "a0'"), row(1, "a1'")], 3));
-    r.syncScroll();
-    expect(c.scrollTop).toBe(0);
-    // Leaving alt restores the sheet. Nothing used to put the view back, which
-    // is the measured fromBottom ≈ 16,000 after quitting vim/less/claude.
-    r.apply(fullFrame(80, [row(0, "v")], nRows(400)));
-    expect(r.atBottom()).toBe(true);
-  });
-
-  test("isSelfScroll tells our own write apart from a user gesture", () => {
-    const c = makeContainer();
-    const r = new CellGridRenderer(c as unknown as HTMLElement);
-    c.clientHeight = 500;
-    r.apply(fullFrame(80, [row(0, "v")], nRows(400)));
-    expect(r.isSelfScroll()).toBe(true);  // apply() ended with syncScroll
-    c.scrollTop -= 20 * ROW_PX;           // a real wheel gesture
-    expect(r.isSelfScroll()).toBe(false);
-    r.syncScroll();
-    expect(r.isSelfScroll()).toBe(true);
-  });
-
-  test("a reveal RE-DERIVES the anchor against the new box instead of jumping to the tail", () => {
-    // Park→reveal: the pane's box changes while it is hidden (the deck's slot
-    // commit), then CellTerminal's inLayout effect re-derives. It used to call
-    // followTail() there — the reveal threw the reader's position away, which
-    // is the whole "switching tabs moves my scroll" report. Re-derivation must
-    // land the SAME absolute row at the top edge under the new clientHeight.
-    const c = makeContainer();
-    const r = new CellGridRenderer(c as unknown as HTMLElement);
-    c.clientHeight = 600;
     r.apply(fullFrame(80, [row(0, "v")], nRows(400)));
     c.scrollTop = PAD_TOP + 50 * ROW_PX;
-    r.captureScrollIntent();
-    const topRow = () => r.currentFrame!.sbBase + (c.scrollTop - PAD_TOP) / ROW_PX;
-    const anchored = topRow();
+    c.resetScrollTopWrites();
 
-    c.clientHeight = 900; // the reveal's taller box
-    r.syncScroll();
-    expect(r.following()).toBe(false);
-    expect(r.scrollIntent().kind).toBe("anchor");
-    expect(topRow()).toBe(anchored);
+    r.apply(altFullFrame(80, [row(0, "TUI")], []));
+
+    expect(c.classList.contains("alt-active")).toBe(true);
+    expect(c.scrollTopWrites).toBe(0);
   });
 
-  test("a catch-up full frame merges under an anchor — no wipe, no lost place", () => {
-    // The frame shape the worker's claim-tail sizing (held_scrollback_total)
-    // now always produces for a returning viewer: sbBase still inside the held
-    // window, so mergeFullFrame extends instead of renderFull wiping. Before
-    // the sizing, a parked pane that produced > 250 rows got sbBase =
-    // total-250, the anchored row fell below it and syncScroll clamped k to 0 —
-    // the pane landed at the top of a shallow window and lurched back down one
-    // backfill chunk at a time.
+  test("leaving alt-screen pins because the alt viewport is at bottom", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
-    const sb: FakeEl = c.children[0];
-    c.clientHeight = 500;
-    r.apply(tailFrame(80, [row(0, "v")], nRows(300, 700), 1000));
-    expect(r.currentFrame!.sbBase).toBe(700);
-    c.scrollTop = PAD_TOP + 50 * ROW_PX; // absolute row 750
-    r.captureScrollIntent();
-    const firstBefore = sbRows(sb)[0];
-    const topRow = () => r.currentFrame!.sbBase + (c.scrollTop - PAD_TOP) / ROW_PX;
-    expect(topRow()).toBe(750);
-
-    // 200 rows arrived while parked; the tail reaches back to row 700.
-    r.apply(tailFrame(80, [row(0, "v")], nRows(500, 700), 1200));
-    expect(sbRows(sb)[0]).toBe(firstBefore);   // merged — the paint survived
-    expect(r.currentFrame!.sbBase).toBe(700);  // held window kept its depth
-    expect(r.currentFrame!.scrollbackRows.length).toBe(500);
-    expect(topRow()).toBe(750);
-  });
-
-  test("a post-write layout clamp still reads as OUR write, not a gesture", () => {
-    // deckOps.selectTabOp commits the layout twice on a spotlit tab switch; the
-    // second commit grows the pane AFTER the reveal already pinned scrollTop,
-    // so the browser re-clamps and delivers a scroll event. Treating that as a
-    // gesture froze the clamped position as the user's intent.
-    const c = makeContainer();
-    const r = new CellGridRenderer(c as unknown as HTMLElement);
-    c.clientHeight = 500;
     r.apply(fullFrame(80, [row(0, "v")], nRows(400)));
-    r.followTail();
-    c.clientHeight = 540;                          // the late, taller box
-    c.scrollTop = c.scrollHeight - c.clientHeight; // the browser's clamp
-    expect(r.isSelfScroll()).toBe(true);
-    c.scrollTop -= 20 * ROW_PX;                    // a real wheel gesture
-    expect(r.isSelfScroll()).toBe(false);
-  });
+    c.scrollTop = PAD_TOP + 50 * ROW_PX;
+    r.apply(altFullFrame(80, [row(0, "TUI")], []));
+    // CSS makes the alt viewport non-scrollable; model its browser clamp.
+    c.scrollTop = 0;
+    c.resetScrollTopWrites();
 
-  // The three below cover the ASYNC-GESTURE race. Scroll events are delivered
-  // asynchronously, so a frame can land between the compositor moving
-  // scrollTop and the listener running. Every other test here calls
-  // captureScrollIntent() by hand immediately after moving scrollTop — the one
-  // ordering that hides the bug. These move scrollTop, apply a frame, and only
-  // then ask what the listener would have seen.
+    r.apply(fullFrame(80, [row(0, "back")], nRows(400)));
 
-  test("a frame landing mid-gesture does not yank the view back", () => {
-    const c = makeContainer();
-    const r = new CellGridRenderer(c as unknown as HTMLElement);
-    c.clientHeight = 500;
-    r.apply(fullFrame(80, [row(0, "v")], nRows(400)));
-    expect(r.following()).toBe(true);
-    // The compositor's half of a wheel gesture: 6 rows up, no scroll event yet.
-    c.scrollTop -= 6 * ROW_PX;
-    const held = c.scrollTop;
-    // A streaming delta lands in that window.
-    r.apply({ ...deltaFrame(80, 1, [row(0, "v")], [row(400, "new")], 2), scrollbackTotal: 401 });
-    expect(c.scrollTop).toBe(held);              // pre-fix: yanked to the new bottom
-    expect(r.following()).toBe(false);           // pre-fix: still "tail"
-    expect(r.scrollIntent().kind).toBe("anchor");
-    // And the listener firing late must not re-read it as a fresh gesture.
-    expect(r.isSelfScroll()).toBe(true);
-  });
-
-  test("an anchored reader keeps their pixel through a streaming frame", () => {
-    const c = makeContainer();
-    const r = new CellGridRenderer(c as unknown as HTMLElement);
-    c.clientHeight = 500;
-    r.apply(fullFrame(80, [row(0, "v")], nRows(400)));
-    c.scrollTop = PAD_TOP + 100 * ROW_PX;
-    r.captureScrollIntent();
-    expect(r.scrollIntent()).toEqual({ kind: "anchor", row: 100, off: 0 });
-    // The reader scrolls up 5 more rows — compositor only, no event yet — and
-    // a streaming frame lands in that window. Pre-fix the frame re-derived from
-    // the STALE anchor (row 100) and slammed the view 80px back down; at
-    // 10-30 frames/s of output that is the reported zigzag.
-    c.scrollTop -= 5 * ROW_PX;
-    const held = c.scrollTop;
-    r.apply({ ...deltaFrame(80, 1, [row(0, "v")], nRows(5, 400), 2), scrollbackTotal: 405 });
-    expect(c.scrollTop).toBe(held);
-    expect(r.scrollIntent()).toEqual({ kind: "anchor", row: 95, off: 0 });
-  });
-
-  test("an unreachable anchor re-declares to the oldest reachable row", () => {
-    const c = makeContainer();
-    const r = new CellGridRenderer(c as unknown as HTMLElement);
-    c.clientHeight = 500;
-    // Hold 2000 rows of a 2000-row history, anchored at absolute row 300.
-    r.apply(fullFrame(80, [row(0, "v")], nRows(2000)));
-    c.scrollTop = PAD_TOP + 300 * ROW_PX;
-    r.captureScrollIntent();
-    expect(r.scrollIntent()).toEqual({ kind: "anchor", row: 300, off: 0 });
-    // A rebuild ships a 250-row tail of a 5000-row total — row 300 is gone.
-    r.apply(tailFrame(100, [row(0, "v")], nRows(250, 4750), 5000));
-    expect(r.currentFrame!.sbBase).toBe(4750);
-    expect(r.scrollIntent()).toEqual({ kind: "anchor", row: 4750, off: 0 });
-    // Backfill prepends must now land ABOVE the reader, not slide under them.
-    const topText = () => rowText(r.currentFrame!.scrollbackRows[(c.scrollTop - PAD_TOP) / ROW_PX]!);
-    const first = topText();
-    r.prependScrollback(nRows(250, 4500));
-    expect(topText()).toBe(first);               // pre-fix: walked h4750 → h4500
-    r.prependScrollback(nRows(250, 4250));
-    expect(topText()).toBe(first);               // pre-fix: → h4250
+    expect(c.classList.contains("alt-active")).toBe(false);
+    expect(c.scrollTop).toBe(c.scrollHeight - c.clientHeight);
+    expect(c.scrollTopWrites).toBe(1);
+    expect(r.atBottom()).toBe(true);
   });
 });

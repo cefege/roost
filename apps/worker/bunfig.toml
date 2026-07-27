@@ -2,8 +2,3 @@
 # Mirrors the repo-root bunfig: bun reads bunfig.toml from the CWD only, and
 # worker tests are run from this directory (`bun test` / `bun run test`).
 timeout = 10000
-
-# Suite-wide keeper/fixture reaper. See tests/preload-keeper-sweep.ts — the
-# real-keeper tests share one process and one global ROOST_WORKER_DATA_DIR, so
-# late keeper spawns can only be cleaned by a hook that runs after ALL files.
-preload = ["./tests/preload-keeper-sweep.ts"]

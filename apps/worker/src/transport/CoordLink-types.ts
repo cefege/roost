@@ -45,7 +45,7 @@ export interface CoordLink {
   // re-sends a full frame on reconnect/attach), so no pending buffer.
   sendCellGrid(channelId: number, frame: PbCellGridFrame): boolean;
   state(): CoordLinkState;
-  relocate(targetUrl: string): void;
+  relocate(targetUrl: string, force?: boolean): void;
   unackedEventCount(): number;
   dispose(): void;
 }

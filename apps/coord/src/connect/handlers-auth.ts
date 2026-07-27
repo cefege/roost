@@ -138,7 +138,8 @@ export function makeAuthHandlers(
     async authMintCoordinatorRelocation(req, ctx) {
       const caller = requireAuth(ctx.values);
       const handoff = deps.move?.current();
-      if (!handoff || handoff.handoff_id !== req.handoffId || deps.move?.gate.mode !== "active") {
+      const sourceCommitted = handoff?.role === "SOURCE" && handoff.phase === "COMMITTED";
+      if (!handoff || handoff.handoff_id !== req.handoffId || (!sourceCommitted && deps.move?.gate.mode !== "active")) {
         throw new ConnectError("coordinator relocation is not available", Code.FailedPrecondition);
       }
       const now = Math.floor(Date.now() / 1000);

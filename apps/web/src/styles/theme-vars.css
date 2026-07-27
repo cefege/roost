@@ -62,8 +62,8 @@
   --text-lo: #a8908d;
   --term-fg: #f1dfde;
   --accent: #ffb59f;
-  /* Fixed Roost brand coral — theme-independent (the sidebar selected-rail
-     tick + claude-tab glyph mark). NOT --accent (which retints per theme). */
+  /* Fixed Roost brand coral — theme-independent sidebar selected-rail tick
+     and terminal-tab glyph mark. NOT --accent (which retints per theme). */
   --brand-coral: #db7556;
   --on-accent: #56200f;
   --accent-container: #743523;

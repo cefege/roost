@@ -6,10 +6,9 @@
 // Why the hidden wterm: keystroke→bytes encoding is mode-dependent — arrows
 // (DECCKM ESC[?1h), bracketed paste (ESC[?2004h), keypad — and those modes are
 // set by OUTPUT bytes. We feed the byte stream into the hidden wterm so its
-// onData encodes correctly in vim/claude/htop, and reuse RoostTerm's
-// L11-debugged focus dance (forceFocus blur-first + FocusEvent + mousedown
-// recapture). The hidden wterm's own grid reflows internally but is NEVER
-// shown — only its onData + mode state are used. Display = cells.
+// onData encodes correctly in full-screen TUIs, and reuse RoostTerm's
+// focus behavior. The hidden wterm reflows internally but is never shown;
+// display comes from the cell grid.
 //
 // The ONLY terminal renderer (byte mode / Terminal.tsx deleted 2026-06-23 — cell
 // is canonical). Ports that rode the byte stream live here: ghost cursors
@@ -102,6 +101,8 @@ const CLAIM_DEBOUNCE_MS = 150;
 // every 30s" the worker's reaper comment already assumes.
 const CLAIM_HEARTBEAT_MS = 30_000;
 
+
+
 // Shared 500ms cursor-poll ticker — one interval for ALL mounted panes (was one
 // per open session; the deck keeps every open session mounted). Ref-counted like
 // StatusGlyph's spinner tick: starts on first register, stops when the last pane
@@ -186,26 +187,13 @@ export function CellTerminal(props: CellTerminalProps) {
 	// sendClaim → sees inLayout=false → would withdraw AGAIN. Reset on claim.
 	let _lastSent: "claim" | "withdraw" | null = null;
 	let unmounted = false;
-	// ── scroll position: NOT owned here ──────────────────────────────────
-	// CellGridRenderer owns it end-to-end as a declared row-space intent
-	// (cellRenderer.ts `_intent` / syncScroll) and re-derives the pixels after
-	// every mutation. This component only reports gestures in (captureScrollIntent)
-	// and reveals (followTail). Do not reintroduce a `stick` flag or a lastTop
-	// echo-suppressor here — that split ownership is what kept the pane landing
-	// mid-history.
-	let _flushRaf: number | null = null; // coalesces the per-frame jump-FAB read into one rAF
+	// Native browser scrolling owns the terminal position. CellGridRenderer only
+	// conditionally pins new output when a render began at the literal bottom.
+	// This component does not classify, restore, or otherwise write scrollTop.
 	const [altScreen, setAltScreen] = createSignal(false); // tracks frame.altScreen — gates mouse/touch forwarding + wheel passivity
-	// Show the jump-to-bottom FAB once the user has scrolled up more than one
-	// full viewport from the bottom (i.e. scrolling back manually would be tedious).
-	const [showJumpDown, setShowJumpDown] = createSignal(false);
-	// Leaving/entering alt-screen must re-evaluate the FAB (a TUI opening while
-	// scrolled up must hide it). Reading altScreen() makes this reactive.
-	createEffect(() => { altScreen(); updateJumpDownVis(); });
 
-	// Show the launch-Claude FAB only at a plain shell prompt. Dead-simple
-	// signal: the last non-blank viewport line ends in a shell sigil
-	// ($ / % / # / ❯ / ➜ / »). claude/vim/htop bottom lines never do, so the
-	// FAB vanishes the moment a TUI takes over.
+	// Show the agent-launch FAB only at a plain shell prompt. A prompt-ending
+	// shell sigil distinguishes a shell from a full-screen TUI.
 	const SHELL_PROMPT_RE = /[$%#❯➜»λ›]\s*$/;
 	const [atShellPrompt, setAtShellPrompt] = createSignal(false);
 
@@ -314,13 +302,11 @@ export function CellTerminal(props: CellTerminalProps) {
 		const padB = parseFloat(cs.paddingBottom) || 0;
 		const usableW = Math.max(0, displayRef.clientWidth - padL - padR);
 		const usableH = Math.max(0, displayRef.clientHeight - padT - padB);
-		let cols = Math.max(1, Math.floor(usableW / cellW));
-		let rows = Math.max(1, Math.floor(usableH / cellH));
-		// Cell mode never reflows; a sub-grid-metric wobble can't corrupt scrollback.
+		const cols = Math.max(1, Math.floor(usableW / cellW));
+		const rows = Math.max(1, Math.floor(usableH / cellH));
 		// Suppress no-change claims to avoid needless resize round-trips.
-		if (cause === ResizeCause.VIEWPORT && lastClaimed.cols > 0) {
-			if (cols === lastClaimed.cols && rows === lastClaimed.rows) return;
-		}
+		if (cause === ResizeCause.VIEWPORT && lastClaimed.cols > 0
+			&& cols === lastClaimed.cols && rows === lastClaimed.rows) return;
 		lastClaimed = { cols, rows };
 		_lastSent = "claim";
 		claimSeq += 1;
@@ -365,32 +351,6 @@ export function CellTerminal(props: CellTerminalProps) {
 		sendClaim(cause);
 	}
 
-	// One viewport-height of slack: below this the plain scroll is trivial, so the
-	// FAB would just be noise. altScreen has no scrollback → never show.
-	function updateJumpDownVis(): void {
-		if (!displayRef || altScreen()) { setShowJumpDown(false); return; }
-		const fromBottom = displayRef.scrollHeight - displayRef.scrollTop - displayRef.clientHeight;
-		setShowJumpDown(fromBottom > displayRef.clientHeight);
-	}
-
-	// Coalesced post-frame FAB visibility. One guarded rAF per animation frame (N
-	// cell frames in one animation frame collapse to one read), and it runs after
-	// layout has settled, so the jump-FAB never flickers off a mid-apply geometry.
-	function scheduleFlush(): void {
-		if (_flushRaf != null) return;
-		_flushRaf = requestAnimationFrame(() => {
-			_flushRaf = null;
-			if (unmounted || !renderer || !displayRef) return;
-			if (props.inLayout === false || !isPageVisible()) return;
-			updateJumpDownVis();
-		});
-	}
-
-	// Jump-to-latest FAB: re-declare tail-following; the renderer lands there.
-	function jumpToBottom(): void {
-		renderer?.followTail();
-		setShowJumpDown(false);
-	}
 
 	onMount(async () => {
 		try {
@@ -420,6 +380,9 @@ export function CellTerminal(props: CellTerminalProps) {
 		}
 		if (props.inLayout === true && props.focused === true && !isTouchDevice()) {
 			initializedTerm.forceFocus();
+			requestAnimationFrame(() => {
+				if (!unmounted && props.inLayout === true && props.focused === true) initializedTerm.forceFocus();
+			});
 		}
 		runWithOwner(cellOwner, () => {
 			// ── output: cells ────────────────────────────────────────────────
@@ -432,16 +395,12 @@ export function CellTerminal(props: CellTerminalProps) {
 			sessionId: props.session.id,
 			renderer: () => renderer,
 		});
-		// Gestures in. Gated to live+visible: a parked pane (visibility:hidden,
-		// off-screen — TerminalDeck.termStyle) can emit scroll events whose
-		// geometry is not what the user sees.
+		// Native scroll events only trigger lazy-history backfill near the painted
+		// top. The renderer does not need gesture classification or echo suppression.
 		const onScroll = () => {
 			if (!renderer || !displayRef) return;
 			if (props.inLayout === false || !isPageVisible()) return;
-			if (renderer.isSelfScroll()) return; // our own write echoing back — not user intent
-			renderer.captureScrollIntent();
-			if (!renderer.following()) backfill.onUserScrollUp(); // idempotent — dedupes on its active-loop epoch
-			updateJumpDownVis();
+			if (renderer.nearHistoryTop()) backfill.onUserScrollUp();
 		};
 		displayRef!.addEventListener("scroll", onScroll, { passive: true });
 		// Predictive local echo — speculative client overlay, gated on
@@ -518,10 +477,6 @@ export function CellTerminal(props: CellTerminalProps) {
 				lastCurRow = frame.cursorRow;
 				lastCurCol = frame.cursorCol;
 				predictor?.onFrame(frame); // reconcile predictions against the authoritative grid
-				// renderer.apply() already re-derived the scroll position from the
-				// intent — including while parked, which is free and keeps a hidden
-				// pane correct. Only the jump-FAB read needs a live pane.
-				if (props.inLayout !== false && isPageVisible()) scheduleFlush();
 				if (frame.full) backfill.onFullFrame();
 				setAtShellPrompt(SHELL_PROMPT_RE.test(renderer.viewportTail()));
 			});
@@ -642,14 +597,8 @@ export function CellTerminal(props: CellTerminalProps) {
 		};
 		displayRef!.addEventListener("mousedown", onDisplayDown);
 
-		// CAN'T-TYPE-AFTER-CLICK fix: a REAL (trusted) left-click moves native focus
-		// to <body> (the cell spans aren't focusable) AFTER the mousedown-microtask
-		// forceFocus above → it overrides us, the textarea never holds focus, and
-		// every keystroke vanishes (mic + Claude button still work — they're
-		// programmatic, not keyboard). Synthetic events skip native focus, which is
-		// why tests passed. The 'click' event fires AFTER native focus settles, so
-		// re-grab focus there — unless the user just selected text (preserve it for
-		// copy).
+		// A trusted click can move focus to body after mousedown. Restore terminal
+		// focus after the click settles unless the user has selected text.
 		const onDisplayClick = (ev: MouseEvent) => {
 			if (ev.button !== 0) return;
 			if (isNavFallthrough()) return; // sidebar-tap fall-through on mobile, not a real tap
@@ -661,13 +610,8 @@ export function CellTerminal(props: CellTerminalProps) {
 		};
 		displayRef!.addEventListener("click", onDisplayClick);
 
-		// SELECTABLE-IN-ALT-SCREEN: the CellGridRenderer rebuilds the viewport DOM
-		// (replaceChildren) on every frame, so a live TUI's constant repaints wiped
-		// any in-progress text selection — selection was effectively impossible in
-		// claude/vim/htop. While a non-collapsed selection sits over this pane,
-		// freeze the renderer's DOM writes (it keeps folding frames into state);
-		// releasing the selection (click/collapse/type) flushes the latest frame.
-		// selectionchange is document-global → each pane checks its own displayRef.
+		// Renderer DOM replacement would otherwise destroy an active selection.
+		// Hold renderer writes while selection exists, then flush the latest frame.
 		const onSelectionChange = () => {
 			const sel = displayRef?.ownerDocument.getSelection();
 			const held =
@@ -682,14 +626,9 @@ export function CellTerminal(props: CellTerminalProps) {
 		};
 
 		// ── mouse / touch forwarding (SGR-1006 mouse-tracking) ───────────────
-		// Ported from byte-mode phase-pb7c. Forwards pointer + touch gestures to
-		// the TUI as mouse events so claude fullscreen scroll / click / drag work
-		// in-app (nothing in @wterm/dom forwards the mouse — InputHandler is
-		// keyboard-only). Gate: mouseForwardEnabled() (the nav-pad toggle) AND
-		// altScreen — a plain shell keeps native browser selection + DOM scroll.
-		// Shift/Alt held → bypass (the documented "force native select" escape
-		// hatch, code.claude.com/docs/en/fullscreen). Cb bits: 0-1 button,
-		// 2 shift, 3 meta, 4 ctrl, 5 motion(+32); wheel = 64 up / 65 down.
+		// Forward pointer and touch gestures to an alternate-screen TUI as mouse
+		// events. A plain shell keeps native browser selection and DOM scroll.
+		// Shift or Alt bypasses forwarding for native selection.
 		const forwardActive = () => mouseForwardEnabled() && altScreen();
 		const modifierBypass = (ev: MouseEvent | WheelEvent) =>
 			ev.shiftKey || ev.altKey;
@@ -719,12 +658,8 @@ export function CellTerminal(props: CellTerminalProps) {
 		};
 		const onMouseDownFwd = (ev: MouseEvent) => {
 			if (!forwardActive() || modifierBypass(ev)) return;
-			// Cmd/Ctrl-click on a linkified <a> (terminal-links.ts, armed to
-			// pointer-events:auto only while the mod key is held) opens in THIS
-			// browser via the native anchor. Do NOT also forward the click to the
-			// worker's PTY — Claude in alt-screen would run `open <url>` and pop the
-			// tab on the WORKER Mac's screen (single-click-opens-on-worker bug). Same
-			// anchor-skip the focus handlers (onDisplayDown/onDisplayClick) use.
+			// Modified link clicks open locally through the native anchor; never
+			// forward them to the worker PTY.
 			if ((ev.target as HTMLElement | null)?.closest("a")) return;
 			// Middle button is reserved for the deck's bring-to-front toggle
 			// (TerminalDeck onDeckPointerDown) — never forwarded as SGR press.
@@ -763,15 +698,8 @@ export function CellTerminal(props: CellTerminalProps) {
 			);
 		};
 
-		// Touch: a finger-swipe → wheel events (the phone scroll path). One wheel
-		// notch per cell-height of finger travel (the original speed — felt right);
-		// drag DOWN = scroll toward history (wheel up 64), drag UP = toward latest
-		// (wheel down 65). Only when forwarding is active — otherwise native
-		// touch-scroll of the DOM stands. NO per-move cap — a long/fast swipe must
-		// keep scrolling (capping made it "stop moving" mid-flick); the while-loop
-		// drains the whole delta and carries the sub-notch remainder. (If claude
-		// scrolls too few lines per notch, raise CLAUDE_CODE_SCROLL_SPEED in the
-		// keeper env — the worker-side multiplier per the fullscreen docs.)
+		// Touch forwarding translates finger travel to terminal wheel events while
+		// alternate-screen forwarding is active; otherwise DOM scrolling remains native.
 		let touchY: number | null = null;
 		let touchCol = 1,
 			touchRow = 1;
@@ -874,15 +802,8 @@ export function CellTerminal(props: CellTerminalProps) {
 				sendWithdraw();
 				return;
 			}
-			// Revealing a pane RE-DERIVES the position it already declared against the
-			// pane's new box; it does not override it. A pane the user never scrolled up
-			// in holds { kind: "tail" } and still lands on the live bottom. A pane they
-			// were reading keeps its row. This makes the deck reveal agree with the
-			// visibilitychange / pageshow / syncStreamOpen re-claims below, none of which
-			// override the intent — that split was the "switching tabs moves my scroll"
-			// asymmetry. Doing it here also pins immediately from already-held content
-			// instead of waiting on the claim→worker→snapshot round-trip.
-			renderer?.syncScroll();
+			// Revealing a pane reclaims its viewport but never restores or adjusts
+			// the viewer's DOM scroll position.
 			sendClaimNow(ResizeCause.TAB_VISIBLE);
 		}));
 		// Focus gate: only the focused pane's terminal grabs the keyboard. Touch
@@ -960,12 +881,6 @@ export function CellTerminal(props: CellTerminalProps) {
 			sendClaim(ResizeCause.INITIAL);
 		});
 		resizeObs = new ResizeObserver(() => {
-			// A container height change moves the content under the viewport even
-			// when the debounced PTY claim is suppressed — re-derive first. One
-			// layout read, no RPC. Skipped while parked: TerminalDeck keeps a
-			// parked pane at a hardcoded 800x600 box, so deriving against it
-			// would place the reader against a size nobody is looking at.
-			if (props.inLayout !== false) renderer?.syncScroll();
 			if (isResizeDragging()) return; // suppress mid-drag PTY round-trips; flush on release (effect below)
 			scheduleClaim(ResizeCause.VIEWPORT);
 		});
@@ -1124,9 +1039,7 @@ export function CellTerminal(props: CellTerminalProps) {
 				displayRef?.removeEventListener("touchend", onTouchEnd);
 				displayRef?.removeEventListener("touchcancel", onTouchEnd);
 				displayRef?.removeEventListener("paste", onPaste);
-				resizeObs?.disconnect();
-				if (claimTimer) clearTimeout(claimTimer);
-				if (_flushRaf != null) { cancelAnimationFrame(_flushRaf); _flushRaf = null; }
+				clearTimeout(claimTimer ?? undefined);
 				predictor?.dispose();
 				renderer?.dispose();
 				unregPreview();
@@ -1247,22 +1160,6 @@ export function CellTerminal(props: CellTerminalProps) {
           Native picker → chunked upload (progress chip) → abs_path injected. */}
 			<Show when={activeComposeChannel() === null && props.inLayout !== false}>
 				<AttachFileButton session={props.session} />
-			</Show>
-			{/* Jump-to-latest FAB — bottom-center, shown only when scrolled up > 1
-          viewport (never in alt-screen). Tap → instant scroll to the bottom,
-          resuming live-follow. */}
-			<Show when={showJumpDown() && props.inLayout !== false}>
-				<button
-					type="button"
-					class="jump-bottom-fab"
-					data-testid="scroll-to-bottom"
-					aria-label="Scroll to bottom"
-					title="Scroll to bottom"
-					onPointerDown={(e) => e.preventDefault()}
-					onClick={jumpToBottom}
-				>
-					<span class="jump-bottom-fab__icon">arrow_downward</span>
-				</button>
 			</Show>
 			<TerminalContextMenu
 				session={props.session}

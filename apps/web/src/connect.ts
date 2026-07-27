@@ -7,7 +7,7 @@
 
 import { createClient, type Interceptor } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
-import { CoordinatorService } from "@roost/shared/proto/coordinator_pb";
+import { CoordinatorService, type WorkersListResponse } from "@roost/shared/proto/coordinator_pb";
 import { signCoordinatorJwt } from "./auth/web-key.ts";
 import { getTabId } from "./auth/tab-id.ts";
 import { signal } from "@roost/shared/diag";
@@ -47,3 +47,9 @@ const transport = createConnectTransport({
 });
 
 export const coordClient = createClient(CoordinatorService, transport);
+
+type Assert<T extends true> = T;
+type AsyncResponse<T> = T extends (...args: never[]) => Promise<infer Response> ? Response : never;
+type _WorkersListResponseIsTyped = Assert<
+  AsyncResponse<typeof coordClient.workersList> extends WorkersListResponse ? true : false
+>;

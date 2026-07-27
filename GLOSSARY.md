@@ -18,9 +18,9 @@ wins.
   PTY state of its own. Also serves the web SPA as static files.
   Source: `apps/coord/src/main.ts`, `apps/coord/src/coord-factory.ts`.
 
-- **session** — the user-facing concept: a `claude` (or shell) running in some
-  folder on some machine. Built by folding `SessionEvent`s, not stored as a
-  mutable snapshot. Identified by a `SessionId`.
+- **session** — a shell PTY running in a folder on a machine. It is built by
+  folding `SessionEvent`s, not stored as a mutable snapshot. Identified by a
+  `SessionId`.
   Source: `apps/worker/src/session-manager.ts` (`SessionRecord`); projected into
   the coordinator's `sessions` table.
 
@@ -66,21 +66,11 @@ wins.
   ask for "everything since seq N".
   Source: `apps/worker/src/session-manager.ts` (`getScrollbackSince`).
 
-- **agent state** — where a session's agent is in its lifecycle: working,
-  waiting for input, or idle. Tracked by a per-channel state machine and shown
-  as the sidebar chip.
-  Source: `apps/worker/src/fsm.ts`.
-
-- **agent-status adapters** — how Roost learns an agent's lifecycle state
-  (working / needs-input / idle) WITHOUT consuming a transcript. Two adapters
-  feed the same `AgentState`: (1) claude `--settings` hooks POST to the worker
-  hook UDS (`claude/hooks.ts` → `SessionManager.applyAgentPatch`); (2) a generic
-  terminal screen-scrape (`detect/` — `claude-manifest.ts` + `pi-manifest.ts`
-  matched against the rendered wterm grid) for agents WITHOUT hooks, e.g. pi.
-  The agent's `stream-json` is spawned but NOT consumed — the terminal emulator
-  renders the real TUI (parity-exact); only status is extracted. There is NO
-  native transcript / chat UI.
-  Source: `apps/worker/src/claude/hooks.ts`, `apps/worker/src/detect/`.
+- **OMP state** — structured lifecycle, transcript, tool, and approval data
+  emitted by the local OMP bridge for a session. The browser projects it beside
+  the native terminal; no terminal screen-scrape or hosted runtime is involved.
+  Source: `apps/omp-bridge/`, `apps/worker/src/omp-bridge-server.ts`,
+  `apps/web/src/store/omp-transcript.ts`.
 
 - **cell-shipping / authoritative grid** — the terminal-fidelity model: the
   worker holds the one canonical grid for a session and the browser renders it

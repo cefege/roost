@@ -7,7 +7,7 @@
 // aria-hidden, crisp at 16px. The mark is the FIXED brand identity color
 // (--brand-coral #db7556), theme-independent — a brand mark must be stable
 // across themes, unlike --accent which retints. Mirrors how the sidebar
-// selected-rail tick + claude-tab glyph already use --brand-coral.
+// selected-rail tick + terminal-tab glyph use --brand-coral.
 //
 // Callers: HomeLanding (home wordmark), sidebar/AllView (sidebar brand row).
 import type { Component } from "solid-js";

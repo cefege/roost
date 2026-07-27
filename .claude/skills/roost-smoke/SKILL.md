@@ -41,73 +41,61 @@ browser flow still exercises the SPA side of the same mutations.
 - worker-v2 LaunchAgent running on `:2224` (M1 minimum; M5 too if testing multi-worker)
 - The Chrome instance running humanchrome's MCP extension is open AND authorized against coord (browser pubkey in `authorized_keys`). If 401s appear, run [[reference_live_coord_pubkey_bootstrap]] before the smoke.
 
-## The flow — one-shot harness via `window.__smoke`
+## The flow — shared browser harness
 
-The harness script at `.claude/skills/roost-smoke/run.js` runs its terminal flow as a single `chrome_javascript` injection. It uses the SPA's smoke backdoor (`window.__smoke` from `apps/web/src/lib/smoke.ts`) instead of synthetic keyboard events, which means PTY input, kill, spawn, and state inspection all route through the SAME Connect-RPC client the real user does — JWT, auth, proto boundaries match production exactly.
+The injectable launcher at `.claude/skills/roost-smoke/run.js` delegates to
+`window.__smoke.runFlow()`. The implementation is
+`apps/web/src/lib/smokeHarness.ts`, shared with the isolated Playwright
+scenario. Do not duplicate terminal checks in this launcher.
 
 ### Run procedure
 
-1. **Create a fresh tab** on the tailnet URL (`https://coord-host.tailXXXXXX.ts.net:4102/` as of 2026-06-19; was server-a before the 2026-06-17 rename — resolve the live coord host via `tailscale status`), never localhost. NOTE: a fresh browser/IndexedDB 403s on the loopback-only `AuthAuthorizeBrowser` over the tailnet → authorize its pubkey via loopback on the coord host first (see [[live-coord-pubkey-bootstrap]]).
-2. **Enable the backdoor + reload:**
+1. Create a fresh tab on the current tailnet coord URL, never localhost.
+2. Enable the smoke backdoor and reload:
    ```js
    localStorage.roostSmoke = "1"; location.reload();
    ```
-   After reload, `window.__smoke` is installed (console: `[smoke] backdoor installed via window.__smoke`).
-2b. **Fresh-profile hazards (both cause false FAILs):** (a) the What's New
-   modal autofocuses + inerts the page on any profile whose
-   `localStorage["roost.whatsNew.lastSeenVersion"]` ≠ current VITE_APP_VERSION —
-   dismiss it (click "Got it") before spawning, or step5b's focus assert dies
-   against the inert background. (b) If the tab can lose foreground mid-run
-   (user activity in the same Chrome), call `window.__smoke.forceVisible(true)`
-   after reload — pins app-level visibility so hidden tabs keep claims + sync
-   stream (lib/pageVisible.ts; browser-level setTimeout/rAF throttle still
-   applies, so prefer short external calls over long in-page polls). Unpin
-   when done.
-3. **Inject the harness** in one `chrome_javascript` call. Read `.claude/skills/roost-smoke/run.js` and pass it as the `code` argument (wrap with `return await (...)` if needed for the IIFE).
-4. **Interpret the return value:** the script resolves with `{ steps: [...], summary: "N/18 passed" }`. Each step has `{ name, pass, detail }`. Also wait for `state().workers` to be non-empty AND `[data-testid="folder-list"]` to exist before injecting — injecting during the first sync makes every step fail with "no workers in store".
+3. Wait until `window.__smoke`, a worker in `state().workers`, and
+   `[data-testid="folder-list"]` are present.
+4. Inject `.claude/skills/roost-smoke/run.js` with `chrome_javascript`.
+5. Every returned step must pass. `runFlow()` checks worker discovery, a
+   shell’s painted terminal slot, RPC PTY marker round-trip, workspace
+   creation, then cleanup of only harness-created resources.
+6. The RPC marker deliberately bypasses the browser input pipeline. Before
+   declaring the live canary green, create a separate smoke-tracked shell and
+   route to it:
+   ```js
+   const fp = Object.keys(__smoke.state().workers)[0];
+   const { session_id } = await __smoke.spawnShell(fp, "/tmp");
+   history.pushState({}, "", `/s/${session_id}`);
+   window.dispatchEvent(new PopStateEvent("popstate"));
+   ```
+   Wait until `[data-testid="terminal-slot-${session_id}"]` is visible, then
+   click its terminal surface to establish focus before sending keys.
+   Use `chrome_keyboard` to type `printf '%s\n' ROOST_LIVE_KEYBOARD_<nonce>`
+   and Enter, then assert the rendered terminal text contains the exact
+   marker. Finish with `await __smoke.cleanupCreated()`. This is the
+   load-bearing focus/input proof; Playwright repeats it in CI.
 
-### Steps the harness covers
-
-1. **bundle_loaded** — `<script src="/assets/index-*.js">` present, no `[data-testid="error-boundary"]`, `window.__smoke` installed.
-2. **sidebar_bootstrap** — folder list and search are mounted.
-2b. **fresh_deck_ready** — dismisses What’s New when present, waits for it to unmount, then routes to `/` and waits for `[data-testid="home-landing"]`.
-3. **spawn_and_nav** — spawns a shell and navigates to its flat session route. **mount_footprint** records open sessions, mounted slots, cell panes, `.wterm` roots, textareas, visible slots, and mounted/visible session-ID sets; it requires `mountedIds == visibleIds`.
-4–5b. **folder grouping, echo, and input focus** — confirm sidebar grouping, RPC echo, and that the active pane’s real textarea is `document.activeElement`.
-6. **deck persistence** — on a folder switch, original slot and `CellTerminal` nodes remain connected but hidden, one slot is focused, mounted IDs equal the prior warm set union current visible IDs, and navigation back restores the original nodes and focus.
-7–12. **close, error, workspace, pane, cwd, and attachment checks** — retain their existing RPC/store contracts.
-13. **resize_wobble_holds_scrollback** — spawn shell, `seq 1 300` to fill scrollback, drive 3× sub-band (~4-row) deck-height wobbles (each waited > `FIT_SETTLE_MS`), and count `.cell-scrollback .cell-row` in the visible slot; depth must begin above 50 and grow by no more than 2. Hold-anchor hysteresis (`claimHysteresis.ts`) must absorb the wobble → no claim → no SCD change → no re-derive.
+The flow has a `finally` cleanup. A failed step is still a failure even if its
+session and workspace were removed successfully.
 
 ## Pass criteria
 
-`summary` is `18/18 passed`. AND console has no errors matching:
-- `Cannot read properties of null`
-- `\[spawn-buttons\] (failed|timed out)`
-- Toast text `did not (ack|respond)`
-
+All returned steps pass and the summary reports `N/N passed`. Console must not
+contain `Cannot read properties of null`, a failed/timed-out spawn message, or
+an acknowledgement timeout.
 
 ## On failure
 
-Each step name maps to a CLAUDE.md L11 row:
-
-| step | L11 row |
-|---|---|
-| step3_4 | `feedback_worker_deploy_macos_repairs.md` (+ New workspace silent hang) |
-| step5 | `feedback_no_props_read_in_oncleanup.md` (Terminal mount/unmount errors break input) |
-| step5b | CellTerminal focus effect must be non-deferred (cell-phase-3b "can't input in cell mode"; focus stuck on `<body>`) |
-| step6 | `feedback_persistent_terminal_deck.md` (Terminal remount on nav) |
-| step7 | `feedback_worker_ack_required_for_kill.md` (✕ button does nothing) |
-| step7 | `feedback_solid_setstore_record_replace.md` (store doesn't reflect delete) |
-| step8 | `feedback_selected_means_url_match_not_has_children.md` |
-| step13 | `project_terminal_history_corruption_viewport_slaved_pty.md` (history grows/corrupts on resize wobble) |
-
-Do NOT patch the symptom. Open the linked memory, apply the named pattern.
-
-## Worker-deploy variant
-
-Same flow but after a fresh `bun apps/roost-cli/src/main.ts deploy <host>`. Catches the 4 stacked deploy bugs in [[feedback_worker_deploy_macos_repairs]].
+The live run is a production canary. Preserve the returned failing step and
+check the real terminal before editing. Do not patch the launcher: terminal
+contracts live in `apps/web/src/lib/smokeHarness.ts` and
+`smoke/terminal/terminal.spec.ts`.
 
 ## Output
 
-End with one line: `roost-smoke: 18/18 passed` or `roost-smoke: STEP <K> FAILED: <reason> → see memory/<file>.md`.
+End with `roost-smoke: <all steps passed>` or
+`roost-smoke: STEP <name> FAILED: <reason>`.
 
 No partial work. Do not declare a change done if the smoke didn't run end-to-end clean.

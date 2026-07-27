@@ -16,8 +16,8 @@ import {
 import { SB_SNAPSHOT_TAIL_ROWS, SB_SNAPSHOT_MAX_CATCHUP_ROWS, initCellEmitState } from "@roost/shared/cell";
 
 /** Scrollback rows the claim snapshot must carry so it EXTENDS what the
- *  returning viewer already painted. The viewer holds up to absolute row
- *  heldSbTotal-1; mergeFullFrame needs the tail to include that row, i.e.
+ *  returning viewer already painted. The viewer holds through its last held
+ *  row, heldSbTotal-1; mergeFullFrame needs the tail to include that row, i.e.
  *  total - heldSbTotal + 1 rows. Floored at the standard tail, capped at
  *  SB_SNAPSHOT_MAX_CATCHUP_ROWS. Unknown/zero/ahead-of-us → the default.
  *  `total` is MONOTONIC (sbDropped + retained count) because heldSbTotal is —
@@ -340,23 +340,12 @@ export async function _rebuildWtermCore(
 	const fresh = await _createWtermCore(cols, rows);
 	const rec = this.sessions.get(channelId);
 	if (!rec) return;
-	// ALT-SCREEN (claude): do NOT replay the raw ring into the new-width core.
-	// The ring holds alt-screen bytes (absolute cursor moves, line clears)
-	// PAINTED FOR THE OLD WIDTH; replaying them into a different-width grid
-	// re-stamps the same logical line across many rows with tail mangling —
-	// the "claude history fucked up on resize / multi-device" corruption
-	// (project_terminal_history_corruption_viewport_slaved_pty; screenshot
-	// 2026-06-22). This is the WORKER-side counterpart to the client fix
-	// d745b1e3 — the worker's authoritative core mangled the same way and
-	// shipped it to cell viewers. Instead: start the fresh core EMPTY +
-	// alt-primed; claude REPAINTS the whole screen at the new cols via the
-	// SIGWINCH already fired in _recomputeViewport (winsize → live byte
-	// stream). Brief stale/blank frame until the repaint, NEVER a persistent
-	// mangle. Plain shells DO replay — text reflows cleanly and the raw ring
-	// is their history source.
-	// Kind-AGNOSTIC: any alt-screen session (claude OR vim/htop in a shell)
-	// mangles if the alt ring is replayed at a new width. Gate on the
-	// stream-driven alt_mode alone, not kind.
+	// Alt-screen: do NOT replay the raw ring into the new-width core. The ring
+	// holds absolute cursor moves and line clears painted for the old width;
+	// replaying it at a new width duplicates and mangles rows. Start an empty,
+	// alt-primed core instead. The TUI repaints at the new size after SIGWINCH.
+	// Main-screen sessions replay their ring because text reflows cleanly. This
+	// is stream-driven: any alt-screen TUI takes the empty-core branch.
 	const isAltScreen = rec.alt_mode;
 	if (!isAltScreen && rec.scrollback.length > 0)
 		fresh.writeRaw(rec.scrollback);
@@ -365,9 +354,8 @@ export async function _rebuildWtermCore(
 	if (rec.alt_mode && !fresh.usingAltScreen()) {
 		fresh.writeRaw(ALT_ENTER_SEQS[0]);
 	}
-	// Discard capability replies from the ring replay — same reason as resume():
-	// these probes are historical, not live; re-answering claude would corrupt
-	// stdin. The live chunk handler owns the real reply routing.
+	// Discard historical capability replies from the ring replay. The live
+	// chunk handler owns the actual reply route back into the PTY.
 	fresh.getResponse();
 	rec.wtermCore = fresh;
 	// Fresh core, fresh ring: the retained-index origin restarts at 0, so the
@@ -393,14 +381,12 @@ export async function _rebuildWtermCore(
 	// Sized from the CLAIMANT's held total: _scheduleWtermRebuild defers onto a
 	// promise chain, so this frame lands AFTER claimViewport's correctly-sized
 	// one and is the frame the SPA ends on. At the 250-row default the returning
-	// reader's anchored row falls below sbBase and the pane dumps them at the
-	// top of a shallow window. Evaluated here, after the swap, so _claimTailRows
-	// reads the REBUILT core's scrollback count.
+	// viewer's last held row falls below sbBase and the pane shows only a shallow
+	// window. Evaluated here, after the swap, so _claimTailRows reads the
+	// REBUILT core's scrollback count.
 	this.emitCellSnapshot(channelId as ChannelId, _claimTailRows(this, channelId, heldSbTotal));
-	// mode must report the ACTUAL branch: alt-screen claude builds an EMPTY +
-	// alt-primed core (ring NOT replayed — the anti-mangle path); only shells
-	// replay the ring. The old unconditional "rebuild_from_ring" label lied for
-	// claude and falsely reads as the corruption path in worker logs.
+	// Report the actual branch: alt-screen rebuilds start empty and alt-primed;
+	// main-screen rebuilds replay the retained ring.
 	diag("resize.wterm_core", {
 		sid: rec.sessionId,
 		channel_id: channelId,

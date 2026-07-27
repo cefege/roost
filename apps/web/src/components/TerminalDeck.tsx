@@ -118,22 +118,25 @@ export function TerminalDeck(props: { activeSessionId: string | null }) {
   createEffect(() => { const fk = folderKey(); if (fk) seedIfAbsent(fk, liveIds()); });
 
   // URL → tiling fold: external navigation only (sidebar click, deep link,
-  // back/forward, spawn) selects + focuses the active session's pane. In-deck
-  // clicks already commit focus synchronously (doFocusPane/doSelect), so the
-  // priority ring is instant and no longer waits on the startTransition-gated
-  // The session may arrive from sync *after* the URL changes. Track its
-  // folder's live IDs as well as the URL so that first route does not miss the
-  // selection and leave a prior warm pane visible.
-  createEffect(on(() => [props.activeSessionId, liveIds()] as const, ([active]) => {
-    if (!active) return;
-    const fk = folderKey();
-    if (!fk) return;
-    const l = resolveLayout(fk, liveIds());
-    const leaf = findLeafOfTab(l.root, active);
-    if (!leaf) return;
-    if (l.focusedPaneId === leaf.paneId && leaf.selectedTab === active) return;
-    commitLayout(fk, selectTab(l, active));
-  }));
+  // back/forward, spawn) selects + focuses the active session's pane. A newly
+  // spawned cwd can resolve after its opened event (`/tmp` → `/private/tmp` on
+  // macOS); react to that folder-key migration too, or the freshly selected
+  // terminal remains parked while the destination folder restores an older tab.
+  // The live-id dependency is essential for optimistic spawn: the URL can name
+  // the new session before its opened event adds it to the saved layout.
+  // In-deck clicks do not change either dependency, so their synchronous focus
+  // commit cannot be clobbered by the URL's stale session.
+  createEffect(on(
+    () => [props.activeSessionId, folderKey(), liveIds().join("\u0000")] as const,
+    ([active, fk]) => {
+      if (!active || !fk) return;
+      const l = resolveLayout(fk, liveIds());
+      const leaf = findLeafOfTab(l.root, active);
+      if (!leaf) return;
+      if (l.focusedPaneId === leaf.paneId && leaf.selectedTab === active) return;
+      commitLayout(fk, selectTab(l, active));
+    },
+  ));
 
   // External nav (sidebar click, deep link, agent command) during an active
   // TRACK-phase swipe aborts the gesture — the neighbor/current pair is now
@@ -248,8 +251,6 @@ export function TerminalDeck(props: { activeSessionId: string | null }) {
     return m;
   });
 
-  // A selected cold session mounts in this render via slotBySession. Once a
-  // session has been visible, retain its terminal slot for this deck lifetime.
   createEffect(() => {
     const openIds = new Set<string>(openSessions().map((session) => session.id));
     const selectedIds = slotBySession();

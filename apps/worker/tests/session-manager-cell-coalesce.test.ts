@@ -18,7 +18,6 @@ function mgrWithCellCounter(): { mgr: SessionManager; frames: unknown[] } {
   const mgr = new SessionManager({
     workerFp: asWorkerFp("00".repeat(32)),
     sink: { emit: () => {} },
-    hookSocketPath: "/dev/null",
     sendBinaryUpstream: () => {},
     sendCellGridUpstream: (_ch, frame) => { frames.push(frame); },
   });

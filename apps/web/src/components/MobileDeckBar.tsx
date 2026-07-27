@@ -15,9 +15,7 @@
 
 import { For, Show, createEffect, createMemo, createSignal, on, onCleanup, onMount } from "solid-js";
 import { Portal } from "solid-js/web";
-import { ClaudeMark } from "./sidebar/StatusGlyph.tsx";
-import { isClaudeSession } from "../lib/isClaudeSession.ts";
-import { sessionTitle, cloudSubtitle } from "../lib/sessionTitle.ts";
+import { sessionTitle, programSubtitle } from "../lib/sessionTitle.ts";
 import { IconButton } from "./Settings/md/IconButton.tsx";
 import { attentionOf, presentationOf, rollupLevels } from "../lib/agentStatus.ts";
 import { openSidebar } from "../store/uiStore.ts";
@@ -407,9 +405,8 @@ function TerminalCard(props: {
   const s = () => props.session;
   const level = createMemo(() => attentionOf(s()));
   const vis = createMemo(() => presentationOf(level()));
-  const isClaude = createMemo(() => isClaudeSession(s()));
   const name = createMemo(() => sessionTitle(s()));
-  const sub = createMemo(() => cloudSubtitle(s()));
+  const sub = createMemo(() => programSubtitle(s()));
   const branch = () => s().git_branch ?? null;
   // data-stage reuses the FolderCard needs-input accent hook.
   const stage = () =>
@@ -527,7 +524,7 @@ function TerminalCard(props: {
       {/* Header — favicon + title + compact subtitle. Close ✕ overlaps top-right. */}
       <div class="terminal-card-header">
         <span class="terminal-card-favicon" style={{ color: vis().color }}>
-          {isClaude() ? <ClaudeMark /> : <span class="terminal-card-glyph">$</span>}
+          <span class="terminal-card-glyph">$</span>
         </span>
         <div class="terminal-card-title-wrap">
           <span class="terminal-card-title">{name()}</span>
@@ -579,7 +576,7 @@ function TerminalCard(props: {
         />
         <Show when={!hasPreview()}>
           <span class="terminal-card-preview-glyph" style={{ color: vis().color }}>
-            {isClaude() ? <ClaudeMark /> : <span class="terminal-card-glyph">$</span>}
+            <span class="terminal-card-glyph">$</span>
           </span>
         </Show>
       </div>

@@ -28,7 +28,6 @@ function freshMgr(): SessionManager {
   return new SessionManager({
     workerFp: asWorkerFp("00".repeat(32)),
     sink: { emit: () => {} },
-    hookSocketPath: "/dev/null",
   });
 }
 

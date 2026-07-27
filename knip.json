@@ -10,5 +10,5 @@
     "smoke":         { "entry": ["*.test.ts"] }
   },
   "ignore": ["**/gen/**", "mockups/**", "docs/archive/**", ".claude/**", "scripts/**"],
-  "ignoreBinaries": ["vm_stat", "playwright"]
+  "ignoreBinaries": ["vm_stat"]
 }

@@ -111,7 +111,7 @@ export class InputChannel {
     }
     _lastSendTs.set(sessionId, performance.now());
     this.pending.push({ session_id: sessionId, data: bytes, t: performance.now() });
-    // diag — every up-byte chunk gets logged + sha8'd. Lets claude trace
+    // diag — every up-byte chunk gets logged + sha8'd. Lets diagnostics trace
     // a single keystroke through coord (bytes.up_relay) and worker
     // (bytes.up_recv) by matching sha8.
     void _sha8(bytes).then((sha8) => {

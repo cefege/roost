@@ -1,5 +1,5 @@
 // R4.-1 Bun smoke test — binary go/no-go gate before any rewrite work.
-// Apply READING LENS at /Users/you/Code/roost/CLAUDE.md.
+// Apply the repository reading lens before changing this harness.
 //
 // Verifies the 7 load-bearing Bun primitives the rewrite depends on.
 // PASS at pinned bun --version (see .bun-version) → R0.1 LOCKED.

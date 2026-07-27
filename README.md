@@ -5,11 +5,11 @@
 
 # Roost
 
-**Built for AI engineers. Run, watch, and steer a fleet of coding agents from one screen, on any device.**
+**One control panel for every Mac you own.**
 
-Roost is a tool for AI engineers. Connect your machines to a single coordinator and every coding agent you're running, whether Claude Code, pi, oh-my-pi, or any other terminal tool, lands in one browser tab you can open from a laptop, phone, or tablet. See which agents are working and which are blocked on you, then drop into any of them as a real, full native terminal. At heart it's a terminal multiplexer, retuned for the agentic workflows AI engineers live in. It's self-hosted, so nothing touches a cloud.
+Roost is a self-hosted, Bun-powered terminal control plane. One Mac can host the coordinator and work as a worker itself; add every other Mac as a worker. Your main laptop, old MacBooks, and other Macs become one agent fleet you can control from a laptop, tablet, or phone.
 
-_Built by Mihai Mateias, an AI engineer. My daily driver, real infrastructure, not a demo._
+_I built Roost for my own daily workflow: real infrastructure, not a demo._
 
 [![License](https://img.shields.io/badge/license-GPL--3.0--only-blue)](LICENSE)
 ![Platform](https://img.shields.io/badge/platform-macOS-lightgrey)
@@ -22,25 +22,31 @@ _Built by Mihai Mateias, an AI engineer. My daily driver, real infrastructure, n
 
 ## What it is
 
-Roost is a control room for AI engineers: one screen where you run, observe, and steer a whole fleet of coding agents. Connect each machine to a coordinator and every agent, whether Claude Code, pi, oh-my-pi, or anything else that lives in a terminal, shows up in one browser tab. Sessions are grouped by the machine they run on, each with a live status chip that reads working, waiting on you, or idle.
+One coordinator connects every Mac you own into one fleet, and the coordinator Mac can be a worker too. Add spare or older MacBooks, spread agent workloads across them, and manage every session from the same control panel. Pick a folder on any machine, open a workspace there, and the process runs on that machine while its native terminal stays available on every device you use.
 
-Under the hood it's a terminal multiplexer, like `tmux`, `screen`, or `zellij`, except the screen is any browser on your network and the panes span every machine you own. Where those tools manage terminals, Roost is built for the way AI engineers actually work. It lifts each agent's state, model, and cost onto the sidebar, keeps every session alive across disconnects, and lets you split, arrange, and switch panes by clicking or tapping. A plain shell is still a first-class session. You just won't need one often, because streamlining agentic workflows is the point.
-
-If you've used `tmux`, `screen`, or `zellij`, you know they live inside one terminal on one machine, driven by a prefix-key grammar, and reaching another box means you SSH in first. Roost turns that inside out. Every machine you own shows up in one place, so you can be connected to ten computers at once without SSH juggling, and the whole surface is built to keep a dozen concurrent agents legible instead of buried in tabs. Still love tmux or zellij? Run them inside a Roost session. Roost just means you no longer have to.
+OMP supplies the structured agent state in the sidebar: working, approval-needed, and idle. Any agent, shell, REPL, or TUI still works as a terminal session with its native behavior.
 
 ## The problem
 
-An AI engineer runs many coding agents at once, and the moment you have five going across two machines, you lose the thread. The one blocked on a permission prompt is the one you can't find. The heavy run is stuck on the laptop that should have offloaded it. And none of them is reachable once you step away from the desk. Roost puts every agent, on every machine, on one screen you can open from anywhere, and tells you at a glance which one needs you.
+Once you have agents across several Macs, spare machines often sit unused while the main laptop carries the CPU and RAM load. "Remote" means SSH, separate terminals, and hunting for the session that needs you. Roost turns those Macs into workers, puts every session in one place, and lets you put the work on the machine that has capacity.
+
+## Three ways I use it
+
+**Leave the heavy work at home.** Have old MacBooks or spare Macs sitting around? Add them as workers, choose the project folder on each one, and put the heavy agent runs there. Their CPU and RAM carry the workload while your main MacBook stays light enough to take with you. Roost keeps all of those sessions in the same control panel, so working from a different machine does not mean juggling a different workflow.
+
+**Take only a tablet.** Roost is a fully functional web app, not a cut-down remote viewer. Pair an iPad or Android tablet, add a keyboard, and you get the same terminal, pane layout, and shortcuts as the desktop surface. The work still runs on your workers at home; the tablet is simply another way into the same sessions.
+
+**Only have your phone?** The same fully functional web app runs on iPhone and Android. Start a terminal in a worker's folder, select terminal text by touch, use the on-screen key row, attach a file, or dictate a prompt with the microphone. The phone UI uses Material 3 patterns, including swipeable terminal cards and touch gestures, so it remains practical when the phone is the only device you have.
 
 ## What you get
 
-**Every agent at a glance.** The sidebar shows each session's live state, whether working, waiting for input, or idle, along with its model and cost so far, grouped by the machine it runs on. You don't have to tab through terminals to find the blocked one. State comes from Claude Code's hooks or from screen-scraping the TUI, and the agent's transcript is never consumed to get it.
+**Structured OMP state where it matters.** The sidebar reads the local OMP bridge transcript, including active tool calls and approval requests. OMP state is structured; the terminal itself remains the authoritative interactive surface for every session.
 
-**Scale your agent fleet across machines.** Connect every Mac you own to one coordinator and run agents on all of them natively, from a single browser tab. One coordinator plus any number of workers that dial outbound only, so there's no inbound port on your other machines. The sidebar groups every live session by the machine it runs on, so ten computers are as easy to work as one, without SSH juggling. You can offload heavy, power-hungry runs onto a beefier box while you keep working on your laptop over the LAN. It works well with exactly one machine too.
+**Build a fleet from Macs you already own.** Connect every Mac to one coordinator, then use each one as a worker, including the coordinator Mac. Put an agent run on an older MacBook, a spare desktop, or your main laptop, based on where you have CPU and RAM available. Pick a project folder on that worker and open a workspace there. Workers dial outbound only, so they do not expose an inbound port. The sidebar groups every live session by the machine it runs on, so the entire fleet stays legible in one browser tab.
 
 ![The sidebar: every session grouped by the machine it runs on, with live status and cost](docs/media/sidebar-status.png)
 
-**A full terminal on any device.** The same real terminal renders in Chrome on your desktop and in Safari on your phone, with full ANSI, colors, and scrollback, plus touch selection, an on-screen key row, and gestures. This isn't a companion app or a read-only mirror. You drive the agent from your phone exactly as you would from the terminal it's running in. Add it to your home screen and it installs as a real app (a `standalone` PWA) with its own icon, full-screen, and no browser chrome. I run it daily on iPhone and Android phones and on iPads and Android tablets, and it behaves the way it should everywhere. On an iPad or Android tablet it's a full desktop surface, with the same splits, panes, and shortcuts you use on a laptop rather than a cut-down view.
+**A full terminal on every device.** The same fully functional web app runs on desktop, iPhone, Android phones, iPads, and Android tablets. It renders the real persistent PTY with full ANSI, colors, and scrollback. Upload files into a session, download files from a worker to your browser, and use the terminal without caring which Mac runs it. Tablets keep the desktop layout, panes, and shortcuts. Phones add touch selection, an on-screen key row, and gestures for real work. Add it to your home screen and it installs as a standalone PWA with its own icon and no browser chrome.
 
 ![Desktop-grade on a tablet, the same real terminal and layout as a laptop](docs/media/tablet-desktop.png)
 
@@ -58,7 +64,7 @@ An AI engineer runs many coding agents at once, and the moment you have five goi
 
 **Sessions that don't die.** PTYs run in a keeper subprocess that outlives worker restarts. Drop WiFi, close the laptop, refresh, or reopen the same session on another machine, and the process is still running with full scrollback. Sessions are event-sourced and the byte stream is resumable from an offset, so reconnects splice back cleanly, with no loss and no duplication.
 
-**The terminal IS the UI.** Your agent's raw TUI renders into a real WASM VT terminal (`@wterm/dom`), with full ANSI and scrollback. There's no chat window to babysit. Status is lifted off the screen without touching the transcript, so what you see is exactly what the agent drew.
+**The terminal IS the UI.** Raw terminal output renders in a real WASM VT terminal (`@wterm/dom`) with full ANSI and scrollback. Structured OMP state arrives through the local bridge, while the PTY remains the authoritative interactive surface.
 
 **Yours, not a SaaS.** It runs on your hardware over your own network. Auth is an EdDSA JWT minted in the browser with WebCrypto, and the private key lives in IndexedDB and is never sent to the coordinator. There are no shared tokens, no accounts, and no telemetry. Revoke a device by deleting a row.
 
@@ -79,21 +85,16 @@ An AI engineer runs many coding agents at once, and the moment you have five goi
  Worker    Worker              Worker        (Bun, one per machine)
  Mac A     Mac B               Mac C
    │  a keeper subprocess hosts every PTY and outlives worker restarts;
-   │  a bridge reads each agent's hooks (Claude Code) or screen-scrapes
-   │  its TUI (pi, oh-my-pi) to track its state
+   │  the local OMP bridge publishes structured transcript and approval state
 ```
 
 The coordinator handles control and fan-out only. It holds an append-only event log that every session is projected from, so the browser and the server agree on state by replaying the same events rather than mirroring a snapshot. Workers are outbound-only: they dial the coordinator, never the reverse. For the full tour, see [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
-## Supported agents
+## Structured agent state
 
-Roost tracks live status (working / waiting / idle, plus model and cost) for:
-
-- **Claude Code**, via its `--settings` hooks (`worker claude/hooks.ts`).
-- **pi** (`pi-coding-agent`), via terminal screen-scrape (`detect/pi-manifest.ts`); no hooks needed.
-- **oh-my-pi** (`@oh-my-pi`), via screen-scrape (`detect/omp-manifest.ts`); no hooks needed.
-
-Anything else that runs in a terminal works as a session too; you just won't get the status chip. That includes other agent CLIs (for example OpenAI Codex CLI, Gemini CLI, Aider, opencode, GitHub Copilot CLI, Cursor CLI) and any plain shell, REPL, or TUI. Adding first-class status tracking for another agent is a small screen-scrape manifest under `worker detect/`.
+Roost's supported structured integration is **oh-my-pi / OMP**, through the
+local OMP bridge. Other terminals, shells, REPLs, and TUIs remain first-class
+sessions with their native terminal behavior but no structured sidebar state.
 
 ## Network
 
@@ -101,7 +102,7 @@ Roost talks over whatever network your devices share. It's built and tested on [
 
 ## Install
 
-Roost runs on macOS today. It needs a shared network (Tailscale recommended) plus at least one coding agent (Claude Code, pi, or oh-my-pi) on each Mac you'll run agents on. On the Mac you want as the coordinator:
+Roost runs on macOS today. It needs a shared network (Tailscale recommended) and OMP on each Mac where structured agent state is required. On the Mac you want as the coordinator:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/cefege/roost/main/install.sh | bash

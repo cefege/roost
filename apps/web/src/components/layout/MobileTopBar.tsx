@@ -1,4 +1,4 @@
-// Mobile top app bar (claude.ai/code pattern) — a slim bar above the main
+// Mobile top app bar — a slim bar above the main
 // content on compact: menu button (opens the sliding drawer) + the current
 // context's title. Replaces the crude floating hamburger box. Rendered by
 // AppShell inside <main> (a flex column) so the terminal flows below it — no
@@ -23,7 +23,7 @@ export function MobileTopBar() {
   const location = useLocation();
 
   // Title from the URL: search/file get labels; a session shows its OSC
-  // terminal title (what the shell/claude set) falling back to the cwd leaf.
+  // terminal title (what the shell sets) falling back to the cwd leaf.
   const title = createMemo(() => {
     const path = location.pathname;
     if (path.startsWith("/search")) return "Search";

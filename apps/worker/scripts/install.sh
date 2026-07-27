@@ -112,7 +112,7 @@ write_plist() {
     <key>HOME</key>
     <string>${HOME}</string>
     <key>PATH</key>
-    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <string>${HOME}/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
     <key>ROOST_WORKER_DATA_DIR</key>
     <string>${DATA_DIR}</string>
     <key>ROOST_COORDINATOR_URL</key>

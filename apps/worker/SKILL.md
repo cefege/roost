@@ -24,9 +24,8 @@ prints JSON (except `roost read`, which prints raw text). Exit code is
 
 ## Concepts
 
-- **Session.** One PTY on this worker. Each session has a numeric
-  `session_id`, a working `folder`, and a `kind` (`shell`,
-  `claude-new`, `claude-continue`, `claude-resume`).
+- **Session.** One shell PTY on this worker. Each session has a numeric
+  `session_id` and a working `folder`.
 - **Worker.** One Mac. The skill API is worker-local — you control
   sibling sessions on the same Mac. Cross-machine orchestration goes
   through the desktop today.

@@ -4,8 +4,8 @@
 //    (default OFF — push is the default) vs push it up off-screen (lib/keyboardResizePref).
 //  - key pad on desktop: show the on-screen nav pad on desktop widths
 //    (default ON) (lib/keyboardOnDesktop).
-//  - mouse mode: forward clicks/scroll/swipe to the running app (claude
-//    fullscreen) vs native browser select/scroll (lib/mouseForwardPref). Also
+//  - mouse mode: forward clicks/scroll/swipe to a fullscreen app
+//    vs native browser select/scroll (lib/mouseForwardPref). Also
 //    toggled from the on-screen nav pad; this is the desktop-reachable home.
 // Callers: SettingsRoot.tsx.
 
@@ -60,7 +60,7 @@ export function TerminalPane() {
       <Card title="Mouse mode">
         <SwitchRow
           headline="Forward mouse + touch to fullscreen apps"
-          support="On: clicks, scroll, and finger-swipes go to the running app (e.g. scroll claude's fullscreen) instead of the browser. Off: native browser selection and scrolling. Also toggleable from the on-screen key pad. This device only."
+          support="On: clicks, scroll, and finger-swipes go to the fullscreen app instead of the browser. Off: native browser selection and scrolling. Also toggleable from the on-screen key pad. This device only."
           checked={mouseForwardEnabled()}
           onChange={toggleMouseForward}
           testId="mouse-forward-toggle"
@@ -81,7 +81,7 @@ export function TerminalPane() {
             ]}
           />
           <p class="md-body-s" style={{ color: "var(--md-sys-color-on-surface-variant)", margin: "0" }}>
-            Paints each typed character immediately and reconciles it when the terminal confirms. Adaptive only engages on a high-latency link; Always shows it everywhere except fullscreen apps (claude/vim); Experimental shows guesses instantly but may flicker. This device only; applies immediately.
+            Paints each typed character immediately and reconciles it when the terminal confirms. Adaptive only engages on a high-latency link; Always shows it everywhere except fullscreen apps (for example vim); Experimental shows guesses instantly but may flicker. This device only; applies immediately.
           </p>
         </div>
       </Card>

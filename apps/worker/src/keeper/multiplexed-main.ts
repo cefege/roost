@@ -61,6 +61,11 @@ export function runKeeper(sockPath: string): void {
   const dir = path.dirname(sockPath);
   try { fs.mkdirSync(dir, { recursive: true, mode: 0o700 }); } catch { /* ignore */ }
 
+  const pidPath = `${sockPath}.pid`;
+  const removePidFile = () => {
+    try { fs.unlinkSync(pidPath); } catch { /* already absent */ }
+  };
+  process.once("exit", removePidFile);
   const channels = new Map<number, Channel>();
   const clients = new Set<ClientState>();
 
@@ -84,8 +89,7 @@ export function runKeeper(sockPath: string): void {
       const { frames, remaining } = decodeMuxFrames(client.buf);
       client.buf = remaining;
       // Isolate each frame: a throw in one handler must NOT propagate out of
-      // socket.on("data") → uncaught → whole-keeper crash that kills EVERY
-      // session (incl. the live Claude one). Log + drop the bad frame instead.
+      // socket.on("data") and crash the keeper that hosts every live PTY.
       for (const f of frames) {
         try { handleFrame(frameCtx, client, f); }
         catch (e) { _log("error", "multiplexed-keeper", "handle_frame_failed", { type: f.type, channelId: f.channelId, error: String(e) }); }
@@ -106,14 +110,17 @@ export function runKeeper(sockPath: string): void {
 
   server.listen(sockPath, () => {
     try { fs.chmodSync(sockPath, 0o600); } catch { /* ignore */ }
+    try {
+      fs.writeFileSync(pidPath, `${process.pid}\n`, { mode: 0o600 });
+    } catch (e) {
+      _log("error", "multiplexed-keeper", "pid_file_write_failed", { error: String(e), pidPath, sockPath });
+    }
     _log("info", "multiplexed-keeper", "listening", { sockPath });
   });
 
-  // The keeper outlives the worker and hosts the live Claude PTY — its own
-  // silent crash is the worst failure (every session dies, cause lost). Log
-  // the cause before the process goes. NOT swallowed: rethrow-free but we let
-  // the runtime decide exit (unhandledRejection stays non-fatal; an uncaught
-  // exception still terminates after we've recorded why).
+  // The keeper outlives the worker and hosts every live PTY. Its silent crash
+  // loses every session, so log the cause before the process exits. Do not
+  // swallow the error: the runtime still decides termination.
   process.on("uncaughtException", (e) => {
     _log("error", "multiplexed-keeper", "uncaught_exception", { error: String(e), stack: e?.stack ?? null });
   });
@@ -127,6 +134,7 @@ export function runKeeper(sockPath: string): void {
   process.on("SIGTERM", () => {
     _log("info", "multiplexed-keeper", "sigterm_reaping_children", { channels: channels.size });
     reapAllChannelsSync(channels);
+    removePidFile();
     process.exit(0);
   });
 
@@ -134,6 +142,7 @@ export function runKeeper(sockPath: string): void {
     if (!fs.existsSync(sockPath)) {
       _log("info", "multiplexed-keeper", "socket_removed_exiting");
       reapAllChannelsSync(channels);
+      removePidFile();
       process.exit(0);
     }
   }, 30_000);

@@ -116,8 +116,8 @@ Re-interpret every artifact enumerated in L0-SCOPE through this lens:
     | "terminal history 'always fucked up' / 'afraid to refresh or resize' / scrollback mangles or grows on its own while the live pane is fine" | `project_terminal_history_corruption_viewport_slaved_pty.md` | PTY/grid size slaved to the browser viewport; browser-chrome wobble (innerHeight 987↔931, ~5 rows, ~1/sec) round-trips a real PTY+wterm_core resize, and @wterm/core's ASYMMETRIC row-resize (shrink→scrollback, grow→blanks, never reverses) bakes the wobble into permanent scrollback drift with ZERO user action. Re-deriving alt-screen history at the new width still mangles even when the rebuild is deterministic — deterministic-reflow ≠ freeze. Tempting wrong fixes: ratchet-to-min hysteresis (its own monotonic-shrink creep bug); "better reflow" (no lib reflows a TUI grid to a new width — they all freeze). | **cell-phase-4 cell-mode structural fix — cell frames carry immutable rows, never reflowed → browser-chrome wobble can't corrupt scrollback → entire reflow corruption class structurally eliminated.** The old stop-bleeds (claimHysteresis.ts hold-anchor, hold-anchor settle, alt-screen freeze d745b1e3) were retired in cell-phase-4. Endgame shipped: cell-shipping (R11 cell-phase-1/2/3) + byte-path retirement (cell-phase-4). Tests: wterm-rebuild-determinism, OPT2-5 real-PTY e2e, cell-realcore. |
     | "sessionsSpawn → [internal] internal error / spawn hangs forever / worker↔coord bidi flaps every ~10-30s / connect-node 'h2 is not supported' tight-loop" | `project_worker_coord_raw_ws_not_connect_bidi.md` | Connect-bidi (`WorkerService.Attach` via connect-node) for the worker↔coord stream UNDER BUN: h2 throws "[internal] h2 is not supported" (Bun's `node:http2` is incomplete) → tight reconnect loop; over h1.1 `Bun.serve` buffers the long-lived request body so the worker's upstream rpc-ok replies never reach coord → every spawn hangs; AND `Bun.serve` default `maxRequestBodySize` (128 MB) caps the long-lived h1.1 attach body (claude TUI redraws fill it in ~10-30s) → flap. Re-registering `router.service(WorkerService,{attach})` or flipping `CoordLink` `httpVersion` to "2" reintroduces all of it. | **raw Bun WebSocket** at `/ws/coord-worker/:fp?token=<jwt>` carrying the SAME CoordWorkerUp/Down proto frames as binary (`toBinary`/`fromBinary`) — coord `apps/coord/src/connect/worker-ws-handler.ts` (shares `makeWorkerConn` + the `connectWorkers` registry), worker `apps/worker/src/transport/CoordLink.ts::dial()`. Auth = query-param JWT (Bun's CLIENT `WebSocket` has no custom-header API). NEVER run a Connect/gRPC bidi through Bun. Regression: `apps/coord/tests/worker-ws-transport.test.ts`. |
     | "new terminal → [failed_precondition] worker … not connected / worker log silent (no stream_error) for hours / heartbeats fine, lsof shows ESTABLISHED to :4102" | `project_coordlink_stale_ws_watchdog.md` | restart the worker by hand / trust `ws.onclose` — when the coord process dies (Bun segfault, relaunched by launchd) tailscale serve keeps the worker-side TCP ESTABLISHED, so `ws.onerror`/`ws.onclose` NEVER fire and `ws.send` (incl. in-band JWT refresh) black-holes forever; the restarted coord's in-memory `connectWorkers` registry has no WS for the fp → `getWorkerHubSocket()` null → `handlers-sessions.ts:115` throws failed_precondition on every spawn while heartbeats (separate HTTP/1.1 unary transport) keep the row looking alive | **CoordLink stale-link watchdog** at `apps/worker/src/transport/CoordLink.ts` (`dial()` `ws.onopen`/`ws.onmessage`): coord pings every 30s (`apps/coord/src/connect/worker-conn.ts:104`); every downstream frame stamps `lastDownstreamAtMs`; a per-dial `setInterval` (`STALE_CHECK_INTERVAL_MS`=15s) force-closes + re-dials after `STALE_LINK_TIMEOUT_MS`=90s (3 missed pings) of downstream silence → hello→snapshot replay heals the rest. Same half-open-through-tailscale class as `install.ts` BOOT_RPC_TIMEOUT_MS. Regression test `apps/worker/tests/coord-link-stale-watchdog.test.ts` (silent-server re-dial + pinged-link no-false-positive). |
-    | "attach/tab-switch/resize slow proportional to scrollback depth / long sessions stall seconds on pull-in while fresh ones are instant" | n/a — verified empirically 2026-07-11 (`seq -f 'CELLLINE-%g' 1 8000` attach: seconds → 40ms first paint, full depth backfilled <1s) | ship the ENTIRE retained scrollback (≤10k rows) in every full cell frame — O(history) sync `gridToCellFrame` inside `claimViewport`, one MB-scale proto blob head-of-line-blocking the Sync stream, O(history) decode+DOM on the SPA before first paint; or "fix" it by racing/timeouting the history away (L11 forbids trading history) | **tail full frames + per-viewer pull backfill.** Full frames carry only `SB_SNAPSHOT_TAIL_ROWS` (250) newest scrollback rows + `sbBase` (`@roost/shared/cell` `nextCellFrame(core, st, force, tailRows)`); the SPA paints viewport+tail instantly, then `scrollbackBackfill.ts` pulls `[0, sbBase)` in 1000-row chunks via `SessionsGetScrollbackCells` (coord relay → worker `handleGetScrollbackCells`, awaits the rebuild chain, serves `readScrollbackRangeCells`) and `cellRenderer.prependScrollback` splices above with distance-from-bottom preserved. Already-attached viewers merge tails via `mergeFullFrame` (cols + boundary-text identity) so another viewer's attach never wipes their depth. History ALWAYS arrives — only its timing is lazy. Regression: `apps/worker/tests/scrollback-cells-backfill.test.ts` + `apps/web/tests/cellRenderer.dom.test.ts` "tail frames + backfill". |
-    | "terminal scrollback jumps around / view lurches while scrolling up / lands mid-history after a tab switch / drifts off the bottom after vim/less/claude exits" | n/a — fixed 2026-07-25 (2nd pass: the pixel model itself was the bug) | own the position as a pixel `scrollTop` and patch it per-mutation (distance-from-bottom in `prependScrollback`/`_evictScrollback`, a `stick` flag + `lastTop` echo-suppressor in `CellTerminal`) — six independent actors write that pixel (deck park/reveal resize, `renderFull` rebuild, the alt-screen `display:none` collapse, prepend, evict, browser scroll anchoring) and every one of them also emits a `scroll` event indistinguishable from a user gesture, so the follow latch flips false and never comes back | **The position is a DECLARED row-space intent the renderer re-derives.** `CellGridRenderer._intent` is `{kind:"tail"}` or `{kind:"anchor", row, off}` in ABSOLUTE scrollback-row coordinates (invariant under prepend/evict/rebuild); `syncScroll()` is the ONLY corrective path and ends every mutation (`apply`, `renderFull`, `_evictScrollback`, `prependScrollback`) plus `CellTerminal`'s resize observer. `captureScrollIntent()` is the ONLY place a gesture becomes state; `isSelfScroll()` (compare live `scrollTop` to the last value WE wrote) filters our own echo, so `stick`/`lastTop`/`pinToBottom` are GONE. Reveal calls `followTail()`. Supporting: `.wterm { overflow-anchor: none }` (anchoring measured moving `scrollTop` +4200px on a prepend), `.cell-row { height: 1.2em }` as a CAP so rows stay uniform, and `sizeBlock()` writes `auto <measured px>` per block. Tripwires: `apps/web/tests/cellRenderer.dom.test.ts` "scroll intent". |
+    | "attach/tab-switch/resize slow proportional to scrollback depth / long sessions stall seconds on pull-in while fresh ones are instant" | n/a — verified empirically 2026-07-11 (`seq -f 'CELLLINE-%g' 1 8000` attach: seconds → 40ms first paint, full depth backfilled <1s) | ship the ENTIRE retained scrollback (≤10k rows) in every full cell frame — O(history) sync `gridToCellFrame` inside `claimViewport`, one MB-scale proto blob head-of-line-blocking the Sync stream, O(history) decode+DOM on the SPA before first paint; or "fix" it by racing/timeouting the history away (L11 forbids trading history) | **tail full frames + per-viewer pull backfill.** Full frames carry only `SB_SNAPSHOT_TAIL_ROWS` (250) newest scrollback rows + `sbBase` (`@roost/shared/cell` `nextCellFrame(core, st, force, tailRows)`); the SPA paints viewport+tail instantly, then `scrollbackBackfill.ts` pulls `[0, sbBase)` in 1000-row chunks via `SessionsGetScrollbackCells` (coord relay → worker `handleGetScrollbackCells`, awaits the rebuild chain, serves `readScrollbackRangeCells`) and `cellRenderer.prependScrollback` splices above. At a literal bottom the renderer pins the new bottom; otherwise it leaves `scrollTop` untouched and native anchoring preserves the inspected history. Already-attached viewers merge tails via `mergeFullFrame` (cols + boundary-text identity) so another viewer's attach never wipes their depth. History ALWAYS arrives — only its timing is lazy. Regression: `apps/worker/tests/scrollback-cells-backfill.test.ts` + `apps/web/tests/cellRenderer.dom.test.ts` "tail frames + backfill". |
+    | "terminal scrollback jumps around / view lurches while scrolling up / lands mid-history after a tab switch / drifts off the bottom after vim/less/claude exits" | n/a — fixed 2026-07-26 | row-space or pixel scroll ownership: intent/anchor state, distance compensation, scroll-event classification, resize/reveal correction, or a jump-to-bottom control | **Exact pre-mutation bottom check plus one conditional writer.** `CellGridRenderer` captures `scrollTop >= max(0, scrollHeight - clientHeight)` before a painted-height mutation; only `_pinToBottom(wasAtBottom)` may assign `scrollTop`, only when that captured value was true. Non-bottom mutations never write position. The mutable append tail is `overflow-anchor:none`, preventing Chromium from following it when the reader is one pixel above bottom; completed blocks are anchors, and the tail is restored before a backfill prepend so native anchoring preserves the reader's row. The DOM tripwires are `a frame appended at the exact bottom pins to the new bottom`, `one pixel above the bottom is not pinned by a streaming frame`, `a non-bottom backfill prepend performs no application scroll write`, `returning to the bottom re-enables held-window eviction`, `entering alt-screen from history performs no application scroll write`, and `leaving alt-screen pins because the alt viewport is at bottom`. Never restore intent state, resize/reveal correction, or the jump-to-bottom control. |
 
     Process rule: when a user-reported symptom matches an existing row,
     fix at the linked layer FIRST. If the linked memory describes a
@@ -195,8 +195,10 @@ git history on `n6/solid-rewrite` if you need v1 source for reference.
 
 - **Full stack dev** → `bun apps/roost-cli/src/main.ts dev` (boots coord
   :4102 + worker :2224 + Vite :5174 in parallel)
-- **Test** → `bun apps/roost-cli/src/main.ts test` (wire spec + coord + worker
-  + web + smoke in dep order)
+- **Tests** → `bun run test:unit` (hermetic), `bun run test:terminal`
+  (isolated coord + worker + browser), `bun run test:live-api` (tailnet
+  data-plane canary; requires `ROOST_COORD_URL`), `bun run test` (unit then
+  terminal), or `bun run test:worker` (isolated per-file worker suite).
 - **Deploy worker to tailnet host** → `bun apps/roost-cli/src/main.ts deploy <host>`
   (rsync + `bun install --production` + `launchctl kickstart -k`)
 - **Install LaunchAgents** →
@@ -419,7 +421,8 @@ lsof -iTCP -sTCP:LISTEN -P -n | grep bun
   pre-shipping for end-user clarity); there is no `WorkersPane`.
 - **Build / dev:** `bun x vite` (HMR dev on :5174) / `bun x vite build`
   (static output to `apps/web/dist/`; coord serves this in production).
-- **Test:** `bun test apps/web/tests/`.
+- **Test:** `bun run test:terminal` for browser terminal contracts; `bun run
+  test:unit` covers fast DOM/store tests.
 
 ### `apps/coord/` (Bun coord control plane — Connect-RPC only)
 - **Entry:** `src/main.ts` — Bun-specific wrapper. Loads `CoordConfig`,
@@ -562,7 +565,8 @@ lsof -iTCP -sTCP:LISTEN -P -n | grep bun
 - **Snapshot:** `src/snapshot.ts` — emit `snapshot` SessionEvent on
   coord reconnect (R3.1 reconciliation).
 - **Run / dev:** `bun apps/worker/src/main.ts`.
-- **Test:** `bun test apps/worker/tests/`.
+- **Test:** `bun run test:worker` — never raw `bun test apps/worker/tests/`;
+  each file owns an isolated process, keeper PID, and temp root.
 - **Install:** `bash apps/worker/scripts/install.sh install`.
 - **Deploy to tailnet host:** `bun apps/roost-cli/src/main.ts deploy <host>`.
 
@@ -606,7 +610,7 @@ lsof -iTCP -sTCP:LISTEN -P -n | grep bun
 ### `apps/roost-cli/` (the unified CLI)
 - **Entry:** `src/main.ts` dispatches to one of:
   - `dev` — boot coord (:4102) + worker (:2224) + Vite (:5174) in parallel
-  - `test` — run wire spec + coord + worker + web + smoke in dep order
+  - `test <unit|worker|terminal|live-api|all>` — explicit test profiles
   - `deploy <host>` — rsync to tailnet host + `bun install --production`
     + `launchctl kickstart -k`
   - `logs <coord|worker>` — tail `~/Library/Logs/Roost{Coord,Worker}/main.*`
@@ -628,9 +632,10 @@ lsof -iTCP -sTCP:LISTEN -P -n | grep bun
   raw mode, asserts byte-for-byte round-trip across every control
   byte, multi-byte CSI, UTF-8, paste burst, and an exhaustive
   256-frame sweep.
-- **Run:** `bun test smoke/` (Bun primitives only) /
-  `bun test apps/worker/tests/` (worker keeper + scrollback) /
-  `bun test apps/coord/tests/` (coord wire-level).
+- **Run:** `bun run test:unit` for all hermetic checks; `bun run
+  test:worker` for the isolated PTY suite; `bun run test:terminal` for
+  browser-resident terminal rendering; `bun run test:live-api` only with a
+  current tailnet `ROOST_COORD_URL`.
 
 ### `apps_legacy/` — deleted in phase-24g
 The pre-rewrite v1 tree is gone. Git history preserves it; reference
@@ -669,17 +674,13 @@ row) MUST ship with a real-flow verification that drives real data
 through the real code paths. Synthesized test-hooks coverage but don't
 satisfy this rule on their own.
 
-Real-flow verification runs through humanchrome against the live
-tailnet URL (`https://coord-host.tailXXXXXX.ts.net:4102` as of
-2026-06-19 — coord host renamed from server-a 2026-06-17, which is
-now dead; always resolve the current host via `tailscale status`) — NOT
-Playwright. The `/roost-smoke` skill drives a fresh shell session,
-exercises the feature end-to-end, and asserts on rendered DOM (e.g.
-`data-mode` on `[data-testid="mode-chip"]`). See memories
-`feedback_playwright_only_no_humanchrome.md` (Playwright reversed off,
-humanchrome is the verification tool) and
-`feedback_tailnet_only_localhost_useless.md` (never use localhost URLs).
-If the feature can't be verified live via humanchrome, it isn't done.
+Playwright is the deterministic isolated browser tier, not production proof.
+Terminal-render changes require both `bun run test:terminal` and the live
+real-Claude humanchrome canary (`/roost-smoke` plus `/roost-render-stress`) on
+the current tailnet coordinator. Data-plane-only changes may use
+`bun run test:live-api`. Resolve the current host via `tailscale status`; do
+not substitute localhost for the live canary. If the feature cannot be
+verified live via humanchrome, it is not done.
 
 See `feedback_real_flow_tests_are_minimum_bar.md` and
 `feedback_no_mock_claude_use_real.md` in memory.

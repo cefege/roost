@@ -49,7 +49,6 @@ function freshMgr(onCellFrame?: (frame: PbCellGridFrame) => void): SessionManage
   return new SessionManager({
     workerFp: asWorkerFp("00".repeat(32)),
     sink: { emit: () => {} },
-    hookSocketPath: "/dev/null",
     ...(onCellFrame ? { sendCellGridUpstream: (_cid, frame) => onCellFrame(frame) } : {}),
   });
 }

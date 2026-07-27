@@ -1,10 +1,6 @@
-// SessionManager owns map of ChannelId → {keeperSocketPath, fsm, claudeBridge?}.
-// Handles spawn-shell / spawn-claude / kill. Per-channel FSM transitions emit
-// SessionEvents to coord.
-//
-// Callers: CoordLink onBrowserCommand handler (spawn-shell, spawn-claude,
-// kill, input, resize) — every browser command arrives downstream from
-// the coord via the bidi Attach stream and dispatches through here.
+// SessionManager owns terminal lifecycle state keyed by ChannelId. It handles
+// shell spawn, terminal I/O, and session teardown; transitions emit
+// SessionEvents to the coordinator.
 
 import * as scrollback from "./session-scrollback.ts";
 import * as emit from "./session-emit.ts";
@@ -20,17 +16,14 @@ import type { TerminalCore } from "@wterm/core";
 import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
 import type { SessionEventSink } from "./event-sink.ts";
 import type { ChannelState, FsmEvent } from "./fsm.ts";
-import type { ArbStatus } from "./detect/arbiter.ts";
 import type {
 	SessionId,
 	ChannelId,
 	WorkerFp,
-	AgentState,
 	SessionEvent,
 } from "@roost/shared";
 import {
 	VIEWPORT_REAPER_INTERVAL_MS,
-	DETECT_SWEEP_INTERVAL_MS,
 	STRAY_REAP_INTERVAL_MS,
 } from "./session-constants.ts";
 import type { SessionRecord, ViewportClaim } from "./session-record.ts";
@@ -42,7 +35,6 @@ export class SessionManager {
 	_nextChannel = 1;
 	readonly workerFp: WorkerFp;
 	readonly sink: SessionEventSink;
-	readonly hookSocketPath: string;
 	// Per-channel viewport claims keyed by viewer fingerprint. Empty map
 	// entry kept until the channel is killed (cheap, ~24 bytes). PTY size
 	// recomputed on every claim/withdraw/reap; SIGWINCH only fires if the
@@ -55,31 +47,12 @@ export class SessionManager {
 	// `${channelId}:${viewerFp}`. A re-claim clears the pending timer so a
 	// refresh doesn't flap the SCD size. See VIEWPORT_WITHDRAW_GRACE_MS.
 	pendingWithdraws = new Map<string, ReturnType<typeof setTimeout>>();
-	// Phase-3 (SSP rate governor): per-channel coalesce timer for cell
-	// deltas. A burst of PtyOut chunks (resize storm / claude full-screen flood)
-	// marks the channel dirty; we emit ONE delta to the LATEST grid per
-	// CELL_EMIT_COALESCE_MS instead of one frame per chunk. The wtermCore already
-	// holds the newest state, so the coalesced read is "target = latest" by
-	// construction. Forced full frames bypass this and emit immediately.
+	// Per-channel coalesce timer for cell deltas. A burst of terminal output
+	// marks the channel dirty; one delta ships the latest grid per
+	// CELL_EMIT_COALESCE_MS.
 	cellEmitTimers = new Map<number, ReturnType<typeof setTimeout>>();
 	cellDirty = new Set<number>();
-	// herdr agent-status detection (claude sessions). Scraped off the byte path
-	// via the ported detect/ engine (screen-detect + arbiter), emitted upstream on
-	// CHANGE as a volatile WClaudeStatus frame → coord claudeStatusBus → SPA chip.
-	// detectTimers = debounce; reevalTimers = the working→idle re-check; committed
-	// = last emitted status per channel (dedup); lastByteAt = the quiet-clock the
-	// arbiter reads for the idle hold.
-	detectTimers = new Map<number, ReturnType<typeof setTimeout>>();
-	reevalTimers = new Map<number, ReturnType<typeof setTimeout>>();
-	committedStatus = new Map<number, ArbStatus>();
-	lastByteAt = new Map<number, number>();
-	// Last raw-stream OSC title per channel (braille intact — see extractOscTitle).
-	lastOscTitle = new Map<number, string>();
-	// Per-channel carry of a trailing unterminated OSC title split across PTY
-	// read chunks (omp sets its title once at boot — see extractOscTitleStateful).
-	oscTitleCarry = new Map<number, Uint8Array>();
 	viewportReaperTimer: ReturnType<typeof setInterval> | null = null;
-	detectSweepTimer: ReturnType<typeof setInterval> | null = null;
 	strayReaperTimer: ReturnType<typeof setInterval> | null = null;
 	// channelId -> consecutive sweeps seen as a stray (see STRAY_REAP_STRIKES).
 	strayStrikes = new Map<number, number>();
@@ -102,11 +75,6 @@ export class SessionManager {
 	// _hasActiveViewer gate already suppresses emission to unwatched channels.
 	readonly sendCellGridUpstream:
 		| ((channelId: number, frame: PbCellGridFrame) => void)
-		| null;
-	// Volatile agent-status sink (herdr detection). null in tests without a coord
-	// link. Same drop-on-down policy as cells — re-scraped + re-sent on reconnect.
-	readonly sendClaudeStatusUpstream:
-		| ((channelId: number, status: string) => void)
 		| null;
 
 	// Sliding-window timestamps of emit_no_session events → keeper.degraded.
@@ -131,17 +99,13 @@ export class SessionManager {
 	constructor(opts: {
 		workerFp: WorkerFp;
 		sink: SessionEventSink;
-		hookSocketPath: string;
 		sendBinaryUpstream?: (bytes: Uint8Array) => void;
 		sendCellGridUpstream?: (channelId: number, frame: PbCellGridFrame) => void;
-		sendClaudeStatusUpstream?: (channelId: number, status: string) => void;
 	}) {
 		this.workerFp = opts.workerFp;
 		this.sink = opts.sink;
-		this.hookSocketPath = opts.hookSocketPath;
 		this.sendBinaryUpstream = opts.sendBinaryUpstream ?? null;
 		this.sendCellGridUpstream = opts.sendCellGridUpstream ?? null;
-		this.sendClaudeStatusUpstream = opts.sendClaudeStatusUpstream ?? null;
 		// Viewport-claim reaper. Every 5s: drop claims older than 60s,
 		// recompute SCD per affected channel, SIGWINCH if changed. Catches
 		// dead browsers that didn't get to send a withdraw (kill -9, WiFi
@@ -149,12 +113,6 @@ export class SessionManager {
 		this.viewportReaperTimer = setInterval(
 			() => this._reapViewportClaims(),
 			VIEWPORT_REAPER_INTERVAL_MS,
-		);
-		// herdr idle re-scan (see DETECT_SWEEP_INTERVAL_MS): surface status for idle
-		// agents that emit no bytes to trigger the byte-path scrape.
-		this.detectSweepTimer = setInterval(
-			() => this._sweepDetect(),
-			DETECT_SWEEP_INTERVAL_MS,
 		);
 		// Reverse-reap sweep (see STRAY_REAP_INTERVAL_MS): kill keeper PTYs the
 		// worker no longer tracks so a deleted session's process can't outlive it.
@@ -227,25 +185,10 @@ export class SessionManager {
 		return emit.emitUpstreamChunk.call(this, channelId, chunk);
 	}
 
-	_scheduleDetect(channelId: number): void {
-		return emit._scheduleDetect.call(this, channelId);
-	}
-
-	_sweepDetect(): void {
-		return emit._sweepDetect.call(this);
-	}
-
-	_runDetect(channelId: number): void {
-		return emit._runDetect.call(this, channelId);
-	}
-
-	resendClaudeStatuses(): void {
-		return emit.resendClaudeStatuses.call(this);
-	}
-
 	_hasActiveViewer(channelId: number): boolean {
 		return emit._hasActiveViewer.call(this, channelId);
 	}
+
 
 	_scheduleCellEmit(channelId: number): void {
 		return emit._scheduleCellEmit.call(this, channelId);
@@ -307,20 +250,17 @@ export class SessionManager {
 		return spawnFns.spawnShell.call(this, cwd, cols, rows, targetSessionId);
 	}
 
-	spawnClaude(cwd: string, initialMode: string, cols?: number, rows?: number, targetSessionId?: SessionId): Promise<SessionRecord> {
-		return spawnFns.spawnClaude.call(this, cwd, initialMode, cols, rows, targetSessionId);
+
+
+	respawnIfMissing(sessionId: SessionId, cwd: string, cols: number, rows: number): Promise<SessionRecord> {
+		return spawnFns.respawnIfMissing.call(this, sessionId, cwd, cols, rows);
 	}
 
-
-	respawnIfMissing(sessionId: SessionId, kind: "shell" | "claude", cwd: string, cols: number, rows: number): Promise<SessionRecord> {
-		return spawnFns.respawnIfMissing.call(this, sessionId, kind, cwd, cols, rows);
-	}
-
-	resume(opts: { sessionId: SessionId; channelId: ChannelId; kind: "shell" | "claude"; cwd: string }): Promise<boolean> {
+	resume(opts: { sessionId: SessionId; channelId: ChannelId; kind: "shell"; cwd: string }): Promise<boolean> {
 		return resumeFns.resume.call(this, opts);
 	}
 
-	respawn(opts: { oldSessionId: SessionId; cwd: string; kind: "shell" | "claude"; initialMode?: string; cols?: number; rows?: number }): Promise<void> {
+	respawn(opts: { oldSessionId: SessionId; cwd: string; kind: "shell"; cols?: number; rows?: number }): Promise<void> {
 		return resumeFns.respawn.call(this, opts);
 	}
 
@@ -360,9 +300,6 @@ export class SessionManager {
 		return lifecycle._onTransition.call(this, sessionId, channelId, from, to, event);
 	}
 
-	applyAgentPatch(p: { sessionId: SessionId; patch: Partial<AgentState> }): void {
-		return lifecycle.applyAgentPatch.call(this, p);
-	}
 
 
 	dispose(): void {

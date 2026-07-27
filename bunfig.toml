@@ -6,9 +6,3 @@ exact = false
 # Default timeout for `bun test` — 10s lets PTY + subprocess + WSS specs
 # finish comfortably while still catching hangs.
 timeout = 10000
-
-# Suite-wide keeper/fixture reaper, needed on the ROOT path too: the root
-# `test` script is `bun test apps smoke`, so bun reads THIS bunfig, not
-# apps/worker/bunfig.toml. Pid-scoped and a no-op when nothing matches, so it
-# is harmless for suites that never spawn a keeper.
-preload = ["./apps/worker/tests/preload-keeper-sweep.ts"]

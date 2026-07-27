@@ -12,10 +12,9 @@
 //
 // Limitation (acknowledged): we map visible text → URI. If the same
 // text appears twice with different URIs in one render window, the
-// later URI wins. Most claude code / git / ls --hyperlink output uses
-// unique paths so this is rare in practice. Phase 3b upgrade is a
-// positional tracker using wterm.bridge.getCursor() — kept on deck;
-// see the plan in CLAUDE.md's recurring-failure index.
+// later URI wins. Most shell, git, or ls --hyperlink output uses
+// unique paths so this is rare in practice. A positional tracker using
+// wterm.bridge.getCursor() remains a possible future upgrade.
 //
 // Performance: the parser runs on EVERY byte chunk before wterm.write,
 // so it must be fast. Fast-bail when the chunk has no ESC]8 prefix.
@@ -170,7 +169,7 @@ export class Osc8Tracker {
   }
 
   private _record(text: string, uri: string): void {
-    // Strip CSI sequences (ESC [ params final) FIRST — claude/git emit
+    // Strip CSI sequences (ESC [ params final) FIRST — terminal apps and git emit
     // OSC 8 link text with SGR styling like `ESC[31mFoo.txt\x1b[0m`,
     // which would otherwise leave `[31mFoo.txt[0m` in the lookup map
     // and never match wterm's textContent (which is just `Foo.txt`).

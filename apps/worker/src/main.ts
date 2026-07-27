@@ -169,6 +169,11 @@ export async function runWorker() {
 		onCoordMoveSnapshotChunk: (chunk) => coordTarget.appendSnapshot(chunk),
 		onCoordRelocate: (request) => {
 			if (request.action === "ACTIVATE") coordLink.relocate(request.target_url);
+			if (request.action === "COMMIT") {
+				// Reply rpc-ok before closing the target stream; the forced
+				// reconnect replays events withheld while the target was pending.
+				setTimeout(() => coordLink.relocate(request.target_url, true), 0);
+			}
 			if (request.action === "ABORT") {
 				coordTarget.abort(request.handoff_id);
 				coordLink.relocate(request.source_url);

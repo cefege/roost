@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "bun test"
+    "test": "bun test bun_smoke.test.ts"
   },
   "dependencies": {
     "fast-check": "^3.23.0",

@@ -31,3 +31,6 @@ apps/worker/src/keeper/main.js
 # deployable without committing scratch material.
 .cache/
 mockups/
+
+/playwright-report/
+/test-results/

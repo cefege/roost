@@ -481,8 +481,8 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
     setTimeout(() => { if (!disposed) void dial(); }, d);
   }
 
-  function relocate(targetUrl: string): void {
-    if (disposed || coordHttpUrl === targetUrl) return;
+  function relocate(targetUrl: string, force = false): void {
+    if (disposed || (!force && coordHttpUrl === targetUrl)) return;
     coordHttpUrl = targetUrl;
     backoffMs = BACKOFF_INITIAL_MS;
     relocating = true;

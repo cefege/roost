@@ -54,7 +54,7 @@ export function handleFrame(ctx: FrameHandlerCtx, client: ClientState, f: { type
         // the user's real ~/.zshrc. TERM_PROGRAM=Apple_Terminal
         // triggers /etc/zshrc_Apple_Terminal so the chpwd hook emits
         // OSC 7 for cwd tracking (see session-manager._scanOsc7).
-        const isZsh = /(^|\/)(zsh)$/.test(argv[0]);
+        const isZsh = /(^|\/)(zsh)$/.test(argv.at(-1) ?? "");
         const proc = Bun.spawn(argv, {
           cwd: req.cwd,
           terminal: {
@@ -104,12 +104,10 @@ export function handleFrame(ctx: FrameHandlerCtx, client: ClientState, f: { type
             // local m1 (originally bootstrapped from Terminal.app)
             // inherited TERM through launchd and hid the bug.
             TERM: "xterm-256color",
-            // Truecolor isn't in the terminfo for xterm-256color (capped
-            // at 256). Modern apps (vim/nvim, fzf, bat, claude TUI)
-            // check COLORTERM=truecolor and emit 24-bit SGR directly,
-            // which wterm renders natively. Without this env, those
-            // apps fall back to 256-palette quantization on a true-color
-            // capable display. See bba85f1 of vim PR / nvim 0.5+.
+            // Truecolor isn't in the xterm-256color terminfo entry. Modern
+            // TUIs check COLORTERM=truecolor and emit 24-bit SGR directly,
+            // which wterm renders natively; otherwise they quantize to 256
+            // colors on a true-color display.
             COLORTERM: "truecolor",
             LANG: process.env.LANG || "en_US.UTF-8",
             LC_ALL: process.env.LC_ALL || "en_US.UTF-8",

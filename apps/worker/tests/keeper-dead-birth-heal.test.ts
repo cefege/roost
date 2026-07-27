@@ -17,7 +17,6 @@ function freshMgr(): { mgr: SessionManager; calls: { n: number } } {
   const mgr = new SessionManager({
     workerFp: asWorkerFp("00".repeat(32)),
     sink: { emit: () => {} },
-    hookSocketPath: "/dev/null",
   });
   mgr.setOnKeeperDegraded(() => { calls.n++; });
   return { mgr, calls };

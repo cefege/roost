@@ -2,8 +2,9 @@
 // carry only a SB_SNAPSHOT_TAIL_ROWS scrollback tail (worker session-emit.ts);
 // this controller pulls the remaining [0, sbBase) rows per-viewer via the
 // SessionsGetScrollbackCells unary RPC — OFF the broadcast Sync stream — and
-// splices them above the painted history (CellGridRenderer.prependScrollback,
-// scroll re-derived from the renderer's row-space intent, invisible to the user).
+// splices them above the painted history (CellGridRenderer.prependScrollback).
+// Browser anchoring preserves an inspected row; the renderer pins only a
+// pre-mutation literal-bottom viewport to the new bottom.
 //
 // Epoch model: scrollback row indices are absolute only within one grid epoch
 // (a reframe — width change / alt toggle / reset — restarts numbering). Every
@@ -14,7 +15,7 @@
 // drain stops at the held-window cap (MAX_HELD_SCROLLBACK_ROWS, the same
 // window the evictor enforces) and a reader approaching the painted top
 // uncaps it one chunk at a time, so nothing is ever traded away
-// (CLAUDE.md L11) — only fetched when someone looks.
+// (the terminal-fidelity invariant) — only fetched when someone looks.
 //
 // Owner: CellTerminal.tsx (one controller per pane; onFullFrame from the cell
 // handler, onUserScrollUp from the container scroll listener).

@@ -1,35 +1,77 @@
-// `roost test` — run all tests in dep order:
-//   1. bun test apps/shared
-//   2. bun test apps/coord apps/worker
-//   3. bun test apps/web (SPA unit tests — native bun:test)
-//   4. Playwright e2e (separate Node runner — see apps/web/playwright.config)
-// Stops on first failure.
+// `roost test <profile>` — canonical local and CI test entry points.
+// Profiles keep hermetic unit/terminal coverage distinct from the live-tailnet
+// API canary, whose network prerequisite must never appear as a green skip.
 
 import { spawn } from "bun";
 
-async function run(cmd: string[], cwd?: string): Promise<number> {
-  const p = spawn({ cmd, stdio: ["inherit", "inherit", "inherit"], cwd });
-  await p.exited;
-  return p.exitCode ?? 1;
+const PROFILES = ["unit", "worker", "terminal", "live-api", "all"] as const;
+type TestProfile = (typeof PROFILES)[number];
+
+async function run(name: string, cmd: string[], env?: Record<string, string>): Promise<void> {
+  console.log(`>> ${name}`);
+  const process = spawn({
+    cmd,
+    env: env ? { ...globalThis.process.env, ...env } : undefined,
+    stdio: ["inherit", "inherit", "inherit"],
+  });
+  const exitCode = await process.exited;
+  if (exitCode !== 0) throw new Error(`${name} failed (exit ${exitCode ?? 1})`);
 }
 
-export async function test(_args: string[]): Promise<void> {
-  // Use directory-anchored paths (trailing slash) so bun test filters
-  // match only these exact dirs, not substring siblings.
-  const steps: Array<[string, () => Promise<number>]> = [
-    ["wire spec", () => run(["bun", "test", "apps/shared/tests/"])],
-    ["coord", () => run(["bun", "test", "apps/coord/tests/"])],
-    ["worker", () => run(["bun", "test", "apps/worker/tests/"])],
-    ["web unit", () => run(["bun", "test", "apps/web/tests/"])],
-    ["smoke", () => run(["bun", "test", "smoke/"])],
-  ];
-  for (const [name, fn] of steps) {
-    console.log(`>> ${name}`);
-    const code = await fn();
-    if (code !== 0) {
-      console.error(`<< ${name} FAILED (exit ${code})`);
-      process.exit(code);
-    }
+async function runUnit(): Promise<void> {
+  await run("worker", [process.execPath, "scripts/test-worker.ts"]);
+  await run("unit", [
+    process.execPath,
+    "test",
+    "apps/shared/tests/",
+    "apps/coord/tests/",
+    "apps/web/tests/",
+    "apps/web/src/",
+    "apps/roost-cli/tests/",
+    "smoke/bun_smoke.test.ts",
+  ]);
+}
+
+async function runTerminal(): Promise<void> {
+  try {
+    await run("web build", [process.execPath, "run", "--cwd", "apps/web", "build"]);
+    await run("web embed", [process.execPath, "scripts/gen-embed.ts"]);
+    await run(
+      "terminal",
+      ["bunx", "playwright", "test", "--config=playwright.config.ts"],
+      { ROOST_TEST_BUN: process.execPath },
+    );
+  } finally {
+    await run("restore embed stubs", [process.execPath, "scripts/gen-embed.ts", "--stub"]);
   }
-  console.log("all tests green");
+}
+
+export async function test(args: string[]): Promise<void> {
+  const profile = args[0] ?? "all";
+  if (args.length > 1 || !PROFILES.includes(profile as TestProfile)) {
+    throw new Error(`unknown test profile "${profile}"; valid profiles: ${PROFILES.join(", ")}`);
+  }
+
+  switch (profile as TestProfile) {
+    case "unit":
+      await runUnit();
+      return;
+    case "worker":
+      await run("worker", [process.execPath, "scripts/test-worker.ts"]);
+      return;
+    case "terminal":
+      await runTerminal();
+      return;
+    case "live-api":
+      if (!process.env.ROOST_COORD_URL) {
+        throw new Error(
+          "live-api requires ROOST_COORD_URL; run ROOST_COORD_URL=https://<current-tailnet-coord>:4102 bun run test:live-api",
+        );
+      }
+      await run("live-api", [process.execPath, "test", "smoke/api_smoke.test.ts"]);
+      return;
+    case "all":
+      await runUnit();
+      await runTerminal();
+  }
 }

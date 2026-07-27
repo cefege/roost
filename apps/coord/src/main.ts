@@ -27,6 +27,7 @@ import { WEB_ASSETS } from "./web-embed.generated.ts";
 import { createSpaResponder } from "./spa.ts";
 import { MIGRATIONS } from "./migrations-embed.generated.ts";
 
+
 export async function runCoord() {
   const bootMs = Date.now();
 
@@ -96,7 +97,6 @@ export async function runCoord() {
   }
 
   const jwtCache = newJwtCache();
-
   let publishRelocation: ((handoffId: string, sourceUrl: string, targetUrl: string) => void) | null = null;
   const move = new CoordinatorMoveOrchestrator({
     db,
@@ -158,82 +158,6 @@ export async function runCoord() {
     },
   };
 
-  // SPA static assets. Two sources, one code path: an EMBEDDED manifest
-  // (compiled `roost` binary — WEB_ASSETS baked in by scripts/gen-embed.ts) or
-  // the on-disk dist dir (from-source run — cfg.webDistPath). Bun.file()
-  // serves a real path or an embedded-file path identically, so only the
-  // candidate resolution differs. Runtimes without a filesystem provide their
-  // own ctx.spa.
-  const webAssets = WEB_ASSETS.size > 0 ? WEB_ASSETS : null;
-  const spaRoot = !webAssets && cfg.webDistPath && existsSync(cfg.webDistPath)
-    ? cfg.webDistPath.replace(/\/+$/, "")
-    : null;
-
-  // rel (no leading slash) → servable path: an embedded-file path or a disk path.
-  function resolveAsset(rel: string): string | null {
-    if (!rel) return null;
-    if (webAssets) return webAssets.get(rel) ?? null;
-    if (!spaRoot) return null;
-    const candidate = join(spaRoot, rel);
-    const safe = candidate === spaRoot || candidate.startsWith(spaRoot + "/");
-    return safe && existsSync(candidate) && statSync(candidate).isFile() ? candidate : null;
-  }
-  function resolveIndex(): string | null {
-    if (webAssets) return webAssets.get("index.html") ?? null;
-    if (!spaRoot) return null;
-    const indexPath = join(spaRoot, "index.html");
-    return existsSync(indexPath) ? indexPath : null;
-  }
-
-  async function fileResponse(
-    path: string, ext: string, method: string, acceptEncoding: string, isIndex: boolean, hashed: boolean,
-  ): Promise<Response> {
-    const headers: Record<string, string> = {
-      "content-type": MIME[ext] ?? "application/octet-stream",
-    };
-    if (isIndex) {
-      headers["cache-control"] = "no-cache, no-store, must-revalidate";
-    } else if (hashed) {
-      // Vite content-hashed bundle (assets/*): the filename changes on every
-      // content change, so the body at this URL is genuinely immutable.
-      headers["cache-control"] = "public, max-age=31536000, immutable";
-    } else {
-      // Stable-filename assets (icons, manifest, sw-push.js, fonts, wasm,
-      // whatsnew.json): the URL is reused across builds, so it must NEVER be
-      // immutable — otherwise a changed favicon/manifest stays pinned in the
-      // browser for a year. Revalidate on every load instead.
-      headers["cache-control"] = "no-cache";
-    }
-    // On-the-fly gzip via Bun's NATIVE Bun.gzipSync — NOT node:zlib (heap
-    // corruption + random-later segfault under load; see git history +
-    // feedback_no_connect_node_compression_under_bun). gzip only: Bun has no
-    // native brotli sync, and gzip (~4.3x on the SPA chunks) is plenty.
-    if (COMPRESSIBLE_EXT.has(ext) && acceptEncoding.includes("gzip")) {
-      const raw = new Uint8Array(await Bun.file(path).arrayBuffer());
-      headers["content-encoding"] = "gzip";
-      headers["vary"] = "accept-encoding";
-      return new Response(method === "HEAD" ? null : Bun.gzipSync(raw), { status: 200, headers });
-    }
-    return new Response(Bun.file(path), { status: 200, headers });
-  }
-
-  async function spaResponse(url: URL, method: string, acceptEncoding: string): Promise<Response> {
-    if (method !== "GET" && method !== "HEAD") {
-      return new Response("method not allowed", { status: 405 });
-    }
-    const rel = url.pathname.replace(/^\/+/, "");
-    const asset = resolveAsset(rel);
-    if (asset) {
-      const dot = rel.lastIndexOf(".");
-      return fileResponse(asset, dot >= 0 ? rel.slice(dot) : "", method, acceptEncoding, false, rel.startsWith("assets/"));
-    }
-    if (rel.startsWith("assets/")) {
-      return new Response("not found", { status: 404 });
-    }
-    const index = resolveIndex();
-    if (index) return fileResponse(index, ".html", method, acceptEncoding, true, false);
-    return new Response("not found", { status: 404 });
-  }
 
   function dbExportResponse(clientIp: string | undefined): Response {
     if (!clientIp || !["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(clientIp)) {
@@ -322,15 +246,9 @@ export async function runCoord() {
     // HEALTH_POLL_INTERVAL_MS), so they're never idle either — only
     // genuinely dead connections hit the cap.
     idleTimeout: 120,
-    // The worker bidi `attach` is ONE long-lived request whose body (the
-    // worker→coord upstream: events + PTY bytes, incl. claude's constantly-
-    // redrawing TUI) grows unbounded. Bun's default maxRequestBodySize
-    // (128 MB) caps it → Bun ends the request body after ~128 MB → coord's
-    // reader for-await ends → "reader_failed" → the worker reconnects. With
-    // chatty claude sessions that 128 MB accrues in ~10-30s, so the worker
-    // flapped on that cadence and every sessionsSpawn lost its in-flight ack
-    // ("[internal] internal error"). Raise far past any realistic
-    // per-connection volume so the long-lived bidi isn't body-capped.
+    // The worker link is a long-lived request carrying events and PTY bytes.
+    // Its body grows without bound, so use a request cap above any realistic
+    // connection volume to avoid terminating the stream mid-session.
     maxRequestBodySize: 1024 * 1024 * 1024 * 256, // 256 GiB
     async fetch(req, server) {
       const internal = await handleInternalHandoffRequest(req, move);
@@ -382,7 +300,7 @@ export async function runCoord() {
     },
   });
 
-  log.info("main", "listening", { bind: cfg.bind, tls: !!tls, http2: !!tls, uptime_ms: Date.now() - bootMs });
+  log.info("main", "listening", { bind: `${host}:${server.port}`, tls: !!tls, http2: !!tls, uptime_ms: Date.now() - bootMs });
 
   scheduleBackups(cfg.dbPath);
 
