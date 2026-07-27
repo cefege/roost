@@ -492,8 +492,13 @@ export class CoordTarget {
       await Bun.spawn([ts, "serve", "--https=65535", "off"], { stdout: "ignore", stderr: "ignore" }).exited;
       return;
     }
+    // Keep more than the first line: tailscale prints the diagnosis AND the
+    // literal remedy ("To not require root, use 'sudo tailscale set
+    // --operator=$USER' once"). This string is what the SPA shows an operator,
+    // and a blocker that names the fix beats one that only names the fault.
+    const detail = err.trim().split("\n").map((l) => l.trim()).filter(Boolean).slice(0, 3).join(" ");
     throw new Error(
-      `target cannot configure tailscale serve, so the relocated coordinator would be unreachable at its public URL: ${err.trim().split("\n")[0] || `exit ${code}`}`,
+      `target cannot configure tailscale serve, so the relocated coordinator would be unreachable at its public URL: ${detail || `exit ${code}`}`,
     );
   }
 
