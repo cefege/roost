@@ -125,7 +125,14 @@ export function createBunCoordinatorMoveRuntime(options: {
         // integrity_check, renames and installer run — scale it with payload.
         const receipt = sendCoordinatorSnapshotStart(state.targetWorkerFp, {
           handoffId: state.handoffId, totalSize: BigInt(size), sha256: hasher.digest("hex"),
-          coordKeyPem: fs.readFileSync(options.coordKeyPath), authorizedKeys: fs.readFileSync(options.authorizedKeysPath),
+          coordKeyPem: fs.readFileSync(options.coordKeyPath),
+          // authorized_keys.roost is an OPTIONAL bootstrap-import file — main.ts
+          // guards its read with existsSync and the authoritative keys live in
+          // the DB we just vacuumed. A coordinator that never had one must
+          // still be movable.
+          authorizedKeys: fs.existsSync(options.authorizedKeysPath)
+            ? fs.readFileSync(options.authorizedKeysPath)
+            : new Uint8Array(),
           secretSha256: state.secretSha256, expectedWorkerFps: state.expectedWorkerFps,
         }, 120_000 + Math.ceil(size / 1_000_000) * 1_000);
         const handleAtStart = connectWorkers.get(state.targetWorkerFp);
