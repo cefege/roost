@@ -121,6 +121,23 @@ export class RoostTerm {
       has_textarea: !!ta,
     });
   }
+  /** Replays a terminal key through wterm's existing hidden-textarea encoder.
+   * It intentionally does not focus first: callers recovering focus from
+   * body/html do that themselves, while touch-pad navigation must not summon
+   * a closed soft keyboard. */
+  dispatchKeydown(key: string, init: KeyboardEventInit = {}): boolean {
+    if (this._destroyed) return false;
+    const ta = this._container.querySelector("textarea") as HTMLTextAreaElement | null;
+    if (!ta) return false;
+    ta.dispatchEvent(new KeyboardEvent("keydown", {
+      bubbles: false,
+      cancelable: true,
+      ...init,
+      key,
+    }));
+    return true;
+  }
+
 
   /** Clicks on visible cells land on row spans, not the off-screen
    * textarea. Without this, clicking the terminal doesn't refocus it

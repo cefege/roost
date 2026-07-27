@@ -18,8 +18,10 @@ import { handleKeeperSurvivor } from "./boot-keeper.ts";
 import { setupReconcile } from "./boot-reconcile.ts";
 import { coordLinkSink } from "./event-sink.ts";
 import { CoordTarget } from "./coord-target.ts";
+import { WorkerCoordRelocation } from "./coord-relocation.ts";
+import { createCoordRelocationRecovery } from "./coord-relocation-recovery.ts";
 import { asWorkerFp } from "@roost/shared";
-import { log, diag, signal } from "@roost/shared";
+import { log, diag, signal, workerDataDir } from "@roost/shared";
 import { createHash } from "node:crypto";
 const _workerSha8 = (b: Uint8Array): string =>
 	createHash("sha256").update(b).digest("hex").slice(0, 8);
@@ -28,9 +30,7 @@ import { homedir } from "node:os";
 
 // hook.sock lives in the same data dir as the worker key/coord-verifying-key.
 // install.sh always sets ROOST_WORKER_DATA_DIR; default is v2-isolated.
-const SUPPORT =
-	process.env.ROOST_WORKER_DATA_DIR ??
-	join(homedir(), "Library", "Application Support", "RoostWorkerV2");
+const SUPPORT = workerDataDir();
 
 export async function runWorker() {
 	// Worker-scoped global handlers — installed when the worker RUNS (source
@@ -81,13 +81,19 @@ export async function runWorker() {
 		keyPath: process.env.ROOST_COORDINATOR_KEY_PATH ?? join(homedir(), "Library", "Application Support", "RoostCoordinatorV2", "ssh_ed25519.key"),
 		authorizedKeysPath: process.env.ROOST_COORDINATOR_AUTHORIZED_KEYS ?? join(homedir(), "Library", "Application Support", "RoostCoordinatorV2", "authorized_keys.roost"),
 		handoffPath: process.env.ROOST_COORDINATOR_HANDOFF_PATH ?? join(homedir(), "Library", "Application Support", "RoostCoordinatorV2", "coord-handoff.json"),
+		plistPath: process.env.ROOST_COORD_PLIST ?? join(homedir(), "Library", "LaunchAgents", `${process.env.ROOST_COORD_LABEL ?? "com.roost.coordinator-v2"}.plist`),
 	});
-
-
-	const client = createCoordClient({
-		cfg,
-		getJwt: () => mintJwt(key, "roost-coordinator"),
-	});
+	const relocation = new WorkerCoordRelocation(
+		join(SUPPORT, "coord-relocation.json"),
+		process.env.ROOST_WORKER_PLIST ?? join(homedir(), "Library", "LaunchAgents", `${process.env.ROOST_WORKER_AGENT_LABEL ?? "com.roost.worker-v2"}.plist`),
+	);
+	const recoveredRelocation = relocation.load();
+	if (recoveredRelocation?.state === "ACTIVATED") cfg.coordinatorUrl = recoveredRelocation.target_url;
+	let client = createCoordClient({ cfg, getJwt: () => mintJwt(key, "roost-coordinator") });
+	const setCoordinatorEndpoint = (url: string): void => {
+		cfg.coordinatorUrl = url;
+		client = createCoordClient({ cfg, getJwt: () => mintJwt(key, "roost-coordinator") });
+	};
 
 	// Install: redeem one-shot bootstrap token (first boot only) + register
 	// (idempotent, retried by heartbeat). Redeem MUST precede CoordLink so coord
@@ -168,19 +174,52 @@ export async function runWorker() {
 		onCoordMoveSnapshotStart: (request) => coordTarget.startSnapshot(request),
 		onCoordMoveSnapshotChunk: (chunk) => coordTarget.appendSnapshot(chunk),
 		onCoordRelocate: (request) => {
-			if (request.action === "ACTIVATE") coordLink.relocate(request.target_url);
+			if (request.action === "STAGE") {
+				relocation.stage(request);
+				return;
+			}
+			if (request.action === "ACTIVATE") {
+				relocation.activate(request);
+				setCoordinatorEndpoint(request.target_url);
+				setTimeout(() => coordLink.relocate(request.target_url), 0);
+				return;
+			}
 			if (request.action === "COMMIT") {
-				// Reply rpc-ok before closing the target stream; the forced
-				// reconnect replays events withheld while the target was pending.
-				setTimeout(() => coordLink.relocate(request.target_url, true), 0);
+				return relocation.commit(
+					() => coordLink.unackedEventCount(),
+					(url, force) => coordLink.relocate(url, force),
+				);
 			}
 			if (request.action === "ABORT") {
-				coordTarget.abort(request.handoff_id);
-				coordLink.relocate(request.source_url);
+				return coordTarget.abort(request.handoff_id).then(() => relocation.abort((url) => {
+					setCoordinatorEndpoint(url);
+					coordLink.relocate(url);
+				}));
 			}
 		},
 		onBrowserCommand: (msg) => handleBrowserCommand(msg, { coordLink, sessionMgr }),
 	});
+	const recoverRelocation = createCoordRelocationRecovery({
+		relocation,
+		link: coordLink,
+		statusAt: (url, handoffId) =>
+			createCoordClient({
+				cfg: { ...cfg, coordinatorUrl: url },
+				getJwt: () => mintJwt(key, "roost-coordinator"),
+			}).coordinatorMoveStatus({ handoffId }, { timeoutMs: 5_000 }),
+		setCoordinatorEndpoint,
+		abortTarget: (handoffId) => coordTarget.abort(handoffId),
+	});
+	// A crashed source may miss the ACTIVATE frame. Query both public move
+	// statuses after a sustained outage; recovery never blocks boot or the
+	// connection retry loop.
+	const triggerRelocationRecovery = (): void => {
+		void recoverRelocation().catch((error) =>
+			log.warn("worker", "coord_relocation_recovery_failed", { error: String(error) }),
+		);
+	};
+	triggerRelocationRecovery();
+	setInterval(triggerRelocationRecovery, 5_000);
 	// phase-25d: teeSink retired. Single emit boundary via CoordLink.
 	// tRPC sessions.emit + the trpcSink branch deleted; CoordLink has
 	// been proven through smoke + multi-restart cycles.
@@ -209,11 +248,11 @@ export async function runWorker() {
 
 	// Start heartbeat (first beat registers/updates worker row).
 	diag("worker.boot", { step: "heartbeat" });
-	await startHeartbeat({ client });
+	await startHeartbeat({ client: () => client });
 
 	diag("worker.boot", { step: "reconcile" });
 	const { reconcileOpenSessions } = setupReconcile({
-		client,
+		client: () => client,
 		workerFp,
 		sessionMgr,
 		sink,

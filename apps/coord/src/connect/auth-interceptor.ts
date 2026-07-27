@@ -57,6 +57,8 @@ export const remoteAddressKey = createContextKey<string | undefined>(undefined);
 // viewport-claim maps (coord _viewersBySession + worker viewportClaims)
 // don't collapse two tabs into one entry. See `sessionsResize` handler.
 export const tabIdKey = createContextKey<string | undefined>(undefined);
+/** Raw bearer header preserved for retired-source relocation forwarding. */
+export const authorizationKey = createContextKey<string | undefined>(undefined);
 
 export interface AuthInterceptorDeps {
   db: KyselyDB;
@@ -112,6 +114,7 @@ export function makeAuthInterceptor(deps: AuthInterceptorDeps): Interceptor {
     req.contextValues.set(traceIdKey, traceId);
     req.contextValues.set(remoteAddressKey, req.header.get("x-roost-remote-addr") ?? undefined);
     req.contextValues.set(tabIdKey, req.header.get("x-roost-tab-id") ?? undefined);
+    req.contextValues.set(authorizationKey, auth);
     let status = 200;
     const lease = deps.move && WRITE_METHODS[method] ? deps.move.gate.acquire() : null;
     try {

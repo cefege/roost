@@ -593,9 +593,9 @@ html[data-fab-dragging="true"] .term-nav {
 }
 
 /* ── term-nav: the special-keys sheet ── */
-/* Floating surface panel anchored above the toggle FAB: the special-keys pad —
-   a wide Esc key, inverted-T arrows (▲ / ◀▼▶), PgUp/PgDn, a wide Enter, and the
-   mouse toggle. Shown only while .term-nav-toggle is open. */
+/* Floating surface panel anchored above the toggle FAB: terminal navigation,
+   one-shot Ctrl, Enter, and mouse forwarding. */
+
 .term-nav {
   position: fixed;
   right: calc(env(safe-area-inset-right, 0px) + 16px);
@@ -614,19 +614,20 @@ html[data-fab-dragging="true"] .term-nav {
   font-family: var(--md-font);
 }
 
-/* Special-keys pad — the 3-col grid. */
+/* Special-keys pad — four 48px columns. */
 .term-nav__grid {
   display: grid;
-  grid-template-columns: repeat(3, 48px);
+  grid-template-columns: repeat(4, 48px);
   grid-template-areas:
-    "esc   esc   esc"
-    "pgup  up    pgdn"
-    "left  down  right"
-    "ent   ent   ent"
-    "mouse mouse mouse";
+    "esc   tab   ctrl  ctrl"
+    "home  up    end   pgup"
+    "left  down  right pgdn"
+    "ent   ent   ent   ent"
+    "mouse mouse mouse mouse";
   gap: var(--md-space-2);
   justify-content: center;
 }
+
 
 .term-nav__key {
   position: relative;
@@ -664,12 +665,16 @@ html[data-fab-dragging="true"] .term-nav {
 .term-nav__key:focus-visible { outline: none; }
 .term-nav__key:focus-visible::after { opacity: 0.12; }
 
+.term-nav__key--tab { grid-area: tab; }
+.term-nav__key--home { grid-area: home; }
 .term-nav__key--up { grid-area: up; }
+.term-nav__key--end { grid-area: end; }
 .term-nav__key--left { grid-area: left; }
 .term-nav__key--down { grid-area: down; }
 .term-nav__key--right { grid-area: right; }
 .term-nav__key--pgup { grid-area: pgup; }
 .term-nav__key--pgdn { grid-area: pgdn; }
+
 
 /* Esc — full-width tonal key on top (the cancel/back action). */
 .term-nav__key--esc {
@@ -678,6 +683,16 @@ html[data-fab-dragging="true"] .term-nav {
   background: var(--md-sys-color-surface-container-highest);
   color: var(--md-sys-color-on-surface-variant);
 }
+
+.term-nav__key--ctrl {
+  grid-area: ctrl;
+  width: auto;
+}
+.term-nav__key--ctrl[data-active="true"] {
+  background: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-primary);
+}
+
 
 /* Enter — full-width primary key (the affirmative action). */
 .term-nav__key--enter {

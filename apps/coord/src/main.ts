@@ -252,6 +252,13 @@ export async function runCoord() {
     maxRequestBodySize: 1024 * 1024 * 1024 * 256, // 256 GiB
     async fetch(req, server) {
       const internal = await handleInternalHandoffRequest(req, move);
+      const path = new URL(req.url).pathname;
+      const retiredDiscoveryPath = path === "/roost.v1.CoordinatorService/AuthCoordIdentity"
+        || path === "/roost.v1.CoordinatorService/AuthMintCoordinatorRelocation"
+        || path === "/roost.v1.CoordinatorService/CoordinatorMoveStatus";
+      if (move.gate.mode === "retired" && req.method !== "GET" && !retiredDiscoveryPath) {
+        return new Response("coordinator relocated", { status: 410 });
+      }
       if (internal) return internal;
       // Worker raw-WS transport (/ws/coord-worker/:fp). If this is that
       // upgrade, authenticate + hijack here (Bun-specific); null = not our

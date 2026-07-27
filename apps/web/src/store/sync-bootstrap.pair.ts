@@ -6,6 +6,8 @@
 // requests now ride the Sync firehose — coord seeds a full snapshot per
 // connect and publishes pending/removed deltas (see sync.ts
 // "pairRequestDelta" + coord handlers-auth/handlers-streaming).
+import { redeemCoordinatorRelocation } from "../auth/coordinator-relocation.ts";
+
 
 /** Redeem a ?pair=<token> query param on load. This is the FQDN-reachable
  *  auth path (the loopback-only self-register can't run over the tailnet):
@@ -14,6 +16,7 @@
  *  the URL and reload so _bootstrap re-runs authed. Returns true when it
  *  redeemed + triggered a reload (caller must halt). */
 export async function _attemptPairRedeem(): Promise<boolean> {
+  if (await redeemCoordinatorRelocation()) return true;
   if (typeof location === "undefined") return false;
   const params = new URLSearchParams(location.search);
   const token = params.get("pair");

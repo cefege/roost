@@ -59,6 +59,10 @@ import {
 	getInputText,
 	clearInput,
 } from "../lib/terminalInputHistory.ts";
+import { buildPtyPayload, CR_BYTES, enterDelayMs } from "../lib/ptyPaste.ts";
+import { applyCtrlModifier } from "../lib/terminalInput.ts";
+
+
 import { coordClient } from "../connect.ts";
 import { ResizeCause } from "@roost/shared/proto/coordinator_pb";
 import { isResizeDragging, arrangeEpoch } from "../lib/resizeDrag.ts";
@@ -176,6 +180,8 @@ export function CellTerminal(props: CellTerminalProps) {
 	let renderer: CellGridRenderer | null = null;
 	let predictor: PredictiveEcho | null = null;
 	let term: RoostTerm | null = null;
+	let frameBracketed = false; // latest paste mode from cell frames; default matches wterm
+
 	let cellW = 0;
 	let cellH = 0;
 	let claimSeq = 0;
@@ -186,11 +192,31 @@ export function CellTerminal(props: CellTerminalProps) {
 	// withdraws, then the off-screen park's ResizeObserver tick routes through
 	// sendClaim → sees inLayout=false → would withdraw AGAIN. Reset on claim.
 	let _lastSent: "claim" | "withdraw" | null = null;
+	const sendTerminalText = (text: string, submit = false): void => {
+		if (text.length === 0) {
+			if (submit) inputChannel.sendInput(props.session.id, CR_BYTES);
+			return;
+		}
+		inputChannel.sendInput(
+			props.session.id,
+			buildPtyPayload(text, frameBracketed),
+		);
+		recordInput(props.session.id, text);
+		if (submit) {
+			setTimeout(
+				() => inputChannel.sendInput(props.session.id, CR_BYTES),
+				enterDelayMs(text),
+			);
+		}
+	};
+
 	let unmounted = false;
 	// Native browser scrolling owns the terminal position. CellGridRenderer only
 	// conditionally pins new output when a render began at the literal bottom.
 	// This component does not classify, restore, or otherwise write scrollTop.
 	const [altScreen, setAltScreen] = createSignal(false); // tracks frame.altScreen — gates mouse/touch forwarding + wheel passivity
+	const [ctrlArmed, setCtrlArmed] = createSignal(false);
+
 
 	// Show the agent-launch FAB only at a plain shell prompt. A prompt-ending
 	// shell sigil distinguishes a shell from a full-screen TUI.
@@ -432,7 +458,7 @@ export function CellTerminal(props: CellTerminalProps) {
 		// instead of re-parsing the whole output byte stream through the hidden wterm.
 		// We keep the hidden wterm ONLY as the keystroke encoder; write the tiny mode-set
 		// escapes when a flag flips so its onData encodes arrows (DECCKM) + paste correctly.
-		let frameCursorApp = false, frameBracketed = false;   // latest from cell frames
+		let frameCursorApp = false; // latest cursor-key mode from cell frames
 		let syncedCursorApp = false, syncedBracketed = false; // what the hidden wterm knows (wterm defaults: both off)
 		const syncInputModes = () => {
 			if (!term) return;
@@ -542,11 +568,14 @@ export function CellTerminal(props: CellTerminalProps) {
 
 		syncInputModes(); // flush modes seen before the hidden wterm existed
 		initializedTerm.onData = (data: string) => {
-			const bytes = new TextEncoder().encode(data);
+			const controlledData = ctrlArmed() ? applyCtrlModifier(data) : data;
+			if (ctrlArmed()) setCtrlArmed(false);
+			const bytes = new TextEncoder().encode(controlledData);
 			predictor?.predict(bytes); // speculative echo before the round-trip
 			inputChannel.sendInput(props.session.id, bytes);
-			recordInput(props.session.id, data); // typed text → keyterm context
+			recordInput(props.session.id, controlledData); // typed text → keyterm context
 		};
+
 		// DECCKM / bracketed-paste modes come from the cell frame (see syncInputModes).
 		// OSC 8 is tracked in sync-dispatch so links emitted before this pane was
 		// first visited remain available when its renderer mounts.
@@ -816,6 +845,10 @@ export function CellTerminal(props: CellTerminalProps) {
 		createEffect(() => {
 			if (focusGate() && !isTouchDevice()) term?.forceFocus();
 		});
+		createEffect(() => {
+			if (!focusGate()) setCtrlArmed(false);
+		});
+
 
 		// Per-pane GLOBAL listeners (window/document) attach only while this pane
 		// is IN the layout: the deck keeps every open session mounted, so the old
@@ -1000,18 +1033,37 @@ export function CellTerminal(props: CellTerminalProps) {
 		//     and Space/Enter (button activation) alone. inputHostRef short-circuit
 		//     keeps the per-keystroke hot path off the closest() walk.
 		const onDocKeydown = (e: KeyboardEvent) => {
+			if (e.defaultPrevented) return;
+
 			if (!props.focused || !isPageVisible()) return;
-			if (e.metaKey || e.ctrlKey || e.altKey) return;
 			const ae = document.activeElement as HTMLElement | null;
 			if (inputHostRef?.contains(ae)) return; // already typing into this terminal
-			if (ae && ae !== document.body && ae !== document.documentElement) {
-				if (ae.closest(FOCUS_OWNERS)) return;
-				if (e.key.length !== 1 || e.key === " ") return;
+			if (ae === document.body || ae === document.documentElement) {
+				if (e.metaKey || e.altKey || e.isComposing) return;
+				if (e.key === "Control" || e.key === "Shift") return;
+
+				term?.forceFocus();
+				if (term?.dispatchKeydown(e.key, {
+					code: e.code,
+					location: e.location,
+					repeat: e.repeat,
+					ctrlKey: e.ctrlKey,
+					shiftKey: e.shiftKey,
+					altKey: e.altKey,
+					metaKey: e.metaKey,
+				})) {
+					e.preventDefault();
+					e.stopPropagation();
+				}
+				return;
 			}
+			if (e.metaKey || e.ctrlKey || e.altKey) return;
+			if (ae && ae.closest(FOCUS_OWNERS)) return;
+			if (e.key.length !== 1 || e.key === " ") return;
 			diag("focus.recover", {
 				sid: props.session.id,
 				via: "keydown",
-				key: e.key.length === 1 ? "char" : e.key,
+				key: "char",
 			});
 			term?.forceFocus();
 		};
@@ -1114,9 +1166,8 @@ export function CellTerminal(props: CellTerminalProps) {
 			<Show when={(isCompact() || isTouchDevice() || micOnDesktop()) && activeComposeChannel() === null && props.inLayout !== false}>
 				<MobileVoiceInput
 					channelId={props.session.channel}
-					sendInput={(_ch, data) =>
-						inputChannel.sendInput(props.session.id, data)
-					}
+					onTerminalSubmit={(text) => sendTerminalText(text, true)}
+
 					readContext={() => ({
 						grid: renderer?.gridText() ?? "",
 						scrollback: renderer?.scrollbackText() ?? "",
@@ -1126,10 +1177,23 @@ export function CellTerminal(props: CellTerminalProps) {
 				/>
 			</Show>
 			<Show when={(isCompact() || isTouchDevice() || keyboardOnDesktop()) && activeComposeChannel() === null && props.inLayout !== false}>
-				<TerminalNavButtons session={props.session} />
+				<TerminalNavButtons
+					onKey={(key) => term?.dispatchKeydown(key)}
+					ctrlArmed={ctrlArmed()}
+					onCtrlArmedChange={(armed) => {
+						if (armed) term?.forceFocus();
+						setCtrlArmed(armed);
+					}}
+				/>
 			</Show>
+
 			<Show when={(isCompact() || isTouchDevice()) && props.inLayout !== false}>
-				<TerminalComposeButton session={props.session} refocusTerminal={() => term?.forceFocus()} />
+				<TerminalComposeButton
+					session={props.session}
+					refocusTerminal={() => term?.forceFocus()}
+					onSubmit={(text) => sendTerminalText(text, true)}
+				/>
+
 			</Show>
 			{/* Pane top-right overlay slot — the ONE place pane-corner affordances
           live. Container is click-through; a child opts back in (the badge is
@@ -1165,6 +1229,8 @@ export function CellTerminal(props: CellTerminalProps) {
 				session={props.session}
 				getContainer={() => displayRef ?? null}
 				onAttachFile={() => pickAndAttachFiles(props.session)}
+				onPasteText={sendTerminalText}
+
 			/>
 			<Show when={offline()}>
 				<TerminalOfflineNotice

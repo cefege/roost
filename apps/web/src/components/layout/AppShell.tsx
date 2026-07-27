@@ -170,6 +170,8 @@ export function AppShell(props: ParentProps) {
 
   // ⌘B / Ctrl+B toggles the desktop sidebar collapse.
   function onKeyDown(e: KeyboardEvent) {
+    if (e.defaultPrevented) return;
+
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "b" && !e.shiftKey) {
       e.preventDefault();
       toggleSidebarCollapsed();

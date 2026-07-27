@@ -15,7 +15,20 @@ import { signal } from "@roost/shared/diag";
 // Coord URL: localStorage override for multi-coord testing (R6.2);
 // defaults to same-origin (proxied by Vite to :4102 in dev, served
 // same-origin in prod by coord).
+export function hasCoordinatorRelocationFragment(): boolean {
+  if (typeof location === "undefined") return false;
+  const params = new URLSearchParams(location.hash.slice(1));
+  return Boolean(params.get("move") && params.get("handoff"));
+}
+
 function coordBase(): string {
+  // A relocation URL is deliberately same-origin on its destination. Ignore a
+  // stale per-browser override before creating the singleton transport, or the
+  // one-time destination redemption would be sent back to the retired source.
+  if (hasCoordinatorRelocationFragment()) {
+    try { localStorage.removeItem("roost.coordinatorUrl"); } catch { /* storage unavailable */ }
+    return "";
+  }
   const override = typeof localStorage !== "undefined"
     ? localStorage.getItem("roost.coordinatorUrl")
     : null;

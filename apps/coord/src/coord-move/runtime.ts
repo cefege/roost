@@ -17,6 +17,7 @@ export interface CoordinatorMoveRuntime {
   commitWorker(worker: MoveWorker, state: MoveSnapshot): Promise<void>;
   abortWorker(worker: MoveWorker, state: MoveSnapshot): Promise<void>;
   copySnapshot(state: MoveSnapshot): Promise<void>;
+  reconnectWorkers(workers: MoveWorker[], timeoutMs: number): Promise<void>;
   waitForWorkers(state: MoveSnapshot, timeoutMs: number): Promise<void>;
   targetStatus(state: MoveSnapshot): Promise<MovePhase | null>;
   commitTarget(state: MoveSnapshot): Promise<void>;

@@ -10,8 +10,6 @@ import { Show, batch, createSignal, onCleanup, onMount, type JSX } from "solid-j
 import { Portal } from "solid-js/web";
 import { useNavigate, useLocation } from "@solidjs/router";
 import type { Session } from "@roost/shared/wire";
-import { inputChannel } from "../ws/input-channel.ts";
-import { buildPtyPayload } from "../lib/ptyPaste.ts";
 import { ctxMenuSurfaceStyle, CtxMenuItem, CtxMenuSeparator } from "./contextMenuPrimitives.tsx";
 import { spawnShell, waitForSession, maybeAutoLaunchAgent } from "../lib/spawnSession.ts";
 import { scheduleClose } from "../lib/pendingClose.ts";
@@ -26,6 +24,9 @@ interface Props {
   /** Opens the file picker and attaches the chosen file(s) — same path as
    *  drag-drop/paste. Lets touch devices attach without drag-and-drop. */
   onAttachFile: () => void;
+  /** Sends clipboard text through the pane's current terminal mode. */
+  onPasteText: (text: string) => void;
+
 }
 
 interface OpenState {
@@ -78,8 +79,9 @@ export function TerminalContextMenu(props: Props) {
   const doPaste = async () => {
     dismiss();
     const text = await navigator.clipboard.readText().catch(() => "");
-    if (text) inputChannel.sendInput(props.session.id, buildPtyPayload(text));
+    if (text) props.onPasteText(text);
   };
+
 
   const doNewTerminal = async () => {
     dismiss();

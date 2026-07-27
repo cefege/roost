@@ -13,7 +13,7 @@ import type { SessionEventSink } from "./event-sink.ts";
 import type { SessionManager } from "./session-manager.ts";
 
 export function setupReconcile(deps: {
-	client: CoordClient;
+	client: () => CoordClient;
 	workerFp: WorkerFp;
 	sessionMgr: SessionManager;
 	sink: SessionEventSink;
@@ -56,7 +56,7 @@ export function setupReconcile(deps: {
 			// holds BEFORE resuming/spawning, else a new spawn collides with an
 			// orphaned keeper channel → "channel_id in use" (visible post-restart).
 			await sessionMgr.advanceChannelCounterPastKeeper();
-			const res = await client.sessionsList({ workerFp, status: "open" });
+			const res = await client().sessionsList({ workerFp, status: "open" });
 			const resumeResults = await Promise.all(
 				res.sessions.map(async (r) => ({
 					session: r,

@@ -1,29 +1,20 @@
-// Shared PTY paste encoding — used by BOTH mic dictation (MobileVoiceInput)
-// and the terminal context-menu Paste (TerminalContextMenu). One system so
-// paste and dictation insert text identically.
-//
-// Bracket ONLY multi-line text (ESC[200~…ESC[201~) so an embedded newline
-// doesn't submit early; single-line goes raw. Callers append CR themselves
-// if they want to submit (mic does; paste does not).
+// Shared PTY paste encoding. Callers choose the current terminal paste mode;
+// submitters append CR separately when they need to execute the text.
 
 const BP_START = "\x1b[200~";
 const BP_END = "\x1b[201~";
+const ESC = "\x1b";
 
-export function buildPtyPayload(text: string): Uint8Array {
-  return text.includes("\n") ? buildBracketedPaste(text) : new TextEncoder().encode(text);
+export function buildPtyPayload(text: string, bracketedPaste: boolean): Uint8Array {
+  const payload = bracketedPaste
+    ? `${BP_START}${text.replaceAll(ESC, "")}${BP_END}`
+    : text;
+  return new TextEncoder().encode(payload);
 }
 
-// Always bracketed, newlines or not. omp's editor only auto-attaches image
-// paths that arrive INSIDE a bracketed paste
-// (custom-editor.ts::extractBracketedImagePastePaths); an attachment path is
-// single-line, which buildPtyPayload would send raw and omp would take as
-// literal text.
-export function buildBracketedPaste(text: string): Uint8Array {
-  return new TextEncoder().encode(`${BP_START}${text}${BP_END}`);
-}
+// CR is a separate frame so the terminal text gateway can append it only for
+// submissions, after the enterDelayMs window.
 
-// CR as its own frame — callers that want to SUBMIT append this after the
-// enterDelayMs window. Shared by mic dictation and the keyboard composer.
 export const CR_BYTES = new TextEncoder().encode("\r");
 
 // The receiver needs time to ingest a big message before the Enter lands, or

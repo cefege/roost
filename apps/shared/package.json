@@ -10,6 +10,7 @@
     "./wire/agent-proto": "./src/wire/agent-proto.ts",
     "./wire/row-proto": "./src/wire/row-proto.ts",
     "./config": "./src/config.ts",
+    "./paths": "./src/paths.ts",
     "./trace": "./src/trace.ts",
     "./log": "./src/log.ts",
     "./diag": "./src/diag.ts",
@@ -20,7 +21,8 @@
     "./wterm-core-factory": "./src/wterm-core-factory.ts",
     "./cell": "./src/cell/index.ts",
     "./cell/cell-proto": "./src/cell/cell-proto.ts",
-    "./proto/*": "./src/gen/roost/v1/*.ts"
+    "./proto/*": "./src/gen/roost/v1/*.ts",
+    "./install-scripts": "./src/install-scripts.generated.ts"
   },
   "scripts": {
     "typecheck": "bun x tsgo -p tsconfig.json --noEmit",

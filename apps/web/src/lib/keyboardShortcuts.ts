@@ -87,6 +87,22 @@ export function setJumpUnreadHandler(fn: (() => void) | null): void {
 // whether ⏎ navigates the sidebar vs. defers to the terminal. Not called
 // directly elsewhere — installKeyboardShortcuts wires it to window.
 export function handleKeydown(e: KeyboardEvent): void {
+	if (e.defaultPrevented) return;
+	// window capture runs before wterm or CellTerminal can prevent the event.
+	// Defer non-Meta keys from its hidden input, or from body/html while a deck
+	// is visible, so terminal ownership can encode the original key first.
+	const terminalInput = (e.target as HTMLElement | null)?.closest?.(".wterm");
+	if (
+		!e.metaKey &&
+		(terminalInput ||
+			(terminalOwnsKeyboard() &&
+				(document.activeElement === document.body ||
+					document.activeElement === document.documentElement)))
+	)
+		return;
+
+
+
 	// Escape: close whichever modal is open (highest-z first).
 	if (e.key === "Escape") {
 		if (_cmdPaletteOpen()) {

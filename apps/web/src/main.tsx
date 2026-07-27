@@ -14,7 +14,6 @@ import { installSpaDiag, installSignalShip } from "./lib/diag.ts";
 import { installLeakWatch } from "./lib/leakWatch.ts";
 import "./lib/keyboardInset.ts"; // side effect: track soft-keyboard inset via --kb-offset
 import { diag, signal } from "@roost/shared/diag";
-import { redeemCoordinatorRelocation } from "./auth/coordinator-relocation.ts";
 import "./styles/theme-vars.css";
 import "./styles/syntax-vars.css";
 import "./styles/sidebar.css";
@@ -84,7 +83,6 @@ window.addEventListener("pageshow", (e) => {
 });
 
 async function mountApp(): Promise<void> {
-  await redeemCoordinatorRelocation();
   const root = document.getElementById("app");
   if (!root) throw new Error("no #app element");
   render(() => <App />, root);

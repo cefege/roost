@@ -1,31 +1,18 @@
-// TerminalNavButtons — the touch special-keys sheet. A single FAB (keyboard
-// icon, sibling above the chat FAB) toggles a pop-up pad of special keys (Esc,
-// the ▲ / ◀▼▶ arrows, PgUp/PgDn, Enter, mouse toggle). Each key sends the real
-// terminal byte sequence (Esc = 0x1b, arrows = CSI A/B/C/D, Enter = CR);
-// nothing here parses the terminal. Text composing lives in the separate chat
-// FAB (TerminalComposeButton). Open/closed state is module-level (shared across
-// every deck-mounted sheet) and persisted, so toggling one toggles all and the
-// choice survives reload. Styling: styles/voice-input.css (.term-nav,
-// .term-nav-toggle). Caller: CellTerminal.tsx (compact/touch/keyboardOnDesktop).
+// TerminalNavButtons — the touch terminal-key sheet. It routes navigation
+// through the hidden wterm encoder so cursor/application modes stay correct.
+// Text composing remains in TerminalComposeButton.
+
 
 import { createSignal, Show } from "solid-js";
-import { inputChannel } from "../ws/input-channel.ts";
 import { mouseForwardEnabled, toggleMouseForward } from "../lib/mouseForwardPref.ts";
 import { onFabPointerDown } from "../lib/fabDragOffset.ts";
-import type { Session } from "@roost/shared/wire";
 
 interface Props {
-  session: Session;
+  onKey: (key: string) => void;
+  ctrlArmed: boolean;
+  onCtrlArmedChange: (armed: boolean) => void;
 }
 
-const ESC = new Uint8Array([27]); // ESC
-const UP = new Uint8Array([27, 91, 65]); // ESC [ A
-const DOWN = new Uint8Array([27, 91, 66]); // ESC [ B
-const RIGHT = new Uint8Array([27, 91, 67]); // ESC [ C
-const LEFT = new Uint8Array([27, 91, 68]); // ESC [ D
-const ENTER = new Uint8Array([13]); // CR
-const PGUP = new Uint8Array([27, 91, 53, 126]); // ESC [ 5 ~
-const PGDN = new Uint8Array([27, 91, 54, 126]); // ESC [ 6 ~
 
 // Shared across all deck-mounted sheets (the deck renders one Terminal —
 // hence one TerminalNavButtons — per open session). A module-level signal
@@ -43,23 +30,39 @@ const togglePad = () =>
   });
 
 export function TerminalNavButtons(props: Props) {
-  const send = (bytes: Uint8Array) => inputChannel.sendInput(props.session.id, bytes);
+  const closePad = () => {
+    props.onCtrlArmedChange(false);
+    togglePad();
+  };
 
   return (
     <>
       <Show when={padOpen()}>
         <div class="term-nav" data-testid="terminal-nav-buttons">
           <div class="term-nav__grid">
-            <NavKey area="esc" testid="nav-esc" label="esc" onClick={() => send(ESC)} />
-            <NavKey area="pgup" testid="nav-pgup" icon="keyboard_double_arrow_up" onClick={() => send(PGUP)} />
-            <NavKey area="up" testid="nav-up" icon="keyboard_arrow_up" onClick={() => send(UP)} />
-            <NavKey area="pgdn" testid="nav-pgdn" icon="keyboard_double_arrow_down" onClick={() => send(PGDN)} />
-            <NavKey area="left" testid="nav-left" icon="keyboard_arrow_left" onClick={() => send(LEFT)} />
-            <NavKey area="down" testid="nav-down" icon="keyboard_arrow_down" onClick={() => send(DOWN)} />
-            <NavKey area="right" testid="nav-right" icon="keyboard_arrow_right" onClick={() => send(RIGHT)} />
-            <NavKey area="enter" testid="nav-enter" icon="keyboard_return" onClick={() => send(ENTER)} />
-            {/* Mouse toggle: forward swipe/click to the fullscreen app
-                vs native browser select/scroll. Highlighted when ON. */}
+            <NavKey area="esc" testid="nav-esc" label="esc" ariaLabel="Escape" onClick={() => props.onKey("Escape")} />
+            <NavKey area="tab" testid="nav-tab" label="tab" ariaLabel="Tab" onClick={() => props.onKey("Tab")} />
+            <button
+              type="button"
+              class="term-nav__key term-nav__key--ctrl"
+              data-testid="nav-ctrl"
+              data-active={props.ctrlArmed ? "true" : "false"}
+              aria-label="Control"
+              aria-pressed={props.ctrlArmed}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => props.onCtrlArmedChange(!props.ctrlArmed)}
+            >
+              <span class="term-nav__label">ctrl</span>
+            </button>
+            <NavKey area="home" testid="nav-home" label="home" ariaLabel="Home" onClick={() => props.onKey("Home")} />
+            <NavKey area="up" testid="nav-up" icon="keyboard_arrow_up" ariaLabel="Up arrow" onClick={() => props.onKey("ArrowUp")} />
+            <NavKey area="end" testid="nav-end" label="end" ariaLabel="End" onClick={() => props.onKey("End")} />
+            <NavKey area="pgup" testid="nav-pgup" icon="keyboard_double_arrow_up" ariaLabel="Page up" onClick={() => props.onKey("PageUp")} />
+            <NavKey area="left" testid="nav-left" icon="keyboard_arrow_left" ariaLabel="Left arrow" onClick={() => props.onKey("ArrowLeft")} />
+            <NavKey area="down" testid="nav-down" icon="keyboard_arrow_down" ariaLabel="Down arrow" onClick={() => props.onKey("ArrowDown")} />
+            <NavKey area="right" testid="nav-right" icon="keyboard_arrow_right" ariaLabel="Right arrow" onClick={() => props.onKey("ArrowRight")} />
+            <NavKey area="pgdn" testid="nav-pgdn" icon="keyboard_double_arrow_down" ariaLabel="Page down" onClick={() => props.onKey("PageDown")} />
+            <NavKey area="enter" testid="nav-enter" icon="keyboard_return" ariaLabel="Enter" onClick={() => props.onKey("Enter")} />
             <button
               type="button"
               class="term-nav__key term-nav__key--mouse"
@@ -67,6 +70,7 @@ export function TerminalNavButtons(props: Props) {
               data-active={mouseForwardEnabled() ? "true" : "false"}
               aria-label="Toggle mouse forwarding"
               aria-pressed={mouseForwardEnabled()}
+              onMouseDown={(e) => e.preventDefault()}
               onClick={toggleMouseForward}
             >
               <span class="term-nav__icon">mouse</span>
@@ -80,9 +84,9 @@ export function TerminalNavButtons(props: Props) {
         class="term-nav-toggle"
         data-testid="terminal-nav-toggle"
         data-open={padOpen() ? "true" : "false"}
-        aria-label={padOpen() ? "Hide keyboard" : "Show keyboard"}
+        aria-label={padOpen() ? "Hide terminal keys" : "Show terminal keys"}
         onPointerDown={onFabPointerDown}
-        onClick={togglePad}
+        onClick={closePad}
       >
         <span class="term-nav-toggle__icon">
           {padOpen() ? "keyboard_arrow_down" : "keyboard"}
@@ -92,11 +96,13 @@ export function TerminalNavButtons(props: Props) {
   );
 }
 
+
 function NavKey(props: {
-  area: "esc" | "up" | "left" | "down" | "right" | "enter" | "pgup" | "pgdn";
+  area: "esc" | "tab" | "home" | "up" | "end" | "pgup" | "left" | "down" | "right" | "pgdn" | "enter";
   testid: string;
   icon?: string;
   label?: string;
+  ariaLabel: string;
   onClick: () => void;
 }) {
   return (
@@ -104,7 +110,8 @@ function NavKey(props: {
       type="button"
       class={`term-nav__key term-nav__key--${props.area}`}
       data-testid={props.testid}
-      aria-label={props.testid}
+      aria-label={props.ariaLabel}
+      onMouseDown={(e) => e.preventDefault()}
       onClick={props.onClick}
     >
       {props.icon

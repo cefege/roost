@@ -7,9 +7,10 @@
 // or the send button fires the line; on send/cancel the composer collapses, the
 // keyboard drops (blur on touch — refocusing the terminal would keep it up),
 // and the normal FAB row returns. Nothing is sticky or persisted: the draft is
-// ephemeral, Escape/✕ discards it. Typed text rides the same bracketed-paste +
-// delayed-CR path as mic dictation (lib/ptyPaste). Only one pane's composer is
-// open at a time (module-level guard). Styling: styles/voice-input.css
+// ephemeral, Escape/✕ discards it. CellTerminal submits the draft through the
+// current terminal mode and applies delayed CR ordering. Only one pane's composer
+// is open at a time (module-level guard). Styling: styles/voice-input.css
+
 // (.term-chat, .term-chat__dock). Caller: CellTerminal.tsx.
 //
 // TERMINAL MODE ONLY. This types into the session PTY. It was renamed from
@@ -17,15 +18,17 @@
 
 import { createSignal, onCleanup, Show } from "solid-js";
 import { Portal } from "solid-js/web";
-import { inputChannel } from "../ws/input-channel.ts";
 import { onFabPointerDown } from "../lib/fabDragOffset.ts";
-import { buildPtyPayload, CR_BYTES, enterDelayMs } from "../lib/ptyPaste.ts";
+
 import { isTouchDevice } from "../lib/windowSizeClass.ts";
 import type { Session } from "@roost/shared/wire";
 
 interface Props {
   session: Session;
   refocusTerminal?: () => void;
+  /** Submits the draft through the pane's current terminal mode. */
+  onSubmit: (text: string) => void;
+
 }
 
 // Shared across all deck-mounted compose FABs (one per open session). Only one
@@ -60,7 +63,6 @@ export function TerminalComposeButton(props: Props) {
   const [draft, setDraft] = createSignal("");
   let inputEl: HTMLTextAreaElement | undefined;
 
-  const send = (bytes: Uint8Array) => inputChannel.sendInput(props.session.id, bytes);
 
   const openComposer = () => {
     setOpen(true);
@@ -85,15 +87,12 @@ export function TerminalComposeButton(props: Props) {
     setTimeout(() => { if (gen === kbReleaseGen) setComposerActive(false); }, KB_DISMISS_MS);
   };
 
-  // Send the typed line through the same bracketed-paste + delayed-CR path as
-  // mic dictation, then collapse (one-shot, like the mic).
+  // Submit the untouched draft through the owning terminal, then collapse.
   const sendLine = () => {
-    const text = draft().trim();
-    if (text.length === 0) return;
-    send(buildPtyPayload(text));
-    setTimeout(() => send(CR_BYTES), enterDelayMs(text));
+    props.onSubmit(draft());
     closeComposer();
   };
+
 
   onCleanup(() => {
     if (activeComposeChannel() === props.session.channel) {
@@ -111,7 +110,8 @@ export function TerminalComposeButton(props: Props) {
             type="button"
             class="term-chat-toggle"
             data-testid="terminal-chat-toggle"
-            aria-label="Type a message"
+            aria-label="Compose terminal input"
+
             onPointerDown={onFabPointerDown}
             onClick={openComposer}
           >
@@ -127,7 +127,8 @@ export function TerminalComposeButton(props: Props) {
             class="term-chat-toggle"
             data-testid="terminal-chat-toggle"
             data-open="true"
-            aria-label="Cancel message"
+            aria-label="Discard terminal input"
+
             onClick={closeComposer}
           >
             <span class="term-chat-toggle__icon">close</span>
@@ -137,7 +138,8 @@ export function TerminalComposeButton(props: Props) {
               class="term-chat__input"
               data-testid="chat-input"
               rows={1}
-              placeholder="Type a message…"
+              placeholder="Type terminal input…"
+
               value={draft()}
               onInput={(e) => {
                 const el = e.currentTarget;
@@ -162,7 +164,8 @@ export function TerminalComposeButton(props: Props) {
               data-testid="chat-send"
               onMouseDown={(e) => e.preventDefault()}
               onClick={sendLine}
-              aria-label="Send message"
+              aria-label="Send to terminal"
+
             >
               <span class="term-chat__icon">send</span>
             </button>

@@ -52,6 +52,8 @@ export function AllView() {
     else openSearch();
   }
   function onGlobalKeyDown(e: KeyboardEvent) {
+    if (e.defaultPrevented) return;
+
     if ((e.metaKey || e.ctrlKey) && e.key === "f") {
       e.preventDefault();
       openSearch();

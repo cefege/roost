@@ -8,6 +8,7 @@ import {
   sendCoordinatorSnapshotChunk,
   sendCoordinatorSnapshotStart,
 } from "../connect/worker-send.ts";
+import { connectWorkers } from "../connect/worker-registry.ts";
 import type { CoordinatorMoveRuntime, MoveSnapshot, MoveWorker } from "./runtime.ts";
 import type { MovePhase } from "./state.ts";
 
@@ -30,14 +31,43 @@ export function createBunCoordinatorMoveRuntime(options: {
   }
 
   async function targetRequest(state: MoveSnapshot, path: string, method: "GET" | "POST"): Promise<Response> {
-    return fetch(`${state.targetUrl}${path}`, {
-      method,
-      headers: {
-        "x-roost-handoff-id": state.handoffId,
-        "x-roost-handoff-secret": state.secret,
-      },
-      signal: AbortSignal.timeout(5_000),
-    });
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const response = await fetch(`${state.targetUrl}${path}`, {
+          method,
+          headers: {
+            "x-roost-handoff-id": state.handoffId,
+            "x-roost-handoff-secret": state.secret,
+          },
+          signal: AbortSignal.timeout(5_000),
+        });
+        if (response.status < 500 || attempt === 2) return response;
+      } catch (error) {
+        lastError = error;
+      }
+      await Bun.sleep(100);
+    }
+    throw lastError ?? new Error(`target request failed: ${path}`);
+  }
+
+  async function reconnectWorkers(workers: MoveWorker[], timeoutMs: number): Promise<void> {
+    const previous = new Map<string, ReturnType<typeof connectWorkers.get>>();
+    for (const worker of workers) {
+      const handle = connectWorkers.get(worker.fp);
+      if (!handle?.close) throw new Error(`worker ${worker.fp} cannot reconnect to target`);
+      previous.set(worker.fp, handle);
+      handle.close();
+    }
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (workers.every((worker) => {
+        const current = connectWorkers.get(worker.fp);
+        return current !== undefined && current !== previous.get(worker.fp);
+      })) return;
+      await Bun.sleep(50);
+    }
+    throw new Error("workers did not reconnect to target coordinator");
   }
 
   return {
@@ -70,27 +100,58 @@ export function createBunCoordinatorMoveRuntime(options: {
       fs.mkdirSync(handoffDir, { recursive: true, mode: 0o700 });
       const snapshot = join(handoffDir, "coordinator_v2.snapshot");
       options.sqlite.prepare("VACUUM INTO ?").run(snapshot);
-      const data = fs.readFileSync(snapshot);
-      const sha256 = createHash("sha256").update(data).digest("hex");
+      const size = fs.statSync(snapshot).size;
+      const hasher = createHash("sha256");
+      const chunk = new Uint8Array(CHUNK_SIZE);
+      const hashFd = fs.openSync(snapshot, "r");
+      try {
+        for (;;) {
+          const read = fs.readSync(hashFd, chunk, 0, chunk.length, null);
+          if (read === 0) break;
+          hasher.update(chunk.subarray(0, read));
+        }
+      } finally {
+        fs.closeSync(hashFd);
+      }
       const receipt = sendCoordinatorSnapshotStart(state.targetWorkerFp, {
-        handoffId: state.handoffId, totalSize: BigInt(data.length), sha256,
+        handoffId: state.handoffId, totalSize: BigInt(size), sha256: hasher.digest("hex"),
         coordKeyPem: fs.readFileSync(options.coordKeyPath), authorizedKeys: fs.readFileSync(options.authorizedKeysPath),
         secretSha256: state.secretSha256, expectedWorkerFps: state.expectedWorkerFps,
       });
-      for (let offset = 0, seq = 0; offset < data.length; offset += CHUNK_SIZE, seq++) {
-        const end = Math.min(offset + CHUNK_SIZE, data.length);
-        sendCoordinatorSnapshotChunk(state.targetWorkerFp, { handoffId: state.handoffId, seq, data: data.subarray(offset, end), last: end === data.length });
+      const streamFd = fs.openSync(snapshot, "r");
+      try {
+        for (let offset = 0, seq = 0; offset < size; seq++) {
+          const read = fs.readSync(streamFd, chunk, 0, Math.min(chunk.length, size - offset), null);
+          if (read === 0) throw new Error("coordinator snapshot ended unexpectedly");
+          offset += read;
+          sendCoordinatorSnapshotChunk(state.targetWorkerFp, {
+            handoffId: state.handoffId, seq, data: chunk.subarray(0, read), last: offset === size,
+          });
+        }
+      } finally {
+        fs.closeSync(streamFd);
       }
       await receipt.promise;
     },
-    async waitForWorkers(state) {
-      const deadline = Date.now() + 60_000;
+    async reconnectWorkers(workers, timeoutMs) {
+      await reconnectWorkers(workers, timeoutMs);
+    },
+    async waitForWorkers(state, timeoutMs) {
+      const deadline = Date.now() + timeoutMs;
       while (Date.now() < deadline) {
-        const status = await targetRequest(state, "/internal/coord-handoff/status", "GET");
-        if (status.ok) return;
+        try {
+          const response = await targetRequest(state, "/internal/coord-handoff/status", "GET");
+          if (response.ok) {
+            const status = await response.json() as { connected_worker_fps?: string[] };
+            const connected = new Set(status.connected_worker_fps ?? []);
+            if (state.expectedWorkerFps.every((workerFp) => connected.has(workerFp))) return;
+          }
+        } catch {
+          // Target may still be launching.
+        }
         await Bun.sleep(1_000);
       }
-      throw new Error("target coordinator did not become reachable");
+      throw new Error("expected workers did not reach target coordinator");
     },
     async targetStatus(state): Promise<MovePhase | null> {
       try {
@@ -107,12 +168,28 @@ export function createBunCoordinatorMoveRuntime(options: {
       if (!response.ok) throw new Error(`target commit failed: ${await response.text()}`);
     },
     async abortTarget(state) {
-      const response = await targetRequest(state, "/internal/coord-handoff/abort", "POST");
-      if (!response.ok) throw new Error(`target abort failed: ${await response.text()}`);
+      try {
+        const response = await targetRequest(state, "/internal/coord-handoff/abort", "POST");
+        if (!response.ok) throw new Error(`target abort failed: ${await response.text()}`);
+      } catch (error) {
+        // Before the staged target coordinator starts, its worker is still
+        // attached here. Once it starts, the authenticated internal endpoint
+        // above owns the rollback. This fallback covers only the former.
+        await sendCoordinatorRelocate(state.targetWorkerFp, {
+          handoffId: state.handoffId, sourceUrl: state.sourceUrl, targetUrl: state.targetUrl, action: "ABORT",
+        }).catch(() => { throw error; });
+      }
     },
     async targetHealthy(state) {
-      const response = await fetch(`${state.targetUrl}/roost.v1.CoordinatorService/MiscHealth`, { signal: AbortSignal.timeout(5_000) });
-      if (!response.ok) throw new Error("target coordinator health check failed");
+      const health = await fetch(`${state.targetUrl}/roost.v1.CoordinatorService/MiscHealth`, { signal: AbortSignal.timeout(5_000) });
+      if (!health.ok) throw new Error("target coordinator health check failed");
+      const status = await targetRequest(state, "/internal/coord-handoff/status", "GET");
+      if (!status.ok) throw new Error("target coordinator status check failed");
+      const body = await status.json() as { connected_worker_fps?: string[] };
+      const connected = new Set(body.connected_worker_fps ?? []);
+      if (!state.expectedWorkerFps.every((workerFp) => connected.has(workerFp))) {
+        throw new Error("target workers are not all routable");
+      }
     },
     publishRelocation: options.publishRelocation,
   };

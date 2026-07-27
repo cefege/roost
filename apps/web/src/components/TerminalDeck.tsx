@@ -679,6 +679,8 @@ export function TerminalDeck(props: { activeSessionId: string | null }) {
   // so intercepting them is safe. Only while a terminal folder is active.
   onMount(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return;
+
       if (e.key === "Escape" && spotlightSessionId()) { e.preventDefault(); clearSpotlight(); return; }
       if (!e.metaKey || e.ctrlKey) return;
       if (!folderKey()) return;

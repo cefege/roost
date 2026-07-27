@@ -9,6 +9,8 @@ import { workerRoutableBus } from "../buses.ts";
 export interface WorkerHandle {
   workerFp: string;
   send: (frame: CoordWorkerDown) => void;
+  /** Closes only this transport connection; used to replay held events at commit. */
+  close?: () => void;
 }
 
 // Registry of currently-attached workers, keyed by fp. Populated when a

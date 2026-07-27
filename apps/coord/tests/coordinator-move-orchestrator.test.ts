@@ -53,6 +53,7 @@ function runtime(calls: string[], target: { committed: boolean }, onPublished?: 
     },
     abortWorker: record("abort-worker"),
     copySnapshot: record("copy-state"),
+    reconnectWorkers: async () => { calls.push("reconnect-workers"); },
     waitForWorkers: record("wait-workers"),
     targetStatus: async () => target.committed ? "COMMITTED" : "COMMITTING",
     commitTarget: async () => { calls.push("commit-target"); target.committed = true; },
@@ -146,5 +147,60 @@ describe("CoordinatorMoveOrchestrator", () => {
     expect(() => gate.acquire()).toThrow("coordinator move in progress");
     lease.release();
     await draining;
+  });
+
+  test("recovers a source crash during rollback by aborting the staged target", async () => {
+    const f = await fixture();
+    const calls: string[] = [];
+    const store = new HandoffStateStore(f.cfg.handoffPath);
+    store.write({
+      version: 1, handoff_id: "00000000-0000-4000-8000-000000000003", role: "SOURCE", phase: "ROLLING_BACK",
+      source_url: "https://source.ts.net:4102", target_url: "https://target.ts.net:4102", target_worker_fp: "target",
+      expected_worker_fps: ["target"], commit_acked_worker_fps: [], expected_coord_kid: f.coordKey.verifyingKeyKid(),
+      expected_git_sha: COORD_GIT_SHA, secret_sha256: createHash("sha256").update("secret").digest("hex"), secret: "secret",
+      started_at_ms: Date.now(), updated_at_ms: Date.now(), error: "source crashed",
+    });
+    const move = new CoordinatorMoveOrchestrator({
+      db: f.db, cfg: f.cfg, coordKey: f.coordKey, store, runtime: runtime(calls, { committed: false }),
+      workers: async () => [worker("target")],
+    });
+
+    await move.recover();
+
+    expect(calls).toEqual(["abort-worker", "abort-target"]);
+    expect(store.load()?.phase).toBe("ROLLED_BACK");
+    expect(move.gate.mode).toBe("active");
+    f.sqlite.close();
+  });
+
+  test("recovered snapshot failure aborts every durably staged worker", async () => {
+    const f = await fixture();
+    const calls: string[] = [];
+    const store = new HandoffStateStore(f.cfg.handoffPath);
+    store.write({
+      version: 1, handoff_id: "00000000-0000-4000-8000-000000000004", role: "SOURCE", phase: "COPYING_STATE",
+      source_url: "https://source.ts.net:4102", target_url: "https://target.ts.net:4102", target_worker_fp: "target",
+      expected_worker_fps: ["target", "worker-a"], commit_acked_worker_fps: [], expected_coord_kid: f.coordKey.verifyingKeyKid(),
+      expected_git_sha: COORD_GIT_SHA, secret_sha256: createHash("sha256").update("secret").digest("hex"), secret: "secret",
+      started_at_ms: Date.now(), updated_at_ms: Date.now(),
+    });
+    const recoveredRuntime = runtime(calls, { committed: false });
+    recoveredRuntime.targetStatus = async () => null;
+    recoveredRuntime.copySnapshot = async () => {
+      calls.push("copy-state");
+      throw new Error("snapshot transfer failed");
+    };
+    const failed = whenPhase(store, "FAILED");
+    const move = new CoordinatorMoveOrchestrator({
+      db: f.db, cfg: f.cfg, coordKey: f.coordKey, store, runtime: recoveredRuntime,
+      workers: async () => [worker("target"), worker("worker-a")],
+    });
+
+    await move.recover();
+    await failed;
+
+    expect(calls).toEqual(["copy-state", "abort-worker", "abort-worker", "abort-target"]);
+    expect(move.gate.mode).toBe("active");
+    f.sqlite.close();
   });
 });

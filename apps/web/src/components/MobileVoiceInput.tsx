@@ -1,8 +1,8 @@
 // MobileVoiceInput — bottom-right mic button + live transcript.
 // State: idle → listening → finalizing → (auto-send). Tap to start; tap again
 // to stop, which finalizes and sends automatically — no review step. While
-// recording (or finalizing) an ✕ button discards without sending. Send writes
-// the transcript as PTY input (bracketed paste + CR), same path as keyboard.
+// recording (or finalizing) an ✕ button discards without sending. CellTerminal
+// sends finalized text through the current terminal mode and submission path.
 //
 // Engine: if a Deepgram key is configured in coord, dictation streams to
 // Deepgram (deepgramDictation); otherwise it uses the browser's built-in Web
@@ -18,7 +18,6 @@ import {
 	onMount,
 } from "solid-js";
 import type { ChannelId } from "@roost/shared/wire";
-import { buildPtyPayload, CR_BYTES, enterDelayMs } from "../lib/ptyPaste.ts";
 import { coordClient } from "../connect.ts";
 import { createDeepgramDictation } from "../lib/deepgramDictation.ts";
 import {
@@ -92,8 +91,9 @@ type VoiceState = "idle" | "listening" | "finalizing";
 
 interface Props {
 	channelId: ChannelId;
-	sendInput: (channelId: ChannelId, data: Uint8Array) => void;
-	// Snapshot of the terminal you're dictating into — read at recording start to
+	/** Submits finalized dictation through the pane's current terminal mode. */
+	onTerminalSubmit: (text: string) => void;
+
 	// bias Deepgram toward on-screen jargon (keytermContext). Deepgram-only.
 	readContext?: () => TerminalContext;
 	// Re-grab the hidden wterm textarea after a send/discard. The mic <button>
@@ -271,13 +271,7 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 			resetToIdle();
 			return;
 		}
-		props.sendInput(props.channelId, buildPtyPayload(text));
-		// Enter as its own frame, after a length-scaled delay, so it reliably
-		// submits even very long messages.
-		setTimeout(
-			() => props.sendInput(props.channelId, CR_BYTES),
-			enterDelayMs(text),
-		);
+		props.onTerminalSubmit(text);
 		resetToIdle();
 	};
 

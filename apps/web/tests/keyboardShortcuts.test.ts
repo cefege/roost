@@ -15,7 +15,10 @@
 
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import {
+	closeCmdPalette,
+	cmdPaletteOpen,
 	handleKeydown,
+	setJumpUnreadHandler,
 	terminalOwnsKeyboard,
 } from "../src/lib/keyboardShortcuts.ts";
 import {
@@ -26,12 +29,21 @@ import {
 } from "../src/lib/sidebarCursor.ts";
 
 // Minimal stand-ins for the DOM surface handleKeydown touches.
-type StubDoc = { querySelector: (sel: string) => object | null };
+type StubDoc = {
+	querySelector: (sel: string) => object | null;
+	body: object;
+	documentElement: object;
+	activeElement: object | null;
+};
 const origDocument = (globalThis as { document?: unknown }).document;
 
 // deckSelectors: which querySelectors should resolve to a (truthy) element.
 function installStubDocument(deckPresent: boolean): void {
+	const body = {};
 	const stub: StubDoc = {
+		body,
+		documentElement: {},
+		activeElement: deckPresent ? body : null,
 		querySelector(sel: string) {
 			if (!deckPresent) return null;
 			if (sel === '[data-testid="terminal-deck"]' || sel === "[data-pane]")
@@ -39,6 +51,7 @@ function installStubDocument(deckPresent: boolean): void {
 			return null;
 		},
 	};
+
 	(globalThis as { document?: unknown }).document = stub;
 }
 
@@ -65,10 +78,14 @@ function keyEvent(
 }
 
 describe("keyboardShortcuts ⏎ boot-loop guard", () => {
+
 	let activated: string[];
 
 	beforeEach(() => {
 		activated = [];
+		closeCmdPalette();
+		setJumpUnreadHandler(null);
+
 		setActivateHandler((id) => activated.push(id));
 		// Two sessions in the flat list; park the cursor on the SECOND (the "other
 		// workspace" the boot loop teleported to).
@@ -76,12 +93,16 @@ describe("keyboardShortcuts ⏎ boot-loop guard", () => {
 		moveCursor(1); // cursor → index 0 (sess-A)
 		moveCursor(1); // cursor → index 1 (sess-B)
 		expect(cursorSessionId()).toBe("sess-B");
+
 	});
 
 	afterEach(() => {
 		setActivateHandler(null);
 		setOrderedSessionIds([]);
 		(globalThis as { document?: unknown }).document = origDocument;
+		closeCmdPalette();
+		setJumpUnreadHandler(null);
+
 	});
 
 	test("terminalOwnsKeyboard() true whenever the deck element is present", () => {
@@ -110,5 +131,60 @@ describe("keyboardShortcuts ⏎ boot-loop guard", () => {
 		installStubDocument(false);
 		handleKeydown(keyEvent("Enter", { tagName: "INPUT" }));
 		expect(activated).toEqual([]);
+	});
+
+	test("body-focused terminal Ctrl-K stays available for CellTerminal replay", () => {
+		installStubDocument(true);
+		let preventCalls = 0;
+		handleKeydown({
+			...keyEvent("k"),
+			ctrlKey: true,
+			preventDefault: () => preventCalls++,
+		} as KeyboardEvent);
+		expect(cmdPaletteOpen()).toBe(false);
+		expect(preventCalls).toBe(0);
+	});
+
+	describe("default-prevented terminal keys", () => {
+		test("never reroutes prevented Ctrl shortcuts or navigation", () => {
+			installStubDocument(false);
+			let jumpCalls = 0;
+			let preventCalls = 0;
+			setJumpUnreadHandler(() => jumpCalls++);
+			const ctrlK = {
+				...keyEvent("k"),
+				ctrlKey: true,
+				defaultPrevented: true,
+				preventDefault: () => preventCalls++,
+			} as KeyboardEvent;
+			const ctrlShiftU = {
+				...keyEvent("u"),
+				ctrlKey: true,
+				shiftKey: true,
+				defaultPrevented: true,
+				preventDefault: () => preventCalls++,
+			} as KeyboardEvent;
+			const arrowUp = {
+				...keyEvent("ArrowUp"),
+				defaultPrevented: true,
+				preventDefault: () => preventCalls++,
+			} as KeyboardEvent;
+			const enter = {
+				...keyEvent("Enter"),
+				defaultPrevented: true,
+				preventDefault: () => preventCalls++,
+			} as KeyboardEvent;
+
+			handleKeydown(ctrlK);
+			handleKeydown(ctrlShiftU);
+			handleKeydown(arrowUp);
+			handleKeydown(enter);
+
+			expect(cmdPaletteOpen()).toBe(false);
+			expect(jumpCalls).toBe(0);
+			expect(cursorSessionId()).toBe("sess-B");
+			expect(activated).toEqual([]);
+			expect(preventCalls).toBe(0);
+		});
 	});
 });

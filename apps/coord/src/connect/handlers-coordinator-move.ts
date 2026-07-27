@@ -52,7 +52,7 @@ export function makeCoordinatorMoveHandlers(
         throw new ConnectError((error as Error).message, Code.FailedPrecondition);
       }
     },
-    async coordinatorMoveStatus(req) {
+    async coordinatorMoveStatus(req, ctx) {
       const state = requireMoveService(deps).status(req.handoffId);
       if (!state) throw new ConnectError("handoff not found", Code.NotFound);
       return create(CoordinatorMoveStatusResponseSchema, {

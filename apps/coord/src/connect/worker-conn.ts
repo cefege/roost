@@ -64,7 +64,7 @@ export function makeWorkerConn(
   // connection A's delayed cleanup must not delete connection B's entry —
   // else getWorkerHubSocket(fp) returns null and every browser-command
   // silently no-ops (the pane-X-doing-nothing bug).
-  const myHandle: WorkerHandle = { workerFp: "", send };
+  const myHandle: WorkerHandle = { workerFp: "", send, close: requestClose };
   const _deleteIfStillMine = (fp: string): void => {
     if (connectWorkers.get(fp) === myHandle) {
       connectWorkers.delete(fp);

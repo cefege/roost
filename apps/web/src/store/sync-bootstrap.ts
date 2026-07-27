@@ -16,6 +16,7 @@ import { setRoutableFps } from "./sync-routable.ts";
 import { _startCoordHealthPoller } from "./sync-health.ts";
 import { _runConnectSync, _abortSyncForVisibility, isSyncPaused } from "./sync.ts";
 import { _attemptPairRedeem } from "./sync-bootstrap.pair.ts";
+import { relocateRetiredBrowser } from "../auth/coordinator-relocation.ts";
 import { isPageVisible } from "../lib/pageVisible.ts";
 
 // Set browser_unauthorized; emit the auth.relogin_401 signal ONLY on the
@@ -97,10 +98,15 @@ export function bootstrapSync(): void {
  *  blocking the other. */
 export async function refreshCoordAndWorkers(): Promise<void> {
   const { coordClient } = await import("../connect.ts");
-  const [identity, workers] = await Promise.allSettled([
-    coordClient.authCoordIdentity({}),
-    coordClient.workersList({}),
-  ]);
+  const identity = await Promise.resolve(coordClient.authCoordIdentity({})).then(
+    (value) => ({ status: "fulfilled" as const, value }),
+    (reason) => ({ status: "rejected" as const, reason }),
+  );
+  if (identity.status === "fulfilled" && await relocateRetiredBrowser(identity.value)) return;
+  const workers = await Promise.resolve(coordClient.workersList({})).then(
+    (value) => ({ status: "fulfilled" as const, value }),
+    (reason) => ({ status: "rejected" as const, reason }),
+  );
   if (identity.status === "fulfilled") {
     setRootStore("coord_identity", {
       fingerprint_hex: identity.value.fingerprintHex,
@@ -182,14 +188,22 @@ async function _bootstrap(): Promise<void> {
     // (reloads authed).
     if (await _attemptPairRedeem()) return;
 
-    // Phase 0: attempt loopback browser self-register. If coord recognizes
+    // Phase 0: discover a retired source before any mutation or bulk list.
+    // Its mint endpoint can carry this browser to the committed coordinator.
+    const { coordClient } = await import("../connect.ts");
+    const initialIdentity = await Promise.resolve(coordClient.authCoordIdentity({})).then(
+      (value) => ({ status: "fulfilled" as const, value }),
+      (reason) => ({ status: "rejected" as const, reason }),
+    );
+    if (initialIdentity.status === "fulfilled" && await relocateRetiredBrowser(initialIdentity.value)) return;
+
+    // Phase 1: attempt loopback browser self-register. If coord recognizes
     // our kid already (cached from a previous boot), this is a no-op upsert.
     // If we're behind a non-loopback proxy, the mutation 403s and we fall
     // through to Onboarding — render path picks up zero-workers + 401 list.
     await _attemptSelfRegister();
 
-    // Phase 1: bulk lists via Connect.
-    const { coordClient } = await import("../connect.ts");
+    // Phase 2: bulk lists via Connect.
     const [workers, sessions, workspaces, tasks, permRules, mcpRelays, identity, pairRequests] =
       await Promise.allSettled([
         coordClient.workersList({}),

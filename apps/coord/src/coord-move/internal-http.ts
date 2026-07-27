@@ -13,8 +13,15 @@ export async function handleInternalHandoffRequest(request: Request, move: Coord
   if (!credentials) return new Response("unauthorized", { status: 401 });
   try {
     if (path === "/internal/coord-handoff/status" && request.method === "GET") {
-      const state = move.internalStatus(credentials.handoffId, credentials.secret);
-      return Response.json({ phase: state.phase, source_url: state.source_url, target_url: state.target_url, error: state.error ?? null });
+      const state = await move.internalStatus(credentials.handoffId, credentials.secret);
+      return Response.json({
+        phase: state.phase,
+        source_url: state.source_url,
+        target_url: state.target_url,
+        expected_worker_fps: state.expected_worker_fps,
+        connected_worker_fps: state.connected_worker_fps,
+        error: state.error ?? null,
+      });
     }
     if (path === "/internal/coord-handoff/commit" && request.method === "POST") {
       await move.internalCommit(credentials.handoffId, credentials.secret);

@@ -6,7 +6,7 @@
 // no reimplementation of the safety-critical env. `cmd` "install" boots the
 // agents; "write-plist" only generates the plist into a throwaway temp dir
 // (dry-run — never touches ~/Library/LaunchAgents, no launchctl).
-import { COORD_INSTALL_SH, WORKER_INSTALL_SH } from "./scripts-embed.generated.ts";
+import { COORD_INSTALL_SH, WORKER_INSTALL_SH } from "@roost/shared/install-scripts";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";

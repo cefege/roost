@@ -5,19 +5,21 @@
 
 import type { ServiceImpl } from "@connectrpc/connect";
 import { Code, ConnectError } from "@connectrpc/connect";
-import { create } from "@bufbuild/protobuf";
+import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import { randomUUID } from "node:crypto";
 import { log } from "@roost/shared/log";
 import {
   CoordinatorService,
-  AuthCoordIdentityResponseSchema, AuthAuthorizeBrowserResponseSchema,
+  AuthCoordIdentityRequestSchema, AuthCoordIdentityResponseSchema,
+  AuthAuthorizeBrowserResponseSchema,
   AuthMintBootstrapResponseSchema, AuthRedeemWorkerResponseSchema, AuthRedeemBrowserResponseSchema,
-  AuthMintCoordinatorRelocationResponseSchema, AuthRedeemCoordinatorRelocationResponseSchema,
+  AuthMintCoordinatorRelocationRequestSchema, AuthMintCoordinatorRelocationResponseSchema,
+  AuthRedeemCoordinatorRelocationResponseSchema,
   PairCreateResponseSchema, PairPollResponseSchema, PairListResponseSchema,
   PairApproveResponseSchema, PairDenyResponseSchema,
 } from "@roost/shared/proto/coordinator_pb";
 import { PairRequestSchema } from "@roost/shared/proto/wire_pb";
-import { requireAuth, optionalAuth, remoteAddressKey } from "./auth-interceptor.ts";
+import { requireAuth, optionalAuth, remoteAddressKey, authorizationKey } from "./auth-interceptor.ts";
 import { fingerprintOf } from "../jwt.ts";
 import { decodeEd25519Pubkey } from "../authorized-keys.ts";
 import { assertLoopback, assertLoopbackOrTailnet } from "../middleware/loopback-only.ts";
@@ -32,6 +34,63 @@ type AuthMethods =
   | "authRedeemWorker" | "authRedeemBrowser"
   | "authMintCoordinatorRelocation" | "authRedeemCoordinatorRelocation"
   | "pairCreate" | "pairPoll" | "pairList" | "pairApprove" | "pairDeny";
+
+const CONNECT_COORDINATOR_PATH = "/roost.v1.CoordinatorService/";
+
+function relocationErrorCode(status: number): Code {
+  if (status === 401) return Code.Unauthenticated;
+  if (status === 403) return Code.PermissionDenied;
+  if (status === 404) return Code.NotFound;
+  return Code.FailedPrecondition;
+}
+
+async function postCoordinatorRpc(
+  baseUrl: string,
+  method: "AuthCoordIdentity" | "AuthMintCoordinatorRelocation",
+  body: Uint8Array,
+  authorization?: string,
+): Promise<Uint8Array> {
+  const url = new URL(`${CONNECT_COORDINATOR_PATH}${method}`, baseUrl);
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "content-type": "application/proto",
+      "connect-protocol-version": "1",
+      ...(authorization ? { authorization } : {}),
+    },
+    body: body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength) as ArrayBuffer,
+    signal: AbortSignal.timeout(5_000),
+  });
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new ConnectError(detail || `coordinator relocation request failed (${response.status})`, relocationErrorCode(response.status));
+  }
+  return new Uint8Array(await response.arrayBuffer());
+}
+
+async function resolveCurrentCoordinator(initialUrl: string): Promise<{ url: string; handoffId: string }> {
+  const seen = new Set<string>();
+  let url = initialUrl;
+  for (let hop = 0; hop < 8; hop++) {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "https:" || parsed.username || parsed.password) {
+      throw new ConnectError("invalid coordinator relocation target", Code.FailedPrecondition);
+    }
+    const origin = parsed.origin;
+    if (seen.has(origin)) throw new ConnectError("coordinator relocation cycle detected", Code.FailedPrecondition);
+    seen.add(origin);
+    const response = fromBinary(
+      AuthCoordIdentityResponseSchema,
+      await postCoordinatorRpc(origin, "AuthCoordIdentity", toBinary(AuthCoordIdentityRequestSchema, create(AuthCoordIdentityRequestSchema))),
+    );
+    if (!response.relocatedToUrl) {
+      if (!response.handoffId) throw new ConnectError("current coordinator has no relocation handoff", Code.FailedPrecondition);
+      return { url: origin, handoffId: response.handoffId };
+    }
+    url = response.relocatedToUrl;
+  }
+  throw new ConnectError("coordinator relocation exceeded eight hops", Code.FailedPrecondition);
+}
 
 export function makeAuthHandlers(
   deps: ConnectDeps,
@@ -136,10 +195,34 @@ export function makeAuthHandlers(
     },
 
     async authMintCoordinatorRelocation(req, ctx) {
-      const caller = requireAuth(ctx.values);
       const handoff = deps.move?.current();
       const sourceCommitted = handoff?.role === "SOURCE" && handoff.phase === "COMMITTED";
-      if (!handoff || handoff.handoff_id !== req.handoffId || (!sourceCommitted && deps.move?.gate.mode !== "active")) {
+      if (sourceCommitted) {
+        if (handoff.handoff_id !== req.handoffId) {
+          throw new ConnectError("coordinator relocation is not available", Code.FailedPrecondition);
+        }
+        const authorization = ctx.values.get(authorizationKey);
+        if (!authorization) throw new ConnectError("authentication required", Code.Unauthenticated);
+        const current = await resolveCurrentCoordinator(handoff.target_url);
+        const minted = fromBinary(
+          AuthMintCoordinatorRelocationResponseSchema,
+          await postCoordinatorRpc(
+            current.url,
+            "AuthMintCoordinatorRelocation",
+            toBinary(
+              AuthMintCoordinatorRelocationRequestSchema,
+              create(AuthMintCoordinatorRelocationRequestSchema, { handoffId: current.handoffId }),
+            ),
+            authorization,
+          ),
+        );
+        return create(AuthMintCoordinatorRelocationResponseSchema, {
+          token: minted.token,
+          targetUrl: minted.targetUrl,
+        });
+      }
+      const caller = requireAuth(ctx.values);
+      if (!handoff || handoff.handoff_id !== req.handoffId || deps.move?.gate.mode !== "active") {
         throw new ConnectError("coordinator relocation is not available", Code.FailedPrecondition);
       }
       const now = Math.floor(Date.now() / 1000);

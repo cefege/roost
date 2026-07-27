@@ -50,7 +50,7 @@ export function TerminalPane() {
       <Card title="On-screen key pad">
         <SwitchRow
           headline="Show the key pad on desktop"
-          support="The nav pad (esc, arrows, enter, mouse toggle) floats bottom-right of the terminal, behind a keyboard-icon button. It always appears on compact/mobile widths — turn this off to hide it on desktop. This device only; applies immediately."
+          support="The key pad (Ctrl, Tab, navigation keys, Enter, and mouse mode) floats bottom-right of the terminal behind a keyboard-icon button. It always appears on compact/mobile widths — turn this off to hide it on desktop. This device only; applies immediately."
           checked={keyboardOnDesktop()}
           onChange={setKeyboardOnDesktop}
           testId="keyboard-on-desktop-toggle"
