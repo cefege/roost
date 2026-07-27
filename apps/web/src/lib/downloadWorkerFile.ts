@@ -8,6 +8,8 @@
 
 import { coordClient } from "../connect.ts";
 import { addToast } from "./toastStore.ts";
+import DOMPurify from "dompurify";
+import { marked } from "marked";
 import { addTransfer, markTransferState, setTransferProgress } from "../store/transfers.ts";
 import { log } from "@roost/shared/log";
 
@@ -20,17 +22,22 @@ export function parseFileHref(href: string): { workerFp: string; path: string } 
   const noHash = href.replace(/#L\d+$/, "");
   const m = noHash.match(/^\/file\/([^/]+)\/(.*)$/);
   if (!m) return null;
-  const path = "/" + m[2].split("/").map(decodeURIComponent).join("/");
-  return { workerFp: m[1], path };
+  try {
+    return { workerFp: m[1], path: "/" + m[2].split("/").map(decodeURIComponent).join("/") };
+  } catch {
+    return null;
+  }
 }
 
 /** Fetch a worker file's bytes in chunks and trigger a browser download. */
 export async function downloadWorkerFileByHref(href: string): Promise<void> {
   const parsed = parseFileHref(href);
   if (!parsed) { addToast("Bad file link", "err"); return; }
-  const name = parsed.path.split("/").pop() || "download";
+  const sourceName = parsed.path.split("/").pop() || "download";
+  const renderMarkdown = /\.md$/i.test(sourceName);
+  const downloadName = renderMarkdown ? sourceName.replace(/\.md$/i, ".html") : sourceName;
   const id = crypto.randomUUID();
-  addTransfer({ id, name, dir: "down", bytes_total: 0, state: "active" });
+  addTransfer({ id, name: downloadName, dir: "down", bytes_total: 0, state: "active" });
   try {
     const parts: BlobPart[] = [];
     let offset = 0;
@@ -45,10 +52,18 @@ export async function downloadWorkerFileByHref(href: string): Promise<void> {
       // eof from the worker, or a defensive stop if a chunk returns nothing.
       if (res.eof || res.data.length === 0) break;
     }
-    const url = URL.createObjectURL(new Blob(parts));
+    let blob = new Blob(parts);
+    if (renderMarkdown) {
+      const markdown = await blob.text();
+      const body = DOMPurify.sanitize(await marked.parse(markdown));
+      blob = new Blob([
+        `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head><body>${body}</body></html>`,
+      ], { type: "text/html;charset=utf-8" });
+    }
+    const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = name;
+    a.download = downloadName;
     document.body.appendChild(a);
     a.click();
     a.remove();

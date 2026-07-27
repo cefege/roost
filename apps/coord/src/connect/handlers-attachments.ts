@@ -49,6 +49,9 @@ export function makeAttachmentHandlers(
       const caller = requireAuth(ctx.values);
       const sock = getWorkerHubSocket(req.workerFp);
       if (!sock) throw new ConnectError("worker not connected", Code.FailedPrecondition);
+      if (req.len <= 0 || req.len > 4 * 1024 * 1024) {
+        throw new ConnectError("file chunk length must be between 1 and 4194304 bytes", Code.InvalidArgument);
+      }
       const pending = createPendingRpc<{ content_b64: string; size: number; eof: boolean }>(30_000, req.workerFp);
       sendBrowserCmd(sock, caller, pending.request_id, {
         kind: "read-file-chunk" as const, request_id: pending.request_id, path: req.path, offset: Number(req.offset), len: req.len,

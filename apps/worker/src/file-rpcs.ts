@@ -11,6 +11,7 @@ import { expandTilde } from "./util/path.ts";
 // via a terminal file link. Bigger → chunk it (see AttachFileChunk for the
 // reverse direction). Base64 in one response = ~1.33× in RAM, fine occasionally.
 const READ_FILE_MAX_BYTES = 25 * 1024 * 1024;
+const READ_FILE_CHUNK_MAX_BYTES = 4 * 1024 * 1024;
 const LIST_DIR_MAX_ENTRIES = 200;
 
 export type RpcReply =
@@ -41,7 +42,7 @@ export async function readFileChunkRpc(path: string, offset: number, len: number
     const s = await stat(path);
     const fh = await open(path, "r");
     try {
-      const want = Math.min(len, Math.max(0, s.size - offset));
+      const want = Math.min(Math.max(0, len), READ_FILE_CHUNK_MAX_BYTES, Math.max(0, s.size - offset));
       const buf = Buffer.alloc(want);
       const { bytesRead } = await fh.read(buf, 0, want, offset);
       const eof = offset + bytesRead >= s.size;
