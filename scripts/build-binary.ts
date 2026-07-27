@@ -21,14 +21,16 @@ if (!existsSync("apps/web/dist/index.html")) {
   console.log(">> vite build skipped (apps/web/dist present — delete to rebuild)");
 }
 
-console.log(">> gen-embed (baking SPA + migrations)");
-await $`bun scripts/gen-embed.ts`;
+try {
+  console.log(">> gen-embed (baking SPA + migrations)");
+  await $`bun scripts/gen-embed.ts`;
 
-console.log(`>> bun build --compile → ${OUT} (version ${VERSION})`);
-const define = `__ROOST_VERSION__=${JSON.stringify(VERSION)}`;
-await $`bun build --compile --define ${define} apps/roost-cli/src/main.ts --outfile ${OUT}`;
-
-console.log(">> restore embed stubs");
-await $`bun scripts/gen-embed.ts --stub`;
+  console.log(`>> bun build --compile → ${OUT} (version ${VERSION})`);
+  const define = `__ROOST_VERSION__=${JSON.stringify(VERSION)}`;
+  await $`bun build --compile --define ${define} apps/roost-cli/src/main.ts --outfile ${OUT}`;
+} finally {
+  console.log(">> restore embed stubs");
+  await $`bun scripts/gen-embed.ts --stub`;
+}
 
 console.log(`\n✓ built ${OUT}`);

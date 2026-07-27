@@ -23,28 +23,9 @@ import { workspaceBus } from "./buses.ts";
 import { asWorkspaceId } from "@roost/shared/wire";
 import { log } from "@roost/shared/log";
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
 import { WEB_ASSETS } from "./web-embed.generated.ts";
+import { createSpaResponder } from "./spa.ts";
 import { MIGRATIONS } from "./migrations-embed.generated.ts";
-
-// Text assets worth compressing on the fly. woff2/wasm/png/jpg are already
-// compressed — re-encoding them wastes CPU for ~0 gain, so they stream raw.
-const COMPRESSIBLE_EXT = new Set([".js", ".css", ".html", ".json", ".svg", ".map", ".txt"]);
-
-const MIME: Record<string, string> = {
-  ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8",
-  ".js": "application/javascript; charset=utf-8",
-  ".mjs": "application/javascript; charset=utf-8",
-  ".json": "application/json; charset=utf-8",
-  ".svg": "image/svg+xml", ".png": "image/png",
-  ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
-  ".webp": "image/webp", ".avif": "image/avif",
-  ".ico": "image/x-icon", ".wasm": "application/wasm",
-  ".woff": "font/woff", ".woff2": "font/woff2", ".ttf": "font/ttf",
-  ".map": "application/json; charset=utf-8",
-  ".txt": "text/plain; charset=utf-8",
-  ".webmanifest": "application/manifest+json",
-};
 
 export async function runCoord() {
   const bootMs = Date.now();
@@ -145,6 +126,7 @@ export async function runCoord() {
 
 
   const coord = createCoord({ db, coordKey, cfg, jwtCache, move });
+  const spaResponse = createSpaResponder(cfg.webDistPath, WEB_ASSETS);
 
   // Raw-WS worker transport deps (Bun-specific; coord-factory stays
   // fetch-only/portable). The WS handler (worker-ws-handler.ts) reuses the

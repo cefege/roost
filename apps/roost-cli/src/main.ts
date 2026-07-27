@@ -18,7 +18,6 @@ import { doctor } from "./doctor.ts";
 import { api } from "./api.ts";
 import { join } from "./join.ts";
 import { addMac } from "./add-mac.ts";
-import { coord } from "./coord.ts";
 import { worker } from "./worker.ts";
 import { keeper } from "./keeper.ts";
 import { update } from "./update.ts";
@@ -26,7 +25,12 @@ import { version } from "./version.ts";
 
 const SUBCOMMANDS = {
   quickstart,
-  coord,
+  coord: async (args: string[]) => {
+    // Loading coordinator code imports the generated SPA embed. Keep that
+    // command-only dependency out of `roost test`, which builds the web bundle.
+    const { coord } = await import("./coord.ts");
+    return coord(args);
+  },
   worker,
   keeper,
   update,
