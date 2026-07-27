@@ -16,11 +16,13 @@ export async function _deployLocal(host: string): Promise<void> {
   console.log(`>> verify bun`);
   console.log(`   bun: ${process.execPath}`);
 
-  const filled = await _backfillEnvFromPlist("self");
+  const { env: hostEnv, filled } = await _backfillEnvFromPlist("self");
   if (filled.length > 0) {
     console.log(`>> reused from existing plist: ${filled.join(", ")}`);
   }
-  if (!process.env.ROOST_COORDINATOR_URL) {
+  // hostEnv only ever holds keys absent from process.env, so spreading it
+  // below cannot shadow an explicit override.
+  if (!(process.env.ROOST_COORDINATOR_URL ?? hostEnv.ROOST_COORDINATOR_URL)) {
     console.error("ERROR: ROOST_COORDINATOR_URL env var required (no prior plist to reuse).");
     process.exit(6);
   }
@@ -35,6 +37,7 @@ export async function _deployLocal(host: string): Promise<void> {
     {
       quiet: true,
       env: {
+        ...hostEnv,
         BUN_BIN: process.execPath,
         ...(localGitSha ? { GIT_SHA: localGitSha } : {}),
       },

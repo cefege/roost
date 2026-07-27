@@ -69,17 +69,21 @@ export async function deploy(args: string[]): Promise<void> {
   const unameOut = await sshExec(host, "uname -s");
   if (unameOut.stdout.trim() === "Linux") {
     const gitSha = resolveLocalGitShaOrDie();
-    const filled = await _backfillEnvFromPlist(host);
+    const { env: hostEnv, filled } = await _backfillEnvFromPlist(host);
     if (filled.length > 0) {
       console.log(`>> reused from the installed unit on ${host}: ${filled.join(", ")}`);
     }
-    if (!process.env.ROOST_COORDINATOR_URL) {
+    // Explicit env wins; the rest comes from THIS host's own unit. Never from
+    // process.env leftovers — one `roost push` deploys every target in one
+    // process, and the label/address are per-host.
+    const resolved = (k: string): string | undefined => process.env[k] ?? hostEnv[k];
+    if (!resolved("ROOST_COORDINATOR_URL")) {
       console.error("ERROR: ROOST_COORDINATOR_URL env var required (no prior install on target to reuse).");
       process.exit(6);
     }
     const passthroughEnv = ["ROOST_COORDINATOR_URL", "ROOST_BOOTSTRAP_TOKEN", "ROOST_WORKER_LABEL", "ROOST_REACHABLE_ADDR"]
-      .filter((k) => process.env[k])
-      .map((k) => `${k}=${JSON.stringify(process.env[k])}`)
+      .filter((k) => resolved(k))
+      .map((k) => `${k}=${JSON.stringify(resolved(k))}`)
       .join(" ") + (gitSha ? ` GIT_SHA=${JSON.stringify(gitSha)}` : "");
     await deployLinux(host, { gitSha, passthroughEnv });
     return;
@@ -222,15 +226,17 @@ export async function deploy(args: string[]): Promise<void> {
   // deploy after commit. Hit me once already (sb29 → sb30 keeper-bump deploy).
   const localGitSha = resolveLocalGitShaOrDie();
   const gitShaEnv = localGitSha ? ` GIT_SHA=${JSON.stringify(localGitSha)}` : "";
-  const filled = await _backfillEnvFromPlist(host);
+  const { env: hostEnv, filled } = await _backfillEnvFromPlist(host);
   if (filled.length > 0) {
     console.log(`>> reused from existing plist on ${host}: ${filled.join(", ")}`);
   }
+  // Same rule as the linux branch: explicit env wins, then THIS host's plist.
+  const resolved = (k: string): string | undefined => process.env[k] ?? hostEnv[k];
   const passthroughEnv = ["ROOST_COORDINATOR_URL", "ROOST_BOOTSTRAP_TOKEN", "ROOST_WORKER_LABEL", "ROOST_REACHABLE_ADDR"]
-    .filter((k) => process.env[k])
-    .map((k) => `${k}=${JSON.stringify(process.env[k])}`)
+    .filter((k) => resolved(k))
+    .map((k) => `${k}=${JSON.stringify(resolved(k))}`)
     .join(" ") + certEnv + gitShaEnv;
-  if (!process.env.ROOST_COORDINATOR_URL) {
+  if (!resolved("ROOST_COORDINATOR_URL")) {
     console.error("ERROR: ROOST_COORDINATOR_URL env var required (no prior plist on target to reuse).");
     console.error("  ROOST_COORDINATOR_URL=https://<your-coord-host>:4102 \\");
     console.error("    ROOST_BOOTSTRAP_TOKEN=roost_bt_... \\");

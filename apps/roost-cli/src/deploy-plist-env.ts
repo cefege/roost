@@ -27,14 +27,23 @@ function _parseUnitEnv(unitText: string): Record<string, string> {
   return out;
 }
 
-/** Fill any missing ROOST_* env vars in process.env from the existing
- *  worker service definition on the target box — the LaunchAgent plist on
- *  macOS, the systemd --user unit on Linux. Returns the list of keys
- *  backfilled so the caller can log them. */
-export async function _backfillEnvFromPlist(host: string | "self"): Promise<string[]> {
+export interface HostEnvBackfill {
+  /** Values read off this host's own service definition. Never merged into
+   *  process.env: `roost push` deploys every target in ONE process, so a
+   *  global write leaks one machine's identity into the next machine's
+   *  install — ROOST_WORKER_LABEL and ROOST_REACHABLE_ADDR are per-host. */
+  env: Record<string, string>;
+  /** Keys that came from the target rather than the caller's environment. */
+  filled: string[];
+}
+
+/** Read any missing ROOST_* env vars from the existing worker service
+ *  definition on the target box — the LaunchAgent plist on macOS, the
+ *  systemd --user unit on Linux. */
+export async function _backfillEnvFromPlist(host: string | "self"): Promise<HostEnvBackfill> {
   const KEYS = ["ROOST_COORDINATOR_URL", "ROOST_REACHABLE_ADDR", "ROOST_WORKER_LABEL"];
   const missing = KEYS.filter((k) => !process.env[k]);
-  if (missing.length === 0) return [];
+  if (missing.length === 0) return { env: {}, filled: [] };
   const PLIST = "Library/LaunchAgents/com.roost.worker-v2.plist";
   const UNIT = `.config/systemd/user/${WORKER_UNIT}`;
   // Whichever the box has. Both parsers key off their own syntax, so
@@ -46,17 +55,18 @@ export async function _backfillEnvFromPlist(host: string | "self"): Promise<stri
       + (await Bun.file(`${home}/${UNIT}`).text().catch(() => ""));
   } else {
     const r = await sshExec(host, `cat ~/${PLIST} 2>/dev/null || true; cat ~/${UNIT} 2>/dev/null || true`);
-    if (r.exit !== 0) return [];
+    if (r.exit !== 0) return { env: {}, filled: [] };
     text = r.stdout;
   }
-  if (!text) return [];
-  const env = { ..._parseUnitEnv(text), ..._parsePlistEnv(text) };
+  if (!text) return { env: {}, filled: [] };
+  const parsed = { ..._parseUnitEnv(text), ..._parsePlistEnv(text) };
+  const env: Record<string, string> = {};
   const filled: string[] = [];
   for (const k of missing) {
-    if (env[k]) {
-      process.env[k] = env[k];
+    if (parsed[k]) {
+      env[k] = parsed[k];
       filled.push(k);
     }
   }
-  return filled;
+  return { env, filled };
 }
