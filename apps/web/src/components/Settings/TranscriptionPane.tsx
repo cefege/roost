@@ -4,10 +4,11 @@
 // Web Speech. Plus the client-only mic-on-desktop toggle. Keys are write-only:
 // coord returns them masked and never echoes the secret.
 // Callers: SettingsRoot.tsx. Depends on: coordClient transcription* RPCs +
-// lib/micOnDesktop (client pref).
+// lib/micOnDesktop (client pref) + lib/deepgramKey (cache dropped on save).
 
 import { createEffect, createResource, createSignal, Show } from "solid-js";
 import { coordClient } from "../../connect.ts";
+import { invalidateDeepgramKey } from "../../lib/deepgramKey.ts";
 import { Card, Button, Icon, Switch, TextField, Select } from "./md/primitives.tsx";
 
 // Deepgram nova-3 languages, verbatim from the official support matrix:
@@ -180,6 +181,7 @@ export function TranscriptionPane() {
         deepgramKey: dgKey().trim() ? dgKey().trim() : undefined,
         deepgramLanguage: lang().trim(),
       });
+      invalidateDeepgramKey(); // the mic's page-session cache now holds a stale key
       setDgKey("");
       setSaved(true);
       await refetch();
@@ -206,6 +208,7 @@ export function TranscriptionPane() {
     setSaving(true); setSaveErr(""); setSaved(false); setTestResult(null);
     try {
       await coordClient.transcriptionSetConfig({ deepgramKey: "", deepgramLanguage: lang().trim() });
+      invalidateDeepgramKey();
       await refetch();
     } catch (e) {
       setSaveErr(e instanceof Error ? e.message : String(e));

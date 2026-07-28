@@ -21,6 +21,12 @@ import type { ChannelId } from "@roost/shared/wire";
 import { coordClient } from "../connect.ts";
 import { createDeepgramDictation } from "../lib/deepgramDictation.ts";
 import {
+	getDeepgramKey,
+	invalidateDeepgramKey,
+	prefetchDeepgramKey,
+} from "../lib/deepgramKey.ts";
+import { warmMic } from "../lib/audioPcmCapture.ts";
+import {
 	buildAccum,
 	finalizeKeyterms,
 	type TerminalContext,
@@ -125,11 +131,8 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 	const [config] = createResource(() => coordClient.transcriptionGetConfig({}));
 	const dg = createDeepgramDictation({
 		language: () => config()?.deepgramLanguage ?? "en",
-		grantToken: () =>
-			coordClient.transcriptionGrantToken({}).then((r) => ({
-				accessToken: r.accessToken,
-				expiresIn: r.expiresIn,
-			})),
+		grantToken: () => getDeepgramKey(),
+		onCredentialRejected: invalidateDeepgramKey,
 		// Engine finished finalizing after a stop() → send whatever settled.
 		onEnd: () => sendTranscript(),
 		// Snapshot terminal context → keyterms at WS-open (best-effort). Learn from
@@ -359,7 +362,17 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 					data-testid="voice-mic"
 					data-recording={voiceState() === "listening" ? "true" : "false"}
 					data-finalizing={voiceState() === "finalizing" ? "true" : "false"}
-					onPointerDown={onFabPointerDown}
+					onPointerDown={(e) => {
+						onFabPointerDown(e);
+						// Open the device and fetch the key on press, not on release:
+						// the cold getUserMedia is what used to eat the first words.
+						if (voiceState() === "idle" && useDeepgram()) {
+							void warmMic().catch(() => {
+								/* startCapture surfaces the error on the actual tap */
+							});
+							prefetchDeepgramKey();
+						}
+					}}
 					onClick={() => toggleRecord()}
 					aria-label={
 						voiceState() === "listening"

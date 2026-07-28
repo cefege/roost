@@ -1,13 +1,15 @@
 // deepgramDictation — Deepgram live STT engine. Streams linear16/16k PCM
 // (audioPcmCapture) to wss://api.deepgram.com/v1/listen with interim_results
-// + smart_format/punctuate. Auth: the SPA never holds the key — coord grants a
-// ~30s token and the browser passes it via the ["bearer", token] WS subprotocol
-// (browsers can't set WS headers). KeepAlive @5s, Finalize on stop, 3s wait.
+// + smart_format/punctuate. Auth: the caller injects the credential via
+// grantToken (MobileVoiceInput passes the deepgramKey.ts cache) and it rides
+// the ["token", key] WS subprotocol — browsers can't set WS headers.
+// KeepAlive @5s, Finalize on stop, 3s wait. Emits voice.start_timing per
+// recording so tap→first-caption latency stays attributable.
 // Used by MobileVoiceInput when a Deepgram key is configured in coord; otherwise
 // the component falls back to the built-in Web Speech recognizer.
 
 import { createSignal, onCleanup } from "solid-js";
-import { createPcmCapture, type PcmCapture } from "./audioPcmCapture.ts";
+import { startCapture, stopCapture, micWarmupMs } from "./audioPcmCapture.ts";
 import { diag, signal } from "@roost/shared/diag";
 import { buildUrl } from "./deepgramDictation.url.ts";
 import { keytermHitRate, isExpectedClose, closeMessage } from "./deepgramDictation.helpers.ts";
@@ -34,12 +36,14 @@ const RECONNECT_DELAY_MS = 500;
 
 export interface DeepgramDictationOpts {
 	language: () => string; // "en" | "multi" | "__auto__"
-	grantToken: () => Promise<{ accessToken: string; expiresIn: number }>;
+	grantToken: () => Promise<string>;
 	onEnd?: () => void;
 	// Nova-3 keyterm biasing — terms extracted from the terminal you're dictating
 	// into (keytermContext.extractKeyterms). Evaluated once at WS-open (Deepgram
 	// fixes keyterms per connection), so each recording snapshots fresh context.
 	keyterms?: () => string[];
+	/** Deepgram refused the credential — drop any cached copy before the retry. */
+	onCredentialRejected?: () => void;
 }
 
 function deepgramSupported(): boolean {
@@ -61,7 +65,13 @@ export function createDeepgramDictation(
 	const [error, setError] = createSignal<string | null>(null);
 
 	let ws: WebSocket | null = null;
-	let capture: PcmCapture | null = null;
+	// Milestones for the voice.start_timing diag, all ms since the tap.
+	let tapMs = 0;
+	let micReadyMs = -1;
+	let firstAudioMs = -1;
+	let grantMs = -1;
+	let wsOpenMs = -1;
+	let timingEmitted = false;
 	let keepAlive: ReturnType<typeof setInterval> | null = null;
 	let finalizeTimer: ReturnType<typeof setTimeout> | null = null;
 	let endIntent: "send" | "cancel" | null = null;
@@ -80,11 +90,10 @@ export function createDeepgramDictation(
 			finalizeTimer = null;
 		}
 		try {
-			capture?.stop();
+			stopCapture();
 		} catch {
 			/* ignore */
 		}
-		capture = null;
 		preBuffer = [];
 		if (ws) {
 			try {
@@ -122,6 +131,22 @@ export function createDeepgramDictation(
 		opts.onEnd?.();
 	};
 
+	// One line per recording, ms since the tap; -1 for a milestone that never
+	// happened. warm_ms is 0 on a reused pipeline and the cold-open cost
+	// otherwise — the field that says whether the mic was actually warm.
+	const emitTiming = () => {
+		if (timingEmitted) return;
+		timingEmitted = true;
+		diag("voice.start_timing", {
+			warm_ms: Math.round(micWarmupMs()),
+			mic_ms: Math.round(micReadyMs),
+			first_audio_ms: Math.round(firstAudioMs),
+			grant_ms: Math.round(grantMs),
+			ws_open_ms: Math.round(wsOpenMs),
+			first_text_ms: Math.round(performance.now() - tapMs),
+		});
+	};
+
 	const start = () => {
 		setError(null);
 		endIntent = null;
@@ -130,25 +155,33 @@ export function createDeepgramDictation(
 		preBuffer = [];
 		setFinalText("");
 		setInterimText("");
+		tapMs = performance.now();
+		micReadyMs = -1;
+		firstAudioMs = -1;
+		grantMs = -1;
+		wsOpenMs = -1;
+		timingEmitted = false;
 
 		// Start the mic NOW, synchronously inside the tap gesture. Safari (and
 		// others) only grant getUserMedia within the user-gesture window — calling
 		// it later (after the token grant + WS handshake) is denied without even
 		// prompting. Audio captured before the WS opens is buffered, then flushed.
-		capture = createPcmCapture();
-		capture
-			.start((pcm16) => {
-				if (ws && ws.readyState === WebSocket.OPEN) {
-					try {
-						ws.send(pcm16.buffer as ArrayBuffer);
-					} catch {
-						/* ignore */
-					}
-				} else {
-					preBuffer.push(pcm16.buffer as ArrayBuffer);
+		startCapture((pcm16) => {
+			if (firstAudioMs < 0) firstAudioMs = performance.now() - tapMs;
+			if (ws && ws.readyState === WebSocket.OPEN) {
+				try {
+					ws.send(pcm16.buffer as ArrayBuffer);
+				} catch {
+					/* ignore */
 				}
-				// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			} else {
+				preBuffer.push(pcm16.buffer as ArrayBuffer);
+			}
+		})
+			.then(() => {
+				micReadyMs = performance.now() - tapMs;
 			})
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			.catch((e: any) => {
 				const name = e?.name || "";
 				const msg = e?.message || "";
@@ -182,7 +215,8 @@ export function createDeepgramDictation(
 	const connectWs = async () => {
 		let token: string;
 		try {
-			token = (await opts.grantToken()).accessToken;
+			token = await opts.grantToken();
+			grantMs = performance.now() - tapMs;
 		} catch {
 			// Token grant can fail transiently (coord restarting) — reconnect once.
 			if (!retried && endIntent !== "cancel") {
@@ -225,6 +259,7 @@ export function createDeepgramDictation(
 		ws.binaryType = "arraybuffer";
 
 		ws.onopen = () => {
+			wsOpenMs = performance.now() - tapMs;
 			keepAlive = setInterval(() => {
 				try {
 					ws?.send(JSON.stringify({ type: "KeepAlive" }));
@@ -257,6 +292,7 @@ export function createDeepgramDictation(
 			// MESSAGE, not a close frame. Always-on signal so the next occurrence
 			// is diagnosable from *.err.log instead of a vanished toast.
 			if (msg?.type === "Error" || msg?.err_msg) {
+				opts.onCredentialRejected?.();
 				const detail =
 					msg.err_msg ?? msg.description ?? msg.message ?? "unknown";
 				signal("voice.ws_failed", {
@@ -271,6 +307,7 @@ export function createDeepgramDictation(
 			if (msg?.type !== "Results") return;
 			const transcript: string =
 				msg.channel?.alternatives?.[0]?.transcript ?? "";
+			if (transcript.trim()) emitTiming();
 			if (msg.is_final) {
 				if (transcript.trim()) {
 					segments.push(transcript);
@@ -294,6 +331,9 @@ export function createDeepgramDictation(
 				keepAlive = null;
 			}
 			if (!isExpectedClose(e.code, endIntent)) {
+				// 4xxx is the range closeMessage classifies as "API key may be
+				// invalid" — drop the cached credential before the retry re-grants.
+				if (e.code >= 4000) opts.onCredentialRejected?.();
 				// Unexpected drop while listening → reconnect ONCE, mic still running.
 				if (!retried) {
 					retried = true;
@@ -317,12 +357,12 @@ export function createDeepgramDictation(
 
 	const stop = () => {
 		endIntent = "send";
+		emitTiming(); // a silent recording still reports where the time went
 		try {
-			capture?.stop();
+			stopCapture();
 		} catch {
 			/* ignore */
 		}
-		capture = null;
 		if (ws?.readyState === WebSocket.OPEN) {
 			try {
 				ws.send(JSON.stringify({ type: "Finalize" }));
