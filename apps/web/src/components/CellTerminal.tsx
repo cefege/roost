@@ -78,6 +78,7 @@ import { newestOpenSessionForFolderKey } from "../store/selectors.ts";
 import { folderKeyOf } from "../lib/folderKey.ts";
 import { TerminalOfflineNotice } from "./TerminalOfflineNotice.tsx";
 import { isPendingSpawn } from "../store/optimisticSpawn.ts";
+import { FOCUS_OWNERS } from "../lib/focusOwners.ts";
 
 interface CellTerminalProps {
 	session: Session;
@@ -143,14 +144,9 @@ function _registerCursorPoll(cb: () => void): () => void {
 // notice self-clears the instant a frame lands. See lib/offlineWatch.ts.
 const OFFLINE_GRACE_MS = 3000;
 
-// Elements that legitimately own the keyboard / pointer — a click or keystroke
-// landing inside one must NOT be yanked back to the terminal: real text widgets,
-// open overlays (rename dialog / ⌘K palette / context menu), and the terminal
-// itself (its own click + selection are fine). Everything else (bare buttons:
-// sidebar ✕/FAB, mic, nav-keys, launch FAB, tabs, toasts) is fair game to keep
-// terminal focus. Shared by BOTH focus guards below so the allowlist can't drift.
-const FOCUS_OWNERS =
-	'input, textarea, select, [contenteditable=""], [contenteditable="true"], [role="textbox"], [role="searchbox"], [role="dialog"], [role="menu"], dialog, .wterm';
+// FOCUS_OWNERS (the focus allowlist shared by both guards below) now lives in
+// lib/focusOwners.ts so a test can import it without the JSX runtime. Its
+// comment explains the shadow-DOM retarget rule — read it before narrowing it.
 
 export function CellTerminal(props: CellTerminalProps) {
 	// Resolve a file path from terminal output → internal file-viewer href.

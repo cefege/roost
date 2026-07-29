@@ -9,8 +9,7 @@
 // Caller: components/agent/TranscriptDeck.tsx.
 
 import { Show, createSignal, type Component } from "solid-js";
-import { Button } from "../Settings/md/Button.tsx";
-import { TextField } from "../Settings/md/TextField.tsx";
+import { AgentButton, AgentTextArea } from "./controls.tsx";
 import { liveStatus } from "../../lib/attention.ts";
 import { coordClient } from "../../connect.ts";
 import { addToast } from "../../lib/toastStore.ts";
@@ -63,16 +62,13 @@ export const Composer: Component<{ session: Session }> = (props) => {
         "flex-shrink": "0",
       }}
     >
-      <TextField
+      <AgentTextArea
         value={text()}
         onInput={setText}
-        type="textarea"
-        rows={2}
         ariaLabel="Message the agent"
         placeholder="Message the agent…"
         testId="agent-composer-input"
         disabled={sending()}
-        style={{ flex: "1" }}
         onKeyDown={(e) => {
           // isComposing: an IME candidate-confirm Enter (CJK, Korean) must
           // land in the box, not fire a half-composed message.
@@ -84,20 +80,19 @@ export const Composer: Component<{ session: Session }> = (props) => {
       <Show
         when={running()}
         fallback={
-          <Button
+          <AgentButton
             variant="filled"
-            icon="send"
             disabled={sending() || !text().trim()}
             data-testid="agent-composer-send"
             onClick={() => void send()}
           >
             Send
-          </Button>
+          </AgentButton>
         }
       >
-        <Button variant="tonal" icon="stop" data-testid="agent-composer-stop" onClick={() => void stop()}>
+        <AgentButton variant="tonal" data-testid="agent-composer-stop" onClick={() => void stop()}>
           Stop
-        </Button>
+        </AgentButton>
       </Show>
     </div>
   );

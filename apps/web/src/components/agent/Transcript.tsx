@@ -12,7 +12,7 @@
 // Caller: components/agent/TranscriptDeck.tsx.
 
 import { Index, Match, Show, Switch, createEffect, createMemo, createSignal, on, type Component } from "solid-js";
-import { Button } from "../Settings/md/Button.tsx";
+import { AgentButton } from "./controls.tsx";
 import { EntryPrompt } from "./EntryPrompt.tsx";
 import { EntryText } from "./EntryText.tsx";
 import { EntryTool } from "./EntryTool.tsx";
@@ -78,16 +78,23 @@ export const Transcript: Component<{ session: Session }> = (props) => {
         padding: "var(--md-space-4)",
       }}
     >
+      {/* Bottom-anchors a short conversation onto the composer instead of
+          leaving it floating above a void. Deliberately a margin-top:auto
+          SPACER and not `justify-content: flex-end` on the scroll container:
+          that combination clips overflowing content at the top and makes it
+          unreachable by scrolling. */}
+      <div aria-hidden="true" style={{ "margin-top": "auto" }} />
+
       <Show when={hasEarlierEntries(sid())}>
         <div style={{ display: "flex", "justify-content": "center" }}>
-          <Button
+          <AgentButton
             variant="text"
             disabled={isBackfilling(sid())}
             data-testid="agent-load-earlier"
             onClick={() => void backfillEntries(sid())}
           >
             {isBackfilling(sid()) ? "Loading…" : "Load earlier"}
-          </Button>
+          </AgentButton>
         </div>
       </Show>
 
@@ -110,9 +117,9 @@ export const Transcript: Component<{ session: Session }> = (props) => {
               without this the pane would read "Loading transcript…" forever. */}
           <Show when={failedFirstPage()} fallback={hasBackfilled(sid()) ? "No messages yet." : "Loading transcript…"}>
             <span>Couldn't load the transcript.</span>
-            <Button variant="text" data-testid="agent-transcript-retry" onClick={() => void backfillEntries(sid())}>
+            <AgentButton variant="text" data-testid="agent-transcript-retry" onClick={() => void backfillEntries(sid())}>
               Retry
-            </Button>
+            </AgentButton>
           </Show>
         </div>
       </Show>
