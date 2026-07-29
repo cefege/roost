@@ -14,6 +14,7 @@ import { installSpaDiag, installSignalShip } from "./lib/diag.ts";
 import { installLeakWatch } from "./lib/leakWatch.ts";
 import "./lib/keyboardInset.ts"; // side effect: track soft-keyboard inset via --kb-offset
 import { diag, signal } from "@roost/shared/diag";
+import { effectiveAttempts, shouldReloadForChunkError } from "./lib/chunkError.ts";
 import "./styles/theme-vars.css";
 import "./styles/syntax-vars.css";
 import "./styles/sidebar.css";
@@ -38,17 +39,62 @@ installSpaDiag();
 // hashes are stale. Vite fires vite:preloadError for every failed dynamic
 // import(). Auto-reload is the only correct recovery — the new index.html
 // (never cached) points to current-hash chunks. Guard against offline and
-// tight reload loops with a 5 s cooldown.
-let lastChunkReload = 0;
-window.addEventListener("vite:preloadError", () => {
-  if (!navigator.onLine) return;
+// tight reload loops with a cooldown.
+//
+// vite:preloadError covers Vite's dynamic-import wrapper ONLY. A TOP-LEVEL
+// module script that 404s never fires it — that arrives as a plain window
+// `error` ("Importing a module script failed" in Safari), which is what a
+// production tab hit on 2026-07-29 after a redeploy. Both paths share the
+// counter below so the loop guard can't be defeated by alternating them.
+const CHUNK_RELOAD_KEY = "roost.chunkReload";
+function readChunkReloadState(): { attempts: number; lastReloadAt: number } {
+  try {
+    const raw = sessionStorage.getItem(CHUNK_RELOAD_KEY);
+    if (!raw) return { attempts: 0, lastReloadAt: 0 };
+    const parsed: unknown = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && "attempts" in parsed && "lastReloadAt" in parsed) {
+      const a = parsed.attempts;
+      const l = parsed.lastReloadAt;
+      return {
+        attempts: typeof a === "number" ? a : 0,
+        lastReloadAt: typeof l === "number" ? l : 0,
+      };
+    }
+  } catch { /* sessionStorage unavailable / malformed → treat as first attempt */ }
+  return { attempts: 0, lastReloadAt: 0 };
+}
+// sessionStorage, not a module global: the reload discards module state, so an
+// in-memory counter would reset every time and loop forever.
+function recoverFromChunkError(message: string | undefined | null): boolean {
+  const stored = readChunkReloadState();
   const now = Date.now();
-  if (now - lastChunkReload < 5_000) return;
-  lastChunkReload = now;
+  // Expire a stale count so a long-lived tab keeps self-healing across deploys.
+  const attempts = effectiveAttempts(stored.attempts, stored.lastReloadAt, now);
+  const go = shouldReloadForChunkError({
+    message,
+    now,
+    lastReloadAt: stored.lastReloadAt,
+    online: navigator.onLine,
+    attempts,
+  });
+  if (!go) return false;
+  try {
+    sessionStorage.setItem(
+      CHUNK_RELOAD_KEY,
+      JSON.stringify({ attempts: attempts + 1, lastReloadAt: Date.now() }),
+    );
+  } catch { /* can't persist → the cooldown below still bounds one reload */ }
+  signal("spa.chunk_reload", { msg: String(message ?? "").slice(0, 120), attempt: attempts + 1 });
   window.location.reload();
+  return true;
+}
+window.addEventListener("vite:preloadError", () => {
+  recoverFromChunkError("failed to fetch dynamically imported module");
 });
 
 window.addEventListener("error", (e) => {
+  // Stale-chunk errors are recoverable; reload instead of reporting a crash.
+  if (recoverFromChunkError(e.message)) return;
   signal("spa.uncaught", {
     kind: "error",
     msg: e.message,
@@ -63,6 +109,10 @@ window.addEventListener("error", (e) => {
 });
 window.addEventListener("unhandledrejection", (e) => {
   const r = e.reason as { message?: string; stack?: string } | undefined;
+  // A failed lazy() import REJECTS rather than throwing, so this is the path a
+  // stale route chunk actually takes — the 2026-07-29 production report arrived
+  // here (empty stack, message only). Recover before reporting a crash.
+  if (recoverFromChunkError(r?.message ?? String(e.reason ?? ""))) return;
   signal("spa.uncaught", {
     kind: "rejection",
     msg: String(r?.message ?? r ?? ""),

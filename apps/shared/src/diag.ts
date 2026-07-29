@@ -114,6 +114,7 @@ export function isDiagEnabled(): boolean { return DIAG_ENABLED; }
 // rely on the per-kind cooldown below. Context-level detail stays on diag().
 export type SignalKind =
   | "spa.uncaught"
+  | "spa.chunk_reload"         // SPA self-healed a stale-chunk load after a redeploy (kv.msg,attempt). A BURST = deploys leaving tabs broken, or dist served inconsistently
   | "diag.corruption_signal"   // SPA anomaly detectors (kv.kind = the detector)
   | "auth.key_evicted"
   | "auth.relogin_401"
