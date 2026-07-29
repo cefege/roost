@@ -50,6 +50,7 @@ export const ClientControlFrame = z.discriminatedUnion("kind", [
     folder: z.string(),
     session_id: SessionId.optional(),
     resume_file: z.string().optional(),
+    next_seq: z.number().int().positive().optional(),
   }),
   Base.extend({ kind: z.literal("kill"), session_id: SessionId }),
   Base.extend({ kind: z.literal("user-message"), session_id: SessionId, text: z.string() }),
@@ -81,7 +82,6 @@ export const ClientControlFrame = z.discriminatedUnion("kind", [
     end_row: z.number().int().nonnegative(),
     max_rows: z.number().int().positive(),
   }),
-  Base.extend({ kind: z.literal("get-omp-transcript-page"), request_id: z.string(), session_id: SessionId, cursor: z.string().optional(), limit: z.literal(128) }),
   Base.extend({ kind: z.literal("omp-abort"), request_id: z.string(), session_id: SessionId }),
   // Answer an omp extension_ui_request surfaced as an AgentPromptEntry.
   // An unanswered prompt hangs the agent forever, so this is the only exit

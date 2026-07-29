@@ -9,7 +9,7 @@
 //
 // Caller: components/MainPane.tsx (branches on activeOpenSession().kind).
 
-import { Show, type Component } from "solid-js";
+import { type Component } from "solid-js";
 import { Composer } from "./Composer.tsx";
 import { Transcript } from "./Transcript.tsx";
 import { TerminalStatusBadge } from "../TerminalStatusBadge.tsx";
@@ -58,22 +58,18 @@ export const TranscriptDeck: Component<{ session: Session }> = (props) => (
         >
           {sessionTitle(props.session)}
         </div>
-        {/* Only when it adds information: an agent session's auto title IS the
-            folder basename, so rendering both printed the same word twice. */}
-        <Show when={shortCwd(props.session.spawn_cwd ?? props.session.cwd) !== sessionTitle(props.session)}>
-          <div
-            style={{
-              color: "var(--md-on-surface-variant)",
-              "font-size": "var(--md-label-s-size)",
-              "line-height": "var(--md-label-s-line)",
-              overflow: "hidden",
-              "text-overflow": "ellipsis",
-              "white-space": "nowrap",
-            }}
-          >
-            {shortCwd(props.session.spawn_cwd ?? props.session.cwd)}
-          </div>
-        </Show>
+        <div
+          style={{
+            color: "var(--md-on-surface-variant)",
+            "font-size": "var(--md-label-s-size)",
+            "line-height": "var(--md-label-s-line)",
+            overflow: "hidden",
+            "text-overflow": "ellipsis",
+            "white-space": "nowrap",
+          }}
+        >
+          {shortCwd(props.session.spawn_cwd ?? props.session.cwd)}
+        </div>
       </div>
       {/* Same Working / Needs input / Done / Idle vocabulary the sidebar and
           terminal panes read — lib/agentStatus.ts is the single source. */}

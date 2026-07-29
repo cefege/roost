@@ -60,7 +60,7 @@ beforeAll(async () => {
     publicUrl: undefined,
     handoffPath: join(workdir, "coord-handoff.json"),
   };
-  coord = createCoord({ db, coordKey, cfg, jwtCache });
+  coord = createCoord({ db, sqlite, coordKey, cfg, jwtCache });
 
   // Mint a browser keypair, authorize it loopback-only, sign a JWT.
   const browserKeys = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);

@@ -14,6 +14,7 @@ import { create } from "@bufbuild/protobuf";
 import { randomUUID } from "node:crypto";
 import { CoordWorkerDownSchema, DHelloAckSchema, DBrowserCommandSchema, DEventAckSchema, DPingSchema } from "@roost/shared/proto/worker_transport_pb";
 import type { CoordWorkerUp, CoordWorkerDown } from "@roost/shared/proto/worker_transport_pb";
+import type { Database } from "bun:sqlite";
 import type { CoordKey } from "../coord-key.ts";
 import type { CoordConfig } from "@roost/shared/config";
 import type { JwtCache } from "../jwt.ts";
@@ -23,7 +24,9 @@ import { appendEvent } from "../event-log.ts";
 import { publishBytes, publishCellGrid, primeChannelMap } from "../byte-hub.ts";
 import { resolvePendingRpc, rejectPendingRpc, rejectPendingRpcsForWorker } from "../router/pending-rpcs.ts";
 import { globalAgentEntryBus } from "../buses.ts";
+import { nextAgentSeq, upsertAgentEntries } from "../agent-transcript.ts";
 import { protoToEvent } from "@roost/shared/wire/event-proto";
+import { agentEntryFromProto } from "@roost/shared/wire/agent-proto";
 import { asWorkerFp, asChannelId, asSessionId, SessionKind } from "@roost/shared/wire";
 import type { ClientControlFrame } from "@roost/shared/wire";
 import { safeJsonParse } from "@roost/shared/json";
@@ -34,6 +37,7 @@ import { connectWorkers, _publishRoutable, type WorkerHandle } from "./worker-re
 
 export interface WorkerServiceDeps {
   db: KyselyDB;
+  sqlite: Database;
   coordKey: CoordKey;
   jwtCache: JwtCache;
   cfg: CoordConfig;
@@ -63,6 +67,10 @@ export function makeWorkerConn(
   let workerFp: string | null = null;
   let done = false;
   let keepaliveTimer: ReturnType<typeof setInterval> | null = null;
+  const ownedAgentSessions = new Set<string>();
+  const agentSessionOwner = deps.sqlite.query<{ worker_fp: string }, [string]>(
+    "SELECT worker_fp FROM sessions WHERE id = ?",
+  );
   // 2026-06-15: identity-stamped handle so cleanup only deletes THIS
   // connection's own registry entry. When a worker reconnects rapidly,
   // connection A's delayed cleanup must not delete connection B's entry —
@@ -89,6 +97,7 @@ export function makeWorkerConn(
     if (done) return;
     done = true;
     if (keepaliveTimer) { clearInterval(keepaliveTimer); keepaliveTimer = null; }
+    agentSessionOwner.finalize();
     if (workerFp) {
       _deleteIfStillMine(workerFp);
       // A5: fast-fail this worker's in-flight RPCs (browser spawn/attach
@@ -154,7 +163,7 @@ export function makeWorkerConn(
         // Respawn-if-missing 3s after hello (grace for the worker's own
         // snapshot events to land first); idempotent on the worker side.
         setTimeout(() => {
-          _respawnMissingForWorker(deps.db, fp, myHandle).catch((e) => {
+          _respawnMissingForWorker(deps.db, deps.sqlite, fp, myHandle).catch((e) => {
             log.warn("worker-service", "respawn_missing_failed", { error: String(e), worker_fp: fp });
           });
         }, 3000);
@@ -234,13 +243,41 @@ export function makeWorkerConn(
         return;
       }
       case "agentEntries": {
-        // omp agent transcript batches. Unlike bytes/cellGrid there is no
-        // channel→session demux to do here: the worker stamps session_id onto
-        // the frame itself, so coord is a pure relay. Pre-hello frames drop on
-        // the same `workerFp` trust gate the two cases above use.
+        // Write through before publishing. Re-emitting a growing entry under
+        // the same seq replaces its durable row; a DB hiccup must not interrupt
+        // the live transcript, so persistence failure degrades to relay-only.
         const ae = f.frame.value;
         if (workerFp && ae.sessionId) {
+          if (!ownedAgentSessions.has(ae.sessionId)) {
+            const owner = agentSessionOwner.get(ae.sessionId);
+            if (owner?.worker_fp !== workerFp) {
+              log.warn("worker-service", "agent_entries_owner_mismatch", {
+                session_id: ae.sessionId,
+                worker_fp: workerFp,
+                owner_fp: owner?.worker_fp ?? null,
+              });
+              signal("worker.protocol_violation", {
+                reason: "agent_entries_owner_mismatch",
+                worker_fp: workerFp,
+                cooldownKey: workerFp,
+              });
+              return;
+            }
+            ownedAgentSessions.add(ae.sessionId);
+          }
           diag("agent.entries_relay", { sid: ae.sessionId, count: ae.entries.length });
+          try {
+            upsertAgentEntries(
+              deps.sqlite,
+              ae.sessionId,
+              ae.entries.map(agentEntryFromProto),
+            );
+          } catch (e) {
+            log.warn("worker-service", "agent_entries_persist_failed", {
+              session_id: ae.sessionId,
+              error: String(e),
+            });
+          }
           globalAgentEntryBus.publish(ae);
         }
         return;
@@ -311,9 +348,25 @@ function _agentSessionFile(agentJson: string | null): string | undefined {
   const file = state?.session_file;
   return typeof file === "string" && file.length > 0 ? file : undefined;
 }
+export function _agentRespawnFrame(
+  sqlite: Database,
+  row: { id: string; cwd: string; agent_json: string | null },
+): Extract<ClientControlFrame, { kind: "spawn-agent" }> {
+  return {
+    kind: "spawn-agent",
+    folder: row.cwd,
+    session_id: asSessionId(row.id),
+    resume_file: _agentSessionFile(row.agent_json),
+    next_seq: nextAgentSeq(sqlite, row.id),
+  };
+}
+
 
 async function _respawnMissingForWorker(
-  db: KyselyDB, workerFp: string, handle: WorkerHandle,
+  db: KyselyDB,
+  sqlite: Database,
+  workerFp: string,
+  handle: WorkerHandle,
 ): Promise<void> {
   const rows = await db.selectFrom("sessions")
     .select(["id", "kind", "cwd", "agent_json"])
@@ -347,12 +400,7 @@ async function _respawnMissingForWorker(
     // not self-heal on reconnect — clearing that is a user-driven kill +
     // respawn, not something this sweep can force.
     const frame: ClientControlFrame = kind.data === "agent"
-      ? {
-          kind: "spawn-agent",
-          folder: row.cwd,
-          session_id: asSessionId(row.id),
-          resume_file: _agentSessionFile(row.agent_json),
-        }
+      ? _agentRespawnFrame(sqlite, row)
       : {
           kind: "respawn-if-missing",
           request_id: requestId,

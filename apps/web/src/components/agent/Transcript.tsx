@@ -1,8 +1,8 @@
 // The scrolling body of an agent session: every AgentEntry in seq order.
 //
-// No virtualization in v1 — the worker's ring is capped at 2000 entries, which
-// is a few thousand DOM nodes at worst, and virtualizing a list whose rows
-// change height as text streams is its own bug farm.
+// No virtualization yet: rows stream in place and can change height, which
+// makes naive fixed-row virtualization corrupt scroll anchoring. Durable pages
+// are loaded incrementally as the reader reaches the top.
 //
 // Scroll follows the cellRenderer idiom: the reader owns every non-bottom
 // position, and a render only pins to the bottom when it STARTED at the literal
@@ -11,21 +11,30 @@
 //
 // Caller: components/agent/TranscriptDeck.tsx.
 
-import { Index, Match, Show, Switch, createEffect, createMemo, createSignal, on, type Component } from "solid-js";
-import { AgentButton } from "./controls.tsx";
+import {
+  Index, Match, Show, Switch, createEffect, createMemo, createSignal, on,
+  onCleanup, onMount, type Component,
+} from "solid-js";
+import { Button } from "../Settings/md/Button.tsx";
+import { AgentNotice } from "./AgentNotice.tsx";
 import { EntryPrompt } from "./EntryPrompt.tsx";
 import { EntryText } from "./EntryText.tsx";
 import { EntryTool } from "./EntryTool.tsx";
+import { EntryImage } from "./EntryImage.tsx";
+import { EntrySubagent } from "./EntrySubagent.tsx";
+import { EntryTodo } from "./EntryTodo.tsx";
 import {
   agentEntries, backfillEntries, hasBackfilled, hasEarlierEntries, isBackfilling,
 } from "../../store/agentEntries.ts";
 import type {
-  AgentEntry, AgentNoticeEntry, AgentPromptEntry, AgentTextEntry, AgentToolEntry,
+  AgentEntry, AgentImageEntry, AgentNoticeEntry, AgentPromptEntry,
+  AgentSubagentEntry, AgentTextEntry, AgentTodoEntry, AgentToolEntry,
 } from "@roost/shared/wire/agent-entry";
 import type { Session } from "@roost/shared/wire";
 
 export const Transcript: Component<{ session: Session }> = (props) => {
   let el: HTMLDivElement | undefined;
+  let earlierSentinel: HTMLDivElement | undefined;
   // Not a signal: nothing renders it, and a scroll handler that writes a signal
   // on every wheel tick would re-run the whole reactive graph at 60 Hz.
   let atBottom = true;
@@ -41,10 +50,9 @@ export const Transcript: Component<{ session: Session }> = (props) => {
     return `${list.length}\u0000${last ? tailSignature(last) : ""}`;
   });
 
-  // Mount AND session switch both need the newest page: the firehose is
-  // volatile, so a transcript opened after the turn happened has nothing until
-  // this lands. `tried` gates the failure state so the first paint (before this
-  // effect runs) reads "Loading…", not "Couldn't load".
+  // Mount AND session switch both need the newest durable page: the live
+  // firehose does not replay. `tried` gates the failure state so the first
+  // paint (before this effect runs) reads "Loading…", not "Couldn't load".
   const [tried, setTried] = createSignal(false);
   createEffect(on(sid, (id) => {
     atBottom = true;
@@ -58,6 +66,17 @@ export const Transcript: Component<{ session: Session }> = (props) => {
     const bottom = Math.max(0, el.scrollHeight - el.clientHeight);
     if (el.scrollTop !== bottom) el.scrollTop = bottom;
   }));
+
+  onMount(() => {
+    if (!el || !earlierSentinel || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver((observations) => {
+      if (!observations.some((observation) => observation.isIntersecting)) return;
+      const id = sid();
+      if (hasEarlierEntries(id) && !isBackfilling(id)) void backfillEntries(id);
+    }, { root: el });
+    observer.observe(earlierSentinel);
+    onCleanup(() => observer.disconnect());
+  });
 
   return (
     <div
@@ -78,23 +97,22 @@ export const Transcript: Component<{ session: Session }> = (props) => {
         padding: "var(--md-space-4)",
       }}
     >
-      {/* Bottom-anchors a short conversation onto the composer instead of
-          leaving it floating above a void. Deliberately a margin-top:auto
-          SPACER and not `justify-content: flex-end` on the scroll container:
-          that combination clips overflowing content at the top and makes it
-          unreachable by scrolling. */}
-      <div aria-hidden="true" style={{ "margin-top": "auto" }} />
-
+      <div
+        ref={earlierSentinel}
+        aria-hidden="true"
+        data-testid="agent-transcript-earlier-sentinel"
+        style={{ height: "1px", "flex-shrink": 0 }}
+      />
       <Show when={hasEarlierEntries(sid())}>
         <div style={{ display: "flex", "justify-content": "center" }}>
-          <AgentButton
+          <Button
             variant="text"
             disabled={isBackfilling(sid())}
             data-testid="agent-load-earlier"
             onClick={() => void backfillEntries(sid())}
           >
             {isBackfilling(sid()) ? "Loading…" : "Load earlier"}
-          </AgentButton>
+          </Button>
         </div>
       </Show>
 
@@ -117,9 +135,9 @@ export const Transcript: Component<{ session: Session }> = (props) => {
               without this the pane would read "Loading transcript…" forever. */}
           <Show when={failedFirstPage()} fallback={hasBackfilled(sid()) ? "No messages yet." : "Loading transcript…"}>
             <span>Couldn't load the transcript.</span>
-            <AgentButton variant="text" data-testid="agent-transcript-retry" onClick={() => void backfillEntries(sid())}>
+            <Button variant="text" data-testid="agent-transcript-retry" onClick={() => void backfillEntries(sid())}>
               Retry
-            </AgentButton>
+            </Button>
           </Show>
         </div>
       </Show>
@@ -135,7 +153,10 @@ export const Transcript: Component<{ session: Session }> = (props) => {
             <Match when={asPrompt(entry())}>
               {(e) => <EntryPrompt sessionId={sid()} entry={e()} />}
             </Match>
-            <Match when={asNotice(entry())}>{(e) => <Notice entry={e()} />}</Match>
+            <Match when={asNotice(entry())}>{(e) => <AgentNotice entry={e()} />}</Match>
+            <Match when={asTodo(entry())}>{(e) => <EntryTodo entry={e()} />}</Match>
+            <Match when={asSubagent(entry())}>{(e) => <EntrySubagent entry={e()} />}</Match>
+            <Match when={asImage(entry())}>{(e) => <EntryImage entry={e()} />}</Match>
           </Switch>
         )}
       </Index>
@@ -143,26 +164,6 @@ export const Transcript: Component<{ session: Session }> = (props) => {
   );
 };
 
-// Lifecycle chatter (resumed, child exited, extension errors). One muted line;
-// errors take the error role because a dead omp child is the one notice that
-// changes what the user should do next.
-const Notice: Component<{ entry: AgentNoticeEntry }> = (props) => (
-  <div
-    data-testid="agent-entry-notice"
-    data-seq={props.entry.seq}
-    data-level={props.entry.level}
-    style={{
-      color: props.entry.level === "error" ? "var(--md-error)" : "var(--md-on-surface-dim)",
-      "font-size": "var(--md-label-m-size)",
-      "line-height": "var(--md-label-m-line)",
-      "white-space": "pre-wrap",
-      "overflow-wrap": "anywhere",
-      "text-align": "center",
-    }}
-  >
-    {props.entry.text}
-  </div>
-);
 
 // Narrowing helpers, not renames: <Match when={...}> hands its callback the
 // truthy value, so returning the entry (or undefined) is what lets each row
@@ -179,8 +180,28 @@ function asPrompt(e: AgentEntry): AgentPromptEntry | undefined {
 function asNotice(e: AgentEntry): AgentNoticeEntry | undefined {
   return e.kind === "notice" ? e : undefined;
 }
+function asTodo(e: AgentEntry): AgentTodoEntry | undefined {
+  return e.kind === "todo" ? e : undefined;
+}
+function asSubagent(e: AgentEntry): AgentSubagentEntry | undefined {
+  return e.kind === "subagent" ? e : undefined;
+}
+function asImage(e: AgentEntry): AgentImageEntry | undefined {
+  return e.kind === "image" ? e : undefined;
+}
 
 // The one field of the tail entry that grows in place.
 function tailSignature(e: AgentEntry): string {
-  return e.kind === "prompt" ? `${e.state}\u0000${e.answer.length}` : String(e.text.length);
+  switch (e.kind) {
+    case "prompt":
+      return `${e.state}\u0000${e.answer.length}`;
+    case "todo":
+      return String(e.phases_json.length);
+    case "subagent":
+      return `${e.state}\u0000${e.text.length}`;
+    case "image":
+      return String(e.data_b64.length);
+    default:
+      return String(e.text.length);
+  }
 }

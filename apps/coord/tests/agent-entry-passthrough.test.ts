@@ -1,15 +1,10 @@
 // omp agent sessions, coord side. Pins the three things the worker slice and
 // the SPA compile against:
 //   1. spawn: SessionsSpawn{kind:"agent"} → the `spawn-agent` control frame.
-//   2. transcript backfill: SessionsGetAgentEntries → the worker's
-//      `get-omp-transcript-page` frame, and its {entries, first_seq, more}
-//      rpc-ok payload decoded back into proto AgentEntries. A malformed entry
-//      is skipped, not fatal; a lost worker is Code.Unavailable, NEVER an
-//      empty page (an empty page reads as "no history" and would leave a
-//      permanent hole in the rendered transcript).
-//   3. fan-out: an AgentEntriesFrame on globalAgentEntryBus becomes
-//      FirehoseFrame.agentEntries — the SPA's live path. Mirrors
-//      cell-passthrough.test.ts for the cell bus.
+//   2. transcript durability: a worker AgentEntriesFrame reaches the SPA live,
+//      is persisted by coord, and remains available through
+//      SessionsGetAgentEntries after the worker disconnects.
+//   3. prompt handling: answers and aborts reach the owning worker.
 
 import { describe, it, expect, beforeAll, afterAll } from "bun:test";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
@@ -25,7 +20,9 @@ import {
   SessionsAgentAbortRequestSchema,
 } from "@roost/shared/proto/coordinator_pb";
 import { AgentEntriesFrameSchema, type FirehoseFrame } from "@roost/shared/proto/sync_pb";
-import type { CoordWorkerDown } from "@roost/shared/proto/worker_transport_pb";
+import {
+  CoordWorkerUpSchema, WHelloSchema, type CoordWorkerDown,
+} from "@roost/shared/proto/worker_transport_pb";
 import { asSessionId, asWorkerFp } from "@roost/shared/wire";
 import type { ClientControlFrame } from "@roost/shared/wire";
 import { agentEntryToProto } from "@roost/shared/wire/agent-proto";
@@ -33,11 +30,14 @@ import { AgentEntry } from "@roost/shared/wire/agent-entry";
 import { openDb, type KyselyDB } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
 import { globalAgentEntryBus } from "../src/buses.ts";
-import { __setConnectWorkerForTest } from "../src/connect/worker-service.ts";
+import {
+  __setConnectWorkerForTest, getWorkerHubSocket, makeWorkerConn, type WorkerServiceDeps,
+} from "../src/connect/worker-service.ts";
+import { _agentRespawnFrame } from "../src/connect/worker-conn.ts";
+import { upsertAgentEntries } from "../src/agent-transcript.ts";
 import { _spawnFrameFor } from "../src/connect/handlers-sessions.ts";
 import { makeAgentSessionHandlers } from "../src/connect/handlers-sessions-agent.ts";
 import { startSyncFeed } from "../src/connect/handlers-streaming.ts";
-import { resolvePendingRpc, rejectPendingRpcsForWorker } from "../src/router/pending-rpcs.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";
 
 type AgentHandlers = Pick<
@@ -99,7 +99,7 @@ beforeAll(async () => {
     id: SID, worker_fp: String(FP), channel: 3, kind: "agent", cwd: "/tmp/scratch",
     workspace_id: null, status: "open", agent_json: null, created_at: 1, closed_at: null,
   }).execute();
-  handlers = makeAgentSessionHandlers({ db } as unknown as ConnectDeps);
+  handlers = makeAgentSessionHandlers({ db, sqlite } as unknown as ConnectDeps);
   connect();
 });
 
@@ -118,62 +118,28 @@ describe("agent session spawn frame", () => {
     expect(_spawnFrameFor({ kind: "agent", folder: "/tmp/scratch", cols: 80, rows: 24 }))
       .toEqual({ kind: "spawn-agent", folder: "/tmp/scratch" });
   });
+
+  it("restart command carries the first unused durable transcript seq", () => {
+    upsertAgentEntries(sqlite, SID, [AgentEntry.parse(entry(12, "before restart"))]);
+    try {
+      expect(_agentRespawnFrame(sqlite, {
+        id: SID,
+        cwd: "/tmp/scratch",
+        agent_json: JSON.stringify({ session_file: "/tmp/omp-session.jsonl" }),
+      })).toEqual({
+        kind: "spawn-agent",
+        folder: "/tmp/scratch",
+        session_id: SID,
+        resume_file: "/tmp/omp-session.jsonl",
+        next_seq: 13,
+      });
+    } finally {
+      sqlite.prepare("DELETE FROM agent_entries WHERE session_id = ?").run(SID);
+    }
+  });
 });
 
 describe("SessionsGetAgentEntries", () => {
-  it("asks the worker for a transcript page and decodes {entries, first_seq, more}", async () => {
-    const res = Promise.resolve(handlers.sessionsGetAgentEntries(
-      create(SessionsGetAgentEntriesRequestSchema, { sessionId: SID, beforeSeq: 0n }), ctx(),
-    ));
-
-    const { requestId, frame } = await nextFrame();
-    if (frame.kind !== "get-omp-transcript-page") throw new Error(`wrong frame: ${frame.kind}`);
-    expect(frame.session_id).toBe(SID);
-    expect(frame.limit).toBe(128);
-    expect(frame.cursor).toBe("0");           // 0 = newest page
-    expect(frame.request_id).toBe(requestId); // frame id == envelope id
-
-    // The worker's rpc-ok payload: Zod-shaped AgentEntry JSON. The middle entry
-    // is malformed (a tool entry with no body fields) and must be dropped
-    // without costing the rest of the page.
-    expect(resolvePendingRpc(requestId, {
-      entries: [entry(4, "pong"), { kind: "tool", seq: 5, ts: 1 }, entry(6, "done")],
-      first_seq: 4,
-      more: true,
-    })).toBe(true);
-
-    const out = await res;
-    const entries = out.entries ?? [];
-    expect(entries.map((e) => Number(e.seq))).toEqual([4, 6]);
-    expect(entries[0]?.body?.case).toBe("assistant");
-    expect(out.firstSeq).toBe(4n);
-    expect(out.more).toBe(true);
-  });
-
-  it("non-zero before_seq rides through as the cursor", async () => {
-    const res = Promise.resolve(handlers.sessionsGetAgentEntries(
-      create(SessionsGetAgentEntriesRequestSchema, { sessionId: SID, beforeSeq: 900n }), ctx(),
-    ));
-    const { requestId, frame } = await nextFrame();
-    if (frame.kind !== "get-omp-transcript-page") throw new Error(`wrong frame: ${frame.kind}`);
-    expect(frame.cursor).toBe("900");
-    resolvePendingRpc(requestId, { entries: [], first_seq: 0, more: false });
-    const out = await res;
-    expect(out.entries).toEqual([]);
-    expect(out.more).toBe(false);
-  });
-
-  it("a lost worker is Unavailable, never an empty page", async () => {
-    const res = Promise.resolve(handlers.sessionsGetAgentEntries(
-      create(SessionsGetAgentEntriesRequestSchema, { sessionId: SID, beforeSeq: 0n }), ctx(),
-    ));
-    await nextFrame(); // the pending rpc exists once the frame is out
-    expect(rejectPendingRpcsForWorker(String(FP), "worker disconnected")).toBe(1);
-    const err = await res.then(() => null, (e: unknown) => e);
-    expect(err).toBeInstanceOf(ConnectError);
-    expect((err as ConnectError).code).toBe(Code.Unavailable);
-  });
-
   it("unknown session is NotFound", async () => {
     const err = await Promise.resolve(handlers.sessionsGetAgentEntries(
       create(SessionsGetAgentEntriesRequestSchema, { sessionId: MISSING_SID, beforeSeq: 0n }), ctx(),
@@ -224,24 +190,79 @@ describe("prompt answer + abort forwarding", () => {
   });
 });
 
-describe("globalAgentEntryBus → FirehoseFrame.agentEntries", () => {
-  it("fans a worker batch out to the SPA untouched, and stops on dispose", () => {
+describe("worker AgentEntriesFrame → live firehose + durable history", () => {
+  it("recollects the live entry from SQLite after the worker disconnects", async () => {
     const pushed: FirehoseFrame[] = [];
-    const feed = startSyncFeed({ db } as unknown as ConnectDeps, 0, (f) => {
+    const feed = startSyncFeed({ db, sqlite } as unknown as ConnectDeps, 0, (f) => {
       if (f.frame.case === "agentEntries") pushed.push(f);
     });
     const pb = agentEntryToProto(AgentEntry.parse(entry(9, "hello")));
-    globalAgentEntryBus.publish(create(AgentEntriesFrameSchema, { sessionId: SID, entries: [pb] }));
+    const worker = makeWorkerConn(
+      {
+        db,
+        sqlite,
+        coordKey: {
+          verifyingKeyB64: () => "",
+          verifyingKeyKid: () => "",
+        },
+      } as unknown as WorkerServiceDeps,
+      { fingerprint: String(FP) },
+      () => 1,
+      () => {},
+    );
 
-    expect(pushed.length).toBe(1);
-    const f = pushed[0]!;
-    if (f.frame.case !== "agentEntries") throw new Error("wrong frame");
-    expect(f.frame.value.sessionId).toBe(SID);
-    expect(f.frame.value.entries.map((e) => Number(e.seq))).toEqual([9]);
+    try {
+      // makeWorkerConn schedules a three-second respawn scan on hello, but
+      // close() only owns the keepalive. Capture and cancel that production
+      // timer so it cannot outlive this test and touch the closed test DB.
+      const setTimeoutBeforeHello = globalThis.setTimeout;
+      const helloTimers: Timer[] = [];
+      globalThis.setTimeout = ((...args: Parameters<typeof setTimeout>) => {
+        const timer = setTimeoutBeforeHello(...args);
+        if (args[1] === 3_000) helloTimers.push(timer);
+        return timer;
+      }) as typeof setTimeout;
+      try {
+        await worker.handleUpstream(create(CoordWorkerUpSchema, {
+          frame: {
+            case: "hello",
+            value: create(WHelloSchema, { workerFp: String(FP), version: "test" }),
+          },
+        }));
+      } finally {
+        globalThis.setTimeout = setTimeoutBeforeHello;
+        for (const timer of helloTimers) clearTimeout(timer);
+      }
+      await worker.handleUpstream(create(CoordWorkerUpSchema, {
+        frame: {
+          case: "agentEntries",
+          value: create(AgentEntriesFrameSchema, { sessionId: SID, entries: [pb] }),
+        },
+      }));
 
-    feed.dispose();
-    globalAgentEntryBus.publish(create(AgentEntriesFrameSchema, { sessionId: SID }));
-    expect(pushed.length).toBe(1);
+      expect(pushed.length).toBe(1);
+      const live = pushed[0]!;
+      if (live.frame.case !== "agentEntries") throw new Error("wrong frame");
+      expect(live.frame.value.sessionId).toBe(SID);
+      expect(live.frame.value.entries).toEqual([pb]);
+
+      worker.close();
+      expect(getWorkerHubSocket(String(FP))).toBeNull();
+      const history = await handlers.sessionsGetAgentEntries(
+        create(SessionsGetAgentEntriesRequestSchema, { sessionId: SID, beforeSeq: 0n }),
+        ctx(),
+      );
+      expect(history.entries).toEqual(live.frame.value.entries);
+      expect(history.firstSeq).toBe(9n);
+      expect(history.more).toBe(false);
+
+      feed.dispose();
+      globalAgentEntryBus.publish(create(AgentEntriesFrameSchema, { sessionId: SID }));
+      expect(pushed.length).toBe(1);
+    } finally {
+      worker.close();
+      feed.dispose();
+    }
   });
 });
 

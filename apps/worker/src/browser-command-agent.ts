@@ -1,6 +1,5 @@
 // Browser-command handlers for agent sessions: spawn, compose, answer a
-// dialog, abort a turn, page the transcript. Replaces the block that used to
-// answer every structured-OMP frame with "Structured OMP is not supported".
+// dialog, and abort a turn.
 //
 // Each handler resolves the session, then delegates to its AgentController; the
 // controller owns all omp-facing state. Errors come back as rpc-error with the
@@ -63,6 +62,7 @@ export function handleSpawnAgent(
 		.spawnAgent(frame.folder, {
 			targetSessionId: frame.session_id,
 			resumeFile: frame.resume_file,
+			nextSeq: frame.next_seq,
 		})
 		.then((rec) => {
 			coordLink.send({
@@ -114,22 +114,16 @@ export function handleAgentAbort(
 ): void {
 	const agent = resolveAgent(frame.session_id, request_id, deps);
 	if (!agent) return;
-	agent.abort();
-	deps.coordLink.send({ kind: "rpc-ok", request_id, data: { accepted: true } });
+	void agent.abort()
+		.then(() => {
+			deps.coordLink.send({ kind: "rpc-ok", request_id, data: { accepted: true } });
+		})
+		.catch((err) => {
+			deps.coordLink.send({
+				kind: "rpc-error",
+				request_id,
+				message: err instanceof Error ? err.message : String(err),
+			});
+		});
 }
 
-/** Transcript backfill. `cursor` carries the stringified before_seq; "0" or
- *  absent means the newest page. Coord Zod-parses each entry, so the payload
- *  ships the wire-shaped AgentEntry objects verbatim. */
-export function handleGetAgentEntries(
-	frame: Extract<ClientControlFrame, { kind: "get-omp-transcript-page" }>,
-	request_id: string,
-	deps: AgentDeps,
-): void {
-	const agent = resolveAgent(frame.session_id, request_id, deps);
-	if (!agent) return;
-	const parsed = Number(frame.cursor ?? "0");
-	const beforeSeq = Number.isSafeInteger(parsed) && parsed > 0 ? parsed : 0;
-	const page = agent.entriesPage(beforeSeq);
-	deps.coordLink.send({ kind: "rpc-ok", request_id, data: page });
-}

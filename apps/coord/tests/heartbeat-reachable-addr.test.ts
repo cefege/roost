@@ -54,7 +54,7 @@ beforeAll(async () => {
 		publicUrl: undefined,
 		handoffPath: join(workdir, "coord-handoff.json"),
 	};
-	coord = createCoord({ db, coordKey, cfg, jwtCache });
+	coord = createCoord({ db, sqlite, coordKey, cfg, jwtCache });
 
 	// Mint a worker keypair, authorize it, seed its workers row (register-time
 	// reachable_addr intentionally null to prove the heartbeat backfills it).

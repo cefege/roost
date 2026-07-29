@@ -17,7 +17,6 @@ import { handleDiagDumpBytecap, handleDiagSnapshot } from "./browser-command-dia
 import {
 	handleAgentAbort,
 	handleAgentRespond,
-	handleGetAgentEntries,
 	handleSpawnAgent,
 	handleUserMessage,
 } from "./browser-command-agent.ts";
@@ -121,10 +120,6 @@ export function handleBrowserCommand(
 		}
 		case "omp-abort": {
 			handleAgentAbort(frame, request_id, { coordLink, sessionMgr });
-			return;
-		}
-		case "get-omp-transcript-page": {
-			handleGetAgentEntries(frame, request_id, { coordLink, sessionMgr });
 			return;
 		}
 		case "cursor-pos":

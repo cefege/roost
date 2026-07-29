@@ -13,11 +13,13 @@ import { z } from "zod";
 // them. framePayload bounds one AgentEntriesFrame; ringEntries bounds the
 // worker's in-memory transcript.
 export const AGENT_ENTRY_CAPS = {
-  text: 262_144,
-  toolText: 8_192,
-  toolDetails: 65_536,
+  text: 500_000,
+  toolText: 500_000,
+  toolDetails: 500_000,
+  imageBytes: 1_048_576, // Maximum encoded base64 characters carried on the wire.
   ringEntries: 2_000,
-  framePayload: 262_144,
+  // Leaves room for protobuf framing around a maximum-size base64 image entry.
+  framePayload: 2_097_152,
 } as const;
 
 export const AgentToolStatus = z.enum(["running", "ok", "error"]);
@@ -29,7 +31,7 @@ export type AgentPromptKind = z.infer<typeof AgentPromptKind>;
 export const AgentPromptState = z.enum(["pending", "answered", "cancelled"]);
 export type AgentPromptState = z.infer<typeof AgentPromptState>;
 
-export const AgentNoticeLevel = z.enum(["info", "error"]);
+export const AgentNoticeLevel = z.enum(["info", "warn", "error"]);
 export type AgentNoticeLevel = z.infer<typeof AgentNoticeLevel>;
 
 const Base = z.object({
@@ -68,6 +70,24 @@ export const AgentEntry = z.discriminatedUnion("kind", [
     kind: z.literal("notice"),
     level: AgentNoticeLevel,
     text: z.string(),
+    details_json: z.string().default(""),
+  }),
+  Base.extend({
+    kind: z.literal("todo"),
+    phases_json: z.string(),
+  }),
+  Base.extend({
+    kind: z.literal("subagent"),
+    subagent_id: z.string(),
+    name: z.string(),
+    state: z.enum(["running", "done", "failed", "aborted"]),
+    text: z.string(),
+  }),
+  Base.extend({
+    kind: z.literal("image"),
+    media_type: z.string(),
+    data_b64: z.string(),
+    alt: z.string(),
   }),
 ]);
 export type AgentEntry = z.infer<typeof AgentEntry>;
@@ -76,7 +96,15 @@ export type AgentTextEntry = Extract<AgentEntry, { kind: "user" | "assistant" | 
 export type AgentToolEntry = Extract<AgentEntry, { kind: "tool" }>;
 export type AgentPromptEntry = Extract<AgentEntry, { kind: "prompt" }>;
 export type AgentNoticeEntry = Extract<AgentEntry, { kind: "notice" }>;
+export type AgentTodoEntry = Extract<AgentEntry, { kind: "todo" }>;
+export type AgentSubagentEntry = Extract<AgentEntry, { kind: "subagent" }>;
+export type AgentImageEntry = Extract<AgentEntry, { kind: "image" }>;
+
+const TRUNCATION_MARKER = "…[truncated]";
 
 export function clampText(s: string, cap: number): string {
-  return s.length <= cap ? s : `${s.slice(0, cap)}…[truncated]`;
+  if (s.length <= cap) return s;
+  if (cap <= 0) return "";
+  if (cap <= TRUNCATION_MARKER.length) return TRUNCATION_MARKER.slice(0, cap);
+  return `${s.slice(0, cap - TRUNCATION_MARKER.length)}${TRUNCATION_MARKER}`;
 }

@@ -14,7 +14,8 @@ import {
   CurrentBlockSchema, PermissionRequestSchema, SubAgentRowSchema,
   AgentStateSchema, SessionSchema,
   AgentEntrySchema, AgentTextEntrySchema, AgentToolEntrySchema,
-  AgentPromptEntrySchema, AgentNoticeEntrySchema,
+  AgentPromptEntrySchema, AgentNoticeEntrySchema, AgentTodoEntrySchema,
+  AgentSubagentEntrySchema, AgentImageEntrySchema,
   type Tokens as PbTokens,
   type LastMessage as PbLastMessage,
   type CurrentTool as PbCurrentTool,
@@ -246,7 +247,44 @@ export function agentEntryToProto(e: AgentEntry): PbAgentEntry {
         seq, ts,
         body: {
           case: "notice",
-          value: create(AgentNoticeEntrySchema, { level: e.level, text: e.text }),
+          value: create(AgentNoticeEntrySchema, {
+            level: e.level,
+            text: e.text,
+            detailsJson: e.details_json ?? "",
+          }),
+        },
+      });
+    case "todo":
+      return create(AgentEntrySchema, {
+        seq, ts,
+        body: {
+          case: "todo",
+          value: create(AgentTodoEntrySchema, { phasesJson: e.phases_json }),
+        },
+      });
+    case "subagent":
+      return create(AgentEntrySchema, {
+        seq, ts,
+        body: {
+          case: "subagent",
+          value: create(AgentSubagentEntrySchema, {
+            subagentId: e.subagent_id,
+            name: e.name,
+            state: e.state,
+            text: e.text,
+          }),
+        },
+      });
+    case "image":
+      return create(AgentEntrySchema, {
+        seq, ts,
+        body: {
+          case: "image",
+          value: create(AgentImageEntrySchema, {
+            mediaType: e.media_type,
+            dataB64: e.data_b64,
+            alt: e.alt,
+          }),
         },
       });
   }
@@ -286,7 +324,29 @@ export function agentEntryFromProto(p: PbAgentEntry): AgentEntry {
         answer: b.value.answer,
       });
     case "notice":
-      return AgentEntryZ.parse({ kind: "notice", seq, ts, level: b.value.level, text: b.value.text });
+      return AgentEntryZ.parse({
+        kind: "notice", seq, ts,
+        level: b.value.level,
+        text: b.value.text,
+        details_json: b.value.detailsJson ?? "",
+      });
+    case "todo":
+      return AgentEntryZ.parse({ kind: "todo", seq, ts, phases_json: b.value.phasesJson });
+    case "subagent":
+      return AgentEntryZ.parse({
+        kind: "subagent", seq, ts,
+        subagent_id: b.value.subagentId,
+        name: b.value.name,
+        state: b.value.state,
+        text: b.value.text,
+      });
+    case "image":
+      return AgentEntryZ.parse({
+        kind: "image", seq, ts,
+        media_type: b.value.mediaType,
+        data_b64: b.value.dataB64,
+        alt: b.value.alt,
+      });
     default:
       throw new Error("AgentEntry proto has no body");
   }

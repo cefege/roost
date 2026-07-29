@@ -14,6 +14,7 @@ import { startTerminalTitleHub } from "./terminal-title-hub.ts";
 import { startLastActivityHub } from "./last-activity-hub.ts";
 import { log } from "@roost/shared/log";
 import type { KyselyDB } from "./db/connection.ts";
+import type { Database } from "bun:sqlite";
 import type { CoordKey } from "./coord-key.ts";
 import type { CoordConfig } from "@roost/shared/config";
 import type { JwtCache } from "./jwt.ts";
@@ -32,6 +33,7 @@ interface CoordHandlerContext {
 
 export interface CoordDeps {
   db: KyselyDB;
+  sqlite: Database;
   coordKey: CoordKey;
   cfg: CoordConfig;
   jwtCache: JwtCache;

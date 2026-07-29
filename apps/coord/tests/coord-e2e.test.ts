@@ -42,7 +42,7 @@ beforeAll(async () => {
     publicUrl: undefined,
     handoffPath: join(workdir, "coord-handoff.json"),
   };
-  coord = createCoord({ db, coordKey, cfg, jwtCache });
+  coord = createCoord({ db, sqlite, coordKey, cfg, jwtCache });
   cleanup = () => {
     coord.dispose();
     try { sqlite.close(); } catch { /* ignore */ }

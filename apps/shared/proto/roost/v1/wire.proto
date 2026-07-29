@@ -122,9 +122,27 @@ message AgentPromptEntry {
 }
 
 message AgentNoticeEntry {
-  string level = 1;  // info|error
+  string level = 1;  // info|warn|error
   string text = 2;
+  string details_json = 3;
 }
+message AgentTodoEntry {
+  string phases_json = 1;
+}
+
+message AgentSubagentEntry {
+  string subagent_id = 1;
+  string name = 2;
+  string state = 3;  // running|done|failed
+  string text = 4;
+}
+
+message AgentImageEntry {
+  string media_type = 1;
+  string data_b64 = 2;
+  string alt = 3;
+}
+
 
 message AgentEntry {
   uint64 seq = 1;  // monotonic per session, starts at 1
@@ -136,6 +154,9 @@ message AgentEntry {
     AgentToolEntry tool = 13;
     AgentPromptEntry prompt = 14;
     AgentNoticeEntry notice = 15;
+    AgentTodoEntry todo = 16;
+    AgentSubagentEntry subagent = 17;
+    AgentImageEntry image = 18;
   }
 }
 

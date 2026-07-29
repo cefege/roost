@@ -9,6 +9,10 @@ import { importAuthorizedKeys } from "./authorized-keys.ts";
 import { newJwtCache } from "./jwt.ts";
 import { scheduleBackups } from "./backup.ts";
 import { scheduleAuditRetention } from "./audit-retention.ts";
+import {
+  AGENT_TRANSCRIPT_RETENTION_DAYS,
+  scheduleAgentTranscriptRetention,
+} from "./agent-transcript.ts";
 import { installByteHubBusHook } from "./byte-hub.ts";
 import { createCoord } from "./coord-factory.ts";
 import { handleWorkerWsUpgrade, makeWorkerWsHandler, type WorkerWsData } from "./connect/worker-ws-handler.ts";
@@ -121,13 +125,13 @@ export async function runCoord() {
         online: connectWorkers.has(worker.fp),
       })),
   });
-  const coord = createCoord({ db, coordKey, cfg, jwtCache, move });
+  const coord = createCoord({ db, sqlite, coordKey, cfg, jwtCache, move });
   const spaResponse = createSpaResponder(cfg.webDistPath, WEB_ASSETS);
 
   // Raw-WS worker transport deps (Bun-specific; coord-factory stays
   // fetch-only/portable). The WS handler (worker-ws-handler.ts) reuses the
   // shared worker-conn registry + makeWorkerConn from worker-service.ts.
-  const wsDeps: WorkerServiceDeps = { db, coordKey, jwtCache, cfg, move };
+  const wsDeps: WorkerServiceDeps = { db, sqlite, coordKey, jwtCache, cfg, move };
   const workerWs = makeWorkerWsHandler(wsDeps);
   // Sync firehose raw-WS (/ws/coord-sync). Same wsDeps shape (ConnectDeps ⊇
   // { db, coordKey, cfg, jwtCache }); the feed itself is shared with the
@@ -318,6 +322,7 @@ export async function runCoord() {
 
   scheduleBackups(cfg.dbPath);
   scheduleAuditRetention(sqlite, cfg.auditRetentionDays);
+  scheduleAgentTranscriptRetention(sqlite, AGENT_TRANSCRIPT_RETENTION_DAYS);
 
   const shutdown = (): void => {
     log.info("main", "shutdown");

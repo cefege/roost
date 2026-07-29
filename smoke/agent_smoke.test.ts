@@ -15,8 +15,8 @@
 //
 // Every wait is a bounded poll — no fixed sleeps.
 //
-// This test costs real model tokens (two short turns). It lives in the
-// live-api profile for exactly that reason.
+// This test costs real model tokens. It lives in the live-api profile for
+// exactly that reason.
 
 import { describe, test, expect } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
@@ -96,6 +96,7 @@ describe("agent smoke (headless)", () => {
     // Live transcript, upserted by seq exactly as the SPA store does — this
     // collector IS the client-side contract under test.
     const entries = new Map<number, AgentEntry>();
+    const updatesBySeq = new Map<number, AgentEntry[]>();
     const sessionEvents: Array<{ kind: string; session_id: string; status?: string }> = [];
     const ac = new AbortController();
 
@@ -155,6 +156,9 @@ describe("agent smoke (headless)", () => {
             for (const pe of f.entries) {
               const e = agentEntryFromProto(pe);
               entries.set(e.seq, e);
+              const updates = updatesBySeq.get(e.seq);
+              if (updates) updates.push(e);
+              else updatesBySeq.set(e.seq, [e]);
             }
           }
         } catch (e) {
@@ -176,20 +180,57 @@ describe("agent smoke (headless)", () => {
       // coord row → projection. A shell here means _spawnFrameFor regressed.
       expect(opened.kind).toBe("agent");
 
-      // ─── 4. A real turn, streamed back as assistant entries ─────────────
+      // ─── 4. A real turn, streamed back as growing assistant entries ─────
       await c.sessionsUserMessage({
         sessionId: sid,
-        text: "Reply with the single word pong and nothing else.",
+        text: "Without using any tools, write the word pong exactly 80 times, separated by spaces, and nothing else.",
       });
-      const pong = await pollUntil(
-        "assistant entry containing 'pong' arrives over the firehose",
-        async () =>
-          [...entries.values()].find(
-            (e) => e.kind === "assistant" && /pong/i.test(entryText(e)),
-          ),
+      const firstTurn = await pollUntil(
+        "a completed assistant entry or provider overload notice arrives",
+        async () => {
+          const assistant = [...entries.values()].find(
+            (e) => e.kind === "assistant" && e.done && /pong/i.test(entryText(e)),
+          );
+          if (assistant) return { outcome: "assistant" as const, entry: assistant };
+          const notices = [...entries.values()].filter(
+            (e) =>
+              e.kind === "notice" &&
+              (e.level === "warn" || e.level === "error") &&
+              /overloaded/i.test(e.text),
+          );
+          return notices.length > 0 ? { outcome: "overloaded" as const, notices } : undefined;
+        },
         120_000,
       );
-      expect(pong.kind).toBe("assistant");
+      if (firstTurn.outcome === "overloaded") {
+        expect(firstTurn.notices.length).toBeGreaterThan(0);
+        expect(firstTurn.notices.every((notice) => /overloaded/i.test(notice.text))).toBe(true);
+        ac.abort();
+        await collector;
+        await c.sessionsKill({ sessionId: sid });
+        spawnedSessions.delete(sid);
+        return;
+      }
+      const pong = firstTurn.entry;
+      if (pong.kind !== "assistant") throw new Error("expected an assistant entry");
+      const streamed = updatesBySeq.get(pong.seq) ?? [];
+      let growthAt = -1;
+      for (let i = 1; i < streamed.length; i++) {
+        const previous = streamed[i - 1];
+        const current = streamed[i];
+        if (
+          previous?.kind === "assistant" &&
+          current?.kind === "assistant" &&
+          !previous.done &&
+          !current.done &&
+          current.text.length > previous.text.length
+        ) {
+          growthAt = i;
+          break;
+        }
+      }
+      expect(growthAt).toBeGreaterThan(0);
+      expect(streamed.slice(growthAt + 1).some((e) => e.kind === "assistant" && e.done)).toBe(true);
 
       // ─── 5. The same entry comes back over the unary backfill path ──────
       // (beforeSeq 0 = newest page). This is what a page reload uses; an empty
@@ -209,7 +250,47 @@ describe("agent smoke (headless)", () => {
       // The user turn is in the transcript too, not just the model's reply.
       expect(backfilled.some((e) => e.kind === "user")).toBe(true);
 
-      // ─── 6. Approval round-trip — the wedge-or-work moment ──────────────
+      // ─── 6. Todo state is projected as a durable panel entry ────────────
+      await c.sessionsUserMessage({
+        sessionId: sid,
+        text: "Use the todo tool to init a 2-item list, then reply DONE",
+      });
+      const todo = await pollUntil(
+        "todo entry contains one phase with exactly two tasks",
+        async () => {
+          for (const candidate of entries.values()) {
+            if (candidate.kind !== "todo") continue;
+            try {
+              const phases: unknown = JSON.parse(candidate.phases_json);
+              if (
+                Array.isArray(phases) &&
+                phases.some(
+                  (phase) =>
+                    typeof phase === "object" &&
+                    phase !== null &&
+                    "tasks" in phase &&
+                    Array.isArray(phase.tasks) &&
+                    phase.tasks.length === 2,
+                )
+              ) {
+                return candidate;
+              }
+            } catch {
+              // A malformed payload is not the expected parity result.
+            }
+          }
+          return undefined;
+        },
+        120_000,
+      );
+      expect(todo.kind).toBe("todo");
+      await pollUntil(
+        "agent returns to idle after creating the todo list",
+        async () => (await findSession(sid))?.agent?.status === "idle",
+        120_000,
+      );
+
+      // ─── 7. Approval round-trip — the wedge-or-work moment ──────────────
       // Must be a command only `bash` can serve: `--approval-mode write`
       // auto-approves the read/write tiers, and omp steers directory listings
       // to the `read` tool, which would never prompt.
@@ -317,43 +398,38 @@ describe("agent smoke (headless)", () => {
         120_000,
       );
 
-      // ─── 9. Resume: bounce the worker, history must survive ─────────────
-      // The worker's transcript ring is in memory and its omp child dies with
-      // it. Coord holds AgentState.session_file, re-sends spawn-agent with it
-      // on the next hello, and the fresh child re-seeds the ring from omp's
-      // own .jsonl. Only the isolated stack can bounce a worker, so this step
-      // is skipped against a shared live coord.
+      // ─── 10. Restart: worker re-adopts, durable history stays intact ─────
       if (stack) {
-        // Recorded before the bounce: the revived session must still know the
-        // file it resumes from, and must still be the SAME session row.
         const before = await findSession(sid);
         expect(before?.agent?.sessionFile).toBeTruthy();
+        const beforeRestart = await c.sessionsGetAgentEntries({ sessionId: sid, beforeSeq: 0n });
+        const maxSeqBeforeRestart = Math.max(...beforeRestart.entries.map((entry) => Number(entry.seq)));
+        const pongTextBeforeRestart = pong.text;
 
         await stack.restartWorker();
-        const revived = await pollUntil(
-          "agent session revives after worker restart",
-          async () => {
-            const s = await findSession(sid);
-            return s?.status === "open" ? s : undefined;
-          },
-          60_000,
-        );
-        expect(revived.kind).toBe("agent");
-
-        // History comes back from omp's .jsonl, not from the dead ring: the
-        // first turn's reply must be servable again by the backfill RPC.
         const afterRestart = await pollUntil(
-          "transcript history is re-seeded from the omp session file",
+          "worker re-adopts the agent and durable history remains intact",
           async () => {
             const r = await c.sessionsGetAgentEntries({ sessionId: sid, beforeSeq: 0n });
             const es = r.entries.map(agentEntryFromProto);
-            return es.some((e) => e.kind === "assistant" && /pong/i.test(entryText(e)))
-              ? es
-              : undefined;
+            const adopted = es.some(
+              (e) =>
+                e.kind === "notice" &&
+                e.text === "resumed" &&
+                e.seq > maxSeqBeforeRestart,
+            );
+            const recollected = es.some(
+              (e) =>
+                e.kind === "assistant" &&
+                e.seq === pong.seq &&
+                e.text === pongTextBeforeRestart,
+            );
+            return adopted && recollected ? es : undefined;
           },
           60_000,
         );
         expect(afterRestart.some((e) => e.kind === "user")).toBe(true);
+        expect(new Set(afterRestart.map((e) => e.seq)).size).toBe(afterRestart.length);
       }
 
       ac.abort();
@@ -408,5 +484,5 @@ describe("agent smoke (headless)", () => {
         try { await stack.stop(); } catch (e) { console.warn(`agent smoke: stack teardown: ${String(e)}`); }
       }
     }
-  }, 300_000);
+  }, 420_000);
 });

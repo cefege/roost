@@ -14,8 +14,9 @@
 // Caller: components/agent/Transcript.tsx.
 
 import { For, Show, createSignal, type Component } from "solid-js";
+import { Button } from "../Settings/md/Button.tsx";
 import { Surface } from "../Settings/md/Surface.tsx";
-import { AgentButton, AgentTextArea } from "./controls.tsx";
+import { TextField } from "../Settings/md/TextField.tsx";
 import type { AgentPromptEntry } from "@roost/shared/wire/agent-entry";
 import { coordClient } from "../../connect.ts";
 import { addToast } from "../../lib/toastStore.ts";
@@ -116,36 +117,36 @@ export const EntryPrompt: Component<{ sessionId: string; entry: AgentPromptEntry
           >
             <For each={props.entry.options}>
               {(option, i) => (
-                <AgentButton
+                <Button
                   variant={i() === 0 ? "filled" : "tonal"}
                   disabled={busy()}
                   data-testid={`agent-prompt-option-${i()}`}
                   onClick={() => void respond(option, false)}
                 >
                   {option}
-                </AgentButton>
+                </Button>
               )}
             </For>
-            <AgentButton
+            <Button
               variant="text"
               disabled={busy()}
               data-testid="agent-prompt-cancel"
               onClick={() => void respond("", true)}
             >
               Cancel
-            </AgentButton>
+            </Button>
           </div>
 
           <Show when={props.entry.allow_free_text}>
             <div style={{ display: "flex", "align-items": "center", gap: "var(--md-space-2)", "margin-top": "var(--md-space-3)" }}>
-              <AgentTextArea
+              <TextField
                 value={freeText()}
                 onInput={setFreeText}
                 ariaLabel="Your answer"
                 placeholder="Type your answer"
                 testId="agent-prompt-free-text"
                 disabled={busy()}
-                maxRows={4}
+                style={{ flex: "1" }}
                 onKeyDown={(e) => {
                   // isComposing: an IME candidate-confirm Enter must not
                   // submit a half-composed answer.
@@ -154,14 +155,14 @@ export const EntryPrompt: Component<{ sessionId: string; entry: AgentPromptEntry
                   if (freeText().trim()) void respond(freeText(), false);
                 }}
               />
-              <AgentButton
+              <Button
                 variant="filled"
                 disabled={busy() || !freeText().trim()}
                 data-testid="agent-prompt-send"
                 onClick={() => void respond(freeText(), false)}
               >
                 Send
-              </AgentButton>
+              </Button>
             </div>
           </Show>
         </Show>

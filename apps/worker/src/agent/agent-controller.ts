@@ -21,15 +21,14 @@ import {
 	type ProjectionState,
 } from "./entry-projection.ts";
 import { projectSessionMessage } from "./history-projection.ts";
-import { AgentEntryRing, type AgentEntriesPage } from "./entry-ring.ts";
+import { AgentEntryRing } from "./entry-ring.ts";
 import { OmpRpcError, type OmpRpcHandle } from "./rpc-process.ts";
 
-export type { AgentEntriesPage } from "./entry-ring.ts";
 
 const STATE_TIMEOUT_MS = 10_000;
 const SEED_PAGE_LIMIT = 128;
-// Ceiling on resume seeding. Anything older is still in omp's own .jsonl and
-// out of the ring's reach anyway — Roost keeps no transcript table.
+// Ceiling used only when coord has no durable rows for this resumed session
+// (pre-migration or transcript aged out) and omp history must seed it.
 const SEED_MAX_MESSAGES = 500;
 // current_tool.input_summary is a sidebar chip, not a payload.
 const TOOL_SUMMARY_CHARS = 200;
@@ -39,6 +38,7 @@ export interface AgentControllerDeps {
 	rpc: OmpRpcHandle;
 	sendEntries: (frame: PbAgentEntriesFrame) => void;
 	emitEvent: (event: SessionEvent) => void;
+	nextSeq?: number;
 }
 
 export class AgentController {
@@ -51,6 +51,8 @@ export class AgentController {
 	#proj: ProjectionState = newProjectionState();
 	#costUsd = 0;
 	#tokens = { in: 0, out: 0, cached: 0 };
+	#todoSeq: number | null = null;
+	#hasDurableHistory = false;
 	#closed = false;
 
 	constructor(deps: AgentControllerDeps) {
@@ -58,6 +60,10 @@ export class AgentController {
 		this.rpc = deps.rpc;
 		this.#ring = new AgentEntryRing(deps.sessionId, deps.sendEntries);
 		this.#emitEvent = deps.emitEvent;
+		if (deps.nextSeq !== undefined && deps.nextSeq > 1) {
+			this.#proj.nextSeq = deps.nextSeq;
+			this.#hasDurableHistory = true;
+		}
 		this.rpc.on((frame) => this.#onFrame(frame));
 		void this.rpc.exited.then((code) => this.#onExit(code));
 	}
@@ -89,7 +95,11 @@ export class AgentController {
 			});
 			return;
 		}
-		if (opts.resumed) await this.#seedHistory();
+		this.rpc.send({ type: "set_subagent_subscription", level: "progress" });
+		if (opts.resumed) {
+			if (this.#hasDurableHistory) this.#appendNotice("info", "resumed");
+			else await this.#seedHistory();
+		}
 		await this.#refreshState();
 	}
 
@@ -104,8 +114,15 @@ export class AgentController {
 		// have changed: both ends of a turn and every dialog transition. Without
 		// agent_start the session would read `idle` for the whole streaming turn
 		// and only flip once it was already over.
-		if (promptChanged || frame.type === "agent_start" || frame.type === "agent_end")
+		if (
+			promptChanged ||
+			frame.type === "agent_start" ||
+			frame.type === "agent_end" ||
+			frame.type === "todo_reminder" ||
+			frame.type === "todo_auto_clear"
+		) {
 			void this.#refreshState();
+		}
 	}
 
 	/** Returns whether a prompt entry appeared or changed — that is what flips
@@ -150,6 +167,32 @@ export class AgentController {
 			return;
 		}
 		if (!isRpcRecord(data)) return;
+		if (Array.isArray(data.todoPhases)) {
+			const encoded = JSON.stringify(data.todoPhases);
+			const phasesJson =
+				encoded.length <= AGENT_ENTRY_CAPS.text
+					? encoded
+					: JSON.stringify([{
+							id: "roost-truncated",
+							name: "Todo list omitted",
+							tasks: [{
+								id: "roost-truncated",
+								content: `Todo state exceeded ${AGENT_ENTRY_CAPS.text} characters`,
+								status: "abandoned",
+							}],
+						}]);
+			if (this.#todoSeq === null && data.todoPhases.length > 0) {
+				this.#todoSeq = this.#proj.nextSeq++;
+				this.#ring.append({
+					kind: "todo",
+					seq: this.#todoSeq,
+					ts: Date.now(),
+					phases_json: phasesJson,
+				});
+			} else if (this.#todoSeq !== null) {
+				this.#ring.patch(this.#todoSeq, { phases_json: phasesJson });
+			}
+		}
 		// The four AgentStatus values every existing SPA surface already reads
 		// (sidebar glyph, attention list, push). A live dialog outranks streaming:
 		// either way the turn is blocked on the human.
@@ -216,9 +259,10 @@ export class AgentController {
 			});
 	}
 
-	abort(): void {
+	async abort(): Promise<void> {
 		if (this.#closed) return;
-		this.rpc.send({ type: "abort" });
+		await this.rpc.request<unknown>({ type: "abort" });
+		await this.#refreshState();
 	}
 
 	/** Answer a dialog. Returns false for an unknown or already-answered
@@ -244,9 +288,6 @@ export class AgentController {
 		return true;
 	}
 
-	entriesPage(beforeSeq: number): AgentEntriesPage {
-		return this.#ring.page(beforeSeq);
-	}
 
 	// ─── lifecycle ──────────────────────────────────────────────────────
 
@@ -294,6 +335,7 @@ export class AgentController {
 			ts: Date.now(),
 			level,
 			text: clampText(text, AGENT_ENTRY_CAPS.text),
+			details_json: "",
 		});
 	}
 

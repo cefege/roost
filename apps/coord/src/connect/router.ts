@@ -26,6 +26,7 @@ import { makeCoordinatorMoveHandlers } from "./handlers-coordinator-move.ts";
 import { _setViewerTrackerDb } from "./viewer-tracker.ts";
 
 import type { KyselyDB } from "../db/connection.ts";
+import type { Database } from "bun:sqlite";
 import type { CoordKey } from "../coord-key.ts";
 import type { CoordConfig } from "@roost/shared/config";
 import type { JwtCache } from "../jwt.ts";
@@ -37,6 +38,7 @@ import type { CoordinatorMoveService } from "../coord-move/orchestrator.ts";
 
 export interface ConnectDeps {
   db: KyselyDB;
+  sqlite: Database;
   coordKey: CoordKey;
   cfg: CoordConfig;
   jwtCache: JwtCache;

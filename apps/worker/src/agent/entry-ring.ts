@@ -6,11 +6,15 @@
 // seq every time it grows, so the client can apply frames in any order, twice,
 // or after a reconnect, and converge on the same transcript.
 
-import { create } from "@bufbuild/protobuf";
+import { create, toBinary } from "@bufbuild/protobuf";
 import {
 	AgentEntriesFrameSchema,
 	type AgentEntriesFrame as PbAgentEntriesFrame,
 } from "@roost/shared/proto/sync_pb";
+import {
+	AgentEntrySchema,
+	type AgentEntry as PbAgentEntry,
+} from "@roost/shared/proto/wire_pb";
 import { agentEntryToProto } from "@roost/shared/wire/agent-proto";
 import { AGENT_ENTRY_CAPS, type AgentEntry } from "@roost/shared/wire/agent-entry";
 import type { SessionId } from "@roost/shared";
@@ -19,31 +23,21 @@ import { applyEntryPatch, type EntryPatch } from "./entry-projection.ts";
 // A streaming turn emits a text_delta per token; 50 ms of coalescing turns that
 // into ~20 whole-entry upserts a second.
 const FLUSH_COALESCE_MS = 50;
-const ENTRIES_PAGE_LIMIT = 128;
 
-export interface AgentEntriesPage {
-	entries: AgentEntry[];
-	first_seq: number;
-	more: boolean;
+function varintSize(value: number): number {
+	let size = 1;
+	while (value >= 128) {
+		value = Math.floor(value / 128);
+		size++;
+	}
+	return size;
 }
 
-/** Rough wire cost of one entry, used only to decide where to split a batch.
- *  Over-counting is free; under-counting would push a frame past the cap. */
-function entrySize(entry: AgentEntry): number {
-	switch (entry.kind) {
-		case "tool":
-			return (
-				128 + entry.tool_call_id.length + entry.name.length + entry.intent.length +
-				entry.args_json.length + entry.text.length + entry.details_json.length
-			);
-		case "prompt": {
-			let n = 128 + entry.prompt_id.length + entry.title.length + entry.answer.length;
-			for (const option of entry.options) n += option.length + 4;
-			return n;
-		}
-		default:
-			return 64 + entry.text.length;
-	}
+/** Exact contribution of one entry to AgentEntriesFrame.entries: one field
+ * tag, the length varint, then the encoded AgentEntry message. */
+function entryWireSize(entry: PbAgentEntry): number {
+	const bytes = toBinary(AgentEntrySchema, entry).byteLength;
+	return 1 + varintSize(bytes) + bytes;
 }
 
 export class AgentEntryRing {
@@ -107,47 +101,53 @@ export class AgentEntryRing {
 		this.#flush();
 	}
 
-	/** One page of history, newest-last. `beforeSeq === 0` means the newest
-	 *  page; otherwise the page ending just before that seq. */
-	page(beforeSeq: number): AgentEntriesPage {
-		const all = this.#entries;
-		if (all.length === 0) return { entries: [], first_seq: 0, more: false };
-		let end = all.length;
-		if (beforeSeq > 0) {
-			end = all.findIndex((e) => e.seq >= beforeSeq);
-			if (end < 0) end = all.length;
-		}
-		const start = Math.max(0, end - ENTRIES_PAGE_LIMIT);
-		const entries = all.slice(start, end);
-		return { entries, first_seq: entries[0]?.seq ?? 0, more: start > 0 };
-	}
 
 	#flush(): void {
 		if (this.#dirty.size === 0) return;
 		const seqs = [...this.#dirty].sort((a, b) => a - b);
 		this.#dirty.clear();
-		let batch: AgentEntry[] = [];
-		let bytes = 0;
+		let batch: PbAgentEntry[] = [];
+		const baseBytes = toBinary(
+			AgentEntriesFrameSchema,
+			create(AgentEntriesFrameSchema, { sessionId: this.#sessionId, entries: [] }),
+		).byteLength;
+		let bytes = baseBytes;
 		for (const seq of seqs) {
 			const entry = this.#bySeq.get(seq);
 			if (!entry) continue;
-			const size = entrySize(entry);
+			let proto = agentEntryToProto(entry);
+			let size = entryWireSize(proto);
+			if (baseBytes + size > AGENT_ENTRY_CAPS.framePayload) {
+				const notice: AgentEntry = {
+					kind: "notice",
+					seq: entry.seq,
+					ts: entry.ts,
+					level: "error",
+					text: `${entry.kind} entry omitted: encoded payload exceeded ${AGENT_ENTRY_CAPS.framePayload} bytes`,
+					details_json: "",
+				};
+				const index = this.#entries.indexOf(entry);
+				if (index >= 0) this.#entries[index] = notice;
+				this.#bySeq.set(seq, notice);
+				proto = agentEntryToProto(notice);
+				size = entryWireSize(proto);
+			}
 			if (batch.length > 0 && bytes + size > AGENT_ENTRY_CAPS.framePayload) {
 				this.#emit(batch);
 				batch = [];
-				bytes = 0;
+				bytes = baseBytes;
 			}
-			batch.push(entry);
+			batch.push(proto);
 			bytes += size;
 		}
 		if (batch.length > 0) this.#emit(batch);
 	}
 
-	#emit(entries: AgentEntry[]): void {
+	#emit(entries: PbAgentEntry[]): void {
 		this.#send(
 			create(AgentEntriesFrameSchema, {
 				sessionId: this.#sessionId,
-				entries: entries.map(agentEntryToProto),
+				entries,
 			}),
 		);
 	}

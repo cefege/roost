@@ -1,5 +1,5 @@
-// Agent-session transcript store — the SPA's mirror of the worker's per-session
-// entry ring. Only kind="agent" sessions have one; shells keep the cell grid.
+// Agent-session transcript store — the SPA's mirror of coord's durable
+// transcript plus the worker's live upserts. Shells keep the cell grid.
 //
 // The whole contract is UPSERT BY SEQ. `seq` is monotonic per session and
 // starts at 1, and the worker RE-EMITS an entry under the same seq as it grows
@@ -7,10 +7,9 @@
 // is what makes the live stream idempotent: a reconnect that replays a window,
 // or a backfill page overlapping the tail, costs nothing but a replace.
 //
-// History is NOT on the firehose. AgentEntriesFrame is presence-class —
-// coord's bus is a volatile ring with no durable replay — so everything older
-// than the live stream arrives through backfillEntries →
-// SessionsGetAgentEntries, one 128-entry page per call.
+// History is NOT replayed on the firehose. AgentEntriesFrame is presence-class,
+// while coord SQLite is durable; older entries arrive through backfillEntries →
+// SessionsGetAgentEntries, one 512-entry page per call.
 //
 // Callers: store/sync.ts (`agentEntries` firehose case),
 // components/agent/Transcript.tsx (mount backfill + the "Load earlier" button).
@@ -26,8 +25,8 @@ import { log } from "@roost/shared/log";
 import { coordClient } from "../connect.ts";
 
 interface AgentEntriesState {
-  /** key = SessionId. Ascending by `seq`. A gap between the backfilled head and
-   *  the live tail is legal — the worker ring drops oldest past 2000 entries. */
+  /** key = SessionId. Ascending by `seq`. A temporary gap between the durable
+   *  backfilled head and a newly arrived live tail is legal. */
   bySession: Record<string, AgentEntry[]>;
   /** key = SessionId. Whether a page exists behind the oldest entry held.
    *  Absent until the first backfill answers, so "Load earlier" stays hidden
@@ -74,16 +73,16 @@ export function hasBackfilled(sessionId: string): boolean {
 }
 
 /**
- * Drop a session's transcript once it closes. Without this a long-lived tab
- * accumulates every agent session it ever watched — up to the worker ring's
- * 2000 entries each, tool text and all — for the life of the tab.
+ * Drop a session's transcript once it closes. Without this, a long-lived tab
+ * accumulates every loaded agent transcript, including full tool output and
+ * images, for the life of the tab.
  *
  * Safe on `closed` specifically because a closed session has no transcript
  * view: MainPane renders TranscriptDeck from `activeOpenSession()`, which
  * requires `status === "open"`, and routing to a dead session bounces to the
- * last open one. So this can never wipe entries a user is looking at — which
- * would be unrecoverable, since the worker's controller dies with the session
- * and SessionsGetAgentEntries would answer "unknown session".
+ * last open one. So this can never wipe entries a user is looking at. The
+ * closed session row is removed by coord, so later history requests correctly
+ * answer "unknown session".
  */
 export function pruneAgentEntries(sessionId: string): void {
   indexBySession.delete(sessionId);

@@ -51,7 +51,7 @@ beforeAll(async () => {
     publicUrl: undefined,
     handoffPath: join(workdir, "coord-handoff.json"),
   };
-  const deps: ConnectDeps = { db, coordKey, jwtCache, cfg };
+  const deps: ConnectDeps = { db, sqlite, coordKey, jwtCache, cfg };
 
   // Mint a keypair, authorize it, sign a JWT (same shape as the browser's
   // web-key.ts JWT — sub == fingerprint, verified by verifyJwt at upgrade).

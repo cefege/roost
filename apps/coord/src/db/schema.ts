@@ -142,6 +142,13 @@ export interface AuditLogTable {
   trace_id: string | null;
 }
 
+export interface AgentEntriesTable {
+  session_id: string;
+  seq: number;
+  ts: number;
+  entry_json: string;
+}
+
 export interface AuthorizedKeysTable {
   fingerprint: string;
   public_key: Uint8Array;
@@ -169,6 +176,7 @@ export interface DB {
   permission_rules: PermissionRulesTable;
   mcp_relays: McpRelaysTable;
   audit_log: AuditLogTable;
+  agent_entries: AgentEntriesTable;
   authorized_keys: AuthorizedKeysTable;
   app_settings: AppSettingsTable;
   push_subscriptions: PushSubscriptionsTable;

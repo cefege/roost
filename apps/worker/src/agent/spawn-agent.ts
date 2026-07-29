@@ -24,6 +24,8 @@ export interface SpawnAgentOptions {
 	targetSessionId?: SessionId;
 	/** Absolute omp session .jsonl to `--resume`, from AgentState.session_file. */
 	resumeFile?: string;
+	/** First unused durable transcript seq supplied by coord on restart. */
+	nextSeq?: number;
 }
 
 export async function spawnAgent(
@@ -47,6 +49,7 @@ export async function spawnAgent(
 	const agent = new AgentController({
 		sessionId,
 		rpc,
+		nextSeq: opts.nextSeq,
 		// Dropping frames while the link is down is correct: the SPA backfills
 		// through SessionsGetAgentEntries, which reads this same ring.
 		sendEntries: (frame) => sendEntries?.(frame),
