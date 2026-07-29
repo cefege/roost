@@ -48,6 +48,13 @@ export async function handleGetScrollbackCells(
 			return;
 		}
 	}
+	// Agent sessions have no grid to serve. Answering with an error (rather than
+	// an empty page) keeps a mis-routed caller loud instead of silently painting
+	// a blank terminal.
+	if (rec.kind !== "shell") {
+		coordLink.send({ kind: "rpc-error", request_id, message: "session has no terminal" });
+		return;
+	}
 	const core = rec.wtermCore;
 	// Registered sessions own a terminal core. Keep the narrow for teardown
 	// races and sparse test fixtures.

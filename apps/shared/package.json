@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./wire": "./src/wire/index.ts",
+    "./wire/agent-entry": "./src/wire/agent-entry.ts",
     "./wire/event-proto": "./src/wire/event-proto.ts",
     "./wire/agent-proto": "./src/wire/agent-proto.ts",
     "./wire/row-proto": "./src/wire/row-proto.ts",

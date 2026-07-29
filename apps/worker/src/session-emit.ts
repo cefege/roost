@@ -161,7 +161,8 @@ export function emitCellFrame(this: SessionManager, channelId: number, force: bo
 	const send = this.sendCellGridUpstream;
 	if (!send) return;
 	const rec = this.sessions.get(channelId);
-	if (!rec) return;
+	// Agent sessions paint a transcript, not a grid — no core, nothing to emit.
+	if (!rec || rec.kind !== "shell") return;
 	// The live paths create a terminal core before registration. Keep this
 	// narrow for teardown races and sparse test fixtures.
 	const core = rec.wtermCore;

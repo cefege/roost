@@ -31,7 +31,7 @@ import {
 import {
   sessionBus, presenceBus, workspaceBus, taskBus, webhookBus,
   permissionBus, mcpBus, globalBytesBus, globalPresenceBus, auditBus,
-  titleBus, lastActivityBus, workerRoutableBus, globalCellBus,
+  titleBus, lastActivityBus, workerRoutableBus, globalCellBus, globalAgentEntryBus,
   pairBus, uiBus, type TaskBusMsg, type PairRequestDelta, type AuditRow,
 } from "../buses.ts";
 import { getEventsSince } from "../event-log.ts";
@@ -299,6 +299,14 @@ export function startSyncFeed(
       frame.coordFanoutMs = BigInt(Date.now());
       push(create(FirehoseFrameSchema, { frame: { case: "cellGrid", value: frame } }));
     }),
+    // omp agent transcript. Bus payload is already an AgentEntriesFrame with
+    // session_id stamped by the worker, so it rides through untouched. NO
+    // seeding loop on purpose: this connection sees live frames only (subscribe
+    // never replays the bus ring), and a fresh viewer pulls its transcript from
+    // the worker via SessionsGetAgentEntries. Entries upsert by `seq`, so a live
+    // frame landing mid-backfill is a no-op rather than a duplicate.
+    globalAgentEntryBus.subscribe((frame) =>
+      push(create(FirehoseFrameSchema, { frame: { case: "agentEntries", value: frame } }))),
     titleBus.subscribe(({ session_id, title }) =>
       push(create(FirehoseFrameSchema, {
         frame: { case: "terminalTitle", value: create(TerminalTitleFrameSchema, {

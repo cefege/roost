@@ -1,16 +1,24 @@
 // Session lifecycle record + viewport-claim shapes. Split out of
-// session-manager.ts (400-line cap); types unchanged, re-exported from there.
+// session-manager.ts (400-line cap); re-exported from there.
+//
+// SessionRecord is a discriminated union on `kind`. A shell record ALWAYS has
+// the terminal state (scrollback ring, wterm core, cell emitter); an agent
+// record has an omp RPC controller and none of it. Making that a union rather
+// than a bag of optionals means every PTY path has to narrow on `kind` before
+// it can touch terminal state — the compiler enforces the guard instead of a
+// reviewer having to spot a missing one.
 
 import type { SessionId, ChannelId } from "@roost/shared";
 import type { FsmChannel } from "./fsm.ts";
 import type { TerminalCore } from "@wterm/core";
 import type { CellEmitState } from "@roost/shared/cell";
+import type { AgentController } from "./agent/agent-controller.ts";
+import type { PrStatus } from "./pr-status.ts";
 
-export type SessionRecord = {
+interface SessionRecordCommon {
 	sessionId: SessionId;
 	channelId: ChannelId;
 	socketPath: string;
-	kind: "shell";
 	cwd: string;
 	// Local git branch of cwd (worker-resolved). undefined = not yet resolved,
 	// null = folder isn't a repo. Set by _startGitBranch; announced in
@@ -22,15 +30,27 @@ export type SessionRecord = {
 	// GitHub PR status for git_branch, resolved via `gh pr list` (pr-status.ts).
 	// Retained on the record so snapshots re-announce it across coord restart
 	// (like git_branch). Pushed via the `pr` SessionEvent; polled every 90s.
-	pr?: import("./pr-status.ts").PrStatus | null;
+	pr?: PrStatus | null;
 	prPollTimer?: ReturnType<typeof setInterval> | null;
-	// Keeper child pid — root of the pid-tree walk in listening-ports.ts.
-	// Captured from pool.spawn's return. Retained on the record so snapshots
-	// re-announce ports across coord restart. Ports pushed via `ports` event.
+	// Child pid — root of the pid-tree walk in listening-ports.ts. The keeper
+	// child for a shell, the omp child for an agent. Retained on the record so
+	// snapshots re-announce ports across coord restart.
 	childPid?: number | null;
 	ports?: number[];
 	portsPollTimer?: ReturnType<typeof setInterval> | null;
 	fsm: FsmChannel;
+	// diag — stable per-session id used to correlate ALL events on this
+	// session across spa+coord+worker via `rg session_trace_id`. Set on
+	// session create; never mutated.
+	session_trace_id: string;
+	// Wall-clock at spawn. closedByKeeper checks (now - spawnedAtMs) against
+	// DEAD_BIRTH_LIFETIME_MS: a child that exits fast having produced zero bytes
+	// (head_seq===0) is a dead-birth → feeds the degraded-keeper self-heal.
+	spawnedAtMs: number;
+}
+
+export interface SessionShellRecord extends SessionRecordCommon {
+	kind: "shell";
 	// Per-session sliding scrollback for SPA browser-refresh recovery.
 	// Appended on every keeper output chunk (along with the live upstream
 	// forward); served verbatim via sessions.getScrollback so a fresh SPA
@@ -66,18 +86,22 @@ export type SessionRecord = {
 	// end-to-end, no cross-parser edge cases. Live deltas (lastSeq>0)
 	// still slice the raw byte ring above (byte-exact, no parser cost).
 	wtermCore: TerminalCore;
-	// diag — stable per-session id used to correlate ALL events on this
-	// session across spa+coord+worker via `rg session_trace_id`. Set on
-	// session create; never mutated.
-	session_trace_id: string;
 	// R11 cell-grid cell-shipping emitter state. Full/delta decision + seq live in
 	// @roost/shared/cell::nextCellFrame.
 	cell_emit: CellEmitState;
-	// Wall-clock at spawn. closedByKeeper checks (now - spawnedAtMs) against
-	// DEAD_BIRTH_LIFETIME_MS: a child that exits fast having produced zero bytes
-	// (head_seq===0) is a dead-birth → feeds the degraded-keeper self-heal.
-	spawnedAtMs: number;
-};
+	// Never set on a shell record; declared so `rec.agent` reads on the union
+	// without forcing a narrow at every call site that only wants to skip.
+	agent?: undefined;
+}
+
+export interface SessionAgentRecord extends SessionRecordCommon {
+	kind: "agent";
+	// The omp RPC child plus its transcript ring. No keeper channel, no PTY
+	// bytes, no wterm core — the terminal fields above simply do not exist here.
+	agent: AgentController;
+}
+
+export type SessionRecord = SessionShellRecord | SessionAgentRecord;
 
 export interface ViewportClaim {
 	cols: number;

@@ -112,7 +112,13 @@ export async function spawnShell(
 
 /** Coord respawn-if-missing handler. Idempotent: if the worker already has the
  * session live (survivor keeper resumed it), this returns the existing record.
- * Otherwise it recreates the terminal under the same session id. */
+ * Otherwise it recreates the terminal under the same session id.
+ *
+ * SHELL ONLY. The frame carries no kind and no omp session file, and the worker
+ * has no DB to look either up in, so an agent row can never be revived here —
+ * coord routes those down the `spawn-agent` frame instead, which carries both
+ * `session_id` and `resume_file`. The narrow below is what stops a stray
+ * respawn from replacing a live agent session with a shell. */
 export async function respawnIfMissing(
 	this: SessionManager,
 	sessionId: SessionId,

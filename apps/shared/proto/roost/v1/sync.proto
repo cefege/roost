@@ -73,6 +73,14 @@ message CoordinatorRelocationFrame {
   string source_url = 2;
   string target_url = 3;
 }
+// Agent-session transcript deltas (omp RPC projection). Volatile,
+// presence-class: no durable replay — the client backfills history via
+// CoordinatorService.SessionsGetAgentEntries. Entries upsert by `seq`.
+message AgentEntriesFrame {
+  string session_id = 1;
+  repeated AgentEntry entries = 2;
+}
+
 
 message FirehoseFrame {
   oneof frame {
@@ -111,6 +119,7 @@ message FirehoseFrame {
     // onmessage.
     KeepaliveFrame keepalive = 26;
     CoordinatorRelocationFrame coordinator_relocation = 27;
+    AgentEntriesFrame agent_entries = 28;
   }
 }
 

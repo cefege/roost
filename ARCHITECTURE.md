@@ -31,8 +31,8 @@ package. Everything speaks one RPC framework end to end
   Worker       Worker                Worker     (Bun · one per Mac)
   Mac A        Mac B                 Mac C
      │  a keeper subprocess hosts every PTY over one UDS and
-     │  outlives worker restarts; the local OMP bridge publishes
-     │  structured transcript and approval state.
+     │  outlives worker restarts; agent sessions instead run one
+     │  `omp --mode rpc-ui` child process each.
 ```
 
 ## The three apps
@@ -47,8 +47,9 @@ package. Everything speaks one RPC framework end to end
   `sessions` projection, and fan-out to browsers. It never holds PTY state of
   its own.
 - **Worker** (`apps/worker/`) — runs once per Mac, purely outbound. It dials
-  the coordinator and owns PTYs via one multiplexed keeper subprocess. The
-  OMP bridge is a separate local control channel; there is no inbound worker port.
+  the coordinator and owns PTYs via one multiplexed keeper subprocess. Agent
+  sessions own an omp RPC child process instead of a PTY; there is no inbound
+  worker port either way.
 - **Shared** (`apps/shared/`) — the wire source of truth: protobuf definitions,
   generated TS, Zod schemas, and the `foldEvent` reducer (below).
 
@@ -73,10 +74,14 @@ worker's WebSocket; the worker writes them into the keeper, which writes the
 PTY. Output flows back the same way and rides the `Sync` stream's bytes channel
 out to every browser watching that session.
 
-**B. OMP state (bridge → sidebar).** The local OMP bridge publishes transcript,
-tool, phase, and approval events. The coordinator relays them to the SPA, which
-projects them per session. Approval requests become the sidebar's
-`needs-input` state; the terminal itself is never screen-scraped.
+**B. Agent transcript (omp RPC child → transcript UI).** An `agent` session has
+no PTY. The worker forks `omp --mode rpc-ui` and speaks newline-delimited JSON
+over its stdio, projecting that event stream into flat, seq-addressed
+`AgentEntry` rows (messages, tool calls, approval prompts). Those ride the
+`Sync` stream's `agentEntries` channel; history is backfilled over
+`SessionsGetAgentEntries`. Approval prompts become inline cards and the
+sidebar's `needs-input` state. Nothing is ever screen-scraped, because there is
+no screen — shell sessions remain the terminal escape hatch.
 
 ## Terminal fidelity (the hard part)
 
@@ -120,6 +125,7 @@ failure modes and their fixes are catalogued in `CLAUDE.md`.
   `buses.ts` · `db/`
 - **Worker:** `apps/worker/src/main.ts` · `session-manager.ts` ·
   `transport/CoordLink.ts` · `keeper/multiplexed-main.ts` ·
-  `omp-bridge-server.ts` · `fsm.ts`
+  `agent/rpc-process.ts` · `agent/agent-controller.ts` ·
+  `agent/entry-projection.ts` · `fsm.ts`
 - **Shared:** `apps/shared/proto/roost/v1/*.proto` · `src/wire/event.ts`
   (`foldEvent`)

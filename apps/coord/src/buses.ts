@@ -12,7 +12,7 @@ import type { PermissionRuleDelta } from "@roost/shared/wire";
 import type { McpStreamMessage } from "@roost/shared/wire";
 import type { Task as PbTask } from "@roost/shared/proto/wire_pb";
 import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
-import type { UiReportStateRequest, UiCommand } from "@roost/shared/proto/sync_pb";
+import type { UiReportStateRequest, UiCommand, AgentEntriesFrame } from "@roost/shared/proto/sync_pb";
 
 // taskBus carries proto-typed Task deltas directly — the firehose
 // taskFrame builder is now a thin wrapper, and the per-mutation
@@ -120,6 +120,18 @@ export const globalPresenceBus = new BoundedBus<{ session_id: string; data: unkn
 // cell_grid branch is the SPA's cell path. Small ring — a fresh viewer gets
 // a full frame from the worker on attach, so stale deltas needn't replay.
 export const globalCellBus     = new BoundedBus<PbCellGridFrame>(64);
+
+// omp agent transcript entries (session kind `agent`). Worker projects its omp
+// RPC child's event stream into seq-addressed AgentEntry batches and stamps
+// session_id; coord only fans them out. VOLATILE and deliberately NOT
+// backfillable: of every bus here only sessionBus has durable replay (its rows
+// live in the `events` table), and the transcript is far too chatty to add
+// there. A client that missed frames pulls history from the worker's ring via
+// CoordinatorService.SessionsGetAgentEntries instead. Ring 256 bounds only the
+// copies BoundedBus retains on publish — subscribe never replays them — so it
+// is a memory ceiling, not a recovery window: sized like globalCellBus because
+// a batch of transcript entries is the same order of magnitude as a cell frame.
+export const globalAgentEntryBus = new BoundedBus<AgentEntriesFrame>(256);
 
 // ui-cc — browser-tab UI state + command relay (G1/G2). VOLATILE,
 // presence-class, no replay: layout stays browser-local; coord only relays.

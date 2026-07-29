@@ -12,7 +12,7 @@
 // back/forward are a faithful browser stack.
 //
 // Data layer: filesListDir/filesMkdir RPCs, childPath/pathCrumbs
-// (lib/folderPalette.ts), pickFolder→spawnShell, createFolder.
+// (lib/folderPalette.ts), pickFolder→spawnAgent/spawnShell, createFolder.
 
 import { createMemo, createSignal, createEffect, For, Show, onMount, onCleanup, on } from "solid-js";
 import { useNavigate, useParams, Navigate } from "@solidjs/router";
@@ -20,7 +20,8 @@ import { rootStore } from "../store/root.ts";
 import { allSessions } from "../store/selectors.ts";
 import { workerOnline } from "../store/sync.ts";
 import { coordClient } from "../connect.ts";
-import { spawnShell, waitForSession, maybeAutoLaunchAgent } from "../lib/spawnSession.ts";
+import { spawnAgent, spawnShell, waitForSession, maybeAutoLaunchAgent } from "../lib/spawnSession.ts";
+import { resolveAgent } from "../lib/agents.ts";
 import { terminalHref } from "../lib/terminalHref.ts";
 import { pushRecent } from "../lib/sidebarRecent.ts";
 import { computeFolderActivity, type FolderActivity } from "../lib/folderActivity.ts";
@@ -269,7 +270,33 @@ export function BrowsePage() {
     setActiveIdx(0);
   }
 
+  // omp is the only entry in BUILTIN_AGENTS with an RPC mode, so it is the only
+  // one that can be a native transcript session; every other agent is a CLI
+  // that has to be typed into a PTY and keeps the shell + auto-launch path.
+  const agentPrimary = () => resolveAgent().id === "omp";
+
+  // The primary action for a folder.
   async function pickFolder(path: string) {
+    if (!agentPrimary()) { await openTerminal(path); return; }
+    const fp = folderServer();
+    if (!fp) return;
+    try {
+      const sessionId = await spawnAgent(fp as unknown as WorkerFp, path);
+      pushRecent(sessionId);
+      // Wait for the row so the route resolves on arrival instead of tripping
+      // MainPane's dead-route safety net for a tick.
+      await waitForSession(sessionId);
+      // /s/:id, never terminalHref: the /t/:fp/*folder route resolves to the
+      // NEWEST session in that folder, which may be an unrelated shell.
+      navigate(`/s/${sessionId}`);
+    } catch (err) {
+      addToast(`New agent session failed: ${err instanceof Error ? err.message : String(err)}`, "err");
+    }
+  }
+
+  // Always the shell path — the "Open terminal" secondary action, and the
+  // fallback for every agent that has no RPC mode.
+  async function openTerminal(path: string) {
     const fp = folderServer();
     if (!fp) return;
     try {
@@ -651,8 +678,17 @@ export function BrowsePage() {
           onClick={() => void pickFolder(cwdNow())}
         >
           <span aria-hidden="true">❯</span>
-          Open terminal here
+          {agentPrimary() ? `Start ${resolveAgent().label} here` : "Open terminal here"}
         </button>
+        {/* Escape hatch: the shell path is always one click away, even when the
+            primary spawns a transcript session. */}
+        <Show when={agentPrimary()}>
+          <button type="button" class="df-browse-open df-browse-open-secondary" data-testid="browse-open-terminal"
+            onClick={() => void openTerminal(cwdNow())}
+          >
+            Open terminal
+          </button>
+        </Show>
       </div>
       <Dialog
         open={newFolderOpen()}

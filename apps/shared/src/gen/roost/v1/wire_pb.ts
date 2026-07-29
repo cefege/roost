@@ -14,7 +14,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file roost/v1/wire.proto.
  */
 export const file_roost_v1_wire: GenFile = /*@__PURE__*/
-  fileDesc("ChNyb29zdC92MS93aXJlLnByb3RvEghyb29zdC52MSLBAQoLSG9zdE1ldHJpY3MSDwoHY3B1X3BjdBgBIAEoARIWCg5tZW1fdXNlZF9ieXRlcxgCIAEoBBIXCg9tZW1fdG90YWxfYnl0ZXMYAyABKAQSFwoPZGlza191c2VkX2J5dGVzGAQgASgEEhgKEGRpc2tfdG90YWxfYnl0ZXMYBSABKAQSEgoKbmV0X3J4X2JwcxgGIAEoBBISCgpuZXRfdHhfYnBzGAcgASgEEhUKDXNhbXBsZWRfYXRfbXMYCCABKAQioAIKBldvcmtlchIKCgJmcBgBIAEoCRINCgVsYWJlbBgCIAEoCRIKCgJvcxgDIAEoCRIUCgdnaXRfc2hhGAQgASgJSACIAQESMAoMaG9zdF9tZXRyaWNzGAUgASgLMhUucm9vc3QudjEuSG9zdE1ldHJpY3NIAYgBARIYChByZWdpc3RlcmVkX2F0X21zGAYgASgEEhQKDGxhc3Rfc2Vlbl9tcxgHIAEoBBIbCg5yZWFjaGFibGVfYWRkchgIIAEoCUgCiAEBEhkKDGtlZXBlcl9zdGFsZRgJIAEoCUgDiAEBQgoKCF9naXRfc2hhQg8KDV9ob3N0X21ldHJpY3NCEQoPX3JlYWNoYWJsZV9hZGRyQg8KDV9rZWVwZXJfc3RhbGUiMQoGVG9rZW5zEgoKAmluGAEgASgEEgsKA291dBgCIAEoBBIOCgZjYWNoZWQYAyABKAQiNQoLTGFzdE1lc3NhZ2USDAoEcm9sZRgBIAEoCRIMCgR0ZXh0GAIgASgJEgoKAnRzGAMgASgEIjIKC0N1cnJlbnRUb29sEgwKBG5hbWUYASABKAkSFQoNaW5wdXRfc3VtbWFyeRgCIAEoCSI8CgxDdXJyZW50QmxvY2sSCgoCaWQYASABKAQSFAoHY29tbWFuZBgCIAEoCUgAiAEBQgoKCF9jb21tYW5kIkEKEVBlcm1pc3Npb25SZXF1ZXN0EgoKAmlkGAEgASgJEg8KB3NuaXBwZXQYAiABKAkSDwoHb3B0aW9ucxgDIAMoCSJhCgtTdWJBZ2VudFJvdxIZChFwYXJlbnRfbWVzc2FnZV9pZBgBIAEoCRIYChBjaGlsZF9zZXNzaW9uX2lkGAIgASgJEg0KBWxhYmVsGAMgASgJEg4KBnN0YXR1cxgEIAEoCSLIAwoKQWdlbnRTdGF0ZRIMCgRtb2RlGAEgASgJEg0KBW1vZGVsGAIgASgJEg4KBnN0YXR1cxgDIAEoCRIgCgZ0b2tlbnMYBCABKAsyEC5yb29zdC52MS5Ub2tlbnMSEAoIY29zdF91c2QYBSABKAESMAoMbGFzdF9tZXNzYWdlGAYgASgLMhUucm9vc3QudjEuTGFzdE1lc3NhZ2VIAIgBARIwCgxjdXJyZW50X3Rvb2wYByABKAsyFS5yb29zdC52MS5DdXJyZW50VG9vbEgBiAEBEjIKDWN1cnJlbnRfYmxvY2sYCCABKAsyFi5yb29zdC52MS5DdXJyZW50QmxvY2tIAogBARI8ChJwZXJtaXNzaW9uX3JlcXVlc3QYCSABKAsyGy5yb29zdC52MS5QZXJtaXNzaW9uUmVxdWVzdEgDiAEBEikKCnN1Yl9hZ2VudHMYCiADKAsyFS5yb29zdC52MS5TdWJBZ2VudFJvdxINCgVzdGFsZRgLIAEoCEIPCg1fbGFzdF9tZXNzYWdlQg8KDV9jdXJyZW50X3Rvb2xCEAoOX2N1cnJlbnRfYmxvY2tCFQoTX3Blcm1pc3Npb25fcmVxdWVzdCK/BAoHU2Vzc2lvbhIKCgJpZBgBIAEoCRIRCgl3b3JrZXJfZnAYAiABKAkSDwoHY2hhbm5lbBgDIAEoDRIMCgRraW5kGAQgASgJEgsKA2N3ZBgFIAEoCRIZCgx3b3Jrc3BhY2VfaWQYBiABKAlIAIgBARIOCgZzdGF0dXMYByABKAkSKAoFYWdlbnQYCCABKAsyFC5yb29zdC52MS5BZ2VudFN0YXRlSAGIAQESEgoKY3JlYXRlZF9hdBgJIAEoBBIWCgljbG9zZWRfYXQYCiABKARIAogBARIZCgxjdXN0b21fdGl0bGUYCyABKAlIA4gBARIXCgpnaXRfYnJhbmNoGAwgASgJSASIAQESFwoKZ2l0X3JlbW90ZRgNIAEoCUgFiAEBEhYKCXByX251bWJlchgOIAEoBUgGiAEBEhUKCHByX3N0YXRlGA8gASgJSAeIAQESFgoJcHJfY2hlY2tzGBAgASgJSAiIAQESEwoGcHJfdXJsGBEgASgJSAmIAQESDQoFcG9ydHMYEiADKAUSFgoJc3Bhd25fY3dkGBMgASgJSAqIAQFCDwoNX3dvcmtzcGFjZV9pZEIICgZfYWdlbnRCDAoKX2Nsb3NlZF9hdEIPCg1fY3VzdG9tX3RpdGxlQg0KC19naXRfYnJhbmNoQg0KC19naXRfcmVtb3RlQgwKCl9wcl9udW1iZXJCCwoJX3ByX3N0YXRlQgwKCl9wcl9jaGVja3NCCQoHX3ByX3VybEIMCgpfc3Bhd25fY3dkItEBCglXb3Jrc3BhY2USCgoCaWQYASABKAkSEQoJd29ya2VyX2ZwGAIgASgJEgwKBG5hbWUYAyABKAkSEwoLZm9sZGVyX3BhdGgYBCABKAkSEgoFY29sb3IYBSABKAlIAIgBARIQCghwb3NpdGlvbhgGIAEoDRIPCgd2ZXJzaW9uGAcgASgEEhUKDWNyZWF0ZWRfYXRfbXMYCCABKAQSFQoNdXBkYXRlZF9hdF9tcxgJIAEoBBITCgtzZXNzaW9uX2lkcxgKIAMoCUIICgZfY29sb3IinQMKBFRhc2sSCgoCaWQYASABKAkSDQoFc3RhdGUYAiABKAkSFAoMcGF5bG9hZF9qc29uGAMgASgJEhYKDmVucXVldWVkX2F0X21zGAQgASgEEhoKDWNsYWltZWRfYXRfbXMYBSABKARIAIgBARIXCgpjbGFpbWVkX2J5GAYgASgJSAGIAQESGwoOZmluaXNoZWRfYXRfbXMYByABKARIAogBARIYCgtyZXN1bHRfanNvbhgIIAEoCUgDiAEBEh0KEGNvbXBsZXRpb25fY2hlY2sYCSABKAlIBIgBARItCiBjb21wbGV0aW9uX2NoZWNrX2xhc3RfYXR0ZW1wdF9tcxgKIAEoBEgFiAEBEhQKDGNsYWltX3R0bF9tcxgLIAEoBEIQCg5fY2xhaW1lZF9hdF9tc0INCgtfY2xhaW1lZF9ieUIRCg9fZmluaXNoZWRfYXRfbXNCDgoMX3Jlc3VsdF9qc29uQhMKEV9jb21wbGV0aW9uX2NoZWNrQiMKIV9jb21wbGV0aW9uX2NoZWNrX2xhc3RfYXR0ZW1wdF9tcyKRAQoMV2ViaG9va1Rva2VuEgoKAmlkGAEgASgJEg0KBWxhYmVsGAIgASgJEg0KBWxhc3Q0GAMgASgJEg4KBnNjb3BlcxgEIAMoCRIVCg1jcmVhdGVkX2F0X21zGAUgASgEEhwKD2xhc3RfdXNlZF9hdF9tcxgGIAEoBEgAiAEBQhIKEF9sYXN0X3VzZWRfYXRfbXMiZwoQV2ViaG9va1Rva2VuTWludBIKCgJpZBgBIAEoCRINCgVsYWJlbBgCIAEoCRIRCglwbGFpbnRleHQYAyABKAkSDgoGc2NvcGVzGAQgAygJEhUKDWNyZWF0ZWRfYXRfbXMYBSABKAQigQEKDlBlcm1pc3Npb25SdWxlEgoKAmlkGAEgASgJEhQKDHRvb2xfcGF0dGVybhgCIAEoCRITCgtmb2xkZXJfZ2xvYhgDIAEoCRIQCghkZWNpc2lvbhgEIAEoCRIPCgdlbmFibGVkGAUgASgIEhUKDWNyZWF0ZWRfYXRfbXMYBiABKAQiXwoITWNwUmVsYXkSCgoCaWQYASABKAkSDQoFbGFiZWwYAiABKAkSDAoEa2luZBgDIAEoCRITCgtjb25maWdfanNvbhgEIAEoCRIVCg1jcmVhdGVkX2F0X21zGAUgASgEIkkKC1BhaXJSZXF1ZXN0EhQKDGVwaGVtZXJhbF9pZBgBIAEoCRINCgVsYWJlbBgCIAEoCRIVCg1jcmVhdGVkX2F0X21zGAMgASgEIsYBCghBdWRpdFJvdxIKCgJpZBgBIAEoBBIKCgJ0cxgCIAEoBBIWCgljYWxsZXJfZnAYAyABKAlIAIgBARIZCgxjYWxsZXJfbGFiZWwYBCABKAlIAYgBARIOCgZtZXRob2QYBSABKAkSDAoEcGF0aBgGIAEoCRIOCgZzdGF0dXMYByABKA0SFQoIdHJhY2VfaWQYCCABKAlIAogBAUIMCgpfY2FsbGVyX2ZwQg8KDV9jYWxsZXJfbGFiZWxCCwoJX3RyYWNlX2lkYgZwcm90bzM");
+  fileDesc("ChNyb29zdC92MS93aXJlLnByb3RvEghyb29zdC52MSLBAQoLSG9zdE1ldHJpY3MSDwoHY3B1X3BjdBgBIAEoARIWCg5tZW1fdXNlZF9ieXRlcxgCIAEoBBIXCg9tZW1fdG90YWxfYnl0ZXMYAyABKAQSFwoPZGlza191c2VkX2J5dGVzGAQgASgEEhgKEGRpc2tfdG90YWxfYnl0ZXMYBSABKAQSEgoKbmV0X3J4X2JwcxgGIAEoBBISCgpuZXRfdHhfYnBzGAcgASgEEhUKDXNhbXBsZWRfYXRfbXMYCCABKAQioAIKBldvcmtlchIKCgJmcBgBIAEoCRINCgVsYWJlbBgCIAEoCRIKCgJvcxgDIAEoCRIUCgdnaXRfc2hhGAQgASgJSACIAQESMAoMaG9zdF9tZXRyaWNzGAUgASgLMhUucm9vc3QudjEuSG9zdE1ldHJpY3NIAYgBARIYChByZWdpc3RlcmVkX2F0X21zGAYgASgEEhQKDGxhc3Rfc2Vlbl9tcxgHIAEoBBIbCg5yZWFjaGFibGVfYWRkchgIIAEoCUgCiAEBEhkKDGtlZXBlcl9zdGFsZRgJIAEoCUgDiAEBQgoKCF9naXRfc2hhQg8KDV9ob3N0X21ldHJpY3NCEQoPX3JlYWNoYWJsZV9hZGRyQg8KDV9rZWVwZXJfc3RhbGUiMQoGVG9rZW5zEgoKAmluGAEgASgEEgsKA291dBgCIAEoBBIOCgZjYWNoZWQYAyABKAQiNQoLTGFzdE1lc3NhZ2USDAoEcm9sZRgBIAEoCRIMCgR0ZXh0GAIgASgJEgoKAnRzGAMgASgEIjIKC0N1cnJlbnRUb29sEgwKBG5hbWUYASABKAkSFQoNaW5wdXRfc3VtbWFyeRgCIAEoCSI8CgxDdXJyZW50QmxvY2sSCgoCaWQYASABKAQSFAoHY29tbWFuZBgCIAEoCUgAiAEBQgoKCF9jb21tYW5kIkEKEVBlcm1pc3Npb25SZXF1ZXN0EgoKAmlkGAEgASgJEg8KB3NuaXBwZXQYAiABKAkSDwoHb3B0aW9ucxgDIAMoCSJhCgtTdWJBZ2VudFJvdxIZChFwYXJlbnRfbWVzc2FnZV9pZBgBIAEoCRIYChBjaGlsZF9zZXNzaW9uX2lkGAIgASgJEg0KBWxhYmVsGAMgASgJEg4KBnN0YXR1cxgEIAEoCSL0AwoKQWdlbnRTdGF0ZRIMCgRtb2RlGAEgASgJEg0KBW1vZGVsGAIgASgJEg4KBnN0YXR1cxgDIAEoCRIgCgZ0b2tlbnMYBCABKAsyEC5yb29zdC52MS5Ub2tlbnMSEAoIY29zdF91c2QYBSABKAESMAoMbGFzdF9tZXNzYWdlGAYgASgLMhUucm9vc3QudjEuTGFzdE1lc3NhZ2VIAIgBARIwCgxjdXJyZW50X3Rvb2wYByABKAsyFS5yb29zdC52MS5DdXJyZW50VG9vbEgBiAEBEjIKDWN1cnJlbnRfYmxvY2sYCCABKAsyFi5yb29zdC52MS5DdXJyZW50QmxvY2tIAogBARI8ChJwZXJtaXNzaW9uX3JlcXVlc3QYCSABKAsyGy5yb29zdC52MS5QZXJtaXNzaW9uUmVxdWVzdEgDiAEBEikKCnN1Yl9hZ2VudHMYCiADKAsyFS5yb29zdC52MS5TdWJBZ2VudFJvdxINCgVzdGFsZRgLIAEoCBIZCgxzZXNzaW9uX2ZpbGUYDCABKAlIBIgBAUIPCg1fbGFzdF9tZXNzYWdlQg8KDV9jdXJyZW50X3Rvb2xCEAoOX2N1cnJlbnRfYmxvY2tCFQoTX3Blcm1pc3Npb25fcmVxdWVzdEIPCg1fc2Vzc2lvbl9maWxlIiwKDkFnZW50VGV4dEVudHJ5EgwKBHRleHQYASABKAkSDAoEZG9uZRgCIAEoCCKLAQoOQWdlbnRUb29sRW50cnkSFAoMdG9vbF9jYWxsX2lkGAEgASgJEgwKBG5hbWUYAiABKAkSEQoJYXJnc19qc29uGAMgASgJEg4KBnN0YXR1cxgEIAEoCRIMCgR0ZXh0GAUgASgJEhQKDGRldGFpbHNfanNvbhgGIAEoCRIOCgZpbnRlbnQYByABKAkiiwEKEEFnZW50UHJvbXB0RW50cnkSEQoJcHJvbXB0X2lkGAEgASgJEgwKBGtpbmQYAiABKAkSDQoFdGl0bGUYAyABKAkSDwoHb3B0aW9ucxgEIAMoCRIXCg9hbGxvd19mcmVlX3RleHQYBSABKAgSDQoFc3RhdGUYBiABKAkSDgoGYW5zd2VyGAcgASgJIi8KEEFnZW50Tm90aWNlRW50cnkSDQoFbGV2ZWwYASABKAkSDAoEdGV4dBgCIAEoCSK6AgoKQWdlbnRFbnRyeRILCgNzZXEYASABKAQSCgoCdHMYAiABKAMSKAoEdXNlchgKIAEoCzIYLnJvb3N0LnYxLkFnZW50VGV4dEVudHJ5SAASLQoJYXNzaXN0YW50GAsgASgLMhgucm9vc3QudjEuQWdlbnRUZXh0RW50cnlIABIsCgh0aGlua2luZxgMIAEoCzIYLnJvb3N0LnYxLkFnZW50VGV4dEVudHJ5SAASKAoEdG9vbBgNIAEoCzIYLnJvb3N0LnYxLkFnZW50VG9vbEVudHJ5SAASLAoGcHJvbXB0GA4gASgLMhoucm9vc3QudjEuQWdlbnRQcm9tcHRFbnRyeUgAEiwKBm5vdGljZRgPIAEoCzIaLnJvb3N0LnYxLkFnZW50Tm90aWNlRW50cnlIAEIGCgRib2R5Ir8ECgdTZXNzaW9uEgoKAmlkGAEgASgJEhEKCXdvcmtlcl9mcBgCIAEoCRIPCgdjaGFubmVsGAMgASgNEgwKBGtpbmQYBCABKAkSCwoDY3dkGAUgASgJEhkKDHdvcmtzcGFjZV9pZBgGIAEoCUgAiAEBEg4KBnN0YXR1cxgHIAEoCRIoCgVhZ2VudBgIIAEoCzIULnJvb3N0LnYxLkFnZW50U3RhdGVIAYgBARISCgpjcmVhdGVkX2F0GAkgASgEEhYKCWNsb3NlZF9hdBgKIAEoBEgCiAEBEhkKDGN1c3RvbV90aXRsZRgLIAEoCUgDiAEBEhcKCmdpdF9icmFuY2gYDCABKAlIBIgBARIXCgpnaXRfcmVtb3RlGA0gASgJSAWIAQESFgoJcHJfbnVtYmVyGA4gASgFSAaIAQESFQoIcHJfc3RhdGUYDyABKAlIB4gBARIWCglwcl9jaGVja3MYECABKAlICIgBARITCgZwcl91cmwYESABKAlICYgBARINCgVwb3J0cxgSIAMoBRIWCglzcGF3bl9jd2QYEyABKAlICogBAUIPCg1fd29ya3NwYWNlX2lkQggKBl9hZ2VudEIMCgpfY2xvc2VkX2F0Qg8KDV9jdXN0b21fdGl0bGVCDQoLX2dpdF9icmFuY2hCDQoLX2dpdF9yZW1vdGVCDAoKX3ByX251bWJlckILCglfcHJfc3RhdGVCDAoKX3ByX2NoZWNrc0IJCgdfcHJfdXJsQgwKCl9zcGF3bl9jd2Qi0QEKCVdvcmtzcGFjZRIKCgJpZBgBIAEoCRIRCgl3b3JrZXJfZnAYAiABKAkSDAoEbmFtZRgDIAEoCRITCgtmb2xkZXJfcGF0aBgEIAEoCRISCgVjb2xvchgFIAEoCUgAiAEBEhAKCHBvc2l0aW9uGAYgASgNEg8KB3ZlcnNpb24YByABKAQSFQoNY3JlYXRlZF9hdF9tcxgIIAEoBBIVCg11cGRhdGVkX2F0X21zGAkgASgEEhMKC3Nlc3Npb25faWRzGAogAygJQggKBl9jb2xvciKdAwoEVGFzaxIKCgJpZBgBIAEoCRINCgVzdGF0ZRgCIAEoCRIUCgxwYXlsb2FkX2pzb24YAyABKAkSFgoOZW5xdWV1ZWRfYXRfbXMYBCABKAQSGgoNY2xhaW1lZF9hdF9tcxgFIAEoBEgAiAEBEhcKCmNsYWltZWRfYnkYBiABKAlIAYgBARIbCg5maW5pc2hlZF9hdF9tcxgHIAEoBEgCiAEBEhgKC3Jlc3VsdF9qc29uGAggASgJSAOIAQESHQoQY29tcGxldGlvbl9jaGVjaxgJIAEoCUgEiAEBEi0KIGNvbXBsZXRpb25fY2hlY2tfbGFzdF9hdHRlbXB0X21zGAogASgESAWIAQESFAoMY2xhaW1fdHRsX21zGAsgASgEQhAKDl9jbGFpbWVkX2F0X21zQg0KC19jbGFpbWVkX2J5QhEKD19maW5pc2hlZF9hdF9tc0IOCgxfcmVzdWx0X2pzb25CEwoRX2NvbXBsZXRpb25fY2hlY2tCIwohX2NvbXBsZXRpb25fY2hlY2tfbGFzdF9hdHRlbXB0X21zIpEBCgxXZWJob29rVG9rZW4SCgoCaWQYASABKAkSDQoFbGFiZWwYAiABKAkSDQoFbGFzdDQYAyABKAkSDgoGc2NvcGVzGAQgAygJEhUKDWNyZWF0ZWRfYXRfbXMYBSABKAQSHAoPbGFzdF91c2VkX2F0X21zGAYgASgESACIAQFCEgoQX2xhc3RfdXNlZF9hdF9tcyJnChBXZWJob29rVG9rZW5NaW50EgoKAmlkGAEgASgJEg0KBWxhYmVsGAIgASgJEhEKCXBsYWludGV4dBgDIAEoCRIOCgZzY29wZXMYBCADKAkSFQoNY3JlYXRlZF9hdF9tcxgFIAEoBCKBAQoOUGVybWlzc2lvblJ1bGUSCgoCaWQYASABKAkSFAoMdG9vbF9wYXR0ZXJuGAIgASgJEhMKC2ZvbGRlcl9nbG9iGAMgASgJEhAKCGRlY2lzaW9uGAQgASgJEg8KB2VuYWJsZWQYBSABKAgSFQoNY3JlYXRlZF9hdF9tcxgGIAEoBCJfCghNY3BSZWxheRIKCgJpZBgBIAEoCRINCgVsYWJlbBgCIAEoCRIMCgRraW5kGAMgASgJEhMKC2NvbmZpZ19qc29uGAQgASgJEhUKDWNyZWF0ZWRfYXRfbXMYBSABKAQiSQoLUGFpclJlcXVlc3QSFAoMZXBoZW1lcmFsX2lkGAEgASgJEg0KBWxhYmVsGAIgASgJEhUKDWNyZWF0ZWRfYXRfbXMYAyABKAQixgEKCEF1ZGl0Um93EgoKAmlkGAEgASgEEgoKAnRzGAIgASgEEhYKCWNhbGxlcl9mcBgDIAEoCUgAiAEBEhkKDGNhbGxlcl9sYWJlbBgEIAEoCUgBiAEBEg4KBm1ldGhvZBgFIAEoCRIMCgRwYXRoGAYgASgJEg4KBnN0YXR1cxgHIAEoDRIVCgh0cmFjZV9pZBgIIAEoCUgCiAEBQgwKCl9jYWxsZXJfZnBCDwoNX2NhbGxlcl9sYWJlbEILCglfdHJhY2VfaWRiBnByb3RvMw");
 
 /**
  * @generated from message roost.v1.HostMetrics
@@ -361,6 +361,14 @@ export type AgentState = Message<"roost.v1.AgentState"> & {
    * @generated from field: bool stale = 11;
    */
   stale: boolean;
+
+  /**
+   * Absolute path of the omp session .jsonl (from RPC get_state.sessionFile).
+   * Backs exact --resume on worker respawn. absent = unknown.
+   *
+   * @generated from field: optional string session_file = 12;
+   */
+  sessionFile?: string | undefined;
 };
 
 /**
@@ -369,6 +377,223 @@ export type AgentState = Message<"roost.v1.AgentState"> & {
  */
 export const AgentStateSchema: GenMessage<AgentState> = /*@__PURE__*/
   messageDesc(file_roost_v1_wire, 8);
+
+/**
+ * @generated from message roost.v1.AgentTextEntry
+ */
+export type AgentTextEntry = Message<"roost.v1.AgentTextEntry"> & {
+  /**
+   * @generated from field: string text = 1;
+   */
+  text: string;
+
+  /**
+   * @generated from field: bool done = 2;
+   */
+  done: boolean;
+};
+
+/**
+ * Describes the message roost.v1.AgentTextEntry.
+ * Use `create(AgentTextEntrySchema)` to create a new message.
+ */
+export const AgentTextEntrySchema: GenMessage<AgentTextEntry> = /*@__PURE__*/
+  messageDesc(file_roost_v1_wire, 9);
+
+/**
+ * @generated from message roost.v1.AgentToolEntry
+ */
+export type AgentToolEntry = Message<"roost.v1.AgentToolEntry"> & {
+  /**
+   * @generated from field: string tool_call_id = 1;
+   */
+  toolCallId: string;
+
+  /**
+   * @generated from field: string name = 2;
+   */
+  name: string;
+
+  /**
+   * @generated from field: string args_json = 3;
+   */
+  argsJson: string;
+
+  /**
+   * running|ok|error
+   *
+   * @generated from field: string status = 4;
+   */
+  status: string;
+
+  /**
+   * joined text content blocks
+   *
+   * @generated from field: string text = 5;
+   */
+  text: string;
+
+  /**
+   * AgentToolResult.details
+   *
+   * @generated from field: string details_json = 6;
+   */
+  detailsJson: string;
+
+  /**
+   * @generated from field: string intent = 7;
+   */
+  intent: string;
+};
+
+/**
+ * Describes the message roost.v1.AgentToolEntry.
+ * Use `create(AgentToolEntrySchema)` to create a new message.
+ */
+export const AgentToolEntrySchema: GenMessage<AgentToolEntry> = /*@__PURE__*/
+  messageDesc(file_roost_v1_wire, 10);
+
+/**
+ * @generated from message roost.v1.AgentPromptEntry
+ */
+export type AgentPromptEntry = Message<"roost.v1.AgentPromptEntry"> & {
+  /**
+   * omp extension_ui_request id, verbatim
+   *
+   * @generated from field: string prompt_id = 1;
+   */
+  promptId: string;
+
+  /**
+   * approval|question|input
+   *
+   * @generated from field: string kind = 2;
+   */
+  kind: string;
+
+  /**
+   * @generated from field: string title = 3;
+   */
+  title: string;
+
+  /**
+   * @generated from field: repeated string options = 4;
+   */
+  options: string[];
+
+  /**
+   * @generated from field: bool allow_free_text = 5;
+   */
+  allowFreeText: boolean;
+
+  /**
+   * pending|answered|cancelled
+   *
+   * @generated from field: string state = 6;
+   */
+  state: string;
+
+  /**
+   * @generated from field: string answer = 7;
+   */
+  answer: string;
+};
+
+/**
+ * Describes the message roost.v1.AgentPromptEntry.
+ * Use `create(AgentPromptEntrySchema)` to create a new message.
+ */
+export const AgentPromptEntrySchema: GenMessage<AgentPromptEntry> = /*@__PURE__*/
+  messageDesc(file_roost_v1_wire, 11);
+
+/**
+ * @generated from message roost.v1.AgentNoticeEntry
+ */
+export type AgentNoticeEntry = Message<"roost.v1.AgentNoticeEntry"> & {
+  /**
+   * info|error
+   *
+   * @generated from field: string level = 1;
+   */
+  level: string;
+
+  /**
+   * @generated from field: string text = 2;
+   */
+  text: string;
+};
+
+/**
+ * Describes the message roost.v1.AgentNoticeEntry.
+ * Use `create(AgentNoticeEntrySchema)` to create a new message.
+ */
+export const AgentNoticeEntrySchema: GenMessage<AgentNoticeEntry> = /*@__PURE__*/
+  messageDesc(file_roost_v1_wire, 12);
+
+/**
+ * @generated from message roost.v1.AgentEntry
+ */
+export type AgentEntry = Message<"roost.v1.AgentEntry"> & {
+  /**
+   * monotonic per session, starts at 1
+   *
+   * @generated from field: uint64 seq = 1;
+   */
+  seq: bigint;
+
+  /**
+   * @generated from field: int64 ts = 2;
+   */
+  ts: bigint;
+
+  /**
+   * @generated from oneof roost.v1.AgentEntry.body
+   */
+  body: {
+    /**
+     * @generated from field: roost.v1.AgentTextEntry user = 10;
+     */
+    value: AgentTextEntry;
+    case: "user";
+  } | {
+    /**
+     * @generated from field: roost.v1.AgentTextEntry assistant = 11;
+     */
+    value: AgentTextEntry;
+    case: "assistant";
+  } | {
+    /**
+     * @generated from field: roost.v1.AgentTextEntry thinking = 12;
+     */
+    value: AgentTextEntry;
+    case: "thinking";
+  } | {
+    /**
+     * @generated from field: roost.v1.AgentToolEntry tool = 13;
+     */
+    value: AgentToolEntry;
+    case: "tool";
+  } | {
+    /**
+     * @generated from field: roost.v1.AgentPromptEntry prompt = 14;
+     */
+    value: AgentPromptEntry;
+    case: "prompt";
+  } | {
+    /**
+     * @generated from field: roost.v1.AgentNoticeEntry notice = 15;
+     */
+    value: AgentNoticeEntry;
+    case: "notice";
+  } | { case: undefined; value?: undefined };
+};
+
+/**
+ * Describes the message roost.v1.AgentEntry.
+ * Use `create(AgentEntrySchema)` to create a new message.
+ */
+export const AgentEntrySchema: GenMessage<AgentEntry> = /*@__PURE__*/
+  messageDesc(file_roost_v1_wire, 13);
 
 /**
  * @generated from message roost.v1.Session
@@ -504,7 +729,7 @@ export type Session = Message<"roost.v1.Session"> & {
  * Use `create(SessionSchema)` to create a new message.
  */
 export const SessionSchema: GenMessage<Session> = /*@__PURE__*/
-  messageDesc(file_roost_v1_wire, 9);
+  messageDesc(file_roost_v1_wire, 14);
 
 /**
  * @generated from message roost.v1.Workspace
@@ -568,7 +793,7 @@ export type Workspace = Message<"roost.v1.Workspace"> & {
  * Use `create(WorkspaceSchema)` to create a new message.
  */
 export const WorkspaceSchema: GenMessage<Workspace> = /*@__PURE__*/
-  messageDesc(file_roost_v1_wire, 10);
+  messageDesc(file_roost_v1_wire, 15);
 
 /**
  * @generated from message roost.v1.Task
@@ -641,7 +866,7 @@ export type Task = Message<"roost.v1.Task"> & {
  * Use `create(TaskSchema)` to create a new message.
  */
 export const TaskSchema: GenMessage<Task> = /*@__PURE__*/
-  messageDesc(file_roost_v1_wire, 11);
+  messageDesc(file_roost_v1_wire, 16);
 
 /**
  * @generated from message roost.v1.WebhookToken
@@ -685,7 +910,7 @@ export type WebhookToken = Message<"roost.v1.WebhookToken"> & {
  * Use `create(WebhookTokenSchema)` to create a new message.
  */
 export const WebhookTokenSchema: GenMessage<WebhookToken> = /*@__PURE__*/
-  messageDesc(file_roost_v1_wire, 12);
+  messageDesc(file_roost_v1_wire, 17);
 
 /**
  * @generated from message roost.v1.WebhookTokenMint
@@ -724,7 +949,7 @@ export type WebhookTokenMint = Message<"roost.v1.WebhookTokenMint"> & {
  * Use `create(WebhookTokenMintSchema)` to create a new message.
  */
 export const WebhookTokenMintSchema: GenMessage<WebhookTokenMint> = /*@__PURE__*/
-  messageDesc(file_roost_v1_wire, 13);
+  messageDesc(file_roost_v1_wire, 18);
 
 /**
  * @generated from message roost.v1.PermissionRule
@@ -768,7 +993,7 @@ export type PermissionRule = Message<"roost.v1.PermissionRule"> & {
  * Use `create(PermissionRuleSchema)` to create a new message.
  */
 export const PermissionRuleSchema: GenMessage<PermissionRule> = /*@__PURE__*/
-  messageDesc(file_roost_v1_wire, 14);
+  messageDesc(file_roost_v1_wire, 19);
 
 /**
  * @generated from message roost.v1.McpRelay
@@ -809,7 +1034,7 @@ export type McpRelay = Message<"roost.v1.McpRelay"> & {
  * Use `create(McpRelaySchema)` to create a new message.
  */
 export const McpRelaySchema: GenMessage<McpRelay> = /*@__PURE__*/
-  messageDesc(file_roost_v1_wire, 15);
+  messageDesc(file_roost_v1_wire, 20);
 
 /**
  * @generated from message roost.v1.PairRequest
@@ -836,7 +1061,7 @@ export type PairRequest = Message<"roost.v1.PairRequest"> & {
  * Use `create(PairRequestSchema)` to create a new message.
  */
 export const PairRequestSchema: GenMessage<PairRequest> = /*@__PURE__*/
-  messageDesc(file_roost_v1_wire, 16);
+  messageDesc(file_roost_v1_wire, 21);
 
 /**
  * @generated from message roost.v1.AuditRow
@@ -888,5 +1113,5 @@ export type AuditRow = Message<"roost.v1.AuditRow"> & {
  * Use `create(AuditRowSchema)` to create a new message.
  */
 export const AuditRowSchema: GenMessage<AuditRow> = /*@__PURE__*/
-  messageDesc(file_roost_v1_wire, 17);
+  messageDesc(file_roost_v1_wire, 22);
 

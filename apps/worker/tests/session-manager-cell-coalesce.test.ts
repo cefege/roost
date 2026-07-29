@@ -155,7 +155,7 @@ describe("claim snapshot tail sizes to the returning viewer's gap", () => {
   test("heldSbTotal → tail reaches the viewer's boundary row; omitted → default tail", async () => {
     const { mgr, frames } = mgrWithCellCounter();
     await injectCellSession(mgr, 1);
-    const core = mgr.sessions.get(1)!.wtermCore!;
+    const core = mgr.shellByChannel(1)!.wtermCore;
     core.writeRaw(new TextEncoder().encode(
       Array.from({ length: 1200 }, (_, i) => `catchup-${i}`).join("\r\n") + "\r\n",
     ));

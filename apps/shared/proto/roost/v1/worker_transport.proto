@@ -10,6 +10,7 @@ package roost.v1;
 
 import "roost/v1/events.proto";
 import "roost/v1/cell.proto";
+import "roost/v1/sync.proto";
 
 // ── Upstream (worker → coord) ────────────────────────────────────
 
@@ -60,6 +61,10 @@ message CoordWorkerUp {
     WBinary binary = 10;
     WRefreshJwt refresh_jwt = 11;
     WCellGrid cell_grid = 12;
+    // Agent-session transcript deltas. Fast-path like binary/cell_grid:
+    // never touches the `events` table, so it must not serialize behind
+    // the durable-event tail.
+    AgentEntriesFrame agent_entries = 13;
   }
 }
 

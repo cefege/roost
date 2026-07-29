@@ -89,6 +89,54 @@ message AgentState {
   // The worker restarted and its structured-state bridge died. The keeper PTY
   // still runs, but auxiliary state will not refresh until the bridge returns.
   bool stale = 11;
+  // Absolute path of the omp session .jsonl (from RPC get_state.sessionFile).
+  // Backs exact --resume on worker respawn. absent = unknown.
+  optional string session_file = 12;
+}
+
+// ─── Agent transcript entries (omp RPC projection) ───────────────────────
+
+message AgentTextEntry {
+  string text = 1;
+  bool done = 2;
+}
+
+message AgentToolEntry {
+  string tool_call_id = 1;
+  string name = 2;
+  string args_json = 3;
+  string status = 4;        // running|ok|error
+  string text = 5;          // joined text content blocks
+  string details_json = 6;  // AgentToolResult.details
+  string intent = 7;
+}
+
+message AgentPromptEntry {
+  string prompt_id = 1;  // omp extension_ui_request id, verbatim
+  string kind = 2;       // approval|question|input
+  string title = 3;
+  repeated string options = 4;
+  bool allow_free_text = 5;
+  string state = 6;  // pending|answered|cancelled
+  string answer = 7;
+}
+
+message AgentNoticeEntry {
+  string level = 1;  // info|error
+  string text = 2;
+}
+
+message AgentEntry {
+  uint64 seq = 1;  // monotonic per session, starts at 1
+  int64 ts = 2;
+  oneof body {
+    AgentTextEntry user = 10;
+    AgentTextEntry assistant = 11;
+    AgentTextEntry thinking = 12;
+    AgentToolEntry tool = 13;
+    AgentPromptEntry prompt = 14;
+    AgentNoticeEntry notice = 15;
+  }
 }
 
 message Session {

@@ -67,10 +67,11 @@ wins.
   Source: `apps/worker/src/session-manager.ts` (`getScrollbackSince`).
 
 - **OMP state** — structured lifecycle, transcript, tool, and approval data
-  emitted by the local OMP bridge for a session. The browser projects it beside
-  the native terminal; no terminal screen-scrape or hosted runtime is involved.
-  Source: `apps/omp-bridge/`, `apps/worker/src/omp-bridge-server.ts`,
-  `apps/web/src/store/omp-transcript.ts`.
+  projected from an agent session's `omp --mode rpc-ui` child process. The
+  browser renders it as a native transcript instead of a terminal grid; no
+  screen-scrape and no hosted runtime is involved.
+  Source: `apps/worker/src/agent/`, `apps/shared/src/wire/agent-entry.ts`,
+  `apps/web/src/store/agentEntries.ts`.
 
 - **cell-shipping / authoritative grid** — the terminal-fidelity model: the
   worker holds the one canonical grid for a session and the browser renders it

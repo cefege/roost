@@ -43,6 +43,14 @@ export const ClientControlFrame = z.discriminatedUnion("kind", [
     // caller-minted id (optimistic spawn); worker reuses it verbatim
     session_id: SessionId.optional(),
   }),
+  // Agent session: worker spawns an `omp --mode rpc-ui` child instead of a
+  // keeper PTY. resume_file = absolute omp session .jsonl to `--resume`.
+  Base.extend({
+    kind: z.literal("spawn-agent"),
+    folder: z.string(),
+    session_id: SessionId.optional(),
+    resume_file: z.string().optional(),
+  }),
   Base.extend({ kind: z.literal("kill"), session_id: SessionId }),
   Base.extend({ kind: z.literal("user-message"), session_id: SessionId, text: z.string() }),
   Base.extend({ kind: z.literal("read-file"), request_id: z.string(), path: z.string(), max_lines: z.number().int().positive().optional() }),
@@ -75,6 +83,17 @@ export const ClientControlFrame = z.discriminatedUnion("kind", [
   }),
   Base.extend({ kind: z.literal("get-omp-transcript-page"), request_id: z.string(), session_id: SessionId, cursor: z.string().optional(), limit: z.literal(128) }),
   Base.extend({ kind: z.literal("omp-abort"), request_id: z.string(), session_id: SessionId }),
+  // Answer an omp extension_ui_request surfaced as an AgentPromptEntry.
+  // An unanswered prompt hangs the agent forever, so this is the only exit
+  // besides killing the session.
+  Base.extend({
+    kind: z.literal("agent-respond"),
+    request_id: z.string(),
+    session_id: SessionId,
+    prompt_id: z.string(),
+    value: z.string(),
+    cancelled: z.boolean(),
+  }),
   // Cross-worker rsync: coord asks the SOURCE worker to spawn rsync
   // sending src_path to dst_host:dst_path. Source worker streams
   // stdout/stderr back via transfer-line frames and emits

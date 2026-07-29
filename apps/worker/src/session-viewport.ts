@@ -26,7 +26,7 @@ import { SB_SNAPSHOT_TAIL_ROWS, SB_SNAPSHOT_MAX_CATCHUP_ROWS, initCellEmitState 
  *  for exactly the long-lived sessions this sizing exists to serve. */
 function _claimTailRows(mgr: SessionManager, channelId: number, heldSbTotal?: number): number {
 	if (!heldSbTotal || heldSbTotal <= 0) return SB_SNAPSHOT_TAIL_ROWS;
-	const rec = mgr.sessions.get(channelId);
+	const rec = mgr.shellByChannel(channelId);
 	const total = (rec?.cell_emit.sbDropped ?? 0) + (rec?.wtermCore.getScrollbackCount() ?? 0);
 	const need = total - heldSbTotal + 1;
 	return Math.min(Math.max(need, SB_SNAPSHOT_TAIL_ROWS), SB_SNAPSHOT_MAX_CATCHUP_ROWS);
@@ -47,14 +47,18 @@ export function claimViewport(
 	rows: number,
 	clientSeq?: number,
 	// numeric roost.v1.ResizeCause — the browser event behind this claim
-	// (1=INITIAL, 2=VIEWPORT, 3=TAB_VISIBLE, 4=WITHDRAW). Hint only: the claim
+	// (1=INITIAL, 2=VIEWPORT, 3=TAB_VISIBLE, 4=WITHDRAW, 5=BACKGROUND). Hint only: the claim
 	// already force-emits a full cell frame, so a reattach (INITIAL/TAB_VISIBLE)
 	// paints immediately. Recorded in diag for resize-pathology forensics.
 	cause?: number,
 	// rows this viewer already holds — sizes the snapshot tail
 	heldSbTotal?: number,
 ): void {
-	if (cols <= 0 || rows <= 0) {
+	// BACKGROUND (5): a parked deck pane. It sends 0×0 so it is excluded from the
+	// SCD min, but it stays in viewportClaims so _hasActiveViewer keeps deltas
+	// flowing — the pane is already current when it is revealed.
+	const isBackground = cause === 5;
+	if (!isBackground && (cols <= 0 || rows <= 0)) {
 		this.withdrawViewport(channelId, viewerFp);
 		return;
 	}
@@ -132,11 +136,13 @@ export function claimViewport(
 		seq_advanced: true,
 		cause: cause ?? 0,
 	});
-	this._recomputeViewport(channelId, heldSbTotal);
+	this._recomputeViewport(channelId, isBackground ? undefined : heldSbTotal);
 	// R11 — a claim is the worker's "viewer attached/resized" signal; emit a
 	// full cell frame so a fresh cell-mode viewer paints the whole grid
 	// immediately (live deltas follow on the next PTY chunk). No-op off-flag.
-	this.emitCellSnapshot(channelId as ChannelId, _claimTailRows(this, channelId, heldSbTotal));
+	// A background claim paints nothing of its own (and never fell behind), so
+	// it must not force a snapshot or size another viewer's rebuild tail.
+	if (!isBackground) this.emitCellSnapshot(channelId as ChannelId, _claimTailRows(this, channelId, heldSbTotal));
 }
 
 /** Drop a viewer's claim, DEFERRED by VIEWPORT_WITHDRAW_GRACE_MS so a
@@ -328,9 +334,9 @@ export async function _rebuildWtermCore(
 	rows: number,
 	heldSbTotal?: number,
 ): Promise<void> {
-	const rec0 = this.sessions.get(channelId);
+	const rec0 = this.shellByChannel(channelId);
 	// The chain is timer-driven: teardown can remove the terminal core before
-	// this queued rebuild executes.
+	// this queued rebuild executes, and an agent channel never had one.
 	if (!rec0?.wtermCore) return;
 	// Skip rebuild if the wtermCore is already at the target size — no reflow
 	// needed, and the claim path (emitCellSnapshot) already sent a full frame.
@@ -338,7 +344,7 @@ export async function _rebuildWtermCore(
 	// (the old 16ms timer masked it by clearing before the rebuild fired).
 	if (rec0.wtermCore.getCols() === cols && rec0.wtermCore.getRows() === rows) return;
 	const fresh = await _createWtermCore(cols, rows);
-	const rec = this.sessions.get(channelId);
+	const rec = this.shellByChannel(channelId);
 	if (!rec) return;
 	// Alt-screen: do NOT replay the raw ring into the new-width core. The ring
 	// holds absolute cursor moves and line clears painted for the old width;

@@ -57,8 +57,17 @@ export function setupReconcile(deps: {
 			// orphaned keeper channel → "channel_id in use" (visible post-restart).
 			await sessionMgr.advanceChannelCounterPastKeeper();
 			const res = await client().sessionsList({ workerFp, status: "open" });
+			// Agent rows are NOT revived here. This path adopts-or-respawns keeper
+			// PTYs and respawns as `kind: "shell"` below; an agent row taken
+			// through it comes back as a shell, and the later idempotent
+			// spawn-agent then finds a shell record and rejects every transcript
+			// command. Their revival is coord-driven instead: coord holds
+			// AgentState.session_file (the worker's omp child and its in-memory
+			// ring both die with the process) and re-sends spawn-agent with it on
+			// each hello, which is what makes `--resume` exact.
+			const shellRows = res.sessions.filter((r) => r.kind !== "agent");
 			const resumeResults = await Promise.all(
-				res.sessions.map(async (r) => ({
+				shellRows.map(async (r) => ({
 					session: r,
 					resumed: await sessionMgr.resume({
 						sessionId: r.id as never,
@@ -145,7 +154,8 @@ export function setupReconcile(deps: {
 			const strays = await sessionMgr.reapStrayKeeperChannels();
 			log.info("worker", "resume_attempted", {
 				reason,
-				candidates: res.sessions.length,
+				candidates: shellRows.length,
+				agent_rows_skipped: res.sessions.length - shellRows.length,
 				resumed: resumeResults.filter((r) => r.resumed).length,
 				respawned,
 				respawn_failed: respawnFailed,

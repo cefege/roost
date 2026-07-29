@@ -87,6 +87,8 @@ message AgentStatePatch {
   // "sub_agents not in patch" (leave alone). repeated fields are
   // always-present in proto3; this companion bool is the presence bit.
   bool has_sub_agents = 11;
+  // Absolute omp session .jsonl path; see AgentState.session_file.
+  optional string session_file = 12;
 }
 
 message AgentEvt {

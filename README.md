@@ -40,7 +40,7 @@ Once you have agents across several Macs, spare machines often sit unused while 
 
 ## What you get
 
-**Structured OMP state where it matters.** The sidebar reads the local OMP bridge transcript, including active tool calls and approval requests. OMP state is structured; the terminal itself remains the authoritative interactive surface for every session.
+**Agent sessions are a real UI, not a terminal.** Pick a server and a folder and Roost runs oh-my-pi as a child process, streaming its transcript straight into the browser: messages, tool cards, and approval prompts you answer with a button. Shell sessions stay a full native terminal, and remain the escape hatch for everything else.
 
 **Build a fleet from Macs you already own.** Connect every Mac to one coordinator, then use each one as a worker, including the coordinator Mac. Put an agent run on an older MacBook, a spare desktop, or your main laptop, based on where you have CPU and RAM available. Pick a project folder on that worker and open a workspace there. Workers dial outbound only, so they do not expose an inbound port. The sidebar groups every live session by the machine it runs on, so the entire fleet stays legible in one browser tab.
 
@@ -85,16 +85,19 @@ Once you have agents across several Macs, spare machines often sit unused while 
  Worker    Worker              Worker        (Bun, one per machine)
  Mac A     Mac B               Mac C
    │  a keeper subprocess hosts every PTY and outlives worker restarts;
-   │  the local OMP bridge publishes structured transcript and approval state
+   │  agent sessions run one `omp --mode rpc-ui` child process each
 ```
 
 The coordinator handles control and fan-out only. It holds an append-only event log that every session is projected from, so the browser and the server agree on state by replaying the same events rather than mirroring a snapshot. Workers are outbound-only: they dial the coordinator, never the reverse. For the full tour, see [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 ## Structured agent state
 
-Roost's supported structured integration is **oh-my-pi / OMP**, through the
-local OMP bridge. Other terminals, shells, REPLs, and TUIs remain first-class
-sessions with their native terminal behavior but no structured sidebar state.
+Roost's supported structured integration is **oh-my-pi / OMP**, run as one
+`omp --mode rpc-ui` child process per agent session. The worker projects that
+RPC event stream into transcript entries the browser renders natively, so tool
+calls and approval requests are structured data rather than scraped screen
+text. Other terminals, shells, REPLs, and TUIs remain first-class sessions with
+their native terminal behavior but no structured sidebar state.
 
 ## Network
 

@@ -14,6 +14,13 @@ import { handleGetScrollbackCells, handleResize } from "./browser-command-termin
 import { handleStartTransfer } from "./browser-command-transfer.ts";
 import { handleAttachmentProbe, handleDeleteAttachment, handleListAttachments } from "./browser-command-attachments.ts";
 import { handleDiagDumpBytecap, handleDiagSnapshot } from "./browser-command-diag.ts";
+import {
+	handleAgentAbort,
+	handleAgentRespond,
+	handleGetAgentEntries,
+	handleSpawnAgent,
+	handleUserMessage,
+} from "./browser-command-agent.ts";
 
 export interface BrowserCommandMsg {
 	browser_id: string;
@@ -100,11 +107,26 @@ export function handleBrowserCommand(
 			handleRespawnIfMissing(frame, request_id, { coordLink, sessionMgr });
 			return;
 		}
-		case "user-message":
-		case "get-omp-transcript-page":
-		case "omp-abort":
-			coordLink.send({ kind: "rpc-error", request_id, message: "Structured OMP is not supported" });
+		case "spawn-agent": {
+			handleSpawnAgent(frame, request_id, { coordLink, sessionMgr });
 			return;
+		}
+		case "user-message": {
+			handleUserMessage(frame, { coordLink, sessionMgr });
+			return;
+		}
+		case "agent-respond": {
+			handleAgentRespond(frame, request_id, { coordLink, sessionMgr });
+			return;
+		}
+		case "omp-abort": {
+			handleAgentAbort(frame, request_id, { coordLink, sessionMgr });
+			return;
+		}
+		case "get-omp-transcript-page": {
+			handleGetAgentEntries(frame, request_id, { coordLink, sessionMgr });
+			return;
+		}
 		case "cursor-pos":
 		case "set-title":
 		case "detach":

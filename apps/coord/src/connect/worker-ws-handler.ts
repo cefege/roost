@@ -125,9 +125,14 @@ export function makeWorkerWsHandler(deps: WorkerServiceDeps) {
       // Fast path: in-memory bus publishes — no DB write, no ordering
       // constraint. Process immediately so an echo cell frame never waits
       // behind a DB-writing event frame (the .tail variance amplifier).
+      // agentEntries belongs here too: it only fans out onto
+      // globalAgentEntryBus and never touches the `events` table, so making a
+      // streaming transcript queue behind event appends would add latency for
+      // nothing. (The whole message was already copied off Bun's pooled buffer
+      // above, which is what keeps every deferred frame's `bytes` views valid.)
       //
       const fcase = frame.frame.case;
-      if (fcase === "binary" || fcase === "cellGrid") {
+      if (fcase === "binary" || fcase === "cellGrid" || fcase === "agentEntries") {
         void conn.handleUpstream(frame).catch((e) => {
           log.warn("worker-ws", "handle_failed", { worker_fp: ws.data.fp, error: String(e) });
         });

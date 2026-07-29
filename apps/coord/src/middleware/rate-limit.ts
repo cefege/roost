@@ -51,6 +51,11 @@ const RATE_LIMITED_ROUTES: ReadonlySet<string> = new Set([
   // and ListStates stay unlimited: heartbeat/read-frequency traffic, same
   // reasoning as the *List exclusions above.
   "/roost.v1.CoordinatorService/UiDispatch",
+  // agent sessions — prompt answers + aborts mutate a live omp child.
+  // SessionsGetAgentEntries excluded: read-only transcript paging, same
+  // reasoning as the *List exclusions above.
+  "/roost.v1.CoordinatorService/SessionsAgentRespond",
+  "/roost.v1.CoordinatorService/SessionsAgentAbort",
 ]);
 
 const TOKENS_PER_WINDOW = 100;

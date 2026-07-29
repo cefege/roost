@@ -16,6 +16,7 @@ import { consumeBootRestore } from "../lib/bootRestore.ts";
 import { folderKeyOf } from "../lib/folderKey.ts";
 import { signal } from "@roost/shared/diag";
 import { TerminalDeck } from "./TerminalDeck.tsx";
+import { TranscriptDeck } from "./agent/TranscriptDeck.tsx";
 import { Button } from "./Settings/md/Button.tsx";
 import { uiStore, closeSidebar } from "../store/uiStore.ts";
 import { isCompact } from "../lib/windowSizeClass.ts";
@@ -78,6 +79,16 @@ export function MainPane() {
   const activeOpenSession = createMemo(() => {
     const s = activeSession();
     return s && s.status === "open" ? s : null;
+  });
+
+  // kind "agent" sessions have no PTY and no cell grid — their pane is a
+  // native transcript. Rendered as an OVERLAY over TerminalDeck rather than
+  // instead of it: the deck's contract is one persistent wterm core per open
+  // session (see below), so unmounting it on every agent visit would tear down
+  // and re-attach every shell terminal in the folder.
+  const agentSession = createMemo(() => {
+    const s = activeOpenSession();
+    return s && s.kind === "agent" ? s : null;
   });
 
   // Dead-route safety net: never strand the user on a blank pane at a terminal
@@ -175,6 +186,10 @@ export function MainPane() {
           and dividers; see TerminalDeck.tsx. */}
       <Show when={!isFileView() && !isSearch()}>
         <TerminalDeck activeSessionId={activeOpenSession()?.id ?? null} />
+
+        <Show when={agentSession()}>
+          {(s) => <TranscriptDeck session={s()} />}
+        </Show>
 
         {/* Stuck-terminal escape: the pane resolves to no live terminal AND
             bootstrap is wedged (coord unreachable or browser unpaired) — show

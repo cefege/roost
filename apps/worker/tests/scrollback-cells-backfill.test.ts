@@ -22,7 +22,7 @@ import { describe, test, expect } from "bun:test";
 import { SessionManager } from "../src/session-manager.ts";
 import { handleGetScrollbackCells } from "../src/browser-command-terminal.ts";
 import type { CoordLink } from "../src/transport/CoordLink.ts";
-import type { SessionRecord } from "../src/session-record.ts";
+import type { SessionShellRecord } from "../src/session-record.ts";
 import type { FsmChannel } from "../src/fsm.ts";
 import { asSessionId, asChannelId, asWorkerFp } from "@roost/shared";
 import type { ClientControlFrame } from "@roost/shared/wire";
@@ -53,13 +53,13 @@ function freshMgr(onCellFrame?: (frame: PbCellGridFrame) => void): SessionManage
   });
 }
 
-async function injectSession(mgr: SessionManager, bytes: Uint8Array): Promise<SessionRecord> {
+async function injectSession(mgr: SessionManager, bytes: Uint8Array): Promise<SessionShellRecord> {
   const wtermCore = await WasmBridge.load();
   wtermCore.init(COLS, ROWS);
   wtermCore.writeRaw(bytes);
   // Test double: nothing on the tail/backfill path touches the FSM.
   const fsm = {} as unknown as FsmChannel;
-  const record: SessionRecord = {
+  const record: SessionShellRecord = {
     sessionId: SID,
     channelId: asChannelId(CID),
     socketPath: "/dev/null",
@@ -104,7 +104,7 @@ describe("tail full frame + get-scrollback-cells backfill", () => {
     const frames: PbCellGridFrame[] = [];
     const mgr = freshMgr((f) => frames.push(f));
     const rec = await injectSession(mgr, SEED);
-    const total = rec.wtermCore!.getScrollbackCount();
+    const total = rec.wtermCore.getScrollbackCount();
     expect(total).toBeGreaterThan(SB_SNAPSHOT_TAIL_ROWS);
 
     mgr.emitCellSnapshot(asChannelId(CID));
@@ -122,7 +122,7 @@ describe("tail full frame + get-scrollback-cells backfill", () => {
     const mgr = freshMgr();
     const rec = await injectSession(mgr, SEED);
     const { coordLink, sent } = makeLinkCapture();
-    const reference = gridToCellFrame(rec.wtermCore!, 1); // untailed: complete history
+    const reference = gridToCellFrame(rec.wtermCore, 1); // untailed: complete history
     const total = reference.scrollbackTotal;
     const sbBase = total - SB_SNAPSHOT_TAIL_ROWS;
 
@@ -152,7 +152,7 @@ describe("tail full frame + get-scrollback-cells backfill", () => {
   test("T3 — end_row clamps to the grid; unknown session errors", async () => {
     const mgr = freshMgr();
     const rec = await injectSession(mgr, SEED);
-    const total = rec.wtermCore!.getScrollbackCount();
+    const total = rec.wtermCore.getScrollbackCount();
     const { coordLink, sent } = makeLinkCapture();
 
     await handleGetScrollbackCells(cellsFrame(999_999, 50), "req", { coordLink, sessionMgr: mgr });
@@ -188,6 +188,6 @@ describe("tail full frame + get-scrollback-cells backfill", () => {
     // The rebuilt 40-col grid rewraps "line-N" rows; total grows vs the 80-col
     // grid only if lines exceed 40 cols (they don't) — but the swap must have
     // completed: the manager's core now reports the new width.
-    expect(mgr.sessions.get(CID)!.wtermCore!.getCols()).toBe(NEW_COLS);
+    expect(mgr.shellByChannel(CID)!.wtermCore.getCols()).toBe(NEW_COLS);
   });
 });

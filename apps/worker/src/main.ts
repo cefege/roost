@@ -284,6 +284,7 @@ export async function runWorker() {
 		sendBinaryUpstream: (bytes) => coordLink.sendBinary(bytes),
 		sendCellGridUpstream: (channelId, frame) =>
 			coordLink.sendCellGrid(channelId, frame),
+		sendAgentEntriesUpstream: (frame) => coordLink.sendAgentEntries(frame),
 	});
 
 

@@ -142,6 +142,7 @@ enum ResizeCause {
   RESIZE_CAUSE_VIEWPORT = 2;     // ResizeObserver — window/element size change
   RESIZE_CAUSE_TAB_VISIBLE = 3;  // visibilitychange → visible (re-claim)
   RESIZE_CAUSE_WITHDRAW = 4;     // tab hidden / unmount → 0x0 withdraw
+  RESIZE_CAUSE_BACKGROUND = 5;   // parked deck pane: keep streaming, don't constrain size
 }
 
 message SessionsResizeRequest {
@@ -165,6 +166,31 @@ message SessionsResizeResponse { bool accepted = 1; }
 
 message SessionsUserMessageRequest { string session_id = 1; string text = 2; }
 message SessionsUserMessageResponse { bool accepted = 1; }
+
+// ─── Agent sessions (kind="agent", omp RPC child) ────────────────────────
+// SessionsUserMessage above doubles as the transcript composer.
+
+message SessionsAgentRespondRequest {
+  string session_id = 1;
+  string prompt_id = 2;  // AgentPromptEntry.prompt_id, verbatim
+  string value = 3;
+  bool cancelled = 4;
+}
+message SessionsAgentRespondResponse { bool accepted = 1; }
+
+message SessionsAgentAbortRequest { string session_id = 1; }
+message SessionsAgentAbortResponse { bool accepted = 1; }
+
+// Paged transcript backfill, newest-first by page. before_seq = 0 → newest.
+message SessionsGetAgentEntriesRequest {
+  string session_id = 1;
+  uint64 before_seq = 2;
+}
+message SessionsGetAgentEntriesResponse {
+  repeated AgentEntry entries = 1;  // ascending by seq
+  uint64 first_seq = 2;
+  bool more = 3;
+}
 
 message SessionsInputRequest {
   string session_id = 1;
@@ -607,6 +633,9 @@ service CoordinatorService {
   rpc SessionsAssignWorkspace(SessionsAssignWorkspaceRequest) returns (SessionsAssignWorkspaceResponse);
   rpc SessionsGetScrollbackSince(SessionsGetScrollbackSinceRequest) returns (SessionsGetScrollbackSinceResponse);
   rpc SessionsGetScrollbackCells(SessionsGetScrollbackCellsRequest) returns (SessionsGetScrollbackCellsResponse);
+  rpc SessionsAgentRespond(SessionsAgentRespondRequest) returns (SessionsAgentRespondResponse);
+  rpc SessionsAgentAbort(SessionsAgentAbortRequest) returns (SessionsAgentAbortResponse);
+  rpc SessionsGetAgentEntries(SessionsGetAgentEntriesRequest) returns (SessionsGetAgentEntriesResponse);
 
   // workspaces
   rpc WorkspacesList(WorkspacesListRequest) returns (WorkspacesListResponse);

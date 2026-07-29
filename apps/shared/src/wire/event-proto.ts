@@ -84,6 +84,9 @@ function agentPatchToProto(patch: Partial<AgentState>): AgentStatePatch {
     p.subAgents = patch.sub_agents.map(subAgentRowToProto);
     p.hasSubAgents = true;
   }
+  if (patch.session_file !== undefined && patch.session_file !== null) {
+    p.sessionFile = patch.session_file;
+  }
   return p;
 }
 
@@ -106,6 +109,7 @@ function agentProtoToPatch(p: AgentStatePatch): Partial<AgentState> {
   const pr = tristateFromProto(p.permissionRequest as never, permissionRequestFromProto);
   if (pr !== undefined) out.permission_request = pr;
   if (p.hasSubAgents) out.sub_agents = p.subAgents.map(subAgentRowFromProto);
+  if (p.sessionFile !== undefined) out.session_file = p.sessionFile;
   return out;
 }
 

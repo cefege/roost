@@ -3,9 +3,13 @@
 // runtime import cycle (router.ts ↔ handlers-* would otherwise both import
 // each other's values). Add a helper here when >1 handler file needs it.
 
+import { randomUUID } from "node:crypto";
 import { Code, ConnectError } from "@connectrpc/connect";
-import type { Caller } from "./auth-interceptor.ts";
+import { log } from "@roost/shared/log";
 import type { ClientControlFrame } from "@roost/shared/wire";
+import type { KyselyDB } from "../db/connection.ts";
+import type { Caller } from "./auth-interceptor.ts";
+import { getWorkerHubSocket } from "./worker-service.ts";
 
 export type WorkerHubSocket = { send(data: string | Uint8Array): void };
 
@@ -55,4 +59,26 @@ export function sendBrowserCmd(
   catch (e) {
     throw new ConnectError(`send failed: ${String(e)}`, Code.Unavailable);
   }
+}
+
+// Resolve a session's worker and forward a control frame, fire-and-ack.
+// Returns false (never throws) when the session/worker is gone so the handlers
+// can report accepted:false. Shared by the shell and agent session handlers.
+export async function forwardToSessionWorker(
+  db: KyselyDB,
+  sessionIdRaw: string,
+  caller: Caller,
+  frame: ClientControlFrame,
+  overrideViewerId?: string,
+): Promise<boolean> {
+  // Frames that carry their own request_id reuse it as the envelope id so the
+  // worker's logs/rpc replies key off ONE identifier per forward; the rest
+  // (resize / user-message / cursor-pos / kill) get a fresh uuid as before.
+  const requestId = "request_id" in frame ? frame.request_id : randomUUID();
+  const row = await db.selectFrom("sessions").select(["worker_fp"]).where("id", "=", sessionIdRaw).executeTakeFirst();
+  if (!row) return false;
+  const sock = getWorkerHubSocket(row.worker_fp);
+  if (!sock) return false;
+  try { sendBrowserCmd(sock, caller, requestId, frame, overrideViewerId); return true; }
+  catch (e) { log.warn("router-helpers.forwardToSessionWorker", "send_failed", { error: String(e) }); return false; }
 }

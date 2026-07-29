@@ -85,7 +85,10 @@ function sameSlot(a: SessionSlot | null, b: SessionSlot | null): boolean {
 
 export function TerminalDeck(props: { activeSessionId: string | null }) {
   const navigate = useNavigate();
-  const openSessions = createMemo(() => Object.values(rootStore.sessions).filter((s) => s.status === "open"));
+  // kind "agent" is excluded at the source: those sessions have no PTY, so a
+  // tab for one would mount a CellTerminal that never receives a byte. Their
+  // pane is TranscriptDeck (MainPane branches on kind). Shells are unaffected.
+  const openSessions = createMemo(() => Object.values(rootStore.sessions).filter((s) => s.status === "open" && s.kind !== "agent"));
   const [warmSessionIds, setWarmSessionIds] = createSignal<ReadonlySet<string>>(new Set());
 
   const activeSession = createMemo(() => (props.activeSessionId ? rootStore.sessions[props.activeSessionId] ?? null : null));

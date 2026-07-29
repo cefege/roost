@@ -482,6 +482,14 @@
 @media (hover: hover) {
   .df-browse-open:hover { filter: brightness(1.08); }
 }
+/* Secondary action beside the primary — always takes the shell path, even when
+   the primary spawns an omp transcript session. Tonal + intrinsic width so the
+   primary keeps the emphasis and the full-bleed feel. */
+.df-browse-open-secondary {
+  flex: 0 0 auto;
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+}
 
 /* Mobile (compact): hide the grid/list toggle; grid still works but list
  * is the default feel. The control row + pathbar + Open bar already adapt. */

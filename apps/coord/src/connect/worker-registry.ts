@@ -24,7 +24,7 @@ export const connectWorkers = new Map<string, WorkerHandle>();
 
 /** Test-only seam: install/remove a fake WorkerHandle without going
  *  through the full raw-WS attach handshake. Used by
- *  coord-bidi.test.ts to drive `_forwardSimple` → `_bumpViewer` for
+ *  coord-bidi.test.ts to drive `forwardToSessionWorker` → `_bumpViewer` for
  *  multi-viewer / sessionsResize assertions where spinning up a real
  *  worker WS is out of scope. Production code paths never call this. */
 export function __setConnectWorkerForTest(workerFp: string, handle: WorkerHandle | null): void {

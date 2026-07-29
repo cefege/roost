@@ -1,8 +1,9 @@
 // Session RPC handlers: list/spawn/attach/kill/resize/user-message/input/
-// cursor-pos/assign-workspace/get-scrollback-since/get-scrollback-cells.
+// cursor-pos/assign-workspace/get-scrollback-cells. The agent-session trio
+// lives in the sibling handlers-sessions-agent.ts.
 // Most forward a browser-command frame to the session's worker hub socket
-// (sendBrowserCmd / _forwardSimple) and await the worker reply; resize also
-// bumps the viewer-presence tracker. Spread into router.ts's single
+// (sendBrowserCmd / forwardToSessionWorker) and await the worker reply; resize
+// also bumps the viewer-presence tracker; spread into router.ts's single
 // router.service() literal. Split out of router.ts (400-line cap).
 
 import type { ServiceImpl } from "@connectrpc/connect";
@@ -33,7 +34,7 @@ import type { Caller } from "./auth-interceptor.ts";
 import { getWorkerHubSocket } from "./worker-service.ts";
 import { getCachedSessionWorker, cacheSessionWorker } from "../byte-hub.ts";
 import { createPendingRpc } from "../router/pending-rpcs.ts";
-import { sendBrowserCmd } from "./router-helpers.ts";
+import { sendBrowserCmd, forwardToSessionWorker } from "./router-helpers.ts";
 import { _bumpViewer } from "./viewer-tracker.ts";
 import type { ConnectDeps } from "./router.ts";
 
@@ -75,25 +76,6 @@ function sessionRowToProto(row: any) {
     spawn_cwd: row.spawn_cwd ?? null,
   });
 }
-
-// Resolve a session's worker and forward a control frame, fire-and-ack.
-// Returns false (never throws) when the session/worker is gone so the
-// handlers can report accepted:false.
-async function _forwardSimple(
-  db: KyselyDB,
-  sessionIdRaw: string,
-  caller: Caller,
-  frame: ClientControlFrame,
-  overrideViewerId?: string,
-): Promise<boolean> {
-  const row = await db.selectFrom("sessions").select(["worker_fp"]).where("id", "=", sessionIdRaw).executeTakeFirst();
-  if (!row) return false;
-  const sock = getWorkerHubSocket(row.worker_fp);
-  if (!sock) return false;
-  try { sendBrowserCmd(sock, caller, randomUUID(), frame, overrideViewerId); return true; }
-  catch (e) { log.warn("connect-router._forwardSimple", "send_failed", { error: String(e) }); return false; }
-}
-
 /** SessionsSpawnRequest → the worker control frame for its kind. */
 export function _spawnFrameFor(req: {
   kind: string; folder: string; cols?: number; rows?: number; sessionId?: string;
@@ -102,6 +84,10 @@ export function _spawnFrameFor(req: {
   switch (req.kind) {
     case "shell":
       return { kind: "spawn-shell", folder: req.folder, cols: req.cols, rows: req.rows, ...sid };
+    case "agent":
+      // No cols/rows: an agent session's backend is an `omp --mode rpc-ui`
+      // child process, not a PTY, so there is no grid to size.
+      return { kind: "spawn-agent", folder: req.folder, ...sid };
     default:
       throw new ConnectError(`unknown session kind ${req.kind}`, Code.InvalidArgument);
   }
@@ -234,7 +220,7 @@ export function makeSessionHandlers(
       // Number.MAX_SAFE_INTEGER for a monotonic per-window counter (would
       // need ~285 years at 1 kHz). Convert via Number(); 0 means "unset".
       const clientSeq = req.clientSeq ? Number(req.clientSeq) : undefined;
-      const ok = await _forwardSimple(deps.db, req.sessionId, caller, {
+      const ok = await forwardToSessionWorker(deps.db, req.sessionId, caller, {
         kind: "resize" as const,
         session_id: asSessionId(req.sessionId),
         cols: req.cols, rows: req.rows,
@@ -252,7 +238,7 @@ export function makeSessionHandlers(
 
     async sessionsUserMessage(req, ctx) {
       const caller = requireAuth(ctx.values);
-      const ok = await _forwardSimple(deps.db, req.sessionId, caller, {
+      const ok = await forwardToSessionWorker(deps.db, req.sessionId, caller, {
         kind: "user-message" as const,
         session_id: asSessionId(req.sessionId),
         text: req.text,
@@ -312,7 +298,7 @@ export function makeSessionHandlers(
           label: caller.fingerprint.slice(0, 8),
         });
       }
-      const ok = await _forwardSimple(deps.db, req.sessionId, caller, {
+      const ok = await forwardToSessionWorker(deps.db, req.sessionId, caller, {
         kind: "cursor-pos" as const,
         session_id: asSessionId(req.sessionId),
         col: req.col, row: req.row,
@@ -393,7 +379,6 @@ export function makeSessionHandlers(
         endRow: BigInt(res.end_row),
       });
     },
-
 
   };
 }

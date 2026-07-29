@@ -68,6 +68,9 @@ export const AgentState = z.object({
   // Live structured state can be stale after its bridge restarts. Optional:
   // absent/false means no stale marker is needed.
   stale: z.boolean().optional(),
+  // Absolute path of the omp session .jsonl, reported by the RPC child's
+  // get_state. Backs exact `--resume` on worker respawn. absent = unknown.
+  session_file: z.string().nullable().optional(),
 });
 export type AgentState = z.infer<typeof AgentState>;
 
@@ -93,7 +96,8 @@ export function defaultAgentState(): AgentState {
 
 // ─── Session ────────────────────────────────────────────────────────────
 
-export const SessionKind = z.literal("shell");
+// "shell" = keeper PTY + cell grid. "agent" = omp RPC child + transcript UI.
+export const SessionKind = z.enum(["shell", "agent"]);
 export type SessionKind = z.infer<typeof SessionKind>;
 
 export const SessionStatus = z.enum(["open", "closed"]);

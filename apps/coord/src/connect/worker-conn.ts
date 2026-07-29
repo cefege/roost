@@ -22,8 +22,11 @@ import { verifyJwt } from "../jwt.ts";
 import { appendEvent } from "../event-log.ts";
 import { publishBytes, publishCellGrid, primeChannelMap } from "../byte-hub.ts";
 import { resolvePendingRpc, rejectPendingRpc, rejectPendingRpcsForWorker } from "../router/pending-rpcs.ts";
+import { globalAgentEntryBus } from "../buses.ts";
 import { protoToEvent } from "@roost/shared/wire/event-proto";
-import { asWorkerFp, asChannelId, SessionKind } from "@roost/shared/wire";
+import { asWorkerFp, asChannelId, asSessionId, SessionKind } from "@roost/shared/wire";
+import type { ClientControlFrame } from "@roost/shared/wire";
+import { safeJsonParse } from "@roost/shared/json";
 import type { KyselyDB } from "../db/connection.ts";
 import { log } from "@roost/shared/log";
 import { signal, diag } from "@roost/shared/diag";
@@ -230,6 +233,18 @@ export function makeWorkerConn(
         }
         return;
       }
+      case "agentEntries": {
+        // omp agent transcript batches. Unlike bytes/cellGrid there is no
+        // channel→session demux to do here: the worker stamps session_id onto
+        // the frame itself, so coord is a pure relay. Pre-hello frames drop on
+        // the same `workerFp` trust gate the two cases above use.
+        const ae = f.frame.value;
+        if (workerFp && ae.sessionId) {
+          diag("agent.entries_relay", { sid: ae.sessionId, count: ae.entries.length });
+          globalAgentEntryBus.publish(ae);
+        }
+        return;
+      }
       case "rpcOk": {
         try { resolvePendingRpc(f.frame.value.requestId, JSON.parse(f.frame.value.dataJson)); }
         catch { /* ignore malformed */ }
@@ -277,15 +292,31 @@ export function makeWorkerConn(
 
 // ─── respawn-if-missing ──────────────────────────────────────────────
 // Called 3s after worker.hello. Reads coord DB rows status='open' for
-// this worker, sends a `respawn-if-missing` ClientControlFrame for
-// each — worker no-ops if it already has the sid live (survivor keeper
-// resumed it), else spawns fresh at the saved cwd/kind/cols/rows with
-// the SAME session_id so SPA URLs keep working.
+// this worker and sends the revival frame for each kind — worker no-ops if it
+// already has the sid live (survivor keeper resumed it, or the omp child is
+// still attached), else recreates it at the saved cwd with the SAME session_id
+// so SPA URLs keep working. Shell rows get `respawn-if-missing`; agent rows get
+// `spawn-agent` with the resume path (see the frame comment below).
+
+// AgentState.session_file out of the opaque agent_json column: the absolute omp
+// session .jsonl a revived agent resumes from. Read narrowly rather than
+// parsing the whole AgentState — unrelated schema drift in a sibling field must
+// not cost us the resume path — and absent/malformed JSON degrades to undefined
+// (start a fresh omp session), mirroring sessionRowToProto's agent=null.
+function _agentSessionFile(agentJson: string | null): string | undefined {
+  // A non-object payload ("null", a bare number) must not throw here: this runs
+  // inside the hello sweep, and one bad row would abort every OTHER session's
+  // respawn with it.
+  const state = safeJsonParse<Record<string, unknown> | null>(agentJson, null, "respawn.agent_json");
+  const file = state?.session_file;
+  return typeof file === "string" && file.length > 0 ? file : undefined;
+}
+
 async function _respawnMissingForWorker(
   db: KyselyDB, workerFp: string, handle: WorkerHandle,
 ): Promise<void> {
   const rows = await db.selectFrom("sessions")
-    .select(["id", "kind", "cwd"])
+    .select(["id", "kind", "cwd", "agent_json"])
     .where("worker_fp", "=", workerFp)
     .where("status", "=", "open")
     .execute();
@@ -293,22 +324,43 @@ async function _respawnMissingForWorker(
   log.info("worker-service", "respawn_missing_dispatch", { worker_fp: workerFp, count: rows.length });
   for (const row of rows) {
     const requestId = randomUUID();
-    // Only shell terminals are a supported session kind. Historical rows with
-    // another value remain visible but are not recreated.
-    if (row.kind !== "shell") {
+    // Kinds SessionKind knows about are recreated; a historical row carrying
+    // any other value stays visible but is not respawned.
+    const kind = SessionKind.safeParse(row.kind);
+    if (!kind.success) {
       log.warn("worker-service", "respawn_unknown_kind", {
         worker_fp: workerFp, session_id: row.id, kind: row.kind,
       });
       continue;
     }
-    const frame = {
-      kind: "respawn-if-missing" as const,
-      request_id: requestId,
-      session_id: row.id,
-      cwd: row.cwd,
-      cols: 80,
-      rows: 24,
-    };
+    // `respawn-if-missing` carries neither a kind nor a resume path and the
+    // worker's handler hardcodes spawnShell, so an agent row is revived through
+    // `spawn-agent` — the only frame able to carry resume_file. Coord is the
+    // sole holder of that path: the worker's omp child and its transcript ring
+    // are in-memory and gone after a restart, while the omp session .jsonl
+    // survives here in AgentState.session_file (the agent_json column). Firing
+    // it on every hello is safe because the worker keys its idempotency on
+    // session_id alone: a sid it still holds gets the existing
+    // {session_id, channel_id} back, never a second omp child. The flip side,
+    // deliberate on the worker's side: a session whose child wedged but whose
+    // record is still in the worker's map is ALSO a no-op, so a stale agent does
+    // not self-heal on reconnect — clearing that is a user-driven kill +
+    // respawn, not something this sweep can force.
+    const frame: ClientControlFrame = kind.data === "agent"
+      ? {
+          kind: "spawn-agent",
+          folder: row.cwd,
+          session_id: asSessionId(row.id),
+          resume_file: _agentSessionFile(row.agent_json),
+        }
+      : {
+          kind: "respawn-if-missing",
+          request_id: requestId,
+          session_id: asSessionId(row.id),
+          cwd: row.cwd,
+          cols: 80,
+          rows: 24,
+        };
     try {
       // sendBrowserCmd helper expects a viewer_id; respawn-if-missing has
       // no human caller — use a synthetic "coord:respawn" tag.

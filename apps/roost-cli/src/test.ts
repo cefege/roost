@@ -68,7 +68,13 @@ export async function test(args: string[]): Promise<void> {
           "live-api requires ROOST_COORD_URL; run ROOST_COORD_URL=https://<current-tailnet-coord>:4102 bun run test:live-api",
         );
       }
-      await run("live-api", [process.execPath, "test", "smoke/api_smoke.test.ts"]);
+      await run("live-api", [
+        process.execPath, "test",
+        "smoke/api_smoke.test.ts",
+        // Agent path (omp RPC child). Costs real model tokens, hence
+        // live-api only — never part of `unit` or `all`.
+        "smoke/agent_smoke.test.ts",
+      ]);
       return;
     case "all":
       await runUnit();

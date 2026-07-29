@@ -21,7 +21,22 @@ export type TerminalTestStack = {
   workerFp: string;
   coordLogPath: string;
   workerLogPath: string;
+  // The authorized client the harness already had to mint to bootstrap the
+  // worker. Exposed so callers don't build a second (unauthorized) one.
+  client: AuthorizedApiClient;
+  // Bounce the worker process, keeping coord and the persisted worker
+  // identity. Resolves once the same fingerprint is routable again.
+  restartWorker(): Promise<void>;
   stop(): Promise<void>;
+};
+
+export type TerminalTestStackOptions = {
+  // Keep the caller's real HOME instead of the isolated temp one. Needed only
+  // by the agent smoke: the worker forks `omp`, which reads its model
+  // credentials from the real ~/.omp — under a temp HOME every turn fails
+  // unauthenticated. Coord/worker state stays isolated either way (their paths
+  // are ROOST_* env overrides, not HOME-derived).
+  useRealHome?: boolean;
 };
 
 function logTail(path: string): string {
@@ -99,9 +114,11 @@ async function stopKeeper(workerDataDir: string): Promise<void> {
   if (keeperMatches(pid, socketPath)) throw new Error(`keeper did not stop: pid=${pid} socket=${socketPath}`);
 }
 
-export async function startTerminalTestStack(): Promise<TerminalTestStack> {
+export async function startTerminalTestStack(
+  options: TerminalTestStackOptions = {},
+): Promise<TerminalTestStack> {
   const root = mkdtempSync(join(tmpdir(), "roost-terminal-system-"));
-  const home = join(root, "home");
+  const home = options.useRealHome ? (process.env.HOME ?? join(root, "home")) : join(root, "home");
   const coordLogPath = join(root, "coord.log");
   const workerLogPath = join(root, "worker.log");
   const workerDataDir = join(root, "worker-data");
@@ -161,6 +178,11 @@ export async function startTerminalTestStack(): Promise<TerminalTestStack> {
           ROOST_COORDINATOR_DB: join(root, "coord.db"),
           ROOST_COORDINATOR_AUTHORIZED_KEYS: join(root, "authorized_keys.roost"),
           ROOST_COORDINATOR_KEY_PATH: join(root, "coord.key"),
+          // Isolate the relocation state too. It defaults under the data dir
+          // (HOME-derived), so a caller running with useRealHome would
+          // otherwise inherit a real "coordinator relocated" handoff and the
+          // test coord would 410 every non-GET request.
+          ROOST_COORDINATOR_HANDOFF_PATH: join(root, "coord-handoff.json"),
           ROOST_WEB_DIST_PATH: join(REPOSITORY_ROOT, "apps/web/dist"),
         }),
         stdio: ["ignore", coordLog, coordLog],
@@ -178,29 +200,47 @@ export async function startTerminalTestStack(): Promise<TerminalTestStack> {
     });
     const bootstrapToken = (await client.authMintBootstrap({ kind: "worker", label: WORKER_LABEL })).token;
 
-    const workerLog = openSync(workerLogPath, "a");
-    worker = {
-      logPath: workerLogPath,
-      child: spawn(bunExecutable, ["apps/worker/src/main.ts"], {
-        cwd: REPOSITORY_ROOT,
-        env: childEnvironment(home, {
-          ROOST_COORDINATOR_URL: baseUrl,
-          ROOST_BOOTSTRAP_TOKEN: bootstrapToken,
-          ROOST_WORKER_LABEL: WORKER_LABEL,
-          ROOST_WORKER_DATA_DIR: workerDataDir,
-          ROOST_WORKER_KEY_PATH: join(workerDataDir, "worker.key"),
-          ROOST_KEEPER_QUIET: "1",
+    const startWorker = (): RunningService => {
+      const workerLog = openSync(workerLogPath, "a");
+      return {
+        logPath: workerLogPath,
+        child: spawn(bunExecutable, ["apps/worker/src/main.ts"], {
+          cwd: REPOSITORY_ROOT,
+          env: childEnvironment(home, {
+            ROOST_COORDINATOR_URL: baseUrl,
+            // Only the first boot redeems it; afterwards the persisted worker
+            // key in ROOST_WORKER_DATA_DIR is the identity, so a restart comes
+            // back as the SAME fingerprint — which is what makes coord's
+            // respawn-on-hello sweep target the existing session rows.
+            ROOST_BOOTSTRAP_TOKEN: bootstrapToken,
+            ROOST_WORKER_LABEL: WORKER_LABEL,
+            ROOST_WORKER_DATA_DIR: workerDataDir,
+            ROOST_WORKER_KEY_PATH: join(workerDataDir, "worker.key"),
+            ROOST_KEEPER_QUIET: "1",
+          }),
+          stdio: ["ignore", workerLog, workerLog],
         }),
-        stdio: ["ignore", workerLog, workerLog],
-      }),
+      };
     };
-    const workerFp = await waitFor("worker routable", WORKER_READY_TIMEOUT_MS, async () => {
+    const awaitWorkerRoutable = () => waitFor("worker routable", WORKER_READY_TIMEOUT_MS, async () => {
       const result = await client!.workersList({});
       const candidate = result.workers.find((item) => item.label === WORKER_LABEL);
       return candidate && result.routableFps.includes(candidate.fp) ? candidate.fp : undefined;
     }).catch((error) => { throw new Error(`${error}\nworker log:\n${logTail(workerLogPath)}`); });
 
-    return { baseUrl, workerFp, coordLogPath, workerLogPath, stop };
+    worker = startWorker();
+    const workerFp = await awaitWorkerRoutable();
+
+    // Full worker bounce, keeping coord and the persisted worker identity.
+    // The keeper is deliberately left alone: it is designed to outlive the
+    // worker, and agent sessions never touch it anyway.
+    const restartWorker = async () => {
+      await stopChild(worker);
+      worker = startWorker();
+      await awaitWorkerRoutable();
+    };
+
+    return { baseUrl, workerFp, coordLogPath, workerLogPath, client, restartWorker, stop };
   } catch (error) {
     const logs = `coord log:\n${logTail(coordLogPath)}\nworker log:\n${logTail(workerLogPath)}`;
     await stop().catch(() => undefined);

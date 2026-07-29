@@ -53,7 +53,7 @@ async function resizeTo(m: SessionManager, ch: number, cols: number, rows: numbe
   await asInternal(m)._wtermRebuildChain.get(ch);
 }
 async function servedHistory(m: SessionManager, ch: number): Promise<string> {
-  const core = m.sessions.get(ch)!.wtermCore!;
+  const core = m.shellByChannel(ch)!.wtermCore;
   return cellGridText(core);
 }
 function markerSequence(text: string): number[] {

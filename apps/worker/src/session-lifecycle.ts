@@ -142,6 +142,9 @@ export function closedByKeeper(this: SessionManager, channelId: number, exitCode
  *  someone kills it by hand. head_seq===0 gate keeps a legit fast-exiting
  *  shell (which prints a prompt first) from counting. */
 export function _checkDeadBirth(this: SessionManager, rec: SessionRecord): void {
+	// Dead-birth is a keeper pathology; an agent session has no PTY and no byte
+	// counter, so it can never be one.
+	if (rec.kind !== "shell") return;
 	const lifetimeMs = Date.now() - rec.spawnedAtMs;
 	if (lifetimeMs >= DEAD_BIRTH_LIFETIME_MS || rec.head_seq !== 0) return;
 	signal("keeper.dead_birth", {
@@ -181,7 +184,7 @@ export function _dropChannelState(this: SessionManager, channelId: number): void
 			sid: rec.sessionId,
 			channel_id: channelId,
 			session_trace_id: rec.session_trace_id,
-			head_seq: rec.head_seq,
+			head_seq: rec.kind === "shell" ? rec.head_seq : null,
 			kind: rec.kind,
 		});
 		rec.gitWatchDispose?.();
@@ -194,6 +197,10 @@ export function _dropChannelState(this: SessionManager, channelId: number): void
 			rec.portsPollTimer = null;
 		}
 		byteCapture.drop(String(rec.sessionId));
+		// Agent sessions: cancel every outstanding dialog and kill the omp child.
+		// Skipping this leaks a process per closed session, and a child blocked on
+		// an unanswered approval would never exit on its own.
+		rec.agent?.dispose();
 	}
 	this.sessions.delete(channelId);
 	// Mark closed so post-close tail emits drop silently (see emitUpstreamChunk).
@@ -223,12 +230,12 @@ export function diagSnapshot(this: SessionManager): Record<string, unknown> {
 			session_trace_id: rec.session_trace_id,
 			kind: rec.kind,
 			cwd: rec.cwd,
-			head_seq: rec.head_seq,
-			tail_seq: rec.head_seq - rec.scrollback.length,
-			scrollback_len: rec.scrollback.length,
-			alt_mode: rec.alt_mode,
-			wterm_cols: rec.wtermCore.getCols(),
-			wterm_rows: rec.wtermCore.getRows(),
+			head_seq: rec.kind === "shell" ? rec.head_seq : null,
+			tail_seq: rec.kind === "shell" ? rec.head_seq - rec.scrollback.length : null,
+			scrollback_len: rec.kind === "shell" ? rec.scrollback.length : null,
+			alt_mode: rec.kind === "shell" ? rec.alt_mode : null,
+			wterm_cols: rec.kind === "shell" ? rec.wtermCore.getCols() : null,
+			wterm_rows: rec.kind === "shell" ? rec.wtermCore.getRows() : null,
 			last_applied_size: this.lastAppliedSize.get(channelId) ?? null,
 			claims: claims ? Object.fromEntries(claims.entries()) : {},
 		};

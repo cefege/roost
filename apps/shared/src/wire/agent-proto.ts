@@ -13,6 +13,8 @@ import {
   TokensSchema, LastMessageSchema, CurrentToolSchema,
   CurrentBlockSchema, PermissionRequestSchema, SubAgentRowSchema,
   AgentStateSchema, SessionSchema,
+  AgentEntrySchema, AgentTextEntrySchema, AgentToolEntrySchema,
+  AgentPromptEntrySchema, AgentNoticeEntrySchema,
   type Tokens as PbTokens,
   type LastMessage as PbLastMessage,
   type CurrentTool as PbCurrentTool,
@@ -21,6 +23,7 @@ import {
   type SubAgentRow as PbSubAgentRow,
   type AgentState as PbAgentState,
   type Session as PbSession,
+  type AgentEntry as PbAgentEntry,
 } from "../gen/roost/v1/wire_pb.ts";
 import {
   AgentState as AgentStateZ, Session as SessionZ,
@@ -28,6 +31,7 @@ import {
   type PermissionRequest, type SubAgentRow, type AgentState,
   type Session,
 } from "./session.ts";
+import { AgentEntry as AgentEntryZ, type AgentEntry } from "./agent-entry.ts";
 
 // ─── Tokens ────────────────────────────────────────────────────────────────
 export function tokensToProto(t: Tokens): PbTokens {
@@ -110,6 +114,7 @@ export function agentStateToProto(a: AgentState): PbAgentState {
     // Tolerate legacy-shape AgentState DB rows that predate sub_agents.
     subAgents: (a.sub_agents ?? []).map(subAgentRowToProto),
     stale: a.stale ?? false,
+    sessionFile: a.session_file ?? undefined,
   });
 }
 // Re-Zod-parses the result. Proto strings are unconstrained but the
@@ -130,6 +135,7 @@ export function agentStateFromProto(p: PbAgentState): AgentState {
     permission_request: p.permissionRequest ? permissionRequestFromProto(p.permissionRequest) : null,
     sub_agents: p.subAgents.map(subAgentRowFromProto),
     stale: p.stale || undefined,
+    session_file: p.sessionFile ?? undefined,
   });
 }
 
@@ -185,4 +191,103 @@ export function sessionFromProto(p: PbSession): Session {
     ...(p.ports.length > 0 ? { ports: p.ports } : {}),
     ...(p.spawnCwd !== undefined ? { spawn_cwd: p.spawnCwd } : {}),
   });
+}
+
+// ─── AgentEntry ────────────────────────────────────────────────────────────
+// The oneof body case name is the entry `kind`, so the mapping is mechanical.
+export function agentEntryToProto(e: AgentEntry): PbAgentEntry {
+  const seq = BigInt(e.seq);
+  const ts = BigInt(e.ts);
+  switch (e.kind) {
+    case "user":
+    case "assistant":
+    case "thinking":
+      return create(AgentEntrySchema, {
+        seq, ts,
+        body: {
+          case: e.kind,
+          value: create(AgentTextEntrySchema, { text: e.text, done: e.done }),
+        },
+      });
+    case "tool":
+      return create(AgentEntrySchema, {
+        seq, ts,
+        body: {
+          case: "tool",
+          value: create(AgentToolEntrySchema, {
+            toolCallId: e.tool_call_id,
+            name: e.name,
+            argsJson: e.args_json,
+            status: e.status,
+            text: e.text,
+            detailsJson: e.details_json,
+            intent: e.intent,
+          }),
+        },
+      });
+    case "prompt":
+      return create(AgentEntrySchema, {
+        seq, ts,
+        body: {
+          case: "prompt",
+          value: create(AgentPromptEntrySchema, {
+            promptId: e.prompt_id,
+            kind: e.prompt_kind,
+            title: e.title,
+            options: e.options,
+            allowFreeText: e.allow_free_text,
+            state: e.state,
+            answer: e.answer,
+          }),
+        },
+      });
+    case "notice":
+      return create(AgentEntrySchema, {
+        seq, ts,
+        body: {
+          case: "notice",
+          value: create(AgentNoticeEntrySchema, { level: e.level, text: e.text }),
+        },
+      });
+  }
+}
+
+// Re-Zod-parses, same rationale as agentStateFromProto: proto strings are
+// unconstrained, the enums (status/kind/state/level) are gated here.
+export function agentEntryFromProto(p: PbAgentEntry): AgentEntry {
+  const seq = Number(p.seq);
+  const ts = Number(p.ts);
+  const b = p.body;
+  switch (b.case) {
+    case "user":
+    case "assistant":
+    case "thinking":
+      return AgentEntryZ.parse({ kind: b.case, seq, ts, text: b.value.text, done: b.value.done });
+    case "tool":
+      return AgentEntryZ.parse({
+        kind: "tool", seq, ts,
+        tool_call_id: b.value.toolCallId,
+        name: b.value.name,
+        args_json: b.value.argsJson,
+        status: b.value.status,
+        text: b.value.text,
+        details_json: b.value.detailsJson,
+        intent: b.value.intent,
+      });
+    case "prompt":
+      return AgentEntryZ.parse({
+        kind: "prompt", seq, ts,
+        prompt_id: b.value.promptId,
+        prompt_kind: b.value.kind,
+        title: b.value.title,
+        options: b.value.options,
+        allow_free_text: b.value.allowFreeText,
+        state: b.value.state,
+        answer: b.value.answer,
+      });
+    case "notice":
+      return AgentEntryZ.parse({ kind: "notice", seq, ts, level: b.value.level, text: b.value.text });
+    default:
+      throw new Error("AgentEntry proto has no body");
+  }
 }

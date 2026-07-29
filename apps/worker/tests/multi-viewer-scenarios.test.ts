@@ -68,7 +68,7 @@ function cellGridText(core: TerminalCore): string {
   return lines.join("\n");
 }
 function getCore(mgr: SessionManager): TerminalCore {
-  return mgr.sessions.get(CID)!.wtermCore!;
+  return mgr.shellByChannel(CID)!.wtermCore;
 }
 
 function applied(mgr: SessionManager): { cols: number; rows: number } | undefined {
