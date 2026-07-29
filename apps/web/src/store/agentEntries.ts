@@ -150,18 +150,27 @@ export function upsertEntries(sessionId: string, entries: readonly AgentEntry[])
  * ("newest page"). Concurrent calls for the same session share the in-flight
  * promise — a mount racing the "Load earlier" button must not fire two RPCs
  * against the same cursor and double-insert nothing while looking busy twice.
+ *
+ * Transient failures are retried (3 attempts, 300ms then 900ms) before the
+ * error surfaces. Why: a first-page failure has no hasEarlier flag to hang a
+ * retry off, so Transcript latches a dead end ("Couldn't load the transcript")
+ * until the user taps Retry. Seen once on a phone seconds after a coord +
+ * worker restart, and NOT reproducible afterwards — the honest read is a
+ * relinking worker, which coord correctly reports as Unavailable rather than as
+ * an empty page. That state recurs on every deploy, and a dead end there is
+ * worse than a 300ms wait.
+ *
+ * Retrying is safe by construction: a failed attempt leaves the entries and the
+ * hasEarlier flag untouched, so the next attempt hits the same cursor.
  */
 export function backfillEntries(sessionId: string): Promise<void> {
   const running = inFlight.get(sessionId);
   if (running) return running;
   setStore("loadingBySession", sessionId, true);
-  const p = fetchPage(sessionId)
+  const p = attemptPage(sessionId, 0)
     .catch((err: unknown) => {
-      // Coord answers a worker timeout with Unavailable rather than an empty
-      // page (empty reads as "no history"), so a failure must leave both
-      // hasEarlier and the entries untouched — retrying is safe and hits the
-      // same cursor. A mid-scroll failure keeps "Load earlier" offered (a prior
-      // page already set hasEarlier); a FIRST-page failure has no such flag, so
+      // Out of attempts. A mid-scroll failure keeps "Load earlier" offered (a
+      // prior page already set hasEarlier); a FIRST-page failure has none, so
       // Transcript offers its own Retry off hasBackfilled/isBackfilling.
       log.warn("agentEntries", "backfill failed", { session_id: sessionId, error: String(err) });
     })
@@ -171,6 +180,27 @@ export function backfillEntries(sessionId: string): Promise<void> {
     });
   inFlight.set(sessionId, p);
   return p;
+}
+
+const BACKFILL_RETRY_DELAYS_MS = [300, 900];
+
+async function attemptPage(sessionId: string, attempt: number): Promise<void> {
+  try {
+    await fetchPage(sessionId);
+  } catch (err) {
+    const delay = BACKFILL_RETRY_DELAYS_MS[attempt];
+    if (delay === undefined) throw err;
+    log.warn("agentEntries", "backfill retry", {
+      session_id: sessionId,
+      attempt: attempt + 1,
+      delay_ms: delay,
+      error: String(err),
+    });
+    const { promise, resolve } = Promise.withResolvers<void>();
+    setTimeout(resolve, delay);
+    await promise;
+    await attemptPage(sessionId, attempt + 1);
+  }
 }
 
 const inFlight = new Map<string, Promise<void>>();

@@ -12,6 +12,8 @@ import { coordClient } from "../connect.ts";
 import { forceSyncReconnect as forceSyncReconnectImpl, cellFrameCount as cellFrameCountImpl } from "../store/sync.ts";
 import { rootStore, setRootStore } from "../store/root.ts";
 import { setForceVisible } from "./pageVisible.ts";
+import { upsertEntries } from "../store/agentEntries.ts";
+import type { AgentEntry } from "@roost/shared/wire/agent-entry";
 
 export interface SmokeApi {
   /** Send raw bytes via the coord RPC — BYPASSES the wterm textarea + focus
@@ -74,6 +76,10 @@ export interface SmokeApi {
   kill(sessionId: string): Promise<{ accepted: boolean }>;
   /** Spawn a shell on a worker; returns { session_id, channel_id }. */
   spawnShell(workerFp: string, folder: string): Promise<{ session_id: string; channel_id: number }>;
+  /** Spawn an omp agent session on a worker; returns { session_id, channel_id }. */
+  spawnAgent(workerFp: string, folder: string): Promise<{ session_id: string; channel_id: number }>;
+  /** Test-only: push synthetic transcript entries into the agent store. */
+  injectAgentEntries(sessionId: string, entries: unknown[]): void;
   /** Create a workspace attached to a session — bypasses the cwd-picker UI. */
   createWorkspace(workerFp: string, folder: string, sessionId: string): Promise<{ id: string; channel: number }>;
   /** Test resources created by this tab, cleaned without touching live state. */
@@ -254,6 +260,14 @@ export function maybeInstallSmokeBackdoor(): void {
       const res = await coordClient.sessionsSpawn({ workerFp, kind: "shell", folder });
       spawned.add(res.sessionId);
       return { session_id: res.sessionId, channel_id: res.channelId };
+    },
+    async spawnAgent(workerFp, folder) {
+      const res = await coordClient.sessionsSpawn({ workerFp, kind: "agent", folder });
+      spawned.add(res.sessionId);
+      return { session_id: res.sessionId, channel_id: res.channelId };
+    },
+    injectAgentEntries(sessionId, entries) {
+      upsertEntries(sessionId, entries as AgentEntry[]);
     },
     async createWorkspace(workerFp, folder, sessionId) {
       const existing = new Set(
