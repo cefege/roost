@@ -83,11 +83,24 @@ export function createScrollbackBackfill(opts: {
         // feeds _evictScrollback, which trims the rows straight back off and
         // moves sbBase — the post-await guard below then parks this loop with
         // history still missing. Past the cap only a reader within one viewport
-        // of the painted top pulls more, one chunk per approach, re-triggered
-        // by the scroll events the gesture keeps producing: draining the whole
-        // ring the moment the user left the bottom built 250 rows of DOM per
-        // animation frame mid-gesture. History is never traded away — only
-        // fetched when someone looks.
+        // of the painted top pulls more, one chunk per animation frame.
+        //
+        // Reachability model (CellGridRenderer._syncSpacer): the [0, sbBase)
+        // hole is RESERVED in the scroll space by the .cell-sb-spacer sibling,
+        // so one gesture can land the reader anywhere in [0, scrollbackTotal).
+        // That region is blank until this sequential backward drain reaches it —
+        // and it does, because nearHistoryTop() measures against
+        // scrollbackEl.offsetTop, which now includes the spacer: a reader
+        // inside reserved-but-unpainted space keeps the guard true and the loop
+        // walks history back to them, BACKFILL_CHUNK_ROWS per frame. Blank-then-
+        // fill is the deliberate trade — honest about depth and self-healing,
+        // versus a scrollbar that lied about depth and moved under the reader.
+        //
+        // While a reader is off the bottom _evictScrollback does not run
+        // (cellRenderer.ts: it returns unless wasAtBottom), so a deep drag can
+        // hold more than MAX_HELD_SCROLLBACK_ROWS of DOM in that pane until the
+        // reader returns to the bottom, where eviction trims back to the cap.
+        // Pre-existing for any deep scroll-up; do not add a second cap.
         if (anchor.total - anchor.sbBase >= MAX_HELD_SCROLLBACK_ROWS && !r0.nearHistoryTop()) return;
         let resp;
         try {

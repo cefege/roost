@@ -92,6 +92,9 @@ interface CellTerminalProps {
 	// The floated pane's selected tab (spotlight). Flipping this is an
 	// intent-bearing resize → force an exact re-fit (see effect in onMount).
 	spotlit?: boolean;
+	// Parked but kept streaming (deck LRU) — claim 0×0 with cause BACKGROUND so the
+	// worker keeps emitting deltas without letting this pane constrain the PTY size.
+	backgroundStream?: boolean;
 }
 
 const CLAIM_DEBOUNCE_MS = 150;
@@ -191,7 +194,7 @@ export function CellTerminal(props: CellTerminalProps) {
 	// Last claim/withdraw actually sent — dedups the double-withdraw: pane hide
 	// withdraws, then the off-screen park's ResizeObserver tick routes through
 	// sendClaim → sees inLayout=false → would withdraw AGAIN. Reset on claim.
-	let _lastSent: "claim" | "withdraw" | null = null;
+	let _lastSent: "claim" | "background" | "withdraw" | null = null;
 	const sendTerminalText = (text: string, submit = false): void => {
 		if (text.length === 0) {
 			if (submit) inputChannel.sendInput(props.session.id, CR_BYTES);
@@ -299,6 +302,51 @@ export function CellTerminal(props: CellTerminalProps) {
 		});
 	}
 
+	// A parked pane in the deck's background set: claim 0×0 with cause BACKGROUND.
+	// Zero dims keep it out of the SCD min (and clear its viewer presence dot),
+	// but the claim STAYS in the worker's viewportClaims, so _hasActiveViewer keeps
+	// cell deltas flowing. The pane therefore never falls behind: revealing it
+	// needs no catch-up frame, no renderFull, no eviction/backfill oscillation —
+	// and (because the deck parks it at its own leaf's rect) every frame applied
+	// while parked is pinned at the geometry it will be revealed at.
+	function sendBackgroundClaim(): void {
+		if (_lastSent === "background") return;
+		// ONLY a pane that is still current may re-subscribe this way: a background
+		// claim emits no snapshot, and cellRenderer.apply/applyDelta splice a delta
+		// onto the held base with no gap detection, so streaming onto a grid that
+		// already missed output tears history (scrollbackTotal - sbBase would no
+		// longer equal scrollbackRows.length). "claim" = holding a live viewport
+		// claim, i.e. visible→parked. A prior "withdraw" (browser tab was hidden, or
+		// the deck's LRU evicted then re-promoted this pane) and a fresh mount (null)
+		// both mean "not current": stay withdrawn and re-sync at reveal via the
+		// snapshot-emitting TAB_VISIBLE claim.
+		if (_lastSent !== "claim") return;
+		_lastSent = "background";
+		lastClaimed = { cols: 0, rows: 0 }; // a reveal must re-claim a real size
+		claimSeq += 1;
+		diag("cell.claim", {
+			sid: props.session.id,
+			cols: 0,
+			rows: 0,
+			client_seq: claimSeq,
+			background: true,
+		});
+		void coordClient.sessionsResize({
+			sessionId: props.session.id,
+			cols: 0,
+			rows: 0,
+			clientSeq: BigInt(claimSeq),
+			cause: ResizeCause.BACKGROUND,
+		});
+	}
+
+	/** Leaving the layout: keep streaming when the deck says this pane is in the
+	 *  background set, otherwise withdraw. */
+	function sendPark(): void {
+		if (props.backgroundStream === true) sendBackgroundClaim();
+		else sendWithdraw();
+	}
+
 	// cause = the browser event behind this claim (ResizeCause model).
 	// Worker hint only; defaults to VIEWPORT (a plain ResizeObserver tick).
 	function sendClaim(cause: ResizeCause = ResizeCause.VIEWPORT): void {
@@ -309,13 +357,14 @@ export function CellTerminal(props: CellTerminalProps) {
 			sendWithdraw();
 			return;
 		}
-		// B (draw only to attached clients): a non-active deck pane is mounted
-		// but visibility:hidden — withdraw so the worker stops emitting cells to it.
-		// Switching back re-claims (INITIAL/TAB_VISIBLE) → snapshot repaints. Without
-		// this every tab claims ALL open sessions → nothing is ever "unwatched" and
-		// the worker emit gate never fires.
+		// B (draw only to attached clients): a non-active deck pane is mounted but
+		// visibility:hidden — park it (sendPark). Outside the deck's background set
+		// that is a real withdraw, so the worker stops emitting cells to it; without
+		// it every tab claims ALL open sessions → nothing is ever "unwatched" and the
+		// worker emit gate never fires. Switching back re-claims (INITIAL/TAB_VISIBLE)
+		// → snapshot repaints.
 		if (props.inLayout === false) {
-			sendWithdraw();
+			sendPark();
 			return;
 		}
 		if (cellW === 0 || cellH === 0) {
@@ -552,10 +601,23 @@ export function CellTerminal(props: CellTerminalProps) {
 		// claimSeq → worker treats it as a no-op refresh: bumps lastMs, no
 		// snapshot, no SIGWINCH, no flicker; session-manager.ts:1039 stale-seq
 		// path) so the worker never reaps an active viewer mid-idle and stops
-		// emitting cells. Gated active+visible — a hidden/inactive pane stays
-		// withdrawn (sendClaim/onVisibility own that).
+		// emitting cells. Gated visible; a parked pane heartbeats ONLY while it
+		// holds a background claim (0×0, cause BACKGROUND — the stale-seq path
+		// treats cause 5 as non-mounting, so no snapshot either), otherwise it
+		// stays withdrawn (sendClaim/onVisibility own that).
 		const claimHeartbeat = setInterval(() => {
-			if (props.inLayout === false || !isPageVisible()) return;
+			if (!isPageVisible()) return;
+			if (props.inLayout === false) {
+				if (_lastSent !== "background") return;
+				void coordClient.sessionsResize({
+					sessionId: props.session.id,
+					cols: 0,
+					rows: 0,
+					clientSeq: BigInt(claimSeq),
+					cause: ResizeCause.BACKGROUND,
+				});
+				return;
+			}
 			if (lastClaimed.cols <= 0 || lastClaimed.rows <= 0) return;
 			void coordClient.sessionsResize({
 				sessionId: props.session.id,
@@ -828,13 +890,24 @@ export function CellTerminal(props: CellTerminalProps) {
 		const inLayoutFlag = createMemo(() => props.inLayout);
 		createEffect(on(inLayoutFlag, (flag) => {
 			if (!flag) {
-				sendWithdraw();
+				sendPark();
 				return;
 			}
 			// Revealing a pane reclaims its viewport but never restores or adjusts
 			// the viewer's DOM scroll position.
 			sendClaimNow(ResizeCause.TAB_VISIBLE);
 		}));
+		// LRU eviction while parked downgrades a background claim to a real withdraw.
+		// The reverse (re-promoted into the set) is a no-op by design: the withdrawn
+		// pane is no longer current, so sendBackgroundClaim refuses it and the pane
+		// re-syncs at reveal. Only meaningful while parked and page-visible — a
+		// hidden browser tab never streams, and a pane in layout holds a real claim.
+		const bgFlag = createMemo(() => props.backgroundStream === true);
+		createEffect(on(bgFlag, (bg) => {
+			if (props.inLayout === true || !isPageVisible()) return;
+			if (bg) sendBackgroundClaim();
+			else sendWithdraw();
+		}, { defer: true }));
 		// Focus gate: only the focused pane's terminal grabs the keyboard. Touch
 		// devices skip it (an explicit tap on the display still focuses) so selecting
 		// a pane doesn't pop the on-screen keyboard. This effect is intentionally

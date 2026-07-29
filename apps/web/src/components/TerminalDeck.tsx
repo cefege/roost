@@ -45,6 +45,11 @@ import type { Session } from "@roost/shared/wire";
 import { diag } from "@roost/shared/diag";
 
 const STRIP_H = 40; // per-pane tab strip height (px)
+// Parked panes that keep streaming (CellTerminal backgroundStream). Capped: each
+// one keeps a worker channel emitting, and the coord fans every cell frame to
+// every Sync socket. Four covers switching back and forth between the tabs a
+// user actually cycles; deeper history still arrives on demand at reveal.
+const BACKGROUND_STREAM_LIMIT = 4;
 /** Mobile (compact) deck-level bar height (px) — the Chrome-style workspace
  *  bar ([menu][title][+][count]) rendered above the full-bleed terminal. */
 const MOBILE_STRIP_H = 48;
@@ -81,6 +86,21 @@ function sameSlot(a: SessionSlot | null, b: SessionSlot | null): boolean {
   if (!a || !b) return false;
   return a.paneId === b.paneId && a.focused === b.focused && !!a.spotlit === !!b.spotlit
     && a.rect.x === b.rect.x && a.rect.y === b.rect.y && a.rect.w === b.rect.w && a.rect.h === b.rect.h;
+}
+
+// Value-equality for the parked-size map (parkSizeBySession): the memo mints a
+// new Map per layout commit / drag frame / deck resize, so ref-equality would
+// re-style every parked pane on a focus flip or tab reorder. Compare sizes.
+function sameParkSizes(
+  a: ReadonlyMap<string, { w: number; h: number }>,
+  b: ReadonlyMap<string, { w: number; h: number }>,
+): boolean {
+  if (a.size !== b.size) return false;
+  for (const [id, s] of a) {
+    const t = b.get(id);
+    if (!t || t.w !== s.w || t.h !== s.h) return false;
+  }
+  return true;
 }
 
 export function TerminalDeck(props: { activeSessionId: string | null }) {
@@ -273,6 +293,33 @@ export function TerminalDeck(props: { activeSessionId: string | null }) {
       return changed ? next : previous;
     });
   });
+
+  // Parked panes that keep streaming (CellTerminal backgroundStream), most
+  // recently parked first. A pane enters only by going visible→parked, so it is
+  // already current at that moment and needs no catch-up snapshot; it leaves on
+  // reveal, on close, or when pushed past the cap (→ real withdraw).
+  // A MEMO, not a signal written from an effect: CellTerminal reads this through
+  // props.backgroundStream inside its own park effect, and a memo is recomputed in
+  // the Updates phase — strictly before user effects — so the park always sees the
+  // current set. Writing it from an effect made the two effects race: a pane could
+  // park against the pre-park set, withdraw, and then be refused promotion (a
+  // withdrawn pane is no longer current) → it never streamed at all.
+  let parkedRecency: string[] = []; // most recently parked first
+  let prevSelected: ReadonlySet<string> = new Set<string>();
+  const bgStreamIds = createMemo<ReadonlySet<string>>(
+    () => {
+      const openIds = new Set<string>(openSessions().map((session) => session.id));
+      const selected = new Set<string>(slotBySession().keys());
+      for (const id of prevSelected)
+        if (!selected.has(id) && openIds.has(id))
+          parkedRecency = [id, ...parkedRecency.filter((x) => x !== id)];
+      prevSelected = selected;
+      parkedRecency = parkedRecency.filter((id) => openIds.has(id) && !selected.has(id));
+      return new Set<string>(parkedRecency.slice(0, BACKGROUND_STREAM_LIMIT));
+    },
+    new Set<string>(),
+    { equals: (a, b) => a.size === b.size && [...b].every((id) => a.has(id)) },
+  );
   const mountedSessions = createMemo(() => {
     const warmIds = warmSessionIds();
     const selectedIds = slotBySession();
@@ -342,7 +389,35 @@ export function TerminalDeck(props: { activeSessionId: string | null }) {
   createEffect(on(folderKey, () => { clearSpotlight(); setSwipe(null); }, { defer: true }));
 
   const stripH = () => (isCompact() ? MOBILE_STRIP_H : STRIP_H);
-  function termStyle(slot: { rect: Rect; focused: boolean; spotlit?: boolean } | null): Record<string, string> {
+  // Every tab of every pane → that pane's terminal-area size. A parked pane keeps
+  // the size it will be revealed at: any other box changes the .wterm scroll
+  // container's clientHeight across park/reveal, which moves the scroll maximum
+  // under a pane that is still applying frames — CellGridRenderer's pre-mutation
+  // atBottom() check then latches off and bottom-follow (plus scrollback
+  // eviction) stays dead until the user manually scrolls to the end.
+  // Declared after stripH() because createMemo evaluates eagerly.
+  const parkSizeBySession = createMemo(
+    () => {
+      const m = new Map<string, { w: number; h: number }>();
+      const h = stripH();
+      for (const p of view().panes) {
+        const size = { w: p.rect.w, h: Math.max(0, p.rect.h - h) };
+        for (const id of p.tabIds) m.set(id, size);
+      }
+      return m;
+    },
+    undefined,
+    { equals: sameParkSizes },
+  );
+  function termStyle(
+    slot: { rect: Rect; focused: boolean; spotlit?: boolean } | null,
+    park?: { w: number; h: number },
+  ): Record<string, string> {
+    // A parked pane MUST keep the geometry it will be revealed at (park, from
+    // parkSizeBySession) — a differing box moves its scroll maximum while frames
+    // are still being applied and latches bottom-follow off. The 800×600 fallback
+    // covers the one case where a mounted session has no pane: before the first
+    // ResizeObserver tick view() is {panes: [], dividers: []}, so the map is empty.
     // Hidden panes park off-screen but stay LAID OUT (visibility:hidden, NOT
     // content-visibility). Skipping their layout cuts per-switch forced layout
     // (~50ms→~11ms across 15+ panes), BUT because content-visibility:hidden drops
@@ -351,7 +426,12 @@ export function TerminalDeck(props: { activeSessionId: string | null }) {
     // is the freeze users hit, so keeping hidden panes warm wins there. The
     // O(open-sessions) per-switch floor needs a different lever (not eagerly
     // mounting every pane), not a content-visibility layout skip.
-    if (!slot) return { position: "absolute", left: "-99999px", top: "0", width: "800px", height: "600px", visibility: "hidden", "pointer-events": "none" };
+    if (!slot)
+      return {
+        position: "absolute", left: "-99999px", top: "0",
+        width: `${park?.w ?? 800}px`, height: `${park?.h ?? 600}px`,
+        visibility: "hidden", "pointer-events": "none",
+      };
     const r = slot.rect;
     // Spotlit pane floats as a full card with NO strip above it (its strip is
     // hidden below): the terminal fills the whole card rect, all corners rounded.
@@ -797,8 +877,8 @@ export function TerminalDeck(props: { activeSessionId: string | null }) {
         {(s) => {
           const slot = createMemo(() => slotBySession().get(s.id) ?? null, undefined, { equals: sameSlot });
           return (
-            <div data-testid={`terminal-slot-${s.id}`} data-pane data-pane-id={slot()?.paneId ?? ""} data-focused={slot()?.focused ? "true" : "false"} data-spotlit={slot()?.spotlit ? "true" : undefined} style={{ ...termStyle(slot()), ...swipeStyleFor(s.id) }}>
-              <CellTerminal session={s} inLayout={!!slot()} focused={slot()?.focused ?? false} spotlit={slot()?.spotlit ?? false} />
+            <div data-testid={`terminal-slot-${s.id}`} data-pane data-pane-id={slot()?.paneId ?? ""} data-focused={slot()?.focused ? "true" : "false"} data-spotlit={slot()?.spotlit ? "true" : undefined} style={{ ...termStyle(slot(), parkSizeBySession().get(s.id)), ...swipeStyleFor(s.id) }}>
+              <CellTerminal session={s} inLayout={!!slot()} focused={slot()?.focused ?? false} spotlit={slot()?.spotlit ?? false} backgroundStream={!slot() && bgStreamIds().has(s.id)} />
             </div>
           );
         }}

@@ -1126,7 +1126,15 @@ aside[data-testid="sidebar-drawer"]::-webkit-scrollbar-thumb:hover,
 /* Alt-screen owns the viewport — no scrollback, no scroll-up. CellGridRenderer
    toggles .alt-active from frame.altScreen; without this the stale pre-alt
    scrollback sheet shows above the viewport and the wheel scrolls into it. */
-.cell-grid.alt-active .cell-scrollback { display: none; }
+.cell-grid.alt-active .cell-scrollback,
+.cell-grid.alt-active .cell-sb-spacer { display: none; }
+/* Stands in for the [0, sbBase) history a snapshot tail didn't ship, so an
+   absolute row index has a fixed pixel offset (CellGridRenderer._syncSpacer).
+   Never a scroll anchor: it resizes on every backfill splice. .wterm is normal
+   block flow (no display:flex), so the inline height is its whole contribution. */
+.cell-grid .cell-sb-spacer {
+  overflow-anchor: none;
+}
 .cell-grid.alt-active { overflow-y: hidden; }
 .cell-grid .cell-row {
   white-space: pre;        /* preserve runs of spaces; no wrap = no reflow */
@@ -1140,16 +1148,20 @@ aside[data-testid="sidebar-drawer"]::-webkit-scrollbar-thumb:hover,
    layout/paint of off-screen blocks keeps a reveal reflow + scrollHeight reads
    O(blocks) not O(history) — the fix for the deep-history pane-switch freeze.
    The 300em below is only a fallback: CellGridRenderer.sizeBlock() sets an EXACT
-   inline contain-intrinsic-size (rows × the MEASURED .cell-row px height, with
-   the `auto` keyword where supported so the browser reuses a block's real size
-   once it has rendered), so a skipped block's placeholder equals its real height
-   and revealing it reflows nothing. The flat estimate used to overstate every
-   partial block, which is what made the view lurch when history materialized.
+   inline contain-intrinsic-size (rows × the MEASURED .cell-row px height), so a
+   skipped block's placeholder equals its real height and revealing it reflows
+   nothing. The flat estimate used to overstate every partial block, which is what
+   made the view lurch when history materialized.
+   NO `auto` keyword on either value: `auto` makes the browser reuse a block's
+   LAST RENDERED size in place of the declared one, so a block that grows while
+   skipped (appends to a parked pane, or to the tail while scrolled up) keeps a
+   stale height and understates scrollHeight until it materializes — see the
+   blockPlaceholder comment in cellRenderer.ts.
    SB_BLOCK(250) × 1.2em = 300em; keep the line-height on .cell-grid above in
    sync with DEFAULT_ROW_PX in cellRenderer.ts. */
 .cell-grid .cell-scrollback .cell-block {
   content-visibility: auto;
-  contain-intrinsic-size: auto 300em;
+  contain-intrinsic-size: 300em;
 }
 @keyframes cell-blink { 50% { opacity: 0; } }
 /* Block cursor overlay (CellGridRenderer.updateCursor positions it via inline

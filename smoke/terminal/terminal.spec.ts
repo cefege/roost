@@ -180,3 +180,90 @@ test("two viewers preserve ordered terminal markers", async ({ smokePage, browse
     await passiveContext.close();
   }
 });
+
+// The scroll SPACE, in a real browser. A fresh attach to a deep session gets a
+// scrollback TAIL (SB_SNAPSHOT_TAIL_ROWS) plus sbBase; before
+// CellGridRenderer._syncSpacer nothing stood in for [0, sbBase), so
+// scrollHeight described ~250 rows of an 8000-row session and every backfill
+// prepend grew it — the thumb shrank and jumped with no user action, and a
+// reader parked in history drifted onto other rows. This asserts the two
+// properties the spacer buys: the scroll space is truthful on attach, and it
+// does not move while the drain paints history in under the reader.
+test("a deep-history attach reserves the whole scroll space and holds it through the backfill drain", async ({ smokePage, stack }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium-desktop", "desktop scroll-geometry contract");
+  const sessionId = await smokePage.evaluate(async (workerFp) => {
+    const smoke = (window as unknown as Window & { __smoke: { spawnShell(worker: string, folder: string): Promise<{ session_id: string }> } }).__smoke;
+    return (await smoke.spawnShell(workerFp, "/tmp")).session_id;
+  }, stack.workerFp);
+  await smokePage.goto(`${stack.baseUrl}/s/${sessionId}`);
+  await expect(smokePage.getByTestId(`terminal-slot-${sessionId}`)).toBeVisible();
+  await smokePage.keyboard.type("seq -f 'CELLLINE-%g' 1 8000");
+  await smokePage.keyboard.press("Enter");
+  await expect.poll(() => smokePage.getByTestId(`terminal-slot-${sessionId}`).textContent(), { timeout: 60_000 })
+    .toContain("CELLLINE-8000");
+
+  // Re-attach: the worker now answers with a tail + a deep sbBase, which is the
+  // exact state the old renderer misrepresented.
+  await smokePage.reload({ waitUntil: "domcontentloaded" });
+  await smokePage.waitForFunction(() => typeof (window as unknown as Window & { __smoke?: unknown }).__smoke === "object");
+  await expect(smokePage.getByTestId(`terminal-slot-${sessionId}`)).toBeVisible();
+  await smokePage.waitForFunction((id) => {
+    const slot = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
+    return !!slot?.querySelector(".cell-sb-spacer") && !!slot.querySelector(".cell-row");
+  }, sessionId);
+  const geometry = () => smokePage.evaluate((id) => {
+    const smoke = (window as unknown as Window & { __smoke: { renderProbe(sessionId: string): { rowCount: number; scrollHeight: number; clientHeight: number } } }).__smoke;
+    const slot = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
+    const c = slot?.querySelector(".wterm") as HTMLElement | null;
+    const rowH = c?.querySelector(".cell-row")?.getBoundingClientRect().height ?? 0;
+    const spacer = c?.querySelector(".cell-sb-spacer") as HTMLElement | null;
+    const probe = smoke.renderProbe(id);
+    // The marker on the topmost row whose box still intersects the viewport top
+    // — textContent can't answer this (content-visibility-skipped blocks are in
+    // it), and it is precisely "what row is the reader looking at".
+    const top = c?.getBoundingClientRect().top ?? 0;
+    const reader = Array.from(c?.querySelectorAll(".cell-row") ?? [])
+      .map((r) => [r.getBoundingClientRect(), r.textContent ?? ""] as const)
+      .filter(([b]) => b.bottom > top + 1)
+      .map(([, t]) => (t.match(/CELLLINE-\d+/) ?? [null])[0])[0] ?? null;
+    return { rowH, spacerPx: spacer ? parseFloat(spacer.style.height || "0") : -1, reader, ...probe };
+  }, sessionId);
+
+  const attach = await geometry();
+  expect(attach.rowH).toBeGreaterThan(0);
+  // Truthful depth: the space covers ~8000 rows even though only a tail is painted.
+  expect(attach.spacerPx / attach.rowH).toBeGreaterThan(5000);
+  expect(attach.scrollHeight / attach.rowH).toBeGreaterThan(7000);
+  expect(attach.rowCount).toBeLessThan(3000); // still just a tail in the DOM
+
+  // Park the reader ten rows into the PAINTED tail: close enough that
+  // nearHistoryTop() stays true (so the drain keeps prepending chunks ABOVE the
+  // reader, which is the mutation under test), and still a real painted row at
+  // the viewport top so "the reader's row" is well-defined for the whole drain.
+  // Every prepended chunk must shrink the spacer by exactly its own height, or
+  // this row moves.
+  await smokePage.evaluate(({ id, rowH }) => {
+    const slot = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
+    const c = slot?.querySelector(".wterm") as HTMLElement | null;
+    const sb = c?.querySelector(".cell-scrollback") as HTMLElement | null;
+    if (c && sb) c.scrollTop = sb.offsetTop + Math.round(10 * rowH);
+  }, { id: sessionId, rowH: attach.rowH });
+  const parked = await geometry();
+  expect(parked.reader).toMatch(/^CELLLINE-\d+$/);
+
+  // Drain to quiescence: rowCount stops growing once the painted head passes
+  // the reader. Neither the scroll space nor the reader's row may move.
+  let last = -1, settled = 0;
+  await expect.poll(async () => {
+    const g = await geometry();
+    settled = g.rowCount === last ? settled + 1 : 0;
+    last = g.rowCount;
+    return settled;
+  }, { timeout: 60_000, intervals: [250] }).toBeGreaterThanOrEqual(4);
+
+  const drained = await geometry();
+  expect(drained.rowCount).toBeGreaterThan(attach.rowCount); // the drain really ran
+  expect(Math.abs(drained.scrollHeight - parked.scrollHeight)).toBeLessThanOrEqual(Math.ceil(drained.rowH));
+  expect(drained.reader).toBe(parked.reader);
+  expect(drained.scrollTop).toBe(parked.scrollTop); // zero application scroll writes
+});
