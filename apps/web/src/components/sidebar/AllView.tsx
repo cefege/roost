@@ -1,22 +1,20 @@
-// Sidebar body: FolderList (Needs-you strip + folder rows) — the ONE
+// Sidebar body: FolderList (folder rows) — the ONE
 // sidebar layout; the Status/Folder/Folders view modes were deleted
 // 2026-07-04. Brand row + ⌘F search on top; SidebarEmptyState when no
 // machines are registered.
 // Reads rootStore.workers (empty-state gate) + allSessions (search).
 
-import { createMemo, createSignal, For, Show, onMount, onCleanup, untrack } from "solid-js";
+import { createMemo, createSignal, For, Show, onMount, onCleanup } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import { rootStore } from "../../store/root.ts";
 import { uiStore, toggleSidebarCollapsed, closeSidebar } from "../../store/uiStore.ts";
 import { isCompact } from "../../lib/windowSizeClass.ts";
 import { allSessions } from "../../store/selectors.ts";
-import { latestAssistantOutput } from "../../lib/attention.ts";
 import { SidebarSearch } from "./SidebarSearch.tsx";
 import { SidebarEmptyState } from "./SidebarEmptyState.tsx";
 import { SessionRow } from "./SessionRow.tsx";
 import { FolderList } from "./FolderList.tsx";
 import { BrandMark } from "../BrandMark.tsx";
-import { NotificationBellTrigger } from "../NotificationBell.tsx";
 import "@material/web/iconbutton/icon-button.js";
 
 // Debounce interval for the search query → filtered-sessions recompute.
@@ -64,16 +62,14 @@ export function AllView() {
 
   const noMachines = createMemo(() => Object.keys(rootStore.workers).length === 0);
 
-  // When query active: flat filtered session list.
+  // When query active: flat filtered terminal-session list.
   // Uses debouncedQuery so the filter only re-runs after typing settles.
-  // The message-text read is untracked: results match against the latest OMP
-  // output as of the last query change, avoiding an O(n) re-filter per delta.
   const filteredSessions = createMemo(() => {
     const q = debouncedQuery().toLowerCase().trim();
     if (!q) return null;
     return allSessions().filter((s) => {
+      if (s.kind !== "shell") return false;
       if (s.cwd.toLowerCase().includes(q)) return true;
-      if (untrack(() => latestAssistantOutput(s)?.text ?? "").toLowerCase().includes(q)) return true;
       const ws = s.workspace_id ? rootStore.workspaces[s.workspace_id] : null;
       return ws?.name.toLowerCase().includes(q) ?? false;
     });
@@ -85,9 +81,6 @@ export function AllView() {
         <BrandMark size={26} class="brand-mark" />
         <span class="df-brand-title">Roost</span>
         <span style={{ "margin-left": "auto", display: "inline-flex", "align-items": "center", gap: "2px", position: "relative" }}>
-          <Show when={!isCompact()}>
-            <NotificationBellTrigger />
-          </Show>
           <md-icon-button
             aria-label="Search"
             title="Search sessions & workspaces (⌘F)"

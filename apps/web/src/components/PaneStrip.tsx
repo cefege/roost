@@ -11,7 +11,6 @@ import { Portal } from "solid-js/web";
 import { sessionTitle, programSubtitle } from "../lib/sessionTitle.ts";
 import { shortCwd } from "../lib/sidebarFormat.ts";
 import { IconButton } from "./Settings/md/IconButton.tsx";
-import { attentionOf, presentationOf, isActionable } from "../lib/agentStatus.ts";
 import { dragArmed } from "../lib/dragThreshold.ts";
 import { animateSpring, SPRING_SNAP } from "../lib/spring.ts";
 import { prefersReducedMotion } from "../lib/prefersReducedMotion.ts";
@@ -36,6 +35,7 @@ export interface PaneStripProps {
   onTabTileDrop?: (tabId: string, clientX: number, clientY: number) => boolean;
   onTabDragEnd?: () => void;
 }
+
 
 export function PaneStrip(props: PaneStripProps) {
   // M3 sliding active-indicator (ported from TabBar). Painted as a 1px bar
@@ -324,9 +324,6 @@ export function PaneStrip(props: PaneStripProps) {
             >
               <For each={matches()}>
                 {(s, i) => {
-                  const level = createMemo(() => attentionOf(s));
-                  const vis = createMemo(() => presentationOf(level()));
-                  const showDot = createMemo(() => isActionable(level()));
                   return (
                     <button
                       type="button"
@@ -341,7 +338,6 @@ export function PaneStrip(props: PaneStripProps) {
                         color: "var(--text-hi)", "font-size": "var(--md-body-s-size)",
                       }}
                     >
-                      <span style={{ width: "7px", height: "7px", "border-radius": "50%", "flex-shrink": "0", background: showDot() ? vis().color : "transparent" }} />
                       <span class="df-tab-glyph">$</span>
                       <span style={{ flex: "1", overflow: "hidden", "text-overflow": "ellipsis", "white-space": "nowrap", "min-width": "0" }}>{sessionTitle(s)}</span>
                       <Show when={s.id === props.selectedTab}>
@@ -363,9 +359,6 @@ export function PaneStrip(props: PaneStripProps) {
     let previewRef: HTMLDivElement | undefined;
     const [hasPreview, setHasPreview] = createSignal(false);
     onMount(() => { if (previewRef) setHasPreview(renderPreview(p.s.id, previewRef)); });
-    const level = createMemo(() => attentionOf(p.s));
-    const vis = createMemo(() => presentationOf(level()));
-    const showChip = createMemo(() => isActionable(level()));
     const subtitle = createMemo(() => programSubtitle(p.s));
     const left = Math.max(8, Math.min(p.rect.left, window.innerWidth - 280 - 8));
     return (
@@ -374,9 +367,6 @@ export function PaneStrip(props: PaneStripProps) {
           <div class="df-tab-hovercard-head">
             <span class="df-tab-glyph">$</span>
             <span class="df-tab-hovercard-title">{sessionTitle(p.s)}</span>
-            <Show when={showChip()}>
-              <span class="df-tab-hovercard-chip"><span class="df-tab-dot" style={{ background: vis().color }} />{vis().label}</span>
-            </Show>
           </div>
           <Show when={subtitle()}>
             <div class="df-tab-hovercard-line">{subtitle()}</div>
@@ -411,9 +401,6 @@ export function PaneStrip(props: PaneStripProps) {
       <For each={props.tabs}>
         {(s, i) => {
           const isActive = createMemo(() => s.id === props.selectedTab);
-          const level = createMemo(() => attentionOf(s));
-          const vis = createMemo(() => presentationOf(level()));
-          const showDot = createMemo(() => isActionable(level()));
           const label = createMemo(() => sessionTitle(s));
           return (
             <button
@@ -431,9 +418,6 @@ export function PaneStrip(props: PaneStripProps) {
               title={label()}
             >
               <md-ripple />
-              <Show when={showDot()}>
-                <span class="df-tab-dot" style={{ background: vis().color }} title={vis().label} aria-label={vis().label} />
-              </Show>
               <span class="df-tab-glyph">$</span>
               <span class="df-tab-label">{label()}</span>
               <IconButton

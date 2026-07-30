@@ -122,24 +122,18 @@ export function makeWorkerWsHandler(deps: WorkerServiceDeps) {
         log.warn("worker-ws", "decode_failed", { worker_fp: ws.data.fp, error: String(e) });
         return;
       }
-      // Fast path: in-memory bus publishes — no DB write, no ordering
+      // Fast path: in-memory terminal bus publishes — no DB write or ordering
       // constraint. Process immediately so an echo cell frame never waits
-      // behind a DB-writing event frame (the .tail variance amplifier).
-      // agentEntries belongs here too: it only fans out onto
-      // globalAgentEntryBus and never touches the `events` table, so making a
-      // streaming transcript queue behind event appends would add latency for
-      // nothing. (The whole message was already copied off Bun's pooled buffer
-      // above, which is what keeps every deferred frame's `bytes` views valid.)
-      //
+      // behind a DB-writing event frame. The message was copied off Bun's
+      // pooled buffer above, keeping deferred `bytes` views valid.
       const fcase = frame.frame.case;
-      if (fcase === "binary" || fcase === "cellGrid" || fcase === "agentEntries") {
+      if (fcase === "binary" || fcase === "cellGrid") {
         void conn.handleUpstream(frame).catch((e) => {
           log.warn("worker-ws", "handle_failed", { worker_fp: ws.data.fp, error: String(e) });
         });
         return;
       }
-      // Slow path: event frames preserve appendEvent ordering; AgentUi frames
-      // preserve welcome→chunk order so atomic snapshot staging cannot race.
+      // Slow path: event frames preserve appendEvent ordering.
       ws.data.tail = ws.data.tail
         .then(() => conn.handleUpstream(frame))
         .catch((e) => {

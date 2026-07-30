@@ -1,6 +1,5 @@
 // Sync firehose — one server-streaming RPC for in-memory state buses,
-// including terminal bytes, cell frames, OMP bridge events, and browser UI
-// coordination.
+// including terminal bytes, cell frames, and browser UI coordination.
 
 import type { ServiceImpl } from "@connectrpc/connect";
 import { ConnectError, Code } from "@connectrpc/connect";
@@ -31,8 +30,8 @@ import {
 import {
   sessionBus, presenceBus, workspaceBus, taskBus, webhookBus,
   permissionBus, mcpBus, globalBytesBus, globalPresenceBus, auditBus,
-  titleBus, lastActivityBus, workerRoutableBus, globalCellBus, globalAgentEntryBus,
-  globalAgentUiBus, pairBus, uiBus, type TaskBusMsg, type PairRequestDelta, type AuditRow,
+  titleBus, lastActivityBus, workerRoutableBus, globalCellBus,
+  pairBus, uiBus, type TaskBusMsg, type PairRequestDelta, type AuditRow,
 } from "../buses.ts";
 import { getEventsSince } from "../event-log.ts";
 import { listRoutableFps } from "./worker-service.ts";
@@ -299,18 +298,6 @@ export function startSyncFeed(
       frame.coordFanoutMs = BigInt(Date.now());
       push(create(FirehoseFrameSchema, { frame: { case: "cellGrid", value: frame } }));
     }),
-    // omp agent transcript. Bus payload is already an AgentEntriesFrame with
-    // session_id stamped by the worker, so it rides through untouched. NO
-    // seeding loop on purpose: this connection sees live frames only (subscribe
-    // never replays the bus ring), and a fresh viewer pulls its transcript from
-    // the worker via SessionsGetAgentEntries. Entries upsert by `seq`, so a live
-    // frame landing mid-backfill is a no-op rather than a duplicate.
-    globalAgentEntryBus.subscribe((frame) =>
-      push(create(FirehoseFrameSchema, { frame: { case: "agentEntries", value: frame } }))),
-    // Canonical OMP HostFrames. Live-only here; a reconnect asks coord's
-    // durable snapshot RPC for an ordered SessionReplica seed.
-    globalAgentUiBus.subscribe((frame) =>
-      push(create(FirehoseFrameSchema, { frame: { case: "agentUi", value: frame } }))),
     titleBus.subscribe(({ session_id, title }) =>
       push(create(FirehoseFrameSchema, {
         frame: { case: "terminalTitle", value: create(TerminalTitleFrameSchema, {

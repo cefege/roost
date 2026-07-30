@@ -40,21 +40,6 @@ describe("worker→coord event frame (R-2 typed wire)", () => {
     expect(decoded.cwd).toBe("/tmp");
   });
 
-  it("agent event with current_tool:null survives proto encode/decode", () => {
-    const ev = SessionEvent.parse({
-      kind: "agent",
-      session_id: asSessionId("00000000-0000-4000-8000-000000000002"),
-      patch: { kind: "agent", current_tool: null, status: "idle" },
-      ts: 1781500001,
-    });
-    const proto = eventToProto(ev, 0);
-    const frame = create(CoordWorkerUpSchema, { frame: { case: "event", value: wrapEvent(proto!) }});
-    const wireBack = roundTripFrame(frame);
-    const decoded = protoToEvent((wireBack.frame.value as any).event) as any;
-    expect(decoded.kind).toBe("agent");
-    expect(decoded.patch.current_tool).toBeNull();
-    expect(decoded.patch.status).toBe("idle");
-  });
 
   it("snapshot event with populated sessions survives proto encode/decode", () => {
     const wfp = asWorkerFp("bb".repeat(32));
@@ -69,7 +54,6 @@ describe("worker→coord event frame (R-2 typed wire)", () => {
         cwd: "/home/x",
         workspace_id: null,
         status: "open",
-        agent: null,
         created_at: 1781500002,
         closed_at: null,
         custom_title: null,

@@ -7,7 +7,7 @@
 
 **One control panel for every Mac you own.**
 
-Roost is a self-hosted, Bun-powered terminal control plane. One Mac can host the coordinator and work as a worker itself; add every other Mac as a worker. Your main laptop, old MacBooks, and other Macs become one agent fleet you can control from a laptop, tablet, or phone.
+Roost is a self-hosted, Bun-powered terminal control plane. One Mac can host the coordinator and work as a worker itself; add every other Mac as a worker. Your main laptop, old MacBooks, and other Macs become one terminal fleet you can control from a laptop, tablet, or phone.
 
 _I built Roost for my own daily workflow: real infrastructure, not a demo._
 
@@ -18,13 +18,12 @@ _I built Roost for my own daily workflow: real infrastructure, not a demo._
 
 </div>
 
-![Roost, a sidebar of live agents across two Macs next to a working terminal](docs/media/hero.png)
 
 ## What it is
 
 One coordinator connects every Mac you own into one fleet, and the coordinator Mac can be a worker too. Add spare or older MacBooks, spread agent workloads across them, and manage every session from the same control panel. Pick a folder on any machine, open a workspace there, and the process runs on that machine while its native terminal stays available on every device you use.
 
-OMP supplies the structured agent state in the sidebar: working, approval-needed, and idle. Any agent, shell, REPL, or TUI still works as a terminal session with its native behavior.
+Every session is a shell PTY rendered in the browser. Launch any agent CLI, shell, REPL, or TUI inside it and use that program's native terminal interface. Roost carries terminal input, output, and session state; it does not provide a structured agent API, HTML transcript, tool or approval UI, or a managed OMP dependency.
 
 ## The problem
 
@@ -40,11 +39,10 @@ Once you have agents across several Macs, spare machines often sit unused while 
 
 ## What you get
 
-**Agent sessions are a real UI, not a terminal.** Pick a server and a folder and Roost runs oh-my-pi as a child process, streaming its transcript straight into the browser: messages, tool cards, and approval prompts you answer with a button. Shell sessions stay a full native terminal, and remain the escape hatch for everything else.
+**Run any terminal program.** Pick a server and folder, open a terminal, and launch `omp`, Claude Code, Codex, a shell, a REPL, or any other TUI. Roost keeps the PTY alive and renders the program's own terminal interface on every device.
 
 **Build a fleet from Macs you already own.** Connect every Mac to one coordinator, then use each one as a worker, including the coordinator Mac. Put an agent run on an older MacBook, a spare desktop, or your main laptop, based on where you have CPU and RAM available. Pick a project folder on that worker and open a workspace there. Workers dial outbound only, so they do not expose an inbound port. The sidebar groups every live session by the machine it runs on, so the entire fleet stays legible in one browser tab.
 
-![The sidebar: every session grouped by the machine it runs on, with live status and cost](docs/media/sidebar-status.png)
 
 **A full terminal on every device.** The same fully functional web app runs on desktop, iPhone, Android phones, iPads, and Android tablets. It renders the real persistent PTY with full ANSI, colors, and scrollback. Upload files into a session, download files from a worker to your browser, and use the terminal without caring which Mac runs it. Tablets keep the desktop layout, panes, and shortcuts. Phones add touch selection, an on-screen key row, and gestures for real work. Add it to your home screen and it installs as a standalone PWA with its own icon and no browser chrome.
 
@@ -60,11 +58,11 @@ Once you have agents across several Macs, spare machines often sit unused while 
 
 ![Multiple terminals tiled in one workspace, auto-arranged to fill the screen](docs/media/split-panes.png)
 
-**Talk to your terminal.** Tap the mic and dictate straight into a session. The transcript is typed in as real input and sent, with no review step in between. It works with zero setup using your browser's built-in speech recognition, though that's a rough fallback. For dictation that's actually good, add a Deepgram API key (Settings → Voice). That's the recommended path, with much higher accuracy and multi-language support, and the key is stored once on the coordinator and shared across every device. It's especially handy on a phone, where typing a long prompt is a chore.
+**Talk to your terminal.** Tap the mic and dictate straight into a session. The recognized text is typed in as real input and sent, with no review step in between. It works with zero setup using your browser's built-in speech recognition, though that's a rough fallback. For dictation that's actually good, add a Deepgram API key (Settings → Voice). That's the recommended path, with much higher accuracy and multi-language support, and the key is stored once on the coordinator and shared across every device. It's especially handy on a phone, where typing a long prompt is a chore.
 
 **Sessions that don't die.** PTYs run in a keeper subprocess that outlives worker restarts. Drop WiFi, close the laptop, refresh, or reopen the same session on another machine, and the process is still running with full scrollback. Sessions are event-sourced and the byte stream is resumable from an offset, so reconnects splice back cleanly, with no loss and no duplication.
 
-**The terminal IS the UI.** Raw terminal output renders in a real WASM VT terminal (`@wterm/dom`) with full ANSI and scrollback. Structured OMP state arrives through the local bridge, while the PTY remains the authoritative interactive surface.
+**The terminal is the only interactive surface.** Every session owns a PTY. Output renders in a real WASM VT terminal (`@wterm/dom`) with full ANSI and scrollback, whether the process is an agent CLI, shell, REPL, editor, or other TUI.
 
 **Yours, not a SaaS.** It runs on your hardware over your own network. Auth is an EdDSA JWT minted in the browser with WebCrypto, and the private key lives in IndexedDB and is never sent to the coordinator. There are no shared tokens, no accounts, and no telemetry. Revoke a device by deleting a row.
 
@@ -73,7 +71,7 @@ Once you have agents across several Macs, spare machines often sit unused while 
 ```text
    Browser  (any device on your network)
       │   Connect-RPC over HTTP/2, protobuf binary
-      │   terminal bytes · agent events · all state, one connection
+      │   terminal data · session state, one connection
       ▼
  ┌─────────────────────────┐
  │ Coordinator  (Bun)      │   event-sourced SQLite · auth · session registry
@@ -84,20 +82,11 @@ Once you have agents across several Macs, spare machines often sit unused while 
    ▼         ▼                   ▼
  Worker    Worker              Worker        (Bun, one per machine)
  Mac A     Mac B               Mac C
-   │  a keeper subprocess hosts every PTY and outlives worker restarts;
-   │  agent sessions run one `omp --mode rpc-ui` child process each
+   │  a keeper subprocess hosts every PTY and outlives worker restarts
 ```
 
 The coordinator handles control and fan-out only. It holds an append-only event log that every session is projected from, so the browser and the server agree on state by replaying the same events rather than mirroring a snapshot. Workers are outbound-only: they dial the coordinator, never the reverse. For the full tour, see [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
-## Structured agent state
-
-Roost's supported structured integration is **oh-my-pi / OMP**, run as one
-`omp --mode rpc-ui` child process per agent session. The worker projects that
-RPC event stream into transcript entries the browser renders natively, so tool
-calls and approval requests are structured data rather than scraped screen
-text. Other terminals, shells, REPLs, and TUIs remain first-class sessions with
-their native terminal behavior but no structured sidebar state.
 
 ## Network
 
@@ -105,7 +94,7 @@ Roost talks over whatever network your devices share. It's built and tested on [
 
 ## Install
 
-Roost runs on macOS today. It needs a shared network (Tailscale recommended) and OMP on each Mac where structured agent state is required. On the Mac you want as the coordinator:
+Roost runs on macOS today. It needs a shared network (Tailscale recommended). On the Mac you want as the coordinator:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/cefege/roost/main/install.sh | bash
@@ -148,14 +137,14 @@ Your Mac's browser stays perfectly usable for claude.ai. Roost isn't a replaceme
 Early, and honest about it. I use Roost every day as my primary coding surface, so the paths I hit are solid. Paths I don't may be rough.
 
 - macOS only today (uses macOS PTYs and LaunchAgents)
-- Needs a shared network (Tailscale tested) plus at least one supported agent (Claude Code, pi, or oh-my-pi)
+- Needs a shared network (Tailscale tested) and whatever terminal CLI tools you want to run
 - Single-user today; the schema is built for multiple operators but there's no UI for it yet
 
 ## Built with
 
 - **Web:** Solid + Vite, `@connectrpc/connect-web`, `@wterm/dom` (WASM terminal core)
 - **Coordinator:** Bun, Connect-RPC + protobuf, Kysely + `bun:sqlite`, event-sourced session log, EdDSA-JWT auth
-- **Workers:** Bun, native PTYs via `Bun.spawn`, hook + screen-scrape adapters for agent state
+- **Workers:** Bun, native PTYs via `Bun.spawn`
 - **Transport:** Connect-RPC (browser↔coordinator), protobuf-over-WebSocket (worker↔coordinator)
 
 ## Built by

@@ -10,11 +10,10 @@ import type { SessionEvent, Session } from "@roost/shared/wire";
 import type { SessionsTable } from "./db/schema.ts";
 import { log } from "@roost/shared/log";
 import { safeJsonParse } from "@roost/shared/json";
-import { classifyPushTransition, firePushForTransition } from "./push-dispatch.ts";
 
 // ─── projection helpers ────────────────────────────────────────────────
 
-function sessionToRow(s: Session): Omit<SessionsTable, never> {
+function sessionToRow(s: Session): Omit<SessionsTable, "agent_json"> {
   return {
     id: s.id,
     worker_fp: s.worker_fp,
@@ -23,7 +22,6 @@ function sessionToRow(s: Session): Omit<SessionsTable, never> {
     cwd: s.cwd,
     workspace_id: s.workspace_id,
     status: s.status,
-    agent_json: s.agent ? JSON.stringify(s.agent) : null,
     created_at: s.created_at,
     closed_at: s.closed_at ?? null,
     custom_title: s.custom_title ?? null,
@@ -41,7 +39,11 @@ function sessionToRow(s: Session): Omit<SessionsTable, never> {
 async function loadSession(db: KyselyDB, id: string): Promise<Session | null> {
   const row = await db
     .selectFrom("sessions")
-    .selectAll()
+    .select([
+      "id", "worker_fp", "channel", "kind", "cwd", "workspace_id", "status",
+      "created_at", "closed_at", "custom_title", "git_branch", "git_remote",
+      "pr_number", "pr_state", "pr_checks", "pr_url", "ports_json", "spawn_cwd",
+    ])
     .where("id", "=", id)
     .executeTakeFirst();
   if (!row) return null;
@@ -53,7 +55,6 @@ async function loadSession(db: KyselyDB, id: string): Promise<Session | null> {
     cwd: row.cwd,
     workspace_id: (row.workspace_id ?? null) as Session["workspace_id"],
     status: row.status as Session["status"],
-    agent: row.agent_json ? JSON.parse(row.agent_json) : null,
     created_at: row.created_at,
     closed_at: row.closed_at ?? null,
     custom_title: row.custom_title ?? null,
@@ -147,9 +148,6 @@ export async function appendEvent(
   // Snapshot reap: session ids force-closed while their worker was offline but
   // re-announced live by the returning worker. Sent a kill AFTER commit.
   let reapOrphanIds: string[] = [];
-  // Agent status transition, captured inside the tx for a post-commit push.
-  let pushPrevStatus: string | undefined;
-  let pushNextStatus: string | undefined;
   await db.transaction().execute(async (trx) => {
     // 1. Append to event log. If (worker_fp, client_seq) is present and
     //    already exists, the partial unique index makes this a conflict
@@ -215,7 +213,6 @@ export async function appendEvent(
           .onConflict((oc) => oc.column("id").doUpdateSet({
             cwd: s.cwd,
             status: s.status,
-            agent_json: s.agent ? JSON.stringify(s.agent) : null,
             closed_at: s.closed_at ?? null,
             git_branch: s.git_branch ?? null,
             git_remote: s.git_remote ?? null,
@@ -267,10 +264,6 @@ export async function appendEvent(
       const updated = next.get(event.session_id);
       if (!updated) return;
 
-      if (event.kind === "agent") {
-        pushPrevStatus = existing.agent?.status;
-        pushNextStatus = updated.agent?.status;
-      }
 
       await trx
         .updateTable("sessions")
@@ -330,11 +323,4 @@ export async function appendEvent(
     });
   }
 
-  // Post-commit: fire OS Web Push for agent status transitions (blocked /
-  // finished). Fire-and-forget, mirroring the reap block above — a push failure
-  // must never affect the committed event.
-  if (event.kind === "agent" && pushPrevStatus && pushNextStatus) {
-    const pushKind = classifyPushTransition(pushPrevStatus, pushNextStatus);
-    if (pushKind) void firePushForTransition(db, event.session_id, pushKind);
-  }
 }

@@ -6,15 +6,11 @@
 import { createStore } from "solid-js/store";
 
 interface UIState {
-  contextMenu: { x: number; y: number; sessionId: string } | null;
-  renamingSessionId: string | null;
   sidebarOpen: boolean;               // mobile: drawer open; desktop: ignored
   sidebarCollapsed: boolean;          // desktop: collapses to icon rail (⌘B)
   sidebarWidth: number;               // desktop: pixel width — drag-resizable
   homeFolderViewMode: "grid" | "list"; // home page: grid vs dense list of folders
   homeFolderShowFiles: boolean;        // home/browse: reveal view-only files alongside folders
-  notificationBellOpen: boolean;       // notification bell dropdown open (shared with mobile bars)
-  bellAnchorEl: HTMLElement | null;    // anchor element for notification dropdown positioning
 }
 
 
@@ -60,15 +56,11 @@ function persistWidth(v: number) {
 }
 
 export const [uiStore, setUiStore] = createStore<UIState>({
-  contextMenu: null,
-  renamingSessionId: null,
   sidebarOpen: false,
   sidebarCollapsed: loadCollapsed(),
   sidebarWidth: loadWidth(),
   homeFolderViewMode: loadHomeFolderViewMode(),
   homeFolderShowFiles: loadHomeFolderShowFiles(),
-  notificationBellOpen: false,
-  bellAnchorEl: null,
 });
 
 export const setSidebarWidth = (px: number) => {
@@ -77,18 +69,8 @@ export const setSidebarWidth = (px: number) => {
   persistWidth(clamped);
 };
 
-export const openContextMenu = (x: number, y: number, sessionId: string) =>
-  setUiStore("contextMenu", { x, y, sessionId });
-export const dismissContextMenu = () => setUiStore("contextMenu", null);
-export const startRename = (sessionId: string) => setUiStore("renamingSessionId", sessionId);
-export const stopRename = () => setUiStore("renamingSessionId", null);
 export const openSidebar = () => setUiStore("sidebarOpen", true);
 export const closeSidebar = () => setUiStore("sidebarOpen", false);
-export const toggleSidebar = () => setUiStore("sidebarOpen", (v) => !v);
-export const openNotificationBell = () => setUiStore("notificationBellOpen", true);
-export const closeNotificationBell = () => setUiStore("notificationBellOpen", false);
-export const toggleNotificationBell = () => setUiStore("notificationBellOpen", (v) => !v);
-export const setBellAnchor = (el: HTMLElement | null) => setUiStore("bellAnchorEl", el);
 export const toggleSidebarCollapsed = () => {
   setUiStore("sidebarCollapsed", (v) => {
     const next = !v;

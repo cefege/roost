@@ -1,6 +1,6 @@
 ---
 name: roost-render-stress
-description: Loop-and-log render-correctness harness — hammers terminal viewport resizes (width/height/both, in/out of band) + tab-switch + multi-viewer in a loop and asserts the painted grid never duplicates, loses, or mis-orders history. Catches the corruption class wire/data-* smoke is blind to. Run in BOTH byte and cell mode before claiming any terminal change works.
+description: Loop-and-log render-correctness harness — hammers terminal viewport resizes (width/height/both, in/out of band) + tab-switch + multi-viewer in a loop and asserts the painted grid never duplicates, loses, or mis-orders history. Catches the corruption class wire/data-* smoke is blind to.
 ---
 
 # Roost render-correctness stress harness
@@ -13,13 +13,13 @@ perturbation that drives the corruption (viewport-size wobble →
 `project_terminal_history_corruption_viewport_slaved_pty`).
 
 Hard rule (Author 2026-06-22): no terminal-render development is "done" until
-this harness runs clean in BOTH modes. Green wire tests are not evidence.
+this harness and the multi-viewer case run clean. Green wire tests are not evidence.
 
-THE SUBJECT MUST BE A REAL OMP-BACKED SESSION. Start a shell, launch `omp`,
-and wait until its bridge transcript is connected before driving it. A synthetic
-shell-only marker stream exercises main-screen scrollback but not OMP lifecycle
-or the structured-state projection. It may supplement, never replace, the
-OMP session pass.
+THE SUBJECT MUST BE A REAL INTERACTIVE PTY SESSION. Start a shell and wait for
+its prompt before driving it. An agent CLI such as `omp` or Claude Code, or a
+TUI such as `vim`, may run inside that PTY when it is the subject under test,
+but Roost observes only the terminal grid. Synthetic DOM or store injection may
+supplement, never replace, the real PTY pass.
 
 FOREGROUND GOTCHA: a backgrounded tab throttles setTimeout/rAF → the loop
 stalls AND the cell renderer stops painting → readings are stale (false PASS),
@@ -55,24 +55,25 @@ Over every rendered row, marker IDs must be unique and monotonic
 - A worker with a healthy keeper. A degraded keeper produces dead PTYs and
   stalled input; that is a product finding, not a harness failure.
 
-## Run procedure (per mode)
+## Run procedure
 
-1. Fresh tab on the tailnet URL. Enable backdoor: `localStorage.roostSmoke="1"`.
-   For cell mode also `localStorage.roostCellMode="1"`. Then `location.reload()`.
-2. Spawn a shell on the target worker, launch OMP, and wait for its bridge
-   transcript before producing a unique marker table:
+1. Fresh tab on the tailnet URL. Enable the backdoor with
+   `localStorage.roostSmoke="1"`, then reload.
+2. Spawn a shell on the target worker, wait for its prompt, and produce a
+   unique marker table through PTY input:
    ```js
    const fp = Object.values(__smoke.state().workers)
      .find(w => w.label === "<target>").fp;
    const { session_id } = await __smoke.spawnShell(fp, "/tmp");
    history.pushState({}, "", "/s/" + session_id);
    window.dispatchEvent(new PopStateEvent("popstate"));
-   await __smoke.input(session_id, "omp\r");
-   // Wait for rootStore.omp_transcript[session_id], then request 60 rows whose
-   // IDs are CELLLINE-1 through CELLLINE-60.
+   await __smoke.input(
+     session_id,
+     "i=1; while [ $i -le 60 ]; do printf 'CELLLINE-%s\\n' \"$i\"; i=$((i+1)); done\r",
+   );
    ```
    Poll `__smoke.markerScan(session_id, "CELLLINE-")` until the marker range
-   settles.
+   settles. This readiness gate is painted terminal output, not agent state.
 3. Set the runner inputs and inject `run.js`:
    ```js
    window.__stressSid = session_id;
@@ -84,20 +85,16 @@ Over every rendered row, marker IDs must be unique and monotonic
    real terminal deck and probes every painted frame. For `alt`, only duplicate
    or out-of-order markers fail; for `main`, a changed marker range also fails.
 4. Read `{ verdict, iterations, failCount, fails }`. Keep the tab foreground
-   while the run executes. Run the same loop in byte and cell mode, then run
-   the multi-viewer procedure below.
+   while the run executes, then run the multi-viewer procedure below.
 
 ## Multi-viewer / SCD — the two-device mangle (Author 2026-06-22)
 
-Observed live: on the PRIORITY device (the SCD-min one) the terminal + back
-history render clean; on a SECONDARY, LARGER co-viewer the same session is
-"completely mangled". Cause: PTY is sized to SCD-min (smallest viewer); in byte
-mode the stream is wrapped at that smaller width, and the larger viewer
-re-wraps already-wrapped lines → rows out of position. `markerScan.outOfOrder`
-is the detector. (Cells letterbox at the worker width and never re-wrap → this
-is the case cell mode must win; verify it does once cell's tab-switch bug is fixed.)
+Observed live: the terminal and history rendered clean on the smaller priority
+viewer but were mangled on a larger co-viewer. Roost now has one canonical
+cell-grid renderer, which letterboxes at the worker width rather than reflowing
+history. `markerScan.outOfOrder` remains the detector for any regression.
 
-5. Open two tabs for the same OMP-backed session at different deck sizes. Make
+5. Open two tabs for the same interactive PTY session at different deck sizes. Make
    tab A small and tab B noticeably larger. Foreground each in turn, settle,
    then probe `__smoke.markerScan(id, "CELLLINE-")`:
    - PASS requires both tabs to have `duplicated == []` and `outOfOrder == 0`.
@@ -114,7 +111,7 @@ this smoke tab. NEVER iterate `state().sessions` to kill live sessions.
 
 ## Output
 
-One line per mode: `render-stress[byte]: PASS (80 iters)` or
-`render-stress[cell]: FAIL — 14/80 iters, first DUP at op=h-shrink i=3`.
-Do NOT declare a terminal change done until BOTH modes + the multi-viewer case
-are PASS.
+Report `render-stress: PASS (80 iters)` or
+`render-stress: FAIL — 14/80 iters, first DUP at op=h-shrink i=3`.
+Do not declare a terminal change done until the stress loop and multi-viewer
+case both pass.

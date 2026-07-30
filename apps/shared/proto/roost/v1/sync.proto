@@ -73,27 +73,10 @@ message CoordinatorRelocationFrame {
   string source_url = 2;
   string target_url = 3;
 }
-// Agent-session transcript deltas (omp RPC projection). Volatile,
-// presence-class: no durable replay — the client backfills history via
-// CoordinatorService.SessionsGetAgentEntries. Entries upsert by `seq`.
-message AgentEntriesFrame {
-  string session_id = 1;
-  repeated AgentEntry entries = 2;
-}
-// Canonical OMP browser presentation frame. frame_json is exactly one
-// JSON-serialized @oh-my-pi/pi-wire HostFrame. snapshot_id is stable and
-// nonempty from welcome through the final snapshot-chunk, then empty live.
-message AgentUiFrame {
-  string session_id = 1;
-  string frame_json = 2;
-  string snapshot_id = 3;
-  // Worker sends 0. Coord assigns a monotonic per-session revision before
-  // persistence/firehose so browser snapshot replay can watermark live frames.
-  uint64 coord_revision = 4;
-}
 
 
 message FirehoseFrame {
+  reserved 28;  // retired field
   oneof frame {
     JsonEvent sessions = 1;       // legacy fallback: any kind not yet in session_event_proto
     BytesFrame bytes = 7;
@@ -130,8 +113,6 @@ message FirehoseFrame {
     // onmessage.
     KeepaliveFrame keepalive = 26;
     CoordinatorRelocationFrame coordinator_relocation = 27;
-    AgentEntriesFrame agent_entries = 28;
-    AgentUiFrame agent_ui = 29;
   }
 }
 

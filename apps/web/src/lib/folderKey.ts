@@ -1,17 +1,10 @@
-// Folder identity for a session — the (worker, folder) bucket shared by the
-// TabBar tab strip AND the sidebar's FolderList. Both MUST group by
-// the SAME key so "click a folder row in the sidebar" surfaces exactly that
-// folder's tabs in the tab bar. folder = workspace folder_path if the session
-// is linked to a workspace, else the session's raw cwd.
-// Callers: TabBar.tsx, components/sidebar/FolderList.tsx.
+// Folder identity for the sidebar and terminal pane deck. Terminal tabs follow
+// their live cwd after `cd`.
 
 import type { Session } from "@roost/shared/wire";
 import { rootStore } from "../store/root.ts";
 
-/** The folder a session lives in = its live cwd. A `cd` re-homes the session to
- *  the new folder so a workspace emptied by the move drops out of the sidebar
- *  (workspace IS a folder = wherever the terminal currently is). Naming still
- *  tracks the workspace via workspaceForFolder(worker, cwd) below. */
+/** Terminals live in their current cwd. */
 export function folderPathOf(session: Session): string {
   return session.cwd;
 }

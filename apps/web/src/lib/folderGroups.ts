@@ -2,24 +2,16 @@
 // (FolderList) and the home folder grid (HomeLanding) both render. Extracted
 // from FolderList.tsx so the two surfaces group sessions identically.
 //
-// Pure read of rootStore + allSessions(); no setStore. Sort: needs → running
-// → recency (the needs-you-first ordering that's core to Roost — a Drive
-// modified-time sort would bury the folder waiting on you).
+// Pure read of rootStore + allSessions(); no setStore. Sort: terminal recency.
 
 import type { Session, WorkerFp } from "@roost/shared/wire";
 import { rootStore } from "../store/root.ts";
 import { allSessions } from "../store/selectors.ts";
 import { isPendingClose } from "./pendingClose.ts";
-import { liveStatus, attentionKind, latestAssistantOutput } from "./attention.ts";
-import { activityLine, type Attention } from "./folderSubtitle.ts";
 import { shortServerLabel } from "./sidebarFormat.ts";
 import { workerOnline } from "../store/sync.ts";
 import { folderKeyOf, folderPathOf, folderDisplayName } from "./folderKey.ts";
-import { unreadByFolder } from "./notifyStore.ts";
 
-export type { Attention };
-
-export type GlyphStatus = "running" | "needs-input" | "idle" | undefined;
 
 // Lead-session PR status, shaped for the row badge. null = no PR to show.
 export interface PrBadge {
@@ -35,22 +27,16 @@ export interface FolderGroup {
   server: string;
   spawnFp: WorkerFp;
   spawnCwd: string;
-  attention: Attention;   // coarse band (needs → running → idle), derived from priority
-  priority: number;       // fine sort key: blocked=3 > offline|done=2 > running=1 > idle=0
   online: boolean;        // worker reachable → server-icon online dot
-  glyphStatus: GlyphStatus; // leading glyph status color/icon
-  subtitle: string;       // latest activity line ("" = none, row shows one line)
-  latestActivity: number;  // sort key + row stamp: newest real activity
-                           // (max last-PTY-byte across panes, fallback
-                           // agent last-message ts, fallback created_at)
-  leadId: string;         // click target (neediest / most-recent)
+  subtitle: string;       // worker-offline explanation ("" when reachable)
+  latestActivity: number; // max last terminal byte, falling back to creation
+  leadId: string;         // most-recent terminal; click target
   sessionIds: string[];   // ids only — plain scalars so reconcile diffs values,
                           // never deep-walks live Session store proxies
   pr: PrBadge | null;     // github PR status of the lead's branch (worker gh)
   branch: string | null;  // current git branch of the lead's cwd (worker git)
   ports: number[];        // LISTEN ports across the folder's panes (worker lsof)
   reachAddr: string | null; // worker host for port click-through (reachable_addr)
-  unreadCount: number;    // unread attention-notifications for this folder (bell badge)
 }
 
 // Check glyph + token color per rollup state. none → no glyph (just #123).
@@ -62,26 +48,10 @@ export const PR_CHECK_COLOR: Record<PrBadge["checks"], string> = {
   pending: "var(--text-lo)", none: "var(--text-lo)",
 };
 
-// Map the lead's OMP transcript state into StatusGlyph's vocabulary.
-function glyphStatusOf(lead: Session): GlyphStatus {
-  const status = liveStatus(lead);
-  return status === "running" || status === "needs-input" || status === "idle"
-    ? status
-    : undefined;
-}
-
-// Transcript output time, falling back to session creation until OMP publishes.
-function activityTsOf(s: Session): number {
-  return latestAssistantOutput(s)?.ts ?? s.created_at;
-}
-
-// Most-recent real activity for a session: coord's last-PTY-byte stamp
-// (last_activity — bytes from terminals AND agents) when present, else the
-// agent's last-message ts, else created_at. last_activity is absent for
-// sessions idle since before coord start / this page load, so the fallback
-// keeps them ordered sanely.
+// Most-recent terminal activity, falling back to creation when the coord has
+// not observed a PTY byte for the session yet.
 function recencyOf(s: Session): number {
-  return Math.max(rootStore.last_activity[s.id] ?? 0, activityTsOf(s));
+  return Math.max(rootStore.last_activity[s.id] ?? 0, s.created_at);
 }
 
 // Pull the lead session's PR fields into a badge, or null when absent.
@@ -95,24 +65,11 @@ function prBadgeOf(lead: Session): PrBadge | null {
   };
 }
 
-// Fine-grained folder sort rank from attentionKind across its panes:
-// blocked=3 (waiting on YOU) > offline|done=2 (rest of the needs band) >
-// running=1 > idle=0. The coarse `attention` band is derived from this.
-function folderPriority(sessions: Session[]): number {
-  let p = 0; // 0 idle/calm
-  for (const s of sessions) {
-    const k = attentionKind(s);
-    if (k === "blocked") return 3; // top — early out
-    if (k === "offline" || k === "done") p = 2;
-  }
-  if (p > 0) return p;
-  return sessions.some((session) => liveStatus(session) === "running") ? 1 : 0;
-}
 
 // `input` defaults to the reactive allSessions() (default evaluated at call
 // time, so prod callers stay fully reactive); tests pass a fixed array to sort.
 export function buildFolderGroups(input: Session[] = allSessions()): FolderGroup[] {
-  const list = input.filter((s) => !isPendingClose(s.id));
+  const list = input.filter((s) => s.kind === "shell" && !isPendingClose(s.id));
   const buckets = new Map<string, Session[]>();
   for (const s of list) {
     const key = folderKeyOf(s);
@@ -120,36 +77,28 @@ export function buildFolderGroups(input: Session[] = allSessions()): FolderGroup
   }
   const out: FolderGroup[] = [];
   for (const [key, sessions] of buckets) {
-    const pr = folderPriority(sessions);
-    const attention: Attention = pr >= 2 ? "needs" : pr === 1 ? "running" : "idle";
-    // lead = neediest-then-most-recent (for needs), else most-recent activity.
-    const pool = pr >= 2 ? sessions.filter((s) => attentionKind(s) !== null) : sessions;
-    const lead = [...pool].sort((a, b) => recencyOf(b) - recencyOf(a))[0];
+    const lead = [...sessions].sort((a, b) => recencyOf(b) - recencyOf(a))[0];
     const head = sessions[0];
-    const gs = glyphStatusOf(lead);
+    const worker = rootStore.workers[head.worker_fp];
     const latestActivity = Math.max(...sessions.map(recencyOf));
+    const online = worker ? workerOnline(worker) : false;
     out.push({
       key,
       name: folderDisplayName(head),
-      server: shortServerLabel(rootStore.workers[head.worker_fp]?.label ?? String(head.worker_fp).slice(0, 6)),
+      server: shortServerLabel(worker?.label ?? String(head.worker_fp).slice(0, 6)),
       spawnFp: head.worker_fp,
       spawnCwd: folderPathOf(head),
-      attention,
-      priority: pr,
-      online: workerOnline(rootStore.workers[head.worker_fp]),
-      glyphStatus: gs,
-      subtitle: activityLine(lead, attention),
+      online,
+      subtitle: online ? "" : "Machine offline — reopen to refresh",
       latestActivity,
       pr: prBadgeOf(lead),
       branch: lead.git_branch ?? null,
       // Union of LISTEN ports across the folder's panes, ascending.
       ports: [...new Set(sessions.flatMap((s) => s.ports ?? []))].sort((a, b) => a - b),
-      reachAddr: rootStore.workers[head.worker_fp]?.reachable_addr ?? null,
+      reachAddr: worker?.reachable_addr ?? null,
       leadId: lead.id,
       sessionIds: sessions.map((s) => s.id),
-      unreadCount: unreadByFolder()[key] ?? 0,
     });
   }
-  // Blocked-on-you first, then offline/done, then running, then most-recent.
-  return out.sort((a, b) => b.priority - a.priority || b.latestActivity - a.latestActivity);
+  return out.sort((a, b) => b.latestActivity - a.latestActivity);
 }

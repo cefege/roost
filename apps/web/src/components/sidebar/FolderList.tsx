@@ -1,26 +1,20 @@
 // Folder list — sidebar body with Code and Chat categories. Both use the same
 // worker-and-folder grouping as the terminal deck; Code shows full workspace
-// rows and Chat shows terminal-backed scratch-folder rows. Rows are sorted
-// needs → running → recency. Needs-input surfaces in the row; clicking a needy
-// row opens the exact pane waiting on input.
-// Owns the sidebar keyboard surface: cursor order (visible folder leads),
-// ⏎ activate, ⌘⇧U jump-to-unread, seen-seeding.
+// rows and Chat shows terminal-backed scratch-folder rows. Rows are sorted by
+// recent terminal activity.
+// Owns the sidebar keyboard surface: cursor order and ⏎ activation.
 // Classes are `df-fld-*` (NOT `df-folder-*` — that prefix is the legacy
 // MachineSection tree; distinct namespace avoids style collisions).
 //
-// Reads allSessions(); pure read of the store (no setStore).
+// Reads the session store; no writes.
 
 import { batch, createComputed, createEffect, createMemo, createSignal, For, Show, onMount, onCleanup } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import { A, useNavigate, useLocation } from "@solidjs/router";
 import { rootStore } from "../../store/root.ts";
 import { closeSidebar } from "../../store/uiStore.ts";
-import { allSessions, activeSessionForPath, folderRowTargetId } from "../../store/selectors.ts";
-import { latestAssistantOutput, mostRecentUnread } from "../../lib/attention.ts";
-import { markSeen, seedSeenOnce } from "../../lib/sessionSeen.ts";
-import { markReadForSession } from "../../lib/notifyStore.ts";
+import { activeSessionForPath } from "../../store/selectors.ts";
 import { getLastSessionForFolder } from "../../lib/lastVisited.ts";
-import { setJumpUnreadHandler } from "../../lib/keyboardShortcuts.ts";
 import { cursorSessionId, setActivateHandler, setOrderedSessionIds } from "../../lib/sidebarCursor.ts";
 import { relTimeSince } from "../../lib/relTime.ts";
 import { folderKeyOf } from "../../lib/folderKey.ts";
@@ -30,7 +24,6 @@ import { pushRecent } from "../../lib/sidebarRecent.ts";
 import { isChatFolder, startQuickChat } from "../../lib/quickChat.ts";
 import { scheduleClose } from "../../lib/pendingClose.ts";
 import { closeLabelsFor, killAfterUndo } from "../../lib/closeSession.ts";
-import { StatusGlyph } from "./StatusGlyph.tsx";
 import { relTimeTickMs } from "./SessionRow.tsx";
 import { FolderRowContextMenu } from "./FolderRowContextMenu.tsx";
 import { FlatNewTerminal } from "./FlatNewTerminal.tsx";
@@ -60,46 +53,29 @@ export function FolderList() {
     return s ? folderKeyOf(s) : null;
   });
 
-  // First-run seed: once sessions have loaded, stamp them all seen so the
-  // needs-state doesn't light up every pre-existing finished agent.
-  // Idempotent (localStorage marker) — only fires the very first time.
-  let _seeded = false;
-  createEffect(() => {
-    if (_seeded) return;
-    const ids = allSessions().map((s) => s.id);
-    if (ids.length === 0) return;
-    seedSeenOnce(ids);
-    _seeded = true;
-  });
-  // Mark the viewed session as seen through its latest OMP output.
-  createEffect(() => {
-    const id = activeId();
-    if (!id) return;
-    const session = rootStore.sessions[id];
-    if (session) void latestAssistantOutput(session)?.ts;
-    markSeen(id);
-    markReadForSession(id); // clear this session's bell/badge unread on visit
-  });
+  function targetIdFor(g: FolderGroup): string {
+    const rememberedId = getLastSessionForFolder(g.spawnFp, g.spawnCwd);
+    const remembered = rememberedId ? rootStore.sessions[rememberedId] : null;
+    if (remembered && remembered.status === "open" && folderKeyOf(remembered) === g.key) {
+      return remembered.id;
+    }
+    return g.leadId;
+  }
+
 
   // Cursor ⏎ opens a session: same effect as a row click (push MRU + nav).
   onMount(() => setActivateHandler((id) => { pushRecent(id); navigate(`/s/${id}`); }));
   onCleanup(() => setActivateHandler(null));
 
-  // ⌘⇧U → jump to the most-recently-active session that needs you.
-  onMount(() => setJumpUnreadHandler(() => {
-    const s = mostRecentUnread(allSessions());
-    if (s) { pushRecent(s.id); navigate(`/s/${s.id}`); }
-  }));
-  onCleanup(() => setJumpUnreadHandler(null));
 
   // ── Folder rows ────────────────────────────────────────────────────
   // Keyed store instead of a memo: `<For>` keys by reference, and the old
-  // memo allocated fresh FolderGroup objects per run — every invalidation
-  // (any agent tick) tore down and recreated EVERY row's DOM. reconcile
-  // keyed by `key` keeps object identity for unchanged rows (DOM survives);
-  // changed fields flow as fine-grained store updates because the JSX reads
-  // g.* off store proxies. FolderGroup is plain scalars only (leadId /
-  // sessionIds, not live Session proxies) so the deep diff stays cheap.
+  // memo allocated fresh FolderGroup objects per run — every activity tick
+  // tore down and recreated EVERY row's DOM. reconcile keyed by `key` keeps
+  // object identity for unchanged rows (DOM survives); changed fields flow as
+  // fine-grained store updates because the JSX reads g.* off store proxies.
+  // FolderGroup is plain scalars only (leadId / sessionIds, not live Session
+  // proxies) so the deep diff stays cheap.
   const [gs, setGs] = createStore<{ rows: FolderGroup[] }>({ rows: [] });
   createComputed(() => setGs("rows", reconcile(buildFolderGroups(), { key: "key" })));
 
@@ -115,11 +91,9 @@ export function FolderList() {
 
   // Extracted so both tabs render identical row chrome.
   const renderFolderRow = (g: FolderGroup) => {
-    // Needy folder → jump straight to the pane waiting on you (g.leadId is
-    // the neediest session). Else reopen the tab you were last on in this
-    // folder (if still open), falling back to the lead. (lastVisited.)
-    const targetId = () =>
-      folderRowTargetId(g.key, g.attention, g.leadId, getLastSessionForFolder(g.spawnFp, g.spawnCwd));
+    // Reopen the tab last visited in this folder (if still open), falling back
+    // to the folder's most-recent terminal.
+    const targetId = () => targetIdFor(g);
     return (
     <A
       href={`/s/${targetId()}`}
@@ -132,7 +106,6 @@ export function FolderList() {
       data-testid={`folder-row-${g.key}`}
       data-selected={activeFolderKey() === g.key ? "focused" : ""}
       data-cursor={cursorSessionId() === g.leadId ? "on" : undefined}
-      data-stage={g.glyphStatus ?? ""}
       onClick={() => { pushRecent(targetId()); closeSidebar(); }}
       onContextMenu={(e) => {
         e.preventDefault();
@@ -146,15 +119,12 @@ export function FolderList() {
       style={{ "--avatar-bg": `hsl(${colorForFp(g.key).hue} 48% 42%)` }}
     >
       <md-ripple />
-      <span class="df-leading">
-        <StatusGlyph status={g.glyphStatus} />
+      <span class="df-leading" aria-hidden="true">
+        <FolderGlyph size={16} />
       </span>
       <span class="df-flat-body">
         <span class="df-flat-top">
           <span class="df-label df-flat-headline" title={g.spawnCwd}>{g.name}</span>
-          <Show when={g.unreadCount > 0}>
-            <span class="df-flat-unread" data-testid={`folder-unread-${g.key}`}>{g.unreadCount > 9 ? "9+" : g.unreadCount}</span>
-          </Show>
           <span class="df-flat-time">{(relTimeTickMs(), relTimeSince(g.latestActivity))}</span>
         </span>
         <Show when={g.subtitle}>
@@ -260,8 +230,7 @@ export function FolderList() {
   }
 
   const renderChatRow = (g: FolderGroup) => {
-    const targetId = () =>
-      folderRowTargetId(g.key, g.attention, g.leadId, getLastSessionForFolder(g.spawnFp, g.spawnCwd));
+    const targetId = () => targetIdFor(g);
     return (
       <A
         href={`/s/${targetId()}`}
@@ -272,7 +241,6 @@ export function FolderList() {
         data-testid={`folder-row-${g.key}`}
         data-selected={activeFolderKey() === g.key ? "focused" : ""}
         data-cursor={cursorSessionId() === g.leadId ? "on" : undefined}
-        data-stage={g.glyphStatus ?? ""}
         onClick={() => { pushRecent(targetId()); closeSidebar(); }}
         onContextMenu={(e) => {
           e.preventDefault();
@@ -286,15 +254,12 @@ export function FolderList() {
         style={{ "--avatar-bg": `hsl(${colorForFp(g.key).hue} 48% 42%)` }}
       >
         <md-ripple />
-        <span class="df-leading">
-          <StatusGlyph status={g.glyphStatus} />
+        <span class="df-leading" aria-hidden="true">
+          <FolderGlyph size={16} />
         </span>
         <span class="df-flat-body">
           <span class="df-flat-top">
             <span class="df-label df-flat-headline">{g.subtitle || "New chat"}</span>
-            <Show when={g.unreadCount > 0}>
-              <span class="df-flat-unread" data-testid={`folder-unread-${g.key}`}>{g.unreadCount > 9 ? "9+" : g.unreadCount}</span>
-            </Show>
             <span class="df-flat-time">{(relTimeTickMs(), relTimeSince(g.latestActivity))}</span>
           </span>
         </span>

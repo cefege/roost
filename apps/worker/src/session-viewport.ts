@@ -336,7 +336,7 @@ export async function _rebuildWtermCore(
 ): Promise<void> {
 	const rec0 = this.shellByChannel(channelId);
 	// The chain is timer-driven: teardown can remove the terminal core before
-	// this queued rebuild executes, and an agent channel never had one.
+	// this queued rebuild executes.
 	if (!rec0?.wtermCore) return;
 	// Skip rebuild if the wtermCore is already at the target size — no reflow
 	// needed, and the claim path (emitCellSnapshot) already sent a full frame.

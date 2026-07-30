@@ -16,7 +16,6 @@ import { consumeBootRestore } from "../lib/bootRestore.ts";
 import { folderKeyOf } from "../lib/folderKey.ts";
 import { signal } from "@roost/shared/diag";
 import { TerminalDeck } from "./TerminalDeck.tsx";
-import { TranscriptDeck } from "./agent/TranscriptDeck.tsx";
 import { Button } from "./Settings/md/Button.tsx";
 import { uiStore, closeSidebar } from "../store/uiStore.ts";
 import { isCompact } from "../lib/windowSizeClass.ts";
@@ -81,15 +80,6 @@ export function MainPane() {
     return s && s.status === "open" ? s : null;
   });
 
-  // kind "agent" sessions have no PTY and no cell grid — their pane is a
-  // native transcript. Rendered as an OVERLAY over TerminalDeck rather than
-  // instead of it: the deck's contract is one persistent wterm core per open
-  // session (see below), so unmounting it on every agent visit would tear down
-  // and re-attach every shell terminal in the folder.
-  const agentSession = createMemo(() => {
-    const s = activeOpenSession();
-    return s && s.kind === "agent" ? s : null;
-  });
 
   // Dead-route safety net: never strand the user on a blank pane at a terminal
   // route with no open session. A live session's URL-resolution can blip to
@@ -135,8 +125,8 @@ export function MainPane() {
   // terminal, and each folder reopens its last-viewed tab. Only records a LIVE
   // terminal so a dead route never overwrites a good memory.
   // Re-keyed (perf sweep C1.6): tracking the whole session object meant a
-  // localStorage JSON round-trip per agent fold of the viewed session. Key on
-  // id + folder only — the two fields rememberVisit actually persists.
+  // localStorage JSON round-trip per update of the viewed session. Key on id +
+  // folder only — the two fields rememberVisit actually persists.
   createEffect(on(
     () => { const s = activeOpenSession(); return s ? `${s.id}\u0000${s.spawn_cwd ?? s.cwd}` : null; },
     () => { const s = untrack(activeOpenSession); if (s) rememberVisit(s); },
@@ -180,16 +170,12 @@ export function MainPane() {
         </div>
       </Show>
 
-      {/* Persistent terminal deck — mounts ONE terminal per open session and
-          keeps it alive across nav AND re-tile (positions a slot, never
-          remounts). Owns the per-pane tab strips (tabs-in-panes), splits,
-          and dividers; see TerminalDeck.tsx. */}
+      {/* Persistent terminal deck — mounts every open terminal once, keeps it
+          alive across navigation/re-tiling, and owns the shared per-pane tab
+          strips, splits, and dividers. */}
       <Show when={!isFileView() && !isSearch()}>
         <TerminalDeck activeSessionId={activeOpenSession()?.id ?? null} />
 
-        <Show when={agentSession()}>
-          {(s) => <TranscriptDeck session={s()} />}
-        </Show>
 
         {/* Stuck-terminal escape: the pane resolves to no live terminal AND
             bootstrap is wedged (coord unreachable or browser unpaired) — show

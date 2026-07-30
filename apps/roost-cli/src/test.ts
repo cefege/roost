@@ -71,9 +71,6 @@ export async function test(args: string[]): Promise<void> {
       await run("live-api", [
         process.execPath, "test",
         "smoke/api_smoke.test.ts",
-        // Agent path (omp RPC child). Costs real model tokens, hence
-        // live-api only — never part of `unit` or `all`.
-        "smoke/agent_smoke.test.ts",
       ]);
       return;
     case "all":

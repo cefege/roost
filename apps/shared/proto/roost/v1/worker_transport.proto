@@ -10,7 +10,6 @@ package roost.v1;
 
 import "roost/v1/events.proto";
 import "roost/v1/cell.proto";
-import "roost/v1/sync.proto";
 
 // ── Upstream (worker → coord) ────────────────────────────────────
 
@@ -46,14 +45,11 @@ message WCellGrid { uint32 channel_id = 1; PbCellGridFrame frame = 2; }
 
 
 message CoordWorkerUp {
+  reserved 4, 5, 13;  // retired fields
   oneof frame {
     WHello hello = 1;
     WPong pong = 2;
     WSessionEvent event = 3;
-    // field 4 (WAgentPatch agent_patch) retired — dead wire; agent events
-    // now flow typed via the `event` field's SessionEventProto.agent oneof.
-    // field 5 (WPresence presence) retired — no worker-side producer ever
-    // emitted it; presence flows SPA→coord via sessionsCursorPos RPC.
     WRpcOk rpc_ok = 6;
     WRpcError rpc_error = 7;
     WTransferLine transfer_line = 8;
@@ -61,13 +57,6 @@ message CoordWorkerUp {
     WBinary binary = 10;
     WRefreshJwt refresh_jwt = 11;
     WCellGrid cell_grid = 12;
-    // Agent-session transcript deltas. Fast-path like binary/cell_grid:
-    // never touches the `events` table, so it must not serialize behind
-    // the durable-event tail.
-    AgentEntriesFrame agent_entries = 13;
-    // Canonical OMP HostFrame stream; coord persists the snapshot train and
-    // relays the same frame to subscribed browsers.
-    AgentUiFrame agent_ui = 14;
   }
 }
 

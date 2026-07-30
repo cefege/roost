@@ -7,17 +7,12 @@ import * as emit from "./session-emit.ts";
 import * as gitPorts from "./session-git-ports.ts";
 import * as viewport from "./session-viewport.ts";
 import * as spawnFns from "./session-spawn.ts";
-import * as agentSpawnFns from "./agent/spawn-agent.ts";
 import * as resumeFns from "./session-resume.ts";
 import * as lifecycle from "./session-lifecycle.ts";
 
 import { getMultiplexedPool, type MuxChannelCallbacks } from "./keeper/multiplexed-client.ts";
 import { log, asChannelId } from "@roost/shared";
 import type { TerminalCore } from "@wterm/core";
-import type {
-	AgentEntriesFrame as PbAgentEntriesFrame,
-	AgentUiFrame as PbAgentUiFrame,
-} from "@roost/shared/proto/sync_pb";
 import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
 import type { SessionEventSink } from "./event-sink.ts";
 import type { ChannelState, FsmEvent } from "./fsm.ts";
@@ -33,7 +28,7 @@ import {
 } from "./session-constants.ts";
 import type { SessionRecord, SessionShellRecord, ViewportClaim } from "./session-record.ts";
 
-export type { SessionRecord, SessionShellRecord, SessionAgentRecord } from "./session-record.ts";
+export type { SessionRecord, SessionShellRecord } from "./session-record.ts";
 
 export class SessionManager {
 	sessions = new Map<number, SessionRecord>();
@@ -81,17 +76,6 @@ export class SessionManager {
 	readonly sendCellGridUpstream:
 		| ((channelId: number, frame: PbCellGridFrame) => void)
 		| null;
-	// Agent transcript sink (kind === "agent" sessions only). null in tests that
-	// wire no transport; the controller then just fills its ring and the
-	// SessionsGetAgentEntries backfill still serves it.
-	readonly sendAgentEntriesUpstream:
-		| ((frame: PbAgentEntriesFrame) => void)
-		| null;
-	// Canonical OMP browser HostFrame sink for agent sessions. Unlike the
-	// legacy AgentEntry projection, this is the presentation source of truth.
-	readonly sendAgentUiFrameUpstream:
-		| ((frame: PbAgentUiFrame) => void)
-		| null;
 
 	// Sliding-window timestamps of emit_no_session events → keeper.degraded.
 	_noSessionBurst: number[] = [];
@@ -117,15 +101,11 @@ export class SessionManager {
 		sink: SessionEventSink;
 		sendBinaryUpstream?: (bytes: Uint8Array) => void;
 		sendCellGridUpstream?: (channelId: number, frame: PbCellGridFrame) => void;
-		sendAgentEntriesUpstream?: (frame: PbAgentEntriesFrame) => void;
-		sendAgentUiFrameUpstream?: (frame: PbAgentUiFrame) => void;
 	}) {
 		this.workerFp = opts.workerFp;
 		this.sink = opts.sink;
 		this.sendBinaryUpstream = opts.sendBinaryUpstream ?? null;
 		this.sendCellGridUpstream = opts.sendCellGridUpstream ?? null;
-		this.sendAgentEntriesUpstream = opts.sendAgentEntriesUpstream ?? null;
-		this.sendAgentUiFrameUpstream = opts.sendAgentUiFrameUpstream ?? null;
 		// Viewport-claim reaper. Every 5s: drop claims older than 60s,
 		// recompute SCD per affected channel, SIGWINCH if changed. Catches
 		// dead browsers that didn't get to send a withdraw (kill -9, WiFi
@@ -152,13 +132,6 @@ export class SessionManager {
 			);
 	}
 
-	/** Reconcile canonical agent UI state after a coord-link reconnect. Each
-	 *  surviving OMP child emits a fresh welcome → final snapshot train. */
-	resubscribeAgentUi(): void {
-		for (const record of this.sessions.values()) {
-			if (record.kind === "agent") record.agent.subscribeUi();
-		}
-	}
 
 	nextChannelId(): ChannelId {
 		return asChannelId(this._nextChannel++);
@@ -231,12 +204,9 @@ export class SessionManager {
 	}
 
 
-	/** The SHELL record for a channel, or undefined when the channel is gone or
-	 *  belongs to an agent session (which has no terminal state at all). Every
-	 *  PTY-only path narrows through this rather than re-testing `kind`. */
+	/** The shell record for a channel, or undefined when the channel is gone. */
 	shellByChannel(channelId: number): SessionShellRecord | undefined {
-		const rec = this.sessions.get(channelId);
-		return rec?.kind === "shell" ? rec : undefined;
+		return this.sessions.get(channelId);
 	}
 
 	_startGitBranch(rec: SessionRecord): void {
@@ -287,9 +257,6 @@ export class SessionManager {
 		return spawnFns.spawnShell.call(this, cwd, cols, rows, targetSessionId);
 	}
 
-	spawnAgent(cwd: string, opts?: agentSpawnFns.SpawnAgentOptions): Promise<SessionRecord> {
-		return agentSpawnFns.spawnAgent.call(this, cwd, opts);
-	}
 
 
 

@@ -22,10 +22,6 @@ export function registerRenderer(sessionId: string, r: CellGridRenderer): () => 
   return () => { if (_renderers.get(sessionId) === r) _renderers.delete(sessionId); };
 }
 
-/** The live CellGridRenderer for a session, or undefined. */
-export function getRenderer(sessionId: string): CellGridRenderer | undefined {
-  return _renderers.get(sessionId);
-}
 
 // ─── Preview renderer ───────────────────────────────────────────────────
 

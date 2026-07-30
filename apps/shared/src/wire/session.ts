@@ -4,100 +4,11 @@
 import { z } from "zod";
 import { ChannelId, SessionId, WorkerFp, WorkspaceId } from "./brand.ts";
 
-// ─── Structured agent state ───────────────────────────────────────────────
-
-export const AgentStatus = z.enum(["running", "needs-input", "idle", "done"]);
-export type AgentStatus = z.infer<typeof AgentStatus>;
-
-export const MessageRole = z.enum(["user", "assistant", "thinking"]);
-export type MessageRole = z.infer<typeof MessageRole>;
-
-export const Tokens = z.object({
-  in: z.number().int().nonnegative(),
-  out: z.number().int().nonnegative(),
-  cached: z.number().int().nonnegative(),
-});
-export type Tokens = z.infer<typeof Tokens>;
-
-export const LastMessage = z.object({
-  role: MessageRole,
-  text: z.string(),
-  ts: z.number().int().positive(),
-});
-export type LastMessage = z.infer<typeof LastMessage>;
-
-export const CurrentTool = z.object({
-  name: z.string().min(1),
-  input_summary: z.string(),
-});
-export type CurrentTool = z.infer<typeof CurrentTool>;
-
-export const CurrentBlock = z.object({
-  id: z.number().int().nonnegative(),
-  command: z.string().nullable(),
-});
-export type CurrentBlock = z.infer<typeof CurrentBlock>;
-
-export const PermissionRequest = z.object({
-  id: z.string().min(1),
-  snippet: z.string(),
-  options: z.array(z.string()).min(1),
-});
-export type PermissionRequest = z.infer<typeof PermissionRequest>;
-
-export const SubAgentRow = z.object({
-  parent_message_id: z.string().min(1),
-  child_session_id: z.string().min(1),
-  label: z.string(),
-  status: AgentStatus,
-});
-export type SubAgentRow = z.infer<typeof SubAgentRow>;
-
-export const AgentState = z.object({
-  kind: z.literal("agent"),
-  mode: z.string(),
-  model: z.string(),
-  status: AgentStatus,
-  tokens: Tokens,
-  cost_usd: z.number().nonnegative(),
-  last_message: LastMessage.nullable(),
-  current_tool: CurrentTool.nullable(),
-  current_block: CurrentBlock.nullable(),
-  permission_request: PermissionRequest.nullable(),
-  sub_agents: z.array(SubAgentRow),
-  // Live structured state can be stale after its bridge restarts. Optional:
-  // absent/false means no stale marker is needed.
-  stale: z.boolean().optional(),
-  // Absolute path of the omp session .jsonl, reported by the RPC child's
-  // get_state. Backs exact `--resume` on worker respawn. absent = unknown.
-  session_file: z.string().nullable().optional(),
-});
-export type AgentState = z.infer<typeof AgentState>;
-
-// Default AgentState for first-agent-event-into-null-agent merges.
-// foldEvent uses this so a partial patch like { status: "running" } produces
-// a fully populated AgentState instead of an unsafe `as AgentState` cast.
-// Worker emitters set what they know; defaults fill the rest.
-export function defaultAgentState(): AgentState {
-  return {
-    kind: "agent",
-    mode: "default",
-    model: "",
-    status: "running",
-    tokens: { in: 0, out: 0, cached: 0 },
-    cost_usd: 0,
-    last_message: null,
-    current_tool: null,
-    current_block: null,
-    permission_request: null,
-    sub_agents: [],
-  };
-}
 
 // ─── Session ────────────────────────────────────────────────────────────
 
-// "shell" = keeper PTY + cell grid. "agent" = omp RPC child + transcript UI.
-export const SessionKind = z.enum(["shell", "agent"]);
+// Every Roost session is a keeper-backed shell terminal.
+export const SessionKind = z.enum(["shell"]);
 export type SessionKind = z.infer<typeof SessionKind>;
 
 export const SessionStatus = z.enum(["open", "closed"]);
@@ -116,7 +27,6 @@ export const Session = z.object({
   spawn_cwd: z.string().nullable().optional(),
   workspace_id: WorkspaceId.nullable(),     // null = orphan → Inbox bucket
   status: SessionStatus,
-  agent: AgentState.nullable(),             // optional structured agent state
   created_at: z.number().int().positive(),
   closed_at: z.number().int().positive().nullable(),
   // User rename (sticky override of the auto title). null = no override.

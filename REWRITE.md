@@ -1,6 +1,6 @@
 <!-- AUDIENCE: human -->
 
-> **Status (2026-07):** R0–R10 = the completed rewrite roadmap (historical). **R11 (cell-shipping terminal model, §R11 below) is LIVE architecture**, not a plan — see `apps/shared/src/cell/`. Several sections carry inline **SUPERSEDED** snapshots (notably the R2 and R4.x banners); live truth is `CLAUDE.md` + its L11 index. The "throw it away / rewrite" framing below is the 2026-06-11 starting point, not current guidance.
+> **Status (2026-07-30):** R0–R10 = the completed rewrite roadmap and are historical in full: prose, code sketches, APIs, state models, tests, and deliverables below may describe retired architecture, including `AgentState`, ClaudeBridge, hooks, screen-scraping, Swarm/status UI, and direct worker WSS. None is a current product promise. **R11 (cell-shipping terminal model, §R11 below) is LIVE architecture**, not a plan — see `apps/shared/src/cell/`. Roost is terminal-only: every live session is a shell PTY, including sessions that run agent CLIs. There is no structured agent/session API, HTML transcript, approval UI, or Roost-managed OMP dependency. Live truth is `CLAUDE.md` + its L11 index. The "throw it away / rewrite" framing below is the 2026-06-11 starting point, not current guidance.
 # Roost v2 — rewrite plan (FINAL, post-audit 2026-06-11)
 
 The current codebase is a 23-phase accretion of features built without a shared
@@ -315,10 +315,10 @@ Internal only (Tailscale HTTPS via `tailscale serve`). No SEO concern.
 > index. Two reversals since this was drawn: (1) **Worker↔Coord is a raw Bun
 > WebSocket** (`/ws/coord-worker/:fp`), NOT Connect bidi `WorkerService.Attach`
 > — Bun can't hold a Connect bidi (L11 `project_worker_coord_raw_ws_not_connect_bidi.md`).
-> (2) **No `ClaudeBridge` / no stream-json transcript parse** — deleted
-> 2026-07-04. Agents run as PTYs in the terminal emulator (parity-exact); status
-> only, via `claude/hooks.ts` + `detect/` screen-scrape. `tRPC` / `DirectWSS`
-> mentions below are pre-Connect historical.
+> (2) **No `ClaudeBridge`, stream-json transcript parser, hooks, or
+> screen-scrape status integration.** Every program, including an agent CLI,
+> runs inside a shell PTY and renders in the terminal emulator. `tRPC` /
+> `DirectWSS` mentions below are pre-Connect historical.
 
 ```
 ┌──────────────────────────┐                  ┌──────────────────────────┐
@@ -478,6 +478,9 @@ invariant test in R5.2.
 `STATE.md`; LOCK or FALLBACK choice committed.
 
 ### R4.0 — SPEC-THE-WIRE (~1 day)
+> HISTORICAL ONLY — the `AgentState` wire sketch below was retired. Current
+> sessions are shell PTYs and have no structured agent state.
+
 
 - Create `apps/shared/wire/` with Zod schemas for: Session, Worker,
   AgentState, SessionEvent, ControlFrame, AuthClaim, Workspace, Task,
@@ -519,10 +522,9 @@ invariant test in R5.2.
 ### R4.2 — NEW-WORKER (~4 days)
 
 > SUPERSEDED plan — see the R2 banner + CLAUDE.md. Shipped reality diverged:
-> transport is raw-WS (not tRPC / DirectWSS); there is NO `ClaudeBridge` /
-> stream-json parse (deleted 2026-07-04) — agent status comes from
-> `claude/hooks.ts` + `detect/` screen-scrape, and agents render in the
-> terminal emulator (no native UI).
+> transport is raw-WS (not tRPC / DirectWSS), and the ClaudeBridge, hooks,
+> stream-json parser, and screen-scrape status integration are all gone. Every
+> program runs inside a shell PTY and renders in the terminal emulator.
 
 - Bun + Bun.Terminal + Claude bridge in TS
 - SessionFSM (hand-rolled per R0.5): one machine per channel; transitions emit
@@ -551,6 +553,9 @@ invariant test in R5.2.
   via test harness; events arrive at coord
 
 ### R4.3 — NEW-WEB (~5 days)
+> HISTORICAL ONLY — the selectors, Swarm/status UI, cost chips, and structured
+> agent invariants below were retired by the terminal-only cutover.
+
 
 - Single Solid `createStore`-backed root store
 - Selectors: `sessionsByWorkspace`, `sessionsByAgentStatus`, `tokensFor`,

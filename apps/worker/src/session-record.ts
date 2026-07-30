@@ -1,18 +1,13 @@
 // Session lifecycle record + viewport-claim shapes. Split out of
 // session-manager.ts (400-line cap); re-exported from there.
 //
-// SessionRecord is a discriminated union on `kind`. A shell record ALWAYS has
-// the terminal state (scrollback ring, wterm core, cell emitter); an agent
-// record has an omp RPC controller and none of it. Making that a union rather
-// than a bag of optionals means every PTY path has to narrow on `kind` before
-// it can touch terminal state — the compiler enforces the guard instead of a
-// reviewer having to spot a missing one.
+// Every session owns terminal state: scrollback ring, wterm core, and cell
+// emitter.
 
 import type { SessionId, ChannelId } from "@roost/shared";
 import type { FsmChannel } from "./fsm.ts";
 import type { TerminalCore } from "@wterm/core";
 import type { CellEmitState } from "@roost/shared/cell";
-import type { AgentController } from "./agent/agent-controller.ts";
 import type { PrStatus } from "./pr-status.ts";
 
 interface SessionRecordCommon {
@@ -32,9 +27,8 @@ interface SessionRecordCommon {
 	// (like git_branch). Pushed via the `pr` SessionEvent; polled every 90s.
 	pr?: PrStatus | null;
 	prPollTimer?: ReturnType<typeof setInterval> | null;
-	// Child pid — root of the pid-tree walk in listening-ports.ts. The keeper
-	// child for a shell, the omp child for an agent. Retained on the record so
-	// snapshots re-announce ports across coord restart.
+	// Keeper child pid — root of the pid-tree walk in listening-ports.ts.
+	// Retained on the record so snapshots re-announce ports across coord restart.
 	childPid?: number | null;
 	ports?: number[];
 	portsPollTimer?: ReturnType<typeof setInterval> | null;
@@ -89,19 +83,10 @@ export interface SessionShellRecord extends SessionRecordCommon {
 	// R11 cell-grid cell-shipping emitter state. Full/delta decision + seq live in
 	// @roost/shared/cell::nextCellFrame.
 	cell_emit: CellEmitState;
-	// Never set on a shell record; declared so `rec.agent` reads on the union
-	// without forcing a narrow at every call site that only wants to skip.
-	agent?: undefined;
+
 }
 
-export interface SessionAgentRecord extends SessionRecordCommon {
-	kind: "agent";
-	// The omp RPC child plus its transcript ring. No keeper channel, no PTY
-	// bytes, no wterm core — the terminal fields above simply do not exist here.
-	agent: AgentController;
-}
-
-export type SessionRecord = SessionShellRecord | SessionAgentRecord;
+export type SessionRecord = SessionShellRecord;
 
 export interface ViewportClaim {
 	cols: number;

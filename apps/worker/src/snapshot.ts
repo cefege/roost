@@ -30,9 +30,6 @@ export async function emitSnapshot(opts: {
     cwd: r.cwd,
     workspace_id: null,
     status: "open" as const,
-    // Structured state belongs to a live bridge and is not reconstructed by a
-    // keeper snapshot. The transcript bridge repopulates independently.
-    agent: null,
     created_at: Date.now(),
     closed_at: null,
     custom_title: null, // coord-owned; coord's snapshot fold preserves the real value

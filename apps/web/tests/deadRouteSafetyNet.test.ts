@@ -29,7 +29,6 @@ function sess(id: string, created_at = 1000): Session {
     spawn_cwd: "/Users/you/roost",
     workspace_id: null,
     status: "open",
-    agent: null,
     created_at,
     closed_at: null,
     custom_title: null,

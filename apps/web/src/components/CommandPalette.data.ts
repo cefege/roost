@@ -8,7 +8,6 @@ import type { Navigator } from "@solidjs/router";
 import { rootStore } from "../store/root.ts";
 import { allSessions } from "../store/selectors.ts";
 import { workerOnline } from "../store/sync.ts";
-import { latestAssistantOutput } from "../lib/attention.ts";
 import { queueTaskDialogStore } from "./QueueTaskDialog.tsx";
 import type { ItemKind } from "./CommandPalettePieces.tsx";
 
@@ -82,15 +81,15 @@ function stableItem(next: PaletteItem, nextCache: Map<string, PaletteItem>): Pal
 export function buildDefaultItems(navigate: Navigator): PaletteItem[] {
   const items: PaletteItem[] = [];
   for (const s of allSessions()) {
+    if (s.kind !== "shell") continue;
     const worker = rootStore.workers[s.worker_fp];
     items.push({
       id: `session:${s.id}`,
       kind: "session",
       label: s.cwd.split("/").pop() || s.cwd,
       hint: worker?.label ?? s.worker_fp.slice(0, 8),
-      // Searchable-but-not-displayed: full cwd + the latest OMP assistant
-      // output, so ⌘K finds a session by path fragment or message content.
-      search: `${s.cwd} ${latestAssistantOutput(s)?.text ?? ""}`,
+      // Searchable-but-not-displayed full cwd.
+      search: s.cwd,
       href: `/s/${s.id}`,
     });
   }

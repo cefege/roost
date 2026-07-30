@@ -1,7 +1,4 @@
-// Per-folder activity derived from terminal sessions and OMP transcript state.
-// It counts terminals in a folder or subtree and derives active/blocked agents
-// through the shared OMP attention projection.
-// Zero RPCs: all data is already in memory.
+// Per-folder terminal-session counts. Zero RPCs: all data is already in memory.
 //
 // Cumulative: for folder /Users/you/Code, counts sessions in
 // /Users/you/Code AND /Users/you/Code/roost AND .../idea/apps/web —
@@ -9,16 +6,11 @@
 //
 // Called by: BrowsePage.tsx (the "+" folder browser).
 
-import type { AgentStatus, Session } from "@roost/shared/wire";
-import { liveStatus } from "./attention.ts";
+import type { Session } from "@roost/shared/wire";
 
 export interface FolderActivity {
   /** Total sessions whose cwd is this folder or any descendant. */
   terminals: number;
-  /** Of those, OMP sessions currently running or awaiting user input. */
-  agentsRunning: number;
-  /** Of those, OMP sessions specifically blocked awaiting user input. */
-  needsInput: number;
 }
 
 /**
@@ -35,9 +27,10 @@ export function computeFolderActivity(
   sessions: Session[],
   workerFp: string,
   folderPaths: string[],
-  statusOf: (session: Session) => AgentStatus | undefined = liveStatus,
 ): Map<string, FolderActivity> {
-  const serverSessions = sessions.filter((s) => String(s.worker_fp) === workerFp);
+  const serverSessions = sessions.filter(
+    (s) => s.kind === "shell" && String(s.worker_fp) === workerFp,
+  );
   const out = new Map<string, FolderActivity>();
 
   for (const fp of folderPaths) {
@@ -47,24 +40,15 @@ export function computeFolderActivity(
     const prefix = base.endsWith("/") ? base : base + "/";
 
     let terminals = 0;
-    let agentsRunning = 0;
-    let needsInput = 0;
 
     for (const s of serverSessions) {
       const cwd = stripTrailingSlash(s.cwd);
       if (cwd !== base && !cwd.startsWith(prefix)) continue;
       terminals++;
-      const st = statusOf(s);
-      if (st === "needs-input") {
-        agentsRunning++;
-        needsInput++;
-      } else if (st === "running") {
-        agentsRunning++;
-      }
     }
 
     if (terminals > 0) {
-      out.set(fp, { terminals, agentsRunning, needsInput });
+      out.set(fp, { terminals });
     }
   }
 

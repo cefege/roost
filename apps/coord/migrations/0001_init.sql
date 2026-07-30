@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS workers (
 
 CREATE TABLE IF NOT EXISTS events (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    kind         TEXT    NOT NULL,      -- 'opened' | 'closed' | 'attached' | 'detached' | 'cwd' | 'agent' | 'workspace_assigned' | 'snapshot'
+    kind         TEXT    NOT NULL,      -- session event discriminator
     session_id   TEXT,                  -- NULL for 'snapshot'
     worker_fp    TEXT,                  -- NULL except 'opened' + 'snapshot'
     payload_json TEXT    NOT NULL,      -- full SessionEvent JSON
@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     cwd          TEXT    NOT NULL,
     workspace_id TEXT,                  -- NULL = orphan
     status       TEXT    NOT NULL,      -- 'open' | 'closed'
-    agent_json   TEXT,                  -- serialized AgentState | NULL
+    agent_json   TEXT,                  -- preserved structured-session history | NULL
     created_at   INTEGER NOT NULL,
     closed_at    INTEGER
 );

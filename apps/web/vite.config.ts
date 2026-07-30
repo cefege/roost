@@ -4,8 +4,6 @@
 
 import { defineConfig } from "vite";
 import solidPlugin from "vite-plugin-solid";
-import reactPlugin from "@vitejs/plugin-react";
-import { resolve as resolvePath } from "node:path";
 import { execSync } from "node:child_process";
 
 // Live git sha baked into the bundle so the running tab knows its own build.
@@ -23,13 +21,10 @@ const BUILD_SHA = resolveBuildSha();
 const coordUrl = process.env.ROOST_COORDINATOR_URL;
 if (!coordUrl) console.warn("[vite] ROOST_COORDINATOR_URL unset — /api dev proxy disabled (set it in .env.local)");
 
-const OMP_COLLAB_SOURCE = resolvePath(import.meta.dirname, "../../vendor/omp/packages/collab-web/src");
-const REACT_TSX = [/\/vendor\/omp\/packages\/collab-web\/src\/.*\.tsx$/, /\/components\/agent\/OmpSessionSurface\.tsx$/];
 
 export default defineConfig({
   plugins: [
-    solidPlugin({ exclude: REACT_TSX }),
-    reactPlugin({ include: REACT_TSX }),
+    solidPlugin(),
     // Stamp the build sha into the served index.html so a running tab can
     // re-fetch it (coord serves index.html no-store) and learn the sha of the
     // dist ON DISK — the only "newer build" signal a reload can actually
@@ -91,15 +86,5 @@ export default defineConfig({
           },
         }
       : undefined,
-  },
-  resolve: {
-    alias: {
-      "@oh-my-pi/collab-web": resolvePath(OMP_COLLAB_SOURCE, "index.ts"),
-      "@oh-my-pi/pi-wire": resolvePath(import.meta.dirname, "../../vendor/omp/packages/wire/src/index.ts"),
-      "lucide-react": resolvePath(import.meta.dirname, "node_modules/lucide-react"),
-      "marked": resolvePath(import.meta.dirname, "node_modules/marked"),
-    },
-    dedupe: ["react", "react-dom"],
-    conditions: ["browser"],
   },
 });

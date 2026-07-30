@@ -1,12 +1,5 @@
-// T1.2 — proto-ize SessionEvent. Replaces the JsonEvent-with-stringified
-// payload pattern with native oneof variants. Adapters in
-// apps/shared/src/wire/event-proto.ts marshal between the in-app Zod
-// SessionEvent shape and SessionEventProto.
-//
-// Scope of this initial pass: most-common variants (opened, closed,
-// attached, detached, cwd, workspace_assigned). Less common variants
-// (agent, snapshot) stay on the JsonEvent fallback path until the
-// next iteration — both sides accept either form.
+// Typed protobuf representation of the append-only SessionEvent contract.
+// Adapters live in apps/shared/src/wire/event-proto.ts.
 
 syntax = "proto3";
 package roost.v1;
@@ -50,65 +43,17 @@ message WorkspaceAssignedEvt {
   uint64 ts = 3;
 }
 
-// Tri-state ops for every clearable nullable AgentState field. oneof
-// set = update to a value; clear = clear to null; absent = leave alone.
-// Uniform pattern across all four — adding a new clearable field is
-// "add one more *Op message" not "what does null mean for X again".
-message AgentToolOp {
-  oneof op { CurrentTool set = 1; bool clear = 2; }
-}
-message LastMessageOp {
-  oneof op { LastMessage set = 1; bool clear = 2; }
-}
-message CurrentBlockOp {
-  oneof op { CurrentBlock set = 1; bool clear = 2; }
-}
-message PermissionRequestOp {
-  oneof op { PermissionRequest set = 1; bool clear = 2; }
-}
-
-// Sparse AgentState patch — emitter sets only fields that changed.
-// Field-presence semantics: absent = "leave existing value alone".
-// All four nullable fields (current_tool, last_message, current_block,
-// permission_request) carry uniform tri-state ops so explicit null-clear
-// is wire-supported across the board.
-message AgentStatePatch {
-  optional string mode = 1;            // adapter-defined mode string
-  optional string model = 2;
-  optional string status = 3;          // AgentStatus enum as string
-  Tokens tokens = 4;                   // message-typed presence
-  optional double cost_usd = 5;
-  LastMessageOp last_message = 6;
-  AgentToolOp current_tool = 7;
-  CurrentBlockOp current_block = 8;
-  PermissionRequestOp permission_request = 9;
-  repeated SubAgentRow sub_agents = 10;
-  // Distinguish "patch carries sub_agents=[]" (wholesale clear) from
-  // "sub_agents not in patch" (leave alone). repeated fields are
-  // always-present in proto3; this companion bool is the presence bit.
-  bool has_sub_agents = 11;
-  // Absolute omp session .jsonl path; see AgentState.session_file.
-  optional string session_file = 12;
-}
-
-message AgentEvt {
-  string session_id = 1;
-  AgentStatePatch patch = 2;
-  uint64 ts = 3;
-}
 
 message SnapshotEvt {
   string worker_fp = 1;
-  // Typed Session list — the shared agent-proto.ts adapter handles the
-  // AgentState graph in one place, so the wire is uniformly proto.
+  // Typed Session list; the shared session-proto.ts adapter is the canonical
+  // protobuf boundary.
   repeated Session sessions = 2;
   uint64 ts = 3;
 }
 
-// Worker rebooted; session's keeper PTY is gone but the row identity
-// stays (same session_id, same cwd, same kind, same workspace). Fold
-// updates the session's `channel` to the new keeper allocation and
-// clears structured state while it reconnects.
+// Worker rebooted; session's keeper PTY is gone but the row identity stays.
+// Fold updates the session's `channel` to the new keeper allocation.
 message RespawnedEvt {
   string session_id = 1;
   uint32 new_channel = 2;
@@ -160,6 +105,7 @@ message PortsEvt {
 
 message SessionEventProto {
   uint64 event_id = 1;
+  reserved 16;  // retired field
   oneof kind {
     OpenedEvt opened = 10;
     ClosedEvt closed = 11;
@@ -167,7 +113,6 @@ message SessionEventProto {
     DetachedEvt detached = 13;
     CwdEvt cwd = 14;
     WorkspaceAssignedEvt workspace_assigned = 15;
-    AgentEvt agent = 16;
     SnapshotEvt snapshot = 17;
     RespawnedEvt respawned = 18;
     RenamedEvt renamed = 19;

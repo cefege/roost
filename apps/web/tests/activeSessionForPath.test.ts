@@ -25,7 +25,6 @@ function sess(over: Omit<Partial<Session>, "id"> & { id: string }): Session {
     spawn_cwd: FOLDER,
     workspace_id: "ws1",
     status: "open",
-    agent: null,
     created_at: 1000,
     closed_at: null,
     custom_title: null,

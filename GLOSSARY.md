@@ -40,8 +40,9 @@ wins.
   Source: `apps/web/src/components/sidebar/`, coordinator `workspaces` table.
 
 - **SessionEvent** — the unit of event sourcing: `opened`, `closed`, `attached`,
-  `detached`, `cwd`, `workspace_assigned`, `agent`, `snapshot`. Workers emit
-  them; the coordinator appends + projects them; the browser folds them.
+  `detached`, `cwd`, `workspace_assigned`, `snapshot`, `respawned`, `renamed`,
+  `git`, `pr`, and `ports`. Workers emit them; the coordinator appends +
+  projects them; the browser folds them.
   Source: `apps/shared/src/wire/event.ts`.
 
 - **foldEvent** — the pure reducer that applies a `SessionEvent` to state. The
@@ -66,12 +67,10 @@ wins.
   ask for "everything since seq N".
   Source: `apps/worker/src/session-manager.ts` (`getScrollbackSince`).
 
-- **OMP state** — structured lifecycle, transcript, tool, and approval data
-  projected from an agent session's `omp --mode rpc-ui` child process. The
-  browser renders it as a native transcript instead of a terminal grid; no
-  screen-scrape and no hosted runtime is involved.
-  Source: `apps/worker/src/agent/`, `apps/shared/src/wire/agent-entry.ts`,
-  `apps/web/src/store/agentEntries.ts`.
+- **agent CLI** — an arbitrary terminal program, such as `omp`, Claude Code, or
+  Codex, launched inside a normal shell PTY. Roost transports its terminal
+  input and output but does not interpret its lifecycle, transcript, tools, or
+  approval prompts. There is no structured agent session type or agent API.
 
 - **cell-shipping / authoritative grid** — the terminal-fidelity model: the
   worker holds the one canonical grid for a session and the browser renders it

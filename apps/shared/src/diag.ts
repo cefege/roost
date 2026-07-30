@@ -131,7 +131,6 @@ export type SignalKind =
   | "scrollback.gap"            // ring rolled past lastSeq → silent history hole on resume (observability, NOT a band-aid trigger)
   | "scrollback.replay_storm"   // OPT2-3 coalescing replay hit MAX_COALESCED_REPLAYS → resizes never settled (storm past viewport hysteresis)
   | "voice.ws_failed"
-  | "agent.stuck"
   | "nav.safety_net_redirect" // MainPane dead-route safety net navigated away from a terminal route (kv.reason=gone|stale-deeplink, kv.target). Live-session bounce = a resolution bug to chase from kv.sid.
   | "perf.longtask_stall"       // SPA main-thread task ≥ freeze threshold; kv carries the leak-watch accumulator snapshot (per-session map sizes, dom_nodes, heap_mb, uptime) at stall time → names days-long-uptime bloat vs a transient
   // ─── Coverage-sweep additions (coord Tier-1, worker transport/lifecycle, deploy) ───

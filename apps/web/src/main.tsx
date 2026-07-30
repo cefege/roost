@@ -8,8 +8,6 @@ import { render } from "solid-js/web";
 import { App } from "./App.tsx";
 import { loadTheme, applyTheme } from "./lib/theme.ts";
 import { loadAgentConfig } from "./lib/agents.ts";
-import { notifyPrefs } from "./lib/notifyPrefs.ts";
-import { ensurePushSubscription } from "./lib/push-client.ts";
 import { installSpaDiag, installSignalShip } from "./lib/diag.ts";
 import { installLeakWatch } from "./lib/leakWatch.ts";
 import "./lib/keyboardInset.ts"; // side effect: track soft-keyboard inset via --kb-offset
@@ -141,7 +139,6 @@ async function mountApp(): Promise<void> {
   // stalls (freeze-hunt evidence we can't reproduce naturally).
   installLeakWatch();
   void loadAgentConfig();
-  if (notifyPrefs().desktop) void ensurePushSubscription();
 }
 
 void mountApp();

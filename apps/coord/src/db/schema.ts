@@ -1,3 +1,5 @@
+import type { ColumnType } from "kysely";
+
 // Kysely DB interface — one interface per table, then composed into DB.
 // Column types mirror the SQLite types from migrations/0001_init.sql.
 // Nullable columns use `T | null`. JSON-blob columns are `string` (raw).
@@ -39,7 +41,7 @@ export interface SessionsTable {
   cwd: string;
   workspace_id: string | null;
   status: string;
-  agent_json: string | null;
+  agent_json: ColumnType<string | null, undefined, never>;
   created_at: number;
   closed_at: number | null;
   custom_title: string | null; // user rename; null = auto title (sessionTitle.ts)
@@ -149,71 +151,6 @@ export interface AgentEntriesTable {
   entry_json: string;
 }
 
-export interface AgentUiSessionsTable {
-  session_id: string;
-  snapshot_id: string | null;
-  welcome_json: string | null;
-  state_json: string | null;
-  agents_json: string | null;
-  last_revision: number;
-  updated_at: number;
-}
-
-export interface AgentUiEntriesTable {
-  session_id: string;
-  entry_id: string;
-  ordinal: number;
-  entry_json: string;
-  updated_at: number;
-}
-
-export interface AgentUiSnapshotStagingTable {
-  session_id: string;
-  snapshot_id: string;
-  baseline_revision: number;
-  welcome_json: string;
-  state_json: string;
-  agents_json: string;
-  expected_entries: number;
-  staged_bytes: number;
-  staged_frame_bytes: number;
-  staged_live_bytes: number;
-  created_at: number;
-  updated_at: number;
-}
-
-export interface AgentUiSnapshotEntriesTable {
-  session_id: string;
-  entry_id: string;
-  ordinal: number;
-  entry_json: string;
-  entry_bytes: number;
-}
-
-export interface AgentUiSnapshotFramesTable {
-  session_id: string;
-  ordinal: number;
-  revision: number;
-  frame_json: string;
-}
-
-export interface AgentUiTailFramesTable {
-  session_id: string;
-  revision: number;
-  frame_json: string;
-}
-
-export interface AgentUiSnapshotFrameStagingTable {
-  session_id: string;
-  ordinal: number;
-  frame_json: string;
-}
-
-export interface AgentUiLiveFrameStagingTable {
-  session_id: string;
-  ordinal: number;
-  frame_json: string;
-}
 
 export interface AuthorizedKeysTable {
   fingerprint: string;
@@ -243,17 +180,8 @@ export interface DB {
   mcp_relays: McpRelaysTable;
   audit_log: AuditLogTable;
   agent_entries: AgentEntriesTable;
-  agent_ui_sessions: AgentUiSessionsTable;
-  agent_ui_entries: AgentUiEntriesTable;
-  agent_ui_snapshot_staging: AgentUiSnapshotStagingTable;
-  agent_ui_snapshot_entries: AgentUiSnapshotEntriesTable;
-  agent_ui_snapshot_frames: AgentUiSnapshotFramesTable;
-  agent_ui_tail_frames: AgentUiTailFramesTable;
-  agent_ui_snapshot_frame_staging: AgentUiSnapshotFrameStagingTable;
-  agent_ui_live_frame_staging: AgentUiLiveFrameStagingTable;
   authorized_keys: AuthorizedKeysTable;
   app_settings: AppSettingsTable;
-  push_subscriptions: PushSubscriptionsTable;
   _migrations: MigrationsTable;
 }
 
@@ -264,15 +192,4 @@ export interface AppSettingsTable {
   key: string;
   value: string;
   updated_at_ms: number;
-}
-
-// push_subscriptions — Web Push subscriptions, one row per device/browser
-// (migration 0014). Keyed by (viewer_fp, endpoint); p256dh + auth are the
-// RFC 8291 encryption keys.
-export interface PushSubscriptionsTable {
-  viewer_fp: string;
-  endpoint: string;
-  p256dh: string;
-  auth: string;
-  created_at_ms: number;
 }

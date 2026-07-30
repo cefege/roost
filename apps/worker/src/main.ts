@@ -116,7 +116,6 @@ export async function runWorker() {
 		);
 	}
 
-	let resubscribeAgentUi: (() => void) | undefined;
 	// phase-24a-3: outbound CoordLink — dial coord bidir WSS. 24a-4
 	// routes ALL non-snapshot SessionEvents through it via `sink` below.
 	// 24a-5 will move snapshot here as well + retire `client.sessions.emit`.
@@ -126,9 +125,6 @@ export async function runWorker() {
 		workerFp,
 		workerVersion: "v2",
 		mintJwt: () => mintJwt(key, "roost-coordinator"),
-		onOpen: (reconnected) => {
-			if (reconnected) resubscribeAgentUi?.();
-		},
 		// phase-24c-1: PTY input routed via sessions.input mutation arrives
 		// here as a downstream binary frame. Demux by channel_id, only
 		// accept DIR_TO_PTY (1), forward to keeper.
@@ -288,10 +284,7 @@ export async function runWorker() {
 		sendBinaryUpstream: (bytes) => coordLink.sendBinary(bytes),
 		sendCellGridUpstream: (channelId, frame) =>
 			coordLink.sendCellGrid(channelId, frame),
-		sendAgentEntriesUpstream: (frame) => coordLink.sendAgentEntries(frame),
-		sendAgentUiFrameUpstream: (frame) => coordLink.sendAgentUiFrame(frame),
 	});
-	resubscribeAgentUi = () => sessionMgr.resubscribeAgentUi();
 
 
 	// Worker has NO inbound port. Browser commands arrive as

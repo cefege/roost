@@ -209,7 +209,7 @@ aside[data-overscroll="bottom"] {
 }
 
 /* Flat-list density = Material-3 three-line list item:
-   leading status glyph, then three stacked lines. */
+   leading glyph, then three stacked lines. */
 .df-row[data-density="flat"] {
   height: 80px; /* M3 three-line list item; was 72px (two-line). 3 lines fill
                    ~50px, so 80px gives breathing room without shells (2 lines
@@ -244,19 +244,6 @@ aside[data-overscroll="bottom"] {
   color: var(--df-text-500);
   white-space: nowrap;
 }
-.df-flat-unread {
-  flex-shrink: 0;
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
-  border-radius: 8px;
-  background: var(--md-warning);
-  color: var(--md-sys-color-on-surface);
-  font-size: var(--md-label-s-size);
-  font-weight: 700;
-  line-height: 16px;
-  text-align: center;
-}
 /* Subtitle under the folder headline — what the program reports. Smaller +
    dimmer so the folder name stays the prominent anchor; single-line clamp. */
 .df-flat-subtitle {
@@ -274,16 +261,8 @@ aside[data-overscroll="bottom"] {
   font-size: var(--md-body-s-size);
   color: var(--df-text-500);
 }
-/* Line 3 — activity: status word + viewers + cost. Own line so the status
-   reads loud; chips self-separate so no "·" divider here. */
-.df-flat-activity {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-  gap: 8px;
-}
 /* Auto-insert a "·" separator between whatever supporting items are
-   present (path / status / server), so the JSX stays separator-free. */
+   present (path / server), so the JSX stays separator-free. */
 .df-flat-supporting > * + *::before {
   content: "·";
   opacity: 0.45;
@@ -364,97 +343,23 @@ aside[data-overscroll="bottom"] {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* Status word on the supporting line — keeps its semantic color; urgent
-   stages (needs-input) pulse. */
-.df-stage-text {
+/* Offline = worker unreachable. Muted and visually distinct. */
+.df-stage-text[data-stage="offline"] {
   flex-shrink: 0;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.3px;
   font-size: 10px;
-}
-.df-stage-text[data-stage="running"],
-.df-stage-text[data-stage="running-workflow"] { color: var(--color-ok); }
-.df-stage-text[data-stage="needs-input"] {
-  color: var(--color-warn);
-  animation: df-pulse 1.4s ease-in-out infinite;
-}
-.df-stage-text[data-stage="idle"] { color: var(--text-lo); }
-.df-stage-text[data-stage="done"] { color: var(--color-info); }
-/* Offline = worker unreachable. Muted + no pulse (nothing to act on),
-   visually distinct from the warn-colored needs-input. */
-.df-stage-text[data-stage="offline"] { color: var(--md-sys-color-on-surface-variant); opacity: 0.7; }
-
-/* ── Worklist emphasis (audit B) — make the row carry its own urgency ──────
-   needs-input rows POP (warn rail + tint + the agent's question read loud);
-   done rows get a quiet info rail; idle/done supporting text recedes so the
-   actionable rows win the glance. Selection (coral rail) always outranks via
-   :not([data-selected]). */
-.df-row[data-density="flat"][data-stage="needs-input"]:not([data-selected="focused"]) {
-  background: color-mix(in srgb, var(--color-warn) 12%, transparent);
-  box-shadow: inset 3px 0 0 0 var(--color-warn);
-}
-@media (hover: hover) {
-  .df-row[data-density="flat"][data-stage="needs-input"]:not([data-selected="focused"]):hover {
-    background: color-mix(in srgb, var(--color-warn) 18%, transparent);
-  }
-}
-.df-row[data-density="flat"][data-stage="done"]:not([data-selected="focused"]):not([data-cursor="on"]) {
-  box-shadow: inset 2px 0 0 0 var(--color-info);
-}
-/* The blocked-on question — readable, not the dim supporting grey. */
-.df-flat-question {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--md-body-s-size);
-  color: var(--df-text-000);
-}
-/* Non-actionable states recede; needs-input/running stay full-strength. */
-.df-row[data-density="flat"][data-stage="idle"] .df-flat-supporting,
-.df-row[data-density="flat"][data-stage="done"] .df-flat-supporting,
-.df-row[data-density="flat"][data-stage="idle"] .df-flat-activity,
-.df-row[data-density="flat"][data-stage="done"] .df-flat-activity {
-  opacity: 0.72;
+  color: var(--md-sys-color-on-surface-variant);
+  opacity: 0.7;
 }
 
-/* ── #2: louder attention — needs-input rows breathe ──────────────────────
-   The attention-ring idea, compositor-only: the static 3px inset rail
-   (default + m3flat box-shadow rules) stays as the base paint; a ::before
-   overlay bar breathes ON TOP via transform/opacity ONLY. The previous
-   box-shadow keyframes (inset 2↔4px) re-rasterized the sidebar at ~60fps
-   whenever any row waited for input. Same 1.8s rhythm: peak = 4px bar,
-   trough = the static 3px rail showing through. */
-@keyframes df-needs-attention {
-  0%, 100% { transform: scaleX(0.5); opacity: 0; }
-  50%      { transform: scaleX(1); opacity: 1; }
-}
-.df-row[data-density="flat"][data-stage="needs-input"]:not([data-selected="focused"])::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 4px;
-  background: var(--color-warn);
-  transform-origin: left center;
-  opacity: 0;
-  pointer-events: none;
-  animation: df-needs-attention 1.8s ease-in-out infinite;
-}
-@media (prefers-reduced-motion: reduce) {
-  .df-row[data-density="flat"][data-stage="needs-input"]:not([data-selected="focused"])::before {
-    animation: none; /* opacity:0 base → falls back to the static inset rail */
-  }
-}
 
 /* ── M3 flat-list sidebar (data-m3flat, flag-gated) ──────────────────────────
    Rows go FLAT — no per-row pill / dim rail. Only the ACTIVE row gets M3's
    rounded secondary-container indicator. Section headers become quiet
-   sentence-case labels with breathing room; the needs-you accent softens to a
-   thin bar (no tint). Author 2026-06-25: "make it peaceful / proper M3." */
+   sentence-case labels with breathing room. Author 2026-06-25:
+   "make it peaceful / proper M3." */
 /* ── Android grouped list (Material 3 shape morph) ───────────────────────
    Cards in the SAME group sit tight together (2px gap) with sharper inner
    corners (6px) and large rounding only on the group's outer corners (20px):
@@ -506,23 +411,15 @@ aside[data-overscroll="bottom"] {
 [data-m3flat] .df-flat-group .df-row-swipe:only-child .df-row[data-density="flat"] {
   border-radius: 20px;            /* lone card = fully rounded */
 }
-/* Gmail-style circular avatar: the leading glyph is a FULL circle (not a
-   rounded square), sized up to read as an avatar. Status color (green/peach/
-   idle) becomes the avatar fill; agent rows get a neutral circle behind the
-   mark. !important overrides the component's inline width/height/radius. */
+/* Gmail-style circular avatar: the leading glyph is a full circle (not a
+   rounded square), sized up to read as an avatar. !important overrides the
+   component's inline width/height/radius. */
 [data-m3flat] .df-flat-group .df-row .df-leading {
   width: 30px;
   height: 30px;
   border-radius: 50%;
   background: var(--avatar-bg, var(--surface-2));  /* colorful per-session circle */
   align-self: center;   /* vertically centered in the card */
-}
-[data-m3flat] .df-flat-group [data-testid="status-glyph"] {
-  width: 30px !important;
-  height: 30px !important;
-  border-radius: 50% !important;
-  background: transparent !important;   /* the df-leading circle carries the color */
-  color: #fff !important;  /* glyph is always white on the hashed --avatar-bg circle */
 }
 /* Hover = M3 state layer (on-surface @ ~8%) over the card — keeps the card
    tone, just lifts it, instead of replacing the background. */
@@ -536,19 +433,6 @@ aside[data-overscroll="bottom"] {
   background: var(--secondary-container, var(--df-selected));
   box-shadow: none;
   color: var(--df-text-000);
-}
-/* needs-you: keep the card, add a soft accent bar (peaceful). */
-[data-m3flat] .df-flat-group .df-row[data-density="flat"][data-stage="needs-input"]:not([data-selected="focused"]) {
-  background: var(--surface-0);
-  box-shadow: inset 3px 0 0 0 var(--color-warn);
-}
-@media (hover: hover) {
-  [data-m3flat] .df-flat-group .df-row[data-density="flat"][data-stage="needs-input"]:not([data-selected="focused"]):hover {
-    background: color-mix(in srgb, var(--color-warn) 8%, var(--surface-0));
-  }
-}
-[data-m3flat] .df-flat-group .df-row[data-density="flat"][data-stage="done"]:not([data-selected="focused"]):not([data-cursor="on"]) {
-  box-shadow: inset 3px 0 0 0 var(--color-info);
 }
 /* Close (✕): hover/cursor-reveal on desktop so the resting row stays clean;
    on touch (no hover) it stays visible so it's reachable. */
@@ -1207,10 +1091,6 @@ aside[data-testid="sidebar-drawer"]::-webkit-scrollbar-thumb:hover,
 }
 
 
-@keyframes df-pulse {
-  0%, 100% { opacity: 1; }
-  50%      { opacity: 0.55; }
-}
 
 /* Sleeping-mascot Zzz: two z's drift up and right, then fade.
    The HTML spans overlay the SVG so the float is compositor-animated. */
@@ -1245,8 +1125,7 @@ aside[data-testid="sidebar-drawer"]::-webkit-scrollbar-thumb:hover,
 
 /* Phase-m3f tab bar — M3 secondary-tabs spec, lives in MainPane above
    the terminal deck. One tab per OPEN session. Active gets a 2px
-   primary overline (on top, VS Code-style). Each tab carries a leading
-   attention dot derived from the OMP bridge transcript. */
+   primary overline (on top, VS Code-style). */
 .df-tab-bar {
   height: 40px;
   flex-shrink: 0;
@@ -1368,13 +1247,6 @@ aside[data-testid="sidebar-drawer"]::-webkit-scrollbar-thumb:hover,
   .mobile-deck-count:hover {
     background: var(--md-state-hover);
   }
-}
-/* needs-input stays unmissable: the count square pulses amber when any
-   terminal in the workspace is blocked (rollupLevels). */
-.mobile-deck-count[data-attention="blocked"] {
-  border-color: var(--md-warning);
-  color: var(--md-warning);
-  animation: df-tab-dot-pulse 1.8s ease-in-out infinite;
 }
 
 /* ── New-terminal predictive-back pull (TerminalDeck) ─────────────────────
@@ -1565,7 +1437,7 @@ aside[data-testid="sidebar-drawer"]::-webkit-scrollbar-thumb:hover,
 }
 /* Preview area — terminal text preview (recent viewport lines) or faux glyph.
    Asymmetric corners: 12px top / 20px bottom (Chrome's signature detail).
-   Dark surface-0 background; status-tinted for needs-input.
+   Dark surface-0 background.
    Fixed 160px height = uniform card heights across the grid. */
 .terminal-card-preview {
   margin: 4px;
@@ -1575,9 +1447,6 @@ aside[data-testid="sidebar-drawer"]::-webkit-scrollbar-thumb:hover,
   display: block;
   position: relative;
   overflow: hidden;
-}
-.terminal-card-preview[data-stage="needs-input"] {
-  background: color-mix(in srgb, var(--md-warning) 12%, var(--surface-0));
 }
 .terminal-card-preview-text {
   width: 100%;
@@ -1614,19 +1483,10 @@ aside[data-testid="sidebar-drawer"]::-webkit-scrollbar-thumb:hover,
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-weight: 700;
 }
-.terminal-card[data-attention="blocked"] .terminal-card-preview-glyph {
-  animation: df-tab-dot-pulse 1.8s ease-in-out infinite;
-}
 @media (prefers-reduced-motion: reduce) {
-  .mobile-deck-count[data-attention="blocked"],
-  .terminal-card[data-attention="blocked"] .terminal-card-preview-glyph,
   .terminal-card-wrap {
     animation: none;
   }
-}
-@keyframes df-tab-dot-pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.4; transform: scale(0.75); }
 }
 
 /* Split-pane divider (TerminalDeck / PaneDivider): a faint seam between two
@@ -1684,7 +1544,7 @@ aside[data-testid="sidebar-drawer"]::-webkit-scrollbar-thumb:hover,
    outer glow drawn as an ::after (paints above the terminal canvas, unlike an
    inset shadow) so the active pane is unmistakable at a glance. Inactive pane
    bodies and every tab strip are left untouched — kept fully readable. */
-[data-multi-pane="true"] [data-testid^="terminal-slot-"][data-focused="true"]::after {
+[data-multi-pane="true"] [data-pane-slot][data-focused="true"]::after {
   content: "";
   position: absolute;
   inset: 0;
@@ -1698,14 +1558,14 @@ aside[data-testid="sidebar-drawer"]::-webkit-scrollbar-thumb:hover,
 }
 /* Spotlit pane: the dim backdrop + floating card frame already make "on top"
    unmistakable, so the tiled-pane focus ring would be redundant noise. Drop it. */
-[data-multi-pane="true"] [data-testid^="terminal-slot-"][data-focused="true"][data-spotlit="true"]::after {
+[data-multi-pane="true"] [data-pane-slot][data-focused="true"][data-spotlit="true"]::after {
   display: none;
 }
 /* Drop the 22px-blur glow while a divider drag is live: re-rastering the blur
    on every resized frame is the paint cost on real GPUs. The cheap 3px border
    (above) stays as the ring; the full glow returns on pointerup. data-resizing
    is set on the deck root while isResizeDragging() (resizeDrag.ts). */
-[data-testid="terminal-deck"][data-resizing="true"] [data-testid^="terminal-slot-"][data-focused="true"]::after {
+[data-testid="terminal-deck"][data-resizing="true"] [data-pane-slot][data-focused="true"]::after {
   box-shadow: none;
 }
 .df-tab[data-dragging="true"] {
@@ -1847,13 +1707,6 @@ aside[data-testid="sidebar-drawer"]::-webkit-scrollbar-thumb:hover,
 .df-tab[data-active="true"] { color: var(--md-on-surface); }
 /* Active overline is now the sliding .df-tab-indicator (TabBar.tsx) — the old
    static ::after was removed so they don't double-paint. */
-.df-tab-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  transition: background-color 120ms ease-out;
-}
 .df-tab-glyph {
   width: 16px;
   height: 16px;
@@ -1892,41 +1745,6 @@ aside[data-testid="sidebar-drawer"]::-webkit-scrollbar-thumb:hover,
 }
 .df-tab-close:hover { color: var(--md-on-surface); }
 
-/* Pane top-right overlay slot (CellTerminal `.term-pane-corner`). Holds the
-   status badge. Click-through; the child opts back in. */
-.term-pane-corner {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  z-index: 10;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  pointer-events: none;
-}
-
-.term-status-badge {
-  flex-shrink: 0;
-  pointer-events: none;
-  user-select: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 9px;
-  border-radius: var(--md-shape-full);
-  font: var(--md-label-s-weight) var(--md-label-s-size)/var(--md-label-s-line) var(--md-font);
-  white-space: nowrap;
-  color: var(--md-on-surface);
-  background: color-mix(in srgb, var(--badge-color) 22%, var(--md-surface-container-high));
-  border: 1px solid color-mix(in srgb, var(--badge-color) 45%, transparent);
-  box-shadow: var(--md-elev-1);
-}
-.term-status-badge__dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--badge-color);
-}
 
 /* Phase-m3j search ⌘K hint — small monospace chip at the right edge
    of the search pill. */
@@ -1974,56 +1792,6 @@ aside[data-testid="sidebar-drawer"]::-webkit-scrollbar-thumb:hover,
 }
 .df-machine-header .df-group-count::before { content: none; }
 
-/* Phase-m3-needs-pill — M3 tertiary-container animated pulse pill.
-   Matches mockups/m3-compact-hero.html .need-pill spec: warm gold,
-   uppercase, mono-numeric, pulsing box-shadow halo to draw the eye
-   without screaming. Replaces the prior blue-accent --accent dot. */
-.df-needs-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  border-radius: var(--md-shape-full);
-  background: var(--md-tertiary-container);
-  color: var(--md-on-tertiary-container);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.4px;
-  text-transform: uppercase;
-  font-family: inherit;
-  flex-shrink: 0;
-  position: relative; /* anchors the ::after pulse halo */
-}
-.df-needs-pill::before {
-  content: "";
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--md-tertiary);
-  flex-shrink: 0;
-}
-.df-needs-pill-count {
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-variant-numeric: tabular-nums;
-  font-weight: 700;
-}
-/* Pulse halo — compositor-only ::after ring (transform/opacity), replacing
-   the box-shadow spread that repainted the row on every frame. Same 2s
-   rhythm; opacity:0 base means reduced-motion/no-animation shows no halo. */
-.df-needs-pill::after {
-  content: "";
-  position: absolute;
-  inset: -3px;
-  border-radius: var(--md-shape-full);
-  border: 2px solid rgba(217, 197, 142, 0.35);
-  opacity: 0;
-  pointer-events: none;
-  animation: df-needs-pulse 2s ease-in-out infinite;
-}
-@keyframes df-needs-pulse {
-  0%, 100% { transform: scale(0.9); opacity: 0; }
-  50%      { transform: scale(1.05); opacity: 1; }
-}
 
 /* ── Mobile slide-out drawer ───────────────────────────────────────────
    AppShell drives the open state through the reactive data-open attribute.
@@ -2219,7 +1987,7 @@ aside[data-testid="sidebar-drawer"]::-webkit-scrollbar-thumb:hover,
 
 /* ── Collapsed icon rail ──────────────────────────────────────────────
    The collapsed sidebar is the SAME SidebarRoot (folder rows), narrowed
-   to 52px and stripped to just the leading status glyph per folder. Row
+   to 52px and stripped to just the leading glyph per folder. Row
    title={cwd} (FolderList.tsx) supplies the hover tooltip. NOT a separate
    worker-initials component — that diverged from the real list.
    Keyed on the aside's data-collapsed (set in AppShell.tsx). */
@@ -2241,7 +2009,6 @@ aside[data-testid="sidebar-drawer"]::-webkit-scrollbar-thumb:hover,
 [data-collapsed="true"] .df-brand-title,
 [data-collapsed="true"] [data-testid="brand-row-search"],
 [data-collapsed="true"] [data-testid="brand-row-settings"] { display: none; }
-[data-collapsed="true"] .df-brand-row [data-testid="notification-bell"] { display: none !important; }
 [data-collapsed="true"] [data-testid="brand-row-collapse"] svg { transform: rotate(180deg); }
 /* "+ new session" FAB → shrink to fit the 52px rail, centered. */
 [data-collapsed="true"] .df-newterm-fab {

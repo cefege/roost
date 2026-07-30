@@ -8,16 +8,13 @@ import { reconcile } from "solid-js/store";
 import { setRootStore, rootStore } from "./root.ts";
 import type { PairRequest } from "./root.ts";
 import type { PairRequestDeltaProto } from "@roost/shared/proto/events_pb";
-import type { UiCommandFrame, FirehoseFrame, AgentEntriesFrame, AgentUiFrame } from "@roost/shared/proto/sync_pb";
+import type { UiCommandFrame, FirehoseFrame } from "@roost/shared/proto/sync_pb";
 import { FirehoseFrameSchema } from "@roost/shared/proto/sync_pb";
 import { fromBinary } from "@bufbuild/protobuf";
 import { protoToEvent } from "@roost/shared/wire/event-proto";
-import { agentEntryFromProto } from "@roost/shared/wire/agent-proto";
-import { upsertEntries } from "./agentEntries.ts";
 import { signCoordinatorJwt } from "../auth/web-key.ts";
 import { _dispatchUiCommand } from "../lib/uiCommandDispatch.ts";
 import { relocateBrowserToCoordinator } from "../auth/coordinator-relocation.ts";
-import { applyAgentUiFrame } from "../components/agent/OmpSessionSurface.tsx";
 import {
   _workspaceProtoToWire, _taskProtoToWire, _webhookProtoToWire,
   _permProtoToWire, _mcpProtoToWire, _presenceProtoToWire,
@@ -250,30 +247,6 @@ function _dispatchSyncFrame(frame: FirehoseFrame): void {
             // mode) consumes it; no-op for byte-mode viewers (no handler).
             diag("cell.recv", { sid: (v as PbCellGridFrame).sessionId || "", seq: Number((v as PbCellGridFrame).seq || 0) });
             _dispatchCell(v as PbCellGridFrame);
-            break;
-          }
-          case "agentEntries": {
-            // Agent-session transcript deltas (omp RPC projection). Volatile,
-            // presence-class: no durable replay, so this carries only the live
-            // tail — history comes from SessionsGetAgentEntries. Entries upsert
-            // by `seq`, which is what makes a replayed window idempotent.
-            const af = v as AgentEntriesFrame;
-            try {
-              upsertEntries(af.sessionId, af.entries.map(agentEntryFromProto));
-            } catch (e) {
-              // agentEntryFromProto re-Zod-parses: a worker/SPA enum drift
-              // surfaces loudly here instead of poisoning the transcript.
-              signal("diag.corruption_signal", { kind: "agent_entry_decode", frame: "agentEntries", msg: String(e), cooldownKey: "sync" });
-            }
-            break;
-          }
-          case "agentUi": {
-            const frame = v as AgentUiFrame;
-            try {
-              applyAgentUiFrame(frame.sessionId, frame.frameJson, frame.coordRevision);
-            } catch (e) {
-              signal("diag.corruption_signal", { kind: "agent_ui_decode", frame: "agentUi", msg: String(e), cooldownKey: "sync" });
-            }
             break;
           }
           case "sessionPresence": {

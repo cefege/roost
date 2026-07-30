@@ -1,6 +1,5 @@
-// Session RPC handlers: list/spawn/attach/kill/resize/user-message/input/
-// cursor-pos/assign-workspace/get-scrollback-cells. The agent-session trio
-// lives in the sibling handlers-sessions-agent.ts.
+// Session RPC handlers: list/spawn/attach/kill/resize/input/cursor-pos/
+// assign-workspace/get-scrollback-cells.
 // Most forward a browser-command frame to the session's worker hub socket
 // (sendBrowserCmd / forwardToSessionWorker) and await the worker reply; resize
 // also bumps the viewer-presence tracker; spread into router.ts's single
@@ -13,12 +12,12 @@ import { randomUUID, createHash } from "node:crypto";
 import {
   CoordinatorService,
   SessionsListResponseSchema, SessionsSpawnResponseSchema, SessionsAttachResponseSchema,
-  SessionsKillResponseSchema, SessionsRenameResponseSchema, SessionsResizeResponseSchema, SessionsUserMessageResponseSchema,
+  SessionsKillResponseSchema, SessionsRenameResponseSchema, SessionsResizeResponseSchema,
   SessionsInputResponseSchema, SessionsCursorPosResponseSchema,
   SessionsAssignWorkspaceResponseSchema,
   SessionsGetScrollbackCellsResponseSchema,
 } from "@roost/shared/proto/coordinator_pb";
-import { sessionToProto } from "@roost/shared/wire/agent-proto";
+import { sessionToProto } from "@roost/shared/wire/session-proto";
 import { cellRowToProto } from "@roost/shared/cell/cell-proto";
 import type { CellRow } from "@roost/shared/cell";
 import { asSessionId, asWorkspaceId } from "@roost/shared/wire";
@@ -41,19 +40,8 @@ import type { ConnectDeps } from "./router.ts";
 const _coordSha8 = (b: Uint8Array): string =>
   createHash("sha256").update(b).digest("hex").slice(0, 8);
 
-// DB row → proto Session. Defers to the shared sessionToProto so every
-// Zod-AgentState → proto mapping lives in one place; malformed agent_json
-// degrades to agent=null rather than crashing SessionsList.
+// DB row → proto Session through the shared terminal-session adapter.
 function sessionRowToProto(row: any) {
-  let agent: unknown = null;
-  if (row.agent_json) {
-    try { agent = JSON.parse(row.agent_json); }
-    catch (e) {
-      log.warn("router", "agent_json_parse_failed", {
-        session_id: row.id, error: (e as Error).message,
-      });
-    }
-  }
   return sessionToProto({
     id: row.id,
     worker_fp: row.worker_fp,
@@ -62,7 +50,6 @@ function sessionRowToProto(row: any) {
     cwd: row.cwd,
     workspace_id: row.workspace_id ?? null,
     status: row.status,
-    agent: agent as never,
     created_at: row.created_at,
     closed_at: row.closed_at ?? null,
     custom_title: row.custom_title ?? null,
@@ -84,10 +71,6 @@ export function _spawnFrameFor(req: {
   switch (req.kind) {
     case "shell":
       return { kind: "spawn-shell", folder: req.folder, cols: req.cols, rows: req.rows, ...sid };
-    case "agent":
-      // No cols/rows: an agent session's backend is an `omp --mode rpc-ui`
-      // child process, not a PTY, so there is no grid to size.
-      return { kind: "spawn-agent", folder: req.folder, ...sid };
     default:
       throw new ConnectError(`unknown session kind ${req.kind}`, Code.InvalidArgument);
   }
@@ -95,7 +78,7 @@ export function _spawnFrameFor(req: {
 
 type SessionMethods =
   | "sessionsList" | "sessionsSpawn" | "sessionsAttach" | "sessionsKill"
-  | "sessionsRename" | "sessionsResize" | "sessionsUserMessage" | "sessionsInput"
+  | "sessionsRename" | "sessionsResize" | "sessionsInput"
   | "sessionsCursorPos" | "sessionsAssignWorkspace"
   | "sessionsGetScrollbackCells";
 
@@ -105,7 +88,11 @@ export function makeSessionHandlers(
   return {
     async sessionsList(req, ctx) {
       requireAuth(ctx.values);
-      let q = deps.db.selectFrom("sessions").selectAll();
+      let q = deps.db.selectFrom("sessions").select([
+        "id", "worker_fp", "channel", "kind", "cwd", "workspace_id", "status",
+        "created_at", "closed_at", "custom_title", "git_branch", "git_remote",
+        "pr_number", "pr_state", "pr_checks", "pr_url", "ports_json", "spawn_cwd",
+      ]);
       if (req.workerFp) q = q.where("worker_fp", "=", req.workerFp);
       const status = req.status || "open";
       if (status !== "all") q = q.where("status", "=", status as any);
@@ -236,15 +223,6 @@ export function makeSessionHandlers(
       return create(SessionsResizeResponseSchema, { accepted: ok });
     },
 
-    async sessionsUserMessage(req, ctx) {
-      const caller = requireAuth(ctx.values);
-      const ok = await forwardToSessionWorker(deps.db, req.sessionId, caller, {
-        kind: "user-message" as const,
-        session_id: asSessionId(req.sessionId),
-        text: req.text,
-      } as ClientControlFrame);
-      return create(SessionsUserMessageResponseSchema, { accepted: ok });
-    },
 
     async sessionsInput(req, ctx) {
       const caller = requireAuth(ctx.values);

@@ -1,8 +1,5 @@
-// store.test.ts — invariant tests for the web store projection layer.
-// R5.4 deliverables:
-//   1. foldEventIntoStore matches @roost/shared foldEvent (determinism)
-//   2. Swarm ⊆ All modulo grouping invariant
-//   3. spawn + agent event → visible in sessions record
+// Invariant tests for the web store projection layer: shared-fold determinism,
+// visible spawned rows, and agreement with the SPA projector.
 
 import { expect, test, describe } from "bun:test";
 import { foldEvent, foldAll, asWorkerFp, asSessionId, asChannelId, asWorkspaceId } from "@roost/shared/wire";
@@ -31,14 +28,6 @@ function makeOpenedEvent(overrides: Partial<Extract<SessionEvent, { kind: "opene
   };
 }
 
-function makeAgentEvent(patch: Partial<import("@roost/shared/wire").AgentState> = {}): Extract<SessionEvent, { kind: "agent" }> {
-  return {
-    kind: "agent",
-    session_id: SESSION_ID,
-    patch: { kind: "agent", mode: "default", model: "agent-model", status: "running", tokens: { in: 100, out: 50, cached: 0 }, cost_usd: 0.01, last_message: null, current_tool: null, current_block: null, permission_request: null, sub_agents: [], ...patch },
-    ts: 2000,
-  };
-}
 
 // ──────────────────────────────────────────────────────────────────────
 // Test 1: foldEvent determinism — shared foldEvent vs manual fold
@@ -54,35 +43,8 @@ describe("foldEvent determinism", () => {
     expect(session!.status).toBe("open");
     expect(session!.worker_fp).toBe(FP);
     expect(session!.cwd).toBe("/home/user/project");
-    expect(session!.agent).toBeNull();
   });
 
-  test("agent event patches existing session", () => {
-    const events: SessionEvent[] = [makeOpenedEvent(), makeAgentEvent()];
-    const result = foldAll(events);
-    const session = result.get(SESSION_ID);
-    expect(session).toBeDefined();
-    expect(session!.agent).not.toBeNull();
-    expect(session!.agent!.status).toBe("running");
-    expect(session!.agent!.model).toBe("agent-model");
-  });
-
-  test("bare partial patch into null agent fills all required fields", () => {
-    // Real worker emits this when a hook fires before the parser's init message.
-    // Before defaultAgentState() seeding, this produced an invalid AgentState.
-    const events: SessionEvent[] = [
-      makeOpenedEvent(),
-      { kind: "agent", session_id: SESSION_ID, patch: { kind: "agent", status: "needs-input" }, ts: 1500 },
-    ];
-    const agent = foldAll(events).get(SESSION_ID)?.agent;
-    expect(agent).not.toBeNull();
-    expect(agent!.status).toBe("needs-input");
-    expect(agent!.sub_agents).toEqual([]);
-    expect(agent!.tokens).toEqual({ in: 0, out: 0, cached: 0 });
-    expect(agent!.cost_usd).toBe(0);
-    expect(agent!.permission_request).toBeNull();
-    expect(agent!.mode).toBe("default");
-  });
 
   test("closed event deletes the session (no closed limbo)", () => {
     const events: SessionEvent[] = [
@@ -112,7 +74,10 @@ describe("foldEvent determinism", () => {
   });
 
   test("replay is deterministic — same result for same event sequence", () => {
-    const events: SessionEvent[] = [makeOpenedEvent(), makeAgentEvent()];
+    const events: SessionEvent[] = [
+      makeOpenedEvent(),
+      { kind: "cwd", session_id: SESSION_ID, cwd: "/replayed", ts: 1500 },
+    ];
     const r1 = foldAll(events);
     const r2 = foldAll(events);
     expect(r1.get(SESSION_ID)).toEqual(r2.get(SESSION_ID));
@@ -120,55 +85,7 @@ describe("foldEvent determinism", () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// Test 2: Swarm ⊆ All modulo grouping invariant
-// ──────────────────────────────────────────────────────────────────────
-
-describe("Swarm ⊆ All invariant", () => {
-  test("every session in Swarm (agent != null) also exists in All", () => {
-    const events: SessionEvent[] = [
-      makeOpenedEvent(),
-      makeAgentEvent(),
-    ];
-    const sessions = foldAll(events);
-    const all = Array.from(sessions.values());
-    const swarm = all.filter((s) => s.agent !== null);
-
-    for (const swarmSession of swarm) {
-      const inAll = all.some((s) => s.id === swarmSession.id);
-      expect(inAll).toBe(true);
-    }
-  });
-
-  test("shell session (no agent) appears in All but not Swarm", () => {
-    const shellSessionId = asSessionId("00000000-0000-0000-0000-000000000003");
-    const events: SessionEvent[] = [
-      makeOpenedEvent({ session_id: SESSION_ID, session_kind: "shell" }),
-      makeAgentEvent(),
-      {
-        kind: "opened",
-        session_id: shellSessionId,
-        worker_fp: FP,
-        channel: asChannelId(2),
-        session_kind: "shell",
-        cwd: "/home/user",
-        ts: 1001,
-      },
-    ];
-    const sessions = foldAll(events);
-    const all = Array.from(sessions.values());
-    const swarm = all.filter((s) => s.agent !== null);
-
-    // Shell session is in All.
-    expect(all.some((s) => s.id === shellSessionId)).toBe(true);
-    // Shell session is NOT in Swarm.
-    expect(swarm.some((s) => s.id === shellSessionId)).toBe(false);
-    // Agent-backed session IS in Swarm.
-    expect(swarm.some((s) => s.id === SESSION_ID)).toBe(true);
-  });
-});
-
-// ──────────────────────────────────────────────────────────────────────
-// Test 3: spawn produces visible row
+// Spawn produces visible rows
 // ──────────────────────────────────────────────────────────────────────
 
 describe("spawn produces visible row", () => {
@@ -203,7 +120,6 @@ describe("spawn produces visible row", () => {
       cwd: "/fresh",
       workspace_id: null,
       status: "open",
-      agent: null,
       created_at: 2000,
       closed_at: null,
       custom_title: null,
@@ -224,7 +140,7 @@ describe("spawn produces visible row", () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// Test 4: PROJECTION AGREEMENT — the SPA projector (foldEventIntoStore →
+// PROJECTION AGREEMENT — the SPA projector (foldEventIntoStore →
 // rootStore) MUST produce the same per-key result as the shared foldAll.
 // This is the tripwire the audit (wf_728b67c1) said would have caught the
 // `respawned`-dropped drift: the OLD projector was a hand-mirror that
@@ -246,13 +162,12 @@ const norm = (m: Map<string, Session>) =>
   Object.fromEntries([...m].map(([k, v]) => [k, JSON.parse(JSON.stringify(v))]));
 
 describe("projection agreement — foldEventIntoStore === shared foldAll", () => {
-  test("comprehensive stream (opened/agent/cwd/workspace/respawned/closed) agrees", () => {
+  test("comprehensive stream (opened/cwd/workspace/respawned/closed) agrees", () => {
     resetSessions();
     const id2 = asSessionId("00000000-0000-0000-0000-000000000006");
     const events: SessionEvent[] = [
       makeOpenedEvent({ session_id: SESSION_ID }),
       makeOpenedEvent({ session_id: id2, channel: asChannelId(7) }),
-      makeAgentEvent(),
       { kind: "cwd", session_id: SESSION_ID, cwd: "/moved", ts: 1500 },
       { kind: "workspace_assigned", session_id: SESSION_ID, workspace_id: WS_ID, ts: 1600 },
       { kind: "respawned", session_id: SESSION_ID, new_channel: asChannelId(9), ts: 1700 },
@@ -265,11 +180,9 @@ describe("projection agreement — foldEventIntoStore === shared foldAll", () =>
   test("respawned is applied (regression: the exact variant the hand-mirror dropped)", () => {
     resetSessions();
     foldEventIntoStore(makeOpenedEvent({ session_id: SESSION_ID, channel: asChannelId(1) }));
-    foldEventIntoStore(makeAgentEvent());
     foldEventIntoStore({ kind: "respawned", session_id: SESSION_ID, new_channel: asChannelId(42), ts: 5000 });
     const s = rootStore.sessions[SESSION_ID]!;
     expect(s.channel).toBe(asChannelId(42));
-    expect(s.agent).toBeNull();
     expect(s.status).toBe("open");
   });
 
@@ -280,7 +193,7 @@ describe("projection agreement — foldEventIntoStore === shared foldAll", () =>
     foldEventIntoStore(makeOpenedEvent({ session_id: SESSION_ID, channel: asChannelId(1) }));
     const snap: Session = {
       id: SESSION_ID, worker_fp: FP, channel: asChannelId(1), kind: "shell",
-      cwd: "/fresh", workspace_id: null, status: "open", agent: null,
+      cwd: "/fresh", workspace_id: null, status: "open",
       created_at: 2000, closed_at: null, custom_title: null,
     };
     foldEventIntoStore({ kind: "snapshot", worker_fp: FP, sessions: [snap], ts: 9000 });
@@ -300,7 +213,7 @@ describe("projection agreement — foldEventIntoStore === shared foldAll", () =>
     // workspace_id:null (it doesn't track that field). Grouping must survive.
     const snap: Session = {
       id: SESSION_ID, worker_fp: FP, channel: asChannelId(2), kind: "shell",
-      cwd: "/home/user/project", workspace_id: null, status: "open", agent: null,
+      cwd: "/home/user/project", workspace_id: null, status: "open",
       created_at: 1000, closed_at: null, custom_title: null,
     };
     foldEventIntoStore({ kind: "snapshot", worker_fp: FP, sessions: [snap], ts: 2000 });

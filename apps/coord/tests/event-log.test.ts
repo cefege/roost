@@ -84,7 +84,6 @@ describe("snapshot reconciliation", () => {
       cwd: "/repo",
       workspace_id: null,
       status: "open",
-      agent: null,
       created_at: 1000,
       closed_at: null,
       custom_title: null,
@@ -105,7 +104,6 @@ describe("snapshot reconciliation", () => {
       cwd: "/other",
       workspace_id: null,
       status: "open",
-      agent: null,
       created_at: 1500,
       closed_at: null,
       custom_title: null,
@@ -147,68 +145,6 @@ describe("projection correctness", () => {
     expect(foldAll(events).get(SID)?.cwd).toBe("/new");
   });
 
-  test("bare partial agent patch into null agent produces complete AgentState", () => {
-    // A sparse agent patch must seed the required default fields.
-    const events: SessionEvent[] = [
-      openEvent(SID),
-      { kind: "agent", session_id: SID, patch: { kind: "agent", status: "running" }, ts: 1001 },
-    ];
-    const agent = foldAll(events).get(SID)?.agent;
-    expect(agent).not.toBeNull();
-    expect(agent!.status).toBe("running");
-    expect(agent!.mode).toBe("default");
-    expect(agent!.model).toBe("");
-    expect(agent!.tokens).toEqual({ in: 0, out: 0, cached: 0 });
-    expect(agent!.cost_usd).toBe(0);
-    expect(agent!.last_message).toBeNull();
-    expect(agent!.current_tool).toBeNull();
-    expect(agent!.current_block).toBeNull();
-    expect(agent!.permission_request).toBeNull();
-    expect(agent!.sub_agents).toEqual([]);
-  });
 
-  test("sequential partial patches into null agent merge incrementally", () => {
-    // Hook emits status=running, then parser emits model+mode, then
-    // permission-request hook emits permission_request. Final state must
-    // contain all three.
-    const events: SessionEvent[] = [
-      openEvent(SID),
-      { kind: "agent", session_id: SID, patch: { kind: "agent", status: "running" }, ts: 1001 },
-      { kind: "agent", session_id: SID, patch: { model: "adapter", mode: "plan" }, ts: 1002 },
-      {
-        kind: "agent",
-        session_id: SID,
-        patch: { status: "needs-input", permission_request: { id: "p1", snippet: "Bash", options: ["allow", "deny"] } },
-        ts: 1003,
-      },
-    ];
-    const agent = foldAll(events).get(SID)?.agent;
-    expect(agent!.status).toBe("needs-input");
-    expect(agent!.model).toBe("adapter");
-    expect(agent!.mode).toBe("plan");
-    expect(agent!.permission_request?.id).toBe("p1");
-    expect(agent!.sub_agents).toEqual([]); // still default
-  });
 
-  test("agent patch merges into existing state", () => {
-    const events: SessionEvent[] = [
-      openEvent(SID),
-      {
-        kind: "agent",
-        session_id: SID,
-        patch: { kind: "agent", mode: "default", model: "adapter", status: "running", tokens: { in: 0, out: 0, cached: 0 }, cost_usd: 0, last_message: null, current_tool: null, current_block: null, permission_request: null, sub_agents: [] },
-        ts: 1001,
-      },
-      {
-        kind: "agent",
-        session_id: SID,
-        patch: { status: "idle" },
-        ts: 1002,
-      },
-    ];
-    const result = foldAll(events);
-    const agent = result.get(SID)?.agent;
-    expect(agent?.status).toBe("idle");
-    expect(agent?.model).toBe("adapter");
-  });
 });

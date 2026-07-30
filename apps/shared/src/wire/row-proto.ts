@@ -1,7 +1,6 @@
-// M-1: pure DB-row → proto adapters for the 5 sibling entities of
-// Session. Co-located with agent-proto.ts so every `*RowToProto`
-// adapter lives in one module — adding a field to e.g. Worker requires
-// editing exactly one place.
+// Pure DB-row → protobuf adapters for the Session-adjacent entities. Session
+// itself uses session-proto.ts; adding a field to a sibling entity requires
+// editing only this module.
 //
 // workspaceRowToProto stays in coord/router.ts because it's async
 // (joins workspace_sessions). Everything else here is a pure function.

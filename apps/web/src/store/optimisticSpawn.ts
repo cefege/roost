@@ -1,12 +1,6 @@
-// Optimistic new-terminal spawn. The browser mints the session id, inserts a
-// client-only placeholder shell session into the store so the reactive deck
-// renders the tab + pane instantly, and marks it pending. The real spawn RPC
-// carries the SAME id; the worker's `opened` event replaces the placeholder
-// value in place (stable store key → the <For> row and its CellTerminal never
-// remount, so WASM init started at click time is preserved). Pending clears on
-// RPC-resolve, at which point CellTerminal fires its INITIAL viewport claim and
-// paints the shell. On failure the placeholder is removed (reconcile prunes the
-// tab) and a toast is shown.
+// Optimistic new-terminal spawn. The browser mints the session id and inserts
+// a client-only shell placeholder so the shared pane deck can paint the tab
+// immediately. The real spawn reuses that id and replaces the placeholder.
 
 import { createSignal } from "solid-js";
 import { asSessionId, asChannelId } from "@roost/shared/wire";
@@ -29,22 +23,19 @@ export function clearAborted(id: string): void {
   aborted.delete(id);
 }
 
-// Mint the id the real spawn will reuse, insert a client-only placeholder shell
-// session so the deck renders the tab instantly, mark it pending. `anchor` is the
-// pane's current session — its worker_fp + cwd fix the folder bucket via
-// folderKeyOf, so reconcile appends the placeholder into the focused pane.
+// Insert a shell placeholder in the bucket selected by the anchor tab.
 export function beginOptimisticSpawn(anchor: Session): string {
   const id = crypto.randomUUID();
+  const folder = anchor.cwd;
   const placeholder: Session = {
     id: asSessionId(id),
     worker_fp: anchor.worker_fp,
     channel: asChannelId(0), // sentinel; real channel arrives on `opened`
     kind: "shell",
-    cwd: anchor.cwd, // folderKeyOf(placeholder) === folderKeyOf(anchor)
-    spawn_cwd: anchor.cwd,
+    cwd: folder,
+    spawn_cwd: folder,
     workspace_id: anchor.workspace_id ?? null,
     status: "open",
-    agent: null, // D-3 invariant: shell ⇒ agent null
     created_at: Date.now(), // liveIds sorts by this → appends last
     closed_at: null,
     custom_title: null,

@@ -40,13 +40,6 @@ export const CoordWorkerUpstream = z.discriminatedUnion("kind", [
     kind: z.literal("event"),
     event: SessionEvent,
   }),
-  // worker→browser agent state delta, routed by coord to subscribed
-  // browser viewers of `session_id` via the Sync firehose.
-  Base.extend({
-    kind: z.literal("agent-patch"),
-    session_id: SessionId,
-    patch: z.record(z.string(), z.unknown()),
-  }),
   // RPC reply correlated by the coord-generated `request_id` from the
   // matching downstream `browser-command`. Coord looks up the origin
   // browser by `request_id` and routes the reply over the tRPC sub.

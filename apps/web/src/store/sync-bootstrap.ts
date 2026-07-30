@@ -9,7 +9,7 @@ import { reconcile } from "solid-js/store";
 import { setRootStore, rootStore } from "./root.ts";
 import type { PairRequest } from "./root.ts";
 import { signal, diag } from "@roost/shared/diag";
-import { sessionFromProto } from "@roost/shared/wire/agent-proto";
+import { sessionFromProto } from "@roost/shared/wire/session-proto";
 import type { Worker, Session, Workspace, Task, PermissionRule, McpRelay } from "@roost/shared/wire";
 import { getPublicKeyB64 } from "../auth/web-key.ts";
 import { setRoutableFps } from "./sync-routable.ts";

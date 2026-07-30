@@ -30,9 +30,8 @@ package. Everything speaks one RPC framework end to end
      ▼            ▼                     ▼
   Worker       Worker                Worker     (Bun · one per Mac)
   Mac A        Mac B                 Mac C
-     │  a keeper subprocess hosts every PTY over one UDS and
-     │  outlives worker restarts; agent sessions instead run one
-     │  `omp --mode rpc-ui` child process each.
+     │  one keeper subprocess hosts every shell PTY over one UDS and
+     │  outlives worker restarts.
 ```
 
 ## The three apps
@@ -47,17 +46,16 @@ package. Everything speaks one RPC framework end to end
   `sessions` projection, and fan-out to browsers. It never holds PTY state of
   its own.
 - **Worker** (`apps/worker/`) — runs once per Mac, purely outbound. It dials
-  the coordinator and owns PTYs via one multiplexed keeper subprocess. Agent
-  sessions own an omp RPC child process instead of a PTY; there is no inbound
-  worker port either way.
+  the coordinator and owns every shell PTY via one multiplexed keeper
+  subprocess; there is no inbound worker port.
 - **Shared** (`apps/shared/`) — the wire source of truth: protobuf definitions,
   generated TS, Zod schemas, and the `foldEvent` reducer (below).
 
 ## Event sourcing is the spine
 
 A session's state is never sent as a snapshot that can drift. The worker emits
-small `SessionEvent`s (opened, attached, cwd changed, agent state changed,
-closed). The coordinator appends each to the `events` table and folds it into
+small `SessionEvent`s (opened, attached, cwd changed, closed). The coordinator
+appends each to the `events` table and folds it into
 the `sessions` projection inside one SQLite transaction. The browser folds the
 same events into its Solid store.
 
@@ -66,22 +64,21 @@ the server's projection and the browser's view agree by construction, not by
 careful hand-mirroring. A reconnecting browser sends the last event id it saw
 and gets exactly the events it missed.
 
-## Two hot paths
+## The terminal data plane
 
-**A. Terminal bytes (keystroke → screen).** The browser streams keystrokes up a
+**Terminal bytes (keystroke → screen).** The browser streams keystrokes up a
 single long-lived `inputStream` RPC. The coordinator forwards them over the
 worker's WebSocket; the worker writes them into the keeper, which writes the
 PTY. Output flows back the same way and rides the `Sync` stream's bytes channel
 out to every browser watching that session.
 
-**B. Agent transcript (omp RPC child → transcript UI).** An `agent` session has
-no PTY. The worker forks `omp --mode rpc-ui` and speaks newline-delimited JSON
-over its stdio, projecting that event stream into flat, seq-addressed
-`AgentEntry` rows (messages, tool calls, approval prompts). Those ride the
-`Sync` stream's `agentEntries` channel; history is backfilled over
-`SessionsGetAgentEntries`. Approval prompts become inline cards and the
-sidebar's `needs-input` state. Nothing is ever screen-scraped, because there is
-no screen — shell sessions remain the terminal escape hatch.
+
+This is Roost's only interactive data plane. Agent CLIs such as `omp`, Claude
+Code, or Codex may be launched inside the shell PTY, manually or through the
+terminal launcher configuration. Their text, tools, and approval prompts remain
+inside their native terminal UI. Roost has no structured agent/session API,
+HTML transcript renderer, approval UI, headless agent child, or managed OMP
+dependency.
 
 ## Terminal fidelity (the hard part)
 
@@ -124,8 +121,6 @@ failure modes and their fixes are catalogued in `CLAUDE.md`.
   `connect/handlers-*.ts` · `connect/auth-interceptor.ts` · `event-log.ts` ·
   `buses.ts` · `db/`
 - **Worker:** `apps/worker/src/main.ts` · `session-manager.ts` ·
-  `transport/CoordLink.ts` · `keeper/multiplexed-main.ts` ·
-  `agent/rpc-process.ts` · `agent/agent-controller.ts` ·
-  `agent/entry-projection.ts` · `fsm.ts`
+  `transport/CoordLink.ts` · `keeper/multiplexed-main.ts` · `fsm.ts`
 - **Shared:** `apps/shared/proto/roost/v1/*.proto` · `src/wire/event.ts`
   (`foldEvent`)

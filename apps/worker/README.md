@@ -1,12 +1,11 @@
 # @roost/worker (v2)
 
-Bun worker on every Mac in the fleet. It owns the PTYs of `shell` sessions and
-ships their authoritative terminal grid to coord. An `agent` session has no PTY:
-the worker forks one `omp --mode rpc-ui` child per session (`src/agent/`) and
-projects its JSON-over-stdio event stream into transcript entries. The worker
-dials **outbound** to coord over a raw
-WebSocket (`transport/CoordLink.ts` → `/ws/coord-worker/:fp`) and relays PTY
-bytes both ways. It exposes no inbound HTTP/WS surface.
+Bun worker on every Mac in the fleet. It owns every session's shell PTY, ships
+the authoritative terminal grid to coord, and relays PTY bytes both ways over
+an outbound raw WebSocket (`transport/CoordLink.ts` →
+`/ws/coord-worker/:fp`). Agent CLIs are ordinary programs launched inside
+those PTYs; the worker has no agent RPC child or structured transcript path. It
+exposes no inbound HTTP/WS surface.
 
 The v1 Rust worker (`crates/idea-worker` + `crates/idea-protocol`) and the
 Elixir `main_node` hub it spoke to were removed in the v1 sunset; see git

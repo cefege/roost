@@ -65,7 +65,7 @@ beforeAll(async () => {
     publicUrl: undefined,
     handoffPath: join(workdir, "coord-handoff.json"),
   };
-  deps = { db, sqlite, coordKey, jwtCache, cfg };
+  deps = { db, coordKey, jwtCache, cfg };
 
   // Mint a worker keypair, authorize it, sign a worker JWT (sub == fp).
   const workerKeys = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);

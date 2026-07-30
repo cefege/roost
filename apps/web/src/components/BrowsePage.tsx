@@ -12,7 +12,7 @@
 // back/forward are a faithful browser stack.
 //
 // Data layer: filesListDir/filesMkdir RPCs, childPath/pathCrumbs
-// (lib/folderPalette.ts), pickFolder→spawnAgent/spawnShell, createFolder.
+// (lib/folderPalette.ts), pickFolder→spawnShell, createFolder.
 
 import { createMemo, createSignal, createEffect, For, Show, onMount, onCleanup, on } from "solid-js";
 import { useNavigate, useParams, Navigate } from "@solidjs/router";
@@ -20,8 +20,7 @@ import { rootStore } from "../store/root.ts";
 import { allSessions } from "../store/selectors.ts";
 import { workerOnline } from "../store/sync.ts";
 import { coordClient } from "../connect.ts";
-import { spawnAgent, spawnShell, waitForSession, maybeAutoLaunchAgent } from "../lib/spawnSession.ts";
-import { resolveAgent } from "../lib/agents.ts";
+import { spawnShell, waitForSession, maybeAutoLaunchAgent } from "../lib/spawnSession.ts";
 import { terminalHref } from "../lib/terminalHref.ts";
 import { pushRecent } from "../lib/sidebarRecent.ts";
 import { computeFolderActivity, type FolderActivity } from "../lib/folderActivity.ts";
@@ -145,8 +144,7 @@ export function BrowsePage() {
       .filter((d) => !d.isDir && !d.name.startsWith("."));
     return [...files].sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
   });
-  // Folder activity (terminal/agent counts) for each visible subdirectory.
-  // Cumulative: counts all sessions in the folder OR its subtree.
+  // Cumulative terminal counts for each visible subdirectory, including its subtree.
   const folderActivity = createMemo<Map<string, FolderActivity>>(() => {
     const fp = folderServer();
     if (!fp) return new Map();
@@ -158,9 +156,7 @@ export function BrowsePage() {
   const folderSubtitles = createMemo<Map<string, string>>(() => {
     const out = new Map<string, string>();
     for (const [path, a] of folderActivity()) {
-      if (a.needsInput > 0) out.set(path, "Waiting on your input");
-      else if (a.agentsRunning > 0) out.set(path, "Agent running");
-      else if (a.terminals > 0) out.set(path, `${a.terminals} session${a.terminals === 1 ? "" : "s"}`);
+      if (a.terminals > 0) out.set(path, `${a.terminals} terminal${a.terminals === 1 ? "" : "s"}`);
     }
     return out;
   });
@@ -270,33 +266,8 @@ export function BrowsePage() {
     setActiveIdx(0);
   }
 
-  // omp is the only entry in BUILTIN_AGENTS with an RPC mode, so it is the only
-  // one that can be a native transcript session; every other agent is a CLI
-  // that has to be typed into a PTY and keeps the shell + auto-launch path.
-  const agentPrimary = () => resolveAgent().id === "omp";
-
-  // The primary action for a folder.
+  // Open a terminal in the selected folder.
   async function pickFolder(path: string) {
-    if (!agentPrimary()) { await openTerminal(path); return; }
-    const fp = folderServer();
-    if (!fp) return;
-    try {
-      const sessionId = await spawnAgent(fp as unknown as WorkerFp, path);
-      pushRecent(sessionId);
-      // Wait for the row so the route resolves on arrival instead of tripping
-      // MainPane's dead-route safety net for a tick.
-      await waitForSession(sessionId);
-      // /s/:id, never terminalHref: the /t/:fp/*folder route resolves to the
-      // NEWEST session in that folder, which may be an unrelated shell.
-      navigate(`/s/${sessionId}`);
-    } catch (err) {
-      addToast(`New agent session failed: ${err instanceof Error ? err.message : String(err)}`, "err");
-    }
-  }
-
-  // Always the shell path — the "Open terminal" secondary action, and the
-  // fallback for every agent that has no RPC mode.
-  async function openTerminal(path: string) {
     const fp = folderServer();
     if (!fp) return;
     try {
@@ -571,29 +542,20 @@ export function BrowsePage() {
               {(d, i) => {
                 const path = childPath(cwdNow(), d.name);
                 const activity = folderActivity().get(path);
-                const needsInput = activity?.needsInput ? activity.needsInput : 0;
+                const terminals = activity?.terminals ?? 0;
                 return (
                   <button type="button" class="df-browse-row" data-testid="browse-row"
                     data-active={activeIdx() === i() ? "true" : "false"}
-                    data-needs-input={needsInput > 0 ? "true" : "false"}
                     onClick={() => drill(d.name)} onmouseenter={() => setActiveIdx(i())}
                   >
                     <span class="df-browse-row-icon">
-                      <FolderGlyph size={20} style={{ color: needsInput > 0 ? "var(--md-sys-color-tertiary)" : undefined }} />
+                      <FolderGlyph size={20} />
                     </span>
                     <span class="df-browse-row-name">{d.name}</span>
                     <MetaTime ms={d.mtimeMs} class="df-browse-row-meta" />
-                    <Show when={needsInput > 0}>
-                      <span class="df-browse-badge df-browse-badge-needs-input" title="Agent waiting for input">{needsInput}</span>
-                    </Show>
-                    <Show when={activity && (activity.terminals > 0 || activity.agentsRunning > 0)}>
+                    <Show when={terminals > 0}>
                       <span class="df-browse-row-badges">
-                        <Show when={activity!.terminals > 0}>
-                          <span class="df-browse-badge df-browse-badge-terminals">{activity!.terminals}</span>
-                        </Show>
-                        <Show when={activity!.agentsRunning > 0}>
-                          <span class="df-browse-badge df-browse-badge-agents">{activity!.agentsRunning}</span>
-                        </Show>
+                        <span class="df-browse-badge df-browse-badge-terminals">{terminals}</span>
                       </span>
                     </Show>
                     <span class="df-browse-row-chev" aria-hidden="true">›</span>
@@ -619,16 +581,15 @@ export function BrowsePage() {
               {(d, i) => {
                 const path = childPath(cwdNow(), d.name);
                 const activity = folderActivity().get(path);
-                const needsInput = activity?.needsInput ? activity.needsInput : 0;
+                const terminals = activity?.terminals ?? 0;
                 const subtitle = folderSubtitles().get(path);
                 const hue = colorForFp(folderServer()).hue;
                 return (
                   <button type="button" class="df-browse-tile" data-testid="browse-tile"
                     data-active={activeIdx() === i() ? "true" : "false"}
-                    data-needs-input={needsInput > 0 ? "true" : "false"}
                     onClick={() => drill(d.name)} onmouseenter={() => setActiveIdx(i())}
                   >
-                    <span class="df-browse-tile-icon" style={{ color: needsInput > 0 ? "var(--md-sys-color-tertiary)" : `hsl(${hue} 48% 42%)` }}>
+                    <span class="df-browse-tile-icon" style={{ color: `hsl(${hue} 48% 42%)` }}>
                       <FolderGlyph size={22} />
                     </span>
                     <span class="df-browse-tile-text">
@@ -637,17 +598,9 @@ export function BrowsePage() {
                         <span class="df-browse-tile-subtitle">{subtitle}</span>
                       </Show>
                     </span>
-                    <Show when={activity && (needsInput > 0 || activity.terminals > 0 || activity.agentsRunning > 0)}>
+                    <Show when={terminals > 0}>
                       <span class="df-browse-tile-badges">
-                        <Show when={needsInput > 0}>
-                          <span class="df-browse-badge df-browse-badge-needs-input" title="Agent waiting for input">{needsInput}</span>
-                        </Show>
-                        <Show when={activity!.terminals > 0}>
-                          <span class="df-browse-badge df-browse-badge-terminals">{activity!.terminals}</span>
-                        </Show>
-                        <Show when={activity!.agentsRunning > 0}>
-                          <span class="df-browse-badge df-browse-badge-agents">{activity!.agentsRunning}</span>
-                        </Show>
+                        <span class="df-browse-badge df-browse-badge-terminals">{terminals}</span>
                       </span>
                     </Show>
                   </button>
@@ -678,17 +631,8 @@ export function BrowsePage() {
           onClick={() => void pickFolder(cwdNow())}
         >
           <span aria-hidden="true">❯</span>
-          {agentPrimary() ? `Start ${resolveAgent().label} here` : "Open terminal here"}
+          Open terminal here
         </button>
-        {/* Escape hatch: the shell path is always one click away, even when the
-            primary spawns a transcript session. */}
-        <Show when={agentPrimary()}>
-          <button type="button" class="df-browse-open df-browse-open-secondary" data-testid="browse-open-terminal"
-            onClick={() => void openTerminal(cwdNow())}
-          >
-            Open terminal
-          </button>
-        </Show>
       </div>
       <Dialog
         open={newFolderOpen()}

@@ -30,10 +30,12 @@ around it by inlining.
 **L0-FORBIDDEN-PATHS — `/Users/mike/Code/omp` is OFF LIMITS. Never read
 it, never open it, never grep it, never edit it, never delete it, never
 send a sub-agent into it.** It is the oh-my-pi source monorepo — a
-separate project of Author's, unrelated to this repo. Roost does not read,
-write, or bridge omp transcripts and does not own an omp subprocess or web
-UI. That source tree always carries Author's uncommitted in-flight work, and
-it is the install this agent is EXECUTING INSIDE — editing or
+separate project of Author's. Roost NEVER spawns `omp` or any other agent as a
+headless child, consumes an agent JSONL/RPC API, vendors an agent runtime, or
+imports or relays an agent browser UI. `omp` is only one optional CLI a user
+may launch inside a normal Roost shell PTY. Every product and web-UI change lives in this
+repo. The external source tree always carries Author's uncommitted in-flight
+work, and it is the install this agent is EXECUTING INSIDE — editing or
 deleting it corrupts the running harness. No task in this repo is ever
 completed by changing a file over there. Author 2026-07-25: "You never
 touch the omp folder. It's fucking pointless. Don't really don't open it.
@@ -88,7 +90,7 @@ Re-interpret every artifact enumerated in L0-SCOPE through this lens:
     | Symptom-grep | Memory | Wrong pattern | Right pattern |
     |---|---|---|---|
     | "store doesn't update / sidebar doesn't reflect delete" | `feedback_solid_setstore_record_replace.md` | `setStore("k", (prev) => newRecord)` on a Record subtree (silent no-op) | per-key writes: `setStore("k", id, value)` / `setStore("k", id, undefined)` |
-    | "SPA store doesn't reflect a SessionEvent variant / coord and SPA projections disagree (stale channel, agent not cleared)" | `feedback_spa_projector_delegates_to_shared_foldevent.md` | re-implementing the event switch in `store/projector.ts` as a hand-mirror of `@roost/shared` foldEvent (drifts — dropped `respawned`) | `foldEventIntoStore` DELEGATES to shared `foldEvent` over the affected map slice, then diffs per-key into the Solid store. No projector switch. Tripwire: `store.test.ts` projection-agreement test drives the REAL rootStore vs `foldAll`. |
+    | "SPA store doesn't reflect a SessionEvent variant / coord and SPA projections disagree (stale channel)" | `feedback_spa_projector_delegates_to_shared_foldevent.md` | re-implementing the event switch in `store/projector.ts` as a hand-mirror of `@roost/shared` foldEvent (drifts — dropped `respawned`) | `foldEventIntoStore` DELEGATES to shared `foldEvent` over the affected map slice, then diffs per-key into the Solid store. No projector switch. Tripwire: `store.test.ts` projection-agreement test drives the REAL rootStore vs `foldAll`. |
     | "terminal disconnects on nav / lost scrollback" | `feedback_persistent_terminal_deck.md` | `<Show when={activeSession()}>{(s) => <Terminal .../>}</Show>` (remount per nav) | `<For each={openSessions()}>` deck + `visibility: visible↔hidden` |
     | "Cannot read properties of null (reading 'X')" inside Solid cleanup | `feedback_no_props_read_in_oncleanup.md` | reading `props.foo.bar` inside `onCleanup(() => …)` (reactive getter mid-cleanNode) | capture `const stableX = props.foo.bar` at component body scope before `onCleanup` |
     | "+ New workspace silent hang on a worker" | `feedback_worker_deploy_macos_repairs.md` | bare `deploy` to a fresh mac | also: chmod +x node-pty spawn-helper, strip `com.apple.provenance`/`quarantine`, `codesign -s -`, drop `{"type":"commonjs"}` into `keeper/`, `--external=node-pty` in build, ship `ROOST_REACHABLE_ADDR` |
@@ -99,9 +101,9 @@ Re-interpret every artifact enumerated in L0-SCOPE through this lens:
     | "sidebar redesign loses every previous fix" | `feedback_no_complete_redesigns.md` | "phase-N: complete sidebar rewrite" | additive commits behind a flag; smoke must still pass after each |
     | "claude/vim rendering torn — chars out of order, wrong positions, ghost rows" | `feedback_no_force_doRender_in_byte_handler.md` | `registerBytesHandler(sid, c => { wterm.write(c); wterm._doRender(); })` (sync render between WS chunks paints half-applied ANSI) | `registerBytesHandler(sid, c => { wterm.write(c); })` — trust wterm's setTimeout(0)+rAF coalescing. Fix smoke harness with longer poll, NOT here. |
     | "scrollback seam torn — duped tail / missing chunk / 'two terminals' between history and live" | `project_seqno_splice_path_a_chosen.md` | new in-band sentinel + retry / timeout / overlay / cache layer to mask the gap (the sb59-sb63 loop) | per-byte seqno on keeper → `getScrollbackSince(lastSeq)` RPC. The byte stream MUST be resumable via a monotonic offset; anything else is a band-aid. Path B (server-side VT parse model) is the documented escape hatch if A regresses. |
-    | "fresh-mount has no scrollback history at all (claude or shell)" | `project_seqno_splice_path_a_chosen.md` | skip `fetchAndApplyScrollback(0)` for alt-screen sessions to dodge a cols-mismatch "mangled flash"; race the fetch against a short timeout and drop scrollback if slow | ALWAYS await `fetchAndApplyScrollback(0)` on mount for both kinds. Mangled flash > no history. If the fetch itself is slow (5–6s), fix the worker-side serialization in `sessionsGetScrollbackSince` — DO NOT trade history for perceived input latency. Author 2026-06-16: "How are you going to fix it in Claude Code? Both of them don't have it." |
+    | "fresh-mount has no scrollback history in a terminal session" | `project_seqno_splice_path_a_chosen.md` | skip `fetchAndApplyScrollback(0)` for alt-screen sessions to dodge a cols-mismatch "mangled flash"; race the fetch against a short timeout and drop scrollback if slow | ALWAYS await `fetchAndApplyScrollback(0)` on mount for every terminal session. Mangled flash > no history. If the fetch itself is slow (5–6s), fix the worker-side serialization in `sessionsGetScrollbackSince` — DO NOT trade history for perceived input latency. Author 2026-06-16: "How are you going to fix it in Claude Code? Both of them don't have it." |
     | "terminal history inconsistent / shorter after refresh / mixed-width reorder / 'every width change fucks up the order'" | `project_scrollback_raw_ring_single_source.md` (SUPERSEDED by OPT2) | serve the raw `rec.scrollback` ring on fresh/gap → the SPA reflows bytes produced at MANY past widths to the CURRENT width → rows reorder + mangle. (This WAS the 2026-06-20 "raw ring = single source of truth" fix; correct only while serialize was lossy ~1k stock WASM.) | **OPT2 server-side-grid model (2026-06-21, REVERSES raw-ring-single-source).** `apps/worker/src/session-manager.ts::getScrollbackSince` serves `serializeWTerm(rec.wtermCore)` for fresh (`lastSeq<=0`) AND gap (`lastSeq<tailSeq`) for ALL sessions, shells included. wtermCore is the ONE authoritative grid — rebuilt-from-ring at the SCD width on every resize (OPT2-1), 10k-deep via roost-wasm (OPT2-2) so serialize is non-lossy + ONE consistent width; the SPA is SCD-pinned and writes it 1:1, NO client reflow → no reorder. The raw ring stays the rebuild SOURCE + the live-delta transport (bytes since `lastSeq`), NOT the served fresh/gap history. Do NOT revert to raw-ring fresh/gap serving. |
-    | "after worker restart claude session shows wallpaper of stale text + overlapping/parallel lines" | `project_scrollback_raw_ring_single_source.md` | `resume()` rebuilds an empty wtermCore + sets `alt_mode=true`, but `serializeWTerm` reads `core.usingAltScreen()` (false on empty core) → fresh snapshot omits `ESC[?1049h` → live alt redraws land in main-screen | **prime the rebuilt core's alt state** in `resume()` for `kind==="claude"`: `wtermCore.writeRaw(ALT_ENTER_SEQS[0])` after `_createWtermCore` so `core.usingAltScreen()` matches `rec.alt_mode`. NOT a forced SIGWINCH (claude repaints alt but never re-sends `?1049h`). |
+    | "after worker restart an alternate-screen session shows wallpaper of stale text + overlapping/parallel lines" | `project_scrollback_raw_ring_single_source.md` | `resume()` rebuilds an empty wtermCore + records alternate-screen state, but `serializeWTerm` reads `core.usingAltScreen()` (false on an empty core) → fresh snapshot omits `ESC[?1049h` → live alt redraws land in main-screen | **prime the rebuilt core's alt state** in `resume()` whenever the retained session state says it was using the alternate screen: `wtermCore.writeRaw(ALT_ENTER_SEQS[0])` after `_createWtermCore` so `core.usingAltScreen()` matches the retained state. NOT a forced SIGWINCH (TUIs repaint alt but do not necessarily re-send `?1049h`). |
     | "resizing terminal HEIGHT (shrink then restore) repeatedly skews/drifts the rows; content creeps into scrollback" | `project_scrollback_raw_ring_single_source.md` | SCD effect (`Terminal.tsx` ~1151) skips the refetch on rows-only changes ("rows-delta is lossless") — but @wterm/core row resize is ASYMMETRIC: shrink pushes lines to scrollback, grow appends blanks (never pulls back) → oscillation accumulates (`getScrollbackCount` 99→132→165→203) | **refetch on ANY size change** (cols OR rows): remove the `colsChanged &&` guard so every resize re-derives the grid from the raw ring via `fetchAndApplyScrollback(0)` (clears incl. `\x1b[3J`, rewrites at new size). Debounced to resize-settle. DO NOT patch the WASM core. |
     | "history GONE after worker restart + browser refresh; pane freezes / seq-epoch reset / 'new browser fixes it'" | `project_scrollback_raw_ring_single_source.md` | `resume()` rebuilds `scrollback:new Uint8Array(0), head_seq:0` because the keeper retained NO per-channel history → SPA's persisted lastSeq goes stale-high → seq-epoch reset, history unrecoverable | **keeper retains a per-channel `outRing`+`headSeq`** (`multiplexed-main.ts`, advanced in the same callback that broadcasts so it matches the worker count); `GetHistory`/`GetHistoryResp` frames (additive, NO version bump → won't trip killStaleKeeper); `resume()` re-reads via `pool.getHistory()` and seeds `scrollback`+`head_seq`. Pre-RC2 keeper → 3s timeout → graceful fallback. Activates only on keeper REPLACEMENT (reboot), not a plain worker kickstart. Test: `keeper-history-resume.test.ts`. |
     | "no scroll bar / mouse wheel does nothing in terminal / can't scroll up to see history" | n/a — verified empirically against wterm 0.3.0 + roost-wasm | switch to alternative terminal cores / upstream wterm-core / patch the WASM "because getScrollbackCount returned 0 in my synthetic test" | **`.wterm { overflow-y: auto; overflow-x: hidden; }` in `apps/web/src/styles/sidebar.css`.** wterm DOES populate scrollback (roost-wasm raises MAX_SCROLLBACK_LINES to 10k per `phase-pb9b`); the renderer DOES emit `.term-scrollback-row` DOM elements; the only thing missing was the container CSS that lets the rows be scrolled. If a test shows `getScrollbackCount()===0`, the wterm renderer's `_doRender()` hasn't fired yet (rAF doesn't fire in background tabs) — force it via `wterm.renderer.render(wterm.bridge)` before checking. DO NOT switch terminal cores; the bug is one CSS rule. |
@@ -155,9 +157,19 @@ git history on `n6/solid-rewrite` if you need v1 source for reference.
 |---|---|---|---|---|
 | **Web SPA** | `apps/web/` | Solid 1.x + plain Vite + `@solidjs/router` 0.16 + `@wterm/dom` + `@connectrpc/connect-web` | sidebar + wterm-rendered terminal pane; single Solid `createStore` root + selectors; URL-driven nav state | Vite dev :5174; static build at `apps/web/dist/` served by coord |
 | **Coord** | `apps/coord/` | Bun.serve native fetch + Connect-RPC + Kysely + `bun:sqlite` | Connect routes under `/roost.v1.CoordinatorService/*` + raw-WS worker transport `/ws/coord-worker/:fp` (was Connect bidi WorkerService.Attach — swapped: Bun can't hold a Connect bidi, see L11); EdDSA JWT auth via interceptor; append-only `events` table + `sessions` projection; `createCoord(deps)` factory portable to any fetch-capable runtime | :4102 |
-| **Worker** | `apps/worker/` | Bun + single multiplexed Bun keeper subprocess (Bun.spawn `terminal:` PTY) + Claude hooks + `detect/` screen-scrape + `@connectrpc/connect-node` | outbound raw WebSocket to coord (CoordLink → `/ws/coord-worker/:fp`, proto frames over WS); FSM per channel; SessionEvents stream via CoordWorkerUp.event. One keeper process per worker hosts all PTYs over one UDS. | — |
+| **Worker** | `apps/worker/` | Bun + single multiplexed Bun keeper subprocess (`Bun.spawn` `terminal:` PTY) + `@connectrpc/connect-node` | outbound raw WebSocket to coord (CoordLink → `/ws/coord-worker/:fp`, proto frames over WS); FSM per channel; SessionEvents stream via CoordWorkerUp.event. One keeper process per worker hosts all PTYs over one UDS. | — |
 | **Shared** | `apps/shared/` | Zod schemas + protobuf gen + branded TS types + config + trace + log | single source of truth for wire shapes; protos in `proto/roost/v1/`; gen TS at `src/gen/roost/v1/`; both Zod (in-app) and proto (wire) shapes coexist with adapters | — |
 | **CLI** | `apps/roost-cli/` | Bun TS | `roost dev/test/deploy/logs/reset/state/cutover` — replaces 7+ legacy shell scripts | — |
+
+**Terminal-only boundary:** every live session is a shell PTY. Launcher
+configuration may type a command such as `omp`, Claude Code, or Codex into that
+shell, but Roost only transports terminal input, output, and session state.
+There is no structured agent/session API, HTML transcript, approval UI,
+headless agent child, or Roost-managed OMP dependency.
+`apps/coord/src/agent-config.ts` (`AgentConfig`) and
+`apps/web/src/lib/agents.ts` are terminal launcher configuration: they resolve a
+command string and type it into the shell PTY. Their `agent` terminology does
+not define a session kind or structured integration; keep them.
 
 **Transport story** (Connect-RPC + protobuf, single framework end-to-end):
 - **Web ↔ Coord**:
@@ -379,9 +391,8 @@ lsof -iTCP -sTCP:LISTEN -P -n | grep bun
 - **Entry:** `src/main.tsx` mounts `<App>` into `#app`. No SolidStart,
   no Vinxi — plain Vite + `@solidjs/router`.
 - **Routing:** declarative table in `src/routes.ts` driven by
-  `@solidjs/router`. URL is source of truth for nav state (R0.18):
-  `/w/:workspaceId/t/:channelId` / `/swarm` / `/queue` / `/inbox` /
-  `/settings/:pane` / `/help` / `/file/:workerFp/*path` / `/search`.
+  `@solidjs/router`. URL is the source of truth for workspace, terminal,
+  settings, help, file-viewer, and search navigation.
 - **State:** single Solid `createStore<RootState>` root at
   `src/store/root.ts`. Selectors at `src/store/selectors.ts` are derived
   via `createMemo`. **Components subscribe to selectors, never mutate the
@@ -410,12 +421,9 @@ lsof -iTCP -sTCP:LISTEN -P -n | grep bun
   `wterm.onData` → `inputChannel.sendInput(sid, bytes)`. att2a OSC 1337
   inline image parser strips image bytes before writeRaw and renders
   `<img>` overlays.
-- **Sidebar:** `src/components/sidebar/{SidebarRoot,SidebarSearch,
-  SidebarFilterMenu,SidebarEmptyState,AllView,MachineSection,
-  SessionRow,StatusGlyph,NeedsInputChip}.tsx` — all read from
-  the same `store.sessions` Map. Per-URL filtering (`/swarm`, `/queue`,
-  `/inbox`) is computed in selectors over the same root state, NOT in
-  separate view files.
+- **Sidebar:** `src/components/sidebar/` lists machines, workspaces, and shell
+  sessions from the same `store.sessions` Map. Selection and filtering are
+  derived from the URL and the root store, not separate per-view stores.
 - **Settings panes:** `src/components/Settings/{SettingsRoot,
   MachinesPane,PermissionsPane,WebhooksPane,McpPane,MetricsPane,
   AttachmentsPane,AuditLogPane,ThemePane}.tsx`. The "workers" pane is
@@ -510,9 +518,8 @@ lsof -iTCP -sTCP:LISTEN -P -n | grep bun
 - **Entry:** `src/main.ts` — load `WorkerConfig`, ensure ed25519 key,
   redeem bootstrap token (if present) via Connect `authRedeemWorker`,
   register with coord via Connect `workersRegister`, start heartbeat
-  (30s), start CoordLink (raw-WS dial), mount Claude hook UDS
-  listener, start attachment-reaper (24h TTL, 1 GB LRU). NO inbound
-  HTTP/WS surface — workers are purely outbound.
+  (30s), start CoordLink (raw-WS dial), and start attachment-reaper (24h TTL,
+  1 GB LRU). NO inbound HTTP/WS surface — workers are purely outbound.
 - **Config:** `src/config.ts` — load from `~/Library/Application
   Support/RoostWorkerV2/config.toml` or env override. Bootstrap token is
   one-shot (cleared after first redeem).
@@ -533,13 +540,12 @@ lsof -iTCP -sTCP:LISTEN -P -n | grep bun
   via `vm_stat`/`sysctl`/`df`); `coordClient.workersHeartbeat(...)`.
 - **SessionManager:** `src/session-manager.ts` — owns `SessionId →
   SessionRecord` map (fsm, wtermCore, scrollback ring, etc.).
-  spawnShell / spawnClaude / kill / input / resize / resizeWtermCoreOnly /
+  spawnShell / kill / input / resize / resizeWtermCoreOnly /
   getScrollbackSince. The multiplexed keeper is the ONLY mode — the
   legacy per-session keeper + `ROOST_KEEPER_MODE` switch were retired.
-- **FSM:** `src/fsm.ts` — hand-rolled 6-state channel FSM (spawned →
-  attached → agent-running → agent-needs-input → agent-idle → closed).
-  Transitions emit `SessionEvent`s that flow upstream via CoordLink as
-  `CoordWorkerUp.event` frames.
+- **FSM:** `src/fsm.ts` owns channel lifecycle. Transitions emit
+  `SessionEvent`s that flow upstream via CoordLink as `CoordWorkerUp.event`
+  frames.
 - **Keeper subprocess:** `src/keeper/` (multiplexed-only):
   - `multiplexed-main.ts` — single keeper process per worker, one UDS,
     hosts N PTYs. Runs on Bun (not Node) — Bun 1.3 ships native PTY via
@@ -559,11 +565,10 @@ lsof -iTCP -sTCP:LISTEN -P -n | grep bun
 - **Attachment reaper:** `src/attachment-reaper.ts` — 1h sweep of
   `~/.roost/attachments/<sid>/`: deletes files >24h old, enforces 1 GB
   LRU cap, removes empty session dirs.
-- **Agent integration:** generic structured state. `AgentState` is carried by
-  `agent` SessionEvents for integrations that provide it; ordinary shells retain
-  `agent: null`. `session.agent !== null` is the only generic agent-session
-  predicate. Roost does not screen-scrape terminal output or maintain
-  Claude-specific hook state; the terminal remains the interactive surface.
+- **Agent CLIs:** terminal launcher configuration may type a command into a
+  newly created shell, but the worker does not interpret agent output or expose
+  agent lifecycle, transcript, tool, or approval state. The PTY terminal is the
+  only interactive surface.
 - **Snapshot:** `src/snapshot.ts` — emit `snapshot` SessionEvent on
   coord reconnect (R3.1 reconciliation).
 - **Run / dev:** `bun apps/worker/src/main.ts`.
@@ -577,21 +582,17 @@ lsof -iTCP -sTCP:LISTEN -P -n | grep bun
   worker_transport}.proto`. `buf.yaml` + `buf.gen.yaml` drive
   `protoc-gen-es` codegen via `npm run proto:gen` (alias for `buf
   generate`). Generated TS lands at `src/gen/roost/v1/*_pb.ts`.
-- **In-app Zod schemas:** `src/wire/` — `Worker`, `Session`, `AgentState`,
-  `SessionEvent` (with snapshot variant), `ClientControlFrame`,
-  `Workspace`, `Task`, `WebhookToken`,
-  `PermissionRule`, `McpRelay`. Branded identity types via `z.brand()`.
-  Adapters between Zod and proto in `src/wire/event-proto.ts`
-  (`eventToProto` / `protoToEvent` — covers all SessionEvent variants:
-  opened / closed / attached / detached / cwd / workspace_assigned /
-  agent / snapshot). The `JsonEvent` fallback path was retired in
-  PR-7g; do NOT reintroduce it. Add new variants by extending the
-  proto + Zod schema + the adapter in one pass.
+- **In-app Zod schemas:** `src/wire/` — `Worker`, `Session`, `SessionEvent`
+  (with snapshot variant), `ClientControlFrame`, `Workspace`, `Task`,
+  `WebhookToken`, `PermissionRule`, `McpRelay`. Branded identity types via
+  `z.brand()`. Adapters between Zod and proto in `src/wire/event-proto.ts`
+  (`eventToProto` / `protoToEvent`) cover the terminal session event variants.
+  The `JsonEvent` fallback path was retired in PR-7g; do NOT reintroduce it.
+  Add new variants by extending the proto + Zod schema + adapter in one pass.
 - **Event fold:** `src/wire/event.ts::foldEvent` + `foldAll` — pure
   function consumed by BOTH coord projector AND web client projector.
-  Determinism tested at `tests/foldEvent.equivalence.test.ts`. Round-trip
-  proto adapters tested at `tests/event-proto.test.ts` (fast-check, 6
-  variants).
+  Determinism is tested at `tests/foldEvent.equivalence.test.ts`; proto
+  round-trips are tested at `tests/event-proto.test.ts`.
 - **Config:** `src/config.ts` — `CoordConfig` + `WorkerConfig` Zod
   schemas + `loadCoordConfig(env)` helper.
 - **Trace ID:** `src/trace.ts` — `newTraceId()`.
@@ -667,22 +668,22 @@ output seriously.
 
 ---
 
-## Testing rule for agent features: real-flow scenario is the floor
+## Testing rule for terminal data-plane features: real flow is the floor
 
-Every feature that touches the producer→wire→consumer chain (worker
-emits `SessionEvent` → coord appends to event log + projects → SPA
-folds via `@roost/shared/foldEvent` → Solid renders a chip / pill /
-row) MUST ship with a real-flow verification that drives real data
-through the real code paths. Synthesized test-hooks coverage but don't
-satisfy this rule on their own.
+Every feature that touches the producer→wire→consumer chain (worker emits a
+`SessionEvent` or terminal frame → coord routes it → SPA folds state or paints
+the grid) MUST ship with real-flow verification through those code paths.
+Synthesized test-hook coverage may supplement, but does not replace, that
+verification.
 
 Playwright is the deterministic isolated browser tier, not production proof.
 Terminal-render changes require both `bun run test:terminal` and the live
-real-Claude humanchrome canary (`/roost-smoke` plus `/roost-render-stress`) on
-the current tailnet coordinator. Data-plane-only changes may use
+humanchrome canary (`/roost-smoke` plus `/roost-render-stress`) on the current
+tailnet coordinator. An agent CLI may be launched inside the PTY as a realistic
+TUI workload, but the assertion surface remains terminal input, output,
+scrollback, and rendering. Data-plane-only changes may use
 `bun run test:live-api`. Resolve the current host via `tailscale status`; do
 not substitute localhost for the live canary. If the feature cannot be
 verified live via humanchrome, it is not done.
 
-See `feedback_real_flow_tests_are_minimum_bar.md` and
-`feedback_no_mock_claude_use_real.md` in memory.
+See `feedback_real_flow_tests_are_minimum_bar.md` in memory.

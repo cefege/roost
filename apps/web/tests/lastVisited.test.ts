@@ -26,7 +26,7 @@ function sess(over: Omit<Partial<Session>, "id"> & { id: string }): Session {
   return {
     worker_fp: FP, channel: asChannelId(1), kind: "shell",
     cwd: "/Users/you/roost", spawn_cwd: "/Users/you/roost",
-    workspace_id: null, status: "open", agent: null,
+    workspace_id: null, status: "open",
     created_at: 1000, closed_at: null, custom_title: null,
     ...rest, id: asSessionId(id),
   } as Session;

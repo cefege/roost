@@ -18,11 +18,8 @@ import { makeWorkspaceHandlers } from "./handlers-workspaces.ts";
 import { makeTaskHandlers } from "./handlers-tasks.ts";
 import { makeWorkerHandlers } from "./handlers-workers.ts";
 import { makeSessionHandlers } from "./handlers-sessions.ts";
-import { makeAgentSessionHandlers } from "./handlers-sessions-agent.ts";
-import { makeAgentUiCommandHandlers } from "./handlers-sessions-agent-ui.ts";
 import { makeStreamingHandlers } from "./handlers-streaming.ts";
 import { makeUiHandlers } from "./handlers-ui.ts";
-import { makePushHandlers } from "./handlers-push.ts";
 import { makeCoordinatorMoveHandlers } from "./handlers-coordinator-move.ts";
 import { _setViewerTrackerDb } from "./viewer-tracker.ts";
 
@@ -74,8 +71,6 @@ export function buildConnectRouter(deps: ConnectDeps): ConnectRouter {
     // Scrollback streams below stay inline (bus-coupled).
     ...makeWorkerHandlers(deps),
     ...makeSessionHandlers(deps),
-    ...makeAgentSessionHandlers(deps),
-    ...makeAgentUiCommandHandlers(deps),
     ...makeWorkspaceHandlers(deps),
     ...makeTaskHandlers(deps),
     ...makeSettingsHandlers(deps),
@@ -85,7 +80,6 @@ export function buildConnectRouter(deps: ConnectDeps): ConnectRouter {
     ...makeAgentConfigHandlers(deps),
     ...makeAttachmentHandlers(deps),
     ...makeUiHandlers(deps),
-    ...makePushHandlers(deps),
     ...makeStreamingHandlers(deps),
     ...makeCoordinatorMoveHandlers(deps),
   });

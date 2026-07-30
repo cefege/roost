@@ -1,16 +1,11 @@
-// Flat-density body for SessionRow — the two-line recency list item (headline +
-// time, subtitle, server·path, activity/question line). Split out of
-// SessionRow.tsx (400-line cap). Presentational: the shared store-derived state
-// (relTime / offline / stage / server) is passed in; the flat-only values
-// (folder headline, subtitle, path, last message) are pure functions of the
-// session, computed here.
+// Flat-density body for SessionRow — the terminal's headline, optional OSC
+// subtitle, server/path, worker-offline state, and viewers.
 
 import { createMemo, Show } from "solid-js";
 import type { Session } from "@roost/shared/wire";
 import { shortCwd } from "../../lib/sidebarFormat.ts";
 import { folderHeadline, programSubtitle } from "../../lib/sessionTitle.ts";
 import { ViewersChip } from "./ViewersChip.tsx";
-import { STAGE_LABEL } from "./SessionRow.constants.ts";
 import { FolderGlyph } from "../FolderGlyph.tsx";
 
 interface SessionRowFlatProps {
@@ -19,8 +14,6 @@ interface SessionRowFlatProps {
   serverOnline: boolean;
   serverLabel: string;
   offline: boolean;
-  stage: string | null;
-  displayStage: string | null;
 }
 
 export function SessionRowFlat(props: SessionRowFlatProps) {
@@ -35,7 +28,7 @@ export function SessionRowFlat(props: SessionRowFlatProps) {
           title={props.session.status === "open" ? "Opened" : "Closed"}
         >{props.relTime}</span>
       </span>
-      {/* Structured program detail; omitted for a fresh terminal. */}
+      {/* Terminal program detail; omitted for a fresh terminal. */}
       <Show when={programSub()}>
         <span
           class="df-flat-subtitle"
@@ -71,30 +64,16 @@ export function SessionRowFlat(props: SessionRowFlatProps) {
           <span class="df-flat-path-text">{shortCwd(props.session.cwd)}</span>
         </span>
       </span>
-      {/* Activity line. A pending OMP approval shows its actionable detail. */}
-      <Show
-        when={!props.offline && props.stage === "needs-input" && programSub()}
-        fallback={
-          <span class="df-flat-activity">
-            <Show when={props.displayStage}>
-              {(stage) => (
-                <span
-                  class="df-stage-text"
-                  data-stage={stage()}
-                  data-testid={`session-stage-${props.session.id}`}
-                >{STAGE_LABEL[stage()] ?? stage()}</span>
-              )}
-            </Show>
-            <ViewersChip sessionId={props.session.id} />
-          </span>
-        }
-      >
-        <span
-          class="df-flat-question"
-          data-testid={`session-question-${props.session.id}`}
-          title={programSub()!}
-        >{programSub()!.slice(0, 140)}</span>
-      </Show>
+      <span class="df-flat-activity">
+        <Show when={props.offline}>
+          <span
+            class="df-stage-text"
+            data-stage="offline"
+            data-testid={`session-offline-${props.session.id}`}
+          >offline</span>
+        </Show>
+        <ViewersChip sessionId={props.session.id} />
+      </span>
     </span>
   );
 }

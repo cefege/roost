@@ -1,5 +1,5 @@
 // `renamed` fold — the sticky custom-title override (cell-grid model).
-// Asserts: rename sets custom_title; auto-title events (cwd/agent) never touch
+// Asserts: rename sets custom_title; auto-title events never touch
 // it; "" clears it; snapshot preserves it across a worker restart.
 
 import { describe, test, expect } from "bun:test";
@@ -49,7 +49,7 @@ describe("renamed fold", () => {
         kind: "snapshot", worker_fp: FP, ts: 3,
         sessions: [{
           id: SID, worker_fp: FP, channel: CH, kind: "shell", cwd: "/repo",
-          workspace_id: null, status: "open", agent: null,
+          workspace_id: null, status: "open",
           created_at: 1, closed_at: null, custom_title: null,
         }],
       },

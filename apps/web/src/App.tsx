@@ -20,15 +20,11 @@ import { VersionBanner } from "./components/VersionBanner.tsx";
 import { WhatsNewDialog } from "./components/WhatsNewDialog.tsx";
 import { QueueTaskDialog } from "./components/QueueTaskDialog.tsx";
 import { ToastContainer } from "./components/ToastContainer.tsx";
-import { AttentionToasts } from "./components/AttentionToasts.tsx";
 import { PairRequestNotifier } from "./components/PairRequestNotifier.tsx";
 import { UndoCloseBanner } from "./components/UndoCloseBanner.tsx";
 import { TransferConsoleHost } from "./components/TransferConsoleHost.tsx";
 import { TransferDialogHost } from "./components/TransferDialog.tsx";
 import { RenameDialogHost } from "./components/RenameDialog.tsx";
-import { NotificationBell } from "./components/NotificationBell.tsx";
-// Side-effect import: activates the document.title unread-counter effect.
-import "./lib/titleBadge.ts";
 import { getLastTerminalPath } from "./lib/lastVisited.ts";
 import { shouldBootRestore, consumeBootRestore } from "./lib/bootRestore.ts";
 import { UiBridge } from "./lib/uiBridge.tsx";
@@ -123,11 +119,9 @@ export function App() {
         <WhatsNewDialog />
         <QueueTaskDialog />
         <ToastContainer />
-        <AttentionToasts />
         <PairRequestNotifier />
         <UndoCloseBanner />
         <TransferDialogHost />
-        <NotificationBell />
         <TransferConsoleHost />
         <RenameDialogHost />
         <TransferStack />

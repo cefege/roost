@@ -153,7 +153,7 @@ describe("phase-24f foldEvent equivalence", () => {
         worker_fp: a,
         sessions: [{
           id: idA1, worker_fp: a, channel: 1 as ChannelId, kind: "shell",
-          cwd: "/", workspace_id: null, status: "open", agent: null,
+          cwd: "/", workspace_id: null, status: "open",
           created_at: 1, closed_at: null, custom_title: null,
         }],
         ts: 4,

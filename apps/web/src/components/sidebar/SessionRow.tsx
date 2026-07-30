@@ -13,8 +13,6 @@ import { activeSessionForPath } from "../../store/selectors.ts";
 import { relTimeSince } from "../../lib/relTime.ts";
 import { shortServerLabel } from "../../lib/sidebarFormat.ts";
 import { sessionTitle } from "../../lib/sessionTitle.ts";
-import { liveStatus } from "../../lib/attention.ts";
-import { StatusGlyph } from "./StatusGlyph.tsx";
 import { ViewersChip } from "./ViewersChip.tsx";
 import { SessionRowContextMenu } from "./SessionRowContextMenu.tsx";
 import { closeSidebar } from "../../store/uiStore.ts";
@@ -22,7 +20,7 @@ import { colorForFp } from "../../lib/fpColor.ts";
 import { IconButton } from "../Settings/md/IconButton.tsx";
 import "@material/web/ripple/ripple.js";
 import { SessionRowFlat } from "./SessionRowFlat.tsx";
-import { ROW_BASE, relTimeTickMs, STAGE_LABEL } from "./SessionRow.constants.ts";
+import { ROW_BASE, relTimeTickMs } from "./SessionRow.constants.ts";
 
 interface SessionRowProps {
   session: Session;
@@ -33,14 +31,13 @@ interface SessionRowProps {
   cursor?: boolean;
 }
 
-export { relTimeTickMs, STAGE_LABEL };
+export { relTimeTickMs };
 
 export function SessionRow(props: SessionRowProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const session = () => props.session;
   const density = () => props.density ?? "full";
-  const ompStatus = createMemo(() => liveStatus(session()));
   // Server (Mac) identity for the flat list — plain text on the supporting
   // line (no color: arbitrary hues read as status). Owner prefix stripped.
   const serverLabel = createMemo(() =>
@@ -51,22 +48,15 @@ export function SessionRow(props: SessionRowProps) {
     const w = rootStore.workers[session().worker_fp];
     return w ? workerOnline(w) : false;
   });
-  // OMP transcript phase drives the flat-list status pill.
-  const stage = createMemo<string | null>(() => ompStatus() ?? null);
-  // An unreachable worker must render offline rather than stale OMP state.
+  // An unreachable worker must render offline.
   const offline = createMemo(() => !serverOnline());
-  const displayStage = createMemo<string | null>(() => (offline() ? "offline" : stage()));
-  // Waiting and idle OMP sessions show elapsed time since their last terminal
-  // activity; active and closed sessions use their lifecycle timestamp.
+  // Terminal activity time for open sessions; lifecycle time for closed ones.
   const relTime = createMemo(() => {
     relTimeTickMs(); // 30s ticker so the label ages while nothing else changes
     const s = session();
-    const st = displayStage();
-    if (s.status === "open" && (st === "needs-input" || st === "idle" || st === "done")) {
-      const waitingSinceMs = rootStore.last_activity[s.id];
-      if (waitingSinceMs) return relTimeSince(waitingSinceMs);
-    }
-    const ts = s.status === "open" ? s.created_at : (s.closed_at ?? s.created_at);
+    const ts = s.status === "open"
+      ? (rootStore.last_activity[s.id] ?? s.created_at)
+      : (s.closed_at ?? s.created_at);
     return relTimeSince(ts);
   });
   // Right-click context menu state.
@@ -163,9 +153,8 @@ export function SessionRow(props: SessionRowProps) {
     closeSidebar();
   }
 
-  // Display name = the shared sessionTitle() (OSC title → tool → command →
-  // last message → cwd / Terminal-N), so the sidebar row and the top TabBar
-  // read identically. See lib/sessionTitle.ts.
+  // Display name = the shared sessionTitle() (OSC title → cwd / shell), so the
+  // sidebar row and the top TabBar read identically. See lib/sessionTitle.ts.
   const title = createMemo(() => sessionTitle(session()));
   // Avatar hue keyed on PROJECT (server + folder) — memoized so the swipe
   // transform re-render doesn't re-run the FNV hash every frame.
@@ -204,7 +193,6 @@ export function SessionRow(props: SessionRowProps) {
       data-session-id={session().id}
       data-worker-fp={session().worker_fp}
       data-status={session().status}
-      data-stage={density() === "flat" ? (displayStage() ?? undefined) : undefined}
       data-selected={isActive() ? "focused" : ""}
       data-cursor={props.cursor ? "on" : undefined}
       data-density={density()}
@@ -233,11 +221,7 @@ export function SessionRow(props: SessionRowProps) {
       title={`${title()} — ${session().cwd} — right-click for actions`}
     >
       <md-ripple />
-      <span class="df-leading">
-        <StatusGlyph
-          status={offline() ? undefined : ompStatus()}
-        />
-      </span>
+      <span class="df-leading" aria-hidden="true">$</span>
       <Show
         when={density() === "flat"}
         fallback={
@@ -256,8 +240,6 @@ export function SessionRow(props: SessionRowProps) {
           serverOnline={serverOnline()}
           serverLabel={serverLabel()}
           offline={offline()}
-          stage={stage()}
-          displayStage={displayStage()}
         />
       </Show>
       <IconButton

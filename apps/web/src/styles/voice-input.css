@@ -25,7 +25,6 @@
    own compositor layer across all mounted sessions and janked the drag. */
 html[data-fab-dragging="true"] .voice-input,
 html[data-fab-dragging="true"] .agent-launch-fab,
-html[data-fab-dragging="true"] .plan-fab,
 html[data-fab-dragging="true"] .attach-file-fab,
 html[data-fab-dragging="true"] .term-nav-toggle,
 html[data-fab-dragging="true"] .term-chat,
@@ -34,10 +33,10 @@ html[data-fab-dragging="true"] .term-nav {
 }
 
 /* ── container: fixed bottom-right, safe-area aware ── */
-/* z 55: above the z-50 side FABs (plan / agent-launch / attach) so the discard
-   ✕ — which shares the plan/agent-launch slot — can never be covered while
-   recording, even if a gate is missed or during a transition frame. Still
-   below the z-60+ modal overlays (command palette, help, mobile deck,
+/* z 55: above the z-50 side FABs (agent-launch / attach) so the discard
+   ✕ can never be covered while recording, even if a gate is missed or
+   during a transition frame. It remains below the z-60+ modal overlays
+   (command palette, help, mobile deck,
    dialogs) so those cover the mic when open. The caption is
    pointer-events:none, so it overlays the term-nav pad (z 40) visually
    without eating taps. */
@@ -112,10 +111,9 @@ html[data-fab-dragging="true"] .term-nav {
 }
 
 /* M3 state layer — same-color overlay at hover/focus/press alphas. Shared
-   by the mic, agent-launch, and plan-mode FABs (identical M3 press anatomy). */
+   by the mic and agent-launch FABs (identical M3 press anatomy). */
 .voice-fab::after,
-.agent-launch-fab::after,
-.plan-fab::after {
+.agent-launch-fab::after {
   content: "";
   position: absolute;
   inset: 0;
@@ -126,24 +124,18 @@ html[data-fab-dragging="true"] .term-nav {
 }
 @media (hover: hover) {
   .voice-fab:hover,
-  .agent-launch-fab:hover,
-  .plan-fab:hover { box-shadow: var(--md-elev-4); }
+  .agent-launch-fab:hover { box-shadow: var(--md-elev-4); }
   .voice-fab:hover::after,
-  .agent-launch-fab:hover::after,
-  .plan-fab:hover::after { opacity: 0.08; }
+  .agent-launch-fab:hover::after { opacity: 0.08; }
 }
 .voice-fab:focus-visible,
-.agent-launch-fab:focus-visible,
-.plan-fab:focus-visible { outline: none; }
+.agent-launch-fab:focus-visible { outline: none; }
 .voice-fab:focus-visible::after,
-.agent-launch-fab:focus-visible::after,
-.plan-fab:focus-visible::after { opacity: 0.12; }
+.agent-launch-fab:focus-visible::after { opacity: 0.12; }
 .voice-fab:active::after,
-.agent-launch-fab:active::after,
-.plan-fab:active::after { opacity: 0.12; }
+.agent-launch-fab:active::after { opacity: 0.12; }
 .voice-fab:active,
-.agent-launch-fab:active,
-.plan-fab:active { transform: scale(0.96); }
+.agent-launch-fab:active { transform: scale(0.96); }
 
 .voice-fab__icon {
   position: relative;
@@ -254,47 +246,6 @@ html[data-fab-dragging="true"] .term-nav {
 .agent-launch-fab__icon svg { height: 26px; width: auto; }
 .agent-launch-fab__mono { font: 700 18px/1 ui-sans-serif, system-ui, sans-serif; color: currentColor; }
 
-/* ── plan-mode shortcut FAB (M3 FAB: 56dp, tertiary-container, elevation 3) ── */
-/* Agent sessions only (CellTerminal.tsx Show gate on liveStatus==="idle"
-   && not voice-recording). Shares the agent-launch FAB's fixed slot (mutually
-   exclusive: agent-launch is shells-only at a shell prompt; hidden during
-   voice recording so it doesn't cover the discard ✕). Same M3 container +
-   state-layer + press anatomy; state-layer selectors grouped with
-   .voice-fab/.agent-launch-fab above. Renders "/plan" as text (not an icon)
-   for clarity. Types "/plan" + CR into the PTY to enter plan mode. */
-.plan-fab {
-  position: fixed;
-  right: calc(env(safe-area-inset-right, 0px) + 16px + 56px + 12px);
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
-  translate: 0 calc(-1 * var(--roost-fab-dy, 0px));
-  z-index: 50;
-  width: 56px;
-  height: 56px;
-  border-radius: var(--md-shape-lg);
-  border: none;
-  cursor: pointer;
-  pointer-events: auto;
-  touch-action: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  background: var(--md-sys-color-tertiary-container);
-  color: var(--md-sys-color-on-tertiary-container);
-  box-shadow: var(--md-elev-3);
-  transition:
-    background-color 200ms var(--md-ease-emphasized),
-    box-shadow 200ms var(--md-ease-emphasized),
-    transform 120ms var(--md-ease-standard);
-  -webkit-tap-highlight-color: transparent;
-}
-.plan-fab__label {
-  position: relative;
-  z-index: 1;
-  font: 700 18px/1 ui-sans-serif, system-ui, sans-serif;
-  letter-spacing: -0.3px;
-  user-select: none;
-}
 
 /* ── attach-file FAB (M3 FAB: 56dp, secondary-container, elevation 3) ── */
 /* Always shown. Two mic-widths LEFT of the mic FAB (left of agent-launch)

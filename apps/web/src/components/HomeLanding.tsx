@@ -8,7 +8,6 @@ import { openSidebar } from "../store/uiStore.ts";
 import { isCompact } from "../lib/windowSizeClass.ts";
 import { BrandMark } from "./BrandMark.tsx";
 import { FlatNewTerminal } from "./sidebar/FlatNewTerminal.tsx";
-import { NotificationBellTrigger } from "./NotificationBell.tsx";
 
 export function HomeLanding() {
   return (
@@ -21,9 +20,6 @@ export function HomeLanding() {
         </Show>
         <BrandMark size={28} />
         <span class="home-landing-mark">Roost</span>
-        <Show when={isCompact()}>
-          <NotificationBellTrigger style={{ "flex-shrink": 0 }} />
-        </Show>
         <FlatNewTerminal />
       </div>
 

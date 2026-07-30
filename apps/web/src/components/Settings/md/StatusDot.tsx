@@ -7,8 +7,6 @@ const STATUS_DOT_TOKEN: Record<string, string> = {
   ok: "--status-ok",
   done: "--status-ok",
   running: "--md-primary",
-  "running-workflow": "--md-primary",
-  "needs-input": "--status-warn",
   idle: "--text-lo",
   offline: "--text-lo",
   error: "--status-err",

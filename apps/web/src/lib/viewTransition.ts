@@ -14,10 +14,6 @@
 
 type StartViewTransition = (cb: () => void) => unknown;
 
-export function supportsViewTransitions(): boolean {
-  return typeof (document as Document & { startViewTransition?: StartViewTransition })
-    .startViewTransition === "function";
-}
 
 export function withViewTransition(mutate: () => void): void {
   const sv = (document as Document & { startViewTransition?: StartViewTransition })

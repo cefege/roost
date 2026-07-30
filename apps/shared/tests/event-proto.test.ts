@@ -64,95 +64,6 @@ describe("eventToProto round-trip", () => {
     }));
   });
 
-  it("agent — sparse patches round-trip per-field (kind is redundant; projector re-asserts it)", () => {
-    fc.assert(fc.property(sidArb, tsArb, (sid, ts) => {
-      const patch = { status: "running" as const, mode: "default" as const };
-      const e = SessionEvent.parse({ kind: "agent", session_id: sid, patch, ts });
-      const back = protoToEvent(eventToProto(e, 1)!) as any;
-      expect(back.patch.status).toBe("running");
-      expect(back.patch.mode).toBe("default");
-      expect(back.session_id).toBe(sid);
-      expect(back.ts).toBe(ts);
-    }));
-  });
-
-  it("agent — current_tool:null clear survives round-trip", () => {
-    const sid = asSessionId("00000000-0000-4000-8000-000000000001");
-    const e = SessionEvent.parse({
-      kind: "agent", session_id: sid,
-      patch: { kind: "agent", current_tool: null }, ts: 1,
-    });
-    const back = protoToEvent(eventToProto(e, 1)!) as any;
-    expect(back.patch.current_tool).toBeNull();
-  });
-
-  it("agent — current_tool:{value} set survives round-trip", () => {
-    const sid = asSessionId("00000000-0000-4000-8000-000000000002");
-    const e = SessionEvent.parse({
-      kind: "agent", session_id: sid,
-      patch: { kind: "agent", current_tool: { name: "Read", input_summary: "/etc/hosts" } }, ts: 1,
-    });
-    const back = protoToEvent(eventToProto(e, 1)!) as any;
-    expect(back.patch.current_tool).toEqual({ name: "Read", input_summary: "/etc/hosts" });
-  });
-
-  it("agent — absent current_tool stays absent (not cleared)", () => {
-    const sid = asSessionId("00000000-0000-4000-8000-000000000003");
-    const e = SessionEvent.parse({
-      kind: "agent", session_id: sid,
-      patch: { kind: "agent", status: "running" }, ts: 1,
-    });
-    const back = protoToEvent(eventToProto(e, 1)!) as any;
-    expect("current_tool" in back.patch).toBe(false);
-  });
-
-  it("agent — last_message:null clear survives round-trip (D-2)", () => {
-    const sid = asSessionId("00000000-0000-4000-8000-000000000020");
-    const e = SessionEvent.parse({
-      kind: "agent", session_id: sid,
-      patch: { kind: "agent", last_message: null }, ts: 1,
-    });
-    const back = protoToEvent(eventToProto(e, 1)!) as any;
-    expect(back.patch.last_message).toBeNull();
-  });
-
-  it("agent — current_block:null clear survives round-trip (D-2)", () => {
-    const sid = asSessionId("00000000-0000-4000-8000-000000000021");
-    const e = SessionEvent.parse({
-      kind: "agent", session_id: sid,
-      patch: { kind: "agent", current_block: null }, ts: 1,
-    });
-    const back = protoToEvent(eventToProto(e, 1)!) as any;
-    expect(back.patch.current_block).toBeNull();
-  });
-
-  it("agent — permission_request:null clear survives round-trip (D-2)", () => {
-    const sid = asSessionId("00000000-0000-4000-8000-000000000022");
-    const e = SessionEvent.parse({
-      kind: "agent", session_id: sid,
-      patch: { kind: "agent", permission_request: null }, ts: 1,
-    });
-    const back = protoToEvent(eventToProto(e, 1)!) as any;
-    expect(back.patch.permission_request).toBeNull();
-  });
-
-  it("agent — multi-field patch with tokens + last_message + cost", () => {
-    const sid = asSessionId("00000000-0000-4000-8000-000000000004");
-    const e = SessionEvent.parse({
-      kind: "agent", session_id: sid,
-      patch: {
-        kind: "agent", status: "idle", cost_usd: 0.42,
-        tokens: { in: 1000, out: 500, cached: 200 },
-        last_message: { role: "assistant", text: "done", ts: 1781500000 },
-      },
-      ts: 1,
-    });
-    const back = protoToEvent(eventToProto(e, 1)!) as any;
-    expect(back.patch.status).toBe("idle");
-    expect(back.patch.cost_usd).toBe(0.42);
-    expect(back.patch.tokens).toEqual({ in: 1000, out: 500, cached: 200 });
-    expect(back.patch.last_message).toEqual({ role: "assistant", text: "done", ts: 1781500000 });
-  });
 
   it("snapshot — empty sessions array round-trips", () => {
     fc.assert(fc.property(wfpArb, tsArb, (wfp, ts) => {
@@ -182,7 +93,6 @@ describe("eventToProto round-trip", () => {
         cwd: "/home/x",
         workspace_id: null,
         status: "open" as const,
-        agent: null,
         created_at: 1781500000,
         closed_at: null,
         custom_title: null,
@@ -195,13 +105,6 @@ describe("eventToProto round-trip", () => {
         cwd: "/home/y",
         workspace_id: asWorkspaceId("00000000-0000-4000-8000-000000000100"),
         status: "open" as const,
-        agent: {
-          kind: "agent" as const, mode: "default" as const, model: "adapter", status: "running" as const,
-          tokens: { in: 12, out: 7, cached: 3 }, cost_usd: 0.05,
-          last_message: { role: "assistant" as const, text: "hi", ts: 1781500001 },
-          current_tool: { name: "Read", input_summary: "/etc/hosts" },
-          current_block: null, permission_request: null, sub_agents: [],
-        },
         created_at: 1781500002,
         closed_at: null,
         custom_title: null,

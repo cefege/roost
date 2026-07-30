@@ -12,7 +12,6 @@ import { rootStore } from "../../store/root.ts";
 import { activeSessionForPath } from "../../store/selectors.ts";
 import { openSidebar } from "../../store/uiStore.ts";
 import { IconButton } from "../Settings/md/primitives.tsx";
-import { NotificationBellTrigger } from "../NotificationBell.tsx";
 
 function leafDir(cwd: string): string {
   const parts = cwd.split("/").filter(Boolean);
@@ -73,7 +72,6 @@ export function MobileTopBar() {
       >
         {title()}
       </span>
-      <NotificationBellTrigger style={{ "flex-shrink": 0 }} />
     </header>
   );
 }

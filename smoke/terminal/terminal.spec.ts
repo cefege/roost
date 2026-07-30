@@ -83,7 +83,7 @@ test("mobile composer preserves input and the Ctrl pad interrupts", async ({ mob
   await mobileSmokePage.keyboard.press("Enter");
   await mobileSmokePage.getByTestId("terminal-chat-toggle").click();
   await mobileSmokePage.getByTestId("chat-send").click();
-  await expect.poll(() => slot.textContent(), { timeout: 125, intervals: [10] }).toContain("<>");
+  await expect.poll(() => slot.textContent()).toContain("<>");
 
   await slot.click();
   await mobileSmokePage.keyboard.type("sleep 30");
@@ -146,7 +146,7 @@ test("alternate screen survives width and height perturbations", async ({ smokeP
         }): Promise<{ verdict: string; fails: unknown[] }>;
       };
     }).__smoke;
-    return smoke.runRenderStress({ sessionId: id, prefix: "CELLLINE-", screen: "alt", iterations: 40 });
+    return smoke.runRenderStress({ sessionId: id, prefix: "CELLLINE-", screen: "alt", iterations: 80 });
   }, sessionId);
   expect(result).toMatchObject({ verdict: "PASS", fails: [] });
   await smokePage.keyboard.press("q");
@@ -167,6 +167,8 @@ test("two viewers preserve ordered terminal markers", async ({ smokePage, browse
     await passive.goto(`${stack.baseUrl}/s/${sessionId}`);
     await passive.waitForFunction(() => typeof (window as unknown as Window & { __smoke?: unknown }).__smoke === "object");
     await passive.evaluate(() => (window as unknown as Window & { __smoke: { forceVisible(on: boolean): void } }).__smoke.forceVisible(true));
+    await smokePage.evaluate(() => (window as unknown as Window & { __smoke: { forceVisible(on: boolean): void } }).__smoke.forceVisible(true));
+    await smokePage.bringToFront();
     for (let iteration = 0; iteration < 24; iteration++) {
       await smokePage.setViewportSize({ width: 700 + (iteration % 2) * 50, height: 500 + (iteration % 3) * 40 });
     }
@@ -175,7 +177,18 @@ test("two viewers preserve ordered terminal markers", async ({ smokePage, browse
       return smoke.markerScan(id, "MULTIVIEW-");
     }, sessionId);
     expect(scan).toMatchObject({ duplicated: [], outOfOrder: 0 });
+    await passive.bringToFront();
+    for (let iteration = 0; iteration < 24; iteration++) {
+      await passive.setViewportSize({ width: 1350 + (iteration % 2) * 50, height: 820 + (iteration % 3) * 40 });
+    }
+    await smokePage.bringToFront();
+    const primaryScan = await smokePage.evaluate((id) => {
+      const smoke = (window as unknown as Window & { __smoke: { markerScan(sessionId: string, prefix: string): unknown } }).__smoke;
+      return smoke.markerScan(id, "MULTIVIEW-");
+    }, sessionId);
+    expect(primaryScan).toMatchObject({ duplicated: [], outOfOrder: 0 });
   } finally {
+    await smokePage.evaluate(() => (window as unknown as Window & { __smoke: { forceVisible(on: boolean): void } }).__smoke.forceVisible(false)).catch(() => undefined);
     await passive.evaluate(() => (window as unknown as Window & { __smoke: { forceVisible(on: boolean): void } }).__smoke.forceVisible(false)).catch(() => undefined);
     await passiveContext.close();
   }

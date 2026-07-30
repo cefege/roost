@@ -54,12 +54,9 @@ export function createCoord(deps: CoordDeps): CoordHandle {
   const connectRouter = buildConnectRouter(deps);
   const connectHandler = makeConnectBunHandler(connectRouter);
 
-  // Agent-status detection runs on the worker: it scrapes each session's
-  // terminal grid, emits WAgentStatus, and the coordinator relays that
-  // volatile projection to the Sync firehose.
-  // Coord-authoritative OSC terminal title: parse it off the same relayed byte
-  // stream, broadcast changes via Sync (mirrors the status hub; no headless
-  // grid needed). Replaces the dead per-browser onTitle path.
+  // Coord-authoritative OSC terminal title: parse it off the relayed byte
+  // stream and broadcast changes via Sync. Replaces the dead per-browser
+  // onTitle path without requiring a headless grid.
   const stopTerminalTitleHub = startTerminalTitleHub();
   // Coord-authoritative last-activity timestamp: stamp it off the same relayed
   // byte stream (throttled), broadcast via Sync. Drives the sidebar "Last

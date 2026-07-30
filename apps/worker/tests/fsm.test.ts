@@ -19,10 +19,6 @@ function makeCollector(): { events: Array<{ from: ChannelState; to: ChannelState
 const ALL_EVENTS: FsmEvent[] = [
   { kind: "attach" },
   { kind: "detach" },
-  { kind: "agent-started" },
-  { kind: "agent-running" },
-  { kind: "agent-needs-input" },
-  { kind: "agent-idle" },
   { kind: "close", exitCode: 0 },
 ];
 
@@ -31,10 +27,6 @@ const eventArb = fc.array(
   fc.oneof(
     fc.constant<FsmEvent>({ kind: "attach" }),
     fc.constant<FsmEvent>({ kind: "detach" }),
-    fc.constant<FsmEvent>({ kind: "agent-started" }),
-    fc.constant<FsmEvent>({ kind: "agent-running" }),
-    fc.constant<FsmEvent>({ kind: "agent-needs-input" }),
-    fc.constant<FsmEvent>({ kind: "agent-idle" }),
     fc.constant<FsmEvent>({ kind: "close", exitCode: 0 }),
   ),
   { minLength: 1, maxLength: 20 },
@@ -76,26 +68,21 @@ describe("FsmChannel", () => {
     expect(fsm.state).toBe("closed");
   });
 
-  test("full lifecycle: spawned → attached → agent-running → agent-idle → closed", () => {
+  test("full lifecycle: spawned → attached → spawned → attached → closed", () => {
     const { fsm, events } = makeCollector();
     fsm.send({ kind: "attach" });
-    fsm.send({ kind: "agent-started" });
-    fsm.send({ kind: "agent-running" });
-    fsm.send({ kind: "agent-needs-input" });
-    fsm.send({ kind: "agent-idle" });
+    fsm.send({ kind: "detach" });
+    fsm.send({ kind: "attach" });
     fsm.send({ kind: "close", exitCode: 0 });
     expect(fsm.state).toBe("closed");
-    const closedEvents = events.filter((e) => e.to === "closed");
-    expect(closedEvents.length).toBe(1);
+    expect(events.filter((e) => e.to === "closed")).toHaveLength(1);
   });
 
-  test("cannot transition from attached → spawned via unknown event", () => {
+  test("detach from spawned is rejected", () => {
     const { fsm } = makeCollector();
-    fsm.send({ kind: "attach" });
-    // "agent-started" is valid; "agent-needs-input" from spawned is not valid from spawned
-    const r = fsm.send({ kind: "close", exitCode: 0 });
-    expect(r.ok).toBe(true);
-    expect(fsm.state).toBe("closed");
+    const r = fsm.send({ kind: "detach" });
+    expect(r.ok).toBe(false);
+    expect(fsm.state).toBe("spawned");
   });
 });
 
@@ -127,16 +114,14 @@ describe("FsmChannel properties", () => {
     }), { numRuns: 200 });
   });
 
-  test("P3: attach must occur before agent states become reachable from attached", () => {
+  test("P3: attached is reachable only through attach", () => {
     fc.assert(fc.property(eventArb, (events) => {
-      const { fsm } = makeCollector();
+      const { fsm, events: emitted } = makeCollector();
       for (const e of events) fsm.send(e);
-      // If we're in an agent state, hasEverAttached must be true.
-      const agentStates: ChannelState[] = ["agent-running", "agent-needs-input", "agent-idle"];
-      if (agentStates.includes(fsm.state) && !fsm.hasEverAttached) {
-        return false; // violated: agent state without prior attach
-      }
-      return true;
+      if (fsm.state !== "attached") return true;
+      return emitted.some((transition) =>
+        transition.event.kind === "attach" && transition.to === "attached"
+      );
     }), { numRuns: 200 });
   });
 });

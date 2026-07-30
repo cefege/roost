@@ -23,11 +23,7 @@ import { _sha8, SCROLLBACK_CAP_BYTES, MODE_CARRY_MAX } from "./session-constants
  *  Map lookup; -1 if the channel is unknown (session killed). */
 export function appendScrollback(this: SessionManager, channelId: number, chunk: Buffer): number {
 	const rec = this.sessions.get(channelId);
-	// Agent sessions have no keeper channel and no byte ring, so a PTY byte can
-	// never belong to one; the narrow is also what proves the terminal fields
-	// below exist. Live shell sessions own a terminal core — retain that narrow
-	// for teardown races and sparse test fixtures.
-	if (!rec || rec.kind !== "shell") return -1;
+	if (!rec) return -1;
 	const core = rec.wtermCore;
 	if (!core) return -1;
 	const next = new Uint8Array(rec.scrollback.length + chunk.length);

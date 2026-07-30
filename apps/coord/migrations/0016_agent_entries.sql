@@ -1,6 +1,5 @@
--- agent_entries: durable agent-session transcript, one row per (session, seq).
--- Upserted on the coord relay path; the worker's ring is now only a live
--- coalescer. Paged newest-first by SessionsGetAgentEntries.
+-- Historical structured-session transcript rows. The terminal-only runtime
+-- keeps this table inert but intact so existing user history stays recoverable.
 CREATE TABLE IF NOT EXISTS agent_entries (
   session_id TEXT    NOT NULL,
   seq        INTEGER NOT NULL,

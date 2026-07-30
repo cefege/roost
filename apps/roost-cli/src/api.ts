@@ -116,7 +116,7 @@ function strFlag(args: string[], name: string): string | undefined {
 }
 
 // JSON.stringify replacer: bigint → string (proto uint64 fields), and drop
-// connect-es's internal `$typeName` so agent/event dumps stay readable.
+// connect-es's internal `$typeName` so wire/event dumps stay readable.
 function jsonReplacer(k: string, v: unknown): unknown {
   if (k === "$typeName") return undefined;
   return typeof v === "bigint" ? v.toString() : v;
@@ -169,7 +169,7 @@ async function resolveWorkerFp(c: CoordClient, arg: string): Promise<string> {
 export async function api(args: string[]): Promise<void> {
   const [verb, ...rest] = args;
   if (!verb) {
-    console.error("roost api <verb>: sessions | cat | cells | input | message | rename | assign | attach | spawn | kill | workers | worker-rename | worker-rm | workspaces | ws-create | ws-update | ws-delete | ws-set-sessions | tasks | task-enqueue | task-cancel | ui | ui-state | agent | events | watch");
+    console.error("roost api <verb>: sessions | cat | cells | input | rename | assign | attach | spawn | kill | workers | worker-rename | worker-rm | workspaces | ws-create | ws-update | ws-delete | ws-set-sessions | tasks | task-enqueue | task-cancel | ui | ui-state | events | watch");
     process.exit(1);
   }
 
@@ -216,9 +216,8 @@ async function dispatch(c: CoordClient, verb: string, rest: string[]): Promise<v
     case "sessions": {
       const { sessions } = await c.sessionsList({ status: "all" });
       for (const s of sessions) {
-        const agent = s.agent ? `${s.agent.status}${s.agent.stale ? "(stale)" : ""}` : "-";
         const title = s.customTitle || "";
-        console.log([s.id, s.workerFp, s.kind, agent, s.cwd, title].join("\t"));
+        console.log([s.id, s.workerFp, s.kind, s.cwd, title].join("\t"));
       }
       break;
     }
@@ -325,23 +324,10 @@ async function dispatch(c: CoordClient, verb: string, rest: string[]): Promise<v
       console.log(String(r.accepted));
       break;
     }
-    case "agent": {
-      // Full AgentState for one session (status/model/tokens/cost/currentTool/
-      // permissionRequest/subAgents/stale) — sessionsList already carries it;
-      // the `sessions` verb only prints .status. Debugs the agent-detection class.
-      const sid = requireArg(rest[0], "sessionId");
-      const { sessions } = await c.sessionsList({ status: "all" });
-      const s = sessions.find((x) => x.id === sid);
-      if (!s) { console.error(`roost api: no session ${sid}`); process.exit(1); }
-      if (!s.agent) { console.log("no agent (shell session, or agent not started)"); break; }
-      console.log(JSON.stringify(s.agent, jsonReplacer, 2));
-      break;
-    }
     case "events": {
       // LIVE wire-delta monitor for one session over a --secs window. Prints
-      // every non-binary Sync frame referencing the session — lifecycle plus
-      // terminalTitle, lastActivity, OMP bridge events, and other volatile
-      // deltas that drive the sidebar.
+      // every non-binary Sync frame referencing the session, including
+      // lifecycle, terminal title, and last-activity deltas.
       // `input`/`kill`/resize the session and watch the deltas land.
       //
       // Live-only (sinceEventId:0 → no historical backfill; the coord gates
@@ -396,15 +382,6 @@ async function dispatch(c: CoordClient, verb: string, rest: string[]): Promise<v
       const ws = rest[1] === "--" ? undefined : requireArg(rest[1], "workspaceId|--");
       const r = await c.sessionsAssignWorkspace({ sessionId: sid, workspaceId: ws });
       console.log(String(r.ok));
-      break;
-    }
-    case "message": {
-      // SessionsUserMessage — the "type into the agent composer" path, NOT raw
-      // PTY bytes (that's `input`). Joins remaining args so quoting is optional.
-      const sid = requireArg(rest[0], "sessionId");
-      requireArg(rest[1], "text");
-      const r = await c.sessionsUserMessage({ sessionId: sid, text: rest.slice(1).join(" ") });
-      console.log(String(r.accepted));
       break;
     }
     case "cells": {
@@ -596,7 +573,7 @@ async function dispatch(c: CoordClient, verb: string, rest: string[]): Promise<v
       break;
     }
     default:
-      console.error(`roost api: unknown verb "${verb}" — sessions | cat | cells | input | message | rename | assign | attach | spawn | kill | workers | worker-rename | worker-rm | workspaces | ws-create | ws-update | ws-delete | ws-set-sessions | tasks | task-enqueue | task-cancel | move-preflight | move-start | move-status | ui | ui-state | agent | events | watch`);
+      console.error(`roost api: unknown verb "${verb}" — sessions | cat | cells | input | rename | assign | attach | spawn | kill | workers | worker-rename | worker-rm | workspaces | ws-create | ws-update | ws-delete | ws-set-sessions | tasks | task-enqueue | task-cancel | move-preflight | move-start | move-status | ui | ui-state | events | watch`);
       process.exit(1);
   }
 }

@@ -30,16 +30,13 @@ import { RoostTerm } from "../lib/RoostTerm.ts";
 import { CellGridRenderer } from "../lib/cellRenderer.ts";
 import { createScrollbackBackfill } from "../lib/scrollbackBackfill.ts";
 import { PredictiveEcho } from "../lib/predictiveEcho.ts";
-import { liveStatus } from "../lib/attention.ts";
 import { AgentLaunchButton } from "./AgentLaunchButton.tsx";
 import { AttachFileButton } from "./AttachFileButton.tsx";
-import { PlanButton } from "./PlanButton.tsx";
 import { TerminalContextMenu } from "./TerminalContextMenu.tsx";
 import { pickAndAttachFiles, enqueueAttachment } from "../lib/attachments.ts";
 import { MobileVoiceInput, activeVoiceChannel } from "./MobileVoiceInput.tsx";
 import { TerminalNavButtons } from "./TerminalNavButtons.tsx";
 import { TerminalComposeButton, activeComposeChannel } from "./TerminalComposeButton.tsx";
-import { TerminalStatusBadge } from "./TerminalStatusBadge.tsx";
 import { IconButton } from "./Settings/md/IconButton.tsx";
 import { mouseForwardEnabled } from "../lib/mouseForwardPref.ts";
 import { isCompact, isTouchDevice } from "../lib/windowSizeClass.ts";
@@ -111,10 +108,9 @@ const CLAIM_HEARTBEAT_MS = 30_000;
 
 
 // Shared 500ms cursor-poll ticker — one interval for ALL mounted panes (was one
-// per open session; the deck keeps every open session mounted). Ref-counted like
-// StatusGlyph's spinner tick: starts on first register, stops when the last pane
-// unregisters. Per-instance gating (inLayout/visible/changed) stays in each
-// callback.
+// per open session; the deck keeps every open session mounted). The ticker
+// starts on first register and stops when the last pane unregisters.
+// Per-instance gating (inLayout/visible/changed) stays in each callback.
 const CURSOR_POLL_MS = 500;
 const _cursorPollCbs = new Set<() => void>();
 let _cursorPollHandle: number | null = null;
@@ -1268,29 +1264,12 @@ export function CellTerminal(props: CellTerminalProps) {
 				/>
 
 			</Show>
-			{/* Pane top-right overlay slot — the ONE place pane-corner affordances
-          live. Container is click-through; a child opts back in (the badge is
-          pointer-events:none by design). */}
-			<div class="term-pane-corner">
-				<Show when={!pending() && !offline() && props.inLayout !== false}>
-					<TerminalStatusBadge session={props.session} />
-				</Show>
-			</div>
-			{/* Launch-agent FAB — shells only, shown only at a plain shell prompt
-          (regex on the live viewport tail) AND not while voice-recording
-          (shares the discard-✕ slot; would cover the cancel button). Types the
-          selected agent's command + CR into the PTY; agent configurable in
-          Settings. */}
+			{/* Launch-agent FAB — shells only, shown at a plain shell prompt (regex
+          on the live viewport tail) and not while voice-recording (shares the
+          discard-✕ slot; would cover the cancel button). Types the selected
+          agent's command + CR into the PTY; agent configurable in Settings. */}
 			<Show when={props.session.kind === "shell" && atShellPrompt() && activeVoiceChannel() === null && activeComposeChannel() === null && props.inLayout !== false}>
 				<AgentLaunchButton sessionId={props.session.id} />
-			</Show>
-			{/* Plan-mode shortcut FAB — agent sessions only, shown when the agent is
-          idle (at its prompt, ready for a command). Types '/plan' + CR into
-          the PTY, entering plan mode. Mirrors the agent-launch button's
-          sendInput path; shares its fixed slot (mutually exclusive: the
-          agent-launch shows only on shells at a shell prompt). */}
-			<Show when={liveStatus(props.session) === "idle" && activeVoiceChannel() === null && activeComposeChannel() === null && props.inLayout !== false}>
-				<PlanButton sessionId={props.session.id} />
 			</Show>
 			{/* Attach-file FAB — its own standalone button on every platform (touch,
           compact, desktop); hidden only while the message composer is open.

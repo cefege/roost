@@ -40,14 +40,14 @@ describe("computeFolderActivity", () => {
   test("direct session in folder counted", () => {
     const sessions = [sess({ cwd: "/a" })];
     const result = computeFolderActivity(sessions, FP, ["/a", "/b"]);
-    expect(result.get("/a")).toEqual({ terminals: 1, agentsRunning: 0, needsInput: 0 });
+    expect(result.get("/a")).toEqual({ terminals: 1 });
     expect(result.has("/b")).toBe(false);
   });
 
   test("cumulative: session in subfolder counted toward parent", () => {
     const sessions = [sess({ cwd: "/a/b/c" })];
     const result = computeFolderActivity(sessions, FP, ["/a"]);
-    expect(result.get("/a")).toEqual({ terminals: 1, agentsRunning: 0, needsInput: 0 });
+    expect(result.get("/a")).toEqual({ terminals: 1 });
   });
 
   test("cumulative: multiple sessions in subtree summed", () => {
@@ -57,7 +57,7 @@ describe("computeFolderActivity", () => {
       sess({ id: asSessionId("00000000-0000-4000-8000-000000000003"), cwd: "/a/c/d" }),
     ];
     const result = computeFolderActivity(sessions, FP, ["/a"]);
-    expect(result.get("/a")).toEqual({ terminals: 3, agentsRunning: 0, needsInput: 0 });
+    expect(result.get("/a")).toEqual({ terminals: 3 });
   });
 
   test("filters by worker_fp", () => {
@@ -66,26 +66,13 @@ describe("computeFolderActivity", () => {
       sess({ cwd: "/a", worker_fp: FP2 }),
     ];
     const result = computeFolderActivity(sessions, FP, ["/a"]);
-    expect(result.get("/a")).toEqual({ terminals: 1, agentsRunning: 0, needsInput: 0 });
+    expect(result.get("/a")).toEqual({ terminals: 1 });
   });
-
-  test("OMP running and needs-input states are aggregated", () => {
-    const waiting = asSessionId("00000000-0000-4000-8000-000000000001");
-    const working = asSessionId("00000000-0000-4000-8000-000000000002");
-    const sessions = [
-      sess({ id: waiting, cwd: "/a" }),
-      sess({ id: working, cwd: "/a" }),
-    ];
-    const states = new Map([[waiting, "needs-input"], [working, "running"]]);
-    const result = computeFolderActivity(sessions, FP, ["/a"], (session) => states.get(session.id) as "needs-input" | "running");
-    expect(result.get("/a")).toEqual({ terminals: 2, agentsRunning: 2, needsInput: 1 });
-  });
-
 
   test("trailing slash on path handled", () => {
     const sessions = [sess({ cwd: "/a" })];
     const result = computeFolderActivity(sessions, FP, ["/a/"]);
-    expect(result.get("/a/")).toEqual({ terminals: 1, agentsRunning: 0, needsInput: 0 });
+    expect(result.get("/a/")).toEqual({ terminals: 1 });
   });
 
   test("root path / handled", () => {
@@ -96,12 +83,12 @@ describe("computeFolderActivity", () => {
     ];
     const result = computeFolderActivity(sessions, FP, ["/"]);
     // Every session with cwd "/" or starting with "/" is under root
-    expect(result.get("/")).toEqual({ terminals: 3, agentsRunning: 0, needsInput: 0 });
+    expect(result.get("/")).toEqual({ terminals: 3 });
   });
 
   test("~ home path handled", () => {
     const sessions = [sess({ cwd: "~/a" })];
     const result = computeFolderActivity(sessions, FP, ["~"]);
-    expect(result.get("~")).toEqual({ terminals: 1, agentsRunning: 0, needsInput: 0 });
+    expect(result.get("~")).toEqual({ terminals: 1 });
   });
 });

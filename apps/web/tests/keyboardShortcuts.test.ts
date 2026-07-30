@@ -18,7 +18,6 @@ import {
 	closeCmdPalette,
 	cmdPaletteOpen,
 	handleKeydown,
-	setJumpUnreadHandler,
 	terminalOwnsKeyboard,
 } from "../src/lib/keyboardShortcuts.ts";
 import {
@@ -84,7 +83,6 @@ describe("keyboardShortcuts ⏎ boot-loop guard", () => {
 	beforeEach(() => {
 		activated = [];
 		closeCmdPalette();
-		setJumpUnreadHandler(null);
 
 		setActivateHandler((id) => activated.push(id));
 		// Two sessions in the flat list; park the cursor on the SECOND (the "other
@@ -101,7 +99,6 @@ describe("keyboardShortcuts ⏎ boot-loop guard", () => {
 		setOrderedSessionIds([]);
 		(globalThis as { document?: unknown }).document = origDocument;
 		closeCmdPalette();
-		setJumpUnreadHandler(null);
 
 	});
 
@@ -148,9 +145,7 @@ describe("keyboardShortcuts ⏎ boot-loop guard", () => {
 	describe("default-prevented terminal keys", () => {
 		test("never reroutes prevented Ctrl shortcuts or navigation", () => {
 			installStubDocument(false);
-			let jumpCalls = 0;
 			let preventCalls = 0;
-			setJumpUnreadHandler(() => jumpCalls++);
 			const ctrlK = {
 				...keyEvent("k"),
 				ctrlKey: true,
@@ -181,7 +176,6 @@ describe("keyboardShortcuts ⏎ boot-loop guard", () => {
 			handleKeydown(enter);
 
 			expect(cmdPaletteOpen()).toBe(false);
-			expect(jumpCalls).toBe(0);
 			expect(cursorSessionId()).toBe("sess-B");
 			expect(activated).toEqual([]);
 			expect(preventCalls).toBe(0);

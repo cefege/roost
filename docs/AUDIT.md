@@ -9,11 +9,16 @@
 - **Excluded:** `apps/shared/src/gen/**` (protobuf), `mockups/**`, `docs/archive/**`, `.claude/**`, `scripts/**` (generated / frozen / tooling — per `knip.json` ignore).
 - **Scale assumption:** single-user fleet (README: "single-user today"). Load findings cited in (sessions × browsers × hours), not multi-tenant SaaS scale.
 
+> **Historical snapshot:** this ledger records the 2026-07-23 codebase. The
+> later terminal-only cutover retired every structured agent path, including
+> detection/status projection and agent transcript UI. References explicitly
+> marked retired below are evidence from that audit, not current architecture.
+
 ---
 
 ## Headline
 
-**No P0. One P1 (compound, load-amplified): a single slow browser can stall agent-event writes fleet-wide.** Otherwise the codebase is mature: the recurring-failure catalog (`CLAUDE.md` L11) is well-respected, all prior BACKLOG re-verifications either resolved or improved, and memory is bounded for week-long uptime. The remaining debt is (a) the P1 fan-out/transaction chain, (b) unbounded on-disk growth (`events`, `audit_log`, `push_subscriptions`), and (c) `CellTerminal.tsx` regressing further over the file cap.
+**No P0. One P1 (compound, load-amplified): a single slow browser can stall session-event writes fleet-wide.** Otherwise the codebase is mature: the recurring-failure catalog (`CLAUDE.md` L11) is well-respected, all prior BACKLOG re-verifications either resolved or improved, and memory is bounded for week-long uptime. The remaining debt is (a) the P1 fan-out/transaction chain, (b) unbounded on-disk growth (`events`, `audit_log`, `push_subscriptions`), and (c) `CellTerminal.tsx` regressing further over the file cap.
 
 ---
 
@@ -48,7 +53,7 @@ Severity: **P0** data-loss/auth-bypass/security-hole/grid-corruption · **P1** b
 
 ### P1
 
-1. **P1  slow-browser → fleet-wide agent-event write stall (compound).** `apps/coord/src/event-log.ts:305` publishes `sessionBus.publish(event)` **inside** the Kysely transaction (also L231 for snapshot). `apps/coord/src/buses.ts` `BoundedBus.publish` iterates subscribers **synchronously** (for-of, no backpressure, no bounded queue). `apps/coord/src/connect/sync-ws-handler.ts` does `ws.send(toBinary(...))` and **ignores Bun's boolean return** (no backpressure). Chain: one slow browser (phone on a flaky tailnet link) → its `ws.send` blocks → synchronous `publish` blocks → `appendEvent`'s txn stays open → SQLite write lock held → **every** `appendEvent` across the fleet queues behind it → all agent events stall. WAL mode (`db/connection.ts:18`, `busy_timeout=5000`) does not help: only one writer. `[NEW] (also lens-3)` Suggested direction: move `bus.publish` **outside** the txn (publish after commit; stamp `_event_id` before), and make `BoundedBus.publish` non-blocking with a per-subscriber bounded queue + drop-on-overflow + diag signal.
+1. **P1  slow-browser → fleet-wide session-event write stall (compound).** `apps/coord/src/event-log.ts:305` publishes `sessionBus.publish(event)` **inside** the Kysely transaction (also L231 for snapshot). `apps/coord/src/buses.ts` `BoundedBus.publish` iterates subscribers **synchronously** (for-of, no backpressure, no bounded queue). `apps/coord/src/connect/sync-ws-handler.ts` does `ws.send(toBinary(...))` and **ignores Bun's boolean return** (no backpressure). Chain: one slow browser (phone on a flaky tailnet link) → its `ws.send` blocks → synchronous `publish` blocks → `appendEvent`'s txn stays open → SQLite write lock held → **every** `appendEvent` across the fleet queues behind it → all session events stall. WAL mode (`db/connection.ts:18`, `busy_timeout=5000`) does not help: only one writer. `[NEW] (also lens-3)` Suggested direction: move `bus.publish` **outside** the txn (publish after commit; stamp `_event_id` before), and make `BoundedBus.publish` non-blocking with a per-subscriber bounded queue + drop-on-overflow + diag signal.
 
 ### P2
 
@@ -81,7 +86,7 @@ Severity: **P0** data-loss/auth-bypass/security-hole/grid-corruption · **P1** b
 - **`sinceEventId` replay ordering is correct.** `handlers-streaming.ts` subscribes to the bus **before** issuing the backfill SELECT; `yieldedSessionIds` dedup prevents double-delivery. `[BACKLOG-REVERIFY, confirmed-safe]`
 - **All mutation handlers publish to their bus after writes.** tasks/workspaces/webhooks/permissions/mcp/pair/workers all `publish*State(row)` post-UPDATE — the `feedback_task_state_delta_only_created` L11 leak is fixed everywhere. `[BACKLOG-REVERIFY, confirmed-safe]`
 - **`tasksNextPending` claim is atomic.** `handlers-tasks.ts:74-79` is a single `UPDATE...WHERE id=(subquery)`; SQLite is single-writer with statement-level atomicity, so the subquery sees the prior claim and two workers pick distinct rows. *(Initially reported as a P2 race — rejected on verification.)*
-- **`onExit`/keeper-outlives-worker, FSM terminal-state + invalid-transition rejection, protocol-v2 codec safety, snapshot ordering, `_runDetect` guard, ed25519 `parseOpenSshEd2551919` (both impls, no parse bug), worker-ws `fromBinary` try/catch + buffer copy, loopback NOT spoofable (TCP peer, header stripped-then-reset), DOM render well-bounded, `_lastClaudeStatus` bounded, all volatile coord maps bounded, memory overall bounded for week+ uptime, projector delegates to shared `foldEvent`, components never mutate store directly.** All `[BACKLOG-REVERIFY, confirmed-safe]`.
+- **`onExit`/keeper-outlives-worker, FSM terminal-state + invalid-transition rejection, protocol-v2 codec safety, snapshot ordering, ed25519 `parseOpenSshEd2551919` (both impls, no parse bug), worker-ws `fromBinary` try/catch + buffer copy, loopback NOT spoofable (TCP peer, header stripped-then-reset), DOM render well-bounded, all volatile coord maps bounded, memory overall bounded for week+ uptime, projector delegates to shared `foldEvent`, components never mutate store directly.** All `[BACKLOG-REVERIFY, confirmed-safe]`.
 
 ---
 
@@ -90,7 +95,7 @@ Severity: **P0** data-loss/auth-bypass/security-hole/grid-corruption · **P1** b
 Static analysis of hot paths for contention, unbounded growth, per-event allocation, backpressure. Format: `hot-path  file:line  bottleneck  scale-at-which-it-bites  suggested-direction`. Empirical load not measured (out of scope); plausible-but-unmeasured findings marked `[static, unmeasured]`.
 
 1. **[P1] slow-browser → fleet-wide write stall.** *(see Lens-2 finding 1 — the headline load finding)*. `event-log.ts:305` × `buses.ts` × `sync-ws-handler.ts`. Bites at **N ≥ 1 slow browser**; worst case = total write starvation while the browser's TCP window is full.
-2. **detect-sweep CPU.** `apps/worker/src/session-constants.ts` (`DETECT_SWEEP_INTERVAL_MS=4000`) × `apps/worker/src/detect/screen-detect.ts` `readScreenText` = O(cols × rows) `getCell` per session per tick × `apps/worker/src/session-emit.ts` `_sweepDetect` iterates all sessions. Per-tick cost = O(sessions × cols × rows) every 4 s. Bites at **~50–100+ concurrent sessions** (sustained ~one core). `[static, unmeasured]` Direction: event-driven detect (hook the grid-dirty signal) instead of fixed-interval poll; or adaptive interval.
+2. **RETIRED — detect-sweep CPU.** The audited structured-status detector (`apps/worker/src/detect/`) was removed by the terminal-only cutover; its former scaling finding is historical and no longer applies.
 3. **events/audit_log on-disk growth.** *(see Lens-2 findings 4–5)*. Bites in **days–weeks** of uptime; SQLite file size + backfill cost grow monotonically.
 4. **copy-per-viewer proto encode + no `permessage-deflate`.** `apps/coord/src/connect/handlers-streaming.ts` cell fan-out calls `toBinary(FirehoseFrameSchema, f)` **per Sync subscriber** per cell frame (no shared encode); `apps/coord/src/main.ts` `Bun.serve` has no `permessage-deflate` → cell grids ship uncompressed. Bites at **N ≥ 3–5 browsers** on a constrained tailnet uplink. Direction: encode once, broadcast bytes; enable permessage-deflate (note: `connect-node` zlib segfaults under Bun — L11 — but the raw worker/browser WS paths are Bun-native and deflate-safe).
 5. **`BoundedBus.publish` O(capacity) `Array.shift`.** `apps/coord/src/buses.ts` — write-only ring uses `Array.shift` (O(n)) on overflow; caps are 512 (`globalBytesBus`) / 64 (`globalCellBus`). Per-publish O(cap) at high frame rates. Bites at **hundreds of frames/sec**. Direction: circular-buffer index instead of shift.
@@ -148,6 +153,5 @@ Static analysis of hot paths for contention, unbounded growth, per-event allocat
 - `sync-bootstrap.ts:284` / `sync-handlers.ts:70,89` as Solid `setStore` Record-no-op (L11) — wrong call shape; codebase is clean of the anti-pattern.
 - `handlers-tasks.ts:74` `tasksNextPending` race — SQLite single-writer makes the atomic `UPDATE...subquery` safe.
 - knip `sw-push.js` / `@resvg/resvg-js` unused — both have runtime/script consumers knip can't see.
-- `agentStatus.ts:rankOf` unused — knip-clean (in-file use).
 
 **Confidence:** high on Lens 1 and the verified-safe items; high on the P1 chain (three independent reads agree); medium on Lens-2 edge-condition bugs (2C/2D) that depend on trigger-frequency not measured here.

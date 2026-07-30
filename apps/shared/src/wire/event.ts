@@ -3,7 +3,7 @@
 // the same events from the SSE stream. R0.3, R3.1.
 
 import { z } from "zod";
-import { AgentState, Session, SessionKind, defaultAgentState } from "./session.ts";
+import { Session, SessionKind } from "./session.ts";
 import { ChannelId, SessionId, WorkerFp, WorkspaceId, TraceId } from "./brand.ts";
 
 const Base = z.object({
@@ -39,12 +39,6 @@ export const SessionEvent = z.discriminatedUnion("kind", [
     cwd: z.string(),
   }),
   Base.extend({
-    kind: z.literal("agent"),
-    session_id: SessionId,
-    // Partial AgentState patch — emitters set only what changed.
-    patch: AgentState.partial(),
-  }),
-  Base.extend({
     kind: z.literal("workspace_assigned"),
     session_id: SessionId,
     workspace_id: WorkspaceId.nullable(),
@@ -60,7 +54,7 @@ export const SessionEvent = z.discriminatedUnion("kind", [
   Base.extend({
     // Worker rebooted; the keeper PTY for this session died. Worker
     // spawned a fresh PTY at the same cwd and re-bound it to the same
-    // session_id. Sidebar row stays in place; structured state clears.
+    // session_id. Sidebar row stays in place.
     kind: z.literal("respawned"),
     session_id: SessionId,
     new_channel: ChannelId,
@@ -126,7 +120,6 @@ export function foldEvent(
         spawn_cwd: e.cwd,
         workspace_id: null,
         status: "open",
-        agent: null,
         created_at: e.ts,
         closed_at: null,
         custom_title: null,
@@ -152,18 +145,6 @@ export function foldEvent(
       next.set(e.session_id, { ...s, cwd: e.cwd });
       return next;
     }
-    case "agent": {
-      const s = prev.get(e.session_id);
-      if (!s) return prev;
-      // Defensive merge: when s.agent is null the first patch may be
-      // partial (e.g. { status: "running" } from a hook). Seed required
-      // fields from defaultAgentState() so the runtime object always
-      // satisfies AgentState — no unsafe casts.
-      const base: AgentState = s.agent ?? defaultAgentState();
-      const merged: AgentState = { ...base, ...e.patch, kind: "agent" };
-      next.set(e.session_id, { ...s, agent: merged });
-      return next;
-    }
     case "workspace_assigned": {
       const s = prev.get(e.session_id);
       if (!s) return prev;
@@ -183,8 +164,6 @@ export function foldEvent(
         // workspace_id and custom_title are coord/DB-owned: the worker
         // announces null in every snapshot. Preserve prior values so a worker
         // restart does not drop a rename or collapse sidebar grouping.
-        // Structured state is not preserved: it belongs to a live bridge, so
-        // the announced null is authoritative after restart.
         const before = prev.get(s.id);
         // workspace_id AND custom_title are coord/DB-owned — the worker
         // announces them null in every snapshot. Preserve prior values so a
@@ -206,13 +185,12 @@ export function foldEvent(
     case "respawned": {
       const s = prev.get(e.session_id);
       if (!s) return prev;
-      // New keeper channel, no structured state yet. Status is forced open in
-      // case a prior 'closed' was projected before the respawn lands.
+      // New keeper channel. Status is forced open in case a prior 'closed'
+      // was projected before the respawn lands.
       next.set(e.session_id, {
         ...s,
         channel: e.new_channel,
         status: "open",
-        agent: null,
         closed_at: null,
       });
       return next;
@@ -221,7 +199,7 @@ export function foldEvent(
       const s = prev.get(e.session_id);
       if (!s) return prev;
       // "" clears the override → revert to auto title. Auto-title events
-      // (OSC/agent/cwd) never write custom_title, so this is sticky.
+      // (OSC/cwd) never write custom_title, so this is sticky.
       next.set(e.session_id, { ...s, custom_title: e.custom_title || null });
       return next;
     }

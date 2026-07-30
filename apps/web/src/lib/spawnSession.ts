@@ -1,5 +1,4 @@
-// Spawn a new session on a worker — a keeper PTY (kind "shell") or an omp RPC
-// child (kind "agent").
+// Spawn a new keeper PTY session on a worker.
 //
 // phase-24c-1: dispatches via tRPC `sessions.spawn` mutation. Coord
 // forwards as `browser-command` to the worker over the WorkerHub WSS;
@@ -72,21 +71,6 @@ export async function spawnShell(workerFp: WorkerFp, folder = "~", sessionId?: s
     folder,
     cols: sz?.cols,
     rows: sz?.rows,
-    ...(sessionId ? { sessionId } : {}),
-  }));
-  return result.sessionId;
-}
-
-// Spawn an omp RPC child instead of a keeper PTY. Same coord RPC, same retry
-// window, same {session_id, channel_id} reply — only `kind` differs, so the
-// worker routes to spawnAgent and the SPA renders a transcript rather than a
-// cell grid. No cols/rows: an agent session has no terminal to size, and the
-// worker ignores them for this kind.
-export async function spawnAgent(workerFp: WorkerFp, folder = "~", sessionId?: string): Promise<string> {
-  const result = await withSpawnRetry(() => coordClient.sessionsSpawn({
-    workerFp,
-    kind: "agent",
-    folder,
     ...(sessionId ? { sessionId } : {}),
   }));
   return result.sessionId;

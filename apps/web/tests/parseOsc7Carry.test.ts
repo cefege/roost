@@ -28,7 +28,7 @@ describe("_parseOsc7 carry", () => {
     setRootStore("sessions", SID, {
       id: SID, worker_fp: FP, channel: asChannelId(1), kind: "shell",
       cwd: "/old", spawn_cwd: "/old", workspace_id: null, status: "open",
-      agent: null, created_at: 1000, closed_at: null, custom_title: null,
+      created_at: 1000, closed_at: null, custom_title: null,
     } as Session);
   });
 

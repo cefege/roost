@@ -12,4 +12,5 @@
       summary: "0/1 passed",
     };
   }
+  return await smoke.runFlow();
 })();

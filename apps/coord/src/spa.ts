@@ -62,7 +62,7 @@ export function createSpaResponder(
       // content change, so the body at this URL is genuinely immutable.
       headers["cache-control"] = "public, max-age=31536000, immutable";
     } else {
-      // Stable-filename assets (icons, manifest, sw-push.js, fonts, wasm,
+      // Stable-filename assets (icons, manifest, fonts, wasm,
       // whatsnew.json): the URL is reused across builds, so it must NEVER be
       // immutable — otherwise a changed favicon/manifest stays pinned in the
       // browser for a year. Revalidate on every load instead.

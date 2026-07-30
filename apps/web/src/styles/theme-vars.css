@@ -308,12 +308,10 @@
 
   /* ── Terminal palette bridge → @wterm/dom ──
      wterm reads --term-color-0..15 / --term-cursor (+ --term-bg/fg) but
-     scopes them to .wterm. These :root aliases (a) feed app-chrome
-     consumers that read --term-color-N outside the grid — SessionRow
-     status dots, StatusGlyph, Transfer/DeployConsoleModal — and (b) are
-     the source the .wterm bridge in sidebar.css re-points wterm's own
-     vars at. Index→name order = themes.ts ANSI block. --terminal-grid-*
-     are distinct names so the .wterm bridge can reference bg/fg without
+     scopes them to .wterm. These :root aliases (a) feed app-chrome consumers
+     outside the grid and (b) are the source the .wterm bridge in sidebar.css
+     re-points wterm's own vars at. Index→name order = themes.ts ANSI block.
+     --terminal-grid-* are distinct so the bridge can reference bg/fg without
      a self-collision against wterm's own --term-bg/--term-fg. */
   --term-color-0: var(--ansi-black);
   --term-color-1: var(--ansi-red);

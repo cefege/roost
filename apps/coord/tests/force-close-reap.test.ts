@@ -26,7 +26,7 @@ let sqlite: ReturnType<typeof openDb>["sqlite"];
 function liveSession(sid: string): Session {
   return {
     id: asSessionId(sid), worker_fp: FP, channel: asChannelId(1), kind: "shell",
-    cwd: "/tmp", workspace_id: null, status: "open", agent: null,
+    cwd: "/tmp", workspace_id: null, status: "open",
     created_at: 1000, closed_at: null, custom_title: null,
   };
 }

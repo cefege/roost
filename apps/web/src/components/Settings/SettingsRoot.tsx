@@ -18,7 +18,6 @@ import { AttachmentsPane } from "./AttachmentsPane.tsx";
 import { DevicesPane } from "./DevicesPane.tsx";
 import { TranscriptionPane } from "./TranscriptionPane.tsx";
 import { TerminalPane } from "./TerminalPane.tsx";
-import { NotificationsPane } from "./NotificationsPane.tsx";
 import { ConnectionPane } from "./ConnectionPane.tsx";
 import { Icon } from "./md/primitives.tsx";
 import { isCompact } from "../../lib/windowSizeClass.ts";
@@ -52,7 +51,6 @@ const GROUPS: RailGroup[] = [
   ] },
   { label: "Interface", panes: [
     { id: "terminal",       label: "Terminal",       icon: "terminal",       title: "Terminal" },
-    { id: "notifications",  label: "Notifications",  icon: "notifications",  title: "Notifications" },
     { id: "voice",    label: "Voice",    icon: "mic",      title: "Voice dictation" },
     { id: "theme",    label: "Theme",    icon: "palette",  title: "Theme" },
   ] },
@@ -92,7 +90,6 @@ function SettingsPane(props: { id: string }) {
       <Match when={id() === "webhooks"}><WebhooksPane /></Match>
       <Match when={id() === "voice"}><TranscriptionPane /></Match>
       <Match when={id() === "terminal"}><TerminalPane /></Match>
-      <Match when={id() === "notifications"}><NotificationsPane /></Match>
       <Match when={id() === "attachments"}><AttachmentsPane /></Match>
       <Match when={id() === "theme"}><ThemePane /></Match>
       <Match when={id() === "audit"}><AuditLogPane /></Match>

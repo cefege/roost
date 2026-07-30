@@ -1,13 +1,9 @@
 // Mobile (compact) workspace bar — Chrome-style replacement for the old
 // scrollable MobileTabStrip. ONE 48px row, left→right:
 //   [menu] [current-tab title] [+] [count ▢]
-// `+` spawns a sibling into the focused pane (unchanged). The count square
-// opens WorkspaceTabsSheet: a full-screen card grid of the folder's
-// terminals, mirroring the home page's FolderCard grid — tap a card to
-// switch, ✕ to close. The count square also rolls every tab's attention
-// level (rollupLevels) so a needs-input terminal lights it up amber + pulses
-// — the spine ("needs-input must never be hidden behind a drawer") survives
-// the strip removal.
+// `+` spawns a sibling into the focused pane. The count square opens
+// WorkspaceTabsSheet: a full-screen card grid of the folder's terminals,
+// mirroring the home page's FolderCard grid — tap a card to switch, ✕ to close.
 //
 // Rendered by TerminalDeck at the top of the deck when isCompact(). Same
 // props contract the old MobileTabStrip had; select/close/spawn reuse the
@@ -17,12 +13,10 @@ import { For, Show, createEffect, createMemo, createSignal, on, onCleanup, onMou
 import { Portal } from "solid-js/web";
 import { sessionTitle, programSubtitle } from "../lib/sessionTitle.ts";
 import { IconButton } from "./Settings/md/IconButton.tsx";
-import { attentionOf, presentationOf, rollupLevels } from "../lib/agentStatus.ts";
 import { openSidebar } from "../store/uiStore.ts";
 import { relTimeSince } from "../lib/relTime.ts";
 import { relTimeTickMs } from "./sidebar/SessionRow.tsx";
 import type { Session } from "@roost/shared/wire";
-import { NotificationBellTrigger } from "./NotificationBell.tsx";
 import { renderPreview } from "../lib/terminalPreview.ts";
 import { ctxMenuSurfaceStyle, CtxMenuItem } from "./contextMenuPrimitives.tsx";
 import { shouldDismissCard, cardSwipeAlpha, CARD_DISMISS_PX } from "../lib/deckSwipe.ts";
@@ -38,9 +32,9 @@ const TITLE_TEXT: Record<string, string> = {
 };
 
 export interface MobileDeckBarProps {
-  /** Flattened, ordered sessions in the folder (all panes, leaf-then-tab order). */
+  /** Flattened, ordered terminals in the folder (all panes, leaf-then-tab order). */
   tabs: Session[];
-  /** The session id currently painted full-bleed (URL-active). */
+  /** The terminal id currently painted full-bleed (URL-active). */
   selectedTab: string;
   onSelect: (id: string) => void;
   onClose: (s: Session) => void;
@@ -54,9 +48,6 @@ export function MobileDeckBar(props: MobileDeckBarProps) {
     const s = active();
     return s ? sessionTitle(s) : "Terminal";
   });
-  // Aggregate attention across the folder so a needs-input terminal still
-  // flags the count square — the old strip surfaced this per-tab dot.
-  const attention = createMemo(() => rollupLevels(props.tabs.map(attentionOf)));
   const countLabel = () => `${props.tabs.length} terminal${props.tabs.length === 1 ? "" : "s"} in this workspace`;
 
   return (
@@ -64,7 +55,6 @@ export function MobileDeckBar(props: MobileDeckBarProps) {
       <div
         class="mobile-deck-bar"
         data-testid="mobile-deck-bar"
-        data-attention={attention()}
         style={{
           display: "flex",
           "align-items": "center",
@@ -110,14 +100,12 @@ export function MobileDeckBar(props: MobileDeckBarProps) {
           type="button"
           class="mobile-deck-count"
           data-testid="mobile-tab-count"
-          data-attention={attention()}
           aria-label={`Open terminal grid — ${countLabel()}`}
           title={countLabel()}
           onClick={() => setSheetOpen(true)}
         >
           <span>{props.tabs.length}</span>
         </button>
-        <NotificationBellTrigger style={{ "flex-shrink": "0" }} />
       </div>
 
       <Show when={sheetOpen()}>
@@ -403,14 +391,9 @@ function TerminalCard(props: {
   onToggleSelect: (id: string) => void;
 }) {
   const s = () => props.session;
-  const level = createMemo(() => attentionOf(s()));
-  const vis = createMemo(() => presentationOf(level()));
   const name = createMemo(() => sessionTitle(s()));
   const sub = createMemo(() => programSubtitle(s()));
   const branch = () => s().git_branch ?? null;
-  // data-stage reuses the FolderCard needs-input accent hook.
-  const stage = () =>
-    level() === "blocked" ? "needs-input" : level() === "working" ? "running" : "";
   // Compact header subtitle: branch if available, else cloud subtitle.
   const subtitle = () => branch() ?? sub();
 
@@ -496,10 +479,8 @@ function TerminalCard(props: {
     <div
       class="terminal-card"
       data-testid={`terminal-card-${s().id}`}
-      data-stage={stage()}
       data-active={props.active ? "true" : "false"}
       data-selected={props.selected ? "true" : "false"}
-      data-attention={level()}
       role="button"
       tabindex="0"
       title={name()}
@@ -523,7 +504,7 @@ function TerminalCard(props: {
     >
       {/* Header — favicon + title + compact subtitle. Close ✕ overlaps top-right. */}
       <div class="terminal-card-header">
-        <span class="terminal-card-favicon" style={{ color: vis().color }}>
+        <span class="terminal-card-favicon">
           <span class="terminal-card-glyph">$</span>
         </span>
         <div class="terminal-card-title-wrap">
@@ -540,7 +521,7 @@ function TerminalCard(props: {
           type="button"
           class="terminal-card-close"
           data-testid={`terminal-card-close-${s().id}`}
-          aria-label="Close terminal"
+          aria-label="Close terminal session"
           onClick={(e: MouseEvent) => {
             e.stopPropagation();
             e.preventDefault();
@@ -568,14 +549,14 @@ function TerminalCard(props: {
 
       {/* Preview area — real terminal text or faux glyph fallback.
           Asymmetric corners (12/20px). Fixed 160px height = uniform cards. */}
-      <div class="terminal-card-preview" data-stage={stage()}>
+      <div class="terminal-card-preview">
         <div
           ref={previewRef}
           class="terminal-card-preview-text"
           style={{ display: hasPreview() ? "block" : "none" }}
         />
         <Show when={!hasPreview()}>
-          <span class="terminal-card-preview-glyph" style={{ color: vis().color }}>
+          <span class="terminal-card-preview-glyph" style={{ color: "var(--text-lo)" }}>
             <span class="terminal-card-glyph">$</span>
           </span>
         </Show>

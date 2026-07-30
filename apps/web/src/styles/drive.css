@@ -312,7 +312,7 @@
   white-space: nowrap;
 }
 
-/* Folder activity badges — terminal/agent counts on tiles and rows. */
+/* Folder activity badges — terminal counts on tiles and rows. */
 .df-browse-tile-badges {
   display: flex;
   flex-wrap: wrap;
@@ -343,18 +343,6 @@
   content: ">_";
   font-family: monospace;
   opacity: 0.7;
-}
-.df-browse-badge-agents::before {
-  content: "\2728";
-  opacity: 0.8;
-}
-.df-browse-badge-needs-input {
-  color: var(--md-sys-color-on-tertiary-container);
-  background: var(--md-sys-color-tertiary-container);
-}
-.df-browse-badge-needs-input::before {
-  content: "\23CE";
-  opacity: 0.8;
 }
 .df-browse-tile-meta {
   font-size: var(--md-label-s-size);
@@ -481,14 +469,6 @@
 }
 @media (hover: hover) {
   .df-browse-open:hover { filter: brightness(1.08); }
-}
-/* Secondary action beside the primary — always takes the shell path, even when
-   the primary spawns an omp transcript session. Tonal + intrinsic width so the
-   primary keeps the emphasis and the full-bleed feel. */
-.df-browse-open-secondary {
-  flex: 0 0 auto;
-  background: var(--md-sys-color-secondary-container);
-  color: var(--md-sys-color-on-secondary-container);
 }
 
 /* Mobile (compact): hide the grid/list toggle; grid still works but list

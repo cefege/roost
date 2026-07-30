@@ -62,8 +62,8 @@ export function sendBrowserCmd(
 }
 
 // Resolve a session's worker and forward a control frame, fire-and-ack.
-// Returns false (never throws) when the session/worker is gone so the handlers
-// can report accepted:false. Shared by the shell and agent session handlers.
+// Returns false (never throws) when the session/worker is gone so handlers can
+// report accepted:false.
 export async function forwardToSessionWorker(
   db: KyselyDB,
   sessionIdRaw: string,

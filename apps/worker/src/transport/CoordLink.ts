@@ -19,10 +19,6 @@ import {
   CoordWorkerUpSchema, CoordWorkerDownSchema, WHelloSchema,
   WRefreshJwtSchema, WSessionEventSchema, WCellGridSchema,
 } from "@roost/shared/proto/worker_transport_pb";
-import type {
-  AgentEntriesFrame as PbAgentEntriesFrame,
-  AgentUiFrame as PbAgentUiFrame,
-} from "@roost/shared/proto/sync_pb";
 import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
 import { ClientSeq } from "./client-seq.ts";
 import type {
@@ -200,22 +196,7 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
     try { writer(up); return true; } catch { diag("transport.frame_dropped", { reason: "writer_throw", kind: "cellGrid" }); return false; }
   }
 
-  // Same volatile posture as sendCellGrid: no pending buffer, because the SPA
-  // backfills transcript history over the SessionsGetAgentEntries RPC rather
-  // than replaying this stream.
-  function sendAgentEntries(frame: PbAgentEntriesFrame): boolean {
-    if (disposed || !writer) return false;
-    const up = create(CoordWorkerUpSchema, { frame: { case: "agentEntries", value: frame } });
-    try { writer(up); return true; } catch { diag("transport.frame_dropped", { reason: "writer_throw", kind: "agentEntries" }); return false; }
-  }
 
-  // Snapshot persistence is coord-owned. This live hop does not buffer partial
-  // trains while disconnected; the reopen hook requests a fresh atomic train.
-  function sendAgentUiFrame(frame: PbAgentUiFrame): boolean {
-    if (disposed || !writer) return false;
-    const up = create(CoordWorkerUpSchema, { frame: { case: "agentUi", value: frame } });
-    try { writer(up); return true; } catch { diag("transport.frame_dropped", { reason: "writer_throw", kind: "agentUi" }); return false; }
-  }
 
 
 
@@ -547,5 +528,5 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
   }
 
   void dial();
-  return { send, sendBinary, sendCellGrid, sendAgentEntries, sendAgentUiFrame, state: () => state, relocate, unackedEventCount: () => unacked.size, dispose };
+  return { send, sendBinary, sendCellGrid, state: () => state, relocate, unackedEventCount: () => unacked.size, dispose };
 }

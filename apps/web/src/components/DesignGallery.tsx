@@ -40,7 +40,7 @@ const RAMP_STEPS = [
 const SPACE_STEPS = [1, 2, 3, 4, 5, 6, 7, 8, 9] as const;
 const SHAPE_STEPS = ["xs", "sm", "md", "lg", "xl", "full"] as const;
 const ELEV_STEPS = [0, 1, 2, 3, 4, 5] as const;
-const STATUS_DOTS = ["ok", "running", "needs-input", "idle", "error", "offline"] as const;
+const STATUS_DOTS = ["ok", "running", "idle", "error", "offline"] as const;
 
 // ─── leaf helpers ────────────────────────────────────────────────────────────
 const Swatch: Component<{ token: string }> = (props) => (

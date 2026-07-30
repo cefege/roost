@@ -14,13 +14,6 @@ import { handleGetScrollbackCells, handleResize } from "./browser-command-termin
 import { handleStartTransfer } from "./browser-command-transfer.ts";
 import { handleAttachmentProbe, handleDeleteAttachment, handleListAttachments } from "./browser-command-attachments.ts";
 import { handleDiagDumpBytecap, handleDiagSnapshot } from "./browser-command-diag.ts";
-import {
-	handleAgentAbort,
-	handleAgentUiCommand,
-	handleAgentRespond,
-	handleSpawnAgent,
-	handleUserMessage,
-} from "./browser-command-agent.ts";
 
 export interface BrowserCommandMsg {
 	browser_id: string;
@@ -105,26 +98,6 @@ export function handleBrowserCommand(
 		}
 		case "respawn-if-missing": {
 			handleRespawnIfMissing(frame, request_id, { coordLink, sessionMgr });
-			return;
-		}
-		case "spawn-agent": {
-			handleSpawnAgent(frame, request_id, { coordLink, sessionMgr });
-			return;
-		}
-		case "user-message": {
-			handleUserMessage(frame, { coordLink, sessionMgr });
-			return;
-		}
-		case "agent-respond": {
-			handleAgentRespond(frame, request_id, { coordLink, sessionMgr });
-			return;
-		}
-		case "agent-ui-command": {
-			handleAgentUiCommand(frame, request_id, { coordLink, sessionMgr });
-			return;
-		}
-		case "omp-abort": {
-			handleAgentAbort(frame, request_id, { coordLink, sessionMgr });
 			return;
 		}
 		case "cursor-pos":

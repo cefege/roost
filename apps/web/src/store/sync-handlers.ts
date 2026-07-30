@@ -9,7 +9,6 @@
 import { setRootStore } from "./root.ts";
 import { foldEventIntoStore } from "./projector.ts";
 import { pruneOscBuffer } from "./sync-dispatch.ts";
-import { pruneAgentEntries } from "./agentEntries.ts";
 import type { Worker, Workspace, Task, PermissionRule, McpRelay } from "@roost/shared/wire";
 
 // Keeper-death awareness toast. A burst of `respawned` events while the SPA
@@ -52,15 +51,9 @@ export function _handleSessionsEvent(event: unknown): void {
   foldEventIntoStore(event as SessionEventLike);
   const evk = (event as { kind?: string }).kind;
   if (evk === "respawned") _maybeToastKeeperDeath();
-  // Prune per-session buffers when the session closes: the OSC carry-buffer
-  // (see pruneOscBuffer in sync-dispatch.ts) and, for agent sessions, the
-  // transcript — otherwise a long-lived tab keeps every closed session's
-  // entries forever.
+  // Drop the terminal's partial OSC sequence when its session closes.
   const ev = event as { kind?: string; session_id?: string };
-  if (ev.kind === "closed" && ev.session_id) {
-    pruneOscBuffer(ev.session_id);
-    pruneAgentEntries(ev.session_id);
-  }
+  if (ev.kind === "closed" && ev.session_id) pruneOscBuffer(ev.session_id);
 }
 export function _handlePresenceEvent(event: unknown): void {
   const ev = event as

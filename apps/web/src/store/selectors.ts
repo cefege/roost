@@ -8,7 +8,6 @@ import { decodeFolderPath } from "../lib/terminalHref.ts";
 import type { Session } from "@roost/shared/wire";
 import { folderKeyOf } from "../lib/folderKey.ts";
 import { isPendingClose } from "../lib/pendingClose.ts";
-import type { Attention } from "../lib/folderSubtitle.ts";
 
 // Module-level memos must be wrapped in createRoot — without an owner,
 // Solid warns "computations created outside a `createRoot` or `render`
@@ -61,24 +60,6 @@ export function newestOpenSessionForFolderKey(folderKey: string, exceptId: strin
   return best;
 }
 
-// Which tab a sidebar folder row opens on click. A needy folder jumps to its
-// lead (the neediest pane). Otherwise reuse the remembered last-visited tab,
-// but ONLY when it is still an OPEN pane IN THIS folder (folderKeyOf === the
-// row's bucket key). A pane that closed — or `cd`'d into another folder —
-// lingers in the lastVisited map under this folder's key; opening it blindly
-// surfaces a DIFFERENT folder (the "click one workspace, another opens" bug).
-// Falls back to the folder lead.
-export function folderRowTargetId(
-  folderKey: string,
-  attention: Attention,
-  leadId: string,
-  rememberedId: string | null,
-): string {
-  if (attention === "needs") return leadId;
-  const r = rememberedId ? rootStore.sessions[rememberedId] : null;
-  if (r && r.status === "open" && folderKeyOf(r) === folderKey) return r.id;
-  return leadId;
-}
 
 // Active session behind ANY terminal route — the single source of truth for
 // TabBar / FolderList / MobileTopBar scoping, mirroring MainPane.activeSession.

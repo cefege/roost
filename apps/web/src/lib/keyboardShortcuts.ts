@@ -68,19 +68,10 @@ export function closeHelp() {
 	_setHelpOpen(false);
 }
 
-// ── Jump to most-recent unread (⌘⇧U) ────────────────────────────────────────
-// Navigation lives in the router subtree, so a component (FolderList)
-// registers the handler; the global key listener just invokes it.
-let _jumpUnreadHandler: (() => void) | null = null;
-export function setJumpUnreadHandler(fn: (() => void) | null): void {
-	_jumpUnreadHandler = fn;
-}
 
 // ── Global handler ─────────────────────────────────────────────────────────
 // ⌘F is intentionally NOT handled here — it belongs to the in-place sidebar
-// filter (AllView focuses its search input). The retired GlobalScrollbackSearch
-// modal used to grab ⌘F here, which shadowed the sidebar filter (unreachable by
-// keyboard). The sidebar filter already searches cwd, OMP output, and workspace.
+// filter (AllView focuses its search input).
 
 // Exported for the keyboard-nav regression test (keyboardShortcuts.dom.test.ts):
 // drives a real KeyboardEvent through the exact production branch that decides
@@ -124,16 +115,6 @@ export function handleKeydown(e: KeyboardEvent): void {
 		return;
 	}
 
-	// Cmd-Shift-U or Ctrl-Shift-U: jump to the most-recent session needing you.
-	if (
-		(e.metaKey || e.ctrlKey) &&
-		e.shiftKey &&
-		(e.key === "u" || e.key === "U")
-	) {
-		e.preventDefault();
-		_jumpUnreadHandler?.();
-		return;
-	}
 
 	// Shift+? : toggle HelpOverlay.
 	if (e.shiftKey && e.key === "?") {

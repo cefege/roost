@@ -2,10 +2,6 @@
 // Extracted to keep CoordLink.ts under the 400-line cap; re-exported
 // from CoordLink.ts so external import paths stay unchanged.
 
-import type {
-  AgentEntriesFrame as PbAgentEntriesFrame,
-  AgentUiFrame as PbAgentUiFrame,
-} from "@roost/shared/proto/sync_pb";
 import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
 import type { WorkerFp, ClientControlFrame, SessionEvent } from "@roost/shared/wire";
 
@@ -51,13 +47,6 @@ export interface CoordLink {
   // R11. Volatile — dropped when the stream is down (the worker
   // re-sends a full frame on reconnect/attach), so no pending buffer.
   sendCellGrid(channelId: number, frame: PbCellGridFrame): boolean;
-  // Agent-session transcript deltas. Volatile in the same sense as cell grids
-  // — dropped while the stream is down, because the client backfills history
-  // through SessionsGetAgentEntries rather than replaying this bus.
-  sendAgentEntries(frame: PbAgentEntriesFrame): boolean;
-  // Canonical OMP HostFrames. Snapshot trains carry snapshotId so coord can
-  // persist them atomically; later live frames carry an empty snapshotId.
-  sendAgentUiFrame(frame: PbAgentUiFrame): boolean;
   state(): CoordLinkState;
   relocate(targetUrl: string, force?: boolean): void;
   unackedEventCount(): number;

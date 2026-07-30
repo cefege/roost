@@ -29,7 +29,18 @@ const SOURCES: Array<{ app: string; dir: string; base: string }> = [
 
 // Signal kinds that are genuine errors (vs warnings worth surfacing). Used
 // only for the headline icon; ANY signal sets a non-zero exit regardless.
-const ERROR_SIGNALS = new Set(["spa.uncaught", "auth.relogin_401", "voice.ws_failed", "agent.stuck", "worker.uncaught", "transport.event_drop", "event.append_failed", "audit.write_failed", "sync.backfill_failed", "deploy.failed", "scrollback.history_lost"]);
+const ERROR_SIGNALS: Record<string, true> = {
+  "spa.uncaught": true,
+  "auth.relogin_401": true,
+  "voice.ws_failed": true,
+  "worker.uncaught": true,
+  "transport.event_drop": true,
+  "event.append_failed": true,
+  "audit.write_failed": true,
+  "sync.backfill_failed": true,
+  "deploy.failed": true,
+  "scrollback.history_lost": true,
+};
 
 interface LogLine {
   ts?: number;
@@ -142,7 +153,7 @@ export function renderDigest(d: Digest, sinceLabel: string, cutoff: number, miss
     out.push("  ✓ none in window");
   } else {
     for (const [kind, g] of [...d.signals.entries()].sort((a, b) => b[1].count - a[1].count)) {
-      const icon = ERROR_SIGNALS.has(kind) ? "🔴" : "⚠️ ";
+      const icon = ERROR_SIGNALS[kind] ? "🔴" : "⚠️ ";
       const sub = g.subKinds.size
         ? "  " + [...g.subKinds.entries()].sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k}×${n}`).join(" ")
         : "";

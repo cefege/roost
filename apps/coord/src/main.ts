@@ -1,8 +1,6 @@
 // Coord entry point — Bun-specific wrapper. The protocol/fetch layer
 // lives in coord-factory.ts (T3.1) so other runtimes can reuse it.
 
-import { create } from "@bufbuild/protobuf";
-import { AgentUiFrameSchema } from "@roost/shared/proto/sync_pb";
 import { loadCoordConfig, type CoordConfig } from "@roost/shared/config";
 import { openDb } from "./db/connection.ts";
 import { runMigrations } from "./db/migrate.ts";
@@ -11,12 +9,6 @@ import { importAuthorizedKeys } from "./authorized-keys.ts";
 import { newJwtCache } from "./jwt.ts";
 import { scheduleBackups } from "./backup.ts";
 import { scheduleAuditRetention } from "./audit-retention.ts";
-import {
-  AGENT_TRANSCRIPT_RETENTION_DAYS,
-  scheduleAgentTranscriptRetention,
-} from "./agent-transcript.ts";
-import { scheduleAgentUiSnapshotStagingCleanup } from "./agent-ui-store.ts";
-import { globalAgentUiBus } from "./buses.ts";
 import { installByteHubBusHook } from "./byte-hub.ts";
 import { createCoord } from "./coord-factory.ts";
 import { handleWorkerWsUpgrade, makeWorkerWsHandler, type WorkerWsData } from "./connect/worker-ws-handler.ts";
@@ -135,12 +127,12 @@ export async function runCoord() {
   // Raw-WS worker transport deps (Bun-specific; coord-factory stays
   // fetch-only/portable). The WS handler (worker-ws-handler.ts) reuses the
   // shared worker-conn registry + makeWorkerConn from worker-service.ts.
-  const wsDeps: WorkerServiceDeps = { db, sqlite, coordKey, jwtCache, cfg, move };
+  const wsDeps: WorkerServiceDeps = { db, coordKey, jwtCache, cfg, move };
   const workerWs = makeWorkerWsHandler(wsDeps);
-  // Sync firehose raw-WS (/ws/coord-sync). Same wsDeps shape (ConnectDeps ⊇
-  // { db, coordKey, cfg, jwtCache }); the feed itself is shared with the
-  // former Connect sync via startSyncFeed (handlers-streaming.ts).
-  const syncWs = makeSyncWsHandler({ ...wsDeps, move });
+  // Sync firehose raw-WS (/ws/coord-sync) also needs SQLite for Connect deps;
+  // its feed is shared with the former Connect sync via handlers-streaming.ts.
+  const syncDeps = { db, sqlite, coordKey, jwtCache, cfg, move };
+  const syncWs = makeSyncWsHandler(syncDeps);
   publishRelocation = (handoffId, sourceUrl, targetUrl) => syncWs.publishRelocation(handoffId, sourceUrl, targetUrl);
 
   // ONE Bun websocket handler multiplexing both raw-WS transports. Dispatch on
@@ -148,9 +140,6 @@ export async function runCoord() {
   // invariant on `data`, so the compiler can't narrow the socket handle from
   // ws.data.kind alone — cast to the known variant after the discriminant check.
   const websocket = {
-    // RPC v2 may carry one 64 MiB canonical HostFrame. Leave protobuf/session
-    // envelope headroom above coord's 68 MiB frame_json validation cap.
-    maxPayloadLength: 72 * 1024 * 1024,
     open(ws: ServerWebSocket<WorkerWsData | SyncWsData>): void {
       if (ws.data.kind === "sync") syncWs.open(ws as ServerWebSocket<SyncWsData>);
       else workerWs.open(ws as ServerWebSocket<WorkerWsData>);
@@ -280,7 +269,7 @@ export async function runCoord() {
       if (ws !== null) return ws;
       // Browser Sync firehose raw-WS (/ws/coord-sync). Same hijack pattern;
       // null = not our path → fall through to the portable coord.fetch.
-      const sws = await handleSyncWsUpgrade(req, server, wsDeps);
+      const sws = await handleSyncWsUpgrade(req, server, syncDeps);
       if (sws !== null) return sws;
       // The Sync firehose moved to /ws/coord-sync (raw WS). Reject the legacy
       // Connect server-streaming Sync RPC HERE — at the fetch layer, BEFORE
@@ -329,15 +318,6 @@ export async function runCoord() {
 
   scheduleBackups(cfg.dbPath);
   scheduleAuditRetention(sqlite, cfg.auditRetentionDays);
-  scheduleAgentTranscriptRetention(sqlite, AGENT_TRANSCRIPT_RETENTION_DAYS);
-  scheduleAgentUiSnapshotStagingCleanup(sqlite, (relay) => {
-    globalAgentUiBus.publish(create(AgentUiFrameSchema, {
-      sessionId: relay.session_id,
-      frameJson: relay.frame_json,
-      snapshotId: relay.snapshot_id,
-      coordRevision: BigInt(relay.coord_revision),
-    }));
-  });
 
   const shutdown = (): void => {
     log.info("main", "shutdown");

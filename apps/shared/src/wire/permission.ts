@@ -1,6 +1,4 @@
-// PermissionRule — auto-decide engine for ControlPush::PermissionRequest.
-// On each incoming permission_request the coord matches against enabled
-// rules; first match wins; allow-and-remember mints a new rule.
+// PermissionRule — auto-decision policy shared by coord and clients.
 
 import { z } from "zod";
 import { PermissionRuleId } from "./brand.ts";
@@ -14,8 +12,7 @@ export type PermissionDecision = z.infer<typeof PermissionDecision>;
 
 export const PermissionRule = z.object({
   id: PermissionRuleId,
-  // Glob over `<tool_name>:<input.summary>` style — matches the worker's
-  // serialization of ControlPush::PermissionRequest.snippet.
+  // Glob over `<tool_name>:<input.summary>` style serialized request text.
   tool_pattern: z.string().min(1),
   // Folder where the rule applies; "*" = any folder.
   folder_glob: z.string().min(1),

@@ -32,7 +32,6 @@ function anchor(over: Partial<Session> = {}): Session {
     spawn_cwd: "/Users/you/roost",
     workspace_id: null,
     status: "open",
-    agent: null,
     created_at: 1000,
     closed_at: null,
     custom_title: null,
@@ -65,7 +64,6 @@ describe("optimisticSpawn", () => {
     expect(s?.worker_fp).toBe(a.worker_fp);
     expect(s?.cwd).toBe(a.cwd);
     expect(s?.spawn_cwd).toBe(a.cwd); // folder bucket === anchor's (folderKeyOf = worker_fp::cwd)
-    expect(s?.agent).toBeNull(); // D-3 invariant: shell ⇒ agent null
     endOptimisticSpawn(id); // clear the module-level pending set for the next test
   });
 

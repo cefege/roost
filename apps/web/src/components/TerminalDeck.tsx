@@ -1,18 +1,11 @@
-// Layout-driven terminal deck (tiling model). Mounts every open session ONCE
-// (persistent deck — no remount on nav or re-tile) and positions the visible
-// ones into their pane rects from the per-folder tiling layout
-// (store/paneLayout + paneLayoutStore). Renders a PaneStrip per pane + draggable
-// PaneDividers. One pane (the default) = full-area terminal + one strip on top
-// = identical to the pre-tiling UI. Compact/mobile collapses to the focused
-// pane's selected tab, full-bleed (single terminal — matches mobile-app layout).
-// Callers: MainPane.tsx. Splits via ⌘D / ⌘⇧D; bring-to-front via ⌘⏎ / middle-click / right-click. New tab via the pane strip's +. Arrange presets via the top-right ArrangeMenu / ⌘⌥B·E·R·G·V.
+// Layout-driven terminal deck. Open terminals retain their immutable spawn cwd,
+// share selection/close/reorder/split behavior, and stay mounted while parked
+// so switching tabs never loses live state.
+// Compact/mobile collapses to the focused pane's selected tab.
 
 import { For, Index, Show, createMemo, createSignal, createEffect, onMount, onCleanup, on } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import { rootStore } from "../store/root.ts";
-import { markSeen } from "../lib/sessionSeen.ts";
-import { pageVisible } from "../lib/pageVisible.ts";
-import { latestAssistantOutput } from "../lib/attention.ts";
 import { CellTerminal } from "./CellTerminal.tsx";
 import { PaneStrip } from "./PaneStrip.tsx";
 import { MobileDeckBar } from "./MobileDeckBar.tsx";
@@ -105,14 +98,12 @@ function sameParkSizes(
 
 export function TerminalDeck(props: { activeSessionId: string | null }) {
   const navigate = useNavigate();
-  // kind "agent" is excluded at the source: those sessions have no PTY, so a
-  // tab for one would mount a CellTerminal that never receives a byte. Their
-  // pane is TranscriptDeck (MainPane branches on kind). Shells are unaffected.
-  const openSessions = createMemo(() => Object.values(rootStore.sessions).filter((s) => s.status === "open" && s.kind !== "agent"));
+  // Every open terminal belongs to the shared pane model.
+  const openSessions = createMemo(() => Object.values(rootStore.sessions).filter((s) => s.status === "open"));
   const [warmSessionIds, setWarmSessionIds] = createSignal<ReadonlySet<string>>(new Set());
 
   const activeSession = createMemo(() => (props.activeSessionId ? rootStore.sessions[props.activeSessionId] ?? null : null));
-  const newTermFolder = createMemo(() => { const s = activeSession(); return s ? shortCwd(s.cwd) : ""; });
+  const newTermFolder = createMemo(() => { const s = activeSession(); return s ? shortCwd(folderPathOf(s)) : ""; });
   const folderKey = createMemo(() => { const s = activeSession(); return s ? folderKeyOf(s) : null; });
   // Sessions that belong in the layout for the active folder. EXCLUDE
   // pending-close (soft-closed) sessions: a closed tab stays status="open" until
@@ -360,26 +351,6 @@ export function TerminalDeck(props: { activeSessionId: string | null }) {
     return m;
   });
 
-  // Selected tab per visible pane, content-stable: identity changes ONLY when
-  // the SET changes, NOT when a drag moves rects — so the markSeen effect below
-  // does not re-run (and re-persist to localStorage) on every pointermove.
-  const visibleSelectedTabs = createMemo(
-    () => view().panes.map((p) => p.selectedTab).filter(Boolean) as string[],
-    undefined,
-    { equals: (a, b) => a.length === b.length && a.every((id, i) => id === b[i]) },
-  );
-
-  // Mark every ON-SCREEN pane's selected tab "seen" while foregrounded.
-  // Tiling shows several panes at once, so seeing can't be URL-active-only.
-  // New OMP assistant output while watched re-stamps the monotonic marker.
-  createEffect(() => {
-    if (!pageVisible()) return;
-    for (const id of visibleSelectedTabs()) {
-      const session = rootStore.sessions[id];
-      if (session) void latestAssistantOutput(session)?.ts;
-      markSeen(id);
-    }
-  });
 
   createEffect(() => setVisiblePaneCount(view().panes.length));
   // Spotlit session closed → drop the peek.
@@ -642,9 +613,10 @@ export function TerminalDeck(props: { activeSessionId: string | null }) {
     return (p && rootStore.sessions[p.selectedTab]) || activeSession();
   }
   async function spawnSibling(anchor: Session, sessionId?: string): Promise<string> {
+    const folder = folderPathOf(anchor);
     return anchor.workspace_id
-      ? await spawnInWorkspace(anchor.worker_fp, anchor.workspace_id, folderPathOf(anchor), sessionId)
-      : await spawnShell(anchor.worker_fp, anchor.cwd, sessionId);
+      ? await spawnInWorkspace(anchor.worker_fp, anchor.workspace_id, folder, sessionId)
+      : await spawnShell(anchor.worker_fp, folder, sessionId);
   }
   async function doNewTab(paneId: string): Promise<void> {
     const anchor = anchorFor(paneId);
@@ -877,7 +849,7 @@ export function TerminalDeck(props: { activeSessionId: string | null }) {
         {(s) => {
           const slot = createMemo(() => slotBySession().get(s.id) ?? null, undefined, { equals: sameSlot });
           return (
-            <div data-testid={`terminal-slot-${s.id}`} data-pane data-pane-id={slot()?.paneId ?? ""} data-focused={slot()?.focused ? "true" : "false"} data-spotlit={slot()?.spotlit ? "true" : undefined} style={{ ...termStyle(slot(), parkSizeBySession().get(s.id)), ...swipeStyleFor(s.id) }}>
+            <div data-testid={`terminal-slot-${s.id}`} data-pane-slot data-pane data-pane-id={slot()?.paneId ?? ""} data-focused={slot()?.focused ? "true" : "false"} data-spotlit={slot()?.spotlit ? "true" : undefined} style={{ ...termStyle(slot(), parkSizeBySession().get(s.id)), ...swipeStyleFor(s.id) }}>
               <CellTerminal session={s} inLayout={!!slot()} focused={slot()?.focused ?? false} spotlit={slot()?.spotlit ?? false} backgroundStream={!slot() && bgStreamIds().has(s.id)} />
             </div>
           );

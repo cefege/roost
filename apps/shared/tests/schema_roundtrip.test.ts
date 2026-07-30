@@ -31,7 +31,6 @@ const FIXTURE_SESSION: Session = {
   cwd: "/Users/you",
   workspace_id: null,
   status: "open",
-  agent: null,
   created_at: 1717000000000,
   closed_at: null,
   custom_title: null,

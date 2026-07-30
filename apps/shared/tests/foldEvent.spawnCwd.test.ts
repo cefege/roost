@@ -39,7 +39,7 @@ describe("spawn_cwd fold", () => {
         kind: "snapshot", worker_fp: FP, ts: 3,
         sessions: [{
           id: SID, worker_fp: FP, channel: CH, kind: "shell", cwd: "/tmp",
-          workspace_id: null, status: "open", agent: null,
+          workspace_id: null, status: "open",
           created_at: 1, closed_at: null, custom_title: null,
         }],
       },

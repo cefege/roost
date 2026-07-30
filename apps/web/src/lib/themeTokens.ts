@@ -30,8 +30,7 @@ export const CANONICAL_TOKENS = [
   // block re-points wterm's own --term-color-N (which it scopes to .wterm,
   // shadowing :root) at the same --ansi-* sources. @wterm/dom's renderer
   // emits inline var(--term-color-N) per cell, so theme switches reflow the
-  // grid with no re-render. Also feeds app-chrome consumers that read
-  // --term-color-N outside the grid (SessionRow status dots, StatusGlyph).
+  // grid with no re-render. Also feeds app-chrome consumers outside the grid.
   "ansi-black", "ansi-red", "ansi-green", "ansi-yellow",
   "ansi-blue", "ansi-magenta", "ansi-cyan", "ansi-white",
   "ansi-bright-black", "ansi-bright-red", "ansi-bright-green", "ansi-bright-yellow",

@@ -17,12 +17,7 @@ export const ROUTES = {
   // gracefully. MainPane resolves by channelId.
   WORKSPACE: "/w/:workspaceId",
   WORKSPACE_TERMINAL: "/w/:workspaceId/t/:channelId",
-  // phase-m3d: /swarm /queue /inbox routes removed (Author 2026-06-18 —
-  // "those were basically the statuses of cloud code; there's no point
-  // of filtering by each. There should be a list."). All sessions
-  // render in the single AllView list. Per-row status chips
-  // (running/idle/needs-input) survive — only the top-level
-  // filter-routes are gone.
+  // Removed status-specific routes; all sessions render in the single list.
   SETTINGS: "/settings/:pane?",
   // /pair — always-reachable browser-pairing surface. WorkspaceRedirect
   // only falls through to Onboarding when URL is "/" + zero workers +

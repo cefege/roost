@@ -38,127 +38,8 @@ message Worker {
   optional string keeper_stale = 9;
 }
 
-// ─── Session + AgentState ────────────────────────────────────────────────
+// ─── Session ────────────────────────────────────────────────────────────
 
-message Tokens {
-  uint64 in = 1;
-  uint64 out = 2;
-  uint64 cached = 3;
-}
-
-message LastMessage {
-  string role = 1;  // user|assistant|thinking
-  string text = 2;
-  uint64 ts = 3;
-}
-
-message CurrentTool {
-  string name = 1;
-  string input_summary = 2;
-}
-
-message CurrentBlock {
-  uint64 id = 1;
-  optional string command = 2;
-}
-
-message PermissionRequest {
-  string id = 1;
-  string snippet = 2;
-  repeated string options = 3;
-}
-
-message SubAgentRow {
-  string parent_message_id = 1;
-  string child_session_id = 2;
-  string label = 3;
-  string status = 4;
-}
-
-message AgentState {
-  string mode = 1;  // adapter-defined mode string
-  string model = 2;
-  string status = 3;  // running|needs-input|idle|done
-  Tokens tokens = 4;
-  double cost_usd = 5;
-  optional LastMessage last_message = 6;
-  optional CurrentTool current_tool = 7;
-  optional CurrentBlock current_block = 8;
-  optional PermissionRequest permission_request = 9;
-  repeated SubAgentRow sub_agents = 10;
-  // The worker restarted and its structured-state bridge died. The keeper PTY
-  // still runs, but auxiliary state will not refresh until the bridge returns.
-  bool stale = 11;
-  // Absolute path of the omp session .jsonl (from RPC get_state.sessionFile).
-  // Backs exact --resume on worker respawn. absent = unknown.
-  optional string session_file = 12;
-}
-
-// ─── Agent transcript entries (omp RPC projection) ───────────────────────
-
-message AgentTextEntry {
-  string text = 1;
-  bool done = 2;
-}
-
-message AgentToolEntry {
-  string tool_call_id = 1;
-  string name = 2;
-  string args_json = 3;
-  string status = 4;        // running|ok|error
-  string text = 5;          // joined text content blocks
-  string details_json = 6;  // AgentToolResult.details
-  string intent = 7;
-}
-
-message AgentPromptEntry {
-  string prompt_id = 1;  // omp extension_ui_request id, verbatim
-  string kind = 2;       // approval|question|input
-  string title = 3;
-  repeated string options = 4;
-  bool allow_free_text = 5;
-  string state = 6;  // pending|answered|cancelled
-  string answer = 7;
-}
-
-message AgentNoticeEntry {
-  string level = 1;  // info|warn|error
-  string text = 2;
-  string details_json = 3;
-}
-message AgentTodoEntry {
-  string phases_json = 1;
-}
-
-message AgentSubagentEntry {
-  string subagent_id = 1;
-  string name = 2;
-  string state = 3;  // running|done|failed
-  string text = 4;
-}
-
-message AgentImageEntry {
-  string media_type = 1;
-  string data_b64 = 2;
-  string alt = 3;
-}
-
-
-message AgentEntry {
-  uint64 seq = 1;  // monotonic per session, starts at 1
-  int64 ts = 2;
-  oneof body {
-    AgentTextEntry user = 10;
-    AgentTextEntry assistant = 11;
-    AgentTextEntry thinking = 12;
-    AgentToolEntry tool = 13;
-    AgentPromptEntry prompt = 14;
-    AgentNoticeEntry notice = 15;
-    AgentTodoEntry todo = 16;
-    AgentSubagentEntry subagent = 17;
-    AgentImageEntry image = 18;
-  }
-}
 
 message Session {
   string id = 1;
@@ -168,7 +49,7 @@ message Session {
   string cwd = 5;
   optional string workspace_id = 6;
   string status = 7;  // open|closed
-  optional AgentState agent = 8;
+  reserved 8;  // retired field
   uint64 created_at = 9;
   optional uint64 closed_at = 10;
   // User-set rename. Overrides the auto-derived title (OSC/tool/cwd) in

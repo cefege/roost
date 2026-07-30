@@ -98,11 +98,8 @@ export function emitUpstreamChunk(this: SessionManager, channelId: number, chunk
 	// — a burst of chunks emits ONE delta to the latest grid, not one per chunk.
 	// B (draw only to attached clients): skip the delta when NO viewer is
 	// watching — the grid still updates in wtermCore, and a viewer attaching
-	// re-claims → emitCellSnapshot repaints the whole grid. Saves CPU+wire for
-	// background sessions (the many-parallel-agents case).
+	// re-claims → emitCellSnapshot repaints the whole grid.
 	if (this._hasActiveViewer(channelId)) this._scheduleCellEmit(channelId);
-	// Worker-side terminal handling ends here. Structured agent state is supplied
-	// by the OMP bridge, not inferred from an arbitrary terminal grid.
 }
 
 
@@ -161,8 +158,7 @@ export function emitCellFrame(this: SessionManager, channelId: number, force: bo
 	const send = this.sendCellGridUpstream;
 	if (!send) return;
 	const rec = this.sessions.get(channelId);
-	// Agent sessions paint a transcript, not a grid — no core, nothing to emit.
-	if (!rec || rec.kind !== "shell") return;
+	if (!rec) return;
 	// The live paths create a terminal core before registration. Keep this
 	// narrow for teardown races and sparse test fixtures.
 	const core = rec.wtermCore;
