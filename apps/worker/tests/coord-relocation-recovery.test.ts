@@ -19,6 +19,7 @@ function link(relocations: string[]): CoordLink {
     sendBinary: () => false,
     sendCellGrid: () => false,
     sendAgentEntries: () => false,
+    sendAgentUiFrame: () => false,
     state: () => ({ kind: "reconnecting", nextDialAtMs: 0, backoffMs: 100 }),
     relocate: (url) => { relocations.push(url); },
     unackedEventCount: () => 0,

@@ -65,6 +65,9 @@ message CoordWorkerUp {
     // never touches the `events` table, so it must not serialize behind
     // the durable-event tail.
     AgentEntriesFrame agent_entries = 13;
+    // Canonical OMP HostFrame stream; coord persists the snapshot train and
+    // relays the same frame to subscribed browsers.
+    AgentUiFrame agent_ui = 14;
   }
 }
 

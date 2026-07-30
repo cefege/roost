@@ -16,6 +16,7 @@ import { handleAttachmentProbe, handleDeleteAttachment, handleListAttachments } 
 import { handleDiagDumpBytecap, handleDiagSnapshot } from "./browser-command-diag.ts";
 import {
 	handleAgentAbort,
+	handleAgentUiCommand,
 	handleAgentRespond,
 	handleSpawnAgent,
 	handleUserMessage,
@@ -116,6 +117,10 @@ export function handleBrowserCommand(
 		}
 		case "agent-respond": {
 			handleAgentRespond(frame, request_id, { coordLink, sessionMgr });
+			return;
+		}
+		case "agent-ui-command": {
+			handleAgentUiCommand(frame, request_id, { coordLink, sessionMgr });
 			return;
 		}
 		case "omp-abort": {

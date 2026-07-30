@@ -180,6 +180,17 @@ message SessionsAgentRespondResponse { bool accepted = 1; }
 
 message SessionsAgentAbortRequest { string session_id = 1; }
 message SessionsAgentAbortResponse { bool accepted = 1; }
+// Authenticated bridge for the embedded OMP SessionSurface. command_json is a
+// canonical OMP RPC command; data_json preserves response.data verbatim.
+message SessionsAgentUiCommandRequest {
+  string session_id = 1;
+  string command_json = 2;
+}
+message SessionsAgentUiCommandResponse {
+  bool accepted = 1;
+  string data_json = 2;
+}
+
 
 // Paged transcript backfill, newest-first by page. before_seq = 0 → newest.
 message SessionsGetAgentEntriesRequest {
@@ -190,6 +201,15 @@ message SessionsGetAgentEntriesResponse {
   repeated AgentEntry entries = 1;  // ascending by seq
   uint64 first_seq = 2;
   bool more = 3;
+}
+
+// Finite canonical browser snapshot stream. Coord emits welcome through the
+// final snapshot-chunk in order, one persisted HostFrame per response.
+message SessionsGetAgentUiSnapshotRequest {
+  string session_id = 1;
+}
+message SessionsGetAgentUiSnapshotResponse {
+  AgentUiFrame frame = 1;
 }
 
 message SessionsInputRequest {
@@ -636,6 +656,8 @@ service CoordinatorService {
   rpc SessionsAgentRespond(SessionsAgentRespondRequest) returns (SessionsAgentRespondResponse);
   rpc SessionsAgentAbort(SessionsAgentAbortRequest) returns (SessionsAgentAbortResponse);
   rpc SessionsGetAgentEntries(SessionsGetAgentEntriesRequest) returns (SessionsGetAgentEntriesResponse);
+  rpc SessionsGetAgentUiSnapshot(SessionsGetAgentUiSnapshotRequest) returns (stream SessionsGetAgentUiSnapshotResponse);
+  rpc SessionsAgentUiCommand(SessionsAgentUiCommandRequest) returns (SessionsAgentUiCommandResponse);
 
   // workspaces
   rpc WorkspacesList(WorkspacesListRequest) returns (WorkspacesListResponse);

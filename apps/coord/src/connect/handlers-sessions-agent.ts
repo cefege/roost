@@ -9,17 +9,20 @@ import { randomUUID } from "node:crypto";
 import {
   CoordinatorService,
   SessionsAgentRespondResponseSchema, SessionsAgentAbortResponseSchema,
-  SessionsGetAgentEntriesResponseSchema,
+  SessionsGetAgentEntriesResponseSchema, SessionsGetAgentUiSnapshotResponseSchema,
 } from "@roost/shared/proto/coordinator_pb";
 import { agentEntryToProto } from "@roost/shared/wire/agent-proto";
+import { AgentUiFrameSchema } from "@roost/shared/proto/sync_pb";
 import { asSessionId } from "@roost/shared/wire";
 import { requireAuth } from "./auth-interceptor.ts";
 import { forwardToSessionWorker } from "./router-helpers.ts";
 import type { ConnectDeps } from "./router.ts";
 import { pageAgentEntries } from "../agent-transcript.ts";
+import { replayAgentUiSnapshot } from "../agent-ui-store.ts";
 
 type AgentSessionMethods =
-  | "sessionsAgentRespond" | "sessionsAgentAbort" | "sessionsGetAgentEntries";
+  | "sessionsAgentRespond" | "sessionsAgentAbort" | "sessionsGetAgentEntries"
+  | "sessionsGetAgentUiSnapshot";
 
 
 export function makeAgentSessionHandlers(
@@ -71,6 +74,41 @@ export function makeAgentSessionHandlers(
         firstSeq: BigInt(page.first_seq),
         more: page.more,
       });
+    },
+
+    // Finite server stream: one bounded canonical HostFrame per response.
+    // A dedicated SQLite read snapshot inside replayAgentUiSnapshot keeps the
+    // welcome entryCount and every later chunk on one consistent revision
+    // while live frames continue to write through on the primary connection.
+    async *sessionsGetAgentUiSnapshot(req, ctx) {
+      requireAuth(ctx.values);
+      const row = await deps.db
+        .selectFrom("sessions")
+        .select(["id", "kind"])
+        .where("id", "=", req.sessionId)
+        .executeTakeFirst();
+      if (!row) throw new ConnectError("unknown session", Code.NotFound);
+      if (row.kind !== "agent") {
+        throw new ConnectError("session is not an agent", Code.FailedPrecondition);
+      }
+
+      let previousRevision = 0n;
+      for (const stored of replayAgentUiSnapshot(deps.sqlite, req.sessionId)) {
+        if (ctx.signal.aborted) return;
+        const revision = BigInt(stored.coord_revision);
+        if (revision <= previousRevision) {
+          throw new ConnectError("stored agent UI revisions are invalid", Code.DataLoss);
+        }
+        previousRevision = revision;
+        yield create(SessionsGetAgentUiSnapshotResponseSchema, {
+          frame: create(AgentUiFrameSchema, {
+            sessionId: req.sessionId,
+            frameJson: stored.frame_json,
+            snapshotId: stored.snapshot_id,
+            coordRevision: revision,
+          }),
+        });
+      }
     },
   };
 }

@@ -19,6 +19,7 @@ import { makeTaskHandlers } from "./handlers-tasks.ts";
 import { makeWorkerHandlers } from "./handlers-workers.ts";
 import { makeSessionHandlers } from "./handlers-sessions.ts";
 import { makeAgentSessionHandlers } from "./handlers-sessions-agent.ts";
+import { makeAgentUiCommandHandlers } from "./handlers-sessions-agent-ui.ts";
 import { makeStreamingHandlers } from "./handlers-streaming.ts";
 import { makeUiHandlers } from "./handlers-ui.ts";
 import { makePushHandlers } from "./handlers-push.ts";
@@ -74,6 +75,7 @@ export function buildConnectRouter(deps: ConnectDeps): ConnectRouter {
     ...makeWorkerHandlers(deps),
     ...makeSessionHandlers(deps),
     ...makeAgentSessionHandlers(deps),
+    ...makeAgentUiCommandHandlers(deps),
     ...makeWorkspaceHandlers(deps),
     ...makeTaskHandlers(deps),
     ...makeSettingsHandlers(deps),

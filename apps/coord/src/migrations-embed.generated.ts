@@ -17,6 +17,7 @@ import m12 from "../migrations/0013_sessions_spawn_cwd.sql" with { type: "text" 
 import m13 from "../migrations/0014_push_subscriptions.sql" with { type: "text" };
 import m14 from "../migrations/0015_normalize_legacy_session_kinds.sql" with { type: "text" };
 import m15 from "../migrations/0016_agent_entries.sql" with { type: "text" };
+import m16 from "../migrations/0017_agent_ui_frames.sql" with { type: "text" };
 
 export const MIGRATIONS: { name: string; sql: string }[] = [
   { name: "0001_init", sql: m0 },
@@ -35,4 +36,5 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
   { name: "0014_push_subscriptions", sql: m13 },
   { name: "0015_normalize_legacy_session_kinds", sql: m14 },
   { name: "0016_agent_entries", sql: m15 },
+  { name: "0017_agent_ui_frames", sql: m16 },
 ];

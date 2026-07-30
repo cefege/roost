@@ -19,7 +19,10 @@ import {
   CoordWorkerUpSchema, CoordWorkerDownSchema, WHelloSchema,
   WRefreshJwtSchema, WSessionEventSchema, WCellGridSchema,
 } from "@roost/shared/proto/worker_transport_pb";
-import type { AgentEntriesFrame as PbAgentEntriesFrame } from "@roost/shared/proto/sync_pb";
+import type {
+  AgentEntriesFrame as PbAgentEntriesFrame,
+  AgentUiFrame as PbAgentUiFrame,
+} from "@roost/shared/proto/sync_pb";
 import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
 import { ClientSeq } from "./client-seq.ts";
 import type {
@@ -64,6 +67,9 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
   // backoff cap to AUTH_REJECT_BACKOFF_CAP_MS. Reset on successful open.
   let _authRejectCount = 0;
   let _didOpen = false;
+  // Persists across dials so callers can reconcile only after a true reopen,
+  // not race normal startup with a duplicate snapshot request.
+  let hasOpened = false;
   let refreshTimer: ReturnType<typeof setTimeout> | null = null;
   let disposed = false;
   // Pending backoff dial. Held so relocate()/dispose() can cancel it — an
@@ -203,6 +209,14 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
     try { writer(up); return true; } catch { diag("transport.frame_dropped", { reason: "writer_throw", kind: "agentEntries" }); return false; }
   }
 
+  // Snapshot persistence is coord-owned. This live hop does not buffer partial
+  // trains while disconnected; the reopen hook requests a fresh atomic train.
+  function sendAgentUiFrame(frame: PbAgentUiFrame): boolean {
+    if (disposed || !writer) return false;
+    const up = create(CoordWorkerUpSchema, { frame: { case: "agentUi", value: frame } });
+    try { writer(up); return true; } catch { diag("transport.frame_dropped", { reason: "writer_throw", kind: "agentUi" }); return false; }
+  }
+
 
 
 
@@ -277,6 +291,8 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
       setState({ kind: "open", since: openedAt });
       _reconnectFailures = 0;
       _didOpen = true;
+      const reconnected = hasOpened;
+      hasOpened = true;
       _authRejectCount = 0;
       scheduleRefresh();
       // Stale-link watchdog: coord pings every 30s; if the socket goes silent
@@ -326,6 +342,11 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
             const p = frameToProto(item);
             if (p) w(p);
           }
+        }
+        try {
+          deps.onOpen?.(reconnected);
+        } catch (err) {
+          log.warn("coord-link", "on_open_failed", { error: err instanceof Error ? err.message : String(err) });
         }
       } catch (err) {
         log.warn("coord-link", "flush_failed", { error: (err as Error).message });
@@ -526,5 +547,5 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
   }
 
   void dial();
-  return { send, sendBinary, sendCellGrid, sendAgentEntries, state: () => state, relocate, unackedEventCount: () => unacked.size, dispose };
+  return { send, sendBinary, sendCellGrid, sendAgentEntries, sendAgentUiFrame, state: () => state, relocate, unackedEventCount: () => unacked.size, dispose };
 }

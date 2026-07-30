@@ -1,6 +1,8 @@
 // Coord entry point — Bun-specific wrapper. The protocol/fetch layer
 // lives in coord-factory.ts (T3.1) so other runtimes can reuse it.
 
+import { create } from "@bufbuild/protobuf";
+import { AgentUiFrameSchema } from "@roost/shared/proto/sync_pb";
 import { loadCoordConfig, type CoordConfig } from "@roost/shared/config";
 import { openDb } from "./db/connection.ts";
 import { runMigrations } from "./db/migrate.ts";
@@ -13,6 +15,8 @@ import {
   AGENT_TRANSCRIPT_RETENTION_DAYS,
   scheduleAgentTranscriptRetention,
 } from "./agent-transcript.ts";
+import { scheduleAgentUiSnapshotStagingCleanup } from "./agent-ui-store.ts";
+import { globalAgentUiBus } from "./buses.ts";
 import { installByteHubBusHook } from "./byte-hub.ts";
 import { createCoord } from "./coord-factory.ts";
 import { handleWorkerWsUpgrade, makeWorkerWsHandler, type WorkerWsData } from "./connect/worker-ws-handler.ts";
@@ -144,6 +148,9 @@ export async function runCoord() {
   // invariant on `data`, so the compiler can't narrow the socket handle from
   // ws.data.kind alone — cast to the known variant after the discriminant check.
   const websocket = {
+    // RPC v2 may carry one 64 MiB canonical HostFrame. Leave protobuf/session
+    // envelope headroom above coord's 68 MiB frame_json validation cap.
+    maxPayloadLength: 72 * 1024 * 1024,
     open(ws: ServerWebSocket<WorkerWsData | SyncWsData>): void {
       if (ws.data.kind === "sync") syncWs.open(ws as ServerWebSocket<SyncWsData>);
       else workerWs.open(ws as ServerWebSocket<WorkerWsData>);
@@ -323,6 +330,14 @@ export async function runCoord() {
   scheduleBackups(cfg.dbPath);
   scheduleAuditRetention(sqlite, cfg.auditRetentionDays);
   scheduleAgentTranscriptRetention(sqlite, AGENT_TRANSCRIPT_RETENTION_DAYS);
+  scheduleAgentUiSnapshotStagingCleanup(sqlite, (relay) => {
+    globalAgentUiBus.publish(create(AgentUiFrameSchema, {
+      sessionId: relay.session_id,
+      frameJson: relay.frame_json,
+      snapshotId: relay.snapshot_id,
+      coordRevision: BigInt(relay.coord_revision),
+    }));
+  });
 
   const shutdown = (): void => {
     log.info("main", "shutdown");

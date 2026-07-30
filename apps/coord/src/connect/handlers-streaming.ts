@@ -32,7 +32,7 @@ import {
   sessionBus, presenceBus, workspaceBus, taskBus, webhookBus,
   permissionBus, mcpBus, globalBytesBus, globalPresenceBus, auditBus,
   titleBus, lastActivityBus, workerRoutableBus, globalCellBus, globalAgentEntryBus,
-  pairBus, uiBus, type TaskBusMsg, type PairRequestDelta, type AuditRow,
+  globalAgentUiBus, pairBus, uiBus, type TaskBusMsg, type PairRequestDelta, type AuditRow,
 } from "../buses.ts";
 import { getEventsSince } from "../event-log.ts";
 import { listRoutableFps } from "./worker-service.ts";
@@ -307,6 +307,10 @@ export function startSyncFeed(
     // frame landing mid-backfill is a no-op rather than a duplicate.
     globalAgentEntryBus.subscribe((frame) =>
       push(create(FirehoseFrameSchema, { frame: { case: "agentEntries", value: frame } }))),
+    // Canonical OMP HostFrames. Live-only here; a reconnect asks coord's
+    // durable snapshot RPC for an ordered SessionReplica seed.
+    globalAgentUiBus.subscribe((frame) =>
+      push(create(FirehoseFrameSchema, { frame: { case: "agentUi", value: frame } }))),
     titleBus.subscribe(({ session_id, title }) =>
       push(create(FirehoseFrameSchema, {
         frame: { case: "terminalTitle", value: create(TerminalTitleFrameSchema, {

@@ -46,6 +46,7 @@ export async function spawnAgent(
 	const rpc = await startOmpRpc({ cwd: resolvedCwd, resumeFile: opts.resumeFile });
 
 	const sendEntries = this.sendAgentEntriesUpstream;
+	const sendUiFrame = this.sendAgentUiFrameUpstream;
 	const agent = new AgentController({
 		sessionId,
 		rpc,
@@ -53,6 +54,7 @@ export async function spawnAgent(
 		// Dropping frames while the link is down is correct: the SPA backfills
 		// through SessionsGetAgentEntries, which reads this same ring.
 		sendEntries: (frame) => sendEntries?.(frame),
+		sendUiFrame: (frame) => sendUiFrame?.(frame),
 		emitEvent: (event) => this.emitEvent(event),
 	});
 	const record: SessionRecord = {

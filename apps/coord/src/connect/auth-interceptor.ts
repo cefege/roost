@@ -73,7 +73,7 @@ const WRITE_METHODS: Record<string, true | undefined> = {
   WorkersRegister: true, WorkersHeartbeat: true, WorkersRename: true, WorkersDelete: true, WorkersDeployStart: true,
   SessionsSpawn: true, SessionsAttach: true, SessionsKill: true, SessionsRename: true, SessionsResize: true,
   SessionsUserMessage: true, SessionsInput: true, SessionsCursorPos: true, SessionsAssignWorkspace: true,
-  SessionsAgentRespond: true, SessionsAgentAbort: true,
+  SessionsAgentRespond: true, SessionsAgentAbort: true, SessionsAgentUiCommand: true,
   WorkspacesCreate: true, WorkspacesUpdate: true, WorkspacesDelete: true, WorkspacesSetSessions: true,
   TasksEnqueue: true, TasksNextPending: true, TasksSetState: true, TasksCancel: true,
   WebhookTokensMint: true, WebhookTokensDelete: true,
@@ -105,7 +105,7 @@ const AUDIT_SKIP_METHODS: Record<string, true | undefined> = {
   // Transcript backfill: one call per agent-transcript mount plus one per
   // "load earlier" — read-only paging with the same no-forensic-signal profile
   // as the scrollback-cells backfill above.
-  SessionsGetAgentEntries: true,
+  SessionsGetAgentEntries: true, SessionsGetAgentUiSnapshot: true,
 };
 
 export function makeAuthInterceptor(deps: AuthInterceptorDeps): Interceptor {

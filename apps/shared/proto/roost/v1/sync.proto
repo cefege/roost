@@ -80,6 +80,17 @@ message AgentEntriesFrame {
   string session_id = 1;
   repeated AgentEntry entries = 2;
 }
+// Canonical OMP browser presentation frame. frame_json is exactly one
+// JSON-serialized @oh-my-pi/pi-wire HostFrame. snapshot_id is stable and
+// nonempty from welcome through the final snapshot-chunk, then empty live.
+message AgentUiFrame {
+  string session_id = 1;
+  string frame_json = 2;
+  string snapshot_id = 3;
+  // Worker sends 0. Coord assigns a monotonic per-session revision before
+  // persistence/firehose so browser snapshot replay can watermark live frames.
+  uint64 coord_revision = 4;
+}
 
 
 message FirehoseFrame {
@@ -120,6 +131,7 @@ message FirehoseFrame {
     KeepaliveFrame keepalive = 26;
     CoordinatorRelocationFrame coordinator_relocation = 27;
     AgentEntriesFrame agent_entries = 28;
+    AgentUiFrame agent_ui = 29;
   }
 }
 

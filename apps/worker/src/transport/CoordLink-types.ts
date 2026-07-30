@@ -2,7 +2,10 @@
 // Extracted to keep CoordLink.ts under the 400-line cap; re-exported
 // from CoordLink.ts so external import paths stay unchanged.
 
-import type { AgentEntriesFrame as PbAgentEntriesFrame } from "@roost/shared/proto/sync_pb";
+import type {
+  AgentEntriesFrame as PbAgentEntriesFrame,
+  AgentUiFrame as PbAgentUiFrame,
+} from "@roost/shared/proto/sync_pb";
 import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
 import type { WorkerFp, ClientControlFrame, SessionEvent } from "@roost/shared/wire";
 
@@ -20,6 +23,9 @@ export interface CoordLinkDeps {
   staleLinkTimeoutMs?: number;
   staleCheckIntervalMs?: number;
   onHelloAck?: (msg: { coord_pubkey_b64: string; coord_pubkey_kid: string }) => void;
+  // Fires after hello + pending drain on every successful socket open.
+  // reconnected=false only for the first open in this CoordLink lifetime.
+  onOpen?: (reconnected: boolean) => void;
   onBrowserCommand?: (msg: { browser_id: string; viewer_id: string; request_id: string; frame: ClientControlFrame }) => void;
   onBinary?: (channelId: number, dir: number, bytes: Uint8Array) => void;
   // Streamed file upload (att1-stream). One call per DAttachmentChunk; the
@@ -49,6 +55,9 @@ export interface CoordLink {
   // — dropped while the stream is down, because the client backfills history
   // through SessionsGetAgentEntries rather than replaying this bus.
   sendAgentEntries(frame: PbAgentEntriesFrame): boolean;
+  // Canonical OMP HostFrames. Snapshot trains carry snapshotId so coord can
+  // persist them atomically; later live frames carry an empty snapshotId.
+  sendAgentUiFrame(frame: PbAgentUiFrame): boolean;
   state(): CoordLinkState;
   relocate(targetUrl: string, force?: boolean): void;
   unackedEventCount(): number;

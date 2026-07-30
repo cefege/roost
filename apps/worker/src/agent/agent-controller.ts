@@ -9,8 +9,15 @@
 //      passes neither timeout nor signal). Every answerable dialog must reach
 //      the UI, and teardown must cancel the ones that never got answered.
 
-import type { AgentEntriesFrame as PbAgentEntriesFrame } from "@roost/shared/proto/sync_pb";
+import { create } from "@bufbuild/protobuf";
+import { randomUUID } from "node:crypto";
+import {
+	AgentUiFrameSchema,
+	type AgentEntriesFrame as PbAgentEntriesFrame,
+	type AgentUiFrame as PbAgentUiFrame,
+} from "@roost/shared/proto/sync_pb";
 import { AGENT_ENTRY_CAPS, clampText } from "@roost/shared/wire/agent-entry";
+import type { AgentUiRpcCommand } from "@roost/shared/wire";
 import type { AgentState, AgentStatus, SessionEvent, SessionId } from "@roost/shared";
 import { log, diag } from "@roost/shared";
 import { isRpcRecord, type RpcFrame } from "./rpc-frame.ts";
@@ -26,6 +33,7 @@ import { OmpRpcError, type OmpRpcHandle } from "./rpc-process.ts";
 
 
 const STATE_TIMEOUT_MS = 10_000;
+const AGENT_CONTROL_TIMEOUT_MS = 300_000;
 const SEED_PAGE_LIMIT = 128;
 // Ceiling used only when coord has no durable rows for this resumed session
 // (pre-migration or transcript aged out) and omp history must seed it.
@@ -37,6 +45,7 @@ export interface AgentControllerDeps {
 	sessionId: SessionId;
 	rpc: OmpRpcHandle;
 	sendEntries: (frame: PbAgentEntriesFrame) => void;
+	sendUiFrame: (frame: PbAgentUiFrame) => void;
 	emitEvent: (event: SessionEvent) => void;
 	nextSeq?: number;
 }
@@ -46,6 +55,7 @@ export class AgentController {
 	readonly rpc: OmpRpcHandle;
 	readonly #ring: AgentEntryRing;
 	readonly #emitEvent: (event: SessionEvent) => void;
+	readonly #sendUiFrame: (frame: PbAgentUiFrame) => void;
 	// Seq counter plus the open-block / tool / prompt indices. The projector
 	// advances them; this class only reads them.
 	#proj: ProjectionState = newProjectionState();
@@ -54,12 +64,15 @@ export class AgentController {
 	#todoSeq: number | null = null;
 	#hasDurableHistory = false;
 	#closed = false;
+	#uiSnapshotId = "";
+	#uiReady = false;
 
 	constructor(deps: AgentControllerDeps) {
 		this.sessionId = deps.sessionId;
 		this.rpc = deps.rpc;
 		this.#ring = new AgentEntryRing(deps.sessionId, deps.sendEntries);
 		this.#emitEvent = deps.emitEvent;
+		this.#sendUiFrame = deps.sendUiFrame;
 		if (deps.nextSeq !== undefined && deps.nextSeq > 1) {
 			this.#proj.nextSeq = deps.nextSeq;
 			this.#hasDurableHistory = true;
@@ -95,6 +108,9 @@ export class AgentController {
 			});
 			return;
 		}
+		if (this.#closed) return;
+		this.#uiReady = true;
+		this.subscribeUi();
 		this.rpc.send({ type: "set_subagent_subscription", level: "progress" });
 		if (opts.resumed) {
 			if (this.#hasDurableHistory) this.#appendNotice("info", "resumed");
@@ -107,6 +123,10 @@ export class AgentController {
 
 	#onFrame(frame: RpcFrame): void {
 		if (this.#closed) return;
+		if (frame.type === "ui_frame") {
+			this.#forwardUiFrame(frame);
+			return;
+		}
 		const promptChanged = this.#applyOps(projectRpcFrame(frame, this.#proj));
 		if (frame.type === "message_end") this.#accumulateUsage(frame);
 		// get_state is the ONLY source of model / thinkingLevel / sessionFile, and
@@ -123,6 +143,30 @@ export class AgentController {
 		) {
 			void this.#refreshState();
 		}
+	}
+
+	/** Forward one canonical browser HostFrame. OMP emits the initial snapshot
+	 *  synchronously as welcome + snapshot-chunk train; stdout order is the
+	 *  reconciliation boundary, so preserve it without projection or batching. */
+	#forwardUiFrame(frame: RpcFrame): void {
+		const hostFrame = frame.frame;
+		if (!isRpcRecord(hostFrame)) {
+			log.warn("agent-controller", "invalid_ui_frame", { sid: this.sessionId });
+			return;
+		}
+		const frameJson = JSON.stringify(hostFrame);
+		if (frameJson === undefined) return;
+		if (hostFrame.t === "welcome") this.#uiSnapshotId = randomUUID();
+		const snapshotId = this.#uiSnapshotId;
+		if (hostFrame.t === "snapshot-chunk" && hostFrame.final === true) {
+			this.#uiSnapshotId = "";
+		}
+		this.#sendUiFrame(create(AgentUiFrameSchema, {
+			sessionId: this.sessionId,
+			frameJson,
+			snapshotId,
+			coordRevision: 0n,
+		}));
 	}
 
 	/** Returns whether a prompt entry appeared or changed — that is what flips
@@ -235,6 +279,13 @@ export class AgentController {
 
 	// ─── commands from the SPA ──────────────────────────────────────────
 
+	/** Request a fresh canonical browser snapshot. Called after initial ready and
+	 *  again when CoordLink reconnects while this OMP child survives. */
+	subscribeUi(): void {
+		if (this.#closed || !this.#uiReady) return;
+		this.rpc.send({ type: "subscribe_ui" });
+	}
+
 	userMessage(text: string): void {
 		if (this.#closed) return;
 		this.#ring.append({
@@ -257,6 +308,39 @@ export class AgentController {
 				patch: { status: "running" },
 				ts: Date.now(),
 			});
+	}
+
+	/** Forward one validated SessionSurface command through OMP's correlated
+	 * request path so failures and response data reach the coordinator. */
+	async uiCommand(command: AgentUiRpcCommand): Promise<unknown> {
+		if (this.#closed) throw new Error("agent session is closed");
+		const data = await this.rpc.request<unknown>(
+			{ ...command },
+			command.type === "subagent_command" ? AGENT_CONTROL_TIMEOUT_MS : undefined,
+		);
+		if (command.type === "browser_ui_response") {
+			const extensionRequestId =
+				isRpcRecord(data) && typeof data.extensionRequestId === "string"
+					? data.extensionRequestId
+					: undefined;
+			const ref = extensionRequestId === undefined
+				? undefined
+				: this.#proj.promptById.get(extensionRequestId);
+			if (extensionRequestId === undefined) {
+				log.warn("agent-controller", "browser_ui_response_missing_extension_id", {
+					sid: this.sessionId,
+					req_id: command.reqId,
+				});
+			} else if (ref) {
+				this.#proj.promptById.delete(extensionRequestId);
+				this.#ring.patch(ref.seq, {
+					state: command.cancelled === true || command.timedOut === true ? "cancelled" : "answered",
+					answer: command.cancelled === true || command.timedOut === true ? "" : command.value ?? "",
+				});
+				void this.#refreshState();
+			}
+		}
+		return data;
 	}
 
 	async abort(): Promise<void> {

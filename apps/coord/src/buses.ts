@@ -12,7 +12,9 @@ import type { PermissionRuleDelta } from "@roost/shared/wire";
 import type { McpStreamMessage } from "@roost/shared/wire";
 import type { Task as PbTask } from "@roost/shared/proto/wire_pb";
 import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
-import type { UiReportStateRequest, UiCommand, AgentEntriesFrame } from "@roost/shared/proto/sync_pb";
+import type {
+  UiReportStateRequest, UiCommand, AgentEntriesFrame, AgentUiFrame,
+} from "@roost/shared/proto/sync_pb";
 
 // taskBus carries proto-typed Task deltas directly — the firehose
 // taskFrame builder is now a thin wrapper, and the per-mutation
@@ -132,6 +134,11 @@ export const globalCellBus     = new BoundedBus<PbCellGridFrame>(64);
 // is a memory ceiling, not a recovery window: sized like globalCellBus because
 // a batch of transcript entries is the same order of magnitude as a cell frame.
 export const globalAgentEntryBus = new BoundedBus<AgentEntriesFrame>(256);
+
+// Canonical OMP browser HostFrames. Reconciliation trains are staged and
+// served only by SessionsGetAgentUiSnapshot; true-live frames publish here
+// after persistence and revision assignment. The bus itself never replays.
+export const globalAgentUiBus = new BoundedBus<AgentUiFrame>(0);
 
 // ui-cc — browser-tab UI state + command relay (G1/G2). VOLATILE,
 // presence-class, no replay: layout stays browser-local; coord only relays.

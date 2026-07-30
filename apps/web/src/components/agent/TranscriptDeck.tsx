@@ -9,74 +9,34 @@
 //
 // Caller: components/MainPane.tsx (branches on activeOpenSession().kind).
 
-import { type Component } from "solid-js";
-import { Composer } from "./Composer.tsx";
-import { Transcript } from "./Transcript.tsx";
-import { TerminalStatusBadge } from "../TerminalStatusBadge.tsx";
-import { sessionTitle } from "../../lib/sessionTitle.ts";
-import { shortCwd } from "../../lib/sidebarFormat.ts";
+import { createEffect, type Component, onCleanup } from "solid-js";
+import type { Root } from "react-dom/client";
 import type { Session } from "@roost/shared/wire";
+import { mountOmpSessionSurface } from "./OmpSessionSurface.tsx";
 
-export const TranscriptDeck: Component<{ session: Session }> = (props) => (
-  <div
-    data-testid="transcript-deck"
-    data-session-id={props.session.id}
-    style={{
-      position: "absolute",
-      inset: "0",
-      // Above TerminalDeck, which stays mounted underneath so unrelated shell
-      // sessions keep their wterm cores alive across an agent visit.
-      "z-index": "10",
-      display: "flex",
-      "flex-direction": "column",
-      "min-height": "0",
-      background: "var(--md-surface)",
-    }}
-  >
+export const TranscriptDeck: Component<{ session: Session }> = (props) => {
+  let host!: HTMLDivElement;
+
+  let root: Root | undefined;
+  createEffect(() => {
+    const sessionId = props.session.id;
+    root?.unmount();
+    root = mountOmpSessionSurface(host, sessionId);
+  });
+  onCleanup(() => root?.unmount());
+
+  return (
     <div
+      ref={host}
+      data-testid="transcript-deck"
+      data-session-id={props.session.id}
       style={{
-        display: "flex",
-        "align-items": "center",
-        gap: "var(--md-space-3)",
-        padding: "var(--md-space-2) var(--md-space-4)",
-        "border-bottom": "1px solid var(--md-outline-variant)",
-        background: "var(--md-surface-container)",
-        "flex-shrink": "0",
+        position: "absolute",
+        inset: "0",
+        "z-index": "10",
+        "min-height": "0",
+        background: "var(--md-surface)",
       }}
-    >
-      <div style={{ display: "flex", "flex-direction": "column", "min-width": "0", flex: "1" }}>
-        <div
-          style={{
-            color: "var(--md-on-surface)",
-            "font-size": "var(--md-title-s-size)",
-            "line-height": "var(--md-title-s-line)",
-            "font-weight": "var(--md-title-s-weight)",
-            overflow: "hidden",
-            "text-overflow": "ellipsis",
-            "white-space": "nowrap",
-          }}
-        >
-          {sessionTitle(props.session)}
-        </div>
-        <div
-          style={{
-            color: "var(--md-on-surface-variant)",
-            "font-size": "var(--md-label-s-size)",
-            "line-height": "var(--md-label-s-line)",
-            overflow: "hidden",
-            "text-overflow": "ellipsis",
-            "white-space": "nowrap",
-          }}
-        >
-          {shortCwd(props.session.spawn_cwd ?? props.session.cwd)}
-        </div>
-      </div>
-      {/* Same Working / Needs input / Done / Idle vocabulary the sidebar and
-          terminal panes read — lib/agentStatus.ts is the single source. */}
-      <TerminalStatusBadge session={props.session} />
-    </div>
-
-    <Transcript session={props.session} />
-    <Composer session={props.session} />
-  </div>
-);
+    />
+  );
+};

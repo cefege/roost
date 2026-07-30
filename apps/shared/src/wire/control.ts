@@ -8,6 +8,71 @@ import { ChannelId, SessionId, TraceId } from "./brand.ts";
 
 const Base = z.object({ trace_id: TraceId.optional() });
 
+/** OMP commands the embedded SessionSurface is allowed to send through coord.
+ * Keep this deliberately narrower than OMP's administrative RPC vocabulary. */
+export const AgentUiRpcCommand = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("prompt"),
+    message: z.string(),
+    images: z.array(z.unknown()).optional(),
+    streamingBehavior: z.enum(["steer", "followUp"]).optional(),
+  }).passthrough(),
+  z.object({
+    type: z.literal("steer"),
+    message: z.string(),
+    images: z.array(z.unknown()).optional(),
+  }).passthrough(),
+  z.object({
+    type: z.literal("follow_up"),
+    message: z.string(),
+    images: z.array(z.unknown()).optional(),
+  }).passthrough(),
+  z.object({ type: z.literal("abort") }).passthrough(),
+  z.object({
+    type: z.literal("browser_ui_response"),
+    reqId: z.number().int().positive(),
+    value: z.string().optional(),
+    cancelled: z.boolean().optional(),
+    timedOut: z.boolean().optional(),
+  }).passthrough(),
+  z.object({
+    type: z.literal("subagent_command"),
+    command: z.enum(["chat", "kill", "revive"]),
+    agentId: z.string().min(1),
+    text: z.string().optional(),
+  }).passthrough(),
+  z.object({
+    type: z.literal("get_subagent_messages"),
+    subagentId: z.string().min(1).optional(),
+    sessionFile: z.string().min(1).optional(),
+    fromByte: z.number().int().nonnegative().optional(),
+  }).passthrough(),
+]);
+export type AgentUiRpcCommand = z.infer<typeof AgentUiRpcCommand>;
+
+/** Parse at every trust boundary so malformed JSON and unsupported OMP
+ * commands fail before they can be reported as accepted. */
+export function parseAgentUiRpcCommandJson(commandJson: string): AgentUiRpcCommand {
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(commandJson);
+  } catch {
+    throw new Error("command_json must be valid JSON");
+  }
+  if (typeof decoded !== "object" || decoded === null || Array.isArray(decoded)) {
+    throw new Error("command_json must decode to an object");
+  }
+  if (typeof (decoded as Record<string, unknown>).type !== "string") {
+    throw new Error("command_json.type must be a string");
+  }
+  const parsed = AgentUiRpcCommand.safeParse(decoded);
+  if (!parsed.success) {
+    const type = (decoded as Record<string, unknown>).type;
+    throw new Error(`invalid or unsupported agent UI command ${JSON.stringify(type)}: ${parsed.error.issues[0]?.message ?? "invalid command"}`);
+  }
+  return parsed.data;
+}
+
 // ─── client → worker ───────────────────────────────────────────────────
 
 export const ClientControlFrame = z.discriminatedUnion("kind", [
@@ -93,6 +158,14 @@ export const ClientControlFrame = z.discriminatedUnion("kind", [
     prompt_id: z.string(),
     value: z.string(),
     cancelled: z.boolean(),
+  }),
+  // Authenticated SessionSurface action. The worker parses command_json again
+  // before forwarding the canonical command to the owning OMP child.
+  Base.extend({
+    kind: z.literal("agent-ui-command"),
+    request_id: z.string(),
+    session_id: SessionId,
+    command_json: z.string(),
   }),
   // Cross-worker rsync: coord asks the SOURCE worker to spawn rsync
   // sending src_path to dst_host:dst_path. Source worker streams

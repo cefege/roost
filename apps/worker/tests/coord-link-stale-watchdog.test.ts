@@ -38,6 +38,8 @@ function pingBytes(): Uint8Array {
 test("silent server → watchdog force-closes and re-dials", async () => {
   let opens = 0;
   const { promise: reDialed, resolve: gotReDial } = Promise.withResolvers<void>();
+  const reopenFlags: boolean[] = [];
+  const { promise: reconnectHook, resolve: gotReconnectHook } = Promise.withResolvers<void>();
   const server = Bun.serve({
     port: 0,
     fetch(req, s) {
@@ -64,12 +66,17 @@ test("silent server → watchdog force-closes and re-dials", async () => {
     mintJwt: async () => "jwt",
     staleLinkTimeoutMs: 300,
     staleCheckIntervalMs: 50,
+    onOpen(reconnected) {
+      reopenFlags.push(reconnected);
+      if (reconnected) gotReconnectHook();
+    },
   });
   // Watchdog fires ≤350ms after open; reconnect backoff starts at 500ms, so
   // the second open lands well inside the bun:test deadline. If the watchdog
   // regresses (no re-dial), this await hangs and bun:test fails on timeout.
-  await reDialed;
+  await Promise.all([reDialed, reconnectHook]);
   expect(opens).toBeGreaterThanOrEqual(2);
+  expect(reopenFlags.slice(0, 2)).toEqual([false, true]);
   link.dispose();
   server.stop(true);
 }, 10_000);

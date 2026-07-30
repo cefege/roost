@@ -7,7 +7,12 @@
 // a shell session would be the wrong session kind, not a graceful degradation.
 
 import { log } from "@roost/shared";
-import type { ClientControlFrame, SessionId } from "@roost/shared/wire";
+import {
+	parseAgentUiRpcCommandJson,
+	type AgentUiRpcCommand,
+	type ClientControlFrame,
+	type SessionId,
+} from "@roost/shared/wire";
 import type { CoordLink } from "./transport/CoordLink.ts";
 import type { SessionManager } from "./session-manager.ts";
 import type { AgentController } from "./agent/agent-controller.ts";
@@ -105,6 +110,42 @@ export function handleAgentRespond(
 	// the button may well have been clicked twice.
 	const accepted = agent.respond(frame.prompt_id, frame.value, frame.cancelled);
 	deps.coordLink.send({ kind: "rpc-ok", request_id, data: { accepted } });
+}
+
+export function handleAgentUiCommand(
+	frame: Extract<ClientControlFrame, { kind: "agent-ui-command" }>,
+	request_id: string,
+	deps: AgentDeps,
+): void {
+	let command: AgentUiRpcCommand;
+	try {
+		command = parseAgentUiRpcCommandJson(frame.command_json);
+	} catch (err) {
+		deps.coordLink.send({
+			kind: "rpc-error",
+			request_id,
+			message: err instanceof Error ? err.message : String(err),
+		});
+		return;
+	}
+
+	const agent = resolveAgent(frame.session_id, request_id, deps);
+	if (!agent) return;
+	void agent.uiCommand(command)
+		.then((data) => {
+			deps.coordLink.send({
+				kind: "rpc-ok",
+				request_id,
+				data: { accepted: true, data_json: JSON.stringify(data ?? null) },
+			});
+		})
+		.catch((err) => {
+			deps.coordLink.send({
+				kind: "rpc-error",
+				request_id,
+				message: err instanceof Error ? err.message : String(err),
+			});
+		});
 }
 
 export function handleAgentAbort(

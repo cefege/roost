@@ -138,8 +138,8 @@ export function makeWorkerWsHandler(deps: WorkerServiceDeps) {
         });
         return;
       }
-      // Slow path: event frames need serialization to preserve appendEvent
-      // ordering (the seqno-splice invariant).
+      // Slow path: event frames preserve appendEvent ordering; AgentUi frames
+      // preserve welcome→chunk order so atomic snapshot staging cannot race.
       ws.data.tail = ws.data.tail
         .then(() => conn.handleUpstream(frame))
         .catch((e) => {

@@ -14,6 +14,7 @@ import { create } from "@bufbuild/protobuf";
 import { randomUUID } from "node:crypto";
 import { CoordWorkerDownSchema, DHelloAckSchema, DBrowserCommandSchema, DEventAckSchema, DPingSchema } from "@roost/shared/proto/worker_transport_pb";
 import type { CoordWorkerUp, CoordWorkerDown } from "@roost/shared/proto/worker_transport_pb";
+import { AgentUiFrameSchema } from "@roost/shared/proto/sync_pb";
 import type { Database } from "bun:sqlite";
 import type { CoordKey } from "../coord-key.ts";
 import type { CoordConfig } from "@roost/shared/config";
@@ -23,10 +24,15 @@ import { verifyJwt } from "../jwt.ts";
 import { appendEvent } from "../event-log.ts";
 import { publishBytes, publishCellGrid, primeChannelMap } from "../byte-hub.ts";
 import { resolvePendingRpc, rejectPendingRpc, rejectPendingRpcsForWorker } from "../router/pending-rpcs.ts";
-import { globalAgentEntryBus } from "../buses.ts";
+import { globalAgentEntryBus, globalAgentUiBus } from "../buses.ts";
 import { nextAgentSeq, upsertAgentEntries } from "../agent-transcript.ts";
 import { protoToEvent } from "@roost/shared/wire/event-proto";
 import { agentEntryFromProto } from "@roost/shared/wire/agent-proto";
+import {
+  AgentUiProtocolError,
+  ingestAgentUiFrame,
+  validateAgentUiFrame,
+} from "../agent-ui-store.ts";
 import { asWorkerFp, asChannelId, asSessionId, SessionKind } from "@roost/shared/wire";
 import type { ClientControlFrame } from "@roost/shared/wire";
 import { safeJsonParse } from "@roost/shared/json";
@@ -281,6 +287,99 @@ export function makeWorkerConn(
           globalAgentEntryBus.publish(ae);
         }
         return;
+      }
+      case "agentUi": {
+        const ui = f.frame.value;
+        if (!workerFp) {
+          log.warn("worker-service", "agent_ui_before_hello", {});
+          signal("worker.protocol_violation", {
+            reason: "agent_ui_before_hello",
+            worker_fp: caller.fingerprint,
+            cooldownKey: caller.fingerprint,
+          });
+          return;
+        }
+        // A rapidly reconnected worker may leave its old socket draining for a
+        // moment. Only the registry's current connection may advance a snapshot.
+        if (connectWorkers.get(workerFp) !== myHandle) {
+          log.warn("worker-service", "agent_ui_stale_connection", { worker_fp: workerFp });
+          return;
+        }
+
+        let validated: ReturnType<typeof validateAgentUiFrame>;
+        try {
+          validated = validateAgentUiFrame(ui);
+        } catch (error) {
+          const reason = error instanceof AgentUiProtocolError
+            ? error.message
+            : "frame validation failed";
+          log.warn("worker-service", "agent_ui_invalid", {
+            worker_fp: workerFp,
+            session_id: ui.sessionId,
+            error: reason,
+          });
+          signal("worker.protocol_violation", {
+            reason: "agent_ui_invalid",
+            worker_fp: workerFp,
+            cooldownKey: workerFp,
+          });
+          return;
+        }
+
+        // Session ownership can move while a worker socket remains connected.
+        // Re-read the projection for every destructive-capable UI frame rather
+        // than trusting the legacy AgentEntries per-connection cache.
+        const owner = agentSessionOwner.get(validated.sessionId);
+        if (owner?.worker_fp !== workerFp) {
+          log.warn("worker-service", "agent_ui_owner_mismatch", {
+            session_id: validated.sessionId,
+            worker_fp: workerFp,
+            owner_fp: owner?.worker_fp ?? null,
+          });
+          signal("worker.protocol_violation", {
+            reason: "agent_ui_owner_mismatch",
+            worker_fp: workerFp,
+            cooldownKey: workerFp,
+          });
+          return;
+        }
+
+        try {
+          const outcome = ingestAgentUiFrame(deps.sqlite, validated);
+          for (const relay of outcome.relays) {
+            globalAgentUiBus.publish(create(AgentUiFrameSchema, {
+              sessionId: validated.sessionId,
+              frameJson: relay.frame_json,
+              snapshotId: relay.snapshot_id,
+              coordRevision: BigInt(relay.coord_revision),
+            }));
+          }
+          diag("agent.ui_relay", {
+            sid: validated.sessionId,
+            type: String(validated.hostFrame.t),
+            result: outcome.result,
+            revision: outcome.coord_revision,
+            relayed: outcome.relays.length,
+          });
+          if (outcome.result === "snapshot-incomplete") {
+            log.warn("worker-service", "agent_ui_snapshot_incomplete", {
+              session_id: validated.sessionId,
+              snapshot_id: validated.snapshotId,
+              revision: outcome.coord_revision,
+            });
+          }
+          return;
+        } catch (error) {
+          // Revision assignment and persistence are one transaction. Relaying
+          // after either fails would create a cursor the snapshot RPC can never
+          // reproduce, so force reconnect/resubscribe instead.
+          log.error("worker-service", "agent_ui_persist_failed", {
+            session_id: validated.sessionId,
+            snapshot_id: validated.snapshotId || null,
+            error: String(error),
+          });
+          throw error;
+        }
       }
       case "rpcOk": {
         try { resolvePendingRpc(f.frame.value.requestId, JSON.parse(f.frame.value.dataJson)); }
