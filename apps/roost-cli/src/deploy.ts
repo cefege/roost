@@ -96,7 +96,7 @@ export async function deploy(args: string[]): Promise<void> {
   // and the SPA build against process.cwd(), so a Mac that only has
   // apps/worker can never accept a coordinator move. The Linux path already
   // deploys a full checkout — this keeps the two consistent.
-  console.log(`>> rsync apps/{worker,shared,coord,web}/ → ${host}:${REMOTE_DIR}/`);
+  console.log(`>> rsync apps/{worker,shared,coord,web}/ + vendor/ → ${host}:${REMOTE_DIR}/`);
   await Promise.all([
     runOrDie([
       "rsync", "-az", "-e", RSYNC_RSH, "--delete",
@@ -120,6 +120,11 @@ export async function deploy(args: string[]): Promise<void> {
       "--exclude", "node_modules", "--exclude", "dist", "--exclude", "tests",
       "apps/web/", `${host}:${REMOTE_DIR}/apps/web/`,
     ], "rsync apps/web"),
+    runOrDie([
+      "rsync", "-az", "-e", RSYNC_RSH, "--delete",
+      "--exclude", "node_modules", "--exclude", "dist",
+      "vendor/", `${host}:${REMOTE_DIR}/vendor/`,
+    ], "rsync vendor"),
     runOrDie([
       // Every apps/*/tsconfig.json extends this, and vite resolves the whole
       // extends chain (the @roost/* path aliases live in it) — without it the
