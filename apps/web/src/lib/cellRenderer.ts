@@ -527,6 +527,10 @@ export class CellGridRenderer {
     };
   }
 
+  /** Seq of the last applied frame (applyDelta carries the delta's seq through),
+   *  reported on viewport claims so the worker can skip a redundant snapshot. */
+  heldFrameSeq(): number { return this.frame?.seq ?? 0; }
+
   // `scrolled` = rows that left the viewport top for scrollback this frame
   // (authoritative from the frame: scrollbackAppend length / scrollbackTotal
   // delta; 0 in alt-screen). Dropping those elements shifts the stacked rows

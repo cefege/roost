@@ -9,7 +9,12 @@
 // Phase-26 smoke-backdoor. crpc6: migrated from tRPC to Connect.
 
 import { coordClient } from "../connect.ts";
-import { forceSyncReconnect as forceSyncReconnectImpl, cellFrameCount as cellFrameCountImpl } from "../store/sync.ts";
+import {
+  forceSyncReconnect as forceSyncReconnectImpl,
+  cellFrameCount as cellFrameCountImpl,
+  cellFullFrameCount as cellFullFrameCountImpl,
+  syncWsGeneration as syncWsGenerationImpl,
+} from "../store/sync.ts";
 import { rootStore, setRootStore } from "../store/root.ts";
 import { setForceVisible } from "./pageVisible.ts";
 
@@ -68,6 +73,12 @@ export interface SmokeApi {
   forceSyncReconnect(): void;
   /** How many cell frames have arrived for this session (smoke verification). */
   cellFrameCount(sessionId: string): number;
+  /** How many FULL cell frames have arrived — a reveal of a current pane must
+   *  not move this (the worker's claim snapshot is what it proves absent). */
+  cellFullFrameCount(sessionId: string): number;
+  /** Sync WebSocket dial count. Unchanged across a refocus = the socket was
+   *  kept (no JWT sign + TLS handshake + since= backfill ahead of the reveal). */
+  syncWsGeneration(): number;
   /** Navigate through the live Solid router, rather than synthetic popstate. */
   navigate(href: string): void;
   /** Kill a session via the standard mutation. */
@@ -239,6 +250,12 @@ export function maybeInstallSmokeBackdoor(): void {
     },
     cellFrameCount(sessionId) {
       return cellFrameCountImpl(sessionId);
+    },
+    cellFullFrameCount(sessionId) {
+      return cellFullFrameCountImpl(sessionId);
+    },
+    syncWsGeneration() {
+      return syncWsGenerationImpl();
     },
     forceVisible(on) {
       setForceVisible(on);

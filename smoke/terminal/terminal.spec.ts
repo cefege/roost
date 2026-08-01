@@ -476,3 +476,119 @@ test("deep-history attach/reveal paints the live tail until history is requested
   }, sessionId);
   expect(scan).toMatchObject({ duplicated: [], outOfOrder: 0 });
 });
+
+// Returning to an already-open pane must be INSTANT: no Sync-socket re-dial and
+// no claim snapshot. Both legs assert the absence of work, which is why they
+// read syncWsGeneration() (socket dial count) and cellFullFrameCount() (worker
+// claim snapshots) rather than timing anything.
+test("returning to a streaming pane costs no re-dial and no snapshot", async ({ smokePage, stack }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium-desktop", "desktop deck/visibility contract");
+  const spawn = (folder: string) => smokePage.evaluate(async ({ workerFp, dir }) => {
+    const smoke = (window as unknown as Window & {
+      __smoke: { spawnShell(worker: string, folder: string): Promise<{ session_id: string }> };
+    }).__smoke;
+    return (await smoke.spawnShell(workerFp, dir)).session_id;
+  }, { workerFp: stack.workerFp, dir: folder });
+
+  const sessionA = await spawn("/tmp");
+  // Probe every quantity in ONE evaluate so a reveal can be inspected without
+  // polling — polling would hide the very round trip under test.
+  const probe = () => smokePage.evaluate((id) => {
+    const smoke = (window as unknown as Window & {
+      __smoke: {
+        renderProbe(sessionId: string): { atBottom: boolean };
+        markerScan(sessionId: string, prefix: string): { max: number; duplicated: number[]; outOfOrder: number };
+        cellFullFrameCount(sessionId: string): number;
+        syncWsGeneration(): number;
+      };
+    }).__smoke;
+    const scan = smoke.markerScan(id, "CELLLINE-");
+    return {
+      atBottom: smoke.renderProbe(id).atBottom,
+      markerMax: scan.max,
+      duplicated: scan.duplicated,
+      outOfOrder: scan.outOfOrder,
+      fullFrames: smoke.cellFullFrameCount(id),
+      wsGeneration: smoke.syncWsGeneration(),
+    };
+  }, sessionA);
+
+  await smokePage.goto(`${stack.baseUrl}/s/${sessionA}`);
+  const slotA = smokePage.getByTestId(`terminal-slot-${sessionA}`);
+  await expect(slotA).toBeVisible();
+  await smokePage.keyboard.type("seq -f 'CELLLINE-%g' 1 8000");
+  await smokePage.keyboard.press("Enter");
+  await expect.poll(() => slotA.textContent(), { timeout: 60_000 }).toContain("CELLLINE-8000");
+  // Let the burst quiesce: a frame in flight during a claim legitimately costs
+  // one redundant snapshot, and this test asserts an exact count.
+  await smokePage.waitForTimeout(1000);
+
+  // ── leg 1: deck tab switch away and back ──────────────────────────────────
+  const sessionB = await spawn("/tmp");
+  await expect.poll(() => smokePage.evaluate((id) => {
+    const smoke = (window as unknown as Window & { __smoke: { state(): { sessions: Record<string, unknown> } } }).__smoke;
+    return id in smoke.state().sessions;
+  }, sessionB)).toBe(true);
+  const beforeSwitch = await probe();
+  expect(beforeSwitch.markerMax).toBe(8000);
+
+  await smokePage.evaluate((id) => {
+    const smoke = (window as unknown as Window & { __smoke: { navigate(href: string): void } }).__smoke;
+    smoke.navigate(`/s/${id}`);
+  }, sessionB);
+  await expect(smokePage.getByTestId(`tab-${sessionB}`)).toHaveAttribute("data-active", "true");
+  await smokePage.waitForTimeout(1000); // A parks into the background-stream set
+  await smokePage.evaluate((id) => {
+    const smoke = (window as unknown as Window & { __smoke: { navigate(href: string): void } }).__smoke;
+    smoke.navigate(`/s/${id}`);
+  }, sessionA);
+  await expect(smokePage.getByTestId(`tab-${sessionA}`)).toHaveAttribute("data-active", "true");
+
+  // A never stopped streaming, so its reveal claim carries the worker's own last
+  // emitted seq: the bottom is already painted and no full frame is emitted.
+  const afterSwitch = await probe();
+  expect(afterSwitch).toMatchObject({
+    atBottom: true,
+    markerMax: 8000,
+    duplicated: [],
+    outOfOrder: 0,
+    fullFrames: beforeSwitch.fullFrames,
+    wsGeneration: beforeSwitch.wsGeneration,
+  });
+
+  // ── leg 2: browser tab hidden, output while away, then refocus ────────────
+  // setForceVisible dispatches a synthetic visibilitychange (lib/pageVisible.ts)
+  // so the pane's handler AND sync-bootstrap's refocus handler run exactly as in
+  // a real Chrome tab switch.
+  const beforeHide = await probe();
+  await smokePage.evaluate(() => {
+    const smoke = (window as unknown as Window & { __smoke: { forceVisible(on: boolean): void } }).__smoke;
+    smoke.forceVisible(false);
+  });
+  await smokePage.evaluate(async (id) => {
+    const smoke = (window as unknown as Window & { __smoke: { input(sessionId: string, text: string): Promise<void> } }).__smoke;
+    await smoke.input(id, "for i in $(seq 8001 8200); do echo CELLLINE-$i; sleep 0.01; done\r");
+  }, sessionA);
+  // The hidden pane keeps its 0×0 BACKGROUND claim, so deltas keep painting
+  // while the tab is away — wait for the LAST line before returning so the
+  // reveal claim can't race a frame in flight.
+  await expect.poll(() => smokePage.evaluate((id) => {
+    const smoke = (window as unknown as Window & { __smoke: { markerScan(sessionId: string, prefix: string): { max: number } } }).__smoke;
+    return smoke.markerScan(id, "CELLLINE-").max;
+  }, sessionA), { timeout: 60_000, intervals: [250] }).toBe(8200);
+  await smokePage.waitForTimeout(500);
+
+  await smokePage.evaluate(() => {
+    const smoke = (window as unknown as Window & { __smoke: { forceVisible(on: boolean): void } }).__smoke;
+    smoke.forceVisible(true);
+  });
+  const afterShow = await probe();
+  expect(afterShow).toMatchObject({
+    atBottom: true,
+    markerMax: 8200,
+    duplicated: [],
+    outOfOrder: 0,
+    fullFrames: beforeHide.fullFrames,   // the pane never fell behind
+    wsGeneration: beforeHide.wsGeneration, // the Sync socket survived the hide
+  });
+});

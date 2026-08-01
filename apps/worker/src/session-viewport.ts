@@ -32,6 +32,22 @@ function _claimTailRows(mgr: SessionManager, channelId: number, heldSbTotal?: nu
 	return Math.min(Math.max(need, SB_SNAPSHOT_TAIL_ROWS), SB_SNAPSHOT_MAX_CATCHUP_ROWS);
 }
 
+/** Does this claim have to carry a full frame, or is the claimant provably
+ *  holding the current grid? Two conditions must both hold to skip it:
+ *  the claimant reports the seq of the last frame this channel emitted, AND
+ *  emission never stopped while it was away (`wasStreaming` — some claim was
+ *  live). The second is load-bearing: with no claim, _hasActiveViewer gates
+ *  emission off (session-emit.ts), so the grid keeps mutating while
+ *  cell_emit.seq freezes and a seq match would prove nothing. Unknown seq (0 /
+ *  undefined) or behind → emit. A mismatch caused by a frame still in flight
+ *  costs one redundant snapshot, so this errs toward emitting. */
+function _needsClaimSnapshot(
+	mgr: SessionManager, channelId: number, heldCellSeq: number | undefined, wasStreaming: boolean,
+): boolean {
+	if (!heldCellSeq || !wasStreaming) return true;
+	return mgr.shellByChannel(channelId)?.cell_emit.seq !== heldCellSeq;
+}
+
 /** Register or refresh a viewer's viewport claim, then resize the
  *  PTY to the SCD across live claims. Each browser viewing the same
  *  session has its own claim keyed by its EdDSA fingerprint. Two
@@ -53,6 +69,9 @@ export function claimViewport(
 	cause?: number,
 	// rows this viewer already holds — sizes the snapshot tail
 	heldSbTotal?: number,
+	// cell-frame seq this viewer has already applied — a claimant that already
+	// holds the last emitted frame gets no snapshot (_needsClaimSnapshot)
+	heldCellSeq?: number,
 ): void {
 	// BACKGROUND (5): a parked deck pane. It sends 0×0 so it is excluded from the
 	// SCD min, but it stays in viewportClaims so _hasActiveViewer keeps deltas
@@ -74,6 +93,11 @@ export function claimViewport(
 		claims = new Map();
 		this.viewportClaims.set(channelId, claims);
 	}
+	// Was the worker still emitting to SOMEONE when this claim arrived? A live
+	// claim (this viewer's own, or another viewer's) means every PTY chunk since
+	// the claimant's held frame was emitted, which is what makes a matching
+	// held_cell_seq proof that it is current. Read BEFORE this claim is written.
+	const wasStreaming = claims.size > 0;
 	// clientSeq solves two problems at once:
 	//   #1 network reorder: SPA stamps a monotonic counter on each
 	//      intent-bearing claim (focus / resize / visibilitychange).
@@ -106,6 +130,7 @@ export function claimViewport(
 		// recompute (don't let a stale-seq packet regress the min size). A
 		// heartbeat re-claim (VIEWPORT cause) stays a no-op → no full-frame spam.
 		const intentMount = cause === 1 || cause === 3; // INITIAL | TAB_VISIBLE
+		const resnapshot = intentMount && _needsClaimSnapshot(this, channelId, heldCellSeq, wasStreaming);
 		diag("viewport.claim", {
 			sid: rec?.sessionId,
 			viewer_key: viewerFp,
@@ -118,9 +143,10 @@ export function claimViewport(
 			seq_advanced: false,
 			was_stale_seq: true,
 			cause: cause ?? 0,
-			resnapshot: intentMount,
+			resnapshot,
 		});
-		if (intentMount) this.emitCellSnapshot(channelId as ChannelId, _claimTailRows(this, channelId, heldSbTotal));
+		if (resnapshot)
+			this.emitCellSnapshot(channelId as ChannelId, _claimTailRows(this, channelId, heldSbTotal));
 		return;
 	}
 	claims.set(viewerFp, { cols, rows, lastMs: Date.now(), clientSeq: seq });
@@ -137,12 +163,15 @@ export function claimViewport(
 		cause: cause ?? 0,
 	});
 	this._recomputeViewport(channelId, isBackground ? undefined : heldSbTotal);
-	// R11 — a claim is the worker's "viewer attached/resized" signal; emit a
-	// full cell frame so a fresh cell-mode viewer paints the whole grid
-	// immediately (live deltas follow on the next PTY chunk). No-op off-flag.
-	// A background claim paints nothing of its own (and never fell behind), so
-	// it must not force a snapshot or size another viewer's rebuild tail.
-	if (!isBackground) this.emitCellSnapshot(channelId as ChannelId, _claimTailRows(this, channelId, heldSbTotal));
+	// R11 — a claim is the worker's "viewer attached/resized" signal. It emits a
+	// full cell frame only when the claimant is not provably current: a fresh or
+	// fallen-behind viewer paints the whole grid immediately (live deltas follow
+	// on the next PTY chunk), while a pane that never stopped streaming reveals
+	// with no repaint at all. A background claim is NOT categorically excluded —
+	// a parked pane re-subscribing after a withdraw needs its catch-up frame —
+	// but it still must not size another viewer's rebuild tail (above).
+	if (_needsClaimSnapshot(this, channelId, heldCellSeq, wasStreaming))
+		this.emitCellSnapshot(channelId as ChannelId, _claimTailRows(this, channelId, heldSbTotal));
 }
 
 /** Drop a viewer's claim, DEFERRED by VIEWPORT_WITHDRAW_GRACE_MS so a

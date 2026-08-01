@@ -214,6 +214,7 @@ export function makeSessionHandlers(
         client_seq: clientSeq,
         cause: req.cause || undefined, // numeric ResizeCause; 0/unset → omit
         held_sb_total: req.heldScrollbackTotal || undefined,
+        held_cell_seq: req.heldCellSeq || undefined,
       } as ClientControlFrame, viewerKey);
       const isWithdraw = req.cols <= 0 || req.rows <= 0;
       if (ok || isWithdraw) {

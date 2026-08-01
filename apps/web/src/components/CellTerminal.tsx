@@ -105,6 +105,16 @@ const CLAIM_DEBOUNCE_MS = 150;
 // every 30s" the worker's reaper comment already assumes.
 const CLAIM_HEARTBEAT_MS = 30_000;
 
+// A hidden browser tab keeps its IN-LAYOUT panes subscribed (0×0 BACKGROUND
+// claim — excluded from the SCD min, deltas keep flowing) so returning to the
+// tab paints with zero network. Bounded because the claim heartbeat is gated
+// off while hidden: must stay under VIEWER_CLAIM_FRESH_MS (70s,
+// @roost/shared/viewport) so no freshness/reaper edge can fire mid-window.
+const HIDDEN_STREAM_KEEP_MS = 60_000;
+// A parked pane re-subscribes this long after the tab becomes visible, so the
+// revealed pane's snapshot is never queued behind a parked pane's catch-up.
+const PARKED_RESUBSCRIBE_MS = 250;
+
 
 
 // Shared 500ms cursor-poll ticker — one interval for ALL mounted panes (was one
@@ -187,6 +197,10 @@ export function CellTerminal(props: CellTerminalProps) {
 	let lastClaimed = { cols: 0, rows: 0 }; // last ADOPTED claim — hold-anchor for VIEWPORT wobble
 	let resizeObs: ResizeObserver | null = null;
 	let claimTimer: ReturnType<typeof setTimeout> | null = null;
+	// Browser-tab-hidden keep-alive window for an in-layout pane, and the
+	// deferred parked re-subscribe (both cleared on teardown / re-show).
+	let hiddenStreamTimer: ReturnType<typeof setTimeout> | null = null;
+	let parkedResubscribeTimer: ReturnType<typeof setTimeout> | null = null;
 	// Last claim/withdraw actually sent — dedups the double-withdraw: pane hide
 	// withdraws, then the off-screen park's ResizeObserver tick routes through
 	// sendClaim → sees inLayout=false → would withdraw AGAIN. Reset on claim.
@@ -305,18 +319,15 @@ export function CellTerminal(props: CellTerminalProps) {
 	// needs no catch-up frame, no renderFull, no eviction/backfill oscillation —
 	// and (because the deck parks it at its own leaf's rect) every frame applied
 	// while parked is pinned at the geometry it will be revealed at.
+	//
+	// Re-subscribing after a withdraw is allowed: the claim carries heldCellSeq,
+	// so a viewer that fell behind while withdrawn gets a full snapshot before
+	// deltas resume (worker _needsClaimSnapshot) and can never splice a delta
+	// onto a stale base. Without that catch-up, cellRenderer.apply/applyDelta
+	// would tear history (scrollbackTotal - sbBase would no longer equal
+	// scrollbackRows.length).
 	function sendBackgroundClaim(): void {
 		if (_lastSent === "background") return;
-		// ONLY a pane that is still current may re-subscribe this way: a background
-		// claim emits no snapshot, and cellRenderer.apply/applyDelta splice a delta
-		// onto the held base with no gap detection, so streaming onto a grid that
-		// already missed output tears history (scrollbackTotal - sbBase would no
-		// longer equal scrollbackRows.length). "claim" = holding a live viewport
-		// claim, i.e. visible→parked. A prior "withdraw" (browser tab was hidden, or
-		// the deck's LRU evicted then re-promoted this pane) and a fresh mount (null)
-		// both mean "not current": stay withdrawn and re-sync at reveal via the
-		// snapshot-emitting TAB_VISIBLE claim.
-		if (_lastSent !== "claim") return;
 		_lastSent = "background";
 		lastClaimed = { cols: 0, rows: 0 }; // a reveal must re-claim a real size
 		claimSeq += 1;
@@ -333,6 +344,7 @@ export function CellTerminal(props: CellTerminalProps) {
 			rows: 0,
 			clientSeq: BigInt(claimSeq),
 			cause: ResizeCause.BACKGROUND,
+			heldCellSeq: renderer?.heldFrameSeq() ?? 0,
 		});
 	}
 
@@ -341,6 +353,18 @@ export function CellTerminal(props: CellTerminalProps) {
 	function sendPark(): void {
 		if (props.backgroundStream === true) sendBackgroundClaim();
 		else sendWithdraw();
+	}
+
+	/** Browser tab hidden: an in-layout pane stays subscribed for a bounded window
+	 *  so a tab switch back is instant; a parked pane withdraws immediately. */
+	function sendHiddenPark(): void {
+		if (hiddenStreamTimer) { clearTimeout(hiddenStreamTimer); hiddenStreamTimer = null; }
+		if (props.inLayout !== true) { sendWithdraw(); return; }
+		sendBackgroundClaim();
+		hiddenStreamTimer = setTimeout(() => {
+			hiddenStreamTimer = null;
+			sendWithdraw();
+		}, HIDDEN_STREAM_KEEP_MS);
 	}
 
 	// cause = the browser event behind this claim (ResizeCause model).
@@ -399,6 +423,9 @@ export function CellTerminal(props: CellTerminalProps) {
 			heldScrollbackTotal: !renderer || renderer.atBottom()
 				? 0
 				: renderer.backfillAnchor()?.total ?? 0,
+			// Held cell-frame seq: a reveal of a pane that never stopped streaming
+			// matches the worker's last emit, so the claim repaints nothing.
+			heldCellSeq: renderer?.heldFrameSeq() ?? 0,
 		});
 	}
 
@@ -896,10 +923,12 @@ export function CellTerminal(props: CellTerminalProps) {
 			sendClaimNow(ResizeCause.TAB_VISIBLE);
 		}));
 		// LRU eviction while parked downgrades a background claim to a real withdraw.
-		// The reverse (re-promoted into the set) is a no-op by design: the withdrawn
-		// pane is no longer current, so sendBackgroundClaim refuses it and the pane
-		// re-syncs at reveal. Only meaningful while parked and page-visible — a
-		// hidden browser tab never streams, and a pane in layout holds a real claim.
+		// Re-promotion into the set re-subscribes for real: the background claim
+		// carries heldCellSeq, so the worker sends a catch-up snapshot when this
+		// pane fell behind and nothing when it did not — either way the pane is
+		// current for its next reveal. Only meaningful while parked and page-visible
+		// — a hidden tab's panes are handled by onVisibility, and a pane in layout
+		// holds a real claim.
 		const bgFlag = createMemo(() => props.backgroundStream === true);
 		createEffect(on(bgFlag, (bg) => {
 			if (props.inLayout === true || !isPageVisible()) return;
@@ -1039,19 +1068,28 @@ export function CellTerminal(props: CellTerminalProps) {
 			});
 		}, { defer: true }));
 
-		// G9: withdraw on hide, re-claim on show — a background tab must not pin
-		// the SCD-min size for foreground viewers.
+		// G9: a hidden browser tab must not pin the SCD-min size for foreground
+		// viewers, so it drops to a 0×0 claim — kept subscribed while in layout
+		// (HIDDEN_STREAM_KEEP_MS) so the return paints with no round trip.
 		const onVisibility = () => {
-			if (isPageVisible()) sendClaimNow(ResizeCause.TAB_VISIBLE);
-			else sendWithdraw();
+			if (!isPageVisible()) { sendHiddenPark(); return; }
+			if (hiddenStreamTimer) { clearTimeout(hiddenStreamTimer); hiddenStreamTimer = null; }
+			if (props.inLayout === true) { sendClaimNow(ResizeCause.TAB_VISIBLE); return; }
+			// Parked panes re-subscribe AFTER the visible pane's claim so its
+			// snapshot is never queued behind theirs.
+			clearTimeout(parkedResubscribeTimer ?? undefined);
+			parkedResubscribeTimer = setTimeout(() => {
+				parkedResubscribeTimer = null;
+				if (isPageVisible() && props.inLayout !== true) sendPark();
+			}, PARKED_RESUBSCRIBE_MS);
 		};
 		document.addEventListener("visibilitychange", onVisibility);
 		// Re-claim whenever the firehose WS (re)opens. Cell content is live-forward
 		// only (not in sinceEventId backfill), so a reconnect drops the grid stale
 		// until the worker re-emits a snapshot — which only claimViewport triggers.
-		// The visibility-regain re-claim races the WS close (registered first), so
-		// its frame is lost; this is the deterministic safety net that lands the
-		// snapshot on the live new socket.
+		// This is the recovery for a genuine reconnect; an ordinary refocus keeps
+		// its socket (sync-bootstrap.ts::shouldRedialOnRefocus) and lands its
+		// repaint through onVisibility's claim, which no longer races a close.
 		createEffect(on(syncStreamOpen, (open) => {
 			if (!open || props.inLayout === false || !isPageVisible()) return;
 			sendClaimNow(ResizeCause.TAB_VISIBLE);
@@ -1164,6 +1202,8 @@ export function CellTerminal(props: CellTerminalProps) {
 				displayRef?.removeEventListener("touchcancel", onTouchEnd);
 				displayRef?.removeEventListener("paste", onPaste);
 				clearTimeout(claimTimer ?? undefined);
+				clearTimeout(hiddenStreamTimer ?? undefined);
+				clearTimeout(parkedResubscribeTimer ?? undefined);
 				predictor?.dispose();
 				renderer?.dispose();
 				unregPreview();

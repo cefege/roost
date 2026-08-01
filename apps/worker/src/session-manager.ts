@@ -225,8 +225,8 @@ export class SessionManager {
 		return gitPorts._resolvePr.call(this, rec);
 	}
 
-	claimViewport(channelId: number, viewerFp: string, cols: number, rows: number, clientSeq?: number, cause?: number, heldSbTotal?: number): void {
-		return viewport.claimViewport.call(this, channelId, viewerFp, cols, rows, clientSeq, cause, heldSbTotal);
+	claimViewport(channelId: number, viewerFp: string, cols: number, rows: number, clientSeq?: number, cause?: number, heldSbTotal?: number, heldCellSeq?: number): void {
+		return viewport.claimViewport.call(this, channelId, viewerFp, cols, rows, clientSeq, cause, heldSbTotal, heldCellSeq);
 	}
 
 	withdrawViewport(channelId: number, viewerFp: string): void {

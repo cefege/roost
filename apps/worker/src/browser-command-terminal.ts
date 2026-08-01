@@ -114,6 +114,7 @@ export function handleResize(
 			frame.client_seq,
 			frame.cause,
 			frame.held_sb_total,
+			frame.held_cell_seq,
 		);
 	return;
 }

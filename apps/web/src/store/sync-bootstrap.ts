@@ -14,7 +14,8 @@ import type { Worker, Session, Workspace, Task, PermissionRule, McpRelay } from 
 import { getPublicKeyB64 } from "../auth/web-key.ts";
 import { setRoutableFps } from "./sync-routable.ts";
 import { _startCoordHealthPoller } from "./sync-health.ts";
-import { _runConnectSync, _abortSyncForVisibility, isSyncPaused } from "./sync.ts";
+import { _runConnectSync, _abortSyncForVisibility, isSyncPaused, syncLinkIdleMs } from "./sync.ts";
+import { shouldRedialOnRefocus } from "./sync-watchdog.ts";
 import { _attemptPairRedeem } from "./sync-bootstrap.pair.ts";
 import { relocateRetiredBrowser } from "../auth/coordinator-relocation.ts";
 import { isPageVisible } from "../lib/pageVisible.ts";
@@ -83,11 +84,11 @@ export function bootstrapSync(): void {
       // Background tabs that hit the retry cap are paused; on refocus,
       // reload to get a clean TLS + HTTP/2 session with the current coord.
       if (isSyncPaused()) { location.reload(); return; }
-      // Otherwise: Chrome stalls long-lived HTTP/2 server-streams when the
-      // tab sits in the background — silent: no FIN, no error to await.
-      // Force a reconnect so any queued events (PTY bytes especially)
-      // backfill via sinceEventId.
-      _abortSyncForVisibility();
+      // Keep a live socket across a tab switch: re-dialing costs a JWT sign, a
+      // TLS handshake and the since= event backfill, all ahead of the
+      // terminal's reveal snapshot. Re-dial only when the link has actually
+      // gone silent (a suspended or half-open socket).
+      if (shouldRedialOnRefocus(syncLinkIdleMs())) _abortSyncForVisibility();
     });
   }
 }

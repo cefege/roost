@@ -22,6 +22,8 @@ type CellHandler = (frame: CellGridFrame) => void;
 const _presenceHandlers = new Map<string, PresenceHandler>();
 const _cellHandlers = new Map<string, CellHandler>();
 const _cellFrameCounts = new Map<string, number>();
+// Full frames only — the repaint a reveal must NOT need (smoke asserts it stays flat).
+const _cellFullFrameCounts = new Map<string, number>();
 export function registerCellHandler(sessionId: string, fn: CellHandler): () => void {
   _cellHandlers.set(sessionId, fn);
   return () => { if (_cellHandlers.get(sessionId) === fn) _cellHandlers.delete(sessionId); };
@@ -35,6 +37,7 @@ export function _dispatchCell(pb: PbCellGridFrame): void {
   const recvWall = Date.now();
   recordCellLag(pb, recvWall);
   _cellFrameCounts.set(pb.sessionId, (_cellFrameCounts.get(pb.sessionId) ?? 0) + 1);
+  if (pb.full === true) _cellFullFrameCounts.set(pb.sessionId, (_cellFullFrameCounts.get(pb.sessionId) ?? 0) + 1);
   const fn = _cellHandlers.get(pb.sessionId);
   if (fn) fn(protoToCellFrame(pb));
 }
@@ -44,11 +47,17 @@ export function cellFrameCount(sessionId: string): number {
   return _cellFrameCounts.get(sessionId) ?? 0;
 }
 
+/** Test-only: how many FULL cell frames have arrived for this session. */
+export function cellFullFrameCount(sessionId: string): number {
+  return _cellFullFrameCounts.get(sessionId) ?? 0;
+}
+
 /** Reap a closed session's frame-count entry — keyed by session id with no
  *  other reaper, so it leaks one entry per session ever for the tab's life.
  *  Called from the sessions-delta `closed` handler (see pruneOscBuffer). */
 export function pruneCellFrameCount(sessionId: string): void {
   _cellFrameCounts.delete(sessionId);
+  _cellFullFrameCounts.delete(sessionId);
 }
 
 /** Live size of the per-session frame-count map — a leak-watch accumulator. */

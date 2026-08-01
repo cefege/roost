@@ -6,14 +6,24 @@
 // refresh. This watchdog force-closes the socket after sustained silence so
 // onclose fires → the loop re-dials with sinceEventId → backfill → recovery.
 //
-// Only acts while the tab is foregrounded: Chrome's background-tab throttle is
-// already handled by the visibilitychange → _abortSyncForVisibility path
-// (sync-bootstrap.ts). A hidden tab relies on that path, not this watchdog.
+// Only acts while the tab is foregrounded: a hidden tab's setInterval is
+// throttled and unreliable. The hidden→visible transition is owned by
+// shouldRedialOnRefocus below, which the refocus handler (sync-bootstrap.ts)
+// consults instead of re-dialing unconditionally.
 
 import { isPageVisible } from "../lib/pageVisible.ts";
 
 export const SYNC_STALE_TIMEOUT_MS = 90_000;   // 3 missed 30s keepalives
 export const SYNC_STALE_CHECK_MS = 15_000;
+
+/** Idle budget a refocused tab tolerates before re-dialing. 1.5× coord's 30s
+ *  Sync keepalive (sync-ws-handler.ts): one dropped keepalive must not force a
+ *  re-dial, a suspended or half-open socket must. */
+export const SYNC_REFOCUS_STALE_MS = 45_000;
+/** Pure decision for the refocus handler — tested in sync-watchdog.test.ts. */
+export function shouldRedialOnRefocus(idleMs: number): boolean {
+  return idleMs > SYNC_REFOCUS_STALE_MS;
+}
 
 export interface StaleWatchdogOpts {
   staleMs?: number;
@@ -23,9 +33,9 @@ export interface StaleWatchdogOpts {
 }
 
 /** Starts a setInterval that force-closes `ws` when no WS message has arrived
- *  for `staleMs` AND the tab is visible. The visibility handler
- *  (sync-bootstrap.ts::_abortSyncForVisibility) owns background→foreground
- *  recovery; this watchdog owns foreground half-open stalls. Returns stop(). */
+ *  for `staleMs` AND the tab is visible. shouldRedialOnRefocus owns the
+ *  hidden→visible transition (a throttled hidden tab can't be trusted to tick);
+ *  this watchdog owns foreground half-open stalls. Returns stop(). */
 export function startStaleWatchdog(ws: WebSocket, opts: StaleWatchdogOpts = {}): () => void {
   const staleMs = opts.staleMs ?? SYNC_STALE_TIMEOUT_MS;
   const checkMs = opts.checkMs ?? SYNC_STALE_CHECK_MS;
@@ -35,7 +45,7 @@ export function startStaleWatchdog(ws: WebSocket, opts: StaleWatchdogOpts = {}):
   ws.addEventListener("message", onMessage);
   const timer = setInterval(() => {
     if (Date.now() - lastMsgAt < staleMs) return;
-    if (!isVisible()) return;            // hidden → visibility handler owns it
+    if (!isVisible()) return;            // hidden → the refocus check owns it
     opts.onStale?.();
     try { ws.close(); } catch { /* already closing */ }
   }, checkMs);

@@ -11,7 +11,7 @@
 // (real platform-clock timer behavior) applies.
 
 import { test, expect } from "bun:test";
-import { startStaleWatchdog } from "../src/store/sync-watchdog.ts";
+import { startStaleWatchdog, shouldRedialOnRefocus, SYNC_REFOCUS_STALE_MS } from "../src/store/sync-watchdog.ts";
 
 // ─── Test 1: silent server → watchdog force-closes ──────────────────────
 
@@ -128,3 +128,19 @@ test("isVisible false → no close even past stale window", async () => {
   try { ws.close(); } catch { /* ignore */ }
   server.stop(true);
 }, 10_000);
+
+// ─── Test 4: refocus re-dial decision ────────────────────────────────────
+// A returning tab must KEEP a live socket (a re-dial puts a JWT sign, a TLS
+// handshake and the since= backfill ahead of the terminal's reveal frame) and
+// drop a silent one. The budget straddles coord's 30s Sync keepalive so one
+// dropped keepalive is tolerated and a suspended/half-open socket is not.
+
+test("shouldRedialOnRefocus: keeps a live link, re-dials a silent one", () => {
+  expect(SYNC_REFOCUS_STALE_MS).toBeGreaterThan(30_000); // one dropped keepalive
+  expect(shouldRedialOnRefocus(0)).toBe(false);
+  expect(shouldRedialOnRefocus(SYNC_REFOCUS_STALE_MS - 1)).toBe(false);
+  expect(shouldRedialOnRefocus(SYNC_REFOCUS_STALE_MS)).toBe(false);
+  expect(shouldRedialOnRefocus(SYNC_REFOCUS_STALE_MS + 1)).toBe(true);
+  // No socket OPEN → syncLinkIdleMs() reports Infinity → always re-dial.
+  expect(shouldRedialOnRefocus(Number.POSITIVE_INFINITY)).toBe(true);
+});

@@ -181,3 +181,72 @@ describe("claim snapshot tail sizes to the returning viewer's gap", () => {
     expect(plain.scrollbackRows.length).toBe(SB_SNAPSHOT_TAIL_ROWS);
   });
 });
+
+// held_cell_seq: the claimant reports the cell-frame seq it has already applied
+// (SessionsResizeRequest.held_cell_seq → claimViewport's heldCellSeq), so a
+// reveal of a pane that never stopped streaming repaints NOTHING. The seq is
+// only proof while the channel stayed watched: with no claim, _hasActiveViewer
+// gates emission off (session-emit.ts), so cell_emit.seq freezes while the grid
+// keeps moving and a matching seq would prove the opposite of current.
+describe("claim snapshot only when the claimant is not provably current", () => {
+  test("re-claim holding the last emitted seq emits nothing; one behind emits a full frame", async () => {
+    const { mgr, frames } = mgrWithCellCounter();
+    await injectCellSession(mgr, 1);
+    mgr.claimViewport(1, "v", 80, 24, 1, 1);
+    expect(frames.length).toBe(1);
+    const held = protoToCellFrame(frames[0] as PbCellGridFrame).seq;
+
+    // Reveal of a pane that is current: TAB_VISIBLE, held seq matches.
+    mgr.claimViewport(1, "v", 80, 24, 2, 3, 0, held);
+    expect(frames.length).toBe(1);
+
+    // One frame behind → catch-up snapshot.
+    mgr.claimViewport(1, "v", 80, 24, 3, 3, 0, held - 1);
+    expect(frames.length).toBe(2);
+    expect(protoToCellFrame(frames[1] as PbCellGridFrame).full).toBe(true);
+  });
+
+  test("a re-subscribing background claim catches up; a current one stays silent", async () => {
+    const { mgr, frames } = mgrWithCellCounter();
+    await injectCellSession(mgr, 1);
+    mgr.claimViewport(1, "v", 80, 24, 1, 1);
+    expect(frames.length).toBe(1);
+    mgr.withdrawViewport(1, "v");
+    await sleep(1000); // > VIEWER_WITHDRAW_GRACE_MS (800) — the claim is gone
+
+    // Deck LRU re-promotes this pane: BACKGROUND, holds nothing.
+    mgr.claimViewport(1, "v", 0, 0, 2, 5, 0, 0);
+    expect(frames.length).toBe(2);
+    const caught = protoToCellFrame(frames[1] as PbCellGridFrame);
+    expect(caught.full).toBe(true);
+
+    // Still subscribed and current → no repaint.
+    mgr.claimViewport(1, "v", 0, 0, 3, 5, 0, caught.seq);
+    expect(frames.length).toBe(2);
+  });
+
+  test("output produced while UNWATCHED still forces a snapshot on the matching seq", async () => {
+    // cell_emit.seq freezes while nobody claims, so held === cell_emit.seq says
+    // nothing about the grid. Without the wasStreaming clause the returning
+    // pane would paint its pre-withdraw bottom until the next PTY chunk.
+    const { mgr, frames } = mgrWithCellCounter();
+    await injectCellSession(mgr, 1);
+    mgr.claimViewport(1, "v", 80, 24, 1, 1);
+    const held = protoToCellFrame(frames[0] as PbCellGridFrame).seq;
+    mgr.withdrawViewport(1, "v");
+    await sleep(1000);
+
+    append(mgr, 1, "finished-while-away\r\n");
+    await sleep(40);
+    expect(frames.length).toBe(1);                 // unwatched → nothing emitted
+    expect(mgr.shellByChannel(1)!.cell_emit.seq).toBe(held); // seq really froze
+
+    mgr.claimViewport(1, "v", 80, 24, 2, 3, 0, held);
+    expect(frames.length).toBe(2);
+    const revealed = protoToCellFrame(frames[1] as PbCellGridFrame);
+    expect(revealed.full).toBe(true);
+    expect(revealed.viewportRows.some((r) =>
+      r.spans.map((s) => s.text).join("").includes("finished-while-away"),
+    )).toBe(true);
+  });
+});

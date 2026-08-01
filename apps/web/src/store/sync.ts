@@ -35,7 +35,7 @@ import { setOpen } from "./sync-stream-open.ts";
 import { setRoutableFps } from "./sync-routable.ts";
 export { workerOnline } from "./sync-routable.ts";
 // Per-session cell/presence fan-out lives in sync-dispatch.ts (leaf module).
-export { registerCellHandler, registerPresenceHandler, cellFrameCount } from "./sync-dispatch.ts";
+export { registerCellHandler, registerPresenceHandler, cellFrameCount, cellFullFrameCount } from "./sync-dispatch.ts";
 // Per-domain delta handlers + keeper-death detector + delta-sub registries
 // live in sync-handlers.ts; the firehose calls them and iterates the sub Sets.
 import {
@@ -69,20 +69,35 @@ function _scheduleLastSeenPersist(): void {
 }
 
 // Live WebSocket for the in-flight Sync feed. Refreshed every reconnect.
-// Exposed at module scope so the visibilitychange handler can drop the
-// socket when the tab returns from background — Chrome's background-tab
-// throttle can silently stall a long-lived socket without surfacing an
-// error, leaving the SPA stuck on the last delivered frame. Closing forces
-// ws.onclose → the reconnect loop re-dials with sinceEventId, which
-// backfills every event (PTY bytes included) we missed. Closing (not
-// aborting an HTTP stream) also routes teardown through Bun's
-// websocket.close callback rather than RequestContext.onAbort — the
-// server-side UAF this transport migration exists to dodge.
+// Exposed at module scope so the refocus handler (sync-bootstrap.ts) can
+// inspect the link's idle age and drop the socket ONLY when it has actually
+// gone silent: a re-dial costs a JWT sign, a TLS handshake and the since=
+// event backfill, all ahead of the terminal's first cell frame, so a socket
+// that survived a hide→show cycle is kept. Closing (not aborting an HTTP
+// stream) routes teardown through Bun's websocket.close callback rather than
+// RequestContext.onAbort — the server-side UAF this transport migration
+// exists to dodge. A dropped socket recovers via ws.onclose → the reconnect
+// loop re-dials with sinceEventId, backfilling every event we missed.
 let _liveWs: WebSocket | null = null;
+// Wall clock of the last frame delivered on _liveWs, coord's 30s keepalive
+// included — the liveness evidence syncLinkIdleMs() reports.
+let _lastMsgAt = 0;
 let _syncAbortReason: "visibility" | "manual" | "stale" | null = null;
 // Generation counter so stale onclose/onopen from an abandoned socket can't
 // clobber the current socket's state.
 let _wsGen = 0;
+
+/** Milliseconds since the live Sync socket last delivered any frame
+ *  (coord keepalives included). Infinity when no socket is OPEN. */
+export function syncLinkIdleMs(): number {
+  return _liveWs && _liveWs.readyState === WebSocket.OPEN
+    ? Date.now() - _lastMsgAt
+    : Number.POSITIVE_INFINITY;
+}
+
+/** How many Sync sockets this tab has dialed. A refocus that keeps its socket
+ *  leaves this unchanged — the smoke proof that no re-dial happened. */
+export function syncWsGeneration(): number { return _wsGen; }
 
 // Close-escape: if the close handshake hangs (e.g., dead TCP after sleep),
 // force-resolve after WS_CLOSE_ESCAPE_MS so the reconnect loop isn't wedged.
@@ -384,12 +399,14 @@ export async function _runConnectSync(): Promise<void> {
         // A successful open = upgrade + JWT verify succeeded (the WS analog of
         // the old "reset on first frame"). Clear the failure counter + backoff.
         _syncFailures = 0;
+        _lastMsgAt = Date.now();
         _noteSyncConnect();
         backoff = 1000;
         if (gen === _wsGen) setOpen(true);
         _stopWatchdog = startStaleWatchdog(ws, { onStale: () => { _initiateWsClose("stale"); } });
       };
       ws.onmessage = (ev) => {
+        _lastMsgAt = Date.now();   // liveness, even if the decode below throws
         try {
           const frame = fromBinary(FirehoseFrameSchema, new Uint8Array(ev.data as ArrayBuffer));
           _dispatchSyncFrame(frame);

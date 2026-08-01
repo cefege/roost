@@ -161,6 +161,11 @@ message SessionsResizeRequest {
   // it already painted (cellRenderer.ts mergeFullFrame) instead of forcing a
   // full rebuild. 0 = unset / holds nothing → the default tail.
   uint32 held_scrollback_total = 6;
+  // Cell-frame seq this viewer has already applied (CellGridFrame.seq). The
+  // worker emits a claim snapshot only when this differs from the seq it last
+  // emitted — a pane that never stopped streaming needs no repaint. 0 = unset /
+  // holds nothing → always snapshot.
+  uint32 held_cell_seq = 7;
 }
 message SessionsResizeResponse { bool accepted = 1; }
 

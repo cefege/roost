@@ -188,6 +188,26 @@ describe("CellGridRenderer DOM — append-only scrollback, no reflow", () => {
     expect(rows1[2]).not.toBe(h1);
   });
 
+  // heldFrameSeq is what a viewport claim reports (CellTerminal sendClaim /
+  // sendBackgroundClaim → held_cell_seq), and the worker skips its claim
+  // snapshot on a match. It MUST track the last APPLIED frame across deltas —
+  // reporting a stale seq costs a redundant repaint, reporting one the viewer
+  // never applied would suppress a repaint it needs.
+  test("heldFrameSeq tracks the last applied frame across a full frame then deltas", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement); // FakeEl covers the renderer's DOM surface
+    expect(r.heldFrameSeq()).toBe(0); // nothing held → the worker must snapshot
+
+    r.apply(fullFrame(80, [row(0, "v0")], [row(0, "h0")]));
+    expect(r.heldFrameSeq()).toBe(1); // fullFrame() carries seq 1
+
+    r.apply(deltaFrame(80, 1, [row(0, "v0b")], [row(1, "h1")], 7));
+    expect(r.heldFrameSeq()).toBe(7);
+
+    r.apply(deltaFrame(80, 1, [row(0, "v0c")], [], 8));
+    expect(r.heldFrameSeq()).toBe(8);
+  });
+
   test("a viewport-only delta does NOT touch scrollback DOM at all", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as any);
