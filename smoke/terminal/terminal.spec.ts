@@ -60,6 +60,71 @@ test("terminal replay and Ctrl keys stay owned by the PTY", async ({ smokePage, 
   await smokePage.keyboard.press("Control+C");
 });
 
+test("nav pad taps reach the PTY without focusing the terminal textarea", async ({ mobileSmokePage, stack }, testInfo) => {
+  test.skip(testInfo.project.name !== "webkit-iphone", "iPhone terminal input contract");
+  const sessionId = await mobileSmokePage.evaluate(async (workerFp) => {
+    const smoke = (window as unknown as Window & { __smoke: { spawnShell(worker: string, folder: string): Promise<{ session_id: string }> } }).__smoke;
+    return (await smoke.spawnShell(workerFp, "/tmp")).session_id;
+  }, stack.workerFp);
+  await mobileSmokePage.goto(`${stack.baseUrl}/s/${sessionId}`);
+  const slot = mobileSmokePage.getByTestId(`terminal-slot-${sessionId}`);
+  await expect(slot).toBeVisible();
+
+  await mobileSmokePage.keyboard.type("cat -vet");
+  await mobileSmokePage.keyboard.press("Enter");
+  await mobileSmokePage.getByTestId("terminal-nav-toggle").click();
+
+  const paneFocused = () => mobileSmokePage.evaluate((id) => {
+    const smoke = (window as unknown as Window & {
+      __smoke: {
+        paneFocused(sessionId: string): {
+          hasSlot: boolean;
+          hasTextarea: boolean;
+          focused: boolean;
+        };
+      };
+    }).__smoke;
+    return smoke.paneFocused(id);
+  }, sessionId);
+  await mobileSmokePage.evaluate(() => {
+    (document.activeElement as HTMLElement | null)?.blur();
+    document.body.tabIndex = -1;
+    document.body.focus();
+  });
+  await expect.poll(paneFocused).toMatchObject({ hasTextarea: true, focused: false });
+
+  const clickWithoutFocus = async (testId: string) => {
+    await mobileSmokePage.getByTestId(testId).click();
+    await expect.poll(async () => (await paneFocused()).focused).toBe(false);
+  };
+  for (const testId of [
+    "nav-up",
+    "nav-down",
+    "nav-left",
+    "nav-right",
+    "nav-home",
+    "nav-end",
+    "nav-pgup",
+    "nav-pgdn",
+    "nav-esc",
+    "nav-tab",
+    "nav-mouse",
+    "nav-mouse",
+    "nav-ctrl",
+    "nav-ctrl",
+    "terminal-nav-toggle",
+    "terminal-nav-toggle",
+  ]) {
+    await clickWithoutFocus(testId);
+  }
+  await expect(mobileSmokePage.getByTestId("nav-mouse")).toHaveAttribute("aria-pressed", "false");
+  await expect(mobileSmokePage.getByTestId("nav-ctrl")).toHaveAttribute("aria-pressed", "false");
+  await expect(mobileSmokePage.getByTestId("terminal-nav-toggle")).toHaveAttribute("data-open", "true");
+
+  await clickWithoutFocus("nav-enter");
+  await expect.poll(() => slot.textContent()).toContain("^I$");
+});
+
 test("mobile composer preserves input and the Ctrl pad interrupts", async ({ mobileSmokePage, stack }, testInfo) => {
   test.skip(testInfo.project.name !== "webkit-iphone", "iPhone terminal input contract");
   const sessionId = await mobileSmokePage.evaluate(async (workerFp) => {
@@ -100,6 +165,19 @@ test("mobile composer preserves input and the Ctrl pad interrupts", async ({ mob
   await mobileSmokePage.getByTestId("terminal-nav-toggle").click();
   await expect(mobileSmokePage.getByTestId("nav-ctrl")).toHaveAttribute("aria-pressed", "false");
   await mobileSmokePage.getByTestId("nav-ctrl").click();
+  await expect.poll(() => mobileSmokePage.evaluate((id) => {
+    const smoke = (window as unknown as Window & {
+      __smoke: { paneFocused(sessionId: string): { focused: boolean } };
+    }).__smoke;
+    return smoke.paneFocused(id).focused;
+  }, sessionId)).toBe(false);
+  await slot.click({ position: { x: 8, y: 8 } });
+  await expect.poll(() => mobileSmokePage.evaluate((id) => {
+    const smoke = (window as unknown as Window & {
+      __smoke: { paneFocused(sessionId: string): { focused: boolean } };
+    }).__smoke;
+    return smoke.paneFocused(id).focused;
+  }, sessionId)).toBe(true);
   await mobileSmokePage.keyboard.type("c");
   const marker = `TOUCH_CTRL_${crypto.randomUUID().replace(/-/g, "").slice(0, 8)}`;
   await mobileSmokePage.keyboard.type(`printf '%s\\n' ${marker}`);

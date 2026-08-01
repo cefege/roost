@@ -1103,6 +1103,7 @@ export function CellTerminal(props: CellTerminalProps) {
 		//     keeps the per-keystroke hot path off the closest() walk.
 		const onDocKeydown = (e: KeyboardEvent) => {
 			if (e.defaultPrevented) return;
+			if (!e.isTrusted && isTouchDevice()) return;
 
 			if (!props.focused || !isPageVisible()) return;
 			const ae = document.activeElement as HTMLElement | null;
@@ -1250,7 +1251,7 @@ export function CellTerminal(props: CellTerminalProps) {
 					onKey={(key) => term?.dispatchKeydown(key)}
 					ctrlArmed={ctrlArmed()}
 					onCtrlArmedChange={(armed) => {
-						if (armed) term?.forceFocus();
+						if (armed && !isTouchDevice()) term?.forceFocus();
 						setCtrlArmed(armed);
 					}}
 				/>
