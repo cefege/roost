@@ -10,9 +10,11 @@ import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
 import { KEEPER_BUILD_STAMP } from "./keeper/keeper-stamp.ts";
 import { resolveTailnetDnsName } from "./install.ts";
 import { sampleHost as sampleDarwin } from "./host-sample-darwin.ts";
-import { sampleHost as sampleLinux } from "./host-sample-linux.ts";
+import { sampleHost as sampleLinux, sampleCgroupPressure } from "./host-sample-linux.ts";
 
 const sampleHost = process.platform === "linux" ? sampleLinux : sampleDarwin;
+const cgroupPressure =
+	process.platform === "linux" ? sampleCgroupPressure : () => null;
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
 // Consecutive heartbeat failures. Reset to 0 on a successful beat; when
@@ -63,6 +65,41 @@ const HOST_METRICS_INTERVAL_MS = 60_000;
 // interval. First sample yields 0 bps (no baseline yet).
 let _prevNet: { rxBytes: number; txBytes: number; sampledAtMs: number } | null =
 	null;
+// Cgroup-v2 throttle trail. mem_used/mem_total above are host-wide, so a worker
+// throttled by its own MemoryHigh publishes a perfectly healthy-looking sample
+// while its event loop stalls in D-state. Log-only: no HostSample field, no
+// proto change. Counts consecutive over-high samples so a long stall leaves
+// periodic breadcrumbs instead of one line or a flood.
+let _cgroupOverStreak = 0;
+let _prevCgroupHighEvents: number | null = null;
+const CGROUP_RELOG_EVERY = 10; // ~10 min at the 60s host-metrics cadence
+
+function logCgroupPressure(): void {
+	const p = cgroupPressure();
+	if (!p) return;
+	const delta =
+		_prevCgroupHighEvents === null
+			? 0
+			: Math.max(0, p.highEvents - _prevCgroupHighEvents);
+	_prevCgroupHighEvents = p.highEvents;
+	if (p.currentBytes > p.highBytes) {
+		const first = _cgroupOverStreak === 0;
+		_cgroupOverStreak += 1;
+		if (first || _cgroupOverStreak % CGROUP_RELOG_EVERY === 0) {
+			log.warn("heartbeat", "cgroup_memory_high_exceeded", {
+				current_bytes: p.currentBytes,
+				high_bytes: p.highBytes,
+				high_events_delta: delta,
+			});
+		}
+	} else if (_cgroupOverStreak > 0) {
+		log.info("heartbeat", "cgroup_memory_high_cleared", {
+			current_bytes: p.currentBytes,
+			high_bytes: p.highBytes,
+		});
+		_cgroupOverStreak = 0;
+	}
+}
 
 type HostMetrics = {
 	cpu_pct: number;
@@ -86,6 +123,9 @@ function collectHostMetrics(): HostMetrics {
 	) {
 		return _cachedHostMetrics;
 	}
+	// After the cache gate: one probe per real 60s sample, which is what
+	// CGROUP_RELOG_EVERY is calibrated against.
+	logCgroupPressure();
 	const sampled_at_ms = Date.now();
 	const {
 		cpu_pct,

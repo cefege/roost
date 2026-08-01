@@ -4,13 +4,28 @@
 export const BACKOFF_INITIAL_MS = 500;
 export const BACKOFF_MAX_MS = 30_000;
 export const BACKOFF_MULTIPLIER = 2;
-// Auth-rejection escalation: when a dial fails without ws.onopen firing
-// (upgrade rejected — typically JWT aud mismatch from a stale binary), the
+// Auth-rejection escalation: when a dial fails without ws.onopen firing, the
 // 30s backoff cap produces ~2,880 retries/day. After this many consecutive
 // non-open failures, cap backoff at AUTH_REJECT_BACKOFF_CAP_MS instead,
 // cutting the noise 10×. Reset on any successful open.
 export const AUTH_REJECT_THRESHOLD = 3;
 export const AUTH_REJECT_BACKOFF_CAP_MS = 5 * 60_000;
+// A dial that never fires ws.onopen is NOT necessarily an auth rejection: coord
+// answers a bad JWT with an HTTP 401 on the upgrade, which Bun's client
+// WebSocket reports exactly like a timeout or a tailscale-serve 502. So a
+// worker throttled by its own cgroup used to escalate to the 5-min cap after 3
+// dials and stay invisible for minutes (2026-08-01, ovh1). A worker that has
+// never opened in this process is the real stale-binary case and still
+// escalates after 3; once a link has opened, only a long streak escalates, so
+// a transient stall costs one 30s cap instead of 5 minutes.
+export const AUTH_REJECT_THRESHOLD_AFTER_OPEN = 60;
+
+/** Reconnect backoff ceiling. Pure so the escalation rule is unit-testable
+ *  without driving 60 real dials. */
+export function backoffCapMs(nonOpenStreak: number, hasOpened: boolean): number {
+  const threshold = hasOpened ? AUTH_REJECT_THRESHOLD_AFTER_OPEN : AUTH_REJECT_THRESHOLD;
+  return nonOpenStreak >= threshold ? AUTH_REJECT_BACKOFF_CAP_MS : BACKOFF_MAX_MS;
+}
 export const PENDING_CAP = 1024;
 // Minimum stream uptime before the dial counters reset to 0. A
 // helloAck-then-immediate-drop pattern would otherwise cycle

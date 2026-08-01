@@ -1,8 +1,11 @@
 // Structured logger. Emits one JSON line per log event:
 //   {ts, level, trace_id?, target, ...fields}
-// Bun has no built-in log rotation — coord/worker write to
-// ~/Library/Logs/Roost*/main.{out,err}.log and rely on macOS
-// `newsyslog`/`log_rotate(8)` (configured at install time).
+// Bun has no built-in log rotation, so coord/worker write plain files and the
+// installers wire up the host mechanism: macOS `newsyslog`/`log_rotate(8)` over
+// ~/Library/Logs/Roost*/main.{out,err}.log, Linux a user `logrotate` config +
+// `roost-logrotate.timer` over $XDG_STATE_HOME/Roost*/main.{out,err}.log.
+// Linux rotation MUST be copytruncate: systemd's StandardOutput=append: holds
+// the fd open, so a rename-based rotate would orphan the writer.
 // R0.15.
 //
 // Minimum level gate: ROOST_LOG_LEVEL env (default "info").

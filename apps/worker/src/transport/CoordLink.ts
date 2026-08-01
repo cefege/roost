@@ -29,10 +29,11 @@ import { eventToProto } from "@roost/shared/wire/event-proto";
 import { log, diag, signal } from "@roost/shared";
 import { frameToProto, decodeBinaryFrame, binaryFrameToProto } from "./CoordLink-codec.ts";
 import {
-  BACKOFF_INITIAL_MS, BACKOFF_MAX_MS, BACKOFF_MULTIPLIER,
+  BACKOFF_INITIAL_MS, BACKOFF_MULTIPLIER,
   PENDING_CAP, STABLE_SESSION_MS, UNACKED_CAP,
   STALE_LINK_TIMEOUT_MS, STALE_CHECK_INTERVAL_MS,
   AUTH_REJECT_THRESHOLD, AUTH_REJECT_BACKOFF_CAP_MS,
+  AUTH_REJECT_THRESHOLD_AFTER_OPEN, backoffCapMs,
 } from "./CoordLink-constants.ts";
 import type { CoordLinkDeps, CoordLink, UpstreamFrame, CoordLinkState } from "./CoordLink-types.ts";
 export type { CoordLinkDeps, CoordLink } from "./CoordLink-types.ts";
@@ -58,9 +59,9 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
   // (attempt: 1). Reset to 0 once a stream successfully opens; we
   // pre-increment so the first attempt reports attempt: 1.
   let dialAttempt = 0;
-  // Consecutive dials that failed without ws.onopen firing (upgrade
-  // rejected — auth failure). After AUTH_REJECT_THRESHOLD, escalate the
-  // backoff cap to AUTH_REJECT_BACKOFF_CAP_MS. Reset on successful open.
+  // Consecutive dials that failed without ws.onopen firing. Not necessarily
+  // auth: a 401 upgrade, a handshake timeout and a proxy 502 look identical
+  // from the close event. backoffCapMs() decides when a streak escalates.
   let _authRejectCount = 0;
   let _didOpen = false;
   // Persists across dials so callers can reconcile only after a true reopen,
@@ -254,8 +255,10 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
       if (staleTimer !== null) { clearInterval(staleTimer); staleTimer = null; }
       writer = null;
       closeStream = null;
-      // If ws.onopen never fired, the upgrade was rejected (auth failure).
-      // Track consecutive non-open dials for backoff escalation.
+      // A dial that never fired ws.onopen is not necessarily an auth
+      // rejection — a 401 upgrade, a handshake timeout and a proxy 502 are
+      // indistinguishable here. Just count the streak; scheduleReconnect
+      // decides what it means (see backoffCapMs).
       if (!_didOpen) _authRejectCount++;
       if (!disposed) {
         if (relocating) {
@@ -478,15 +481,15 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
     if (_reconnectFailures >= RECONNECT_GIVE_UP_AFTER) {
       signal("reconnect.give_up", { failures: _reconnectFailures, action: "keep_retrying", cooldownKey: "coordlink" });
     }
-    // Escalate backoff for sustained auth-rejection streaks (e.g. stale
-    // binary with wrong JWT aud). After AUTH_REJECT_THRESHOLD consecutive
-    // non-open dials, cap at AUTH_REJECT_BACKOFF_CAP_MS instead of the
-    // normal 30s — cuts auth-retry noise 10× (1,849/day → ~288/day).
-    const _escalated = _authRejectCount >= AUTH_REJECT_THRESHOLD;
-    const _cap = _escalated ? AUTH_REJECT_BACKOFF_CAP_MS : BACKOFF_MAX_MS;
-    if (_escalated && _authRejectCount === AUTH_REJECT_THRESHOLD) {
-      log.warn("coord-link", "auth_rejection_escalated", {
-        count: _authRejectCount, backoffMs: _cap,
+    // Escalate backoff for sustained non-open streaks (e.g. stale binary with
+    // wrong JWT aud, which never opens at all). A link that HAS opened in this
+    // process needs a far longer streak, so a transient stall — a throttled
+    // worker, a proxy 502 — costs one 30s cap instead of 5 minutes.
+    const _cap = backoffCapMs(_authRejectCount, hasOpened);
+    const _threshold = hasOpened ? AUTH_REJECT_THRESHOLD_AFTER_OPEN : AUTH_REJECT_THRESHOLD;
+    if (_cap === AUTH_REJECT_BACKOFF_CAP_MS && _authRejectCount === _threshold) {
+      log.warn("coord-link", "reconnect_backoff_escalated", {
+        count: _authRejectCount, backoffMs: _cap, had_opened: hasOpened,
       });
     }
     const nextDialAtMs = Date.now() + backoffMs;

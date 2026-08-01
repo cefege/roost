@@ -10,6 +10,18 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd -P)"
 # come from one place. Explicit env still wins (set -a exports; caller's
 # pre-set vars override via the sourced file only if unset there).
 set -a; [ -f "$REPO_ROOT/.env.local" ] && source "$REPO_ROOT/.env.local"; set +a
+# MemoryHigh must scale with the host: every PTY session lives in the worker's
+# cgroup, so a flat cap sized for a laptop throttles the worker's own event loop
+# into D-state on a big box (2026-08-01: ovh1, 1.4M memory.high events, worker
+# invisible to coord for minutes at a time). 60% of RAM, floor 3G. Absolute
+# value, not a percentage: systemd only accepts % for MemoryHigh from v240.
+default_worker_mem_high() {
+  local total_kb mb
+  # MEMINFO is an override seam so the floor branch is testable without a 2GB box.
+  total_kb=$(awk '/^MemTotal:/{print $2}' "${MEMINFO:-/proc/meminfo}" 2>/dev/null || echo 0)
+  mb=$(( total_kb * 60 / 100 / 1024 ))
+  if [ "$mb" -lt 3072 ]; then echo 3G; else echo "${mb}M"; fi
+}
 # Labels/paths overridable (binary-mode quickstart + isolated test installs);
 # defaults are the daily-driver source install — unchanged when unset. NOTE:
 # ROOST_WORKER_AGENT_LABEL is the launchd label / systemd unit name, distinct
@@ -20,6 +32,11 @@ if [[ "$OS" == "Linux" ]]; then
   UNIT="${ROOST_WORKER_UNIT:-$HOME/.config/systemd/user/${LABEL}.service}"
   DATA_DIR="${ROOST_WORKER_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/RoostWorkerV2}"
   LOG_DIR="${ROOST_WORKER_LOG_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/RoostWorker}"
+  # Resource limits baked into the unit; MemoryHigh defaults to 60% of host RAM
+  # (floor 3G). Dial either down on a small box via env.
+  WORKER_MEM_HIGH="${ROOST_WORKER_MEMORY_HIGH:-$(default_worker_mem_high)}"
+  WORKER_TASKS_MAX="${ROOST_WORKER_TASKS_MAX:-4096}"
+  LOGROTATE_CONF="${ROOST_WORKER_LOGROTATE_CONF:-${XDG_CONFIG_HOME:-$HOME/.config}/logrotate.d/roost-worker.conf}"
 else
   LABEL="${ROOST_WORKER_AGENT_LABEL:-com.roost.worker-v2}"
   PLIST="${ROOST_WORKER_PLIST:-$HOME/Library/LaunchAgents/${LABEL}.plist}"
@@ -218,11 +235,20 @@ EOF
     # lands in this unit's cgroup, and the default control-group kill would
     # take every PTY down on each worker restart — destroying the "keeper
     # outlives worker restarts" invariant the reattach path depends on.
+    #
+    # MemoryMax is deliberately ABSENT and must stay absent: every PTY session
+    # lives in this cgroup, so a hard cap plus Restart=always would let one fat
+    # session kill the unit and take every other live session with it.
+    # MemoryHigh only throttles and reclaims; OOMPolicy=continue closes the
+    # same hole against a host-level OOM kill of a single child.
     cat <<EOF
 Restart=always
 RestartSec=1
 KillMode=process
 TimeoutStopSec=10
+MemoryHigh=${WORKER_MEM_HIGH}
+OOMPolicy=continue
+TasksMax=${WORKER_TASKS_MAX}
 StandardOutput=append:${LOG_DIR}/main.out.log
 StandardError=append:${LOG_DIR}/main.err.log
 
@@ -232,6 +258,58 @@ EOF
   } > "$UNIT"
   chmod 0600 "$UNIT"
   echo "wrote $UNIT"
+}
+
+# systemd's StandardOutput=append: holds the fd open, so rotation MUST be
+# copytruncate — a rename-based rotate would leave the service writing to an
+# unlinked inode. The .1.gz naming this produces is what doctor.ts already
+# parses. A *user* logrotate config is not run by the system timer, so the
+# matching user timer is installed beside it; logrotate reads every file in a
+# directory argument, so coord and worker each own one conf and share one timer.
+write_logrotate() {
+  local rotate_bin conf_dir unit_dir
+  rotate_bin="$(command -v logrotate || true)"
+  [[ -z "$rotate_bin" && -x /usr/sbin/logrotate ]] && rotate_bin=/usr/sbin/logrotate
+  if [[ -z "$rotate_bin" ]]; then
+    echo "WARN: logrotate not found - worker logs in ${LOG_DIR} will grow unbounded" >&2
+    return 0
+  fi
+  conf_dir="$(dirname "$LOGROTATE_CONF")"
+  mkdir -p "$conf_dir"
+  cat > "$LOGROTATE_CONF" <<EOF
+${LOG_DIR}/main.out.log ${LOG_DIR}/main.err.log {
+    size 100M
+    rotate 5
+    compress
+    missingok
+    notifempty
+    copytruncate
+}
+EOF
+  echo "wrote $LOGROTATE_CONF"
+
+  unit_dir="$(dirname "$UNIT")"
+  mkdir -p "$unit_dir" "${XDG_STATE_HOME:-$HOME/.local/state}/roost"
+  cat > "$unit_dir/roost-logrotate.service" <<EOF
+[Unit]
+Description=Rotate Roost logs
+
+[Service]
+Type=oneshot
+ExecStart=${rotate_bin} --state ${XDG_STATE_HOME:-$HOME/.local/state}/roost/logrotate.status ${conf_dir}
+EOF
+  cat > "$unit_dir/roost-logrotate.timer" <<EOF
+[Unit]
+Description=Rotate Roost logs daily
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+  echo "wrote $unit_dir/roost-logrotate.timer"
 }
 
 bootstrap_systemd() {
@@ -256,6 +334,10 @@ bootstrap_systemd() {
   systemctl --user enable --now "${LABEL}.service"
   systemctl --user restart "${LABEL}.service"
   echo "started ${LABEL}.service"
+  if [[ -f "$(dirname "$UNIT")/roost-logrotate.timer" ]]; then
+    systemctl --user enable --now roost-logrotate.timer 2>/dev/null || \
+      echo "WARN: could not enable roost-logrotate.timer - logs will grow unbounded" >&2
+  fi
 }
 
 IS_LINUX=false
@@ -263,7 +345,7 @@ IS_LINUX=false
 
 case "$cmd" in
   install)
-    if $IS_LINUX; then write_unit; bootstrap_systemd; else write_plist; bootstrap; fi
+    if $IS_LINUX; then write_unit; write_logrotate; bootstrap_systemd; else write_plist; bootstrap; fi
     echo
     echo "Worker v2 starting on :2224. Logs:"
     echo "  bun apps/roost-cli/src/main.ts logs worker"

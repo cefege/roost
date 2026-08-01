@@ -112,3 +112,41 @@ export function sampleHost(): HostSample {
 		net: _sampleNetBytes(primaryIface()),
 	};
 }
+
+// Cgroup-v2 throttle probe. The mem numbers above are host-wide, so a unit
+// being strangled by its own MemoryHigh looks perfectly healthy in the UI
+// (2026-08-01: ovh1 published "8.7 GB of 33.6 GB used" while its worker
+// cgroup sat above MemoryHigh=3G and every allocation was throttled).
+// Reads this process's own cgroup: /proc/self/cgroup line "0::<path>".
+// Returns null when not on cgroup v2, unlimited, or unreadable.
+export function sampleCgroupPressure(): {
+	currentBytes: number;
+	highBytes: number;
+	highEvents: number;
+} | null {
+	try {
+		const rel = (
+			readFileSync("/proc/self/cgroup", "utf8").match(/^0::(.*)$/m) ?? []
+		)[1];
+		if (rel === undefined) return null;
+		const base = `/sys/fs/cgroup${rel}`;
+		const high = readFileSync(`${base}/memory.high`, "utf8").trim();
+		if (high === "max") return null;
+		const highBytes = Number(high);
+		if (!Number.isFinite(highBytes)) return null;
+		const currentBytes = Number(
+			readFileSync(`${base}/memory.current`, "utf8").trim(),
+		);
+		if (!Number.isFinite(currentBytes)) return null;
+		const highEvents = Number(
+			(
+				readFileSync(`${base}/memory.events`, "utf8").match(
+					/^high (\d+)$/m,
+				) ?? []
+			)[1] ?? 0,
+		);
+		return { currentBytes, highBytes, highEvents };
+	} catch {
+		return null;
+	}
+}
