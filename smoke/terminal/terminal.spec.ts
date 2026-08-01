@@ -303,7 +303,7 @@ test("a deep-history attach reserves the whole scroll space and holds it through
     return !!slot?.querySelector(".cell-sb-spacer") && !!slot.querySelector(".cell-row");
   }, sessionId);
   const geometry = () => smokePage.evaluate((id) => {
-    const smoke = (window as unknown as Window & { __smoke: { renderProbe(sessionId: string): { rowCount: number; scrollHeight: number; clientHeight: number } } }).__smoke;
+    const smoke = (window as unknown as Window & { __smoke: { renderProbe(sessionId: string): { rowCount: number; scrollTop: number; scrollHeight: number; clientHeight: number } } }).__smoke;
     const slot = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
     const c = slot?.querySelector(".wterm") as HTMLElement | null;
     const rowH = c?.querySelector(".cell-row")?.getBoundingClientRect().height ?? 0;
