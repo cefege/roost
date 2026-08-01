@@ -61,6 +61,7 @@ beforeAll(async () => {
     auditRetentionDays: 90,
     relaxedCsp: false,
     corsAllowedOrigins: [],
+    trustedProxyIps: ["127.0.0.1", "::1", "::ffff:127.0.0.1"],
     logDir: workdir,
     publicUrl: undefined,
     handoffPath: join(workdir, "coord-handoff.json"),

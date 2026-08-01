@@ -30,6 +30,9 @@ function normalizePublicUrl(raw: string | undefined): string | undefined {
 
 export const CoordConfig = z.object({
   bind: z.string().default("0.0.0.0:4102"),
+  // Second plaintext listener for a co-located reverse proxy that cannot reach
+  // 127.0.0.1 (the public edge runs in a container). Unset = one listener.
+  bindExtra: z.string().optional(),
   dbPath: z.string(),
   authorizedKeysPath: z.string(),
   webDistPath: z.string().optional(),         // vinxi/vite build output for SPA serve
@@ -39,6 +42,10 @@ export const CoordConfig = z.object({
   // Auth/pair/delete rows are never swept — see apps/coord/src/audit-retention.ts.
   auditRetentionDays: z.number().int().positive().default(90),
   corsAllowedOrigins: z.array(z.string()).default([]),
+  // Socket peers whose X-Forwarded-For is believed when ROOST_TRUST_PROXY=1.
+  // Any other peer keeps its real address, so a caller that can reach a
+  // listener directly cannot claim to be loopback or tailnet.
+  trustedProxyIps: z.array(z.string()).default(["127.0.0.1", "::1", "::ffff:127.0.0.1"]),
   relaxedCsp: z.boolean().default(false),
   logDir: z.string().default(coordLogDir()),
   // Tailnet TLS via `tailscale cert <fqdn>`. When BOTH paths are set,
@@ -56,6 +63,7 @@ export function loadCoordConfig(env: Record<string, string | undefined> = proces
   const dataDir = coordDataDir(env);
   return CoordConfig.parse({
     bind: env.ROOST_COORDINATOR_BIND,
+    bindExtra: env.ROOST_COORDINATOR_BIND_EXTRA,
     dbPath: env.ROOST_COORDINATOR_DB ?? join(dataDir, "coordinator_v2.db"),
     authorizedKeysPath: env.ROOST_COORDINATOR_AUTHORIZED_KEYS ?? join(dataDir, "authorized_keys.roost"),
     webDistPath: env.ROOST_WEB_DIST_PATH,
@@ -69,6 +77,9 @@ export function loadCoordConfig(env: Record<string, string | undefined> = proces
     corsAllowedOrigins: env.ROOST_CORS_ALLOWED_ORIGINS
       ? env.ROOST_CORS_ALLOWED_ORIGINS.split(",").map((s) => s.trim()).filter(Boolean)
       : [],
+    trustedProxyIps: env.ROOST_TRUSTED_PROXY_IPS
+      ? env.ROOST_TRUSTED_PROXY_IPS.split(",").map((s) => s.trim()).filter(Boolean)
+      : undefined,
     relaxedCsp: env.ROOST_RELAXED_CSP === "1",
     logDir: env.ROOST_COORDINATOR_LOG_DIR,
     tlsCertPath: env.ROOST_TLS_CERT_PATH,

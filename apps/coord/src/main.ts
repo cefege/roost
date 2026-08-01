@@ -19,7 +19,7 @@ import { createBunCoordinatorMoveRuntime } from "./coord-move/bun-runtime.ts";
 import { handleInternalHandoffRequest } from "./coord-move/internal-http.ts";
 import { connectWorkers } from "./connect/worker-registry.ts";
 import type { WorkerServiceDeps } from "./connect/worker-service.ts";
-import type { ServerWebSocket } from "bun";
+import type { Server, ServerWebSocket } from "bun";
 import { workspaceBus } from "./buses.ts";
 import { asWorkspaceId } from "@roost/shared/wire";
 import { log } from "@roost/shared/log";
@@ -185,7 +185,12 @@ export async function runCoord() {
   // client-supplied XFF is replaced, not appended), so xff[0] is the
   // un-spoofable real client IP. Direct on-host calls carry no XFF → we keep
   // the loopback socket peer so assertLoopback (db-export) stays strict.
+  // XFF is believed ONLY when the socket peer is allow-listed
+  // (cfg.trustedProxyIps), so a caller that reaches a listener directly —
+  // e.g. another container on the public edge's docker network — cannot
+  // forge loopback or a tailnet address.
   const trustProxy = process.env.ROOST_TRUST_PROXY === "1";
+  const trustedProxyPeers = new Set(cfg.trustedProxyIps);
 
   const tls = cfg.tlsCertPath && cfg.tlsKeyPath
     ? {
@@ -219,8 +224,8 @@ export async function runCoord() {
   // the next snapshot.
   installByteHubBusHook();
 
-  const server = Bun.serve({
-    hostname: host, port, tls,
+  const startServer = (listenHost: string, listenPort: number, listenTls: typeof tls) => Bun.serve({
+    hostname: listenHost, port: listenPort, tls: listenTls,
     // idleTimeout reaps connections with no traffic for N seconds. This is
     // the fix for "internet blipped → browser can't reconnect, even reload
     // hangs": after a network drop Chrome keeps reusing a ZOMBIE HTTP/2
@@ -283,7 +288,7 @@ export async function runCoord() {
         return new Response("sync moved to /ws/coord-sync", { status: 410 });
       }
       let clientIp = server.requestIP(req)?.address;
-      if (trustProxy) {
+      if (trustProxy && clientIp && trustedProxyPeers.has(clientIp)) {
         const xff = req.headers.get("x-forwarded-for");
         if (xff) clientIp = xff.split(",")[0]!.trim();
       }
@@ -309,7 +314,19 @@ export async function runCoord() {
     },
   });
 
+  const server = startServer(host, port, tls);
+
   log.info("main", "listening", { bind: `${host}:${server.port}`, tls: !!tls, http2: !!tls, uptime_ms: Date.now() - bootMs });
+
+  // Optional second plaintext listener for a co-located reverse proxy that
+  // cannot reach the host loopback (the public edge runs in a container).
+  // Never TLS: it exists only for a proxy on the same box.
+  let extraServer: Server<WorkerWsData | SyncWsData> | null = null;
+  if (cfg.bindExtra) {
+    const [extraHost, extraPortStr] = cfg.bindExtra.split(":") as [string, string];
+    extraServer = startServer(extraHost, parseInt(extraPortStr, 10), undefined);
+    log.info("main", "listening_extra", { bind: `${extraHost}:${extraServer.port}` });
+  }
   // AFTER Bun.serve: recovery stages/commits/aborts workers, and `online` is
   // computed from the worker-WS registry this server populates. Running it
   // first guarantees an empty registry, an immediate `worker offline`, and a
@@ -321,6 +338,7 @@ export async function runCoord() {
 
   const shutdown = (): void => {
     log.info("main", "shutdown");
+    extraServer?.stop(true);
     server.stop(true);
     coord.dispose();
     try { sqlite.close(); } catch { /* ignore */ }

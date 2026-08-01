@@ -51,6 +51,7 @@ async function side(name: string, publicUrl: string): Promise<MoveSide> {
     handoffPath: join(dir, "coord-handoff.json"), webDistPath: "", logDir: dir,
     publicUrl, tlsCertPath: undefined, tlsKeyPath: undefined,
     jwtMaxAgeSecs: 300, auditRetentionDays: 90, relaxedCsp: false, corsAllowedOrigins: [],
+    trustedProxyIps: ["127.0.0.1", "::1", "::ffff:127.0.0.1"],
   };
   return { dir, cfg, sqlite: opened.sqlite, store: new HandoffStateStore(cfg.handoffPath), coordKey: await loadOrCreateCoordKey(keyPath) };
 }
