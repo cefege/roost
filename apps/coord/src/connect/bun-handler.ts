@@ -50,6 +50,7 @@ export function makeConnectBunHandler(router: ConnectRouter): ConnectBunHandler 
     header.delete("x-roost-remote-addr");
     if (clientAddress) header.set("x-roost-remote-addr", clientAddress);
 
+    const requestAbort = new AbortController();
     const ureq: UniversalServerRequest = {
       httpVersion: "2.0",
       url: req.url,
@@ -58,9 +59,10 @@ export function makeConnectBunHandler(router: ConnectRouter): ConnectBunHandler 
       body: req.body ? toAsyncIterable(req.body) : emptyAsyncIterable(),
       // Bun 1.3.14 has a RequestContext.onAbort use-after-free when JavaScript
       // subscribes to a server Request's signal and the client disconnects.
-      // Connect subscribes here, so give each bounded unary RPC a fresh,
-      // collectible signal detached from Bun's request lifetime.
-      signal: new AbortController().signal,
+      // Connect subscribes here, so detach cancellation from Bun's request
+      // lifetime. The response stream aborts this controller on completion,
+      // error, or cancellation so streaming handlers still release resources.
+      signal: requestAbort.signal,
     };
 
     const ures: UniversalServerResponse = await handler(ureq);
@@ -72,8 +74,21 @@ export function makeConnectBunHandler(router: ConnectRouter): ConnectBunHandler 
       ures.trailer.forEach((v, k) => respHeaders.append(`trailer-${k}`, v));
     }
 
+    // A ReadableStream response makes Bun subscribe RequestContext.onAbort;
+    // Bun 1.3.14 can use-after-free that context when a browser reload aborts
+    // a unary RPC. Buffer unary frames into a static body so that native crash
+    // path is never installed. True server streams retain cancellation below.
+    if (handler.method.methodKind === "unary") {
+      const body = await collectBody(ures.body);
+      requestAbort.abort();
+      return new Response(body, { status: ures.status, headers: respHeaders });
+    }
+
+    const body = ures.body ? asyncIterableToReadableStream(ures.body, requestAbort) : null;
+    if (!body) requestAbort.abort();
+
     return new Response(
-      ures.body ? asyncIterableToReadableStream(ures.body) : null,
+      body,
       { status: ures.status, headers: respHeaders },
     );
   }
@@ -110,7 +125,28 @@ function toAsyncIterable(stream: ReadableStream<Uint8Array>): AsyncIterable<Uint
   })();
 }
 
-function asyncIterableToReadableStream(iter: AsyncIterable<Uint8Array>): ReadableStream<Uint8Array> {
+async function collectBody(iter: AsyncIterable<Uint8Array> | undefined): Promise<ArrayBuffer | null> {
+  if (!iter) return null;
+  const chunks: Uint8Array[] = [];
+  let length = 0;
+  for await (const chunk of iter) {
+    chunks.push(chunk);
+    length += chunk.byteLength;
+  }
+  if (chunks.length === 0) return null;
+  const body = new Uint8Array(length);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return body.buffer;
+}
+
+function asyncIterableToReadableStream(
+  iter: AsyncIterable<Uint8Array>,
+  requestAbort: AbortController,
+): ReadableStream<Uint8Array> {
   // Iterator created ONCE; pull() advances it. Earlier version created a
   // fresh iterator per pull which broke streaming after the first chunk.
   let it: AsyncIterator<Uint8Array> | null = null;
@@ -121,6 +157,7 @@ function asyncIterableToReadableStream(iter: AsyncIterable<Uint8Array>): Readabl
       try {
         const { value, done } = await it.next();
         if (done) {
+          requestAbort.abort();
           // TC39 permits `return X` from an async generator to yield
           // `{value:X, done:true}` as the final tuple. Enqueue the
           // value before closing so a future router stream that uses
@@ -138,6 +175,7 @@ function asyncIterableToReadableStream(iter: AsyncIterable<Uint8Array>): Readabl
           controller.enqueue(value);
         }
       } catch (e) {
+        requestAbort.abort();
         controller.error(e);
         // Without this, the source async generator (e.g. the sync
         // RPC's bus-subscribing loop in router.ts) stays suspended at
@@ -152,6 +190,7 @@ function asyncIterableToReadableStream(iter: AsyncIterable<Uint8Array>): Readabl
     async cancel() {
       const closed = it;
       it = null;
+      requestAbort.abort();
       if (closed?.return) await closed.return();
     },
   });
