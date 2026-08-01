@@ -87,3 +87,76 @@ test("unary Connect responses are buffered before the detached signal is aborted
   expect(handlerSignal!.aborted).toBe(true);
   expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3]));
 });
+
+test("unary body failures abort the detached handler signal", async () => {
+  let handlerSignal: AbortSignal | undefined;
+  const handler = Object.assign(
+    async (request: UniversalServerRequest): Promise<UniversalServerResponse> => {
+      handlerSignal = request.signal;
+      const body = (async function* () {
+        yield new Uint8Array([1]);
+        throw new Error("body failed");
+      })();
+      return { status: 200, header: new Headers(), body };
+    },
+    {
+      requestPath: "/test.UnaryBodyFailure",
+      allowedMethods: ["POST"],
+      method: { methodKind: "unary" },
+    },
+  ) as UniversalHandler;
+  const adapter = makeConnectBunHandler({ handlers: [handler] } as unknown as ConnectRouter);
+
+  await expect(adapter.fetch(new Request("http://localhost/test.UnaryBodyFailure", {
+    method: "POST",
+  }))).rejects.toThrow("body failed");
+  expect(handlerSignal).toBeDefined();
+  expect(handlerSignal!.aborted).toBe(true);
+});
+
+test("handler failures abort the detached handler signal", async () => {
+  let handlerSignal: AbortSignal | undefined;
+  const handler = Object.assign(
+    async (request: UniversalServerRequest): Promise<UniversalServerResponse> => {
+      handlerSignal = request.signal;
+      throw new Error("handler failed");
+    },
+    {
+      requestPath: "/test.HandlerFailure",
+      allowedMethods: ["POST"],
+      method: { methodKind: "unary" },
+    },
+  ) as UniversalHandler;
+  const adapter = makeConnectBunHandler({ handlers: [handler] } as unknown as ConnectRouter);
+
+  await expect(adapter.fetch(new Request("http://localhost/test.HandlerFailure", {
+    method: "POST",
+  }))).rejects.toThrow("handler failed");
+  expect(handlerSignal).toBeDefined();
+  expect(handlerSignal!.aborted).toBe(true);
+});
+
+test("stream response setup failures abort the detached handler signal", async () => {
+  let handlerSignal: AbortSignal | undefined;
+  const handler = Object.assign(
+    async (request: UniversalServerRequest): Promise<UniversalServerResponse> => {
+      handlerSignal = request.signal;
+      const body = (async function* () {
+        yield new Uint8Array([1]);
+      })();
+      return { status: 99, header: new Headers(), body };
+    },
+    {
+      requestPath: "/test.ResponseFailure",
+      allowedMethods: ["POST"],
+      method: { methodKind: "server_streaming" },
+    },
+  ) as UniversalHandler;
+  const adapter = makeConnectBunHandler({ handlers: [handler] } as unknown as ConnectRouter);
+
+  await expect(adapter.fetch(new Request("http://localhost/test.ResponseFailure", {
+    method: "POST",
+  }))).rejects.toThrow();
+  expect(handlerSignal).toBeDefined();
+  expect(handlerSignal!.aborted).toBe(true);
+});

@@ -65,32 +65,46 @@ export function makeConnectBunHandler(router: ConnectRouter): ConnectBunHandler 
       signal: requestAbort.signal,
     };
 
-    const ures: UniversalServerResponse = await handler(ureq);
-
-    const respHeaders = new Headers(ures.header ?? undefined);
-    if (ures.trailer) {
-      // For unary Connect, trailers are folded into response headers as
-      // `trailer-` prefixed entries (Connect protocol spec).
-      ures.trailer.forEach((v, k) => respHeaders.append(`trailer-${k}`, v));
-    }
-
-    // A ReadableStream response makes Bun subscribe RequestContext.onAbort;
-    // Bun 1.3.14 can use-after-free that context when a browser reload aborts
-    // a unary RPC. Buffer unary frames into a static body so that native crash
-    // path is never installed. True server streams retain cancellation below.
-    if (handler.method.methodKind === "unary") {
-      const body = await collectBody(ures.body);
+    let ures: UniversalServerResponse;
+    try {
+      ures = await handler(ureq);
+    } catch (error) {
       requestAbort.abort();
-      return new Response(body, { status: ures.status, headers: respHeaders });
+      throw error;
     }
 
-    const body = ures.body ? asyncIterableToReadableStream(ures.body, requestAbort) : null;
-    if (!body) requestAbort.abort();
+    try {
+      const respHeaders = new Headers(ures.header ?? undefined);
+      if (ures.trailer) {
+        // For unary Connect, trailers are folded into response headers as
+        // `trailer-` prefixed entries (Connect protocol spec).
+        ures.trailer.forEach((v, k) => respHeaders.append(`trailer-${k}`, v));
+      }
 
-    return new Response(
-      body,
-      { status: ures.status, headers: respHeaders },
-    );
+      // A ReadableStream response makes Bun subscribe RequestContext.onAbort;
+      // Bun 1.3.14 can use-after-free that context when a browser reload aborts
+      // a unary RPC. Buffer unary frames into a static body so that native crash
+      // path is never installed. True server streams retain cancellation below.
+      if (handler.method.methodKind === "unary") {
+        try {
+          const body = await collectBody(ures.body);
+          return new Response(body, { status: ures.status, headers: respHeaders });
+        } finally {
+          requestAbort.abort();
+        }
+      }
+
+      const body = ures.body ? asyncIterableToReadableStream(ures.body, requestAbort) : null;
+      if (!body) requestAbort.abort();
+
+      return new Response(
+        body,
+        { status: ures.status, headers: respHeaders },
+      );
+    } catch (error) {
+      requestAbort.abort();
+      throw error;
+    }
   }
 
   return { matches, fetch: fetchHandler };
