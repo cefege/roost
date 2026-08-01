@@ -906,3 +906,117 @@ describe("CellGridRenderer DOM — truthful scroll space", () => {
     expect(rowAtReader(c)).toBe("r600");            // the tab-switch guarantee
   });
 });
+
+// ── box geometry + epoch collapse: a reveal lands on the present ──────────
+// Bottom-follow used to latch off on ANY box-height change (window resize,
+// divider drag, park-size mismatch) with no recovery path, and a full frame
+// whose tail starts beyond everything the viewer held left the browser's
+// preserved pixel offset pointing into blank reserved space — the reader then
+// watched history paint top-down. noteBoxResize() re-latches a reader who was
+// at the OLD box's literal bottom; apply()'s slow path pins when the held
+// window has no image in the new epoch. The covered-overlap reframe onto an
+// off-bottom reader (zero writes) is locked by "a reframe keeps the reader on
+// the same absolute row" above and must stay green alongside these.
+describe("CellGridRenderer DOM — box resize + unreachable window", () => {
+  const spPx = (c: FakeEl): number =>
+    parseFloat(String((c.children.find((x: FakeEl) => x.className === "cell-sb-spacer") as FakeEl).style.height));
+  const nRows = (n: number, from = 0) =>
+    Array.from({ length: n }, (_, i) => row(from + i, `b${from + i}`));
+
+  test("at-bottom reader follows a box shrink to the new bottom — exactly one pin", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    r.apply(fullFrame(80, [row(0, "v")], nRows(400)));
+    c.scrollTop = Math.max(0, c.scrollHeight - c.clientHeight);
+    c.resetScrollTopWrites();
+
+    c.clientHeight = 400; // divider drag / window resize under a parked pane
+    r.noteBoxResize();
+
+    expect(c.scrollTop).toBe(c.scrollHeight - c.clientHeight);
+    expect(c.scrollTopWrites).toBe(1);
+    expect(r.atBottom()).toBe(true);
+
+    r.noteBoxResize(); // same height again — observer re-tick is a no-op
+    expect(c.scrollTopWrites).toBe(1);
+  });
+
+  test("off-bottom reader is untouched by a box shrink", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    r.apply(fullFrame(80, [row(0, "v")], nRows(400)));
+    c.scrollTop = c.scrollHeight - c.clientHeight - 2; // >1px above the old bottom
+    const before = c.scrollTop;
+    c.resetScrollTopWrites();
+
+    c.clientHeight = 400;
+    r.noteBoxResize();
+
+    expect(c.scrollTop).toBe(before);
+    expect(c.scrollTopWrites).toBe(0);
+  });
+
+  test("at-bottom reader follows a box grow onto the new bottom", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    r.apply(fullFrame(80, [row(0, "v")], nRows(400)));
+    c.scrollTop = Math.max(0, c.scrollHeight - c.clientHeight);
+    c.resetScrollTopWrites();
+
+    // Grow: the scroll maximum DROPS below the held scrollTop. A real browser
+    // clamps scrollTop onto the new bottom; the fake has no clamp, so the pin
+    // is what lands the reader there — max(prev, h) reads the over-max offset
+    // as at-bottom either way.
+    c.clientHeight = 700;
+    r.noteBoxResize();
+
+    expect(c.scrollTop).toBe(c.scrollHeight - c.clientHeight);
+    expect(c.scrollTopWrites).toBe(1);
+    expect(r.atBottom()).toBe(true);
+  });
+
+  test("a full frame whose tail starts beyond the held window pins an off-bottom reader to the bottom", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    r.apply(tailFrame(80, [row(0, "v")], nRows(250, 500), 750)); // held [500, 750)
+    c.scrollTop = PAD_TOP + 600 * ROW_PX; // inspecting painted history, off-bottom
+    c.resetScrollTopWrites();
+
+    // Same width, but the pane fell >catch-up behind while parked: the incoming
+    // tail [3000, 5000) shares no row with the held window (mergeFullFrame →
+    // null at inIdx<0) — the reader's absolute row has no image in the new epoch.
+    r.apply({ ...tailFrame(80, [row(0, "v")], nRows(2000, 3000), 5000), seq: 3 });
+
+    expect(c.scrollTop).toBe(c.scrollHeight - c.clientHeight);
+    expect(c.scrollTopWrites).toBe(1);
+    expect(r.atBottom()).toBe(true);
+  });
+
+  test("renderFull reserves the incoming spacer BEFORE wiping painted history", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    r.apply(tailFrame(80, [row(0, "v")], nRows(250, 500), 750));
+    c.scrollTop = PAD_TOP + 600 * ROW_PX; // deep in painted history
+    const preScrollTop = c.scrollTop;
+
+    // Spy the wipe: at the instant .cell-scrollback is cleared, the spacer must
+    // already hold the INCOMING frame's reserve — the scroll maximum never dips
+    // below the reader's offset, so the browser never clamps them into blank
+    // space (whose scroll event would start a top-down backfill drain).
+    const sb = sbEl(c);
+    const orig = sb.replaceChildren.bind(sb);
+    let spacerAtWipe = -1;
+    let heightAtWipe = -1;
+    sb.replaceChildren = (...kids: unknown[]) => {
+      orig(...kids);
+      spacerAtWipe = spPx(c);
+      heightAtWipe = c.scrollHeight;
+    };
+
+    // Width change → slow path → renderFull replaceChildren.
+    r.apply({ ...tailFrame(100, [row(0, "v")], nRows(250, 5750), 6000), seq: 3 });
+
+    expect(spacerAtWipe).toBe(5750 * ROW_PX);      // incoming reserve, not the old 500-row one
+    expect(heightAtWipe).toBeGreaterThanOrEqual(preScrollTop);
+  });
+});

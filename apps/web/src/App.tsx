@@ -138,12 +138,24 @@ export function App() {
           {/* Index "/" → HomeLanding INSIDE AppShell so the sidebar (desktop)
               / drawer + ☰ (mobile) are always present on the home page. */}
           <Route path={ROUTES.ROOT} component={WorkspaceRedirect} />
-          <Route path={ROUTES.SESSION} component={MainPane} />
-          <Route path={ROUTES.TERMINAL_BY_FOLDER} component={MainPane} />
-          <Route path={ROUTES.WORKSPACE} component={MainPane} />
-          <Route path={ROUTES.WORKSPACE_TERMINAL} component={MainPane} />
-          <Route path={ROUTES.FILE} component={MainPane} />
-          <Route path={ROUTES.SEARCH} component={MainPane} />
+          {/* ONE route definition for every MainPane screen. Separate
+              <Route> entries remount MainPane (and the terminal deck under
+              it) on every /s ↔ /file ↔ /search crossing — Solid router keys
+              the component instance to the route DEFINITION, not the
+              component reference. A path array is one definition: switching
+              between these URLs keeps MainPane mounted and the deck host
+              (MainPane.tsx) just flips visibility. */}
+          <Route
+            path={[
+              ROUTES.SESSION,
+              ROUTES.TERMINAL_BY_FOLDER,
+              ROUTES.WORKSPACE,
+              ROUTES.WORKSPACE_TERMINAL,
+              ROUTES.FILE,
+              ROUTES.SEARCH,
+            ]}
+            component={MainPane}
+          />
           <Route path={ROUTES.BROWSE_ROOT} component={BrowseRedirect} />
           <Route path={ROUTES.BROWSE} component={BrowsePage} />
         </Route>

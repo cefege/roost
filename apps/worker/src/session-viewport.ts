@@ -24,7 +24,7 @@ import { SB_SNAPSHOT_TAIL_ROWS, SB_SNAPSHOT_MAX_CATCHUP_ROWS, initCellEmitState 
  *  comparing it against the raw retained count would go negative on any
  *  session whose ring has evicted, silently falling back to the 250-row tail
  *  for exactly the long-lived sessions this sizing exists to serve. */
-function _claimTailRows(mgr: SessionManager, channelId: number, heldSbTotal?: number): number {
+export function _claimTailRows(mgr: SessionManager, channelId: number, heldSbTotal?: number): number {
 	if (!heldSbTotal || heldSbTotal <= 0) return SB_SNAPSHOT_TAIL_ROWS;
 	const rec = mgr.shellByChannel(channelId);
 	const total = (rec?.cell_emit.sbDropped ?? 0) + (rec?.wtermCore.getScrollbackCount() ?? 0);

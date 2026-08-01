@@ -411,7 +411,11 @@ test("deep-history attach/reveal paints the live tail until history is requested
   }, sessionId);
   expect(frameCountAfter).toBe(frameCountBefore);
 
-  // A bottom-following stale viewer must reclaim only the 250-row tail.
+  // A bottom-following stale viewer reclaims a BRIDGED tail: the claim carries
+  // its held boundary (held_scrollback_total), the worker sizes the snapshot
+  // back to it (cap SB_SNAPSHOT_MAX_CATCHUP_ROWS=2000) and mergeFullFrame
+  // EXTENDS painted history — bounded, never a wipe to a 250-row tail that the
+  // reader re-pulls 250 rows per round trip.
   await smokePage.getByTestId(`tab-${sessionId}`).click();
   await expect.poll(() => smokePage.evaluate((id) => {
     const smoke = (window as unknown as Window & {
@@ -424,7 +428,9 @@ test("deep-history attach/reveal paints the live tail until history is requested
     return {
       markerMax: smoke.markerScan(id, "CELLLINE-").max,
       atBottom: probe.atBottom,
-      boundedRows: probe.rowCount < 500,
+      // ≤ catch-up cap (2000) + viewport + slack — a collapse back to the
+      // 250-row tail OR an unbounded full-history paint both fail this.
+      boundedRows: probe.rowCount > 500 && probe.rowCount < 2300,
     };
   }, sessionId), { timeout: 1000, intervals: [50] }).toEqual({
     markerMax: 9000,
@@ -590,5 +596,354 @@ test("returning to a streaming pane costs no re-dial and no snapshot", async ({ 
     outOfOrder: 0,
     fullFrames: beforeHide.fullFrames,   // the pane never fell behind
     wsGeneration: beforeHide.wsGeneration, // the Sync socket survived the hide
+  });
+});
+
+// The user's literal complaint, measured: switching to a stale deep-history
+// pane must show the newest content at the literal bottom IMMEDIATELY. Every
+// painted sample during the reveal is at the bottom (never mid-history, never
+// inside the spacer watching a top-down crawl), the fresh tail is visible
+// within 1500 ms, painted history is not collapsed (merge path), and nothing
+// drains phantom rows after settle. Prior fixes "passed" because nothing
+// asserted what the reader SEES at first paint.
+test("deck switch to a stale deep-history pane lands at the live bottom instantly", async ({ smokePage, stack }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium-desktop", "desktop scroll-geometry contract");
+  test.setTimeout(240_000);
+  const sessionId = await smokePage.evaluate(async (workerFp) => {
+    const smoke = (window as unknown as Window & { __smoke: { spawnShell(worker: string, folder: string): Promise<{ session_id: string }> } }).__smoke;
+    return (await smoke.spawnShell(workerFp, "/tmp")).session_id;
+  }, stack.workerFp);
+  await smokePage.goto(`${stack.baseUrl}/s/${sessionId}`);
+  const slot = smokePage.getByTestId(`terminal-slot-${sessionId}`);
+  await expect(slot).toBeVisible();
+  await smokePage.keyboard.type("seq -f 'SWL-%g' 1 8000");
+  await smokePage.keyboard.press("Enter");
+  await expect.poll(() => slot.textContent(), { timeout: 60_000 }).toContain("SWL-8000");
+
+  // Five same-folder siblings visited in sequence push A past the 4-slot
+  // background-stream LRU: parked AND withdrawn, the stalest possible pane.
+  const siblings: string[] = [];
+  for (let i = 0; i < 5; i++) {
+    const siblingId = await smokePage.evaluate(async (workerFp) => {
+      const smoke = (window as unknown as Window & {
+        __smoke: { spawnShell(worker: string, folder: string): Promise<{ session_id: string }> };
+      }).__smoke;
+      return (await smoke.spawnShell(workerFp, "/tmp")).session_id;
+    }, stack.workerFp);
+    await expect.poll(() => smokePage.evaluate((id) => {
+      const smoke = (window as unknown as Window & {
+        __smoke: { state(): { sessions: Record<string, unknown> } };
+      }).__smoke;
+      return id in smoke.state().sessions;
+    }, siblingId)).toBe(true);
+    await smokePage.evaluate((id) => {
+      const smoke = (window as unknown as Window & { __smoke: { navigate(href: string): void } }).__smoke;
+      smoke.navigate(`/s/${id}`);
+    }, siblingId);
+    await expect(smokePage.getByTestId(`tab-${siblingId}`)).toHaveAttribute("data-active", "true");
+    siblings.push(siblingId);
+  }
+  await smokePage.waitForTimeout(1200); // A's deferred withdraw completes
+
+  // 300 fresh rows land while A is withdrawn (≤2000 behind → merge path), and
+  // A provably receives none of them.
+  const frameCountBefore = await smokePage.evaluate((id) => {
+    const smoke = (window as unknown as Window & { __smoke: { cellFrameCount(sessionId: string): number } }).__smoke;
+    return smoke.cellFrameCount(id);
+  }, sessionId);
+  await smokePage.evaluate(async (id) => {
+    const smoke = (window as unknown as Window & { __smoke: { input(sessionId: string, text: string): Promise<void> } }).__smoke;
+    await smoke.input(id, "seq -f 'FRESH-%g' 1 300\r");
+  }, sessionId);
+  await smokePage.waitForTimeout(500);
+  expect(await smokePage.evaluate((id) => {
+    const smoke = (window as unknown as Window & { __smoke: { cellFrameCount(sessionId: string): number } }).__smoke;
+    return smoke.cellFrameCount(id);
+  }, sessionId)).toBe(frameCountBefore);
+
+  const probe = () => smokePage.evaluate((id) => {
+    const smoke = (window as unknown as Window & {
+      __smoke: { renderProbe(sessionId: string): { rowCount: number; atBottom: boolean } };
+    }).__smoke;
+    return smoke.renderProbe(id);
+  }, sessionId);
+  const preSwitch = await probe();
+  expect(preSwitch.rowCount).toBeGreaterThan(1500); // deep painted history held while parked
+
+  // 50 ms position sampler across the whole reveal: at EVERY sample where any
+  // .cell-row is painted, the reader is at the literal bottom (±2 px). A
+  // transient trip through mid-history or the blank spacer fails the run.
+  const startSampler = () => smokePage.evaluate((id) => {
+    const w = window as unknown as Window & { __swlSamples?: Array<{ painted: number; top: number; height: number; client: number }>; __swlTimer?: number };
+    const slot = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
+    const c = slot?.querySelector(".wterm") as HTMLElement | null;
+    const samples: Array<{ painted: number; top: number; height: number; client: number }> = [];
+    w.__swlSamples = samples;
+    w.__swlTimer = window.setInterval(() => {
+      if (!c) return;
+      samples.push({
+        painted: c.querySelectorAll(".cell-row").length,
+        top: c.scrollTop, height: c.scrollHeight, client: c.clientHeight,
+      });
+    }, 50);
+  }, sessionId);
+  const stopSampler = () => smokePage.evaluate(() => {
+    const w = window as unknown as Window & { __swlSamples?: Array<{ painted: number; top: number; height: number; client: number }>; __swlTimer?: number };
+    if (w.__swlTimer !== undefined) window.clearInterval(w.__swlTimer);
+    return w.__swlSamples ?? [];
+  });
+  // Bottommost FRESH marker actually visible inside the container's box —
+  // "the newest content is at the literal bottom", by geometry.
+  const maxVisibleMarker = (prefix: string) => smokePage.evaluate(({ id, prefix }) => {
+    const slot = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
+    const c = slot?.querySelector(".wterm") as HTMLElement | null;
+    if (!c) return -1;
+    const box = c.getBoundingClientRect();
+    let max = -1;
+    const re = new RegExp(prefix + "(\\d+)");
+    for (const row of c.querySelectorAll(".cell-row")) {
+      const r = row.getBoundingClientRect();
+      if (r.bottom <= box.top + 1 || r.top >= box.bottom - 1) continue;
+      const m = (row.textContent ?? "").match(re);
+      if (m) max = Math.max(max, Number(m[1]));
+    }
+    return max;
+  }, { id: sessionId, prefix });
+
+  await startSampler();
+  await smokePage.getByTestId(`tab-${sessionId}`).click();
+  // (2) the fresh tail is VISIBLE at the bottom within 1500 ms.
+  await expect.poll(() => maxVisibleMarker("FRESH-"), { timeout: 1_500, intervals: [50] }).toBe(300);
+  await smokePage.waitForTimeout(2_000); // (1) keep sampling through settle
+  const samples = await stopSampler();
+  expect(samples.length).toBeGreaterThan(10);
+  const offBottom = samples.filter((s) => s.painted > 0 && s.top < s.height - s.client - 2);
+  expect(offBottom).toEqual([]);
+
+  // (3) history NOT collapsed: painted depth stays in the merged band. Block-
+  // granular eviction may trim up to one 250-row block below the pre-switch
+  // count; a wipe to the 250-row tail is an order of magnitude below this.
+  const settled = await probe();
+  expect(settled.rowCount).toBeGreaterThan(1500);
+  expect(settled.rowCount).toBeGreaterThanOrEqual(preSwitch.rowCount - 300);
+  expect(settled.atBottom).toBe(true);
+
+  // (4) no phantom drain at the bottom: painted rows stay FLAT after settle.
+  const flat: number[] = [];
+  for (let i = 0; i < 5; i++) {
+    await smokePage.waitForTimeout(300);
+    flat.push((await probe()).rowCount);
+  }
+  expect(flat).toEqual(Array(5).fill(settled.rowCount));
+  const scan = await smokePage.evaluate((sid) => {
+    const smoke = (window as unknown as Window & {
+      __smoke: { markerScan(sessionId: string, prefix: string): { duplicated: number[]; outOfOrder: number; missing: number } };
+    }).__smoke;
+    return smoke.markerScan(sid, "SWL-");
+  }, sessionId);
+  expect(scan).toMatchObject({ duplicated: [], outOfOrder: 0, missing: 0 });
+
+  // ── Variant: parked >2000 behind → epoch collapse is allowed, the bottom is
+  // mandatory. The held window has no image in the new epoch; the reveal must
+  // land on the present as a bounded ≤2000-row catch-up tail. Re-visit all
+  // five siblings so A falls past the 4-slot background LRU again — a single
+  // navigation would leave A background-streaming (never stale).
+  for (const sid of siblings) {
+    await smokePage.evaluate((s) => {
+      const smoke = (window as unknown as Window & { __smoke: { navigate(href: string): void } }).__smoke;
+      smoke.navigate(`/s/${s}`);
+    }, sid);
+    await expect(smokePage.getByTestId(`tab-${sid}`)).toHaveAttribute("data-active", "true");
+  }
+  await smokePage.waitForTimeout(1200); // withdraw completes again
+  const frameCountBefore2 = await smokePage.evaluate((sid) => {
+    const smoke = (window as unknown as Window & { __smoke: { cellFrameCount(sessionId: string): number } }).__smoke;
+    return smoke.cellFrameCount(sid);
+  }, sessionId);
+  await smokePage.evaluate(async (sid) => {
+    const smoke = (window as unknown as Window & { __smoke: { input(sessionId: string, text: string): Promise<void> } }).__smoke;
+    await smoke.input(sid, "seq -f 'FRESH2-%g' 1 3000\r");
+  }, sessionId);
+  await smokePage.waitForTimeout(3_000); // worker finishes generating unwatched
+  expect(await smokePage.evaluate((sid) => {
+    const smoke = (window as unknown as Window & { __smoke: { cellFrameCount(sessionId: string): number } }).__smoke;
+    return smoke.cellFrameCount(sid);
+  }, sessionId)).toBe(frameCountBefore2); // A provably withdrawn → >2000 stale
+
+  await startSampler();
+  await smokePage.getByTestId(`tab-${sessionId}`).click();
+  await expect.poll(() => maxVisibleMarker("FRESH2-"), { timeout: 1_500, intervals: [50] }).toBe(3000);
+  await smokePage.waitForTimeout(2_000);
+  const samples2 = await stopSampler();
+  const offBottom2 = samples2.filter((s) => s.painted > 0 && s.top < s.height - s.client - 2);
+  expect(offBottom2).toEqual([]);
+  const collapsed = await probe();
+  expect(collapsed.atBottom).toBe(true);
+  // Rebuilt depth is the bounded catch-up tail: ≤ 2000 + viewport + slack.
+  expect(collapsed.rowCount).toBeLessThan(2300);
+});
+
+// Bottom-follow must survive geometry changes that happen while a pane is
+// parked: the box shrinks (window resize / keyboard inset / divider drag),
+// nothing re-samples the bottom, and pre-noteBoxResize the pane revealed
+// off-bottom with live output landing below the fold — permanently.
+test("a pane revealed after the window shrank is still at the bottom", async ({ smokePage, stack }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium-desktop", "desktop scroll-geometry contract");
+  const sessionId = await smokePage.evaluate(async (workerFp) => {
+    const smoke = (window as unknown as Window & { __smoke: { spawnShell(worker: string, folder: string): Promise<{ session_id: string }> } }).__smoke;
+    return (await smoke.spawnShell(workerFp, "/tmp")).session_id;
+  }, stack.workerFp);
+  await smokePage.goto(`${stack.baseUrl}/s/${sessionId}`);
+  const slot = smokePage.getByTestId(`terminal-slot-${sessionId}`);
+  await expect(slot).toBeVisible();
+  await smokePage.keyboard.type("seq -f 'SHRK-%g' 1 600");
+  await smokePage.keyboard.press("Enter");
+  await expect.poll(() => slot.textContent(), { timeout: 30_000 }).toContain("SHRK-600");
+
+  // Park A behind a sibling, then shrink the window UNDER the parked pane.
+  const siblingId = await smokePage.evaluate(async (workerFp) => {
+    const smoke = (window as unknown as Window & { __smoke: { spawnShell(worker: string, folder: string): Promise<{ session_id: string }> } }).__smoke;
+    return (await smoke.spawnShell(workerFp, "/tmp")).session_id;
+  }, stack.workerFp);
+  await smokePage.evaluate((id) => {
+    const smoke = (window as unknown as Window & { __smoke: { navigate(href: string): void } }).__smoke;
+    smoke.navigate(`/s/${id}`);
+  }, siblingId);
+  await expect(smokePage.getByTestId(`tab-${siblingId}`)).toHaveAttribute("data-active", "true");
+  const vp = smokePage.viewportSize()!;
+  // −100 px keeps the short side ≥ 600 (windowSizeClass compact boundary keys
+  // on min(w,h)): the pane must SHRINK, not flip the whole app to mobile UI.
+  await smokePage.setViewportSize({ width: vp.width, height: vp.height - 100 });
+  await smokePage.waitForTimeout(400); // park restyle + ResizeObserver tick
+
+  // Reveal: the FIRST sample with painted rows is already at the bottom.
+  await smokePage.evaluate((id) => {
+    const w = window as unknown as Window & { __shrkSamples?: Array<{ painted: number; top: number; height: number; client: number }>; __shrkTimer?: number };
+    const slotEl = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
+    const c = slotEl?.querySelector(".wterm") as HTMLElement | null;
+    const samples: Array<{ painted: number; top: number; height: number; client: number }> = [];
+    w.__shrkSamples = samples;
+    w.__shrkTimer = window.setInterval(() => {
+      if (!c) return;
+      samples.push({
+        painted: c.querySelectorAll(".cell-row").length,
+        top: c.scrollTop, height: c.scrollHeight, client: c.clientHeight,
+      });
+    }, 50);
+  }, sessionId);
+  await smokePage.getByTestId(`tab-${sessionId}`).click();
+  await expect.poll(() => smokePage.evaluate((id) => {
+    const smoke = (window as unknown as Window & {
+      __smoke: { renderProbe(sessionId: string): { atBottom: boolean; rowCount: number } };
+    }).__smoke;
+    const p = smoke.renderProbe(id);
+    return p.rowCount > 0 && p.atBottom;
+  }, sessionId), { timeout: 1_500, intervals: [50] }).toBe(true);
+  await smokePage.waitForTimeout(1_000);
+  const samples = await smokePage.evaluate(() => {
+    const w = window as unknown as Window & { __shrkSamples?: Array<{ painted: number; top: number; height: number; client: number }>; __shrkTimer?: number };
+    if (w.__shrkTimer !== undefined) window.clearInterval(w.__shrkTimer);
+    return w.__shrkSamples ?? [];
+  });
+  expect(samples.length).toBeGreaterThan(5);
+  const offBottom = samples.filter((s) => s.painted > 0 && s.top < s.height - s.client - 2);
+  expect(offBottom).toEqual([]);
+  // The newest marker is visible at the bottom of the SHRUNKEN box.
+  const lastVisible = await smokePage.evaluate((id) => {
+    const slotEl = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
+    const c = slotEl?.querySelector(".wterm") as HTMLElement | null;
+    if (!c) return -1;
+    const box = c.getBoundingClientRect();
+    let max = -1;
+    for (const row of c.querySelectorAll(".cell-row")) {
+      const r = row.getBoundingClientRect();
+      if (r.bottom <= box.top + 1 || r.top >= box.bottom - 1) continue;
+      const m = (row.textContent ?? "").match(/SHRK-(\d+)/);
+      if (m) max = Math.max(max, Number(m[1]));
+    }
+    return max;
+  }, sessionId);
+  expect(lastVisible).toBe(600);
+});
+
+// A /file/… visit must NOT tear down the terminal deck: MainPane's screens
+// share ONE route definition (App.tsx) and the deck host only flips
+// visibility (MainPane.tsx). Separate <Route> entries remounted MainPane on
+// every /s ↔ /file crossing — every renderer died, warmSessionIds reset, and
+// the return was a cold mount + claim storm. Node identity + a flat full-frame
+// count are the remount detectors; nothing else in this suite navigates /file,
+// which is exactly why the regression slipped past green runs.
+test("a /file round-trip keeps the deck warm and costs no snapshot", async ({ smokePage, stack }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium-desktop", "desktop deck-persistence contract");
+  const sessionId = await smokePage.evaluate(async (workerFp) => {
+    const smoke = (window as unknown as Window & { __smoke: { spawnShell(worker: string, folder: string): Promise<{ session_id: string }> } }).__smoke;
+    return (await smoke.spawnShell(workerFp, "/tmp")).session_id;
+  }, stack.workerFp);
+  await smokePage.goto(`${stack.baseUrl}/s/${sessionId}`);
+  const slot = smokePage.getByTestId(`terminal-slot-${sessionId}`);
+  await expect(slot).toBeVisible();
+  await smokePage.keyboard.type("seq -f 'FRT-%g' 1 300");
+  await smokePage.keyboard.press("Enter");
+  await expect.poll(() => slot.textContent(), { timeout: 30_000 }).toContain("FRT-300");
+
+  const baseline = await smokePage.evaluate((id) => {
+    const smoke = (window as unknown as Window & {
+      __smoke: { cellFullFrameCount(sessionId: string): number; syncWsGeneration(): number };
+    }).__smoke;
+    const deck = document.querySelector('[data-testid="terminal-deck"]') as (HTMLElement & { __persistCanary?: string }) | null;
+    if (deck) deck.__persistCanary = "alive";
+    return { fullFrames: smoke.cellFullFrameCount(id), wsGeneration: smoke.syncWsGeneration(), canarySet: !!deck };
+  }, sessionId);
+  expect(baseline.canarySet).toBe(true);
+
+  // Into the file viewer: deck stays in the DOM, merely visibility-hidden.
+  await smokePage.evaluate((fp) => {
+    const smoke = (window as unknown as Window & { __smoke: { navigate(href: string): void } }).__smoke;
+    smoke.navigate(`/file/${fp}/tmp/roost-frt-missing.txt`);
+  }, stack.workerFp);
+  await expect.poll(() => smokePage.evaluate(() => {
+    const deck = document.querySelector('[data-testid="terminal-deck"]') as (HTMLElement & { __persistCanary?: string }) | null;
+    if (!deck?.parentElement) return null;
+    return { canary: deck.__persistCanary ?? null, hostVis: getComputedStyle(deck.parentElement).visibility };
+  })).toEqual({ canary: "alive", hostVis: "hidden" });
+
+  // And back: the SAME deck node, zero full frames, zero re-dials — the
+  // return is a pure visibility flip, and the pane is still at the bottom.
+  await smokePage.evaluate((id) => {
+    const smoke = (window as unknown as Window & { __smoke: { navigate(href: string): void } }).__smoke;
+    smoke.navigate(`/s/${id}`);
+  }, sessionId);
+  await expect(slot).toBeVisible();
+  await expect.poll(() => smokePage.evaluate((id) => {
+    const smoke = (window as unknown as Window & {
+      __smoke: {
+        cellFullFrameCount(sessionId: string): number;
+        syncWsGeneration(): number;
+        renderProbe(sessionId: string): { atBottom: boolean; rowCount: number };
+        markerScan(sessionId: string, prefix: string): { max: number; duplicated: number[]; outOfOrder: number };
+      };
+    }).__smoke;
+    const deck = document.querySelector('[data-testid="terminal-deck"]') as (HTMLElement & { __persistCanary?: string }) | null;
+    if (!deck?.parentElement) return null;
+    const scan = smoke.markerScan(id, "FRT-");
+    return {
+      canary: deck.__persistCanary ?? null,
+      hostVis: getComputedStyle(deck.parentElement).visibility,
+      fullFrames: smoke.cellFullFrameCount(id),
+      wsGeneration: smoke.syncWsGeneration(),
+      atBottom: smoke.renderProbe(id).atBottom,
+      markerMax: scan.max,
+      duplicated: scan.duplicated,
+      outOfOrder: scan.outOfOrder,
+    };
+  }, sessionId)).toEqual({
+    canary: "alive",
+    hostVis: "visible",
+    fullFrames: baseline.fullFrames,
+    wsGeneration: baseline.wsGeneration,
+    atBottom: true,
+    markerMax: 300,
+    duplicated: [],
+    outOfOrder: 0,
   });
 });

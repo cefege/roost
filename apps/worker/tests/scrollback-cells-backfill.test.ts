@@ -21,13 +21,14 @@
 import { describe, test, expect } from "bun:test";
 import { SessionManager } from "../src/session-manager.ts";
 import { handleGetScrollbackCells } from "../src/browser-command-terminal.ts";
+import { _claimTailRows } from "../src/session-viewport.ts";
 import type { CoordLink } from "../src/transport/CoordLink.ts";
 import type { SessionShellRecord } from "../src/session-record.ts";
 import type { FsmChannel } from "../src/fsm.ts";
 import { asSessionId, asChannelId, asWorkerFp } from "@roost/shared";
 import type { ClientControlFrame } from "@roost/shared/wire";
 import {
-  gridToCellFrame, initCellEmitState, SB_SNAPSHOT_TAIL_ROWS,
+  gridToCellFrame, initCellEmitState, SB_SNAPSHOT_TAIL_ROWS, SB_SNAPSHOT_MAX_CATCHUP_ROWS,
   type CellRow,
 } from "@roost/shared/cell";
 import { protoToCellFrame } from "@roost/shared/cell/cell-proto";
@@ -189,5 +190,58 @@ describe("tail full frame + get-scrollback-cells backfill", () => {
     // grid only if lines exceed 40 cols (they don't) — but the swap must have
     // completed: the manager's core now reports the new width.
     expect(mgr.shellByChannel(CID)!.wtermCore.getCols()).toBe(NEW_COLS);
+  });
+});
+
+// Claim-tail bridge (_claimTailRows): a returning viewer's claim carries the
+// scrollback total it still holds (held_scrollback_total); the snapshot tail
+// must reach BACK to that boundary — total - held + 1 rows, floored at
+// SB_SNAPSHOT_TAIL_ROWS, capped at SB_SNAPSHOT_MAX_CATCHUP_ROWS — so the
+// viewer's mergeFullFrame EXTENDS painted history instead of collapsing it to
+// a 250-row tail (the "tab switch wipes history / crawls top-down" class).
+describe("claim snapshot tail bridges to the held boundary", () => {
+  // The sizing contract, against a stubbed record: the test WASM ring caps at
+  // 1000 retained rows, so the >2000 catch-up cap is only reachable through
+  // sbDropped (a long-lived session whose ring has evicted) — exactly the
+  // monotonic-total case the function's doc-comment calls out.
+  test("tail = total - held + 1, floored at 250, capped at 2000", () => {
+    const stub = {
+      shellByChannel: () => ({
+        cell_emit: { sbDropped: 9_000 },
+        wtermCore: { getScrollbackCount: () => 1_000 },
+      }),
+    };
+    // Test double: _claimTailRows reads only shellByChannel().cell_emit.sbDropped
+    // + .wtermCore.getScrollbackCount() off the manager.
+    const mgr = stub as unknown as SessionManager;
+    const total = 10_000;
+    expect(_claimTailRows(mgr, CID, total - 700)).toBe(701);   // bridge back 700
+    expect(_claimTailRows(mgr, CID, total - 5_000)).toBe(SB_SNAPSHOT_MAX_CATCHUP_ROWS); // deep gap → cap
+    expect(_claimTailRows(mgr, CID, total - 10)).toBe(SB_SNAPSHOT_TAIL_ROWS); // near-current → floor
+    expect(_claimTailRows(mgr, CID, 0)).toBe(SB_SNAPSHOT_TAIL_ROWS);          // unknown → default
+    expect(_claimTailRows(mgr, CID, total + 50)).toBe(SB_SNAPSHOT_TAIL_ROWS); // ahead of us → default
+  });
+
+  // Wire-level: the same boundary reported through claimViewport sizes the
+  // EMITTED snapshot (held_scrollback_total → bridged tail + sbBase).
+  test("a claim holding total-700 receives a 701-row bridged frame", async () => {
+    const DEEP_SEED = new TextEncoder().encode(
+      Array.from({ length: 1_500 }, (_, i) => `deep-${i}`).join("\r\n") + "\r\n",
+    );
+    const frames: PbCellGridFrame[] = [];
+    const mgr = freshMgr((f) => frames.push(f));
+    const rec = await injectSession(mgr, DEEP_SEED);
+    const total = rec.wtermCore.getScrollbackCount(); // sbDropped is 0 here
+    expect(total).toBeGreaterThan(700 + SB_SNAPSHOT_TAIL_ROWS);
+
+    // Viewer holds up to absolute row (total-700)-1 → the tail must include
+    // that row: total - (total-700) + 1 = 701 rows.
+    mgr.claimViewport(CID, "viewer", COLS, ROWS, 1, 1, total - 700);
+    expect(frames.length).toBe(1);
+    const bridged = protoToCellFrame(frames[0]!);
+    expect(bridged.full).toBe(true);
+    expect(bridged.scrollbackRows.length).toBe(701);
+    expect(bridged.sbBase).toBe(total - 701);
+    expect(bridged.scrollbackRows[0]!.index).toBe(total - 701);
   });
 });

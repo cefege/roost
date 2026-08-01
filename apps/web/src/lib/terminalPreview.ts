@@ -4,8 +4,11 @@
 // (like Chrome's tab thumbnails — but text, not a rasterized image).
 //
 // No live streaming: the snapshot is taken once when the card mounts (sheet
-// opens). Every open session's CellTerminal stays mounted by TerminalDeck
-// (parked off-screen), so its CellGridRenderer always holds the latest frame.
+// opens). TerminalDeck keeps every WARM session's CellTerminal mounted (parked
+// off-screen) for the life of the page — the deck host survives /file/… and
+// /search as a pure visibility flip (MainPane) — so a warmed session's
+// CellGridRenderer always holds its latest frame. A session never yet warmed
+// this page-load has no renderer and renders no preview.
 //
 // Cost: O(rows × spans) — a trivial walk, no emulator re-run, no re-render.
 

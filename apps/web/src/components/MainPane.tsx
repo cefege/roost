@@ -134,6 +134,9 @@ export function MainPane() {
 
   const isFileView = createMemo(() => location.pathname.startsWith("/file/"));
   const isSearch = createMemo(() => location.pathname.startsWith("/search"));
+  // File viewer / search render as overlays ABOVE the always-mounted deck host
+  // below; while active the host is visibility-flipped, never unmounted.
+  const overlayActive = () => isFileView() || isSearch();
 
   const isMobile = isCompact;
 
@@ -170,12 +173,28 @@ export function MainPane() {
         </div>
       </Show>
 
-      {/* Persistent terminal deck — mounts every open terminal once, keeps it
-          alive across navigation/re-tiling, and owns the shared per-pane tab
-          strips, splits, and dividers. */}
-      <Show when={!isFileView() && !isSearch()}>
+      {/* Persistent terminal deck — mounts every open terminal once and keeps
+          it alive across ALL navigation, including /file/… and /search: those
+          overlays only flip this host's visibility (layout is preserved, so
+          park geometry stays truthful and warmSessionIds + every renderer
+          survive the trip; returning is a pure restyle — no remount, no WASM
+          init, no claim storm). Children opt back in with visibility:"inherit"
+          (TerminalDeck termStyle) — a literal "visible" would bleed through
+          the hidden host. FileViewerSheet is position:fixed z-index:50, above
+          this un-z-indexed host; the search view is static text under a fully
+          hidden, pointer-transparent host. */}
+      <div
+        style={{
+          position: "absolute",
+          inset: "0",
+          display: "flex",
+          "flex-direction": "column",
+          visibility: overlayActive() ? "hidden" : "visible",
+          "pointer-events": overlayActive() ? "none" : "auto",
+        }}
+        aria-hidden={overlayActive() ? "true" : undefined}
+      >
         <TerminalDeck activeSessionId={activeOpenSession()?.id ?? null} />
-
 
         {/* Stuck-terminal escape: the pane resolves to no live terminal AND
             bootstrap is wedged (coord unreachable or browser unpaired) — show
@@ -215,7 +234,7 @@ export function MainPane() {
             </div>
           )}
         </Show>
-      </Show>
+      </div>
     </div>
   );
 }

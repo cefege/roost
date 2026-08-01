@@ -386,9 +386,13 @@ export function TerminalDeck(props: { activeSessionId: string | null }) {
   ): Record<string, string> {
     // A parked pane MUST keep the geometry it will be revealed at (park, from
     // parkSizeBySession) — a differing box moves its scroll maximum while frames
-    // are still being applied and latches bottom-follow off. The 800×600 fallback
-    // covers the one case where a mounted session has no pane: before the first
-    // ResizeObserver tick view() is {panes: [], dividers: []}, so the map is empty.
+    // are still being applied and latches bottom-follow off. parkSizeBySession
+    // only enumerates the CURRENT folder's panes, so a warm cross-folder session
+    // (and any pane before the first ResizeObserver tick) has no entry: fall
+    // back to the deck's own measured box — the closest truthful guess at the
+    // rect it will be revealed at (single-pane folders are exact; multi-pane
+    // splits self-heal via noteBoxResize at reveal). 800×600 only when the deck
+    // itself is unmeasured (pre-first-layout).
     // Hidden panes park off-screen but stay LAID OUT (visibility:hidden, NOT
     // content-visibility). Skipping their layout cuts per-switch forced layout
     // (~50ms→~11ms across 15+ panes), BUT because content-visibility:hidden drops
@@ -397,12 +401,16 @@ export function TerminalDeck(props: { activeSessionId: string | null }) {
     // is the freeze users hit, so keeping hidden panes warm wins there. The
     // O(open-sessions) per-switch floor needs a different lever (not eagerly
     // mounting every pane), not a content-visibility layout skip.
-    if (!slot)
+    if (!slot) {
+      const d = size();
+      const fw = park?.w ?? (d.w > 0 ? d.w : 800);
+      const fh = park?.h ?? (d.h > 0 ? Math.max(0, d.h - stripH()) : 600);
       return {
         position: "absolute", left: "-99999px", top: "0",
-        width: `${park?.w ?? 800}px`, height: `${park?.h ?? 600}px`,
+        width: `${fw}px`, height: `${fh}px`,
         visibility: "hidden", "pointer-events": "none",
       };
+    }
     const r = slot.rect;
     // Spotlit pane floats as a full card with NO strip above it (its strip is
     // hidden below): the terminal fills the whole card rect, all corners rounded.
@@ -410,13 +418,13 @@ export function TerminalDeck(props: { activeSessionId: string | null }) {
     if (slot.spotlit) {
       return {
         position: "absolute", left: `${r.x}px`, top: `${r.y}px`, width: `${r.w}px`, height: `${r.h}px`,
-        visibility: "visible", "z-index": "9", overflow: "hidden", "border-radius": "12px",
+        visibility: "inherit", "z-index": "9", overflow: "hidden", "border-radius": "12px",
       };
     }
     return {
       position: "absolute", left: `${r.x}px`, top: `${r.y + stripH()}px`,
       width: `${r.w}px`, height: `${Math.max(0, r.h - stripH())}px`,
-      visibility: "visible", "z-index": slot.focused ? "2" : "1",
+      visibility: "inherit", "z-index": slot.focused ? "2" : "1",
     };
   }
 

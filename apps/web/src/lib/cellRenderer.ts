@@ -213,6 +213,7 @@ export class CellGridRenderer {
   private _rowEls: HTMLElement[] = [];
   private _rowSigs: string[] = [];
   private _rowH = 0;      // measured px height of one .cell-row; 0 = not measured yet
+  private _lastBoxH = 0;  // clientHeight at the last box observation (constructor + noteBoxResize)
 
   constructor(private readonly container: HTMLElement) {
     this.doc = container.ownerDocument;
@@ -233,6 +234,7 @@ export class CellGridRenderer {
     container.appendChild(this.spacerEl);
     container.appendChild(this.scrollbackEl);
     container.appendChild(this.viewportEl);
+    this._lastBoxH = container.clientHeight;
     // A late webfont swap changes the line box under us — drop the cached row
     // height so the next derivation re-measures instead of anchoring on stale px,
     // and re-pin every block already in the DOM to the fresh height. Without the
@@ -297,9 +299,15 @@ export class CellGridRenderer {
       // rebuild from the incoming frame verbatim (block-packed, so even deep
       // history lays out cheaply). sbBase > 0 leaves a [0, sbBase) hole the
       // backfill controller fills via prependScrollback.
+      // If the viewer's held rows are entirely below the incoming tail
+      // (incoming.sbBase > last held absolute row), the reader's position has no
+      // image in the new epoch — a tab switch must land on the present, never on
+      // reserved-but-unpainted space.
+      const heldTotal = base?.scrollbackTotal ?? 0;
+      const windowUnreachable = base !== null && heldTotal > 0 && incoming.sbBase > heldTotal - 1;
       this.frame = incoming;
       if (this.holding) { this.pendingRender = true; return; }
-      this.renderFull(wasAtBottom);
+      this.renderFull(wasAtBottom || windowUnreachable);
       return;
     }
     if (!this.frame) return; // no base yet — wait for a full frame
@@ -364,6 +372,12 @@ export class CellGridRenderer {
    *  so the browser's layout stays O(blocks). */
   private renderFull(wasAtBottom: boolean): void {
     if (!this.frame) return;
+    // Reserve the incoming frame's [0, sbBase) hole BEFORE wiping painted
+    // content: the scroll maximum must never transiently collapse below
+    // scrollTop, or the browser clamps the reader into blank reserved space
+    // (and the resulting scroll event triggers a top-down backfill drain).
+    // Runs again with the fresh row height at the end of _appendScrollback.
+    this._syncSpacer();
     this._rowH = 0; // container may have been resized/re-fonted since the last measure
     this.scrollbackEl.replaceChildren();
     this._curBlock = null;
@@ -673,6 +687,21 @@ export class CellGridRenderer {
   atBottom(): boolean {
     const el = this.container;
     return el.scrollTop >= Math.max(0, el.scrollHeight - el.clientHeight);
+  }
+
+  /** Container box changed (deck restyle, window resize, divider drag, keyboard
+   *  inset). A reader at the OLD box's literal bottom follows to the new bottom;
+   *  anyone else is untouched. max(prev, next) covers both directions: a shrink
+   *  leaves scrollTop below the new larger maximum, a grow clamps scrollTop onto
+   *  the new bottom — both read as at-bottom against the larger of the two. */
+  noteBoxResize(): void {
+    const el = this.container;
+    const h = el.clientHeight;
+    const prev = this._lastBoxH;
+    if (h > 0) this._lastBoxH = h;
+    if (prev <= 0 || h <= 0 || h === prev) return;
+    const wasAtBottom = el.scrollTop >= Math.max(0, el.scrollHeight - Math.max(prev, h));
+    this._pinToBottom(wasAtBottom);
   }
 
   /** Within one viewport of the top of the painted scrollback — the backfill

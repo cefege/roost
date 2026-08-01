@@ -205,6 +205,13 @@ export function CellTerminal(props: CellTerminalProps) {
 	// withdraws, then the off-screen park's ResizeObserver tick routes through
 	// sendClaim → sees inLayout=false → would withdraw AGAIN. Reset on claim.
 	let _lastSent: "claim" | "background" | "withdraw" | null = null;
+	// One intent claim per cold mount: set on any real claim send, so the INITIAL
+	// effect no-ops when the inLayout TAB_VISIBLE effect already claimed (each
+	// forced its own full snapshot before — worker treats both as intentMount).
+	let initialClaimSent = false;
+	// Reveal forensics: performance.now() at the inLayout flip → true; the first
+	// frame applied afterwards emits diag("cell.reveal") with the elapsed ms.
+	let revealT0 = 0;
 	const sendTerminalText = (text: string, submit = false): void => {
 		if (text.length === 0) {
 			if (submit) inputChannel.sendInput(props.session.id, CR_BYTES);
@@ -404,6 +411,7 @@ export function CellTerminal(props: CellTerminalProps) {
 			&& cols === lastClaimed.cols && rows === lastClaimed.rows) return;
 		lastClaimed = { cols, rows };
 		_lastSent = "claim";
+		initialClaimSent = true;
 		claimSeq += 1;
 		diag("cell.claim", {
 			sid: props.session.id,
@@ -417,12 +425,12 @@ export function CellTerminal(props: CellTerminalProps) {
 			rows,
 			clientSeq: BigInt(claimSeq),
 			cause,
-			// Bottom-following viewers only need the worker's standard live tail.
-			// Off-bottom viewers send their held boundary so a returning full frame
-			// can preserve the history row they are inspecting via mergeFullFrame.
-			heldScrollbackTotal: !renderer || renderer.atBottom()
-				? 0
-				: renderer.backfillAnchor()?.total ?? 0,
+			// Always report the held boundary: the worker sizes the snapshot tail to
+			// bridge back to it (min 250, cap SB_SNAPSHOT_MAX_CATCHUP_ROWS=2000), so a
+			// returning full frame EXTENDS painted history (mergeFullFrame) instead of
+			// collapsing it to a 250-row tail + a blank reserve the reader must re-pull
+			// 250 rows per round trip.
+			heldScrollbackTotal: renderer?.backfillAnchor()?.total ?? 0,
 			// Held cell-frame seq: a reveal of a pane that never stopped streaming
 			// matches the worker's last emit, so the claim repaints nothing.
 			heldCellSeq: renderer?.heldFrameSeq() ?? 0,
@@ -566,6 +574,12 @@ export function CellTerminal(props: CellTerminalProps) {
 				const _ap = performance.now();
 				renderer.apply(frame);
 				diag("cell.apply_dur", { sid: props.session.id, dur_ms: performance.now() - _ap });
+				if (revealT0 !== 0) {
+					// First frame applied after an inLayout reveal — the user-felt
+					// switch latency. One grep instead of a week of guessing.
+					diag("cell.reveal", { sid: props.session.id, ms: Math.round(performance.now() - revealT0), full: frame.full });
+					revealT0 = 0;
+				}
 				if (isPageVisible() && props.inLayout !== false) {
 					requestAnimationFrame(() => requestAnimationFrame(() => {
 						diag("cell.paint_screen", { sid: props.session.id, dur_ms: performance.now() - _frameArr });
@@ -919,7 +933,9 @@ export function CellTerminal(props: CellTerminalProps) {
 				return;
 			}
 			// Revealing a pane reclaims its viewport but never restores or adjusts
-			// the viewer's DOM scroll position.
+			// the viewer's DOM scroll position. Stamp reveal-start for the
+			// cell.reveal forensics diag (first frame applied afterwards).
+			revealT0 = performance.now();
 			sendClaimNow(ResizeCause.TAB_VISIBLE);
 		}));
 		// LRU eviction while parked downgrades a background claim to a real withdraw.
@@ -1001,8 +1017,9 @@ export function CellTerminal(props: CellTerminalProps) {
 		// (pending already false) — identical timing to the old unconditional call.
 		// Optimistic: when the spawn confirms and pending flips false. Bare
 		// createEffect post-await matches the inLayout/focus effects above (tracks
-		// reactively, re-runs on the flip); initialClaimSent guarantees exactly one.
-		let initialClaimSent = false;
+		// reactively, re-runs on the flip); initialClaimSent (component scope, set
+		// on any real claim send) guarantees exactly one intent claim per cold
+		// mount — the inLayout TAB_VISIBLE effect usually wins and this no-ops.
 		createEffect(() => {
 			// Don't fire until the deck has measured and assigned a slot (inLayout) AND
 			// any optimistic spawn has resolved (pending). Before that, a claim would
@@ -1010,10 +1027,13 @@ export function CellTerminal(props: CellTerminalProps) {
 			// initialClaimSent and preventing re-fire when both conditions are met.
 			if (pending() || props.inLayout !== true) return;
 			if (initialClaimSent) return;
-			initialClaimSent = true;
 			sendClaim(ResizeCause.INITIAL);
 		});
 		resizeObs = new ResizeObserver(() => {
+			// Re-latch bottom-follow across box changes FIRST — divider drags are
+			// continuous height changes and must re-pin per tick even while claims
+			// are suppressed (isResizeDragging below).
+			renderer?.noteBoxResize();
 			if (isResizeDragging()) return; // suppress mid-drag PTY round-trips; flush on release (effect below)
 			scheduleClaim(ResizeCause.VIEWPORT);
 		});
