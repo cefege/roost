@@ -1,11 +1,11 @@
 // ensureTailscale interactive-gate contract. Feeds scripted Tailscale states
-// through the pure loop (injected resolve/sleep/now) so the guide-once,
-// poll-until-up, brew-offer, and timeout semantics are covered without a real
-// tailnet or stdin.
+// through the pure loop (injected resolve/sleep/now/platform) so the
+// guide-once, poll-until-up, per-OS remedy, and timeout semantics are covered
+// without a real tailnet or stdin.
 import { describe, expect, test } from "bun:test";
 import { ensureTailscale } from "../src/status.ts";
 
-function harness(states: Array<{ state: string; fqdn: string | null }>) {
+function harness(states: Array<{ state: string; fqdn: string | null }>, platform = "darwin") {
   const logs: string[] = [];
   let t = 0;
   let brewCalls = 0;
@@ -16,6 +16,7 @@ function harness(states: Array<{ state: string; fqdn: string | null }>) {
     sleep: async (ms: number) => { t += ms; },
     now: () => t,
     brewInstall: () => { brewCalls++; },
+    platform,
   };
   return { deps, logs, brewCalls: () => brewCalls };
 }
@@ -39,6 +40,29 @@ describe("ensureTailscale — interactive gate", () => {
     expect(h.logs.some((l) => l.includes("brew install tailscale"))).toBe(true);
     expect(h.brewCalls()).toBe(1);
     expect(h.logs.filter((l) => l.includes("Waiting for Tailscale")).length).toBe(1);
+  });
+
+  test("linux guidance names the distro package and the operator grant, never brew", async () => {
+    const h = harness([
+      { state: "NotInstalled", fqdn: null },
+      { state: "Running", fqdn: "box.tailXXXX.ts.net" },
+    ], "linux");
+    const r = await ensureTailscale(h.deps, 10_000, 100);
+    expect(r.fqdn).toBe("box.tailXXXX.ts.net");
+    expect(h.logs.some((l) => l.includes("brew"))).toBe(false);
+    expect(h.brewCalls()).toBe(0);
+    expect(h.logs.some((l) => l.includes("dnf install -y tailscale"))).toBe(true);
+    expect(h.logs.some((l) => l.includes("tailscale set --operator="))).toBe(true);
+  });
+
+  test("linux already-installed-but-down guidance uses systemctl", async () => {
+    const h = harness([
+      { state: "Stopped", fqdn: null },
+      { state: "Running", fqdn: "box.tailXXXX.ts.net" },
+    ], "linux");
+    await ensureTailscale(h.deps, 10_000, 100);
+    expect(h.logs.some((l) => l.includes("systemctl enable --now tailscaled"))).toBe(true);
+    expect(h.logs.some((l) => l.includes("tailscaled install-system-daemon"))).toBe(false);
   });
 
   test("throws with a re-run remedy on timeout", async () => {

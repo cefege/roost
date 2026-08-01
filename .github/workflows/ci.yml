@@ -8,7 +8,11 @@ on:
 
 jobs:
   invariants:
-    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -25,7 +29,11 @@ jobs:
         run: bun run test:unit
 
   terminal:
-    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     needs: invariants
     steps:
@@ -34,15 +42,18 @@ jobs:
         with:
           bun-version-file: .bun-version
       - run: bun install
+      # webkit is macOS-only here: playwright.config.ts drops the webkit-iphone
+      # project off darwin, so installing that engine on Linux would only buy a
+      # slow no-op (and RHEL/Ubuntu webkit system deps are the fragile part).
       - name: playwright install
-        run: bunx playwright install --with-deps chromium webkit
+        run: bunx playwright install --with-deps chromium ${{ matrix.os == 'macos-latest' && 'webkit' || '' }}
       - name: terminal
         run: bun run test:terminal
       - name: terminal artifacts
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: terminal-playwright-artifacts
+          name: terminal-playwright-artifacts-${{ matrix.os }}
           path: |
             playwright-report/
             test-results/

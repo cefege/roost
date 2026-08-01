@@ -1,16 +1,15 @@
 // `roost deploy <linux-host>` — update an in-place git checkout instead of
 // rsyncing a slim tree. A Linux worker is enrolled by join.sh, which clones
-// the repo (default /srv/roost) and pins it to the coordinator's sha, so the
-// box already has the full source + .git. Updating it is: fetch, checkout the
-// local HEAD sha, bun install, re-run install.sh, verify the systemd unit.
+// the repo (${ROOST_DIR:-$HOME/Roost}; /srv/roost is the other layout in the
+// wild) and pins it to the coordinator's sha, so the box already has the full
+// source + .git. Updating it is: fetch, checkout the local HEAD sha, bun
+// install, re-run install.sh, verify the systemd unit.
 //
 // No `tailscale cert` step: the worker has had no inbound TLS surface since
 // phase-25e, and no rsync: the checkout is the source of truth.
 
 import { sshExec } from "./deploy-exec.ts";
 import { verifyWorkerCmd, WORKER_UNIT } from "./service-ctl.ts";
-
-const REMOTE_REPO = process.env.ROOST_LINUX_REPO_DIR ?? "/srv/roost";
 
 export async function deployLinux(
   host: string,
@@ -32,12 +31,20 @@ export async function deployLinux(
     process.exit(7);
   }
 
-  console.log(`>> checkout ${gitSha.slice(0, 8)} in ${host}:${REMOTE_REPO}`);
+  // Both layouts exist in the wild, so probe rather than assume; explicit env
+  // still wins. Guessing wrong fails late, at "git checkout failed".
+  const probe = await sshExec(host, `for d in "$HOME/Roost" /srv/roost; do [ -d "$d/.git" ] && echo "$d" && break; done`);
+  const remoteRepo = process.env.ROOST_LINUX_REPO_DIR ?? probe.stdout.trim();
+  if (!remoteRepo) {
+    throw new Error(`no roost checkout found on ${host} (looked in ~/Roost and /srv/roost) — run join.sh first or set ROOST_LINUX_REPO_DIR`);
+  }
+
+  console.log(`>> checkout ${gitSha.slice(0, 8)} in ${host}:${remoteRepo}`);
   const checkout = await sshExec(
     host,
     // --force: `bun install` on the box can touch tracked bun.lock, which
     // would make a plain checkout refuse on the next deploy.
-    `git -C ${REMOTE_REPO} fetch --quiet origin && git -C ${REMOTE_REPO} checkout --quiet --force --detach ${gitSha} 2>&1`,
+    `git -C ${remoteRepo} fetch --quiet origin && git -C ${remoteRepo} checkout --quiet --force --detach ${gitSha} 2>&1`,
   );
   if (checkout.exit !== 0) {
     console.error("git checkout failed:");
@@ -47,7 +54,7 @@ export async function deployLinux(
   }
 
   console.log(`>> bun install on ${host}`);
-  const install = await sshExec(host, `set -eo pipefail; cd ${REMOTE_REPO} && bun install 2>&1 | tail -25`);
+  const install = await sshExec(host, `set -eo pipefail; cd ${remoteRepo} && bun install 2>&1 | tail -25`);
   if (install.exit !== 0) {
     console.error("bun install failed:");
     console.error(install.stdout);
@@ -62,7 +69,7 @@ export async function deployLinux(
   // rev-parse the script can't reach).
   const installSh = await sshExec(
     host,
-    `${passthroughEnv} bash ${REMOTE_REPO}/apps/worker/scripts/install.sh install 2>&1`,
+    `${passthroughEnv} bash ${remoteRepo}/apps/worker/scripts/install.sh install 2>&1`,
   );
   if (installSh.exit !== 0) {
     console.error("install.sh failed:");

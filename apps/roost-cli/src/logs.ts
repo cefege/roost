@@ -4,21 +4,15 @@
 
 import { spawn } from "bun";
 import { existsSync, statSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
-import { workerLogDir } from "@roost/shared/paths";
+import { coordLogDir, workerLogDir } from "@roost/shared/paths";
 
 const LOG_ROTATE_WARN_BYTES = 100 * 1024 * 1024; // 100 MB
 
-// The coordinator is macOS-only, but `roost logs coord` on Linux should
-// point at the same XDG state dir the worker uses rather than a literal
-// ~/Library path that can never exist there.
-const coordLogDir = process.platform === "darwin"
-  ? join(homedir(), "Library", "Logs", "RoostCoord")
-  : join(process.env.XDG_STATE_HOME ?? join(homedir(), ".local", "state"), "RoostCoord");
-
+// Both dirs come from the paths oracle so ROOST_{COORD,WORKER}_LOG_DIR — which
+// the installers set on both platforms — is honoured here too.
 const PATHS: Record<string, string[]> = {
-  coord: [join(coordLogDir, "main.out.log"), join(coordLogDir, "main.err.log")],
+  coord: [join(coordLogDir(), "main.out.log"), join(coordLogDir(), "main.err.log")],
   worker: [join(workerLogDir(), "main.out.log"), join(workerLogDir(), "main.err.log")],
 };
 

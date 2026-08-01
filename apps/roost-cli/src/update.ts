@@ -5,8 +5,19 @@
 // GitHub fetch + atomic self-replace.
 import { chmodSync, renameSync } from "node:fs";
 import { ROOST_VERSION } from "./version.ts";
+import { currentServiceOs, restartCoordCmd, restartWorkerCmd } from "./service-ctl.ts";
 
 const REPO = "cefege/roost";
+
+/** Release asset for a platform/arch pair. `roost` stays unsuffixed for
+ *  darwin-arm64 so existing installs' `roost update` keeps resolving; every
+ *  other target is explicit. install-binary.sh's `case` mirrors this exactly —
+ *  change both together or the installer 404s. */
+export function releaseAssetName(platform: string = process.platform, arch: string = process.arch): string {
+  if (platform === "darwin") return arch === "arm64" ? "roost" : "roost-darwin-x64";
+  if (platform === "linux") return arch === "arm64" ? "roost-linux-arm64" : "roost-linux-x64";
+  throw new Error(`no prebuilt roost binary for ${platform}/${arch}`);
+}
 
 /** Compare the running version to a release tag. "dev" (from-source) is always
  *  behind; build metadata (+sha) is ignored so a rebuild of the same release
@@ -42,7 +53,10 @@ export async function runUpdate(deps: UpdateDeps): Promise<{ updated: boolean; t
   const tmp = `${deps.execPath}.new`;
   await deps.downloadBinary(tmp);
   deps.replaceSelf(tmp);
-  deps.log(`updated to ${latest}. Restart the coord/worker LaunchAgents to apply.`);
+  const os = currentServiceOs();
+  deps.log(`updated to ${latest}. Restart the services to apply:`);
+  deps.log(`  ${restartCoordCmd(os)}`);
+  deps.log(`  ${restartWorkerCmd(os)}`);
   return { updated: true, to: latest };
 }
 
@@ -68,7 +82,7 @@ export async function update(_args: string[]): Promise<void> {
       }
     },
     downloadBinary: async (dest) => {
-      const r = await fetch(`https://github.com/${REPO}/releases/latest/download/roost`, {
+      const r = await fetch(`https://github.com/${REPO}/releases/latest/download/${releaseAssetName()}`, {
         signal: AbortSignal.timeout(120_000),
       });
       if (!r.ok) throw new Error(`download failed: HTTP ${r.status}`);

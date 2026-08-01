@@ -1,4 +1,4 @@
-// `roost quickstart` — the local one-shot installer. Single Mac, zero agent.
+// `roost quickstart` — the local one-shot installer. Single machine, zero agent.
 // Turns the old 7-step manual install into one command: Tailscale gate →
 // build SPA → mint TLS cert → install coord → deploy local worker → health →
 // status → open the browser already-authorized via a self-minted ?pair token.
@@ -9,8 +9,8 @@
 
 import { spawn } from "bun";
 import { Database } from "bun:sqlite";
-import { existsSync, mkdirSync, writeFileSync, chmodSync } from "node:fs";
-import { homedir } from "node:os";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync, chmodSync } from "node:fs";
+import { homedir, tmpdir, userInfo } from "node:os";
 import { join, basename } from "node:path";
 import { deploy } from "./deploy.ts";
 import { resolveTailscale, ensureTailscale, statusReport, printStatusReport } from "./status.ts";
@@ -34,10 +34,49 @@ function die(msg: string, ...hint: string[]): never {
 }
 
 /** Run a command with inherited stdio (user sees live output). Returns exit. */
-async function runInherit(cmd: string[], cwd?: string): Promise<number> {
-  const proc = spawn({ cmd, cwd, stdio: ["inherit", "inherit", "inherit"] });
+async function runInherit(cmd: string[], cwd?: string, env?: Record<string, string>): Promise<number> {
+  const proc = spawn({
+    cmd,
+    cwd,
+    env: env ? { ...process.env, ...env } : undefined,
+    stdio: ["inherit", "inherit", "inherit"],
+  });
   await proc.exited;
   return proc.exitCode ?? 1;
+}
+
+/** From-source counterpart of install-binary-agents' dry-run isolation: force
+ *  BOTH the darwin (*_PLIST) and linux (*_UNIT) knobs plus the data/log dirs
+ *  into a throwaway dir, so `--dry-run` can never overwrite a real service
+ *  definition or restart anything. Returns the path the current platform used. */
+async function dryRunServiceDefinitions(coordUrl: string): Promise<void> {
+  const darwin = process.platform === "darwin";
+  const coordDir = mkdtempSync(join(tmpdir(), "roost-dryrun-coord-"));
+  const coordEnv = {
+    ROOST_COORD_LABEL: "com.roost.coordinator-dryrun",
+    ROOST_COORD_PLIST: join(coordDir, "coord.plist"),
+    ROOST_COORD_UNIT: join(coordDir, "coord.service"),
+    ROOST_COORD_DATA_DIR: join(coordDir, "data"),
+    ROOST_COORD_LOG_DIR: join(coordDir, "logs"),
+  };
+  logStep(`dry-run service definition → ${darwin ? coordEnv.ROOST_COORD_PLIST : coordEnv.ROOST_COORD_UNIT}`);
+  if (await runInherit(["bash", "apps/coord/scripts/install.sh", "write-plist"], undefined, coordEnv) !== 0) {
+    die("coord install.sh write-plist failed");
+  }
+
+  const workerDir = mkdtempSync(join(tmpdir(), "roost-dryrun-worker-"));
+  const workerEnv = {
+    ROOST_COORDINATOR_URL: coordUrl,
+    ROOST_WORKER_AGENT_LABEL: "com.roost.worker-dryrun",
+    ROOST_WORKER_PLIST: join(workerDir, "worker.plist"),
+    ROOST_WORKER_UNIT: join(workerDir, "worker.service"),
+    ROOST_WORKER_DATA_DIR: join(workerDir, "data"),
+    ROOST_WORKER_LOG_DIR: join(workerDir, "logs"),
+  };
+  logStep(`dry-run service definition → ${darwin ? workerEnv.ROOST_WORKER_PLIST : workerEnv.ROOST_WORKER_UNIT}`);
+  if (await runInherit(["bash", "apps/worker/scripts/install.sh", "write-plist"], undefined, workerEnv) !== 0) {
+    die("worker install.sh write-plist failed");
+  }
 }
 
 /** Run a command capturing output (for tailscale cert). */
@@ -97,10 +136,26 @@ function mintCert(fqdn: string, force: boolean): void {
     logStep(`TLS cert present for ${fqdn} (skipping mint; --force to re-mint)`);
   } else {
     logStep(`minting TLS cert for ${fqdn}`);
+    // On Linux `tailscale cert` writes through tailscaled and needs root or an
+    // operator grant. The worker installer issues the same grant, but it runs
+    // AFTER this — so take it here, best-effort, or a fresh box dies before the
+    // thing that would have fixed it ever runs. `sudo -n` fails without cached
+    // credentials; the cert call below is the real test either way.
+    if (process.platform !== "darwin") {
+      runCapture(["sudo", "-n", "tailscale", "set", `--operator=${userInfo().username}`]);
+    }
     const cert = runCapture(["tailscale", "cert", "--cert-file", certPath, "--key-file", keyPath, fqdn]);
     if (cert.exit !== 0 && !existsSync(certPath)) {
-      die(`tailscale cert failed: ${cert.stderr.trim() || cert.stdout.trim()}`,
-        "HTTPS is required (browsers need a secure context off localhost).");
+      const detail = cert.stderr.trim() || cert.stdout.trim();
+      if (process.platform === "darwin") {
+        die(`tailscale cert failed: ${detail}`,
+          "HTTPS is required (browsers need a secure context off localhost).");
+      }
+      die(`tailscale cert failed: ${detail}`,
+        "HTTPS is required (browsers need a secure context off localhost).",
+        "On Linux `tailscale cert` needs root or an operator grant. Run:",
+        "  sudo tailscale set --operator=$USER",
+        "then re-run `roost quickstart`.");
     }
   }
   console.log(`   cert: ${certPath}`);
@@ -174,8 +229,9 @@ export async function quickstart(args: string[]): Promise<void> {
 
   if (binary) {
     // Compiled binary: SPA + migrations embedded, no repo. Skip bun install +
-    // vite build; install LaunchAgents that run `roost coord`/`roost worker` via
-    // the embedded install scripts (reusing the FRONTED/TLS/serve bash).
+    // vite build; install the coord/worker services that run `roost coord` /
+    // `roost worker` via the embedded install scripts (reusing the
+    // FRONTED/TLS/serve bash).
     console.log(`   roost: ${process.execPath} (${ROOST_VERSION})`);
     if (!dry) mintCert(fqdn, force);
     await installCoordAgent({
@@ -187,7 +243,7 @@ export async function quickstart(args: string[]): Promise<void> {
         execPath: process.execPath, coordUrl, gitSha: ROOST_VERSION,
         cmd: "write-plist", log: logStep,
       });
-      console.log(`\n✓ --dry-run complete (LaunchAgent plists generated; nothing installed).`);
+      console.log(`\n✓ --dry-run complete (service definitions generated; nothing installed).`);
       return;
     }
     // Coord must be healthy (DB migrated) before we mint the worker's bootstrap
@@ -203,8 +259,16 @@ export async function quickstart(args: string[]): Promise<void> {
       gitSha: ROOST_VERSION, cmd: "install", log: logStep,
     });
   } else {
-    // From source: deps + build + the on-disk install scripts (unchanged).
+    // From source: deps + build + the on-disk install scripts.
     console.log(`   bun: ${process.execPath}`);
+    if (dry) {
+      // --dry-run used to fall straight through this branch and do a REAL
+      // install: it rewrote the live service definitions, restarted both
+      // services and deployed a worker. Generate into a temp dir and stop.
+      await dryRunServiceDefinitions(coordUrl);
+      console.log(`\n✓ --dry-run complete (service definitions generated; nothing installed).`);
+      return;
+    }
     if (force || !existsSync("node_modules")) {
       logStep("bun install");
       if (await runInherit([process.execPath, "install"]) !== 0) die("bun install failed");
@@ -220,7 +284,7 @@ export async function quickstart(args: string[]): Promise<void> {
       logStep("web SPA build (skipped — dist present)");
     }
     mintCert(fqdn, force);
-    logStep("installing coordinator LaunchAgent");
+    logStep("installing coordinator service");
     if (await runInherit(["bash", "apps/coord/scripts/install.sh", "install"]) !== 0) {
       die("coord install.sh failed");
     }
@@ -239,7 +303,7 @@ export async function quickstart(args: string[]): Promise<void> {
   console.log();
   printStatusReport(await statusReport());
 
-  // Authorize this Mac's browser with no token paste: mint a ?pair token +
+  // Authorize this machine's browser with no token paste: mint a ?pair token +
   // open it. SPA redeems on load (see sync.ts ?pair= handler).
   logStep("opening the app (browser self-authorizes via ?pair)");
   const token = mintBrowserToken(`quickstart-${fqdn}`);
@@ -248,7 +312,7 @@ export async function quickstart(args: string[]): Promise<void> {
 
   const shim = binary ? null : installRoostShim(process.cwd());
   console.log(`\n✓ Roost is running.`);
-  console.log(`  This Mac:        ${openUrl}`);
+  console.log(`  This machine:    ${openUrl}`);
   console.log(`  Pair your phone: open ${coordUrl} → Settings → Pair a device → scan the QR`);
   if (binary || (shim && shim.onPath)) {
     console.log(`  Health anytime:  roost status`);

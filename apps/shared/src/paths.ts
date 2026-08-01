@@ -21,9 +21,14 @@ export function workerLogDir(env: Env = process.env as Env): string {
 /** launchd label on darwin, systemd unit basename on linux. */
 export const COORD_LABEL_DARWIN = "com.roost.coordinator-v2";
 export const COORD_LABEL_LINUX = "roost-coord";
+export const WORKER_LABEL_DARWIN = "com.roost.worker-v2";
+export const WORKER_LABEL_LINUX = "roost-worker";
 
 export function coordServiceLabel(env: Env = process.env as Env): string {
   return env.ROOST_COORD_LABEL ?? (process.platform === "darwin" ? COORD_LABEL_DARWIN : COORD_LABEL_LINUX);
+}
+export function workerServiceLabel(env: Env = process.env as Env): string {
+  return env.ROOST_WORKER_AGENT_LABEL ?? (process.platform === "darwin" ? WORKER_LABEL_DARWIN : WORKER_LABEL_LINUX);
 }
 export function coordDataDir(env: Env = process.env as Env): string {
   if (env.ROOST_COORD_DATA_DIR) return env.ROOST_COORD_DATA_DIR;
@@ -50,7 +55,7 @@ export function coordServicePath(env: Env = process.env as Env): string {
 export function workerServicePath(env: Env = process.env as Env): string {
   if (process.platform === "darwin")
     return env.ROOST_WORKER_PLIST
-      ?? join(homedir(), "Library", "LaunchAgents", `${env.ROOST_WORKER_AGENT_LABEL ?? "com.roost.worker-v2"}.plist`);
+      ?? join(homedir(), "Library", "LaunchAgents", `${workerServiceLabel(env)}.plist`);
   return env.ROOST_WORKER_UNIT
-    ?? join(homedir(), ".config", "systemd", "user", `${env.ROOST_WORKER_AGENT_LABEL ?? "roost-worker"}.service`);
+    ?? join(homedir(), ".config", "systemd", "user", `${workerServiceLabel(env)}.service`);
 }

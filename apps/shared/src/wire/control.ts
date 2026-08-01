@@ -28,7 +28,9 @@ export const ClientControlFrame = z.discriminatedUnion("kind", [
   // held_sb_total: scrollback rows this viewer already holds — the worker sizes
   // the claim snapshot's tail to reach that row so the frame EXTENDS the
   // viewer's painted history instead of wiping it. Absent = default tail.
-  Base.extend({ kind: z.literal("resize"), session_id: SessionId, cols: z.number().int().nonnegative(), rows: z.number().int().nonnegative(), client_seq: z.number().int().nonnegative().optional(), cause: z.number().int().nonnegative().optional(), held_sb_total: z.number().int().nonnegative().optional() }),
+  // held_cell_seq: cell-frame seq this viewer has already applied — the worker
+  // skips the claim snapshot entirely when it matches the seq it last emitted.
+  Base.extend({ kind: z.literal("resize"), session_id: SessionId, cols: z.number().int().nonnegative(), rows: z.number().int().nonnegative(), client_seq: z.number().int().nonnegative().optional(), cause: z.number().int().nonnegative().optional(), held_sb_total: z.number().int().nonnegative().optional(), held_cell_seq: z.number().int().nonnegative().optional() }),
   Base.extend({
     kind: z.literal("spawn-shell"),
     folder: z.string(),

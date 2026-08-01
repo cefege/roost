@@ -1,4 +1,4 @@
-import { COORD_LABEL_DARWIN, COORD_LABEL_LINUX } from "@roost/shared/paths";
+import { COORD_LABEL_DARWIN, COORD_LABEL_LINUX, WORKER_LABEL_DARWIN, WORKER_LABEL_LINUX } from "@roost/shared/paths";
 // Single source of truth for the worker- and coordinator-service dialects:
 // launchd on macOS, systemd --user on Linux. Callers (deploy-local,
 // deploy-linux, status) hand the resulting string to `bash -c` locally or over
@@ -6,8 +6,8 @@ import { COORD_LABEL_DARWIN, COORD_LABEL_LINUX } from "@roost/shared/paths";
 
 export type ServiceOs = "darwin" | "linux";
 
-export const WORKER_UNIT = "roost-worker.service"; // linux
-export const WORKER_AGENT = "com.roost.worker-v2"; // darwin
+export const WORKER_UNIT = `${WORKER_LABEL_LINUX}.service`; // linux
+export const WORKER_AGENT = WORKER_LABEL_DARWIN;            // darwin
 export const COORD_UNIT = `${COORD_LABEL_LINUX}.service`; // linux
 export const COORD_AGENT = COORD_LABEL_DARWIN;            // darwin
 
@@ -36,4 +36,16 @@ export function verifyCoordCmd(os: ServiceOs): string {
   return os === "linux"
     ? `${XDG} systemctl --user is-active ${COORD_UNIT}`
     : `launchctl print gui/$(id -u)/${COORD_AGENT} 2>&1 | grep -E '^\\s*(state|pid|active count)' | head -5`;
+}
+
+export function stopServicesCmd(os: ServiceOs): string {
+  return os === "linux"
+    ? `${XDG} systemctl --user stop ${COORD_UNIT} ${WORKER_UNIT}`
+    : `launchctl bootout gui/$(id -u)/${COORD_AGENT} 2>/dev/null; launchctl bootout gui/$(id -u)/${WORKER_AGENT} 2>/dev/null; true`;
+}
+
+// Every caller that needs a dialect for *this* box asks here rather than
+// re-writing the same process.platform ternary.
+export function currentServiceOs(): ServiceOs {
+  return process.platform === "linux" ? "linux" : "darwin";
 }

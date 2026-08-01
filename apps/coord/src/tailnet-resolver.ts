@@ -10,12 +10,13 @@ import { existsSync } from "node:fs";
 
 const REFRESH_INTERVAL_MS = 60_000;
 const STATUS_TIMEOUT_MS = 2_000;
-// Prefer whatever is on PATH (the only thing that exists on Linux), then the
+// Prefer the distro CLI (the only thing that exists on Linux), then the
 // standalone macOS CLI: in the coord's LaunchAgent context the GUI app binary
 // can't reach the daemon and prints a non-JSON error ("The Tailscale ..."),
 // whereas the Homebrew CLI connects to the same tailscaled and returns clean
-// JSON. Fall back to the GUI app binary if the CLI isn't installed.
+// JSON. Fall back to the GUI app binary, then bare PATH lookup.
 const TAILSCALE_BIN = [
+  "/usr/bin/tailscale",
   "/opt/homebrew/bin/tailscale",
   "/usr/local/bin/tailscale",
   "/Applications/Tailscale.app/Contents/MacOS/Tailscale",

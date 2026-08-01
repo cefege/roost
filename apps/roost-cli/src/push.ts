@@ -1,7 +1,7 @@
-// `roost push` — one-shot release: git push, then redeploy every Mac in
-// the fleet (local + remote tailnet workers), then kickstart the local
+// `roost push` — one-shot release: git push, then redeploy every machine in
+// the fleet (local + remote tailnet workers), then restart the local
 // coord. Closes the failure mode where remote `roost deploy` succeeded
-// but the local Mac kept running stale code for hours until someone
+// but the local box kept running stale code for hours until someone
 // happened to run install.sh by hand — the "remote works, local broken"
 // class that surfaced as "Create folder failed: [internal] internal
 // error" once the wire schemas drifted.
@@ -12,6 +12,7 @@
 
 import { join } from "node:path";
 import { deploy } from "./deploy.ts";
+import { currentServiceOs, restartCoordCmd } from "./service-ctl.ts";
 
 // Repo root = three levels up from apps/roost-cli/src/push.ts.
 const REPO_ROOT = join(import.meta.dir, "..", "..", "..");
@@ -20,17 +21,6 @@ async function run(cmd: string[], cwd?: string): Promise<number> {
   const proc = Bun.spawn({ cmd, cwd, stdio: ["inherit", "inherit", "inherit"] });
   await proc.exited;
   return proc.exitCode ?? 1;
-}
-
-async function kickstart(label: string): Promise<void> {
-  const uid = process.getuid?.();
-  if (uid === undefined) {
-    console.warn(`>> skip kickstart ${label}: getuid unavailable`);
-    return;
-  }
-  const target = `gui/${uid}/${label}`;
-  console.log(`>> launchctl kickstart -k ${target}`);
-  await run(["launchctl", "kickstart", "-k", target]);
 }
 
 export async function push(args: string[]): Promise<void> {
@@ -67,11 +57,11 @@ export async function push(args: string[]): Promise<void> {
     }
   }
 
-  // Worker LaunchAgent's deploy step already kickstarted itself for the
+  // Worker service's deploy step already restarted itself for the
   // local target inside `_deployLocal`. Coord is the one piece deploy
-  // never touches — it has its own LaunchAgent + install.sh. Kick it
-  // here so local coord + local worker advance to the same git SHA the
-  // remote Macs just received.
+  // never touches — it has its own launchd/systemd service + install.sh.
+  // Kick it here so local coord + local worker advance to the same git SHA
+  // the remote workers just received.
   // Build the SPA so coord serves the pushed commit. Without this, coord
   // kickstart re-reads its own git sha but keeps serving a stale apps/web/dist
   // → the SPA's "new version — reload" nudge fires forever (reloading can't
@@ -86,8 +76,8 @@ export async function push(args: string[]): Promise<void> {
   }
 
   if (!skipLocalCoord) {
-    console.log("\n>> kickstart local coord (com.roost.coordinator-v2)");
-    await kickstart("com.roost.coordinator-v2");
+    console.log("\n>> restart local coord");
+    await run(["bash", "-c", restartCoordCmd(currentServiceOs())]);
   } else {
     console.log("\n>> skipping local coord kickstart (--no-coord)");
   }

@@ -129,14 +129,14 @@ Your Mac's browser stays perfectly usable for claude.ai. Roost isn't a replaceme
 ## Roadmap
 
 - **Headless servers**, so you can run workers on always-on boxes and not just laptops, and heavy jobs live on the machine that should own them.
-- **Windows and Linux.** The worker and coordinator are Bun; the cross-platform desktop shell is scoped (`FEATURES/PLAN-NEUT.md`), and macOS ships first.
+- **Windows.** The worker and coordinator are Bun and already run on macOS + Linux; the cross-platform desktop shell is scoped (`FEATURES/PLAN-NEUT.md`).
 - **Multi-user.** The schema already models multiple operators; a UI for it is next.
 
 ## Status
 
 Early, and honest about it. I use Roost every day as my primary coding surface, so the paths I hit are solid. Paths I don't may be rough.
 
-- macOS only today (uses macOS PTYs and LaunchAgents)
+- macOS and Linux (launchd + systemd --user; no Windows yet)
 - Needs a shared network (Tailscale tested) and whatever terminal CLI tools you want to run
 - Single-user today; the schema is built for multiple operators but there's no UI for it yet
 

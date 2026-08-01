@@ -25,6 +25,11 @@ if [[ "$OS" == "Linux" ]]; then
   UNIT="${ROOST_COORD_UNIT:-$HOME/.config/systemd/user/${LABEL}.service}"
   DATA_DIR="${ROOST_COORD_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/RoostCoordinatorV2}"
   LOG_DIR="${ROOST_COORD_LOG_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/RoostCoord}"
+  # Resource limits baked into the unit; dial down on a small box via env.
+  COORD_MEM_HIGH="${ROOST_COORD_MEMORY_HIGH:-1G}"
+  COORD_MEM_MAX="${ROOST_COORD_MEMORY_MAX:-2G}"
+  COORD_TASKS_MAX="${ROOST_COORD_TASKS_MAX:-256}"
+  LOGROTATE_CONF="${ROOST_COORD_LOGROTATE_CONF:-${XDG_CONFIG_HOME:-$HOME/.config}/logrotate.d/roost-coord.conf}"
 else
   LABEL="${ROOST_COORD_LABEL:-com.roost.coordinator-v2}"
   PLIST="${ROOST_COORD_PLIST:-$HOME/Library/LaunchAgents/${LABEL}.plist}"
@@ -225,6 +230,11 @@ bootstrap() {
 # systemd --user counterpart of write_plist: same env-key set, same computed
 # BIND/TRUST_PROXY/TLS values. No KillMode=process — that exists in the worker
 # unit for the detached keeper, and coord has no such child.
+#
+# The resource limits were hand-written drop-ins on the first Linux box until
+# they landed here; a reinstall used to silently discard them. Coord owns no
+# session subtree, so a hard MemoryMax has no blast radius (unlike the worker,
+# where one fat PTY would take every live session down with the unit).
 write_unit() {
   mkdir -p "$(dirname "$UNIT")" "$DATA_DIR" "$LOG_DIR"
   local prog_bin prog_arg2 workdir web_dist
@@ -271,6 +281,9 @@ EOF
 Restart=always
 RestartSec=1
 TimeoutStopSec=10
+MemoryHigh=${COORD_MEM_HIGH}
+MemoryMax=${COORD_MEM_MAX}
+TasksMax=${COORD_TASKS_MAX}
 StandardOutput=append:${LOG_DIR}/main.out.log
 StandardError=append:${LOG_DIR}/main.err.log
 
@@ -280,6 +293,59 @@ EOF
   } > "$UNIT"
   chmod 0600 "$UNIT"
   echo "wrote $UNIT"
+}
+
+# systemd's StandardOutput=append: holds the fd open, so rotation MUST be
+# copytruncate — a rename-based rotate would leave the service writing to an
+# unlinked inode. The .1.gz naming this produces is what doctor.ts already
+# parses. A *user* logrotate config is not run by the system timer, so the
+# matching user timer is installed beside it.
+write_logrotate() {
+  local rotate_bin conf_dir unit_dir
+  rotate_bin="$(command -v logrotate || true)"
+  [[ -z "$rotate_bin" && -x /usr/sbin/logrotate ]] && rotate_bin=/usr/sbin/logrotate
+  if [[ -z "$rotate_bin" ]]; then
+    echo "WARN: logrotate not found - coord logs in ${LOG_DIR} will grow unbounded" >&2
+    return 0
+  fi
+  conf_dir="$(dirname "$LOGROTATE_CONF")"
+  mkdir -p "$conf_dir"
+  cat > "$LOGROTATE_CONF" <<EOF
+${LOG_DIR}/main.out.log ${LOG_DIR}/main.err.log {
+    size 100M
+    rotate 5
+    compress
+    missingok
+    notifempty
+    copytruncate
+}
+EOF
+  echo "wrote $LOGROTATE_CONF"
+
+  # logrotate reads every file in a directory argument, so coord and worker
+  # each own one conf and share one timer.
+  unit_dir="$(dirname "$UNIT")"
+  mkdir -p "$unit_dir" "${XDG_STATE_HOME:-$HOME/.local/state}/roost"
+  cat > "$unit_dir/roost-logrotate.service" <<EOF
+[Unit]
+Description=Rotate Roost logs
+
+[Service]
+Type=oneshot
+ExecStart=${rotate_bin} --state ${XDG_STATE_HOME:-$HOME/.local/state}/roost/logrotate.status ${conf_dir}
+EOF
+  cat > "$unit_dir/roost-logrotate.timer" <<EOF
+[Unit]
+Description=Rotate Roost logs daily
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+  echo "wrote $unit_dir/roost-logrotate.timer"
 }
 
 bootstrap_systemd() {
@@ -292,6 +358,10 @@ bootstrap_systemd() {
   systemctl --user enable --now "${LABEL}.service"
   systemctl --user restart "${LABEL}.service"
   echo "started ${LABEL}.service"
+  if [[ -f "$(dirname "$UNIT")/roost-logrotate.timer" ]]; then
+    systemctl --user enable --now roost-logrotate.timer 2>/dev/null || \
+      echo "WARN: could not enable roost-logrotate.timer - logs will grow unbounded" >&2
+  fi
 }
 
 # Unchanged across platforms: a bare-`tailscale` PATH lookup that works on Linux.
@@ -309,7 +379,7 @@ serve_front() {
 
 case "$cmd" in
   install)
-    if $IS_LINUX; then write_unit; bootstrap_systemd; else write_plist; bootstrap; fi
+    if $IS_LINUX; then write_unit; write_logrotate; bootstrap_systemd; else write_plist; bootstrap; fi
     serve_front
     echo
     echo "Coord v2 starting (FRONTED=${FRONTED}) - tailnet https://<host>:${TAILNET_HTTPS_PORT}. Logs:"

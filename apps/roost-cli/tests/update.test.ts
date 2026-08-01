@@ -1,8 +1,26 @@
-// roost update contract: version-compare semantics + orchestration (skip when
-// no release / up to date, download-then-replace when newer) with injected
-// deps — no network, no real binary swap.
+// roost update contract: version-compare semantics, release-asset resolution
+// (a Linux install must never download the Darwin binary and rename it over
+// its own execPath), and orchestration (skip when no release / up to date,
+// download-then-replace when newer) with injected deps — no network, no real
+// binary swap.
 import { describe, expect, test } from "bun:test";
-import { needsUpdate, runUpdate, type UpdateDeps } from "../src/update.ts";
+import { needsUpdate, releaseAssetName, runUpdate, type UpdateDeps } from "../src/update.ts";
+
+describe("releaseAssetName", () => {
+  test("darwin/arm64 keeps the legacy unsuffixed asset", () => {
+    expect(releaseAssetName("darwin", "arm64")).toBe("roost");
+  });
+  test("darwin/x64 is explicit", () => {
+    expect(releaseAssetName("darwin", "x64")).toBe("roost-darwin-x64");
+  });
+  test("linux resolves per arch", () => {
+    expect(releaseAssetName("linux", "x64")).toBe("roost-linux-x64");
+    expect(releaseAssetName("linux", "arm64")).toBe("roost-linux-arm64");
+  });
+  test("unsupported platform throws rather than guessing", () => {
+    expect(() => releaseAssetName("win32", "x64")).toThrow(/no prebuilt roost binary/);
+  });
+});
 
 describe("needsUpdate", () => {
   test("dev (from-source) is always behind a release", () => {

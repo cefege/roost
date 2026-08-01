@@ -1,22 +1,24 @@
 // `roost status` / `roost doctor` — one-shot health readout for the local
-// Roost install. Replaces "read launchctl + tail the logs" (the thing that
-// used to need an agent) with ✓/✗ lines, each carrying its own remedy.
-// Checks: Tailscale gate, both LaunchAgents, coord liveness (MiscHealth),
-// worker inventory (coord DB read-only), TLS posture (coord plist).
+// Roost install. Replaces "read launchctl/systemctl + tail the logs" (the
+// thing that used to need an agent) with ✓/✗ lines, each carrying its own
+// remedy. Checks: Tailscale gate, both services, coord liveness
+// (MiscHealth), worker inventory (coord DB read-only), TLS posture (the
+// coord plist on macOS, the coord systemd unit on Linux).
 // `statusReport()` is also called by quickstart.ts for its final readout.
 
 import { Database } from "bun:sqlite";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { log } from "@roost/shared/log";
-import { coordDataDir, coordServicePath } from "@roost/shared/paths";
+import { coordDataDir, coordServiceLabel, coordServicePath, workerServiceLabel } from "@roost/shared/paths";
 import { COORD_UNIT, WORKER_UNIT } from "./service-ctl.ts";
 
-const COORD_LABEL = "com.roost.coordinator-v2";
-const WORKER_LABEL = "com.roost.worker-v2";
+const COORD_LABEL = coordServiceLabel();
+const WORKER_LABEL = workerServiceLabel();
 const COORD_DATA_DIR = coordDataDir();
 const COORD_DB = join(COORD_DATA_DIR, "coordinator_v2.db");
-const COORD_PLIST = coordServicePath();
+// launchd plist on darwin, systemd user unit on linux.
+const COORD_SERVICE_FILE = coordServicePath();
 const WORKER_STALE_MS = 90_000;
 // Default of cfg.handoffPath (apps/shared/src/config.ts:71); the CLI does not
 // load the coord config, so honour the same env override by hand.
@@ -80,7 +82,10 @@ export interface TailscalePreflightDeps {
   log: (msg: string) => void;
   sleep: (ms: number) => Promise<void>;
   now: () => number;
+  /** darwin-only; Linux has no scripted install step. */
   brewInstall?: () => void | Promise<void>;
+  /** Defaults to the host platform; injected so both guidance branches are testable. */
+  platform?: string;
 }
 
 /** Interactive Tailscale gate: loop until Tailscale is Running with a tailnet
@@ -88,8 +93,9 @@ export interface TailscalePreflightDeps {
  *  system state — no stdin, so it works under `curl … | bash`. The Homebrew
  *  open-source tailscaled needs NO System Settings network-extension approval
  *  (that's only the GUI App Store/standalone app), so `tailscale cert`/`serve`
- *  are reachable non-interactively. Guidance prints once; throws on timeout so
- *  the caller dies with the same remedy. Pure/injectable for tests. */
+ *  are reachable non-interactively. On Linux the distro package plus an
+ *  operator grant plays the same role. Guidance prints once; throws on timeout
+ *  so the caller dies with the same remedy. Pure/injectable for tests. */
 export async function ensureTailscale(
   deps: TailscalePreflightDeps,
   timeoutMs = 180_000,
@@ -101,16 +107,30 @@ export async function ensureTailscale(
     const ts = deps.resolve();
     if (ts.state === "Running" && ts.fqdn) return { state: ts.state, fqdn: ts.fqdn };
     if (!guided) {
+      const darwin = (deps.platform ?? process.platform) === "darwin";
       if (ts.state === "NotInstalled") {
-        deps.log("Tailscale is required and not installed. Installing the open-source");
-        deps.log("CLI daemon (no System Settings approval needed):");
-        deps.log("  brew install tailscale");
-        await deps.brewInstall?.();
-        deps.log("Then start it (needs sudo — run this yourself):");
+        if (darwin) {
+          deps.log("Tailscale is required and not installed. Installing the open-source");
+          deps.log("CLI daemon (no System Settings approval needed):");
+          deps.log("  brew install tailscale");
+          await deps.brewInstall?.();
+          deps.log("Then start it (needs sudo — run this yourself):");
+          deps.log("  sudo tailscaled install-system-daemon && sudo tailscale up");
+        } else {
+          deps.log("Tailscale is required and not installed. Install it (needs sudo —");
+          deps.log("run this yourself; see https://tailscale.com/download/linux to add the repo):");
+          deps.log("  sudo dnf install -y tailscale");
+          deps.log("Then start it and grant yourself cert/serve access:");
+          deps.log("  sudo systemctl enable --now tailscaled && sudo tailscale up");
+          deps.log("  sudo tailscale set --operator=$USER");
+        }
+      } else if (darwin) {
+        deps.log(`Tailscale is installed but not running (state: ${ts.state}). Start it:`);
         deps.log("  sudo tailscaled install-system-daemon && sudo tailscale up");
       } else {
         deps.log(`Tailscale is installed but not running (state: ${ts.state}). Start it:`);
-        deps.log("  sudo tailscaled install-system-daemon && sudo tailscale up");
+        deps.log("  sudo systemctl enable --now tailscaled && sudo tailscale up");
+        deps.log("  sudo tailscale set --operator=$USER");
       }
       deps.log("Waiting for Tailscale to come up… (Ctrl-C to abort)");
       guided = true;
@@ -187,11 +207,15 @@ function workerInventory(): WorkerStatus[] {
   }
 }
 
+/** TLS posture read out of the service definition: a plist <key> on darwin,
+ *  an `Environment=` line in the systemd unit on Linux. */
 function tlsCertConfigured(): boolean {
-  if (!existsSync(COORD_PLIST)) return false;
+  if (!existsSync(COORD_SERVICE_FILE)) return false;
   try {
-    const text = readFileSync(COORD_PLIST, "utf8");
-    return /<key>ROOST_TLS_CERT_PATH<\/key>/.test(text);
+    const text = readFileSync(COORD_SERVICE_FILE, "utf8");
+    return process.platform === "darwin"
+      ? /<key>ROOST_TLS_CERT_PATH<\/key>/.test(text)
+      : /^Environment=ROOST_TLS_CERT_PATH=/m.test(text);
   } catch {
     return false;
   }
@@ -241,14 +265,22 @@ export function printStatusReport(r: StatusReport): void {
   const tsOk = r.tailscale.running;
   console.log(`  ${mark(tsOk)} tailscale: ${r.tailscale.state}${r.tailscale.fqdn ? ` (${r.tailscale.fqdn})` : ""}`);
   if (!tsOk) {
-    if (r.tailscale.state === "NotInstalled") console.log(`      → install: brew install tailscale (or the Mac App Store app)`);
-    else console.log(`      → start it: tailscale up  (then approve the network extension in System Settings)`);
+    const darwin = process.platform === "darwin";
+    if (r.tailscale.state === "NotInstalled") {
+      console.log(darwin
+        ? `      → install: brew install tailscale (or the Mac App Store app)`
+        : `      → install: sudo dnf install -y tailscale (see https://tailscale.com/download/linux)`);
+    } else {
+      console.log(darwin
+        ? `      → start it: tailscale up  (then approve the network extension in System Settings)`
+        : `      → start it: sudo systemctl enable --now tailscaled && sudo tailscale up`);
+    }
   }
 
-  console.log(`  ${mark(r.coordAgentLoaded)} coordinator LaunchAgent (${COORD_LABEL})`);
+  console.log(`  ${mark(r.coordAgentLoaded)} coordinator service (${COORD_LABEL})`);
   if (!r.coordAgentLoaded) console.log(`      → bash apps/coord/scripts/install.sh install`);
 
-  console.log(`  ${mark(r.workerAgentLoaded)} worker LaunchAgent (${WORKER_LABEL})`);
+  console.log(`  ${mark(r.workerAgentLoaded)} worker service (${WORKER_LABEL})`);
   if (!r.workerAgentLoaded) console.log(`      → bun apps/roost-cli/src/main.ts deploy localhost`);
 
   // A SOURCE handoff at COMMITTED means the coordinator legitimately moved off

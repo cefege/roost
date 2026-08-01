@@ -1,9 +1,12 @@
 name: release
 
 # Cut a release by pushing a tag:  git tag v0.1.0 && git push --tags
-# Builds the single `roost` binary (SPA + migrations + wasm embedded) on macOS
-# and attaches it + its sha256 to the GitHub Release that `roost update` and the
-# curl/Homebrew installers pull from.
+# Builds every `roost` binary (SPA + migrations + wasm embedded) on ONE macOS
+# runner — scripts/build-binary.ts cross-compiles the darwin + linux matrix, so
+# no build matrix is needed — and attaches them + their sha256 files to the
+# GitHub Release that `roost update` and the curl/Homebrew installers pull from.
+# `roost` (unsuffixed) stays the darwin-arm64 asset so existing installs never
+# 404; see releaseAssetName() in apps/roost-cli/src/update.ts.
 on:
   push:
     tags: ["v*"]
@@ -22,9 +25,21 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun scripts/build-binary.ts
       - name: checksum
-        run: shasum -a 256 dist/roost | awk '{print $1}' | tee dist/roost.sha256
+        run: |
+          cd dist
+          for f in roost roost-darwin-arm64 roost-darwin-x64 roost-linux-x64 roost-linux-arm64; do
+            shasum -a 256 "$f" | awk '{print $1}' | tee "$f.sha256"
+          done
       - uses: softprops/action-gh-release@v2
         with:
           files: |
             dist/roost
             dist/roost.sha256
+            dist/roost-darwin-arm64
+            dist/roost-darwin-arm64.sha256
+            dist/roost-darwin-x64
+            dist/roost-darwin-x64.sha256
+            dist/roost-linux-x64
+            dist/roost-linux-x64.sha256
+            dist/roost-linux-arm64
+            dist/roost-linux-arm64.sha256

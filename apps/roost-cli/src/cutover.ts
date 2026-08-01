@@ -9,6 +9,9 @@
 // Open sessions in legacy are dropped — v2 is event-sourced; workers
 // re-emit a `snapshot` on coord reconnect so live sessions reconcile
 // without DB carry-over.
+//
+// macOS-only by construction: the legacy Rust coordinator never ran on
+// Linux, so there is no v1 state on any Linux box to migrate.
 
 import { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
@@ -17,6 +20,10 @@ const LEGACY = `${process.env.HOME}/Library/Application Support/RoostCoordinator
 const V2 = `${process.env.HOME}/Library/Application Support/RoostCoordinator/coordinator_v2.db`;
 
 export async function cutover(args: string[]): Promise<void> {
+  if (process.platform !== "darwin") {
+    console.log("cutover is macOS-only — the legacy v1 coordinator never ran on Linux, so there is nothing to migrate");
+    return;
+  }
   const force = args.includes("--force");
   if (!existsSync(LEGACY)) {
     console.error(`legacy DB not found at ${LEGACY}`);

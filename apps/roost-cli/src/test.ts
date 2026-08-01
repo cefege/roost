@@ -20,9 +20,19 @@ async function run(name: string, cmd: string[], env?: Record<string, string>): P
 
 async function runUnit(): Promise<void> {
   await run("worker", [process.execPath, "scripts/test-worker.ts"]);
+  // --isolate: a fresh global object per file. `bun test` otherwise shares one
+  // process, so a test that installs a fake DOM global or calls mock.module
+  // (both deliberate here — this repo runs no jsdom) silently poisons every
+  // file that happens to run after it. That made apps/web failures a function
+  // of suite order: a partial `document` stub crashed pageVisible.ts at module
+  // eval, and a mocked store made transfers.test.ts fail to import `transfers`.
+  // mock.module cannot be reliably undone in-process (a re-mock with the real
+  // namespace leaves the mocked keys in place, measured on bun 1.3.14), so
+  // isolation is the fix rather than per-file cleanup.
   await run("unit", [
     process.execPath,
     "test",
+    "--isolate",
     "apps/shared/tests/",
     "apps/coord/tests/",
     "apps/web/tests/",

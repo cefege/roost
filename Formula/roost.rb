@@ -3,8 +3,14 @@
 # Per release, bump `version` and set `sha256` from the release's roost.sha256
 # (the release workflow uploads it). depends_on "tailscale" installs the
 # open-source tailscaled — no System Settings network-extension approval.
+#
+# macOS-only ON PURPOSE: `roost` (unsuffixed) is the darwin-arm64 asset, and
+# there is no tested linuxbrew bottle. Linux installs go through
+# install-binary.sh, which resolves roost-linux-{x64,arm64} into ~/.local/bin
+# and needs no package manager. Dropping depends_on :macos here would advertise
+# an install path nobody has verified.
 class Roost < Formula
-  desc "Run Claude Code on all your Macs from one browser tab"
+  desc "Run Claude Code on all your machines from one browser tab"
   homepage "https://github.com/cefege/roost"
   version "0.2.0"
   url "https://github.com/cefege/roost/releases/download/v#{version}/roost"
@@ -22,7 +28,7 @@ class Roost < Formula
     <<~EOS
       Start Tailscale (the brew CLI daemon needs no System Settings approval):
         sudo tailscaled install-system-daemon && sudo tailscale up
-      Then bring Roost up on this Mac:
+      Then bring Roost up on this machine:
         roost quickstart
     EOS
   end

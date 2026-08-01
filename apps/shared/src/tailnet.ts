@@ -1,8 +1,10 @@
 // Resolve this host's Tailscale MagicDNS name without letting a stalled GUI
 // shim block coordinator or worker startup. The caller may provide explicit
-// binary paths in tests; production probes common macOS installations.
+// binary paths in tests; production probes PATH first, then the common macOS
+// and Linux installation paths so resolution survives a PATH-less invocation.
 const TAILSCALE_BINS = [
   "tailscale",
+  "/usr/bin/tailscale",
   "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
   "/opt/homebrew/bin/tailscale",
   "/usr/local/bin/tailscale",
