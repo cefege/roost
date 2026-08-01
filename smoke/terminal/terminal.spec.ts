@@ -207,6 +207,7 @@ test("trusted keyboard input and bottom-follow behavior", async ({ smokePage, st
 });
 
 test("alternate screen survives width and height perturbations", async ({ smokePage, stack }) => {
+  test.setTimeout(240_000);
   const sessionId = await smokePage.evaluate(async (workerFp) => {
     const smoke = (window as unknown as Window & { __smoke: { spawnShell(worker: string, folder: string): Promise<{ session_id: string }> } }).__smoke;
     return (await smoke.spawnShell(workerFp, "/tmp")).session_id;

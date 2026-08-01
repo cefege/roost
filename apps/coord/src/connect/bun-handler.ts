@@ -56,7 +56,11 @@ export function makeConnectBunHandler(router: ConnectRouter): ConnectBunHandler 
       method: req.method,
       header,
       body: req.body ? toAsyncIterable(req.body) : emptyAsyncIterable(),
-      signal: req.signal,
+      // Bun 1.3.14 has a RequestContext.onAbort use-after-free when JavaScript
+      // subscribes to a server Request's signal and the client disconnects.
+      // Connect subscribes here, so give each bounded unary RPC a fresh,
+      // collectible signal detached from Bun's request lifetime.
+      signal: new AbortController().signal,
     };
 
     const ures: UniversalServerResponse = await handler(ureq);
