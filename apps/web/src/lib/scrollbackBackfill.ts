@@ -1,21 +1,20 @@
-// Lazy-history backfill controller (cell mode). Attach/reframe full frames
-// carry only a SB_SNAPSHOT_TAIL_ROWS scrollback tail (worker session-emit.ts);
-// this controller pulls the remaining [0, sbBase) rows per-viewer via the
-// SessionsGetScrollbackCells unary RPC — OFF the broadcast Sync stream — and
-// splices them above the painted history (CellGridRenderer.prependScrollback).
-// Browser anchoring preserves an inspected row; the renderer pins only a
-// pre-mutation literal-bottom viewport to the new bottom.
+// Demand-driven history backfill controller (cell mode). Attach/reframe full
+// frames carry only a SB_SNAPSHOT_TAIL_ROWS scrollback tail (worker
+// session-emit.ts); this controller pulls the remaining [0, sbBase) rows
+// per-viewer via the SessionsGetScrollbackCells unary RPC — OFF the broadcast
+// Sync stream — and splices them above the painted history
+// (CellGridRenderer.prependScrollback). Browser anchoring preserves an
+// inspected row; the renderer pins only a pre-mutation literal-bottom viewport
+// to the new bottom.
 //
 // Epoch model: scrollback row indices are absolute only within one grid epoch
 // (a reframe — width change / alt toggle / reset — restarts numbering). Every
-// FULL frame bumps the local epoch, cancelling any in-flight loop; the loop
-// re-validates each response against the renderer's live anchor (cols +
-// overlap-row text identity) and parks on any mismatch — the reframe that
-// moved the epoch re-arms it. History always REMAINS REACHABLE; the eager
-// drain stops at the held-window cap (MAX_HELD_SCROLLBACK_ROWS, the same
-// window the evictor enforces) and a reader approaching the painted top
-// uncaps it one chunk at a time, so nothing is ever traded away
-// (the terminal-fidelity invariant) — only fetched when someone looks.
+// FULL frame bumps the local epoch, cancelling any in-flight loop. A full frame
+// restarts backfill only when its renderer has an unpainted [0, sbBase) hole
+// and the reader is already near that boundary; otherwise the next user scroll
+// toward the painted top starts it. Each response is re-validated against the
+// renderer's live anchor (cols + overlap-row text identity). History remains
+// reachable through the reserved spacer and is fetched only on reader demand.
 //
 // Owner: CellTerminal.tsx (one controller per pane; onFullFrame from the cell
 // handler, onUserScrollUp from the container scroll listener).
@@ -25,9 +24,6 @@ import { diag } from "@roost/shared/diag";
 import { cellRowFromProto } from "@roost/shared/cell/cell-proto";
 import { rowText, MAX_HELD_SCROLLBACK_ROWS, type CellGridRenderer } from "./cellRenderer.ts";
 
-// Grace after a full frame before fetching — lets the attach burst (N panes
-// re-claiming on tab-visible) settle; a user scroll-up starts immediately.
-const BACKFILL_DELAY_MS = 300;
 // Rows per RPC chunk. Server caps at 2000 (browser-command-terminal.ts). Kept
 // small (~one content-visibility block) so each prependScrollback is a short
 // DOM task: a large chunk builds thousands of row/span nodes synchronously,
@@ -40,10 +36,10 @@ const BACKFILL_CHUNK_ROWS = 250;
 const BACKFILL_RETRY_MS = 2000;
 
 export interface ScrollbackBackfill {
-  /** Call on every FULL cell frame: cancels the in-flight loop (epoch moved)
-   *  and re-arms the delayed fetch when the frame left a [0, sbBase) hole. */
+  /** Cancel stale work on every FULL frame, then restart only when the reader
+   *  is already near an unpainted [0, sbBase) history boundary. */
   onFullFrame(): void;
-  /** Call when the user scrolls off the bottom: start filling immediately. */
+  /** Start filling immediately when the reader nears the painted history top. */
   onUserScrollUp(): void;
   dispose(): void;
 }
@@ -55,15 +51,7 @@ export function createScrollbackBackfill(opts: {
 }): ScrollbackBackfill {
   let epoch = 0;
   let activeLoop = -1; // epoch of the running loop; -1 = none
-  let timer: ReturnType<typeof setTimeout> | null = null;
   let disposed = false;
-
-  const clearTimer = (): void => {
-    if (timer !== null) {
-      clearTimeout(timer);
-      timer = null;
-    }
-  };
 
   const start = (): void => {
     if (disposed || activeLoop === epoch) return;
@@ -78,11 +66,10 @@ export function createScrollbackBackfill(opts: {
         const r0 = opts.renderer();
         const anchor = r0?.backfillAnchor();
         if (!r0 || !anchor || anchor.sbBase <= 0) return;
-        // Eager drain stops at the window the evictor enforces. While the pane
-        // follows the live tail, pulling past MAX_HELD_SCROLLBACK_ROWS only
-        // feeds _evictScrollback, which trims the rows straight back off and
-        // moves sbBase — the post-await guard below then parks this loop with
-        // history still missing. Past the cap only a reader within one viewport
+        // The demand-driven drain stops at the window the evictor enforces.
+        // Pulling past MAX_HELD_SCROLLBACK_ROWS while the pane follows the live
+        // tail only feeds _evictScrollback, which trims the rows straight back
+        // off and moves sbBase. Past the cap, only a reader within one viewport
         // of the painted top pulls more, one chunk per animation frame.
         //
         // Reachability model (CellGridRenderer._syncSpacer): the [0, sbBase)
@@ -164,26 +151,21 @@ export function createScrollbackBackfill(opts: {
   return {
     onFullFrame(): void {
       epoch++; // in-flight loop aborts at its next check
-      clearTimer();
       if (disposed) return;
-      const anchor = opts.renderer()?.backfillAnchor();
-      if (!anchor || anchor.sbBase <= 0) return;
-      timer = setTimeout(() => {
-        timer = null;
-        start();
-      }, BACKFILL_DELAY_MS);
+      const renderer = opts.renderer();
+      const anchor = renderer?.backfillAnchor();
+      if (!renderer || !anchor || anchor.sbBase <= 0 || !renderer.nearHistoryTop()) return;
+      start();
     },
     onUserScrollUp(): void {
       if (disposed) return;
       const anchor = opts.renderer()?.backfillAnchor();
       if (!anchor || anchor.sbBase <= 0) return;
-      clearTimer();
       start();
     },
     dispose(): void {
       disposed = true;
       epoch++;
-      clearTimer();
     },
   };
 }

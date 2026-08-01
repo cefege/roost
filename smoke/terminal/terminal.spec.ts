@@ -273,89 +273,206 @@ test("two viewers preserve ordered terminal markers", async ({ smokePage, browse
   }
 });
 
-// The scroll SPACE, in a real browser. A fresh attach to a deep session gets a
-// scrollback TAIL (SB_SNAPSHOT_TAIL_ROWS) plus sbBase; before
-// CellGridRenderer._syncSpacer nothing stood in for [0, sbBase), so
-// scrollHeight described ~250 rows of an 8000-row session and every backfill
-// prepend grew it — the thumb shrank and jumped with no user action, and a
-// reader parked in history drifted onto other rows. This asserts the two
-// properties the spacer buys: the scroll space is truthful on attach, and it
-// does not move while the drain paints history in under the reader.
-test("a deep-history attach reserves the whole scroll space and holds it through the backfill drain", async ({ smokePage, stack }, testInfo) => {
+// A fresh or bottom-following reattach must paint only the live tail while the
+// spacer reserves the complete history depth. Older rows materialize only when
+// the reader approaches the painted boundary, without moving that reader.
+test("deep-history attach/reveal paints the live tail until history is requested", async ({ smokePage, stack }, testInfo) => {
   test.skip(testInfo.project.name !== "chromium-desktop", "desktop scroll-geometry contract");
   const sessionId = await smokePage.evaluate(async (workerFp) => {
     const smoke = (window as unknown as Window & { __smoke: { spawnShell(worker: string, folder: string): Promise<{ session_id: string }> } }).__smoke;
     return (await smoke.spawnShell(workerFp, "/tmp")).session_id;
   }, stack.workerFp);
   await smokePage.goto(`${stack.baseUrl}/s/${sessionId}`);
-  await expect(smokePage.getByTestId(`terminal-slot-${sessionId}`)).toBeVisible();
+  const slot = smokePage.getByTestId(`terminal-slot-${sessionId}`);
+  await expect(slot).toBeVisible();
   await smokePage.keyboard.type("seq -f 'CELLLINE-%g' 1 8000");
   await smokePage.keyboard.press("Enter");
-  await expect.poll(() => smokePage.getByTestId(`terminal-slot-${sessionId}`).textContent(), { timeout: 60_000 })
-    .toContain("CELLLINE-8000");
+  await expect.poll(() => slot.textContent(), { timeout: 60_000 }).toContain("CELLLINE-8000");
 
-  // Re-attach: the worker now answers with a tail + a deep sbBase, which is the
-  // exact state the old renderer misrepresented.
+  // Re-attach to force the worker's standard tail snapshot over deep history.
   await smokePage.reload({ waitUntil: "domcontentloaded" });
   await smokePage.waitForFunction(() => typeof (window as unknown as Window & { __smoke?: unknown }).__smoke === "object");
-  await expect(smokePage.getByTestId(`terminal-slot-${sessionId}`)).toBeVisible();
+  await expect(slot).toBeVisible();
   await smokePage.waitForFunction((id) => {
-    const slot = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
-    return !!slot?.querySelector(".cell-sb-spacer") && !!slot.querySelector(".cell-row");
+    const pane = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
+    return !!pane?.querySelector(".cell-sb-spacer") && !!pane.querySelector(".cell-row");
   }, sessionId);
+
   const geometry = () => smokePage.evaluate((id) => {
-    const smoke = (window as unknown as Window & { __smoke: { renderProbe(sessionId: string): { rowCount: number; scrollTop: number; scrollHeight: number; clientHeight: number } } }).__smoke;
-    const slot = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
-    const c = slot?.querySelector(".wterm") as HTMLElement | null;
-    const rowH = c?.querySelector(".cell-row")?.getBoundingClientRect().height ?? 0;
-    const spacer = c?.querySelector(".cell-sb-spacer") as HTMLElement | null;
+    const smoke = (window as unknown as Window & {
+      __smoke: {
+        renderProbe(sessionId: string): {
+          rowCount: number;
+          scrollTop: number;
+          scrollHeight: number;
+          clientHeight: number;
+          atBottom: boolean;
+        };
+        markerScan(sessionId: string, prefix: string): {
+          max: number;
+          duplicated: number[];
+          outOfOrder: number;
+        };
+      };
+    }).__smoke;
+    const pane = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
+    const container = pane?.querySelector(".wterm") as HTMLElement | null;
+    const rowH = container?.querySelector(".cell-row")?.getBoundingClientRect().height ?? 0;
+    const spacer = container?.querySelector(".cell-sb-spacer") as HTMLElement | null;
     const probe = smoke.renderProbe(id);
-    // The marker on the topmost row whose box still intersects the viewport top
-    // — textContent can't answer this (content-visibility-skipped blocks are in
-    // it), and it is precisely "what row is the reader looking at".
-    const top = c?.getBoundingClientRect().top ?? 0;
-    const reader = Array.from(c?.querySelectorAll(".cell-row") ?? [])
-      .map((r) => [r.getBoundingClientRect(), r.textContent ?? ""] as const)
-      .filter(([b]) => b.bottom > top + 1)
-      .map(([, t]) => (t.match(/CELLLINE-\d+/) ?? [null])[0])[0] ?? null;
-    return { rowH, spacerPx: spacer ? parseFloat(spacer.style.height || "0") : -1, reader, ...probe };
+    // The topmost row whose box intersects the viewport top is the row the
+    // reader is actually inspecting; textContent includes skipped rows.
+    const top = container?.getBoundingClientRect().top ?? 0;
+    const reader = Array.from(container?.querySelectorAll(".cell-row") ?? [])
+      .map((row) => [row.getBoundingClientRect(), row.textContent ?? ""] as const)
+      .filter(([box]) => box.bottom > top + 1)
+      .map(([, text]) => (text.match(/CELLLINE-\d+/) ?? [null])[0])[0] ?? null;
+    return {
+      rowH,
+      spacerPx: spacer ? parseFloat(spacer.style.height || "0") : -1,
+      reader,
+      markerMax: smoke.markerScan(id, "CELLLINE-").max,
+      ...probe,
+    };
   }, sessionId);
 
   const attach = await geometry();
+  expect(attach.markerMax).toBe(8000);
+  expect(attach.atBottom).toBe(true);
   expect(attach.rowH).toBeGreaterThan(0);
-  // Truthful depth: the space covers ~8000 rows even though only a tail is painted.
   expect(attach.spacerPx / attach.rowH).toBeGreaterThan(5000);
   expect(attach.scrollHeight / attach.rowH).toBeGreaterThan(7000);
-  expect(attach.rowCount).toBeLessThan(3000); // still just a tail in the DOM
+  expect(attach.rowCount).toBeLessThan(500);
 
-  // Park the reader ten rows into the PAINTED tail: close enough that
-  // nearHistoryTop() stays true (so the drain keeps prepending chunks ABOVE the
-  // reader, which is the mutation under test), and still a real painted row at
-  // the viewport top so "the reader's row" is well-defined for the whole drain.
-  // Every prepended chunk must shrink the spacer by exactly its own height, or
-  // this row moves.
+  // Five samples span five times the deleted 300 ms eager-backfill delay.
+  const attachRowSamples: number[] = [];
+  for (let i = 0; i < 5; i++) {
+    await smokePage.waitForTimeout(300);
+    attachRowSamples.push((await geometry()).rowCount);
+  }
+  expect(attachRowSamples).toEqual(Array(5).fill(attach.rowCount));
+
+  // The freshly attached tail is immediately focused and usable through the
+  // real textarea/keyboard path.
+  const ready = `READY-${crypto.randomUUID().replace(/-/g, "").slice(0, 8)}`;
+  await smokePage.keyboard.type(`printf '%s\\n' ${ready}`);
+  await smokePage.keyboard.press("Enter");
+  await expect.poll(() => slot.textContent()).toContain(ready);
+  await expect.poll(() => smokePage.evaluate((id) => {
+    const smoke = (window as unknown as Window & {
+      __smoke: { paneFocused(sessionId: string): { focused: boolean } };
+    }).__smoke;
+    return smoke.paneFocused(id).focused;
+  }, sessionId)).toBe(true);
+  await expect.poll(async () => (await geometry()).atBottom).toBe(true);
+
+  // Select five same-folder siblings in sequence. A becomes fifth in parked
+  // recency, outside the four-pane background stream LRU.
+  const siblings: string[] = [];
+  for (let i = 0; i < 5; i++) {
+    const siblingId = await smokePage.evaluate(async (workerFp) => {
+      const smoke = (window as unknown as Window & {
+        __smoke: { spawnShell(worker: string, folder: string): Promise<{ session_id: string }> };
+      }).__smoke;
+      return (await smoke.spawnShell(workerFp, "/tmp")).session_id;
+    }, stack.workerFp);
+    await expect.poll(() => smokePage.evaluate((id) => {
+      const smoke = (window as unknown as Window & {
+        __smoke: { state(): { sessions: Record<string, unknown> } };
+      }).__smoke;
+      return id in smoke.state().sessions;
+    }, siblingId)).toBe(true);
+    await smokePage.evaluate((id) => {
+      const smoke = (window as unknown as Window & { __smoke: { navigate(href: string): void } }).__smoke;
+      smoke.navigate(`/s/${id}`);
+    }, siblingId);
+    await expect(smokePage.getByTestId(`tab-${siblingId}`)).toHaveAttribute("data-active", "true");
+    siblings.push(siblingId);
+  }
+  for (const id of [sessionId, ...siblings]) {
+    await expect(smokePage.getByTestId(`tab-${id}`)).toBeAttached();
+  }
+
+  // Let A's deferred withdraw complete, then prove it receives no cell frames
+  // while another 1,000 markers are generated.
+  await smokePage.waitForTimeout(1200);
+  const frameCountBefore = await smokePage.evaluate((id) => {
+    const smoke = (window as unknown as Window & { __smoke: { cellFrameCount(sessionId: string): number } }).__smoke;
+    return smoke.cellFrameCount(id);
+  }, sessionId);
+  await smokePage.evaluate(async (id) => {
+    const smoke = (window as unknown as Window & { __smoke: { input(sessionId: string, text: string): Promise<void> } }).__smoke;
+    await smoke.input(id, "seq -f 'CELLLINE-%g' 8001 9000\r");
+  }, sessionId);
+  await smokePage.waitForTimeout(500);
+  const frameCountAfter = await smokePage.evaluate((id) => {
+    const smoke = (window as unknown as Window & { __smoke: { cellFrameCount(sessionId: string): number } }).__smoke;
+    return smoke.cellFrameCount(id);
+  }, sessionId);
+  expect(frameCountAfter).toBe(frameCountBefore);
+
+  // A bottom-following stale viewer must reclaim only the 250-row tail.
+  await smokePage.getByTestId(`tab-${sessionId}`).click();
+  await expect.poll(() => smokePage.evaluate((id) => {
+    const smoke = (window as unknown as Window & {
+      __smoke: {
+        renderProbe(sessionId: string): { rowCount: number; atBottom: boolean };
+        markerScan(sessionId: string, prefix: string): { max: number };
+      };
+    }).__smoke;
+    const probe = smoke.renderProbe(id);
+    return {
+      markerMax: smoke.markerScan(id, "CELLLINE-").max,
+      atBottom: probe.atBottom,
+      boundedRows: probe.rowCount < 500,
+    };
+  }, sessionId), { timeout: 1000, intervals: [50] }).toEqual({
+    markerMax: 9000,
+    atBottom: true,
+    boundedRows: true,
+  });
+
+  const revealed = await geometry();
+  const revealRowSamples: number[] = [];
+  for (let i = 0; i < 5; i++) {
+    await smokePage.waitForTimeout(300);
+    revealRowSamples.push((await geometry()).rowCount);
+  }
+  expect(revealRowSamples).toEqual(Array(5).fill(revealed.rowCount));
+
+  // Move ten rows into the painted tail. The resulting scroll event is the
+  // demand signal that may materialize older rows.
   await smokePage.evaluate(({ id, rowH }) => {
-    const slot = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
-    const c = slot?.querySelector(".wterm") as HTMLElement | null;
-    const sb = c?.querySelector(".cell-scrollback") as HTMLElement | null;
-    if (c && sb) c.scrollTop = sb.offsetTop + Math.round(10 * rowH);
-  }, { id: sessionId, rowH: attach.rowH });
+    const pane = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
+    const container = pane?.querySelector(".wterm") as HTMLElement | null;
+    const scrollback = container?.querySelector(".cell-scrollback") as HTMLElement | null;
+    if (container && scrollback) container.scrollTop = scrollback.offsetTop + Math.round(10 * rowH);
+  }, { id: sessionId, rowH: revealed.rowH });
   const parked = await geometry();
   expect(parked.reader).toMatch(/^CELLLINE-\d+$/);
+  await expect.poll(async () => (await geometry()).rowCount, { timeout: 60_000 })
+    .toBeGreaterThan(revealed.rowCount);
 
-  // Drain to quiescence: rowCount stops growing once the painted head passes
-  // the reader. Neither the scroll space nor the reader's row may move.
-  let last = -1, settled = 0;
+  // Wait for the demand-driven drain to quiesce.
+  let last = -1;
+  let settled = 0;
   await expect.poll(async () => {
-    const g = await geometry();
-    settled = g.rowCount === last ? settled + 1 : 0;
-    last = g.rowCount;
+    const current = await geometry();
+    settled = current.rowCount === last ? settled + 1 : 0;
+    last = current.rowCount;
     return settled;
   }, { timeout: 60_000, intervals: [250] }).toBeGreaterThanOrEqual(4);
 
   const drained = await geometry();
-  expect(drained.rowCount).toBeGreaterThan(attach.rowCount); // the drain really ran
+  expect(drained.rowCount).toBeGreaterThan(revealed.rowCount);
   expect(Math.abs(drained.scrollHeight - parked.scrollHeight)).toBeLessThanOrEqual(Math.ceil(drained.rowH));
   expect(drained.reader).toBe(parked.reader);
-  expect(drained.scrollTop).toBe(parked.scrollTop); // zero application scroll writes
+  expect(Math.abs(drained.scrollTop - parked.scrollTop)).toBeLessThanOrEqual(Math.ceil(drained.rowH));
+  const scan = await smokePage.evaluate((id) => {
+    const smoke = (window as unknown as Window & {
+      __smoke: { markerScan(sessionId: string, prefix: string): { duplicated: number[]; outOfOrder: number } };
+    }).__smoke;
+    return smoke.markerScan(id, "CELLLINE-");
+  }, sessionId);
+  expect(scan).toMatchObject({ duplicated: [], outOfOrder: 0 });
 });

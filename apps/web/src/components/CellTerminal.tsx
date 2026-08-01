@@ -393,10 +393,12 @@ export function CellTerminal(props: CellTerminalProps) {
 			rows,
 			clientSeq: BigInt(claimSeq),
 			cause,
-			// The worker sizes the claim snapshot's scrollback tail to reach back to
-			// this row, so the returning full frame EXTENDS our painted history
-			// (mergeFullFrame) instead of wiping it and re-pulling via backfill.
-			heldScrollbackTotal: renderer?.backfillAnchor()?.total ?? 0,
+			// Bottom-following viewers only need the worker's standard live tail.
+			// Off-bottom viewers send their held boundary so a returning full frame
+			// can preserve the history row they are inspecting via mergeFullFrame.
+			heldScrollbackTotal: !renderer || renderer.atBottom()
+				? 0
+				: renderer.backfillAnchor()?.total ?? 0,
 		});
 	}
 
