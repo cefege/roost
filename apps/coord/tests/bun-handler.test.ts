@@ -56,3 +56,34 @@ test("Connect request cancellation stays detached from Bun and cleans up the res
   expect(handlerSignal!.aborted).toBe(true);
   expect(iteratorReturned).toBe(true);
 });
+
+test("unary Connect responses are buffered before the detached signal is aborted", async () => {
+  let handlerSignal: AbortSignal | undefined;
+  const handler = Object.assign(
+    async (request: UniversalServerRequest): Promise<UniversalServerResponse> => {
+      handlerSignal = request.signal;
+      const body = (async function* () {
+        yield new Uint8Array([1, 2]);
+        yield new Uint8Array([3]);
+      })();
+      return { status: 200, header: new Headers(), body };
+    },
+    {
+      requestPath: "/test.Unary",
+      allowedMethods: ["POST"],
+      method: { methodKind: "unary" },
+    },
+  ) as UniversalHandler;
+  const adapter = makeConnectBunHandler({ handlers: [handler] } as unknown as ConnectRouter);
+  const bunRequestAbort = new AbortController();
+
+  const response = await adapter.fetch(new Request("http://localhost/test.Unary", {
+    method: "POST",
+    signal: bunRequestAbort.signal,
+  }));
+
+  expect(handlerSignal).toBeDefined();
+  expect(handlerSignal).not.toBe(bunRequestAbort.signal);
+  expect(handlerSignal!.aborted).toBe(true);
+  expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3]));
+});
