@@ -15,6 +15,7 @@ import { gridToCellFrame } from "@roost/shared/cell";
 import { WasmBridge } from "@wterm/core";
 import type { TerminalCore } from "@wterm/core";
 import { initCellEmitState } from "@roost/shared/cell";
+import { createSbRing } from "../src/session-scrollback-ring.ts";
 
 function cellGridText(core: TerminalCore): string {
   const frame = gridToCellFrame(core, 0);
@@ -45,7 +46,7 @@ async function injectSession(
     cwd: "/",
     fsm: {} as never,
     bridge: null,
-    scrollback: new TextEncoder().encode(bytes),
+    scrollback: createSbRing(new TextEncoder().encode(bytes)),
     head_seq: bytes.length,
     alt_mode: false,
     mode_carry: new Uint8Array(0),

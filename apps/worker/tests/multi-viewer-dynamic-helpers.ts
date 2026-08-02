@@ -19,6 +19,7 @@ import { asSessionId, asChannelId, asWorkerFp } from "@roost/shared";
 import { VIEWER_WITHDRAW_GRACE_MS } from "@roost/shared/viewport";
 import { WasmBridge } from "@wterm/core";
 import { initCellEmitState } from "@roost/shared/cell";
+import { createSbRing } from "../src/session-scrollback-ring.ts";
 
 // withdrawViewport defers removal by VIEWER_WITHDRAW_GRACE_MS (hysteresis,
 // so a refresh's re-claim cancels it). Tests that withdraw then assert the
@@ -53,7 +54,7 @@ export async function injectSession(mgr: SessionManager, initCols: number, initR
     cwd: "/",
     fsm: {} as never,
     bridge: null,
-    scrollback: new Uint8Array(0),
+    scrollback: createSbRing(),
     head_seq: 0,
     alt_mode: false,
     mode_carry: new Uint8Array(0),

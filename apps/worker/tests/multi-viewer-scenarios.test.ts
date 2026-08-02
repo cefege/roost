@@ -18,6 +18,7 @@ import { WasmBridge } from "@wterm/core";
 import { gridToCellFrame } from "@roost/shared/cell";
 import type { TerminalCore } from "@wterm/core";
 import { initCellEmitState } from "@roost/shared/cell";
+import { createSbRing } from "../src/session-scrollback-ring.ts";
 
 // withdrawViewport defers removal by VIEWER_WITHDRAW_GRACE_MS; wait past it
 // before asserting the post-withdraw claim count / recomputed SCD.
@@ -50,7 +51,7 @@ async function injectSession(mgr: SessionManager, cols: number, rows: number): P
     cwd: "/",
     fsm: {} as never,
     bridge: null,
-    scrollback: new Uint8Array(0),
+    scrollback: createSbRing(),
     head_seq: 0,
     alt_mode: false,
     mode_carry: new Uint8Array(0),

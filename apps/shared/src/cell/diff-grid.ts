@@ -1,40 +1,54 @@
-// applyDelta(base, delta) → reconstructed FULL frame (R11). The producing
+// applyDelta(base, delta) → the reconstructed FULL frame (R11). The producing
 // side is gridDeltaFrame (emitter.ts, core.isDirtyRow path) — its reframe
 // rule (cols/rows change, alt-screen toggle, scrollback shrink → full frame)
 // is what makes the delta safely applicable here. Round-trip against the
 // real encoder is covered by tests/cell-realcore.test.ts.
+//
+// OWNERSHIP: the caller owns `base`; applyDelta CONSUMES and returns it. It
+// mutates `base` in place rather than rebuilding, because rebuilding copied the
+// whole held scrollback window (up to MAX_HELD_SCROLLBACK_ROWS = 2000 rows) on
+// every frame that scrolled a single line. The only production caller is
+// CellGridRenderer.apply, which holds exactly one frame per pane and always
+// stores the return value back.
 
 import type { CellRow, CellGridFrame } from "./types.ts";
 
-/** Reconstruct a full frame by applying a delta onto the client's held
- *  frame. A full delta replaces wholesale. */
+/** Apply a delta onto the client's held frame, in place. A full delta replaces
+ *  the held frame wholesale (the caller stores the returned frame either way).
+ *  `base` MUST NOT be read again by the caller after this returns. */
 export function applyDelta(base: CellGridFrame, delta: CellGridFrame): CellGridFrame {
-  if (delta.full) return delta;
+	if (delta.full) return delta;
 
-  // Override changed viewport rows by index; keep the rest from base.
-  const byIndex = new Map<number, CellRow>();
-  for (const r of base.viewportRows) byIndex.set(r.index, r);
-  for (const r of delta.viewportRows) byIndex.set(r.index, r);
-  const viewportRows: CellRow[] = [];
-  for (let row = 0; row < delta.rows; row++) {
-    viewportRows.push(byIndex.get(row) ?? { index: row, spans: [] });
-  }
+	// A row-count change forces a full frame upstream, so this only ever fires
+	// for a sparse or stale base (test fixtures, teardown races).
+	const viewportRows = base.viewportRows;
+	if (viewportRows.length !== delta.rows) {
+		viewportRows.length = delta.rows;
+		for (let row = 0; row < delta.rows; row++) {
+			viewportRows[row] ??= { index: row, spans: [] } satisfies CellRow;
+		}
+	}
+	// Overwrite changed rows by index; every other row keeps its held element,
+	// which is also what lets renderViewport's hash diff skip them.
+	for (const row of delta.viewportRows) {
+		if (row.index >= 0 && row.index < viewportRows.length) viewportRows[row.index] = row;
+	}
 
-  // Splice appended scrollback onto the held history.
-  const scrollbackRows = delta.scrollbackAppend.length
-    ? base.scrollbackRows.concat(delta.scrollbackAppend)
-    : base.scrollbackRows;
+	// Scrollback is append-only, so the held history extends rather than copies.
+	for (const row of delta.scrollbackAppend) base.scrollbackRows.push(row);
+	if (base.scrollbackAppend.length > 0) base.scrollbackAppend.length = 0;
 
-  return {
-    cols: delta.cols, rows: delta.rows,
-    cursorRow: delta.cursorRow, cursorCol: delta.cursorCol, cursorVisible: delta.cursorVisible,
-    altScreen: delta.altScreen, cursorKeysApp: delta.cursorKeysApp, bracketedPaste: delta.bracketedPaste,
-    full: true,
-    viewportRows,
-    scrollbackRows,
-    scrollbackAppend: [],
-    scrollbackTotal: delta.scrollbackTotal,
-    sbBase: base.sbBase, // deltas never move the held window's base
-    seq: delta.seq,
-  };
+	base.cols = delta.cols;
+	base.rows = delta.rows;
+	base.cursorRow = delta.cursorRow;
+	base.cursorCol = delta.cursorCol;
+	base.cursorVisible = delta.cursorVisible;
+	base.altScreen = delta.altScreen;
+	base.cursorKeysApp = delta.cursorKeysApp;
+	base.bracketedPaste = delta.bracketedPaste;
+	base.full = true;
+	base.scrollbackTotal = delta.scrollbackTotal;
+	base.seq = delta.seq;
+	// sbBase is deliberately untouched: deltas never move the held window's base.
+	return base;
 }

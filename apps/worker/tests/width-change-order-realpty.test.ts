@@ -12,6 +12,7 @@ import { describe, test, expect } from "bun:test";
 import { tmpdir } from "node:os";
 import { SessionManager } from "../src/session-manager.ts";
 import { asWorkerFp } from "@roost/shared";
+import { readRing, type SbRing } from "../src/session-scrollback-ring.ts";
 
 const FP = "ab".repeat(32);
 
@@ -32,7 +33,7 @@ function cellGridText(core: TerminalCore): string {
 type Internal = {
   _wtermRebuildChain: Map<number, Promise<void>>;
   _recomputeViewport: (ch: number) => void;
-  sessions: Map<number, { scrollback: Uint8Array }>;
+  sessions: Map<number, { scrollback: SbRing }>;
 };
 const asInternal = (m: SessionManager) => m as unknown as Internal;
 
@@ -40,7 +41,7 @@ async function waitForRing(m: SessionManager, ch: number, needle: string, timeou
   const dec = new TextDecoder();
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    if (dec.decode(asInternal(m).sessions.get(ch)!.scrollback).includes(needle)) return true;
+    if (dec.decode(readRing(asInternal(m).sessions.get(ch)!.scrollback)).includes(needle)) return true;
     // Real PTY integration exposes no output event; this is a bounded
     // readiness poll against the actual keeper/PTY transport.
     await Bun.sleep(120);

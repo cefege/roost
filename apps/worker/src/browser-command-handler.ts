@@ -10,7 +10,7 @@ import type { CoordLink } from "./transport/CoordLink.ts";
 import type { SessionManager } from "./session-manager.ts";
 import { handleAttach, handleKill, handleRespawnIfMissing, handleSpawnShell } from "./browser-command-spawn.ts";
 import { handleGetHome, handleListDir, handleMkdir, handleReadFile, handleReadFileChunk } from "./browser-command-files.ts";
-import { handleGetScrollbackCells, handleResize } from "./browser-command-terminal.ts";
+import { handleGetScrollbackCells, handleResize, handleSearchScrollback } from "./browser-command-terminal.ts";
 import { handleStartTransfer } from "./browser-command-transfer.ts";
 import { handleAttachmentProbe, handleDeleteAttachment, handleListAttachments } from "./browser-command-attachments.ts";
 import { handleDiagDumpBytecap, handleDiagSnapshot } from "./browser-command-diag.ts";
@@ -64,6 +64,10 @@ export function handleBrowserCommand(
 		}
 		case "get-scrollback-cells": {
 			void handleGetScrollbackCells(frame, request_id, { coordLink, sessionMgr });
+			return;
+		}
+		case "search-scrollback": {
+			void handleSearchScrollback(frame, request_id, { coordLink, sessionMgr });
 			return;
 		}
 		case "resize": {

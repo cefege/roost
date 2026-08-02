@@ -11,6 +11,7 @@ import { describe, test, expect } from "bun:test";
 import { SessionManager } from "../src/session-manager.ts";
 import { asSessionId, asChannelId, asWorkerFp } from "@roost/shared";
 import { initCellEmitState } from "@roost/shared/cell";
+import { createSbRing } from "../src/session-scrollback-ring.ts";
 
 function freshMgr(): { mgr: SessionManager; calls: { n: number } } {
   const calls = { n: 0 };
@@ -33,7 +34,7 @@ function injectSession(mgr: SessionManager, channelId: number, headSeq: number, 
     cwd: "/",
     fsm: { send: () => {} } as never,
     bridge: null,
-    scrollback: new Uint8Array(0),
+    scrollback: createSbRing(),
     head_seq: headSeq,
     alt_mode: false,
     mode_carry: new Uint8Array(0),

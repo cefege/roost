@@ -34,6 +34,7 @@ import {
 import { protoToCellFrame } from "@roost/shared/cell/cell-proto";
 import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
 import { WasmBridge } from "@wterm/core";
+import { createSbRing } from "../src/session-scrollback-ring.ts";
 
 const SID = asSessionId("00000000-0000-0000-0000-000000000001");
 const CID = 1;
@@ -67,7 +68,7 @@ async function injectSession(mgr: SessionManager, bytes: Uint8Array): Promise<Se
     kind: "shell",
     cwd: "/",
     fsm,
-    scrollback: new Uint8Array(bytes),
+    scrollback: createSbRing(new Uint8Array(bytes)),
     head_seq: bytes.length,
     alt_mode: false,
     mode_carry: new Uint8Array(0),
@@ -75,6 +76,7 @@ async function injectSession(mgr: SessionManager, bytes: Uint8Array): Promise<Se
     wtermCore,
     session_trace_id: "sbcell00",
     cell_emit: initCellEmitState(),
+    lastPtyOutMs: 0,
     spawnedAtMs: Date.now(),
   };
   mgr.sessions.set(CID, record);

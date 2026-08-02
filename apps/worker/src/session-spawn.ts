@@ -13,6 +13,7 @@ import { expandTilde } from "./util/path.ts";
 import { withHistfile } from "./keeper/histfile.ts";
 import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
 import { _createWtermCore } from "./session-constants.ts";
+import { createSbRing } from "./session-scrollback-ring.ts";
 
 /** Spawn a plain shell session. Returns the channelId.
  *  targetSessionId: optional explicit session id to use instead of
@@ -49,7 +50,7 @@ export async function spawnShell(
 		kind: "shell",
 		cwd: resolvedCwd,
 		fsm,
-		scrollback: new Uint8Array(0),
+		scrollback: createSbRing(),
 		head_seq: 0,
 		alt_mode: false,
 		mode_carry: new Uint8Array(0),
@@ -57,6 +58,7 @@ export async function spawnShell(
 		wtermCore,
 		session_trace_id: newTraceId(),
 		cell_emit: initCellEmitState(),
+		lastPtyOutMs: 0,
 		spawnedAtMs: Date.now(),
 	};
 	this.sessions.set(channelId, record);

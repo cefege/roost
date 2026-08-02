@@ -8,6 +8,7 @@ import { log, diag } from "@roost/shared";
 import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
 import { ALT_ENTER_SEQS } from "./terminal-stream-scan.ts";
 import { _createWtermCore } from "./session-constants.ts";
+import { readRing } from "./session-scrollback-ring.ts";
 import {
 	VIEWER_WITHDRAW_GRACE_MS as VIEWPORT_WITHDRAW_GRACE_MS,
 	VIEWER_CLAIM_TTL_MS as VIEWPORT_CLAIM_TTL_MS,
@@ -382,8 +383,9 @@ export async function _rebuildWtermCore(
 	// Main-screen sessions replay their ring because text reflows cleanly. This
 	// is stream-driven: any alt-screen TUI takes the empty-core branch.
 	const isAltScreen = rec.alt_mode;
-	if (!isAltScreen && rec.scrollback.length > 0)
-		fresh.writeRaw(rec.scrollback);
+	const ringBytes = readRing(rec.scrollback);
+	if (!isAltScreen && ringBytes.length > 0)
+		fresh.writeRaw(ringBytes);
 	// Prime alt-screen state so the rebuilt core's usingAltScreen() matches
 	// rec.alt_mode (L11 "stale text wallpaper after worker restart").
 	if (rec.alt_mode && !fresh.usingAltScreen()) {
@@ -430,6 +432,6 @@ export async function _rebuildWtermCore(
 		rows,
 		mode: isAltScreen ? "empty_alt_primed" : "rebuild_from_ring",
 		replayed_ring: !isAltScreen,
-		ring_bytes: rec.scrollback.length,
+		ring_bytes: ringBytes.length,
 	});
 }

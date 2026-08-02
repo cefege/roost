@@ -12,6 +12,7 @@ import { initCellEmitState, SB_SNAPSHOT_TAIL_ROWS } from "@roost/shared/cell";
 import { protoToCellFrame } from "@roost/shared/cell/cell-proto";
 import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
 import { WasmBridge } from "@wterm/core";
+import { createSbRing } from "../src/session-scrollback-ring.ts";
 
 function mgrWithCellCounter(): { mgr: SessionManager; frames: unknown[] } {
   const frames: unknown[] = [];
@@ -35,13 +36,14 @@ async function injectCellSession(mgr: SessionManager, channelId: number): Promis
     cwd: "/",
     fsm: {} as never,
     bridge: null,
-    scrollback: new Uint8Array(0),
+    scrollback: createSbRing(),
     head_seq: 0,
     alt_mode: false,
     mode_carry: new Uint8Array(0),
     osc7_carry: new Uint8Array(0),
     wtermCore,
     cell_emit: initCellEmitState(),
+    lastPtyOutMs: 0,
   });
 }
 
@@ -248,5 +250,34 @@ describe("claim snapshot only when the claimant is not provably current", () => 
     expect(revealed.viewportRows.some((r) =>
       r.spans.map((s) => s.text).join("").includes("finished-while-away"),
     )).toBe(true);
+  });
+});
+
+// __roostLag()'s worker_prep segment is (workerEmitMs - ptyOutMs). Stamping both
+// from one Date.now() at emit made that leg structurally zero, hiding the whole
+// coalesce window plus grid read. ptyOutMs must date the OLDEST unshipped byte
+// of the burst, and must be released once shipped so the next burst re-dates it.
+describe("ptyOutMs dates the oldest unshipped byte, not the emit", () => {
+  test("a chunk absorbed by the trailing window is dated from its arrival", async () => {
+    const { mgr, frames } = mgrWithCellCounter();
+    await injectCellSession(mgr, 1);
+    mgr.claimViewport(1, "v", 80, 24, 1, 1); frames.length = 0;
+    append(mgr, 1, "first\r\n");
+    await sleep(0);                     // leading-edge microtask fires, arms the window
+    expect(frames.length).toBe(1);
+    frames.length = 0;                  // the leading edge waited for nothing
+    const arrived = Date.now();
+    append(mgr, 1, "second\r\n");       // absorbed: waits out CELL_EMIT_COALESCE_MS
+    const appendReturned = Date.now();
+    await sleep(60);
+    expect(frames.length).toBe(1);
+    const trailing = frames[0] as PbCellGridFrame;
+    // Dated from arrival, NOT from emit: emit is a coalesce window later, so an
+    // emit-time stamp could not fall inside the append's own instant.
+    expect(Number(trailing.ptyOutMs)).toBeGreaterThanOrEqual(arrived);
+    expect(Number(trailing.ptyOutMs)).toBeLessThanOrEqual(appendReturned);
+    expect(trailing.workerEmitMs).toBeGreaterThanOrEqual(trailing.ptyOutMs);
+    // Released after shipping, so the next burst is dated from its own arrival.
+    expect(mgr.shellByChannel(1)!.lastPtyOutMs).toBe(0);
   });
 });

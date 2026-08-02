@@ -17,6 +17,7 @@ import {
 	KEEPER_DEAD_BIRTH_THRESHOLD,
 	DEAD_BIRTH_LIFETIME_MS,
 } from "./session-constants.ts";
+import { ringLength } from "./session-scrollback-ring.ts";
 
 /** After a worker restart the surviving keeper may still hold channels coord
  *  no longer lists (orphaned PTYs from earlier in its long life). resume()
@@ -224,8 +225,8 @@ export function diagSnapshot(this: SessionManager): Record<string, unknown> {
 			kind: rec.kind,
 			cwd: rec.cwd,
 			head_seq: rec.kind === "shell" ? rec.head_seq : null,
-			tail_seq: rec.kind === "shell" ? rec.head_seq - rec.scrollback.length : null,
-			scrollback_len: rec.kind === "shell" ? rec.scrollback.length : null,
+			tail_seq: rec.kind === "shell" ? rec.head_seq - ringLength(rec.scrollback) : null,
+			scrollback_len: rec.kind === "shell" ? ringLength(rec.scrollback) : null,
 			alt_mode: rec.kind === "shell" ? rec.alt_mode : null,
 			wterm_cols: rec.kind === "shell" ? rec.wtermCore.getCols() : null,
 			wterm_rows: rec.kind === "shell" ? rec.wtermCore.getRows() : null,

@@ -139,6 +139,9 @@ export type SignalKind =
   | "sync.backfill_truncated"   // coord backfill hit the getEventsSince row cap → events silently skipped
   | "sync.queue_overflow"       // coord Sync per-stream queue crossed high-water → slow subscriber / runaway producer
   | "sync.auth_rejected"        // coord rejected a browser Sync WS upgrade (jwt invalid / missing token); kv.reason
+  | "sync.ws_frame_dropped"     // coord's ws.send returned 0 = the frame was DROPPED, not merely backpressured. A cell frame lost here is what the SPA's cell.seq_gap then recovers from; without this the coord side of that story is invisible
+  | "cell.seq_gap"              // SPA saw a cell-frame seq discontinuity (frame lost in transit) → forced a catch-up claim. A BURST means the socket is losing frames, not that recovery is broken
+  | "sync.prehydration_overflow" // SPA held more than the pre-hydration cap of Sync frames before the bootstrap snapshot landed → queue dropped and the socket re-dialed to backfill from the persisted cursor
   | "event.append_failed"       // coord appendEvent DB tx failed (event-log durability)
   | "audit.write_failed"        // coord audit_log insert failed (audit/compliance trail hole)
   | "worker.auth_rejected"      // coord rejected a worker WS upgrade (jwt invalid / fp mismatch); kv.reason

@@ -5,12 +5,13 @@
 
 import type { SessionManager } from "./session-manager.ts";
 import type { TerminalCore } from "@wterm/core";
-import { diag, signal } from "@roost/shared";
+import { diag, isDiagEnabled, signal } from "@roost/shared";
 import * as byteCapture from "./diag/byte-capture.ts";
 import { synthQueryReplies } from "./terminal-query-reply.ts";
 import { _scanAltModeTransitions, _scanOsc7 } from "./terminal-stream-scan.ts";
 import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
-import { _sha8, SCROLLBACK_CAP_BYTES, MODE_CARRY_MAX } from "./session-constants.ts";
+import { _sha8, MODE_CARRY_MAX } from "./session-constants.ts";
+import { appendToRing } from "./session-scrollback-ring.ts";
 
 /** Append a chunk to the per-session scrollback ring, evicting oldest
  *  bytes if the cap is exceeded. Called from attachOutputClient's
@@ -26,13 +27,7 @@ export function appendScrollback(this: SessionManager, channelId: number, chunk:
 	if (!rec) return -1;
 	const core = rec.wtermCore;
 	if (!core) return -1;
-	const next = new Uint8Array(rec.scrollback.length + chunk.length);
-	next.set(rec.scrollback, 0);
-	next.set(chunk, rec.scrollback.length);
-	rec.scrollback =
-		next.length > SCROLLBACK_CAP_BYTES
-			? next.subarray(next.length - SCROLLBACK_CAP_BYTES)
-			: next;
+	appendToRing(rec.scrollback, chunk);
 	rec.head_seq += chunk.length;
 	// Diag: per-chunk byte capture. Ring is 256KB; cheap when ROOST_DIAG=0
 	// (diag() is the no-op gate, but the ring itself is still mutated —
@@ -43,16 +38,21 @@ export function appendScrollback(this: SessionManager, channelId: number, chunk:
 		new Uint8Array(chunk),
 		rec.head_seq,
 	);
-	diag("bytes.chunk", {
-		sid: rec.sessionId,
-		channel_id: channelId,
-		session_trace_id: rec.session_trace_id,
-		dir: "down",
-		end_seq: rec.head_seq,
-		len: chunk.length,
-		sha8: _sha8(chunk),
-		alt_mode: rec.alt_mode,
-	});
+	// `diag` is a no-op function when the firehose is off, but its ARGUMENTS
+	// always evaluate — so _sha8 ran a real sha256 over every PTY chunk on the
+	// default production path. The guard is what makes it free.
+	if (isDiagEnabled()) {
+		diag("bytes.chunk", {
+			sid: rec.sessionId,
+			channel_id: channelId,
+			session_trace_id: rec.session_trace_id,
+			dir: "down",
+			end_seq: rec.head_seq,
+			len: chunk.length,
+			sha8: _sha8(chunk),
+			alt_mode: rec.alt_mode,
+		});
+	}
 	// Mirror to headless xterm. The serialize addon snapshots whatever
 	// we've fed it — its job here is solely to support clean fresh-mount
 	// replay at the headless cols/rows. Live deltas still ride the raw

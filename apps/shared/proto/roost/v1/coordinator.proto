@@ -225,6 +225,30 @@ message SessionsGetScrollbackCellsResponse {
 }
 
 
+// Find in scrollback. Runs on the WORKER's authoritative grid, not on the
+// client's held window: the SPA keeps at most MAX_HELD_SCROLLBACK_ROWS of the
+// worker's 10k retained rows, so a client-only find would silently miss most of
+// a long session. Rows evicted past the worker's ring are genuinely unsearchable.
+message SessionsSearchScrollbackRequest {
+  string session_id = 1;
+  string query = 2;
+  bool case_sensitive = 3;
+  bool regex = 4;
+  uint32 max_matches = 5;         // clamped server-side to SEARCH_MAX_MATCHES
+}
+message SessionsSearchScrollbackMatch {
+  uint64 row = 1;                 // MONOTONIC absolute index — same space as PbCellRow.index and sb_base
+  uint32 col = 2;                 // start column in the row's plain text
+  uint32 len = 3;                 // match length in columns
+  string preview = 4;             // row plain text, first 200 chars, for the result list
+}
+message SessionsSearchScrollbackResponse {
+  repeated SessionsSearchScrollbackMatch matches = 1;  // newest row first
+  bool truncated = 2;             // hit SEARCH_MAX_MATCHES or the deadline
+  uint64 scrollback_total = 3;    // epoch guard, same role as in the cells RPC
+  uint32 cols = 4;
+}
+
 
 // ─── workspaces ───────────────────────────────────────────────────────────
 
@@ -597,6 +621,7 @@ service CoordinatorService {
   rpc SessionsAssignWorkspace(SessionsAssignWorkspaceRequest) returns (SessionsAssignWorkspaceResponse);
   rpc SessionsGetScrollbackSince(SessionsGetScrollbackSinceRequest) returns (SessionsGetScrollbackSinceResponse);
   rpc SessionsGetScrollbackCells(SessionsGetScrollbackCellsRequest) returns (SessionsGetScrollbackCellsResponse);
+  rpc SessionsSearchScrollback(SessionsSearchScrollbackRequest) returns (SessionsSearchScrollbackResponse);
 
   // workspaces
   rpc WorkspacesList(WorkspacesListRequest) returns (WorkspacesListResponse);

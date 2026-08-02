@@ -3,7 +3,7 @@
 
 import type { SessionManager } from "./session-manager.ts";
 import type { ChannelId } from "@roost/shared";
-import { log, diag, signal } from "@roost/shared";
+import { log, diag, isDiagEnabled, signal } from "@roost/shared";
 import { DIR_FROM_PTY } from "@roost/shared/wire";
 import { nextCellFrame, SB_SNAPSHOT_TAIL_ROWS } from "@roost/shared/cell";
 import { cellFrameToProto } from "@roost/shared/cell/cell-proto";
@@ -33,6 +33,9 @@ const LEADING_SENTINEL = -1 as unknown as ReturnType<typeof setTimeout>;
  *  lands in one place — guards the L11 scrollback-seam path. */
 export function emitUpstreamChunk(this: SessionManager, channelId: number, chunk: Buffer): void {
 	const rec = this.sessions.get(channelId);
+	// Oldest unrendered byte of the burst — the instant latency actually starts.
+	// emitCellFrame consumes and clears it.
+	if (rec && rec.lastPtyOutMs === 0) rec.lastPtyOutMs = Date.now();
 	diag("cell.recv", { sid: String(rec?.sessionId ?? ""), channel_id: channelId, len: chunk.length });
 	if (!this.sendBinaryUpstream) {
 		log.warn("session-manager", "emit_no_upstream", {
@@ -172,24 +175,29 @@ export function emitCellFrame(this: SessionManager, channelId: number, force: bo
 	rec.cell_emit = state;
 	core.clearDirty();
 	this.cellDirty.delete(channelId);
-	diag("cell.emit", {
-		sid: String(rec.sessionId),
-		seq: frame.seq,
-		full: frame.full,
-		vp_rows: frame.viewportRows.length,
-		sb_append: frame.scrollbackAppend.length,
-		sb_rows: frame.scrollbackRows.length,
-		sb_base: frame.sbBase,
-		cursor_row: frame.cursorRow,
-		cursor_col: frame.cursorCol,
-		cursor_vis: frame.cursorVisible,
-		alt: frame.altScreen,
-	});
+	// Gated: 12 fields per emitted frame, and diag()'s arguments evaluate even
+	// when the firehose is off.
+	if (isDiagEnabled()) {
+		diag("cell.emit", {
+			sid: String(rec.sessionId),
+			seq: frame.seq,
+			full: frame.full,
+			vp_rows: frame.viewportRows.length,
+			sb_append: frame.scrollbackAppend.length,
+			sb_rows: frame.scrollbackRows.length,
+			sb_base: frame.sbBase,
+			cursor_row: frame.cursorRow,
+			cursor_col: frame.cursorCol,
+			cursor_vis: frame.cursorVisible,
+			alt: frame.altScreen,
+		});
+	}
 	// session_id left empty: coord's publishCellGrid stamps it from the
 	// channel→session map (byte-hub.ts), overwriting anything sent here.
 	const pb = cellFrameToProto(frame, "");
-	pb.ptyOutMs = BigInt(Date.now());
+	pb.ptyOutMs = BigInt(rec.lastPtyOutMs || Date.now());
 	pb.workerEmitMs = BigInt(Date.now());
+	rec.lastPtyOutMs = 0;
 	send(channelId, pb);
 }
 

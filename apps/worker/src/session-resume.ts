@@ -14,6 +14,7 @@ import { withHistfile } from "./keeper/histfile.ts";
 import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
 import { ALT_ENTER_SEQS, _scanAltModeTransitions } from "./terminal-stream-scan.ts";
 import { _createWtermCore } from "./session-constants.ts";
+import { createSbRing } from "./session-scrollback-ring.ts";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
@@ -88,7 +89,7 @@ export async function resume(this: SessionManager, opts: {
 			kind: opts.kind,
 			cwd: opts.cwd,
 			fsm,
-			scrollback: resumedBytes,
+			scrollback: createSbRing(resumedBytes),
 			head_seq: resumedHeadSeq,
 			alt_mode: resumedAlt,
 			mode_carry: new Uint8Array(0),
@@ -96,6 +97,7 @@ export async function resume(this: SessionManager, opts: {
 			wtermCore,
 			session_trace_id: newTraceId(),
 			cell_emit: initCellEmitState(),
+			lastPtyOutMs: 0,
 			spawnedAtMs: Date.now(),
 			// Re-capture the child pid from listChannels so ports survive a worker
 			// restart (reconcile adopts the keeper's live PTY, no re-spawn → the
@@ -173,7 +175,7 @@ export async function respawn(this: SessionManager, opts: {
 		kind: opts.kind,
 		cwd: resolvedCwd,
 		fsm,
-		scrollback: new Uint8Array(0),
+		scrollback: createSbRing(),
 		head_seq: 0,
 		// Stream-driven: a respawned TUI emits its own alternate-screen entry.
 		alt_mode: false,
@@ -182,6 +184,7 @@ export async function respawn(this: SessionManager, opts: {
 		wtermCore,
 		session_trace_id: newTraceId(),
 		cell_emit: initCellEmitState(),
+		lastPtyOutMs: 0,
 		spawnedAtMs: Date.now(),
 	};
 	this.sessions.set(channelId, record);

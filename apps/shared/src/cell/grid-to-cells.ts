@@ -89,6 +89,27 @@ const SB_SIG_ROWS = 6;
 // append spans the same rows), just less efficient.
 export const SB_SHIFT_SCAN_MAX = 256;
 
+/** Scrollback capacities a core can have. roost-wasm's MAX_SCROLLBACK_LINES is
+ *  10k (the phase-pb9b patch raised stock 1k); wterm-core-factory falls back to
+ *  the stock inline wasm when the patched file is unreadable, so a degraded
+ *  worker really does run the 1k core. Pinned against both real cores by
+ *  tests/cell-scrollback-cap.test.ts. */
+export const WTERM_SCROLLBACK_CAPS: readonly number[] = [1_000, 10_000];
+
+/** Is the retained count close enough to a real capacity that the next lines
+ *  could evict? Nothing is dropped below the cap, so the tail-identity probe —
+ *  ~1200 WASM reads — is pure waste anywhere else, and its old gate was true
+ *  for every non-scrolling delta, i.e. for ordinary typing. Banded rather than
+ *  a single floor because the floor must never sit above the core's true cap:
+ *  that would silently disable eviction detection at saturation, which is the
+ *  L11 history-mis-splice class. */
+export function nearScrollbackCap(total: number): boolean {
+  for (const cap of WTERM_SCROLLBACK_CAPS) {
+    if (total >= cap - SB_SHIFT_SCAN_MAX && total <= cap) return true;
+  }
+  return false;
+}
+
 /** Identity probe for the newest `SB_SIG_ROWS` retained lines, taken `atOffset`
  *  lines back from the newest. It samples every cell, but encodes only a
  *  compact rolling hash per line. "" when the ring is too shallow. */

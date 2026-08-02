@@ -9,7 +9,9 @@
 // the core.
 
 import type { TerminalCore } from "@wterm/core";
-import { gridToCellFrame, gridDeltaFrame, scrollbackShift, scrollbackTailSig } from "./grid-to-cells.ts";
+import {
+  gridToCellFrame, gridDeltaFrame, scrollbackShift, scrollbackTailSig, nearScrollbackCap,
+} from "./grid-to-cells.ts";
 import type { CellGridFrame } from "./types.ts";
 
 export interface CellEmitState {
@@ -50,8 +52,12 @@ export function nextCellFrame(
   // Below the ring cap the count delta already tells us nothing was evicted.
   // AT the cap it pins, so the count can no longer see lines scrolling off and
   // absolute indices silently re-alias (measured: 500 lines pushed, append=[],
-  // absolute row 0 went LINE-78 -> LINE-578). Recover the shift explicitly.
-  const shift = total === st.lastSbTotal - st.sbDropped && total > 0
+  // absolute row 0 went LINE-78 -> LINE-578). Recover the shift explicitly —
+  // but only where eviction is possible at all (nearScrollbackCap), because the
+  // pinned-count gate below is also true for every non-scrolling delta, i.e.
+  // for ordinary typing, which paid the probe's ~1200 WASM reads per keystroke.
+  const nearCap = nearScrollbackCap(total);
+  const shift = nearCap && total === st.lastSbTotal - st.sbDropped && total > 0
     ? scrollbackShift(core, st.tailSig)
     : 0;
   const sbDropped = st.sbDropped + (shift ?? 0);
@@ -69,7 +75,9 @@ export function nextCellFrame(
     frame,
     state: {
       seq, lastSbTotal: monoTotal, sentFull: true, cols, rows, alt,
-      sbDropped, tailSig: scrollbackTailSig(core),
+      // scrollbackShift(core, "") is 0, so the first emit after crossing the
+      // floor is a no-op shift rather than a spurious reframe.
+      sbDropped, tailSig: nearCap ? scrollbackTailSig(core) : "",
     },
   };
 }

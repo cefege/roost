@@ -19,6 +19,7 @@ import { WasmBridge } from "@wterm/core";
 import { gridToCellFrame } from "@roost/shared/cell";
 import type { TerminalCore } from "@wterm/core";
 import { initCellEmitState } from "@roost/shared/cell";
+import { createSbRing } from "../src/session-scrollback-ring.ts";
 
 const SID = asSessionId("00000000-0000-0000-0000-000000000000");
 const CID = 1;
@@ -42,7 +43,7 @@ async function injectSession(mgr: SessionManager, bytes: Uint8Array, cols: numbe
     cwd: "/",
     fsm: {} as never,
     bridge: null,
-    scrollback: new Uint8Array(bytes),
+    scrollback: createSbRing(new Uint8Array(bytes)),
     head_seq: bytes.length,
     alt_mode: false,
     mode_carry: new Uint8Array(0),

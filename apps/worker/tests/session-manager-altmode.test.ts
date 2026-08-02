@@ -12,6 +12,7 @@ import { SessionManager } from "../src/session-manager.ts";
 import { asSessionId, asChannelId, asWorkerFp } from "@roost/shared";
 import { WasmBridge } from "@wterm/core";
 import { initCellEmitState } from "@roost/shared/cell";
+import { createSbRing } from "../src/session-scrollback-ring.ts";
 
 function freshMgr(): SessionManager {
   return new SessionManager({
@@ -20,12 +21,7 @@ function freshMgr(): SessionManager {
   });
 }
 
-type InternalSession = {
-  scrollback: Uint8Array;
-  head_seq: number;
-  alt_mode: boolean;
-  mode_carry: Uint8Array;
-};
+type InternalSession = { alt_mode: boolean };
 
 async function injectSession(mgr: SessionManager, channelId: number, bytes: string, headSeq: number, altMode = false, kind: "shell" | "claude" = "shell"): Promise<void> {
   const wtermCore = await WasmBridge.load();
@@ -38,7 +34,7 @@ async function injectSession(mgr: SessionManager, channelId: number, bytes: stri
     cwd: "/",
     fsm: {} as never,
     bridge: null,
-    scrollback: new TextEncoder().encode(bytes),
+    scrollback: createSbRing(new TextEncoder().encode(bytes)),
     head_seq: headSeq,
     alt_mode: altMode,
     mode_carry: new Uint8Array(0),

@@ -21,7 +21,7 @@ import { CoordTarget } from "./coord-target.ts";
 import { WorkerCoordRelocation } from "./coord-relocation.ts";
 import { createCoordRelocationRecovery } from "./coord-relocation-recovery.ts";
 import { asWorkerFp } from "@roost/shared";
-import { log, diag, signal, workerDataDir } from "@roost/shared";
+import { log, diag, isDiagEnabled, signal, workerDataDir } from "@roost/shared";
 import { coordDataDir, coordServicePath, workerServicePath } from "@roost/shared/paths";
 import { createHash } from "node:crypto";
 const _workerSha8 = (b: Uint8Array): string =>
@@ -129,7 +129,10 @@ export async function runWorker() {
 		// here as a downstream binary frame. Demux by channel_id, only
 		// accept DIR_TO_PTY (1), forward to keeper.
 		onBinary: (channelId, dir, bytes) => {
-			log.info("worker", "onBinary", {
+			// Per-keystroke: one JSON line per keypress at info level was the
+			// noisiest thing in the worker log. debug is level-gated in log.ts, so
+			// nothing is serialized on the default path.
+			log.debug("worker", "onBinary", {
 				channelId,
 				dir,
 				len: bytes.length,
@@ -137,14 +140,18 @@ export async function runWorker() {
 			});
 			if (dir !== 1) return;
 			const rec = sessionMgr.getByChannel(channelId);
-			diag("bytes.up_recv", {
-				sid: rec?.sessionId,
-				channel_id: channelId,
-				session_trace_id: rec?.session_trace_id,
-				dir: "up",
-				len: bytes.length,
-				sha8: _workerSha8(bytes),
-			});
+			// Guarded because _workerSha8 is a real sha256 and diag()'s arguments
+			// evaluate even when the firehose is off — once per keystroke.
+			if (isDiagEnabled()) {
+				diag("bytes.up_recv", {
+					sid: rec?.sessionId,
+					channel_id: channelId,
+					session_trace_id: rec?.session_trace_id,
+					dir: "up",
+					len: bytes.length,
+					sha8: _workerSha8(bytes),
+				});
+			}
 			void sessionMgr.input(channelId, bytes);
 		},
 		// att1-stream: chunked upload assembled to a temp file; reply via the

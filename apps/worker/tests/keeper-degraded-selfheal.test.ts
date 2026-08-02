@@ -9,6 +9,7 @@ import { describe, test, expect } from "bun:test";
 import { SessionManager } from "../src/session-manager.ts";
 import { asWorkerFp } from "@roost/shared";
 import { initCellEmitState } from "@roost/shared/cell";
+import { createSbRing } from "../src/session-scrollback-ring.ts";
 
 function mgr(): { mgr: SessionManager; degradedCalls: number } {
   const state = { degradedCalls: 0 };
@@ -49,7 +50,7 @@ describe("keeper degradation self-heal", () => {
     const core = await WasmBridge.load(); core.init(80, 24);
     (h.mgr as unknown as { sessions: Map<number, unknown> }).sessions.set(7, {
       sessionId: "00000000-0000-0000-0000-000000000000", channelId: 7, socketPath: "/dev/null",
-      kind: "shell", cwd: "/", fsm: {}, bridge: null, scrollback: new Uint8Array(0),
+      kind: "shell", cwd: "/", fsm: {}, bridge: null, scrollback: createSbRing(),
       head_seq: 0, alt_mode: false, mode_carry: new Uint8Array(0), osc7_carry: new Uint8Array(0),
       wtermCore: core, cell_emit: initCellEmitState(),
     });

@@ -73,6 +73,21 @@ export const ClientControlFrame = z.discriminatedUnion("kind", [
     end_row: z.number().int().nonnegative(),
     max_rows: z.number().int().positive(),
   }),
+  // Find-in-scrollback (G): the SPA holds at most MAX_HELD_SCROLLBACK_ROWS of
+  // the worker's retained history, so the search runs against the worker's
+  // authoritative grid instead. rpc-ok data:
+  // { matches: [{ row, col, len, preview }], truncated, total, cols } — `row`
+  // is the MONOTONIC absolute index (same space as PbCellRow.index / sbBase),
+  // newest row first. Invalid `query` under regex → rpc-error "invalid regex: …".
+  Base.extend({
+    kind: z.literal("search-scrollback"),
+    request_id: z.string(),
+    session_id: SessionId,
+    query: z.string(),
+    case_sensitive: z.boolean(),
+    regex: z.boolean(),
+    max_matches: z.number().int().positive(),
+  }),
   // Cross-worker rsync: coord asks the SOURCE worker to spawn rsync
   // sending src_path to dst_host:dst_path. Source worker streams
   // stdout/stderr back via transfer-line frames and emits

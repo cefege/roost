@@ -9,6 +9,7 @@ import type { FsmChannel } from "./fsm.ts";
 import type { TerminalCore } from "@wterm/core";
 import type { CellEmitState } from "@roost/shared/cell";
 import type { PrStatus } from "./pr-status.ts";
+import type { SbRing } from "./session-scrollback-ring.ts";
 
 interface SessionRecordCommon {
 	sessionId: SessionId;
@@ -45,12 +46,11 @@ interface SessionRecordCommon {
 
 export interface SessionShellRecord extends SessionRecordCommon {
 	kind: "shell";
-	// Per-session sliding scrollback for SPA browser-refresh recovery.
-	// Appended on every keeper output chunk (along with the live upstream
-	// forward); served verbatim via sessions.getScrollback so a fresh SPA
-	// mount restores the last 8 MB in a single mutation, no protocol
-	// change to the keeper.
-	scrollback: Uint8Array;
+	// Per-session sliding scrollback window (fixed-capacity byte ring). Appended
+	// on every keeper output chunk alongside the live upstream forward; replayed
+	// into a fresh wterm core when the grid is rebuilt at a new size, which is
+	// what makes the rebuilt grid a pure function of (ring, cols, rows).
+	scrollback: SbRing;
 	// phase-ssb1: monotonic byte-offset seq for the END of `scrollback`.
 	// First byte ever appended has logical seq 1; head_seq = total bytes
 	// appended over session lifetime (NOT total bytes retained — ring may
@@ -83,6 +83,11 @@ export interface SessionShellRecord extends SessionRecordCommon {
 	// R11 cell-grid cell-shipping emitter state. Full/delta decision + seq live in
 	// @roost/shared/cell::nextCellFrame.
 	cell_emit: CellEmitState;
+	// Arrival wall-clock of the OLDEST PTY byte not yet shipped in a cell frame.
+	// 0 = nothing pending. emitCellFrame stamps PbCellFrame.ptyOutMs from it and
+	// resets it, so __roostLag()'s worker_prep segment measures the real
+	// keeper→coalesce→grid-read leg instead of collapsing to zero.
+	lastPtyOutMs: number;
 
 }
 
