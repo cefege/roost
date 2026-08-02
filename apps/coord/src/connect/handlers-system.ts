@@ -20,6 +20,7 @@ import { assertLoopback } from "../middleware/loopback-only.ts";
 import { COORD_GIT_SHA } from "../git-sha.ts";
 import { getMetricsSnapshot } from "../telemetry.ts";
 import { _viewersBySession } from "./viewer-tracker.ts";
+import { _cellSubscriptionSnapshot } from "./cell-subscriptions.ts";
 import type { ConnectDeps } from "./router.ts";
 
 // Coord process boot time — captured at module load (coord startup). Used
@@ -127,6 +128,7 @@ export function makeSystemHandlers(
             Object.fromEntries(Array.from(m.entries()).map(([k, v]) => [k, v])),
           ]),
         ),
+        cell_subscriptions: _cellSubscriptionSnapshot(),
       };
 
       let spaPayload: unknown = null;

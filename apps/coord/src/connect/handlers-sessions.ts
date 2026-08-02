@@ -1,9 +1,9 @@
-// Session RPC handlers: list/spawn/attach/kill/resize/input/cursor-pos/
-// assign-workspace/get-scrollback-cells.
-// Most forward a browser-command frame to the session's worker hub socket
-// (sendBrowserCmd / forwardToSessionWorker) and await the worker reply; resize
-// also bumps the viewer-presence tracker; spread into router.ts's single
-// router.service() literal. Split out of router.ts (400-line cap).
+// Session RPC handlers: list/spawn/attach/kill/rename/resize/input/cursor-pos/
+// assign-workspace. Most forward a browser-command frame to the session's worker
+// hub socket (sendBrowserCmd / forwardToSessionWorker) and await the worker
+// reply; resize also bumps the viewer-presence tracker. The two scrollback reads
+// live in handlers-sessions-scrollback.ts and are spread in below; the whole
+// object spreads into router.ts's single router.service() literal (400-line cap).
 
 import type { ServiceImpl } from "@connectrpc/connect";
 import { Code, ConnectError } from "@connectrpc/connect";
@@ -15,11 +15,9 @@ import {
   SessionsKillResponseSchema, SessionsRenameResponseSchema, SessionsResizeResponseSchema,
   SessionsInputResponseSchema, SessionsCursorPosResponseSchema,
   SessionsAssignWorkspaceResponseSchema,
-  SessionsGetScrollbackCellsResponseSchema,
+  ResizeCause,
 } from "@roost/shared/proto/coordinator_pb";
 import { sessionToProto } from "@roost/shared/wire/session-proto";
-import { cellRowToProto } from "@roost/shared/cell/cell-proto";
-import type { CellRow } from "@roost/shared/cell";
 import { asSessionId, asWorkspaceId } from "@roost/shared/wire";
 import { safeJsonParse } from "@roost/shared/json";
 import type { ClientControlFrame } from "@roost/shared/wire";
@@ -35,7 +33,9 @@ import { getCachedSessionWorker, cacheSessionWorker } from "../byte-hub.ts";
 import { createPendingRpc } from "../router/pending-rpcs.ts";
 import { sendBrowserCmd, forwardToSessionWorker } from "./router-helpers.ts";
 import { _bumpViewer } from "./viewer-tracker.ts";
+import { subscribeCells, unsubscribeCells } from "./cell-subscriptions.ts";
 import type { ConnectDeps } from "./router.ts";
+import { makeSessionScrollbackHandlers } from "./handlers-sessions-scrollback.ts";
 
 const _coordSha8 = (b: Uint8Array): string =>
   createHash("sha256").update(b).digest("hex").slice(0, 8);
@@ -80,7 +80,7 @@ type SessionMethods =
   | "sessionsList" | "sessionsSpawn" | "sessionsAttach" | "sessionsKill"
   | "sessionsRename" | "sessionsResize" | "sessionsInput"
   | "sessionsCursorPos" | "sessionsAssignWorkspace"
-  | "sessionsGetScrollbackCells";
+  | "sessionsGetScrollbackCells" | "sessionsSearchScrollback";
 
 export function makeSessionHandlers(
   deps: ConnectDeps,
@@ -207,6 +207,13 @@ export function makeSessionHandlers(
       // Number.MAX_SAFE_INTEGER for a monotonic per-window counter (would
       // need ~285 years at 1 kHz). Convert via Number(); 0 means "unset".
       const clientSeq = req.clientSeq ? Number(req.clientSeq) : undefined;
+      // Record the cell/byte subscription BEFORE the worker is told, because a
+      // frame produced by the worker's claim snapshot can reach the Sync fanout
+      // before this returns — filtering it out would blank the pane. A 0x0
+      // BACKGROUND claim KEEPS the subscription (that parked-pane keep-alive is
+      // why a reveal needs no re-dial and no snapshot); only WITHDRAW drops it.
+      if (req.cause === ResizeCause.WITHDRAW) unsubscribeCells(viewerKey, req.sessionId);
+      else subscribeCells(viewerKey, req.sessionId);
       const ok = await forwardToSessionWorker(deps.db, req.sessionId, caller, {
         kind: "resize" as const,
         session_id: asSessionId(req.sessionId),
@@ -328,36 +335,6 @@ export function makeSessionHandlers(
       return create(SessionsAssignWorkspaceResponseSchema, { ok: true });
     },
 
-
-    async sessionsGetScrollbackCells(req, ctx) {
-      const caller = requireAuth(ctx.values);
-      const row = await deps.db.selectFrom("sessions").select(["worker_fp"]).where("id", "=", req.sessionId).executeTakeFirst();
-      if (!row) throw new ConnectError("unknown session", Code.NotFound);
-      const sock = getWorkerHubSocket(row.worker_fp);
-      if (!sock) throw new ConnectError("worker not connected", Code.Unavailable);
-      const pending = createPendingRpc<{ rows: CellRow[]; cols: number; total: number; start_row: number; end_row: number }>(8_000, row.worker_fp);
-      sendBrowserCmd(sock, caller, pending.request_id, {
-        kind: "get-scrollback-cells" as const,
-        request_id: pending.request_id,
-        session_id: asSessionId(req.sessionId),
-        end_row: Number(req.endRow),
-        max_rows: req.maxRows,
-      });
-      let res;
-      try { res = await pending.promise; }
-      catch {
-        // THROW on the 8s pending-rpc timeout: the SPA's backfill controller
-        // retries/parks; an empty response would read as "no history".
-        throw new ConnectError("scrollback cells serve timed out", Code.Unavailable);
-      }
-      return create(SessionsGetScrollbackCellsResponseSchema, {
-        rows: res.rows.map(cellRowToProto),
-        cols: res.cols,
-        scrollbackTotal: BigInt(res.total),
-        startRow: BigInt(res.start_row),
-        endRow: BigInt(res.end_row),
-      });
-    },
-
+    ...makeSessionScrollbackHandlers(deps),
   };
 }

@@ -39,6 +39,7 @@ import { getTitleSnapshot } from "../terminal-title-hub.ts";
 import { getUiStateSnapshot } from "./handlers-ui.ts";
 import { getLastActivitySnapshot } from "../last-activity-hub.ts";
 import { requireAuth } from "./auth-interceptor.ts";
+import { isSubscribed } from "./cell-subscriptions.ts";
 import { log } from "@roost/shared/log";
 import { signal } from "@roost/shared/diag";
 import type {
@@ -82,6 +83,10 @@ export function startSyncFeed(
   deps: ConnectDeps,
   sinceEventId: number,
   push: (f: FirehoseFrame) => void,
+  /** Per-tab identity of the socket this feed serves. Non-null → the two hot
+   *  per-session buses ship only sessions this tab claimed. null (older SPA,
+   *  CLI, test client) FAILS OPEN and ships every session, as before. */
+  viewerKey: string | null = null,
 ): { backfill: () => Promise<void>; dispose: () => void } {
   // Backfill + live sessionBus both encode SessionEvent through here.
   const sessionFirehoseFrame = (e: SessionEvent, eventId: number): FirehoseFrame =>
@@ -280,12 +285,14 @@ export function startSyncFeed(
     webhookBus.subscribe(e => { const f = webhookFrame(e); if (f) push(f); }),
     auditBus.subscribe(e => push(auditFrame(e))),
     pairBus.subscribe(e => push(pairFrame(e))),
-    globalBytesBus.subscribe(({ session_id, bytes }) =>
+    globalBytesBus.subscribe(({ session_id, bytes }) => {
+      if (viewerKey && !isSubscribed(viewerKey, session_id)) return;
       push(create(FirehoseFrameSchema, {
         frame: { case: "bytes", value: create(BytesFrameSchema, {
           sessionId: session_id, data: bytes,
         })},
-      }))),
+      }));
+    }),
     globalPresenceBus.subscribe(({ session_id, data }) =>
       push(create(FirehoseFrameSchema, {
         frame: { case: "sessionPresence", value: create(SessionPresenceSchema, {
@@ -295,6 +302,7 @@ export function startSyncFeed(
     // R11 cell-grid cell-shipping. Bus payload is already a PbCellGridFrame
     // (session_id stamped by byte-hub::publishCellGrid).
     globalCellBus.subscribe((frame) => {
+      if (viewerKey && !isSubscribed(viewerKey, frame.sessionId)) return;
       frame.coordFanoutMs = BigInt(Date.now());
       push(create(FirehoseFrameSchema, { frame: { case: "cellGrid", value: frame } }));
     }),

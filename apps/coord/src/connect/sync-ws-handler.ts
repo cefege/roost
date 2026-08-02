@@ -40,6 +40,11 @@ export interface SyncWsData {
   kind: "sync";
   caller: { fingerprint: string; label?: string };
   sinceEventId: number;
+  /** `${fingerprint}:${tabId}` — the same per-tab key sessionsResize claims
+   *  use, so this socket can be fanned out only the sessions this tab claimed.
+   *  null when the client sent no `tab=` (an older SPA build, the CLI, a test
+   *  client): the fanout then FAILS OPEN and ships everything, as before. */
+  viewerKey: string | null;
   feed: { dispose: () => void } | null;
   keepaliveTimer: Timer | null;
 }
@@ -74,7 +79,12 @@ export async function handleSyncWsUpgrade(
     return new Response("unauthorized", { status: 401 });
   }
   const since = Number(url.searchParams.get("since")) || 0;
-  const data: SyncWsData = { kind: "sync", caller, sinceEventId: since, feed: null, keepaliveTimer: null };
+  const tabId = url.searchParams.get("tab");
+  const data: SyncWsData = {
+    kind: "sync", caller, sinceEventId: since,
+    viewerKey: tabId ? `${caller.fingerprint}:${tabId}` : null,
+    feed: null, keepaliveTimer: null,
+  };
   const ok = server.upgrade(req, { data });
   if (ok) return undefined; // hijacked
   return new Response("upgrade failed", { status: 400 });
@@ -86,10 +96,24 @@ export function makeSyncWsHandler(deps: ConnectDeps, keepaliveMs: number = KEEPA
     open(ws: ServerWebSocket<SyncWsData>): void {
       sockets.add(ws);
       const push = (f: FirehoseFrame): void => {
-        try { ws.send(toBinary(FirehoseFrameSchema, f)); }
+        try {
+          const bin = toBinary(FirehoseFrameSchema, f);
+          // Bun's contract: 0 = DROPPED, -1 = enqueued under backpressure,
+          // >0 = bytes sent. Only 0 loses the frame, and a lost cell frame is
+          // otherwise invisible — the SPA's seq-gap detector recovers the pane,
+          // but nothing would ever say the coord side was the cause.
+          if (ws.send(bin) === 0) {
+            signal("sync.ws_frame_dropped", {
+              caller_fp: ws.data.caller.fingerprint,
+              frame: f.frame.case ?? "unknown",
+              bytes: bin.byteLength,
+              cooldownKey: "sync-ws",
+            });
+          }
+        }
         catch (e) { log.warn("sync-ws", "send_failed", { error: String(e) }); }
       };
-      const feed = startSyncFeed(deps, ws.data.sinceEventId, push);
+      const feed = startSyncFeed(deps, ws.data.sinceEventId, push, ws.data.viewerKey);
       ws.data.feed = feed;
       // Subscribe-first is already done inside startSyncFeed; kick backfill
       // after so an event firing during getEventsSince isn't lost.

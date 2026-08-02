@@ -22,6 +22,28 @@ const MIME: Record<string, string> = {
   ".webmanifest": "application/manifest+json",
 };
 
+// Memoized gzip bodies, keyed by servable path and invalidated on an mtime/size
+// mismatch so a rebuilt or re-embedded asset is never served stale. Bounded to
+// 32 entries (oldest insertion dropped) — the SPA has ~10 compressible assets,
+// so the cap only exists so a hostile URL space can't grow it.
+const GZIP_CACHE_MAX = 32;
+interface GzipEntry { mtimeMs: number; size: number; gz: Uint8Array<ArrayBuffer> }
+const _gzipCache = new Map<string, GzipEntry>();
+
+async function gzipCached(path: string): Promise<Uint8Array<ArrayBuffer>> {
+  const file = Bun.file(path);
+  const stat = await file.stat();
+  const hit = _gzipCache.get(path);
+  if (hit && hit.mtimeMs === stat.mtimeMs && hit.size === stat.size) return hit.gz;
+  const gz = Bun.gzipSync(new Uint8Array(await file.arrayBuffer()));
+  if (_gzipCache.size >= GZIP_CACHE_MAX) {
+    const oldest = _gzipCache.keys().next();
+    if (!oldest.done) _gzipCache.delete(oldest.value);
+  }
+  _gzipCache.set(path, { mtimeMs: stat.mtimeMs, size: stat.size, gz });
+  return gz;
+}
+
 /**
  * Create a responder from exactly one complete SPA build. A valid on-disk
  * index wins for source runs; otherwise compiled installations use the
@@ -50,7 +72,7 @@ export function createSpaResponder(
   }
 
   async function fileResponse(
-    path: string, ext: string, method: string, acceptEncoding: string, isIndex: boolean, hashed: boolean,
+    path: string, rel: string, ext: string, method: string, acceptEncoding: string, isIndex: boolean, hashed: boolean,
   ): Promise<Response> {
     const headers: Record<string, string> = {
       "content-type": MIME[ext] ?? "application/octet-stream",
@@ -61,22 +83,30 @@ export function createSpaResponder(
       // Vite content-hashed bundle (assets/*): the filename changes on every
       // content change, so the body at this URL is genuinely immutable.
       headers["cache-control"] = "public, max-age=31536000, immutable";
+    } else if (rel.startsWith("fonts/")) {
+      // The 4 woff2 faces are ~2.6 MB of stable-name assets, so `no-cache`
+      // forced a conditional request for each on every cold load. A week is
+      // long enough to stop that; deliberately NOT immutable, so swapping a
+      // font still lands.
+      headers["cache-control"] = "public, max-age=604800";
     } else {
-      // Stable-filename assets (icons, manifest, fonts, wasm,
-      // whatsnew.json): the URL is reused across builds, so it must NEVER be
-      // immutable — otherwise a changed favicon/manifest stays pinned in the
-      // browser for a year. Revalidate on every load instead.
+      // Stable-filename assets (icons, manifest, wasm, whatsnew.json): the URL
+      // is reused across builds, so it must NEVER be immutable — otherwise a
+      // changed favicon/manifest stays pinned in the browser for a year.
+      // Revalidate on every load instead.
       headers["cache-control"] = "no-cache";
     }
     // On-the-fly gzip via Bun's NATIVE Bun.gzipSync — NOT node:zlib (heap
     // corruption + random-later segfault under load; see git history +
     // feedback_no_connect_node_compression_under_bun). gzip only: Bun has no
     // native brotli sync, and gzip (~4.3x on the SPA chunks) is plenty.
+    // Memoized: the 345 KB index, 625 KB vendor chunk and 72 KB CSS were
+    // recompressed for every cold load by every client.
     if (COMPRESSIBLE_EXT[ext] && acceptEncoding.includes("gzip")) {
-      const raw = new Uint8Array(await Bun.file(path).arrayBuffer());
+      const gz = await gzipCached(path);
       headers["content-encoding"] = "gzip";
       headers["vary"] = "accept-encoding";
-      return new Response(method === "HEAD" ? null : Bun.gzipSync(raw), { status: 200, headers });
+      return new Response(method === "HEAD" ? null : gz, { status: 200, headers });
     }
     return new Response(Bun.file(path), { status: 200, headers });
   }
@@ -89,13 +119,13 @@ export function createSpaResponder(
     const asset = resolveAsset(rel);
     if (asset) {
       const dot = rel.lastIndexOf(".");
-      return fileResponse(asset, dot >= 0 ? rel.slice(dot) : "", method, acceptEncoding, false, rel.startsWith("assets/"));
+      return fileResponse(asset, rel, dot >= 0 ? rel.slice(dot) : "", method, acceptEncoding, false, rel.startsWith("assets/"));
     }
     if (rel.startsWith("assets/")) {
       return new Response("not found", { status: 404 });
     }
     const index = resolveIndex();
-    if (index) return fileResponse(index, ".html", method, acceptEncoding, true, false);
+    if (index) return fileResponse(index, "index.html", ".html", method, acceptEncoding, true, false);
     return new Response("not found", { status: 404 });
   };
 }
