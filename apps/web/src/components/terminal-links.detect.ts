@@ -58,6 +58,14 @@ const FILE_RE_SOURCE =
   //    prevents matching partial extensions (e.g. .zip inside .zip.bak)
   "|[\\w.@\\-]+" + ARCHIVE_EXT_SOURCE + "\\b";
 
+/** Cheap "could this logical line contain ANY supported pattern?" test, run
+ *  before the regex battery in _findMatches. Every pattern above needs one of
+ *  these: the scheme list and LOCALHOST_RE_SOURCE need `:`, FILE_RE_SOURCE
+ *  needs `/` or `.`, the GitHub issue forms need `#`, and a bare commit SHA is
+ *  ≥7 hex characters. A NEW pattern that needs none of them MUST widen this in
+ *  the same commit, or its links silently stop being detected. */
+export const ROW_LINK_HINT = /[:/.#]|[0-9a-f]{7}/;
+
 /** Resolve a raw file path (+ optional 1-based line) from terminal output into
  *  an internal `/file/<workerFp>/…#L<line>` href, or null to skip linkifying it
  *  (e.g. `~`-relative paths we can't resolve). Provided by the Terminal, which
@@ -238,7 +246,11 @@ export function computeRowLinks(
       bases.push(joined.length);
       joined += useText;
     }
-    if (joined.length > 0) {
+    // Prefilter AFTER grouping so soft-wrap joining is unaffected: a logical
+    // line with no hint character cannot match any pattern, and skipping it
+    // takes the whole regex battery off the ordinary output row. OSC 8 link
+    // text is arbitrary, so any tracked hyperlink disables the shortcut.
+    if (joined.length > 0 && (osc8.length > 0 || ROW_LINK_HINT.test(joined))) {
       for (const m of _findMatches(joined, osc8, resolveFile, githubOwnerRepo)) {
         for (let k = i; k <= j; k++) {
           const base = bases[k - i];

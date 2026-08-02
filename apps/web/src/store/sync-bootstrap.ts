@@ -14,11 +14,12 @@ import type { Worker, Session, Workspace, Task, PermissionRule, McpRelay } from 
 import { getPublicKeyB64 } from "../auth/web-key.ts";
 import { setRoutableFps } from "./sync-routable.ts";
 import { _startCoordHealthPoller } from "./sync-health.ts";
-import { _runConnectSync, _abortSyncForVisibility, isSyncPaused, syncLinkIdleMs } from "./sync.ts";
+import { _runConnectSync, _abortSyncForVisibility, isSyncPaused, syncLinkIdleMs, drainPreHydration, syncSocketOpened, resumeSyncNow } from "./sync.ts";
 import { shouldRedialOnRefocus } from "./sync-watchdog.ts";
 import { _attemptPairRedeem } from "./sync-bootstrap.pair.ts";
 import { relocateRetiredBrowser } from "../auth/coordinator-relocation.ts";
 import { isPageVisible } from "../lib/pageVisible.ts";
+import { setSessionsHydrated } from "./sync-hydrated.ts";
 
 // Set browser_unauthorized; emit the auth.relogin_401 signal ONLY on the
 // rising edge (authed → unauth) so a persistently-unpaired browser doesn't
@@ -31,12 +32,18 @@ function setBrowserUnauthorized(next: boolean): void {
 
 let synced = false;
 
+// Longest the sessions snapshot waits for the Sync socket to open before it is
+// applied anyway. The socket is dialed in parallel with the list RPCs, so this
+// only bites when the WS upgrade is failing while unary RPCs still work.
+const SYNC_OPEN_WAIT_MS = 3000;
+
 // True once the Phase-1 `sessionsList` has populated the store at least once.
 // MainPane's dead-URL safety net reads this to tell "still bootstrapping"
-// (don't bounce a deep link yet) from "genuinely dead" (bounce home). Plain
-// module-level signal — reactive, no owner needed.
-const [sessionsHydrated, setSessionsHydrated] = createSignal(false);
-export { sessionsHydrated };
+// (don't bounce a deep link yet) from "genuinely dead" (bounce home). The
+// signal itself lives in the leaf sync-hydrated.ts so the firehose can read it
+// without an import cycle; re-exported here because that is where consumers
+// have always imported it from.
+export { sessionsHydrated } from "./sync-hydrated.ts";
 
 
 // ─── self-register ────────────────────────────────────────────────────────────
@@ -198,35 +205,59 @@ async function _bootstrap(): Promise<void> {
     );
     if (initialIdentity.status === "fulfilled" && await relocateRetiredBrowser(initialIdentity.value) !== "failed") return;
 
-    // Phase 1: attempt loopback browser self-register. If coord recognizes
-    // our kid already (cached from a previous boot), this is a no-op upsert.
-    // If we're behind a non-loopback proxy, the mutation 403s and we fall
-    // through to Onboarding — render path picks up zero-workers + 401 list.
-    await _attemptSelfRegister();
+    // Phase 1: open the Sync socket NOW, in parallel with the lists below. It
+    // needs nothing but a JWT and the persisted event cursor, so serializing it
+    // behind eight list RPCs only delayed first paint. Frames that arrive
+    // before the sessions snapshot lands are held by sync.ts's pre-hydration
+    // queue and replayed by drainPreHydration().
+    void _runConnectSync();
 
-    // Phase 2: bulk lists via Connect.
-    const [workers, sessions, workspaces, tasks, permRules, mcpRelays, identity, pairRequests] =
-      await Promise.allSettled([
-        coordClient.workersList({}),
-        coordClient.sessionsList({}),
-        coordClient.workspacesList({}),
-        coordClient.tasksList({}),
-        coordClient.permissionsList({}),
-        coordClient.mcpList({}),
-        coordClient.authCoordIdentity({}),
-        coordClient.pairList({}),
-      ]);
+    // Phase 2: bulk lists via Connect. Self-register is NOT serialized ahead of
+    // them any more: after the first successful authorization it is a no-op
+    // upsert, so every later load paid a round trip for nothing. If the lists
+    // come back Unauthenticated we register and retry the batch once, which
+    // leaves first-boot behavior unchanged.
+    const listBatch = () => Promise.allSettled([
+      coordClient.workersList({}),
+      coordClient.sessionsList({}),
+      coordClient.workspacesList({}),
+      coordClient.tasksList({}),
+      coordClient.permissionsList({}),
+      coordClient.mcpList({}),
+      coordClient.pairList({}),
+    ]);
+    const { ConnectError, Code } = await import("@connectrpc/connect");
+    const isUnauth = (settled: PromiseSettledResult<unknown>): boolean =>
+      settled.status === "rejected" &&
+      settled.reason instanceof ConnectError &&
+      settled.reason.code === Code.Unauthenticated;
+    let settled = await listBatch();
+    if (settled.some(isUnauth)) {
+      // Loopback browser self-register. If we're behind a non-loopback proxy the
+      // mutation 403s and we fall through to Onboarding — the render path picks
+      // up zero-workers + the 401 lists.
+      await _attemptSelfRegister();
+      settled = await listBatch();
+      // The Phase-1 socket dial used a key coord did not know yet, so it was
+      // rejected and parked in the reconnect backoff. The key is authorized now:
+      // re-dial immediately instead of losing every event published during that
+      // backoff (a fresh browser's since=0 gets no backfill to recover them).
+      if (!settled.some(isUnauth)) resumeSyncNow();
+    }
+    const [workers, sessions, workspaces, tasks, permRules, mcpRelays, pairRequests] = settled;
     // BEFORE the retry gate below: on a retired source every authed list
     // rejects with a non-Unauthenticated error, so `wFail && sFail` returns
     // early — and relocated_to_url would never be stored, leaving
     // ConnectionBanner's "Open new coordinator" button permanently unrendered.
-    if (identity.status === "fulfilled") {
+    // Phase 0's identity result is reused: a second AuthCoordIdentity here was
+    // a duplicate round trip for a value we already hold.
+    if (initialIdentity.status === "fulfilled") {
       setRootStore("coord_identity", {
-        fingerprint_hex: identity.value.fingerprintHex,
-        git_sha: identity.value.gitSha,
-        public_url: identity.value.publicUrl,
-        relocated_to_url: identity.value.relocatedToUrl,
-        handoff_id: identity.value.handoffId,
+        fingerprint_hex: initialIdentity.value.fingerprintHex,
+        git_sha: initialIdentity.value.gitSha,
+        public_url: initialIdentity.value.publicUrl,
+        relocated_to_url: initialIdentity.value.relocatedToUrl,
+        handoff_id: initialIdentity.value.handoffId,
       });
     }
 
@@ -239,13 +270,8 @@ async function _bootstrap(): Promise<void> {
      // empty state. Cross-Mac access path. coord_identity + pairList
      // are public — don't count them.
      {
-       const { ConnectError, Code } = await import("@connectrpc/connect");
        const authedSettleds = [workers, sessions, workspaces, tasks, permRules, mcpRelays];
-       const sawUnauth = authedSettleds.some(
-         (r) => r.status === "rejected" &&
-           r.reason instanceof ConnectError &&
-           r.reason.code === Code.Unauthenticated,
-       );
+       const sawUnauth = authedSettleds.some(isUnauth);
        setBrowserUnauthorized(sawUnauth);
 
        // Transient coord-unreachable (network reject, NOT auth) → retry the
@@ -257,7 +283,13 @@ async function _bootstrap(): Promise<void> {
        const sFail = sessions.status === "rejected";
        if (!sawUnauth && (wFail || sFail)) {
          _scheduleBootstrapRetry();
-         if (wFail && sFail) return; // nothing to populate this round
+         if (wFail && sFail) {
+           // Nothing to populate this round — but the Sync socket is already
+           // live, so release its held frames rather than stranding them until
+           // a retry finally hydrates.
+           drainPreHydration();
+           return;
+         }
          // partial failure: fall through to populate whatever succeeded
        } else {
          _bootstrapRetries = 0;
@@ -295,6 +327,13 @@ async function _bootstrap(): Promise<void> {
       });
     }
     if (sessions.status === "fulfilled") {
+      // Wait for the socket's first open before publishing the snapshot. Deltas
+      // are queued from that instant, so ordering the snapshot AFTER it means no
+      // event can fall between the two — the coord runs no backfill for a fresh
+      // browser's since=0, so an event lost in that window is lost for good.
+      // Normally already open (dialed in Phase 1, in parallel with these lists);
+      // the bound keeps a WS-refusing coord from leaving the app blank.
+      await syncSocketOpened(SYNC_OPEN_WAIT_MS);
       const rec: Record<string, Session> = {};
       for (const s of sessions.value.sessions) {
         // sessionFromProto validates each complete session row. A bad row must
@@ -309,6 +348,9 @@ async function _bootstrap(): Promise<void> {
       }
       setRootStore("sessions", rec);
       setSessionsHydrated(true);
+      // The snapshot is in: replay every delta the live socket already
+      // delivered, in arrival order, before anything else reads the store.
+      drainPreHydration();
     }
     if (workspaces.status === "fulfilled") {
       const rec: Record<string, Workspace> = {};
@@ -383,13 +425,11 @@ async function _bootstrap(): Promise<void> {
     // (pairRequestDelta frames + per-connect snapshot seed) — the old 5 s
     // pairList poller is gone (perf sweep C2.4). The pairList seed above
     // just covers the sub-second window until the stream's first snapshot.
-
-    // Open the Connect Sync server-stream: one server-streaming RPC
-    // multiplexes all 8 domain buses + PTY bytes, reconnect-backfilling
-    // via since_event_id.
-    void _runConnectSync();
+    // The Sync socket itself was already dialed in Phase 1, above.
   } catch (err) {
     console.error("[sync] bootstrap failed", err);
     signal("diag.corruption_signal", { kind: "bootstrap_failed", msg: String(err), cooldownKey: "bootstrap" });
+    // The socket may already be live; never leave its frames stranded.
+    drainPreHydration();
   }
 }

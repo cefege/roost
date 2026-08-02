@@ -15,11 +15,8 @@
 // Pure style mapping (spanStyle / ansi256ToCss) is exported + unit-tested;
 // the DOM glue is verified live via /roost-smoke (no jsdom in this repo).
 
-import { applyDelta, type CellGridFrame, type CellRow, type CellSpan } from "@roost/shared/cell";
-import {
-  CELL_BOLD, CELL_DIM, CELL_ITALIC, CELL_UNDERLINE, CELL_BLINK,
-  CELL_REVERSE, CELL_INVISIBLE, CELL_STRIKE, DEFAULT_COLOR,
-} from "@roost/shared/cell";
+import { applyDelta, type CellGridFrame, type CellRow } from "@roost/shared/cell";
+import { renderRow, rowText, rowHash, type FindHit } from "./cellRow.ts";
 
 const SB_BLOCK = 250; // scrollback rows per content-visibility block. sizeBlock() writes each block's EXACT pixel placeholder, so this is perf tuning only — any positive value renders identically.
 
@@ -72,78 +69,6 @@ function sizeBlock(blk: HTMLElement, rows: number, rowH: number): void {
 // — lower if DOM headroom under many parked panes is still high.
 export const MAX_HELD_SCROLLBACK_ROWS = 2000;
 
-// xterm 256-palette → CSS. 0..15 map to the themed --term-color-N vars;
-// 16..231 are the 6×6×6 cube; 232..255 are the 24-step grayscale ramp.
-export function ansi256ToCss(n: number): string {
-  if (n < 16) return `var(--term-color-${n})`;
-  if (n >= 232) { const v = 8 + (n - 232) * 10; return `rgb(${v},${v},${v})`; }
-  const c = n - 16;
-  const steps = [0, 95, 135, 175, 215, 255];
-  const r = steps[Math.floor(c / 36) % 6];
-  const g = steps[Math.floor(c / 6) % 6];
-  const b = steps[c % 6];
-  return `rgb(${r},${g},${b})`;
-}
-
-function colorCss(color: number, rgb: number | undefined, isFg: boolean): string {
-  if (rgb !== undefined) {
-    return `#${((rgb >>> 0) & 0xffffff).toString(16).padStart(6, "0")}`;
-  }
-  if (color === DEFAULT_COLOR) return isFg ? "var(--term-fg)" : "var(--term-bg)";
-  return ansi256ToCss(color);
-}
-
-/** Inline CSS for one span. reverse swaps fg/bg; invisible hides text.
- *  Pure — unit-tested in cellRenderer.test.ts. */
-export function spanStyle(s: CellSpan): string {
-  const reverse = (s.flags & CELL_REVERSE) !== 0;
-  let fg = colorCss(s.fg, s.fgRgb, true);
-  let bg = colorCss(s.bg, s.bgRgb, false);
-  if (reverse) { const t = fg; fg = bg; bg = t; }
-  const parts: string[] = [`color:${fg}`];
-  // Only emit background when non-default (or reversed) — keeps the DOM lean
-  // and lets the container --term-bg show through for blank cells.
-  if (s.bg !== DEFAULT_COLOR || s.bgRgb !== undefined || reverse) parts.push(`background:${bg}`);
-  if (s.flags & CELL_BOLD) parts.push("font-weight:bold");
-  if (s.flags & CELL_DIM) parts.push("opacity:0.6");
-  if (s.flags & CELL_ITALIC) parts.push("font-style:italic");
-  const deco: string[] = [];
-  if (s.flags & CELL_UNDERLINE) deco.push("underline");
-  if (s.flags & CELL_STRIKE) deco.push("line-through");
-  if (deco.length) parts.push(`text-decoration:${deco.join(" ")}`);
-  if (s.flags & CELL_INVISIBLE) parts.push("visibility:hidden");
-  if (s.flags & CELL_BLINK) parts.push("animation:cell-blink 1s step-end infinite");
-  return parts.join(";");
-}
-
-function renderRow(row: CellRow, doc: Document): HTMLElement {
-  const el = doc.createElement("div");
-  el.className = "cell-row";
-  if (row.spans.length === 0) {
-    el.appendChild(doc.createTextNode(" ")); // keep blank rows tall
-    return el;
-  }
-  for (const s of row.spans) {
-    const span = doc.createElement("span");
-    span.setAttribute("style", spanStyle(s));
-    span.textContent = s.text;
-    el.appendChild(span);
-  }
-  return el;
-}
-
-/** Concatenated text of a row's spans. */
-export function rowText(row: CellRow): string {
-  return row.spans.map((s) => s.text).join("");
-}
-
-/** Visual identity of a row: text + per-span style. Rows with equal sigs
- *  paint identically, so the viewport diff can skip them (renderViewport). */
-export function rowSig(row: CellRow): string {
-  let s = "";
-  for (const sp of row.spans) s += sp.text + "\u0001" + spanStyle(sp) + "\u0002";
-  return s;
-}
 
 /** Merge an incoming FULL frame onto the held frame when its scrollback
  *  (possibly a tail, sbBase > 0 — see types.ts) verifiably EXTENDS the held
@@ -205,19 +130,28 @@ export class CellGridRenderer {
   // byte-mode's pixel-math GhostCursorOverlay; fed via setGhosts().
   private readonly ghostsEl: HTMLElement;
   private readonly doc: Document;
-  // Viewport diff cache: painted row elements + their rowSig, in order.
-  // renderViewport re-renders ONLY rows whose sig changed — idle frames and
+  // Viewport diff cache: painted row elements + their rowHash, in order.
+  // renderViewport re-renders ONLY rows whose hash changed — idle frames and
   // cursor-only deltas cost zero DOM writes (the old replaceChildren rebuilt
   // every row on every frame: ~1.5k nodes/3s per idle pane, the deck-wide
   // background churn). renderFull/dispose reset both.
   private _rowEls: HTMLElement[] = [];
-  private _rowSigs: string[] = [];
+  private _rowHashes: number[] = [];
   private _rowH = 0;      // measured px height of one .cell-row; 0 = not measured yet
   private _lastBoxH = 0;  // clientHeight at the last box observation (constructor + noteBoxResize)
+  // Find highlights, keyed by ABSOLUTE row index (the space the worker's match
+  // rows and PbCellRow.index share). Empty by default, so the whole feature
+  // costs one Map lookup per painted row when nothing is being searched.
+  private _findHits: ReadonlyMap<number, FindHit[]> = new Map();
+  private _activeHit: { row: number; col: number } | null = null;
 
   constructor(private readonly container: HTMLElement) {
     this.doc = container.ownerDocument;
     container.classList.add("wterm", "cell-grid");
+    // role="log" gives the grid an IMPLICIT polite live region: a screen reader
+    // announces appended output without us managing announcements, and without
+    // the aria-live="polite" flood a streaming pane would otherwise produce.
+    container.setAttribute("role", "log");
     this.spacerEl = this.doc.createElement("div");
     this.spacerEl.className = "cell-sb-spacer";
     this.spacerEl.style.setProperty("height", "0px");
@@ -384,7 +318,7 @@ export class CellGridRenderer {
     this._curBlockRows = 0;
     this.viewportEl.replaceChildren();
     this._rowEls = [];
-    this._rowSigs = [];
+    this._rowHashes = [];
     this._appendScrollback(this.frame.scrollbackRows, wasAtBottom);
     this.renderViewport();
     this.setGridWidth();
@@ -428,7 +362,7 @@ export class CellGridRenderer {
         this._curBlock = blk;
         this._curBlockRows = 0;
       }
-      this._curBlock.appendChild(renderRow(r, this.doc));
+      this._curBlock.appendChild(this._renderScrollbackRow(r));
       this._curBlockRows++;
     }
     if (this._curBlock) sizeBlock(this._curBlock, this._curBlockRows, this.rowHeight());
@@ -459,11 +393,10 @@ export class CellGridRenderer {
       const dropped = lead.children.length;
       if (dropped === 0) break; // defensive — never spin on an empty block
       lead.remove();
-      this.frame = {
-        ...this.frame,
-        scrollbackRows: this.frame.scrollbackRows.slice(dropped),
-        sbBase: this.frame.sbBase + dropped,
-      };
+      // The renderer owns this.frame outright (applyDelta consumes and returns
+      // it), so trim in place instead of rebuilding the frame + row array.
+      this.frame.scrollbackRows.splice(0, dropped);
+      this.frame.sbBase += dropped;
     }
     // The final pin belongs to apply/renderFull. This method only trims rows.
   }
@@ -497,11 +430,13 @@ export class CellGridRenderer {
         frag.appendChild(blk);
         blkRows = 0;
       }
-      blk.appendChild(renderRow(r, this.doc));
+      blk.appendChild(this._renderScrollbackRow(r));
       blkRows++;
     }
     if (blk) sizeBlock(blk, blkRows, rowH);
     this.scrollbackEl.prepend(frag);
+    // Not the hot path (once per backfill chunk, not per frame), so this keeps
+    // the plain rebuild rather than an unshift with a `rows`-sized arg spread.
     this.frame = {
       ...this.frame,
       scrollbackRows: rows.concat(this.frame.scrollbackRows),
@@ -556,27 +491,32 @@ export class CellGridRenderer {
     const rows = this.frame.viewportRows;
     const k = Math.min(scrolled, this._rowEls.length);
     for (let i = 0; i < k; i++) this._rowEls[i]!.remove();
-    if (k > 0) { this._rowEls.splice(0, k); this._rowSigs.splice(0, k); }
+    if (k > 0) { this._rowEls.splice(0, k); this._rowHashes.splice(0, k); }
+    // A viewport row's ABSOLUTE index is scrollbackTotal + its viewport row, the
+    // same space the worker's match rows live in.
+    const vpBase = this.frame.scrollbackTotal;
     for (let i = 0; i < rows.length; i++) {
-      const sig = rowSig(rows[i]!);
+      const hits = this._findHits.get(vpBase + i);
+      const activeCol = this._activeHit?.row === vpBase + i ? this._activeHit.col : undefined;
+      const hash = rowHash(rows[i]!, hits, activeCol);
       if (i < this._rowEls.length) {
-        if (this._rowSigs[i] === sig) continue; // unchanged row → zero DOM writes
-        const el = renderRow(rows[i]!, this.doc);
+        if (this._rowHashes[i] === hash) continue; // unchanged row → zero DOM writes
+        const el = renderRow(rows[i]!, this.doc, hits, activeCol);
         this._rowEls[i]!.replaceWith(el);
         this._rowEls[i] = el;
-        this._rowSigs[i] = sig;
+        this._rowHashes[i] = hash;
       } else {
-        const el = renderRow(rows[i]!, this.doc);
+        const el = renderRow(rows[i]!, this.doc, hits, activeCol);
         // Append after the existing rows (before the cursor overlay when
         // attached, so overlays keep sitting at the tail).
         this.viewportEl.insertBefore(el, this.cursorEl.parentElement === this.viewportEl ? this.cursorEl : null);
         this._rowEls.push(el);
-        this._rowSigs.push(sig);
+        this._rowHashes.push(hash);
       }
     }
     while (this._rowEls.length > rows.length) {
       this._rowEls.pop()!.remove();
-      this._rowSigs.pop();
+      this._rowHashes.pop();
     }
     // The diff never wipes the overlays — attach once if missing.
     if (this.cursorEl.parentElement !== this.viewportEl) this.viewportEl.appendChild(this.cursorEl);
@@ -674,6 +614,80 @@ export class CellGridRenderer {
     return this._rowH;
   }
 
+  /** Drop the cached row height so the next read re-measures. The terminal-zoom
+   *  preference changes the cell box without resizing the container, so nothing
+   *  else would invalidate it — and a stale height leaves every block
+   *  placeholder and the spacer sized for the old font. */
+  invalidateRowHeight(): void { this._rowH = 0; }
+
+  /** Scrollback rows are immutable and append-only, so their painted element is
+   *  built once — including whatever highlights were current at the time. */
+  private _renderScrollbackRow(row: CellRow): HTMLElement {
+    const hits = this._findHits.get(row.index);
+    const activeCol = this._activeHit?.row === row.index ? this._activeHit.col : undefined;
+    return renderRow(row, this.doc, hits, activeCol);
+  }
+
+  /** Install the find result set. Viewport rows pick the change up through the
+   *  row hash on the next paint; scrollback rows are immutable, so the affected
+   *  ones are replaced here — bounded by the server's match cap. */
+  setFindHighlights(hits: ReadonlyMap<number, FindHit[]>, active: { row: number; col: number } | null): void {
+    const affected = new Set<number>();
+    for (const row of this._findHits.keys()) affected.add(row);
+    for (const row of hits.keys()) affected.add(row);
+    if (this._activeHit) affected.add(this._activeHit.row);
+    if (active) affected.add(active.row);
+    this._findHits = hits;
+    this._activeHit = active;
+    if (!this.frame) return;
+    for (const row of affected) {
+      if (row < this.frame.scrollbackTotal) this._repaintScrollbackRow(row);
+    }
+    this.renderViewport();
+  }
+
+  /** Replace one painted scrollback row in place. Walks the blocks accumulating
+   *  their real child counts rather than assuming SB_BLOCK: a backfill prepend
+   *  creates PARTIAL leading blocks, so index arithmetic on a fixed block size
+   *  would land on the wrong line. Bounded by ~history/SB_BLOCK blocks. */
+  private _repaintScrollbackRow(absIndex: number): void {
+    if (!this.frame) return;
+    let offset = absIndex - this.frame.sbBase;
+    const row = this.frame.scrollbackRows[offset];
+    if (offset < 0 || !row) return; // outside the painted window — spacer, not DOM
+    for (const blk of this.scrollbackEl.children) {
+      const count = blk.children.length;
+      if (offset < count) {
+        blk.children[offset]!.replaceWith(this._renderScrollbackRow(row));
+        return;
+      }
+      offset -= count;
+    }
+  }
+
+  /** The SECOND and LAST scrollTop writer, and the ONLY one besides
+   *  _pinToBottom. It runs exclusively from an explicit user gesture (find
+   *  next/prev, clicking a result) — NEVER from apply(), a resize, a reveal, a
+   *  hold release, or any frame path. That distinction is exactly what keeps the
+   *  L11 scroll-lurch class closed. Exact because _syncSpacer reserves
+   *  [0, sbBase) in pixels, so an absolute scrollback index maps to a fixed
+   *  content offset for the life of the epoch. One assignment, no smooth-scroll,
+   *  no scrollIntoView (which would also scroll ancestors), no correction pass. */
+  scrollToScrollbackRow(absIndex: number): void {
+    const rowH = this.rowHeight();
+    if (rowH <= 0) return;
+    const top = this.spacerEl.offsetTop + absIndex * rowH;
+    const max = Math.max(0, this.container.scrollHeight - this.container.clientHeight);
+    this.container.scrollTop = Math.max(0, Math.min(top - this.container.clientHeight / 3, max));
+  }
+
+  /** Name the region for assistive tech. The owner sets it from the session's
+   *  display title, which is the only thing that distinguishes one pane's log
+   *  from another's. */
+  setAccessibleLabel(label: string): void {
+    this.container.setAttribute("aria-label", label);
+  }
+
   /** The sole production scrollTop writer. Native scrolling and browser
    *  anchoring own every non-bottom position; a render only follows output when
    *  it began at the literal maximum. */
@@ -721,6 +735,6 @@ export class CellGridRenderer {
     this.viewportEl.remove();
     this.frame = null;
     this._rowEls = [];
-    this._rowSigs = [];
+    this._rowHashes = [];
   }
 }

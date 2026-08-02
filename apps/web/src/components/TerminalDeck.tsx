@@ -36,6 +36,7 @@ import { arrangeLayout, type ArrangeKind } from "../store/paneLayoutPresets.ts";
 import { ArrangeMenu } from "./ArrangeMenu.tsx";
 import type { Session } from "@roost/shared/wire";
 import { diag } from "@roost/shared/diag";
+import { prefersReducedMotion } from "../lib/prefersReducedMotion.ts";
 
 const STRIP_H = 40; // per-pane tab strip height (px)
 // Parked panes that keep streaming (CellTerminal backgroundStream). Capped: each
@@ -55,6 +56,12 @@ const SWIPE_DECEL = "var(--md-sys-motion-easing-emphasized-decelerate, cubic-bez
 // first ~15% of time and hid the swipe direction. Slide only; affordances keep SWIPE_DECEL.
 const SWIPE_SLIDE_EASE = "cubic-bezier(0.25, 0.46, 0.45, 0.94)";
 const NEW_BLOOM_MS = 300;       // container-transform reveal (M3 emphasized medium2)
+/** ⌘/Ctrl+⌥+arrow → geometric pane walk. Arrows are deliberately disjoint from
+ *  the ⌘⌥B/E/R/G/V arrange presets, so both live in the same handler. */
+type PaneMoveDir = "left" | "right" | "up" | "down";
+const ARROW_PANE_DIR: Readonly<Record<string, PaneMoveDir | undefined>> = {
+  ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down",
+};
 
 // Deep-equal two PaneViews so the panes memo can REUSE the prior object ref when
 // a layout commit didn't actually change this pane. Keeps <For each={panes()}>
@@ -661,6 +668,44 @@ export function TerminalDeck(props: { activeSessionId: string | null }) {
     const p = view().panes.find((pv) => pv.paneId === layout()?.focusedPaneId);
     if (p?.selectedTab) setSpotlightSessionId(p.selectedTab);
   }
+  /** The pane that owns the keyboard — the target of every deck shortcut. The
+   *  view's own focused flag is the fallback because compact synthesizes a
+   *  single focused pane rather than echoing focusedPaneId. */
+  function focusedPaneView(): PaneView | null {
+    const ps = view().panes;
+    const fid = layout()?.focusedPaneId;
+    return ps.find((p) => p.paneId === fid) ?? ps.find((p) => p.focused) ?? null;
+  }
+  /** ⌘/Ctrl+1..8 → Nth tab of the focused pane, 9 → its LAST (browser
+   *  convention). Routes through doSelect — the very call a strip tab click
+   *  makes — so select + pane focus + navigate + spotlight-follow stay one path.
+   *  Fewer tabs than the digit → nothing happens. */
+  function activateTabAt(digit: number): void {
+    const p = focusedPaneView();
+    if (!p) return;
+    const id = digit === 9 ? p.tabIds[p.tabIds.length - 1] : p.tabIds[digit - 1];
+    if (id) doSelect(id);
+  }
+  /** Focus the pane adjacent to the focused one, resolved on the rects the deck
+   *  already paints (layoutView → layoutRects): among panes whose centre lies
+   *  strictly beyond the focused centre on that axis, take the nearest centre.
+   *  Geometry, not tree order — the keyboard walks the tiling the user sees. */
+  function focusAdjacentPane(dir: PaneMoveDir): void {
+    const from = focusedPaneView();
+    if (!from) return;
+    const cx = from.rect.x + from.rect.w / 2, cy = from.rect.y + from.rect.h / 2;
+    let bestId: string | null = null;
+    let bestD = Infinity;
+    for (const p of view().panes) {
+      if (p.paneId === from.paneId) continue;
+      const dx = p.rect.x + p.rect.w / 2 - cx, dy = p.rect.y + p.rect.h / 2 - cy;
+      const ahead = dir === "left" ? dx < 0 : dir === "right" ? dx > 0 : dir === "up" ? dy < 0 : dy > 0;
+      if (!ahead) continue;
+      const d = dx * dx + dy * dy;
+      if (d < bestD) { bestD = d; bestId = p.paneId; }
+    }
+    if (bestId) doFocusPane(bestId);
+  }
   // "Arrange" — balance keeps the current tree (panes/tabs/focus), only
   // re-balancing ratios; the rebuild kinds replace the layout with a preset
   // tiling of the folder's sessions (one session per pane).
@@ -738,13 +783,34 @@ export function TerminalDeck(props: { activeSessionId: string | null }) {
     }
   }
 
-  // ⌘D split right · ⌘⇧D split down · ⌘⏎ bring-to-front (spotlight). Cmd-combos never reach the PTY,
-  // so intercepting them is safe. Only while a terminal folder is active.
+  // ⌘D split right · ⌘⇧D split down · ⌘⏎ bring-to-front (spotlight) ·
+  // ⌘⌥B/E/R/G/V arrange presets · ⌘/Ctrl+1..9 tab N of the focused pane ·
+  // ⌘/Ctrl+⌥arrow walk to the adjacent pane · ⌘/Ctrl+⌥T new terminal in the
+  // focused pane (plain ⌘T is a browser accelerator a page can never see).
+  // Cmd-combos never reach the PTY, so intercepting them is safe. Only while a
+  // terminal folder is active.
   onMount(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented) return;
 
       if (e.key === "Escape" && spotlightSessionId()) { e.preventDefault(); clearSpotlight(); return; }
+      // These three accept EITHER modifier: the ⌘-only gate below is
+      // macOS-shaped, but digits/arrows/new-tab are exactly what Linux and
+      // Windows users reach for with Ctrl. preventDefault keeps the browser's
+      // own Ctrl+N tab switch, Alt+Arrow history nav and Ctrl+Alt+T launcher
+      // from firing on top of ours.
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && folderKey()) {
+        if (e.altKey) {
+          const dir = ARROW_PANE_DIR[e.key];
+          if (dir) { e.preventDefault(); focusAdjacentPane(dir); return; }
+          if (e.key.toLowerCase() === "t") { e.preventDefault(); void doNewTab(layout()?.focusedPaneId ?? ""); return; }
+        } else if (e.key.length === 1 && e.key >= "1" && e.key <= "9") {
+          e.preventDefault();
+          activateTabAt(Number(e.key));
+          return;
+        }
+      }
       if (!e.metaKey || e.ctrlKey) return;
       if (!folderKey()) return;
       const k = e.key.toLowerCase();
@@ -977,10 +1043,13 @@ export function TerminalDeck(props: { activeSessionId: string | null }) {
       <Show when={spotlightRect()}>
         {(r) => (
           <>
+            {/* Reduced motion: skip the 120ms scrim fade and paint the END
+                state (fully opaque) on the first frame. Read here, at the
+                moment the spotlight opens — i.e. at animation start. */}
             <div
               class="pane-spotlight-backdrop"
               data-testid="pane-spotlight-backdrop"
-              style={{ position: "absolute", inset: "0", "z-index": "7" }}
+              style={{ position: "absolute", inset: "0", "z-index": "7", ...(prefersReducedMotion() ? { animation: "none" } : {}) }}
               onPointerDown={(e) => { e.stopPropagation(); clearSpotlight(); }}
               onContextMenu={(e) => { e.preventDefault(); clearSpotlight(); }}
               aria-hidden="true"

@@ -329,10 +329,29 @@ export function attachTerminalLinks(
   // a streaming pane). Rows persist across frames now, so their anchors
   // persist too; a replaced row arrives anchor-free and gets re-linkified.
   let scanScheduled = false;
-  let scanRaf = 0; // pending scan's rAF handle (cancellable on visibility recovery)
+  // Pending scan's handle plus WHICH scheduler issued it, so the disposer and
+  // the visibilitychange recovery cancel the right one.
+  let scanHandle = 0;
+  let scanHandleIsIdle = false;
   let fullScanNeeded = true; // initial attach pass
   const dirtyRows = new Set<HTMLElement>();
   const DIRTY_LIMIT = 300; // structural rebuild → cheaper to rescan everything
+
+  // requestIdleCallback keeps the second DOM pass off the frame the renderer is
+  // painting. WebKit has no rIC (playwright.config.ts runs webkit-iphone), so
+  // rAF stays the fallback. The 250ms timeout bounds how long a busy main
+  // thread can defer links arming.
+  type IdleScheduler = {
+    requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+    cancelIdleCallback?: (handle: number) => void;
+  };
+  const idleWindow = window as Window & IdleScheduler;
+  const _cancelScan = (): void => {
+    if (!scanHandle) return;
+    if (scanHandleIsIdle) idleWindow.cancelIdleCallback?.(scanHandle);
+    else cancelAnimationFrame(scanHandle);
+    scanHandle = 0;
+  };
 
   const _rowOf = (n: Node | null): HTMLElement | null => {
     const el = n instanceof HTMLElement ? n : n?.parentElement ?? null;
@@ -376,10 +395,24 @@ export function attachTerminalLinks(
     return first?.matches(ROW_SELECTOR) ? (first as HTMLElement) : null;
   };
   const _rowLen = (r: HTMLElement): number => (r.textContent ?? "").length;
+  /** The only rows a live stream can have touched: the viewport, plus the
+   *  newest scrollback block the append tail writes into. Document order is
+   *  preserved (scrollback before viewport) so soft-wrap grouping still works
+   *  across that boundary. Empty for the legacy byte renderer, whose caller
+   *  then falls back to the unbounded query. */
+  const _hotRows = (): HTMLElement[] => {
+    const out: HTMLElement[] = [];
+    const newestBlock = container.querySelector(".cell-scrollback")?.lastElementChild;
+    if (newestBlock) for (const r of newestBlock.querySelectorAll<HTMLElement>(ROW_SELECTOR)) out.push(r);
+    const viewport = container.querySelector(".cell-viewport");
+    if (viewport) for (const r of viewport.querySelectorAll<HTMLElement>(ROW_SELECTOR)) out.push(r);
+    return out;
+  };
+
 
   const scan = (): void => {
     scanScheduled = false;
-    scanRaf = 0;
+    scanHandle = 0;
     if (!isPageVisible()) return;
     // Grid width from the cell renderer's --cell-cols var (set on this same
     // container, cellRenderer.ts::setGridWidth). Drives soft-wrap grouping so
@@ -388,9 +421,19 @@ export function attachTerminalLinks(
     const cols = colsRaw ? parseInt(colsRaw, 10) || 0 : 0;
     const ownerRepo = opts.githubOwnerRepo?.();
     if (fullScanNeeded || dirtyRows.size > DIRTY_LIMIT) {
-      fullScanNeeded = false;
+      // Overflow (a hot stream blew past DIRTY_LIMIT) is NOT the same as a real
+      // full scan: rescanning ≤2000 rows of history per frame was measured at
+      // 55% of a streaming pane's main-thread CPU. Scan the rows that can
+      // actually have changed — the viewport plus the newest scrollback block —
+      // and leave the latch set so the genuine full pass runs on the next scan
+      // where the dirty set fits, i.e. as soon as the stream calms.
+      const overflowOnly = !fullScanNeeded;
       dirtyRows.clear();
-      const rows = Array.from(container.querySelectorAll<HTMLElement>(ROW_SELECTOR));
+      const hot = overflowOnly ? _hotRows() : [];
+      const rows = hot.length > 0
+        ? hot
+        : Array.from(container.querySelectorAll<HTMLElement>(ROW_SELECTOR));
+      fullScanNeeded = hot.length > 0;
       _linkifyRows(rows, tracker, cols, opts.resolveFile, ownerRepo);
       return;
     }
@@ -422,7 +465,14 @@ export function attachTerminalLinks(
   const scheduleScan = (): void => {
     if (scanScheduled) return;
     scanScheduled = true;
-    scanRaf = requestAnimationFrame(scan);
+    const requestIdle = idleWindow.requestIdleCallback;
+    if (requestIdle) {
+      scanHandleIsIdle = true;
+      scanHandle = requestIdle(scan, { timeout: 250 });
+    } else {
+      scanHandleIsIdle = false;
+      scanHandle = requestAnimationFrame(scan);
+    }
   };
   const obs = new MutationObserver((muts) => {
     // Hidden-tab gate: skip the per-mutation row bookkeeping entirely while
@@ -453,9 +503,8 @@ export function attachTerminalLinks(
   // visible: cancel any stale/deferred frame, reset the latch, force a full scan.
   const onVisChange = (): void => {
     if (!isPageVisible()) return;
-    if (scanRaf) cancelAnimationFrame(scanRaf);
+    _cancelScan();
     scanScheduled = false;
-    scanRaf = 0;
     fullScanNeeded = true;
     scheduleScan();
   };
@@ -463,7 +512,7 @@ export function attachTerminalLinks(
 
   return () => {
     obs.disconnect();
-    if (scanRaf) cancelAnimationFrame(scanRaf);
+    _cancelScan();
     document.removeEventListener("visibilitychange", onVisChange);
     window.removeEventListener("keydown", onKeyDown);
     window.removeEventListener("keyup", onKeyUp);

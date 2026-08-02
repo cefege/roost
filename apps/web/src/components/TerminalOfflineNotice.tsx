@@ -26,7 +26,11 @@ export function TerminalOfflineNotice(props: TerminalOfflineNoticeProps) {
         "z-index": "5",
       }}
     >
+      {/* Discrete state change (pane went dead / came back), not a stream — safe
+          to announce. The cell grid itself must NEVER get a live region: a
+          streaming pane would flood the screen reader row by row. */}
       <div
+        aria-live="polite"
         style={{
           "pointer-events": "auto",
           "max-width": "360px",

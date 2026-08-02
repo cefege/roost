@@ -23,20 +23,26 @@ interface ShortcutEntry {
 const SHORTCUTS: ShortcutEntry[] = [
   // Navigation
   { category: "Navigation", label: "Command palette / open terminal", binding: "⌘K" },
-  { category: "Navigation", label: "Search", binding: "⌘F" },
+  { category: "Navigation", label: "Filter the sidebar", binding: "⌘F (no terminal on screen) / Ctrl+F" },
   { category: "Navigation", label: "Toggle sidebar", binding: "⌘B" },
   { category: "Navigation", label: "Move / open in sidebar", binding: "↑ ↓ ↵" },
-  { category: "Navigation", label: "Jump to most-recent unread", binding: "⌘⇧U" },
+  { category: "Navigation", label: "Move focus to the adjacent pane", binding: "⌘⌥← ↑ → ↓ / Ctrl+Alt+← ↑ → ↓" },
   { category: "Navigation", label: "Help", binding: "Shift+?" },
   { category: "Navigation", label: "Close modal / Escape", binding: "Esc" },
   // Terminal
   { category: "Terminal", label: "Context menu", binding: "Right-click" },
-  { category: "Terminal", label: "New shell in same cwd", binding: "⌘T (context menu)" },
+  { category: "Terminal", label: "New terminal in the focused pane (same folder & server)", binding: "⌘⌥T / Ctrl+Alt+T" },
+  { category: "Terminal", label: "Focus tab 1–8 / last tab in the focused pane", binding: "⌘1–⌘8 / ⌘9 · Ctrl+1–8 / Ctrl+9" },
   { category: "Terminal", label: "Kill session", binding: "context menu" },
   { category: "Terminal", label: "Bring pane to front / push back", binding: "⌘↵ / middle-click / right-click" },
   { category: "Terminal", label: "Split right / split down", binding: "⌘D / ⌘⇧D" },
   { category: "Terminal", label: "Arrange — equalize pane sizes", binding: "Cmd+Opt+B" },
   { category: "Terminal", label: "Arrange — grid / columns / rows / main+stack", binding: "Cmd+Opt+G / E / R / V" },
+  { category: "Terminal", label: "Copy selection / paste", binding: "⌘⇧C / ⌘⇧V" },
+  { category: "Terminal", label: "Text size — bigger / smaller / reset", binding: "⌘+ / ⌘− / ⌘0" },
+  { category: "Terminal", label: "Find in scrollback", binding: "⌘F / Ctrl+⇧F" },
+  { category: "Terminal", label: "Find next / previous match", binding: "↵ / ⇧↵ · ⌘G / ⌘⇧G" },
+  { category: "Terminal", label: "Close find", binding: "Esc" },
   // Settings
   { category: "Settings", label: "Open Settings", binding: "⌘," },
 ];

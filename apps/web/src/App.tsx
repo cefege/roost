@@ -11,7 +11,7 @@ import { HomeLanding } from "./components/HomeLanding.tsx";
 import { MainPane } from "./components/MainPane.tsx";
 import { CommandPalette } from "./components/CommandPalette.tsx";
 import { TransferStack } from "./components/TransferCard.tsx";
-import { installKeyboardShortcuts } from "./lib/keyboardShortcuts.ts";
+import { installKeyboardShortcuts, setSettingsOpener } from "./lib/keyboardShortcuts.ts";
 import { rootStore } from "./store/root.ts";
 import { bootstrapSync } from "./store/sync-bootstrap.ts";
 import { AppErrorBoundary } from "./components/AppErrorBoundary.tsx";
@@ -108,11 +108,23 @@ export function App() {
     return null;
   }
 
+  // ⌘, needs a router-scoped navigate, and keyboardShortcuts.ts is a leaf with
+  // no router access — so hand it one from inside <Router>.
+  function ShortcutRouterBridge() {
+    const navigate = useNavigate();
+    onMount(() => {
+      setSettingsOpener(() => navigate("/settings/machines"));
+      onCleanup(() => setSettingsOpener(null));
+    });
+    return null;
+  }
+
   function RootShell(props: { children?: JSX.Element }) {
     return (
       <>
         {props.children}
         <SmokeRouterBridge />
+        <ShortcutRouterBridge />
         <UiBridge />
         <CommandPalette />
         <HelpOverlay />

@@ -8,6 +8,7 @@
 
 import { createSignal } from "solid-js";
 import { moveCursor, activateCursor } from "./sidebarCursor.ts";
+import { stepTermFontSize, resetTermFontSize } from "./terminalFontPref.ts";
 
 /** True when the event target is a text-editable surface (input/textarea/
  *  contentEditable). xterm's PTY uses an off-screen textarea, so this guard
@@ -68,6 +69,13 @@ export function closeHelp() {
 	_setHelpOpen(false);
 }
 
+// ── Settings (⌘,) ───────────────────────────────────────────────────────────
+// Navigation is router-scoped (useNavigate must run inside <Router>), so App.tsx
+// registers the opener from a router child. null until then, and the ⌘, branch
+// simply no-ops in that window.
+let _openSettings: (() => void) | null = null;
+export function setSettingsOpener(open: (() => void) | null): void { _openSettings = open; }
+
 
 // ── Global handler ─────────────────────────────────────────────────────────
 // ⌘F is intentionally NOT handled here — it belongs to the in-place sidebar
@@ -79,6 +87,21 @@ export function closeHelp() {
 // directly elsewhere — installKeyboardShortcuts wires it to window.
 export function handleKeydown(e: KeyboardEvent): void {
 	if (e.defaultPrevented) return;
+	// Modifier chords that must survive the terminal-deferral guard below. That
+	// guard hands every NON-Meta key straight to the PTY, so on Linux/Windows
+	// (Ctrl, no metaKey) these would never be seen if they sat after it.
+	// preventDefault keeps the browser's own page zoom from firing too.
+	if ((e.metaKey || e.ctrlKey) && !e.altKey) {
+		if (terminalOwnsKeyboard()) {
+			if (e.key === "=" || e.key === "+") { e.preventDefault(); stepTermFontSize(1); return; }
+			if (e.key === "-" || e.key === "_") { e.preventDefault(); stepTermFontSize(-1); return; }
+			if (e.key === "0") { e.preventDefault(); resetTermFontSize(); return; }
+		}
+		// ⌘, — open Settings. HelpOverlay has advertised this since forever with
+		// no handler anywhere; this is that handler.
+		if (e.key === ",") { e.preventDefault(); _openSettings?.(); return; }
+	}
+
 	// window capture runs before wterm or CellTerminal can prevent the event.
 	// Defer non-Meta keys from its hidden input, or from body/html while a deck
 	// is visible, so terminal ownership can encode the original key first.
@@ -91,8 +114,6 @@ export function handleKeydown(e: KeyboardEvent): void {
 					document.activeElement === document.documentElement)))
 	)
 		return;
-
-
 
 	// Escape: close whichever modal is open (highest-z first).
 	if (e.key === "Escape") {

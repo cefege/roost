@@ -4,6 +4,8 @@
 // thresholds/step are unit-tested, mirroring deckSwipe.ts / edgeSwipeDrawer.ts.
 // Physics runs in SECONDS; position in px, velocity in px/s.
 
+import { prefersReducedMotion } from "./prefersReducedMotion.ts";
+
 export interface SpringConfig {
   stiffness: number; // k — pull toward target
   damping: number;   // c — resistance; c = 2*sqrt(k*m) is critical (no overshoot)
@@ -57,8 +59,12 @@ export const SPRING_GENTLE: SpringConfig = { stiffness: 300, damping: 30, mass: 
 
 // rAF driver over springStep. onFrame receives each position; resolves once at
 // rest (snapped exactly to target). Returns a cancel fn. Impure (rAF/perf) so it
-// lives beside — but outside — the tested pure core. Callers under reduced-motion
-// should skip this and jump to target directly (see lib/prefersReducedMotion.ts).
+// lives beside — but outside — the tested pure core. Reduced motion is enforced
+// HERE because this is the one rAF driver every spring consumer goes through:
+// settle straight at the target instead of animating, so no caller can be left
+// holding mid-flight state. The settle is deferred to a microtask, not run
+// synchronously, so callbacks land AFTER this returns and a cancel before then
+// still wins — identical ordering to the animated path (lib/prefersReducedMotion.ts).
 export function animateSpring(
   from: SpringState,
   target: number,
@@ -66,6 +72,15 @@ export function animateSpring(
   onFrame: (position: number) => void,
   onDone?: () => void,
 ): () => void {
+  if (prefersReducedMotion()) {
+    let stopped = false;
+    queueMicrotask(() => {
+      if (stopped) return;
+      onFrame(target);
+      onDone?.();
+    });
+    return () => { stopped = true; };
+  }
   let state = from;
   let raf = 0;
   let last = performance.now();

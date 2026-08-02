@@ -15,6 +15,7 @@ import {
   cellFullFrameCount as cellFullFrameCountImpl,
   syncWsGeneration as syncWsGenerationImpl,
 } from "../store/sync.ts";
+import { perfCounters, leakSample, resetPerfCounters as resetPerfCountersImpl } from "./leakWatch.ts";
 import { rootStore, setRootStore } from "../store/root.ts";
 import { setForceVisible } from "./pageVisible.ts";
 
@@ -107,6 +108,21 @@ export interface SmokeApi {
    *  return the reassembled byte length + hex SHA-256 (integrity + no-size-cap
    *  proof). */
   downloadWorkerFile(workerFp: string, path: string): Promise<{ bytes: number; sha256: string }>;
+  /** Perf regression probe: main-thread jank + paint volume + DOM/heap size for
+   *  one pane. Composed from the always-on leak watcher and the cell-frame
+   *  counters — it adds no instrumentation of its own, so reading it cannot
+   *  perturb what it measures. Only longTaskCount/longTaskMs are windowed by
+   *  resetPerfCounters(); every other field is a live total, so a caller wanting
+   *  a per-window figure subtracts two reads.  */
+  perfProbe(sessionId: string): {
+    longTaskCount: number; longTaskMs: number;
+    cellFrames: number; cellFullFrames: number;
+    domNodes: number; cellRows: number; heldSbRows: number; heapMb: number;
+    inputRttP50: number; inputRttP95: number;
+  };
+  /** Zero the long-task accumulators so perfProbe() measures one explicit
+   *  window (a flood, a resize burst) rather than the whole page lifetime. */
+  resetPerfCounters(): void;
 }
 
 export function maybeInstallSmokeBackdoor(): void {
@@ -253,6 +269,25 @@ export function maybeInstallSmokeBackdoor(): void {
     },
     cellFullFrameCount(sessionId) {
       return cellFullFrameCountImpl(sessionId);
+    },
+    perfProbe(sessionId) {
+      const counters = perfCounters();
+      const s = leakSample();
+      return {
+        longTaskCount: counters.longTaskCount,
+        longTaskMs: counters.longTaskMs,
+        cellFrames: cellFrameCountImpl(sessionId),
+        cellFullFrames: cellFullFrameCountImpl(sessionId),
+        domNodes: s.dom_nodes ?? -1,
+        cellRows: s.cell_rows ?? -1,
+        heldSbRows: s.held_sb_rows ?? -1,
+        heapMb: s.heap_mb ?? -1,
+        inputRttP50: s.input_rtt_p50 ?? -1,
+        inputRttP95: s.input_rtt_p95 ?? -1,
+      };
+    },
+    resetPerfCounters() {
+      resetPerfCountersImpl();
     },
     syncWsGeneration() {
       return syncWsGenerationImpl();

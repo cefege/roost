@@ -32,10 +32,26 @@ function p(arr: number[], q: number): number {
   return Math.round(s[Math.min(s.length - 1, Math.floor(q * s.length))] ?? -1);
 }
 
+// Running long-task totals. The observer below already sees every longtask entry
+// (>50ms by spec); these accumulate them so a test can bound "how much of the
+// wall clock was main-thread jank" over an explicit window instead of only
+// hearing about the ≥STALL_MS outliers.
+let _longTaskCount = 0;
+let _longTaskMs = 0;
+
+export function resetPerfCounters(): void {
+  _longTaskCount = 0;
+  _longTaskMs = 0;
+}
+
+export function perfCounters(): { longTaskCount: number; longTaskMs: number } {
+  return { longTaskCount: _longTaskCount, longTaskMs: Math.round(_longTaskMs) };
+}
+
 // Accumulators to watch: anything keyed per-session (the leak class) + the
 // gross DOM/heap totals. A climbing per-session count over a flat session count
 // is a reaper miss; climbing dom_nodes/heap_mb with flat sessions is elsewhere.
-function sample(): Record<string, number> {
+export function leakSample(): Record<string, number> {
   const mem = (performance as Performance & { memory?: { usedJSHeapSize: number } }).memory;
   return {
     uptime_s: Math.round(performance.now() / 1000),
@@ -73,9 +89,9 @@ export function installLeakWatch(): void {
   if (typeof window === "undefined") return;
   // Manual inspection hook: run window.__leakSample() in any live console to
   // read the current accumulators on demand (no wait for the periodic tick).
-  (window as Window & { __leakSample?: () => Record<string, number> }).__leakSample = sample;
+  (window as Window & { __leakSample?: () => Record<string, number> }).__leakSample = leakSample;
   const periodic = (extra?: Record<string, number>): void => {
-    const s = extra ? { ...sample(), ...extra } : sample();
+    const s = extra ? { ...leakSample(), ...extra } : leakSample();
     diag("diag.leak_sample", s);
     console.info("[leakwatch] sample", s);
   };
@@ -85,14 +101,15 @@ export function installLeakWatch(): void {
     let lastStall = -STALL_THROTTLE_MS; // so the first stall is never throttled
     new PerformanceObserver((list) => {
       for (const e of list.getEntries()) {
+        _longTaskCount++;
+        _longTaskMs += e.duration;
         if (e.duration < STALL_MS) continue;
         const now = performance.now();
-        if (now - lastStall < STALL_THROTTLE_MS) return;
+        if (now - lastStall < STALL_THROTTLE_MS) continue;
         lastStall = now;
-        const s = { ...sample(), dur_ms: Math.round(e.duration), cooldownKey: 0 };
+        const s = { ...leakSample(), dur_ms: Math.round(e.duration), cooldownKey: 0 };
         signal("perf.longtask_stall", s);
         console.info("[leakwatch] STALL", s);
-        return;
       }
     }).observe({ type: "longtask", buffered: false });
   } catch {

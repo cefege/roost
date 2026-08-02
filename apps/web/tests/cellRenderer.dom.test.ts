@@ -12,7 +12,8 @@
 // exactly what CellGridRenderer touches — node identity is all we assert.
 
 import { describe, test, expect } from "bun:test";
-import { CellGridRenderer, mergeFullFrame, rowText, blockPlaceholder, MAX_HELD_SCROLLBACK_ROWS } from "../src/lib/cellRenderer.ts";
+import { CellGridRenderer, mergeFullFrame, blockPlaceholder, MAX_HELD_SCROLLBACK_ROWS } from "../src/lib/cellRenderer.ts";
+import { rowText } from "../src/lib/cellRow.ts";
 import { DEFAULT_COLOR, type CellGridFrame, type CellRow } from "@roost/shared/cell";
 
 // ── minimal fake DOM ──────────────────────────────────────────────────────

@@ -7,15 +7,17 @@
 // missing child → no-op. Returns a cleanup fn. Mirrors the pointer-gesture
 // convention of drawerDrag.ts / edgeSwipeDrawer.ts.
 
+import { prefersReducedMotion } from "./prefersReducedMotion.ts";
 import { animateSpring, SPRING_GENTLE } from "./spring.ts";
 
 const MAX_PULL = 80;    // px cap on the rubber-band stretch
 const RESISTANCE = 0.35; // fraction of raw finger travel applied past the edge
 
 export function attachElasticOverscroll(scrollEl: HTMLElement): () => void {
-  if (typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches) {
-    return () => {};
-  }
+  // No rubber-band at all under reduced motion — the pull itself is the motion,
+  // and with nothing stretched there is no release to spring back. animateSpring
+  // gates the release independently, so a future relaxation here cannot animate.
+  if (prefersReducedMotion()) return () => {};
   // The content element (transform target) is resolved lazily, NOT at attach
   // time: this runs from a Solid `ref`, which fires before the aside's children
   // (SidebarRoot → .df-all-view) are appended, so firstElementChild is null

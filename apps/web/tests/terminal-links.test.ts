@@ -267,3 +267,43 @@ test("standalone OSC 8 file link not inside any URL still resolves to its produc
   const segs = computeRowLinks(["see Foo.txt here"], 80, osc8);
   expect(segs.map(s => s.url)).toEqual(["file:///tmp/Foo.txt"]);
 });
+
+// ── ROW_LINK_HINT prefilter — one case per pattern family ─────────────────
+// computeRowLinks skips the whole regex battery for a logical line with no hint
+// character. A family that needs a character the hint does not test would go
+// silently undetected, so each family is pinned here. A NEW pattern MUST arrive
+// with its own case.
+const resolveFile = (path: string, line: number | null): string =>
+  `/file/fp/${path}${line === null ? "" : `#L${line}`}`;
+
+test("prefilter keeps every link family detectable", () => {
+  const one = (rows: string[], ownerRepo?: string): string[] =>
+    computeRowLinks(rows, 80, [], resolveFile, ownerRepo).map((s) => s.url);
+
+  expect(one(["open https://example.com now"])).toEqual(["https://example.com"]);
+  expect(one(["mail me at mailto:a@b.co"])).toEqual(["mailto:a@b.co"]);
+  expect(one(["Local:   localhost:5174/"])).toEqual(["http://localhost:5174/"]);
+  expect(one(["at apps/web/src/foo.ts:42 exactly"])).toEqual(["/file/fp/apps/web/src/foo.ts#L42"]);
+  expect(one(["see foo.ts:9 there"])).toEqual(["/file/fp/foo.ts#L9"]);
+  expect(one(["grab release.tar.gz please"])).toEqual(["/file/fp/release.tar.gz"]);
+  expect(one(["fixed cefege/roost#12 today"])).toEqual(["https://github.com/cefege/roost/issues/12"]);
+  expect(one(["landed cefege/roost@deadbeef ok"])).toEqual(["https://github.com/cefege/roost/commit/deadbeef"]);
+  expect(one(["closes #77 finally"], "cefege/roost")).toEqual(["https://github.com/cefege/roost/issues/77"]);
+  // The bare-SHA family carries NONE of : / . # — the hint's hex-run branch is
+  // the only thing that keeps it detectable.
+  expect(one(["reverted deadbeef1 earlier"], "cefege/roost"))
+    .toEqual(["https://github.com/cefege/roost/commit/deadbeef1"]);
+});
+
+test("prefilter skips a line that cannot contain any link", () => {
+  // Prose with no hint character at all: nothing to find, and nothing is found.
+  expect(computeRowLinks(["the quick brown fox jumps over a lazy dog"], 80, [], resolveFile, "cefege/roost"))
+    .toEqual([]);
+});
+
+test("prefilter never applies while an OSC 8 link is tracked", () => {
+  // OSC 8 link text is arbitrary — here it has no hint character at all.
+  const osc8: Array<[string, string]> = [["Readme", "file:///tmp/Readme"]];
+  expect(computeRowLinks(["open Readme now"], 80, osc8).map((s) => s.url))
+    .toEqual(["file:///tmp/Readme"]);
+});

@@ -13,4 +13,4 @@
 // Lives in lib/ (not inside the component) so it is importable by a test
 // without dragging the JSX runtime in. Tripwire: tests/focusOwners.test.ts.
 export const FOCUS_OWNERS =
-	'input, textarea, select, [contenteditable=""], [contenteditable="true"], [role="textbox"], [role="searchbox"], [role="dialog"], [role="menu"], dialog, .wterm, md-outlined-text-field, md-filled-text-field, md-outlined-select, md-filled-select';
+	'input, textarea, select, [contenteditable=""], [contenteditable="true"], [role="textbox"], [role="searchbox"], [role="dialog"], [role="menu"], dialog, .wterm, md-dialog, md-outlined-text-field, md-filled-text-field, md-outlined-select, md-filled-select';

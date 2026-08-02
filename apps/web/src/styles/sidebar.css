@@ -951,7 +951,7 @@ aside[data-testid="sidebar-drawer"]::-webkit-scrollbar-thumb:hover,
   --term-color-14: var(--ansi-bright-cyan);
   --term-color-15: var(--ansi-bright-white);
   --term-font-family: 'JBM Nerd', monospace;
-  font-size: var(--term-font-size, 13px);
+  font-size: var(--term-font-size, 14px);
   border-radius: 0;
   box-shadow: none;
   /* Paint/layout isolation: make each pane its own layout+paint root so a
@@ -997,7 +997,7 @@ aside[data-testid="sidebar-drawer"]::-webkit-scrollbar-thumb:hover,
    monospace) so a wider pane letterboxes (margin) instead of stretching. */
 .cell-grid {
   font-family: var(--term-font-family);
-  font-size: var(--term-font-size, 13px);
+  font-size: var(--term-font-size, 14px);
   color: var(--term-fg);
   background: var(--term-bg);
   line-height: 1.2;
@@ -1059,6 +1059,65 @@ aside[data-testid="sidebar-drawer"]::-webkit-scrollbar-thumb:hover,
   opacity: 0.7;
   pointer-events: none;
   animation: cell-blink 1.06s step-end infinite;
+}
+
+/* Find-in-scrollback matches. CellGridRenderer splits a matched run into its own
+   span (renderRow in cellRow.ts) rather than positioning an overlay, so `.wterm`'s
+   overflow / scrollbar-gutter rules stay untouched. The ACTIVE match uses the
+   primary container so it reads as "the one you are on" against the others. */
+.cell-grid .cell-find-hit {
+  background: var(--md-tertiary-container);
+  color: var(--md-on-tertiary-container);
+  border-radius: 2px;
+}
+.cell-grid .cell-find-hit-active {
+  background: var(--md-primary-container);
+  color: var(--md-on-primary-container);
+}
+
+/* Find bar — sits INSIDE the pane above the display and consumes real rows
+   (TerminalFindBar.tsx explains why that is deliberate). */
+.term-find-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--md-space-2);
+  padding: var(--md-space-1) var(--md-space-2);
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--md-outline-variant);
+}
+.term-find-input {
+  flex: 1;
+  min-width: 0;
+  background: var(--surface-1);
+  color: var(--text-hi);
+  border: 1px solid var(--md-outline-variant);
+  border-radius: var(--md-shape-xs);
+  padding: var(--md-space-1) var(--md-space-2);
+  font-family: var(--term-font-family);
+  font-size: var(--md-body-s-size);
+}
+.term-find-input:focus-visible { outline: 2px solid var(--md-primary); outline-offset: -2px; }
+.term-find-input[data-failed="true"] { border-color: var(--md-error); }
+.term-find-count,
+.term-find-note {
+  color: var(--text-mid);
+  font-size: var(--md-body-s-size);
+  white-space: nowrap;
+}
+.term-find-toggle {
+  background: transparent;
+  color: var(--text-mid);
+  border: 1px solid var(--md-outline-variant);
+  border-radius: var(--md-shape-xs);
+  padding: 0 var(--md-space-2);
+  font-family: var(--term-font-family);
+  font-size: var(--md-body-s-size);
+  cursor: pointer;
+}
+.term-find-toggle[data-on="true"] {
+  background: var(--md-secondary-container);
+  color: var(--md-on-secondary-container);
+  border-color: var(--md-secondary-container);
 }
 
 /* Ghost cursors — remote viewers' cursor cells (CellGridRenderer.setGhosts).
@@ -1567,6 +1626,15 @@ aside[data-testid="sidebar-drawer"]::-webkit-scrollbar-thumb:hover,
    is set on the deck root while isResizeDragging() (resizeDrag.ts). */
 [data-testid="terminal-deck"][data-resizing="true"] [data-pane-slot][data-focused="true"]::after {
   box-shadow: none;
+}
+/* Keyboard focus ring on the pane slot itself. Separate from the data-focused
+   ring above: that one tracks which pane OWNS input (mouse or keyboard, and
+   only when tiled), while this one answers "where is the tab-key cursor" and so
+   must be :focus-visible — never :focus, or a click would light it too. Same
+   3px as the ring above, offset inward so the tiled neighbour cannot clip it. */
+[data-pane-slot]:focus-visible {
+  outline: 3px solid var(--md-primary);
+  outline-offset: -3px;
 }
 .df-tab[data-dragging="true"] {
   background: var(--md-surface-container-high);

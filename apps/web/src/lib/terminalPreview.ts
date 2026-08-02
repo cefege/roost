@@ -12,7 +12,8 @@
 //
 // Cost: O(rows × spans) — a trivial walk, no emulator re-run, no re-render.
 
-import { spanStyle, rowText, type CellGridRenderer } from "./cellRenderer.ts";
+import type { CellGridRenderer } from "./cellRenderer.ts";
+import { spanStyle, rowText } from "./cellRow.ts";
 
 // ─── Renderer registry ──────────────────────────────────────────────────
 // Mirrors sync-dispatch.ts's per-session handler Map. CellTerminal registers

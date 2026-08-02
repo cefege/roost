@@ -4,7 +4,7 @@
 // span→CSS + 256-palette mapping that the paint depends on.
 
 import { describe, test, expect } from "bun:test";
-import { spanStyle, ansi256ToCss, rowSig } from "../src/lib/cellRenderer.ts";
+import { spanStyle, ansi256ToCss, rowHash } from "../src/lib/cellRow.ts";
 import { DEFAULT_COLOR, CELL_BOLD, CELL_DIM, CELL_ITALIC, CELL_UNDERLINE, CELL_REVERSE, CELL_INVISIBLE, CELL_STRIKE } from "@roost/shared/cell";
 import type { CellSpan, CellRow } from "@roost/shared/cell";
 
@@ -59,18 +59,28 @@ describe("spanStyle", () => {
   });
 });
 
-describe("rowSig", () => {
+describe("rowHash", () => {
   const r = (spans: CellSpan[]): CellRow => ({ index: 0, spans });
-  test("identical rows → identical sig", () => {
-    expect(rowSig(r([span({ text: "ab" })]))).toBe(rowSig(r([span({ text: "ab" })])));
+  test("identical rows → identical hash", () => {
+    expect(rowHash(r([span({ text: "ab" })]))).toBe(rowHash(r([span({ text: "ab" })])));
   });
-  test("text change → sig differs", () => {
-    expect(rowSig(r([span({ text: "ab" })]))).not.toBe(rowSig(r([span({ text: "ac" })])));
+  test("text change → hash differs", () => {
+    expect(rowHash(r([span({ text: "ab" })]))).not.toBe(rowHash(r([span({ text: "ac" })])));
   });
-  test("style-only change → sig differs", () => {
-    expect(rowSig(r([span({ text: "ab" })]))).not.toBe(rowSig(r([span({ text: "ab", flags: CELL_BOLD })])));
+  test("style-only change → hash differs", () => {
+    expect(rowHash(r([span({ text: "ab" })]))).not.toBe(rowHash(r([span({ text: "ab", flags: CELL_BOLD })])));
   });
   test("span boundaries don't collide", () => {
-    expect(rowSig(r([span({ text: "ab" })]))).not.toBe(rowSig(r([span({ text: "a" }), span({ text: "b" })])));
+    expect(rowHash(r([span({ text: "ab" })]))).not.toBe(rowHash(r([span({ text: "a" }), span({ text: "b" })])));
+  });
+  test("a true-color change the palette fields cannot see still differs", () => {
+    expect(rowHash(r([span({ text: "ab", fgRgb: 0x112233 })])))
+      .not.toBe(rowHash(r([span({ text: "ab", fgRgb: 0x112234 })])));
+    expect(rowHash(r([span({ text: "ab", bgRgb: 0x112233 })])))
+      .not.toBe(rowHash(r([span({ text: "ab" })])));
+  });
+  test("a reversed row differs from the same row unreversed", () => {
+    expect(rowHash(r([span({ text: "ab" })])))
+      .not.toBe(rowHash(r([span({ text: "ab", flags: CELL_REVERSE })])));
   });
 });

@@ -10,12 +10,17 @@
 // Callers: SettingsRoot.tsx.
 
 import { Show } from "solid-js";
-import { Card, Switch } from "./md/primitives.tsx";
+import { Card, Switch, IconButton, Button } from "./md/primitives.tsx";
 import { Select } from "./md/Select.tsx";
 import { keyboardResize, setKeyboardResize } from "../../lib/keyboardResizePref.ts";
 import { keyboardOnDesktop, setKeyboardOnDesktop } from "../../lib/keyboardOnDesktop.ts";
 import { mouseForwardEnabled, toggleMouseForward } from "../../lib/mouseForwardPref.ts";
 import { predictMode, setPredictMode } from "../../lib/predictPref.ts";
+import {
+  termFontSize, stepTermFontSize, resetTermFontSize,
+  TERM_FONT_MIN_PX, TERM_FONT_MAX_PX,
+} from "../../lib/terminalFontPref.ts";
+import { copyOnSelect, setCopyOnSelect } from "../../lib/copyOnSelectPref.ts";
 
 function SwitchRow(props: { headline: string; support?: string; checked: boolean; onChange: (v: boolean) => void; testId?: string }) {
   return (
@@ -65,6 +70,50 @@ export function TerminalPane() {
           onChange={toggleMouseForward}
           testId="mouse-forward-toggle"
         />
+      </Card>
+      <Card title="Selection">
+        <SwitchRow
+          headline="Copy on select"
+          support="On: releasing a selection in the terminal puts it on the clipboard immediately (the tmux/xterm habit). Off: copy explicitly with ⌘/Ctrl+Shift+C or the right-click menu. Off by default because it overwrites the system clipboard without being asked. This device only."
+          checked={copyOnSelect()}
+          onChange={setCopyOnSelect}
+          testId="copy-on-select-toggle"
+        />
+      </Card>
+      <Card title="Text size">
+        <div style={{ display: "flex", "flex-direction": "column", gap: "var(--md-space-3)" }}>
+          <div style={{ display: "flex", "align-items": "center", gap: "var(--md-space-3)" }}>
+            <IconButton
+              icon="remove"
+              label="Smaller terminal text"
+              data-testid="term-font-smaller"
+              disabled={termFontSize() <= TERM_FONT_MIN_PX}
+              onClick={() => stepTermFontSize(-1)}
+            />
+            <span class="md-body-m" data-testid="term-font-size" style={{ color: "var(--md-sys-color-on-surface)", "min-width": "var(--md-space-8)", "text-align": "center" }}>
+              {termFontSize()}px
+            </span>
+            <IconButton
+              icon="add"
+              label="Larger terminal text"
+              data-testid="term-font-larger"
+              disabled={termFontSize() >= TERM_FONT_MAX_PX}
+              onClick={() => stepTermFontSize(1)}
+            />
+            <Button
+              variant="text"
+              data-testid="term-font-reset"
+              onClick={resetTermFontSize}
+            >
+              Reset
+            </Button>
+          </div>
+          <p class="md-body-s" style={{ color: "var(--md-sys-color-on-surface-variant)", margin: "0" }}>
+            Also ⌘ / Ctrl with + , − or 0 while a terminal is on screen. Changing the
+            text size changes how many columns and rows fit, so every open terminal
+            re-sizes its shell to match. This device only.
+          </p>
+        </div>
       </Card>
       <Card title="Local echo">
         <div style={{ display: "flex", "flex-direction": "column", gap: "var(--md-space-3)" }}>

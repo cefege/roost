@@ -13,6 +13,7 @@ import { FirehoseFrameSchema } from "@roost/shared/proto/sync_pb";
 import { fromBinary } from "@bufbuild/protobuf";
 import { protoToEvent } from "@roost/shared/wire/event-proto";
 import { signCoordinatorJwt } from "../auth/web-key.ts";
+import { getTabId } from "../auth/tab-id.ts";
 import { _dispatchUiCommand } from "../lib/uiCommandDispatch.ts";
 import { relocateBrowserToCoordinator } from "../auth/coordinator-relocation.ts";
 import {
@@ -156,6 +157,73 @@ function _writeSyncPaused(paused: boolean): void {
 export function reconnectNow(): void {
   console.info("[sync.connect] manual reconnect requested — reloading page");
   location.reload();
+}
+
+
+// ─── pre-hydration queue ──────────────────────────────────────────────────
+// The Sync socket is dialed in PARALLEL with the bootstrap's list RPCs (it
+// needs nothing but a JWT and the persisted event cursor), which shaves a full
+// round trip off first paint. That creates one ordering hazard: a session delta
+// arriving before sessionsList's snapshot is applied would be clobbered by that
+// older snapshot. So every frame decoded before hydration is held here and
+// replayed, in arrival order, through the same dispatch switch.
+const PRE_HYDRATION_CAP = 5000;
+let _queueingPreHydration = true;
+let _preHydrationQueue: FirehoseFrame[] = [];
+let _preHydrationOverflow = false;
+
+/** Replay everything held since the socket opened, then let frames flow live.
+ *  Called by sync-bootstrap the instant the sessions snapshot lands — and also
+ *  from its failure path, so frames are never stranded by a bootstrap that
+ *  never hydrates (a cell frame for an unknown session drops silently by
+ *  design, so draining into an empty store is harmless). */
+export function drainPreHydration(): void {
+  _queueingPreHydration = false;
+  const queued = _preHydrationQueue;
+  _preHydrationQueue = [];
+  for (const frame of queued) _dispatchSyncFrame(frame);
+  if (!_preHydrationOverflow) return;
+  // The queue overflowed, so an unknown set of deltas was dropped. A re-dial
+  // replays them from the persisted cursor via `since=`, which is the only way
+  // back to a truthful store.
+  _preHydrationOverflow = false;
+  signal("sync.prehydration_overflow", { cap: PRE_HYDRATION_CAP, cooldownKey: "sync" });
+  forceSyncReconnect();
+}
+
+// ─── first-open barrier + backoff wake ────────────────────────────────────
+// A fresh browser sends `since=0`, and coord deliberately runs NO backfill for a
+// zero cursor (the bootstrap's list snapshots already carry that state). So any
+// event published between the sessions snapshot and this socket opening is lost
+// outright — there is nothing to replay it from. The bootstrap therefore waits
+// for the first open before applying the snapshot, which closes the window
+// instead of merely shrinking it.
+let _resolveFirstOpen: (() => void) | null = null;
+const _firstOpen = new Promise<void>((resolve) => { _resolveFirstOpen = resolve; });
+
+/** Resolves on the Sync socket's first successful open, or after `timeoutMs` —
+ *  bounded so a coord that answers unary RPCs but refuses the WS upgrade cannot
+ *  leave the store unhydrated (a blank app). */
+export function syncSocketOpened(timeoutMs: number): Promise<void> {
+  return Promise.race([_firstOpen, new Promise<void>((resolve) => setTimeout(resolve, timeoutMs))]);
+}
+
+// Immediate re-dial request. Read by whichever side sees it first, so it works
+// whether the reconnect loop is already parked in its backoff sleep or has not
+// reached it yet.
+let _resumeRequested = false;
+let _wakeBackoff: (() => void) | null = null;
+
+/** Re-dial NOW rather than serving out the reconnect backoff. Called when the
+ *  cause of the last failure has demonstrably been fixed — today only after a
+ *  first-boot self-register authorizes this browser's key, which turns a
+ *  guaranteed 401 into a guaranteed success. */
+export function resumeSyncNow(): void {
+  _syncFailures = 0;
+  _resumeRequested = true;
+  const wake = _wakeBackoff;
+  _wakeBackoff = null;
+  wake?.();
 }
 
 // Per-frame firehose dispatch — SHARED verbatim by the WebSocket transport
@@ -388,7 +456,10 @@ export async function _runConnectSync(): Promise<void> {
       const override = typeof localStorage !== "undefined" ? localStorage.getItem("roost.coordinatorUrl") : null;
       const wsBase = (override || location.origin).replace(/^http/, "ws");
       const jwt = await signCoordinatorJwt();
-      const url = `${wsBase}/ws/coord-sync?token=${encodeURIComponent(jwt)}&since=${_lastSeenEventId}`;
+      // tab= gives coord a per-TAB identity for this socket, the same
+      // `${fingerprint}:${tabId}` key sessionsResize claims use, so the cell +
+      // byte fanout can ship only the sessions THIS tab actually claimed.
+      const url = `${wsBase}/ws/coord-sync?token=${encodeURIComponent(jwt)}&since=${_lastSeenEventId}&tab=${encodeURIComponent(getTabId())}`;
       const ws = new WebSocket(url);
       ws.binaryType = "arraybuffer";
       _liveWs = ws;
@@ -403,12 +474,23 @@ export async function _runConnectSync(): Promise<void> {
         _noteSyncConnect();
         backoff = 1000;
         if (gen === _wsGen) setOpen(true);
+        _resolveFirstOpen?.();
+        _resolveFirstOpen = null;
         _stopWatchdog = startStaleWatchdog(ws, { onStale: () => { _initiateWsClose("stale"); } });
       };
       ws.onmessage = (ev) => {
         _lastMsgAt = Date.now();   // liveness, even if the decode below throws
         try {
           const frame = fromBinary(FirehoseFrameSchema, new Uint8Array(ev.data as ArrayBuffer));
+          if (_queueingPreHydration) {
+            if (_preHydrationQueue.length >= PRE_HYDRATION_CAP) {
+              _preHydrationQueue = [];
+              _preHydrationOverflow = true;
+            } else {
+              _preHydrationQueue.push(frame);
+            }
+            return;
+          }
           _dispatchSyncFrame(frame);
         } catch (e) {
           signal("diag.corruption_signal", { kind: "sync_ws_decode", frame: "firehose", msg: String(e), cooldownKey: "sync" });
@@ -457,9 +539,16 @@ export async function _runConnectSync(): Promise<void> {
       }
       return;
     }
+    // resumeSyncNow may land before the sleep starts or while it is parked;
+    // both are checked so neither ordering loses the wake.
+    if (_resumeRequested) { _resumeRequested = false; backoff = 1000; continue; }
     const { promise: slept, resolve: wake } = Promise.withResolvers<void>();
-    setTimeout(wake, backoff);
+    _wakeBackoff = wake;
+    const sleepTimer = setTimeout(wake, backoff);
     await slept;
+    clearTimeout(sleepTimer);
+    _wakeBackoff = null;
+    if (_resumeRequested) { _resumeRequested = false; backoff = 1000; continue; }
     backoff = Math.min(backoff * 2, 30_000);
   }
 }

@@ -10,6 +10,7 @@ import { rootStore } from "../../store/root.ts";
 import { uiStore, toggleSidebarCollapsed, closeSidebar } from "../../store/uiStore.ts";
 import { isCompact } from "../../lib/windowSizeClass.ts";
 import { allSessions } from "../../store/selectors.ts";
+import { terminalOwnsKeyboard } from "../../lib/keyboardShortcuts.ts";
 import { SidebarSearch } from "./SidebarSearch.tsx";
 import { SidebarEmptyState } from "./SidebarEmptyState.tsx";
 import { SessionRow } from "./SessionRow.tsx";
@@ -52,7 +53,12 @@ export function AllView() {
   function onGlobalKeyDown(e: KeyboardEvent) {
     if (e.defaultPrevented) return;
 
-    if ((e.metaKey || e.ctrlKey) && e.key === "f") {
+    // ⌘F is contested: with a terminal deck on screen the focused pane's
+    // find-in-scrollback owns it (CellTerminal binds ⌘F and Ctrl+⇧F). Plain
+    // Ctrl+F is NOT contested — it is readline's forward-char, so it belongs to
+    // the PTY when the terminal has focus and to this filter otherwise (wterm
+    // preventDefaults it when it consumes it, and the guard above respects that).
+    if ((e.metaKey || e.ctrlKey) && e.key === "f" && !(e.metaKey && terminalOwnsKeyboard())) {
       e.preventDefault();
       openSearch();
     }
