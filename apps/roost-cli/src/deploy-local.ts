@@ -1,5 +1,5 @@
 import { run, resolveLocalGitShaOrDie } from "./deploy-exec.ts";
-import { _backfillEnvFromPlist } from "./deploy-plist-env.ts";
+import { _backfillEnvFromPlist, _resolveDeployEnvValue } from "./deploy-plist-env.ts";
 import { restartWorkerCmd, verifyWorkerCmd, WORKER_AGENT, WORKER_UNIT, type ServiceOs } from "./service-ctl.ts";
 
 /** Localhost fast-path: run install.sh directly on the box that
@@ -20,9 +20,17 @@ export async function _deployLocal(host: string): Promise<void> {
   if (filled.length > 0) {
     console.log(`>> reused from existing plist: ${filled.join(", ")}`);
   }
-  // hostEnv only ever holds keys absent from process.env, so spreading it
-  // below cannot shadow an explicit override.
-  if (!(process.env.ROOST_COORDINATOR_URL ?? hostEnv.ROOST_COORDINATOR_URL)) {
+  const installEnv: Record<string, string> = {};
+  for (const key of [
+    "ROOST_COORDINATOR_URL",
+    "ROOST_BOOTSTRAP_TOKEN",
+    "ROOST_WORKER_LABEL",
+    "ROOST_REACHABLE_ADDR",
+  ]) {
+    const value = _resolveDeployEnvValue(key, hostEnv);
+    if (value) installEnv[key] = value;
+  }
+  if (!installEnv.ROOST_COORDINATOR_URL) {
     console.error("ERROR: ROOST_COORDINATOR_URL env var required (no prior plist to reuse).");
     process.exit(6);
   }
@@ -37,7 +45,7 @@ export async function _deployLocal(host: string): Promise<void> {
     {
       quiet: true,
       env: {
-        ...hostEnv,
+        ...installEnv,
         BUN_BIN: process.execPath,
         ...(localGitSha ? { GIT_SHA: localGitSha } : {}),
       },

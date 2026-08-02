@@ -37,13 +37,27 @@ export interface HostEnvBackfill {
   filled: string[];
 }
 
-/** Read any missing ROOST_* env vars from the existing worker service
- *  definition on the target box — the LaunchAgent plist on macOS, the
- *  systemd --user unit on Linux. */
+/** Resolve one deploy variable without mutating ambient state. An enrolled
+ *  worker's installed coordinator is authoritative; other per-host values
+ *  remain explicit caller overrides. */
+export function _resolveDeployEnvValue(
+  key: string,
+  installedEnv: Record<string, string>,
+): string | undefined {
+  const ambient = process.env[key];
+  return key === "ROOST_COORDINATOR_URL"
+    ? installedEnv[key] ?? ambient
+    : ambient ?? installedEnv[key];
+}
+
+/** Read deploy env vars from the existing worker service definition on the
+ *  target box — the LaunchAgent plist on macOS, the systemd --user unit on
+ *  Linux. The installed coordinator URL is always read because it is
+ *  authoritative for an enrolled worker; other keys are read only when
+ *  absent from the caller environment. */
 export async function _backfillEnvFromPlist(host: string | "self"): Promise<HostEnvBackfill> {
   const KEYS = ["ROOST_COORDINATOR_URL", "ROOST_REACHABLE_ADDR", "ROOST_WORKER_LABEL"];
-  const missing = KEYS.filter((k) => !process.env[k]);
-  if (missing.length === 0) return { env: {}, filled: [] };
+  const requested = KEYS.filter((k) => k === "ROOST_COORDINATOR_URL" || !process.env[k]);
   const PLIST = "Library/LaunchAgents/com.roost.worker-v2.plist";
   const UNIT = `.config/systemd/user/${WORKER_UNIT}`;
   // Whichever the box has. Both parsers key off their own syntax, so
@@ -62,7 +76,7 @@ export async function _backfillEnvFromPlist(host: string | "self"): Promise<Host
   const parsed = { ..._parseUnitEnv(text), ..._parsePlistEnv(text) };
   const env: Record<string, string> = {};
   const filled: string[] = [];
-  for (const k of missing) {
+  for (const k of requested) {
     if (parsed[k]) {
       env[k] = parsed[k];
       filled.push(k);

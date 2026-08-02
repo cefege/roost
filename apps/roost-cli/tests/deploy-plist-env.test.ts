@@ -14,7 +14,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import fs from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { _backfillEnvFromPlist } from "../src/deploy-plist-env.ts";
+import { _backfillEnvFromPlist, _resolveDeployEnvValue } from "../src/deploy-plist-env.ts";
 import { WORKER_UNIT } from "../src/service-ctl.ts";
 
 const KEYS = ["ROOST_COORDINATOR_URL", "ROOST_REACHABLE_ADDR", "ROOST_WORKER_LABEL", "HOME"] as const;
@@ -203,30 +203,46 @@ describe("_backfillEnvFromPlist — parsing", () => {
 });
 
 describe("_backfillEnvFromPlist — precedence and absence", () => {
-  test("an explicit process.env value wins and is not reported as filled", async () => {
+  test("explicit per-host label and address still win", async () => {
     const home = fakeHost("mac", {
       plist: plistWith({
-        ROOST_REACHABLE_ADDR: "stale.tail1234.ts.net",
-        ROOST_WORKER_LABEL: "stale-label",
+        ROOST_REACHABLE_ADDR: "installed.tail1234.ts.net",
+        ROOST_WORKER_LABEL: "installed-label",
       }),
     });
+    process.env.ROOST_REACHABLE_ADDR = "explicit.tail1234.ts.net";
     process.env.ROOST_WORKER_LABEL = "explicit-label";
 
     const r = await backfillFrom(home);
+    expect(_resolveDeployEnvValue("ROOST_REACHABLE_ADDR", r.env)).toBe("explicit.tail1234.ts.net");
+    expect(_resolveDeployEnvValue("ROOST_WORKER_LABEL", r.env)).toBe("explicit-label");
+    expect(r.env.ROOST_REACHABLE_ADDR).toBeUndefined();
     expect(r.env.ROOST_WORKER_LABEL).toBeUndefined();
-    expect(r.filled).not.toContain("ROOST_WORKER_LABEL");
-    expect(r.env.ROOST_REACHABLE_ADDR).toBe("stale.tail1234.ts.net");
+    expect(process.env.ROOST_REACHABLE_ADDR).toBe("explicit.tail1234.ts.net");
     expect(process.env.ROOST_WORKER_LABEL).toBe("explicit-label");
   });
 
-  test("all three keys already set: nothing is read off the host at all", async () => {
-    const home = fakeHost("mac", { plist: plistWith({ ROOST_WORKER_LABEL: "stale-label" }) });
-    process.env.ROOST_COORDINATOR_URL = "https://explicit:4102";
-    process.env.ROOST_REACHABLE_ADDR = "explicit.ts.net";
-    process.env.ROOST_WORKER_LABEL = "explicit-label";
+  test("an installed systemd or plist coordinator URL beats stale ambient state", async () => {
+    process.env.ROOST_COORDINATOR_URL = "https://stale-shell.tail1234.ts.net:4102";
+    const hosts = [
+      fakeHost("mac", {
+        plist: plistWith({ ROOST_COORDINATOR_URL: "https://mac-coord.tail1234.ts.net:4102" }),
+      }),
+      fakeHost("linux", {
+        unit: unitWith({ ROOST_COORDINATOR_URL: "https://linux-coord.tail1234.ts.net:4102" }),
+      }),
+    ];
 
-    const r = await backfillFrom(home);
-    expect(r).toEqual({ env: {}, filled: [] });
+    for (const [index, home] of hosts.entries()) {
+      const r = await backfillFrom(home);
+      const expected = index === 0
+        ? "https://mac-coord.tail1234.ts.net:4102"
+        : "https://linux-coord.tail1234.ts.net:4102";
+      expect(r.env.ROOST_COORDINATOR_URL).toBe(expected);
+      expect(r.filled).toContain("ROOST_COORDINATOR_URL");
+      expect(_resolveDeployEnvValue("ROOST_COORDINATOR_URL", r.env)).toBe(expected);
+      expect(process.env.ROOST_COORDINATOR_URL).toBe("https://stale-shell.tail1234.ts.net:4102");
+    }
   });
 
   test("missing service definition returns empty without throwing", async () => {

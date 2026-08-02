@@ -20,7 +20,7 @@
 import { tailnetSuffix } from "./status.ts";
 import { run, runOrDie, SSH_OPTS, RSYNC_RSH, sshExec, resolveLocalGitShaOrDie } from "./deploy-exec.ts";
 import { _isSelfHost } from "./deploy-self-host.ts";
-import { _backfillEnvFromPlist } from "./deploy-plist-env.ts";
+import { _backfillEnvFromPlist, _resolveDeployEnvValue } from "./deploy-plist-env.ts";
 import { _deployLocal } from "./deploy-local.ts";
 import { deployLinux } from "./deploy-linux.ts";
 
@@ -73,10 +73,9 @@ export async function deploy(args: string[]): Promise<void> {
     if (filled.length > 0) {
       console.log(`>> reused from the installed unit on ${host}: ${filled.join(", ")}`);
     }
-    // Explicit env wins; the rest comes from THIS host's own unit. Never from
-    // process.env leftovers — one `roost push` deploys every target in one
-    // process, and the label/address are per-host.
-    const resolved = (k: string): string | undefined => process.env[k] ?? hostEnv[k];
+    // An enrolled worker's installed coordinator is authoritative. Explicit
+    // caller values still win for the per-host label and reachable address.
+    const resolved = (k: string): string | undefined => _resolveDeployEnvValue(k, hostEnv);
     if (!resolved("ROOST_COORDINATOR_URL")) {
       console.error("ERROR: ROOST_COORDINATOR_URL env var required (no prior install on target to reuse).");
       process.exit(6);
@@ -235,8 +234,9 @@ export async function deploy(args: string[]): Promise<void> {
   if (filled.length > 0) {
     console.log(`>> reused from existing plist on ${host}: ${filled.join(", ")}`);
   }
-  // Same rule as the linux branch: explicit env wins, then THIS host's plist.
-  const resolved = (k: string): string | undefined => process.env[k] ?? hostEnv[k];
+  // Same rule as the Linux branch: preserve the installed coordinator while
+  // keeping explicit caller precedence for per-host values.
+  const resolved = (k: string): string | undefined => _resolveDeployEnvValue(k, hostEnv);
   const passthroughEnv = ["ROOST_COORDINATOR_URL", "ROOST_BOOTSTRAP_TOKEN", "ROOST_WORKER_LABEL", "ROOST_REACHABLE_ADDR"]
     .filter((k) => resolved(k))
     .map((k) => `${k}=${JSON.stringify(resolved(k))}`)
