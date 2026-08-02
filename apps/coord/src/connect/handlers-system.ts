@@ -15,8 +15,8 @@ import {
   AuditListResponseSchema,
 } from "@roost/shared/proto/coordinator_pb";
 import { AuditRowSchema } from "@roost/shared/proto/wire_pb";
-import { requireAuth, remoteAddressKey } from "./auth-interceptor.ts";
-import { assertLoopback } from "../middleware/loopback-only.ts";
+import { callerOrigin, requireAuth } from "./auth-interceptor.ts";
+import { assertOnHost } from "../middleware/caller-origin.ts";
 import { COORD_GIT_SHA } from "../git-sha.ts";
 import { getMetricsSnapshot } from "../telemetry.ts";
 import { _viewersBySession } from "./viewer-tracker.ts";
@@ -46,8 +46,7 @@ export function makeSystemHandlers(
 
     async miscDbExportUrl(_req, ctx) {
       requireAuth(ctx.values);
-      const remote = ctx.values.get(remoteAddressKey);
-      assertLoopback(remote);
+      assertOnHost(callerOrigin(ctx.values));
       const port = deps.cfg.bind.split(":").pop();
       return create(MiscDbExportUrlResponseSchema, {
         url: `http://127.0.0.1:${port}/api/db-export`,

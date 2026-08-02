@@ -22,6 +22,7 @@ import { worker } from "./worker.ts";
 import { keeper } from "./keeper.ts";
 import { update } from "./update.ts";
 import { version } from "./version.ts";
+import { expose } from "./expose.ts";
 
 const SUBCOMMANDS = {
   quickstart,
@@ -35,6 +36,7 @@ const SUBCOMMANDS = {
   keeper,
   update,
   version,
+  expose,
   dev,
   test,
   deploy,
@@ -59,6 +61,7 @@ function usage(): never {
   console.error("  quickstart        one-shot local install (tailscale → coord + worker + browser)");
   console.error("  coord             run the coordinator (server mode; used by the compiled binary)");
   console.error("  worker            run the worker (server-side; compiled binary / LaunchAgent)");
+  console.error("  expose <hostname> --team <team>.cloudflareaccess.com --aud <64-hex> [--config <path>]");
   console.error("  dev               start coord + worker + web dev servers");
   console.error("  test              run all tests in dep order");
   console.error("  deploy <host>     deploy worker to a tailnet host");

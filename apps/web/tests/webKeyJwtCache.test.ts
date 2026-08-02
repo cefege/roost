@@ -20,22 +20,65 @@ class FakeReq<T> {
   error: Error | null = null;
 }
 const _idbStore = new Map<string, unknown>();
-const fakeDb = {
-  createObjectStore: (_name: string) => ({}),
-  transaction: (_name: string, _mode?: string) => ({
-    objectStore: (_n: string) => ({
-      get(key: string) {
+class FakeTx {
+  oncomplete: (() => void) | null = null;
+  onerror: (() => void) | null = null;
+  onabort: (() => void) | null = null;
+  error: Error | null = null;
+
+  objectStore(_name: string) {
+    return {
+      get: (key: string) => {
         const req = new FakeReq<unknown>();
         queueMicrotask(() => { req.result = _idbStore.get(key); req.onsuccess?.(); });
         return req;
       },
-      put(val: unknown, key: string) {
+      add: (value: unknown, key: string) => {
         const req = new FakeReq<undefined>();
-        queueMicrotask(() => { _idbStore.set(key, val); req.onsuccess?.(); });
+        queueMicrotask(() => {
+          if (_idbStore.has(key)) {
+            this.error = new DOMException("key exists", "ConstraintError");
+            req.error = this.error;
+            req.onerror?.();
+            this.onerror?.();
+            this.onabort?.();
+            return;
+          }
+          _idbStore.set(key, value);
+          req.onsuccess?.();
+          this.oncomplete?.();
+        });
         return req;
       },
-    }),
-  }),
+      put: (value: unknown, key: string) => {
+        const req = new FakeReq<undefined>();
+        queueMicrotask(() => {
+          _idbStore.set(key, value);
+          req.onsuccess?.();
+          this.oncomplete?.();
+        });
+        return req;
+      },
+      delete: (key: string) => {
+        const req = new FakeReq<undefined>();
+        queueMicrotask(() => {
+          _idbStore.delete(key);
+          req.onsuccess?.();
+          this.oncomplete?.();
+        });
+        return req;
+      },
+    };
+  }
+
+  abort(): void {
+    this.error = new Error("aborted");
+    queueMicrotask(() => this.onabort?.());
+  }
+}
+const fakeDb = {
+  createObjectStore: (_name: string) => ({}),
+  transaction: (_name: string, _mode?: string) => new FakeTx(),
 };
 // Named-cast global: test double for an API bun doesn't provide.
 const g = globalThis as unknown as {

@@ -19,18 +19,11 @@ export interface RetiredCoordinatorIdentity {
   handoffId?: string;
 }
 
-export function coordinatorRelocationFragment(hash?: string): CoordinatorRelocationFragment | null {
-  const fragment = hash ?? (typeof location === "undefined" ? "" : location.hash);
-  const params = new URLSearchParams(fragment.slice(1));
-  const token = params.get(MOVE_FRAGMENT_KEY);
-  const handoffId = params.get(HANDOFF_FRAGMENT_KEY);
-  return token && handoffId ? { token, handoffId } : null;
-}
 
-/** Redeem a one-time relocation token before any ordinary coordinator call. */
-export async function redeemCoordinatorRelocation(): Promise<boolean> {
-  const relocation = coordinatorRelocationFragment();
-  if (!relocation) return false;
+/** Redeem a one-time relocation token already parsed and scrubbed by startup. */
+export async function redeemCoordinatorRelocation(
+  relocation: CoordinatorRelocationFragment,
+): Promise<boolean> {
   try {
     const client = createClient(CoordinatorService, createConnectTransport({
       baseUrl: "/",
@@ -41,19 +34,11 @@ export async function redeemCoordinatorRelocation(): Promise<boolean> {
       sshPubkeyB64: await getPublicKeyB64(),
       label: browserSelfLabel(),
     });
-    // Explicit here so the reload can never observe the unstripped URL; the
-    // `finally` below is the idempotent failure-path copy.
-    history.replaceState(null, "", `${location.pathname}${location.search}`);
     location.reload();
     return true;
   } catch (error) {
     console.error("[coord-relocation] destination redemption failed", error);
     return false;
-  } finally {
-    // On BOTH outcomes: a failed redeem otherwise leaves a live, unspent
-    // bearer credential in the address bar and history for its whole TTL, and
-    // makes connect.ts re-clear the coordinator override on every later load.
-    history.replaceState(null, "", `${location.pathname}${location.search}`);
   }
 }
 

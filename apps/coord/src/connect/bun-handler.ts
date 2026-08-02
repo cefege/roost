@@ -12,12 +12,13 @@
 import type { ConnectRouter } from "@connectrpc/connect";
 import type { UniversalHandler } from "@connectrpc/connect/protocol";
 import type { UniversalServerRequest, UniversalServerResponse } from "@connectrpc/connect/protocol";
+import type { CallerOrigin } from "../middleware/caller-origin.ts";
 
 export interface ConnectBunHandler {
   /** True if the path matches a registered Connect RPC. */
   matches(pathname: string): boolean;
   /** Dispatch a Fetch Request → Fetch Response. Caller must already have matched. */
-  fetch(req: Request, clientAddress?: string): Promise<Response>;
+  fetch(req: Request, origin?: CallerOrigin): Promise<Response>;
 }
 
 export function makeConnectBunHandler(router: ConnectRouter): ConnectBunHandler {
@@ -28,7 +29,7 @@ export function makeConnectBunHandler(router: ConnectRouter): ConnectBunHandler 
     return byPath.has(pathname);
   }
 
-  async function fetchHandler(req: Request, clientAddress?: string): Promise<Response> {
+  async function fetchHandler(req: Request, origin?: CallerOrigin): Promise<Response> {
     const url = new URL(req.url);
     const handler = byPath.get(url.pathname);
     if (!handler) return new Response("not found", { status: 404 });
@@ -43,12 +44,17 @@ export function makeConnectBunHandler(router: ConnectRouter): ConnectBunHandler 
     // guard (Node http via @connectrpc/connect-node adapter is the
     // documented portability surface for createCoord). Mutating
     // req.headers in place works in Bun but throws "Headers is
-    // immutable" elsewhere. The strip-then-set on x-roost-remote-addr
-    // below is also a correctness guard: a browser-supplied value
-    // must never reach assertLoopback if requestIP() returned null.
+    // immutable" elsewhere. The strip-then-set guards below also prevent
+    // browser-supplied origin values from reaching trust-gated handlers.
     const header = new Headers(req.headers);
     header.delete("x-roost-remote-addr");
-    if (clientAddress) header.set("x-roost-remote-addr", clientAddress);
+    header.delete("x-roost-on-host");
+    header.delete("x-roost-listener-trust");
+    if (origin) {
+      header.set("x-roost-remote-addr", origin.clientIp);
+      header.set("x-roost-on-host", origin.onHost ? "1" : "0");
+      header.set("x-roost-listener-trust", origin.listener);
+    }
 
     const requestAbort = new AbortController();
     const ureq: UniversalServerRequest = {

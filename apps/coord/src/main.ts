@@ -19,7 +19,7 @@ import { createBunCoordinatorMoveRuntime } from "./coord-move/bun-runtime.ts";
 import { handleInternalHandoffRequest } from "./coord-move/internal-http.ts";
 import { connectWorkers } from "./connect/worker-registry.ts";
 import type { WorkerServiceDeps } from "./connect/worker-service.ts";
-import type { ServerWebSocket } from "bun";
+import type { Server, ServerWebSocket } from "bun";
 import { workspaceBus } from "./buses.ts";
 import { asWorkspaceId } from "@roost/shared/wire";
 import { log } from "@roost/shared/log";
@@ -27,6 +27,14 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { WEB_ASSETS } from "./web-embed.generated.ts";
 import { createSpaResponder } from "./spa.ts";
 import { MIGRATIONS } from "./migrations-embed.generated.ts";
+import {
+  resolveCallerOrigin,
+  type CallerOrigin,
+  type ListenerTrust,
+} from "./middleware/caller-origin.ts";
+import { makeCfAccessVerifier } from "./middleware/cf-access.ts";
+import { coordinatorAvailabilityResponse } from "./middleware/coordinator-availability.ts";
+import { makePublicSurface } from "./middleware/public-surface.ts";
 
 
 export async function runCoord() {
@@ -121,7 +129,11 @@ export async function runCoord() {
         online: connectWorkers.has(worker.fp),
       })),
   });
-  const coord = createCoord({ db, sqlite, coordKey, cfg, jwtCache, move });
+  let closeRevokedSockets: ((fingerprint: string) => void) | null = null;
+  const coord = createCoord({
+    db, sqlite, coordKey, cfg, jwtCache, move,
+    onKeyRevoked: (fingerprint) => closeRevokedSockets?.(fingerprint),
+  });
   const spaResponse = createSpaResponder(cfg.webDistPath, WEB_ASSETS);
 
   // Raw-WS worker transport deps (Bun-specific; coord-factory stays
@@ -133,6 +145,10 @@ export async function runCoord() {
   // its feed is shared with the former Connect sync via handlers-streaming.ts.
   const syncDeps = { db, sqlite, coordKey, jwtCache, cfg, move };
   const syncWs = makeSyncWsHandler(syncDeps);
+  closeRevokedSockets = (fingerprint) => {
+    syncWs.closeForFingerprint(fingerprint);
+    workerWs.closeForFingerprint(fingerprint);
+  };
   publishRelocation = (handoffId, sourceUrl, targetUrl) => syncWs.publishRelocation(handoffId, sourceUrl, targetUrl);
 
   // ONE Bun websocket handler multiplexing both raw-WS transports. Dispatch on
@@ -153,11 +169,22 @@ export async function runCoord() {
       else workerWs.close(ws as ServerWebSocket<WorkerWsData>);
     },
   };
+  const publicSurface = cfg.publicBind
+    ? makePublicSurface({
+        access: makeCfAccessVerifier(cfg.cfAccessTeamDomain!, cfg.cfAccessAud!),
+        coord,
+        syncDeps,
+        move,
+        cfg,
+        spa: spaResponse,
+        syncUpgrade: handleSyncWsUpgrade,
+      })
+    : null;
 
 
-  function dbExportResponse(clientIp: string | undefined): Response {
-    if (!clientIp || !["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(clientIp)) {
-      return new Response(JSON.stringify({ error: "loopback only" }), {
+  function dbExportResponse(origin: CallerOrigin): Response {
+    if (!origin.onHost) {
+      return new Response(JSON.stringify({ error: "on-host only" }), {
         status: 403, headers: { "content-type": "application/json" },
       });
     }
@@ -176,16 +203,10 @@ export async function runCoord() {
   const [host, portStr] = cfg.bind.split(":") as [string, string];
   const port = parseInt(portStr, 10);
 
-  // ROOST_TRUST_PROXY=1: coord runs PLAINTEXT on loopback behind `tailscale
-  // serve` (TLS terminated there). This dodges the Bun 1.3.14 native segfault
-  // in us_internal_ssl_on_close / RequestContext.onAbort that fires when a
-  // browser aborts a long-lived streaming TLS response (the Sync firehose) —
-  // Bun never runs the TLS close path. tailscale serve OVERWRITES
-  // X-Forwarded-For with the authenticated tailnet IP (verified: a
-  // client-supplied XFF is replaced, not appended), so xff[0] is the
-  // un-spoofable real client IP. Direct on-host calls carry no XFF → we keep
-  // the loopback socket peer so assertLoopback (db-export) stays strict.
-  const trustProxy = process.env.ROOST_TRUST_PROXY === "1";
+  // tailscale serve overwrites X-Forwarded-For with the authenticated tailnet
+  // address. Trust that header only on this boot-configured listener profile.
+  const trustProxy = cfg.trustProxy;
+  const listenerTrust: ListenerTrust = trustProxy ? "tailscale-serve" : "direct";
 
   const tls = cfg.tlsCertPath && cfg.tlsKeyPath
     ? {
@@ -253,15 +274,8 @@ export async function runCoord() {
       // so 410-ing its response would drop a commit that already happened.
       if (internal) return internal;
       const path = new URL(req.url).pathname;
-      const retiredDiscoveryPath = path === "/roost.v1.CoordinatorService/AuthCoordIdentity"
-        || path === "/roost.v1.CoordinatorService/AuthMintCoordinatorRelocation"
-        || path === "/roost.v1.CoordinatorService/CoordinatorMoveStatus"
-        // Public, leaks nothing, and 410-ing it paints the SPA's red
-        // "Coordinator unreachable" banner over the relocation in progress.
-        || path === "/roost.v1.CoordinatorService/MiscHealth";
-      if (move.gate.mode === "retired" && req.method !== "GET" && !retiredDiscoveryPath) {
-        return new Response("coordinator relocated", { status: 410 });
-      }
+      const unavailable = coordinatorAvailabilityResponse(move.gate.mode, req.method, path);
+      if (unavailable) return unavailable;
       // Worker raw-WS transport (/ws/coord-worker/:fp). If this is that
       // upgrade, authenticate + hijack here (Bun-specific); null = not our
       // path → fall through to the portable coord.fetch.
@@ -282,15 +296,16 @@ export async function runCoord() {
       if (new URL(req.url).pathname === "/roost.v1.CoordinatorService/Sync") {
         return new Response("sync moved to /ws/coord-sync", { status: 410 });
       }
-      let clientIp = server.requestIP(req)?.address;
-      if (trustProxy) {
-        const xff = req.headers.get("x-forwarded-for");
-        if (xff) clientIp = xff.split(",")[0]!.trim();
-      }
+      const origin = resolveCallerOrigin(
+        listenerTrust,
+        server.requestIP(req)?.address,
+        req.headers,
+      );
       return coord.fetch(req, {
-        clientIp,
+        origin,
         spa: spaResponse,
         dbExport: dbExportResponse,
+        hsts: Boolean(tls) || trustProxy,
       });
     },
     websocket,
@@ -309,6 +324,24 @@ export async function runCoord() {
     },
   });
 
+  let publicServer: Server<WorkerWsData | SyncWsData> | undefined;
+  if (cfg.publicBind && publicSurface) {
+    const [publicHost, publicPortStr] = cfg.publicBind.split(":") as [string, string];
+    publicServer = Bun.serve({
+      hostname: publicHost,
+      port: Number(publicPortStr),
+      idleTimeout: 120,
+      maxRequestBodySize: 16 * 1024 * 1024,
+      websocket,
+      fetch: publicSurface.fetch,
+      error: publicSurface.error,
+    });
+    log.info("main", "public_listening", {
+      bind: `${publicHost}:${publicServer.port}`,
+      access_team: cfg.cfAccessTeamDomain,
+    });
+  }
+
   log.info("main", "listening", { bind: `${host}:${server.port}`, tls: !!tls, http2: !!tls, uptime_ms: Date.now() - bootMs });
   // AFTER Bun.serve: recovery stages/commits/aborts workers, and `online` is
   // computed from the worker-WS registry this server populates. Running it
@@ -322,6 +355,7 @@ export async function runCoord() {
   const shutdown = (): void => {
     log.info("main", "shutdown");
     server.stop(true);
+    publicServer?.stop(true);
     coord.dispose();
     try { sqlite.close(); } catch { /* ignore */ }
     process.exit(0);

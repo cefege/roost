@@ -24,7 +24,8 @@ import { runMigrations } from "../src/db/migrate.ts";
 import { makeAuthHandlers } from "../src/connect/handlers-auth.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";
 import { pairBus, type PairRequestDelta } from "../src/buses.ts";
-import { remoteAddressKey } from "../src/connect/auth-interceptor.ts";
+import { onHostKey, remoteAddressKey } from "../src/connect/auth-interceptor.ts";
+import { fingerprintOf } from "../src/jwt.ts";
 
 // The generated ServiceImpl types handler returns as MessageInitShape | Promise<…>
 // (sync-or-async, partial-field). These handlers are all `async` and return
@@ -60,9 +61,10 @@ const authCtx = {
 // Unauthenticated ctx with a real ContextValues bag: callerKey stays at its
 // default (null) so optionalAuth() returns null and the handler falls back to
 // the loopback check on remoteAddressKey.
-function remoteCtx(addr: string | undefined): HandlerContext {
+function remoteCtx(addr: string | undefined, onHost = false): HandlerContext {
   const values = createContextValues();
   if (addr !== undefined) values.set(remoteAddressKey, addr);
+  values.set(onHostKey, onHost);
   return { values } as unknown as HandlerContext;
 }
 
@@ -71,6 +73,12 @@ beforeAll(async () => {
   const { db, sqlite } = openDb(join(workdir, "test.db"));
   testDb = db;
   await runMigrations(sqlite);
+  await db.insertInto("authorized_keys").values({
+    fingerprint: "fp-test",
+    public_key: new Uint8Array(32),
+    label: "approver",
+    added_at: Date.now(),
+  }).execute();
   closeDb = () => { try { sqlite.close(); } catch { /* ignore */ } };
   // The pair handlers touch only deps.db; the remaining ConnectDeps surface
   // (coordKey etc.) is irrelevant here.
@@ -133,7 +141,7 @@ describe("pair loopback API trust path", () => {
   test("pairApprove from loopback without JWT approves + authorizes the key", async () => {
     const eid = await createRequest("api-approve-me");
     const resp = await handlers.pairApprove(
-      create(PairApproveRequestSchema, { ephemeralId: eid }), remoteCtx("127.0.0.1"));
+      create(PairApproveRequestSchema, { ephemeralId: eid }), remoteCtx("127.0.0.1", true));
     expect(resp.ok).toBe(true);
     const row = await testDb.selectFrom("pair_requests").select(["status"])
       .where("ephemeral_id", "=", eid).executeTakeFirst();
@@ -146,33 +154,33 @@ describe("pair loopback API trust path", () => {
   test("pairDeny from loopback without JWT denies", async () => {
     const eid = await createRequest("api-deny-me");
     const resp = await handlers.pairDeny(
-      create(PairDenyRequestSchema, { ephemeralId: eid }), remoteCtx("127.0.0.1"));
+      create(PairDenyRequestSchema, { ephemeralId: eid }), remoteCtx("127.0.0.1", true));
     expect(resp.ok).toBe(true);
   });
 
   test("pairList from loopback without JWT lists pending", async () => {
     const eid = await createRequest("api-list-me");
     const resp = await handlers.pairList(
-      create(PairListRequestSchema, {}), remoteCtx("::1"));
+      create(PairListRequestSchema, {}), remoteCtx("::1", true));
     expect(resp.requests.some((r) => r.ephemeralId === eid)).toBe(true);
     // cleanup so later runs of this file start pending-free
-    await handlers.pairDeny(create(PairDenyRequestSchema, { ephemeralId: eid }), remoteCtx("127.0.0.1"));
+    await handlers.pairDeny(create(PairDenyRequestSchema, { ephemeralId: eid }), remoteCtx("127.0.0.1", true));
   });
 
   test("unauthenticated tailnet addr is rejected (no self-approval)", async () => {
     const eid = await createRequest("tailnet-reject-me");
     await expect(handlers.pairApprove(
-      create(PairApproveRequestSchema, { ephemeralId: eid }), remoteCtx("100.101.102.103"),
+      create(PairApproveRequestSchema, { ephemeralId: eid }), remoteCtx("100.101.102.103", false),
     ).catch((e: ConnectError) => e.code)).resolves.toBe(Code.PermissionDenied);
-    await handlers.pairDeny(create(PairDenyRequestSchema, { ephemeralId: eid }), remoteCtx("127.0.0.1"));
+    await handlers.pairDeny(create(PairDenyRequestSchema, { ephemeralId: eid }), remoteCtx("127.0.0.1", true));
   });
 
   test("unauthenticated with no remote address is rejected", async () => {
     const eid = await createRequest("noaddr-reject-me");
     await expect(handlers.pairDeny(
-      create(PairDenyRequestSchema, { ephemeralId: eid }), remoteCtx(undefined),
+      create(PairDenyRequestSchema, { ephemeralId: eid }), remoteCtx(undefined, false),
     ).catch((e: ConnectError) => e.code)).resolves.toBe(Code.PermissionDenied);
-    await handlers.pairDeny(create(PairDenyRequestSchema, { ephemeralId: eid }), remoteCtx("127.0.0.1"));
+    await handlers.pairDeny(create(PairDenyRequestSchema, { ephemeralId: eid }), remoteCtx("127.0.0.1", true));
   });
 
   test("authed caller still works regardless of remote address (notifier path)", async () => {
@@ -180,5 +188,33 @@ describe("pair loopback API trust path", () => {
     const resp = await handlers.pairDeny(
       create(PairDenyRequestSchema, { ephemeralId: eid }), authCtx);
     expect(resp.ok).toBe(true);
+  });
+
+  test("an authenticated approval cannot resume after its approver is revoked", async () => {
+    const keys = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);
+    const raw = new Uint8Array(await crypto.subtle.exportKey("raw", keys.publicKey));
+    const proposedFp = await fingerprintOf(raw);
+    const created = await handlers.pairCreate(create(PairCreateRequestSchema, {
+      sshPubkeyB64: Buffer.from(raw).toString("base64"),
+      label: "paused-approval",
+    }), authCtx);
+    await testDb.transaction().execute(async (trx) => {
+      await trx.insertInto("authorized_key_revocations").values({
+        fingerprint: "fp-test",
+        revoked_at_ms: Date.now(),
+        revoked_by_fp: "test",
+        reason: "test",
+      }).execute();
+      await trx.deleteFrom("authorized_keys").where("fingerprint", "=", "fp-test").execute();
+    });
+    await expect(handlers.pairApprove(
+      create(PairApproveRequestSchema, { ephemeralId: created.ephemeralId }),
+      authCtx,
+    )).rejects.toMatchObject({ code: Code.NotFound });
+    expect(await testDb.selectFrom("pair_requests").select("status")
+      .where("ephemeral_id", "=", created.ephemeralId).executeTakeFirstOrThrow())
+      .toEqual({ status: "pending" });
+    expect(await testDb.selectFrom("authorized_keys").select("fingerprint")
+      .where("fingerprint", "=", proposedFp).executeTakeFirst()).toBeUndefined();
   });
 });

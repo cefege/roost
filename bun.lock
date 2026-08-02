@@ -38,6 +38,7 @@
         "@bufbuild/protobuf": "2.12.0",
         "@connectrpc/connect": "^2.1.2",
         "@roost/shared": "workspace:*",
+        "yaml": "^2.9.0",
       },
     },
     "apps/shared": {

@@ -450,17 +450,16 @@ export async function _runConnectSync(): Promise<void> {
     try {
       console.debug("[sync.connect] starting Sync stream", { sinceEventId: _lastSeenEventId, attempt: _syncFailures + 1 });
       // Coord base: localStorage override (multi-coord testing) else same-origin.
-      // http→ws / https→wss. Auth via query-param JWT (the browser WebSocket
-      // API can't set headers); since=<lastEventId> backfills the gap coord
-      // missed while we were away.
+      // http→ws / https→wss. The device JWT travels as a WebSocket
+      // subprotocol so proxies never log it in the URL.
       const override = typeof localStorage !== "undefined" ? localStorage.getItem("roost.coordinatorUrl") : null;
       const wsBase = (override || location.origin).replace(/^http/, "ws");
       const jwt = await signCoordinatorJwt();
       // tab= gives coord a per-TAB identity for this socket, the same
       // `${fingerprint}:${tabId}` key sessionsResize claims use, so the cell +
       // byte fanout can ship only the sessions THIS tab actually claimed.
-      const url = `${wsBase}/ws/coord-sync?token=${encodeURIComponent(jwt)}&since=${_lastSeenEventId}&tab=${encodeURIComponent(getTabId())}`;
-      const ws = new WebSocket(url);
+      const url = `${wsBase}/ws/coord-sync?since=${_lastSeenEventId}&tab=${encodeURIComponent(getTabId())}`;
+      const ws = new WebSocket(url, ["roost-auth", jwt]);
       ws.binaryType = "arraybuffer";
       _liveWs = ws;
       const gen = ++_wsGen;

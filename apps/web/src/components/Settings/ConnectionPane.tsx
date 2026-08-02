@@ -85,8 +85,11 @@ export function ConnectionPane() {
     <div data-testid="settings-connection-pane" style={{ display: "flex", "flex-direction": "column", gap: "var(--md-space-5)" }}>
       <Card
         title="Connection"
-        supporting="Which coordinator this browser talks to. The default is the server that opened this page. Add other addresses — a localhost coord, your Macs over Tailscale, or a public domain — and switch between them here."
+        supporting="Which coordinator this browser talks to. The default is the server that opened this page. Add direct, non-Access addresses such as localhost or a tailnet URL."
       >
+        <p class="md-body-s" style={{ color: "var(--md-sys-color-on-surface-variant)" }}>
+          Cloudflare Access addresses must be opened directly in the browser, not configured here.
+        </p>
         <ListRow
           leading={<Icon name="home" />}
           headline="This server (default)"

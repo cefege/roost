@@ -33,7 +33,7 @@ export interface RootState {
   permission_rules: Record<string, PermissionRule>; // key = PermissionRuleId
   mcp_relays: Record<string, McpRelay>;      // key = McpRelayId
   pair_requests: Record<string, PairRequest>; // key = ephemeral_id
-  coord_identity: { fingerprint_hex: string; git_sha: string; public_url: string; relocated_to_url?: string; handoff_id?: string } | null;
+  coord_identity: { fingerprint_hex: string; git_sha: string; public_url: string; public_listener: boolean; relocated_to_url?: string; handoff_id?: string } | null;
   /** OSC-0/OSC-2 title from the terminal core. Empty until the program sets
    *  one. */
   terminal_title: Record<string, string>;

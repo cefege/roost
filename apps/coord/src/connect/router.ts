@@ -41,6 +41,7 @@ export interface ConnectDeps {
   cfg: CoordConfig;
   jwtCache: JwtCache;
   move?: CoordinatorMoveService;
+  onKeyRevoked?: (fingerprint: string) => void;
 }
 
 // ─── ConnectRouter build ──────────────────────────────────────────────────

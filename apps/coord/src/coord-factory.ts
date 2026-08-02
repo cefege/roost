@@ -5,7 +5,11 @@
 // signal handlers, file-system DB); this factory owns the protocol layer.
 
 import {
-  preflightResponse, wrapResponse, extractAuditMeta, writeAuditLog,
+  extractAuditMeta,
+  preflightResponse,
+  securityOptionsForConfig,
+  wrapResponse,
+  writeAuditLog,
 } from "./middleware/security.ts";
 import { checkRateLimit } from "./middleware/rate-limit.ts";
 import { buildConnectRouter } from "./connect/router.ts";
@@ -19,16 +23,16 @@ import type { CoordKey } from "./coord-key.ts";
 import type { CoordConfig } from "@roost/shared/config";
 import type { JwtCache } from "./jwt.ts";
 import type { CoordinatorMoveService } from "./coord-move/orchestrator.ts";
+import type { CallerOrigin } from "./middleware/caller-origin.ts";
 
-interface CoordHandlerContext {
-  /** Optional client IP from the runtime — used for loopback checks +
-   * rate limiting. Falls back to "unknown" when omitted. */
-  clientIp?: string;
+export interface CoordHandlerContext {
+  origin: CallerOrigin;
   /** Optional override for the SPA-static dispatcher. Runtimes that
    * can't read from disk (Cloudflare Workers) supply their own. */
   spa?: (url: URL, method: string, acceptEncoding: string) => Promise<Response> | Response;
   /** Optional override for the DB export endpoint. */
-  dbExport?: (clientIp: string | undefined) => Promise<Response> | Response;
+  dbExport?: (origin: CallerOrigin) => Promise<Response> | Response;
+  hsts?: boolean;
 }
 
 export interface CoordDeps {
@@ -38,6 +42,7 @@ export interface CoordDeps {
   cfg: CoordConfig;
   jwtCache: JwtCache;
   move?: CoordinatorMoveService;
+  onKeyRevoked?: (fingerprint: string) => void;
 }
 
 export interface CoordHandle {
@@ -63,19 +68,17 @@ export function createCoord(deps: CoordDeps): CoordHandle {
   // activity" filter aging out idle open sessions.
   const stopLastActivityHub = startLastActivityHub();
 
-  const secOpts = {
-    relaxedCsp: deps.cfg.relaxedCsp,
-    corsAllowedOrigins: deps.cfg.corsAllowedOrigins,
-  };
+  const secOpts = securityOptionsForConfig(deps.cfg, false);
 
   async function fetchHandler(req: Request, ctx?: CoordHandlerContext): Promise<Response> {
     const url = new URL(req.url);
-    const clientIp = ctx?.clientIp;
+    const origin = ctx?.origin ?? { clientIp: "unknown", onHost: false, listener: "direct" };
+    const opts = { ...secOpts, hsts: ctx?.hsts ?? false };
 
-    if (req.method === "OPTIONS") return preflightResponse(req, secOpts);
+    if (req.method === "OPTIONS") return preflightResponse(req, opts);
 
-    const limited = checkRateLimit(req, clientIp ?? "unknown");
-    if (limited) return wrapResponse(limited, req, secOpts);
+    const limited = checkRateLimit(req, origin.clientIp);
+    if (limited) return wrapResponse(limited, req, opts);
 
     const auditMeta = extractAuditMeta(req);
     let resp: Response;
@@ -83,10 +86,10 @@ export function createCoord(deps: CoordDeps): CoordHandle {
     try {
       if (connectHandler.matches(url.pathname)) {
         isConnect = true;
-        resp = await connectHandler.fetch(req, clientIp);
+        resp = await connectHandler.fetch(req, origin);
       } else if (url.pathname === "/api/db-export") {
         resp = ctx?.dbExport
-          ? await ctx.dbExport(clientIp)
+          ? await ctx.dbExport(origin)
           : new Response(JSON.stringify({ error: "db-export not configured" }), { status: 501 });
       } else if (url.pathname.startsWith("/api/")) {
         resp = new Response("not found", { status: 404 });
@@ -107,7 +110,7 @@ export function createCoord(deps: CoordDeps): CoordHandle {
     if (!isConnect) {
       writeAuditLog({ db: deps.db, status: resp.status, ...auditMeta, callerFp: null });
     }
-    return wrapResponse(resp, req, secOpts);
+    return wrapResponse(resp, req, opts);
   }
 
   function dispose(): void {

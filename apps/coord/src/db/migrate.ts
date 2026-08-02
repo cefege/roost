@@ -42,27 +42,11 @@ export async function runMigrations(
   for (const { name, sql } of migrations) {
     if (applied.has(name)) continue;
 
-    // Strip -- line comments FIRST so semicolons inside comments don't
-    // create spurious statement splits. Then split on ; and skip empties.
-    const stripped = sql
-      .split("\n")
-      .map((l) => {
-        const commentIdx = l.indexOf("--");
-        return commentIdx >= 0 ? l.slice(0, commentIdx) : l;
-      })
-      .join("\n");
-    const stmts = stripped
-      .split(";")
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0);
-
-    // Execute each statement. Use exec() for DDL; run() for parameterized.
     try {
       sqlite.exec("BEGIN");
-      for (const stmt of stmts) {
-        sqlite.run(stmt);
-      }
-      sqlite.run(`INSERT INTO _migrations (name, applied_at) VALUES ('${name.replace(/'/g, "''")}', ${Date.now()})`);
+      sqlite.exec(sql);
+      sqlite.prepare("INSERT INTO _migrations (name, applied_at) VALUES (?, ?)")
+        .run(name, Date.now());
       sqlite.exec("COMMIT");
       console.log(JSON.stringify({ ev: "migration_applied", name }));
     } catch (err) {

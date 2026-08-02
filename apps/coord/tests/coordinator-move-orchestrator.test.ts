@@ -27,12 +27,10 @@ async function fixture() {
   writeFileSync(authorizedKeysPath, "");
   const opened = openDb(dbPath);
   await runMigrations(opened.sqlite);
-  const cfg: CoordConfig = {
-    bind: "127.0.0.1:4102", dbPath, coordKeyPath: keyPath, authorizedKeysPath,
-    handoffPath: join(dir, "coord-handoff.json"), webDistPath: "", logDir: dir,
-    publicUrl: "https://source.ts.net:4102", tlsCertPath: undefined, tlsKeyPath: undefined,
-    jwtMaxAgeSecs: 300, auditRetentionDays: 90, relaxedCsp: false, corsAllowedOrigins: [],
-  };
+  const cfg: CoordConfig = { trustProxy: false, bind: "127.0.0.1:4102", dbPath, coordKeyPath: keyPath, authorizedKeysPath,
+  handoffPath: join(dir, "coord-handoff.json"), webDistPath: "", logDir: dir,
+  publicUrl: "https://source.ts.net:4102", tlsCertPath: undefined, tlsKeyPath: undefined,
+  jwtMaxAgeSecs: 300, auditRetentionDays: 90, relaxedCsp: false, corsAllowedOrigins: [], }
   return { dir, cfg, db: opened.db, sqlite: opened.sqlite, coordKey: await loadOrCreateCoordKey(keyPath) };
 }
 

@@ -1,8 +1,8 @@
 // Redeem a browser pairing token → authorize THIS browser with coord.
 // Shared by two callers:
 //   - Onboarding.tsx paste flow ("I have a pairing code")
-//   - sync.ts ?pair=<token> on-load handler (installer-opened host browser
-//     + QR-scanning phone both land on https://<fqdn>:4102/?pair=<token>)
+//   - startup #pair=<token> fragment dispatcher (installer-opened browser and
+//     QR-scanning phone); the dispatcher scrubs the bearer before this runs.
 // On success the caller reloads so bootstrapSync re-runs with the authed JWT.
 
 import { coordClient } from "../connect.ts";

@@ -28,6 +28,7 @@ import { startDeploy, deployOutput } from "../deploy-jobs.ts";
 import { listRoutableFps } from "./worker-service.ts";
 import { requireAuth } from "./auth-interceptor.ts";
 import type { ConnectDeps } from "./router.ts";
+import { invalidateJwtKey } from "../jwt.ts";
 
 type WorkerMethods =
 	| "workersList"
@@ -193,19 +194,30 @@ export function makeWorkerHandlers(
 		},
 
 		async workersDelete(req, ctx) {
-			requireAuth(ctx.values);
-			// Atomic: if the workers delete fails (FK violation from a row
-			// in sessions referencing this worker), authorized_keys is
-			// rolled back too. Prior shape ran them as separate statements,
-			// so on FK failure the worker was already un-auth'd (next
-			// heartbeat 401) but the row stayed alive in the sidebar.
+			const caller = requireAuth(ctx.values);
 			await deps.db.transaction().execute(async (trx) => {
-				await trx.deleteFrom("workers").where("fp", "=", req.fp).execute();
-				await trx
-					.deleteFrom("authorized_keys")
-					.where("fingerprint", "=", req.fp)
+				const worker = await trx.selectFrom("workers").select("fp")
+					.where("fp", "=", req.fp).executeTakeFirst();
+				if (!worker) throw new ConnectError("worker not found", Code.NotFound);
+				await trx.insertInto("authorized_key_revocations").values({
+					fingerprint: req.fp,
+					revoked_at_ms: Date.now(),
+					revoked_by_fp: caller.fingerprint,
+					reason: "worker-deleted",
+				}).execute();
+				await trx.deleteFrom("bootstrap_tokens")
+					.where("used_at_ms", "is", null)
+					.where((eb) => eb.or([
+						eb("minted_by_fp", "=", req.fp),
+						eb("minted_by_fp", "is", null),
+					]))
 					.execute();
+				await trx.deleteFrom("workers").where("fp", "=", req.fp).execute();
+				await trx.deleteFrom("authorized_keys")
+					.where("fingerprint", "=", req.fp).execute();
 			});
+			invalidateJwtKey(deps.jwtCache, req.fp);
+			deps.onKeyRevoked?.(req.fp);
 			presenceBus.publish({ kind: "removed", fp: req.fp as any });
 			return create(WorkersDeleteResponseSchema, { ok: true });
 		},

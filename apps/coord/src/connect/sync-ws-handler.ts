@@ -13,20 +13,19 @@
 // from the frames the SPA already decodes. Same move already made for the
 // worker↔coord transport (worker-ws-handler.ts).
 //
-// Auth: query-param JWT (`?token=`) — the browser WebSocket API can't set
-// custom headers, so the Authorization header isn't available. Verified at
-// upgrade. Browser caller (sub="web"): NO fingerprint-in-path match (that
-// check is worker-only). Backfill cursor via `?since=<eventId>`.
+// Auth: the device JWT travels in the standards-compliant `roost-auth`
+// WebSocket subprotocol, never in the URL. Backfill cursor remains in
+// `?since=<eventId>`.
 //
 // Lives in apps/coord (Bun-specific: server.upgrade). main.ts wires the
 // upgrade + multiplexes the single Bun `websocket` handler with the worker WS.
 
-import type { Server, ServerWebSocket } from "bun";
+import type { ServerWebSocket } from "bun";
 import { create, toBinary } from "@bufbuild/protobuf";
 import {
   CoordinatorRelocationFrameSchema, FirehoseFrameSchema, KeepaliveFrameSchema, type FirehoseFrame,
 } from "@roost/shared/proto/sync_pb";
-import { verifyJwt } from "../jwt.ts";
+import { jwtKeyGeneration, verifyJwt } from "../jwt.ts";
 import { log } from "@roost/shared/log";
 import { signal } from "@roost/shared/diag";
 import { startSyncFeed } from "./handlers-streaming.ts";
@@ -35,10 +34,70 @@ import type { ConnectDeps } from "./router.ts";
 const WS_PATH = "/ws/coord-sync";
 
 const KEEPALIVE_INTERVAL_MS = 30_000;
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
+
+export interface SyncUpgradeServer {
+  requestIP(req: Request): { address: string } | null;
+  upgrade(
+    req: Request,
+    opts: { data: SyncWsData; headers?: HeadersInit },
+  ): boolean;
+}
+
+export interface SyncDeadlineClock {
+  now(): number;
+  setTimeout(callback: () => void, delayMs: number): Timer;
+  clearTimeout(timer: Timer): void;
+  maxDelayMs?: number;
+}
+export interface SyncDeadlineTimer {
+  current: Timer | null;
+}
+
+
+const realDeadlineClock: SyncDeadlineClock = {
+  now: Date.now,
+  setTimeout: (callback, delayMs) => setTimeout(callback, delayMs),
+  clearTimeout: (timer) => clearTimeout(timer),
+};
+
+export function scheduleDeadline(
+  ws: Pick<ServerWebSocket<SyncWsData>, "close">,
+  deadlineMs: number,
+  clock: SyncDeadlineClock = realDeadlineClock,
+): SyncDeadlineTimer {
+  const handle: SyncDeadlineTimer = { current: null };
+  const arm = (): void => {
+    handle.current = clock.setTimeout(() => {
+      const remaining = deadlineMs - clock.now();
+      if (remaining <= 0) {
+        handle.current = null;
+        ws.close(4003, "reauth required");
+        return;
+      }
+      arm();
+    }, Math.min(
+      Math.max(0, deadlineMs - clock.now()),
+      clock.maxDelayMs ?? MAX_TIMER_DELAY_MS,
+    ));
+  };
+  arm();
+  return handle;
+}
+
+function isAllowedWsOrigin(origin: string, host: string, cfg: ConnectDeps["cfg"]): boolean {
+  if (
+    origin === cfg.webPublicUrl
+    || origin === cfg.publicUrl
+    || cfg.corsAllowedOrigins.includes(origin)
+    || origin === `https://${host}`
+  ) return true;
+  return cfg.relaxedCsp && origin === `http://${host}`;
+}
 
 export interface SyncWsData {
   kind: "sync";
-  caller: { fingerprint: string; label?: string };
+  caller: { fingerprint: string; label?: string; keyGeneration: number };
   sinceEventId: number;
   /** `${fingerprint}:${tabId}` — the same per-tab key sessionsResize claims
    *  use, so this socket can be fanned out only the sessions this tab claimed.
@@ -47,6 +106,8 @@ export interface SyncWsData {
   viewerKey: string | null;
   feed: { dispose: () => void } | null;
   keepaliveTimer: Timer | null;
+  reauthAtMs: number | null;
+  reauthTimer: SyncDeadlineTimer | null;
 }
 
 /** Bun fetch-handler hook. Returns:
@@ -54,7 +115,10 @@ export interface SyncWsData {
  *  - undefined → upgrade succeeded (Bun hijacked); return undefined from fetch.
  *  - Response  → reject (401 / 400); return it from fetch. */
 export async function handleSyncWsUpgrade(
-  req: Request, server: Server<SyncWsData>, deps: ConnectDeps,
+  req: Request,
+  server: SyncUpgradeServer,
+  deps: ConnectDeps,
+  reauthAtMs: number | null = null,
 ): Promise<Response | undefined | null> {
   const url = new URL(req.url);
   if (url.pathname !== WS_PATH) return null;
@@ -65,10 +129,25 @@ export async function handleSyncWsUpgrade(
   if (deps.move && deps.move.gate.mode !== "active") {
     return new Response("coordinator move in progress", { status: deps.move.gate.mode === "retired" ? 410 : 503 });
   }
+  const wsOrigin = req.headers.get("origin");
+  if (wsOrigin && !isAllowedWsOrigin(wsOrigin, url.host, deps.cfg)) {
+    const addr = server.requestIP(req)?.address ?? undefined;
+    signal("sync.auth_rejected", {
+      reason: "origin_rejected",
+      addr,
+      cooldownKey: addr ?? "sync-origin",
+    });
+    return new Response("forbidden origin", { status: 403 });
+  }
   const addr = server.requestIP(req)?.address ?? undefined;
-  const token = url.searchParams.get("token");
-  if (!token) return new Response("unauthorized", { status: 401 });
-  let caller: { fingerprint: string; label?: string };
+  const protocols = (req.headers.get("sec-websocket-protocol") ?? "")
+    .split(",")
+    .map((part) => part.trim());
+  if (protocols.length !== 2 || protocols[0] !== "roost-auth" || !protocols[1]) {
+    return new Response("unauthorized", { status: 401 });
+  }
+  const token = protocols[1];
+  let caller: { fingerprint: string; label?: string; keyGeneration: number };
   try {
     caller = await verifyJwt(token, {
       db: deps.db, cache: deps.jwtCache, jwtMaxAgeSecs: deps.cfg.jwtMaxAgeSecs,
@@ -81,19 +160,42 @@ export async function handleSyncWsUpgrade(
   const since = Number(url.searchParams.get("since")) || 0;
   const tabId = url.searchParams.get("tab");
   const data: SyncWsData = {
-    kind: "sync", caller, sinceEventId: since,
+    kind: "sync",
+    caller,
+    sinceEventId: since,
     viewerKey: tabId ? `${caller.fingerprint}:${tabId}` : null,
-    feed: null, keepaliveTimer: null,
+    feed: null,
+    keepaliveTimer: null,
+    reauthAtMs,
+    reauthTimer: null,
   };
-  const ok = server.upgrade(req, { data });
+  const ok = server.upgrade(req, {
+    data,
+    headers: { "Sec-WebSocket-Protocol": "roost-auth" },
+  });
   if (ok) return undefined; // hijacked
   return new Response("upgrade failed", { status: 400 });
 }
 
-export function makeSyncWsHandler(deps: ConnectDeps, keepaliveMs: number = KEEPALIVE_INTERVAL_MS) {
+export function makeSyncWsHandler(
+  deps: ConnectDeps,
+  keepaliveMs: number = KEEPALIVE_INTERVAL_MS,
+  deadlineClock: SyncDeadlineClock = realDeadlineClock,
+) {
   const sockets = new Set<ServerWebSocket<SyncWsData>>();
   return {
     open(ws: ServerWebSocket<SyncWsData>): void {
+      if (jwtKeyGeneration(deps.jwtCache, ws.data.caller.fingerprint) !== ws.data.caller.keyGeneration) {
+        ws.close(4001, "revoked");
+        return;
+      }
+      if (ws.data.reauthAtMs !== null) {
+        if (ws.data.reauthAtMs <= deadlineClock.now()) {
+          ws.close(4003, "reauth required");
+          return;
+        }
+        ws.data.reauthTimer = scheduleDeadline(ws, ws.data.reauthAtMs, deadlineClock);
+      }
       sockets.add(ws);
       const push = (f: FirehoseFrame): void => {
         try {
@@ -139,9 +241,20 @@ export function makeSyncWsHandler(deps: ConnectDeps, keepaliveMs: number = KEEPA
     close(ws: ServerWebSocket<SyncWsData>): void {
       sockets.delete(ws);
       if (ws.data.keepaliveTimer) { clearInterval(ws.data.keepaliveTimer); ws.data.keepaliveTimer = null; }
+      if (ws.data.reauthTimer?.current) {
+        deadlineClock.clearTimeout(ws.data.reauthTimer.current);
+      }
+      ws.data.reauthTimer = null;
       ws.data.feed?.dispose();
       ws.data.feed = null;
       log.info("sync-ws", "close", { caller_fp: ws.data.caller.fingerprint });
+    },
+    closeForFingerprint(fingerprint: string): void {
+      for (const ws of sockets) {
+        if (ws.data.caller.fingerprint === fingerprint) {
+          try { ws.close(4001, "revoked"); } catch { /* close handler cleans up */ }
+        }
+      }
     },
     publishRelocation(handoffId: string, sourceUrl: string, targetUrl: string): void {
       const frame = toBinary(FirehoseFrameSchema, create(FirehoseFrameSchema, {

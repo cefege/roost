@@ -1,13 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { CoordinatorMovePhase } from "@roost/shared/proto/coordinator_pb";
-import { coordinatorRelocationFragment } from "../src/auth/coordinator-relocation.ts";
+import { parseFragmentCredential } from "../src/auth/fragment-credential.ts";
 import { coordinatorRole, isFailedMovePhase, moveDialogCanClose, MOVE_POLL_FAILURE_LIMIT, type CoordinatorRole } from "../src/lib/coordinatorMove.ts";
 
 describe("coordinator move browser contracts", () => {
   test("requires both opaque relocation fragment fields", () => {
-    expect(coordinatorRelocationFragment("#move=token&handoff=handoff-id")).toEqual({ token: "token", handoffId: "handoff-id" });
-    expect(coordinatorRelocationFragment("#move=token")).toBeNull();
-    expect(coordinatorRelocationFragment("#handoff=handoff-id")).toBeNull();
+    expect(parseFragmentCredential("#move=token&handoff=handoff-id"))
+      .toEqual({ kind: "relocation", token: "token", handoffId: "handoff-id" });
+    expect(parseFragmentCredential("#move=token")).toEqual({ kind: "invalid" });
+    expect(parseFragmentCredential("#handoff=handoff-id")).toEqual({ kind: "invalid" });
   });
 
   test("a committed move is always escapable", () => {

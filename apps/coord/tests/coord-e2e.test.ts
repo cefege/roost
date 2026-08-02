@@ -29,19 +29,17 @@ beforeAll(async () => {
   await runMigrations(sqlite);
   const coordKey = await loadOrCreateCoordKey(keyPath);
   const jwtCache = newJwtCache();
-  const cfg: CoordConfig = {
-    bind: "127.0.0.1:0",
-    dbPath, coordKeyPath: keyPath, authorizedKeysPath: authPath,
-    webDistPath: "",
-    tlsCertPath: undefined, tlsKeyPath: undefined,
-    jwtMaxAgeSecs: 300,
-    auditRetentionDays: 90,
-    relaxedCsp: false,
-    corsAllowedOrigins: [],
-    logDir: workdir,
-    publicUrl: undefined,
-    handoffPath: join(workdir, "coord-handoff.json"),
-  };
+  const cfg: CoordConfig = { trustProxy: false, bind: "127.0.0.1:0",
+  dbPath, coordKeyPath: keyPath, authorizedKeysPath: authPath,
+  webDistPath: "",
+  tlsCertPath: undefined, tlsKeyPath: undefined,
+  jwtMaxAgeSecs: 300,
+  auditRetentionDays: 90,
+  relaxedCsp: false,
+  corsAllowedOrigins: [],
+  logDir: workdir,
+  publicUrl: undefined,
+  handoffPath: join(workdir, "coord-handoff.json"), }
   coord = createCoord({ db, sqlite, coordKey, cfg, jwtCache });
   cleanup = () => {
     coord.dispose();
@@ -53,10 +51,10 @@ beforeAll(async () => {
 afterAll(() => cleanup?.());
 
 describe("coord-factory fetch handler", () => {
-  test("OPTIONS preflight → 204 with CORS headers", async () => {
+  test("OPTIONS preflight → 204 without wildcard CORS", async () => {
     const resp = await coord.fetch(new Request("http://t/x", { method: "OPTIONS", headers: { origin: "http://example.com" } }));
     expect(resp.status).toBe(204);
-    expect(resp.headers.get("access-control-allow-origin")).toBeTruthy();
+    expect(resp.headers.get("access-control-allow-origin")).toBeNull();
   });
 
   test("MiscHealth (public Connect endpoint) → 200 + payload", async () => {
@@ -72,15 +70,25 @@ describe("coord-factory fetch handler", () => {
     expect(typeof body.gitSha).toBe("string");
   });
 
-  test("AuthCoordIdentity (public) → 200 + fingerprint_hex + git_sha", async () => {
-    const resp = await coord.fetch(new Request("http://t/roost.v1.CoordinatorService/AuthCoordIdentity", {
+  test("AuthCoordIdentity reports the accepting listener, not global public configuration", async () => {
+    const request = () => new Request("http://t/roost.v1.CoordinatorService/AuthCoordIdentity", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: "{}",
-    }));
-    expect(resp.status).toBe(200);
-    const body = await resp.json();
-    expect(body.fingerprintHex).toMatch(/^[0-9a-f]{64}$/);
+    });
+    const privateResp = await coord.fetch(request(), {
+      origin: { listener: "tailscale-serve", clientIp: "100.64.0.1", onHost: false },
+    });
+    const publicResp = await coord.fetch(request(), {
+      origin: { listener: "public-edge", clientIp: "203.0.113.7", onHost: false },
+    });
+    expect(privateResp.status).toBe(200);
+    expect(publicResp.status).toBe(200);
+    const privateBody = await privateResp.json();
+    const publicBody = await publicResp.json();
+    expect(privateBody.fingerprintHex).toMatch(/^[0-9a-f]{64}$/);
+    expect(privateBody.publicListener ?? false).toBe(false);
+    expect(publicBody.publicListener).toBe(true);
   });
 
   test("WorkersList without JWT → 401 unauthenticated", async () => {
@@ -90,6 +98,7 @@ describe("coord-factory fetch handler", () => {
       body: "{}",
     }));
     expect(resp.status).toBe(401);
+    expect(resp.headers.get("x-roost-auth-layer")).toBe("device");
     const body = await resp.json();
     expect(body.code).toBe("unauthenticated");
   });
@@ -128,7 +137,7 @@ describe("coord-factory fetch handler", () => {
         headers: { "content-type": "application/json" },
         body: "{}",
       }),
-      { clientIp: "10.0.0.99" },
+      { origin: { listener: "direct", clientIp: "10.0.0.99", onHost: false } },
     );
     for (let i = 0; i < 100; i++) await fire();
     const final = await fire();

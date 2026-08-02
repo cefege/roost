@@ -26,7 +26,7 @@ import {
   CoordWorkerUpSchema, CoordWorkerDownSchema,
 } from "@roost/shared/proto/worker_transport_pb";
 import type { CoordWorkerDown } from "@roost/shared/proto/worker_transport_pb";
-import { verifyJwt } from "../jwt.ts";
+import { jwtKeyGeneration, verifyJwt } from "../jwt.ts";
 import { log } from "@roost/shared/log";
 import { signal } from "@roost/shared/diag";
 import { makeWorkerConn, type WorkerConn, type WorkerServiceDeps } from "./worker-service.ts";
@@ -35,7 +35,7 @@ const WS_PATH_RE = /^\/ws\/coord-worker\/([a-f0-9]{64})$/;
 
 export interface WorkerWsData {
   kind: "worker";
-  caller: { fingerprint: string; label?: string };
+  caller: { fingerprint: string; label?: string; keyGeneration: number };
   fp: string;
   conn: WorkerConn | null;
   // Per-socket serialization tail: Bun delivers messages in order but does
@@ -63,7 +63,7 @@ export async function handleWorkerWsUpgrade(
   const addr = server.requestIP?.(req)?.address ?? undefined;
   const token = url.searchParams.get("token");
   if (!token) return new Response("unauthorized", { status: 401 });
-  let caller: { fingerprint: string; label?: string };
+  let caller: { fingerprint: string; label?: string; keyGeneration: number };
   try {
     caller = await verifyJwt(token, {
       db: deps.db, cache: deps.jwtCache, jwtMaxAgeSecs: deps.cfg.jwtMaxAgeSecs,
@@ -78,6 +78,11 @@ export async function handleWorkerWsUpgrade(
     signal("worker.auth_rejected", { reason: "fp_mismatch", addr, cooldownKey: addr ?? "worker-auth" });
     return new Response("unauthorized", { status: 401 });
   }
+  const worker = await deps.db.selectFrom("workers").select("fp")
+    .where("fp", "=", fp).executeTakeFirst();
+  if (!worker || jwtKeyGeneration(deps.jwtCache, fp) !== caller.keyGeneration) {
+    return new Response("unauthorized", { status: 401 });
+  }
   const data: WorkerWsData = { kind: "worker", caller, fp, conn: null, tail: Promise.resolve() };
   const ok = server.upgrade(req, { data });
   if (ok) return undefined; // hijacked
@@ -85,8 +90,14 @@ export async function handleWorkerWsUpgrade(
 }
 
 export function makeWorkerWsHandler(deps: WorkerServiceDeps) {
+  const sockets = new Set<ServerWebSocket<WorkerWsData>>();
   return {
     open(ws: ServerWebSocket<WorkerWsData>): void {
+      if (jwtKeyGeneration(deps.jwtCache, ws.data.fp) !== ws.data.caller.keyGeneration) {
+        ws.close(4001, "revoked");
+        return;
+      }
+      sockets.add(ws);
       // Return Bun's send result (0 = dropped, -1 = backpressure, >0 = bytes)
       // and re-throw: the snapshot pump must learn a chunk was lost instead of
       // sending `last: true` over a hole. The PTY/browser-command hot path is
@@ -145,9 +156,17 @@ export function makeWorkerWsHandler(deps: WorkerServiceDeps) {
         });
     },
     close(ws: ServerWebSocket<WorkerWsData>): void {
+      sockets.delete(ws);
       ws.data.conn?.close();
       ws.data.conn = null;
       log.info("worker-ws", "close", { worker_fp: ws.data.fp });
+    },
+    closeForFingerprint(fingerprint: string): void {
+      for (const ws of sockets) {
+        if (ws.data.fp === fingerprint) {
+          try { ws.close(4001, "revoked"); } catch { /* close handler cleans up */ }
+        }
+      }
     },
   };
 }

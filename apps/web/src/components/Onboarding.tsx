@@ -7,9 +7,9 @@
 // When already authorized, the pair-approval-list lets this browser approve
 // pending requests from other browsers (rootStore.pair_requests).
 
-import { createSignal, createMemo, For, Show, onCleanup } from "solid-js";
+import { createSignal, createMemo, createResource, For, Show, onCleanup } from "solid-js";
 import { coordClient } from "../connect.ts";
-import { getPublicKeyB64 } from "../auth/web-key.ts";
+import { getPublicKeyB64, isResetWebKeyEligible, resetWebKey } from "../auth/web-key.ts";
 import { redeemPairToken } from "../auth/redeemPairToken.ts";
 import { rootStore } from "../store/root.ts";
 import { deletePairRequest } from "../store/mutations.ts";
@@ -38,6 +38,10 @@ export function Onboarding(props: { embedded?: boolean } = {}) {
   // an untrusted Mac #2 (every <Show when={!isAuthorized()}> hides the
   // tabs / token mode / pair mode → black screen with one heading).
   const isAuthorized = createMemo(() => !rootStore.browser_unauthorized);
+  const [resetEligible] = createResource(
+    () => rootStore.browser_unauthorized,
+    async (unauthorized) => unauthorized ? isResetWebKeyEligible() : false,
+  );
   const pendingPairRequests = createMemo(() => Object.values(rootStore.pair_requests));
 
   onCleanup(() => {
@@ -125,6 +129,15 @@ export function Onboarding(props: { embedded?: boolean } = {}) {
     }
   }
 
+  async function resetRejectedKey(): Promise<void> {
+    if (!confirm("Reset this device key? This browser will need to pair again.")) return;
+    try {
+      await resetWebKey();
+    } catch (error) {
+      addToast(`Key reset failed: ${error instanceof Error ? error.message : String(error)}`, "err");
+    }
+  }
+
   return (
     <div ref={animateOverlayPanel} data-testid="onboarding" style={{ padding: props.embedded ? "0" : "40px", color: "var(--md-sys-color-on-surface)", "max-width": "520px" }}>
       <Show when={!props.embedded}>
@@ -145,6 +158,11 @@ export function Onboarding(props: { embedded?: boolean } = {}) {
           already paired.
         </p>
       </Show>
+        <Show when={resetEligible()}>
+          <Button variant="tonal" onClick={() => void resetRejectedKey()}>
+            Reset this device key
+          </Button>
+        </Show>
       <Show when={isAuthorized() && workerCount() === 0}>
         <p style={{ "font-size": "13px", color: "var(--md-sys-color-on-surface-variant)", "margin-bottom": "20px" }}>
           This browser is trusted, but no machines have registered as workers yet.

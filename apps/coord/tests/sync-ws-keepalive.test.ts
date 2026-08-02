@@ -15,8 +15,12 @@ import { FirehoseFrameSchema } from "@roost/shared/proto/sync_pb";
 import { openDb } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
 import { loadOrCreateCoordKey } from "../src/coord-key.ts";
-import { newJwtCache, signJwt, fingerprintOf } from "../src/jwt.ts";
-import { handleSyncWsUpgrade, makeSyncWsHandler } from "../src/connect/sync-ws-handler.ts";
+import { fingerprintOf, invalidateJwtKey, newJwtCache, signJwt } from "../src/jwt.ts";
+import {
+  handleSyncWsUpgrade,
+  makeSyncWsHandler,
+  type SyncWsData,
+} from "../src/connect/sync-ws-handler.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";
 import type { CoordConfig } from "@roost/shared/config";
 
@@ -24,6 +28,7 @@ let workdir: string;
 let cleanup: () => void;
 let server: ReturnType<typeof Bun.serve>;
 let jwt: string;
+let deps: ConnectDeps;
 
 beforeAll(async () => {
   workdir = mkdtempSync(join(tmpdir(), "roost-sync-keepalive-"));
@@ -46,12 +51,14 @@ beforeAll(async () => {
     jwtMaxAgeSecs: 300,
     auditRetentionDays: 90,
     relaxedCsp: false,
+    trustProxy: false,
     corsAllowedOrigins: [],
     logDir: workdir,
+    webPublicUrl: "https://public.example",
     publicUrl: undefined,
     handoffPath: join(workdir, "coord-handoff.json"),
   };
-  const deps: ConnectDeps = { db, sqlite, coordKey, jwtCache, cfg };
+  deps = { db, sqlite, coordKey, jwtCache, cfg };
 
   // Mint a keypair, authorize it, sign a JWT (same shape as the browser's
   // web-key.ts JWT — sub == fingerprint, verified by verifyJwt at upgrade).
@@ -89,9 +96,17 @@ beforeAll(async () => {
 afterAll(() => cleanup?.());
 
 test("open → server sends KeepaliveFrame within keepalive interval", async () => {
-  const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws/coord-sync?token=${encodeURIComponent(jwt)}`);
+  const ws = new WebSocket(
+    `ws://127.0.0.1:${server.port}/ws/coord-sync`,
+    ["roost-auth", jwt],
+  );
   ws.binaryType = "arraybuffer";
   const { promise: gotKeepalive, resolve: sawKeepalive } = Promise.withResolvers<void>();
+  const { promise: opened, resolve: sawOpen } = Promise.withResolvers<void>();
+  ws.onopen = () => {
+    expect(ws.protocol).toBe("roost-auth");
+    sawOpen();
+  };
   // Filter for keepalive frames — the empty DB sends no backfill, so the
   // keepalive is the only frame, but filter defensively.
   ws.onmessage = (ev) => {
@@ -99,7 +114,89 @@ test("open → server sends KeepaliveFrame within keepalive interval", async () 
     if (frame.frame.case === "keepalive") sawKeepalive();
   };
   // If the keepalive never fires, this hangs and bun:test fails on timeout.
-  await gotKeepalive;
-  expect(true).toBe(true); // gotKeepalive resolved → keepalive received
+  await Promise.all([opened, gotKeepalive]);
   try { ws.close(); } catch { /* ignore */ }
 }, 5_000);
+
+test("rejects missing or malformed auth subprotocols before upgrade", async () => {
+  const fakeServer = {
+    requestIP: () => ({ address: "127.0.0.1" }),
+    upgrade: () => {
+      throw new Error("upgrade must not run");
+    },
+  };
+  for (const protocol of [undefined, "wrong-marker, credential", "roost-auth", "roost-auth,"]) {
+    const headers = new Headers();
+    if (protocol !== undefined) headers.set("sec-websocket-protocol", protocol);
+    const response = await handleSyncWsUpgrade(
+      new Request("https://coord.example/ws/coord-sync", { headers }),
+      fakeServer,
+      deps,
+    );
+    expect(response?.status, protocol ?? "missing").toBe(401);
+  }
+});
+
+test("rejects foreign Origin and negotiates roost-auth for an allowed origin", async () => {
+  let upgradeHeaders: HeadersInit | undefined;
+  const fakeServer = {
+    requestIP: () => ({ address: "127.0.0.1" }),
+    upgrade: (_req: Request, opts: { headers?: HeadersInit }) => {
+      upgradeHeaders = opts.headers;
+      return true;
+    },
+  };
+  const foreign = await handleSyncWsUpgrade(new Request(
+    "https://public.example/ws/coord-sync",
+    {
+      headers: {
+        origin: "https://attacker.example",
+        "sec-websocket-protocol": `roost-auth, ${jwt}`,
+      },
+    },
+  ), fakeServer, deps);
+  expect(foreign?.status).toBe(403);
+
+  const allowed = await handleSyncWsUpgrade(new Request(
+    "https://public.example/ws/coord-sync",
+    {
+      headers: {
+        origin: "https://public.example",
+        "sec-websocket-protocol": `roost-auth, ${jwt}`,
+      },
+    },
+  ), fakeServer, deps);
+  expect(allowed).toBeUndefined();
+  expect(new Headers(upgradeHeaders).get("sec-websocket-protocol")).toBe("roost-auth");
+});
+
+test("revocation between accepted upgrade and open closes before feed registration", async () => {
+  let acceptedData: SyncWsData | undefined;
+  const fakeServer = {
+    requestIP: () => ({ address: "127.0.0.1" }),
+    upgrade: (_req: Request, options: { data: SyncWsData }) => {
+      acceptedData = options.data;
+      return true;
+    },
+  };
+  const accepted = await handleSyncWsUpgrade(new Request(
+    "https://public.example/ws/coord-sync",
+    {
+      headers: {
+        origin: "https://public.example",
+        "sec-websocket-protocol": `roost-auth, ${jwt}`,
+      },
+    },
+  ), fakeServer, deps);
+  expect(accepted).toBeUndefined();
+  if (!acceptedData) throw new Error("upgrade data was not captured");
+  invalidateJwtKey(deps.jwtCache, acceptedData.caller.fingerprint);
+  let closed: [number, string] | undefined;
+  const ws = {
+    data: acceptedData,
+    close: (code: number, reason: string) => { closed = [code, reason]; },
+  };
+  makeSyncWsHandler(deps).open(ws as never);
+  expect(closed).toEqual([4001, "revoked"]);
+  expect(acceptedData.feed).toBeNull();
+});

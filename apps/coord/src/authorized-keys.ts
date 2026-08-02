@@ -35,21 +35,33 @@ export function parseSshEd25519Line(line: string): ParsedKey | null {
 // Browsers and Bun workers both send raw 32 bytes; the SSH wire layer
 // is only used by file-import paths now.
 export function decodeEd25519Pubkey(b64: string): Uint8Array | null {
-  // Try both base64 and base64url. Browser WebCrypto exportKey("raw") returns
-  // 32 bytes; b64-encoded that's 44 chars (with padding). SSH-wire is ≥ 68 chars.
-  for (const variant of [b64, b64.replace(/-/g, "+").replace(/_/g, "/")]) {
-    try {
-      const raw = new Uint8Array(Buffer.from(variant, "base64"));
-      if (raw.length === 32) return raw;
-      // SSH wire fallthrough
-      const minLen = 4 + 11 + 4 + 32;
-      if (raw.length >= minLen) {
-        const keyStart = 4 + 11 + 4;
-        return raw.subarray(keyStart, keyStart + 32);
-      }
-    } catch { /* try next */ }
+  const normalized = b64.replace(/-/g, "+").replace(/_/g, "/");
+  let decoded: Uint8Array;
+  try {
+    decoded = new Uint8Array(Buffer.from(normalized, "base64"));
+  } catch {
+    return null;
   }
-  return null;
+  if (decoded.length === 32) return decoded;
+  const type = new TextEncoder().encode("ssh-ed25519");
+  const expectedLength = 4 + type.length + 4 + 32;
+  if (decoded.length !== expectedLength) return null;
+  const view = new DataView(decoded.buffer, decoded.byteOffset, decoded.byteLength);
+  if (view.getUint32(0, false) !== type.length) return null;
+  for (let index = 0; index < type.length; index++) {
+    if (decoded[4 + index] !== type[index]) return null;
+  }
+  const keyLengthOffset = 4 + type.length;
+  if (view.getUint32(keyLengthOffset, false) !== 32) return null;
+  return decoded.subarray(keyLengthOffset + 4);
+}
+
+export async function isAuthorizedKeyRevoked(db: KyselyDB, fingerprint: string): Promise<boolean> {
+  const row = await db.selectFrom("authorized_key_revocations")
+    .select("fingerprint")
+    .where("fingerprint", "=", fingerprint)
+    .executeTakeFirst();
+  return row !== undefined;
 }
 
 export async function importAuthorizedKeys(db: KyselyDB, filePath: string): Promise<number> {
@@ -60,6 +72,7 @@ export async function importAuthorizedKeys(db: KyselyDB, filePath: string): Prom
     const parsed = parseSshEd25519Line(line);
     if (!parsed) continue;
     const fp = await fingerprintOf(parsed.pubkey);
+    if (await isAuthorizedKeyRevoked(db, fp)) continue;
     await db
       .insertInto("authorized_keys")
       .values({ fingerprint: fp, public_key: parsed.pubkey, label: parsed.label, added_at: now })

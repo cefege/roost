@@ -60,38 +60,58 @@ interface CacheEntry {
   key: CryptoKey;
   label: string;
   insertedAt: number;
+  generation: number;
 }
 
-export type JwtCache = Map<string, CacheEntry>;
+export interface JwtCache {
+  entries: Map<string, CacheEntry>;
+  generations: Map<string, number>;
+}
 
 export function newJwtCache(): JwtCache {
-  return new Map();
+  return { entries: new Map(), generations: new Map() };
+}
+
+export function jwtKeyGeneration(cache: JwtCache, fingerprint: string): number {
+  return cache.generations.get(fingerprint) ?? 0;
+}
+
+export function invalidateJwtKey(cache: JwtCache, fingerprint: string): void {
+  cache.generations.set(fingerprint, jwtKeyGeneration(cache, fingerprint) + 1);
+  cache.entries.delete(fingerprint);
 }
 
 async function lookupKey(
   db: KyselyDB,
   cache: JwtCache,
   kid: string,
-): Promise<{ key: CryptoKey; label: string }> {
+  importKey: (raw: Uint8Array) => Promise<CryptoKey> = importEd25519Pubkey,
+): Promise<{ key: CryptoKey; label: string; generation: number }> {
+  const generation = jwtKeyGeneration(cache, kid);
   const now = Date.now();
-  const hit = cache.get(kid);
-  if (hit && now - hit.insertedAt < CACHE_TTL_MS) {
-    return { key: hit.key, label: hit.label };
+  const hit = cache.entries.get(kid);
+  if (hit && now - hit.insertedAt < CACHE_TTL_MS && hit.generation === generation) {
+    return { key: hit.key, label: hit.label, generation };
   }
   const row = await db
     .selectFrom("authorized_keys")
     .select(["public_key", "label"])
     .where("fingerprint", "=", kid)
     .executeTakeFirst();
-
+  if (jwtKeyGeneration(cache, kid) !== generation) {
+    throw Object.assign(new Error(`unknown kid ${kid}`), { status: 401 });
+  }
   if (!row) throw Object.assign(new Error(`unknown kid ${kid}`), { status: 401 });
 
   const raw = row.public_key instanceof Uint8Array ? row.public_key : new Uint8Array(row.public_key);
   if (raw.length !== 32) throw Object.assign(new Error("stored pubkey wrong length"), { status: 401 });
 
-  const key = await importEd25519Pubkey(raw);
-  cache.set(kid, { key, label: row.label, insertedAt: now });
-  return { key, label: row.label };
+  const key = await importKey(raw);
+  if (jwtKeyGeneration(cache, kid) !== generation) {
+    throw Object.assign(new Error(`unknown kid ${kid}`), { status: 401 });
+  }
+  cache.entries.set(kid, { key, label: row.label, insertedAt: now, generation });
+  return { key, label: row.label, generation };
 }
 
 // ─── verify ────────────────────────────────────────────────────────────
@@ -100,12 +120,15 @@ export interface Caller {
   fingerprint: string;
   label: string;
   scopes?: string[];
+  keyGeneration: number;
 }
 
 export interface VerifyOpts {
   db: KyselyDB;
   cache: JwtCache;
   jwtMaxAgeSecs: number;
+  importKey?: (raw: Uint8Array) => Promise<CryptoKey>;
+  verifySignature?: (key: CryptoKey, signature: Uint8Array, message: Uint8Array) => Promise<boolean>;
 }
 
 function b64urlToUtf8(s: string): string {
@@ -125,20 +148,31 @@ export async function verifyJwt(token: string, opts: VerifyOpts): Promise<Caller
     throw Object.assign(new Error("bad jwt header"), { status: 401 });
   }
 
+  if (header.alg !== "EdDSA") throw Object.assign(new Error("wrong alg"), { status: 401 });
   const kid = header.kid;
   if (!kid) throw Object.assign(new Error("missing kid"), { status: 401 });
 
-  const { key, label } = await lookupKey(opts.db, opts.cache, kid);
+  const { key, label, generation } = await lookupKey(
+    opts.db,
+    opts.cache,
+    kid,
+    opts.importKey,
+  );
 
   const msg = new TextEncoder().encode(`${headerB64}.${payloadB64}`);
   const sig = b64urlDecode(sigB64);
 
-  const ok = await crypto.subtle.verify(
-    { name: "Ed25519" },
-    key,
-    sig.buffer.slice(sig.byteOffset, sig.byteOffset + sig.byteLength) as ArrayBuffer,
-    msg.buffer.slice(msg.byteOffset, msg.byteOffset + msg.byteLength) as ArrayBuffer,
-  );
+  const ok = opts.verifySignature
+    ? await opts.verifySignature(key, sig, msg)
+    : await crypto.subtle.verify(
+        { name: "Ed25519" },
+        key,
+        sig.buffer.slice(sig.byteOffset, sig.byteOffset + sig.byteLength) as ArrayBuffer,
+        msg.buffer.slice(msg.byteOffset, msg.byteOffset + msg.byteLength) as ArrayBuffer,
+      );
+  if (jwtKeyGeneration(opts.cache, kid) !== generation) {
+    throw Object.assign(new Error(`unknown kid ${kid}`), { status: 401 });
+  }
   if (!ok) throw Object.assign(new Error("signature invalid"), { status: 401 });
 
   let payload: { iat?: number; aud?: string | string[]; sub?: string };
@@ -164,8 +198,11 @@ export async function verifyJwt(token: string, opts: VerifyOpts): Promise<Caller
     throw Object.assign(new Error("token from the future"), { status: 401 });
   }
 
+  if (jwtKeyGeneration(opts.cache, kid) !== generation) {
+    throw Object.assign(new Error(`unknown kid ${kid}`), { status: 401 });
+  }
   log.debug("jwt", "verified", { trace_id: undefined, fp: kid, label });
-  return { fingerprint: kid, label };
+  return { fingerprint: kid, label, keyGeneration: generation };
 }
 
 // ─── sign (for coord-minted worker-direct JWTs) ────────────────────────

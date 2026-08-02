@@ -55,19 +55,17 @@ beforeAll(async () => {
   await runMigrations(sqlite);
   const coordKey = await loadOrCreateCoordKey(keyPath);
   const jwtCache = newJwtCache();
-  const cfg: CoordConfig = {
-    bind: "127.0.0.1:0",
-    dbPath, coordKeyPath: keyPath, authorizedKeysPath: authPath,
-    webDistPath: "",
-    tlsCertPath: undefined, tlsKeyPath: undefined,
-    jwtMaxAgeSecs: 300,
-    auditRetentionDays: 90,
-    relaxedCsp: false,
-    corsAllowedOrigins: [],
-    logDir: workdir,
-    publicUrl: undefined,
-    handoffPath: join(workdir, "coord-handoff.json"),
-  };
+  const cfg: CoordConfig = { trustProxy: false, bind: "127.0.0.1:0",
+  dbPath, coordKeyPath: keyPath, authorizedKeysPath: authPath,
+  webDistPath: "",
+  tlsCertPath: undefined, tlsKeyPath: undefined,
+  jwtMaxAgeSecs: 300,
+  auditRetentionDays: 90,
+  relaxedCsp: false,
+  corsAllowedOrigins: [],
+  logDir: workdir,
+  publicUrl: undefined,
+  handoffPath: join(workdir, "coord-handoff.json"), }
   const deps: ConnectDeps = { db, sqlite, coordKey, jwtCache, cfg };
 
   const keys = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);
@@ -105,7 +103,10 @@ afterAll(() => cleanup?.());
 /** Open a socket, publish the per-session frames, and return the ids that made
  *  it through the fanout filter. */
 async function fanoutFor(query: string): Promise<string[]> {
-  const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws/coord-sync?token=${encodeURIComponent(jwt)}${query}`);
+  const ws = new WebSocket(
+    `ws://127.0.0.1:${server.port}/ws/coord-sync${query}`,
+    ["roost-auth", jwt],
+  );
   ws.binaryType = "arraybuffer";
   const seen: string[] = [];
   const { promise: barrierSeen, resolve: sawBarrier } = Promise.withResolvers<void>();
@@ -130,13 +131,13 @@ async function fanoutFor(query: string): Promise<string[]> {
 
 test("a tab receives only the sessions it claimed", async () => {
   subscribeCells(`${fingerprint}:${TAB_ID}`, WATCHED);
-  expect(await fanoutFor(`&tab=${TAB_ID}`)).toEqual([`bytes:${WATCHED}`, `cell:${WATCHED}`]);
+  expect(await fanoutFor(`?tab=${TAB_ID}`)).toEqual([`bytes:${WATCHED}`, `cell:${WATCHED}`]);
 });
 
 test("a withdrawn session stops arriving", async () => {
   unsubscribeCells(`${fingerprint}:${TAB_ID}`, WATCHED);
   expect(isSubscribed(`${fingerprint}:${TAB_ID}`, WATCHED)).toBe(false);
-  expect(await fanoutFor(`&tab=${TAB_ID}`)).toEqual([]);
+  expect(await fanoutFor(`?tab=${TAB_ID}`)).toEqual([]);
 });
 
 test("a client that sends no tab= still receives every session (fail open)", async () => {

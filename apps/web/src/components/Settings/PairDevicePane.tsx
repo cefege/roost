@@ -1,12 +1,9 @@
-// Settings → "Pair a device" pane. Renders a QR encoding
-// https://<tailnet-fqdn>:4102/?pair=<token>. A phone on the tailnet scans
-// it, lands on the SPA, and sync.ts's ?pair= handler redeems the token →
-// the phone is authorized with no typing. The minting browser is already
-// authed, so it calls authMintBootstrap directly (no loopback bypass).
+// Settings → "Pair a device" pane. Renders a QR for the current HTTPS origin.
+// Its one-shot bearer stays in the URL fragment, so Cloudflare, access logs,
+// and Referer headers never receive it.
 //
-// Guard: a phone can only reach an HTTPS tailnet origin — if Settings is
-// open over loopback/http, we show a "use your tailnet URL" notice instead
-// of a QR the phone could never load.
+// Any non-loopback HTTPS origin is phone-reachable when the phone can route to
+// it: either the public Roost domain or a tailnet URL.
 
 import { createSignal, onMount, Show } from "solid-js";
 import QRCode from "qrcode";
@@ -32,7 +29,7 @@ export function PairDevicePane() {
     setStatus("loading");
     try {
       const { token } = await coordClient.authMintBootstrap({ kind: "browser", label: "phone" });
-      const url = `${location.origin}/?pair=${token}`;
+      const url = `${location.origin}/#pair=${encodeURIComponent(token)}`;
       setPairUrl(url);
       setQrDataUrl(await QRCode.toDataURL(url, { width: 240, margin: 1 }));
       setStatus("ready");
@@ -66,18 +63,17 @@ export function PairDevicePane() {
             }}
           >
             <div style={{ "font-weight": 600, color: "var(--md-sys-color-on-surface)", "margin-bottom": "8px" }}>
-              Open Roost on your tailnet URL to pair a phone
+              Open Roost at an address your phone can reach
             </div>
-            A phone can only reach Roost over its Tailscale HTTPS address. You're
-            viewing this over <code style={{ color: "var(--md-sys-color-on-surface)" }}>{typeof location !== "undefined" ? location.origin : ""}</code>,
-            which a phone can't load. Open <code style={{ color: "var(--md-sys-color-on-surface)" }}>https://&lt;your-mac&gt;.ts.net:4102</code> on
-            this Mac, then come back to Settings → Pair a device.
+            Open the address your phone can reach (your public Roost domain, or
+            your tailnet URL) on this device, then return to Settings → Pair a
+            device.
           </div>
         }
       >
         <p style={{ "font-size": "13px", color: "var(--md-sys-color-on-surface-variant)", "margin-bottom": "20px", "line-height": "1.5" }}>
-          Scan this with your phone's camera (the phone must be on your tailnet).
-          It opens Roost and pairs automatically — no typing.
+          Scan this with your phone's camera. The phone must be able to reach
+          this address. It opens Roost and pairs automatically — no typing.
         </p>
 
         <div style={{ display: "flex", "flex-direction": "column", "align-items": "flex-start", gap: "14px" }}>

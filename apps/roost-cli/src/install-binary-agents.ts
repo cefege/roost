@@ -33,7 +33,11 @@ async function runScript(path: string, cmd: Cmd, env: Record<string, string>): P
 }
 
 export async function installCoordAgent(opts: {
-  execPath: string; gitSha: string; cmd?: Cmd; log: (m: string) => void;
+  execPath: string;
+  gitSha: string;
+  cmd?: Cmd;
+  env?: Record<string, string>;
+  log: (m: string) => void;
 }): Promise<void> {
   const cmd = opts.cmd ?? "install";
   opts.log(`installing coordinator service (roost coord)${cmd === "write-plist" ? " [dry-run]" : ""}`);
@@ -42,6 +46,7 @@ export async function installCoordAgent(opts: {
     ROOST_EXEC_BIN: opts.execPath,
     ROOST_WORKDIR: homedir(),
     ROOST_GIT_SHA: opts.gitSha, // coord install.sh reads ROOST_GIT_SHA
+    ...opts.env,
   };
   if (cmd === "write-plist") {
     // Force everything into a throwaway dir so dry-run can NEVER overwrite the

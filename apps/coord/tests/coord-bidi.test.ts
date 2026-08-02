@@ -47,19 +47,17 @@ beforeAll(async () => {
   await runMigrations(sqlite);
   const coordKey = await loadOrCreateCoordKey(keyPath);
   const jwtCache = newJwtCache();
-  const cfg: CoordConfig = {
-    bind: "127.0.0.1:0",
-    dbPath, coordKeyPath: keyPath, authorizedKeysPath: authPath,
-    webDistPath: "",
-    tlsCertPath: undefined, tlsKeyPath: undefined,
-    jwtMaxAgeSecs: 300,
-    auditRetentionDays: 90,
-    relaxedCsp: false,
-    corsAllowedOrigins: [],
-    logDir: workdir,
-    publicUrl: undefined,
-    handoffPath: join(workdir, "coord-handoff.json"),
-  };
+  const cfg: CoordConfig = { trustProxy: false, bind: "127.0.0.1:0",
+  dbPath, coordKeyPath: keyPath, authorizedKeysPath: authPath,
+  webDistPath: "",
+  tlsCertPath: undefined, tlsKeyPath: undefined,
+  jwtMaxAgeSecs: 300,
+  auditRetentionDays: 90,
+  relaxedCsp: false,
+  corsAllowedOrigins: [],
+  logDir: workdir,
+  publicUrl: undefined,
+  handoffPath: join(workdir, "coord-handoff.json"), }
   coord = createCoord({ db, sqlite, coordKey, cfg, jwtCache });
 
   // Mint a browser keypair, authorize it loopback-only, sign a JWT.

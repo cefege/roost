@@ -81,6 +81,7 @@ export interface BootstrapTokensTable {
   expires_at_ms: number;
   used_at_ms: number | null;
   used_by_fp: string | null;
+  minted_by_fp: string | null;
 }
 
 export interface PairRequestsTable {
@@ -159,6 +160,13 @@ export interface AuthorizedKeysTable {
   added_at: number;
 }
 
+export interface AuthorizedKeyRevocationsTable {
+  fingerprint: string;
+  revoked_at_ms: number;
+  revoked_by_fp: string;
+  reason: string;
+}
+
 export interface MigrationsTable {
   name: string;
   applied_at: number;
@@ -181,6 +189,7 @@ export interface DB {
   audit_log: AuditLogTable;
   agent_entries: AgentEntriesTable;
   authorized_keys: AuthorizedKeysTable;
+  authorized_key_revocations: AuthorizedKeyRevocationsTable;
   app_settings: AppSettingsTable;
   _migrations: MigrationsTable;
 }

@@ -6,50 +6,99 @@ import { TRACE_HEADER } from "@roost/shared/trace";
 import { auditBus } from "../buses.ts";
 import { recordRequest, recordError } from "../telemetry.ts";
 import { signal } from "@roost/shared/diag";
+import type { CoordConfig } from "@roost/shared/config";
 
-// blob: in script-src + worker-src lets the voice-capture AudioWorklet load its
-// processor module from a blob URL (Safari enforces this; Chrome is lenient).
-const CSP_BASE = "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:";
+const CSP_BASE = [
+  "default-src 'self'",
+  "script-src 'self' 'wasm-unsafe-eval' blob:",
+  "worker-src 'self' blob:",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data:",
+  "font-src 'self' data:",
+  "base-uri 'self'",
+  "form-action 'none'",
+  "object-src 'none'",
+].join("; ");
 const CSP_TAIL = "frame-ancestors 'none'";
-const CONNECT_PROD = "connect-src 'self' wss: https:";
-const CONNECT_RELAXED = "connect-src 'self' wss: https: ws: http:";
 
-function buildCsp(relaxed: boolean): string {
-  return `${CSP_BASE}; ${relaxed ? CONNECT_RELAXED : CONNECT_PROD}; ${CSP_TAIL}`;
+export interface SecurityOptions {
+  relaxedCsp: boolean;
+  corsAllowedOrigins: string[];
+  hsts: boolean;
+  connectOrigins: string[];
 }
 
-/** Apply CSP + frame-options + nosniff to a Headers object. */
-function applySecurityHeaders(headers: Headers, relaxed: boolean): void {
-  headers.set("content-security-policy", buildCsp(relaxed));
+export function securityOptionsForConfig(cfg: CoordConfig, hsts: boolean): SecurityOptions {
+  const origins = new Set<string>([
+    "https://api.deepgram.com",
+    "wss://api.deepgram.com",
+  ]);
+  for (const raw of [cfg.publicUrl, cfg.webPublicUrl, ...cfg.corsAllowedOrigins]) {
+    if (!raw) continue;
+    const origin = new URL(raw).origin;
+    origins.add(origin);
+    if (origin.startsWith("https://")) origins.add(`wss://${origin.slice("https://".length)}`);
+  }
+  return {
+    relaxedCsp: cfg.relaxedCsp,
+    corsAllowedOrigins: cfg.corsAllowedOrigins,
+    hsts,
+    connectOrigins: [...origins],
+  };
+}
+
+export function buildCsp(relaxed: boolean, connectOrigins: string[]): string {
+  const connections = new Set(["'self'", ...connectOrigins]);
+  if (relaxed) {
+    connections.add("http:");
+    connections.add("ws:");
+  }
+  return `${CSP_BASE}; connect-src ${[...connections].join(" ")}; ${CSP_TAIL}`;
+}
+
+export function applySecurityHeaders(
+  headers: Headers,
+  relaxed: boolean,
+  hsts: boolean,
+  connectOrigins: string[],
+): void {
+  headers.set("content-security-policy", buildCsp(relaxed, connectOrigins));
   headers.set("x-frame-options", "DENY");
   headers.set("x-content-type-options", "nosniff");
+  headers.set("referrer-policy", "no-referrer");
+  headers.set("permissions-policy", "camera=(), geolocation=(), microphone=(self)");
+  if (hsts) headers.set("strict-transport-security", "max-age=31536000");
 }
 
-/** Apply CORS headers given the request's origin and the allowlist. */
-function applyCors(headers: Headers, reqOrigin: string | null, allowedOrigins: string[]): void {
-  if (allowedOrigins.length === 0) {
-    headers.set("access-control-allow-origin", "*");
-  } else if (reqOrigin && allowedOrigins.includes(reqOrigin)) {
+export function applyCors(
+  headers: Headers,
+  reqOrigin: string | null,
+  allowedOrigins: string[],
+): void {
+  if (reqOrigin && allowedOrigins.includes(reqOrigin)) {
     headers.set("access-control-allow-origin", reqOrigin);
+    headers.set("access-control-expose-headers", "x-roost-auth-layer");
   }
   headers.set("vary", "origin, access-control-request-method, access-control-request-headers");
   headers.set("access-control-allow-methods", "*");
   headers.set("access-control-allow-headers", "*");
 }
 
-/** Wrap a Response with our standard security + CORS headers in-place. */
-export function wrapResponse(resp: Response, req: Request, opts: { relaxedCsp: boolean; corsAllowedOrigins: string[] }): Response {
+export function wrapResponse(
+  resp: Response,
+  req: Request,
+  opts: SecurityOptions,
+): Response {
   const headers = new Headers(resp.headers);
   applyCors(headers, req.headers.get("origin"), opts.corsAllowedOrigins);
-  applySecurityHeaders(headers, opts.relaxedCsp);
+  applySecurityHeaders(headers, opts.relaxedCsp, opts.hsts, opts.connectOrigins);
   return new Response(resp.body, { status: resp.status, statusText: resp.statusText, headers });
 }
 
-/** OPTIONS preflight 204 response with CORS + security headers. */
-export function preflightResponse(req: Request, opts: { relaxedCsp: boolean; corsAllowedOrigins: string[] }): Response {
+export function preflightResponse(req: Request, opts: SecurityOptions): Response {
   const headers = new Headers();
   applyCors(headers, req.headers.get("origin"), opts.corsAllowedOrigins);
-  applySecurityHeaders(headers, opts.relaxedCsp);
+  applySecurityHeaders(headers, opts.relaxedCsp, opts.hsts, opts.connectOrigins);
   return new Response(null, { status: 204, headers });
 }
 

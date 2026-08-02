@@ -18,6 +18,10 @@ const RATE_LIMITED_ROUTES: ReadonlySet<string> = new Set([
   "/roost.v1.CoordinatorService/AuthMintBootstrap",
   "/roost.v1.CoordinatorService/AuthRedeemWorker",
   "/roost.v1.CoordinatorService/AuthRedeemBrowser",
+  "/roost.v1.CoordinatorService/PairCreate",
+  "/roost.v1.CoordinatorService/PairPoll",
+  "/roost.v1.CoordinatorService/DevicesRevoke",
+  "/roost.v1.CoordinatorService/DevicesRotateCurrent",
   // workspace mutations (List read excluded — bootstrap + focus refresh)
   "/roost.v1.CoordinatorService/WorkspacesCreate",
   "/roost.v1.CoordinatorService/WorkspacesUpdate",
@@ -67,22 +71,22 @@ function routeGroupKey(path: string): string | null {
   return RATE_LIMITED_ROUTES.has(path) ? path : null;
 }
 
-function checkAndConsume(ip: string, group: string): boolean {
+function checkAndConsume(ip: string, group: string, tokensPerWindow: number): boolean {
   const key = `${ip}|${group}`;
   const now = Date.now();
   let bucket = buckets.get(key);
   if (!bucket) {
-    bucket = { tokens: TOKENS_PER_WINDOW, lastRefill: now };
+    bucket = { tokens: tokensPerWindow, lastRefill: now };
     buckets.set(key, bucket);
   }
   const elapsed = now - bucket.lastRefill;
   if (elapsed >= WINDOW_MS) {
-    bucket.tokens = TOKENS_PER_WINDOW;
+    bucket.tokens = tokensPerWindow;
     bucket.lastRefill = now;
   } else if (elapsed > 0) {
-    const refill = Math.floor((elapsed / WINDOW_MS) * TOKENS_PER_WINDOW);
+    const refill = Math.floor((elapsed / WINDOW_MS) * tokensPerWindow);
     if (refill > 0) {
-      bucket.tokens = Math.min(TOKENS_PER_WINDOW, bucket.tokens + refill);
+      bucket.tokens = Math.min(tokensPerWindow, bucket.tokens + refill);
       bucket.lastRefill = now;
     }
   }
@@ -114,12 +118,34 @@ export function checkRateLimit(req: Request, clientIp: string): Response | null 
   if (!group) return null;
 
   maybePrune();
-  const allowed = checkAndConsume(clientIp, group);
+  const allowed = checkAndConsume(clientIp, group, TOKENS_PER_WINDOW);
   if (allowed) return null;
 
   log.warn("rate-limit", "rate_limited", { ip: clientIp, group, path });
   return new Response(
     JSON.stringify({ error: "rate limit exceeded — 100 req/min per IP" }),
+    {
+      status: 429,
+      headers: {
+        "content-type": "application/json",
+        "retry-after": "60",
+      },
+    },
+  );
+}
+
+/** Sliding-window limit for non-Connect surfaces (WS upgrades, edge-auth
+ * failures) that never reach checkRateLimit's POST-only path. */
+export function checkCustomLimit(
+  clientIp: string,
+  group: string,
+  tokensPerWindow: number,
+): Response | null {
+  maybePrune();
+  if (checkAndConsume(clientIp, group, tokensPerWindow)) return null;
+  log.warn("rate-limit", "rate_limited", { ip: clientIp, group });
+  return new Response(
+    JSON.stringify({ error: "rate limit exceeded" }),
     {
       status: 429,
       headers: {

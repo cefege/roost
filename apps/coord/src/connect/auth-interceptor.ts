@@ -7,11 +7,18 @@
 //
 // JWT verification reuses apps/coord/src/jwt.ts::verifyJwt.
 
-import { Code, ConnectError, createContextKey, type Interceptor } from "@connectrpc/connect";
+import {
+  Code,
+  ConnectError,
+  createContextKey,
+  type ContextValues,
+  type Interceptor,
+} from "@connectrpc/connect";
 import type { KyselyDB } from "../db/connection.ts";
 import type { JwtCache } from "../jwt.ts";
 import type { CoordConfig } from "@roost/shared/config";
 import type { CoordinatorMoveService } from "../coord-move/orchestrator.ts";
+import type { CallerOrigin, ListenerTrust } from "../middleware/caller-origin.ts";
 import { verifyJwt } from "../jwt.ts";
 import { writeAuditLog } from "../middleware/security.ts";
 import { signal, diag } from "@roost/shared/diag";
@@ -51,6 +58,8 @@ const traceIdKey = createContextKey<string | undefined>(undefined);
 
 // remoteAddress context key (set via x-roost-remote-addr by bun-handler).
 export const remoteAddressKey = createContextKey<string | undefined>(undefined);
+export const onHostKey = createContextKey<boolean>(false);
+export const listenerTrustKey = createContextKey<ListenerTrust>("direct");
 
 // Per-tab id (set via x-roost-tab-id header by SPA's connect interceptor).
 // Disambiguates multiple tabs from the same browser fingerprint so the
@@ -80,6 +89,7 @@ const WRITE_METHODS: Record<string, true | undefined> = {
   McpCreate: true, McpDelete: true, McpPublish: true,
   AuthAuthorizeBrowser: true, AuthMintBootstrap: true, AuthRedeemWorker: true, AuthRedeemBrowser: true,
   PairCreate: true, PairApprove: true, PairDeny: true,
+  DevicesRevoke: true, DevicesRotateCurrent: true,
   FilesMkdir: true, TranscriptionSetConfig: true, AgentConfigSet: true,
   AttachFileChunk: true, DeleteAttachment: true,
   TransfersStart: true, DiagDebugLogBatch: true,
@@ -131,6 +141,12 @@ export function makeAuthInterceptor(deps: AuthInterceptorDeps): Interceptor {
     req.contextValues.set(callerKey, caller);
     req.contextValues.set(traceIdKey, traceId);
     req.contextValues.set(remoteAddressKey, req.header.get("x-roost-remote-addr") ?? undefined);
+    req.contextValues.set(onHostKey, req.header.get("x-roost-on-host") === "1");
+    const listener = req.header.get("x-roost-listener-trust");
+    req.contextValues.set(
+      listenerTrustKey,
+      listener === "tailscale-serve" || listener === "public-edge" ? listener : "direct",
+    );
     req.contextValues.set(tabIdKey, req.header.get("x-roost-tab-id") ?? undefined);
     req.contextValues.set(authorizationKey, auth);
     let status = 200;
@@ -159,12 +175,23 @@ export function makeAuthInterceptor(deps: AuthInterceptorDeps): Interceptor {
     }
   };
 }
+export function callerOrigin(values: ContextValues): CallerOrigin {
+  return {
+    clientIp: values.get(remoteAddressKey) ?? "unknown",
+    onHost: values.get(onHostKey),
+    listener: values.get(listenerTrustKey),
+  };
+}
 
 /** Throws Code.Unauthenticated if no caller; returns Caller otherwise. */
-export function requireAuth(values: { get<T>(k: ReturnType<typeof createContextKey<T>>): T }): Caller {
+export function requireAuth(values: ContextValues): Caller {
   const caller = values.get(callerKey);
   if (!caller) {
-    throw new ConnectError("authentication required", Code.Unauthenticated);
+    throw new ConnectError(
+      "authentication required",
+      Code.Unauthenticated,
+      new Headers({ "x-roost-auth-layer": "device" }),
+    );
   }
   return caller;
 }
@@ -173,6 +200,6 @@ export function requireAuth(values: { get<T>(k: ReturnType<typeof createContextK
  *  alternate trust path (pairList/pairApprove/pairDeny accept a LOOPBACK
  *  caller so the on-host agent/CLI can approve devices via API — Author
  *  2026-07-11 "approve new devices via API"; see handlers-auth.ts). */
-export function optionalAuth(values: { get<T>(k: ReturnType<typeof createContextKey<T>>): T }): Caller | null {
+export function optionalAuth(values: ContextValues): Caller | null {
   return values.get(callerKey);
 }

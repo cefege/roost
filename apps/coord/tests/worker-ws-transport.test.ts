@@ -25,8 +25,18 @@ import type { CoordWorkerDown } from "@roost/shared/proto/worker_transport_pb";
 import { openDb } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
 import { loadOrCreateCoordKey } from "../src/coord-key.ts";
-import { newJwtCache, signJwt, fingerprintOf } from "../src/jwt.ts";
-import { handleWorkerWsUpgrade, makeWorkerWsHandler } from "../src/connect/worker-ws-handler.ts";
+import {
+  fingerprintOf,
+  invalidateJwtKey,
+  newJwtCache,
+  signJwt,
+  verifyJwt,
+} from "../src/jwt.ts";
+import {
+  handleWorkerWsUpgrade,
+  makeWorkerWsHandler,
+  type WorkerWsData,
+} from "../src/connect/worker-ws-handler.ts";
 import { getWorkerHubSocket, type WorkerServiceDeps } from "../src/connect/worker-service.ts";
 import { createPendingRpc } from "../src/router/pending-rpcs.ts";
 import type { CoordConfig } from "@roost/shared/config";
@@ -52,19 +62,17 @@ beforeAll(async () => {
   await runMigrations(sqlite);
   const coordKey = await loadOrCreateCoordKey(keyPath);
   const jwtCache = newJwtCache();
-  const cfg: CoordConfig = {
-    bind: "127.0.0.1:0",
-    dbPath, coordKeyPath: keyPath, authorizedKeysPath: authPath,
-    webDistPath: "",
-    tlsCertPath: undefined, tlsKeyPath: undefined,
-    jwtMaxAgeSecs: 300,
-    auditRetentionDays: 90,
-    relaxedCsp: false,
-    corsAllowedOrigins: [],
-    logDir: workdir,
-    publicUrl: undefined,
-    handoffPath: join(workdir, "coord-handoff.json"),
-  };
+  const cfg: CoordConfig = { trustProxy: false, bind: "127.0.0.1:0",
+  dbPath, coordKeyPath: keyPath, authorizedKeysPath: authPath,
+  webDistPath: "",
+  tlsCertPath: undefined, tlsKeyPath: undefined,
+  jwtMaxAgeSecs: 300,
+  auditRetentionDays: 90,
+  relaxedCsp: false,
+  corsAllowedOrigins: [],
+  logDir: workdir,
+  publicUrl: undefined,
+  handoffPath: join(workdir, "coord-handoff.json"), }
   deps = { db, coordKey, jwtCache, cfg };
 
   // Mint a worker keypair, authorize it, sign a worker JWT (sub == fp).
@@ -73,6 +81,17 @@ beforeAll(async () => {
   workerFp = await fingerprintOf(rawPub);
   await db.insertInto("authorized_keys").values({
     fingerprint: workerFp, public_key: rawPub, label: "test-worker", added_at: Date.now(),
+  }).execute();
+  await db.insertInto("workers").values({
+    fp: workerFp,
+    label: "test-worker",
+    os: "linux",
+    git_sha: null,
+    host_metrics_json: null,
+    registered_at_ms: Date.now(),
+    last_seen_ms: Date.now(),
+    reachable_addr: null,
+    keeper_stale: null,
   }).execute();
   const now = Math.floor(Date.now() / 1000);
   workerJwt = await signJwt(
@@ -245,5 +264,29 @@ describe("worker↔coord raw-WS transport", () => {
     await fakeWs.data.tail;
     expect(seen).toHaveLength(1);
     expect(Array.from(seen[0]!)).toEqual([0x1b, 0x5b, 0x41, 0x99]);
+  });
+
+  test("revocation between accepted upgrade and open closes before connection registration", async () => {
+    const caller = await verifyJwt(workerJwt, {
+      db: deps.db,
+      cache: deps.jwtCache,
+      jwtMaxAgeSecs: deps.cfg.jwtMaxAgeSecs,
+    });
+    const data: WorkerWsData = {
+      kind: "worker",
+      caller,
+      fp: workerFp,
+      conn: null,
+      tail: Promise.resolve(),
+    };
+    invalidateJwtKey(deps.jwtCache, workerFp);
+    let closed: [number, string] | undefined;
+    const ws = {
+      data,
+      close: (code: number, reason: string) => { closed = [code, reason]; },
+    };
+    makeWorkerWsHandler(deps).open(ws as never);
+    expect(closed).toEqual([4001, "revoked"]);
+    expect(data.conn).toBeNull();
   });
 });

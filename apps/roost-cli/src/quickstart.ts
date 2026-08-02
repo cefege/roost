@@ -1,7 +1,7 @@
 // `roost quickstart` — the local one-shot installer. Single machine, zero agent.
 // Turns the old 7-step manual install into one command: Tailscale gate →
 // build SPA → mint TLS cert → install coord → deploy local worker → health →
-// status → open the browser already-authorized via a self-minted ?pair token.
+// status → open the browser already-authorized via a self-minted #pair token.
 //
 // Tailscale is REQUIRED (the install stops without it — see resolveTailscale
 // gate below). Other machines/workers are NOT set up here (deferred).
@@ -303,11 +303,11 @@ export async function quickstart(args: string[]): Promise<void> {
   console.log();
   printStatusReport(await statusReport());
 
-  // Authorize this machine's browser with no token paste: mint a ?pair token +
-  // open it. SPA redeems on load (see sync.ts ?pair= handler).
-  logStep("opening the app (browser self-authorizes via ?pair)");
+  // Authorize this machine's browser with no token paste: mint a #pair token +
+  // open it. The fragment never reaches the coordinator or an HTTP Referer.
+  logStep("opening the app (browser self-authorizes via #pair)");
   const token = mintBrowserToken(`quickstart-${fqdn}`);
-  const openUrl = `${coordUrl}/?pair=${token}`;
+  const openUrl = `${coordUrl}/#pair=${encodeURIComponent(token)}`;
   await runInherit([process.platform === "linux" ? "xdg-open" : "open", openUrl]);
 
   const shim = binary ? null : installRoostShim(process.cwd());

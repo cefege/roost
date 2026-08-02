@@ -16,7 +16,7 @@ import { setRoutableFps } from "./sync-routable.ts";
 import { _startCoordHealthPoller } from "./sync-health.ts";
 import { _runConnectSync, _abortSyncForVisibility, isSyncPaused, syncLinkIdleMs, drainPreHydration, syncSocketOpened, resumeSyncNow } from "./sync.ts";
 import { shouldRedialOnRefocus } from "./sync-watchdog.ts";
-import { _attemptPairRedeem } from "./sync-bootstrap.pair.ts";
+import { _dispatchFragmentCredential } from "./sync-bootstrap.pair.ts";
 import { relocateRetiredBrowser } from "../auth/coordinator-relocation.ts";
 import { isPageVisible } from "../lib/pageVisible.ts";
 import { setSessionsHydrated } from "./sync-hydrated.ts";
@@ -105,7 +105,7 @@ export function bootstrapSync(): void {
  *  reconnect — Promise.allSettled keeps either fetch's failure from
  *  blocking the other. */
 export async function refreshCoordAndWorkers(): Promise<void> {
-  const { coordClient } = await import("../connect.ts");
+  const { classifyAuthFailure, coordClient } = await import("../connect.ts");
   const identity = await Promise.resolve(coordClient.authCoordIdentity({})).then(
     (value) => ({ status: "fulfilled" as const, value }),
     (reason) => ({ status: "rejected" as const, reason }),
@@ -120,6 +120,7 @@ export async function refreshCoordAndWorkers(): Promise<void> {
       fingerprint_hex: identity.value.fingerprintHex,
       git_sha: identity.value.gitSha,
       public_url: identity.value.publicUrl,
+      public_listener: identity.value.publicListener,
       relocated_to_url: identity.value.relocatedToUrl,
       handoff_id: identity.value.handoffId,
     });
@@ -128,13 +129,13 @@ export async function refreshCoordAndWorkers(): Promise<void> {
   // set browser_unauthorized so the sidebar empty-state kind tracks
   // current trust. Runs on visibility regain + post-deploy + after
   // a pair-approval reload, so the user sees the right empty state.
-  {
-    const { ConnectError, Code } = await import("@connectrpc/connect");
-    const isUnauth = workers.status === "rejected" &&
-      workers.reason instanceof ConnectError &&
-      workers.reason.code === Code.Unauthenticated;
-    setBrowserUnauthorized(isUnauth);
-  }
+  setBrowserUnauthorized(
+    workers.status === "rejected"
+      && classifyAuthFailure(
+        workers.reason,
+        "/roost.v1.CoordinatorService/WorkersList",
+      ) === "device",
+  );
 
   if (workers.status === "fulfilled") {
     setRoutableFps(new Set(workers.value.routableFps));
@@ -191,14 +192,13 @@ function _scheduleBootstrapRetry(): void {
 
 async function _bootstrap(): Promise<void> {
   try {
-    // Phase -1: redeem a ?pair token if present (FQDN auth path for the
-    // installer-opened host browser + QR-scanning phone). Halts on success
-    // (reloads authed).
-    if (await _attemptPairRedeem()) return;
+    // Phase -1: scrub and redeem exactly one complete fragment credential.
+    // Pair and relocation bearers never enter an HTTP URL or Referer.
+    if (await _dispatchFragmentCredential()) return;
 
     // Phase 0: discover a retired source before any mutation or bulk list.
     // Its mint endpoint can carry this browser to the committed coordinator.
-    const { coordClient } = await import("../connect.ts");
+    const { classifyAuthFailure, coordClient } = await import("../connect.ts");
     const initialIdentity = await Promise.resolve(coordClient.authCoordIdentity({})).then(
       (value) => ({ status: "fulfilled" as const, value }),
       (reason) => ({ status: "rejected" as const, reason }),
@@ -226,11 +226,20 @@ async function _bootstrap(): Promise<void> {
       coordClient.mcpList({}),
       coordClient.pairList({}),
     ]);
-    const { ConnectError, Code } = await import("@connectrpc/connect");
-    const isUnauth = (settled: PromiseSettledResult<unknown>): boolean =>
-      settled.status === "rejected" &&
-      settled.reason instanceof ConnectError &&
-      settled.reason.code === Code.Unauthenticated;
+    const authRequiredPaths = [
+      "/roost.v1.CoordinatorService/WorkersList",
+      "/roost.v1.CoordinatorService/SessionsList",
+      "/roost.v1.CoordinatorService/WorkspacesList",
+      "/roost.v1.CoordinatorService/TasksList",
+      "/roost.v1.CoordinatorService/PermissionsList",
+      "/roost.v1.CoordinatorService/McpList",
+      "/roost.v1.CoordinatorService/PairList",
+    ];
+    const isUnauth = (
+      result: PromiseSettledResult<unknown>,
+      index: number,
+    ): boolean => result.status === "rejected"
+      && classifyAuthFailure(result.reason, authRequiredPaths[index] ?? "") === "device";
     let settled = await listBatch();
     if (settled.some(isUnauth)) {
       // Loopback browser self-register. If we're behind a non-loopback proxy the
@@ -256,6 +265,7 @@ async function _bootstrap(): Promise<void> {
         fingerprint_hex: initialIdentity.value.fingerprintHex,
         git_sha: initialIdentity.value.gitSha,
         public_url: initialIdentity.value.publicUrl,
+        public_listener: initialIdentity.value.publicListener,
         relocated_to_url: initialIdentity.value.relocatedToUrl,
         handoff_id: initialIdentity.value.handoffId,
       });

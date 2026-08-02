@@ -17,7 +17,11 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { loadWorkerConfig } from "../../worker/src/config.ts";
 import { loadWorkerKey, mintJwt } from "../../worker/src/jwt.ts";
-import { createCoordClient, type CoordClient } from "../../worker/src/coord-client.ts";
+import {
+  createCoordClient,
+  createUnauthenticatedCoordClient,
+  type CoordClient,
+} from "../../worker/src/coord-client.ts";
 import { protoToEvent } from "@roost/shared/wire/event-proto";
 import { CoordinatorMovePhase } from "@roost/shared/proto/coordinator_pb";
 import { diag } from "@roost/shared/diag";
@@ -166,11 +170,47 @@ async function resolveWorkerFp(c: CoordClient, arg: string): Promise<string> {
   process.exit(1);
 }
 
+async function revokeLocalDevice(args: string[]): Promise<void> {
+  const fingerprint = requireArg(args[0], "fingerprint");
+  if (!args.includes("--yes")) {
+    throw new Error("device-revoke-local is destructive; pass --yes");
+  }
+  const bind = process.env.ROOST_COORDINATOR_BIND ?? "127.0.0.1:4102";
+  const port = bind.startsWith("[")
+    ? new URL(`http://${bind}`).port
+    : bind.slice(bind.lastIndexOf(":") + 1);
+  const rawUrl = process.env.ROOST_COORD_URL ?? `http://127.0.0.1:${port}`;
+  const url = new URL(rawUrl);
+  if (
+    url.protocol !== "http:"
+    || url.hostname !== "127.0.0.1"
+    || url.username
+    || url.password
+    || url.pathname !== "/"
+    || url.search
+    || url.hash
+  ) {
+    throw new Error("device-revoke-local requires an http://127.0.0.1:<port> coordinator URL");
+  }
+  const client = createUnauthenticatedCoordClient(url.origin);
+  const response = await client.devicesRevoke({ fingerprint });
+  console.log(String(response.ok));
+}
+
 export async function api(args: string[]): Promise<void> {
   const [verb, ...rest] = args;
   if (!verb) {
     console.error("roost api <verb>: sessions | cat | cells | input | rename | assign | attach | spawn | kill | workers | worker-rename | worker-rm | workspaces | ws-create | ws-update | ws-delete | ws-set-sessions | tasks | task-enqueue | task-cancel | ui | ui-state | events | watch");
     process.exit(1);
+  }
+  if (verb === "device-revoke-local") {
+    try {
+      await revokeLocalDevice(rest);
+      return;
+    } catch (error) {
+      console.error(`roost api: ${error instanceof Error ? error.message : String(error)}`);
+      process.exit(1);
+    }
   }
 
   let c: CoordClient | undefined;

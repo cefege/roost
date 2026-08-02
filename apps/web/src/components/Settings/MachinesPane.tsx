@@ -274,13 +274,14 @@ function WorkerRow(props: { worker: Worker }) {
               </span>
             </Show>
             <Show when={role() === "no"}>
-              {/* No client-side eligibility gate: every clause had a server-side
-                  counterpart with a strictly better message, the button is the
-                  only way to reach them, and start() re-runs the full preflight
-                  server-side so nothing unsafe can be launched from here. */}
+              {/* The public factory rejects every coordinator-move RPC. Keep
+                  the control visible but inert so this looks intentional, not
+                  like a broken button or a missing capability. Private access
+                  still relies on server preflight for eligibility details. */}
               <Button
                 variant="tonal"
                 data-testid={`machines-move-coordinator-btn-${w().fp}`}
+                disabled={rootStore.coord_identity?.public_listener === true}
                 onClick={() => setMoveDialog(true)}
               >
                 Move coordinator here
@@ -355,7 +356,10 @@ export function MachinesPane() {
 
   createEffect(() => {
     const id = runningMove();
-    if (!id) { setMovePhase(null); return; }
+    if (!id || rootStore.coord_identity?.public_listener === true) {
+      setMovePhase(null);
+      return;
+    }
     let cancelled = false;
     const tick = (): void => {
       void coordClient.coordinatorMoveStatus({ handoffId: id })
@@ -369,6 +373,15 @@ export function MachinesPane() {
 
   return (
     <div data-testid="settings-machines-pane" style={{ display: "flex", "flex-direction": "column", gap: "var(--md-space-5)" }}>
+      <Show when={rootStore.coord_identity?.public_listener === true}>
+        <Card
+          variant="elevated"
+          title="Coordinator moves require private access"
+          supporting="Coordinator moves are unavailable from the public web address. Open Roost through its private Tailscale address to move it."
+        >
+          <span />
+        </Card>
+      </Show>
       <Show when={moveInFlight()}>
         <Card
           variant="elevated"
@@ -419,7 +432,7 @@ export function MachinesPane() {
       <Show when={showDeploy()}>
         <MachineDeployDialog onClose={() => setShowDeploy(false)} />
       </Show>
-      <Show when={resumeDialog() && moveInFlight()}>
+      <Show when={resumeDialog() && moveInFlight() && rootStore.coord_identity?.public_listener !== true}>
         <CoordinatorMoveDialog
           targetWorkerFp=""
           resumeHandoffId={moveInFlight()!}

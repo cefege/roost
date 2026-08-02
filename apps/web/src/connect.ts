@@ -5,20 +5,74 @@
 // Wire format: protobuf binary (useBinaryFormat: true) — no JSON bloat.
 // Auth: Authorization: Bearer <jwt> via Interceptor, same JWT as tRPC.
 
-import { createClient, type Interceptor } from "@connectrpc/connect";
+import { Code, ConnectError, createClient, type Interceptor } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
 import { CoordinatorService, type WorkersListResponse } from "@roost/shared/proto/coordinator_pb";
 import { signCoordinatorJwt } from "./auth/web-key.ts";
 import { getTabId } from "./auth/tab-id.ts";
+import { parseFragmentCredential } from "./auth/fragment-credential.ts";
 import { signal } from "@roost/shared/diag";
+const DEVICE_AUTH_REQUIRED_PATHS: Record<string, true | undefined> = {
+  "/roost.v1.CoordinatorService/WorkersList": true,
+  "/roost.v1.CoordinatorService/SessionsList": true,
+  "/roost.v1.CoordinatorService/WorkspacesList": true,
+  "/roost.v1.CoordinatorService/TasksList": true,
+  "/roost.v1.CoordinatorService/PermissionsList": true,
+  "/roost.v1.CoordinatorService/McpList": true,
+  "/roost.v1.CoordinatorService/DevicesList": true,
+  "/roost.v1.CoordinatorService/DevicesRevoke": true,
+  "/roost.v1.CoordinatorService/DevicesRotateCurrent": true,
+};
+
+export type AuthFailureKind = "access" | "device" | "retryable";
+
+export class AccessLayerAuthError extends Error {
+  constructor() {
+    super("Cloudflare Access authentication required");
+    this.name = "AccessLayerAuthError";
+  }
+}
+
+export function classifyAuthFailure(error: unknown, rpcPath: string): AuthFailureKind {
+  let current: unknown = error;
+  for (let depth = 0; depth < 4 && current; depth++) {
+    if (current instanceof AccessLayerAuthError) return "access";
+    if (
+      current instanceof ConnectError
+      && current.code === Code.Unauthenticated
+      && current.metadata.get("x-roost-auth-layer") === "device"
+      && DEVICE_AUTH_REQUIRED_PATHS[rpcPath]
+    ) return "device";
+    if (typeof current === "object" && "cause" in current) {
+      current = current.cause;
+    } else {
+      current = undefined;
+    }
+  }
+  return "retryable";
+}
+
+const accessAwareFetch: typeof fetch = Object.assign(
+  async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+    const response = await globalThis.fetch(input, init);
+    if (
+      response.status === 401
+      && response.headers.get("x-roost-auth-layer") === "access"
+    ) {
+      throw new AccessLayerAuthError();
+    }
+    return response;
+  },
+  { preconnect: globalThis.fetch.preconnect },
+);
+
 
 // Coord URL: localStorage override for multi-coord testing (R6.2);
 // defaults to same-origin (proxied by Vite to :4102 in dev, served
 // same-origin in prod by coord).
 export function hasCoordinatorRelocationFragment(): boolean {
   if (typeof location === "undefined") return false;
-  const params = new URLSearchParams(location.hash.slice(1));
-  return Boolean(params.get("move") && params.get("handoff"));
+  return parseFragmentCredential(location.hash).kind === "relocation";
 }
 
 /** The coordinator this SPA is actually talking to: the Settings → Connection
@@ -38,31 +92,34 @@ export function coordBase(): string {
   return override ?? "";
 }
 
-// Stamp Authorization header on every Connect call.
-const authInterceptor: Interceptor = (next) => async (req) => {
-  try {
-    const jwt = await signCoordinatorJwt();
-    req.header.set("Authorization", `Bearer ${jwt}`);
-  } catch (e) {
-    // signCoordinatorJwt can fail on first-paint before keypair generated;
-    // procedure rejects with UNAUTHORIZED, SPA surfaces the auth banner.
-    // But a persistent sign failure = every RPC goes out unauthenticated.
-    signal("auth.jwt_sign_fail", { stage: "interceptor", msg: String(e), cooldownKey: "jwt" });
-  }
-  // Per-tab UUID so coord/worker can disambiguate multiple tabs from
-  // the same browser fingerprint in the viewport-claim maps. Same
-  // browser, two tabs = same JWT subject (fp), distinct tab_id.
-  req.header.set("x-roost-tab-id", getTabId());
-  return next(req);
-};
+function makeAuthInterceptor(signer: () => Promise<string>): Interceptor {
+  return (next) => async (req) => {
+    try {
+      const jwt = await signer();
+      req.header.set("Authorization", `Bearer ${jwt}`);
+    } catch (error) {
+      signal("auth.jwt_sign_fail", {
+        stage: "interceptor",
+        msg: String(error),
+        cooldownKey: "jwt",
+      });
+    }
+    req.header.set("x-roost-tab-id", getTabId());
+    return next(req);
+  };
+}
 
-const transport = createConnectTransport({
-  baseUrl: coordBase() || "/",
-  useBinaryFormat: true,  // protobuf binary on the wire; ~80% smaller than JSON
-  interceptors: [authInterceptor],
-});
+export function makeCoordinatorClientForSigner(signer: () => Promise<string>) {
+  const transport = createConnectTransport({
+    baseUrl: coordBase() || "/",
+    useBinaryFormat: true,
+    fetch: accessAwareFetch,
+    interceptors: [makeAuthInterceptor(signer)],
+  });
+  return createClient(CoordinatorService, transport);
+}
 
-export const coordClient = createClient(CoordinatorService, transport);
+export const coordClient = makeCoordinatorClientForSigner(signCoordinatorJwt);
 
 type Assert<T extends true> = T;
 type AsyncResponse<T> = T extends (...args: never[]) => Promise<infer Response> ? Response : never;

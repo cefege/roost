@@ -11,6 +11,7 @@ import {
   signJwt,
   verifyJwt,
   newJwtCache,
+  invalidateJwtKey,
 } from "../src/jwt.ts";
 import type { DB } from "../src/db/schema.ts";
 
@@ -155,5 +156,82 @@ describe("JWT rejection", () => {
     await expect(
       verifyJwt(token, { db, cache: newJwtCache(), jwtMaxAgeSecs: 300 }),
     ).rejects.toThrow(/unknown kid/);
+  });
+
+  test("signed token claiming another algorithm is rejected before key lookup", async () => {
+    const nowSecs = Math.floor(Date.now() / 1000);
+    const payloadB64 = Buffer.from(JSON.stringify({
+      aud: "roost-coordinator",
+      sub: "test",
+      iat: nowSecs,
+    })).toString("base64url");
+    const headerB64 = Buffer.from(JSON.stringify({
+      alg: "RS256",
+      kid: "f".repeat(64),
+    })).toString("base64url");
+    const message = new TextEncoder().encode(`${headerB64}.${payloadB64}`);
+    const signature = await crypto.subtle.sign({ name: "Ed25519" }, testPrivKey, message);
+    const token = `${headerB64}.${payloadB64}.${Buffer.from(signature).toString("base64url")}`;
+    await expect(
+      verifyJwt(token, { db, cache: newJwtCache(), jwtMaxAgeSecs: 300 }),
+    ).rejects.toThrow("wrong alg");
+  });
+});
+
+describe("JWT cache generations", () => {
+  test("invalidation during a deferred key import rejects and does not repopulate", async () => {
+    const cache = newJwtCache();
+    const token = await signJwt(
+      { aud: "roost-coordinator", sub: "test", iat: Math.floor(Date.now() / 1000) },
+      testPrivKey,
+      testFp,
+    );
+    const entered = Promise.withResolvers<void>();
+    const resume = Promise.withResolvers<void>();
+    const verifying = verifyJwt(token, {
+      db,
+      cache,
+      jwtMaxAgeSecs: 300,
+      importKey: async (raw) => {
+        entered.resolve();
+        await resume.promise;
+        const spki = new Uint8Array(SPKI_PREFIX.length + raw.length);
+        spki.set(SPKI_PREFIX);
+        spki.set(raw, SPKI_PREFIX.length);
+        return crypto.subtle.importKey("spki", spki, { name: "Ed25519" }, true, ["verify"]);
+      },
+    });
+    await entered.promise;
+    invalidateJwtKey(cache, testFp);
+    resume.resolve();
+    await expect(verifying).rejects.toThrow(/unknown kid/);
+    expect(cache.entries.has(testFp)).toBe(false);
+  });
+
+  test("invalidation during deferred signature verification rejects a hot-cache caller", async () => {
+    const cache = newJwtCache();
+    const token = await signJwt(
+      { aud: "roost-coordinator", sub: "test", iat: Math.floor(Date.now() / 1000) },
+      testPrivKey,
+      testFp,
+    );
+    await verifyJwt(token, { db, cache, jwtMaxAgeSecs: 300 });
+    const entered = Promise.withResolvers<void>();
+    const resume = Promise.withResolvers<void>();
+    const verifying = verifyJwt(token, {
+      db,
+      cache,
+      jwtMaxAgeSecs: 300,
+      verifySignature: async () => {
+        entered.resolve();
+        await resume.promise;
+        return true;
+      },
+    });
+    await entered.promise;
+    invalidateJwtKey(cache, testFp);
+    resume.resolve();
+    await expect(verifying).rejects.toThrow(/unknown kid/);
+    expect(cache.entries.has(testFp)).toBe(false);
   });
 });

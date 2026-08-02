@@ -25,8 +25,8 @@ export async function* syncWsFrames(
   token: string,
   opts: { since?: number; signal?: AbortSignal } = {},
 ): AsyncGenerator<FirehoseFrame> {
-  const url = `${wsBase}/ws/coord-sync?token=${encodeURIComponent(token)}&since=${opts.since ?? 0}`;
-  const ws = new WebSocket(url);
+  const url = `${wsBase}/ws/coord-sync?since=${opts.since ?? 0}`;
+  const ws = new WebSocket(url, ["roost-auth", token]);
   ws.binaryType = "arraybuffer";
   const queue: FirehoseFrame[] = [];
   let done = false;

@@ -34,4 +34,12 @@ export function createCoordClient(opts: CoordClientOptions) {
   return createClient(CoordinatorService, transport);
 }
 
+export function createUnauthenticatedCoordClient(baseUrl: string) {
+  return createClient(CoordinatorService, createConnectTransport({
+    baseUrl,
+    httpVersion: "1.1",
+    useBinaryFormat: false,
+  }));
+}
+
 export type CoordClient = ReturnType<typeof createCoordClient>;

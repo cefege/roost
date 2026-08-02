@@ -368,6 +368,7 @@ message AuthCoordIdentityResponse {
   string public_url = 3;
   optional string relocated_to_url = 4;
   optional string handoff_id = 5;
+  bool public_listener = 6;
 }
 
 message AuthAuthorizeBrowserRequest { string ssh_pubkey_b64 = 1; string label = 2; }
@@ -595,6 +596,23 @@ message UiDispatchResponse {
 }
 
 
+// ─── authorized devices ─────────────────────────────────────────────────
+message DeviceRow {
+  string fingerprint = 1;
+  string label = 2;
+  uint64 added_at_ms = 3;
+  bool is_self = 4;
+}
+message DevicesListRequest {}
+message DevicesListResponse { repeated DeviceRow devices = 1; }
+message DevicesRevokeRequest { string fingerprint = 1; }
+message DevicesRevokeResponse { bool ok = 1; }
+message DevicesRotateCurrentRequest {
+  string ssh_pubkey_b64 = 1;
+  string label = 2;
+}
+message DevicesRotateCurrentResponse { string fingerprint = 1; }
+
 
 
 // ─── service ──────────────────────────────────────────────────────────────
@@ -662,6 +680,9 @@ service CoordinatorService {
   rpc AuthRedeemBrowser(AuthRedeemBrowserRequest) returns (AuthRedeemBrowserResponse);
   rpc AuthMintCoordinatorRelocation(AuthMintCoordinatorRelocationRequest) returns (AuthMintCoordinatorRelocationResponse);
   rpc AuthRedeemCoordinatorRelocation(AuthRedeemCoordinatorRelocationRequest) returns (AuthRedeemCoordinatorRelocationResponse);
+  rpc DevicesList(DevicesListRequest) returns (DevicesListResponse);
+  rpc DevicesRevoke(DevicesRevokeRequest) returns (DevicesRevokeResponse);
+  rpc DevicesRotateCurrent(DevicesRotateCurrentRequest) returns (DevicesRotateCurrentResponse);
 
   // coordinator move
   rpc CoordinatorMovePreflight(CoordinatorMovePreflightRequest) returns (CoordinatorMovePreflightResponse);

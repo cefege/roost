@@ -38,8 +38,7 @@ beforeAll(async () => {
 	await runMigrations(sqlite);
 	const coordKey = await loadOrCreateCoordKey(keyPath);
 	const jwtCache = newJwtCache();
-	const cfg: CoordConfig = {
-		bind: "127.0.0.1:0",
+	const cfg: CoordConfig = { trustProxy: false, bind: "127.0.0.1:0",
 		dbPath,
 		coordKeyPath: keyPath,
 		authorizedKeysPath: authPath,
@@ -52,8 +51,7 @@ beforeAll(async () => {
 		corsAllowedOrigins: [],
 		logDir: workdir,
 		publicUrl: undefined,
-		handoffPath: join(workdir, "coord-handoff.json"),
-	};
+		handoffPath: join(workdir, "coord-handoff.json"), }
 	coord = createCoord({ db, sqlite, coordKey, cfg, jwtCache });
 
 	// Mint a worker keypair, authorize it, seed its workers row (register-time

@@ -110,6 +110,12 @@ if [[ -n "$GIT_SHA_RESOLVED" ]]; then
   GIT_SHA_PLIST=$'\n    <key>ROOST_GIT_SHA</key>\n    <string>'"${GIT_SHA_RESOLVED}"$'</string>'
 fi
 
+PUBLIC_PLIST=""
+[[ -n "${ROOST_PUBLIC_BIND:-}" ]] && PUBLIC_PLIST+=$'\n    <key>ROOST_PUBLIC_BIND</key>\n    <string>'"${ROOST_PUBLIC_BIND}"$'</string>'
+[[ -n "${ROOST_WEB_PUBLIC_URL:-}" ]] && PUBLIC_PLIST+=$'\n    <key>ROOST_WEB_PUBLIC_URL</key>\n    <string>'"${ROOST_WEB_PUBLIC_URL}"$'</string>'
+[[ -n "${ROOST_CF_ACCESS_TEAM_DOMAIN:-}" ]] && PUBLIC_PLIST+=$'\n    <key>ROOST_CF_ACCESS_TEAM_DOMAIN</key>\n    <string>'"${ROOST_CF_ACCESS_TEAM_DOMAIN}"$'</string>'
+[[ -n "${ROOST_CF_ACCESS_AUD:-}" ]] && PUBLIC_PLIST+=$'\n    <key>ROOST_CF_ACCESS_AUD</key>\n    <string>'"${ROOST_CF_ACCESS_AUD}"$'</string>'
+
 # Bind + trust-proxy depend on FRONTED. Fronted: plaintext on loopback, trust
 # X-Forwarded-For from `tailscale serve` (verified un-spoofable: tailscale
 # OVERWRITES client XFF with the authenticated tailnet IP). Direct: 0.0.0.0 TLS.
@@ -172,7 +178,7 @@ write_plist() {
     <key>ROOST_WEB_DIST_PATH</key>
     <string>${web_dist}</string>
     <key>ROOST_DIAG</key>
-    <string>\${ROOST_DIAG:-0}</string>${TLS_PLIST}${GIT_SHA_PLIST}${TRUST_PROXY_PLIST}
+    <string>\${ROOST_DIAG:-0}</string>${TLS_PLIST}${GIT_SHA_PLIST}${TRUST_PROXY_PLIST}${PUBLIC_PLIST}
   </dict>
   <key>RunAtLoad</key>
   <true/>
@@ -275,6 +281,10 @@ EOF
     [[ -n "$GIT_SHA_RESOLVED" ]]      && echo "Environment=ROOST_GIT_SHA=${GIT_SHA_RESOLVED}"
     [[ "$FRONTED" == "1" ]]           && echo "Environment=ROOST_TRUST_PROXY=1"
     [[ -n "${ROOST_EXEC_BIN:-}" ]]    && echo "Environment=ROOST_EXEC_BIN=${ROOST_EXEC_BIN}"
+    [[ -n "${ROOST_PUBLIC_BIND:-}" ]]             && echo "Environment=ROOST_PUBLIC_BIND=${ROOST_PUBLIC_BIND}"
+    [[ -n "${ROOST_WEB_PUBLIC_URL:-}" ]]          && echo "Environment=ROOST_WEB_PUBLIC_URL=${ROOST_WEB_PUBLIC_URL}"
+    [[ -n "${ROOST_CF_ACCESS_TEAM_DOMAIN:-}" ]]   && echo "Environment=ROOST_CF_ACCESS_TEAM_DOMAIN=${ROOST_CF_ACCESS_TEAM_DOMAIN}"
+    [[ -n "${ROOST_CF_ACCESS_AUD:-}" ]]           && echo "Environment=ROOST_CF_ACCESS_AUD=${ROOST_CF_ACCESS_AUD}"
     # RestartSec=1 is the systemd analogue of the plist's ThrottleInterval 1:
     # a Bun crash must not freeze every browser's Sync stream for 10s.
     cat <<EOF
@@ -370,19 +380,119 @@ serve_front() {
     echo ">> tailscale serve --https=${TAILNET_HTTPS_PORT} -> http://127.0.0.1:${COORD_LOOPBACK_PORT} (TLS off Bun)"
     if tailscale serve --bg --https="${TAILNET_HTTPS_PORT}" "http://127.0.0.1:${COORD_LOOPBACK_PORT}"; then
       echo "   tailscale serve configured (persists in tailscaled state)"
+    elif [[ -n "${ROOST_PUBLIC_BIND:-}" ]]; then
+      echo "   ERROR: tailscale serve failed; public mode requires the private tailnet listener" >&2
+      return 1
     else
       echo "   WARN: tailscale serve failed - coord is reachable on loopback :${COORD_LOOPBACK_PORT} only" >&2
       echo "   run manually: tailscale serve --bg --https=${TAILNET_HTTPS_PORT} http://127.0.0.1:${COORD_LOOPBACK_PORT}" >&2
+      return 0
+    fi
+    if [[ -n "${ROOST_PUBLIC_BIND:-}" ]]; then
+      local status
+      status="$(tailscale serve status 2>&1)" || return 1
+      [[ "$status" == *"http://127.0.0.1:${COORD_LOOPBACK_PORT}"* ]] || {
+        echo "   ERROR: tailscale serve status does not map to the private listener" >&2
+        return 1
+      }
+    fi
+  fi
+}
+
+
+service_alive() {
+  if $IS_LINUX; then
+    systemctl --user is-active --quiet "${LABEL}.service"
+  else
+    launchctl print "gui/$UID/${LABEL}" >/dev/null 2>&1
+  fi
+}
+
+wait_until_ready() {
+  local attempts="${ROOST_INSTALL_READY_ATTEMPTS:-30}"
+  local interval="${ROOST_INSTALL_READY_INTERVAL_SECS:-1}"
+  local headers code
+  for ((i = 0; i < attempts; i++)); do
+    if ! service_alive; then
+      echo "coordinator exited before readiness" >&2
+      return 1
+    fi
+    if [[ -z "${ROOST_PUBLIC_BIND:-}" ]]; then
+      return 0
+    fi
+    headers="$(mktemp)"
+    code="$(curl -sS -D "$headers" -o /dev/null -w '%{http_code}' "http://${ROOST_PUBLIC_BIND}/" 2>/dev/null || true)"
+    if [[ "$code" == "401" ]]; then
+      shopt -s nocasematch
+      if [[ "$(cat "$headers")" == *"x-roost-auth-layer: access"* ]]; then
+        shopt -u nocasematch
+        rm -f "$headers"
+        return 0
+      fi
+      shopt -u nocasematch
+    fi
+    rm -f "$headers"
+    sleep "$interval"
+  done
+  echo "coordinator public listener did not become Access-ready" >&2
+  return 1
+}
+
+rollback_service_definition() {
+  local definition="$1" snapshot="$2" had_prior="$3" prior_mode="$4"
+  if [[ "$had_prior" == "1" ]]; then
+    cp "$snapshot" "$definition"
+    chmod "$prior_mode" "$definition"
+  else
+    rm -f "$definition"
+  fi
+  if $IS_LINUX; then
+    systemctl --user daemon-reload 2>/dev/null || true
+    if [[ "$had_prior" == "1" ]]; then
+      systemctl --user enable --now "${LABEL}.service" 2>/dev/null || true
+      systemctl --user restart "${LABEL}.service" 2>/dev/null || true
+    else
+      systemctl --user disable --now "${LABEL}.service" 2>/dev/null || true
+    fi
+  else
+    launchctl bootout "gui/$UID/${LABEL}" 2>/dev/null || true
+    if [[ "$had_prior" == "1" ]]; then
+      launchctl bootstrap "gui/$UID" "$PLIST" 2>/dev/null || true
+      launchctl enable "gui/$UID/${LABEL}" 2>/dev/null || true
+      launchctl kickstart -k "gui/$UID/${LABEL}" 2>/dev/null || true
     fi
   fi
 }
 
 case "$cmd" in
   install)
-    if $IS_LINUX; then write_unit; write_logrotate; bootstrap_systemd; else write_plist; bootstrap; fi
-    serve_front
+    definition="$($IS_LINUX && echo "$UNIT" || echo "$PLIST")"
+    snapshot="$(mktemp)"
+    chmod 0600 "$snapshot"
+    had_prior=0
+    prior_mode=0600
+    if [[ -f "$definition" ]]; then
+      had_prior=1
+      if $IS_LINUX; then prior_mode="$(stat -c '%a' "$definition")"; else prior_mode="$(stat -f '%Lp' "$definition")"; fi
+      cp "$definition" "$snapshot"
+      chmod 0600 "$snapshot"
+    fi
+    if ! (
+      if $IS_LINUX; then
+        write_unit && write_logrotate && bootstrap_systemd || exit 1
+      else
+        write_plist && bootstrap || exit 1
+      fi
+      serve_front || exit 1
+      wait_until_ready || exit 1
+    ); then
+      rollback_service_definition "$definition" "$snapshot" "$had_prior" "$prior_mode"
+      rm -f "$snapshot"
+      exit 1
+    fi
+    rm -f "$snapshot"
     echo
-    echo "Coord v2 starting (FRONTED=${FRONTED}) - tailnet https://<host>:${TAILNET_HTTPS_PORT}. Logs:"
+    echo "Coord v2 ready (FRONTED=${FRONTED}) - tailnet https://<host>:${TAILNET_HTTPS_PORT}. Logs:"
     echo "  bun apps/roost-cli/src/main.ts logs coord"
     ;;
   # The verb name stays `write-plist` on both platforms: CoordTarget invokes it
