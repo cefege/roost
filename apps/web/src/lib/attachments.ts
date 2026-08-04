@@ -123,20 +123,43 @@ export async function enqueueAttachmentTo(session: Session, file: File, sink: (a
   }
 }
 
+/** Type an uploaded file's absolute path into the session PTY (trailing space). */
+export function injectPath(session: Session, absPath: string): void {
+  inputChannel.sendInput(session.id, new TextEncoder().encode(`${absPath} `));
+}
+
 /** Upload + inject the abs_path into the PTY (trailing space). Shared by
- *  Terminal + CellTerminal. */
+ *  CellTerminal + the context menu. */
 export async function enqueueAttachment(session: Session, file: File): Promise<void> {
-  return enqueueAttachmentTo(session, file, (p) => {
-    inputChannel.sendInput(session.id, new TextEncoder().encode(`${p} `));
-  });
+  return enqueueAttachmentTo(session, file, (p) => injectPath(session, p));
+}
+
+/** Native-picker knobs. `capture: "environment"` hands off to the rear camera
+ *  on iOS/Android instead of opening the file browser. */
+export interface PickOptions {
+  /** `accept` attribute; omitted = any file. */
+  accept?: string;
+  capture?: "environment" | "user";
+  /** default true */
+  multiple?: boolean;
 }
 
 /** Open the native file picker (must run inside a user gesture) and run each
  *  chosen file through `sink`. */
-export function pickFilesTo(session: Session, sink: (absPath: string, file: File) => void): void {
+export function pickFilesTo(
+  session: Session,
+  sink: (absPath: string, file: File) => void,
+  opts?: PickOptions,
+): void {
   const input = document.createElement("input");
   input.type = "file";
-  input.multiple = true;
+  input.multiple = opts?.multiple ?? true;
+  if (opts?.accept) input.accept = opts.accept;
+  // setAttribute, not `input.capture =`: lib.dom declares the IDL property but
+  // Chromium doesn't implement it, so the assignment becomes a dead expando and
+  // never reaches the attribute the picker actually reads. The attribute path
+  // is honored by every engine that supports HTML Media Capture.
+  if (opts?.capture) input.setAttribute("capture", opts.capture);
   input.style.display = "none";
   input.onchange = () => {
     const files = input.files;
@@ -148,8 +171,6 @@ export function pickFilesTo(session: Session, sink: (absPath: string, file: File
 }
 
 /** Native picker → each chosen file uploaded and injected into the PTY. */
-export function pickAndAttachFiles(session: Session): void {
-  pickFilesTo(session, (p) => {
-    inputChannel.sendInput(session.id, new TextEncoder().encode(`${p} `));
-  });
+export function pickAndAttachFiles(session: Session, opts?: PickOptions): void {
+  pickFilesTo(session, (p) => injectPath(session, p), opts);
 }

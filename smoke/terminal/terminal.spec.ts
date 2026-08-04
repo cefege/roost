@@ -143,6 +143,20 @@ test("mobile composer preserves input and the Ctrl pad interrupts", async ({ mob
   await mobileSmokePage.getByTestId("chat-send").click();
   await expect.poll(() => slot.textContent()).toContain("<  x  >");
 
+  // Leading control: `+` opens the attachment sheet; typing swaps it to discard.
+  await mobileSmokePage.getByTestId("terminal-chat-toggle").click();
+  const lead = mobileSmokePage.getByTestId("chat-lead");
+  await expect(lead).toHaveAttribute("data-mode", "add");
+  await lead.click();
+  await expect(mobileSmokePage.getByTestId("chat-add-photo")).toBeVisible();
+  await expect(mobileSmokePage.getByTestId("chat-add-gallery")).toBeVisible();
+  await expect(mobileSmokePage.getByTestId("chat-add-file")).toBeVisible();
+  await mobileSmokePage.getByTestId("chat-input").fill("y");
+  await expect(mobileSmokePage.getByTestId("chat-add-menu")).toHaveCount(0);
+  await expect(lead).toHaveAttribute("data-mode", "clear");
+  await lead.click();
+  await expect(mobileSmokePage.getByTestId("chat-box")).toHaveCount(0);
+
   await slot.click();
   await mobileSmokePage.keyboard.type(`IFS= read -r line; printf '<%s>\\n' "$line"`);
   await mobileSmokePage.keyboard.press("Enter");

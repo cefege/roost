@@ -65,7 +65,7 @@ html[data-fab-dragging="true"] .term-nav {
    the fixed bottom-right dock, the FAB-drag offset and the 56dp FAB footprint
    all go away. The caption anchors to the composer's relative mic wrapper. */
 .voice-input--inline {
-  position: static;
+  position: relative;
   right: auto;
   bottom: auto;
   translate: none;
@@ -75,6 +75,40 @@ html[data-fab-dragging="true"] .term-nav {
 .voice-input--inline .voice-fab {
   width: 44px;
   height: 44px;
+  border-radius: var(--md-shape-full);
+  background: transparent;
+  color: var(--md-sys-color-on-surface-variant);
+  box-shadow: none;
+}
+
+.voice-input--inline .voice-input__cluster {
+  gap: var(--md-space-1);
+}
+
+/* Everything below this point that also matches .voice-fab (:hover, --discard)
+   is equal-specificity but LATER in the file, so these overrides win on the
+   extra class, not on order. */
+@media (hover: hover) {
+  .voice-input--inline .voice-fab:hover { box-shadow: none; }
+}
+
+/* Match the 22px glyphs on either side of the mic in the pill. */
+.voice-input--inline .voice-fab__icon {
+  font-size: 22px;
+}
+
+/* The discard ✕ joins the flat control row instead of arriving as a 40dp tonal
+   square that slides in from the corner cluster. */
+.voice-input--inline .voice-fab--discard {
+  width: var(--term-chat-control);
+  height: var(--term-chat-control);
+  border-radius: var(--md-shape-full);
+  background: transparent;
+  box-shadow: none;
+  animation: none;
+}
+@media (hover: hover) {
+  .voice-input--inline .voice-fab--discard:hover { box-shadow: none; }
 }
 
 .voice-input--inline .voice-caption {
@@ -398,7 +432,8 @@ html[data-fab-dragging="true"] .term-nav {
    Open: the composer is portaled to <body> as .term-chat__dock so it escapes
    the deck's swipe transform and anchors to the viewport, docked flush above
    the soft keyboard via --kb-offset. Only one pane's composer is open at a time
-   (module guard). */
+   (module guard). The open bar is a single full-width pill —
+   [+] [text field] [mic] [send] — with no floating ✕ FAB. */
 .term-chat {
   position: fixed;
   right: calc(env(safe-area-inset-right, 0px) + 16px);
@@ -412,29 +447,33 @@ html[data-fab-dragging="true"] .term-nav {
   pointer-events: none;
 }
 /* Open composer, portaled to <body>: viewport-anchored, docked just above the
-   soft keyboard (--kb-offset). Box on top, the message FAB (now ✕) at the
-   bottom — mirrors the mic's caption-above-FAB. */
+   soft keyboard (--kb-offset). A left-aligned column: the "+" sheet (when open)
+   rides above the pill bar, so both track --kb-offset with no anchor math. */
 .term-chat__dock {
+  /* One name for the bar's touch-target edge (iOS HIG minimum). Every control
+     in the pill and every menu row is sized from it, and the field's vertical
+     padding is DERIVED from it — so the row can never drift out of alignment. */
+  --term-chat-control: 44px;
   position: fixed;
-  right: calc(env(safe-area-inset-right, 0px) + 16px);
+  left: calc(env(safe-area-inset-left, 0px) + var(--md-space-2));
+  right: calc(env(safe-area-inset-right, 0px) + var(--md-space-2));
   bottom: calc(env(safe-area-inset-bottom, 0px) + var(--kb-offset, 0px) + 8px);
   z-index: 56;
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
-  gap: var(--md-space-3);
+  align-items: stretch;
+  gap: var(--md-space-2);
   pointer-events: none;
   font-family: var(--md-font);
 }
-/* Compact composer box above the FAB — same snackbar surface + entrance as the
-   mic caption, but interactive (pointer-events: auto). */
+/* The pill: full-width surface holding the four controls. Buttons stay pinned
+   to the bottom (align-items: flex-end) as the text field grows. */
 .term-chat__box {
   display: flex;
   align-items: flex-end;
-  gap: var(--md-space-2);
-  width: min(80vw, 360px);
-  padding: var(--md-space-2);
-  border-radius: var(--md-shape-lg);
+  gap: var(--md-space-1);
+  padding: var(--md-space-1);
+  border-radius: var(--md-shape-xl);
   background: var(--md-sys-color-surface-container-highest);
   box-shadow: var(--md-elev-3);
   pointer-events: auto;
@@ -448,10 +487,12 @@ html[data-fab-dragging="true"] .term-nav {
   border: none;
   outline: none;
   resize: none;
-  background: var(--md-sys-color-surface-container-highest);
+  background: transparent;
   color: var(--md-sys-color-on-surface);
-  border-radius: var(--md-shape-md);
-  padding: var(--md-space-2) var(--md-space-3);
+  /* Centers the first line against the control row without asserting it in a
+     comment: (44 - 24) / 2 = 10px, and it follows the type ramp. */
+  padding: calc((var(--term-chat-control) - var(--md-body-l-line)) / 2) var(--md-space-3);
+  min-height: var(--term-chat-control);
   font-family: var(--md-font);
   /* >=16px avoids iOS zoom-on-focus. */
   font-size: 16px;
@@ -461,31 +502,87 @@ html[data-fab-dragging="true"] .term-nav {
 }
 .term-chat__input::placeholder {
   color: var(--md-sys-color-on-surface-variant);
+  /* The field narrows when the discard ✕ joins the row mid-recording; let the
+     placeholder clip on one line instead of wrapping into a cut-off second. */
+  white-space: nowrap;
 }
+.term-chat__lead,
 .term-chat__send {
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 44px;
-  height: 44px;
+  width: var(--term-chat-control);
+  height: var(--term-chat-control);
   border: none;
-  background: transparent;
-  color: var(--md-sys-color-on-surface-variant);
-  border-radius: var(--md-shape-md);
+  border-radius: var(--md-shape-full);
   cursor: pointer;
   pointer-events: auto;
+  -webkit-tap-highlight-color: transparent;
+}
+.term-chat__lead {
+  background: transparent;
+  color: var(--md-sys-color-on-surface-variant);
+}
+/* The sheet is open — same canonical selected role the sibling nav toggle uses. */
+.term-chat__lead[aria-expanded="true"] {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
 }
 .term-chat__send {
   background: var(--md-sys-color-primary-container);
   color: var(--md-sys-color-on-primary-container);
 }
-.term-chat__icon {
+.term-chat__lead:active,
+.term-chat__send:active { transform: scale(0.96); }
+.term-chat__icon,
+.term-chat__menu-icon {
   font-family: "Material Symbols Rounded";
   font-size: 22px;
   line-height: 1;
   font-variation-settings: "FILL" 1, "wght" 500, "GRAD" 0, "opsz" 24;
   user-select: none;
+}
+.term-chat__menu-icon {
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+/* ── term-chat__menu: the leading "+" sheet (photo / gallery / file) ──
+   A sibling in the dock column, left-aligned above the bar, so it rides
+   --kb-offset with the composer and needs no anchor math. */
+.term-chat__menu {
+  align-self: flex-start;
+  min-width: 200px;
+  padding: var(--md-space-2) 0;
+  border-radius: var(--md-shape-lg);
+  background: var(--md-sys-color-surface-container-high);
+  /* Hairline, like every other floating menu in the SPA: -high above -highest
+     is a 1.16:1 separation, so the tier alone cannot delineate the two. */
+  border: 1px solid var(--md-sys-color-outline-variant);
+  box-shadow: var(--md-elev-3);
+  pointer-events: auto;
+  animation: voice-caption-enter 200ms var(--md-ease-emphasized);
+}
+.term-chat__menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--md-space-3);
+  width: 100%;
+  min-height: var(--term-chat-control);
+  padding: 0 var(--md-space-4);
+  border: none;
+  background: transparent;
+  color: var(--md-sys-color-on-surface);
+  font: var(--md-body-l-weight) var(--md-body-l-size)/var(--md-body-l-line) var(--md-font);
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.term-chat__menu-item:hover { background: var(--md-state-hover); }
+.term-chat__menu-item:active { background: var(--md-state-pressed); }
+.term-chat__menu-item:focus-visible {
+  background: var(--md-state-focus);
+  outline: none;
 }
 
 /* Chat toggle FAB — a mic-style primary FAB (twin of .voice-fab), positioned by
@@ -529,10 +626,6 @@ html[data-fab-dragging="true"] .term-nav {
 .term-chat-toggle:active { transform: scale(0.96); }
 .term-chat-toggle:focus-visible { outline: none; }
 .term-chat-toggle:focus-visible::after { opacity: 0.12; }
-.term-chat-toggle[data-open="true"] {
-  background: var(--md-sys-color-secondary-container);
-  color: var(--md-sys-color-on-secondary-container);
-}
 .term-chat-toggle__icon {
   position: relative;
   z-index: 1;
@@ -692,5 +785,7 @@ html[data-fab-dragging="true"] .term-nav {
   .voice-fab[data-finalizing="true"] .voice-fab__icon,
   .voice-fab--discard,
   .voice-caption,
-  .term-nav { animation: none; }
+  .term-nav,
+  .term-chat__box,
+  .term-chat__menu { animation: none; }
 }

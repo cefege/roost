@@ -1,18 +1,21 @@
-// MobileVoiceInput — bottom-right mic button + live transcript.
-// State: idle → listening → finalizing → (auto-send). Tap to start; tap again
-// to stop, which finalizes and sends automatically — no review step. While
-// recording (or finalizing) an ✕ button discards without sending. CellTerminal
-// sends finalized text through the current terminal mode and submission path.
+// MobileVoiceInput — mic button + live transcript.
+// State: idle → listening → finalizing → (deliver). Tap to start; tap again to
+// stop, which finalizes and delivers automatically — no review step. Where the
+// text lands depends on the caller: without onTranscript it is submitted to the
+// PTY (the corner FAB), with onTranscript it is inserted into the caller's draft
+// (the composer bar) and the caller's own send commits it. While recording (or
+// finalizing) an ✕ button discards without delivering.
 //
 // Engine: if a Deepgram key is configured in coord, dictation streams to
 // Deepgram (deepgramDictation); otherwise it uses the browser's built-in Web
-// Speech recognizer. The tap/finalize/auto-send UI is identical for both.
-// Callers: CellTerminal.tsx.
+// Speech recognizer. The tap/finalize/deliver UI is identical for both.
+// Callers: CellTerminal.tsx (corner FAB) and TerminalComposeButton.tsx
+// (variant="inline" inside the composer bar, where onTranscript redirects the
+// finalized text into the draft instead of auto-sending).
 
 import type { Component } from "solid-js";
 import {
 	Show,
-	createResource,
 	createSignal,
 	onCleanup,
 	onMount,
@@ -40,6 +43,21 @@ import { onFabPointerDown } from "../lib/fabDragOffset.ts";
 // prevents multiple position:fixed elements from overlapping at the same
 // viewport coordinates when multiple terminals are visible.
 export const [activeVoiceChannel, setActiveVoiceChannel] = createSignal<number | null>(null);
+
+// Transcription config is global, not per-pane. Cached at module scope because
+// the composer's inline mic remounts on every composer open — a per-mount RPC
+// would race the first tap into the Web Speech fallback.
+type TranscriptionConfig = { deepgramConfigured: boolean; deepgramLanguage: string };
+const [transcriptionConfig, setTranscriptionConfig] = createSignal<TranscriptionConfig | null>(null);
+let configFetch: Promise<unknown> | null = null;
+function ensureTranscriptionConfig(): void {
+	configFetch ??= coordClient
+		.transcriptionGetConfig({})
+		.then((c) => setTranscriptionConfig({ deepgramConfigured: c.deepgramConfigured, deepgramLanguage: c.deepgramLanguage }))
+		.catch(() => {
+			configFetch = null;
+		});
+}
 
 // ─── voice recognition shim (built-in fallback) ──────────────────────────
 
@@ -128,9 +146,9 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 	if (owner !== null && owner !== props.channelId) return null;
 
 	// Deepgram config from coord (which engine + language).
-	const [config] = createResource(() => coordClient.transcriptionGetConfig({}));
+	ensureTranscriptionConfig();
 	const dg = createDeepgramDictation({
-		language: () => config()?.deepgramLanguage ?? "en",
+		language: () => transcriptionConfig()?.deepgramLanguage ?? "en",
 		grantToken: () => getDeepgramKey(),
 		onCredentialRejected: invalidateDeepgramKey,
 		// Engine finished finalizing after a stop() → send whatever settled.
@@ -149,7 +167,7 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 		},
 	});
 
-	const useDeepgram = () => !!config()?.deepgramConfigured && dg.supported;
+	const useDeepgram = () => !!transcriptionConfig()?.deepgramConfigured && dg.supported;
 	const webSupported = isWebSpeechSupported();
 	if (!webSupported && !dg.supported) return null;
 
@@ -294,12 +312,19 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 	};
 
 	const isActive = () => voiceState() !== "idle";
+	// With onTranscript set (the composer's inline mic) stopping INSERTS into the
+	// draft — it never submits. A "send" glyph would sit right beside the bar's
+	// real send button and mean something different, so the wording and the
+	// finalizing glyph follow the destination.
+	const inserts = () => !!props.onTranscript;
 	// Material Symbols Rounded ligature per state.
 	const micIcon = () => {
 		return voiceState() === "listening"
 			? "stop"
 			: voiceState() === "finalizing"
-				? "send"
+				? inserts()
+					? "keyboard_return"
+					: "send"
 				: "mic";
 	};
 
@@ -331,7 +356,7 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 								</Show>
 								<Show when={!dispFinal() && !dispInterim()}>
 									<span class="voice-caption__hint">
-										{voiceState() === "finalizing" ? "Sending…" : "Listening…"}
+										{voiceState() === "finalizing" ? (inserts() ? "Inserting…" : "Sending…") : "Listening…"}
 									</span>
 								</Show>
 							</>
@@ -363,7 +388,7 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 					data-recording={voiceState() === "listening" ? "true" : "false"}
 					data-finalizing={voiceState() === "finalizing" ? "true" : "false"}
 					onPointerDown={(e) => {
-						onFabPointerDown(e);
+						if (props.variant !== "inline") onFabPointerDown(e);
 						// Open the device and fetch the key on press, not on release:
 						// the cold getUserMedia is what used to eat the first words.
 						if (voiceState() === "idle" && useDeepgram()) {
@@ -376,9 +401,13 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 					onClick={() => toggleRecord()}
 					aria-label={
 						voiceState() === "listening"
-							? "Stop and send"
+							? inserts()
+								? "Stop and insert"
+								: "Stop and send"
 							: voiceState() === "finalizing"
-								? "Sending"
+								? inserts()
+									? "Inserting"
+									: "Sending"
 								: "Start recording"
 					}
 				>

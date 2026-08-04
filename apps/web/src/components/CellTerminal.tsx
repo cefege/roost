@@ -35,6 +35,7 @@ import { AttachFileButton } from "./AttachFileButton.tsx";
 import { TerminalContextMenu } from "./TerminalContextMenu.tsx";
 import { pickAndAttachFiles, enqueueAttachment } from "../lib/attachments.ts";
 import { MobileVoiceInput, activeVoiceChannel } from "./MobileVoiceInput.tsx";
+import type { TerminalContext } from "../lib/keytermContext.ts";
 import { TerminalNavButtons } from "./TerminalNavButtons.tsx";
 import { TerminalComposeButton, activeComposeChannel } from "./TerminalComposeButton.tsx";
 import { IconButton } from "./Settings/md/IconButton.tsx";
@@ -1439,6 +1440,14 @@ export function CellTerminal(props: CellTerminalProps) {
 		unmounted = true;
 	});
 
+	// Deepgram keyterm biasing input — one reader shared by the corner mic and the
+	// composer's inline mic, so the two can never bias off different snapshots.
+	const readTerminalContext = (): TerminalContext => ({
+		grid: renderer?.gridText() ?? "",
+		scrollback: renderer?.scrollbackText() ?? "",
+		input: getInputText(props.session.id),
+	});
+
 	return (
 		<div
 			data-testid="cell-terminal-pane"
@@ -1532,11 +1541,7 @@ export function CellTerminal(props: CellTerminalProps) {
 					channelId={props.session.channel}
 					onTerminalSubmit={(text) => sendTerminalText(text, true)}
 
-					readContext={() => ({
-						grid: renderer?.gridText() ?? "",
-						scrollback: renderer?.scrollbackText() ?? "",
-						input: getInputText(props.session.id),
-					})}
+					readContext={readTerminalContext}
 					refocusTerminal={() => term?.forceFocus()}
 				/>
 			</Show>
@@ -1556,8 +1561,8 @@ export function CellTerminal(props: CellTerminalProps) {
 					session={props.session}
 					refocusTerminal={() => term?.forceFocus()}
 					onSubmit={(text) => sendTerminalText(text, true)}
+					readContext={readTerminalContext}
 				/>
-
 			</Show>
 			{/* Launch-agent FAB — shells only, shown at a plain shell prompt (regex
           on the live viewport tail) and not while voice-recording (shares the
