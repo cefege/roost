@@ -157,6 +157,19 @@ test("mobile composer preserves input and the Ctrl pad interrupts", async ({ mob
   await lead.click();
   await expect(mobileSmokePage.getByTestId("chat-box")).toHaveCount(0);
 
+  // Enter is a NEWLINE, never a submit: only the send button commits the draft.
+  await mobileSmokePage.getByTestId("terminal-chat-toggle").click();
+  const composed = mobileSmokePage.getByTestId("chat-input");
+  await composed.fill("printf 'ENTER_LINE_A\\n'");
+  await composed.press("Enter");
+  await mobileSmokePage.keyboard.type("printf 'ENTER_LINE_B\\n'");
+  // Enter grew the draft instead of submitting: two lines, composer still open.
+  await expect(composed).toHaveValue("printf 'ENTER_LINE_A\\n'\nprintf 'ENTER_LINE_B\\n'");
+  await expect(mobileSmokePage.getByTestId("chat-box")).toHaveCount(1);
+  await mobileSmokePage.getByTestId("chat-send").click();
+  await expect.poll(() => slot.textContent()).toContain("ENTER_LINE_A");
+  await expect.poll(() => slot.textContent()).toContain("ENTER_LINE_B");
+
   await slot.click();
   await mobileSmokePage.keyboard.type(`IFS= read -r line; printf '<%s>\\n' "$line"`);
   await mobileSmokePage.keyboard.press("Enter");

@@ -6,7 +6,8 @@
 // keyboard via --kb-offset, never covered. There is no floating ✕ FAB: the
 // leading button is `+` (opens the take-photo / photos / attach-file sheet)
 // while the draft is empty and ✕ (discard + close) once there is text; tapping
-// outside the bar also closes it. Enter or the send button fires the line.
+// outside the bar also closes it. The send button is the ONLY thing that fires
+// the line — Enter inserts a newline, so a multi-line draft is normal.
 // Attachments picked from the `+` sheet upload through lib/attachments.ts and
 // their absolute path is appended to the DRAFT — to the PTY only if the bar
 // closed mid-upload. The mic is MobileVoiceInput variant="inline"; its
@@ -255,10 +256,11 @@ export function TerminalComposeButton(props: Props) {
                 autoGrow();
               }}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  sendLine();
-                } else if (e.key === "Escape") {
+                // Enter is a NEWLINE here, never a submit — the send button is the
+                // only thing that commits the draft. A soft keyboard's Return is
+                // the same key a user needs to write a second line, and this bar
+                // sends multi-line input verbatim.
+                if (e.key === "Escape") {
                   e.preventDefault();
                   // The sheet is the innermost dismissible layer.
                   if (menuOpen()) setMenuOpen(false);
