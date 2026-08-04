@@ -474,7 +474,9 @@ html[data-fab-dragging="true"] .term-nav {
   gap: var(--md-space-1);
   padding: var(--md-space-1);
   border-radius: var(--md-shape-xl);
-  background: var(--md-sys-color-surface-container-highest);
+  /* -high, matching .term-nav — the established floating-panel tier in this
+     file. The "+" sheet floats ABOVE this and takes the higher tier. */
+  background: var(--md-sys-color-surface-container-high);
   box-shadow: var(--md-elev-3);
   pointer-events: auto;
   animation: voice-caption-enter 200ms var(--md-ease-emphasized);
@@ -494,8 +496,9 @@ html[data-fab-dragging="true"] .term-nav {
   padding: calc((var(--term-chat-control) - var(--md-body-l-line)) / 2) var(--md-space-3);
   min-height: var(--term-chat-control);
   font-family: var(--md-font);
-  /* >=16px avoids iOS zoom-on-focus. */
-  font-size: 16px;
+  /* Floors at the iOS zoom-on-focus threshold while still following the ramp:
+     a ramp step below 16px would silently reintroduce zoom-on-focus. */
+  font-size: max(16px, var(--md-body-l-size));
   line-height: var(--md-body-l-line);
   max-height: 160px;
   overflow-y: auto;
@@ -508,6 +511,7 @@ html[data-fab-dragging="true"] .term-nav {
 }
 .term-chat__lead,
 .term-chat__send {
+  position: relative;
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
@@ -516,10 +520,37 @@ html[data-fab-dragging="true"] .term-nav {
   height: var(--term-chat-control);
   border: none;
   border-radius: var(--md-shape-full);
+  overflow: hidden;
   cursor: pointer;
   pointer-events: auto;
+  transition:
+    background-color 200ms var(--md-ease-emphasized),
+    transform 120ms var(--md-ease-standard);
   -webkit-tap-highlight-color: transparent;
 }
+/* M3 state layer, the same anatomy .voice-fab and .term-nav-toggle use in this
+   file — without it these two were the only buttons in the bar with no hover,
+   focus or press response. */
+.term-chat__lead::after,
+.term-chat__send::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: currentColor;
+  opacity: 0;
+  transition: opacity 120ms var(--md-ease-standard);
+  pointer-events: none;
+}
+@media (hover: hover) {
+  .term-chat__lead:hover::after,
+  .term-chat__send:hover::after { opacity: 0.08; }
+}
+.term-chat__lead:focus-visible,
+.term-chat__send:focus-visible { outline: none; }
+.term-chat__lead:focus-visible::after,
+.term-chat__send:focus-visible::after { opacity: 0.12; }
+.term-chat__lead:active::after,
+.term-chat__send:active::after { opacity: 0.12; }
 .term-chat__lead {
   background: transparent;
   color: var(--md-sys-color-on-surface-variant);
@@ -529,14 +560,21 @@ html[data-fab-dragging="true"] .term-nav {
   background: var(--md-sys-color-secondary-container);
   color: var(--md-sys-color-on-secondary-container);
 }
+/* Send is the bar's PRIMARY action, so it takes the primary role, not the tonal
+   -container pair: primary-container measured 1.29:1 against the pill it sits
+   in (WCAG 1.4.11 wants 3:1 for a control whose shape carries the meaning).
+   The corner FABs keep primary-container — they sit on the dark terminal. */
 .term-chat__send {
-  background: var(--md-sys-color-primary-container);
-  color: var(--md-sys-color-on-primary-container);
+  background: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-primary);
 }
 .term-chat__lead:active,
 .term-chat__send:active { transform: scale(0.96); }
 .term-chat__icon,
 .term-chat__menu-icon {
+  /* Above the buttons' ::after state layer. */
+  position: relative;
+  z-index: 1;
   font-family: "Material Symbols Rounded";
   font-size: 22px;
   line-height: 1;
@@ -552,12 +590,13 @@ html[data-fab-dragging="true"] .term-nav {
    --kb-offset with the composer and needs no anchor math. */
 .term-chat__menu {
   align-self: flex-start;
-  min-width: 200px;
+  /* 180px matches the SPA's other two floating menus. */
+  min-width: 180px;
   padding: var(--md-space-2) 0;
   border-radius: var(--md-shape-lg);
-  background: var(--md-sys-color-surface-container-high);
-  /* Hairline, like every other floating menu in the SPA: -high above -highest
-     is a 1.16:1 separation, so the tier alone cannot delineate the two. */
+  background: var(--md-sys-color-surface-container-highest);
+  /* Hairline, like every other floating menu in the SPA: one tier of
+     separation is ~1.16:1 here, so the tier alone cannot delineate the two. */
   border: 1px solid var(--md-sys-color-outline-variant);
   box-shadow: var(--md-elev-3);
   pointer-events: auto;

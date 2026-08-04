@@ -167,7 +167,7 @@ export function TerminalContextMenu(props: Props) {
                   New terminal
                 </SheetItem>
                 <SheetItem testid="ctx-attach" onClick={doAttach}>
-                  📎 Attach file / photo
+                  Attach file
                 </SheetItem>
                 <SheetItem testid="ctx-close" onClick={doClose} danger>
                   Close terminal
@@ -201,7 +201,7 @@ export function TerminalContextMenu(props: Props) {
               New terminal
             </CtxMenuItem>
             <CtxMenuItem testid="ctx-attach" onClick={doAttach}>
-              📎 Attach file / photo
+              Attach file
             </CtxMenuItem>
             <Show when={visiblePaneCount() >= 2 && !isSpotlit(props.session.id)}>
               <CtxMenuSeparator />
