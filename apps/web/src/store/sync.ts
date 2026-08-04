@@ -8,7 +8,7 @@ import { reconcile } from "solid-js/store";
 import { setRootStore, rootStore } from "./root.ts";
 import type { PairRequest } from "./root.ts";
 import type { PairRequestDeltaProto } from "@roost/shared/proto/events_pb";
-import type { UiCommandFrame, FirehoseFrame } from "@roost/shared/proto/sync_pb";
+import type { UiCommandFrame, FirehoseFrame, AgentStatusFrame } from "@roost/shared/proto/sync_pb";
 import { FirehoseFrameSchema } from "@roost/shared/proto/sync_pb";
 import { fromBinary } from "@bufbuild/protobuf";
 import { protoToEvent } from "@roost/shared/wire/event-proto";
@@ -28,7 +28,8 @@ import type { Worker } from "@roost/shared/wire";
 import { signal, diag } from "@roost/shared/diag";
 import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
 import { _dispatchBytes, _dispatchCell, _dispatchPresence } from "./sync-dispatch.ts";
-import { startStaleWatchdog } from "./sync-watchdog.ts";
+import { startStaleWatchdog, type StaleWatchdog } from "./sync-watchdog.ts";
+import { applyAgentStatusFrame } from "./agent-status.ts";
 // Worker-routability signal lives in sync-routable.ts (leaf): _runConnectSync
 // writes it; the UI reads workerOnline (re-exported here so consumers keep
 // importing it from store/sync.ts).
@@ -36,7 +37,9 @@ import { setOpen } from "./sync-stream-open.ts";
 import { setRoutableFps } from "./sync-routable.ts";
 export { workerOnline } from "./sync-routable.ts";
 // Per-session cell/presence fan-out lives in sync-dispatch.ts (leaf module).
-export { registerCellHandler, registerPresenceHandler, cellFrameCount, cellFullFrameCount } from "./sync-dispatch.ts";
+export {
+  registerCellHandler, registerPresenceHandler, cellFrameCount, cellFullFrameCount, lastFullFrameSbRows,
+} from "./sync-dispatch.ts";
 // Per-domain delta handlers + keeper-death detector + delta-sub registries
 // live in sync-handlers.ts; the firehose calls them and iterates the sub Sets.
 import {
@@ -69,61 +72,61 @@ function _scheduleLastSeenPersist(): void {
   }, 1000);
 }
 
-// Live WebSocket for the in-flight Sync feed. Refreshed every reconnect.
-// Exposed at module scope so the refocus handler (sync-bootstrap.ts) can
-// inspect the link's idle age and drop the socket ONLY when it has actually
-// gone silent: a re-dial costs a JWT sign, a TLS handshake and the since=
-// event backfill, all ahead of the terminal's first cell frame, so a socket
-// that survived a hide→show cycle is kept. Closing (not aborting an HTTP
-// stream) routes teardown through Bun's websocket.close callback rather than
-// RequestContext.onAbort — the server-side UAF this transport migration
-// exists to dodge. A dropped socket recovers via ws.onclose → the reconnect
-// loop re-dials with sinceEventId, backfilling every event we missed.
-let _liveWs: WebSocket | null = null;
-// Wall clock of the last frame delivered on _liveWs, coord's 30s keepalive
-// included — the liveness evidence syncLinkIdleMs() reports.
-let _lastMsgAt = 0;
-let _syncAbortReason: "visibility" | "manual" | "stale" | null = null;
-// Generation counter so stale onclose/onopen from an abandoned socket can't
-// clobber the current socket's state.
-let _wsGen = 0;
+type SyncAbortReason = "visibility" | "manual" | "stale" | null;
+interface LiveSyncLink {
+  ws: WebSocket;
+  gen: number;
+  abortReason: SyncAbortReason;
+  resolveClosed: () => void;
+  closeEscapeTimer: ReturnType<typeof setTimeout> | null;
+  watchdog: StaleWatchdog | null;
+}
 
-/** Milliseconds since the live Sync socket last delivered any frame
- *  (coord keepalives included). Infinity when no socket is OPEN. */
+// Only the current dial is globally reachable. Every lifecycle resource stays
+// on its owning record so late generation-N callbacks cannot mutate N+1.
+let _liveLink: LiveSyncLink | null = null;
+let _wsGen = 0;
+let _smokeTransportPaused = false;
+let _resumeSmokeTransport: (() => void) | null = null;
+
+/** Milliseconds since the current OPEN Sync socket received any frame. */
 export function syncLinkIdleMs(): number {
-  return _liveWs && _liveWs.readyState === WebSocket.OPEN
-    ? Date.now() - _lastMsgAt
+  const link = _liveLink;
+  return link && link.ws.readyState === WebSocket.OPEN && link.watchdog
+    ? link.watchdog.idleMs()
     : Number.POSITIVE_INFINITY;
 }
 
-/** How many Sync sockets this tab has dialed. A refocus that keeps its socket
- *  leaves this unchanged — the smoke proof that no re-dial happened. */
+/** How many Sync sockets this tab has dialed. */
 export function syncWsGeneration(): number { return _wsGen; }
 
-// Close-escape: if the close handshake hangs (e.g., dead TCP after sleep),
-// force-resolve after WS_CLOSE_ESCAPE_MS so the reconnect loop isn't wedged.
 const WS_CLOSE_ESCAPE_MS = 5_000;
-let _resolveClosed: (() => void) | null = null;
-let _closeEscapeTimer: ReturnType<typeof setTimeout> | null = null;
 
-function _armCloseEscape(): void {
-  if (_closeEscapeTimer) clearTimeout(_closeEscapeTimer);
-  _closeEscapeTimer = setTimeout(() => {
-    _closeEscapeTimer = null;
-    setOpen(false);            // rising edge even if onclose is delayed
-    _resolveClosed?.();        // unstick `await closed` (hung close handshake)
+function _cleanupLink(link: LiveSyncLink): void {
+  clearTimeout(link.closeEscapeTimer ?? undefined);
+  link.closeEscapeTimer = null;
+  link.watchdog?.stop();
+  link.watchdog = null;
+}
+
+function _armCloseEscape(link: LiveSyncLink): void {
+  clearTimeout(link.closeEscapeTimer ?? undefined);
+  link.closeEscapeTimer = setTimeout(() => {
+    link.closeEscapeTimer = null;
+    if (_liveLink === link) setOpen(false);
+    link.resolveClosed();
   }, WS_CLOSE_ESCAPE_MS);
 }
 
-// Consolidate all close-initiation — no scattered _liveWs.close() calls.
-function _initiateWsClose(reason: "visibility" | "manual" | "stale"): void {
-  if (!_liveWs) return;
-  _syncAbortReason = reason;
-  setOpen(false);
-  _liveWs.close();
-  _armCloseEscape();
+function _initiateWsClose(reason: Exclude<SyncAbortReason, null>): void {
+  const link = _liveLink;
+  if (!link) return;
+  link.abortReason = reason;
+  if (_liveLink === link) setOpen(false);
+  try { link.ws.close(); } catch { link.resolveClosed(); }
+  _armCloseEscape(link);
 }
-let _stopWatchdog: (() => void) | null = null;
+
 export function _abortSyncForVisibility(): void {
   _initiateWsClose("visibility");
 }
@@ -377,6 +380,10 @@ function _dispatchSyncFrame(frame: FirehoseFrame): void {
             setRootStore("last_activity", a.sessionId, a.tsMs);
             break;
           }
+          case "agentStatus": {
+            applyAgentStatusFrame(v as AgentStatusFrame);
+            break;
+          }
           case "workerRoutable": {
             // Live worker routability = coord's WS membership. Replaces the
             // stale workersList snapshot so an active server stops showing
@@ -443,10 +450,18 @@ function _dispatchSyncFrame(frame: FirehoseFrame): void {
 export async function _runConnectSync(): Promise<void> {
   let backoff = 1000;
   while (true) {
+    if (_smokeTransportPaused) {
+      const { promise: resumed, resolve } = Promise.withResolvers<void>();
+      _resumeSmokeTransport = resolve;
+      await resumed;
+      if (_resumeSmokeTransport === resolve) _resumeSmokeTransport = null;
+    }
     if (_syncPaused) {
       console.warn("[sync.connect] paused — waiting for manual reconnect (page reload)");
       return;
     }
+    let dialLink: LiveSyncLink | null = null;
+    let abortReason: SyncAbortReason = null;
     try {
       console.debug("[sync.connect] starting Sync stream", { sinceEventId: _lastSeenEventId, attempt: _syncFailures + 1 });
       // Coord base: localStorage override (multi-coord testing) else same-origin.
@@ -461,24 +476,39 @@ export async function _runConnectSync(): Promise<void> {
       const url = `${wsBase}/ws/coord-sync?since=${_lastSeenEventId}&tab=${encodeURIComponent(getTabId())}`;
       const ws = new WebSocket(url, ["roost-auth", jwt]);
       ws.binaryType = "arraybuffer";
-      _liveWs = ws;
       const gen = ++_wsGen;
-      const { promise: closed, resolve: onClosed } = Promise.withResolvers<void>();
-      _resolveClosed = onClosed;
+      const { promise: closed, resolve: resolveClosed } = Promise.withResolvers<void>();
+      const link: LiveSyncLink = {
+        ws,
+        gen,
+        abortReason: null,
+        resolveClosed,
+        closeEscapeTimer: null,
+        watchdog: null,
+      };
+      dialLink = link;
+      _liveLink = link;
       ws.onopen = () => {
+        if (_liveLink !== link) {
+          try { ws.close(); } catch { /* obsolete dial */ }
+          return;
+        }
         // A successful open = upgrade + JWT verify succeeded (the WS analog of
         // the old "reset on first frame"). Clear the failure counter + backoff.
         _syncFailures = 0;
-        _lastMsgAt = Date.now();
         _noteSyncConnect();
         backoff = 1000;
-        if (gen === _wsGen) setOpen(true);
+        setOpen(true);
         _resolveFirstOpen?.();
         _resolveFirstOpen = null;
-        _stopWatchdog = startStaleWatchdog(ws, { onStale: () => { _initiateWsClose("stale"); } });
+        link.watchdog = startStaleWatchdog(ws, {
+          onStale: () => {
+            if (_liveLink === link) _initiateWsClose("stale");
+          },
+        });
       };
       ws.onmessage = (ev) => {
-        _lastMsgAt = Date.now();   // liveness, even if the decode below throws
+        if (_liveLink !== link) return;
         try {
           const frame = fromBinary(FirehoseFrameSchema, new Uint8Array(ev.data as ArrayBuffer));
           if (_queueingPreHydration) {
@@ -497,24 +527,26 @@ export async function _runConnectSync(): Promise<void> {
       };
       ws.onerror = (e) => { console.debug("[sync.connect] ws error", e); };
       ws.onclose = () => {
-        if (_closeEscapeTimer) { clearTimeout(_closeEscapeTimer); _closeEscapeTimer = null; }
-        if (_stopWatchdog) { _stopWatchdog(); _stopWatchdog = null; }
-        if (gen === _wsGen) setOpen(false);
-        onClosed();
+        _cleanupLink(link);
+        if (_liveLink === link) setOpen(false);
+        link.resolveClosed();
       };
       await closed;
       console.debug("[sync.connect] stream ended; re-dialing");
     } catch (err) {
       console.debug("[sync.connect] stream error; backing off", err);
     } finally {
-      _liveWs = null;
-      _resolveClosed = null;
-      if (_stopWatchdog) { _stopWatchdog(); _stopWatchdog = null; }
+      if (dialLink) {
+        abortReason = dialLink.abortReason;
+        _cleanupLink(dialLink);
+        if (_liveLink === dialLink) {
+          _liveLink = null;
+          setOpen(false);
+        }
+      }
     }
-    // Visibility / manual aborts skip the failure counter — they're
-    // user-initiated, not failures.
-    if (_syncAbortReason === "visibility" || _syncAbortReason === "manual" || _syncAbortReason === "stale") {
-      _syncAbortReason = null;
+    // Visibility / manual / watchdog closes are intentional and skip failures.
+    if (abortReason === "visibility" || abortReason === "manual" || abortReason === "stale") {
       backoff = 1000;
       continue;
     }
@@ -551,7 +583,22 @@ export async function _runConnectSync(): Promise<void> {
     backoff = Math.min(backoff * 2, 30_000);
   }
 }
-/** Test-only: force-close the live firehose WS so the reconnect loop re-dials.
- *  Mirrors forceVisible for the smoke harness. */
+/** Test-only: force-close the live firehose WS so the reconnect loop re-dials. */
 export function forceSyncReconnect(): void { _initiateWsClose("manual"); }
+
+/** Smoke-only partition gate. Close the current tube and hold re-dial until the
+ * paired resume, allowing the real PTY to diverge from the browser consumer. */
+export function pauseSyncTransport(): void {
+  if (typeof localStorage === "undefined" || localStorage.getItem("roostSmoke") !== "1") return;
+  _smokeTransportPaused = true;
+  _initiateWsClose("manual");
+}
+
+export function resumeSyncTransport(): void {
+  if (typeof localStorage === "undefined" || localStorage.getItem("roostSmoke") !== "1") return;
+  _smokeTransportPaused = false;
+  _resumeSmokeTransport?.();
+  _resumeSmokeTransport = null;
+  resumeSyncNow();
+}
 

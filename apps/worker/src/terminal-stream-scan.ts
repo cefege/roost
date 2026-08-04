@@ -3,8 +3,8 @@
 // 47/1047/1049) so the worker knows when claude/vim/htop own the screen
 // (drives rec.alt_mode → the c03d62d0 rebuild carve-out + scrollback gating).
 // _scanOsc7 extracts cwd-change (OSC 7) sequences for cwd tracking.
-// Sole caller: session-manager.ts::emitUpstreamChunk / resume. Split out of
-// session-manager.ts (400-line cap); behavior byte-for-byte unchanged.
+// _scanAgentOsc extracts title/progress metadata for agent-state fallback.
+// Sole caller: session-scrollback.ts. Split out of session-manager.ts.
 
 // All alt-screen toggles are `ESC [ ? N { h | l }` where N ∈ {47, 1047, 1049}.
 // h=enter, l=leave. 1049 is the modern variant (saves cursor + clears alt
@@ -127,4 +127,72 @@ export function _scanOsc7(combined: Uint8Array): { newCwd: string | null; carry:
     cursor = termIdx + termLen;
   }
   return { newCwd: lastCwd, carry: new Uint8Array(0) };
+}
+
+const AGENT_OSC_CARRY_MAX = 1024;
+// eslint-disable-next-line no-control-regex
+const OSC_CONTROL_RE = /[\x00-\x1f\x7f]/g;
+
+export interface AgentOscScan {
+  title: string | null;
+  progress: string | null;
+  carry: string;
+}
+
+/** Per-session OSC-scan state carried on the session record. */
+export interface AgentOscState {
+  agentOscDecoder: TextDecoder;
+  agentOscCarry: string;
+  rawOscTitle: string;
+  rawOscProgress: string;
+}
+
+/** Fresh scan state for one session. The streaming decoder preserves split
+ *  UTF-8 across PTY chunks; the carry preserves a split OSC sequence. */
+export function initAgentOscState(): AgentOscState {
+  return {
+    agentOscDecoder: new TextDecoder("utf-8", { fatal: false }),
+    agentOscCarry: "",
+    rawOscTitle: "",
+    rawOscProgress: "",
+  };
+}
+
+/** Scan complete OSC 0/2 title and OSC 9 progress sequences. `combined`
+ * includes the caller's prior carry; the returned bounded tail must be
+ * prepended to the next decoded chunk. */
+export function _scanAgentOsc(combined: string): AgentOscScan {
+  let title: string | null = null;
+  let progress: string | null = null;
+  let cursor = 0;
+  while (cursor < combined.length) {
+    const start = combined.indexOf("\x1b]", cursor);
+    if (start < 0) break;
+    let end = combined.indexOf("\x07", start + 2);
+    let termLength = 1;
+    const st = combined.indexOf("\x1b\\", start + 2);
+    if (st >= 0 && (end < 0 || st < end)) {
+      end = st;
+      termLength = 2;
+    }
+    if (end < 0) {
+      return {
+        title,
+        progress,
+        carry: combined.slice(Math.max(start, combined.length - AGENT_OSC_CARRY_MAX)),
+      };
+    }
+    const payload = combined.slice(start + 2, end);
+    const separator = payload.indexOf(";");
+    const code = separator < 0 ? "" : payload.slice(0, separator);
+    const body = separator < 0 ? "" : payload.slice(separator + 1);
+    if (code === "0" || code === "2") {
+      title = body.replace(OSC_CONTROL_RE, "").slice(0, 256);
+    } else if (code === "9" && body.startsWith("4;")) {
+      progress = body.replace(OSC_CONTROL_RE, "").slice(0, 64);
+    }
+    cursor = end + termLength;
+  }
+  const trailingEsc = combined.endsWith("\x1b") ? "\x1b" : "";
+  return { title, progress, carry: trailingEsc };
 }

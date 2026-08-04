@@ -8,7 +8,7 @@ import type { TerminalCore } from "@wterm/core";
 import { diag, isDiagEnabled, signal } from "@roost/shared";
 import * as byteCapture from "./diag/byte-capture.ts";
 import { synthQueryReplies } from "./terminal-query-reply.ts";
-import { _scanAltModeTransitions, _scanOsc7 } from "./terminal-stream-scan.ts";
+import { _scanAgentOsc, _scanAltModeTransitions, _scanOsc7 } from "./terminal-stream-scan.ts";
 import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
 import { _sha8, MODE_CARRY_MAX } from "./session-constants.ts";
 import { appendToRing } from "./session-scrollback-ring.ts";
@@ -80,6 +80,12 @@ export function appendScrollback(this: SessionManager, channelId: number, chunk:
 		combined.length > MODE_CARRY_MAX
 			? combined.subarray(combined.length - MODE_CARRY_MAX)
 			: combined;
+	const agentOsc = _scanAgentOsc(
+		rec.agentOscCarry + rec.agentOscDecoder.decode(chunk, { stream: true }),
+	);
+	rec.agentOscCarry = agentOsc.carry;
+	if (agentOsc.title !== null) rec.rawOscTitle = agentOsc.title;
+	if (agentOsc.progress !== null) rec.rawOscProgress = agentOsc.progress;
 	// OSC 7 cwd tracking — combine the prior carry with this chunk so
 	// a sequence straddling a chunk boundary still parses. On a new
 	// path, emit a `cwd` SessionEvent so coord persists session.cwd

@@ -147,7 +147,7 @@ export class RoostTerm {
       // Left-click only. Right-click (button 2) opens the terminal context
       // menu; forceFocus would collapse the marked selection, and its
       // microtask runs before `contextmenu` reads getSelection() → the
-      // "Copy selection" item never sees the text.
+      // "Copy" item never sees the text.
       if (ev.button !== 0) return;
       const t = ev.target as HTMLElement | null;
       if (t?.closest("button, input, textarea, a")) return;

@@ -91,6 +91,16 @@ export class SessionManager {
 	// wires this to a grace-gated keeper restart so a degraded survivor self-heals
 	// instead of birthing dead PTYs until a manual restart ("can't input").
 	onKeeperDegraded: (() => void) | null = null;
+	onTerminalChanged: ((channelId: number) => void) | null = null;
+	onSessionClosed: ((sessionId: string) => void) | null = null;
+
+	setAgentStatusHooks(hooks: {
+		terminalChanged: (channelId: number) => void;
+		sessionClosed: (sessionId: string) => void;
+	}): void {
+		this.onTerminalChanged = hooks.terminalChanged;
+		this.onSessionClosed = hooks.sessionClosed;
+	}
 
 	setOnKeeperDegraded(fn: () => void): void {
 		this.onKeeperDegraded = fn;
@@ -169,8 +179,12 @@ export class SessionManager {
 
 	/** R11 — force a full cell frame upstream (a fresh SPA viewer attaching
 	 *  needs the whole grid; live deltas follow). */
-	emitCellSnapshot(channelId: ChannelId, tailRows?: number): void {
-		this.emitCellFrame(channelId, true, tailRows);
+	emitCellSnapshot(channelId: ChannelId): void {
+		this.emitCellFrame(channelId, true);
+	}
+
+	resnapshotClaimedSessions(): void {
+		return emit.resnapshotClaimedSessions.call(this);
 	}
 
 	appendScrollback(channelId: number, chunk: Buffer): number {
@@ -195,8 +209,8 @@ export class SessionManager {
 		return emit._scheduleCellEmit.call(this, channelId);
 	}
 
-	emitCellFrame(channelId: number, force: boolean, tailRows?: number): void {
-		return emit.emitCellFrame.call(this, channelId, force, tailRows);
+	emitCellFrame(channelId: number, force: boolean): void {
+		return emit.emitCellFrame.call(this, channelId, force);
 	}
 
 	muxCallbacks(channelId: number): MuxChannelCallbacks {
@@ -225,8 +239,8 @@ export class SessionManager {
 		return gitPorts._resolvePr.call(this, rec);
 	}
 
-	claimViewport(channelId: number, viewerFp: string, cols: number, rows: number, clientSeq?: number, cause?: number, heldSbTotal?: number, heldCellSeq?: number): void {
-		return viewport.claimViewport.call(this, channelId, viewerFp, cols, rows, clientSeq, cause, heldSbTotal, heldCellSeq);
+	claimViewport(channelId: number, viewerFp: string, cols: number, rows: number, clientSeq?: number, cause?: number, heldCellSeq?: number): void {
+		return viewport.claimViewport.call(this, channelId, viewerFp, cols, rows, clientSeq, cause, heldCellSeq);
 	}
 
 	withdrawViewport(channelId: number, viewerFp: string): void {
@@ -241,16 +255,16 @@ export class SessionManager {
 		return viewport._reapViewportClaims.call(this);
 	}
 
-	_recomputeViewport(channelId: number, heldSbTotal?: number): void {
-		return viewport._recomputeViewport.call(this, channelId, heldSbTotal);
+	_recomputeViewport(channelId: number): void {
+		return viewport._recomputeViewport.call(this, channelId);
 	}
 
-	_scheduleWtermRebuild(channelId: number, cols: number, rows: number, heldSbTotal?: number): void {
-		return viewport._scheduleWtermRebuild.call(this, channelId, cols, rows, heldSbTotal);
+	_scheduleWtermRebuild(channelId: number, cols: number, rows: number): void {
+		return viewport._scheduleWtermRebuild.call(this, channelId, cols, rows);
 	}
 
-	_rebuildWtermCore(channelId: number, cols: number, rows: number, heldSbTotal?: number): Promise<void> {
-		return viewport._rebuildWtermCore.call(this, channelId, cols, rows, heldSbTotal);
+	_rebuildWtermCore(channelId: number, cols: number, rows: number): Promise<void> {
+		return viewport._rebuildWtermCore.call(this, channelId, cols, rows);
 	}
 
 	spawnShell(cwd: string, cols?: number, rows?: number, targetSessionId?: SessionId): Promise<SessionRecord> {

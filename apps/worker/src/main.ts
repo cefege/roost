@@ -20,6 +20,10 @@ import { coordLinkSink } from "./event-sink.ts";
 import { CoordTarget } from "./coord-target.ts";
 import { WorkerCoordRelocation } from "./coord-relocation.ts";
 import { createCoordRelocationRecovery } from "./coord-relocation-recovery.ts";
+import { AgentScreenDetector } from "./agent-status/detector.ts";
+import { AgentStatusRegistry } from "./agent-status/registry.ts";
+import { installAgentIntegrations } from "./agent-status/install-integrations.ts";
+import { startAgentReportServer, type AgentReportServer } from "./agent-status/report-server.ts";
 import { asWorkerFp } from "@roost/shared";
 import { log, diag, isDiagEnabled, signal, workerDataDir } from "@roost/shared";
 import { coordDataDir, coordServicePath, workerServicePath } from "@roost/shared/paths";
@@ -98,6 +102,8 @@ export async function runWorker() {
 		cfg.coordinatorUrl = url;
 		client = createCoordClient({ cfg, getJwt: () => mintJwt(key, "roost-coordinator") });
 	};
+	let sessionMgrForResnapshot: SessionManager | null = null;
+	let agentRegistryForReconnect: AgentStatusRegistry | null = null;
 
 	// Install: redeem one-shot bootstrap token (first boot only) + register
 	// (idempotent, retried by heartbeat). Redeem MUST precede CoordLink so coord
@@ -115,6 +121,11 @@ export async function runWorker() {
 			log.warn("worker", "background_install_failed", { error: String(err) }),
 		);
 	}
+	try {
+		await installAgentIntegrations();
+	} catch (error) {
+		log.warn("agent-status", "integration_install_failed", { error: String(error) });
+	}
 
 	// phase-24a-3: outbound CoordLink — dial coord bidir WSS. 24a-4
 	// routes ALL non-snapshot SessionEvents through it via `sink` below.
@@ -125,6 +136,12 @@ export async function runWorker() {
 		workerFp,
 		workerVersion: "v2",
 		mintJwt: () => mintJwt(key, "roost-coordinator"),
+		onHelloAck: ({ reconnected }) => {
+			if (reconnected) sessionMgrForResnapshot?.resnapshotClaimedSessions();
+		},
+		onOpen: (reconnected) => {
+			if (reconnected) agentRegistryForReconnect?.resend();
+		},
 		// phase-24c-1: PTY input routed via sessions.input mutation arrives
 		// here as a downstream binary frame. Demux by channel_id, only
 		// accept DIR_TO_PTY (1), forward to keeper.
@@ -292,12 +309,31 @@ export async function runWorker() {
 		sendCellGridUpstream: (channelId, frame) =>
 			coordLink.sendCellGrid(channelId, frame),
 	});
+	sessionMgrForResnapshot = sessionMgr;
+	const agentRegistry = new AgentStatusRegistry({
+		publish: (status) => { coordLink.sendAgentStatus(status); },
+	});
+	agentRegistryForReconnect = agentRegistry;
+	const agentDetector = new AgentScreenDetector(sessionMgr, agentRegistry);
+	sessionMgr.setAgentStatusHooks({
+		terminalChanged: (channelId) => agentDetector.schedule(channelId),
+		sessionClosed: (sessionId) => agentDetector.closeSession(sessionId),
+	});
 
 
 	// Worker has NO inbound port. Browser commands arrive as
 	// `browser-command` frames on CoordLink downstream. PTY bytes flow
 	// upstream via persistent KeeperClient per session.
 
+	let agentReportServer: AgentReportServer | null = null;
+	try {
+		agentReportServer = await startAgentReportServer({
+			detector: agentDetector,
+			registry: agentRegistry,
+		});
+	} catch (error) {
+		log.warn("agent-status", "report_server_start_failed", { error: String(error) });
+	}
 	// Start heartbeat (first beat registers/updates worker row).
 	diag("worker.boot", { step: "heartbeat" });
 	await startHeartbeat({ client: () => client });
@@ -332,10 +368,23 @@ export async function runWorker() {
 	// then an impatient second TERM) runs teardown once. The keeper subprocess
 	// self-suicides when its UDS is unlinked, so we don't kill it here.
 	let _shuttingDown = false;
-	const shutdown = (sig: string) => {
+	const shutdown = async (sig: string) => {
 		if (_shuttingDown) return;
 		_shuttingDown = true;
+		if (agentReportServer) {
+			try {
+				await agentReportServer.close();
+			} catch {
+				/* best-effort */
+			}
+		}
 		log.info("worker", "shutdown", { signal: sig });
+		try {
+			agentDetector.dispose();
+			agentRegistry.dispose();
+		} catch {
+			/* best-effort */
+		}
 		diag("worker.shutdown", { step: "sessions" });
 		try {
 			sessionMgr.dispose();
@@ -350,11 +399,9 @@ export async function runWorker() {
 		}
 		process.exit(0);
 	};
-	process.on("SIGTERM", () => shutdown("SIGTERM"));
-	process.on("SIGINT", () => shutdown("SIGINT"));
+	process.on("SIGTERM", () => { void shutdown("SIGTERM"); });
+	process.on("SIGINT", () => { void shutdown("SIGINT"); });
 }
-
-
 if (import.meta.main) {
 	runWorker().catch((err) => {
 		console.error(

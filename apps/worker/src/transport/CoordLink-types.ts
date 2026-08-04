@@ -3,7 +3,7 @@
 // from CoordLink.ts so external import paths stay unchanged.
 
 import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
-import type { WorkerFp, ClientControlFrame, SessionEvent } from "@roost/shared/wire";
+import type { AgentStatusUpdate, WorkerFp, ClientControlFrame, SessionEvent } from "@roost/shared/wire";
 
 // ─── deps + options ──────────────────────────────────────────────────
 
@@ -18,7 +18,7 @@ export interface CoordLinkDeps {
   // CoordLink-constants.ts).
   staleLinkTimeoutMs?: number;
   staleCheckIntervalMs?: number;
-  onHelloAck?: (msg: { coord_pubkey_b64: string; coord_pubkey_kid: string }) => void;
+  onHelloAck?: (msg: { coord_pubkey_b64: string; coord_pubkey_kid: string; reconnected: boolean }) => void;
   // Fires after hello + pending drain on every successful socket open.
   // reconnected=false only for the first open in this CoordLink lifetime.
   onOpen?: (reconnected: boolean) => void;
@@ -47,6 +47,8 @@ export interface CoordLink {
   // R11. Volatile — dropped when the stream is down (the worker
   // re-sends a full frame on reconnect/attach), so no pending buffer.
   sendCellGrid(channelId: number, frame: PbCellGridFrame): boolean;
+  // Volatile — the registry resends active records after every reconnect.
+  sendAgentStatus(status: AgentStatusUpdate): boolean;
   state(): CoordLinkState;
   relocate(targetUrl: string, force?: boolean): void;
   unackedEventCount(): number;

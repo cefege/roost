@@ -11,7 +11,7 @@
 // (real platform-clock timer behavior) applies.
 
 import { test, expect } from "bun:test";
-import { startStaleWatchdog, shouldRedialOnRefocus, SYNC_REFOCUS_STALE_MS } from "../src/store/sync-watchdog.ts";
+import { startStaleWatchdog, shouldRedialOnRefocus, SYNC_REFOCUS_STALE_MS, type StaleWatchdog } from "../src/store/sync-watchdog.ts";
 
 // ─── Test 1: silent server → watchdog force-closes ──────────────────────
 
@@ -30,14 +30,17 @@ test("silent server → watchdog force-closes", async () => {
   });
   const ws = new WebSocket(`ws://127.0.0.1:${server.port}`);
   const { promise: stale, resolve: gotStale } = Promise.withResolvers<void>();
+  const { promise: watchdogStarted, resolve: resolveWatchdog } = Promise.withResolvers<StaleWatchdog>();
   ws.onopen = () => {
-    startStaleWatchdog(ws, {
+    resolveWatchdog(startStaleWatchdog(ws, {
       staleMs: 300, checkMs: 50,
       isVisible: () => true,
       onStale: () => gotStale(),
-    });
+    }));
   };
+  const watchdog = await watchdogStarted;
   await stale;
+  watchdog.stop();
   try { ws.close(); } catch { /* ignore */ }
   server.stop(true);
 }, 10_000);
@@ -74,16 +77,19 @@ test("server sends keepalive messages → ws stays open", async () => {
   const ws = new WebSocket(`ws://127.0.0.1:${server.port}`);
   let gotClose = false;
   let onStaleCalled = false;
+  const { promise: watchdogStarted, resolve: resolveWatchdog } = Promise.withResolvers<StaleWatchdog>();
   ws.onclose = () => { gotClose = true; };
   ws.onopen = () => {
-    startStaleWatchdog(ws, {
+    resolveWatchdog(startStaleWatchdog(ws, {
       staleMs: 300, checkMs: 50,
       onStale: () => { onStaleCalled = true; },
-    });
+    }));
   };
+  const watchdog = await watchdogStarted;
   await sawEnoughPings;
   expect(gotClose).toBe(false);
   expect(onStaleCalled).toBe(false);
+  watchdog.stop();
   clearInterval(pingTimer);
   try { ws.close(); } catch { /* ignore */ }
   server.stop(true);
@@ -109,25 +115,67 @@ test("isVisible false → no close even past stale window", async () => {
   const ws = new WebSocket(`ws://127.0.0.1:${server.port}`);
   let gotClose = false;
   let onStaleCalled = false;
+  const { promise: watchdogStarted, resolve: resolveWatchdog } = Promise.withResolvers<StaleWatchdog>();
   const { promise: waited, resolve: done } = Promise.withResolvers<void>();
   ws.onclose = () => { gotClose = true; done(); };
   ws.onopen = () => {
-    startStaleWatchdog(ws, {
+    resolveWatchdog(startStaleWatchdog(ws, {
       staleMs: 300, checkMs: 50,
       isVisible: () => false,
       onStale: () => { onStaleCalled = true; },
-    });
+    }));
     // Race: if close fires early (watchdog regression) the onclose handler
     // resolves `waited` immediately and the assertions fail. Otherwise the
     // timeout resolves it after 1s — 3× the stale window — proving no close.
     setTimeout(done, 1_000);
   };
+  const watchdog = await watchdogStarted;
   await waited;
   expect(gotClose).toBe(false);
   expect(onStaleCalled).toBe(false);
+  watchdog.stop();
   try { ws.close(); } catch { /* ignore */ }
   server.stop(true);
 }, 10_000);
+
+class FakeWatchdogSocket extends EventTarget {
+  closeCount = 0;
+  close(): void { this.closeCount += 1; }
+}
+
+test("watchdog timestamps and cleanup are generation-local", async () => {
+  const socketA = new FakeWatchdogSocket();
+  const socketB = new FakeWatchdogSocket();
+  const wsA = socketA as unknown as WebSocket;
+  const wsB = socketB as unknown as WebSocket;
+  const { promise: staleB, resolve: resolveStaleB } = Promise.withResolvers<void>();
+  const watchdogA = startStaleWatchdog(wsA, {
+    staleMs: 100,
+    checkMs: 10,
+    isVisible: () => true,
+  });
+  const watchdogB = startStaleWatchdog(wsB, {
+    staleMs: 100,
+    checkMs: 10,
+    isVisible: () => true,
+    onStale: resolveStaleB,
+  });
+  try {
+    await Bun.sleep(25);
+    socketB.dispatchEvent(new Event("message"));
+    expect(watchdogA.idleMs()).toBeGreaterThan(watchdogB.idleMs());
+
+    // Generation A cleanup owns only A's interval/listener. B must still age
+    // independently and fire its stale close.
+    watchdogA.stop();
+    await staleB;
+    expect(socketA.closeCount).toBe(0);
+    expect(socketB.closeCount).toBeGreaterThan(0);
+  } finally {
+    watchdogA.stop();
+    watchdogB.stop();
+  }
+});
 
 // ─── Test 4: refocus re-dial decision ────────────────────────────────────
 // A returning tab must KEEP a live socket (a re-dial puts a JWT sign, a TLS

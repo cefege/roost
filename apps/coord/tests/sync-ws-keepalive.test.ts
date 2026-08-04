@@ -7,6 +7,7 @@
 // ts-no-test-timers exception (real platform-clock timer behavior) applies.
 
 import { test, expect, beforeAll, afterAll } from "bun:test";
+import type { ServerWebSocket } from "bun";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -19,6 +20,7 @@ import { fingerprintOf, invalidateJwtKey, newJwtCache, signJwt } from "../src/jw
 import {
   handleSyncWsUpgrade,
   makeSyncWsHandler,
+  type SyncDeadlineClock,
   type SyncWsData,
 } from "../src/connect/sync-ws-handler.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";
@@ -29,6 +31,7 @@ let cleanup: () => void;
 let server: ReturnType<typeof Bun.serve>;
 let jwt: string;
 let deps: ConnectDeps;
+let fingerprint: string;
 
 beforeAll(async () => {
   workdir = mkdtempSync(join(tmpdir(), "roost-sync-keepalive-"));
@@ -64,14 +67,14 @@ beforeAll(async () => {
   // web-key.ts JWT — sub == fingerprint, verified by verifyJwt at upgrade).
   const keys = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);
   const rawPub = new Uint8Array(await crypto.subtle.exportKey("raw", keys.publicKey));
-  const fp = await fingerprintOf(rawPub);
+  fingerprint = await fingerprintOf(rawPub);
   await db.insertInto("authorized_keys").values({
-    fingerprint: fp, public_key: rawPub, label: "test-web", added_at: Date.now(),
+    fingerprint, public_key: rawPub, label: "test-web", added_at: Date.now(),
   }).execute();
   const now = Math.floor(Date.now() / 1000);
   jwt = await signJwt(
-    { aud: "roost-coordinator", sub: fp, iat: now, exp: now + 60 },
-    keys.privateKey, fp,
+    { aud: "roost-coordinator", sub: fingerprint, iat: now, exp: now + 60 },
+    keys.privateKey, fingerprint,
   );
 
   // Boot the real Sync WS endpoint, same wiring as main.ts but with a 100ms
@@ -83,7 +86,7 @@ beforeAll(async () => {
       if (up !== null) return up;
       return new Response("not found", { status: 404 });
     },
-    websocket: makeSyncWsHandler(deps, 100),
+    websocket: makeSyncWsHandler(deps, { keepaliveMs: 100 }),
   });
 
   cleanup = () => {
@@ -168,6 +171,136 @@ test("rejects foreign Origin and negotiates roost-auth for an allowed origin", a
   ), fakeServer, deps);
   expect(allowed).toBeUndefined();
   expect(new Headers(upgradeHeaders).get("sec-websocket-protocol")).toBe("roost-auth");
+});
+
+interface PressureTimer {
+  at: number;
+  callback: () => void;
+}
+
+class PressureClock implements SyncDeadlineClock {
+  nowMs = 0;
+  nextId = 1;
+  timers = new Map<number, PressureTimer>();
+  now(): number { return this.nowMs; }
+  setTimeout(callback: () => void, delayMs: number): Timer {
+    const id = this.nextId++;
+    this.timers.set(id, { at: this.nowMs + delayMs, callback });
+    return id as unknown as Timer;
+  }
+  clearTimeout(timer: Timer): void {
+    this.timers.delete(timer as unknown as number);
+  }
+  advance(ms: number): void {
+    const target = this.nowMs + ms;
+    while (true) {
+      const due = [...this.timers.entries()]
+        .filter(([, timer]) => timer.at <= target)
+        .sort((a, b) => a[1].at - b[1].at)[0];
+      if (!due) break;
+      this.timers.delete(due[0]);
+      this.nowMs = due[1].at;
+      due[1].callback();
+    }
+    this.nowMs = target;
+  }
+}
+
+class PressureSocket {
+  readonly data: SyncWsData;
+  readonly keepaliveSendResult: number;
+  readonly keepaliveBufferedBytes: number;
+  sendCount = 0;
+  lastFrameKind = "";
+  frameKinds: string[] = [];
+  closes: Array<[number | undefined, string | undefined]> = [];
+  onSend: ((frameKind: string) => void) | null = null;
+  constructor(keepaliveSendResult: number, keepaliveBufferedBytes: number) {
+    this.keepaliveSendResult = keepaliveSendResult;
+    this.keepaliveBufferedBytes = keepaliveBufferedBytes;
+    this.data = {
+      kind: "sync",
+      caller: { fingerprint, label: "pressure-test", keyGeneration: 0 },
+      sinceEventId: 0,
+      viewerKey: null,
+      feed: null,
+      keepaliveTimer: null,
+      reauthAtMs: null,
+      reauthTimer: null,
+      pressureTimer: null,
+      pressureFrame: null,
+      pressureClosing: false,
+    };
+  }
+  send(payload: unknown): number {
+    if (!(payload instanceof Uint8Array)) throw new TypeError("expected binary Sync frame");
+    const frameKind = fromBinary(FirehoseFrameSchema, payload).frame.case ?? "unknown";
+    this.lastFrameKind = frameKind;
+    this.frameKinds.push(frameKind);
+    this.sendCount += 1;
+    this.onSend?.(frameKind);
+    return frameKind === "keepalive" ? this.keepaliveSendResult : 1;
+  }
+  getBufferedAmount(): number {
+    return this.lastFrameKind === "keepalive" ? this.keepaliveBufferedBytes : 0;
+  }
+  close(code?: number, reason?: string): void { this.closes.push([code, reason]); }
+}
+
+async function openPressureSocket(keepaliveSendResult: number, keepaliveBufferedBytes: number) {
+  const clock = new PressureClock();
+  const handler = makeSyncWsHandler(deps, {
+    keepaliveMs: 5,
+    deadlineClock: clock,
+    backpressureLimitBytes: 100,
+    backpressureTimeoutMs: 50,
+  });
+  const socket = new PressureSocket(keepaliveSendResult, keepaliveBufferedBytes);
+  const serverSocket = socket as unknown as ServerWebSocket<SyncWsData>;
+  const { promise: sent, resolve: resolveSent } = Promise.withResolvers<void>();
+  socket.onSend = (frameKind) => {
+    if (frameKind !== "keepalive") return;
+    clearInterval(socket.data.keepaliveTimer ?? undefined);
+    socket.data.keepaliveTimer = null;
+    resolveSent();
+  };
+  // Real interval is intentional: this proves production keepalives use the
+  // guarded sender. Completion waits on the send callback, never a guessed sleep.
+  handler.open(serverSocket);
+  await sent;
+  expect(socket.frameKinds).toContain("keepalive");
+  return { clock, handler, socket, serverSocket };
+}
+
+test("guarded keepalive send=0 closes with retryable backpressure", async () => {
+  const harness = await openPressureSocket(0, 0);
+  expect(harness.socket.closes).toEqual([[1013, "sync backpressure"]]);
+  harness.handler.close(harness.serverSocket);
+});
+
+test("queued keepalive drain clears pressure without closing", async () => {
+  const harness = await openPressureSocket(-1, 25);
+  expect(harness.clock.timers.size).toBe(1);
+  harness.handler.drain(harness.serverSocket);
+  expect(harness.clock.timers.size).toBe(0);
+  harness.clock.advance(100);
+  expect(harness.socket.closes).toEqual([]);
+  harness.handler.close(harness.serverSocket);
+});
+
+test("queued keepalive without drain closes after the pressure deadline", async () => {
+  const harness = await openPressureSocket(-1, 25);
+  harness.clock.advance(49);
+  expect(harness.socket.closes).toEqual([]);
+  harness.clock.advance(1);
+  expect(harness.socket.closes).toEqual([[1013, "sync backpressure"]]);
+  harness.handler.close(harness.serverSocket);
+});
+
+test("buffered high-water closes immediately", async () => {
+  const harness = await openPressureSocket(1, 101);
+  expect(harness.socket.closes).toEqual([[1013, "sync backpressure"]]);
+  harness.handler.close(harness.serverSocket);
 });
 
 test("revocation between accepted upgrade and open closes before feed registration", async () => {

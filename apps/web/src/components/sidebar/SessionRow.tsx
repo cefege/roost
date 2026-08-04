@@ -21,6 +21,7 @@ import { IconButton } from "../Settings/md/IconButton.tsx";
 import "@material/web/ripple/ripple.js";
 import { SessionRowFlat } from "./SessionRowFlat.tsx";
 import { ROW_BASE, relTimeTickMs } from "./SessionRow.constants.ts";
+import { AgentStatusIndicator } from "../AgentStatusIndicator.tsx";
 
 interface SessionRowProps {
   session: Session;
@@ -227,6 +228,7 @@ export function SessionRow(props: SessionRowProps) {
         fallback={
           <>
             <span class="df-label">{title()}</span>
+            <AgentStatusIndicator sessionId={session().id} />
             <Show when={offline()}>
               <span class="df-stage-text" data-stage="offline" data-testid={`session-offline-${session().id}`}>offline</span>
             </Show>

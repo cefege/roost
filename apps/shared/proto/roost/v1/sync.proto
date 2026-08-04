@@ -74,6 +74,19 @@ message CoordinatorRelocationFrame {
   string target_url = 3;
 }
 
+// Volatile agent runtime metadata. Inactive frames delete the retained status
+// for a session; active frames are seeded on Sync reconnect.
+message AgentStatusFrame {
+  string session_id = 1;
+  string agent_id = 2;
+  string state = 3;
+  optional string message = 4;
+  uint64 revision = 5;
+  uint64 completed_revision = 6;
+  double updated_at = 7;
+  bool active = 8;
+}
+
 
 message FirehoseFrame {
   reserved 28;  // retired field
@@ -113,6 +126,7 @@ message FirehoseFrame {
     // onmessage.
     KeepaliveFrame keepalive = 26;
     CoordinatorRelocationFrame coordinator_relocation = 27;
+    AgentStatusFrame agent_status = 29;
   }
 }
 

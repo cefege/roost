@@ -10,6 +10,7 @@ import type { TerminalCore } from "@wterm/core";
 import type { CellEmitState } from "@roost/shared/cell";
 import type { PrStatus } from "./pr-status.ts";
 import type { SbRing } from "./session-scrollback-ring.ts";
+import type { AgentOscState } from "./terminal-stream-scan.ts";
 
 interface SessionRecordCommon {
 	sessionId: SessionId;
@@ -44,7 +45,7 @@ interface SessionRecordCommon {
 	spawnedAtMs: number;
 }
 
-export interface SessionShellRecord extends SessionRecordCommon {
+export interface SessionShellRecord extends SessionRecordCommon, AgentOscState {
 	kind: "shell";
 	// Per-session sliding scrollback window (fixed-capacity byte ring). Appended
 	// on every keeper output chunk alongside the live upstream forward; replayed
@@ -72,6 +73,8 @@ export interface SessionShellRecord extends SessionRecordCommon {
 	// `ESC ] 7 ; file://host/percent-encoded-path BEL` when their directory
 	// changes. `osc7_carry` holds the tail of a split sequence.
 	osc7_carry: Uint8Array;
+	// Agent-state fallback reads OSC title/progress directly from this same PTY
+	// stream; see AgentOscState / initAgentOscState in terminal-stream-scan.ts.
 	// @wterm/core WASM bridge that mirrors every PTY byte. Used for
 	// getScrollbackSince(0) fresh-mount + gap replay: serializeWTerm()
 	// walks the captured grid and emits ANSI that recreates the visible

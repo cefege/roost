@@ -13,6 +13,7 @@ import { protoToCellFrame } from "@roost/shared/cell/cell-proto";
 import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
 import { WasmBridge } from "@wterm/core";
 import { createSbRing } from "../src/session-scrollback-ring.ts";
+import { initAgentOscState } from "../src/terminal-stream-scan.ts";
 
 function mgrWithCellCounter(): { mgr: SessionManager; frames: unknown[] } {
   const frames: unknown[] = [];
@@ -41,6 +42,7 @@ async function injectCellSession(mgr: SessionManager, channelId: number): Promis
     alt_mode: false,
     mode_carry: new Uint8Array(0),
     osc7_carry: new Uint8Array(0),
+    ...initAgentOscState(),
     wtermCore,
     cell_emit: initCellEmitState(),
     lastPtyOutMs: 0,
@@ -100,29 +102,63 @@ describe("cell-delta coalescing (Phase-3)", () => {
   });
 });
 
-// Seq-epoch reset on reload: a fresh page's per-mount claim counter resets to 1,
-// colliding with the prior page's last seq (same stable viewer_key). The worker
-// MUST still snapshot an INITIAL/TAB_VISIBLE re-claim or the reloaded viewer
-// stays blank forever (deltas drop with no base) — the "refresh → nothing
-// shows" bug. A heartbeat (VIEWPORT cause) on a stale seq must NOT re-snapshot.
-describe("claim snapshot survives a seq-epoch reset (reload)", () => {
+// Seq-epoch reset on reload and applied-watermark heartbeat recovery share the
+// stale-clientSeq branch: neither may regress dimensions or recompute SCD.
+describe("stale-seq claim snapshot recovery", () => {
   test("INITIAL re-claim with a reset seq still emits a full snapshot", async () => {
     const { mgr, frames } = mgrWithCellCounter();
     await injectCellSession(mgr, 1);
-    mgr.claimViewport(1, "viewer-A", 80, 24, 1, 1); // load A: seq=1, INITIAL
+    mgr.claimViewport(1, "viewer-A", 80, 24, 1, 1);
     const afterA = frames.length;
     expect(afterA).toBeGreaterThan(0);
-    mgr.claimViewport(1, "viewer-A", 80, 24, 1, 1); // load B (reload): seq=1 again, stale
-    expect(frames.length).toBeGreaterThan(afterA);  // snapshot emitted anyway
+    mgr.claimViewport(1, "viewer-A", 80, 24, 1, 1);
+    expect(frames.length).toBeGreaterThan(afterA);
   });
 
-  test("stale-seq heartbeat (VIEWPORT cause) does NOT re-snapshot (no spam)", async () => {
+  test("HEARTBEAT emits nothing when current and exactly one full snapshot when behind", async () => {
     const { mgr, frames } = mgrWithCellCounter();
     await injectCellSession(mgr, 1);
-    mgr.claimViewport(1, "viewer-A", 80, 24, 1, 1); // INITIAL
-    const afterInit = frames.length;
-    mgr.claimViewport(1, "viewer-A", 80, 24, 1, 2); // heartbeat, same seq, VIEWPORT
-    expect(frames.length).toBe(afterInit);          // no extra snapshot
+    mgr.claimViewport(1, "viewer-A", 80, 24, 1, 1);
+    const held = protoToCellFrame(frames[0] as PbCellGridFrame).seq;
+
+    mgr.claimViewport(1, "viewer-A", 200, 60, 1, 6, held);
+    expect(frames.length).toBe(1);
+
+    append(mgr, 1, "dropped-final-frame\r\n");
+    await sleep(40);
+    expect(frames.length).toBe(2);
+    mgr.claimViewport(1, "viewer-A", 200, 60, 1, 6, held);
+    expect(frames.length).toBe(3);
+    expect(protoToCellFrame(frames[2] as PbCellGridFrame).full).toBe(true);
+
+    const viewportState = mgr as unknown as {
+      viewportClaims: Map<number, Map<string, { cols: number; rows: number }>>;
+    };
+    const claim = viewportState.viewportClaims.get(1)?.get("viewer-A");
+    expect(claim).toMatchObject({ cols: 80, rows: 24 });
+  });
+});
+
+describe("claimed-session resnapshot after coordinator reconnect", () => {
+  test("emits exactly one full snapshot per live session with claims", async () => {
+    const emittedChannels: number[] = [];
+    const mgr = new SessionManager({
+      workerFp: asWorkerFp("00".repeat(32)),
+      sink: { emit: () => {} },
+      sendBinaryUpstream: () => {},
+      sendCellGridUpstream: (channelId) => { emittedChannels.push(channelId); },
+    });
+    await injectCellSession(mgr, 1);
+    await injectCellSession(mgr, 2);
+    await injectCellSession(mgr, 3);
+    const claim = { cols: 80, rows: 24, lastMs: Date.now(), clientSeq: 1 };
+    mgr.viewportClaims.set(1, new Map([["viewer-a", claim], ["viewer-b", claim]]));
+    mgr.viewportClaims.set(2, new Map());
+    mgr.viewportClaims.set(3, new Map([["viewer-c", claim]]));
+    mgr.sessions.delete(3);
+
+    mgr.resnapshotClaimedSessions();
+    expect(emittedChannels).toEqual([1]);
   });
 });
 
@@ -145,16 +181,14 @@ describe("B: skip cell emit when nobody is watching", () => {
   });
 });
 
-// Catch-up claim tail: a returning viewer reports how much scrollback it still
-// holds (SessionsResizeRequest.held_scrollback_total → claimViewport's
-// heldSbTotal). The claim snapshot's tail must then reach BACK to that row so
-// the viewer's mergeFullFrame EXTENDS its painted history. With a fixed
-// 250-row tail, any pane that fell further behind while parked got a full
-// rebuild instead — sbBase jumped to total-250, the row-space anchor fell below
-// the window and the pane landed at the top of it: the "switching tabs moves my
-// scroll position / it jumps around for a few seconds" class.
-describe("claim snapshot tail sizes to the returning viewer's gap", () => {
-  test("heldSbTotal → tail reaches the viewer's boundary row; omitted → default tail", async () => {
+// A returning viewer's claim snapshot is the CONSTANT tail, however far it fell
+// behind while parked. The tail that bridged back to held_scrollback_total is
+// retired: it made a reveal slower the longer the pane had been away. A viewer
+// whose held window falls below sbBase collapses to this tail, pins the literal
+// bottom (the present), and refills [0, sbBase) behind the reader via
+// get-scrollback-cells.
+describe("claim snapshot tail is constant, whatever the returning viewer holds", () => {
+  test("a 1200-row-deep catch-up claim still gets sbBase = total - 250", async () => {
     const { mgr, frames } = mgrWithCellCounter();
     await injectCellSession(mgr, 1);
     const core = mgr.shellByChannel(1)!.wtermCore;
@@ -164,21 +198,11 @@ describe("claim snapshot tail sizes to the returning viewer's gap", () => {
     const total = core.getScrollbackCount();
     expect(total).toBeGreaterThanOrEqual(1000);
 
-    // Viewer holds up to absolute row (total-900)-1 → needs 901 rows back.
-    mgr.claimViewport(1, "v", 80, 24, 1, 1, total - 900);
-    expect(frames.length).toBe(1);
-    const caught = protoToCellFrame(frames[0] as PbCellGridFrame);
-    expect(caught.full).toBe(true);
-    expect(caught.scrollbackTotal).toBe(total);
-    // The tail includes the viewer's last held row → mergeFullFrame can splice.
-    expect(caught.sbBase).toBeLessThanOrEqual(total - 900 - 1);
-    expect(caught.scrollbackRows.length).toBe(caught.scrollbackTotal - caught.sbBase);
-
-    // No held total (fresh viewer / legacy SPA) → unchanged default tail.
-    frames.length = 0;
-    mgr.claimViewport(1, "v", 80, 24, 2, 1);
+    mgr.claimViewport(1, "v", 80, 24, 1, 1);
     expect(frames.length).toBe(1);
     const plain = protoToCellFrame(frames[0] as PbCellGridFrame);
+    expect(plain.full).toBe(true);
+    expect(plain.scrollbackTotal).toBe(total);
     expect(plain.sbBase).toBe(total - SB_SNAPSHOT_TAIL_ROWS);
     expect(plain.scrollbackRows.length).toBe(SB_SNAPSHOT_TAIL_ROWS);
   });
@@ -199,11 +223,11 @@ describe("claim snapshot only when the claimant is not provably current", () => 
     const held = protoToCellFrame(frames[0] as PbCellGridFrame).seq;
 
     // Reveal of a pane that is current: TAB_VISIBLE, held seq matches.
-    mgr.claimViewport(1, "v", 80, 24, 2, 3, 0, held);
+    mgr.claimViewport(1, "v", 80, 24, 2, 3, held);
     expect(frames.length).toBe(1);
 
     // One frame behind → catch-up snapshot.
-    mgr.claimViewport(1, "v", 80, 24, 3, 3, 0, held - 1);
+    mgr.claimViewport(1, "v", 80, 24, 3, 3, held - 1);
     expect(frames.length).toBe(2);
     expect(protoToCellFrame(frames[1] as PbCellGridFrame).full).toBe(true);
   });
@@ -217,13 +241,13 @@ describe("claim snapshot only when the claimant is not provably current", () => 
     await sleep(1000); // > VIEWER_WITHDRAW_GRACE_MS (800) — the claim is gone
 
     // Deck LRU re-promotes this pane: BACKGROUND, holds nothing.
-    mgr.claimViewport(1, "v", 0, 0, 2, 5, 0, 0);
+    mgr.claimViewport(1, "v", 0, 0, 2, 5, 0);
     expect(frames.length).toBe(2);
     const caught = protoToCellFrame(frames[1] as PbCellGridFrame);
     expect(caught.full).toBe(true);
 
     // Still subscribed and current → no repaint.
-    mgr.claimViewport(1, "v", 0, 0, 3, 5, 0, caught.seq);
+    mgr.claimViewport(1, "v", 0, 0, 3, 5, caught.seq);
     expect(frames.length).toBe(2);
   });
 
@@ -243,7 +267,7 @@ describe("claim snapshot only when the claimant is not provably current", () => 
     expect(frames.length).toBe(1);                 // unwatched → nothing emitted
     expect(mgr.shellByChannel(1)!.cell_emit.seq).toBe(held); // seq really froze
 
-    mgr.claimViewport(1, "v", 80, 24, 2, 3, 0, held);
+    mgr.claimViewport(1, "v", 80, 24, 2, 3, held);
     expect(frames.length).toBe(2);
     const revealed = protoToCellFrame(frames[1] as PbCellGridFrame);
     expect(revealed.full).toBe(true);

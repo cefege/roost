@@ -22,6 +22,7 @@ import { isPendingSpawn } from "./optimisticSpawn.ts";
 import { pruneCellFrameCount } from "./sync-dispatch.ts";
 import { pruneInputMaps } from "../ws/input-channel.ts";
 import { pruneSessionTrace } from "../lib/diag.ts";
+import { clearAgentStatusForSession } from "./agent-status.ts";
 
 /** session_ids whose store entry this event could change — the slice we
  *  must hand foldEvent so its result is correct. snapshot replaces every
@@ -69,6 +70,7 @@ export function foldEventIntoStore(event: SessionEvent): void {
         setRootStore("terminal_title", id, undefined as unknown as string);
         setRootStore("last_activity", id, undefined as unknown as never);
         setRootStore("session_viewers", id, undefined as unknown as never);
+        clearAgentStatusForSession(id);
         pruneCellFrameCount(id); // module-private Map, same per-session-reaper duty
         pruneInputMaps(id);    // _lastSendTs + dropTotals per-session maps
         pruneSessionTrace(id); // diag session_trace_id cache

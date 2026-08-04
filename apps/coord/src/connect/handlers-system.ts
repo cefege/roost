@@ -21,6 +21,7 @@ import { COORD_GIT_SHA } from "../git-sha.ts";
 import { getMetricsSnapshot } from "../telemetry.ts";
 import { _viewersBySession } from "./viewer-tracker.ts";
 import { _cellSubscriptionSnapshot } from "./cell-subscriptions.ts";
+import { getAgentStatusDiagnostics } from "../agent-status-hub.ts";
 import type { ConnectDeps } from "./router.ts";
 
 // Coord process boot time — captured at module load (coord startup). Used
@@ -128,6 +129,7 @@ export function makeSystemHandlers(
           ]),
         ),
         cell_subscriptions: _cellSubscriptionSnapshot(),
+        agent_status: getAgentStatusDiagnostics(),
       };
 
       let spaPayload: unknown = null;

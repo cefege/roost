@@ -220,7 +220,6 @@ export function makeSessionHandlers(
         cols: req.cols, rows: req.rows,
         client_seq: clientSeq,
         cause: req.cause || undefined, // numeric ResizeCause; 0/unset → omit
-        held_sb_total: req.heldScrollbackTotal || undefined,
         held_cell_seq: req.heldCellSeq || undefined,
       } as ClientControlFrame, viewerKey);
       const isWithdraw = req.cols <= 0 || req.rows <= 0;
@@ -273,13 +272,15 @@ export function makeSessionHandlers(
 
     async sessionsCursorPos(req, ctx) {
       const caller = requireAuth(ctx.values);
+      const tabId = ctx.values.get(tabIdKey);
+      const viewerKey = tabId ? `${caller.fingerprint}:${tabId}` : caller.fingerprint;
       const row = await deps.db.selectFrom("sessions").select(["worker_fp", "channel"]).where("id", "=", req.sessionId).executeTakeFirst();
       if (row) {
         const { publishPresence } = await import("../presence-hub.ts");
         publishPresence(row.worker_fp, row.channel, {
           kind: "presence-delta",
           channel_id: row.channel,
-          viewer_id: caller.fingerprint,
+          viewer_id: viewerKey,
           cursor_col: req.col, cursor_row: req.row,
           label: caller.fingerprint.slice(0, 8),
         });
@@ -288,7 +289,7 @@ export function makeSessionHandlers(
         kind: "cursor-pos" as const,
         session_id: asSessionId(req.sessionId),
         col: req.col, row: req.row,
-      } as ClientControlFrame);
+      } as ClientControlFrame, viewerKey);
       return create(SessionsCursorPosResponseSchema, { accepted: ok });
     },
 

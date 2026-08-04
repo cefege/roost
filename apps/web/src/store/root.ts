@@ -11,8 +11,8 @@ import type {
   Task,
   PermissionRule,
   McpRelay,
+  AgentStatus,
 } from "@roost/shared/wire";
-
 // Keyed by string id for plain-object Solid reactivity.
 // Solid createStore + Map<K,V> has limited granularity; keyed records work better.
 // Pending tap-to-pair requests. Shape mirrors pair.list output in
@@ -33,6 +33,9 @@ export interface RootState {
   permission_rules: Record<string, PermissionRule>; // key = PermissionRuleId
   mcp_relays: Record<string, McpRelay>;      // key = McpRelayId
   pair_requests: Record<string, PairRequest>; // key = ephemeral_id
+  /** Latest active coding-agent status per terminal. Volatile: Sync seeds it
+   *  after each reconnect and inactive frames delete it. key = SessionId. */
+  agent_status: Record<string, AgentStatus>;
   coord_identity: { fingerprint_hex: string; git_sha: string; public_url: string; public_listener: boolean; relocated_to_url?: string; handoff_id?: string } | null;
   /** OSC-0/OSC-2 title from the terminal core. Empty until the program sets
    *  one. */
@@ -66,6 +69,7 @@ const initialState: RootState = {
   permission_rules: {},
   mcp_relays: {},
   pair_requests: {},
+  agent_status: {},
   coord_identity: null,
   terminal_title: {},
   last_activity: {},

@@ -164,6 +164,9 @@ export async function runCoord() {
       if (ws.data.kind === "sync") syncWs.message(ws as ServerWebSocket<SyncWsData>, msg);
       else workerWs.message(ws as ServerWebSocket<WorkerWsData>, msg);
     },
+    drain(ws: ServerWebSocket<WorkerWsData | SyncWsData>): void {
+      if (ws.data.kind === "sync") syncWs.drain(ws as ServerWebSocket<SyncWsData>);
+    },
     close(ws: ServerWebSocket<WorkerWsData | SyncWsData>): void {
       if (ws.data.kind === "sync") syncWs.close(ws as ServerWebSocket<SyncWsData>);
       else workerWs.close(ws as ServerWebSocket<WorkerWsData>);

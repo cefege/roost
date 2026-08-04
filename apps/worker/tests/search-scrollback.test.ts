@@ -32,6 +32,7 @@ import type { ClientControlFrame } from "@roost/shared/wire";
 import { initCellEmitState, readScrollbackRangeCells, type CellRow } from "@roost/shared/cell";
 import { createWtermCore } from "@roost/shared/wterm-core-factory";
 import { createSbRing } from "../src/session-scrollback-ring.ts";
+import { initAgentOscState } from "../src/terminal-stream-scan.ts";
 
 const SID = asSessionId("00000000-0000-0000-0000-000000000001");
 const CID = 1;
@@ -74,6 +75,7 @@ async function injectSession(mgr: SessionManager): Promise<SessionShellRecord> {
     alt_mode: false,
     mode_carry: new Uint8Array(0),
     osc7_carry: new Uint8Array(0),
+    ...initAgentOscState(),
     wtermCore,
     session_trace_id: "sbfind00",
     cell_emit: initCellEmitState(),

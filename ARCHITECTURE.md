@@ -80,6 +80,45 @@ inside their native terminal UI. Roost has no structured agent/session API,
 HTML transcript renderer, approval UI, headless agent child, or managed OMP
 dependency.
 
+## Agent status (volatile, metadata only)
+
+Roost labels a shell PTY with the state of whatever coding agent happens to be
+running inside it — `working`, `blocked` (needs input), `idle`. This is
+metadata about a terminal, not a structured agent session: no transcript, no
+composer, no agent RPC.
+
+Detection lives entirely on the **worker**:
+
+- A periodic `ps` scan identifies a known agent binary in a session's process
+  tree (`agent-status/process-scan.ts`).
+- Agents Roost owns an integration for (OMP, Pi) report their own lifecycle —
+  including "needs input" and retry grace — over a per-worker Unix socket. Every
+  spawned PTY gets `ROOST_AGENT_SOCKET_PATH` + `ROOST_SESSION_ID`, and the
+  server validates that the reporting pid really belongs to that session
+  (`agent-status/report-server.ts`).
+- Terminals with no integration (other agents, sessions that predate an
+  install) fall back to scanning the session's own screen and OSC title/progress
+  against pinned per-agent manifests (`agent-status/manifests.ts`).
+
+An integration report beats the screen; a silent integration's lease expires
+after 30 s and the session falls back automatically. The worker publishes one
+*effective* state per session with a monotonic revision.
+
+Nothing about status is persisted. Frames travel worker → coordinator
+(`WAgentStatus`) → an in-memory, revision-ordered hub → the `Sync` stream
+(`AgentStatusFrame`) → the browser store. A fresh `Sync` connection is seeded
+from the hub snapshot, and a session close drops the record, so a worker,
+coordinator, or browser restart converges instead of leaving a stale badge.
+
+**Notification boundary.** The coordinator classifies only background
+transitions (`working → blocked`, `working|blocked → idle`) and, after a 1 s
+cancellable delay, sends Web Push to subscribed devices that are not currently
+viewing that session; push subscriptions are the one persisted piece
+(`push_subscriptions`). Everything else is browser-local: the in-app toast,
+the unseen title badge, the optional sound, and a per-browser-profile claim so
+two tabs of the same profile deliver one notification. Opening the session
+cancels a pending notification and acknowledges its revision.
+
 ## Terminal fidelity (the hard part)
 
 Streaming raw bytes to a browser terminal looks simple and corrupts in
@@ -115,12 +154,15 @@ failure modes and their fixes are catalogued in `CLAUDE.md`.
 
 - **Web:** `apps/web/src/main.tsx` (mount) · `routes.ts` ·
   `store/{root,projector,sync,selectors}.ts` · `connect.ts` (RPC client) ·
-  `components/CellTerminal.tsx` · `ws/input-channel.ts`
+  `components/CellTerminal.tsx` · `ws/input-channel.ts` ·
+  `store/agent-status.ts` + `components/AgentNotificationBridge.tsx` (status +
+  notifications)
 - **Coordinator:** `apps/coord/src/main.ts` (Bun wrapper) ·
   `coord-factory.ts` (`createCoord`) · `connect/router.ts` +
   `connect/handlers-*.ts` · `connect/auth-interceptor.ts` · `event-log.ts` ·
-  `buses.ts` · `db/`
+  `buses.ts` · `db/` · `agent-status-hub.ts` + `push-dispatch.ts`
 - **Worker:** `apps/worker/src/main.ts` · `session-manager.ts` ·
-  `transport/CoordLink.ts` · `keeper/multiplexed-main.ts` · `fsm.ts`
+  `transport/CoordLink.ts` · `keeper/multiplexed-main.ts` · `fsm.ts` ·
+  `agent-status/` (scanner, manifests, report server, integrations)
 - **Shared:** `apps/shared/proto/roost/v1/*.proto` · `src/wire/event.ts`
-  (`foldEvent`)
+  (`foldEvent`) · `src/wire/agent-status.ts`

@@ -18,6 +18,7 @@ import { isCompact, isTouchDevice } from "../lib/windowSizeClass.ts";
 import { renderPreview } from "../lib/terminalPreview.ts";
 import { ctxMenuSurfaceStyle } from "./contextMenuPrimitives.tsx";
 import type { Session } from "@roost/shared/wire";
+import { AgentStatusIndicator } from "./AgentStatusIndicator.tsx";
 import "@material/web/ripple/ripple.js";
 
 export interface PaneStripProps {
@@ -367,6 +368,7 @@ export function PaneStrip(props: PaneStripProps) {
           <div class="df-tab-hovercard-head">
             <span class="df-tab-glyph">$</span>
             <span class="df-tab-hovercard-title">{sessionTitle(p.s)}</span>
+            <AgentStatusIndicator sessionId={p.s.id} />
           </div>
           <Show when={subtitle()}>
             <div class="df-tab-hovercard-line">{subtitle()}</div>
@@ -420,6 +422,7 @@ export function PaneStrip(props: PaneStripProps) {
               <md-ripple />
               <span class="df-tab-glyph">$</span>
               <span class="df-tab-label">{label()}</span>
+              <AgentStatusIndicator sessionId={s.id} compact />
               <IconButton
                 icon="close"
                 label="Close terminal"

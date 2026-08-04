@@ -72,6 +72,48 @@ wins.
   input and output but does not interpret its lifecycle, transcript, tools, or
   approval prompts. There is no structured agent session type or agent API.
 
+- **agent runtime state** — what a coding agent inside a shell PTY is doing:
+  `working`, `blocked` (waiting on the user), or `idle`. Volatile metadata on a
+  terminal, never a stored session field. Absent = Roost sees no agent, which is
+  what a plain shell shows.
+  Source: `apps/shared/src/wire/agent-status.ts`.
+
+- **lifecycle integration** — a small file Roost owns inside an agent's own
+  extension directory (OMP, Pi) that reports that agent's state to the worker.
+  Authoritative: it beats screen detection while its 30 s lease is fresh.
+  Source: `apps/worker/src/agent-status/integrations/`.
+
+- **agent report socket** — the worker's per-machine Unix socket
+  (`ROOST_AGENT_SOCKET_PATH`, mode `0600`) that integrations write one JSON line
+  to. The worker maps the reporting pid to the session that owns it, so a report
+  cannot claim another terminal.
+  Source: `apps/worker/src/agent-status/report-server.ts`.
+
+- **screen fallback** — detection for terminals with no integration: the worker
+  matches the session's own screen text and OSC title/progress against pinned
+  per-agent manifests. Used for other agents and for terminals that predate an
+  integration install.
+  Source: `apps/worker/src/agent-status/{manifests,stable-detection}.ts`.
+
+- **effective state / revision** — the one state the worker publishes per
+  session after arbitrating integration over screen, stamped with a monotonic
+  revision. Coordinator and browser drop anything at or below the revision they
+  already hold, so a late frame can't resurrect stale state.
+  Source: `apps/worker/src/agent-status/registry.ts`.
+
+- **done (derived)** — an `idle` agent whose completion revision the user has
+  not acknowledged yet. Purely a browser-side presentation level: viewing the
+  session acknowledges it and `done` decays to plain `idle`.
+  Source: `apps/web/src/lib/{agentStatus,agentSeen}.ts`.
+
+- **notification suppression** — the three rules that stop duplicate or unwanted
+  alerts: viewing a session cancels its pending notification and acknowledges
+  the revision; one browser profile delivers one notification even with many
+  tabs open (a storage/Web-Locks claim); and the coordinator skips Web Push to a
+  device that is already viewing the transitioning session.
+  Source: `apps/web/src/components/AgentNotificationBridge.tsx`,
+  `apps/coord/src/push-dispatch.ts`.
+
 - **cell-shipping / authoritative grid** — the terminal-fidelity model: the
   worker holds the one canonical grid for a session and the browser renders it
   without ever re-reflowing to its own width. The fix for the corruption that

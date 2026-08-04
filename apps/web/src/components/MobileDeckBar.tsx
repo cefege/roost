@@ -21,6 +21,7 @@ import { renderPreview } from "../lib/terminalPreview.ts";
 import { ctxMenuSurfaceStyle, CtxMenuItem } from "./contextMenuPrimitives.tsx";
 import { shouldDismissCard, cardSwipeAlpha, CARD_DISMISS_PX } from "../lib/deckSwipe.ts";
 import { flipGrid } from "../lib/gridFlip.ts";
+import { AgentStatusIndicator } from "./AgentStatusIndicator.tsx";
 
 const TITLE_TEXT: Record<string, string> = {
   "font-size": "14px",
@@ -512,6 +513,7 @@ function TerminalCard(props: {
           <Show when={subtitle()}>
             <span class="terminal-card-subtitle">{subtitle()}</span>
           </Show>
+          <AgentStatusIndicator sessionId={s().id} />
         </div>
       </div>
 

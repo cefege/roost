@@ -21,7 +21,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file roost/v1/worker_transport.proto.
  */
 export const file_roost_v1_worker_transport: GenFile = /*@__PURE__*/
-  fileDesc("Ch9yb29zdC92MS93b3JrZXJfdHJhbnNwb3J0LnByb3RvEghyb29zdC52MSIsCgZXSGVsbG8SEQoJd29ya2VyX2ZwGAEgASgJEg8KB3ZlcnNpb24YAiABKAkiEwoFV1BvbmcSCgoCdHMYASABKAQiTwoNV1Nlc3Npb25FdmVudBIqCgVldmVudBgBIAEoCzIbLnJvb3N0LnYxLlNlc3Npb25FdmVudFByb3RvEhIKCmNsaWVudF9zZXEYAiABKAQiLwoGV1JwY09rEhIKCnJlcXVlc3RfaWQYASABKAkSEQoJZGF0YV9qc29uGAIgASgJIjAKCVdScGNFcnJvchISCgpyZXF1ZXN0X2lkGAEgASgJEg8KB21lc3NhZ2UYAiABKAkiLQoNV1RyYW5zZmVyTGluZRIOCgZqb2JfaWQYASABKAkSDAoEdGV4dBgCIAEoCSI8Cg1XVHJhbnNmZXJEb25lEg4KBmpvYl9pZBgBIAEoCRIMCgRleGl0GAIgASgFEg0KBWVycm9yGAMgASgJIksKB1dCaW5hcnkSEgoKY2hhbm5lbF9pZBgBIAEoDRIRCglkaXJlY3Rpb24YAiABKA0SCwoDc2VxGAMgASgEEgwKBGRhdGEYBCABKAwiGgoLV1JlZnJlc2hKd3QSCwoDand0GAEgASgJIkkKCVdDZWxsR3JpZBISCgpjaGFubmVsX2lkGAEgASgNEigKBWZyYW1lGAIgASgLMhkucm9vc3QudjEuUGJDZWxsR3JpZEZyYW1lIscDCg1Db29yZFdvcmtlclVwEiEKBWhlbGxvGAEgASgLMhAucm9vc3QudjEuV0hlbGxvSAASHwoEcG9uZxgCIAEoCzIPLnJvb3N0LnYxLldQb25nSAASKAoFZXZlbnQYAyABKAsyFy5yb29zdC52MS5XU2Vzc2lvbkV2ZW50SAASIgoGcnBjX29rGAYgASgLMhAucm9vc3QudjEuV1JwY09rSAASKAoJcnBjX2Vycm9yGAcgASgLMhMucm9vc3QudjEuV1JwY0Vycm9ySAASMAoNdHJhbnNmZXJfbGluZRgIIAEoCzIXLnJvb3N0LnYxLldUcmFuc2ZlckxpbmVIABIwCg10cmFuc2Zlcl9kb25lGAkgASgLMhcucm9vc3QudjEuV1RyYW5zZmVyRG9uZUgAEiMKBmJpbmFyeRgKIAEoCzIRLnJvb3N0LnYxLldCaW5hcnlIABIsCgtyZWZyZXNoX2p3dBgLIAEoCzIVLnJvb3N0LnYxLldSZWZyZXNoSnd0SAASKAoJY2VsbF9ncmlkGAwgASgLMhMucm9vc3QudjEuV0NlbGxHcmlkSABCBwoFZnJhbWVKBAgEEAVKBAgFEAZKBAgNEA4iPwoJREhlbGxvQWNrEhgKEGNvb3JkX3B1YmtleV9iNjQYASABKAkSGAoQY29vcmRfcHVia2V5X2tpZBgCIAEoCSITCgVEUGluZxIKCgJ0cxgBIAEoBCJgCg9EQnJvd3NlckNvbW1hbmQSEgoKYnJvd3Nlcl9pZBgBIAEoCRIRCgl2aWV3ZXJfaWQYAiABKAkSEgoKcmVxdWVzdF9pZBgDIAEoCRISCgpmcmFtZV9qc29uGAQgASgJIj4KB0RCaW5hcnkSEgoKY2hhbm5lbF9pZBgBIAEoDRIRCglkaXJlY3Rpb24YAiABKA0SDAoEZGF0YRgDIAEoDCIfCglERXZlbnRBY2sSEgoKY2xpZW50X3NlcRgBIAEoBCKJAQoQREF0dGFjaG1lbnRDaHVuaxISCgpyZXF1ZXN0X2lkGAEgASgJEhIKCnNlc3Npb25faWQYAiABKAkSEAoIZmlsZW5hbWUYAyABKAkSEgoKc2hvcnRfcGF0aBgEIAEoCBIMCgRkYXRhGAUgASgMEgwKBGxhc3QYBiABKAgSCwoDc2VxGAcgASgNIsQBChFEQ29vcmRNb3ZlUHJlcGFyZRISCgpyZXF1ZXN0X2lkGAEgASgJEhIKCmhhbmRvZmZfaWQYAiABKAkSEgoKc291cmNlX3VybBgDIAEoCRISCgp0YXJnZXRfdXJsGAQgASgJEhoKEmV4cGVjdGVkX2Nvb3JkX2tpZBgFIAEoCRIYChBleHBlY3RlZF9naXRfc2hhGAYgASgJEhkKEWVzdGltYXRlZF9kYl9zaXplGAcgASgEEg4KBmFjdGlvbhgIIAEoCSLJAQoXRENvb3JkTW92ZVNuYXBzaG90U3RhcnQSEgoKcmVxdWVzdF9pZBgBIAEoCRISCgpoYW5kb2ZmX2lkGAIgASgJEhIKCnRvdGFsX3NpemUYAyABKAQSDgoGc2hhMjU2GAQgASgJEhUKDWNvb3JkX2tleV9wZW0YBSABKAwSFwoPYXV0aG9yaXplZF9rZXlzGAYgASgMEhUKDXNlY3JldF9zaGEyNTYYByABKAkSGwoTZXhwZWN0ZWRfd29ya2VyX2ZwcxgIIAMoCSJWChdEQ29vcmRNb3ZlU25hcHNob3RDaHVuaxISCgpoYW5kb2ZmX2lkGAEgASgJEgsKA3NlcRgCIAEoDRIMCgRkYXRhGAMgASgMEgwKBGxhc3QYBCABKAgicAoORENvb3JkUmVsb2NhdGUSEgoKcmVxdWVzdF9pZBgBIAEoCRISCgpoYW5kb2ZmX2lkGAIgASgJEhIKCnNvdXJjZV91cmwYAyABKAkSEgoKdGFyZ2V0X3VybBgEIAEoCRIOCgZhY3Rpb24YBSABKAkioQQKD0Nvb3JkV29ya2VyRG93bhIoCgloZWxsb19hY2sYASABKAsyEy5yb29zdC52MS5ESGVsbG9BY2tIABIfCgRwaW5nGAIgASgLMg8ucm9vc3QudjEuRFBpbmdIABI0Cg9icm93c2VyX2NvbW1hbmQYAyABKAsyGS5yb29zdC52MS5EQnJvd3NlckNvbW1hbmRIABIjCgZiaW5hcnkYBCABKAsyES5yb29zdC52MS5EQmluYXJ5SAASKAoJZXZlbnRfYWNrGAUgASgLMhMucm9vc3QudjEuREV2ZW50QWNrSAASNgoQYXR0YWNobWVudF9jaHVuaxgGIAEoCzIaLnJvb3N0LnYxLkRBdHRhY2htZW50Q2h1bmtIABI5ChJjb29yZF9tb3ZlX3ByZXBhcmUYByABKAsyGy5yb29zdC52MS5EQ29vcmRNb3ZlUHJlcGFyZUgAEkYKGWNvb3JkX21vdmVfc25hcHNob3Rfc3RhcnQYCCABKAsyIS5yb29zdC52MS5EQ29vcmRNb3ZlU25hcHNob3RTdGFydEgAEkYKGWNvb3JkX21vdmVfc25hcHNob3RfY2h1bmsYCSABKAsyIS5yb29zdC52MS5EQ29vcmRNb3ZlU25hcHNob3RDaHVua0gAEjIKDmNvb3JkX3JlbG9jYXRlGAogASgLMhgucm9vc3QudjEuRENvb3JkUmVsb2NhdGVIAEIHCgVmcmFtZTJRCg1Xb3JrZXJTZXJ2aWNlEkAKBkF0dGFjaBIXLnJvb3N0LnYxLkNvb3JkV29ya2VyVXAaGS5yb29zdC52MS5Db29yZFdvcmtlckRvd24oATABYgZwcm90bzM", [file_roost_v1_events, file_roost_v1_cell]);
+  fileDesc("Ch9yb29zdC92MS93b3JrZXJfdHJhbnNwb3J0LnByb3RvEghyb29zdC52MSIsCgZXSGVsbG8SEQoJd29ya2VyX2ZwGAEgASgJEg8KB3ZlcnNpb24YAiABKAkiEwoFV1BvbmcSCgoCdHMYASABKAQiTwoNV1Nlc3Npb25FdmVudBIqCgVldmVudBgBIAEoCzIbLnJvb3N0LnYxLlNlc3Npb25FdmVudFByb3RvEhIKCmNsaWVudF9zZXEYAiABKAQiLwoGV1JwY09rEhIKCnJlcXVlc3RfaWQYASABKAkSEQoJZGF0YV9qc29uGAIgASgJIjAKCVdScGNFcnJvchISCgpyZXF1ZXN0X2lkGAEgASgJEg8KB21lc3NhZ2UYAiABKAkiLQoNV1RyYW5zZmVyTGluZRIOCgZqb2JfaWQYASABKAkSDAoEdGV4dBgCIAEoCSI8Cg1XVHJhbnNmZXJEb25lEg4KBmpvYl9pZBgBIAEoCRIMCgRleGl0GAIgASgFEg0KBWVycm9yGAMgASgJIksKB1dCaW5hcnkSEgoKY2hhbm5lbF9pZBgBIAEoDRIRCglkaXJlY3Rpb24YAiABKA0SCwoDc2VxGAMgASgEEgwKBGRhdGEYBCABKAwiGgoLV1JlZnJlc2hKd3QSCwoDand0GAEgASgJIkkKCVdDZWxsR3JpZBISCgpjaGFubmVsX2lkGAEgASgNEigKBWZyYW1lGAIgASgLMhkucm9vc3QudjEuUGJDZWxsR3JpZEZyYW1lIrcBCgxXQWdlbnRTdGF0dXMSEgoKc2Vzc2lvbl9pZBgBIAEoCRIQCghhZ2VudF9pZBgCIAEoCRINCgVzdGF0ZRgDIAEoCRIUCgdtZXNzYWdlGAQgASgJSACIAQESEAoIcmV2aXNpb24YBSABKAQSGgoSY29tcGxldGVkX3JldmlzaW9uGAYgASgEEhIKCnVwZGF0ZWRfYXQYByABKAESDgoGYWN0aXZlGAggASgIQgoKCF9tZXNzYWdlIvcDCg1Db29yZFdvcmtlclVwEiEKBWhlbGxvGAEgASgLMhAucm9vc3QudjEuV0hlbGxvSAASHwoEcG9uZxgCIAEoCzIPLnJvb3N0LnYxLldQb25nSAASKAoFZXZlbnQYAyABKAsyFy5yb29zdC52MS5XU2Vzc2lvbkV2ZW50SAASIgoGcnBjX29rGAYgASgLMhAucm9vc3QudjEuV1JwY09rSAASKAoJcnBjX2Vycm9yGAcgASgLMhMucm9vc3QudjEuV1JwY0Vycm9ySAASMAoNdHJhbnNmZXJfbGluZRgIIAEoCzIXLnJvb3N0LnYxLldUcmFuc2ZlckxpbmVIABIwCg10cmFuc2Zlcl9kb25lGAkgASgLMhcucm9vc3QudjEuV1RyYW5zZmVyRG9uZUgAEiMKBmJpbmFyeRgKIAEoCzIRLnJvb3N0LnYxLldCaW5hcnlIABIsCgtyZWZyZXNoX2p3dBgLIAEoCzIVLnJvb3N0LnYxLldSZWZyZXNoSnd0SAASKAoJY2VsbF9ncmlkGAwgASgLMhMucm9vc3QudjEuV0NlbGxHcmlkSAASLgoMYWdlbnRfc3RhdHVzGA4gASgLMhYucm9vc3QudjEuV0FnZW50U3RhdHVzSABCBwoFZnJhbWVKBAgEEAVKBAgFEAZKBAgNEA4iPwoJREhlbGxvQWNrEhgKEGNvb3JkX3B1YmtleV9iNjQYASABKAkSGAoQY29vcmRfcHVia2V5X2tpZBgCIAEoCSITCgVEUGluZxIKCgJ0cxgBIAEoBCJgCg9EQnJvd3NlckNvbW1hbmQSEgoKYnJvd3Nlcl9pZBgBIAEoCRIRCgl2aWV3ZXJfaWQYAiABKAkSEgoKcmVxdWVzdF9pZBgDIAEoCRISCgpmcmFtZV9qc29uGAQgASgJIj4KB0RCaW5hcnkSEgoKY2hhbm5lbF9pZBgBIAEoDRIRCglkaXJlY3Rpb24YAiABKA0SDAoEZGF0YRgDIAEoDCIfCglERXZlbnRBY2sSEgoKY2xpZW50X3NlcRgBIAEoBCKJAQoQREF0dGFjaG1lbnRDaHVuaxISCgpyZXF1ZXN0X2lkGAEgASgJEhIKCnNlc3Npb25faWQYAiABKAkSEAoIZmlsZW5hbWUYAyABKAkSEgoKc2hvcnRfcGF0aBgEIAEoCBIMCgRkYXRhGAUgASgMEgwKBGxhc3QYBiABKAgSCwoDc2VxGAcgASgNIsQBChFEQ29vcmRNb3ZlUHJlcGFyZRISCgpyZXF1ZXN0X2lkGAEgASgJEhIKCmhhbmRvZmZfaWQYAiABKAkSEgoKc291cmNlX3VybBgDIAEoCRISCgp0YXJnZXRfdXJsGAQgASgJEhoKEmV4cGVjdGVkX2Nvb3JkX2tpZBgFIAEoCRIYChBleHBlY3RlZF9naXRfc2hhGAYgASgJEhkKEWVzdGltYXRlZF9kYl9zaXplGAcgASgEEg4KBmFjdGlvbhgIIAEoCSLJAQoXRENvb3JkTW92ZVNuYXBzaG90U3RhcnQSEgoKcmVxdWVzdF9pZBgBIAEoCRISCgpoYW5kb2ZmX2lkGAIgASgJEhIKCnRvdGFsX3NpemUYAyABKAQSDgoGc2hhMjU2GAQgASgJEhUKDWNvb3JkX2tleV9wZW0YBSABKAwSFwoPYXV0aG9yaXplZF9rZXlzGAYgASgMEhUKDXNlY3JldF9zaGEyNTYYByABKAkSGwoTZXhwZWN0ZWRfd29ya2VyX2ZwcxgIIAMoCSJWChdEQ29vcmRNb3ZlU25hcHNob3RDaHVuaxISCgpoYW5kb2ZmX2lkGAEgASgJEgsKA3NlcRgCIAEoDRIMCgRkYXRhGAMgASgMEgwKBGxhc3QYBCABKAgicAoORENvb3JkUmVsb2NhdGUSEgoKcmVxdWVzdF9pZBgBIAEoCRISCgpoYW5kb2ZmX2lkGAIgASgJEhIKCnNvdXJjZV91cmwYAyABKAkSEgoKdGFyZ2V0X3VybBgEIAEoCRIOCgZhY3Rpb24YBSABKAkioQQKD0Nvb3JkV29ya2VyRG93bhIoCgloZWxsb19hY2sYASABKAsyEy5yb29zdC52MS5ESGVsbG9BY2tIABIfCgRwaW5nGAIgASgLMg8ucm9vc3QudjEuRFBpbmdIABI0Cg9icm93c2VyX2NvbW1hbmQYAyABKAsyGS5yb29zdC52MS5EQnJvd3NlckNvbW1hbmRIABIjCgZiaW5hcnkYBCABKAsyES5yb29zdC52MS5EQmluYXJ5SAASKAoJZXZlbnRfYWNrGAUgASgLMhMucm9vc3QudjEuREV2ZW50QWNrSAASNgoQYXR0YWNobWVudF9jaHVuaxgGIAEoCzIaLnJvb3N0LnYxLkRBdHRhY2htZW50Q2h1bmtIABI5ChJjb29yZF9tb3ZlX3ByZXBhcmUYByABKAsyGy5yb29zdC52MS5EQ29vcmRNb3ZlUHJlcGFyZUgAEkYKGWNvb3JkX21vdmVfc25hcHNob3Rfc3RhcnQYCCABKAsyIS5yb29zdC52MS5EQ29vcmRNb3ZlU25hcHNob3RTdGFydEgAEkYKGWNvb3JkX21vdmVfc25hcHNob3RfY2h1bmsYCSABKAsyIS5yb29zdC52MS5EQ29vcmRNb3ZlU25hcHNob3RDaHVua0gAEjIKDmNvb3JkX3JlbG9jYXRlGAogASgLMhgucm9vc3QudjEuRENvb3JkUmVsb2NhdGVIAEIHCgVmcmFtZTJRCg1Xb3JrZXJTZXJ2aWNlEkAKBkF0dGFjaBIXLnJvb3N0LnYxLkNvb3JkV29ya2VyVXAaGS5yb29zdC52MS5Db29yZFdvcmtlckRvd24oATABYgZwcm90bzM", [file_roost_v1_events, file_roost_v1_cell]);
 
 /**
  * @generated from message roost.v1.WHello
@@ -264,6 +264,61 @@ export const WCellGridSchema: GenMessage<WCellGrid> = /*@__PURE__*/
   messageDesc(file_roost_v1_worker_transport, 9);
 
 /**
+ * Volatile agent runtime metadata. The worker owns revision ordering; this
+ * frame is never placed in the durable event outbox.
+ *
+ * @generated from message roost.v1.WAgentStatus
+ */
+export type WAgentStatus = Message<"roost.v1.WAgentStatus"> & {
+  /**
+   * @generated from field: string session_id = 1;
+   */
+  sessionId: string;
+
+  /**
+   * @generated from field: string agent_id = 2;
+   */
+  agentId: string;
+
+  /**
+   * @generated from field: string state = 3;
+   */
+  state: string;
+
+  /**
+   * @generated from field: optional string message = 4;
+   */
+  message?: string | undefined;
+
+  /**
+   * @generated from field: uint64 revision = 5;
+   */
+  revision: bigint;
+
+  /**
+   * @generated from field: uint64 completed_revision = 6;
+   */
+  completedRevision: bigint;
+
+  /**
+   * @generated from field: double updated_at = 7;
+   */
+  updatedAt: number;
+
+  /**
+   * @generated from field: bool active = 8;
+   */
+  active: boolean;
+};
+
+/**
+ * Describes the message roost.v1.WAgentStatus.
+ * Use `create(WAgentStatusSchema)` to create a new message.
+ */
+export const WAgentStatusSchema: GenMessage<WAgentStatus> = /*@__PURE__*/
+  messageDesc(file_roost_v1_worker_transport, 10);
+
+/**
  * @generated from message roost.v1.CoordWorkerUp
  */
 export type CoordWorkerUp = Message<"roost.v1.CoordWorkerUp"> & {
@@ -330,6 +385,12 @@ export type CoordWorkerUp = Message<"roost.v1.CoordWorkerUp"> & {
      */
     value: WCellGrid;
     case: "cellGrid";
+  } | {
+    /**
+     * @generated from field: roost.v1.WAgentStatus agent_status = 14;
+     */
+    value: WAgentStatus;
+    case: "agentStatus";
   } | { case: undefined; value?: undefined };
 };
 
@@ -338,7 +399,7 @@ export type CoordWorkerUp = Message<"roost.v1.CoordWorkerUp"> & {
  * Use `create(CoordWorkerUpSchema)` to create a new message.
  */
 export const CoordWorkerUpSchema: GenMessage<CoordWorkerUp> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 10);
+  messageDesc(file_roost_v1_worker_transport, 11);
 
 /**
  * @generated from message roost.v1.DHelloAck
@@ -360,7 +421,7 @@ export type DHelloAck = Message<"roost.v1.DHelloAck"> & {
  * Use `create(DHelloAckSchema)` to create a new message.
  */
 export const DHelloAckSchema: GenMessage<DHelloAck> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 11);
+  messageDesc(file_roost_v1_worker_transport, 12);
 
 /**
  * @generated from message roost.v1.DPing
@@ -377,7 +438,7 @@ export type DPing = Message<"roost.v1.DPing"> & {
  * Use `create(DPingSchema)` to create a new message.
  */
 export const DPingSchema: GenMessage<DPing> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 12);
+  messageDesc(file_roost_v1_worker_transport, 13);
 
 /**
  * @generated from message roost.v1.DBrowserCommand
@@ -411,7 +472,7 @@ export type DBrowserCommand = Message<"roost.v1.DBrowserCommand"> & {
  * Use `create(DBrowserCommandSchema)` to create a new message.
  */
 export const DBrowserCommandSchema: GenMessage<DBrowserCommand> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 13);
+  messageDesc(file_roost_v1_worker_transport, 14);
 
 /**
  * @generated from message roost.v1.DBinary
@@ -438,7 +499,7 @@ export type DBinary = Message<"roost.v1.DBinary"> & {
  * Use `create(DBinarySchema)` to create a new message.
  */
 export const DBinarySchema: GenMessage<DBinary> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 14);
+  messageDesc(file_roost_v1_worker_transport, 15);
 
 /**
  * D-4b ack — coord echoes the worker's client_seq after a successful
@@ -459,7 +520,7 @@ export type DEventAck = Message<"roost.v1.DEventAck"> & {
  * Use `create(DEventAckSchema)` to create a new message.
  */
 export const DEventAckSchema: GenMessage<DEventAck> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 15);
+  messageDesc(file_roost_v1_worker_transport, 16);
 
 /**
  * Streamed file upload SPA→coord→worker. Coord relays the AttachFileChunk
@@ -524,7 +585,7 @@ export type DAttachmentChunk = Message<"roost.v1.DAttachmentChunk"> & {
  * Use `create(DAttachmentChunkSchema)` to create a new message.
  */
 export const DAttachmentChunkSchema: GenMessage<DAttachmentChunk> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 16);
+  messageDesc(file_roost_v1_worker_transport, 17);
 
 /**
  * @generated from message roost.v1.DCoordMovePrepare
@@ -578,7 +639,7 @@ export type DCoordMovePrepare = Message<"roost.v1.DCoordMovePrepare"> & {
  * Use `create(DCoordMovePrepareSchema)` to create a new message.
  */
 export const DCoordMovePrepareSchema: GenMessage<DCoordMovePrepare> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 17);
+  messageDesc(file_roost_v1_worker_transport, 18);
 
 /**
  * @generated from message roost.v1.DCoordMoveSnapshotStart
@@ -630,7 +691,7 @@ export type DCoordMoveSnapshotStart = Message<"roost.v1.DCoordMoveSnapshotStart"
  * Use `create(DCoordMoveSnapshotStartSchema)` to create a new message.
  */
 export const DCoordMoveSnapshotStartSchema: GenMessage<DCoordMoveSnapshotStart> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 18);
+  messageDesc(file_roost_v1_worker_transport, 19);
 
 /**
  * @generated from message roost.v1.DCoordMoveSnapshotChunk
@@ -662,7 +723,7 @@ export type DCoordMoveSnapshotChunk = Message<"roost.v1.DCoordMoveSnapshotChunk"
  * Use `create(DCoordMoveSnapshotChunkSchema)` to create a new message.
  */
 export const DCoordMoveSnapshotChunkSchema: GenMessage<DCoordMoveSnapshotChunk> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 19);
+  messageDesc(file_roost_v1_worker_transport, 20);
 
 /**
  * @generated from message roost.v1.DCoordRelocate
@@ -701,7 +762,7 @@ export type DCoordRelocate = Message<"roost.v1.DCoordRelocate"> & {
  * Use `create(DCoordRelocateSchema)` to create a new message.
  */
 export const DCoordRelocateSchema: GenMessage<DCoordRelocate> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 20);
+  messageDesc(file_roost_v1_worker_transport, 21);
 
 /**
  * @generated from message roost.v1.CoordWorkerDown
@@ -778,7 +839,7 @@ export type CoordWorkerDown = Message<"roost.v1.CoordWorkerDown"> & {
  * Use `create(CoordWorkerDownSchema)` to create a new message.
  */
 export const CoordWorkerDownSchema: GenMessage<CoordWorkerDown> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 21);
+  messageDesc(file_roost_v1_worker_transport, 22);
 
 /**
  * @generated from service roost.v1.WorkerService

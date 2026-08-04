@@ -22,6 +22,25 @@ const _cellHandlers = new Map<string, CellHandler>();
 const _cellFrameCounts = new Map<string, number>();
 // Full frames only — the repaint a reveal must NOT need (smoke asserts it stays flat).
 const _cellFullFrameCounts = new Map<string, number>();
+// Scrollback rows carried by the LAST full frame. The claim snapshot is
+// constant-size (SB_SNAPSHOT_TAIL_ROWS) whatever the session's depth or the
+// viewer's gap; smoke asserts that directly here rather than through the
+// painted row count, which the backfill drain starts growing immediately.
+const _cellFullFrameSbRows = new Map<string, number>();
+const _dropNextCellFrames = new Set<string>();
+const _droppedCellFrameCounts = new Map<string, number>();
+function smokeDropKey(sessionId: string): string {
+  return `roostSmoke.dropCell.${sessionId}`;
+}
+
+export function dropNextCellFrame(sessionId: string): void {
+  if (typeof localStorage === "undefined" || localStorage.getItem("roostSmoke") !== "1") return;
+  _dropNextCellFrames.add(sessionId);
+  localStorage.setItem(smokeDropKey(sessionId), "1");
+}
+export function droppedCellFrameCount(sessionId: string): number {
+  return _droppedCellFrameCounts.get(sessionId) ?? 0;
+}
 export function registerCellHandler(sessionId: string, fn: CellHandler): () => void {
   _cellHandlers.set(sessionId, fn);
   return () => { if (_cellHandlers.get(sessionId) === fn) _cellHandlers.delete(sessionId); };
@@ -32,10 +51,24 @@ export function registerPresenceHandler(sessionId: string, fn: PresenceHandler):
 }
 
 export function _dispatchCell(pb: PbCellGridFrame): void {
+  const persistedDrop = typeof localStorage !== "undefined"
+    && localStorage.getItem(smokeDropKey(pb.sessionId)) === "1";
+  if (persistedDrop) localStorage.removeItem(smokeDropKey(pb.sessionId));
+  const runtimeDrop = _dropNextCellFrames.delete(pb.sessionId);
+  if (persistedDrop || runtimeDrop) {
+    _droppedCellFrameCounts.set(
+      pb.sessionId,
+      (_droppedCellFrameCounts.get(pb.sessionId) ?? 0) + 1,
+    );
+    return;
+  }
   const recvWall = Date.now();
   recordCellLag(pb, recvWall);
   _cellFrameCounts.set(pb.sessionId, (_cellFrameCounts.get(pb.sessionId) ?? 0) + 1);
-  if (pb.full === true) _cellFullFrameCounts.set(pb.sessionId, (_cellFullFrameCounts.get(pb.sessionId) ?? 0) + 1);
+  if (pb.full === true) {
+    _cellFullFrameCounts.set(pb.sessionId, (_cellFullFrameCounts.get(pb.sessionId) ?? 0) + 1);
+    _cellFullFrameSbRows.set(pb.sessionId, pb.scrollbackRows.length);
+  }
   const fn = _cellHandlers.get(pb.sessionId);
   if (fn) fn(protoToCellFrame(pb));
 }
@@ -50,12 +83,22 @@ export function cellFullFrameCount(sessionId: string): number {
   return _cellFullFrameCounts.get(sessionId) ?? 0;
 }
 
+/** Test-only: scrollback rows on the last FULL frame — the claim snapshot's
+ *  size, which must not scale with history depth or the viewer's gap. */
+export function lastFullFrameSbRows(sessionId: string): number {
+  return _cellFullFrameSbRows.get(sessionId) ?? -1;
+}
+
 /** Reap a closed session's frame-count entry — keyed by session id with no
  *  other reaper, so it leaks one entry per session ever for the tab's life.
  *  Called from the sessions-delta `closed` handler. */
 export function pruneCellFrameCount(sessionId: string): void {
   _cellFrameCounts.delete(sessionId);
   _cellFullFrameCounts.delete(sessionId);
+  _cellFullFrameSbRows.delete(sessionId);
+  _dropNextCellFrames.delete(sessionId);
+  if (typeof localStorage !== "undefined") localStorage.removeItem(smokeDropKey(sessionId));
+  _droppedCellFrameCounts.delete(sessionId);
 }
 
 /** Live size of the per-session frame-count map — a leak-watch accumulator. */

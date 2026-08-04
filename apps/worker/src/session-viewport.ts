@@ -14,24 +14,7 @@ import {
 	VIEWER_CLAIM_TTL_MS as VIEWPORT_CLAIM_TTL_MS,
 	VIEWER_CLAIM_FRESH_MS,
 } from "@roost/shared/viewport";
-import { SB_SNAPSHOT_TAIL_ROWS, SB_SNAPSHOT_MAX_CATCHUP_ROWS, initCellEmitState } from "@roost/shared/cell";
-
-/** Scrollback rows the claim snapshot must carry so it EXTENDS what the
- *  returning viewer already painted. The viewer holds through its last held
- *  row, heldSbTotal-1; mergeFullFrame needs the tail to include that row, i.e.
- *  total - heldSbTotal + 1 rows. Floored at the standard tail, capped at
- *  SB_SNAPSHOT_MAX_CATCHUP_ROWS. Unknown/zero/ahead-of-us → the default.
- *  `total` is MONOTONIC (sbDropped + retained count) because heldSbTotal is —
- *  comparing it against the raw retained count would go negative on any
- *  session whose ring has evicted, silently falling back to the 250-row tail
- *  for exactly the long-lived sessions this sizing exists to serve. */
-export function _claimTailRows(mgr: SessionManager, channelId: number, heldSbTotal?: number): number {
-	if (!heldSbTotal || heldSbTotal <= 0) return SB_SNAPSHOT_TAIL_ROWS;
-	const rec = mgr.shellByChannel(channelId);
-	const total = (rec?.cell_emit.sbDropped ?? 0) + (rec?.wtermCore.getScrollbackCount() ?? 0);
-	const need = total - heldSbTotal + 1;
-	return Math.min(Math.max(need, SB_SNAPSHOT_TAIL_ROWS), SB_SNAPSHOT_MAX_CATCHUP_ROWS);
-}
+import { initCellEmitState } from "@roost/shared/cell";
 
 /** Does this claim have to carry a full frame, or is the claimant provably
  *  holding the current grid? Two conditions must both hold to skip it:
@@ -64,12 +47,9 @@ export function claimViewport(
 	rows: number,
 	clientSeq?: number,
 	// numeric roost.v1.ResizeCause — the browser event behind this claim
-	// (1=INITIAL, 2=VIEWPORT, 3=TAB_VISIBLE, 4=WITHDRAW, 5=BACKGROUND). Hint only: the claim
-	// already force-emits a full cell frame, so a reattach (INITIAL/TAB_VISIBLE)
-	// paints immediately. Recorded in diag for resize-pathology forensics.
+	// (1=INITIAL, 2=VIEWPORT, 3=TAB_VISIBLE, 4=WITHDRAW, 5=BACKGROUND,
+	// 6=HEARTBEAT). Hint only; cell snapshots remain state-based.
 	cause?: number,
-	// rows this viewer already holds — sizes the snapshot tail
-	heldSbTotal?: number,
 	// cell-frame seq this viewer has already applied — a claimant that already
 	// holds the last emitted frame gets no snapshot (_needsClaimSnapshot)
 	heldCellSeq?: number,
@@ -118,20 +98,14 @@ export function claimViewport(
 	const seqAdvanced = seq > priorSeq;
 	if (prior && !seqAdvanced) {
 		// Stale-seq packet (heartbeat or WAN reorder): refresh lastMs so the
-		// TTL reaper sees the viewer is alive, but DON'T overwrite dims (a
-		// reordered old packet must not regress the SCD min). clientSeq is
-		// kept purely for this reorder guard now that latest-wins is gone.
+		// TTL reaper sees the viewer is alive, but DON'T overwrite dims or
+		// recompute SCD. INITIAL/TAB_VISIBLE repair a seq-epoch reset after reload;
+		// HEARTBEAT compares the viewer's applied watermark so a dropped final
+		// frame self-heals even when no later delta exposes the gap.
 		prior.lastMs = Date.now();
-		// SEQ-EPOCH RESET on reload: a fresh page-load's per-mount claim counter
-		// resets to 1, colliding with the prior page's last seq (same stable
-		// viewer_key, kept stable for the withdraw-grace) → stale by seq. But an
-		// INITIAL (1) / TAB_VISIBLE (3) cause means the viewer just MOUNTED and
-		// has nothing painted — it MUST get a full frame or it stays blank
-		// forever (deltas drop with no base). Emit the snapshot; skip the SCD
-		// recompute (don't let a stale-seq packet regress the min size). A
-		// heartbeat re-claim (VIEWPORT cause) stays a no-op → no full-frame spam.
-		const intentMount = cause === 1 || cause === 3; // INITIAL | TAB_VISIBLE
-		const resnapshot = intentMount && _needsClaimSnapshot(this, channelId, heldCellSeq, wasStreaming);
+		const snapshotCheckCause = cause === 1 || cause === 3 || cause === 6;
+		const resnapshot = snapshotCheckCause
+			&& _needsClaimSnapshot(this, channelId, heldCellSeq, wasStreaming);
 		diag("viewport.claim", {
 			sid: rec?.sessionId,
 			viewer_key: viewerFp,
@@ -147,7 +121,7 @@ export function claimViewport(
 			resnapshot,
 		});
 		if (resnapshot)
-			this.emitCellSnapshot(channelId as ChannelId, _claimTailRows(this, channelId, heldSbTotal));
+			this.emitCellSnapshot(channelId as ChannelId);
 		return;
 	}
 	claims.set(viewerFp, { cols, rows, lastMs: Date.now(), clientSeq: seq });
@@ -163,7 +137,7 @@ export function claimViewport(
 		seq_advanced: true,
 		cause: cause ?? 0,
 	});
-	this._recomputeViewport(channelId, isBackground ? undefined : heldSbTotal);
+	this._recomputeViewport(channelId);
 	// R11 — a claim is the worker's "viewer attached/resized" signal. It emits a
 	// full cell frame only when the claimant is not provably current: a fresh or
 	// fallen-behind viewer paints the whole grid immediately (live deltas follow
@@ -172,7 +146,7 @@ export function claimViewport(
 	// a parked pane re-subscribing after a withdraw needs its catch-up frame —
 	// but it still must not size another viewer's rebuild tail (above).
 	if (_needsClaimSnapshot(this, channelId, heldCellSeq, wasStreaming))
-		this.emitCellSnapshot(channelId as ChannelId, _claimTailRows(this, channelId, heldSbTotal));
+		this.emitCellSnapshot(channelId as ChannelId);
 }
 
 /** Drop a viewer's claim, DEFERRED by VIEWPORT_WITHDRAW_GRACE_MS so a
@@ -245,10 +219,8 @@ export function _reapViewportClaims(this: SessionManager): void {
 /** Recompute PTY size = SCD min(cols)×min(rows) across live claims.
  *  SIGWINCH only if changed from the last applied size. wtermCore
  *  tracks the same size so server-side scrollback serialization
- *  reflows to the current PTY width. `heldSbTotal` (claim path only) is
- *  forwarded to the rebuild so its snapshot reaches back to the claimant's
- *  boundary row instead of the 250-row default. */
-export function _recomputeViewport(this: SessionManager, channelId: number, heldSbTotal?: number): void {
+ *  reflows to the current PTY width. */
+export function _recomputeViewport(this: SessionManager, channelId: number): void {
 	const rec = this.sessions.get(channelId);
 	if (!rec) {
 		// Session gone — drop any leftover claims so the maps don't grow
@@ -318,7 +290,7 @@ export function _recomputeViewport(this: SessionManager, channelId: number, held
 	});
 	// OPT2-1: deterministic rebuild from the raw ring instead of the
 	// path-dependent in-place wtermCore.resize (see _wtermRebuildChain).
-	this._scheduleWtermRebuild(channelId, cols, rows, heldSbTotal);
+	this._scheduleWtermRebuild(channelId, cols, rows);
 	this.lastAppliedSize.set(channelId, { cols, rows });
 	log.info("session-manager", "viewport_scd_resize", {
 		channelId,
@@ -336,12 +308,11 @@ export function _scheduleWtermRebuild(
 	channelId: number,
 	cols: number,
 	rows: number,
-	heldSbTotal?: number,
 ): void {
 	const prior = this._wtermRebuildChain.get(channelId) ?? Promise.resolve();
 	const next = prior
 		.catch(() => {})
-		.then(() => this._rebuildWtermCore(channelId, cols, rows, heldSbTotal));
+		.then(() => this._rebuildWtermCore(channelId, cols, rows));
 	this._wtermRebuildChain.set(channelId, next);
 }
 
@@ -362,7 +333,6 @@ export async function _rebuildWtermCore(
 	channelId: number,
 	cols: number,
 	rows: number,
-	heldSbTotal?: number,
 ): Promise<void> {
 	const rec0 = this.shellByChannel(channelId);
 	// The chain is timer-driven: teardown can remove the terminal core before
@@ -398,8 +368,9 @@ export async function _rebuildWtermCore(
 	// Fresh core, fresh ring: the retained-index origin restarts at 0, so the
 	// monotonic origin must absorb the whole difference or every index the SPA
 	// holds re-aliases and scrollbackTotal REWINDS (which parks the backfill
-	// controller and defeats _claimTailRows). The replay reproduces the same
-	// raw ring, so the NEWEST line is the same line in both cores — pin that:
+	// controller — validateChunk discards a response whose total went backwards).
+	// The replay reproduces the same raw ring, so the NEWEST line is the same
+	// line in both cores — pin that:
 	// sbDropped = prevMonoTotal - freshCount. Reflow at the new width shifts
 	// older rows by the reflow delta, which no bookkeeping can avoid; the newest
 	// row, the one the reader is measured from, stays exact. Alt-screen rebuilds
@@ -415,13 +386,12 @@ export async function _rebuildWtermCore(
 	// now so viewers reflect the resize without waiting for the next PTY
 	// chunk. A delta is meaningless here — dirty bits + cursor on the fresh
 	// core don't describe a change from the OLD core the client holds.
-	// Sized from the CLAIMANT's held total: _scheduleWtermRebuild defers onto a
-	// promise chain, so this frame lands AFTER claimViewport's correctly-sized
-	// one and is the frame the SPA ends on. At the 250-row default the returning
-	// viewer's last held row falls below sbBase and the pane shows only a shallow
-	// window. Evaluated here, after the swap, so _claimTailRows reads the
-	// REBUILT core's scrollback count.
-	this.emitCellSnapshot(channelId as ChannelId, _claimTailRows(this, channelId, heldSbTotal));
+	// _scheduleWtermRebuild defers onto a promise chain, so this frame lands
+	// AFTER claimViewport's and is the frame the SPA ends on. Constant-size
+	// (SB_SNAPSHOT_TAIL_ROWS): a viewer whose held window falls below the new
+	// sbBase collapses to the tail, pins the literal bottom, and is refilled by
+	// the SPA's scrollback backfill drain.
+	this.emitCellSnapshot(channelId as ChannelId);
 	// Report the actual branch: alt-screen rebuilds start empty and alt-primed;
 	// main-screen rebuilds replay the retained ring.
 	diag("resize.wterm_core", {

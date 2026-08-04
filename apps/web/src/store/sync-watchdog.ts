@@ -32,22 +32,34 @@ export interface StaleWatchdogOpts {
   onStale?: () => void;        // fired BEFORE close (caller sets abort reason)
 }
 
-/** Starts a setInterval that force-closes `ws` when no WS message has arrived
- *  for `staleMs` AND the tab is visible. shouldRedialOnRefocus owns the
- *  hidden→visible transition (a throttled hidden tab can't be trusted to tick);
- *  this watchdog owns foreground half-open stalls. Returns stop(). */
-export function startStaleWatchdog(ws: WebSocket, opts: StaleWatchdogOpts = {}): () => void {
+export interface StaleWatchdog {
+  stop(): void;
+  idleMs(): number;
+}
+
+/** Starts a foreground stale-link watchdog with generation-local liveness. */
+export function startStaleWatchdog(
+  ws: WebSocket,
+  opts: StaleWatchdogOpts = {},
+): StaleWatchdog {
   const staleMs = opts.staleMs ?? SYNC_STALE_TIMEOUT_MS;
   const checkMs = opts.checkMs ?? SYNC_STALE_CHECK_MS;
   const isVisible = opts.isVisible ?? isPageVisible;
   let lastMsgAt = Date.now();
+  const idleMs = (): number => Date.now() - lastMsgAt;
   const onMessage = (): void => { lastMsgAt = Date.now(); };
   ws.addEventListener("message", onMessage);
   const timer = setInterval(() => {
-    if (Date.now() - lastMsgAt < staleMs) return;
-    if (!isVisible()) return;            // hidden → the refocus check owns it
+    if (idleMs() < staleMs) return;
+    if (!isVisible()) return;
     opts.onStale?.();
     try { ws.close(); } catch { /* already closing */ }
   }, checkMs);
-  return () => { clearInterval(timer); ws.removeEventListener("message", onMessage); };
+  return {
+    stop(): void {
+      clearInterval(timer);
+      ws.removeEventListener("message", onMessage);
+    },
+    idleMs,
+  };
 }

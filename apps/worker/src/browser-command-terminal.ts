@@ -4,15 +4,20 @@
 
 import type { ClientControlFrame } from "@roost/shared/wire";
 import { diag } from "@roost/shared";
-import { readScrollbackRangeCells } from "@roost/shared/cell";
+import { readScrollbackRangeCells, type CellRow } from "@roost/shared/cell";
 import type { CoordLink } from "./transport/CoordLink.ts";
 import type { SessionManager } from "./session-manager.ts";
 import type { TerminalCore } from "@wterm/core";
 
 // Server-side ceiling on rows per get-scrollback-cells response — bounds the
-// synchronous per-cell WASM walk (and the rpc-ok JSON) to ~1/5 of the old
-// worst-case full frame. The SPA chunks at 1000 (scrollbackBackfill.ts).
+// per-cell WASM walk (and the rpc-ok JSON) for one RPC. The SPA chunks at 1000
+// and issues BACKFILL_CONCURRENCY of those per wave (scrollbackBackfill.ts),
+// so this is the per-request cap, not the per-reveal cost.
 const SCROLLBACK_CELLS_MAX_ROWS = 2000;
+// Rows per event-loop slice of that walk. Every OTHER session's PTY output on
+// this worker is blocked for one slice, so keep it well under a frame. Matches
+// the SPA's per-frame splice budget (scrollbackBackfill BACKFILL_SPLICE_ROWS).
+const SCROLLBACK_CELLS_SLICE_ROWS = 250;
 
 // Find-in-scrollback bounds. The SPA holds at most 2000 of the worker's 10k
 // retained rows, so this walk is the only complete search — but it is also
@@ -128,7 +133,34 @@ export async function handleGetScrollbackCells(
 		const total = sbDropped + core.getScrollbackCount();
 		const endRow = Math.min(frame.end_row, total);
 		const startRow = Math.max(sbDropped, endRow - Math.min(frame.max_rows, SCROLLBACK_CELLS_MAX_ROWS));
-		const rows = readScrollbackRangeCells(core, startRow, endRow, sbDropped);
+		// Sliced walk: 999 rows × cols is ~120k WASM cell reads on an 80-col
+		// grid, and step-3's wave lands three of these back to back. Yield
+		// between slices, then re-validate the grid identity — a reframe or an
+		// eviction past our start shifts the offsets our absolute indices
+		// resolve through, so ABORT rather than return a hole: a short or
+		// index-shifted array splices mis-numbered rows into the pane. The SPA
+		// sees a thrown RPC → its one-retry-then-park path, and the next full
+		// frame re-triggers the drain.
+		const rows: CellRow[] = [];
+		let liveDropped = sbDropped;
+		let slices = 0;
+		for (let sliceStart = startRow; sliceStart < endRow; sliceStart += SCROLLBACK_CELLS_SLICE_ROWS) {
+			if (slices > 0) {
+				await new Promise<void>((resolve) => { setImmediate(resolve); });
+				if (rec.wtermCore !== core) {
+					coordLink.send({ kind: "rpc-error", request_id, message: "grid reframed mid-read" });
+					return;
+				}
+				liveDropped = rec.cell_emit.sbDropped;
+				if (liveDropped > startRow) {
+					coordLink.send({ kind: "rpc-error", request_id, message: "scrollback evicted mid-read" });
+					return;
+				}
+			}
+			const sliceEnd = Math.min(sliceStart + SCROLLBACK_CELLS_SLICE_ROWS, endRow);
+			for (const row of readScrollbackRangeCells(core, sliceStart, sliceEnd, liveDropped)) rows.push(row);
+			slices++;
+		}
 		diag("scrollback.cells", {
 			sid: rec.sessionId,
 			channel_id: rec.channelId,
@@ -138,6 +170,7 @@ export async function handleGetScrollbackCells(
 			total,
 			sb_dropped: sbDropped,
 			rows: rows.length,
+			slices,
 		});
 		coordLink.send({
 			kind: "rpc-ok",
@@ -338,7 +371,6 @@ export function handleResize(
 			frame.rows,
 			frame.client_seq,
 			frame.cause,
-			frame.held_sb_total,
 			frame.held_cell_seq,
 		);
 	return;

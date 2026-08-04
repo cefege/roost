@@ -13,7 +13,7 @@ type ZoomSmoke = {
   markerScan(sessionId: string, prefix: string): {
     max: number; duplicated: number[]; outOfOrder: number;
   };
-  renderProbe(sessionId: string): { rowCount: number; nonEmptyRows: number };
+  renderProbe(sessionId: string): { rowCount: number; nonEmptyRows: number; clientHeight: number };
 };
 
 const LINES = 400;
@@ -40,13 +40,25 @@ test("terminal zoom re-sizes the grid without mangling history", async ({ smokeP
 
   const fontSize = () => smokePage.evaluate(() =>
     getComputedStyle(document.documentElement).getPropertyValue("--term-font-size").trim());
+  // Rows the pane can FIT is the honest "the grid really changed" proxy: total
+  // painted rows are content-bound now that the backfill drain refills the
+  // whole history behind every reframe, so they no longer shrink with the font.
   const scan = () => smokePage.evaluate((id) => {
     const smoke = (window as unknown as Window & { __smoke: ZoomSmoke }).__smoke;
-    return { ...smoke.markerScan(id, "ZOOMLINE-"), rows: smoke.renderProbe(id).rowCount };
+    const pane = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
+    const rowH = pane?.querySelector(".cell-row")?.getBoundingClientRect().height ?? 0;
+    const probe = smoke.renderProbe(id);
+    return {
+      ...smoke.markerScan(id, "ZOOMLINE-"),
+      rows: probe.rowCount,
+      rowH,
+      fitRows: rowH > 0 ? Math.floor(probe.clientHeight / rowH) : -1,
+    };
   }, sessionId);
 
   expect(await fontSize()).toBe("14px");
   const baseline = await scan();
+  expect(baseline.fitRows).toBeGreaterThan(0);
 
   // Ten steps: out, out, out, out, in, in, in, in, in, reset. Each is a real PTY
   // resize round trip, and the claim is debounced, so settle between steps.
@@ -63,7 +75,8 @@ test("terminal zoom re-sizes the grid without mangling history", async ({ smokeP
   expect(await fontSize()).toBe("15px");
   const zoomedIn = await scan();
   // A larger cell box means fewer rows fit — the claim really did change the grid.
-  expect(zoomedIn.rows).toBeLessThan(baseline.rows);
+  expect(zoomedIn.rowH).toBeGreaterThan(baseline.rowH);
+  expect(zoomedIn.fitRows).toBeLessThan(baseline.fitRows);
 
   await smokePage.keyboard.press("Control+0");
   await smokePage.waitForTimeout(600);

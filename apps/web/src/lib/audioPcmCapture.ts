@@ -65,8 +65,7 @@ export function warmMic(): Promise<void> {
 	clearIdle();
 	if (isMicWarm()) {
 		lastWarmupMs = 0;
-		armIdle();
-		return Promise.resolve();
+		return resumeContext().finally(armIdle);
 	}
 	if (warming) return warming;
 	warming = openPipeline().finally(() => {
@@ -143,6 +142,11 @@ export function micWarmupMs(): number {
 
 // ── internals ─────────────────────────────────────────────────────────────
 
+function resumeContext(): Promise<void> {
+	if (!ctx || ctx.state === "running") return Promise.resolve();
+	return ctx.resume();
+}
+
 function clearIdle(): void {
 	if (idleTimer) {
 		clearTimeout(idleTimer);
@@ -201,13 +205,23 @@ async function openPipeline(): Promise<void> {
 	const myGen = generation;
 	const startedAt = performance.now();
 	try {
-		stream = await navigator.mediaDevices.getUserMedia({
+		const legacyWindow = window as typeof window & {
+			webkitAudioContext?: typeof AudioContext;
+		};
+		const Ctx = window.AudioContext ?? legacyWindow.webkitAudioContext;
+		if (!Ctx) throw new Error("Web Audio is not supported");
+		ctx = new Ctx();
+		const resumed = resumeContext().then(
+			() => ({ ok: true }) as const,
+			(error: unknown) => ({ ok: false, error }) as const,
+		);
+		const requestedStream = navigator.mediaDevices.getUserMedia({
 			audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
 		});
+		stream = await requestedStream;
+		const resumeResult = await resumed;
+		if (!resumeResult.ok) throw resumeResult.error;
 		if (generation !== myGen) { disposePipeline(); return; }
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		const Ctx = window.AudioContext ?? (window as any).webkitAudioContext;
-		ctx = new Ctx();
 		inRate = ctx.sampleRate;
 		readPos = 0;
 		source = ctx.createMediaStreamSource(stream);
@@ -224,6 +238,7 @@ async function openPipeline(): Promise<void> {
 				node = new AudioWorkletNode(ctx, "pcm-forwarder");
 				node.port.onmessage = (e: MessageEvent<Float32Array>) => onFloat(e.data);
 				source.connect(node);
+				node.connect(ctx.destination);
 				workletOk = true;
 			} catch {
 				workletOk = false;

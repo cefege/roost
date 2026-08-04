@@ -354,6 +354,86 @@ aside[data-overscroll="bottom"] {
   opacity: 0.7;
 }
 
+/* Coding-agent state. One semantic indicator is reused by sidebar rows,
+   pane tabs/hover cards, and mobile terminal cards. Connection/offline chrome
+   remains separate. */
+.agent-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  flex-shrink: 0;
+  color: var(--md-on-surface-variant);
+  font-size: var(--md-label-s-size);
+  font-weight: var(--md-label-s-weight);
+  line-height: var(--md-label-s-line);
+  white-space: nowrap;
+}
+.agent-status[data-level="blocked"],
+.agent-status-rollup[data-level="blocked"] { color: var(--md-warning); }
+.agent-status[data-level="done"],
+.agent-status-rollup[data-level="done"] { color: var(--md-secondary); }
+.agent-status[data-level="working"],
+.agent-status-rollup[data-level="working"] { color: var(--md-primary); }
+.agent-status[data-level="idle"],
+.agent-status-rollup[data-level="idle"] { color: var(--md-success); }
+.agent-status[data-level="unknown"],
+.agent-status-rollup[data-level="unknown"] { display: none; }
+.agent-status__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  background: currentColor;
+}
+.agent-status[data-level="working"] .agent-status__dot,
+.agent-status-rollup[data-level="working"] .agent-status__dot {
+  animation: agent-status-pulse 1.2s ease-in-out infinite;
+}
+.agent-status--compact {
+  width: 9px;
+  gap: 0;
+}
+.agent-status--compact .agent-status__dot {
+  width: 7px;
+  height: 7px;
+}
+.df-flat-activity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 14px;
+  color: var(--df-text-500);
+}
+.agent-status-rollup {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--md-label-s-size);
+  font-weight: var(--md-label-s-weight);
+  line-height: var(--md-label-s-line);
+}
+.df-tab-hovercard .agent-status { margin-left: auto; }
+.terminal-card-title-wrap .agent-status {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@keyframes agent-status-pulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .agent-status[data-level="working"] .agent-status__dot,
+  .agent-status-rollup[data-level="working"] .agent-status__dot {
+    animation: none;
+  }
+}
+
 
 /* ── M3 flat-list sidebar (data-m3flat, flag-gated) ──────────────────────────
    Rows go FLAT — no per-row pill / dim rail. Only the ACTIVE row gets M3's

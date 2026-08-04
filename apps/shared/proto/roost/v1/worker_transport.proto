@@ -41,11 +41,24 @@ message WRefreshJwt { string jwt = 1; }
 // maps channel→session (byte-hub) and fans out via FirehoseFrame.cell_grid.
 message WCellGrid { uint32 channel_id = 1; PbCellGridFrame frame = 2; }
 
+// Volatile agent runtime metadata. The worker owns revision ordering; this
+// frame is never placed in the durable event outbox.
+message WAgentStatus {
+  string session_id = 1;
+  string agent_id = 2;
+  string state = 3;
+  optional string message = 4;
+  uint64 revision = 5;
+  uint64 completed_revision = 6;
+  double updated_at = 7;
+  bool active = 8;
+}
+
 
 
 
 message CoordWorkerUp {
-  reserved 4, 5, 13;  // retired fields
+  reserved 4, 5, 13;  // retired fields; 13 remains reserved
   oneof frame {
     WHello hello = 1;
     WPong pong = 2;
@@ -57,6 +70,7 @@ message CoordWorkerUp {
     WBinary binary = 10;
     WRefreshJwt refresh_jwt = 11;
     WCellGrid cell_grid = 12;
+    WAgentStatus agent_status = 14;
   }
 }
 

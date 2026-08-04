@@ -20,6 +20,7 @@ import { VIEWER_WITHDRAW_GRACE_MS } from "@roost/shared/viewport";
 import { WasmBridge } from "@wterm/core";
 import { initCellEmitState } from "@roost/shared/cell";
 import { createSbRing } from "../src/session-scrollback-ring.ts";
+import { initAgentOscState } from "../src/terminal-stream-scan.ts";
 
 // withdrawViewport defers removal by VIEWER_WITHDRAW_GRACE_MS (hysteresis,
 // so a refresh's re-claim cancels it). Tests that withdraw then assert the
@@ -59,6 +60,7 @@ export async function injectSession(mgr: SessionManager, initCols: number, initR
     alt_mode: false,
     mode_carry: new Uint8Array(0),
     osc7_carry: new Uint8Array(0),
+    ...initAgentOscState(),
     wtermCore,
     cell_emit: initCellEmitState(),
   };

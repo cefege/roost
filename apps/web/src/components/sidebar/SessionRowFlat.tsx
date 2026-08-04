@@ -7,6 +7,7 @@ import { shortCwd } from "../../lib/sidebarFormat.ts";
 import { folderHeadline, programSubtitle } from "../../lib/sessionTitle.ts";
 import { ViewersChip } from "./ViewersChip.tsx";
 import { FolderGlyph } from "../FolderGlyph.tsx";
+import { AgentStatusIndicator } from "../AgentStatusIndicator.tsx";
 
 interface SessionRowFlatProps {
   session: Session;
@@ -65,6 +66,7 @@ export function SessionRowFlat(props: SessionRowFlatProps) {
         </span>
       </span>
       <span class="df-flat-activity">
+        <AgentStatusIndicator sessionId={props.session.id} />
         <Show when={props.offline}>
           <span
             class="df-stage-text"

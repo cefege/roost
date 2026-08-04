@@ -92,6 +92,7 @@ const WRITE_METHODS: Record<string, true | undefined> = {
   DevicesRevoke: true, DevicesRotateCurrent: true,
   FilesMkdir: true, TranscriptionSetConfig: true, AgentConfigSet: true,
   AttachFileChunk: true, DeleteAttachment: true,
+  PushSubscribe: true, PushUnsubscribe: true,
   TransfersStart: true, DiagDebugLogBatch: true,
 };
 

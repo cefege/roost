@@ -21,6 +21,7 @@ import { makeSessionHandlers } from "./handlers-sessions.ts";
 import { makeStreamingHandlers } from "./handlers-streaming.ts";
 import { makeUiHandlers } from "./handlers-ui.ts";
 import { makeCoordinatorMoveHandlers } from "./handlers-coordinator-move.ts";
+import { makePushHandlers } from "./handlers-push.ts";
 import { _setViewerTrackerDb } from "./viewer-tracker.ts";
 
 import type { KyselyDB } from "../db/connection.ts";
@@ -81,6 +82,7 @@ export function buildConnectRouter(deps: ConnectDeps): ConnectRouter {
     ...makeAgentConfigHandlers(deps),
     ...makeAttachmentHandlers(deps),
     ...makeUiHandlers(deps),
+    ...makePushHandlers(deps),
     ...makeStreamingHandlers(deps),
     ...makeCoordinatorMoveHandlers(deps),
   });

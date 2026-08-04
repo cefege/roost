@@ -14,7 +14,8 @@
     "@connectrpc/connect": "^2.1.2",
     "@connectrpc/connect-node": "^2.1.2",
     "@roost/shared": "workspace:*",
-    "@wterm/core": "0.3.0"
+    "@wterm/core": "0.3.0",
+    "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

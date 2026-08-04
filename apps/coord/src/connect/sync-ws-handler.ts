@@ -34,6 +34,8 @@ import type { ConnectDeps } from "./router.ts";
 const WS_PATH = "/ws/coord-sync";
 
 const KEEPALIVE_INTERVAL_MS = 30_000;
+const BACKPRESSURE_LIMIT_BYTES = 8 * 1024 * 1024;
+const BACKPRESSURE_TIMEOUT_MS = 10_000;
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
 
 export interface SyncUpgradeServer {
@@ -108,6 +110,9 @@ export interface SyncWsData {
   keepaliveTimer: Timer | null;
   reauthAtMs: number | null;
   reauthTimer: SyncDeadlineTimer | null;
+  pressureTimer: Timer | null;
+  pressureFrame: string | null;
+  pressureClosing: boolean;
 }
 
 /** Bun fetch-handler hook. Returns:
@@ -168,6 +173,9 @@ export async function handleSyncWsUpgrade(
     keepaliveTimer: null,
     reauthAtMs,
     reauthTimer: null,
+    pressureTimer: null,
+    pressureFrame: null,
+    pressureClosing: false,
   };
   const ok = server.upgrade(req, {
     data,
@@ -177,12 +185,82 @@ export async function handleSyncWsUpgrade(
   return new Response("upgrade failed", { status: 400 });
 }
 
+export interface SyncWsHandlerOptions {
+  keepaliveMs?: number;
+  deadlineClock?: SyncDeadlineClock;
+  backpressureLimitBytes?: number;
+  backpressureTimeoutMs?: number;
+}
+
 export function makeSyncWsHandler(
   deps: ConnectDeps,
-  keepaliveMs: number = KEEPALIVE_INTERVAL_MS,
-  deadlineClock: SyncDeadlineClock = realDeadlineClock,
+  options: SyncWsHandlerOptions = {},
 ) {
+  const keepaliveMs = options.keepaliveMs ?? KEEPALIVE_INTERVAL_MS;
+  const deadlineClock = options.deadlineClock ?? realDeadlineClock;
+  const backpressureLimitBytes = options.backpressureLimitBytes ?? BACKPRESSURE_LIMIT_BYTES;
+  const backpressureTimeoutMs = options.backpressureTimeoutMs ?? BACKPRESSURE_TIMEOUT_MS;
   const sockets = new Set<ServerWebSocket<SyncWsData>>();
+  const clearPressure = (ws: ServerWebSocket<SyncWsData>): void => {
+    if (ws.data.pressureTimer) {
+      deadlineClock.clearTimeout(ws.data.pressureTimer);
+      ws.data.pressureTimer = null;
+    }
+    ws.data.pressureFrame = null;
+  };
+  const closeForBackpressure = (
+    ws: ServerWebSocket<SyncWsData>,
+    reason: "high_water" | "timeout",
+    frame: string,
+  ): void => {
+    if (ws.data.pressureClosing) return;
+    ws.data.pressureClosing = true;
+    const bufferedBytes = ws.getBufferedAmount();
+    clearPressure(ws);
+    signal("sync.queue_overflow", {
+      caller_fp: ws.data.caller.fingerprint,
+      reason,
+      frame,
+      buffered_bytes: bufferedBytes,
+      cooldownKey: ws.data.caller.fingerprint,
+    });
+    ws.close(1013, "sync backpressure");
+  };
+  const sendGuarded = (ws: ServerWebSocket<SyncWsData>, frame: FirehoseFrame): void => {
+    if (ws.data.pressureClosing) return;
+    try {
+      const bin = toBinary(FirehoseFrameSchema, frame);
+      const result = ws.send(bin);
+      const frameKind = frame.frame.case ?? "unknown";
+      const bufferedBytes = ws.getBufferedAmount();
+      if (result === 0) {
+        ws.data.pressureClosing = true;
+        clearPressure(ws);
+        signal("sync.ws_frame_dropped", {
+          caller_fp: ws.data.caller.fingerprint,
+          frame: frameKind,
+          bytes: bin.byteLength,
+          buffered_bytes: bufferedBytes,
+          cooldownKey: ws.data.caller.fingerprint,
+        });
+        ws.close(1013, "sync backpressure");
+        return;
+      }
+      if (bufferedBytes > backpressureLimitBytes) {
+        closeForBackpressure(ws, "high_water", frameKind);
+        return;
+      }
+      if (result === -1 && !ws.data.pressureTimer) {
+        ws.data.pressureFrame = frameKind;
+        ws.data.pressureTimer = deadlineClock.setTimeout(() => {
+          ws.data.pressureTimer = null;
+          closeForBackpressure(ws, "timeout", ws.data.pressureFrame ?? frameKind);
+        }, backpressureTimeoutMs);
+      }
+    } catch (e) {
+      log.warn("sync-ws", "send_failed", { error: String(e) });
+    }
+  };
   return {
     open(ws: ServerWebSocket<SyncWsData>): void {
       if (jwtKeyGeneration(deps.jwtCache, ws.data.caller.fingerprint) !== ws.data.caller.keyGeneration) {
@@ -197,24 +275,7 @@ export function makeSyncWsHandler(
         ws.data.reauthTimer = scheduleDeadline(ws, ws.data.reauthAtMs, deadlineClock);
       }
       sockets.add(ws);
-      const push = (f: FirehoseFrame): void => {
-        try {
-          const bin = toBinary(FirehoseFrameSchema, f);
-          // Bun's contract: 0 = DROPPED, -1 = enqueued under backpressure,
-          // >0 = bytes sent. Only 0 loses the frame, and a lost cell frame is
-          // otherwise invisible — the SPA's seq-gap detector recovers the pane,
-          // but nothing would ever say the coord side was the cause.
-          if (ws.send(bin) === 0) {
-            signal("sync.ws_frame_dropped", {
-              caller_fp: ws.data.caller.fingerprint,
-              frame: f.frame.case ?? "unknown",
-              bytes: bin.byteLength,
-              cooldownKey: "sync-ws",
-            });
-          }
-        }
-        catch (e) { log.warn("sync-ws", "send_failed", { error: String(e) }); }
-      };
+      const push = (frame: FirehoseFrame): void => sendGuarded(ws, frame);
       const feed = startSyncFeed(deps, ws.data.sinceEventId, push, ws.data.viewerKey);
       ws.data.feed = feed;
       // Subscribe-first is already done inside startSyncFeed; kick backfill
@@ -227,16 +288,17 @@ export function makeSyncWsHandler(
       // NOT a closure — makeSyncWsHandler is called once; a closure var
       // would be shared across all connections (leak/cross-fire).
       ws.data.keepaliveTimer = setInterval(() => {
-        try {
-          ws.send(toBinary(FirehoseFrameSchema, create(FirehoseFrameSchema, {
-            frame: { case: "keepalive", value: create(KeepaliveFrameSchema, { ts: BigInt(Date.now()) }) },
-          })));
-        } catch { /* socket gone — close() will dispose */ }
+        sendGuarded(ws, create(FirehoseFrameSchema, {
+          frame: { case: "keepalive", value: create(KeepaliveFrameSchema, { ts: BigInt(Date.now()) }) },
+        }));
       }, keepaliveMs);
       log.info("sync-ws", "open", { caller_fp: ws.data.caller.fingerprint, since: ws.data.sinceEventId });
     },
     message(_ws: ServerWebSocket<SyncWsData>, _message: string | Buffer): void {
       // Server→client only. The client sends nothing on this socket.
+    },
+    drain(ws: ServerWebSocket<SyncWsData>): void {
+      clearPressure(ws);
     },
     close(ws: ServerWebSocket<SyncWsData>): void {
       sockets.delete(ws);
@@ -245,6 +307,8 @@ export function makeSyncWsHandler(
         deadlineClock.clearTimeout(ws.data.reauthTimer.current);
       }
       ws.data.reauthTimer = null;
+      clearPressure(ws);
+      ws.data.pressureClosing = true;
       ws.data.feed?.dispose();
       ws.data.feed = null;
       log.info("sync-ws", "close", { caller_fp: ws.data.caller.fingerprint });

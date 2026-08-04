@@ -1,14 +1,299 @@
 import { fileURLToPath } from "node:url";
 import { test, expect } from "./fixtures.ts";
+import type { Page } from "@playwright/test";
 import { dirname, join } from "node:path";
 
 const fixturePath = join(dirname(fileURLToPath(import.meta.url)), "resize-tui.ts");
+
+interface RecoveryMarkerScan {
+  total: number; unique: number; min: number; max: number;
+  duplicated: number[]; missing: number; outOfOrder: number; firstInversion: number;
+}
+
+interface RecoverySmokeApi {
+  spawnShell(workerFp: string, folder: string, sessionId?: string): Promise<{ session_id: string; channel_id: number }>;
+  createWorkspace(workerFp: string, folder: string, sessionId: string): Promise<{ id: string; channel: number }>;
+  navigate(href: string): void;
+  input(sessionId: string, text: string): Promise<void>;
+  dropNextCellFrame(sessionId: string): void;
+  droppedCellFrameCount(sessionId: string): number;
+  cellFrameCount(sessionId: string): number;
+  cellFullFrameCount(sessionId: string): number;
+  syncWsGeneration(): number;
+  pauseSyncTransport(): void;
+  resumeSyncTransport(): void;
+  viewportText(sessionId: string): string;
+  markerScan(sessionId: string, prefix: string): RecoveryMarkerScan;
+  renderProbe(sessionId: string): { atBottom: boolean };
+}
+
+interface RecoveryProbeResult {
+  canary: string | null;
+  scan: RecoveryMarkerScan;
+  atBottom: boolean;
+}
+
+async function spawnSmokeShell(page: Page, workerFp: string, sessionId?: string) {
+  return page.evaluate(async ({ workerFp: fp, sessionId: sid }) => {
+    const smoke = (window as unknown as { __smoke: RecoverySmokeApi }).__smoke;
+    const session = await smoke.spawnShell(fp, "/tmp", sid);
+    await smoke.createWorkspace(fp, "/tmp", session.session_id);
+    return session;
+  }, { workerFp, sessionId });
+}
+
+async function navigateToSmokeSession(page: Page, sessionId: string): Promise<void> {
+  await page.goto(`${new URL(page.url()).origin}/s/${sessionId}`, { waitUntil: "domcontentloaded" });
+  await expect(page.getByTestId(`terminal-slot-${sessionId}`)).toBeVisible();
+}
+
+async function switchToSmokeSession(page: Page, sessionId: string): Promise<void> {
+  await page.evaluate(
+    (id) => (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.navigate(`/s/${id}`),
+    sessionId,
+  );
+  await expect(page.getByTestId(`terminal-slot-${sessionId}`)).toBeVisible();
+}
+
+async function waitForStableCellFrames(page: Page, sessionId: string): Promise<void> {
+  let previous = -1;
+  let unchangedPolls = 0;
+  await expect.poll(async () => {
+    const current = await page.evaluate(
+      (id) => (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.cellFrameCount(id),
+      sessionId,
+    );
+    if (current === previous) unchangedPolls += 1;
+    else {
+      previous = current;
+      unchangedPolls = 0;
+    }
+    return unchangedPolls;
+  }, { timeout: 3_000, intervals: [50] }).toBeGreaterThanOrEqual(3);
+}
+
+async function setRecoveryCanary(page: Page, canary: string): Promise<void> {
+  await page.evaluate((value) => { document.documentElement.dataset.terminalStreamCanary = value; }, canary);
+}
+
+async function recoveryProbe(page: Page, sessionId: string, prefix: string): Promise<RecoveryProbeResult> {
+  return page.evaluate(({ sessionId: id, prefix: markerPrefix }) => ({
+    canary: document.documentElement.dataset.terminalStreamCanary ?? null,
+    scan: (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.markerScan(id, markerPrefix),
+    atBottom: (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.renderProbe(id).atBottom,
+  }), { sessionId, prefix });
+}
+
+function expectCleanRecovery(
+  result: RecoveryProbeResult,
+  canary: string,
+  min: number,
+  max: number,
+): void {
+  expect(result.canary).toBe(canary);
+  expect(result.scan).toMatchObject({
+    min,
+    max,
+    duplicated: [],
+    missing: 0,
+    outOfOrder: 0,
+  });
+  expect(result.atBottom).toBe(true);
+}
 test("browser smoke flow creates and cleans its resources", async ({ smokePage }) => {
   const result = await smokePage.evaluate(async () => {
     const smoke = (window as unknown as Window & { __smoke: { runFlow(): Promise<{ steps: Array<{ pass: boolean }>; summary: string }> } }).__smoke;
     return smoke.runFlow();
   });
   expect(result.steps.filter((step) => !step.pass)).toEqual([]);
+});
+
+test("dropped initial full frame reclaims immediately on the first delta", async ({ smokePage, stack }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium-desktop", "desktop cell recovery contract");
+  const sessionId = crypto.randomUUID();
+  const canary = `initial-full-${sessionId}`;
+  const spawned = await smokePage.evaluate(async ({ workerFp, sessionId: id }) => {
+    const smoke = (window as unknown as { __smoke: RecoverySmokeApi }).__smoke;
+    smoke.dropNextCellFrame(id);
+    return smoke.spawnShell(workerFp, "/tmp", id);
+  }, { workerFp: stack.workerFp, sessionId });
+  expect(spawned.session_id).toBe(sessionId);
+  await navigateToSmokeSession(smokePage, sessionId);
+  await expect.poll(() => smokePage.evaluate(
+    (id) => (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.droppedCellFrameCount(id),
+    sessionId,
+  )).toBe(1);
+  await setRecoveryCanary(smokePage, canary);
+
+  await smokePage.evaluate(
+    async (id) => (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.input(id, "printf 'INITIAL-RECOVER-%03d\\n' 1\r"),
+    sessionId,
+  );
+  await expect.poll(() => smokePage.evaluate(
+    (id) => (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.viewportText(id),
+    sessionId,
+  ), { timeout: 10_000, intervals: [50] }).toContain("INITIAL-RECOVER-001");
+  expectCleanRecovery(await recoveryProbe(smokePage, sessionId, "INITIAL-RECOVER-"), canary, 1, 1);
+});
+
+test("dropped streaming delta recovers before the producer goes quiet", async ({ smokePage, stack }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium-desktop", "desktop cell recovery contract");
+  const sessionId = (await spawnSmokeShell(smokePage, stack.workerFp)).session_id;
+  await navigateToSmokeSession(smokePage, sessionId);
+  await expect.poll(() => smokePage.evaluate(
+    (id) => (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.cellFullFrameCount(id),
+    sessionId,
+  )).toBeGreaterThan(0);
+  const canary = `middle-delta-${sessionId}`;
+  await setRecoveryCanary(smokePage, canary);
+
+  await smokePage.evaluate(async (id) => {
+    const smoke = (window as unknown as { __smoke: RecoverySmokeApi }).__smoke;
+    smoke.dropNextCellFrame(id);
+    await smoke.input(
+      id,
+      "i=1; while [ \"$i\" -le 80 ]; do printf 'STREAM-RECOVER-%03d\\n' \"$i\"; i=$((i+1)); sleep 0.03; done\r",
+    );
+  }, sessionId);
+  await expect.poll(() => smokePage.evaluate(
+    (id) => (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.droppedCellFrameCount(id),
+    sessionId,
+  )).toBe(1);
+  await expect.poll(() => smokePage.evaluate(
+    (id) => (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.markerScan(id, "STREAM-RECOVER-").max,
+    sessionId,
+  ), { timeout: 10_000, intervals: [50] }).toBeGreaterThanOrEqual(20);
+  const earlyMax = await smokePage.evaluate(
+    (id) => (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.markerScan(id, "STREAM-RECOVER-").max,
+    sessionId,
+  );
+  expect(earlyMax).toBeLessThan(80);
+  await expect.poll(() => smokePage.evaluate(
+    (id) => (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.markerScan(id, "STREAM-RECOVER-").max,
+    sessionId,
+  ), { timeout: 15_000, intervals: [50] }).toBe(80);
+  expectCleanRecovery(await recoveryProbe(smokePage, sessionId, "STREAM-RECOVER-"), canary, 1, 80);
+});
+
+test("dropped final frame is repaired by the applied-sequence heartbeat", async ({ smokePage, stack }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium-desktop", "desktop cell recovery contract");
+  test.setTimeout(75_000);
+  const sessionId = (await spawnSmokeShell(smokePage, stack.workerFp)).session_id;
+  await navigateToSmokeSession(smokePage, sessionId);
+  await smokePage.evaluate(
+    async (id) => (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.input(id, "stty -echo; printf 'HEARTBEAT-READY-%03d\\n' 1\r"),
+    sessionId,
+  );
+  await expect.poll(() => smokePage.evaluate(
+    (id) => (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.viewportText(id),
+    sessionId,
+  )).toContain("HEARTBEAT-READY-001");
+  await expect.poll(() => smokePage.evaluate(
+    (id) => (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.viewportText(id)
+      .includes("HEARTBEAT-READY-001bash-5.1$"),
+    sessionId,
+  )).toBe(true);
+  await waitForStableCellFrames(smokePage, sessionId);
+  await smokePage.evaluate(
+    async (id) => (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.input(
+      id,
+      "read _; printf 'HEARTBEAT-RECOVER-%03d\\n' 1; read _\r",
+    ),
+    sessionId,
+  );
+  await waitForStableCellFrames(smokePage, sessionId);
+  const canary = `heartbeat-${sessionId}`;
+  await setRecoveryCanary(smokePage, canary);
+  const before = await smokePage.evaluate((id) => ({
+    frames: (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.cellFrameCount(id),
+    fullFrames: (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.cellFullFrameCount(id),
+    wsGeneration: (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.syncWsGeneration(),
+  }), sessionId);
+
+  await smokePage.evaluate(async (id) => {
+    const smoke = (window as unknown as { __smoke: RecoverySmokeApi }).__smoke;
+    smoke.dropNextCellFrame(id);
+    await smoke.input(id, "go\r");
+  }, sessionId);
+  await expect.poll(() => smokePage.evaluate(
+    (id) => (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.droppedCellFrameCount(id),
+    sessionId,
+  )).toBe(1);
+  expect(await smokePage.evaluate(
+    (id) => (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.viewportText(id),
+    sessionId,
+  )).not.toContain("HEARTBEAT-RECOVER-001");
+
+  await expect.poll(() => smokePage.evaluate(
+    (id) => (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.viewportText(id),
+    sessionId,
+  ), { timeout: 45_000, intervals: [250] }).toContain("HEARTBEAT-RECOVER-001");
+  const after = await smokePage.evaluate((id) => ({
+    fullFrames: (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.cellFullFrameCount(id),
+    wsGeneration: (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.syncWsGeneration(),
+  }), sessionId);
+  expect(after.fullFrames).toBe(before.fullFrames + 1);
+  expect(after.wsGeneration).toBe(before.wsGeneration);
+  expectCleanRecovery(await recoveryProbe(smokePage, sessionId, "HEARTBEAT-RECOVER-"), canary, 1, 1);
+  await smokePage.evaluate(async (id) => {
+    const smoke = (window as unknown as { __smoke: RecoverySmokeApi }).__smoke;
+    await smoke.input(id, "go\r");
+    await smoke.input(id, "stty echo\r");
+  }, sessionId);
+});
+
+test("parking a selection-held pane flushes its latest folded frame", async ({ smokePage, stack }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium-desktop", "desktop paint-hold contract");
+  const sessionId = (await spawnSmokeShell(smokePage, stack.workerFp)).session_id;
+  await navigateToSmokeSession(smokePage, sessionId);
+  await expect.poll(() => smokePage.evaluate(
+    (id) => (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.cellFullFrameCount(id),
+    sessionId,
+  )).toBeGreaterThan(0);
+  const canary = `selection-hold-${sessionId}`;
+  await setRecoveryCanary(smokePage, canary);
+  const selected = await smokePage.evaluate((id) => {
+    const slot = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
+    const row = Array.from(slot?.querySelectorAll(".cell-row") ?? [])
+      .find((candidate) => (candidate.textContent ?? "").length > 0);
+    if (!row) return false;
+    const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
+    const text = walker.nextNode();
+    if (!text || !text.textContent) return false;
+    const range = document.createRange();
+    range.setStart(text, 0);
+    range.setEnd(text, 1);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    document.dispatchEvent(new Event("selectionchange"));
+    return !!selection && !selection.isCollapsed;
+  }, sessionId);
+  expect(selected).toBe(true);
+  const beforeFrames = await smokePage.evaluate(
+    (id) => (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.cellFrameCount(id),
+    sessionId,
+  );
+  await smokePage.evaluate(
+    async (id) => (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.input(id, "printf 'HOLD-RECOVER-%03d\\n' 1\r"),
+    sessionId,
+  );
+  await expect.poll(() => smokePage.evaluate(
+    (id) => (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.cellFrameCount(id),
+    sessionId,
+  )).toBeGreaterThan(beforeFrames);
+  expect(await smokePage.getByTestId(`terminal-slot-${sessionId}`).textContent())
+    .not.toContain("HOLD-RECOVER-001");
+
+  const otherSessionId = (await spawnSmokeShell(smokePage, stack.workerFp)).session_id;
+  await switchToSmokeSession(smokePage, otherSessionId);
+  await switchToSmokeSession(smokePage, sessionId);
+  await expect.poll(() => smokePage.evaluate(
+    (id) => (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.viewportText(id),
+    sessionId,
+  )).toContain("HOLD-RECOVER-001");
+  expect(await smokePage.evaluate(() => window.getSelection()?.isCollapsed ?? true)).toBe(true);
+  expectCleanRecovery(await recoveryProbe(smokePage, sessionId, "HOLD-RECOVER-"), canary, 1, 1);
 });
 
 test("terminal replay and Ctrl keys stay owned by the PTY", async ({ smokePage, stack }, testInfo) => {
@@ -301,8 +586,11 @@ test("two viewers preserve ordered terminal markers", async ({ smokePage, browse
 });
 
 // A fresh or bottom-following reattach must paint only the live tail while the
-// spacer reserves the complete history depth. Older rows materialize only when
-// the reader approaches the painted boundary, without moving that reader.
+// spacer reserves the complete history depth: first paint lands on the PRESENT,
+// at the literal bottom, with a payload that does not scale with how deep the
+// session is. The [0, sbBase) history is then pulled behind the reader by the
+// parallel get-scrollback-cells drain — off the broadcast feed, without moving
+// that reader.
 test("deep-history attach/reveal paints the live tail until history is requested", async ({ smokePage, stack }, testInfo) => {
   test.skip(testInfo.project.name !== "chromium-desktop", "desktop scroll-geometry contract");
   const sessionId = await smokePage.evaluate(async (workerFp) => {
@@ -340,6 +628,7 @@ test("deep-history attach/reveal paints the live tail until history is requested
           duplicated: number[];
           outOfOrder: number;
         };
+        lastFullFrameSbRows(sessionId: string): number;
       };
     }).__smoke;
     const pane = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
@@ -359,6 +648,7 @@ test("deep-history attach/reveal paints the live tail until history is requested
       spacerPx: spacer ? parseFloat(spacer.style.height || "0") : -1,
       reader,
       markerMax: smoke.markerScan(id, "CELLLINE-").max,
+      snapshotSbRows: smoke.lastFullFrameSbRows(id),
       ...probe,
     };
   }, sessionId);
@@ -369,15 +659,16 @@ test("deep-history attach/reveal paints the live tail until history is requested
   expect(attach.rowH).toBeGreaterThan(0);
   expect(attach.spacerPx / attach.rowH).toBeGreaterThan(5000);
   expect(attach.scrollHeight / attach.rowH).toBeGreaterThan(7000);
-  expect(attach.rowCount).toBeLessThan(500);
+  // The claim snapshot is constant-size over 8000 rows of history — this is
+  // what makes first paint depth-independent. Asserted on the FRAME, not on the
+  // painted row count, which the drain below starts growing immediately.
+  expect(attach.snapshotSbRows).toBe(250);
 
-  // Five samples span five times the deleted 300 ms eager-backfill delay.
-  const attachRowSamples: number[] = [];
-  for (let i = 0; i < 5; i++) {
-    await smokePage.waitForTimeout(300);
-    attachRowSamples.push((await geometry()).rowCount);
-  }
-  expect(attachRowSamples).toEqual(Array(5).fill(attach.rowCount));
+  // No user gesture: the drain refills the held window on its own, behind the
+  // reader, up to the evictor's MAX_HELD_SCROLLBACK_ROWS cap.
+  await expect.poll(async () => (await geometry()).rowCount, { timeout: 10_000, intervals: [100] })
+    .toBeGreaterThan(1800);
+  await expect.poll(async () => (await geometry()).atBottom).toBe(true);
 
   // The freshly attached tail is immediately focused and usable through the
   // real textarea/keyboard path.
@@ -438,40 +729,38 @@ test("deep-history attach/reveal paints the live tail until history is requested
   }, sessionId);
   expect(frameCountAfter).toBe(frameCountBefore);
 
-  // A bottom-following stale viewer reclaims a BRIDGED tail: the claim carries
-  // its held boundary (held_scrollback_total), the worker sizes the snapshot
-  // back to it (cap SB_SNAPSHOT_MAX_CATCHUP_ROWS=2000) and mergeFullFrame
-  // EXTENDS painted history — bounded, never a wipe to a 250-row tail that the
-  // reader re-pulls 250 rows per round trip.
+  // Present first: the reveal paints the constant SB_SNAPSHOT_TAIL_ROWS tail at
+  // the literal bottom — the newest output, immediately — instead of a catch-up
+  // frame sized to how far this viewer fell behind. History follows behind the
+  // reader over the parallel drain, so rowCount climbs back to the held-window
+  // cap with NO user scroll.
   await smokePage.getByTestId(`tab-${sessionId}`).click();
   await expect.poll(() => smokePage.evaluate((id) => {
     const smoke = (window as unknown as Window & {
       __smoke: {
         renderProbe(sessionId: string): { rowCount: number; atBottom: boolean };
         markerScan(sessionId: string, prefix: string): { max: number };
+        lastFullFrameSbRows(sessionId: string): number;
       };
     }).__smoke;
     const probe = smoke.renderProbe(id);
     return {
       markerMax: smoke.markerScan(id, "CELLLINE-").max,
       atBottom: probe.atBottom,
-      // ≤ catch-up cap (2000) + viewport + slack — a collapse back to the
-      // 250-row tail OR an unbounded full-history paint both fail this.
-      boundedRows: probe.rowCount > 500 && probe.rowCount < 2300,
+      // The catch-up frame no longer scales with the gap: the old bridge sized
+      // it to the viewer's held boundary (up to 2000 rows).
+      snapshotSbRows: smoke.lastFullFrameSbRows(id),
     };
   }, sessionId), { timeout: 1000, intervals: [50] }).toEqual({
     markerMax: 9000,
     atBottom: true,
-    boundedRows: true,
+    snapshotSbRows: 250,
   });
 
+  // Proactive, parallel refill — no scroll gesture anywhere in this block.
+  await expect.poll(async () => (await geometry()).rowCount, { timeout: 5_000, intervals: [100] })
+    .toBeGreaterThan(1800);
   const revealed = await geometry();
-  const revealRowSamples: number[] = [];
-  for (let i = 0; i < 5; i++) {
-    await smokePage.waitForTimeout(300);
-    revealRowSamples.push((await geometry()).rowCount);
-  }
-  expect(revealRowSamples).toEqual(Array(5).fill(revealed.rowCount));
 
   // Move ten rows into the painted tail. The resulting scroll event is the
   // demand signal that may materialize older rows.
@@ -589,14 +878,13 @@ test("returning to a streaming pane costs no re-dial and no snapshot", async ({ 
     wsGeneration: beforeSwitch.wsGeneration,
   });
 
-  // ── leg 2: browser tab hidden, output while away, then refocus ────────────
-  // setForceVisible dispatches a synthetic visibilitychange (lib/pageVisible.ts)
-  // so the pane's handler AND sync-bootstrap's refocus handler run exactly as in
-  // a real Chrome tab switch.
+  // The deterministic hidden pin dispatches visibilitychange without asking
+  // Chromium to background this test page, so lifecycle handlers run while
+  // assertions remain schedulable.
   const beforeHide = await probe();
   await smokePage.evaluate(() => {
-    const smoke = (window as unknown as Window & { __smoke: { forceVisible(on: boolean): void } }).__smoke;
-    smoke.forceVisible(false);
+    const smoke = (window as unknown as Window & { __smoke: { forceHidden(on: boolean): void } }).__smoke;
+    smoke.forceHidden(true);
   });
   await smokePage.evaluate(async (id) => {
     const smoke = (window as unknown as Window & { __smoke: { input(sessionId: string, text: string): Promise<void> } }).__smoke;
@@ -612,8 +900,8 @@ test("returning to a streaming pane costs no re-dial and no snapshot", async ({ 
   await smokePage.waitForTimeout(500);
 
   await smokePage.evaluate(() => {
-    const smoke = (window as unknown as Window & { __smoke: { forceVisible(on: boolean): void } }).__smoke;
-    smoke.forceVisible(true);
+    const smoke = (window as unknown as Window & { __smoke: { forceHidden(on: boolean): void } }).__smoke;
+    smoke.forceHidden(false);
   });
   const afterShow = await probe();
   expect(afterShow).toMatchObject({
@@ -624,6 +912,107 @@ test("returning to a streaming pane costs no re-dial and no snapshot", async ({ 
     fullFrames: beforeHide.fullFrames,   // the pane never fell behind
     wsGeneration: beforeHide.wsGeneration, // the Sync socket survived the hide
   });
+});
+
+test("offline producer divergence reconnects and repaints without a reload", async ({ smokePage, stack }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium-desktop", "desktop transport recovery contract");
+  test.setTimeout(90_000);
+  const sessionId = (await spawnSmokeShell(smokePage, stack.workerFp)).session_id;
+  await navigateToSmokeSession(smokePage, sessionId);
+  await expect.poll(() => smokePage.evaluate(
+    (id) => (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.cellFullFrameCount(id),
+    sessionId,
+  )).toBeGreaterThan(0);
+  await smokePage.evaluate(
+    async (id) => (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.input(
+      id,
+      "printf 'OFFLINE-READY-%03d\\n' 1\r",
+    ),
+    sessionId,
+  );
+  await expect.poll(() => smokePage.evaluate(
+    (id) => (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.viewportText(id),
+    sessionId,
+  )).toContain("OFFLINE-READY-001");
+  await waitForStableCellFrames(smokePage, sessionId);
+
+  const canary = `offline-${sessionId}`;
+  await setRecoveryCanary(smokePage, canary);
+  const before = await smokePage.evaluate((id) => ({
+    frames: (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.cellFrameCount(id),
+    fullFrames: (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.cellFullFrameCount(id),
+    wsGeneration: (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.syncWsGeneration(),
+  }), sessionId);
+
+  const context = smokePage.context();
+  await smokePage.evaluate(
+    () => (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.pauseSyncTransport(),
+  );
+  try {
+    await context.setOffline(true);
+    await expect.poll(() => smokePage.evaluate(() => navigator.onLine)).toBe(false);
+    await stack.client.sessionsInput({
+      sessionId,
+      data: new TextEncoder().encode(
+        "for i in $(seq 1 30); do printf 'OFFLINE-RECOVER-%03d\\n' \"$i\"; sleep 0.01; done; seq 1 48\r",
+      ),
+    });
+    await expect.poll(async () => {
+      const cells = await stack.client.sessionsGetScrollbackCells({
+        sessionId,
+        endRow: BigInt(Number.MAX_SAFE_INTEGER),
+        maxRows: 250,
+      });
+      const text = cells.rows
+        .map((row) => row.spans.map((span) => span.text || " ").join(""))
+        .join("\n");
+      return Math.max(0, ...Array.from(text.matchAll(/OFFLINE-RECOVER-(\d+)/g), (match) => Number(match[1])));
+    }, { timeout: 30_000, intervals: [100] }).toBe(30);
+    const isolated = await smokePage.evaluate((id) => {
+      const smoke = (window as unknown as { __smoke: RecoverySmokeApi }).__smoke;
+      return {
+        frames: smoke.cellFrameCount(id),
+        max: smoke.markerScan(id, "OFFLINE-RECOVER-").max,
+      };
+    }, sessionId);
+    expect(isolated).toEqual({ frames: before.frames, max: 0 });
+  } finally {
+    await context.setOffline(false);
+    await smokePage.evaluate(
+      () => (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.resumeSyncTransport(),
+    );
+  }
+
+  await expect.poll(() => smokePage.evaluate(
+    () => (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.syncWsGeneration(),
+  ), { timeout: 30_000, intervals: [100] }).toBeGreaterThan(before.wsGeneration);
+  await expect.poll(() => smokePage.evaluate(
+    (id) => (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.markerScan(id, "OFFLINE-RECOVER-").max,
+    sessionId,
+  ), { timeout: 30_000, intervals: [100] }).toBe(30);
+
+  const recovered = await recoveryProbe(smokePage, sessionId, "OFFLINE-RECOVER-");
+  expectCleanRecovery(recovered, canary, 1, 30);
+  const afterReconnect = await smokePage.evaluate((id) => ({
+    fullFrames: (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.cellFullFrameCount(id),
+    wsGeneration: (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.syncWsGeneration(),
+  }), sessionId);
+  expect(afterReconnect.fullFrames).toBe(before.fullFrames + 1);
+
+  await smokePage.evaluate(
+    async (id) => (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.input(
+      id,
+      "printf 'OFFLINE-AFTER-%03d\\n' 1\r",
+    ),
+    sessionId,
+  );
+  await expect.poll(() => smokePage.evaluate(
+    (id) => (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.viewportText(id),
+    sessionId,
+  )).toContain("OFFLINE-AFTER-001");
+  expect(await smokePage.evaluate(
+    () => (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.syncWsGeneration(),
+  )).toBe(afterReconnect.wsGeneration);
 });
 
 // The user's literal complaint, measured: switching to a stale deep-history

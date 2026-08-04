@@ -3,7 +3,7 @@
 
 import type { SessionManager } from "./session-manager.ts";
 import type { ChannelId } from "@roost/shared";
-import { log, diag, isDiagEnabled, signal } from "@roost/shared";
+import { log, diag, isDiagEnabled, signal, asChannelId } from "@roost/shared";
 import { DIR_FROM_PTY } from "@roost/shared/wire";
 import { nextCellFrame, SB_SNAPSHOT_TAIL_ROWS } from "@roost/shared/cell";
 import { cellFrameToProto } from "@roost/shared/cell/cell-proto";
@@ -95,6 +95,7 @@ export function emitUpstreamChunk(this: SessionManager, channelId: number, chunk
 		len: chunk.length,
 		endSeq,
 	});
+	this.onTerminalChanged?.(channelId);
 	// R11 — emit the cell-grid delta for this chunk (appendScrollback above
 	// already wrote the bytes into rec.wtermCore, so the grid + dirty rows
 	// are current). Parallel to bytes; gated off by default. Phase-3: coalesce
@@ -111,6 +112,15 @@ export function emitUpstreamChunk(this: SessionManager, channelId: number, chunk
  *  non-empty claim set = a real watcher. Drives B's "don't emit to nobody". */
 export function _hasActiveViewer(this: SessionManager, channelId: number): boolean {
 	return (this.viewportClaims.get(channelId)?.size ?? 0) > 0;
+}
+
+/** Re-emit one authoritative full frame for every live claimed session after
+ *  the worker→coordinator channel map has been re-primed by helloAck. */
+export function resnapshotClaimedSessions(this: SessionManager): void {
+	for (const [channelId, claims] of this.viewportClaims) {
+		if (claims.size === 0 || !this.sessions.has(channelId)) continue;
+		this.emitCellSnapshot(asChannelId(channelId));
+	}
 }
 
 /** Rate governor: leading-edge cell emit plus trailing coalesce.
@@ -157,7 +167,7 @@ export function _scheduleCellEmit(this: SessionManager, channelId: number): void
  *  scaling with history depth. clearDirty() AFTER reading so the next delta
  *  carries only new changes — the worker's wtermCore dirty bits have no
  *  other consumer. */
-export function emitCellFrame(this: SessionManager, channelId: number, force: boolean, tailRows?: number): void {
+export function emitCellFrame(this: SessionManager, channelId: number, force: boolean): void {
 	const send = this.sendCellGridUpstream;
 	if (!send) return;
 	const rec = this.sessions.get(channelId);
@@ -171,7 +181,7 @@ export function emitCellFrame(this: SessionManager, channelId: number, force: bo
 		if (pending !== LEADING_SENTINEL) clearTimeout(pending);
 		this.cellEmitTimers.delete(channelId);
 	}
-	const { frame, state } = nextCellFrame(core, rec.cell_emit, force, tailRows ?? SB_SNAPSHOT_TAIL_ROWS);
+	const { frame, state } = nextCellFrame(core, rec.cell_emit, force, SB_SNAPSHOT_TAIL_ROWS);
 	rec.cell_emit = state;
 	core.clearDirty();
 	this.cellDirty.delete(channelId);

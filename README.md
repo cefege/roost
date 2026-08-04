@@ -62,6 +62,17 @@ Once you have agents across several Macs, spare machines often sit unused while 
 
 **Sessions that don't die.** PTYs run in a keeper subprocess that outlives worker restarts. Drop WiFi, close the laptop, refresh, or reopen the same session on another machine, and the process is still running with full scrollback. Sessions are event-sourced and the byte stream is resumable from an offset, so reconnects splice back cleanly, with no loss and no duplication.
 
+
+**See which agent needs you.** Every terminal running a coding agent carries one
+state — working, needs input, or done — on its sidebar row, tab, mobile card,
+and folder rollup (`2 working · 1 needs input`). Plain shells stay unmarked.
+OMP and Pi report their own lifecycle, including "waiting on you"; other agents
+are detected from what their terminal shows. When a background agent stops for
+input or finishes, you get a toast, an unseen count in the tab title, and —
+after you grant permission in Settings → Notifications — a real OS notification
+on your phone or laptop that opens straight to that session. Nothing about
+status is stored: restart anything and it re-derives itself.
+
 **The terminal is the only interactive surface.** Every session owns a PTY. Output renders in a real WASM VT terminal (`@wterm/dom`) with full ANSI and scrollback, whether the process is an agent CLI, shell, REPL, editor, or other TUI.
 
 **Yours, not a SaaS.** It runs on your hardware over your own network. Auth is an EdDSA JWT minted in the browser with WebCrypto, and the private key lives in IndexedDB and is never sent to the coordinator. There are no shared tokens, no accounts, and no telemetry. Revoke a device by deleting a row.
@@ -91,6 +102,8 @@ The coordinator handles control and fan-out only. It holds an append-only event 
 ## Network
 
 Roost talks over whatever network your devices share. It's built and tested on [Tailscale](https://tailscale.com), which gives every device a stable name and connects your phone with no port-forwarding, and that's the recommended path. A Tailscale alternative (WireGuard, Headscale, ZeroTier, and the like) or a plain LAN works too, as long as your browser and the coordinator can reach each other. A few conveniences that resolve a machine's tailnet name, like one-click Screen Sharing and Open in Finder, are Tailscale-specific.
+
+**[Cloudflare browser access](GETTING_STARTED.md#optional-browser-access-through-cloudflare) is optional.** Browsers may enter through Cloudflare Access and Tunnel, while the coordinator and every worker still communicate over Tailscale. A phone, tablet, or browser-only computer using the Cloudflare hostname needs only an ordinary browser, not Tailscale; worker Macs still need Tailscale. This removes the client-install requirement from browser devices without changing worker enrollment, worker WebSockets, `roost deploy`, `roost status`, direct-machine links, or coordinator relocation. Run `roost expose` only as a post-install step after Roost is already working over Tailscale.
 
 ## Install
 

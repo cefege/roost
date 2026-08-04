@@ -195,6 +195,7 @@ export function _dropChannelState(this: SessionManager, channelId: number): void
 			rec.portsPollTimer = null;
 		}
 		byteCapture.drop(String(rec.sessionId));
+		this.onSessionClosed?.(String(rec.sessionId));
 	}
 	this.sessions.delete(channelId);
 	// Mark closed so post-close tail emits drop silently (see emitUpstreamChunk).

@@ -8,7 +8,7 @@ import { CoordinatorService } from "@roost/shared/proto/coordinator_pb";
 import {
   FirehoseFrameSchema, type FirehoseFrame, BytesFrameSchema, SessionPresenceSchema,
   WorkerRoutableFrameSchema, TerminalTitleFrameSchema, LastActivityFrameSchema,
-  UiStateFrameSchema, UiCommandFrameSchema,
+  UiStateFrameSchema, UiCommandFrameSchema, AgentStatusFrameSchema,
 } from "@roost/shared/proto/sync_pb";
 import { eventToProto } from "@roost/shared/wire/event-proto";
 import {
@@ -30,7 +30,7 @@ import {
 import {
   sessionBus, presenceBus, workspaceBus, taskBus, webhookBus,
   permissionBus, mcpBus, globalBytesBus, globalPresenceBus, auditBus,
-  titleBus, lastActivityBus, workerRoutableBus, globalCellBus,
+  titleBus, lastActivityBus, workerRoutableBus, globalCellBus, agentStatusBus,
   pairBus, uiBus, type TaskBusMsg, type PairRequestDelta, type AuditRow,
 } from "../buses.ts";
 import { getEventsSince } from "../event-log.ts";
@@ -38,13 +38,14 @@ import { listRoutableFps } from "./worker-service.ts";
 import { getTitleSnapshot } from "../terminal-title-hub.ts";
 import { getUiStateSnapshot } from "./handlers-ui.ts";
 import { getLastActivitySnapshot } from "../last-activity-hub.ts";
+import { getAgentStatusSnapshot } from "../agent-status-hub.ts";
 import { requireAuth } from "./auth-interceptor.ts";
 import { isSubscribed } from "./cell-subscriptions.ts";
 import { log } from "@roost/shared/log";
 import { signal } from "@roost/shared/diag";
 import type {
   SessionEvent, WorkspaceDelta, WebhookTokenDelta, PermissionRuleDelta,
-  McpStreamMessage, WorkerPresenceEvent, HostMetrics,
+  McpStreamMessage, WorkerPresenceEvent, HostMetrics, AgentStatusUpdate,
 } from "@roost/shared/wire";
 import type { ConnectDeps } from "./router.ts";
 
@@ -239,6 +240,22 @@ export function startSyncFeed(
       : create(FirehoseFrameSchema, { frame: { case: "pairRequestDelta", value: create(PairRequestDeltaProtoSchema, {
           kind: { case: "removedId", value: e.ephemeral_id },
         })}});
+  const agentStatusFrame = (status: AgentStatusUpdate): FirehoseFrame =>
+    create(FirehoseFrameSchema, {
+      frame: {
+        case: "agentStatus",
+        value: create(AgentStatusFrameSchema, {
+          sessionId: status.session_id,
+          agentId: status.agent_id,
+          state: status.state,
+          message: status.message,
+          revision: BigInt(status.revision),
+          completedRevision: BigInt(status.completed_revision),
+          updatedAt: status.updated_at,
+          active: status.active,
+        }),
+      },
+    });
 
   // B10 — KNOWN INVARIANT (deliberate, not a bug): only sessionBus is
   // durable. sessionBus events live in the `events` table, so a reconnect
@@ -293,12 +310,20 @@ export function startSyncFeed(
         })},
       }));
     }),
-    globalPresenceBus.subscribe(({ session_id, data }) =>
+    globalPresenceBus.subscribe(({ session_id, data }) => {
+      if (viewerKey !== null && typeof data === "object" && data !== null) {
+        const payload = data as { kind?: unknown; viewer_id?: unknown };
+        if (
+          (payload.kind === "presence-delta" || payload.kind === "presence-leave")
+          && payload.viewer_id === viewerKey
+        ) return;
+      }
       push(create(FirehoseFrameSchema, {
         frame: { case: "sessionPresence", value: create(SessionPresenceSchema, {
           sessionId: session_id, payloadJson: JSON.stringify(data),
         })},
-      }))),
+      }));
+    }),
     // R11 cell-grid cell-shipping. Bus payload is already a PbCellGridFrame
     // (session_id stamped by byte-hub::publishCellGrid).
     globalCellBus.subscribe((frame) => {
@@ -322,6 +347,7 @@ export function startSyncFeed(
       push(create(FirehoseFrameSchema, {
         frame: { case: "workerRoutable", value: create(WorkerRoutableFrameSchema, { fps })},
       }))),
+    agentStatusBus.subscribe((status) => push(agentStatusFrame(status))),
     // ui-cc — both uiBus kinds map 1:1 onto their frames. state = a tab's
     // report re-broadcast (agents watch the spatial model live); command =
     // fire-and-forget UiDispatch relay the target tab executes.
@@ -365,6 +391,13 @@ export function startSyncFeed(
         sessionId: session_id, tsMs: ts_ms,
       })},
     }));
+  }
+
+  // Seed current agent status after the live subscription above. A racing
+  // update is ordered live-then-snapshot, and browser revision checks dedupe
+  // the older copy without losing the newer one.
+  for (const status of getAgentStatusSnapshot()) {
+    push(agentStatusFrame(status));
   }
 
   // Seed the CURRENT ui_state per live browser tab (uiBus is volatile,

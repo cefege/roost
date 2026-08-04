@@ -80,10 +80,6 @@ test("retires structured sessions before normalizing all history to shell", asyn
     );
     insertSession.run("closed-agent", WORKER_FP, 3, "agent", "/tmp", null, "closed", null, 1_001, 7);
     insertSession.run("open-claude", WORKER_FP, 4, "claude", "/tmp", null, "open", null, 1_001, null);
-    sqlite.run(
-      "INSERT INTO agent_entries (session_id, seq, ts, entry_json) VALUES (?, ?, ?, ?)",
-      ["structured-open-agent", 1, 1_001, '{"kind":"assistant","text":"recoverable"}'],
-    );
 
     const sql = await Bun.file(
       join(import.meta.dir, "../migrations/0017_retire_structured_agent_sessions.sql"),
@@ -119,10 +115,6 @@ test("retires structured sessions before normalizing all history to shell", asyn
     expect(Number.isInteger(rows[3]?.closed_at)).toBe(true);
     expect((rows[3]?.closed_at ?? 0) > 0).toBe(true);
     expect(rows[3]?.agent_json).toBe('{"session_file":"/tmp/history.jsonl"}');
-    expect(
-      sqlite.prepare("SELECT entry_json FROM agent_entries WHERE session_id = ? AND seq = 1")
-        .get("structured-open-agent"),
-    ).toEqual({ entry_json: '{"kind":"assistant","text":"recoverable"}' });
   } finally {
     try { sqlite.close(); } catch { /* ignore */ }
     rmSync(workdir, { recursive: true, force: true });

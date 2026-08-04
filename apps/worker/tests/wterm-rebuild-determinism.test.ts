@@ -16,6 +16,7 @@ import { WasmBridge } from "@wterm/core";
 import type { TerminalCore } from "@wterm/core";
 import { initCellEmitState } from "@roost/shared/cell";
 import { createSbRing } from "../src/session-scrollback-ring.ts";
+import { initAgentOscState } from "../src/terminal-stream-scan.ts";
 
 function cellGridText(core: TerminalCore): string {
   const frame = gridToCellFrame(core, 0);
@@ -51,6 +52,7 @@ async function injectSession(
     alt_mode: false,
     mode_carry: new Uint8Array(0),
     osc7_carry: new Uint8Array(0),
+    ...initAgentOscState(),
     wtermCore,
     cell_emit: initCellEmitState(),
   };

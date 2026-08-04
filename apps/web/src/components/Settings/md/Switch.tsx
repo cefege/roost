@@ -11,11 +11,13 @@ export const Switch: Component<{
   onChange: (v: boolean) => void;
   label: string;
   testId?: string;
+  disabled?: boolean;
 }> = (props) => (
   <Dynamic
     component="md-switch"
     prop:selected={props.checked}
     aria-label={props.label}
+    prop:disabled={props.disabled}
     attr:data-testid={props.testId}
     on:change={(e: Event) =>
       props.onChange((e.currentTarget as HTMLElement & { selected: boolean }).selected)

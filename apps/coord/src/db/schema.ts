@@ -145,14 +145,6 @@ export interface AuditLogTable {
   trace_id: string | null;
 }
 
-export interface AgentEntriesTable {
-  session_id: string;
-  seq: number;
-  ts: number;
-  entry_json: string;
-}
-
-
 export interface AuthorizedKeysTable {
   fingerprint: string;
   public_key: Uint8Array;
@@ -171,6 +163,16 @@ export interface MigrationsTable {
   name: string;
   applied_at: number;
 }
+// Web Push subscriptions, keyed by authenticated browser fingerprint and
+// endpoint. p256dh/auth are RFC 8291 client encryption keys.
+export interface PushSubscriptionsTable {
+  viewer_fp: string;
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+  created_at_ms: number;
+}
+
 
 // ─── Kysely DB type ────────────────────────────────────────────────────
 
@@ -187,10 +189,10 @@ export interface DB {
   permission_rules: PermissionRulesTable;
   mcp_relays: McpRelaysTable;
   audit_log: AuditLogTable;
-  agent_entries: AgentEntriesTable;
   authorized_keys: AuthorizedKeysTable;
   authorized_key_revocations: AuthorizedKeyRevocationsTable;
   app_settings: AppSettingsTable;
+  push_subscriptions: PushSubscriptionsTable;
   _migrations: MigrationsTable;
 }
 

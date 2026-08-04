@@ -4,6 +4,7 @@
 export * from "./brand.ts";
 export * from "./worker.ts";
 export * from "./session.ts";
+export * from "./agent-status.ts";
 export * from "./event.ts";
 export * from "./control.ts";
 export * from "./coord-worker.ts";

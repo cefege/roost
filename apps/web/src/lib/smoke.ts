@@ -11,13 +11,20 @@
 import { coordClient } from "../connect.ts";
 import {
   forceSyncReconnect as forceSyncReconnectImpl,
+  pauseSyncTransport as pauseSyncTransportImpl,
+  resumeSyncTransport as resumeSyncTransportImpl,
   cellFrameCount as cellFrameCountImpl,
   cellFullFrameCount as cellFullFrameCountImpl,
+  lastFullFrameSbRows as lastFullFrameSbRowsImpl,
   syncWsGeneration as syncWsGenerationImpl,
 } from "../store/sync.ts";
+import {
+  dropNextCellFrame as dropNextCellFrameImpl,
+  droppedCellFrameCount as droppedCellFrameCountImpl,
+} from "../store/sync-dispatch.ts";
 import { perfCounters, leakSample, resetPerfCounters as resetPerfCountersImpl } from "./leakWatch.ts";
 import { rootStore, setRootStore } from "../store/root.ts";
-import { setForceVisible } from "./pageVisible.ts";
+import { setForceHidden, setForceVisible } from "./pageVisible.ts";
 
 export interface SmokeApi {
   /** Send raw bytes via the coord RPC — BYPASSES the wterm textarea + focus
@@ -70,13 +77,25 @@ export interface SmokeApi {
    *  front via API"). Chrome may still starve a long-backgrounded tab's
    *  HTTP/2 stream at the transport layer — keep hidden probe windows short. */
   forceVisible(on: boolean): void;
+  /** Pin app-level visibility to background; false releases the pin. */
+  forceHidden(on: boolean): void;
   /** Force a firehose WebSocket reconnect (closes the live WS). */
   forceSyncReconnect(): void;
+  /** Close and pause the Sync tube; paired resume starts a fresh generation. */
+  pauseSyncTransport(): void;
+  resumeSyncTransport(): void;
   /** How many cell frames have arrived for this session (smoke verification). */
   cellFrameCount(sessionId: string): number;
   /** How many FULL cell frames have arrived — a reveal of a current pane must
    *  not move this (the worker's claim snapshot is what it proves absent). */
   cellFullFrameCount(sessionId: string): number;
+  /** Scrollback rows the last FULL frame carried — the claim snapshot's size.
+   *  Constant (SB_SNAPSHOT_TAIL_ROWS) whatever the depth or the viewer's gap;
+   *  unlike the painted row count this does not race the backfill drain. */
+  lastFullFrameSbRows(sessionId: string): number;
+  /** Drop exactly the next cell frame before counters and pane dispatch. */
+  dropNextCellFrame(sessionId: string): void;
+  droppedCellFrameCount(sessionId: string): number;
   /** Sync WebSocket dial count. Unchanged across a refocus = the socket was
    *  kept (no JWT sign + TLS handshake + since= backfill ahead of the reveal). */
   syncWsGeneration(): number;
@@ -85,7 +104,7 @@ export interface SmokeApi {
   /** Kill a session via the standard mutation. */
   kill(sessionId: string): Promise<{ accepted: boolean }>;
   /** Spawn a shell on a worker; returns { session_id, channel_id }. */
-  spawnShell(workerFp: string, folder: string): Promise<{ session_id: string; channel_id: number }>;
+  spawnShell(workerFp: string, folder: string, sessionId?: string): Promise<{ session_id: string; channel_id: number }>;
   /** Create a workspace attached to a session — bypasses the cwd-picker UI. */
   createWorkspace(workerFp: string, folder: string, sessionId: string): Promise<{ id: string; channel: number }>;
   /** Test resources created by this tab, cleaned without touching live state. */
@@ -216,15 +235,19 @@ export function maybeInstallSmokeBackdoor(): void {
     markerScan(sessionId, prefix) {
       const slot = document.querySelector(`[data-testid="terminal-slot-${sessionId}"]`);
       const c = slot?.querySelector(".wterm") as HTMLElement | null;
-      const text = c?.textContent ?? "";
       const re = new RegExp(prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(\\d+)", "g");
       const counts = new Map<number, number>();
       const seq: number[] = []; // marker Ns in DOM render order
-      let m: RegExpExecArray | null;
-      while ((m = re.exec(text)) !== null) {
-        const n = Number(m[1]);
-        counts.set(n, (counts.get(n) ?? 0) + 1);
-        seq.push(n);
+      for (const row of c?.querySelectorAll(".cell-row, .term-row") ?? []) {
+        re.lastIndex = 0;
+        const text = row.textContent ?? "";
+        let match: RegExpExecArray | null;
+        while ((match = re.exec(text)) !== null) {
+          const n = Number(match[1]);
+          if (!Number.isSafeInteger(n)) continue;
+          counts.set(n, (counts.get(n) ?? 0) + 1);
+          seq.push(n);
+        }
       }
       const ns = [...counts.keys()];
       const total = [...counts.values()].reduce((a, b) => a + b, 0);
@@ -264,11 +287,26 @@ export function maybeInstallSmokeBackdoor(): void {
     forceSyncReconnect() {
       forceSyncReconnectImpl();
     },
+    pauseSyncTransport() {
+      pauseSyncTransportImpl();
+    },
+    resumeSyncTransport() {
+      resumeSyncTransportImpl();
+    },
     cellFrameCount(sessionId) {
       return cellFrameCountImpl(sessionId);
     },
     cellFullFrameCount(sessionId) {
       return cellFullFrameCountImpl(sessionId);
+    },
+    lastFullFrameSbRows(sessionId) {
+      return lastFullFrameSbRowsImpl(sessionId);
+    },
+    dropNextCellFrame(sessionId) {
+      dropNextCellFrameImpl(sessionId);
+    },
+    droppedCellFrameCount(sessionId) {
+      return droppedCellFrameCountImpl(sessionId);
     },
     perfProbe(sessionId) {
       const counters = perfCounters();
@@ -295,6 +333,9 @@ export function maybeInstallSmokeBackdoor(): void {
     forceVisible(on) {
       setForceVisible(on);
     },
+    forceHidden(on) {
+      setForceHidden(on);
+    },
     navigate(href) {
       window.dispatchEvent(new CustomEvent("roost-smoke-navigate", { detail: href }));
     },
@@ -302,8 +343,13 @@ export function maybeInstallSmokeBackdoor(): void {
       const res = await coordClient.sessionsKill({ sessionId });
       return { accepted: res.accepted };
     },
-    async spawnShell(workerFp, folder) {
-      const res = await coordClient.sessionsSpawn({ workerFp, kind: "shell", folder });
+    async spawnShell(workerFp, folder, sessionId) {
+      const res = await coordClient.sessionsSpawn({
+        workerFp,
+        kind: "shell",
+        folder,
+        sessionId,
+      });
       spawned.add(res.sessionId);
       return { session_id: res.sessionId, channel_id: res.channelId };
     },

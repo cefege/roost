@@ -186,13 +186,13 @@ function _wrapRange(
   void row;
 }
 
-/** Attach the linkifier to a wterm container. Returns a teardown fn
- *  that disconnects the observer and unbinds the modifier listeners.
- *  Safe to call once per Terminal mount; idempotent re-mount via
- *  teardown-then-attach.
- *  `tracker` is the Osc8Tracker observing the same Terminal's byte
- *  stream — passed in so the linkifier can wrap OSC-8-only links
- *  (e.g. `Foo.txt` with hidden file:/// URI from `ls --hyperlink`). */
+/** Attachment controls for a terminal linkifier instance. */
+export interface TerminalLinkAttachment {
+  releaseInteraction(): void;
+  dispose(): void;
+}
+
+/** Attach the linkifier to a wterm container. */
 export interface TerminalLinkOpts {
   /** Resolve a file path from output → internal `/file/…` href (or null). */
   resolveFile?: ResolveFile;
@@ -213,7 +213,7 @@ export function attachTerminalLinks(
   container: HTMLElement,
   tracker: Osc8Tracker | null = null,
   opts: TerminalLinkOpts = {},
-): () => void {
+): TerminalLinkAttachment {
   _injectCssOnce();
 
   // Modifier-gated activation. Meta on macOS (Cmd), Ctrl elsewhere
@@ -270,9 +270,14 @@ export function attachTerminalLinks(
   // surprise. One shared element, positioned under the hovered anchor.
   let hintEl: HTMLDivElement | null = null;
   const hideHint = (): void => { if (hintEl) hintEl.style.display = "none"; };
-  const onBlur = (): void => {
-    container.removeAttribute("data-link-armed"); armed = false; recomputeHold(); hideHint();
+  const releaseInteraction = (): void => {
+    container.removeAttribute("data-link-armed");
+    armed = false;
+    pointerInside = false;
+    recomputeHold();
+    hideHint();
   };
+  const onBlur = releaseInteraction;
   const onPointerEnter = (): void => { pointerInside = true; recomputeHold(); };
   const onPointerLeave = (): void => { pointerInside = false; recomputeHold(); };
   window.addEventListener("keydown", onKeyDown);
@@ -510,7 +515,7 @@ export function attachTerminalLinks(
   };
   document.addEventListener("visibilitychange", onVisChange);
 
-  return () => {
+  const dispose = (): void => {
     obs.disconnect();
     _cancelScan();
     document.removeEventListener("visibilitychange", onVisChange);
@@ -522,9 +527,9 @@ export function attachTerminalLinks(
     container.removeEventListener("mouseenter", onPointerEnter);
     container.removeEventListener("mouseleave", onPointerLeave);
     container.removeEventListener("click", onClick);
-    container.removeAttribute("data-link-armed");
-    if (holding) { holding = false; opts.onArmedHoverChange?.(false); }
+    releaseInteraction();
     hintEl?.remove();
     hintEl = null;
   };
+  return { releaseInteraction, dispose };
 }

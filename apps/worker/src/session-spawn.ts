@@ -14,6 +14,8 @@ import { withHistfile } from "./keeper/histfile.ts";
 import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
 import { _createWtermCore } from "./session-constants.ts";
 import { createSbRing } from "./session-scrollback-ring.ts";
+import { withAgentStatusEnvironment } from "./agent-status/environment.ts";
+import { initAgentOscState } from "./terminal-stream-scan.ts";
 
 /** Spawn a plain shell session. Returns the channelId.
  *  targetSessionId: optional explicit session id to use instead of
@@ -55,6 +57,7 @@ export async function spawnShell(
 		alt_mode: false,
 		mode_carry: new Uint8Array(0),
 		osc7_carry: new Uint8Array(0),
+		...initAgentOscState(),
 		wtermCore,
 		session_trace_id: newTraceId(),
 		cell_emit: initCellEmitState(),
@@ -79,7 +82,7 @@ export async function spawnShell(
 			argv: [shell],
 			cols: cols ?? 80,
 			rows: rows ?? 24,
-			env: withHistfile(resolvedCwd),
+			env: withAgentStatusEnvironment(withHistfile(resolvedCwd), String(sessionId)),
 			callbacks: this.muxCallbacks(channelId),
 		});
 	} catch (e) {

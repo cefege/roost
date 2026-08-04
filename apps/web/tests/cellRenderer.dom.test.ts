@@ -242,14 +242,14 @@ describe("CellGridRenderer DOM — append-only scrollback, no reflow", () => {
     const viewportEl = vpEl(c); // ctor appends scrollback then viewport
     const scrollbackEl = sbEl(c);
 
-    r.apply(fullFrame(80, [row(0, "v0")], [row(0, "h0")]));
+    expect(r.apply(fullFrame(80, [row(0, "v0")], [row(0, "h0")]))).toBe(true);
     const heldRow = viewportEl.children[0]; // the painted viewport row node
 
     // Selection active → frames fold into state but the DOM must NOT change,
     // or the browser would drop the user's in-progress selection.
     r.setSelectionHold(true);
-    r.apply(deltaFrame(80, 1, [row(0, "v0-changed")], [row(1, "h1")], 2));
-    r.apply(deltaFrame(80, 1, [row(0, "v0-again")], [], 3));
+    expect(r.apply(deltaFrame(80, 1, [row(0, "v0-changed")], [row(1, "h1")], 2))).toBe(true);
+    expect(r.apply(deltaFrame(80, 1, [row(0, "v0-again")], [], 3))).toBe(true);
     expect(viewportEl.children[0]).toBe(heldRow);   // viewport frozen
     expect(sbRows(scrollbackEl).length).toBe(1);    // scrollback append deferred
 
@@ -300,15 +300,16 @@ describe("CellGridRenderer DOM — append-only scrollback, no reflow", () => {
     expect(viewportEl.children[0]).not.toBe(heldRow);
   });
 
-  test("a delta before any full frame is dropped (self-heals on the next full)", () => {
+  test("a delta before any full frame is rejected and the next full is accepted", () => {
     const c = makeContainer();
-    const r = new CellGridRenderer(c as any);
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
     const scrollbackEl = sbEl(c);
 
-    r.apply(deltaFrame(80, 1, [row(0, "x")], [row(0, "orphan")], 1));
-    expect(scrollbackEl.children.length).toBe(0); // no base frame → dropped
+    expect(r.apply(deltaFrame(80, 1, [row(0, "x")], [row(0, "orphan")], 1))).toBe(false);
+    expect(r.heldFrameSeq()).toBe(0);
+    expect(scrollbackEl.children.length).toBe(0);
 
-    r.apply(fullFrame(80, [row(0, "v0")], [row(0, "h0")]));
+    expect(r.apply(fullFrame(80, [row(0, "v0")], [row(0, "h0")]))).toBe(true);
     expect(scrollbackEl.children.length).toBe(1);
   });
 

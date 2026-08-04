@@ -5,7 +5,7 @@
     "apps/shared":   { "entry": ["src/index.ts!"], "ignoreDependencies": ["@bufbuild/protoc-gen-es"] },
     "apps/coord":    { "entry": ["src/main.ts!", "tests/**/*.test.ts"] },
     "apps/worker":   { "entry": ["src/main.ts!", "src/keeper/multiplexed-main.ts!", "tests/**/*.test.ts", "tests/**/fixtures/*.ts"] },
-    "apps/web":      { "entry": ["src/main.tsx!", "index.html", "tests/**/*.test.ts"] },
+    "apps/web":      { "entry": ["src/main.tsx!", "index.html", "public/sw-push.js", "tests/**/*.test.ts"] },
     "apps/roost-cli": { "entry": ["src/main.ts!"] },
     "smoke":         { "entry": ["*.test.ts"] }
   },

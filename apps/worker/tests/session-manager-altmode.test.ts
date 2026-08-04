@@ -13,6 +13,7 @@ import { asSessionId, asChannelId, asWorkerFp } from "@roost/shared";
 import { WasmBridge } from "@wterm/core";
 import { initCellEmitState } from "@roost/shared/cell";
 import { createSbRing } from "../src/session-scrollback-ring.ts";
+import { initAgentOscState } from "../src/terminal-stream-scan.ts";
 
 function freshMgr(): SessionManager {
   return new SessionManager({
@@ -39,6 +40,7 @@ async function injectSession(mgr: SessionManager, channelId: number, bytes: stri
     alt_mode: altMode,
     mode_carry: new Uint8Array(0),
     osc7_carry: new Uint8Array(0),
+    ...initAgentOscState(),
     wtermCore,
     cell_emit: initCellEmitState(),
   };

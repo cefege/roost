@@ -25,6 +25,7 @@ import { newJwtCache, signJwt, fingerprintOf } from "../src/jwt.ts";
 import { createCoord, type CoordHandle } from "../src/coord-factory.ts";
 import { globalPresenceBus } from "../src/buses.ts";
 import { __setConnectWorkerForTest } from "../src/connect/worker-service.ts";
+import { primeChannelMap } from "../src/byte-hub.ts";
 import type { CoordConfig } from "@roost/shared/config";
 
 let workdir: string;
@@ -178,7 +179,7 @@ describe("coord-bidi spawn → input → kill routing", () => {
 // verification — without the composite key, two tabs from the same
 // browser would collapse into one entry, and one tab's pagehide
 // would drop the other tab's claim.
-describe("sessionsResize — tab-id composite + viewer bookkeeping", () => {
+describe("per-tab viewer identity — resize and cursor presence", () => {
   const FAKE_WORKER_FP = "deadbeef".repeat(8); // 64 hex chars
   let workerSends: unknown[] = [];
 
@@ -284,5 +285,59 @@ describe("sessionsResize — tab-id composite + viewer bookkeeping", () => {
     };
     expect(last.frame.case).toBe("browserCommand");
     expect(last.frame.value.viewerId).toBe(`${browserFp}:tab-WIRE`);
+  });
+
+  test("cursor presence and worker command use the composite tab identity", async () => {
+    const sid = "66666666-6666-6666-6666-666666666666";
+    await seedSession(sid);
+    primeChannelMap([{ id: sid, worker_fp: FAKE_WORKER_FP, channel: 1 }]);
+    const deltas: Array<{ kind?: string; viewer_id?: string }> = [];
+    const unsub = globalPresenceBus.subscribe(({ session_id, data }) => {
+      const payload = data as { kind?: string; viewer_id?: string };
+      if (session_id === sid && payload.kind === "presence-delta") deltas.push(payload);
+    });
+    workerSends = [];
+    try {
+      await authedFetch("/roost.v1.CoordinatorService/SessionsCursorPos",
+        { sessionId: sid, col: 17, row: 9 }, "tab-CURSOR");
+    } finally {
+      unsub();
+    }
+
+    expect(deltas).toHaveLength(1);
+    expect(deltas[0]!.viewer_id).toBe(`${browserFp}:tab-CURSOR`);
+    expect(workerSends.length).toBeGreaterThan(0);
+    const last = workerSends[workerSends.length - 1] as {
+      frame: { case: string; value: { viewerId: string } };
+    };
+    expect(last.frame.case).toBe("browserCommand");
+    expect(last.frame.value.viewerId).toBe(`${browserFp}:tab-CURSOR`);
+  });
+
+  test("cursor presence and worker command keep the legacy bare fingerprint", async () => {
+    const sid = "77777777-7777-7777-7777-777777777777";
+    await seedSession(sid);
+    primeChannelMap([{ id: sid, worker_fp: FAKE_WORKER_FP, channel: 1 }]);
+    const deltas: Array<{ kind?: string; viewer_id?: string }> = [];
+    const unsub = globalPresenceBus.subscribe(({ session_id, data }) => {
+      const payload = data as { kind?: string; viewer_id?: string };
+      if (session_id === sid && payload.kind === "presence-delta") deltas.push(payload);
+    });
+    workerSends = [];
+    try {
+      await authedFetch("/roost.v1.CoordinatorService/SessionsCursorPos",
+        { sessionId: sid, col: 23, row: 4 });
+    } finally {
+      unsub();
+    }
+
+    expect(deltas).toHaveLength(1);
+    expect(deltas[0]!.viewer_id).toBe(browserFp);
+    expect(workerSends.length).toBeGreaterThan(0);
+    const last = workerSends[workerSends.length - 1] as {
+      frame: { case: string; value: { viewerId: string } };
+    };
+    expect(last.frame.case).toBe("browserCommand");
+    expect(last.frame.value.viewerId).toBe(browserFp);
   });
 });

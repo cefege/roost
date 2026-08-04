@@ -3,7 +3,7 @@
 // Desktop: floating positioned menu at cursor coordinates.
 // Mobile (<768px): bottom action sheet that slides up from the screen edge.
 //
-// Items: Copy selection | Paste | New terminal | Attach file | Close terminal.
+// Items: Copy | Paste | New terminal | Attach file | Close terminal.
 // Mounted alongside the Terminal component in MainPane.
 
 import { Show, batch, createSignal, onCleanup, onMount, type JSX } from "solid-js";
@@ -157,7 +157,7 @@ export function TerminalContextMenu(props: Props) {
                 }} />
                 <Show when={s().selection.length > 0}>
                   <SheetItem testid="ctx-copy-selection" onClick={() => doCopySelection(s().selection)}>
-                    Copy selection
+                    Copy
                   </SheetItem>
                 </Show>
                 <SheetItem testid="ctx-paste" onClick={doPaste}>
@@ -189,7 +189,7 @@ export function TerminalContextMenu(props: Props) {
           >
             <Show when={s().selection.length > 0}>
               <CtxMenuItem testid="ctx-copy-selection" onClick={() => doCopySelection(s().selection)}>
-                Copy selection
+                Copy
               </CtxMenuItem>
               <CtxMenuSeparator />
             </Show>

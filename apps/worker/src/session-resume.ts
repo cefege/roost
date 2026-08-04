@@ -15,6 +15,8 @@ import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
 import { ALT_ENTER_SEQS, _scanAltModeTransitions } from "./terminal-stream-scan.ts";
 import { _createWtermCore } from "./session-constants.ts";
 import { createSbRing } from "./session-scrollback-ring.ts";
+import { withAgentStatusEnvironment } from "./agent-status/environment.ts";
+import { initAgentOscState } from "./terminal-stream-scan.ts";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
@@ -94,6 +96,7 @@ export async function resume(this: SessionManager, opts: {
 			alt_mode: resumedAlt,
 			mode_carry: new Uint8Array(0),
 			osc7_carry: new Uint8Array(0),
+			...initAgentOscState(),
 			wtermCore,
 			session_trace_id: newTraceId(),
 			cell_emit: initCellEmitState(),
@@ -166,7 +169,7 @@ export async function respawn(this: SessionManager, opts: {
 	const wtermCore = await _createWtermCore(cols, rows);
 
 	const argv = [process.env.SHELL ?? "/bin/bash"];
-	const env = withHistfile(resolvedCwd);
+	const env = withAgentStatusEnvironment(withHistfile(resolvedCwd), String(opts.oldSessionId));
 
 	const record: SessionRecord = {
 		sessionId: opts.oldSessionId,
@@ -181,6 +184,7 @@ export async function respawn(this: SessionManager, opts: {
 		alt_mode: false,
 		mode_carry: new Uint8Array(0),
 		osc7_carry: new Uint8Array(0),
+		...initAgentOscState(),
 		wtermCore,
 		session_trace_id: newTraceId(),
 		cell_emit: initCellEmitState(),

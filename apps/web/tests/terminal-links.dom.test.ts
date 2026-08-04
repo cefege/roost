@@ -22,6 +22,7 @@ class FakeEl {
 	ownerDocument: unknown;
 	textContent = "";
 	private attrs = new Map<string, string>();
+	private listeners = new Map<string, Set<(ev: unknown) => void>>();
 	children: FakeEl[] = [];
 	parentElement: FakeEl | null = null;
 	style = { getPropertyValue: (_k: string): string => "" };
@@ -38,8 +39,15 @@ class FakeEl {
 	getAttribute(k: string): string | null { return this.attrs.get(k) ?? null; }
 	removeAttribute(k: string): void { this.attrs.delete(k); }
 	querySelector(_sel: string): FakeEl | null { return null; }
-	addEventListener(): void {}
-	removeEventListener(): void {}
+	addEventListener(type: string, fn: (ev: unknown) => void): void {
+		let listeners = this.listeners.get(type);
+		if (!listeners) { listeners = new Set(); this.listeners.set(type, listeners); }
+		listeners.add(fn);
+	}
+	removeEventListener(type: string, fn: (ev: unknown) => void): void { this.listeners.get(type)?.delete(fn); }
+	dispatchEvent(ev: { type: string; [key: string]: unknown }): void {
+		for (const fn of this.listeners.get(ev.type) ?? []) fn(ev);
+	}
 	remove(): void {}
 }
 
@@ -53,7 +61,7 @@ class FakeEventTarget {
 	removeEventListener(type: string, fn: (ev: unknown) => void): void {
 		this.listeners.get(type)?.delete(fn);
 	}
-	dispatchEvent(ev: { type: string }): void {
+	dispatchEvent(ev: { type: string; [key: string]: unknown }): void {
 		for (const fn of this.listeners.get(ev.type) ?? []) fn(ev);
 	}
 }
@@ -76,6 +84,7 @@ interface RafEntry { handle: number; cb: () => void }
 interface Harness {
 	doc: FakeDoc;
 	container: FakeEl;
+	win: FakeEventTarget;
 	rafQueue: RafEntry[];
 	fireNextRaf: () => void;
 	fireAllRaf: () => void;
@@ -125,7 +134,7 @@ function makeHarness(): Harness {
 	g.cancelAnimationFrame = cancelRaf;
 	const restore = (): void => { for (const [k, v] of Object.entries(saved)) g[k] = v; };
 
-	return { doc, container, rafQueue, fireNextRaf, fireAllRaf, restore };
+	return { doc, container, win, rafQueue, fireNextRaf, fireAllRaf, restore };
 }
 
 // attachTerminalLinks expects a real HTMLElement; the fake is structurally
@@ -138,18 +147,18 @@ describe("attachTerminalLinks — visibility recovery", () => {
 
 	test("initial rAF fires → scan runs (happy path, no regression)", () => {
 		h = makeHarness();
-		const detach = attachTerminalLinks(asEl(h.container), null, {});
+		const attachment = attachTerminalLinks(asEl(h.container), null, {});
 		expect(h.rafQueue.length).toBe(1);
 		let scans = 0;
 		h.container.querySelectorAll = () => { scans++; return []; };
 		h.fireNextRaf();
 		expect(scans).toBe(1);
-		detach();
+		attachment.dispose();
 	});
 
 	test("dropped rAF (stuck latch) → visibilitychange recovers and re-linkifies", () => {
 		h = makeHarness();
-		const detach = attachTerminalLinks(asEl(h.container), null, {});
+		const attachment = attachTerminalLinks(asEl(h.container), null, {});
 		expect(h.rafQueue.length).toBe(1);
 		const staleHandle = h.rafQueue[0]!.handle;
 
@@ -172,12 +181,12 @@ describe("attachTerminalLinks — visibility recovery", () => {
 		h.container.querySelectorAll = () => { scans++; return []; };
 		h.fireNextRaf();
 		expect(scans).toBe(1);
-		detach();
+		attachment.dispose();
 	});
 
 	test("deferred rAF → visibilitychange cancels the stale frame (no double-scan)", () => {
 		h = makeHarness();
-		const detach = attachTerminalLinks(asEl(h.container), null, {});
+		const attachment = attachTerminalLinks(asEl(h.container), null, {});
 		expect(h.rafQueue.length).toBe(1);
 		const staleHandle = h.rafQueue[0]!.handle;
 
@@ -196,16 +205,39 @@ describe("attachTerminalLinks — visibility recovery", () => {
 		h.container.querySelectorAll = () => { scans++; return []; };
 		h.fireAllRaf();
 		expect(scans).toBe(1);
-		detach();
+		attachment.dispose();
 	});
 
 	test("teardown removes the visibilitychange listener (no leak)", () => {
 		h = makeHarness();
-		const detach = attachTerminalLinks(asEl(h.container), null, {});
-		detach();
+		const attachment = attachTerminalLinks(asEl(h.container), null, {});
+		attachment.dispose();
 		// After teardown, a visibility flip must not schedule any scan.
 		h.doc.visibilityState = "visible";
 		h.doc.dispatchEvent({ type: "visibilitychange" });
 		expect(h.rafQueue.length).toBe(0);
+	});
+
+	test("releaseInteraction clears modifier and pointer state and releases a hold once", () => {
+		h = makeHarness();
+		const changes: boolean[] = [];
+		const attachment = attachTerminalLinks(asEl(h.container), null, {
+			onArmedHoverChange: (active) => changes.push(active),
+		});
+		h.container.dispatchEvent({ type: "mouseenter" });
+		h.win.dispatchEvent({ type: "keydown", key: "Meta" });
+		expect(h.container.getAttribute("data-link-armed")).toBe("1");
+		expect(changes).toEqual([true]);
+
+		attachment.releaseInteraction();
+		expect(h.container.getAttribute("data-link-armed")).toBeNull();
+		expect(changes).toEqual([true, false]);
+		attachment.releaseInteraction();
+		expect(changes).toEqual([true, false]);
+
+		// Pointer state was cleared: re-arming alone cannot reacquire the hold.
+		h.win.dispatchEvent({ type: "keydown", key: "Meta" });
+		expect(changes).toEqual([true, false]);
+		attachment.dispose();
 	});
 });

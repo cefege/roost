@@ -11,6 +11,12 @@ import { isPendingClose } from "./pendingClose.ts";
 import { shortServerLabel } from "./sidebarFormat.ts";
 import { workerOnline } from "../store/sync.ts";
 import { folderKeyOf, folderPathOf, folderDisplayName } from "./folderKey.ts";
+import {
+  deriveAgentStatusLevel,
+  foldAgentStatusLevels,
+  type AgentStatusRollup,
+} from "./agentStatus.ts";
+import { seenAgentRevision } from "./agentSeen.ts";
 
 
 // Lead-session PR status, shaped for the row badge. null = no PR to show.
@@ -37,6 +43,7 @@ export interface FolderGroup {
   branch: string | null;  // current git branch of the lead's cwd (worker git)
   ports: number[];        // LISTEN ports across the folder's panes (worker lsof)
   reachAddr: string | null; // worker host for port click-through (reachable_addr)
+  agentStatus: AgentStatusRollup; // max-priority state + per-state counts
 }
 
 // Check glyph + token color per rollup state. none → no glyph (just #123).
@@ -82,6 +89,12 @@ export function buildFolderGroups(input: Session[] = allSessions()): FolderGroup
     const worker = rootStore.workers[head.worker_fp];
     const latestActivity = Math.max(...sessions.map(recencyOf));
     const online = worker ? workerOnline(worker) : false;
+    const agentStatus = foldAgentStatusLevels(sessions.map((session) =>
+      deriveAgentStatusLevel(
+        rootStore.agent_status[session.id],
+        seenAgentRevision(session.id),
+      )
+    ));
     out.push({
       key,
       name: folderDisplayName(head),
@@ -98,6 +111,7 @@ export function buildFolderGroups(input: Session[] = allSessions()): FolderGroup
       reachAddr: worker?.reachable_addr ?? null,
       leadId: lead.id,
       sessionIds: sessions.map((s) => s.id),
+      agentStatus,
     });
   }
   return out.sort((a, b) => b.latestActivity - a.latestActivity);

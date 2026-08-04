@@ -17,14 +17,14 @@
 import { create, toBinary, fromBinary } from "@bufbuild/protobuf";
 import {
   CoordWorkerUpSchema, CoordWorkerDownSchema, WHelloSchema,
-  WRefreshJwtSchema, WSessionEventSchema, WCellGridSchema,
+  WRefreshJwtSchema, WSessionEventSchema, WCellGridSchema, WAgentStatusSchema,
 } from "@roost/shared/proto/worker_transport_pb";
 import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
 import { ClientSeq } from "./client-seq.ts";
 import type {
   CoordWorkerUp, CoordWorkerDown,
 } from "@roost/shared/proto/worker_transport_pb";
-import type { ClientControlFrame, SessionEvent } from "@roost/shared/wire";
+import type { AgentStatusUpdate, ClientControlFrame, SessionEvent } from "@roost/shared/wire";
 import { eventToProto } from "@roost/shared/wire/event-proto";
 import { log, diag, signal } from "@roost/shared";
 import { frameToProto, decodeBinaryFrame, binaryFrameToProto } from "./CoordLink-codec.ts";
@@ -197,6 +197,27 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
     try { writer(up); return true; } catch { diag("transport.frame_dropped", { reason: "writer_throw", kind: "cellGrid" }); return false; }
   }
 
+  function sendAgentStatus(status: AgentStatusUpdate): boolean {
+    if (disposed || !writer) return false;
+    const up = create(CoordWorkerUpSchema, {
+      frame: { case: "agentStatus", value: create(WAgentStatusSchema, {
+        sessionId: status.session_id,
+        agentId: status.agent_id,
+        state: status.state,
+        message: status.message,
+        revision: BigInt(status.revision),
+        completedRevision: BigInt(status.completed_revision),
+        updatedAt: status.updated_at,
+        active: status.active,
+      }) },
+    });
+    try { writer(up); return true; }
+    catch {
+      diag("transport.frame_dropped", { reason: "writer_throw", kind: "agentStatus" });
+      return false;
+    }
+  }
+
 
 
 
@@ -240,6 +261,7 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
     let cleanedUp = false;
     let lastDownstreamAtMs = Date.now();
     let staleTimer: ReturnType<typeof setInterval> | null = null;
+    let dialReconnected = false;
 
     // `writer` stays null until OPEN so send()/sendBinary() take their
     // queue-to-pending/unacked fallback rather than throwing into a
@@ -275,7 +297,7 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
       setState({ kind: "open", since: openedAt });
       _reconnectFailures = 0;
       _didOpen = true;
-      const reconnected = hasOpened;
+      dialReconnected = hasOpened;
       hasOpened = true;
       _authRejectCount = 0;
       scheduleRefresh();
@@ -328,7 +350,7 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
           }
         }
         try {
-          deps.onOpen?.(reconnected);
+          deps.onOpen?.(dialReconnected);
         } catch (err) {
           log.warn("coord-link", "on_open_failed", { error: err instanceof Error ? err.message : String(err) });
         }
@@ -358,22 +380,26 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
         log.warn("coord-link", "downstream_decode_failed", { error: (err as Error).message });
         return;
       }
-      handleDownstream(frame);
+      handleDownstream(frame, dialReconnected);
     };
 
     ws.onerror = () => { log.warn("coord-link", "stream_error", { error: "ws error" }); cleanup(); };
     ws.onclose = () => { cleanup(); };
   }
 
-  function handleDownstream(frame: CoordWorkerDown): void {
+  function handleDownstream(frame: CoordWorkerDown, reconnected: boolean): void {
     const k = frame.frame?.case;
     if (!k) return;
     const v = frame.frame.value;
     switch (k) {
       case "helloAck": {
         const ha = v as { coordPubkeyB64: string; coordPubkeyKid: string };
-        deps.onHelloAck?.({ coord_pubkey_b64: ha.coordPubkeyB64, coord_pubkey_kid: ha.coordPubkeyKid });
-        log.info("coord-link", "hello_ack", { coord_kid: ha.coordPubkeyKid });
+        deps.onHelloAck?.({
+          coord_pubkey_b64: ha.coordPubkeyB64,
+          coord_pubkey_kid: ha.coordPubkeyKid,
+          reconnected,
+        });
+        log.info("coord-link", "hello_ack", { coord_kid: ha.coordPubkeyKid, reconnected });
         return;
       }
       case "ping": {
@@ -531,5 +557,5 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
   }
 
   void dial();
-  return { send, sendBinary, sendCellGrid, state: () => state, relocate, unackedEventCount: () => unacked.size, dispose };
+  return { send, sendBinary, sendCellGrid, sendAgentStatus, state: () => state, relocate, unackedEventCount: () => unacked.size, dispose };
 }

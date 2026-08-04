@@ -30,8 +30,23 @@ import { FlatNewTerminal } from "./FlatNewTerminal.tsx";
 import { FolderGlyph } from "../FolderGlyph.tsx";
 import { IconButton } from "../Settings/md/IconButton.tsx";
 import { Button } from "../Settings/md/Button.tsx";
+import { formatAgentStatusCounts } from "../../lib/agentStatus.ts";
 import "@material/web/ripple/ripple.js";
 
+function FolderStatusRollup(props: { group: FolderGroup }) {
+  return (
+    <Show when={props.group.agentStatus.total > 0}>
+      <span
+        class="agent-status-rollup"
+        data-level={props.group.agentStatus.level}
+        data-testid={`folder-agent-status-${props.group.key}`}
+      >
+        <span class="agent-status__dot" aria-hidden="true" />
+        <span>{formatAgentStatusCounts(props.group.agentStatus.counts)}</span>
+      </span>
+    </Show>
+  );
+}
 export function FolderList() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -130,6 +145,7 @@ export function FolderList() {
         <Show when={g.subtitle}>
           <span class="df-flat-subtitle">{g.subtitle}</span>
         </Show>
+        <FolderStatusRollup group={g} />
         <span class="df-flat-supporting">
           <span class="df-flat-server" data-online={g.online ? "true" : "false"}>
             <svg class="df-flat-server-icon" width="12" height="12" viewBox="0 0 24 24" fill="none"
@@ -262,6 +278,7 @@ export function FolderList() {
             <span class="df-label df-flat-headline">{g.subtitle || "New chat"}</span>
             <span class="df-flat-time">{(relTimeTickMs(), relTimeSince(g.latestActivity))}</span>
           </span>
+          <FolderStatusRollup group={g} />
         </span>
         <IconButton
           icon="close"

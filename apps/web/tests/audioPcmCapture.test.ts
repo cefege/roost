@@ -1,9 +1,10 @@
 // audioPcmCapture is a WARM singleton: the mic pipeline outlives a recording so
 // the next tap doesn't pay a 1–2 s device open (which used to swallow the first
-// spoken words). Two contracts are defended here — reuse (getUserMedia runs once
-// across back-to-back recordings, and the sink swap is clean) and the
-// stop/release-during-start race that produced the toast "Mic: null is not an
-// object (evaluating 'e.createScriptProcessor')".
+// spoken words). Contracts defended here include reuse (getUserMedia runs once
+// across back-to-back recordings and the sink swap is clean), AudioContext
+// activation and graph rendering, and the stop/release-during-start race that
+// produced the toast "Mic: null is not an object (evaluating
+// 'e.createScriptProcessor')".
 //
 // Globals (navigator/window/AudioWorkletNode/URL) are stubbed before the import,
 // but the module reads them lazily inside warmMic(), so a static import is safe
@@ -32,6 +33,10 @@ let scriptProcessorCalls = 0;
 let getUserMediaCalls = 0;
 let lastProc: { onaudioprocess: unknown; connect: () => void; disconnect: () => void } | null = null;
 let getUserMediaImpl: () => Promise<unknown> = () => Promise.resolve(makeStream());
+let resumeCalls = 0;
+let initialContextState: AudioContextState = "running";
+let resumeImpl: () => Promise<void> = () => Promise.resolve();
+let lastContext: WorkletCtx | NoWorkletCtx | null = null;
 // gate + "entered" signal for addModule, letting a case park a warm-up on the
 // worklet await deterministically — no wall-clock timers.
 let addModuleGate = Promise.withResolvers<void>();
@@ -43,6 +48,7 @@ class FakeSource { connect() {} disconnect() {} }
 class WorkletCtx {
   sampleRate = 48000;
   destination = {};
+  state: AudioContextState = initialContextState;
   closed = false;
   audioWorklet = {
     addModule: (_url: string) => {
@@ -50,11 +56,16 @@ class WorkletCtx {
       return addModuleGate.promise;
     },
   };
+  constructor() { lastContext = this; }
   createMediaStreamSource() { return new FakeSource(); }
   createScriptProcessor() {
     scriptProcessorCalls++;
     lastProc = { onaudioprocess: null, connect() {}, disconnect() {} };
     return lastProc;
+  }
+  resume() {
+    resumeCalls++;
+    return resumeImpl().then(() => { this.state = "running"; });
   }
   close() { this.closed = true; return Promise.resolve(); }
 }
@@ -63,12 +74,18 @@ class WorkletCtx {
 class NoWorkletCtx {
   sampleRate = 48000;
   destination = {};
+  state: AudioContextState = initialContextState;
   audioWorklet: undefined = undefined;
+  constructor() { lastContext = this; }
   createMediaStreamSource() { return new FakeSource(); }
   createScriptProcessor() {
     scriptProcessorCalls++;
     lastProc = { onaudioprocess: null, connect() {}, disconnect() {} };
     return lastProc;
+  }
+  resume() {
+    resumeCalls++;
+    return resumeImpl().then(() => { this.state = "running"; });
   }
   close() { return Promise.resolve(); }
 }
@@ -87,8 +104,9 @@ Object.defineProperty(globalThis, "window", { value: {}, configurable: true, wri
 let lastNode: FakeAudioWorkletNode | null = null;
 class FakeAudioWorkletNode {
   port = { onmessage: null as ((e: { data: Float32Array }) => void) | null, close() {} };
+  connectedDestination: unknown = null;
   constructor() { lastNode = this; }
-  connect() {}
+  connect(destination: unknown) { this.connectedDestination = destination; }
   disconnect() {}
 }
 g.AudioWorkletNode = FakeAudioWorkletNode;
@@ -107,6 +125,10 @@ describe("audioPcmCapture warm pipeline", () => {
     micIdle.releaseMs = 60_000;
     scriptProcessorCalls = 0;
     getUserMediaCalls = 0;
+    resumeCalls = 0;
+    initialContextState = "running";
+    resumeImpl = () => Promise.resolve();
+    lastContext = null;
     lastProc = null;
     lastNode = null;
     getUserMediaImpl = () => Promise.resolve(makeStream());
@@ -158,6 +180,60 @@ describe("audioPcmCapture warm pipeline", () => {
     expect(scriptProcessorCalls).toBe(1);
     expect(typeof lastProc?.onaudioprocess).toBe("function");
     stopCapture();
+  });
+
+  test("cold startup resumes its context before getUserMedia resolves", async () => {
+    const gum = Promise.withResolvers<unknown>();
+    initialContextState = "suspended";
+    getUserMediaImpl = () => gum.promise;
+
+    const started = startCapture(() => {});
+
+    expect(lastContext).toBeInstanceOf(WorkletCtx);
+    expect(resumeCalls).toBe(1);
+    expect(getUserMediaCalls).toBe(1);
+
+    gum.resolve(makeStream());
+    addModuleGate.resolve();
+    await expect(started).resolves.toBeUndefined();
+    expect(lastNode?.connectedDestination).toBe(lastContext?.destination);
+  });
+
+  test("a suspended warm context resumes before routing to the new sink", async () => {
+    addModuleGate.resolve();
+    let first = 0;
+    let second = 0;
+
+    await startCapture(() => { first++; });
+    stopCapture();
+    if (!lastContext) throw new Error("expected a retained AudioContext");
+    lastContext.state = "suspended";
+
+    await startCapture(() => { second++; });
+    expect(resumeCalls).toBe(1);
+    expect(getUserMediaCalls).toBe(1);
+    pushAudio();
+    expect(first).toBe(0);
+    expect(second).toBeGreaterThan(0);
+  });
+
+  test("resume failure disposes the fulfilled stream and context", async () => {
+    const stream = makeStream();
+    const resumeError = new Error("resume denied");
+    initialContextState = "suspended";
+    resumeImpl = () => Promise.reject(resumeError);
+    getUserMediaImpl = () => Promise.resolve(stream);
+
+    const started = startCapture(() => {});
+    if (!(lastContext instanceof WorkletCtx)) {
+      throw new Error("expected a worklet AudioContext");
+    }
+    const openedContext = lastContext;
+
+    await expect(started).rejects.toBe(resumeError);
+    expect(stream.track.stopped).toBe(true);
+    expect(openedContext.closed).toBe(true);
+    expect(isMicWarm()).toBe(false);
   });
 
   test("D: a second recording reuses the open device and swaps the sink", async () => {

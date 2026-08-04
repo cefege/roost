@@ -28,6 +28,7 @@ import { RenameDialogHost } from "./components/RenameDialog.tsx";
 import { getLastTerminalPath } from "./lib/lastVisited.ts";
 import { shouldBootRestore, consumeBootRestore } from "./lib/bootRestore.ts";
 import { UiBridge } from "./lib/uiBridge.tsx";
+import { AgentNotificationBridge } from "./components/AgentNotificationBridge.tsx";
 
 // Code-split boundaries (ts-no-dynamic-import exception): solid `lazy` is the
 // bundler's split mechanism — routes/overlays below load their chunk on first
@@ -126,6 +127,7 @@ export function App() {
         <SmokeRouterBridge />
         <ShortcutRouterBridge />
         <UiBridge />
+        <AgentNotificationBridge />
         <CommandPalette />
         <HelpOverlay />
         <WhatsNewDialog />

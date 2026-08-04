@@ -175,6 +175,12 @@ export async function startTerminalTestStack(
         cwd: REPOSITORY_ROOT,
         env: childEnvironment(home, {
           ROOST_COORDINATOR_BIND: "127.0.0.1:0",
+          // Bun auto-loads the repository .env after process spawn. Explicit
+          // overrides keep the hermetic listener on loopback auth semantics and
+          // disable production's secondary Cloudflare listener.
+          ROOST_TRUST_PROXY: "0",
+          ROOST_PUBLIC_BIND: "",
+          ROOST_RELAXED_CSP: "1",
           ROOST_COORDINATOR_DB: join(root, "coord.db"),
           ROOST_COORDINATOR_AUTHORIZED_KEYS: join(root, "authorized_keys.roost"),
           ROOST_COORDINATOR_KEY_PATH: join(root, "coord.key"),

@@ -29,6 +29,7 @@ import type { KyselyDB } from "../db/connection.ts";
 import { log } from "@roost/shared/log";
 import { signal, diag } from "@roost/shared/diag";
 import { connectWorkers, _publishRoutable, type WorkerHandle } from "./worker-registry.ts";
+import { handleWorkerAgentStatus } from "../agent-status-hub.ts";
 
 export interface WorkerServiceDeps {
   db: KyselyDB;
@@ -229,6 +230,28 @@ export function makeWorkerConn(
         if (workerFp && cg.frame) {
           publishCellGrid(asWorkerFp(workerFp), asChannelId(cg.channelId), cg.frame);
         }
+        return;
+      }
+      case "agentStatus": {
+        if (!workerFp) {
+          diag("worker.frame_dropped", {
+            reason: "agent_status_before_hello",
+            worker_fp: caller.fingerprint,
+          });
+          requestClose();
+          return;
+        }
+        const status = f.frame.value;
+        handleWorkerAgentStatus(workerFp, {
+          session_id: status.sessionId,
+          agent_id: status.agentId,
+          state: status.state,
+          message: status.message,
+          revision: Number(status.revision),
+          completed_revision: Number(status.completedRevision),
+          updated_at: status.updatedAt,
+          active: status.active,
+        });
         return;
       }
       case "rpcOk": {

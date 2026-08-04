@@ -19,6 +19,7 @@ import { gridToCellFrame } from "@roost/shared/cell";
 import type { TerminalCore } from "@wterm/core";
 import { initCellEmitState } from "@roost/shared/cell";
 import { createSbRing } from "../src/session-scrollback-ring.ts";
+import { initAgentOscState } from "../src/terminal-stream-scan.ts";
 
 // withdrawViewport defers removal by VIEWER_WITHDRAW_GRACE_MS; wait past it
 // before asserting the post-withdraw claim count / recomputed SCD.
@@ -56,6 +57,7 @@ async function injectSession(mgr: SessionManager, cols: number, rows: number): P
     alt_mode: false,
     mode_carry: new Uint8Array(0),
     osc7_carry: new Uint8Array(0),
+    ...initAgentOscState(),
     wtermCore,
     cell_emit: initCellEmitState(),
   });

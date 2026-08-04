@@ -69,6 +69,17 @@ function sizeBlock(blk: HTMLElement, rows: number, rowH: number): void {
 // — lower if DOM headroom under many parked panes is still high.
 export const MAX_HELD_SCROLLBACK_ROWS = 2000;
 
+/** What a scrollback-backfill chunk is validated against: how deep the
+ *  unpainted [0, sbBase) hole is, the width the held rows were rendered at,
+ *  the frame's monotonic scrollback total, and the first held row's text (the
+ *  overlap row a get-scrollback-cells response must reproduce). */
+export interface BackfillAnchor {
+  sbBase: number;
+  cols: number;
+  total: number;
+  firstHeldText: string | null;
+}
+
 
 /** Merge an incoming FULL frame onto the held frame when its scrollback
  *  (possibly a tail, sbBase > 0 — see types.ts) verifiably EXTENDS the held
@@ -207,9 +218,10 @@ export class CellGridRenderer {
     if (this.ghostsEl.parentElement !== this.viewportEl) this.viewportEl.appendChild(this.ghostsEl);
   }
 
-  /** Apply a full or delta frame. A delta before any full frame is dropped
-   *  (the worker sends a full on attach/reconnect, so we self-heal). */
-  apply(incoming: CellGridFrame): void {
+  /** Apply a full or delta frame. Returns false only when a delta has no full
+   *  base; true means the frame was folded into renderer state, including while
+   *  an interaction hold suppresses DOM writes. */
+  apply(incoming: CellGridFrame): boolean {
     const wasAtBottom = this.atBottom();
     if (incoming.full) {
       const base = this.frame;
@@ -221,13 +233,13 @@ export class CellGridRenderer {
       const merged = base ? mergeFullFrame(base, incoming) : null;
       if (merged) {
         this.frame = merged.frame;
-        if (this.holding) { this.pendingRender = true; return; }
+        if (this.holding) { this.pendingRender = true; return true; }
         this._appendScrollback(merged.appended, wasAtBottom);
         this.renderViewport(incoming.altScreen ? 0 : merged.appended.length);
         this.setGridWidth();
         this._syncAltScreen();
         this._pinToBottom(wasAtBottom);
-        return;
+        return true;
       }
       // Slow path: fresh mount / width change / reset / uncovered gap →
       // rebuild from the incoming frame verbatim (block-packed, so even deep
@@ -240,22 +252,23 @@ export class CellGridRenderer {
       const heldTotal = base?.scrollbackTotal ?? 0;
       const windowUnreachable = base !== null && heldTotal > 0 && incoming.sbBase > heldTotal - 1;
       this.frame = incoming;
-      if (this.holding) { this.pendingRender = true; return; }
+      if (this.holding) { this.pendingRender = true; return true; }
       this.renderFull(wasAtBottom || windowUnreachable);
-      return;
+      return true;
     }
-    if (!this.frame) return; // no base yet — wait for a full frame
+    if (!this.frame) return false;
     const appended = incoming.scrollbackAppend;
     this.frame = applyDelta(this.frame, incoming);
     // Mid-hold (selection / Cmd-hover): fold frames into this.frame but freeze
     // the DOM — the rebuild on release reconciles to the latest (field docs above).
-    if (this.holding) { this.pendingRender = true; return; }
+    if (this.holding) { this.pendingRender = true; return true; }
     // Scrollback is append-only — paint just the new lines.
     this._appendScrollback(appended, wasAtBottom);
     this.renderViewport(this.frame.altScreen ? 0 : appended.length);
     this.setGridWidth();
     this._syncAltScreen();
     this._pinToBottom(wasAtBottom);
+    return true;
   }
 
   /** Alt-screen (claude fullscreen / vim / htop) OWNS the viewport — there is no
@@ -465,7 +478,7 @@ export class CellGridRenderer {
    *  the held rows were rendered at, and the first held row's text — the
    *  overlap row a get-scrollback-cells response must reproduce before the
    *  controller splices (see scrollbackBackfill.ts). null = no frame yet. */
-  backfillAnchor(): { sbBase: number; cols: number; total: number; firstHeldText: string | null } | null {
+  backfillAnchor(): BackfillAnchor | null {
     if (!this.frame) return null;
     const first = this.frame.scrollbackRows[0];
     return {

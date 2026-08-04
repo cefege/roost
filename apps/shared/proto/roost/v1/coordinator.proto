@@ -143,6 +143,7 @@ enum ResizeCause {
   RESIZE_CAUSE_TAB_VISIBLE = 3;  // visibilitychange → visible (re-claim)
   RESIZE_CAUSE_WITHDRAW = 4;     // tab hidden / unmount → 0x0 withdraw
   RESIZE_CAUSE_BACKGROUND = 5;   // parked deck pane: keep streaming, don't constrain size
+  RESIZE_CAUSE_HEARTBEAT = 6;    // visible claim liveness + applied cell-seq check
 }
 
 message SessionsResizeRequest {
@@ -155,12 +156,12 @@ message SessionsResizeRequest {
   // 0 (unset) = legacy caller; worker synthesizes a fresh seq locally.
   uint64 client_seq = 4;
   ResizeCause cause = 5;
-  // Highest scrollback row count this viewer already holds (its frame's
-  // scrollback_total). The worker sizes the claim snapshot's scrollback tail
-  // to reach back to that row, so a returning viewer's full frame EXTENDS what
-  // it already painted (cellRenderer.ts mergeFullFrame) instead of forcing a
-  // full rebuild. 0 = unset / holds nothing → the default tail.
-  uint32 held_scrollback_total = 6;
+  // 6 was held_scrollback_total: the viewer's held row count, used to bridge
+  // the claim snapshot's tail back to it. Retired — a claim snapshot is now
+  // always SB_SNAPSHOT_TAIL_ROWS and the SPA refills history off the
+  // broadcast feed via get-scrollback-cells.
+  reserved 6;
+  reserved "held_scrollback_total";
   // Cell-frame seq this viewer has already applied (CellGridFrame.seq). The
   // worker emits a claim snapshot only when this differs from the seq it last
   // emitted — a pane that never stopped streaming needs no repaint. 0 = unset /
@@ -594,6 +595,21 @@ message UiDispatchResponse {
   // UiListStates emptiness instead (only reporting tabs execute commands).
   uint32 delivered = 1;
 }
+// ─── push (web push subscriptions) ────────────────────────────────────────
+message PushGetConfigRequest {}
+message PushGetConfigResponse {
+  string vapid_public_key_b64 = 1;
+  bool available = 2;
+}
+message PushSubscribeRequest {
+  string endpoint = 1;
+  string p256dh = 2;
+  string auth = 3;
+}
+message PushSubscribeResponse { bool ok = 1; }
+message PushUnsubscribeRequest { string endpoint = 1; }
+message PushUnsubscribeResponse { bool ok = 1; }
+
 
 
 // ─── authorized devices ─────────────────────────────────────────────────
@@ -729,6 +745,11 @@ service CoordinatorService {
   rpc UiReportState(UiReportStateRequest) returns (UiReportStateResponse);
   rpc UiListStates(UiListStatesRequest) returns (UiListStatesResponse);
   rpc UiDispatch(UiDispatchRequest) returns (UiDispatchResponse);
+  // Web Push subscriptions are per authenticated browser fingerprint.
+  rpc PushGetConfig(PushGetConfigRequest) returns (PushGetConfigResponse);
+  rpc PushSubscribe(PushSubscribeRequest) returns (PushSubscribeResponse);
+  rpc PushUnsubscribe(PushUnsubscribeRequest) returns (PushUnsubscribeResponse);
+
 
 
   // sync (crpc3) — server-streaming multiplexed firehose

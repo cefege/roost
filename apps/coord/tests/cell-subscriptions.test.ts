@@ -1,12 +1,11 @@
-// Per-tab cell/byte fanout. Before this filter, every open Sync socket received
-// — and re-serialized — every cell frame and every PTY byte of every session on
-// the fleet, so N tabs cost N× the work regardless of what they were looking at.
+// Per-tab cell/byte and cursor-presence fanout. Without filtering, each open
+// Sync socket receives — and re-serializes — every cell frame and PTY byte.
 //
 // Integration: real Bun.serve + real JWT auth + the real startSyncFeed wiring,
-// driving the actual globalCellBus/globalBytesBus. Asserts the three cases that
-// matter: a subscribed session arrives, an unsubscribed one does not, and a
-// client that sends no `tab=` still receives everything (fail-open for the CLI
-// and older SPA builds).
+// driving the actual globalCellBus/globalBytesBus/globalPresenceBus. Asserts
+// subscribed cell/byte delivery, unsubscribed filtering, own-cursor
+// suppression, cross-tab cursor delivery, and fail-open behavior for clients
+// without `tab=` (CLI and older SPA builds).
 //
 // Frames are collected up to a BARRIER frame on an unfiltered bus rather than a
 // sleep: one socket delivers in order, so once the barrier lands every frame
@@ -26,7 +25,7 @@ import { loadOrCreateCoordKey } from "../src/coord-key.ts";
 import { newJwtCache, signJwt, fingerprintOf } from "../src/jwt.ts";
 import { handleSyncWsUpgrade, makeSyncWsHandler } from "../src/connect/sync-ws-handler.ts";
 import { subscribeCells, unsubscribeCells, isSubscribed } from "../src/connect/cell-subscriptions.ts";
-import { globalCellBus, globalBytesBus, workerRoutableBus } from "../src/buses.ts";
+import { globalCellBus, globalBytesBus, globalPresenceBus, workerRoutableBus } from "../src/buses.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";
 import type { SyncWsData } from "../src/connect/sync-ws-handler.ts";
 import type { CoordConfig } from "@roost/shared/config";
@@ -88,7 +87,7 @@ beforeAll(async () => {
       if (up !== null) return up;
       return new Response("not found", { status: 404 });
     },
-    websocket: makeSyncWsHandler(deps, 60_000),
+    websocket: makeSyncWsHandler(deps, { keepaliveMs: 60_000 }),
   });
 
   cleanup = () => {
@@ -129,6 +128,57 @@ async function fanoutFor(query: string): Promise<string[]> {
   return seen.sort();
 }
 
+type TestPresencePayload = {
+  kind: "presence-delta" | "viewers";
+  viewer_id?: string;
+  cursor_col?: number;
+  cursor_row?: number;
+  fps?: string[];
+};
+
+async function presenceFanoutFor(query: string): Promise<TestPresencePayload[]> {
+  const ws = new WebSocket(
+    `ws://127.0.0.1:${server.port}/ws/coord-sync${query}`,
+    ["roost-auth", jwt],
+  );
+  ws.binaryType = "arraybuffer";
+  const seen: TestPresencePayload[] = [];
+  const { promise: barrierSeen, resolve: sawBarrier } = Promise.withResolvers<void>();
+  ws.onmessage = (ev) => {
+    const frame = fromBinary(FirehoseFrameSchema, new Uint8Array(ev.data as ArrayBuffer));
+    if (frame.frame.case === "sessionPresence" && frame.frame.value.sessionId === WATCHED) {
+      seen.push(JSON.parse(frame.frame.value.payloadJson) as TestPresencePayload);
+    } else if (
+      frame.frame.case === "workerRoutable"
+      && frame.frame.value.fps.includes(BARRIER_FP)
+    ) {
+      sawBarrier();
+    }
+  };
+  const { promise: open, resolve: opened } = Promise.withResolvers<void>();
+  ws.onopen = () => opened();
+  await open;
+
+  const alpha = `${fingerprint}:${TAB_ID}`;
+  const beta = `${fingerprint}:tab-beta`;
+  globalPresenceBus.publish({
+    session_id: WATCHED,
+    data: { kind: "presence-delta", viewer_id: alpha, cursor_col: 1, cursor_row: 2 },
+  });
+  globalPresenceBus.publish({
+    session_id: WATCHED,
+    data: { kind: "presence-delta", viewer_id: beta, cursor_col: 4, cursor_row: 5 },
+  });
+  globalPresenceBus.publish({
+    session_id: WATCHED,
+    data: { kind: "viewers", fps: [alpha, beta] },
+  });
+  workerRoutableBus.publish({ fps: [BARRIER_FP] });
+  await barrierSeen;
+  try { ws.close(); } catch { /* ignore */ }
+  return seen;
+}
+
 test("a tab receives only the sessions it claimed", async () => {
   subscribeCells(`${fingerprint}:${TAB_ID}`, WATCHED);
   expect(await fanoutFor(`?tab=${TAB_ID}`)).toEqual([`bytes:${WATCHED}`, `cell:${WATCHED}`]);
@@ -143,5 +193,24 @@ test("a withdrawn session stops arriving", async () => {
 test("a client that sends no tab= still receives every session (fail open)", async () => {
   expect(await fanoutFor("")).toEqual([
     `bytes:${WATCHED}`, `bytes:${OTHER}`, `cell:${WATCHED}`, `cell:${OTHER}`,
+  ]);
+});
+
+test("a tab omits its own cursor but receives another tab and viewer snapshots", async () => {
+  const alpha = `${fingerprint}:${TAB_ID}`;
+  const beta = `${fingerprint}:tab-beta`;
+  expect(await presenceFanoutFor(`?tab=${TAB_ID}`)).toEqual([
+    { kind: "presence-delta", viewer_id: beta, cursor_col: 4, cursor_row: 5 },
+    { kind: "viewers", fps: [alpha, beta] },
+  ]);
+});
+
+test("a client without tab= receives both cursor deltas", async () => {
+  const alpha = `${fingerprint}:${TAB_ID}`;
+  const beta = `${fingerprint}:tab-beta`;
+  expect(await presenceFanoutFor("")).toEqual([
+    { kind: "presence-delta", viewer_id: alpha, cursor_col: 1, cursor_row: 2 },
+    { kind: "presence-delta", viewer_id: beta, cursor_col: 4, cursor_row: 5 },
+    { kind: "viewers", fps: [alpha, beta] },
   ]);
 });

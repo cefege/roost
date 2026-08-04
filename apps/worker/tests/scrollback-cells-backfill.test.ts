@@ -21,20 +21,20 @@
 import { describe, test, expect } from "bun:test";
 import { SessionManager } from "../src/session-manager.ts";
 import { handleGetScrollbackCells } from "../src/browser-command-terminal.ts";
-import { _claimTailRows } from "../src/session-viewport.ts";
 import type { CoordLink } from "../src/transport/CoordLink.ts";
 import type { SessionShellRecord } from "../src/session-record.ts";
 import type { FsmChannel } from "../src/fsm.ts";
 import { asSessionId, asChannelId, asWorkerFp } from "@roost/shared";
 import type { ClientControlFrame } from "@roost/shared/wire";
 import {
-  gridToCellFrame, initCellEmitState, SB_SNAPSHOT_TAIL_ROWS, SB_SNAPSHOT_MAX_CATCHUP_ROWS,
+  gridToCellFrame, initCellEmitState, SB_SNAPSHOT_TAIL_ROWS,
   type CellRow,
 } from "@roost/shared/cell";
 import { protoToCellFrame } from "@roost/shared/cell/cell-proto";
 import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
 import { WasmBridge } from "@wterm/core";
 import { createSbRing } from "../src/session-scrollback-ring.ts";
+import { initAgentOscState } from "../src/terminal-stream-scan.ts";
 
 const SID = asSessionId("00000000-0000-0000-0000-000000000001");
 const CID = 1;
@@ -73,6 +73,7 @@ async function injectSession(mgr: SessionManager, bytes: Uint8Array): Promise<Se
     alt_mode: false,
     mode_carry: new Uint8Array(0),
     osc7_carry: new Uint8Array(0),
+    ...initAgentOscState(),
     wtermCore,
     session_trace_id: "sbcell00",
     cell_emit: initCellEmitState(),
@@ -195,55 +196,48 @@ describe("tail full frame + get-scrollback-cells backfill", () => {
   });
 });
 
-// Claim-tail bridge (_claimTailRows): a returning viewer's claim carries the
-// scrollback total it still holds (held_scrollback_total); the snapshot tail
-// must reach BACK to that boundary — total - held + 1 rows, floored at
-// SB_SNAPSHOT_TAIL_ROWS, capped at SB_SNAPSHOT_MAX_CATCHUP_ROWS — so the
-// viewer's mergeFullFrame EXTENDS painted history instead of collapsing it to
-// a 250-row tail (the "tab switch wipes history / crawls top-down" class).
-describe("claim snapshot tail bridges to the held boundary", () => {
-  // The sizing contract, against a stubbed record: the test WASM ring caps at
-  // 1000 retained rows, so the >2000 catch-up cap is only reachable through
-  // sbDropped (a long-lived session whose ring has evicted) — exactly the
-  // monotonic-total case the function's doc-comment calls out.
-  test("tail = total - held + 1, floored at 250, capped at 2000", () => {
-    const stub = {
-      shellByChannel: () => ({
-        cell_emit: { sbDropped: 9_000 },
-        wtermCore: { getScrollbackCount: () => 1_000 },
-      }),
-    };
-    // Test double: _claimTailRows reads only shellByChannel().cell_emit.sbDropped
-    // + .wtermCore.getScrollbackCount() off the manager.
-    const mgr = stub as unknown as SessionManager;
-    const total = 10_000;
-    expect(_claimTailRows(mgr, CID, total - 700)).toBe(701);   // bridge back 700
-    expect(_claimTailRows(mgr, CID, total - 5_000)).toBe(SB_SNAPSHOT_MAX_CATCHUP_ROWS); // deep gap → cap
-    expect(_claimTailRows(mgr, CID, total - 10)).toBe(SB_SNAPSHOT_TAIL_ROWS); // near-current → floor
-    expect(_claimTailRows(mgr, CID, 0)).toBe(SB_SNAPSHOT_TAIL_ROWS);          // unknown → default
-    expect(_claimTailRows(mgr, CID, total + 50)).toBe(SB_SNAPSHOT_TAIL_ROWS); // ahead of us → default
-  });
-
-  // Wire-level: the same boundary reported through claimViewport sizes the
-  // EMITTED snapshot (held_scrollback_total → bridged tail + sbBase).
-  test("a claim holding total-700 receives a 701-row bridged frame", async () => {
+// A claim snapshot is CONSTANT-SIZE: always SB_SNAPSHOT_TAIL_ROWS, however deep
+// the session is and however far the claimant fell behind while parked. The
+// bridge that sized the tail back to the viewer's held boundary
+// (held_scrollback_total → _claimTailRows) is retired — it put up to ~516 KiB
+// atomic with the viewport on the broadcast Sync WS and made a reveal slower the
+// longer a pane had been away. A viewer whose held window falls below sbBase now
+// collapses to this tail (pinned to the literal bottom) and refills [0, sbBase)
+// behind the reader via get-scrollback-cells.
+describe("claim snapshot is always the constant tail", () => {
+  test("a deep session's repeated claims each carry exactly the tail", async () => {
     const DEEP_SEED = new TextEncoder().encode(
-      Array.from({ length: 1_500 }, (_, i) => `deep-${i}`).join("\r\n") + "\r\n",
+      Array.from({ length: 3_000 }, (_, i) => `deep-${i}`).join("\r\n") + "\r\n",
     );
     const frames: PbCellGridFrame[] = [];
     const mgr = freshMgr((f) => frames.push(f));
     const rec = await injectSession(mgr, DEEP_SEED);
     const total = rec.wtermCore.getScrollbackCount(); // sbDropped is 0 here
-    expect(total).toBeGreaterThan(700 + SB_SNAPSHOT_TAIL_ROWS);
+    expect(total).toBeGreaterThan(SB_SNAPSHOT_TAIL_ROWS);
 
-    // Viewer holds up to absolute row (total-700)-1 → the tail must include
-    // that row: total - (total-700) + 1 = 701 rows.
-    mgr.claimViewport(CID, "viewer", COLS, ROWS, 1, 1, total - 700);
+    mgr.claimViewport(CID, "viewer", COLS, ROWS, 1, 1);
     expect(frames.length).toBe(1);
-    const bridged = protoToCellFrame(frames[0]!);
-    expect(bridged.full).toBe(true);
-    expect(bridged.scrollbackRows.length).toBe(701);
-    expect(bridged.sbBase).toBe(total - 701);
-    expect(bridged.scrollbackRows[0]!.index).toBe(total - 701);
+    const first = protoToCellFrame(frames[0]!);
+    expect(first.full).toBe(true);
+    expect(first.scrollbackRows.length).toBe(SB_SNAPSHOT_TAIL_ROWS);
+    expect(first.sbBase).toBe(total - SB_SNAPSHOT_TAIL_ROWS);
+    expect(first.scrollbackRows[0]!.index).toBe(first.sbBase);
+
+    // 200 more rows scroll past while the pane is parked (the test ring caps at
+    // 1000 retained rows, so this advances the MONOTONIC total via sbDropped;
+    // stay inside SB_SHIFT_SCAN_MAX so the shift resolves instead of reframing
+    // on an unresolvable jump). The re-claim's frame is the SAME size — it does
+    // not reach back to what the viewer still holds.
+    rec.wtermCore.writeRaw(new TextEncoder().encode(
+      Array.from({ length: 200 }, (_, i) => `parked-${i}`).join("\r\n") + "\r\n",
+    ));
+    mgr.claimViewport(CID, "viewer", COLS, ROWS, 2, 3);
+    expect(frames.length).toBe(2);
+    const second = protoToCellFrame(frames[1]!);
+    expect(second.full).toBe(true);
+    expect(second.scrollbackTotal).toBeGreaterThan(first.scrollbackTotal);
+    expect(second.scrollbackRows.length).toBe(SB_SNAPSHOT_TAIL_ROWS);
+    expect(second.sbBase).toBe(second.scrollbackTotal - SB_SNAPSHOT_TAIL_ROWS);
+    expect(second.scrollbackRows.at(-1)!.index).toBe(second.scrollbackTotal - 1);
   });
 });
