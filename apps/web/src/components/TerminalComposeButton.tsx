@@ -25,7 +25,7 @@
 
 import { createSignal, onCleanup, Show } from "solid-js";
 import { Portal } from "solid-js/web";
-import { MobileVoiceInput } from "./MobileVoiceInput.tsx";
+import { MobileVoiceInput, activeVoiceChannel } from "./MobileVoiceInput.tsx";
 import { injectPath, pickFilesTo, type PickOptions } from "../lib/attachments.ts";
 import { onFabPointerDown } from "../lib/fabDragOffset.ts";
 import type { TerminalContext } from "../lib/keytermContext.ts";
@@ -85,14 +85,58 @@ export function TerminalComposeButton(props: Props) {
     inputEl.style.height = `${Math.min(inputEl.scrollHeight, 160)}px`;
   };
 
-  // Append with exactly one separating space, never a leading one.
+  // A programmatic write must also keep the NEWEST text visible: past
+  // max-height the field scrolls, and unlike typing there is no caret motion for
+  // the browser to follow, so streamed dictation would scroll out of view. Not
+  // used from onInput — the caret already pulls the view there, and forcing it
+  // would fight a user who scrolled up to edit an earlier line.
+  const growAndFollow = () => {
+    autoGrow();
+    if (inputEl) inputEl.scrollTop = inputEl.scrollHeight;
+  };
+
+  // One rule for gluing text onto a draft: exactly one separating space, never a
+  // leading one. Shared by the attachment sink and both dictation paths.
+  const glued = (base: string, text: string) =>
+    (base.length === 0 || base.endsWith(" ") ? base : `${base} `) + text;
+
   const appendToDraft = (text: string) => {
-    setDraft((d) => (d.length === 0 || d.endsWith(" ") ? d : `${d} `) + text);
+    setDraft((d) => glued(d, text));
     queueMicrotask(() => {
       inputEl?.focus();
-      autoGrow();
+      growAndFollow();
     });
   };
+
+  // Dictation streams into THIS field, not a floating caption — one box for one
+  // utterance. Each engine update replaces the live tail, so `dictationBase` is
+  // whatever was already typed when the mic opened, held for that one dictation.
+  let dictationBase: string | null = null;
+  const showDictation = (text: string | null) => {
+    dictationBase ??= draft();
+    setDraft(text === null ? dictationBase : glued(dictationBase, text));
+    if (text === null) dictationBase = null;
+    // Deferred like the other programmatic writers: growAndFollow measures
+    // scrollHeight, and Solid has not written the new value into the element
+    // yet, so measuring here reads the PREVIOUS text and leaves the height (and
+    // the scroll) one line behind the speech.
+    queueMicrotask(growAndFollow);
+  };
+  // Stop: keep the settled text and hand the field back the caret.
+  const commitDictation = (text: string) => {
+    const base = dictationBase ?? draft();
+    dictationBase = null;
+    setDraft(glued(base, text));
+    queueMicrotask(() => {
+      inputEl?.focus();
+      growAndFollow();
+    });
+  };
+
+  // The mic owns the recording slot for the whole dictation, so this is the
+  // field's cue that speech — not typing — is filling it. Replaces the caption's
+  // "Listening…" hint, which the inline mic no longer renders.
+  const dictating = () => activeVoiceChannel() === props.session.channel;
 
   // Tap-outside dismissal: with an empty draft the leading control is `+`, and
   // touch has no Escape, so the bar needs this to be closable. Capture phase,
@@ -137,6 +181,11 @@ export function TerminalComposeButton(props: Props) {
     document.removeEventListener("pointerdown", onDocPointerDown, true);
     setOpen(false);
     setDraft("");
+    // The component survives a close (the FAB and the dock are two branches of
+    // one Show), so a dictation abandoned by dismissing the bar must release its
+    // base too — otherwise the next utterance glues itself onto the draft this
+    // close just threw away.
+    dictationBase = null;
     setMenuOpen(false);
     setActiveComposeChannel(null);
     // On touch, drop the soft keyboard by blurring — refocusing the terminal's
@@ -249,7 +298,7 @@ export function TerminalComposeButton(props: Props) {
               class="term-chat__input"
               data-testid="chat-input"
               rows={1}
-              placeholder="Type terminal input…"
+              placeholder={dictating() ? "Listening…" : "Type terminal input…"}
               value={draft()}
               onInput={(e) => {
                 setDraft(e.currentTarget.value);
@@ -272,7 +321,8 @@ export function TerminalComposeButton(props: Props) {
             <MobileVoiceInput
               variant="inline"
               channelId={props.session.channel}
-              onTranscript={appendToDraft}
+              onTranscript={commitDictation}
+              onLiveTranscript={showDictation}
               onTerminalSubmit={props.onSubmit}
               readContext={props.readContext}
               refocusTerminal={() => inputEl?.focus()}

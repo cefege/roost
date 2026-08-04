@@ -16,6 +16,7 @@
 import type { Component } from "solid-js";
 import {
 	Show,
+	createEffect,
 	createSignal,
 	onCleanup,
 	onMount,
@@ -129,6 +130,12 @@ interface Props {
 	/** When set, a finalized transcript goes HERE instead of the PTY (chat
 	 *  composer): the composer owns the draft and its own send path. */
 	onTranscript?: (text: string) => void;
+	/** When set, the caller paints the transcript itself (the composer streams it
+	 *  into its text field), so this component renders NO transcript caption —
+	 *  two boxes for one utterance is just noise. `text` is the whole transcript
+	 *  so far and REPLACES the previous value; `null` means the dictation ended
+	 *  without committing (discard) and the caller should drop what it showed. */
+	onLiveTranscript?: (text: string | null) => void;
 	/** "inline" drops the position:fixed FAB dock so the mic can sit in a row. */
 	variant?: "fab" | "inline";
 }
@@ -175,6 +182,15 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 	const dispFinal = () => (useDeepgram() ? dg.final() : finalText());
 	const dispInterim = () => (useDeepgram() ? dg.interim() : interimText());
 	const dispError = () => (useDeepgram() ? dg.error() : errorMsg());
+
+	// Live feed for a caller that paints the transcript itself. Fires on every
+	// engine update while a dictation is open; the idle guard keeps the post-reset
+	// clear (dg.reset() empties both getters) from wiping the caller's text.
+	createEffect(() => {
+		const live = `${dispFinal()} ${dispInterim()}`.trim();
+		if (voiceState() === "idle") return;
+		props.onLiveTranscript?.(live);
+	});
 
 	let recognition: AnySpeechRecognition | null = null;
 	// Web Speech `onend` fires for BOTH stop()-to-send and abort()-to-discard;
@@ -308,10 +324,16 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 				/* ignore */
 			}
 		}
+		// The caller painted this dictation; tell it to drop what it showed.
+		props.onLiveTranscript?.(null);
 		resetToIdle();
 	};
 
 	const isActive = () => voiceState() !== "idle";
+	// An error still needs a surface of its own — it must never land in the
+	// caller's draft, where send would type it into the PTY. The TRANSCRIPT
+	// caption is what a live-feed caller replaces.
+	const showCaption = () => !!dispError() || (isActive() && !props.onLiveTranscript);
 	// With onTranscript set (the composer's inline mic) stopping INSERTS into the
 	// draft — it never submits. A "send" glyph would sit right beside the bar's
 	// real send button and mean something different, so the wording and the
@@ -336,7 +358,7 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 			data-engine={useDeepgram() ? "deepgram" : "web-speech"}
 		>
 			{/* Transcript caption (M3 snackbar). */}
-			<Show when={isActive() || dispError()}>
+			<Show when={showCaption()}>
 				<div
 					class={
 						dispError() ? "voice-caption voice-caption--error" : "voice-caption"
