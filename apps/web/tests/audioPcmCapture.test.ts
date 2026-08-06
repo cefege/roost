@@ -16,6 +16,10 @@ import {
   isMicWarm,
   micIdle,
   releaseMic,
+  captureStats,
+  captureQuirks,
+  repairCapture,
+  releaseMicIfIdle,
   startCapture,
   stopCapture,
   warmMic,
@@ -35,6 +39,9 @@ let lastProc: { onaudioprocess: unknown; connect: () => void; disconnect: () => 
 let getUserMediaImpl: () => Promise<unknown> = () => Promise.resolve(makeStream());
 let resumeCalls = 0;
 let initialContextState: AudioContextState = "running";
+// How many resume() calls leave the context SUSPENDED before one succeeds —
+// iOS's "resume() does not always bring it back" behaviour, per-context.
+let resumeRefusals = 0;
 let resumeImpl: () => Promise<void> = () => Promise.resolve();
 let lastContext: WorkletCtx | NoWorkletCtx | null = null;
 // gate + "entered" signal for addModule, letting a case park a warm-up on the
@@ -65,7 +72,10 @@ class WorkletCtx {
   }
   resume() {
     resumeCalls++;
-    return resumeImpl().then(() => { this.state = "running"; });
+    return resumeImpl().then(() => {
+      if (resumeRefusals > 0) { resumeRefusals--; return; }
+      this.state = "running";
+    });
   }
   close() { this.closed = true; return Promise.resolve(); }
 }
@@ -115,18 +125,31 @@ g.URL.revokeObjectURL = () => {};
 
 // One worklet message big enough to cross the 40 ms threshold at 48 kHz (1920
 // samples), so the resampler actually emits a chunk to the attached sink.
-function pushAudio(): void {
-  lastNode?.port.onmessage?.({ data: new Float32Array(2048) });
+// `amplitude` defaults to digital silence — a real mic that has been handed a
+// dead input delivers exactly that, and the peak accounting must tell the two
+// apart.
+function pushAudio(amplitude = 0): void {
+  lastNode?.port.onmessage?.({ data: new Float32Array(2048).fill(amplitude) });
+}
+
+// The ScriptProcessor equivalent: the node's callback shape, not the port's.
+function pushProcAudio(amplitude = 0): void {
+  // The fake proc types onaudioprocess as unknown (it stands in for a DOM
+  // handler); the harness owns both sides, so the shape is asserted here.
+  const handler = lastProc?.onaudioprocess as ((e: unknown) => void) | null | undefined;
+  handler?.({ inputBuffer: { getChannelData: () => new Float32Array(2048).fill(amplitude) } });
 }
 
 describe("audioPcmCapture warm pipeline", () => {
   beforeEach(() => {
     releaseMic(); // the module is a singleton — every case starts cold
     micIdle.releaseMs = 60_000;
+    captureQuirks.workletBroken = false; // a latched repair must not leak across cases
     scriptProcessorCalls = 0;
     getUserMediaCalls = 0;
     resumeCalls = 0;
     initialContextState = "running";
+    resumeRefusals = 0;
     resumeImpl = () => Promise.resolve();
     lastContext = null;
     lastProc = null;
@@ -148,7 +171,7 @@ describe("audioPcmCapture warm pipeline", () => {
     gum.resolve(stream);
     addModuleGate.resolve();
 
-    await expect(started).resolves.toBeUndefined();
+    await expect(started).resolves.toBe(false);
     expect(scriptProcessorCalls).toBe(0);
     expect(isMicWarm()).toBe(true); // a stop keeps the device — that's the point
     pushAudio();
@@ -166,7 +189,7 @@ describe("audioPcmCapture warm pipeline", () => {
     releaseMic(); // closes + nulls ctx
     addModuleGate.resolve();
 
-    await expect(started).resolves.toBeUndefined();
+    await expect(started).resolves.toBe(false);
     expect(scriptProcessorCalls).toBe(0); // guarded off the nulled ctx
     expect(isMicWarm()).toBe(false);
     expect(stream.track.stopped).toBe(true);
@@ -195,7 +218,7 @@ describe("audioPcmCapture warm pipeline", () => {
 
     gum.resolve(makeStream());
     addModuleGate.resolve();
-    await expect(started).resolves.toBeUndefined();
+    await expect(started).resolves.toBe(true);
     expect(lastNode?.connectedDestination).toBe(lastContext?.destination);
   });
 
@@ -306,5 +329,101 @@ describe("audioPcmCapture warm pipeline", () => {
 
     expect(stream.track.stopped).toBe(true);
     expect(isMicWarm()).toBe(false);
+  });
+
+  test("H: an automatic idle/tab-hide release cannot kill a recording that is still starting", async () => {
+    const gum = Promise.withResolvers<unknown>();
+    const stream = makeStream();
+    getUserMediaImpl = () => gum.promise;
+    addModuleGate.resolve();
+    let chunks = 0;
+
+    const started = startCapture(() => { chunks++; });
+    releaseMicIfIdle();          // the tab-hide / idle-timer path, mid warm-up
+    gum.resolve(stream);
+
+    await expect(started).resolves.toBe(true);
+    expect(isMicWarm()).toBe(true);
+    pushAudio();
+    expect(chunks).toBeGreaterThan(0);
+  });
+
+  test("I: captureStats separates a live recording from one receiving digital silence", async () => {
+    addModuleGate.resolve();
+    await startCapture(() => {});
+
+    expect(captureStats()).toMatchObject({ frames: 0, peak: 0, path: "worklet", ctxState: "running", sampleRate: 48000 });
+
+    pushAudio(); // the graph runs, the device hands us zeros
+    expect(captureStats()).toMatchObject({ frames: 1, peak: 0 });
+
+    pushAudio(0.5); // …and now real audio
+    const live = captureStats();
+    expect(live.frames).toBe(2);
+    expect(live.peak).toBeCloseTo(0.5, 5);
+    stopCapture();
+  });
+
+  test("J: repairCapture rebuilds a silent pipeline onto the ScriptProcessor and keeps the same sink", async () => {
+    addModuleGate.resolve();
+    let chunks = 0;
+    const sink = () => { chunks++; };
+
+    expect(await startCapture(sink)).toBe(true);
+    expect(captureStats().path).toBe("worklet");
+    // The iPhone-only dead-worklet case: attached, warm, zero frames forever.
+    expect(captureStats().frames).toBe(0);
+
+    expect(await repairCapture(sink)).toBe(true);
+
+    expect(captureStats().path).toBe("scriptprocessor");
+    expect(getUserMediaCalls).toBe(2); // a real rebuild, not a warm reuse
+    expect(scriptProcessorCalls).toBe(1);
+    pushProcAudio(0.25);
+    expect(chunks).toBeGreaterThan(0); // audio reaches the ORIGINAL sink
+    expect(captureStats().peak).toBeCloseTo(0.25, 5);
+    stopCapture();
+  });
+
+  test("K: a worklet that needed repairing is not tried again on the next recording", async () => {
+    addModuleGate.resolve();
+    await startCapture(() => {});
+    await repairCapture(() => {});
+    stopCapture();
+    releaseMic(); // the device closes; the next tap opens a cold pipeline
+
+    let chunks = 0;
+    expect(await startCapture(() => { chunks++; })).toBe(true);
+
+    expect(captureStats().path).toBe("scriptprocessor");
+    pushAudio(0.5); // the worklet is not wired at all now
+    expect(chunks).toBe(0);
+    pushProcAudio(0.5);
+    expect(chunks).toBeGreaterThan(0);
+  });
+
+  test("L: a warm pipeline whose context cannot be resumed is rebuilt, not attached to", async () => {
+    addModuleGate.resolve();
+    await startCapture(() => {});
+    stopCapture();
+    if (!lastContext) throw new Error("expected a retained AudioContext");
+    const stale = lastContext;
+
+    // iOS after a lock/call/Siri interruption: the context is suspended and the
+    // FIRST resume() leaves it that way (webkit.org/b/237878). Attaching here is
+    // what produced a red mic streaming zero bytes with no error at all.
+    stale.state = "suspended";
+    resumeRefusals = 1;
+
+    let chunks = 0;
+    // The tap must still succeed — a rebuild, not a cancelled attach.
+    expect(await startCapture(() => { chunks++; })).toBe(true);
+
+    expect(getUserMediaCalls).toBe(2); // fresh device, not the dead context
+    expect(lastContext).not.toBe(stale);
+    expect(lastContext?.state).toBe("running");
+    expect(captureStats().ctxState).toBe("running");
+    pushAudio(0.5);
+    expect(chunks).toBeGreaterThan(0);
   });
 });
