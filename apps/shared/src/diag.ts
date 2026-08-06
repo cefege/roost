@@ -131,6 +131,8 @@ export type SignalKind =
   | "scrollback.gap"            // ring rolled past lastSeq → silent history hole on resume (observability, NOT a band-aid trigger)
   | "scrollback.replay_storm"   // OPT2-3 coalescing replay hit MAX_COALESCED_REPLAYS → resizes never settled (storm past viewport hysteresis)
   | "voice.ws_failed"
+  | "voice.mic_failed"          // mic capture never started (getUserMedia denied/busy/absent, or the pipeline was torn down mid-start) — the failure class the Deepgram WS signal is blind to
+  | "voice.dictation_empty"     // a recording ended with an EMPTY transcript and no error anywhere; kv names the stage that went quiet (frames=0 dead audio graph / peak=0 device silence / chunks>0 results=0 Deepgram never answered / results>0 chars=0 it heard nothing) plus build+ua, because "the mic does nothing" is otherwise unfalsifiable after the tab closes
   | "nav.safety_net_redirect" // MainPane dead-route safety net navigated away from a terminal route (kv.reason=gone|stale-deeplink, kv.target). Live-session bounce = a resolution bug to chase from kv.sid.
   | "perf.longtask_stall"       // SPA main-thread task ≥ freeze threshold; kv carries the leak-watch accumulator snapshot (per-session map sizes, dom_nodes, heap_mb, uptime) at stall time → names days-long-uptime bloat vs a transient
   // ─── Coverage-sweep additions (coord Tier-1, worker transport/lifecycle, deploy) ───

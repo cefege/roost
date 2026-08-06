@@ -63,13 +63,11 @@ html[data-fab-dragging="true"] .term-nav {
 
 /* ── inline variant ── the chat composer hosts the mic in its button row, so
    the fixed bottom-right dock, the FAB-drag offset and the 56dp FAB footprint
-   all go away. The caption anchors to the composer's relative mic wrapper. */
+   all go away. The caption anchors to the composer BAR (.term-chat__box), not
+   to this 44px wrapper — hence `static`. */
 .voice-input--inline {
-  position: relative;
-  right: auto;
-  bottom: auto;
+  position: static;
   translate: none;
-  z-index: auto;
 }
 
 .voice-input--inline .voice-fab {
@@ -109,13 +107,6 @@ html[data-fab-dragging="true"] .term-nav {
 }
 @media (hover: hover) {
   .voice-input--inline .voice-fab--discard:hover { box-shadow: none; }
-}
-
-.voice-input--inline .voice-caption {
-  position: absolute;
-  right: 0;
-  bottom: 100%;
-  margin-bottom: var(--md-space-2);
 }
 
 /* ── mic FAB (M3 FAB: 56dp, large-shape corner, elevation 3) ── */
@@ -481,6 +472,22 @@ html[data-fab-dragging="true"] .term-nav {
   pointer-events: auto;
   animation: voice-caption-enter 200ms var(--md-ease-emphasized);
   font-family: var(--md-font);
+}
+/* The caption spans the BAR, not the 44dp mic. Anchored to the mic wrapper it
+   shrink-to-fits inside a 44px containing block, so a mic/Deepgram error renders
+   as a ~124x390 ribbon floating over the terminal — unreadable, which is why a
+   failed dictation looked like "nothing happened". */
+.term-chat__box {
+  position: relative;
+}
+.term-chat__box .voice-caption {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  width: auto;
+  max-width: none;
+  margin-bottom: var(--md-space-2);
 }
 .term-chat__input {
   box-sizing: border-box;

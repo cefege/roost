@@ -29,7 +29,7 @@ import {
 	invalidateDeepgramKey,
 	prefetchDeepgramKey,
 } from "../lib/deepgramKey.ts";
-import { warmMic } from "../lib/audioPcmCapture.ts";
+import { micIdle, warmMic } from "../lib/audioPcmCapture.ts";
 import {
 	buildAccum,
 	finalizeKeyterms,
@@ -38,6 +38,18 @@ import {
 import { learnTerms, lexiconTopTerms } from "../lib/keytermLexicon.ts";
 import { keytermBiasing } from "../lib/keytermBiasingPref.ts";
 import { onFabPointerDown } from "../lib/fabDragOffset.ts";
+import { isTouchDevice } from "../lib/windowSizeClass.ts";
+
+// The capture pipeline stays warm after a recording so the next tap skips a
+// 1–2 s cold device open. On a PHONE that window is also how long iOS/Android
+// keep their recording indicator lit — a minute of orange dot after every
+// dictation reads as "this app is still listening", and it hands iOS a whole
+// minute in which to suspend the AudioContext under an idle-but-open pipeline.
+// Long enough to chain a stop-and-retap, short enough that the indicator clears
+// with the recording. Desktop keeps the long hold: no indicator, and the cold
+// open is the only thing that ever ate the first spoken word.
+if (isTouchDevice()) micIdle.releaseMs = 4_000;
+
 // ─── shared recording state ───────────────────────────────────────────────
 // All MobileVoiceInput instances share this signal. Only one can record at a
 // time — the owning instance renders; all others return null early. This
@@ -160,6 +172,8 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 		onCredentialRejected: invalidateDeepgramKey,
 		// Engine finished finalizing after a stop() → send whatever settled.
 		onEnd: () => sendTranscript(),
+		// A failed recording must leave the recording state (see failToIdle).
+		onFailure: () => failToIdle(),
 		// Snapshot terminal context → keyterms at WS-open (best-effort). Learn from
 		// the PURE-live extraction (no lexicon) so recurring seeds still decay; then
 		// seed the persisted lexicon into what Deepgram actually gets.
@@ -176,7 +190,7 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 
 	const useDeepgram = () => !!transcriptionConfig()?.deepgramConfigured && dg.supported;
 	const webSupported = isWebSpeechSupported();
-	if (!webSupported && !dg.supported) return null;
+	const engineAvailable = webSupported || dg.supported;
 
 	// Unified getters so the JSX is engine-blind.
 	const dispFinal = () => (useDeepgram() ? dg.final() : finalText());
@@ -221,7 +235,9 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 		};
 		recognition.onerror = (e: SpeechRecognitionErrorEvent) => {
 			setErrorMsg(e.error ?? "recognition error");
+			props.onLiveTranscript?.(null);
 			setVoiceState("idle");
+			setActiveVoiceChannel(null);
 			setTimeout(() => setErrorMsg(null), 3000);
 		};
 	});
@@ -272,6 +288,14 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 	};
 
 	const toggleRecord = () => {
+		if (!engineAvailable) {
+			setErrorMsg(
+				typeof window !== "undefined" && !window.isSecureContext
+					? "Dictation needs an https connection to this page."
+					: "This browser has no microphone input.",
+			);
+			return;
+		}
 		setErrorMsg(null);
 		const s = voiceState();
 		if (s === "idle") startRecording();
@@ -294,6 +318,20 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 		if (!voiceEl || voiceEl.contains(document.activeElement)) {
 			props.refocusTerminal?.();
 		}
+	};
+
+	// A failed recording must LEAVE the recording state — the engine has already
+	// torn itself down and its error() is what the caption shows, so nothing here
+	// may reset it. Releasing the voice slot matters as much as the state: while
+	// it is held, every OTHER pane's MobileVoiceInput early-returns null and the
+	// mic disappears from their composers.
+	const failToIdle = () => {
+		if (voiceState() === "idle") return;
+		props.onLiveTranscript?.(null);
+		setFinalText("");
+		setInterimText("");
+		setVoiceState("idle");
+		setActiveVoiceChannel(null);
 	};
 
 	// Called from the engine's end callback (auto-send) — NOT a button anymore.
@@ -355,7 +393,7 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 			class={props.variant === "inline" ? "voice-input voice-input--inline" : "voice-input"}
 			data-testid="mobile-voice-input"
 			data-state={voiceState()}
-			data-engine={useDeepgram() ? "deepgram" : "web-speech"}
+			data-engine={!engineAvailable ? "unavailable" : useDeepgram() ? "deepgram" : "web-speech"}
 		>
 			{/* Transcript caption (M3 snackbar). */}
 			<Show when={showCaption()}>

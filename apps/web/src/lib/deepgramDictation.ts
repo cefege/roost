@@ -9,7 +9,14 @@
 // the component falls back to the built-in Web Speech recognizer.
 
 import { createSignal, onCleanup } from "solid-js";
-import { startCapture, stopCapture, micWarmupMs } from "./audioPcmCapture.ts";
+import {
+	startCapture,
+	stopCapture,
+	micWarmupMs,
+	captureStats,
+	repairCapture,
+	type CaptureStats,
+} from "./audioPcmCapture.ts";
 import { diag, signal } from "@roost/shared/diag";
 import { buildUrl } from "./deepgramDictation.url.ts";
 import { keytermHitRate, isExpectedClose, closeMessage } from "./deepgramDictation.helpers.ts";
@@ -33,6 +40,16 @@ const KEEPALIVE_MS = 5000;
 // kills most "sometimes Deepgram connection error" (network blips, brief coord
 // restart during token grant). The mic keeps running across the retry.
 const RECONNECT_DELAY_MS = 500;
+// How long a recording may deliver ZERO audio frames before the pipeline is
+// rebuilt (once) and then declared dead. Long enough to cover a cold device
+// open on a phone, short enough that nobody stands there talking into a mic
+// that will never hear them.
+const SILENCE_GRACE_MS = 2500;
+// Baked at build time by vite (define in vite.config.ts), same read as
+// VersionBanner. The LITERAL member expression is what vite substitutes —
+// reaching it through a variable or optional chain silently yields the
+// fallback, which is worse than useless in a build-provenance field.
+const BUILD_SHA = (import.meta.env as { VITE_BUILD_SHA?: string }).VITE_BUILD_SHA ?? "dev";
 
 export interface DeepgramDictationOpts {
 	language: () => string; // "en" | "multi" | "__auto__"
@@ -44,6 +61,11 @@ export interface DeepgramDictationOpts {
 	keyterms?: () => string[];
 	/** Deepgram refused the credential — drop any cached copy before the retry. */
 	onCredentialRejected?: () => void;
+	/** The recording is over and it FAILED: the engine has already torn itself
+	 *  down and error() holds the reason. The caller MUST leave its recording
+	 *  state — a failure that leaves the UI "listening" is the silent-dead-mic
+	 *  bug. Never fired for a user stop/abort. */
+	onFailure?: () => void;
 }
 
 function deepgramSupported(): boolean {
@@ -74,6 +96,11 @@ export function createDeepgramDictation(
 	let timingEmitted = false;
 	let keepAlive: ReturnType<typeof setInterval> | null = null;
 	let finalizeTimer: ReturnType<typeof setTimeout> | null = null;
+	let silenceTimer: ReturnType<typeof setTimeout> | null = null;
+	let repairedOnce = false; // one pipeline rebuild per recording
+	let chunksSent = 0;
+	let bytesSent = 0;
+	let resultsFrames = 0;
 	let endIntent: "send" | "cancel" | null = null;
 	let retried = false; // one auto-reconnect per recording (reset in start())
 	let segments: string[] = [];
@@ -88,6 +115,10 @@ export function createDeepgramDictation(
 		if (finalizeTimer) {
 			clearTimeout(finalizeTimer);
 			finalizeTimer = null;
+		}
+		if (silenceTimer) {
+			clearTimeout(silenceTimer);
+			silenceTimer = null;
 		}
 		try {
 			stopCapture();
@@ -114,11 +145,32 @@ export function createDeepgramDictation(
 		}
 	};
 
+	// Terminal failure. endIntent="cancel" makes the WS close that follows an
+	// EXPECTED one (isExpectedClose), so a second message can't stack on the
+	// first, and teardown() does NOT clear error() — the reason survives for
+	// the caption.
+	const fail = () => {
+		if (endIntent === "cancel") return;
+		endIntent = "cancel";
+		teardown();
+		opts.onFailure?.();
+	};
+
+	// Enough about the client to tell a phone from a desktop, and a stale cached
+	// bundle from the running one — the two questions a remote "the mic does
+	// nothing" report cannot be answered without.
+	const clientFacts = () => ({
+		build: BUILD_SHA,
+		standalone: typeof matchMedia === "function" && matchMedia("(display-mode: standalone)").matches,
+		ua: typeof navigator !== "undefined" ? navigator.userAgent.slice(0, 72) : "",
+	});
+
 	const completeSend = () => {
 		if (endIntent !== "send") return;
 		endIntent = null;
+		const stats = captureStats();
+		const transcript = segments.join(" ");
 		if (injectedKeyterms.length > 0) {
-			const transcript = segments.join(" ");
 			diag("voice.keyterm_hits", {
 				injected: injectedKeyterms.length,
 				hit_rate: Number(
@@ -127,8 +179,107 @@ export function createDeepgramDictation(
 				chars: transcript.length,
 			});
 		}
+		// A recording that ends with nothing to show IS the reported bug, and it
+		// reaches here without a single error anywhere. One always-on line says
+		// which stage went quiet — no frames (dead graph), frames but peak 0
+		// (the device handed us silence), chunks but no Results (Deepgram never
+		// answered), or Results with no text (it heard nothing) — because that
+		// is not recoverable from any other vantage point once the tab is gone.
+		if (transcript.trim().length === 0) {
+			signal("voice.dictation_empty", {
+				...captureFacts(stats),
+				chunks: chunksSent,
+				bytes: bytesSent,
+				results: resultsFrames,
+				first_audio_ms: Math.round(firstAudioMs),
+				ws_open_ms: Math.round(wsOpenMs),
+				repaired: repairedOnce,
+				...clientFacts(),
+			});
+		}
 		teardown();
 		opts.onEnd?.();
+	};
+
+	const captureFacts = (s: CaptureStats) => ({
+		frames: s.frames,
+		peak: Number(s.peak.toFixed(4)),
+		path: s.path,
+		ctx_state: s.ctxState,
+		sample_rate: s.sampleRate,
+	});
+
+	// A recording can be attached, warm, and streaming NOTHING: on a phone the
+	// AudioContext gets suspended/"interrupted" out from under it, or the
+	// AudioWorklet ships dead (see audioPcmCapture liveness). Deepgram simply
+	// stays quiet, so the engine has to check delivery itself — rebuild the
+	// pipeline once, then end the recording with a reason instead of listening
+	// forever. Only ZERO frames triggers this: a real mic in a quiet room can
+	// legitimately report peak 0 for seconds, and killing that would be worse
+	// than the bug.
+	const armSilenceWatch = () => {
+		if (silenceTimer) {
+			clearTimeout(silenceTimer);
+			silenceTimer = null;
+		}
+		silenceTimer = setTimeout(() => {
+			silenceTimer = null;
+			if (endIntent !== null) return;
+			const s = captureStats();
+			if (s.frames > 0) return;
+			if (repairedOnce) {
+				giveUpSilent(s);
+				return;
+			}
+			repairedOnce = true;
+			signal("voice.mic_failed", {
+				stage: "silent_retry",
+				...captureFacts(s),
+				...clientFacts(),
+				cooldownKey: "voice",
+			});
+			repairCapture(pcmSink)
+				.then((attached) => {
+					if (endIntent !== null) return;
+					if (!attached) {
+						giveUpSilent(captureStats());
+						return;
+					}
+					armSilenceWatch();
+				})
+				.catch(() => {
+					if (endIntent === null) giveUpSilent(captureStats());
+				});
+		}, SILENCE_GRACE_MS);
+	};
+
+	const giveUpSilent = (s: CaptureStats) => {
+		signal("voice.mic_failed", {
+			stage: "silent",
+			...captureFacts(s),
+			...clientFacts(),
+			cooldownKey: "voice",
+		});
+		setError(
+			"Mic opened but sent no audio — tap the mic again (iOS only starts audio inside a fresh tap). If it repeats, close any other app using the mic.",
+		);
+		fail();
+	};
+
+	// Named so a repair can re-attach the SAME sink to the rebuilt pipeline.
+	const pcmSink = (pcm16: Int16Array) => {
+		if (firstAudioMs < 0) firstAudioMs = performance.now() - tapMs;
+		chunksSent++;
+		bytesSent += pcm16.byteLength;
+		if (ws && ws.readyState === WebSocket.OPEN) {
+			try {
+				ws.send(pcm16.buffer as ArrayBuffer);
+			} catch {
+				/* ignore */
+			}
+		} else {
+			preBuffer.push(pcm16.buffer as ArrayBuffer);
+		}
 	};
 
 	// One line per recording, ms since the tap; -1 for a milestone that never
@@ -153,6 +304,10 @@ export function createDeepgramDictation(
 		retried = false;
 		segments = [];
 		preBuffer = [];
+		repairedOnce = false;
+		chunksSent = 0;
+		bytesSent = 0;
+		resultsFrames = 0;
 		setFinalText("");
 		setInterimText("");
 		tapMs = performance.now();
@@ -166,20 +321,18 @@ export function createDeepgramDictation(
 		// others) only grant getUserMedia within the user-gesture window — calling
 		// it later (after the token grant + WS handshake) is denied without even
 		// prompting. Audio captured before the WS opens is buffered, then flushed.
-		startCapture((pcm16) => {
-			if (firstAudioMs < 0) firstAudioMs = performance.now() - tapMs;
-			if (ws && ws.readyState === WebSocket.OPEN) {
-				try {
-					ws.send(pcm16.buffer as ArrayBuffer);
-				} catch {
-					/* ignore */
+		startCapture(pcmSink)
+			.then((attached) => {
+				if (attached) {
+					micReadyMs = performance.now() - tapMs;
+					// Attached is not the same as ALIVE — see armSilenceWatch.
+					armSilenceWatch();
+					return;
 				}
-			} else {
-				preBuffer.push(pcm16.buffer as ArrayBuffer);
-			}
-		})
-			.then(() => {
-				micReadyMs = performance.now() - tapMs;
+				if (endIntent !== null) return; // the user stopped/cancelled first
+				signal("voice.mic_failed", { stage: "attach", cooldownKey: "voice" });
+				setError("Mic didn't start — tap the mic and try again.");
+				fail();
 			})
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			.catch((e: any) => {
@@ -205,6 +358,13 @@ export function createDeepgramDictation(
 				} else {
 					setError("Mic: " + (msg || name || "unavailable"));
 				}
+				signal("voice.mic_failed", {
+					stage: "open",
+					name,
+					detail: msg,
+					cooldownKey: "voice",
+				});
+				fail();
 			});
 
 		void connectWs();
@@ -231,6 +391,7 @@ export function createDeepgramDictation(
 			setError(
 				"Voice service unavailable — couldn't reach Deepgram (coordinator may be restarting). Try again.",
 			);
+			fail();
 			return;
 		}
 		if (endIntent === "cancel") return; // aborted during grant
@@ -302,9 +463,11 @@ export function createDeepgramDictation(
 					keyterms: injectedKeyterms.length,
 				});
 				if (!error()) setError(`Deepgram rejected the request: ${detail}`);
+				fail();
 				return;
 			}
 			if (msg?.type !== "Results") return;
+			resultsFrames++;
 			const transcript: string =
 				msg.channel?.alternatives?.[0]?.transcript ?? "";
 			if (transcript.trim()) emitTiming();
@@ -350,6 +513,7 @@ export function createDeepgramDictation(
 					keyterms: injectedKeyterms.length,
 				});
 				if (!error()) setError(closeMessage(e.code, e.reason));
+				fail();
 			}
 			if (endIntent === "send") completeSend();
 		};
