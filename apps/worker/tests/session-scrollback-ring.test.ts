@@ -5,16 +5,15 @@
 // duplicates history at a resize — the L11 corruption class.
 
 import { describe, test, expect } from "bun:test";
-import { createSbRing, appendToRing, readRing, ringLength } from "../src/session-scrollback-ring.ts";
-import { SCROLLBACK_CAP_BYTES } from "../src/session-constants.ts";
+import { createSbRing, appendToRing, readRing, ringLength, SCROLLBACK_CAP_BYTES } from "../src/session-scrollback-ring.ts";
 
 // The reference implementation: what appendScrollback used to do per chunk.
-function naiveAppend(retained: Uint8Array, chunk: Uint8Array): Uint8Array {
+function naiveAppend(retained: Uint8Array, chunk: Uint8Array, cap: number = SCROLLBACK_CAP_BYTES): Uint8Array {
   const next = new Uint8Array(retained.length + chunk.length);
   next.set(retained, 0);
   next.set(chunk, retained.length);
-  return next.length > SCROLLBACK_CAP_BYTES
-    ? next.slice(next.length - SCROLLBACK_CAP_BYTES)
+  return next.length > cap
+    ? next.slice(next.length - cap)
     : next;
 }
 
@@ -55,6 +54,27 @@ describe("scrollback byte ring", () => {
       expect(ringLength(ring)).toBe(reference.length);
     }
     expect(readRing(ring)).toEqual(reference);
+  });
+
+  test("a 4096-byte per-instance cap bounds that ring alone", () => {
+    const CAP = 4096;
+    const ring = createSbRing(undefined, CAP);
+    let reference: Uint8Array<ArrayBufferLike> = new Uint8Array(0);
+    let written = 0;
+    let seed = 1;
+    const sizes = [1, 7, 64, 1023, 4096, 65_537, 3, 131_072];
+    while (written < 3 * CAP) {
+      const size = sizes[seed % sizes.length]!;
+      const chunk = chunkOf(size, seed++);
+      appendToRing(ring, chunk);
+      reference = naiveAppend(reference, chunk, CAP);
+      written += size;
+      expect(ringLength(ring)).toBe(reference.length);
+    }
+    expect(readRing(ring)).toEqual(reference);
+    expect(ring.buf.length).toBe(CAP);
+    // The module default is untouched: a default ring still holds 1 MiB.
+    expect(createSbRing().cap).toBe(SCROLLBACK_CAP_BYTES);
   });
 
   test("a chunk larger than the cap keeps only its newest cap bytes", () => {

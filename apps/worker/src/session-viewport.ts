@@ -15,6 +15,7 @@ import {
 	VIEWER_CLAIM_FRESH_MS,
 } from "@roost/shared/viewport";
 import { initCellEmitState } from "@roost/shared/cell";
+import { newTraceId } from "@roost/shared/trace";
 
 /** Does this claim have to carry a full frame, or is the claimant provably
  *  holding the current grid? Two conditions must both hold to skip it:
@@ -378,7 +379,7 @@ export async function _rebuildWtermCore(
 	// dropped. seq is kept so the SPA's gap detector doesn't see a rewind; the
 	// zeroed cols/rows/sentFull force the next emit to be a full frame.
 	rec.cell_emit = {
-		...initCellEmitState(),
+		...initCellEmitState(newTraceId()),
 		seq: rec.cell_emit.seq,
 		sbDropped: Math.max(0, rec.cell_emit.lastSbTotal - fresh.getScrollbackCount()),
 	};
@@ -386,11 +387,9 @@ export async function _rebuildWtermCore(
 	// now so viewers reflect the resize without waiting for the next PTY
 	// chunk. A delta is meaningless here — dirty bits + cursor on the fresh
 	// core don't describe a change from the OLD core the client holds.
-	// _scheduleWtermRebuild defers onto a promise chain, so this frame lands
-	// AFTER claimViewport's and is the frame the SPA ends on. Constant-size
-	// (SB_SNAPSHOT_TAIL_ROWS): a viewer whose held window falls below the new
-	// sbBase collapses to the tail, pins the literal bottom, and is refilled by
-	// the SPA's scrollback backfill drain.
+	// _scheduleWtermRebuild defers onto a promise chain, so this viewport-only
+	// frame lands after claimViewport's frame and identifies the replacement
+	// core with a fresh epoch base.
 	this.emitCellSnapshot(channelId as ChannelId);
 	// Report the actual branch: alt-screen rebuilds start empty and alt-primed;
 	// main-screen rebuilds replay the retained ring.

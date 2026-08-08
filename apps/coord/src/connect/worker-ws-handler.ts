@@ -125,9 +125,13 @@ export function makeWorkerWsHandler(deps: WorkerServiceDeps) {
         // view would outlive Bun's buffer and be dereferenced as freed memory:
         // the coord segfault whose fault address is terminal bytes (ESC[, session
         // ids). L11 borrowed-Bun-buffer-view class (feedback_bun_terminal_write_needs_copy).
+        // `new Uint8Array(buf)` takes the typed-array→typed-array constructor
+        // path (one memcpy). `Uint8Array.from(buf)` would take the ITERATOR
+        // path — element-wise, with per-byte iterator-protocol overhead — on
+        // every PTY chunk AND every cell frame, on coord's single thread.
         const bytes = typeof message === "string"
           ? new TextEncoder().encode(message)
-          : Uint8Array.from(message);
+          : new Uint8Array(message);
         frame = fromBinary(CoordWorkerUpSchema, bytes);
       } catch (e) {
         log.warn("worker-ws", "decode_failed", { worker_fp: ws.data.fp, error: String(e) });

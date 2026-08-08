@@ -22,11 +22,10 @@ const _cellHandlers = new Map<string, CellHandler>();
 const _cellFrameCounts = new Map<string, number>();
 // Full frames only — the repaint a reveal must NOT need (smoke asserts it stays flat).
 const _cellFullFrameCounts = new Map<string, number>();
-// Scrollback rows carried by the LAST full frame. The claim snapshot is
-// constant-size (SB_SNAPSHOT_TAIL_ROWS) whatever the session's depth or the
-// viewer's gap; smoke asserts that directly here rather than through the
-// painted row count, which the backfill drain starts growing immediately.
+// Historical rows carried by the last authoritative full frame. Viewport-only
+// resume keeps this at zero; demand-driven pages do not affect the counter.
 const _cellFullFrameSbRows = new Map<string, number>();
+const _cellGridEpochs = new Map<string, string>();
 const _dropNextCellFrames = new Set<string>();
 const _droppedCellFrameCounts = new Map<string, number>();
 function smokeDropKey(sessionId: string): string {
@@ -65,6 +64,7 @@ export function _dispatchCell(pb: PbCellGridFrame): void {
   const recvWall = Date.now();
   recordCellLag(pb, recvWall);
   _cellFrameCounts.set(pb.sessionId, (_cellFrameCounts.get(pb.sessionId) ?? 0) + 1);
+  _cellGridEpochs.set(pb.sessionId, pb.gridEpoch);
   if (pb.full === true) {
     _cellFullFrameCounts.set(pb.sessionId, (_cellFullFrameCounts.get(pb.sessionId) ?? 0) + 1);
     _cellFullFrameSbRows.set(pb.sessionId, pb.scrollbackRows.length);
@@ -89,6 +89,11 @@ export function lastFullFrameSbRows(sessionId: string): number {
   return _cellFullFrameSbRows.get(sessionId) ?? -1;
 }
 
+/** Test-only: opaque epoch on the most recently received cell frame. */
+export function cellGridEpoch(sessionId: string): string {
+  return _cellGridEpochs.get(sessionId) ?? "";
+}
+
 /** Reap a closed session's frame-count entry — keyed by session id with no
  *  other reaper, so it leaks one entry per session ever for the tab's life.
  *  Called from the sessions-delta `closed` handler. */
@@ -96,6 +101,7 @@ export function pruneCellFrameCount(sessionId: string): void {
   _cellFrameCounts.delete(sessionId);
   _cellFullFrameCounts.delete(sessionId);
   _cellFullFrameSbRows.delete(sessionId);
+  _cellGridEpochs.delete(sessionId);
   _dropNextCellFrames.delete(sessionId);
   if (typeof localStorage !== "undefined") localStorage.removeItem(smokeDropKey(sessionId));
   _droppedCellFrameCounts.delete(sessionId);

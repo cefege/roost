@@ -23,6 +23,7 @@ export function cellRowToProto(r: CellRow): PbCellRow {
 export function cellFrameToProto(f: CellGridFrame, sessionId: string): PbCellGridFrame {
   return create(PbCellGridFrameSchema, {
     sessionId,
+    gridEpoch: f.gridEpoch,
     cols: f.cols, rows: f.rows,
     cursorRow: f.cursorRow, cursorCol: f.cursorCol, cursorVisible: f.cursorVisible,
     altScreen: f.altScreen, cursorKeysApp: f.cursorKeysApp, bracketedPaste: f.bracketedPaste, full: f.full,
@@ -44,6 +45,7 @@ export function cellRowFromProto(r: PbCellRow): CellRow {
 
 export function protoToCellFrame(p: PbCellGridFrame): CellGridFrame {
   return {
+    gridEpoch: p.gridEpoch,
     cols: p.cols, rows: p.rows,
     cursorRow: p.cursorRow, cursorCol: p.cursorCol, cursorVisible: p.cursorVisible,
     altScreen: p.altScreen, cursorKeysApp: p.cursorKeysApp, bracketedPaste: p.bracketedPaste, full: p.full,

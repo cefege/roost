@@ -47,6 +47,31 @@ export interface CaptureStats {
  *  a live device. A mutable object, not a bare const, so tests can shrink it. */
 export const micIdle = { releaseMs: 60_000 };
 
+/** Deadlines for the device-open path. WebKit can return a promise that NEVER
+ *  settles from getUserMedia, AudioContext.resume() and audioWorklet.addModule()
+ *  while the OS audio session is mid-transition — measured on iOS 18.7 as an
+ *  installed PWA (voice.dictation_empty with path "none", ctx_state "suspended",
+ *  frames 0 for a whole recording). An unbounded await there does not merely
+ *  fail one tap: `warming` is never cleared, so every LATER tap awaits the same
+ *  dead promise, and `startingCaptures` never returns to 0, so the device is
+ *  never released and the phone's recording indicator stays lit until reload.
+ *  A mutable object, not bare consts, so tests can shrink them (same recipe as
+ *  `micIdle`). */
+export const micTimeouts = { openMs: 6_000, resumeMs: 1_500, moduleMs: 3_000 };
+
+function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
+	const { promise, resolve, reject } = Promise.withResolvers<T>();
+	const t = setTimeout(
+		() => { reject(new Error(`${what} did not respond in time — tap the mic again`)); },
+		ms,
+	);
+	p.then(
+		(v) => { clearTimeout(t); resolve(v); },
+		(e: unknown) => { clearTimeout(t); reject(e as Error); },
+	);
+	return promise;
+}
+
 // ── pipeline state (one per page) ─────────────────────────────────────────
 let ctx: AudioContext | null = null;
 let stream: MediaStream | null = null;
@@ -107,8 +132,11 @@ export async function warmMic(): Promise<void> {
 	clearIdle();
 	if (isMicWarm()) {
 		lastWarmupMs = 0;
+		let resumed = true;
 		try {
 			await resumeContext();
+		} catch {
+			resumed = false; // refused OR never answered — same verdict: rebuild
 		} finally {
 			armIdle();
 		}
@@ -120,15 +148,30 @@ export async function warmMic(): Promise<void> {
 		// discardPipeline(), NOT releaseMic(): the caller may be the startCapture
 		// awaiting this very warm-up, and bumping captureEpoch would cancel the
 		// attach we are trying to save — the tap would fail instead of healing.
-		if (!ctx || ctx.state === "running") return;
+		if (resumed && ctx && ctx.state === "running") return;
 		discardPipeline();
 	}
 	if (warming) return warming;
-	warming = openPipeline().finally(() => {
-		warming = null;
-		armIdle();
-	});
-	return warming;
+	// Outer deadline = the backstop for anything openPipeline awaits that is not
+	// individually bounded. Both continuations are ownership-checked: a stalled
+	// open that settles after releaseMic() cleared `warming` must not discard,
+	// or null, the pipeline a LATER tap has already built in its place.
+	const attempt: Promise<void> = withTimeout(
+		openPipeline(),
+		micTimeouts.openMs + micTimeouts.moduleMs,
+		"the microphone",
+	)
+		.catch((e: unknown) => {
+			if (warming === attempt) discardPipeline();
+			throw e;
+		})
+		.finally(() => {
+			if (warming !== attempt) return;
+			warming = null;
+			armIdle();
+		});
+	warming = attempt;
+	return attempt;
 }
 
 /** Routes captured PCM to `nextSink`, warming the pipeline first when cold.
@@ -177,6 +220,10 @@ export function stopCapture(): void {
 export function releaseMic(): void {
 	generation++;
 	captureEpoch++;
+	// The in-flight warm-up is now worthless: its generation is stale, so it can
+	// only dispose itself. Keeping it in `warming` is what made a stalled open
+	// poison the page — every LATER tap awaited the same dead promise.
+	warming = null;
 	clearIdle();
 	disposePipeline();
 }
@@ -188,6 +235,7 @@ export function releaseMic(): void {
 // into "fail the tap that asked for it".
 function discardPipeline(): void {
 	generation++;
+	warming = null; // same reason as releaseMic: the pending open is stale now
 	clearIdle();
 	disposePipeline();
 }
@@ -224,9 +272,9 @@ export async function repairCapture(nextSink: PcmSink): Promise<boolean> {
 	return await startCapture(nextSink);
 }
 
-// Disposal WITHOUT the cancellation bumps: a warm-up that discovers it was
-// cancelled must drop its half-built pipeline without also invalidating a
-// startCapture that arrived after the cancellation and is waiting to re-open.
+// Teardown of the PUBLISHED pipeline, without the cancellation bumps that
+// releaseMic/discardPipeline add. An open that is still in flight owns its own
+// half-built resources (openPipeline's `abandon`) and never comes through here.
 function disposePipeline(): void {
 	sink = null;
 	// Detach BEFORE closing: close() throwing would otherwise leave a discarded
@@ -259,9 +307,13 @@ export function micWarmupMs(): number {
 
 // ── internals ─────────────────────────────────────────────────────────────
 
+function resumeCtx(target: AudioContext | null): Promise<void> {
+	if (!target || target.state === "running") return Promise.resolve();
+	return withTimeout(target.resume(), micTimeouts.resumeMs, "the audio session");
+}
+
 function resumeContext(): Promise<void> {
-	if (!ctx || ctx.state === "running") return Promise.resolve();
-	return ctx.resume();
+	return resumeCtx(ctx);
 }
 
 function clearIdle(): void {
@@ -279,6 +331,9 @@ function clearIdle(): void {
 // the timer.
 function armIdle(): void {
 	clearIdle();
+	// A pipeline is published all-or-nothing, so ctx/stream/node move together;
+	// an open that is still in flight holds its resources in locals and releases
+	// them itself (openPipeline's `abandon`), never on this clock.
 	if (!isMicWarm()) return;
 	idleTimer = setTimeout(releaseMicIfIdle, micIdle.releaseMs);
 }
@@ -329,59 +384,95 @@ const onFloat = (data: Float32Array) => {
 	if (pendingLen >= (inRate * CHUNK_MS) / 1000) resampleEmit(current);
 };
 
+// Builds into LOCALS and publishes to the singleton in ONE step at the end. A
+// stalled open outlives its own deadline — the outer withTimeout gives up on it
+// but nothing can cancel a pending getUserMedia/addModule — so it can settle
+// after a later tap has already built a replacement. Writing the module fields
+// as it went meant that late completion overwrote the live pipeline and then
+// disposed it, leaving the recording attached to nothing.
 async function openPipeline(): Promise<void> {
 	const myGen = generation;
 	const startedAt = performance.now();
+	let myCtx: AudioContext | null = null;
+	let myStream: MediaStream | null = null;
+	let myNode: AudioWorkletNode | null = null;
+	// eslint-disable-next-line @typescript-eslint/no-deprecated
+	let myProc: ScriptProcessorNode | null = null;
+	let mySource: MediaStreamAudioSourceNode | null = null;
+	let myUrl: string | null = null;
+	// Releases only what THIS open built — never the singleton.
+	const abandon = (): void => {
+		try { if (myNode) myNode.port.onmessage = null; } catch { /* ignore */ }
+		try { myNode?.port.close(); } catch { /* ignore */ }
+		try { if (myProc) myProc.onaudioprocess = null; } catch { /* ignore */ }
+		try { mySource?.disconnect(); } catch { /* ignore */ }
+		try { myNode?.disconnect(); } catch { /* ignore */ }
+		try { myProc?.disconnect(); } catch { /* ignore */ }
+		try { myStream?.getTracks().forEach((t) => { t.stop(); }); } catch { /* ignore */ }
+		try { void myCtx?.close(); } catch { /* ignore */ }
+		if (myUrl) { try { URL.revokeObjectURL(myUrl); } catch { /* ignore */ } }
+	};
 	try {
 		const legacyWindow = window as typeof window & {
 			webkitAudioContext?: typeof AudioContext;
 		};
 		const Ctx = window.AudioContext ?? legacyWindow.webkitAudioContext;
 		if (!Ctx) throw new Error("Web Audio is not supported");
-		ctx = new Ctx();
-		const resumed = resumeContext().then(
+		myCtx = new Ctx();
+		const resumed = resumeCtx(myCtx).then(
 			() => ({ ok: true }) as const,
 			(error: unknown) => ({ ok: false, error }) as const,
 		);
 		const requestedStream = navigator.mediaDevices.getUserMedia({
 			audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
 		});
-		stream = await requestedStream;
+		// A getUserMedia that misses the deadline can still resolve LATER with a
+		// live device. Nothing else would ever stop those tracks, and an
+		// unstopped track IS the phone's recording indicator staying lit with
+		// nothing recording. The orphan-stopper is registered ONLY once we have
+		// given up: a guard registered up front would run its microtask before
+		// the await resumes and stop the very stream we are about to adopt.
+		myStream = await withTimeout(requestedStream, micTimeouts.openMs, "the microphone").catch(
+			(e: unknown) => {
+				void requestedStream.then(
+					(s) => { s.getTracks().forEach((t) => { t.stop(); }); },
+					() => { /* the awaited copy owns the error */ },
+				);
+				throw e as Error;
+			},
+		);
 		const resumeResult = await resumed;
 		if (!resumeResult.ok) throw resumeResult.error;
-		if (generation !== myGen) { disposePipeline(); return; }
-		inRate = ctx.sampleRate;
-		readPos = 0;
-		source = ctx.createMediaStreamSource(stream);
+		if (generation !== myGen) { abandon(); return; }
+		mySource = myCtx.createMediaStreamSource(myStream);
 
 		// Preferred path: AudioWorklet (off the main thread). Falls back to a
 		// ScriptProcessorNode when the worklet can't load (older Safari, CSP, etc.)
 		// or when repairCapture() has already caught it delivering no frames on
 		// this device, so capture never silently dies.
 		let workletOk = false;
-		if (ctx.audioWorklet && !captureQuirks.workletBroken) {
+		if (myCtx.audioWorklet && !captureQuirks.workletBroken) {
 			try {
-				workletUrl = URL.createObjectURL(new Blob([WORKLET_SRC], { type: "application/javascript" }));
-				await ctx.audioWorklet.addModule(workletUrl);
-				if (generation !== myGen) { disposePipeline(); return; }
-				node = new AudioWorkletNode(ctx, "pcm-forwarder");
-				node.port.onmessage = (e: MessageEvent<Float32Array>) => onFloat(e.data);
-				source.connect(node);
-				node.connect(ctx.destination);
+				myUrl = URL.createObjectURL(new Blob([WORKLET_SRC], { type: "application/javascript" }));
+				await withTimeout(myCtx.audioWorklet.addModule(myUrl), micTimeouts.moduleMs, "the audio worklet");
+				if (generation !== myGen) { abandon(); return; }
+				myNode = new AudioWorkletNode(myCtx, "pcm-forwarder");
+				myNode.port.onmessage = (e: MessageEvent<Float32Array>) => onFloat(e.data);
+				mySource.connect(myNode);
+				myNode.connect(myCtx.destination);
 				workletOk = true;
 			} catch {
 				workletOk = false;
 			}
 		}
-		if (generation !== myGen) { disposePipeline(); return; }
-		if (!workletOk && ctx) {
+		if (generation !== myGen) { abandon(); return; }
+		if (!workletOk) {
 			// eslint-disable-next-line @typescript-eslint/no-deprecated
-			proc = ctx.createScriptProcessor(4096, 1, 1);
-			proc.onaudioprocess = (e) => onFloat(new Float32Array(e.inputBuffer.getChannelData(0)));
-			source.connect(proc);
-			proc.connect(ctx.destination); // required to drive onaudioprocess; output stays silent
+			myProc = myCtx.createScriptProcessor(4096, 1, 1);
+			myProc.onaudioprocess = (e) => onFloat(new Float32Array(e.inputBuffer.getChannelData(0)));
+			mySource.connect(myProc);
+			myProc.connect(myCtx.destination); // required to drive onaudioprocess; output stays silent
 		}
-		capturePath = workletOk ? "worklet" : "scriptprocessor";
 
 		// THE iOS BUG THIS EXISTS FOR: starting the mic switches the OS audio
 		// session, which re-suspends a context that was created (and resumed)
@@ -390,14 +481,27 @@ async function openPipeline(): Promise<void> {
 		// measured on iOS 18.7 as ctx_state "suspended" with frames 0. So resume
 		// again now that the device is live, and refuse to hand back a pipeline
 		// that did not reach "running" rather than let it look healthy.
-		if (ctx.state !== "running") await resumeContext().catch(() => { /* verified below */ });
-		if (generation !== myGen) { disposePipeline(); return; }
-		if (ctx.state !== "running") {
-			throw new Error(`audio session stayed ${ctx.state} — tap the mic again`);
+		if (myCtx.state !== "running") await resumeCtx(myCtx).catch(() => { /* verified below */ });
+		if (generation !== myGen) { abandon(); return; }
+		if (myCtx.state !== "running") {
+			throw new Error(`audio session stayed ${myCtx.state} — tap the mic again`);
 		}
+
+		// Publish. One step, so nothing can observe a half-built pipeline.
+		ctx = myCtx;
+		stream = myStream;
+		node = myNode;
+		proc = myProc;
+		source = mySource;
+		workletUrl = myUrl;
+		inRate = myCtx.sampleRate;
+		readPos = 0;
+		pending = [];
+		pendingLen = 0;
+		capturePath = workletOk ? "worklet" : "scriptprocessor";
 		lastWarmupMs = performance.now() - startedAt;
 	} catch (e) {
-		disposePipeline();
+		abandon();
 		throw e;
 	}
 }

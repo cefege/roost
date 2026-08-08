@@ -8,9 +8,9 @@
 //
 // A "span" is a run of consecutive cells sharing one style. A "row" is an
 // ordered list of spans (right-trimmed: trailing default-style spaces emit
-// no span, so a blank row = empty spans[]). A "frame" is either FULL (whole
-// viewport + whole scrollback, sent on attach/resize) or a DELTA (only the
-// changed viewport rows + newly-appended scrollback + cursor).
+// no span, so a blank row = empty spans[]). A frame is either FULL (whole
+// viewport, no historical rows) or a DELTA (changed viewport rows plus newly
+// appended scrollback rows).
 
 export const DEFAULT_COLOR = 256;
 
@@ -49,6 +49,8 @@ export interface CellRow {
 }
 
 export interface CellGridFrame {
+  /** Opaque identity for the worker-side grid numbering epoch. */
+  gridEpoch: string;
   cols: number;
   rows: number;
   cursorRow: number;
@@ -59,15 +61,13 @@ export interface CellGridFrame {
   cursorKeysApp: boolean;
   /** DECSET 2004 bracketed-paste mode; drives the SPA paste wrapping. */
   bracketedPaste: boolean;
-  /** true = full snapshot (viewportRows = all rows, scrollbackRows = all
-   *  retained lines). false = delta (viewportRows = changed only,
-   *  scrollbackAppend = lines pushed since the prior frame). */
+  /** true = full snapshot (viewportRows = all rows, scrollbackRows empty).
+   *  false = delta (viewportRows = changed only, scrollbackAppend = lines
+   *  pushed since the prior frame). */
   full: boolean;
   viewportRows: CellRow[];
-  /** Full frames only: retained scrollback lines, oldest → newest. May be
-   *  only a TAIL of history: rows [sbBase, sbBase+scrollbackRows.length) of
-   *  [0, scrollbackTotal) — the rest is pulled lazily per-viewer via the
-   *  get-scrollback-cells RPC. */
+  /** Full frames carry no retained history. sbBase still represents the full
+   *  scrollback depth so history remains available through explicit paging. */
   scrollbackRows: CellRow[];
   /** Delta frames only: scrollback lines appended since the prior frame,
    *  oldest → newest, index = absolute line number. */
@@ -82,14 +82,6 @@ export interface CellGridFrame {
   seq: number;
 }
 
-// Scrollback tail carried in FULL frames (attach/reframe). One SB_BLOCK
-// (cellRenderer.ts) — covers scrollbackText(250) keyterm reads and gives
-// immediate scroll-up context; deeper history arrives via the per-viewer
-// get-scrollback-cells backfill.
-// This is the ONLY tail size: a full frame is constant-size (~40 KiB) no
-// matter how far a viewer fell behind or how deep the session is, so a reveal
-// never waits on history. A viewer whose held window falls below the frame's
-// sbBase collapses to this tail (cellRenderer apply()'s windowUnreachable path,
-// pinned to the literal bottom) and is refilled behind the reader by
-// scrollbackBackfill.ts's parallel drain.
-export const SB_SNAPSHOT_TAIL_ROWS = 250;
+// Authoritative FULL frames are viewport-only. Retained scrollback depth still
+// rides in scrollbackTotal/sbBase and is fetched only on explicit scroll/find.
+export const SB_SNAPSHOT_HISTORY_ROWS = 0;

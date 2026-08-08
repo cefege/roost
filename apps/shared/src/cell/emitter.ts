@@ -15,6 +15,10 @@ import {
 import type { CellGridFrame } from "./types.ts";
 
 export interface CellEmitState {
+  /** Opaque identity base for one worker-side grid numbering lifetime. */
+  gridEpochBase: string;
+  /** Increments only when a non-forced semantic reframe invalidates row identity. */
+  gridEpochRevision: number;
   seq: number;
   /** Last emitted scrollbackTotal, in MONOTONIC index space (sbDropped + retained). */
   lastSbTotal: number;
@@ -30,18 +34,21 @@ export interface CellEmitState {
   tailSig: string;
 }
 
-export function initCellEmitState(): CellEmitState {
-  return { seq: 0, lastSbTotal: 0, sentFull: false, cols: 0, rows: 0, alt: false, sbDropped: 0, tailSig: "" };
+export function initCellEmitState(gridEpochBase: string): CellEmitState {
+  return {
+    gridEpochBase, gridEpochRevision: 0,
+    seq: 0, lastSbTotal: 0, sentFull: false, cols: 0, rows: 0, alt: false, sbDropped: 0, tailSig: "",
+  };
 }
 
-/** Reframe (full frame) on first emit, force (attach/rebuild), dimension
- *  change, alt-screen toggle, a monotonic-total rewind (reset), or a shift the
- *  scan could not resolve — none expressible as an additive delta, so
- *  applyDelta (diff-grid.ts) can never mis-apply a delta across one of these
- *  transitions. Otherwise a dirty-row delta. `tailRows` caps a full frame's
- *  scrollback to the newest N lines (worker passes SB_SNAPSHOT_TAIL_ROWS; the
- *  [0, sbBase) rest is pulled via get-scrollback-cells); unset = complete
- *  retained history. */
+export function cellGridEpoch(state: CellEmitState): string {
+  return `${state.gridEpochBase}:${state.gridEpochRevision}`;
+}
+
+/** Reframe on first emit, force, or a semantic grid transition. A force-only
+ * claim snapshot keeps the held epoch; a non-forced dimension/alt/rewind/ring
+ * transition after the initial frame advances the epoch because old absolute
+ * rows no longer identify the same grid. `tailRows` bounds full-frame history. */
 export function nextCellFrame(
   core: TerminalCore, st: CellEmitState, force: boolean, tailRows?: number,
 ): { frame: CellGridFrame; state: CellEmitState } {
@@ -62,18 +69,23 @@ export function nextCellFrame(
     : 0;
   const sbDropped = st.sbDropped + (shift ?? 0);
   const monoTotal = sbDropped + total;
-  const reframe = force || !st.sentFull
-    || cols !== st.cols || rows !== st.rows
+  const semanticReframe = !force && st.sentFull && (
+    cols !== st.cols || rows !== st.rows
     || alt !== st.alt
     || monoTotal < st.lastSbTotal
-    || shift === null;
+    || shift === null
+  );
+  const reframe = force || !st.sentFull || semanticReframe;
+  const gridEpochRevision = st.gridEpochRevision + (semanticReframe ? 1 : 0);
+  const gridEpoch = `${st.gridEpochBase}:${gridEpochRevision}`;
   const seq = st.seq + 1;
   const frame = reframe
-    ? gridToCellFrame(core, seq, tailRows, sbDropped)
-    : gridDeltaFrame(core, st.lastSbTotal, seq, sbDropped);
+    ? gridToCellFrame(core, seq, gridEpoch, tailRows, sbDropped)
+    : gridDeltaFrame(core, st.lastSbTotal, seq, gridEpoch, sbDropped);
   return {
     frame,
     state: {
+      gridEpochBase: st.gridEpochBase, gridEpochRevision,
       seq, lastSbTotal: monoTotal, sentFull: true, cols, rows, alt,
       // scrollbackShift(core, "") is 0, so the first emit after crossing the
       // floor is a no-op shift rather than a spurious reframe.

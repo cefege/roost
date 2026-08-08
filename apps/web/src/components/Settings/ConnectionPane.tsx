@@ -63,7 +63,7 @@ export function ConnectionPane() {
   function addCoord() {
     const normalized = normalizeUrl(url());
     if (!normalized) {
-      setError("Enter a full address like https://your-mac.ts.net:4102");
+      setError("Enter a full address like https://your-coordinator.ts.net:4102");
       return;
     }
     const label = name().trim() || normalized;
@@ -129,8 +129,8 @@ export function ConnectionPane() {
 
       <Card title="Add a coordinator" supporting="Give it a name and its full address. The address must be reachable from this device.">
         <div style={{ display: "flex", "flex-direction": "column", gap: "var(--md-space-3)" }}>
-          <TextField value={name()} onInput={setName} label="Name (optional)" placeholder="Home Macs" />
-          <TextField value={url()} onInput={setUrl} label="Address" placeholder="https://your-mac.ts.net:4102" />
+          <TextField value={name()} onInput={setName} label="Name (optional)" placeholder="Home fleet" />
+          <TextField value={url()} onInput={setUrl} label="Address" placeholder="https://your-coordinator.ts.net:4102" />
           <Show when={error()}>
             <div class="md-body-s" style={{ color: "var(--md-sys-color-error)" }}>{error()}</div>
           </Show>

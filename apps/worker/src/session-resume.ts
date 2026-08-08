@@ -99,7 +99,7 @@ export async function resume(this: SessionManager, opts: {
 			...initAgentOscState(),
 			wtermCore,
 			session_trace_id: newTraceId(),
-			cell_emit: initCellEmitState(),
+			cell_emit: initCellEmitState(newTraceId()),
 			lastPtyOutMs: 0,
 			spawnedAtMs: Date.now(),
 			// Re-capture the child pid from listChannels so ports survive a worker
@@ -187,7 +187,7 @@ export async function respawn(this: SessionManager, opts: {
 		...initAgentOscState(),
 		wtermCore,
 		session_trace_id: newTraceId(),
-		cell_emit: initCellEmitState(),
+		cell_emit: initCellEmitState(newTraceId()),
 		lastPtyOutMs: 0,
 		spawnedAtMs: Date.now(),
 	};

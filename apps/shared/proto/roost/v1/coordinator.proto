@@ -156,10 +156,8 @@ message SessionsResizeRequest {
   // 0 (unset) = legacy caller; worker synthesizes a fresh seq locally.
   uint64 client_seq = 4;
   ResizeCause cause = 5;
-  // 6 was held_scrollback_total: the viewer's held row count, used to bridge
-  // the claim snapshot's tail back to it. Retired — a claim snapshot is now
-  // always SB_SNAPSHOT_TAIL_ROWS and the SPA refills history off the
-  // broadcast feed via get-scrollback-cells.
+  // 6 was held_scrollback_total. Retired: authoritative claim frames are
+  // viewport-only and retained history is fetched only by explicit demand.
   reserved 6;
   reserved "held_scrollback_total";
   // Cell-frame seq this viewer has already applied (CellGridFrame.seq). The
@@ -209,13 +207,13 @@ message SessionsGetScrollbackSinceResponse {
   bool gap = 4;
 }
 
-// Lazy-history backfill (cell mode): pre-rendered scrollback rows
-// [max(0, end_row - max_rows), end_row) of the session's CURRENT grid
-// epoch. Complements the tail-only full cell frame on attach (sb_base).
+// Demand-driven cell history: pre-rendered rows from the immutable grid epoch
+// named by the authoritative viewport-only full frame.
 message SessionsGetScrollbackCellsRequest {
   string session_id = 1;
   uint64 end_row = 2;   // exclusive; serves [max(0, end_row - max_rows), end_row)
   uint32 max_rows = 3;
+  string grid_epoch = 4;
 }
 message SessionsGetScrollbackCellsResponse {
   repeated PbCellRow rows = 1;  // oldest→newest, absolute index set
@@ -223,6 +221,7 @@ message SessionsGetScrollbackCellsResponse {
   uint64 scrollback_total = 3;
   uint64 start_row = 4;
   uint64 end_row = 5;
+  string grid_epoch = 6;
 }
 
 

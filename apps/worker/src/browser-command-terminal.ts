@@ -4,7 +4,7 @@
 
 import type { ClientControlFrame } from "@roost/shared/wire";
 import { diag } from "@roost/shared";
-import { readScrollbackRangeCells, type CellRow } from "@roost/shared/cell";
+import { cellGridEpoch, readScrollbackRangeCells, type CellRow } from "@roost/shared/cell";
 import type { CoordLink } from "./transport/CoordLink.ts";
 import type { SessionManager } from "./session-manager.ts";
 import type { TerminalCore } from "@wterm/core";
@@ -81,14 +81,9 @@ function _regexRowMatches(text: string, re: RegExp): readonly RowMatch[] {
 	return out;
 }
 
-/** Lazy-history backfill (cell mode): serve pre-rendered scrollback rows
- *  [max(0, end_row - max_rows), end_row) of the CURRENT grid epoch. The
- *  attach full frame carries only a tail (sbBase, session-emit.ts); the SPA
- *  pulls the rest here per-viewer — OFF the broadcast Sync stream, so an
- *  attach never re-blasts history to other viewers. Awaits any queued
- *  rebuild (OPT2-1 chain) so rows come from the post-resize grid; the SPA
- *  validates cols + overlap-row text before splicing and re-pulls on the
- *  next reframe if the epoch moved under us. */
+/** Demand-driven history from the immutable grid epoch named by the browser's
+ * authoritative viewport frame. The epoch is checked before any cell walk and
+ * after every event-loop yield, so a reframe can never splice re-numbered rows. */
 export async function handleGetScrollbackCells(
 	frame: Extract<ClientControlFrame, { kind: "get-scrollback-cells" }>,
 	request_id: string,
@@ -123,12 +118,17 @@ export async function handleGetScrollbackCells(
 		coordLink.send({ kind: "rpc-error", request_id, message: "session has no terminal" });
 		return;
 	}
+	if (frame.grid_epoch !== cellGridEpoch(rec.cell_emit)) {
+		coordLink.send({ kind: "rpc-error", request_id, message: "grid epoch changed" });
+		return;
+	}
 	try {
 		// Monotonic index space (grid-to-cells.ts): the SPA's row indices are
 		// sbDropped-based, so clamp the request into [sbDropped, sbDropped+count].
 		// A request reaching below sbDropped names rows the ring genuinely
-		// dropped; returning fewer rows makes the SPA's overlap check fail and
-		// its backfill controller park, which is the correct outcome.
+		// dropped. A short page names the surviving suffix and exposes its first
+		// absolute index as the retained floor; the SPA paints that suffix and
+		// stops paging once it reaches the floor.
 		const sbDropped = rec.cell_emit.sbDropped;
 		const total = sbDropped + core.getScrollbackCount();
 		const endRow = Math.min(frame.end_row, total);
@@ -137,16 +137,21 @@ export async function handleGetScrollbackCells(
 		// grid, and step-3's wave lands three of these back to back. Yield
 		// between slices, then re-validate the grid identity — a reframe or an
 		// eviction past our start shifts the offsets our absolute indices
-		// resolve through, so ABORT rather than return a hole: a short or
-		// index-shifted array splices mis-numbered rows into the pane. The SPA
-		// sees a thrown RPC → its one-retry-then-park path, and the next full
-		// frame re-triggers the drain.
+		// resolve through, so abort rather than return a hole. The browser parks
+		// this demand attempt; a later explicit scroll/find may retry against the
+		// next authoritative frame.
 		const rows: CellRow[] = [];
 		let liveDropped = sbDropped;
 		let slices = 0;
 		for (let sliceStart = startRow; sliceStart < endRow; sliceStart += SCROLLBACK_CELLS_SLICE_ROWS) {
 			if (slices > 0) {
 				await new Promise<void>((resolve) => { setImmediate(resolve); });
+				const liveRec = sessionMgr.getBySessionId(frame.session_id);
+				if (!liveRec || frame.grid_epoch !== cellGridEpoch(liveRec.cell_emit)) {
+					coordLink.send({ kind: "rpc-error", request_id, message: "grid epoch changed" });
+					return;
+				}
+				rec = liveRec;
 				if (rec.wtermCore !== core) {
 					coordLink.send({ kind: "rpc-error", request_id, message: "grid reframed mid-read" });
 					return;
@@ -175,7 +180,10 @@ export async function handleGetScrollbackCells(
 		coordLink.send({
 			kind: "rpc-ok",
 			request_id,
-			data: { rows, cols: core.getCols(), total, start_row: startRow, end_row: endRow },
+			data: {
+				rows, cols: core.getCols(), total, start_row: startRow, end_row: endRow,
+				grid_epoch: frame.grid_epoch,
+			},
 		});
 	} catch (err) {
 		coordLink.send({

@@ -17,14 +17,18 @@ describe("coord cell passthrough", () => {
   test("maps channel→session, stamps session_id, fans out; unmapped dropped", () => {
     primeChannelMap([{ id: SID, worker_fp: String(WF), channel: 7 }]);
 
-    const got: string[] = [];
-    const unsub = globalCellBus.subscribe((f) => { if (f.sessionId === SID) got.push(f.sessionId); });
-    got.length = 0; // ignore any ring replay
+    const got: Array<{ sessionId: string; gridEpoch: string }> = [];
+    const unsub = globalCellBus.subscribe((f) => {
+      if (f.sessionId === SID) got.push({ sessionId: f.sessionId, gridEpoch: f.gridEpoch });
+    });
+    got.length = 0;
 
-    const frame = create(PbCellGridFrameSchema, { cols: 10, rows: 2, full: true, seq: 1n });
+    const frame = create(PbCellGridFrameSchema, {
+      cols: 10, rows: 2, full: true, seq: 1n, gridEpoch: "worker-grid:3",
+    });
     publishCellGrid(WF, asChannelId(7), frame);
-    expect(frame.sessionId).toBe(SID); // stamped in place
-    expect(got).toEqual([SID]);
+    expect(frame.sessionId).toBe(SID);
+    expect(got).toEqual([{ sessionId: SID, gridEpoch: "worker-grid:3" }]);
 
     // Unmapped channel → dropped (no fan-out).
     const before = got.length;

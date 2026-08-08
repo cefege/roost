@@ -151,10 +151,16 @@ export function scrollbackShift(core: TerminalCore, prevSig: string): number | n
   return found;
 }
 
-/** Full snapshot: whole viewport + scrollback + cursor. `tailRows` caps the
- *  scrollback to the newest N lines; unset = complete retained history.
- *  Indices are monotonic — `sbDropped` is the ring's eviction origin. */
-export function gridToCellFrame(core: TerminalCore, seq: number, tailRows?: number, sbDropped = 0): CellGridFrame {
+/** Full snapshot: whole viewport plus an optional newest-N history slice.
+ * `tailRows=0` is the authoritative viewport-only contract; unset remains
+ * available to pure callers that need a complete grid. Indices are monotonic. */
+export function gridToCellFrame(
+  core: TerminalCore,
+  seq: number,
+  gridEpoch: string,
+  tailRows?: number,
+  sbDropped = 0,
+): CellGridFrame {
   const cols = core.getCols();
   const rows = core.getRows();
   const total = core.getScrollbackCount();
@@ -169,6 +175,7 @@ export function gridToCellFrame(core: TerminalCore, seq: number, tailRows?: numb
   for (let i = sbBase; i < monoTotal; i++) scrollbackRows[i - sbBase] = _scrollbackRow(core, i, total, sbDropped);
 
   return {
+    gridEpoch,
     cols, rows,
     cursorRow: cursor.row, cursorCol: cursor.col, cursorVisible: cursor.visible,
     altScreen: core.usingAltScreen(),
@@ -190,7 +197,13 @@ export function gridToCellFrame(core: TerminalCore, seq: number, tailRows?: numb
  *  the monotonic-total delta, cursor always. Caller decides full-vs-delta:
  *  send a FULL frame (gridToCellFrame) on attach, resize, alt toggle, or a
  *  monotonic-total rewind (reset). */
-export function gridDeltaFrame(core: TerminalCore, prevMonoTotal: number, seq: number, sbDropped = 0): CellGridFrame {
+export function gridDeltaFrame(
+  core: TerminalCore,
+  prevMonoTotal: number,
+  seq: number,
+  gridEpoch: string,
+  sbDropped = 0,
+): CellGridFrame {
   const cols = core.getCols();
   const rows = core.getRows();
   const total = core.getScrollbackCount();
@@ -202,6 +215,7 @@ export function gridDeltaFrame(core: TerminalCore, prevMonoTotal: number, seq: n
   }
 
   return {
+    gridEpoch,
     cols, rows,
     cursorRow: cursor.row, cursorCol: cursor.col, cursorVisible: cursor.visible,
     altScreen: core.usingAltScreen(),

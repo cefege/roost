@@ -12,7 +12,7 @@
 // exactly what CellGridRenderer touches — node identity is all we assert.
 
 import { describe, test, expect } from "bun:test";
-import { CellGridRenderer, mergeFullFrame, blockPlaceholder, MAX_HELD_SCROLLBACK_ROWS } from "../src/lib/cellRenderer.ts";
+import { CellGridRenderer, blockPlaceholder, MAX_HELD_SCROLLBACK_ROWS } from "../src/lib/cellRenderer.ts";
 import { rowText } from "../src/lib/cellRow.ts";
 import { DEFAULT_COLOR, type CellGridFrame, type CellRow } from "@roost/shared/cell";
 
@@ -134,30 +134,48 @@ function makeContainer(): FakeEl {
 function row(index: number, text: string): CellRow {
   return { index, spans: text ? [{ text, fg: DEFAULT_COLOR, bg: DEFAULT_COLOR, flags: 0 }] : [] };
 }
-const BASE = { cursorRow: 0, cursorCol: 0, cursorVisible: true, altScreen: false, cursorKeysApp: false, bracketedPaste: false } as const;
-function fullFrame(cols: number, viewport: CellRow[], scrollback: CellRow[]): CellGridFrame {
+const BASE = {
+  gridEpoch: "test-grid:0",
+  cursorRow: 0, cursorCol: 0, cursorVisible: true, altScreen: false,
+  cursorKeysApp: false, bracketedPaste: false,
+} as const;
+function fullFrame(cols: number, viewport: CellRow[], scrollbackTotal = 0): CellGridFrame {
   return { ...BASE, cols, rows: viewport.length, full: true,
-    viewportRows: viewport, scrollbackRows: scrollback, scrollbackAppend: [],
-    scrollbackTotal: scrollback.length, sbBase: 0, seq: 1 };
+    viewportRows: viewport, scrollbackRows: [], scrollbackAppend: [],
+    scrollbackTotal, sbBase: scrollbackTotal, seq: 1 };
 }
-function deltaFrame(cols: number, rows: number, viewport: CellRow[], append: CellRow[], seq: number): CellGridFrame {
+function deltaFrame(
+  cols: number,
+  rows: number,
+  viewport: CellRow[],
+  append: CellRow[],
+  seq: number,
+): CellGridFrame {
   return { ...BASE, cols, rows, full: false,
     viewportRows: viewport, scrollbackRows: [], scrollbackAppend: append,
     scrollbackTotal: 0, sbBase: 0, seq };
 }
-// Tail full frame (lazy-history attach): scrollback carries only rows
-// [sbBase, total); [0, sbBase) is the backfill hole.
-function tailFrame(cols: number, viewport: CellRow[], tail: CellRow[], total: number): CellGridFrame {
-  return { ...BASE, cols, rows: viewport.length, full: true,
-    viewportRows: viewport, scrollbackRows: tail, scrollbackAppend: [],
-    scrollbackTotal: total, sbBase: total - tail.length, seq: 2 };
+function seedHeldHistory(
+  renderer: CellGridRenderer,
+  cols: number,
+  viewport: CellRow[],
+  history: CellRow[],
+  total = history.length,
+): boolean {
+  const baseTotal = history[0]?.index ?? total;
+  if (!renderer.apply(fullFrame(cols, viewport, baseTotal))) return false;
+  if (history.length === 0) return true;
+  return renderer.apply({
+    ...deltaFrame(cols, viewport.length, viewport, history, 2),
+    scrollbackTotal: total,
+  });
 }
-// Alt-screen variants: same shape, altScreen flipped on.
-function altFullFrame(cols: number, viewport: CellRow[], scrollback: CellRow[]): CellGridFrame {
-  return { ...fullFrame(cols, viewport, scrollback), altScreen: true };
+// Alt-screen transitions create a new semantic grid epoch.
+function altFullFrame(cols: number, viewport: CellRow[], _history: CellRow[]): CellGridFrame {
+  return { ...fullFrame(cols, viewport), gridEpoch: "test-grid:1", altScreen: true };
 }
 function altDeltaFrame(cols: number, rows: number, viewport: CellRow[], seq: number): CellGridFrame {
-  return { ...deltaFrame(cols, rows, viewport, [], seq), altScreen: true };
+  return { ...deltaFrame(cols, rows, viewport, [], seq), gridEpoch: "test-grid:1", altScreen: true };
 }
 
 // Scrollback rows are packed into .cell-block wrappers (SB_BLOCK content-
@@ -173,7 +191,7 @@ describe("CellGridRenderer DOM — append-only scrollback, no reflow", () => {
     const r = new CellGridRenderer(c as any);
     const scrollbackEl = sbEl(c); // ctor appends scrollback then viewport
 
-    r.apply(fullFrame(80, [row(0, "v0"), row(1, "v1")], [row(0, "h0"), row(1, "h1")]));
+    seedHeldHistory(r, 80, [row(0, "v0"), row(1, "v1")], [row(0, "h0"), row(1, "h1")]);
     const rows0 = sbRows(scrollbackEl);
     expect(rows0.length).toBe(2);
     const h0 = rows0[0];
@@ -199,7 +217,7 @@ describe("CellGridRenderer DOM — append-only scrollback, no reflow", () => {
     const r = new CellGridRenderer(c as unknown as HTMLElement); // FakeEl covers the renderer's DOM surface
     expect(r.heldFrameSeq()).toBe(0); // nothing held → the worker must snapshot
 
-    r.apply(fullFrame(80, [row(0, "v0")], [row(0, "h0")]));
+    seedHeldHistory(r, 80, [row(0, "v0")], []);
     expect(r.heldFrameSeq()).toBe(1); // fullFrame() carries seq 1
 
     r.apply(deltaFrame(80, 1, [row(0, "v0b")], [row(1, "h1")], 7));
@@ -209,12 +227,25 @@ describe("CellGridRenderer DOM — append-only scrollback, no reflow", () => {
     expect(r.heldFrameSeq()).toBe(8);
   });
 
+  test("a delta from a different grid epoch is rejected", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    seedHeldHistory(r, 80, [row(0, "held")], []);
+    const stale = {
+      ...deltaFrame(80, 1, [row(0, "wrong")], [], 2),
+      gridEpoch: "test-grid:1",
+    };
+    expect(r.apply(stale)).toBe(false);
+    expect(r.currentFrame?.seq).toBe(1);
+    expect(r.gridText()).toBe("held");
+  });
+
   test("a viewport-only delta does NOT touch scrollback DOM at all", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as any);
     const scrollbackEl = sbEl(c);
 
-    r.apply(fullFrame(80, [row(0, "v0")], [row(0, "h0"), row(1, "h1")]));
+    seedHeldHistory(r, 80, [row(0, "v0")], [row(0, "h0"), row(1, "h1")]);
     const before = sbRows(scrollbackEl);
 
     r.apply(deltaFrame(80, 1, [row(0, "v0-changed")], [], 2));
@@ -228,7 +259,7 @@ describe("CellGridRenderer DOM — append-only scrollback, no reflow", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as any);
 
-    r.apply(fullFrame(80, [row(0, "v0")], []));
+    seedHeldHistory(r, 80, [row(0, "v0")], []);
     expect((c.style as any)["--cell-cols"]).toBe("80");
     // The renderer has no container-width input — a delta can only carry the
     // worker's cols, never the pane width. Cols stays the worker's value.
@@ -242,7 +273,7 @@ describe("CellGridRenderer DOM — append-only scrollback, no reflow", () => {
     const viewportEl = vpEl(c); // ctor appends scrollback then viewport
     const scrollbackEl = sbEl(c);
 
-    expect(r.apply(fullFrame(80, [row(0, "v0")], [row(0, "h0")]))).toBe(true);
+    expect(seedHeldHistory(r, 80, [row(0, "v0")], [row(0, "h0")])).toBe(true);
     const heldRow = viewportEl.children[0]; // the painted viewport row node
 
     // Selection active → frames fold into state but the DOM must NOT change,
@@ -264,7 +295,7 @@ describe("CellGridRenderer DOM — append-only scrollback, no reflow", () => {
     const r = new CellGridRenderer(c as any);
     const viewportEl = vpEl(c);
 
-    r.apply(fullFrame(80, [row(0, "v0")], []));
+    seedHeldHistory(r, 80, [row(0, "v0")], []);
     const heldRow = viewportEl.children[0];
 
     // Cmd-held over the pane → the linkifier holds repaints so the wrapped <a>
@@ -282,7 +313,7 @@ describe("CellGridRenderer DOM — append-only scrollback, no reflow", () => {
     const r = new CellGridRenderer(c as any);
     const viewportEl = vpEl(c);
 
-    r.apply(fullFrame(80, [row(0, "v0")], []));
+    seedHeldHistory(r, 80, [row(0, "v0")], []);
     const heldRow = viewportEl.children[0];
 
     r.setSelectionHold(true);
@@ -309,7 +340,7 @@ describe("CellGridRenderer DOM — append-only scrollback, no reflow", () => {
     expect(r.heldFrameSeq()).toBe(0);
     expect(scrollbackEl.children.length).toBe(0);
 
-    expect(r.apply(fullFrame(80, [row(0, "v0")], [row(0, "h0")]))).toBe(true);
+    expect(seedHeldHistory(r, 80, [row(0, "v0")], [row(0, "h0")])).toBe(true);
     expect(scrollbackEl.children.length).toBe(1);
   });
 
@@ -318,7 +349,7 @@ describe("CellGridRenderer DOM — append-only scrollback, no reflow", () => {
     const r = new CellGridRenderer(c as any);
 
     // Main-screen full frame → no alt-active (scrollback stays visible/scrollable).
-    r.apply(fullFrame(80, [row(0, "v0")], [row(0, "h0")]));
+    seedHeldHistory(r, 80, [row(0, "v0")], [row(0, "h0")]);
     expect(c.classList.contains("alt-active")).toBe(false);
 
     // A fullscreen terminal app enters altScreen:true → alt-active latches (CSS hides
@@ -331,7 +362,7 @@ describe("CellGridRenderer DOM — append-only scrollback, no reflow", () => {
     expect(c.classList.contains("alt-active")).toBe(true);
 
     // Leaving alt (main-screen frame) clears it → scrollback returns.
-    r.apply(fullFrame(80, [row(0, "back")], [row(0, "h0")]));
+    seedHeldHistory(r, 80, [row(0, "back")], [row(0, "h0")]);
     expect(c.classList.contains("alt-active")).toBe(false);
   });
 });
@@ -345,7 +376,7 @@ describe("CellGridRenderer DOM — viewport diff", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement); // FakeEl covers the renderer's DOM surface
     const viewportEl = vpEl(c);
-    r.apply(fullFrame(80, [row(0, "v0"), row(1, "v1")], []));
+    seedHeldHistory(r, 80, [row(0, "v0"), row(1, "v1")], []);
     const n0 = viewportEl.children[0];
     const n1 = viewportEl.children[1];
     r.apply(deltaFrame(80, 2, [row(0, "v0"), row(1, "v1")], [], 2)); // cursor-only style delta
@@ -357,7 +388,7 @@ describe("CellGridRenderer DOM — viewport diff", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
     const viewportEl = vpEl(c);
-    r.apply(fullFrame(80, [row(0, "v0"), row(1, "v1")], []));
+    seedHeldHistory(r, 80, [row(0, "v0"), row(1, "v1")], []);
     const n0 = viewportEl.children[0];
     const n1 = viewportEl.children[1];
     r.apply(deltaFrame(80, 2, [row(1, "v1-changed")], [], 2));
@@ -366,23 +397,23 @@ describe("CellGridRenderer DOM — viewport diff", () => {
     expect(viewportEl.children[1].children[0].textContent).toBe("v1-changed");
   });
 
-  test("a full fast-append frame with fewer viewport rows prunes the tail", () => {
+  test("a viewport-only full frame rebuild prunes surplus viewport rows", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
     const viewportEl = vpEl(c);
-    r.apply(fullFrame(80, [row(0, "v0"), row(1, "v1"), row(2, "v2")], [row(0, "h0")]));
+    seedHeldHistory(r, 80, [row(0, "v0"), row(1, "v1"), row(2, "v2")], []);
     const n0 = viewportEl.children[0];
-    expect(viewportEl.children.length).toBe(5); // 3 rows + cursor + ghosts overlays
-    r.apply(fullFrame(80, [row(0, "v0")], [row(0, "h0")])); // same width/scrollback → fast path diff
-    expect(viewportEl.children.length).toBe(3); // 1 row + overlays
-    expect(viewportEl.children[0]).toBe(n0); // head row identity kept
+    expect(viewportEl.children.length).toBe(5);
+    seedHeldHistory(r, 80, [row(0, "v0")], []);
+    expect(viewportEl.children.length).toBe(3);
+    expect(viewportEl.children[0]).not.toBe(n0);
   });
 
   test("a scrolling delta REUSES shifted row nodes; only the new tail renders", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
     const viewportEl = vpEl(c);
-    r.apply(fullFrame(80, [row(0, "A"), row(1, "B"), row(2, "C")], []));
+    seedHeldHistory(r, 80, [row(0, "A"), row(1, "B"), row(2, "C")], []);
     const nB = viewportEl.children[1];
     const nC = viewportEl.children[2];
     // One line scrolled out: A moved to scrollback, viewport is now B,C,D.
@@ -394,83 +425,46 @@ describe("CellGridRenderer DOM — viewport diff", () => {
   });
 });
 
-// ── lazy-history: tail full frames + backfill splice ─────────────────────
-// Attach/reframe full frames carry only a SB_SNAPSHOT_TAIL_ROWS scrollback
-// tail (sbBase > 0); the [0, sbBase) rest arrives via prependScrollback.
-// These lock the two invariants: a broadcast tail frame never wipes an
-// already-deep viewer (merge keeps node identity), and a backfill splice
-// lands above without touching existing nodes.
-describe("CellGridRenderer DOM — tail frames + backfill", () => {
-  test("mergeFullFrame extends the held window from an overlapping tail", () => {
-    const base = fullFrame(80, [row(0, "v")], [row(0, "h0"), row(1, "h1"), row(2, "h2")]);
-    // Two lines scrolled off since; tail covers [2, 5) of total 5.
-    const tail = tailFrame(80, [row(0, "v")], [row(2, "h2"), row(3, "h3"), row(4, "h4")], 5);
-    const m = mergeFullFrame(base, tail);
-    expect(m).not.toBeNull();
-    expect(m!.appended.map((r) => r.index)).toEqual([3, 4]);
-    expect(m!.frame.sbBase).toBe(0);
-    expect(m!.frame.scrollbackRows.map((r) => r.index)).toEqual([0, 1, 2, 3, 4]);
-  });
+// ── viewport-only full frames + explicit backfill splice ──────────────────
+describe("CellGridRenderer DOM — viewport-only frames + backfill", () => {
 
-  test("mergeFullFrame rejects width change, shrink, gap, boundary mismatch", () => {
-    const base = fullFrame(80, [row(0, "v")], [row(0, "h0"), row(1, "h1")]);
-    const tail = (cols: number, rows2: CellRow[], total: number) =>
-      tailFrame(cols, [row(0, "v")], rows2, total);
-    expect(mergeFullFrame(base, tail(81, [row(1, "h1")], 2))).toBeNull(); // width
-    expect(mergeFullFrame(base, { ...tail(80, [row(0, "h0")], 1) })).toBeNull(); // shrink
-    expect(mergeFullFrame(base, tail(80, [row(4, "h4")], 5))).toBeNull(); // gap: tail starts past held
-    expect(mergeFullFrame(base, tail(80, [row(1, "DIFFERENT"), row(2, "h2")], 3))).toBeNull(); // boundary text
-    // held-nothing base only merges a complete (sbBase 0) frame
-    const empty = fullFrame(80, [row(0, "v")], []);
-    expect(mergeFullFrame(empty, tail(80, [row(3, "h3")], 4))).toBeNull();
-  });
-
-  test("a tail full frame fast-appends onto a deep viewer (node identity)", () => {
+  test("viewport-only full reserves depth; explicit pages fill the seam", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
     const scrollbackEl = sbEl(c);
-    r.apply(fullFrame(80, [row(0, "v")], [row(0, "h0"), row(1, "h1"), row(2, "h2")]));
-    const before = sbRows(scrollbackEl);
-    // Another viewer attaches → broadcast tail frame [1, 4) of total 4.
-    r.apply(tailFrame(80, [row(0, "v")], [row(1, "h1"), row(2, "h2"), row(3, "h3")], 4));
-    const after = sbRows(scrollbackEl);
-    expect(after.length).toBe(4);
-    expect(after[0]).toBe(before[0]); // deep history NOT wiped
-    expect(after[1]).toBe(before[1]);
-    expect(after[2]).toBe(before[2]);
-    expect(r.backfillAnchor()!.sbBase).toBe(0); // still complete
-  });
-
-  test("fresh mount on a tail frame leaves a hole; prependScrollback fills it above", () => {
-    const c = makeContainer();
-    const r = new CellGridRenderer(c as unknown as HTMLElement);
-    const scrollbackEl = sbEl(c);
-    r.apply(tailFrame(80, [row(0, "v")], [row(2, "h2"), row(3, "h3")], 4));
+    r.apply({
+      ...fullFrame(80, [row(0, "v")]),
+      scrollbackTotal: 4,
+      sbBase: 4,
+    });
+    expect(sbRows(scrollbackEl)).toHaveLength(0);
+    r.prependScrollback([row(2, "h2"), row(3, "h3")]);
     const a0 = r.backfillAnchor()!;
     expect(a0.sbBase).toBe(2);
-    expect(a0.firstHeldText).toBe("h2");
-    const tailNodes = sbRows(scrollbackEl);
-    expect(tailNodes.length).toBe(2);
-    // Backfill splice [0, 2) — must land ABOVE, existing nodes untouched.
+    expect(a0.gridEpoch).toBe("test-grid:0");
+    const newestPage = sbRows(scrollbackEl);
     r.prependScrollback([row(0, "h0"), row(1, "h1")]);
     const all = sbRows(scrollbackEl);
-    expect(all.length).toBe(4);
-    expect(all[0].children[0].textContent).toBe("h0");
-    expect(all[2]).toBe(tailNodes[0]);
-    expect(all[3]).toBe(tailNodes[1]);
+    expect(all.map((n) => n.children[0].textContent)).toEqual(["h0", "h1", "h2", "h3"]);
+    expect(all[2]).toBe(newestPage[0]);
+    expect(all[3]).toBe(newestPage[1]);
     expect(r.backfillAnchor()!.sbBase).toBe(0);
-    // Misaligned splice (epoch moved) is dropped, not applied.
     r.prependScrollback([row(0, "stale")]);
-    expect(sbRows(scrollbackEl).length).toBe(4);
+    expect(sbRows(scrollbackEl)).toHaveLength(4);
   });
 
-  test("a delta after a merged tail keeps splicing appends correctly", () => {
+  test("a delta after explicit backfill keeps appending at the same epoch", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
     const scrollbackEl = sbEl(c);
-    r.apply(tailFrame(80, [row(0, "v")], [row(1, "h1")], 2));
+    r.apply({
+      ...fullFrame(80, [row(0, "v")]),
+      scrollbackTotal: 2,
+      sbBase: 2,
+    });
+    r.prependScrollback([row(1, "h1")]);
     r.apply({ ...deltaFrame(80, 1, [], [row(2, "h2")], 3), scrollbackTotal: 3 });
-    expect(sbRows(scrollbackEl).length).toBe(2); // h1 + h2 (hole [0,1) pending)
+    expect(sbRows(scrollbackEl)).toHaveLength(2);
     expect(r.backfillAnchor()!.sbBase).toBe(1);
     r.prependScrollback([row(0, "h0")]);
     expect(sbRows(scrollbackEl).map((n) => n.children[0].textContent)).toEqual(["h0", "h1", "h2"]);
@@ -484,8 +478,8 @@ describe("CellGridRenderer DOM — tail frames + backfill", () => {
 // MAX_HELD_SCROLLBACK_ROWS, bumping sbBase so the held-window invariant
 // (scrollbackRows.length === scrollbackTotal - sbBase) stays honest and
 // scrollbackBackfill re-pulls the evicted range on scroll-up. These lock the
-// cap, the invariant + DOM↔array alignment, the freeze under a scrolled-up
-// reader, mergeFullFrame after eviction, and — critically — that a PARTIAL
+// cap, the invariant + DOM↔array alignment, and the freeze under a scrolled-up
+// reader.
 // leading block never desyncs (every backfill prepend is < SB_BLOCK because
 // the overlap row is stripped at scrollbackBackfill.ts:111).
 describe("CellGridRenderer DOM — held-window eviction", () => {
@@ -509,7 +503,7 @@ describe("CellGridRenderer DOM — held-window eviction", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
     const scrollbackEl = sbEl(c);
-    r.apply(fullFrame(80, [row(0, "v")], seq(100).map((i) => row(i, `h${i}`))));
+    seedHeldHistory(r, 80, [row(0, "v")], seq(100).map((i) => row(i, `h${i}`)));
     const { total, idx } = grow(r, 100, 12);
     // After every apply the invariant, the cap, and DOM↔array alignment hold.
     const f = r.currentFrame!;
@@ -526,7 +520,7 @@ describe("CellGridRenderer DOM — held-window eviction", () => {
   test("returning to the bottom re-enables held-window eviction", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
-    r.apply(fullFrame(80, [row(0, "v")], seq(100).map((i) => row(i, `h${i}`))));
+    seedHeldHistory(r, 80, [row(0, "v")], seq(100).map((i) => row(i, `h${i}`)));
     c.scrollTop = c.scrollHeight - c.clientHeight - ROW_PX;
     c.resetScrollTopWrites();
     const { idx } = grow(r, 100, 8);
@@ -551,7 +545,7 @@ describe("CellGridRenderer DOM — held-window eviction", () => {
     // Tail frame (sbBase > 0): held = last 100 rows of a 2500-row history.
     const total = 2500;
     const tailStart = total - 100;
-    r.apply(tailFrame(80, [row(0, "v")], seq(100).map((k) => row(tailStart + k, `h${tailStart + k}`)), total));
+    seedHeldHistory(r, 80, [row(0, "v")], seq(100).map((k) => row(tailStart + k, `h${tailStart + k}`)), total);
     // Backfill with a PARTIAL chunk (< BLOCK): every real backfill batch is
     // < SB_BLOCK (overlap row stripped), so this is the realistic case. The
     // leading block becomes partial (180 rows) — the first block eviction removes.
@@ -578,7 +572,7 @@ describe("CellGridRenderer DOM — held-window eviction", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
     const scrollbackEl = sbEl(c);
-    r.apply(tailFrame(80, [row(0, "v")], seq(300).map((i) => row(300 + i, `h${i}`)), 600));
+    seedHeldHistory(r, 80, [row(0, "v")], seq(300).map((i) => row(300 + i, `h${i}`)), 600);
     expect((scrollbackEl.children[0] as FakeEl).style["overflow-anchor"]).toBeUndefined();
     expect((scrollbackEl.children[1] as FakeEl).style["overflow-anchor"]).toBe("none");
 
@@ -589,25 +583,11 @@ describe("CellGridRenderer DOM — held-window eviction", () => {
     expect((scrollbackEl.children[2] as FakeEl).style["overflow-anchor"]).toBe("none");
   });
 
-  test("after eviction, an extending tail full frame still merges; anchor base is honest", () => {
-    const c = makeContainer();
-    const r = new CellGridRenderer(c as unknown as HTMLElement);
-    r.apply(fullFrame(80, [row(0, "v")], seq(100).map((i) => row(i, `h${i}`))));
-    const { total, idx } = grow(r, 100, 12);
-    const after = r.currentFrame!;
-    expect(after.sbBase).toBeGreaterThan(0); // eviction actually bumped the base
-    expect(r.backfillAnchor()!.sbBase).toBe(after.sbBase); // anchor reports bumped base
-    // A tail overlapping the held window's last row + one new row must merge
-    // (mergeFullFrame reads the held TAIL; eviction only ever drops the HEAD).
-    const lastHeld = after.scrollbackRows[after.scrollbackRows.length - 1]!;
-    const extTail = tailFrame(80, [row(0, "v")], [lastHeld, row(idx, `new${idx}`)], total + 1);
-    expect(mergeFullFrame(after, extTail)).not.toBeNull();
-  });
   test("eviction leaves an inspected viewport untouched", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
     c.clientHeight = 500;
-    r.apply(fullFrame(80, [row(0, "v")], seq(2000).map((i) => row(i, `h${i}`))));
+    seedHeldHistory(r, 80, [row(0, "v")], seq(2000).map((i) => row(i, `h${i}`)));
     c.scrollTop = PAD_TOP + 800 * ROW_PX;
     const held = c.scrollTop;
     const baseBefore = r.currentFrame!.sbBase;
@@ -637,7 +617,7 @@ describe("CellGridRenderer DOM — content-visibility placeholder exactness", ()
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
     const sb: FakeEl = sbEl(c);
-    r.apply(fullFrame(80, [row(0, "v")], seqN(7).map((i) => row(i, `s${i}`))));
+    seedHeldHistory(r, 80, [row(0, "v")], seqN(7).map((i) => row(i, `s${i}`)));
     expect(sb.children.length).toBe(1);
     expect(csz(sb.children[0])).toBe("112.00px");   // 7 rows × 16px
 
@@ -664,7 +644,7 @@ describe("CellGridRenderer DOM — content-visibility placeholder exactness", ()
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
     const sb: FakeEl = sbEl(c);
-    r.apply(fullFrame(80, [row(0, "v")], seqN(7).map((i) => row(i, `s${i}`))));
+    seedHeldHistory(r, 80, [row(0, "v")], seqN(7).map((i) => row(i, `s${i}`)));
     expect(cv(sb.children[0])).toBe("visible");
 
     const append = seqN(BLOCK).map((k) => row(7 + k, `s${7 + k}`));
@@ -700,7 +680,7 @@ describe("CellGridRenderer DOM — bottom-only scrolling", () => {
   test("a frame appended at the exact bottom pins to the new bottom", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
-    r.apply(fullFrame(80, [row(0, "v")], nRows(400)));
+    seedHeldHistory(r, 80, [row(0, "v")], nRows(400));
     c.scrollTop = Math.max(0, c.scrollHeight - c.clientHeight);
     c.resetScrollTopWrites();
 
@@ -715,7 +695,7 @@ describe("CellGridRenderer DOM — bottom-only scrolling", () => {
   test("one pixel above the bottom is not pinned by a streaming frame", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
-    r.apply(fullFrame(80, [row(0, "v")], nRows(400)));
+    seedHeldHistory(r, 80, [row(0, "v")], nRows(400));
     c.scrollTop = c.scrollHeight - c.clientHeight - 1;
     const before = c.scrollTop;
     c.resetScrollTopWrites();
@@ -731,7 +711,7 @@ describe("CellGridRenderer DOM — bottom-only scrolling", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
     const total = 1000, held = 300;
-    r.apply(tailFrame(80, [row(0, "v")], nRows(held, total - held), total));
+    seedHeldHistory(r, 80, [row(0, "v")], nRows(held, total - held), total);
     c.scrollTop = PAD_TOP + 50 * ROW_PX;
     const before = c.scrollTop;
     c.resetScrollTopWrites();
@@ -745,34 +725,39 @@ describe("CellGridRenderer DOM — bottom-only scrolling", () => {
     expect(r.currentFrame!.scrollbackRows.length).toBe(held + 100);
   });
 
-  test("entering alt-screen from history performs no application scroll write", () => {
+  test("entering alt-screen freezes inspected history until the reader returns", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
-    r.apply(fullFrame(80, [row(0, "v")], nRows(400)));
+    seedHeldHistory(r, 80, [row(0, "v")], nRows(400));
     c.scrollTop = PAD_TOP + 50 * ROW_PX;
     c.resetScrollTopWrites();
 
     r.apply(altFullFrame(80, [row(0, "TUI")], []));
 
-    expect(c.classList.contains("alt-active")).toBe(true);
+    expect(c.classList.contains("alt-active")).toBe(false);
     expect(c.scrollTopWrites).toBe(0);
+    c.scrollTop = c.scrollHeight - c.clientHeight;
+    c.resetScrollTopWrites();
+    expect(r.releaseReaderFreezeAtBottom()).toBe(true);
+    expect(c.classList.contains("alt-active")).toBe(true);
+    expect(c.scrollTopWrites).toBe(1);
   });
 
-  test("leaving alt-screen pins because the alt viewport is at bottom", () => {
+  test("leaving alt-screen reconciles an already-bottom reader", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
-    r.apply(fullFrame(80, [row(0, "v")], nRows(400)));
+    seedHeldHistory(r, 80, [row(0, "v")], nRows(400));
     c.scrollTop = PAD_TOP + 50 * ROW_PX;
     r.apply(altFullFrame(80, [row(0, "TUI")], []));
-    // CSS makes the alt viewport non-scrollable; model its browser clamp.
-    c.scrollTop = 0;
+    // Model the browser's alt-screen clamp as a literal-bottom position.
+    c.scrollTop = c.scrollHeight - c.clientHeight;
     c.resetScrollTopWrites();
 
-    r.apply(fullFrame(80, [row(0, "back")], nRows(400)));
+    seedHeldHistory(r, 80, [row(0, "back")], nRows(400));
 
     expect(c.classList.contains("alt-active")).toBe(false);
     expect(c.scrollTop).toBe(c.scrollHeight - c.clientHeight);
-    expect(c.scrollTopWrites).toBe(1);
+    expect(c.scrollTopWrites).toBe(0);
     expect(r.atBottom()).toBe(true);
   });
 
@@ -786,7 +771,7 @@ describe("CellGridRenderer DOM — bottom-only scrolling", () => {
   test("frames applied while the box height is unchanged stay pinned to the live bottom", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
-    r.apply(fullFrame(80, [row(0, "v")], nRows(400)));
+    seedHeldHistory(r, 80, [row(0, "v")], nRows(400));
     c.scrollTop = Math.max(0, c.scrollHeight - c.clientHeight);
     c.resetScrollTopWrites();
 
@@ -801,7 +786,7 @@ describe("CellGridRenderer DOM — bottom-only scrolling", () => {
   test("frames applied after the box height changed are not pinned", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
-    r.apply(fullFrame(80, [row(0, "v")], nRows(400)));
+    seedHeldHistory(r, 80, [row(0, "v")], nRows(400));
     c.scrollTop = Math.max(0, c.scrollHeight - c.clientHeight);
     c.resetScrollTopWrites();
     // Shrinking the box (the 800×600 park under a taller pane) raises the scroll
@@ -843,7 +828,7 @@ describe("CellGridRenderer DOM — truthful scroll space", () => {
   test("the spacer reserves the unpainted history", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
-    r.apply(tailFrame(80, [row(0, "v")], nRows(250, 500), 750));
+    seedHeldHistory(r, 80, [row(0, "v")], nRows(250, 500), 750);
 
     expect(spEl(c).style.height).toBe("8000.00px"); // 500 unpainted rows × 16px
     // 750 rows of history in the scroll space, not the 250 that are painted.
@@ -856,7 +841,7 @@ describe("CellGridRenderer DOM — truthful scroll space", () => {
   test("a backfill prepend shrinks the spacer by exactly the rows it adds", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
-    r.apply(tailFrame(80, [row(0, "v")], nRows(250, 500), 750));
+    seedHeldHistory(r, 80, [row(0, "v")], nRows(250, 500), 750);
     c.scrollTop = PAD_TOP + 600 * ROW_PX; // off the bottom, inside painted history
     const heightBefore = c.scrollHeight;
     const readerBefore = rowAtReader(c);
@@ -875,7 +860,7 @@ describe("CellGridRenderer DOM — truthful scroll space", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
     const held = 1900;
-    r.apply(tailFrame(80, [row(0, "v")], nRows(held, 500), 500 + held));
+    seedHeldHistory(r, 80, [row(0, "v")], nRows(held, 500), 500 + held);
     c.scrollTop = Math.max(0, c.scrollHeight - c.clientHeight); // literal bottom
     const heightBefore = c.scrollHeight;
     const spacerBefore = spPx(c);
@@ -891,21 +876,57 @@ describe("CellGridRenderer DOM — truthful scroll space", () => {
     expect(c.scrollHeight).toBe(heightBefore + 250 * ROW_PX);
   });
 
-  test("a reframe keeps the reader on the same absolute row", () => {
+
+  test("a same-epoch streaming repair freezes an off-bottom reader until bottom", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
-    r.apply(tailFrame(80, [row(0, "v")], nRows(250, 500), 750));
-    c.scrollTop = PAD_TOP + 600 * ROW_PX; // absolute row 600, by construction
-    expect(rowAtReader(c)).toBe("r600");
+    seedHeldHistory(r, 80, [row(0, "old-v")], nRows(250, 500), 750);
+    c.scrollTop = PAD_TOP + 600 * ROW_PX;
+    const readerBefore = rowAtReader(c);
+    const heightBefore = c.scrollHeight;
     c.resetScrollTopWrites();
 
-    // Slow path: a cols change makes mergeFullFrame return null → renderFull's
-    // replaceChildren repaints a DIFFERENT tail (sbBase 400) from scratch.
-    r.apply({ ...tailFrame(100, [row(0, "v")], nRows(400, 400), 800), seq: 3 });
+    r.apply({ ...fullFrame(80, [row(0, "repair-v")], 760), seq: 3 });
+    r.apply({
+      ...deltaFrame(80, 1, [row(0, "latest-v")], [row(760, "live-760")], 4),
+      scrollbackTotal: 761,
+    });
 
-    expect(spEl(c).style.height).toBe("6400.00px"); // 400 × 16
-    expect(c.scrollTopWrites).toBe(0);              // row 120's single writer stays silent
-    expect(rowAtReader(c)).toBe("r600");            // the tab-switch guarantee
+    expect(r.currentFrame!.scrollbackTotal).toBe(750);
+    expect(r.currentFrame!.viewportRows[0]!.spans[0]!.text).toBe("old-v");
+    expect(r.heldFrameSeq()).toBe(4);
+    expect(c.scrollHeight).toBe(heightBefore);
+    expect(c.scrollTopWrites).toBe(0);
+    expect(rowAtReader(c)).toBe(readerBefore);
+
+    c.scrollTop = c.scrollHeight - c.clientHeight;
+    c.resetScrollTopWrites();
+    expect(r.releaseReaderFreezeAtBottom()).toBe(true);
+    expect(r.currentFrame!.scrollbackTotal).toBe(761);
+    expect(r.currentFrame!.sbBase).toBe(760);
+    expect(r.currentFrame!.scrollbackRows[0]!.index).toBe(760);
+    expect(r.currentFrame!.viewportRows[0]!.spans[0]!.text).toBe("latest-v");
+    expect(c.scrollTopWrites).toBe(1);
+    expect(r.atBottom()).toBe(true);
+  });
+
+  test("releasing a hold reconciles a pending reader already at bottom", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    seedHeldHistory(r, 80, [row(0, "old-v")], nRows(250, 500), 750);
+    c.scrollTop = PAD_TOP + 600 * ROW_PX;
+    r.setSelectionHold(true);
+    r.apply({ ...fullFrame(80, [row(0, "latest-v")], 760), seq: 3 });
+
+    c.scrollTop = c.scrollHeight - c.clientHeight;
+    c.resetScrollTopWrites();
+    expect(r.releaseReaderFreezeAtBottom()).toBe(false);
+    expect(r.setSelectionHold(false)).toBe(true);
+
+    expect(r.currentFrame!.seq).toBe(3);
+    expect(r.currentFrame!.viewportRows[0]!.spans[0]!.text).toBe("latest-v");
+    expect(c.scrollTop).toBe(c.scrollHeight - c.clientHeight);
+    expect(c.scrollTopWrites).toBe(1);
   });
 });
 
@@ -928,7 +949,7 @@ describe("CellGridRenderer DOM — box resize + unreachable window", () => {
   test("at-bottom reader follows a box shrink to the new bottom — exactly one pin", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
-    r.apply(fullFrame(80, [row(0, "v")], nRows(400)));
+    seedHeldHistory(r, 80, [row(0, "v")], nRows(400));
     c.scrollTop = Math.max(0, c.scrollHeight - c.clientHeight);
     c.resetScrollTopWrites();
 
@@ -946,7 +967,7 @@ describe("CellGridRenderer DOM — box resize + unreachable window", () => {
   test("off-bottom reader is untouched by a box shrink", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
-    r.apply(fullFrame(80, [row(0, "v")], nRows(400)));
+    seedHeldHistory(r, 80, [row(0, "v")], nRows(400));
     c.scrollTop = c.scrollHeight - c.clientHeight - 2; // >1px above the old bottom
     const before = c.scrollTop;
     c.resetScrollTopWrites();
@@ -961,7 +982,7 @@ describe("CellGridRenderer DOM — box resize + unreachable window", () => {
   test("at-bottom reader follows a box grow onto the new bottom", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
-    r.apply(fullFrame(80, [row(0, "v")], nRows(400)));
+    seedHeldHistory(r, 80, [row(0, "v")], nRows(400));
     c.scrollTop = Math.max(0, c.scrollHeight - c.clientHeight);
     c.resetScrollTopWrites();
 
@@ -977,28 +998,40 @@ describe("CellGridRenderer DOM — box resize + unreachable window", () => {
     expect(r.atBottom()).toBe(true);
   });
 
-  test("a full frame whose tail starts beyond the held window pins an off-bottom reader to the bottom", () => {
+  test("an epoch-changing full frame also freezes an off-bottom reader", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
-    r.apply(tailFrame(80, [row(0, "v")], nRows(250, 500), 750)); // held [500, 750)
-    c.scrollTop = PAD_TOP + 600 * ROW_PX; // inspecting painted history, off-bottom
+    seedHeldHistory(r, 80, [row(0, "v")], nRows(250, 500), 750);
+    c.scrollTop = PAD_TOP + 600 * ROW_PX;
+    const before = c.scrollTop;
     c.resetScrollTopWrites();
 
-    // Same width, but the pane fell >catch-up behind while parked: the incoming
-    // tail [3000, 5000) shares no row with the held window (mergeFullFrame →
-    // null at inIdx<0) — the reader's absolute row has no image in the new epoch.
-    r.apply({ ...tailFrame(80, [row(0, "v")], nRows(2000, 3000), 5000), seq: 3 });
+    r.apply({
+      ...fullFrame(80, [row(0, "v")], 5000),
+      gridEpoch: "test-grid:1",
+      scrollbackTotal: 5000,
+      sbBase: 5000,
+      seq: 3,
+    });
 
+    expect(c.scrollTop).toBe(before);
+    expect(c.scrollTopWrites).toBe(0);
+    expect(r.currentFrame!.gridEpoch).toBe("test-grid:0");
+    expect(r.heldFrameSeq()).toBe(3);
+
+    c.scrollTop = c.scrollHeight - c.clientHeight;
+    c.resetScrollTopWrites();
+    expect(r.releaseReaderFreezeAtBottom()).toBe(true);
+    expect(r.currentFrame!.gridEpoch).toBe("test-grid:1");
     expect(c.scrollTop).toBe(c.scrollHeight - c.clientHeight);
     expect(c.scrollTopWrites).toBe(1);
-    expect(r.atBottom()).toBe(true);
   });
 
   test("renderFull reserves the incoming spacer BEFORE wiping painted history", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
-    r.apply(tailFrame(80, [row(0, "v")], nRows(250, 500), 750));
-    c.scrollTop = PAD_TOP + 600 * ROW_PX; // deep in painted history
+    seedHeldHistory(r, 80, [row(0, "v")], nRows(250, 500), 750);
+    c.scrollTop = Math.max(0, c.scrollHeight - c.clientHeight);
     const preScrollTop = c.scrollTop;
 
     // Spy the wipe: at the instant .cell-scrollback is cleared, the spacer must
@@ -1016,9 +1049,9 @@ describe("CellGridRenderer DOM — box resize + unreachable window", () => {
     };
 
     // Width change → slow path → renderFull replaceChildren.
-    r.apply({ ...tailFrame(100, [row(0, "v")], nRows(250, 5750), 6000), seq: 3 });
+    r.apply({ ...fullFrame(100, [row(0, "v")], 6000), gridEpoch: "test-grid:1", seq: 3 });
 
-    expect(spacerAtWipe).toBe(5750 * ROW_PX);      // incoming reserve, not the old 500-row one
+    expect(spacerAtWipe).toBe(6000 * ROW_PX);
     expect(heightAtWipe).toBeGreaterThanOrEqual(preScrollTop);
   });
 });

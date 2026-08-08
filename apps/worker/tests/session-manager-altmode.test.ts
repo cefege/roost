@@ -42,7 +42,7 @@ async function injectSession(mgr: SessionManager, channelId: number, bytes: stri
     osc7_carry: new Uint8Array(0),
     ...initAgentOscState(),
     wtermCore,
-    cell_emit: initCellEmitState(),
+    cell_emit: initCellEmitState("test-grid"),
   };
   (mgr as unknown as { sessions: Map<number, unknown> }).sessions.set(channelId, record);
 }

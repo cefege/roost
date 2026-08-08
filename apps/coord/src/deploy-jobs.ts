@@ -168,5 +168,8 @@ export async function* deployOutput(jobId: string, signal?: AbortSignal): AsyncG
     yield { kind: "done", exit: job.exitCode ?? null, error: job.error };
     return;
   }
-  yield* busToAsyncIterable(job.bus, { signal });
+  for await (const message of busToAsyncIterable(job.bus, { signal })) {
+    yield message;
+    if (message.kind === "done") return;
+  }
 }

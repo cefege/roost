@@ -154,15 +154,17 @@ interface Props {
 
 // ─── component ───────────────────────────────────────────────────────────
 
+// The engine owns the normal exit from `finalizing` (onEnd / onFailure). This is
+// the floor under it: no engine bug may leave the mic breathing and untappable
+// forever. Comfortably longer than dictationTimings.finalizeWaitMs so it only
+// ever fires when the engine did not.
+const FINALIZE_WATCHDOG_MS = 6_000;
+
 export const MobileVoiceInput: Component<Props> = (props) => {
 	const [voiceState, setVoiceState] = createSignal<VoiceState>("idle");
 	const [interimText, setInterimText] = createSignal("");
 	const [finalText, setFinalText] = createSignal("");
 	const [errorMsg, setErrorMsg] = createSignal<string | null>(null);
-	// If another session owns the recording, hide completely. Only ONE MobileVoiceInput
-	// DOM tree exists at a time — no position:fixed overlap when multiple terminals are visible.
-	const owner = activeVoiceChannel();
-	if (owner !== null && owner !== props.channelId) return null;
 
 	// Deepgram config from coord (which engine + language).
 	ensureTranscriptionConfig();
@@ -210,6 +212,14 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 	// Web Speech `onend` fires for BOTH stop()-to-send and abort()-to-discard;
 	// this flag tells them apart (Deepgram tracks its own endIntent internally).
 	let webIntent: "send" | "cancel" | null = null;
+	// Floor under `finalizing` — see FINALIZE_WATCHDOG_MS.
+	let finalizeWatchdog: ReturnType<typeof setTimeout> | null = null;
+	const clearFinalizeWatchdog = () => {
+		if (finalizeWatchdog) {
+			clearTimeout(finalizeWatchdog);
+			finalizeWatchdog = null;
+		}
+	};
 
 	onMount(() => {
 		if (!webSupported) return;
@@ -243,6 +253,7 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 	});
 
 	onCleanup(() => {
+		clearFinalizeWatchdog();
 		if (activeVoiceChannel() === props.channelId) setActiveVoiceChannel(null);
 		try {
 			recognition?.abort();
@@ -253,6 +264,7 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 	});
 
 	const startRecording = () => {
+		clearFinalizeWatchdog();
 		setVoiceState("listening");
 		// Claim the recording slot — all other terminals' MobileVoiceInput instances hide.
 		setActiveVoiceChannel(props.channelId);
@@ -275,6 +287,10 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 	// send fires from the engine's onEnd (Deepgram) / onend (Web Speech).
 	const stopAndSend = () => {
 		setVoiceState("finalizing");
+		finalizeWatchdog = setTimeout(() => {
+			finalizeWatchdog = null;
+			if (voiceState() === "finalizing") forceFinish();
+		}, FINALIZE_WATCHDOG_MS);
 		if (useDeepgram()) {
 			dg.stop();
 		} else {
@@ -300,12 +316,13 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 		const s = voiceState();
 		if (s === "idle") startRecording();
 		else if (s === "listening") stopAndSend();
-		// finalizing: ignore taps until the send completes.
+		else forceFinish(); // finalizing: a second tap hurries the send, never wedges
 	};
 
 	// Reset the transcript + state back to idle and hand focus back to the
 	// terminal. Shared by auto-send (empty + after-send) and discard.
 	const resetToIdle = () => {
+		clearFinalizeWatchdog();
 		dg.reset();
 		setFinalText("");
 		setInterimText("");
@@ -326,6 +343,7 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 	// it is held, every OTHER pane's MobileVoiceInput early-returns null and the
 	// mic disappears from their composers.
 	const failToIdle = () => {
+		clearFinalizeWatchdog();
 		if (voiceState() === "idle") return;
 		props.onLiveTranscript?.(null);
 		setFinalText("");
@@ -335,8 +353,7 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 	};
 
 	// Called from the engine's end callback (auto-send) — NOT a button anymore.
-	const sendTranscript = () => {
-		const text = `${dispFinal()} ${dispInterim()}`.trim();
+	const deliver = (text: string) => {
 		if (text.length === 0) {
 			resetToIdle();
 			return;
@@ -349,9 +366,28 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 		props.onTerminalSubmit(text);
 		resetToIdle();
 	};
+	const sendTranscript = () => { deliver(`${dispFinal()} ${dispInterim()}`.trim()); };
+
+	// Escape from `finalizing`: deliver whatever settled and tear the engine down.
+	// Never discards — a hurried second tap must not cost the user their words.
+	const forceFinish = () => {
+		clearFinalizeWatchdog();
+		const text = `${dispFinal()} ${dispInterim()}`.trim();
+		if (useDeepgram()) dg.abort();
+		else {
+			webIntent = "cancel";
+			try {
+				recognition?.abort();
+			} catch {
+				/* ignore */
+			}
+		}
+		deliver(text);
+	};
 
 	// ✕ during recording/finalizing — discard without sending.
 	const discard = () => {
+		clearFinalizeWatchdog();
 		if (useDeepgram()) {
 			dg.abort();
 		} else {
@@ -388,92 +424,100 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 				: "mic";
 	};
 
+	// Only ONE MobileVoiceInput DOM tree exists at a time — no position:fixed
+	// overlap when multiple terminals are visible. The gate is read HERE, in the
+	// JSX, so it stays reactive: the component body runs untracked, so a
+	// mount-time snapshot left an instance created while another channel held
+	// the slot rendering null forever. Show only toggles the DOM subtree — the
+	// instance, its engine, its onMount and its onCleanup all survive.
 	return (
-		<div
-			class={props.variant === "inline" ? "voice-input voice-input--inline" : "voice-input"}
-			data-testid="mobile-voice-input"
-			data-state={voiceState()}
-			data-engine={!engineAvailable ? "unavailable" : useDeepgram() ? "deepgram" : "web-speech"}
-		>
-			{/* Transcript caption (M3 snackbar). */}
-			<Show when={showCaption()}>
-				<div
-					class={
-						dispError() ? "voice-caption voice-caption--error" : "voice-caption"
-					}
-					data-testid="voice-caption"
-				>
-					<Show
-						when={dispError()}
-						fallback={
-							<>
-								<span class="voice-caption__final">{dispFinal()}</span>
-								<Show when={dispInterim()}>
-									<span class="voice-caption__interim">
-										{dispFinal() ? " " : ""}
-										{dispInterim()}
-									</span>
-								</Show>
-								<Show when={!dispFinal() && !dispInterim()}>
-									<span class="voice-caption__hint">
-										{voiceState() === "finalizing" ? (inserts() ? "Inserting…" : "Sending…") : "Listening…"}
-									</span>
-								</Show>
-							</>
+		<Show when={activeVoiceChannel() === null || activeVoiceChannel() === props.channelId}>
+			<div
+				class={props.variant === "inline" ? "voice-input voice-input--inline" : "voice-input"}
+				data-testid="mobile-voice-input"
+				data-state={voiceState()}
+				data-engine={!engineAvailable ? "unavailable" : useDeepgram() ? "deepgram" : "web-speech"}
+			>
+				{/* Transcript caption (M3 snackbar). */}
+				<Show when={showCaption()}>
+					<div
+						class={
+							dispError() ? "voice-caption voice-caption--error" : "voice-caption"
 						}
+						data-testid="voice-caption"
 					>
-						<span class="voice-caption__error">Mic error: {dispError()}</span>
-					</Show>
-				</div>
-			</Show>
-
-			{/* ✕ discard (small tonal FAB) + mic (stop = send), side by side. */}
-			<div class="voice-input__cluster">
-				<Show when={isActive()}>
-					<button
-						type="button"
-						class="voice-fab voice-fab--discard"
-						data-testid="voice-discard"
-						onClick={() => discard()}
-						aria-label="Discard recording"
-					>
-						<span class="voice-fab__icon">close</span>
-					</button>
+						<Show
+							when={dispError()}
+							fallback={
+								<>
+									<span class="voice-caption__final">{dispFinal()}</span>
+									<Show when={dispInterim()}>
+										<span class="voice-caption__interim">
+											{dispFinal() ? " " : ""}
+											{dispInterim()}
+										</span>
+									</Show>
+									<Show when={!dispFinal() && !dispInterim()}>
+										<span class="voice-caption__hint">
+											{voiceState() === "finalizing" ? (inserts() ? "Inserting…" : "Sending…") : "Listening…"}
+										</span>
+									</Show>
+								</>
+							}
+						>
+							<span class="voice-caption__error">Mic error: {dispError()}</span>
+						</Show>
+					</div>
 				</Show>
 
-				<button
-					type="button"
-					class="voice-fab"
-					data-testid="voice-mic"
-					data-recording={voiceState() === "listening" ? "true" : "false"}
-					data-finalizing={voiceState() === "finalizing" ? "true" : "false"}
-					onPointerDown={(e) => {
-						if (props.variant !== "inline") onFabPointerDown(e);
-						// Open the device and fetch the key on press, not on release:
-						// the cold getUserMedia is what used to eat the first words.
-						if (voiceState() === "idle" && useDeepgram()) {
-							void warmMic().catch(() => {
-								/* startCapture surfaces the error on the actual tap */
-							});
-							prefetchDeepgramKey();
-						}
-					}}
-					onClick={() => toggleRecord()}
-					aria-label={
-						voiceState() === "listening"
-							? inserts()
-								? "Stop and insert"
-								: "Stop and send"
-							: voiceState() === "finalizing"
+				{/* ✕ discard (small tonal FAB) + mic (stop = send), side by side. */}
+				<div class="voice-input__cluster">
+					<Show when={isActive()}>
+						<button
+							type="button"
+							class="voice-fab voice-fab--discard"
+							data-testid="voice-discard"
+							onClick={() => discard()}
+							aria-label="Discard recording"
+						>
+							<span class="voice-fab__icon">close</span>
+						</button>
+					</Show>
+
+					<button
+						type="button"
+						class="voice-fab"
+						data-testid="voice-mic"
+						data-recording={voiceState() === "listening" ? "true" : "false"}
+						data-finalizing={voiceState() === "finalizing" ? "true" : "false"}
+						onPointerDown={(e) => {
+							if (props.variant !== "inline") onFabPointerDown(e);
+							// Open the device and fetch the key on press, not on release:
+							// the cold getUserMedia is what used to eat the first words.
+							if (voiceState() === "idle" && useDeepgram()) {
+								void warmMic().catch(() => {
+									/* startCapture surfaces the error on the actual tap */
+								});
+								prefetchDeepgramKey();
+							}
+						}}
+						onClick={() => toggleRecord()}
+						aria-label={
+							voiceState() === "listening"
 								? inserts()
-									? "Inserting"
-									: "Sending"
-								: "Start recording"
-					}
-				>
-					<span class="voice-fab__icon">{micIcon()}</span>
-				</button>
+									? "Stop and insert"
+									: "Stop and send"
+								: voiceState() === "finalizing"
+									? inserts()
+										? "Inserting"
+										: "Sending"
+									: "Start recording"
+						}
+					>
+						<span class="voice-fab__icon">{micIcon()}</span>
+					</button>
+				</div>
 			</div>
-		</div>
+		</Show>
 	);
 };

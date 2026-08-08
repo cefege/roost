@@ -13,6 +13,7 @@ import { KEEPER_BUILD_STAMP } from "./keeper-stamp.ts";
 import { _log, _keeperOpenFdCount } from "./keeper-log.ts";
 import { reapChannelTree } from "./keeper-process-reap.ts";
 import type { Channel, ClientState } from "./keeper-types.ts";
+import { createSbRing, appendToRing, readRing } from "../session-scrollback-ring.ts";
 
 // RC2: per-channel output ring kept on the keeper so head_seq + history
 // survive a worker restart (the keeper outlives the worker). Matches the
@@ -23,6 +24,9 @@ import type { Channel, ClientState } from "./keeper-types.ts";
 // while cutting the worst-case footprint to 12 MB. See memory
 // project_keeper_death_auto_respawn (jetsam root cause).
 const KEEPER_RING_CAP_BYTES = 1 * 1024 * 1024;
+
+// GetHistory on an unknown/exited channel: no ring to read.
+const EMPTY_U8 = new Uint8Array(0);
 
 export interface FrameHandlerCtx {
   channels: Map<number, Channel>;
@@ -89,10 +93,7 @@ export function handleFrame(ctx: FrameHandlerCtx, client: ClientState, f: { type
               const c = channels.get(req.channel_id);
               if (c) {
                 c.headSeq += buf.length;
-                const combined = c.outRing.length ? Buffer.concat([c.outRing, buf]) : buf;
-                c.outRing = combined.length > KEEPER_RING_CAP_BYTES
-                  ? combined.subarray(combined.length - KEEPER_RING_CAP_BYTES)
-                  : combined;
+                appendToRing(c.outRing, buf);
               }
               broadcast(encodeMuxFrame(MuxFrameType.PtyOut, req.channel_id, buf));
             },
@@ -134,7 +135,7 @@ export function handleFrame(ctx: FrameHandlerCtx, client: ClientState, f: { type
             ...(req.env ?? {}),
           },
         });
-        const ch: Channel = { proc, exited: false, outRing: Buffer.alloc(0), headSeq: 0 };
+        const ch: Channel = { proc, exited: false, outRing: createSbRing(undefined, KEEPER_RING_CAP_BYTES), headSeq: 0 };
         channels.set(req.channel_id, ch);
         _log("info", "multiplexed-keeper", "child_spawned", {
           channelId: req.channel_id, pid: proc.pid, argv0: argv[0], cwd: req.cwd,
@@ -278,7 +279,7 @@ export function handleFrame(ctx: FrameHandlerCtx, client: ClientState, f: { type
       // as a fresh session, same as the pre-RC2 zeroing behavior).
       const ch = channels.get(f.channelId);
       const headSeq = ch ? ch.headSeq : 0;
-      const ring = ch ? ch.outRing : Buffer.alloc(0);
+      const ring = ch ? readRing(ch.outRing) : EMPTY_U8;
       const head = Buffer.allocUnsafe(8);
       head.writeBigUInt64BE(BigInt(headSeq), 0);
       client.socket.write(encodeMuxFrame(

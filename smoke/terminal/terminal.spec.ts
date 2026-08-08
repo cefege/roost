@@ -19,9 +19,12 @@ interface RecoverySmokeApi {
   droppedCellFrameCount(sessionId: string): number;
   cellFrameCount(sessionId: string): number;
   cellFullFrameCount(sessionId: string): number;
+  cellGridEpoch(sessionId: string): string;
+  lastFullFrameSbRows(sessionId: string): number;
   syncWsGeneration(): number;
   pauseSyncTransport(): void;
   resumeSyncTransport(): void;
+  forceSyncRetryExhausted(): void;
   viewportText(sessionId: string): string;
   markerScan(sessionId: string, prefix: string): RecoveryMarkerScan;
   renderProbe(sessionId: string): { atBottom: boolean };
@@ -54,6 +57,24 @@ async function switchToSmokeSession(page: Page, sessionId: string): Promise<void
   );
   await expect(page.getByTestId(`terminal-slot-${sessionId}`)).toBeVisible();
 }
+
+// Auto-open is once per pane mount (CellTerminal's composerDefaultConsumed), so
+// after a pane switch or a reload the bar may land closed. Retention is what the
+// draft specs assert, not which state the bar happens to be in.
+async function openSmokeComposer(page: Page): Promise<void> {
+  await expect(page.getByTestId("mobile-chat-input")).toBeVisible();
+  const toggle = page.getByTestId("terminal-chat-toggle");
+  if (await toggle.count() > 0) await toggle.click();
+  await expect(page.getByTestId("chat-input")).toBeVisible();
+}
+async function inputSmokeTerminal(page: Page, sessionId: string, text: string): Promise<void> {
+  await page.evaluate(async ({ id, input }) => {
+    // The smoke backdoor is injected only in smoke-enabled browser contexts.
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    await smokeWindow.__smoke.input(id, input);
+  }, { id: sessionId, input: text });
+}
+
 
 async function waitForStableCellFrames(page: Page, sessionId: string): Promise<void> {
   let previous = -1;
@@ -305,6 +326,9 @@ test("terminal replay and Ctrl keys stay owned by the PTY", async ({ smokePage, 
   await smokePage.goto(`${stack.baseUrl}/s/${sessionId}`);
   const slot = smokePage.getByTestId(`terminal-slot-${sessionId}`);
   await expect(slot).toBeVisible();
+  await expect(smokePage.getByTestId("chat-box")).toHaveCount(0);
+  await expect(smokePage.getByTestId("chat-input")).toHaveCount(0);
+  await expect(smokePage.getByTestId("terminal-chat-toggle")).toHaveCount(0);
 
   await smokePage.evaluate(() => {
     document.body.tabIndex = -1;
@@ -408,6 +432,173 @@ test("nav pad taps reach the PTY without focusing the terminal textarea", async 
 
   await clickWithoutFocus("nav-enter");
   await expect.poll(() => slot.textContent()).toContain("^I$");
+});
+
+// The bar used to flip between a one-row and a two-row layout: a measured
+// 2-line height set data-multiline, which widened the field to full width, at
+// which the same text fit on ONE line, which narrowed it again — so every
+// keystroke in the ~28-44 character band toggled the whole shape. The layout
+// decision fed the measurement that produced it. The invariant that forbids
+// that feedback edge is asserted here: nothing in the bar moves HORIZONTALLY as
+// the draft grows, whatever its length; only the field's height changes.
+test("mobile composer keeps one control row at every draft length", async ({ mobileSmokePage, stack }) => {
+  const sessionId = (await spawnSmokeShell(mobileSmokePage, stack.workerFp)).session_id;
+  await navigateToSmokeSession(mobileSmokePage, sessionId);
+
+  const input = mobileSmokePage.getByTestId("chat-input");
+  const mic = mobileSmokePage.getByTestId("mobile-voice-input");
+  const send = mobileSmokePage.getByTestId("chat-send");
+
+  const composerGeometry = async () => {
+    const [inputBox, micBox, sendBox] = await Promise.all([
+      input.boundingBox(),
+      mic.boundingBox(),
+      send.boundingBox(),
+    ]);
+    expect(inputBox).not.toBeNull();
+    expect(micBox).not.toBeNull();
+    expect(sendBox).not.toBeNull();
+    return {
+      input: inputBox!,
+      mic: micBox!,
+      send: sendBox!,
+    };
+  };
+
+  // The pill animates in (voice-caption-enter: a 200ms translateY). Measuring
+  // before it settles bakes a sub-pixel offset into the baseline that the
+  // exact-equality check at the end would then report as a layout change.
+  await mobileSmokePage.getByTestId("chat-box")
+    .evaluate(async (el) => { await Promise.all(el.getAnimations().map((a) => a.finished)); });
+  await input.fill("short");
+  const baseline = await composerGeometry();
+
+  const expectOneRow = async (label: string) => {
+    const geometry = await composerGeometry();
+    const near = (actual: number, expected: number, tol: number, what: string) =>
+      expect(Math.abs(actual - expected), `${label}: ${what}`).toBeLessThanOrEqual(tol);
+    near(geometry.input.x, baseline.input.x, 1, "input.x");
+    near(geometry.input.width, baseline.input.width, 1, "input.width");
+    near(geometry.mic.x, baseline.mic.x, 1, "mic.x");
+    near(geometry.send.x, baseline.send.x, 1, "send.x");
+    // The field grows upward; the controls stay pinned to its bottom edge.
+    const fieldBottom = geometry.input.y + geometry.input.height;
+    near(geometry.mic.y + geometry.mic.height, fieldBottom, 2, "mic bottom");
+    near(geometry.send.y + geometry.send.height, fieldBottom, 2, "send bottom");
+    return geometry;
+  };
+
+  // An unbreakable token is the worst case for the wrap boundary.
+  const heights: number[] = [];
+  for (const length of [24, 28, 32, 36, 40, 44, 60, 240]) {
+    await input.fill("W".repeat(length));
+    heights.push((await expectOneRow(`W x ${length}`)).input.height);
+  }
+  // …and a draft the browser CAN break must hold the same row.
+  await input.fill("word ".repeat(9));
+  await expectOneRow("spaced draft");
+
+  // What DOES change is the field's height: monotonic in the draft length,
+  // strictly taller than one line at 240, and capped by the CSS max-height.
+  for (let i = 1; i < heights.length; i++) {
+    expect(heights[i]!, `height at step ${i}`).toBeGreaterThanOrEqual(heights[i - 1]! - 0.5);
+  }
+  expect(heights.at(-1)!).toBeGreaterThan(baseline.input.height);
+  for (const height of heights) expect(height).toBeLessThanOrEqual(160);
+
+  await input.fill("short");
+  expect(await composerGeometry()).toEqual(baseline);
+});
+
+// The bar is exactly three controls in every state — field, mic, send — and
+// never grows an attachment affordance. Escape now has a single layer: it
+// collapses the bar and keeps the draft.
+test("mobile composer is field + mic + send only", async ({ mobileSmokePage, stack }) => {
+  const sessionId = (await spawnSmokeShell(mobileSmokePage, stack.workerFp)).session_id;
+  await navigateToSmokeSession(mobileSmokePage, sessionId);
+
+  const input = mobileSmokePage.getByTestId("chat-input");
+  await expect(input).toBeVisible();
+  await expect(mobileSmokePage.getByTestId("mobile-voice-input")).toBeVisible();
+  await expect(mobileSmokePage.getByTestId("chat-send")).toBeVisible();
+  await expect(mobileSmokePage.getByTestId("chat-lead")).toHaveCount(0);
+  await expect(mobileSmokePage.getByTestId("chat-add-menu")).toHaveCount(0);
+
+  // Still three with a draft in the field.
+  await input.fill("hello");
+  await expect(mobileSmokePage.getByTestId("chat-lead")).toHaveCount(0);
+  await expect(mobileSmokePage.getByTestId("chat-send")).toBeVisible();
+
+  // Escape collapses the bar in one press; the draft survives.
+  await input.press("Escape");
+  await expect(mobileSmokePage.getByTestId("chat-box")).toHaveCount(0);
+  await mobileSmokePage.getByTestId("terminal-chat-toggle").click();
+  await expect(mobileSmokePage.getByTestId("chat-input")).toHaveValue("hello");
+});
+
+// voice-input.css carried three byte-identical copies of the FAB container, the
+// M3 state layer and the Material-Symbols glyph. They are one selector list
+// each now, so the merge is pinned through computed style: a typo in any list
+// changes a size, a corner or an elevation.
+test("composer controls and corner FABs share one M3 anatomy", async ({ mobileSmokePage, stack }) => {
+  const sessionId = (await spawnSmokeShell(mobileSmokePage, stack.workerFp)).session_id;
+  await navigateToSmokeSession(mobileSmokePage, sessionId);
+
+  const anatomy = (testId: string) => mobileSmokePage.getByTestId(testId).evaluate((el) => {
+    const style = getComputedStyle(el);
+    return {
+      width: style.width,
+      height: style.height,
+      borderRadius: style.borderRadius,
+      boxShadow: style.boxShadow,
+    };
+  });
+
+  await expect(mobileSmokePage.getByTestId("chat-box")).toBeVisible();
+  const [barSend, barMic] = await Promise.all([
+    anatomy("chat-send"),
+    anatomy("voice-mic"),
+  ]);
+  for (const [label, control] of [["chat-send", barSend], ["voice-mic", barMic]] as const) {
+    expect(control.width, label).toBe("44px");
+    expect(control.height, label).toBe("44px");
+    expect(control.borderRadius, label).toBe(barSend.borderRadius);
+  }
+  // The in-bar tier carries the state layer but never an elevation.
+  expect(barSend.boxShadow).toBe("none");
+  expect(barMic.boxShadow).toBe("none");
+
+  // Collapsed, the same anatomy resolves to the 56dp corner tier.
+  await mobileSmokePage.getByTestId(`terminal-slot-${sessionId}`).click({ position: { x: 8, y: 8 } });
+  await expect(mobileSmokePage.getByTestId("chat-box")).toHaveCount(0);
+  const [chatToggle, cornerMic] = await Promise.all([
+    anatomy("terminal-chat-toggle"),
+    anatomy("voice-mic"),
+  ]);
+  for (const [label, fab] of [["terminal-chat-toggle", chatToggle], ["voice-mic", cornerMic]] as const) {
+    expect(fab.width, label).toBe("56px");
+    expect(fab.height, label).toBe("56px");
+  }
+  expect(chatToggle.borderRadius).toBe(cornerMic.borderRadius);
+  expect(chatToggle.boxShadow).toBe(cornerMic.boxShadow);
+});
+
+// The mobile terminal floats exactly three controls: record, message, keyboard.
+// The paperclip and agent-launch FABs were deleted; nothing may reintroduce a
+// button into this corner without failing here.
+test("mobile terminal floats only the mic, message and keyboard FABs", async ({ mobileSmokePage, stack }) => {
+  const sessionId = (await spawnSmokeShell(mobileSmokePage, stack.workerFp)).session_id;
+  await navigateToSmokeSession(mobileSmokePage, sessionId);
+
+  // Collapse the auto-opened composer so the corner stack is the visible state.
+  await mobileSmokePage.getByTestId(`terminal-slot-${sessionId}`).click({ position: { x: 8, y: 8 } });
+  await expect(mobileSmokePage.getByTestId("chat-box")).toHaveCount(0);
+
+  await expect(mobileSmokePage.getByTestId("voice-mic")).toBeVisible();
+  await expect(mobileSmokePage.getByTestId("terminal-chat-toggle")).toBeVisible();
+  await expect(mobileSmokePage.getByTestId("terminal-nav-toggle")).toBeVisible();
+  await expect(mobileSmokePage.getByTestId("attach-file")).toHaveCount(0);
+  await expect(mobileSmokePage.getByTestId("agent-launch")).toHaveCount(0);
 });
 
 // A mic that cannot start used to leave the button red and data-state="listening"
@@ -567,6 +758,240 @@ test("an audio session suspended by the mic start fails the tap instead of recor
   await expect(mobileSmokePage.getByTestId("voice-caption")).toContainText("audio session stayed suspended");
 });
 
+// The report this whole class comes from: on a phone the FIRST recording works
+// and every one after it is dead — the mic never leaves `listening`, or the stop
+// wedges in `finalizing`, or the caption reads "Deepgram connection dropped".
+// The graph here is genuinely LIVE (frames really flow) and the faked Deepgram
+// socket really answers a Finalize, so nothing but the engine's own state can
+// end a recording. The 4.5 s gap is longer than the mobile idle release
+// (micIdle.releaseMs = 4 s on touch), so tap #2 pays a COLD device open exactly
+// like the phone does instead of reusing a warm pipeline.
+test("a second recording works exactly like the first", async ({ mobileSmokePage, stack }) => {
+  await stack.client.transcriptionSetConfig({ deepgramKey: "smoke-test-key", deepgramLanguage: "en" });
+  await mobileSmokePage.addInitScript(() => {
+    let liveNode: { port: { onmessage: ((e: { data: Float32Array }) => void) | null } } | null = null;
+    class LiveWorkletNode {
+      port = { onmessage: null as ((e: { data: Float32Array }) => void) | null, close() {} };
+      constructor() { liveNode = this; }
+      connect() {}
+      disconnect() {}
+    }
+    class LiveContext {
+      state = "running";
+      sampleRate = 48000;
+      destination = {};
+      audioWorklet = { addModule: () => Promise.resolve() };
+      createMediaStreamSource() { return { connect() {}, disconnect() {} }; }
+      createScriptProcessor() { return { onaudioprocess: null, connect() {}, disconnect() {} }; }
+      resume() { return Promise.resolve(); }
+      close() { return Promise.resolve(); }
+    }
+    const win = window as unknown as Record<string, unknown>;
+    win.AudioContext = LiveContext;
+    win.webkitAudioContext = LiveContext;
+    win.AudioWorkletNode = LiveWorkletNode;
+    // 48 kHz × 40 ms = 1920 samples; 2048 clears the resampler's emit threshold,
+    // so every tick delivers a real PCM chunk to the attached sink.
+    setInterval(() => liveNode?.port.onmessage?.({ data: new Float32Array(2048).fill(0.3) }), 40);
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia: () => Promise.resolve({ getTracks: () => [{ stop() {} }] }) },
+    });
+    // The hermetic stack has no internet, so the real Deepgram socket would drop
+    // and claim the caption. Only that ONE host is faked; the SPA's own Sync WS
+    // must keep using the real implementation. This one ANSWERS a Finalize, so a
+    // stop delivers a transcript instead of timing out into an empty send.
+    const RealWebSocket = window.WebSocket;
+    const PatchedWebSocket = function (url: string, protocols?: string | string[]) {
+      if (!String(url).includes("api.deepgram.com")) return new RealWebSocket(url, protocols);
+      const sock = {
+        url, readyState: 0,
+        onopen: null as (() => void) | null,
+        onmessage: null as ((e: { data: string }) => void) | null,
+        onerror: null, onclose: null,
+        send(payload: unknown) {
+          if (payload !== '{"type":"Finalize"}') return;
+          setTimeout(() => {
+            sock.onmessage?.({
+              data: JSON.stringify({
+                type: "Results", is_final: true, from_finalize: true,
+                channel: { alternatives: [{ transcript: "hello from the mic" }] },
+              }),
+            });
+          }, 0);
+        },
+        close() { sock.readyState = 3; },
+      };
+      setTimeout(() => { sock.readyState = 1; sock.onopen?.(); }, 10);
+      return sock;
+    } as unknown as typeof WebSocket;
+    Object.assign(PatchedWebSocket, { CONNECTING: 0, OPEN: 1, CLOSING: 2, CLOSED: 3 });
+    win.WebSocket = PatchedWebSocket;
+  });
+  await mobileSmokePage.reload({ waitUntil: "domcontentloaded" });
+  await mobileSmokePage.waitForFunction(() => typeof (window as unknown as Window & { __smoke?: unknown }).__smoke === "object");
+  const sessionId = (await spawnSmokeShell(mobileSmokePage, stack.workerFp)).session_id;
+  await navigateToSmokeSession(mobileSmokePage, sessionId);
+
+  const voice = mobileSmokePage.getByTestId("mobile-voice-input");
+  await expect(voice).toHaveAttribute("data-engine", "deepgram");
+  const mic = mobileSmokePage.getByTestId("voice-mic");
+  const input = mobileSmokePage.getByTestId("chat-input");
+
+  await mic.tap();
+  await expect(voice).toHaveAttribute("data-state", "listening");
+  await mic.tap();
+  await expect(voice).toHaveAttribute("data-state", "idle", { timeout: 15_000 });
+  await expect(input).toHaveValue(/hello from the mic/);
+
+  // Longer than the 4 s mobile idle release: the device really closes, so the
+  // next tap re-opens it cold and re-rolls exactly the dice the phone re-rolls.
+  await mobileSmokePage.waitForTimeout(4_500);
+
+  await mic.tap();
+  await expect(voice).toHaveAttribute("data-state", "listening");
+  await mic.tap();
+  await expect(voice).toHaveAttribute("data-state", "idle", { timeout: 15_000 });
+  await expect(input).toHaveValue(/hello from the mic.*hello from the mic/);
+  // No error caption survived either recording.
+  await expect(mobileSmokePage.getByTestId("voice-caption")).toHaveCount(0);
+});
+
+// The Chromium harness cannot reproduce WebKit's never-settling promise on its
+// own (the case above passes on the unfixed code for exactly that reason), so
+// the stall is injected: getUserMedia parks forever on the FIRST call only.
+// Unfixed, that tap never resolves — `warming` keeps the dead promise for the
+// page's lifetime, so the mic breathes in `listening` and EVERY later tap awaits
+// the same corpse. Fixed, the tap ends with a reason and the next one opens a
+// fresh device.
+test("a stalled mic open ends the recording and the next tap still works", async ({ mobileSmokePage, stack }) => {
+  await stack.client.transcriptionSetConfig({ deepgramKey: "smoke-test-key", deepgramLanguage: "en" });
+  await mobileSmokePage.addInitScript(() => {
+    let liveNode: { port: { onmessage: ((e: { data: Float32Array }) => void) | null } } | null = null;
+    class LiveWorkletNode {
+      port = { onmessage: null as ((e: { data: Float32Array }) => void) | null, close() {} };
+      constructor() { liveNode = this; }
+      connect() {}
+      disconnect() {}
+    }
+    class LiveContext {
+      state = "running";
+      sampleRate = 48000;
+      destination = {};
+      audioWorklet = { addModule: () => Promise.resolve() };
+      createMediaStreamSource() { return { connect() {}, disconnect() {} }; }
+      createScriptProcessor() { return { onaudioprocess: null, connect() {}, disconnect() {} }; }
+      resume() { return Promise.resolve(); }
+      close() { return Promise.resolve(); }
+    }
+    const win = window as unknown as Record<string, unknown>;
+    win.AudioContext = LiveContext;
+    win.webkitAudioContext = LiveContext;
+    win.AudioWorkletNode = LiveWorkletNode;
+    setInterval(() => liveNode?.port.onmessage?.({ data: new Float32Array(2048).fill(0.3) }), 40);
+    let opens = 0;
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: {
+        getUserMedia: () => {
+          opens++;
+          // iOS 18.7 as an installed PWA: the OS audio session is mid-transition
+          // and the promise simply never settles. Nothing cancels it.
+          if (opens === 1) return Promise.withResolvers<MediaStream>().promise;
+          return Promise.resolve({ getTracks: () => [{ stop() {} }] });
+        },
+      },
+    });
+    const RealWebSocket = window.WebSocket;
+    const PatchedWebSocket = function (url: string, protocols?: string | string[]) {
+      if (!String(url).includes("api.deepgram.com")) return new RealWebSocket(url, protocols);
+      const sock = {
+        url, readyState: 0,
+        onopen: null as (() => void) | null,
+        onmessage: null as ((e: { data: string }) => void) | null,
+        onerror: null, onclose: null,
+        send(payload: unknown) {
+          if (payload !== '{"type":"Finalize"}') return;
+          setTimeout(() => {
+            sock.onmessage?.({
+              data: JSON.stringify({
+                type: "Results", is_final: true, from_finalize: true,
+                channel: { alternatives: [{ transcript: "hello from the mic" }] },
+              }),
+            });
+          }, 0);
+        },
+        close() { sock.readyState = 3; },
+      };
+      setTimeout(() => { sock.readyState = 1; sock.onopen?.(); }, 10);
+      return sock;
+    } as unknown as typeof WebSocket;
+    Object.assign(PatchedWebSocket, { CONNECTING: 0, OPEN: 1, CLOSING: 2, CLOSED: 3 });
+    win.WebSocket = PatchedWebSocket;
+  });
+  await mobileSmokePage.reload({ waitUntil: "domcontentloaded" });
+  await mobileSmokePage.waitForFunction(() => typeof (window as unknown as Window & { __smoke?: unknown }).__smoke === "object");
+  const sessionId = (await spawnSmokeShell(mobileSmokePage, stack.workerFp)).session_id;
+  await navigateToSmokeSession(mobileSmokePage, sessionId);
+
+  const voice = mobileSmokePage.getByTestId("mobile-voice-input");
+  await expect(voice).toHaveAttribute("data-engine", "deepgram");
+  const mic = mobileSmokePage.getByTestId("voice-mic");
+
+  // The stalled tap must END, with the deadline's own caption.
+  await mic.tap();
+  await expect(voice).toHaveAttribute("data-state", "idle", { timeout: 20_000 });
+  await expect(mobileSmokePage.getByTestId("voice-caption")).toContainText("did not respond in time");
+
+  // …and the singleton must be usable again on the very next tap.
+  await mic.tap();
+  await expect(voice).toHaveAttribute("data-state", "listening");
+  await mic.tap();
+  await expect(voice).toHaveAttribute("data-state", "idle", { timeout: 15_000 });
+  await expect(mobileSmokePage.getByTestId("chat-input")).toHaveValue(/hello from the mic/);
+});
+
+test("mobile composer keeps an unsent draft per session, across panes and reloads", async ({ mobileSmokePage, stack }) => {
+  const firstId = (await spawnSmokeShell(mobileSmokePage, stack.workerFp)).session_id;
+  await navigateToSmokeSession(mobileSmokePage, firstId);
+  const input = mobileSmokePage.getByTestId("chat-input");
+  await expect(input).toBeVisible();
+  await input.fill("half typed message");
+
+  // Tapping outside the bar keeps it too.
+  await mobileSmokePage.getByTestId(`terminal-slot-${firstId}`).click({ position: { x: 8, y: 8 } });
+  await expect(mobileSmokePage.getByTestId("chat-box")).toHaveCount(0);
+  await mobileSmokePage.getByTestId("terminal-chat-toggle").click();
+  await expect(mobileSmokePage.getByTestId("chat-input")).toHaveValue("half typed message");
+
+  // Escape collapses the bar; the draft is retained.
+  await mobileSmokePage.getByTestId("chat-input").press("Escape");
+  await expect(mobileSmokePage.getByTestId("chat-box")).toHaveCount(0);
+  await mobileSmokePage.getByTestId("terminal-chat-toggle").click();
+  await expect(mobileSmokePage.getByTestId("chat-input")).toHaveValue("half typed message");
+
+  // A different session gets its own empty draft; coming back restores this one.
+  const secondId = (await spawnSmokeShell(mobileSmokePage, stack.workerFp)).session_id;
+  await switchToSmokeSession(mobileSmokePage, secondId);
+  await openSmokeComposer(mobileSmokePage);
+  await expect(mobileSmokePage.getByTestId("chat-input")).toHaveValue("");
+  await switchToSmokeSession(mobileSmokePage, firstId);
+  await openSmokeComposer(mobileSmokePage);
+  await expect(mobileSmokePage.getByTestId("chat-input")).toHaveValue("half typed message");
+
+  // A reload restores it (localStorage, local device only).
+  await mobileSmokePage.reload({ waitUntil: "domcontentloaded" });
+  await expect(mobileSmokePage.getByTestId(`terminal-slot-${firstId}`)).toBeVisible();
+  await openSmokeComposer(mobileSmokePage);
+  await expect(mobileSmokePage.getByTestId("chat-input")).toHaveValue("half typed message");
+
+  // Send is the only thing that consumes it.
+  await mobileSmokePage.getByTestId("chat-send").click();
+  await expect(mobileSmokePage.getByTestId("chat-box")).toHaveCount(0);
+  await mobileSmokePage.getByTestId("terminal-chat-toggle").click();
+  await expect(mobileSmokePage.getByTestId("chat-input")).toHaveValue("");
+});
+
 test("mobile composer preserves input and the Ctrl pad interrupts", async ({ mobileSmokePage, stack }, testInfo) => {
   test.skip(testInfo.project.name !== "webkit-iphone", "iPhone terminal input contract");
   const sessionId = await mobileSmokePage.evaluate(async (workerFp) => {
@@ -577,26 +1002,55 @@ test("mobile composer preserves input and the Ctrl pad interrupts", async ({ mob
   const slot = mobileSmokePage.getByTestId(`terminal-slot-${sessionId}`);
   await expect(slot).toBeVisible();
 
-  await slot.click();
-  await mobileSmokePage.keyboard.type(`IFS= read -r line; printf '<%s>\\n' "$line"`);
-  await mobileSmokePage.keyboard.press("Enter");
-  await mobileSmokePage.getByTestId("terminal-chat-toggle").click();
-  await mobileSmokePage.getByTestId("chat-input").fill("  x  ");
+  await expect(mobileSmokePage.getByTestId("mobile-chat-input")).toHaveAttribute("data-open", "true");
+  await expect(mobileSmokePage.getByTestId("chat-box")).toBeVisible();
+  const initialInput = mobileSmokePage.getByTestId("chat-input");
+  await expect(initialInput).toBeVisible();
+  await expect(mobileSmokePage.getByTestId("terminal-chat-toggle")).toHaveCount(0);
+  await expect(initialInput).toBeFocused();
+
+  await inputSmokeTerminal(
+    mobileSmokePage,
+    sessionId,
+    `IFS= read -r line; printf '<%s>\\n' "$line"\r`,
+  );
+  await initialInput.fill("  x  ");
   await mobileSmokePage.getByTestId("chat-send").click();
   await expect.poll(() => slot.textContent()).toContain("<  x  >");
+  await expect(mobileSmokePage.getByTestId("terminal-chat-toggle")).toBeVisible();
+  await expect(mobileSmokePage.getByTestId("chat-box")).toHaveCount(0);
 
-  // Leading control: `+` opens the attachment sheet; typing swaps it to discard.
+  await slot.click({ position: { x: 8, y: 8 } });
+  await expect.poll(() => mobileSmokePage.evaluate((id) => {
+    const smoke = (window as unknown as Window & {
+      __smoke: { paneFocused(sessionId: string): { focused: boolean } };
+    }).__smoke;
+    return smoke.paneFocused(id).focused;
+  }, sessionId)).toBe(true);
+  const directMarker = `MOBILE_DIRECT_${crypto.randomUUID().replace(/-/g, "").slice(0, 8)}`;
+  await mobileSmokePage.keyboard.type(`printf '%s\\n' ${directMarker}`);
+  await mobileSmokePage.keyboard.press("Enter");
+  await expect.poll(() => slot.textContent()).toContain(directMarker);
+
+  // Reopen: three controls, and typing never adds a fourth.
   await mobileSmokePage.getByTestId("terminal-chat-toggle").click();
-  const lead = mobileSmokePage.getByTestId("chat-lead");
-  await expect(lead).toHaveAttribute("data-mode", "add");
-  await lead.click();
-  await expect(mobileSmokePage.getByTestId("chat-add-photo")).toBeVisible();
-  await expect(mobileSmokePage.getByTestId("chat-add-gallery")).toBeVisible();
-  await expect(mobileSmokePage.getByTestId("chat-add-file")).toBeVisible();
+  await expect(mobileSmokePage.getByTestId("chat-lead")).toHaveCount(0);
   await mobileSmokePage.getByTestId("chat-input").fill("y");
-  await expect(mobileSmokePage.getByTestId("chat-add-menu")).toHaveCount(0);
-  await expect(lead).toHaveAttribute("data-mode", "clear");
-  await lead.click();
+  await expect(mobileSmokePage.getByTestId("chat-lead")).toHaveCount(0);
+  await expect(mobileSmokePage.getByTestId("chat-send")).toBeVisible();
+  // Tapping outside collapses the bar without discarding: reopening shows "y".
+  await slot.click({ position: { x: 8, y: 8 } });
+  await expect(mobileSmokePage.getByTestId("chat-box")).toHaveCount(0);
+  await mobileSmokePage.getByTestId("terminal-chat-toggle").click();
+  await expect(mobileSmokePage.getByTestId("chat-input")).toHaveValue("y");
+  // Tapping outside keeps it too.
+  await slot.click({ position: { x: 8, y: 8 } });
+  await expect(mobileSmokePage.getByTestId("chat-box")).toHaveCount(0);
+  await mobileSmokePage.getByTestId("terminal-chat-toggle").click();
+  await expect(mobileSmokePage.getByTestId("chat-input")).toHaveValue("y");
+  // Leave the next block its empty-draft, closed-bar precondition.
+  await mobileSmokePage.getByTestId("chat-input").fill("");
+  await mobileSmokePage.keyboard.press("Escape");
   await expect(mobileSmokePage.getByTestId("chat-box")).toHaveCount(0);
 
   // Enter is a NEWLINE, never a submit: only the send button commits the draft.
@@ -612,16 +1066,16 @@ test("mobile composer preserves input and the Ctrl pad interrupts", async ({ mob
   await expect.poll(() => slot.textContent()).toContain("ENTER_LINE_A");
   await expect.poll(() => slot.textContent()).toContain("ENTER_LINE_B");
 
-  await slot.click();
-  await mobileSmokePage.keyboard.type(`IFS= read -r line; printf '<%s>\\n' "$line"`);
-  await mobileSmokePage.keyboard.press("Enter");
+  await inputSmokeTerminal(
+    mobileSmokePage,
+    sessionId,
+    `IFS= read -r line; printf '<%s>\\n' "$line"\r`,
+  );
   await mobileSmokePage.getByTestId("terminal-chat-toggle").click();
   await mobileSmokePage.getByTestId("chat-send").click();
   await expect.poll(() => slot.textContent()).toContain("<>");
 
-  await slot.click();
-  await mobileSmokePage.keyboard.type("sleep 30");
-  await mobileSmokePage.keyboard.press("Enter");
+  await inputSmokeTerminal(mobileSmokePage, sessionId, "sleep 30\r");
   await mobileSmokePage.getByTestId("terminal-nav-toggle").click();
   await expect(mobileSmokePage.getByTestId("nav-tab")).toBeVisible();
   await expect(mobileSmokePage.getByTestId("nav-home")).toBeVisible();
@@ -652,6 +1106,19 @@ test("mobile composer preserves input and the Ctrl pad interrupts", async ({ mob
   await mobileSmokePage.keyboard.type(`printf '%s\\n' ${marker}`);
   await mobileSmokePage.keyboard.press("Enter");
   await expect.poll(() => slot.textContent()).toContain(marker);
+
+  const secondSessionId = (await spawnSmokeShell(mobileSmokePage, stack.workerFp)).session_id;
+  await switchToSmokeSession(mobileSmokePage, secondSessionId);
+  await expect(mobileSmokePage.getByTestId("mobile-chat-input")).toHaveAttribute("data-open", "true");
+  await expect(mobileSmokePage.getByTestId("chat-input")).toBeFocused();
+  await mobileSmokePage.getByTestId("chat-input").press("Escape");
+  await expect(mobileSmokePage.getByTestId("terminal-chat-toggle")).toBeVisible();
+  await expect(mobileSmokePage.getByTestId("chat-box")).toHaveCount(0);
+  await switchToSmokeSession(mobileSmokePage, sessionId);
+  await expect(mobileSmokePage.getByTestId("chat-box")).toHaveCount(0);
+  await switchToSmokeSession(mobileSmokePage, secondSessionId);
+  await expect(mobileSmokePage.getByTestId("terminal-chat-toggle")).toBeVisible();
+  await expect(mobileSmokePage.getByTestId("chat-box")).toHaveCount(0);
 });
 
 test("trusted keyboard input and bottom-follow behavior", async ({ smokePage, stack }) => {
@@ -673,6 +1140,105 @@ test("trusted keyboard input and bottom-follow behavior", async ({ smokePage, st
     const smoke = (window as unknown as Window & { __smoke: { renderProbe(sessionId: string): { rowCount: number; atBottom: boolean } } }).__smoke;
     return smoke.renderProbe(id);
   }, sessionId)).toMatchObject({ atBottom: true });
+});
+
+test("streaming sequence repair leaves an off-bottom reader fixed", async ({ smokePage, stack }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium-desktop", "desktop scroll-geometry contract");
+  test.setTimeout(120_000);
+  const sessionId = await smokePage.evaluate(async (workerFp) => {
+    const smoke = (window as unknown as Window & {
+      __smoke: { spawnShell(worker: string, folder: string): Promise<{ session_id: string }> };
+    }).__smoke;
+    return (await smoke.spawnShell(workerFp, "/tmp")).session_id;
+  }, stack.workerFp);
+  await smokePage.goto(`${stack.baseUrl}/s/${sessionId}`);
+  const slot = smokePage.getByTestId(`terminal-slot-${sessionId}`);
+  await expect(slot).toBeVisible();
+  await smokePage.evaluate(async (id) => {
+    const smoke = (window as unknown as Window & {
+      __smoke: { input(sessionId: string, text: string): Promise<void> };
+    }).__smoke;
+    await smoke.input(id, "for i in $(seq 1 1500); do printf 'READERLINE-%04d stable-history\\n' $i; done\r");
+  }, sessionId);
+  await expect.poll(() => smokePage.evaluate((id) => {
+    const smoke = (window as unknown as Window & {
+      __smoke: { markerScan(sessionId: string, prefix: string): { max: number } };
+    }).__smoke;
+    return smoke.markerScan(id, "READERLINE-").max;
+  }, sessionId), { timeout: 60_000 }).toBe(1500);
+
+  const grid = slot.locator(".wterm.cell-grid");
+  const box = await grid.boundingBox();
+  if (!box) throw new Error("streaming reader grid missing");
+  await smokePage.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await smokePage.mouse.wheel(0, -6000);
+  const sample = () => smokePage.evaluate((id) => {
+    const smoke = (window as unknown as Window & {
+      __smoke: {
+        cellFrameCount(sessionId: string): number;
+        cellFullFrameCount(sessionId: string): number;
+        cellGridEpoch(sessionId: string): string;
+        droppedCellFrameCount(sessionId: string): number;
+      };
+    }).__smoke;
+    const container = document.querySelector(
+      `[data-testid="terminal-slot-${id}"] .wterm.cell-grid`,
+    ) as HTMLElement;
+    const rect = container.getBoundingClientRect();
+    const row = document.elementFromPoint(rect.left + 100, rect.top + 200)?.closest(".cell-row");
+    return {
+      scrollTop: container.scrollTop,
+      scrollHeight: container.scrollHeight,
+      row: row?.textContent ?? "",
+      rowOffset: row ? row.getBoundingClientRect().top - (rect.top + 200) : null,
+      frames: smoke.cellFrameCount(id),
+      gridEpoch: smoke.cellGridEpoch(id),
+      fullFrames: smoke.cellFullFrameCount(id),
+      dropped: smoke.droppedCellFrameCount(id),
+    };
+  }, sessionId);
+  const before = await sample();
+
+  await smokePage.evaluate(async (id) => {
+    const smoke = (window as unknown as Window & {
+      __smoke: {
+        dropNextCellFrame(sessionId: string): void;
+        input(sessionId: string, text: string): Promise<void>;
+      };
+    }).__smoke;
+    smoke.dropNextCellFrame(id);
+    await smoke.input(
+      id,
+      "for i in $(seq 1501 1800); do printf 'READERLINE-%04d streaming\\n' $i; sleep 0.01; done\r",
+    );
+  }, sessionId);
+  await expect.poll(() => sample(), { timeout: 60_000 }).toMatchObject({
+    fullFrames: before.fullFrames + 1,
+    dropped: before.dropped + 1,
+  });
+  await expect.poll(async () => (await sample()).frames, { timeout: 60_000 })
+    .toBeGreaterThan(before.frames + 200);
+
+  const during = await sample();
+  expect(during.gridEpoch).toBe(before.gridEpoch);
+  expect(during.scrollTop).toBe(before.scrollTop);
+  expect(during.scrollHeight).toBe(before.scrollHeight);
+  expect(during.row).toBe(before.row);
+  expect(during.rowOffset).toBe(before.rowOffset);
+
+  await smokePage.mouse.wheel(0, 100_000);
+  await expect.poll(() => smokePage.evaluate((id) => {
+    const smoke = (window as unknown as Window & {
+      __smoke: {
+        renderProbe(sessionId: string): { atBottom: boolean };
+        markerScan(sessionId: string, prefix: string): { max: number };
+      };
+    }).__smoke;
+    return {
+      atBottom: smoke.renderProbe(id).atBottom,
+      markerMax: smoke.markerScan(id, "READERLINE-").max,
+    };
+  }, sessionId), { timeout: 30_000 }).toEqual({ atBottom: true, markerMax: 1800 });
 });
 
 test("alternate screen survives width and height perturbations", async ({ smokePage, stack }) => {
@@ -742,16 +1308,15 @@ test("two viewers preserve ordered terminal markers", async ({ smokePage, browse
   }
 });
 
-// A fresh or bottom-following reattach must paint only the live tail while the
-// spacer reserves the complete history depth: first paint lands on the PRESENT,
-// at the literal bottom, with a payload that does not scale with how deep the
-// session is. The [0, sbBase) history is then pulled behind the reader by the
-// parallel get-scrollback-cells drain — off the broadcast feed, without moving
-// that reader.
+// A fresh deep-session attach starts with the current viewport and a truthful
+// spacer only. History stays off the network and out of the DOM until demand.
 test("deep-history attach/reveal paints the live tail until history is requested", async ({ smokePage, stack }, testInfo) => {
   test.skip(testInfo.project.name !== "chromium-desktop", "desktop scroll-geometry contract");
+  test.setTimeout(120_000);
   const sessionId = await smokePage.evaluate(async (workerFp) => {
-    const smoke = (window as unknown as Window & { __smoke: { spawnShell(worker: string, folder: string): Promise<{ session_id: string }> } }).__smoke;
+    const smoke = (window as unknown as Window & {
+      __smoke: { spawnShell(worker: string, folder: string): Promise<{ session_id: string }> };
+    }).__smoke;
     return (await smoke.spawnShell(workerFp, "/tmp")).session_id;
   }, stack.workerFp);
   await smokePage.goto(`${stack.baseUrl}/s/${sessionId}`);
@@ -761,199 +1326,103 @@ test("deep-history attach/reveal paints the live tail until history is requested
   await smokePage.keyboard.press("Enter");
   await expect.poll(() => slot.textContent(), { timeout: 60_000 }).toContain("CELLLINE-8000");
 
-  // Re-attach to force the worker's standard tail snapshot over deep history.
   await smokePage.reload({ waitUntil: "domcontentloaded" });
-  await smokePage.waitForFunction(() => typeof (window as unknown as Window & { __smoke?: unknown }).__smoke === "object");
-  await expect(slot).toBeVisible();
+  await smokePage.waitForFunction(() =>
+    typeof (window as unknown as Window & { __smoke?: unknown }).__smoke === "object");
   await smokePage.waitForFunction((id) => {
     const pane = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
     return !!pane?.querySelector(".cell-sb-spacer") && !!pane.querySelector(".cell-row");
   }, sessionId);
 
-  const geometry = () => smokePage.evaluate((id) => {
+  const probe = () => smokePage.evaluate((id) => {
     const smoke = (window as unknown as Window & {
       __smoke: {
         renderProbe(sessionId: string): {
+          mode: "cell" | "byte" | "none";
           rowCount: number;
-          scrollTop: number;
-          scrollHeight: number;
-          clientHeight: number;
           atBottom: boolean;
         };
         markerScan(sessionId: string, prefix: string): {
           max: number;
           duplicated: number[];
+          missing: number;
           outOfOrder: number;
         };
         lastFullFrameSbRows(sessionId: string): number;
+        scrollbackBackfillRequestCount(sessionId: string): number;
       };
     }).__smoke;
-    const pane = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
-    const container = pane?.querySelector(".wterm") as HTMLElement | null;
-    const rowH = container?.querySelector(".cell-row")?.getBoundingClientRect().height ?? 0;
-    const spacer = container?.querySelector(".cell-sb-spacer") as HTMLElement | null;
-    const probe = smoke.renderProbe(id);
-    // The topmost row whose box intersects the viewport top is the row the
-    // reader is actually inspecting; textContent includes skipped rows.
-    const top = container?.getBoundingClientRect().top ?? 0;
-    const reader = Array.from(container?.querySelectorAll(".cell-row") ?? [])
-      .map((row) => [row.getBoundingClientRect(), row.textContent ?? ""] as const)
-      .filter(([box]) => box.bottom > top + 1)
-      .map(([, text]) => (text.match(/CELLLINE-\d+/) ?? [null])[0])[0] ?? null;
     return {
-      rowH,
-      spacerPx: spacer ? parseFloat(spacer.style.height || "0") : -1,
-      reader,
+      ...smoke.renderProbe(id),
       markerMax: smoke.markerScan(id, "CELLLINE-").max,
       snapshotSbRows: smoke.lastFullFrameSbRows(id),
-      ...probe,
+      historyRequests: smoke.scrollbackBackfillRequestCount(id),
     };
   }, sessionId);
 
-  const attach = await geometry();
-  expect(attach.markerMax).toBe(8000);
-  expect(attach.atBottom).toBe(true);
-  expect(attach.rowH).toBeGreaterThan(0);
-  expect(attach.spacerPx / attach.rowH).toBeGreaterThan(5000);
-  expect(attach.scrollHeight / attach.rowH).toBeGreaterThan(7000);
-  // The claim snapshot is constant-size over 8000 rows of history — this is
-  // what makes first paint depth-independent. Asserted on the FRAME, not on the
-  // painted row count, which the drain below starts growing immediately.
-  expect(attach.snapshotSbRows).toBe(250);
+  const attached = await probe();
+  expect(attached).toMatchObject({
+    mode: "cell",
+    markerMax: 8000,
+    atBottom: true,
+    snapshotSbRows: 0,
+    historyRequests: 0,
+  });
+  expect(attached.rowCount).toBeLessThan(100);
 
-  // No user gesture: the drain refills the held window on its own, behind the
-  // reader, up to the evictor's MAX_HELD_SCROLLBACK_ROWS cap.
-  await expect.poll(async () => (await geometry()).rowCount, { timeout: 10_000, intervals: [100] })
-    .toBeGreaterThan(1800);
-  await expect.poll(async () => (await geometry()).atBottom).toBe(true);
-
-  // The freshly attached tail is immediately focused and usable through the
-  // real textarea/keyboard path.
-  const ready = `READY-${crypto.randomUUID().replace(/-/g, "").slice(0, 8)}`;
-  await smokePage.keyboard.type(`printf '%s\\n' ${ready}`);
-  await smokePage.keyboard.press("Enter");
-  await expect.poll(() => slot.textContent()).toContain(ready);
-  await expect.poll(() => smokePage.evaluate((id) => {
-    const smoke = (window as unknown as Window & {
-      __smoke: { paneFocused(sessionId: string): { focused: boolean } };
-    }).__smoke;
-    return smoke.paneFocused(id).focused;
-  }, sessionId)).toBe(true);
-  await expect.poll(async () => (await geometry()).atBottom).toBe(true);
-
-  // Select five same-folder siblings in sequence. A becomes fifth in parked
-  // recency, outside the four-pane background stream LRU.
-  const siblings: string[] = [];
-  for (let i = 0; i < 5; i++) {
-    const siblingId = await smokePage.evaluate(async (workerFp) => {
-      const smoke = (window as unknown as Window & {
-        __smoke: { spawnShell(worker: string, folder: string): Promise<{ session_id: string }> };
-      }).__smoke;
-      return (await smoke.spawnShell(workerFp, "/tmp")).session_id;
-    }, stack.workerFp);
-    await expect.poll(() => smokePage.evaluate((id) => {
-      const smoke = (window as unknown as Window & {
-        __smoke: { state(): { sessions: Record<string, unknown> } };
-      }).__smoke;
-      return id in smoke.state().sessions;
-    }, siblingId)).toBe(true);
-    await smokePage.evaluate((id) => {
-      const smoke = (window as unknown as Window & { __smoke: { navigate(href: string): void } }).__smoke;
-      smoke.navigate(`/s/${id}`);
-    }, siblingId);
-    await expect(smokePage.getByTestId(`tab-${siblingId}`)).toHaveAttribute("data-active", "true");
-    siblings.push(siblingId);
-  }
-  for (const id of [sessionId, ...siblings]) {
-    await expect(smokePage.getByTestId(`tab-${id}`)).toBeAttached();
-  }
-
-  // Let A's deferred withdraw complete, then prove it receives no cell frames
-  // while another 1,000 markers are generated.
-  await smokePage.waitForTimeout(1200);
-  const frameCountBefore = await smokePage.evaluate((id) => {
-    const smoke = (window as unknown as Window & { __smoke: { cellFrameCount(sessionId: string): number } }).__smoke;
-    return smoke.cellFrameCount(id);
-  }, sessionId);
-  await smokePage.evaluate(async (id) => {
-    const smoke = (window as unknown as Window & { __smoke: { input(sessionId: string, text: string): Promise<void> } }).__smoke;
-    await smoke.input(id, "seq -f 'CELLLINE-%g' 8001 9000\r");
-  }, sessionId);
-  await smokePage.waitForTimeout(500);
-  const frameCountAfter = await smokePage.evaluate((id) => {
-    const smoke = (window as unknown as Window & { __smoke: { cellFrameCount(sessionId: string): number } }).__smoke;
-    return smoke.cellFrameCount(id);
-  }, sessionId);
-  expect(frameCountAfter).toBe(frameCountBefore);
-
-  // Present first: the reveal paints the constant SB_SNAPSHOT_TAIL_ROWS tail at
-  // the literal bottom — the newest output, immediately — instead of a catch-up
-  // frame sized to how far this viewer fell behind. History follows behind the
-  // reader over the parallel drain, so rowCount climbs back to the held-window
-  // cap with NO user scroll.
-  await smokePage.getByTestId(`tab-${sessionId}`).click();
-  await expect.poll(() => smokePage.evaluate((id) => {
+  const idleSamples = await smokePage.evaluate(async ({ id, rowCount, requests }) => {
     const smoke = (window as unknown as Window & {
       __smoke: {
         renderProbe(sessionId: string): { rowCount: number; atBottom: boolean };
-        markerScan(sessionId: string, prefix: string): { max: number };
-        lastFullFrameSbRows(sessionId: string): number;
+        scrollbackBackfillRequestCount(sessionId: string): number;
       };
     }).__smoke;
-    const probe = smoke.renderProbe(id);
-    return {
-      markerMax: smoke.markerScan(id, "CELLLINE-").max,
-      atBottom: probe.atBottom,
-      // The catch-up frame no longer scales with the gap: the old bridge sized
-      // it to the viewer's held boundary (up to 2000 rows).
-      snapshotSbRows: smoke.lastFullFrameSbRows(id),
-    };
-  }, sessionId), { timeout: 1000, intervals: [50] }).toEqual({
-    markerMax: 9000,
-    atBottom: true,
-    snapshotSbRows: 250,
-  });
+    const samples: Array<{ rowCount: number; requests: number; atBottom: boolean }> = [];
+    for (let frame = 0; frame < 8; frame++) {
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      samples.push({
+        rowCount: smoke.renderProbe(id).rowCount,
+        requests: smoke.scrollbackBackfillRequestCount(id),
+        atBottom: smoke.renderProbe(id).atBottom,
+      });
+    }
+    return { samples, expected: { rowCount, requests, atBottom: true } };
+  }, { id: sessionId, rowCount: attached.rowCount, requests: attached.historyRequests });
+  expect(idleSamples.samples).toEqual(Array(8).fill(idleSamples.expected));
 
-  // Proactive, parallel refill — no scroll gesture anywhere in this block.
-  await expect.poll(async () => (await geometry()).rowCount, { timeout: 5_000, intervals: [100] })
-    .toBeGreaterThan(1800);
-  const revealed = await geometry();
-
-  // Move ten rows into the painted tail. The resulting scroll event is the
-  // demand signal that may materialize older rows.
-  await smokePage.evaluate(({ id, rowH }) => {
+  await smokePage.evaluate((id) => {
     const pane = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
     const container = pane?.querySelector(".wterm") as HTMLElement | null;
-    const scrollback = container?.querySelector(".cell-scrollback") as HTMLElement | null;
-    if (container && scrollback) container.scrollTop = scrollback.offsetTop + Math.round(10 * rowH);
-  }, { id: sessionId, rowH: revealed.rowH });
-  const parked = await geometry();
-  expect(parked.reader).toMatch(/^CELLLINE-\d+$/);
-  await expect.poll(async () => (await geometry()).rowCount, { timeout: 60_000 })
-    .toBeGreaterThan(revealed.rowCount);
-
-  // Wait for the demand-driven drain to quiesce.
-  let last = -1;
-  let settled = 0;
-  await expect.poll(async () => {
-    const current = await geometry();
-    settled = current.rowCount === last ? settled + 1 : 0;
-    last = current.rowCount;
-    return settled;
-  }, { timeout: 60_000, intervals: [250] }).toBeGreaterThanOrEqual(4);
-
-  const drained = await geometry();
-  expect(drained.rowCount).toBeGreaterThan(revealed.rowCount);
-  expect(Math.abs(drained.scrollHeight - parked.scrollHeight)).toBeLessThanOrEqual(Math.ceil(drained.rowH));
-  expect(drained.reader).toBe(parked.reader);
-  expect(Math.abs(drained.scrollTop - parked.scrollTop)).toBeLessThanOrEqual(Math.ceil(drained.rowH));
-  const scan = await smokePage.evaluate((id) => {
+    if (!container) return;
+    container.scrollTop = 0;
+    container.dispatchEvent(new Event("scroll"));
+  }, sessionId);
+  await smokePage.waitForFunction(({ id, previous }) => {
     const smoke = (window as unknown as Window & {
-      __smoke: { markerScan(sessionId: string, prefix: string): { duplicated: number[]; outOfOrder: number } };
+      __smoke: { scrollbackBackfillRequestCount(sessionId: string): number };
+    }).__smoke;
+    return smoke.scrollbackBackfillRequestCount(id) > previous;
+  }, { id: sessionId, previous: attached.historyRequests });
+  await smokePage.waitForFunction(({ id, previous }) => {
+    const smoke = (window as unknown as Window & {
+      __smoke: { renderProbe(sessionId: string): { rowCount: number } };
+    }).__smoke;
+    return smoke.renderProbe(id).rowCount > previous;
+  }, { id: sessionId, previous: attached.rowCount });
+
+  const demanded = await smokePage.evaluate((id) => {
+    const smoke = (window as unknown as Window & {
+      __smoke: {
+        markerScan(sessionId: string, prefix: string): {
+          duplicated: number[];
+          missing: number;
+          outOfOrder: number;
+        };
+      };
     }).__smoke;
     return smoke.markerScan(id, "CELLLINE-");
   }, sessionId);
-  expect(scan).toMatchObject({ duplicated: [], outOfOrder: 0 });
+  expect(demanded).toMatchObject({ duplicated: [], missing: 0, outOfOrder: 0 });
 });
 
 // Returning to an already-open pane must be INSTANT: no Sync-socket re-dial and
@@ -1095,11 +1564,15 @@ test("offline producer divergence reconnects and repaints without a reload", asy
 
   const canary = `offline-${sessionId}`;
   await setRecoveryCanary(smokePage, canary);
-  const before = await smokePage.evaluate((id) => ({
-    frames: (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.cellFrameCount(id),
-    fullFrames: (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.cellFullFrameCount(id),
-    wsGeneration: (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.syncWsGeneration(),
-  }), sessionId);
+  const before = await smokePage.evaluate((id) => {
+    const smoke = (window as unknown as { __smoke: RecoverySmokeApi }).__smoke;
+    return {
+      frames: smoke.cellFrameCount(id),
+      fullFrames: smoke.cellFullFrameCount(id),
+      gridEpoch: smoke.cellGridEpoch(id),
+      wsGeneration: smoke.syncWsGeneration(),
+    };
+  }, sessionId);
 
   const context = smokePage.context();
   await smokePage.evaluate(
@@ -1111,7 +1584,7 @@ test("offline producer divergence reconnects and repaints without a reload", asy
     await stack.client.sessionsInput({
       sessionId,
       data: new TextEncoder().encode(
-        "for i in $(seq 1 30); do printf 'OFFLINE-RECOVER-%03d\\n' \"$i\"; sleep 0.01; done; seq 1 48\r",
+        "for i in $(seq 1 30); do printf 'OFFLINE-RECOVER-%03d\\n' \"$i\"; sleep 0.01; done; seq 1 48; printf 'OFFLINE-CURRENT-%03d\\n' 1\r",
       ),
     });
     await expect.poll(async () => {
@@ -1119,6 +1592,7 @@ test("offline producer divergence reconnects and repaints without a reload", asy
         sessionId,
         endRow: BigInt(Number.MAX_SAFE_INTEGER),
         maxRows: 250,
+        gridEpoch: before.gridEpoch,
       });
       const text = cells.rows
         .map((row) => row.spans.map((span) => span.text || " ").join(""))
@@ -1144,12 +1618,20 @@ test("offline producer divergence reconnects and repaints without a reload", asy
     () => (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.syncWsGeneration(),
   ), { timeout: 30_000, intervals: [100] }).toBeGreaterThan(before.wsGeneration);
   await expect.poll(() => smokePage.evaluate(
-    (id) => (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.markerScan(id, "OFFLINE-RECOVER-").max,
+    (id) => (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.viewportText(id),
     sessionId,
-  ), { timeout: 30_000, intervals: [100] }).toBe(30);
+  ), { timeout: 30_000, intervals: [100] }).toContain("OFFLINE-CURRENT-001");
 
   const recovered = await recoveryProbe(smokePage, sessionId, "OFFLINE-RECOVER-");
-  expectCleanRecovery(recovered, canary, 1, 30);
+  expect(recovered).toMatchObject({
+    canary,
+    atBottom: true,
+    scan: { max: 0, duplicated: [], missing: 0, outOfOrder: 0 },
+  });
+  expect(await smokePage.evaluate(
+    (id) => (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.lastFullFrameSbRows(id),
+    sessionId,
+  )).toBe(0);
   const afterReconnect = await smokePage.evaluate((id) => ({
     fullFrames: (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.cellFullFrameCount(id),
     wsGeneration: (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.syncWsGeneration(),
@@ -1172,18 +1654,261 @@ test("offline producer divergence reconnects and repaints without a reload", asy
   )).toBe(afterReconnect.wsGeneration);
 });
 
-// The user's literal complaint, measured: switching to a stale deep-history
-// pane must show the newest content at the literal bottom IMMEDIATELY. Every
-// painted sample during the reveal is at the bottom (never mid-history, never
-// inside the spacer watching a top-down crawl), the fresh tail is visible
-// within 1500 ms, painted history is not collapsed (merge path), and nothing
-// drains phantom rows after settle. Prior fixes "passed" because nothing
-// asserted what the reader SEES at first paint.
+test("long hidden deep-history resume paints the current viewport before history", async ({ smokePage, stack }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium-desktop", "desktop visibility and geometry contract");
+  test.setTimeout(180_000);
+  const sessionId = await smokePage.evaluate(async (workerFp) => {
+    const smoke = (window as unknown as Window & { __smoke: RecoverySmokeApi }).__smoke;
+    return (await smoke.spawnShell(workerFp, "/tmp")).session_id;
+  }, stack.workerFp);
+  await smokePage.goto(`${stack.baseUrl}/s/${sessionId}`);
+  const slot = smokePage.getByTestId(`terminal-slot-${sessionId}`);
+  await expect(slot).toBeVisible();
+  await smokePage.keyboard.type("seq -f 'HIDDEN-%g' 1 9000");
+  await smokePage.keyboard.press("Enter");
+  await expect.poll(() => slot.textContent(), { timeout: 60_000 }).toContain("HIDDEN-9000");
+  await expect.poll(() => smokePage.evaluate((id) => {
+    const smoke = (window as unknown as Window & {
+      __smoke: { renderProbe(sessionId: string): { mode: "cell" | "byte" | "none" } };
+    }).__smoke;
+    return smoke.renderProbe(id).mode;
+  }, sessionId)).toBe("cell");
+
+  const control = await smokePage.context().newPage();
+  try {
+    await control.goto(`${stack.baseUrl}/s/${sessionId}`, { waitUntil: "domcontentloaded" });
+    await control.waitForFunction(() =>
+      typeof (window as unknown as Window & { __smoke?: unknown }).__smoke === "object");
+    await control.evaluate(() => {
+      const smoke = (window as unknown as Window & {
+        __smoke: { forceVisible(on: boolean): void };
+      }).__smoke;
+      smoke.forceVisible(true);
+    });
+    await control.waitForFunction((id) => {
+      const smoke = (window as unknown as Window & {
+        __smoke: { viewportText(sessionId: string): string };
+      }).__smoke;
+      return smoke.viewportText(id).includes("HIDDEN-9000");
+    }, sessionId);
+    await smokePage.bringToFront();
+
+    const sentinel = await smokePage.evaluate(() => {
+      const key = `__roostResumeSentinel_${crypto.randomUUID().replaceAll("-", "")}`;
+      const nonce = crypto.randomUUID();
+      Object.defineProperty(document, key, {
+        value: Object.freeze({ nonce }),
+        configurable: false,
+        enumerable: false,
+      });
+      return { key, nonce };
+    });
+    const before = await smokePage.evaluate((id) => {
+      const smoke = (window as unknown as Window & {
+        __smoke: {
+          cellFrameCount(sessionId: string): number;
+          renderProbe(sessionId: string): { rowCount: number; atBottom: boolean };
+          scrollbackBackfillRequestCount(sessionId: string): number;
+          syncWsGeneration(): number;
+          forceHidden(on: boolean): void;
+        };
+      }).__smoke;
+      const result = {
+        frames: smoke.cellFrameCount(id),
+        requests: smoke.scrollbackBackfillRequestCount(id),
+        generation: smoke.syncWsGeneration(),
+        ...smoke.renderProbe(id),
+      };
+      smoke.forceHidden(true);
+      return result;
+    }, sessionId);
+    expect(before.atBottom).toBe(true);
+
+    // HIDDEN_STREAM_KEEP_MS (60s) + VIEWER_WITHDRAW_GRACE_MS (800ms).
+    await smokePage.waitForTimeout(62_000);
+    const currentMarker = `CURRENT_${crypto.randomUUID().replaceAll("-", "")}`;
+    await smokePage.evaluate(() => {
+      const smoke = (window as unknown as Window & { __smoke: RecoverySmokeApi }).__smoke;
+      smoke.forceSyncRetryExhausted();
+    });
+    await control.evaluate(async ({ id, marker }) => {
+      const smoke = (window as unknown as Window & {
+        __smoke: { input(sessionId: string, text: string): Promise<void> };
+      }).__smoke;
+      await smoke.input(id, `printf '%s\\n' ${marker}\r`);
+    }, { id: sessionId, marker: currentMarker });
+    await control.waitForFunction(({ id, marker }) => {
+      const smoke = (window as unknown as Window & {
+        __smoke: { viewportText(sessionId: string): string };
+      }).__smoke;
+      return smoke.viewportText(id).includes(marker);
+    }, { id: sessionId, marker: currentMarker });
+    expect(await smokePage.evaluate((id) => {
+      const smoke = (window as unknown as Window & {
+        __smoke: { cellFrameCount(sessionId: string): number };
+      }).__smoke;
+      return smoke.cellFrameCount(id);
+    }, sessionId)).toBe(before.frames);
+
+    await smokePage.evaluate(({ id, marker }) => {
+      type ResumeSample = {
+        current: boolean;
+        rowCount: number;
+        top: number;
+        height: number;
+        client: number;
+        snapshotSbRows: number;
+        historyRequests: number;
+      };
+      const runtime = window as unknown as Window & {
+        __resumeSamples: ResumeSample[];
+        __resumeSampling: boolean;
+      };
+      const smoke = (window as unknown as Window & {
+        __smoke: {
+          lastFullFrameSbRows(sessionId: string): number;
+          scrollbackBackfillRequestCount(sessionId: string): number;
+        };
+      }).__smoke;
+      runtime.__resumeSamples = [];
+      runtime.__resumeSampling = true;
+      const sample = () => {
+        if (!runtime.__resumeSampling) return;
+        const pane = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
+        const container = pane?.querySelector(".wterm") as HTMLElement | null;
+        if (container) {
+          const box = container.getBoundingClientRect();
+          let current = false;
+          for (const row of container.querySelectorAll(".cell-row")) {
+            const rowBox = row.getBoundingClientRect();
+            if (rowBox.bottom <= box.top + 1 || rowBox.top >= box.bottom - 1) continue;
+            if ((row.textContent ?? "").includes(marker)) current = true;
+          }
+          runtime.__resumeSamples.push({
+            current,
+            rowCount: container.querySelectorAll(".cell-row").length,
+            top: container.scrollTop,
+            height: container.scrollHeight,
+            client: container.clientHeight,
+            snapshotSbRows: smoke.lastFullFrameSbRows(id),
+            historyRequests: smoke.scrollbackBackfillRequestCount(id),
+          });
+        }
+        requestAnimationFrame(sample);
+      };
+      requestAnimationFrame(sample);
+    }, { id: sessionId, marker: currentMarker });
+
+    await smokePage.evaluate(() => {
+      const smoke = (window as unknown as Window & {
+        __smoke: { forceHidden(on: boolean): void };
+      }).__smoke;
+      smoke.forceHidden(false);
+    });
+    await smokePage.waitForFunction(({ id, marker }) => {
+      const smoke = (window as unknown as Window & {
+        __smoke: { viewportText(sessionId: string): string };
+      }).__smoke;
+      return smoke.viewportText(id).includes(marker);
+    }, { id: sessionId, marker: currentMarker }, { timeout: 30_000 });
+    await smokePage.evaluate(async () => {
+      for (let frame = 0; frame < 8; frame++) {
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      }
+    });
+    const recovered = await smokePage.evaluate(({ key, nonce }) => {
+      type ResumeSample = {
+        current: boolean;
+        rowCount: number;
+        top: number;
+        height: number;
+        client: number;
+        snapshotSbRows: number;
+        historyRequests: number;
+      };
+      const runtime = window as unknown as Window & {
+        __resumeSamples: ResumeSample[];
+        __resumeSampling: boolean;
+      };
+      runtime.__resumeSampling = false;
+      const value = (document as unknown as Record<string, unknown>)[key] as { nonce?: string } | undefined;
+      return { samples: runtime.__resumeSamples, sentinelSurvived: value?.nonce === nonce };
+    }, sentinel);
+    expect(recovered.sentinelSurvived).toBe(true);
+    const authoritativeAt = recovered.samples.findIndex((sample) => sample.current);
+    expect(authoritativeAt).toBeGreaterThanOrEqual(0);
+    const authoritative = recovered.samples[authoritativeAt]!;
+    expect(authoritative.top).toBeGreaterThanOrEqual(
+      authoritative.height - authoritative.client - 2,
+    );
+    expect(authoritative.snapshotSbRows).toBe(0);
+    expect(authoritative.historyRequests).toBe(before.requests);
+    expect(authoritative.rowCount).toBeLessThan(100);
+    expect(recovered.samples.slice(authoritativeAt).every((sample) =>
+      sample.rowCount === authoritative.rowCount
+      && sample.historyRequests === before.requests
+    )).toBe(true);
+    expect(await smokePage.evaluate(() => {
+      const smoke = (window as unknown as Window & {
+        __smoke: { syncWsGeneration(): number };
+      }).__smoke;
+      return smoke.syncWsGeneration();
+    })).toBeGreaterThan(before.generation);
+
+    await smokePage.evaluate((id) => {
+      const pane = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
+      const container = pane?.querySelector(".wterm") as HTMLElement | null;
+      if (!container) return;
+      container.scrollTop = 0;
+      container.dispatchEvent(new Event("scroll"));
+    }, sessionId);
+    await smokePage.waitForFunction(({ id, previous }) => {
+      const smoke = (window as unknown as Window & {
+        __smoke: { scrollbackBackfillRequestCount(sessionId: string): number };
+      }).__smoke;
+      return smoke.scrollbackBackfillRequestCount(id) > previous;
+    }, { id: sessionId, previous: before.requests });
+    await smokePage.waitForFunction((id) => {
+      const smoke = (window as unknown as Window & {
+        __smoke: { markerScan(sessionId: string, prefix: string): RecoveryMarkerScan };
+      }).__smoke;
+      const scan = smoke.markerScan(id, "HIDDEN-");
+      return scan.duplicated.length === 0 && scan.missing === 0 && scan.outOfOrder === 0;
+    }, sessionId);
+    const history = await smokePage.evaluate((id) => {
+      const smoke = (window as unknown as Window & {
+        __smoke: { markerScan(sessionId: string, prefix: string): RecoveryMarkerScan };
+      }).__smoke;
+      return smoke.markerScan(id, "HIDDEN-");
+    }, sessionId);
+    expect(history).toMatchObject({ duplicated: [], missing: 0, outOfOrder: 0 });
+  } finally {
+    await smokePage.evaluate(() => {
+      const smoke = (window as unknown as Window & {
+        __smoke: { forceHidden(on: boolean): void };
+      }).__smoke;
+      smoke.forceHidden(false);
+    }).catch(() => undefined);
+    await control.evaluate(() => {
+      const smoke = (window as unknown as Window & {
+        __smoke: { forceVisible(on: boolean): void };
+      }).__smoke;
+      smoke.forceVisible(false);
+    }).catch(() => undefined);
+    await control.close();
+  }
+});
+
+// A stale pane may retain deep painted history while parked, but its catch-up
+// frame replaces that obsolete image with only the current viewport. No
+// history page may race the reveal or move the reader away from the bottom.
 test("deck switch to a stale deep-history pane lands at the live bottom instantly", async ({ smokePage, stack }, testInfo) => {
   test.skip(testInfo.project.name !== "chromium-desktop", "desktop scroll-geometry contract");
-  test.setTimeout(240_000);
+  test.setTimeout(180_000);
   const sessionId = await smokePage.evaluate(async (workerFp) => {
-    const smoke = (window as unknown as Window & { __smoke: { spawnShell(worker: string, folder: string): Promise<{ session_id: string }> } }).__smoke;
+    const smoke = (window as unknown as Window & {
+      __smoke: { spawnShell(worker: string, folder: string): Promise<{ session_id: string }> };
+    }).__smoke;
     return (await smoke.spawnShell(workerFp, "/tmp")).session_id;
   }, stack.workerFp);
   await smokePage.goto(`${stack.baseUrl}/s/${sessionId}`);
@@ -1193,22 +1918,20 @@ test("deck switch to a stale deep-history pane lands at the live bottom instantl
   await smokePage.keyboard.press("Enter");
   await expect.poll(() => slot.textContent(), { timeout: 60_000 }).toContain("SWL-8000");
 
-  // Five same-folder siblings visited in sequence push A past the 4-slot
-  // background-stream LRU: parked AND withdrawn, the stalest possible pane.
   const siblings: string[] = [];
-  for (let i = 0; i < 5; i++) {
+  for (let index = 0; index < 5; index++) {
     const siblingId = await smokePage.evaluate(async (workerFp) => {
       const smoke = (window as unknown as Window & {
         __smoke: { spawnShell(worker: string, folder: string): Promise<{ session_id: string }> };
       }).__smoke;
       return (await smoke.spawnShell(workerFp, "/tmp")).session_id;
     }, stack.workerFp);
-    await expect.poll(() => smokePage.evaluate((id) => {
+    await smokePage.waitForFunction((id) => {
       const smoke = (window as unknown as Window & {
         __smoke: { state(): { sessions: Record<string, unknown> } };
       }).__smoke;
       return id in smoke.state().sessions;
-    }, siblingId)).toBe(true);
+    }, siblingId);
     await smokePage.evaluate((id) => {
       const smoke = (window as unknown as Window & { __smoke: { navigate(href: string): void } }).__smoke;
       smoke.navigate(`/s/${id}`);
@@ -1216,144 +1939,138 @@ test("deck switch to a stale deep-history pane lands at the live bottom instantl
     await expect(smokePage.getByTestId(`tab-${siblingId}`)).toHaveAttribute("data-active", "true");
     siblings.push(siblingId);
   }
-  await smokePage.waitForTimeout(1200); // A's deferred withdraw completes
+  await smokePage.waitForTimeout(1200);
 
-  // 300 fresh rows land while A is withdrawn (≤2000 behind → merge path), and
-  // A provably receives none of them.
-  const frameCountBefore = await smokePage.evaluate((id) => {
-    const smoke = (window as unknown as Window & { __smoke: { cellFrameCount(sessionId: string): number } }).__smoke;
-    return smoke.cellFrameCount(id);
+  const before = await smokePage.evaluate((id) => {
+    const smoke = (window as unknown as Window & {
+      __smoke: {
+        cellFrameCount(sessionId: string): number;
+        renderProbe(sessionId: string): { rowCount: number; atBottom: boolean };
+        scrollbackBackfillRequestCount(sessionId: string): number;
+      };
+    }).__smoke;
+    return {
+      frames: smoke.cellFrameCount(id),
+      requests: smoke.scrollbackBackfillRequestCount(id),
+      ...smoke.renderProbe(id),
+    };
   }, sessionId);
+  expect(before.rowCount).toBeGreaterThan(1500);
+  expect(before.atBottom).toBe(true);
+
   await smokePage.evaluate(async (id) => {
-    const smoke = (window as unknown as Window & { __smoke: { input(sessionId: string, text: string): Promise<void> } }).__smoke;
+    const smoke = (window as unknown as Window & {
+      __smoke: { input(sessionId: string, text: string): Promise<void> };
+    }).__smoke;
     await smoke.input(id, "seq -f 'FRESH-%g' 1 300\r");
   }, sessionId);
   await smokePage.waitForTimeout(500);
   expect(await smokePage.evaluate((id) => {
-    const smoke = (window as unknown as Window & { __smoke: { cellFrameCount(sessionId: string): number } }).__smoke;
+    const smoke = (window as unknown as Window & {
+      __smoke: { cellFrameCount(sessionId: string): number };
+    }).__smoke;
     return smoke.cellFrameCount(id);
-  }, sessionId)).toBe(frameCountBefore);
+  }, sessionId)).toBe(before.frames);
 
-  const probe = () => smokePage.evaluate((id) => {
+  await smokePage.getByTestId(`tab-${sessionId}`).click();
+  const reveal = await smokePage.evaluate(async ({ id, priorRequests }) => {
     const smoke = (window as unknown as Window & {
-      __smoke: { renderProbe(sessionId: string): { rowCount: number; atBottom: boolean } };
+      __smoke: {
+        lastFullFrameSbRows(sessionId: string): number;
+        scrollbackBackfillRequestCount(sessionId: string): number;
+      };
     }).__smoke;
-    return smoke.renderProbe(id);
-  }, sessionId);
-  const preSwitch = await probe();
-  expect(preSwitch.rowCount).toBeGreaterThan(1500); // deep painted history held while parked
-
-  // 50 ms position sampler across the whole reveal: at EVERY sample where any
-  // .cell-row is painted, the reader is at the literal bottom (±2 px). A
-  // transient trip through mid-history or the blank spacer fails the run.
-  const startSampler = () => smokePage.evaluate((id) => {
-    const w = window as unknown as Window & { __swlSamples?: Array<{ painted: number; top: number; height: number; client: number }>; __swlTimer?: number };
-    const slot = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
-    const c = slot?.querySelector(".wterm") as HTMLElement | null;
-    const samples: Array<{ painted: number; top: number; height: number; client: number }> = [];
-    w.__swlSamples = samples;
-    w.__swlTimer = window.setInterval(() => {
-      if (!c) return;
+    const samples: Array<{
+      visibleFresh: number;
+      painted: number;
+      top: number;
+      height: number;
+      client: number;
+      snapshotSbRows: number;
+      historyRequests: number;
+    }> = [];
+    let authoritativeAt = -1;
+    for (let frame = 0; frame < 180; frame++) {
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      const pane = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
+      const container = pane?.querySelector(".wterm") as HTMLElement | null;
+      if (!container) continue;
+      const box = container.getBoundingClientRect();
+      let visibleFresh = -1;
+      for (const row of container.querySelectorAll(".cell-row")) {
+        const rowBox = row.getBoundingClientRect();
+        if (rowBox.bottom <= box.top + 1 || rowBox.top >= box.bottom - 1) continue;
+        const match = (row.textContent ?? "").match(/FRESH-(\d+)/);
+        if (match) visibleFresh = Math.max(visibleFresh, Number(match[1]));
+      }
       samples.push({
-        painted: c.querySelectorAll(".cell-row").length,
-        top: c.scrollTop, height: c.scrollHeight, client: c.clientHeight,
+        visibleFresh,
+        painted: container.querySelectorAll(".cell-row").length,
+        top: container.scrollTop,
+        height: container.scrollHeight,
+        client: container.clientHeight,
+        snapshotSbRows: smoke.lastFullFrameSbRows(id),
+        historyRequests: smoke.scrollbackBackfillRequestCount(id),
       });
-    }, 50);
-  }, sessionId);
-  const stopSampler = () => smokePage.evaluate(() => {
-    const w = window as unknown as Window & { __swlSamples?: Array<{ painted: number; top: number; height: number; client: number }>; __swlTimer?: number };
-    if (w.__swlTimer !== undefined) window.clearInterval(w.__swlTimer);
-    return w.__swlSamples ?? [];
-  });
-  // Bottommost FRESH marker actually visible inside the container's box —
-  // "the newest content is at the literal bottom", by geometry.
-  const maxVisibleMarker = (prefix: string) => smokePage.evaluate(({ id, prefix }) => {
-    const slot = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
-    const c = slot?.querySelector(".wterm") as HTMLElement | null;
-    if (!c) return -1;
-    const box = c.getBoundingClientRect();
-    let max = -1;
-    const re = new RegExp(prefix + "(\\d+)");
-    for (const row of c.querySelectorAll(".cell-row")) {
-      const r = row.getBoundingClientRect();
-      if (r.bottom <= box.top + 1 || r.top >= box.bottom - 1) continue;
-      const m = (row.textContent ?? "").match(re);
-      if (m) max = Math.max(max, Number(m[1]));
+      if (visibleFresh === 300 && authoritativeAt < 0) authoritativeAt = samples.length - 1;
+      if (authoritativeAt >= 0 && samples.length >= authoritativeAt + 8) break;
     }
-    return max;
-  }, { id: sessionId, prefix });
+    return { samples, authoritativeAt, priorRequests };
+  }, { id: sessionId, priorRequests: before.requests });
 
-  await startSampler();
-  await smokePage.getByTestId(`tab-${sessionId}`).click();
-  // (2) the fresh tail is VISIBLE at the bottom within 1500 ms.
-  await expect.poll(() => maxVisibleMarker("FRESH-"), { timeout: 1_500, intervals: [50] }).toBe(300);
-  await smokePage.waitForTimeout(2_000); // (1) keep sampling through settle
-  const samples = await stopSampler();
-  expect(samples.length).toBeGreaterThan(10);
-  const offBottom = samples.filter((s) => s.painted > 0 && s.top < s.height - s.client - 2);
-  expect(offBottom).toEqual([]);
+  expect(reveal.authoritativeAt).toBeGreaterThanOrEqual(0);
+  const authoritative = reveal.samples[reveal.authoritativeAt]!;
+  expect(authoritative.top).toBeGreaterThanOrEqual(authoritative.height - authoritative.client - 2);
+  expect(authoritative.snapshotSbRows).toBe(0);
+  expect(authoritative.historyRequests).toBe(reveal.priorRequests);
+  expect(authoritative.painted).toBeLessThan(100);
+  expect(reveal.samples.slice(reveal.authoritativeAt).map((sample) => ({
+    painted: sample.painted,
+    historyRequests: sample.historyRequests,
+  }))).toEqual(Array(reveal.samples.length - reveal.authoritativeAt).fill({
+    painted: authoritative.painted,
+    historyRequests: reveal.priorRequests,
+  }));
 
-  // (3) history NOT collapsed: painted depth stays in the merged band. Block-
-  // granular eviction may trim up to one 250-row block below the pre-switch
-  // count; a wipe to the 250-row tail is an order of magnitude below this.
-  const settled = await probe();
-  expect(settled.rowCount).toBeGreaterThan(1500);
-  expect(settled.rowCount).toBeGreaterThanOrEqual(preSwitch.rowCount - 300);
-  expect(settled.atBottom).toBe(true);
-
-  // (4) no phantom drain at the bottom: painted rows stay FLAT after settle.
-  const flat: number[] = [];
-  for (let i = 0; i < 5; i++) {
-    await smokePage.waitForTimeout(300);
-    flat.push((await probe()).rowCount);
-  }
-  expect(flat).toEqual(Array(5).fill(settled.rowCount));
-  const scan = await smokePage.evaluate((sid) => {
+  await smokePage.evaluate((id) => {
+    const pane = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
+    const container = pane?.querySelector(".wterm") as HTMLElement | null;
+    if (!container) return;
+    container.scrollTop = 0;
+    container.dispatchEvent(new Event("scroll"));
+  }, sessionId);
+  await smokePage.waitForFunction(({ id, previous }) => {
     const smoke = (window as unknown as Window & {
-      __smoke: { markerScan(sessionId: string, prefix: string): { duplicated: number[]; outOfOrder: number; missing: number } };
+      __smoke: { scrollbackBackfillRequestCount(sessionId: string): number };
     }).__smoke;
-    return smoke.markerScan(sid, "SWL-");
+    return smoke.scrollbackBackfillRequestCount(id) > previous;
+  }, { id: sessionId, previous: reveal.priorRequests });
+  await smokePage.waitForFunction((id) => {
+    const smoke = (window as unknown as Window & {
+      __smoke: {
+        markerScan(sessionId: string, prefix: string): {
+          duplicated: number[];
+          missing: number;
+          outOfOrder: number;
+        };
+      };
+    }).__smoke;
+    const scan = smoke.markerScan(id, "SWL-");
+    return scan.duplicated.length === 0 && scan.missing === 0 && scan.outOfOrder === 0;
   }, sessionId);
-  expect(scan).toMatchObject({ duplicated: [], outOfOrder: 0, missing: 0 });
-
-  // ── Variant: parked >2000 behind → epoch collapse is allowed, the bottom is
-  // mandatory. The held window has no image in the new epoch; the reveal must
-  // land on the present as a bounded ≤2000-row catch-up tail. Re-visit all
-  // five siblings so A falls past the 4-slot background LRU again — a single
-  // navigation would leave A background-streaming (never stale).
-  for (const sid of siblings) {
-    await smokePage.evaluate((s) => {
-      const smoke = (window as unknown as Window & { __smoke: { navigate(href: string): void } }).__smoke;
-      smoke.navigate(`/s/${s}`);
-    }, sid);
-    await expect(smokePage.getByTestId(`tab-${sid}`)).toHaveAttribute("data-active", "true");
-  }
-  await smokePage.waitForTimeout(1200); // withdraw completes again
-  const frameCountBefore2 = await smokePage.evaluate((sid) => {
-    const smoke = (window as unknown as Window & { __smoke: { cellFrameCount(sessionId: string): number } }).__smoke;
-    return smoke.cellFrameCount(sid);
+  const scan = await smokePage.evaluate((id) => {
+    const smoke = (window as unknown as Window & {
+      __smoke: {
+        markerScan(sessionId: string, prefix: string): {
+          duplicated: number[];
+          missing: number;
+          outOfOrder: number;
+        };
+      };
+    }).__smoke;
+    return smoke.markerScan(id, "SWL-");
   }, sessionId);
-  await smokePage.evaluate(async (sid) => {
-    const smoke = (window as unknown as Window & { __smoke: { input(sessionId: string, text: string): Promise<void> } }).__smoke;
-    await smoke.input(sid, "seq -f 'FRESH2-%g' 1 3000\r");
-  }, sessionId);
-  await smokePage.waitForTimeout(3_000); // worker finishes generating unwatched
-  expect(await smokePage.evaluate((sid) => {
-    const smoke = (window as unknown as Window & { __smoke: { cellFrameCount(sessionId: string): number } }).__smoke;
-    return smoke.cellFrameCount(sid);
-  }, sessionId)).toBe(frameCountBefore2); // A provably withdrawn → >2000 stale
-
-  await startSampler();
-  await smokePage.getByTestId(`tab-${sessionId}`).click();
-  await expect.poll(() => maxVisibleMarker("FRESH2-"), { timeout: 1_500, intervals: [50] }).toBe(3000);
-  await smokePage.waitForTimeout(2_000);
-  const samples2 = await stopSampler();
-  const offBottom2 = samples2.filter((s) => s.painted > 0 && s.top < s.height - s.client - 2);
-  expect(offBottom2).toEqual([]);
-  const collapsed = await probe();
-  expect(collapsed.atBottom).toBe(true);
-  // Rebuilt depth is the bounded catch-up tail: ≤ 2000 + viewport + slack.
-  expect(collapsed.rowCount).toBeLessThan(2300);
+  expect(scan).toMatchObject({ duplicated: [], missing: 0, outOfOrder: 0 });
 });
 
 // Bottom-follow must survive geometry changes that happen while a pane is

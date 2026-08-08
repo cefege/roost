@@ -30,11 +30,9 @@ import { RoostTerm } from "../lib/RoostTerm.ts";
 import { CellGridRenderer } from "../lib/cellRenderer.ts";
 import { createScrollbackBackfill } from "../lib/scrollbackBackfill.ts";
 import { PredictiveEcho } from "../lib/predictiveEcho.ts";
-import { AgentLaunchButton } from "./AgentLaunchButton.tsx";
-import { AttachFileButton } from "./AttachFileButton.tsx";
 import { TerminalContextMenu } from "./TerminalContextMenu.tsx";
 import { pickAndAttachFiles, enqueueAttachment } from "../lib/attachments.ts";
-import { MobileVoiceInput, activeVoiceChannel } from "./MobileVoiceInput.tsx";
+import { MobileVoiceInput } from "./MobileVoiceInput.tsx";
 import type { TerminalContext } from "../lib/keytermContext.ts";
 import { TerminalNavButtons } from "./TerminalNavButtons.tsx";
 import { TerminalComposeButton, activeComposeChannel } from "./TerminalComposeButton.tsx";
@@ -194,6 +192,7 @@ export function CellTerminal(props: CellTerminalProps) {
 	let displayRef: HTMLDivElement | undefined; // visible — CellGridRenderer paints here
 	let inputHostRef: HTMLDivElement | undefined; // hidden — RoostTerm (input + mode oracle)
 
+	let composerDefaultConsumed = false;
 	let renderer: CellGridRenderer | null = null;
 	let linkAttachment: TerminalLinkAttachment | null = null;
 	const releasePaintHolds = (): void => {
@@ -203,7 +202,7 @@ export function CellTerminal(props: CellTerminalProps) {
 			|| (!!selection.focusNode && !!displayRef?.contains(selection.focusNode))
 		);
 		if (ownsEndpoint) selection.removeAllRanges();
-		renderer?.setSelectionHold(false);
+		if (renderer?.setSelectionHold(false)) backfillRef?.onFullFrame();
 		linkAttachment?.releaseInteraction();
 	};
 	// The backfill controller is created inside onMount; the find controller needs
@@ -306,12 +305,6 @@ export function CellTerminal(props: CellTerminalProps) {
 	const [altScreen, setAltScreen] = createSignal(false); // tracks frame.altScreen — gates mouse/touch forwarding + wheel passivity
 	const [ctrlArmed, setCtrlArmed] = createSignal(false);
 
-
-	// Show the agent-launch FAB only at a plain shell prompt. A prompt-ending
-	// shell sigil distinguishes a shell from a full-screen TUI.
-	const SHELL_PROMPT_RE = /[$%#❯➜»λ›]\s*$/;
-	const [atShellPrompt, setAtShellPrompt] = createSignal(false);
-
 	// True while this session is an optimistic placeholder (spawn RPC in flight).
 	// For a non-optimistic session this is always false → every gate below is a
 	// no-op, so mount behaviour is byte-identical to before.
@@ -369,6 +362,7 @@ export function CellTerminal(props: CellTerminalProps) {
 	// 70s claim-freshness window. Visibility reads route through isPageVisible()
 	// (lib/pageVisible.ts) so the __smoke.forceVisible automation pin applies.
 	function sendWithdraw(): void {
+		backfillRef?.suspend();
 		if (_lastSent === "withdraw") return; // already withdrawn — skip the duplicate RPC
 		_lastSent = "withdraw";
 		lastClaimed = { cols: 0, rows: 0 }; // re-show must re-claim, not be held by a stale anchor
@@ -396,13 +390,11 @@ export function CellTerminal(props: CellTerminalProps) {
 	// and (because the deck parks it at its own leaf's rect) every frame applied
 	// while parked is pinned at the geometry it will be revealed at.
 	//
-	// Re-subscribing after a withdraw is allowed: the claim carries heldCellSeq,
-	// so a viewer that fell behind while withdrawn gets a full snapshot before
-	// deltas resume (worker _needsClaimSnapshot) and can never splice a delta
-	// onto a stale base. Without that catch-up, cellRenderer.apply/applyDelta
-	// would tear history (scrollbackTotal - sbBase would no longer equal
-	// scrollbackRows.length).
+	// Re-subscribing after a withdraw carries heldCellSeq. If the viewer fell
+	// behind, the worker sends a viewport-only authoritative snapshot before
+	// deltas resume.
 	function sendBackgroundClaim(): void {
+		backfillRef?.suspend();
 		if (_lastSent === "background") return;
 		_lastSent = "background";
 		lastClaimed = { cols: 0, rows: 0 }; // a reveal must re-claim a real size
@@ -546,7 +538,7 @@ export function CellTerminal(props: CellTerminalProps) {
 		// then (syncInputModes checks it explicitly). The continuation is attached
 		// further down, once syncInputModes and the input wiring it needs exist.
 		const initializedTerm = new RoostTerm(inputHostRef!, {
-			autoFocus: props.focused === true && !isTouchDevice(),
+			autoFocus: props.focused === true && !isTouchDevice() && activeComposeChannel() === null,
 			renderless: true,
 		});
 		const termReady = initializedTerm.init();
@@ -554,21 +546,24 @@ export function CellTerminal(props: CellTerminalProps) {
 			// ── output: cells ────────────────────────────────────────────────
 			renderer = new CellGridRenderer(displayRef!);
 		const unregPreview = registerRenderer(props.session.id, renderer);
-		// Lazy-history backfill: full frames carry only a scrollback tail
-		// (sbBase); the controller pulls the rest per-viewer after the attach
-		// settles (or immediately on scroll-up) and prepends it seam-free.
+		// Retained history is paged only after explicit scroll/find demand; a
+		// literal-bottom full frame paints only the current viewport.
 		const backfill = createScrollbackBackfill({
 			sessionId: props.session.id,
 			renderer: () => renderer,
 			active: () => props.inLayout !== false && isPageVisible(),
 		});
 		backfillRef = backfill;
-		// Native scroll events only trigger lazy-history backfill near the painted
-		// top. The renderer does not need gesture classification or echo suppression.
+		// Programmatic bottom pins can emit scroll events. Only an off-bottom
+		// reader near the painted history top constitutes demand.
 		const onScroll = () => {
 			if (!renderer || !displayRef) return;
 			if (props.inLayout === false || !isPageVisible()) return;
-			if (renderer.nearHistoryTop()) backfill.onUserScrollUp();
+			if (renderer.releaseReaderFreezeAtBottom()) {
+				backfill.onFullFrame();
+				return;
+			}
+			if (!renderer.atBottom() && renderer.nearHistoryTop()) backfill.onUserScrollUp();
 		};
 		displayRef!.addEventListener("scroll", onScroll, { passive: true });
 		// Predictive local echo — speculative client overlay, gated on
@@ -684,7 +679,6 @@ export function CellTerminal(props: CellTerminalProps) {
 				lastCurCol = frame.cursorCol;
 				predictor?.onFrame(frame); // reconcile predictions against the authoritative grid
 				if (frame.full) backfill.onFullFrame();
-				setAtShellPrompt(SHELL_PROMPT_RE.test(renderer.viewportTail()));
 			});
 
 			// Receive remote viewers' cursors → ghostMap → cellRenderer (ch/lh overlay).
@@ -762,10 +756,20 @@ export function CellTerminal(props: CellTerminalProps) {
 		void termReady.then(() => runWithOwner(cellOwner, () => {
 			if (unmounted) { initializedTerm.destroy(); return; }
 			term = initializedTerm;
-			if (props.inLayout === true && props.focused === true && !isTouchDevice()) {
+			if (
+				props.inLayout === true
+				&& props.focused === true
+				&& !isTouchDevice()
+				&& activeComposeChannel() === null
+			) {
 				initializedTerm.forceFocus();
 				requestAnimationFrame(() => {
-					if (!unmounted && props.inLayout === true && props.focused === true) initializedTerm.forceFocus();
+					if (
+						!unmounted
+						&& props.inLayout === true
+						&& props.focused === true
+						&& activeComposeChannel() === null
+					) initializedTerm.forceFocus();
 				});
 			}
 			syncInputModes(); // flush modes seen before the hidden wterm existed
@@ -804,7 +808,9 @@ export function CellTerminal(props: CellTerminalProps) {
 			githubOwnerRepo: () => props.session.git_remote ?? undefined,
 			// Freeze cell repaints while Cmd-hovering a link so the wrapped <a> stops
 			// churning under the cursor (the pointer↔text flicker).
-			onArmedHoverChange: (active) => renderer?.setArmedHold(active),
+			onArmedHoverChange: (active) => {
+				if (renderer?.setArmedHold(active)) backfill.onFullFrame();
+			},
 		});
 
 		// MOBILE keyboard fix: tapping a sidebar row to switch terminals closes the
@@ -866,7 +872,7 @@ export function CellTerminal(props: CellTerminalProps) {
 				displayRef!.contains(sel.anchorNode) &&
 				!!sel.focusNode &&
 				displayRef!.contains(sel.focusNode);
-			renderer?.setSelectionHold(held);
+			if (renderer?.setSelectionHold(held)) backfill.onFullFrame();
 		};
 
 		// Copy-on-select (opt-in): the tmux/xterm habit of putting the selection on
@@ -1075,11 +1081,8 @@ export function CellTerminal(props: CellTerminalProps) {
 			// cell.reveal forensics diag (first frame applied afterwards).
 			revealT0 = performance.now();
 			sendClaimNow(ResizeCause.TAB_VISIBLE);
-			// A reveal of a still-streaming pane gets NO full frame (the worker's
-			// heldCellSeq fast path), and a reveal that does get one lands the
-			// constant 250-row tail. Either way the drain must be triggered by the
-			// reveal itself to refill the held window behind the reader.
-			backfillRef?.onReveal();
+			// A still-streaming pane may need no frame; retained history remains
+			// dormant until the reader explicitly scrolls or searches.
 		}));
 		// LRU eviction while parked downgrades a background claim to a real withdraw.
 		// Re-promotion into the set re-subscribes for real: the background claim
@@ -1102,7 +1105,7 @@ export function CellTerminal(props: CellTerminalProps) {
 			() => props.inLayout === true && props.focused === true,
 		);
 		createEffect(() => {
-			if (focusGate() && !isTouchDevice()) term?.forceFocus();
+			if (focusGate() && !isTouchDevice() && activeComposeChannel() === null) term?.forceFocus();
 		});
 		createEffect(() => {
 			if (!focusGate()) setCtrlArmed(false);
@@ -1266,7 +1269,6 @@ export function CellTerminal(props: CellTerminalProps) {
 			if (hiddenStreamTimer) { clearTimeout(hiddenStreamTimer); hiddenStreamTimer = null; }
 			if (props.inLayout === true) {
 				sendClaimNow(ResizeCause.TAB_VISIBLE);
-				backfillRef?.onReveal();
 				return;
 			}
 			// Parked panes re-subscribe AFTER the visible pane's claim so its
@@ -1580,26 +1582,15 @@ export function CellTerminal(props: CellTerminalProps) {
 				/>
 			</Show>
 
-			<Show when={(isCompact() || isTouchDevice()) && props.inLayout !== false}>
+			<Show when={(isCompact() || isTouchDevice()) && props.inLayout !== false && props.focused === true}>
 				<TerminalComposeButton
 					session={props.session}
 					refocusTerminal={() => term?.forceFocus()}
 					onSubmit={(text) => sendTerminalText(text, true)}
 					readContext={readTerminalContext}
+					initialOpen={isCompact() && !composerDefaultConsumed}
+					onOpen={() => { composerDefaultConsumed = true; }}
 				/>
-			</Show>
-			{/* Launch-agent FAB — shells only, shown at a plain shell prompt (regex
-          on the live viewport tail) and not while voice-recording (shares the
-          discard-✕ slot; would cover the cancel button). Types the selected
-          agent's command + CR into the PTY; agent configurable in Settings. */}
-			<Show when={props.session.kind === "shell" && atShellPrompt() && activeVoiceChannel() === null && activeComposeChannel() === null && props.inLayout !== false}>
-				<AgentLaunchButton sessionId={props.session.id} />
-			</Show>
-			{/* Attach-file FAB — its own standalone button on every platform (touch,
-          compact, desktop); hidden only while the message composer is open.
-          Native picker → chunked upload (progress chip) → abs_path injected. */}
-			<Show when={activeComposeChannel() === null && props.inLayout !== false}>
-				<AttachFileButton session={props.session} />
 			</Show>
 			<TerminalContextMenu
 				session={props.session}

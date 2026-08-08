@@ -1,19 +1,27 @@
 <!-- AUDIENCE: human -->
 # Getting started with Roost
 
-Roost runs across your Macs over your own network — [Tailscale](https://tailscale.com)
-is the tested, recommended setup. One Mac runs the coordinator + a worker; your
-phone and other devices connect to it over your tailnet.
+Roost runs across your machines — Macs and Linux boxes — over your own network.
+[Tailscale](https://tailscale.com) is the tested, recommended setup. One machine
+runs the coordinator + a worker; your phone and other devices connect to it over
+your tailnet.
+
+**Only the coordinator and the workers need macOS or Linux.** Everything you
+browse *from* — a Mac, a Windows PC, a Linux desktop, an iPhone, an Android
+phone, an iPad, an Android tablet, whatever — needs nothing but a browser
+(optionally added to the home screen as a PWA).
 
 ## Prerequisite: Tailscale
 
-Roost needs Tailscale running on the coordinator and every worker Mac (it's the
-private network they use to communicate).
+Roost needs Tailscale running on the coordinator and every worker machine (it's
+the private network they use to communicate).
 
-1. Install it: `brew install tailscale` (or the Mac App Store app).
-2. Start it: `tailscale up`.
-3. Approve the Tailscale **network extension** when macOS prompts you in
-   System Settings. (This one step can't be automated.)
+1. Install it: `brew install tailscale` on macOS (or the Mac App Store app);
+   on Linux, follow <https://tailscale.com/download/linux>.
+2. Start it: `tailscale up` (on Linux: `sudo systemctl enable --now tailscaled`
+   first).
+3. On macOS, approve the Tailscale **network extension** when the system prompts
+   you in System Settings. (This one step can't be automated.)
 
 ## Install + run
 
@@ -64,14 +72,38 @@ You need:
 This manual flow uses `cloudflared tunnel login`; it does not require a
 Cloudflare API token.
 
-### 2. Create a locally-managed tunnel
+### 2. Install `cloudflared` and create a locally-managed tunnel
 
-Follow Cloudflare's [locally-managed tunnel
+Install `cloudflared` on the coordinator:
+
+```sh
+# macOS
+brew install cloudflared
+
+# Debian / Ubuntu
+sudo mkdir -p --mode=0755 /usr/share/keyrings
+curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg \
+  | sudo tee /usr/share/keyrings/cloudflare-main.gpg >/dev/null
+echo 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main' \
+  | sudo tee /etc/apt/sources.list.d/cloudflared.list
+sudo apt-get update && sudo apt-get install cloudflared
+
+# RHEL / CentOS Stream / Fedora / Amazon Linux
+curl -fsSL https://pkg.cloudflare.com/cloudflared.repo \
+  | sudo tee /etc/yum.repos.d/cloudflared.repo
+sudo dnf install cloudflared
+```
+
+Other distributions and architectures: [Cloudflare's package
+index](https://pkg.cloudflare.com) or the [release
+binaries](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/downloads/).
+`roost expose` refuses to run when `cloudflared` is not on `PATH`.
+
+Then follow Cloudflare's [locally-managed tunnel
 guide](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/local-management/create-local-tunnel/)
 and run:
 
 ```sh
-brew install cloudflared
 cloudflared tunnel login
 cloudflared tunnel create roost
 ```
@@ -139,6 +171,19 @@ config, it is:
 sudo cloudflared --config "$HOME/.cloudflared/config.yml" service install
 ```
 
+The explicit `--config` is what makes this work on Linux: under `sudo`, the
+service's `$HOME` is `/root`, so `cloudflared` would not find the config you
+just wrote. Your own shell expands `$HOME` before `sudo` runs, so the path above
+is the right one.
+
+macOS launchd starts the service on install. On Linux, start and enable it
+yourself:
+
+```sh
+sudo systemctl enable --now cloudflared
+sudo systemctl status cloudflared
+```
+
 Roost does not install, update, or own this Cloudflare service; it only prints
 the command.
 
@@ -171,9 +216,10 @@ sufficient.
 
 ### Disable public access
 
-Stop the tunnel service:
+Stop and remove the tunnel service:
 
 ```sh
+sudo systemctl disable --now cloudflared   # Linux only
 sudo cloudflared service uninstall
 ```
 
@@ -193,7 +239,7 @@ does not stop coordinator/worker traffic over Tailscale.
 Choose one route:
 
 - **Default Tailscale route:** Install the Tailscale app on the phone and sign
-  in to the same tailnet. In Roost on your Mac, choose **Settings → Pair a
+  in to the same tailnet. In Roost on your computer, choose **Settings → Pair a
   device**, then scan the QR with the phone's camera.
 - **Cloudflare route:** After completing the optional Cloudflare setup above,
   open your Cloudflare hostname on the phone without installing Tailscale.
@@ -223,12 +269,12 @@ Each device subscribes separately, and a device that is actively viewing the
 session it is about does not get an OS notification for it. Tapping a
 notification opens that session.
 
-## Add another Mac
+## Add another machine
 
-Extra Macs join by pulling — no SSH, no push from the coordinator. On the
-coordinator, open **Settings → Machines → Add machine** (or run
-`roost add-mac`). Copy the generated one-liner, then paste it in a terminal on
-the new Mac (Tailscale must be running there):
+Extra machines — Mac or Linux — join by pulling; no SSH, no push from the
+coordinator. On the coordinator, open **Settings → Machines → Add machine** (or
+run `roost add-mac`). Copy the generated one-liner, then paste it in a terminal
+on the new machine (Tailscale must be running there):
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/cefege/roost/main/join.sh | \
@@ -236,11 +282,12 @@ curl -fsSL https://raw.githubusercontent.com/cefege/roost/main/join.sh | \
   ROOST_BOOTSTRAP_TOKEN="roost_bt_…" bash
 ```
 
-The new Mac installs itself and registers with the coordinator — it appears in
-**Settings → Machines** within a few seconds. The token is one-shot and
-expires in 24 hours.
+The new machine installs itself and registers with the coordinator — it appears
+in **Settings → Machines** within a few seconds. It installs a launchd agent on
+macOS and a `systemd --user` unit on Linux. The token is one-shot and expires in
+24 hours.
 
-To **update** a Mac that's already joined, use `roost deploy <host>` (or the
+To **update** a machine that's already joined, use `roost deploy <host>` (or the
 "Deploy" button on its drift badge) — that's the push path for pushing new
 code to existing workers.
 

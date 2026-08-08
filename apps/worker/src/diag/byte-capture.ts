@@ -10,10 +10,9 @@
 //   {"sid":"...","ts_ms":1700000000000,"end_seq":12345,"ring_len":262144,"reason":"..."}
 // Bytes follow immediately after the newline.
 //
-// ROOST_DIAG=1 gates push at the call sites (callers check before
-// invoking). This module itself doesn't read the env — exposes the
-// push/dump API; the work-done emission goes through `diag()` which
-// is already gate-aware.
+// `push` is deliberately always-on and unconditional on ROOST_DIAG: an anomaly
+// fires precisely when diag was off, and a dump of an empty ring explains
+// nothing. It costs O(chunk) because the ring is a fixed-capacity SbRing.
 //
 // Owners: worker session-manager.ts (push), worker-anomaly.ts +
 // coord diag.snapshot RPC (dump).
@@ -22,6 +21,7 @@ import { mkdirSync, writeFileSync, readdirSync, statSync, unlinkSync } from "nod
 import { join } from "node:path";
 import { diag } from "@roost/shared/diag";
 import { workerLogDir } from "@roost/shared/paths";
+import { createSbRing, appendToRing, readRing, ringLength, type SbRing } from "../session-scrollback-ring.ts";
 
 const RING_CAP_BYTES = 256 * 1024;
 const DUMP_DIR = workerLogDir();
@@ -29,26 +29,21 @@ const DUMP_LRU_MAX_FILES = 50;
 const DUMP_LRU_MAX_BYTES = 500 * 1024 * 1024;
 
 interface RingEntry {
-  buf: Uint8Array;
+  ring: SbRing;
   end_seq: number;
 }
 
 const _rings = new Map<string, RingEntry>();
 
-/** Append `chunk` to the per-sid ring. Older bytes evicted when the
- *  ring exceeds RING_CAP_BYTES. Cheap: one allocation per push. */
+/** Append `chunk` to the per-sid ring. Oldest bytes are overwritten in place
+ *  once RING_CAP_BYTES is retained. O(chunk), one fixed allocation per sid. */
 export function push(sid: string, chunk: Uint8Array, endSeq: number): void {
   let entry = _rings.get(sid);
   if (!entry) {
-    entry = { buf: new Uint8Array(0), end_seq: 0 };
+    entry = { ring: createSbRing(undefined, RING_CAP_BYTES), end_seq: 0 };
     _rings.set(sid, entry);
   }
-  const next = new Uint8Array(entry.buf.length + chunk.length);
-  next.set(entry.buf, 0);
-  next.set(chunk, entry.buf.length);
-  entry.buf = next.length > RING_CAP_BYTES
-    ? next.subarray(next.length - RING_CAP_BYTES)
-    : next;
+  appendToRing(entry.ring, chunk);
   entry.end_seq = endSeq;
 }
 
@@ -61,7 +56,7 @@ export function drop(sid: string): void {
  *  miss / IO error. Emits diag.byte_dump_written on success. */
 export function dump(sid: string, reason: string): string | null {
   const entry = _rings.get(sid);
-  if (!entry || entry.buf.length === 0) {
+  if (!entry || ringLength(entry.ring) === 0) {
     diag("diag.byte_dump_written", { sid, reason, written: false, why: "no_ring" });
     return null;
   }
@@ -73,15 +68,16 @@ export function dump(sid: string, reason: string): string | null {
   const tsMs = Date.now();
   const sanitizedSid = sid.replace(/[^a-zA-Z0-9_-]/g, "_");
   const path = join(DUMP_DIR, `bytecap-${sanitizedSid}-${tsMs}.bin`);
+  const bytes = readRing(entry.ring);
   const header = JSON.stringify({
-    sid, ts_ms: tsMs, end_seq: entry.end_seq, ring_len: entry.buf.length, reason,
+    sid, ts_ms: tsMs, end_seq: entry.end_seq, ring_len: bytes.length, reason,
   }) + "\n";
   try {
-    const out = new Uint8Array(header.length + entry.buf.length);
+    const out = new Uint8Array(header.length + bytes.length);
     out.set(new TextEncoder().encode(header), 0);
-    out.set(entry.buf, header.length);
+    out.set(bytes, header.length);
     writeFileSync(path, out);
-    diag("diag.byte_dump_written", { sid, reason, written: true, path, byte_len: entry.buf.length, end_seq: entry.end_seq });
+    diag("diag.byte_dump_written", { sid, reason, written: true, path, byte_len: bytes.length, end_seq: entry.end_seq });
     return path;
   } catch (e) {
     diag("diag.byte_dump_written", { sid, reason, written: false, why: "write_error", err: String(e) });

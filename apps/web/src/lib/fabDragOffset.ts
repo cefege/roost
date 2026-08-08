@@ -1,11 +1,11 @@
 // fabDragOffset — per-browser vertical lift for the bottom-right terminal FAB
-// cluster (mic / attach / agent-launch / keyboard-nav). Press-drag ANY FAB up
+// cluster (mic / message / keyboard-nav). Press-drag ANY FAB up
 // to move the whole stack off the terminal text; a quick tap still fires the
 // button. Applied via the ONE global CSS var --roost-fab-dy that every FAB's
 // bottom: calc() in voice-input.css reads, so all per-session CellTerminal
 // clusters shift together and the offset is inherently per-browser.
 // No Solid signal: nothing renders off it — pure CSS var + localStorage.
-// Wired via onPointerDown={onFabPointerDown} on the 4 primary FAB buttons.
+// Wired via onPointerDown={onFabPointerDown} on the 3 primary FAB buttons.
 // Reuses dragArmed (dragThreshold.ts) + the PaneDivider.tsx window-listener,
 // no-setPointerCapture recipe (FABs live in a per-session deck, capture would
 // die on node recreation — feedback_for_recreates_node_kills_pointer_capture).
@@ -58,6 +58,7 @@ window.addEventListener("resize", () => {
 
 export function onFabPointerDown(e: PointerEvent): void {
   if (e.pointerType === "mouse" && e.button !== 0) return;
+  const fab = e.currentTarget as Element | null;
   const startY = e.clientY;
   const startX = e.clientX;
   const base = current;
@@ -106,11 +107,14 @@ export function onFabPointerDown(e: PointerEvent): void {
     current = last;
     setVar(current);
     persist(current);
-    // Swallow the trailing click so the dragged FAB doesn't also toggle mic /
-    // open the file picker after a reposition.
+    // Swallow ONLY the dragged FAB's own trailing click, so it doesn't also
+    // toggle mic / open the file picker after a reposition. Untargeted, this ate
+    // the NEXT tap anywhere in the app — on touch `armed` trips on an ordinary
+    // finger wobble, so a wobbled mic press discarded the following tap.
     window.addEventListener(
       "click",
       (ce) => {
+        if (!fab || !(ce.target instanceof Node) || !fab.contains(ce.target)) return;
         ce.stopPropagation();
         ce.preventDefault();
       },

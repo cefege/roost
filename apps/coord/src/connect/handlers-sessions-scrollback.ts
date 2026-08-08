@@ -34,11 +34,19 @@ export function makeSessionScrollbackHandlers(
       if (!row) throw new ConnectError("unknown session", Code.NotFound);
       const sock = getWorkerHubSocket(row.worker_fp);
       if (!sock) throw new ConnectError("worker not connected", Code.Unavailable);
-      const pending = createPendingRpc<{ rows: CellRow[]; cols: number; total: number; start_row: number; end_row: number }>(8_000, row.worker_fp);
+      const pending = createPendingRpc<{
+        rows: CellRow[];
+        cols: number;
+        total: number;
+        start_row: number;
+        end_row: number;
+        grid_epoch: string;
+      }>(8_000, row.worker_fp);
       sendBrowserCmd(sock, caller, pending.request_id, {
         kind: "get-scrollback-cells" as const,
         request_id: pending.request_id,
         session_id: asSessionId(req.sessionId),
+        grid_epoch: req.gridEpoch,
         end_row: Number(req.endRow),
         max_rows: req.maxRows,
       });
@@ -55,6 +63,7 @@ export function makeSessionScrollbackHandlers(
         scrollbackTotal: BigInt(res.total),
         startRow: BigInt(res.start_row),
         endRow: BigInt(res.end_row),
+        gridEpoch: res.grid_epoch,
       });
     },
 

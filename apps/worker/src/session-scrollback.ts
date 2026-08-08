@@ -29,10 +29,10 @@ export function appendScrollback(this: SessionManager, channelId: number, chunk:
 	if (!core) return -1;
 	appendToRing(rec.scrollback, chunk);
 	rec.head_seq += chunk.length;
-	// Diag: per-chunk byte capture. Ring is 256KB; cheap when ROOST_DIAG=0
-	// (diag() is the no-op gate, but the ring itself is still mutated —
-	// keep its push tiny so the always-on path stays sub-µs). The ring
-	// tail is dumped only on anomaly via byteCapture.dump.
+	// Diag: per-chunk byte capture into a fixed-capacity 256 KB SbRing, so the
+	// push is O(chunk). Deliberately always-on rather than ROOST_DIAG-gated —
+	// an anomaly fires when diag was off, and the tail is only ever read by
+	// byteCapture.dump, which must not find an empty ring.
 	byteCapture.push(
 		String(rec.sessionId),
 		new Uint8Array(chunk),

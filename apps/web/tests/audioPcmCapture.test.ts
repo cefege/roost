@@ -15,6 +15,7 @@ import { expect, test, describe, beforeEach } from "bun:test";
 import {
   isMicWarm,
   micIdle,
+  micTimeouts,
   releaseMic,
   captureStats,
   captureQuirks,
@@ -145,6 +146,11 @@ describe("audioPcmCapture warm pipeline", () => {
     releaseMic(); // the module is a singleton — every case starts cold
     micIdle.releaseMs = 60_000;
     captureQuirks.workletBroken = false; // a latched repair must not leak across cases
+    // Device-open deadlines are a mutable object for exactly this reason; a
+    // case that shrinks them must not leak the shrink into the next one.
+    micTimeouts.openMs = 6_000;
+    micTimeouts.resumeMs = 1_500;
+    micTimeouts.moduleMs = 3_000;
     scriptProcessorCalls = 0;
     getUserMediaCalls = 0;
     resumeCalls = 0;
@@ -425,5 +431,62 @@ describe("audioPcmCapture warm pipeline", () => {
     expect(captureStats().ctxState).toBe("running");
     pushAudio(0.5);
     expect(chunks).toBeGreaterThan(0);
+  });
+
+  // ── the device-open deadlines (iOS 18.7 PWA: getUserMedia / resume() /
+  // addModule can return a promise that never settles) ─────────────────────
+
+  test("M: a getUserMedia that never settles fails the tap and does not poison the next one", async () => {
+    micTimeouts.openMs = 20;
+    getUserMediaImpl = () => Promise.withResolvers<unknown>().promise; // never settles
+
+    await expect(startCapture(() => {})).rejects.toThrow(/did not respond in time/);
+    expect(isMicWarm()).toBe(false);
+
+    // The whole bug: `warming` used to hold the dead promise for the page's
+    // lifetime, so every LATER tap awaited it. The next tap must open cold.
+    getUserMediaImpl = () => Promise.resolve(makeStream());
+    addModuleGate.resolve();
+    let chunks = 0;
+    expect(await startCapture(() => { chunks++; })).toBe(true);
+    expect(getUserMediaCalls).toBe(2);
+    pushAudio(0.5);
+    expect(chunks).toBeGreaterThan(0);
+  });
+
+  test("N: a getUserMedia that resolves after the deadline has its tracks stopped", async () => {
+    micTimeouts.openMs = 20;
+    const gum = Promise.withResolvers<unknown>();
+    const late = makeStream();
+    getUserMediaImpl = () => gum.promise;
+
+    await expect(startCapture(() => {})).rejects.toThrow(/did not respond in time/);
+    // WebKit can still hand the device over afterwards. Nothing else would ever
+    // stop those tracks, and an unstopped track IS the phone's recording
+    // indicator staying lit with nothing recording.
+    gum.resolve(late);
+    await gum.promise;
+    await Promise.resolve();
+    expect(late.track.stopped).toBe(true);
+  });
+
+  test("O: a resume() that never answers rebuilds the pipeline instead of hanging", async () => {
+    addModuleGate.resolve();
+    await startCapture(() => {});
+    stopCapture();
+    if (!lastContext) throw new Error("expected a retained AudioContext");
+    const stale = lastContext;
+
+    // A refused resume is already covered (case L). This is the OTHER half of
+    // webkit.org/b/237878: resume() answers neither yes nor no.
+    stale.state = "suspended";
+    micTimeouts.resumeMs = 20;
+    resumeImpl = () => Promise.withResolvers<void>().promise; // never settles
+
+    await warmMic();
+
+    expect(getUserMediaCalls).toBe(2); // rebuilt, not parked on the dead resume
+    expect(lastContext).not.toBe(stale);
+    expect(isMicWarm()).toBe(true);
   });
 });

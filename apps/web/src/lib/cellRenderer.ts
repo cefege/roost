@@ -69,52 +69,22 @@ function sizeBlock(blk: HTMLElement, rows: number, rowH: number): void {
 // — lower if DOM headroom under many parked panes is still high.
 export const MAX_HELD_SCROLLBACK_ROWS = 2000;
 
-/** What a scrollback-backfill chunk is validated against: how deep the
- *  unpainted [0, sbBase) hole is, the width the held rows were rendered at,
- *  the frame's monotonic scrollback total, and the first held row's text (the
- *  overlap row a get-scrollback-cells response must reproduce). */
+/** Immutable grid identity and absolute range used to validate one history page. */
 export interface BackfillAnchor {
   sbBase: number;
   cols: number;
   total: number;
-  firstHeldText: string | null;
+  gridEpoch: string;
 }
 
 
-/** Merge an incoming FULL frame onto the held frame when its scrollback
- *  (possibly a tail, sbBase > 0 — see types.ts) verifiably EXTENDS the held
- *  window: same width, non-shrinking, overlap present, and boundary-row text
- *  identical. Scrollback lines are immutable once pushed, so text identity
- *  proves no ring eviction / reflow shifted the shared prefix (text differs
- *  the instant a line changes index). Returns the merged frame + the newly
- *  appended rows, or null when only a full rebuild is safe (width change,
- *  shrink, or a gap the tail doesn't cover — the backfill controller fills
- *  the remaining [0, sbBase) hole). Pure; unit-tested in cellRenderer.test.ts. */
-export function mergeFullFrame(
-  base: CellGridFrame,
-  incoming: CellGridFrame,
-): { frame: CellGridFrame; appended: CellRow[] } | null {
-  if (incoming.cols !== base.cols) return null;
-  if (incoming.scrollbackTotal < base.scrollbackTotal) return null;
-  if (base.scrollbackTotal === 0) {
-    if (incoming.sbBase !== 0) return null; // held nothing; tail would start with a hole
-    return { frame: incoming, appended: incoming.scrollbackRows };
-  }
-  const boundaryAbs = base.scrollbackTotal - 1;
-  const inIdx = boundaryAbs - incoming.sbBase;
-  if (inIdx < 0) return null; // viewer missed more rows than the tail covers
-  const inRow = incoming.scrollbackRows[inIdx];
-  const baseRow = base.scrollbackRows[boundaryAbs - base.sbBase];
-  if (!inRow || !baseRow || rowText(inRow) !== rowText(baseRow)) return null;
-  const appended = incoming.scrollbackRows.slice(inIdx + 1);
-  return {
-    frame: { ...incoming, scrollbackRows: base.scrollbackRows.concat(appended), sbBase: base.sbBase },
-    appended,
-  };
-}
 
 export class CellGridRenderer {
   private frame: CellGridFrame | null = null;
+  // A repair can arrive while the reader is inspecting history. Keep the
+  // painted frame immutable until they deliberately return to its bottom;
+  // live frames continue folding here so claim seqs stay current.
+  private readerPendingFrame: CellGridFrame | null = null;
   // While the user has text selected over this pane, repainting the viewport
   // (replaceChildren) would destroy the selection — the reason selection was
   // unusable in a live alt-screen TUI. selectionHold freezes DOM writes;
@@ -125,6 +95,7 @@ export class CellGridRenderer {
   private selectionHold = false;
   private armedHold = false;
   private pendingRender = false;
+  private pendingPinToBottom = false;
   // Scrollback rows are packed into content-visibility "blocks" of SB_BLOCK rows.
   // Off-screen blocks skip layout/paint, so scrollHeight reads and reveal reflow
   // stay O(history / SB_BLOCK), not O(history) — the fix for the pane-switch
@@ -218,51 +189,45 @@ export class CellGridRenderer {
     if (this.ghostsEl.parentElement !== this.viewportEl) this.viewportEl.appendChild(this.ghostsEl);
   }
 
-  /** Apply a full or delta frame. Returns false only when a delta has no full
-   *  base; true means the frame was folded into renderer state, including while
-   *  an interaction hold suppresses DOM writes. */
+  /** Apply a full or delta frame. false requests an authoritative repair. */
   apply(incoming: CellGridFrame): boolean {
     const wasAtBottom = this.atBottom();
-    if (incoming.full) {
-      const base = this.frame;
-      // Fast path: same-width reveal / re-claim. Full frames carry only a
-      // scrollback TAIL (sbBase); when it verifiably extends the held window
-      // (mergeFullFrame), keep the held history + append the new rows — no
-      // replaceChildren, and another viewer's attach can't wipe this viewer's
-      // backfilled depth.
-      const merged = base ? mergeFullFrame(base, incoming) : null;
-      if (merged) {
-        this.frame = merged.frame;
-        if (this.holding) { this.pendingRender = true; return true; }
-        this._appendScrollback(merged.appended, wasAtBottom);
-        this.renderViewport(incoming.altScreen ? 0 : merged.appended.length);
-        this.setGridWidth();
-        this._syncAltScreen();
-        this._pinToBottom(wasAtBottom);
+    if (this.readerPendingFrame) {
+      if (!incoming.full) {
+        const folded = applyDelta(this.readerPendingFrame, incoming);
+        if (!folded) return false;
+        this.readerPendingFrame = folded;
         return true;
       }
-      // Slow path: fresh mount / width change / reset / uncovered gap →
-      // rebuild from the incoming frame verbatim (block-packed, so even deep
-      // history lays out cheaply). sbBase > 0 leaves a [0, sbBase) hole the
-      // backfill controller fills via prependScrollback.
-      // If the viewer's held rows are entirely below the incoming tail
-      // (incoming.sbBase > last held absolute row), the reader's position has no
-      // image in the new epoch — a tab switch must land on the present, never on
-      // reserved-but-unpainted space.
-      const heldTotal = base?.scrollbackTotal ?? 0;
-      const windowUnreachable = base !== null && heldTotal > 0 && incoming.sbBase > heldTotal - 1;
+      this.readerPendingFrame = incoming;
+      return true;
+    }
+    if (incoming.full) {
+      const current = this.frame;
+      const epochChanged = current !== null && current.gridEpoch !== incoming.gridEpoch;
+      const freezeReader = current !== null && !wasAtBottom;
+      if (freezeReader) {
+        this.readerPendingFrame = incoming;
+        return true;
+      }
       this.frame = incoming;
-      if (this.holding) { this.pendingRender = true; return true; }
-      this.renderFull(wasAtBottom || windowUnreachable);
+      const pinToBottom = wasAtBottom || epochChanged;
+      if (this.holding) {
+        this.pendingRender = true;
+        this.pendingPinToBottom ||= pinToBottom;
+        return true;
+      }
+      this.renderFull(pinToBottom);
       return true;
     }
     if (!this.frame) return false;
     const appended = incoming.scrollbackAppend;
-    this.frame = applyDelta(this.frame, incoming);
+    const folded = applyDelta(this.frame, incoming);
+    if (!folded) return false;
+    this.frame = folded;
     // Mid-hold (selection / Cmd-hover): fold frames into this.frame but freeze
-    // the DOM — the rebuild on release reconciles to the latest (field docs above).
+    // the DOM — the rebuild on release reconciles to the latest.
     if (this.holding) { this.pendingRender = true; return true; }
-    // Scrollback is append-only — paint just the new lines.
     this._appendScrollback(appended, wasAtBottom);
     this.renderViewport(this.frame.altScreen ? 0 : appended.length);
     this.setGridWidth();
@@ -287,30 +252,33 @@ export class CellGridRenderer {
   }
 
   /** Freeze/thaw DOM repaints. Held while the user has text selected over this
-   *  pane (see CellTerminal's selectionchange wiring); releasing flushes the
-   *  latest folded frame so the pane snaps back to live. */
-  setSelectionHold(active: boolean): void {
-    if (this.selectionHold === active) return;
+   *  pane (see CellTerminal's selectionchange wiring). true means releasing
+   *  this hold also reconciled a pending off-bottom reader frame. */
+  setSelectionHold(active: boolean): boolean {
+    if (this.selectionHold === active) return false;
     this.selectionHold = active;
-    this._flushIfReleased();
+    return this._flushIfReleased();
   }
 
   /** Freeze/thaw DOM repaints while the user Cmd-hovers a terminal file link
    *  (terminal-links onArmedHoverChange). Same freeze as selection; keeps the
    *  wrapped <a> from being rebuilt out from under the cursor. */
-  setArmedHold(active: boolean): void {
-    if (this.armedHold === active) return;
+  setArmedHold(active: boolean): boolean {
+    if (this.armedHold === active) return false;
     this.armedHold = active;
-    this._flushIfReleased();
+    return this._flushIfReleased();
   }
 
-  /** After any hold clears, rebuild from the latest folded frame so the pane
-   *  snaps back to live. No-op while another hold is still active. */
-  private _flushIfReleased(): void {
-    if (this.holding || !this.pendingRender) return;
-    const wasAtBottom = this.atBottom();
+  /** Flush the latest held frame after every interaction hold clears. */
+  private _flushIfReleased(): boolean {
+    if (this.holding) return false;
+    if (this.readerPendingFrame) return this.releaseReaderFreezeAtBottom();
+    if (!this.pendingRender) return false;
+    const pinToBottom = this.pendingPinToBottom || this.atBottom();
     this.pendingRender = false;
-    this.renderFull(wasAtBottom); // rebuild scrollback + viewport from the latest frame
+    this.pendingPinToBottom = false;
+    this.renderFull(pinToBottom);
+    return false;
   }
 
   /** Rebuild the whole grid from this.frame — fresh mount / width change / reset
@@ -414,16 +382,9 @@ export class CellGridRenderer {
     // The final pin belongs to apply/renderFull. This method only trims rows.
   }
 
-  /** Backfill splice: insert older history rows ABOVE the painted scrollback
-   *  (lazy-history attach — full frames carry only a tail, the controller in
-   *  scrollbackBackfill.ts pulls [0, sbBase) and lands it here). `rows` must
-   *  end exactly at the held window's first row; misaligned splices are
-   *  dropped (epoch moved — the next reframe restarts the backfill). Browser
-   *  scroll anchoring preserves an inspected row; only a reader already at the
-   *  literal bottom is pinned to the newly extended bottom. Prepended blocks
-   *  are complete/immutable — _curBlock (the append tail) is untouched. Applies
-   *  even mid-hold: no existing node is rebuilt, so a live selection survives,
-   *  and a hold-release renderFull rebuilds from the merged frame. */
+  /** Insert an explicitly fetched contiguous history page above the painted
+   * window. The last row must meet sbBase exactly; epoch/range validation lives
+   * in scrollbackBackfill.ts. Native anchoring owns every non-bottom position. */
   prependScrollback(rows: readonly CellRow[]): void {
     const wasAtBottom = this.atBottom();
     if (!this.frame || rows.length === 0) return;
@@ -459,14 +420,8 @@ export class CellGridRenderer {
     this._pinToBottom(wasAtBottom);
   }
 
-  /** The unpainted [0, sbBase) history, as pixels. Reserving it makes an
-   *  absolute scrollback row index map to a FIXED pixel offset for the life of
-   *  the epoch: a backfill prepend shrinks this by exactly the height of the
-   *  rows it adds, an eviction grows it by exactly the height it drops, and a
-   *  renderFull repaints the same rows at the same offsets. Native scrollTop
-   *  therefore keeps the reader's row across every one of those mutations with
-   *  no application scroll write, and the thumb reflects real history depth
-   *  instead of the SB_SNAPSHOT_TAIL_ROWS snapshot tail. */
+  /** Reserve the unpainted [0, sbBase) history as truthful pixel space. A page
+   * prepend shrinks it by the exact rows painted; eviction grows it likewise. */
   private _syncSpacer(): void {
     const rows = this.frame ? this.frame.sbBase : 0;
     const rowH = this.rowHeight();
@@ -474,24 +429,20 @@ export class CellGridRenderer {
     this.spacerEl.style.setProperty("height", `${px.toFixed(2)}px`);
   }
 
-  /** Backfill validation surface: how deep the hole is (sbBase), the width
-   *  the held rows were rendered at, and the first held row's text — the
-   *  overlap row a get-scrollback-cells response must reproduce before the
-   *  controller splices (see scrollbackBackfill.ts). null = no frame yet. */
+  /** Immutable identity and absolute range for demand-driven history paging. */
   backfillAnchor(): BackfillAnchor | null {
     if (!this.frame) return null;
-    const first = this.frame.scrollbackRows[0];
     return {
       sbBase: this.frame.sbBase,
       cols: this.frame.cols,
       total: this.frame.scrollbackTotal,
-      firstHeldText: first ? rowText(first) : null,
+      gridEpoch: this.frame.gridEpoch,
     };
   }
 
   /** Seq of the last applied frame (applyDelta carries the delta's seq through),
    *  reported on viewport claims so the worker can skip a redundant snapshot. */
-  heldFrameSeq(): number { return this.frame?.seq ?? 0; }
+  heldFrameSeq(): number { return this.readerPendingFrame?.seq ?? this.frame?.seq ?? 0; }
 
   // `scrolled` = rows that left the viewport top for scrollback this frame
   // (authoritative from the frame: scrollbackAppend length / scrollbackTotal
@@ -565,19 +516,6 @@ export class CellGridRenderer {
   private setGridWidth(): void {
     if (!this.frame) return;
     this.container.style.setProperty("--cell-cols", String(this.frame.cols));
-  }
-
-  /** Text of the last NON-blank viewport line. Used to tell a shell prompt
-   *  (ends in $ / % / # / ❯ / ➜) from a full-screen TUI (claude/vim/htop,
-   *  whose bottom line never does) — see CellTerminal's launch-Claude FAB. */
-  viewportTail(): string {
-    if (!this.frame) return "";
-    const rows = this.frame.viewportRows;
-    for (let i = rows.length - 1; i >= 0; i--) {
-      const text = rowText(rows[i]!);
-      if (text.trim() !== "") return text;
-    }
-    return "";
   }
 
   /** Visible viewport as text (one row per line) — exactly what's painted on
@@ -716,6 +654,19 @@ export class CellGridRenderer {
     return el.scrollTop >= Math.max(0, el.scrollHeight - el.clientHeight);
   }
 
+  /** Reconcile a frozen off-bottom reader only after they reach the bottom of
+   * the grid they were actually reading. Until then no streaming frame mutates
+   * its DOM or scroll geometry. */
+  releaseReaderFreezeAtBottom(): boolean {
+    if (!this.readerPendingFrame || this.holding || !this.atBottom()) return false;
+    this.frame = this.readerPendingFrame;
+    this.readerPendingFrame = null;
+    this.pendingRender = false;
+    this.pendingPinToBottom = false;
+    this.renderFull(true);
+    return true;
+  }
+
   /** Container box changed (deck restyle, window resize, divider drag, keyboard
    *  inset). A reader at the OLD box's literal bottom follows to the new bottom;
    *  anyone else is untouched. max(prev, next) covers both directions: a shrink
@@ -747,6 +698,8 @@ export class CellGridRenderer {
     this.scrollbackEl.remove();
     this.viewportEl.remove();
     this.frame = null;
+    this.readerPendingFrame = null;
+    this.pendingPinToBottom = false;
     this._rowEls = [];
     this._rowHashes = [];
   }

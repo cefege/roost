@@ -26,6 +26,12 @@ const KEEPER_SOURCE_FILES = [
   // runtime code (log/types/reaping/frame-dispatch) that must stay covered
   // so a keeper behavior change in any of them still moves the stamp.
   "keeper-log.ts", "keeper-types.ts", "keeper-process-reap.ts", "keeper-frame-handler.ts",
+  // keeper-frame-handler.ts imports the worker's fixed-capacity byte ring for
+  // its per-channel outRing, so a change there changes keeper RUNTIME
+  // behaviour. A detached keeper outlives a worker deploy: without this entry
+  // a stale keeper keeps running the old grow-and-slice copy and reports
+  // itself fresh.
+  "../session-scrollback-ring.ts",
 ];
 
 function computeKeeperBuildStamp(): string {

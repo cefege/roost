@@ -13,11 +13,12 @@
 
 import type { CellRow, CellGridFrame } from "./types.ts";
 
-/** Apply a delta onto the client's held frame, in place. A full delta replaces
- *  the held frame wholesale (the caller stores the returned frame either way).
- *  `base` MUST NOT be read again by the caller after this returns. */
-export function applyDelta(base: CellGridFrame, delta: CellGridFrame): CellGridFrame {
+/** Apply a delta onto the client's held frame in place. Returns null when the
+ * delta belongs to a different immutable grid epoch. A full frame replaces the
+ * held frame wholesale. */
+export function applyDelta(base: CellGridFrame, delta: CellGridFrame): CellGridFrame | null {
 	if (delta.full) return delta;
+	if (delta.gridEpoch !== base.gridEpoch) return null;
 
 	// A row-count change forces a full frame upstream, so this only ever fires
 	// for a sparse or stale base (test fixtures, teardown races).
@@ -38,6 +39,7 @@ export function applyDelta(base: CellGridFrame, delta: CellGridFrame): CellGridF
 	for (const row of delta.scrollbackAppend) base.scrollbackRows.push(row);
 	if (base.scrollbackAppend.length > 0) base.scrollbackAppend.length = 0;
 
+	base.gridEpoch = delta.gridEpoch;
 	base.cols = delta.cols;
 	base.rows = delta.rows;
 	base.cursorRow = delta.cursorRow;

@@ -78,7 +78,7 @@ async function injectSession(mgr: SessionManager): Promise<SessionShellRecord> {
     ...initAgentOscState(),
     wtermCore,
     session_trace_id: "sbfind00",
-    cell_emit: initCellEmitState(),
+    cell_emit: initCellEmitState("test-grid"),
     lastPtyOutMs: 0,
     spawnedAtMs: Date.now(),
   };

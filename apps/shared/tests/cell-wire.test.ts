@@ -6,7 +6,7 @@
 import { describe, test, expect } from "bun:test";
 import type { TerminalCore, CellData, CursorState } from "@wterm/core";
 import {
-  nextCellFrame, initCellEmitState,
+  nextCellFrame, initCellEmitState, SB_SNAPSHOT_HISTORY_ROWS,
   DEFAULT_COLOR, CELL_BOLD,
   type CellGridFrame,
 } from "../src/cell/index.ts";
@@ -47,10 +47,11 @@ describe("nextCellFrame", () => {
   test("first emit is a full frame; seq advances", () => {
     const core = new MockCore();
     core.grid = [row("hello", 5), row("world", 5)];
-    let st = initCellEmitState();
+    let st = initCellEmitState("test-grid");
     const r = nextCellFrame(asCore(core), st, false);
     expect(r.frame.full).toBe(true);
     expect(r.frame.seq).toBe(1);
+    expect(r.frame.gridEpoch).toBe("test-grid:0");
     expect(r.frame.viewportRows.length).toBe(2);
     expect(r.state.sentFull).toBe(true);
     expect(r.state.cols).toBe(5);
@@ -59,7 +60,7 @@ describe("nextCellFrame", () => {
   test("subsequent emit is a delta carrying only dirty rows", () => {
     const core = new MockCore();
     core.grid = [row("aaa", 5), row("bbb", 5)];
-    const full = nextCellFrame(asCore(core), initCellEmitState(), false);
+    const full = nextCellFrame(asCore(core), initCellEmitState("test-grid"), false);
     core.clearDirty();
     core.grid = [row("aaa", 5), row("ZZZ", 5)];
     core.dirty = new Set([1]);
@@ -70,17 +71,18 @@ describe("nextCellFrame", () => {
     expect(d.frame.seq).toBe(2);
   });
 
-  test("dimension change forces a full reframe", () => {
+  test("a semantic dimension reframe advances the grid epoch", () => {
     const core = new MockCore();
-    const full = nextCellFrame(asCore(core), initCellEmitState(), false);
-    core.grid = [row("", 8), row("", 8)]; // cols 5 → 8
-    const r = nextCellFrame(asCore(core), full.state, false);
-    expect(r.frame.full).toBe(true);
+    const full = nextCellFrame(asCore(core), initCellEmitState("test-grid"), false);
+    core.grid = [row("", 8), row("", 8)];
+    const reframed = nextCellFrame(asCore(core), full.state, false);
+    expect(reframed.frame.full).toBe(true);
+    expect(reframed.frame.gridEpoch).toBe("test-grid:1");
   });
 
   test("scrollback append rides a delta; shrink forces a full", () => {
     const core = new MockCore();
-    const full = nextCellFrame(asCore(core), initCellEmitState(), false);
+    const full = nextCellFrame(asCore(core), initCellEmitState("test-grid"), false);
     core.sb = [row("h1", 5), row("h2", 5)];
     const d = nextCellFrame(asCore(core), full.state, false);
     expect(d.frame.full).toBe(false);
@@ -91,34 +93,38 @@ describe("nextCellFrame", () => {
     expect(r.frame.full).toBe(true);
   });
 
-  test("force=true reframes even when nothing changed", () => {
+  test("a force-only claim snapshot keeps the grid epoch", () => {
     const core = new MockCore();
-    const full = nextCellFrame(asCore(core), initCellEmitState(), false);
+    const full = nextCellFrame(asCore(core), initCellEmitState("test-grid"), false);
     const forced = nextCellFrame(asCore(core), full.state, true);
     expect(forced.frame.full).toBe(true);
     expect(forced.frame.seq).toBe(2);
+    expect(forced.frame.gridEpoch).toBe(full.frame.gridEpoch);
   });
 
-  test("tailRows caps a full frame's scrollback; deltas ignore it", () => {
+  test("authoritative full frames carry zero history but retain its depth", () => {
     const core = new MockCore();
     core.sb = [row("h1", 5), row("h2", 5), row("h3", 5)];
-    const full = nextCellFrame(asCore(core), initCellEmitState(), true, 2);
+    const full = nextCellFrame(
+      asCore(core),
+      initCellEmitState("test-grid"),
+      true,
+      SB_SNAPSHOT_HISTORY_ROWS,
+    );
     expect(full.frame.full).toBe(true);
-    expect(full.frame.sbBase).toBe(1);
+    expect(full.frame.scrollbackRows).toEqual([]);
     expect(full.frame.scrollbackTotal).toBe(3);
-    expect(full.frame.scrollbackRows.map((x) => x.index)).toEqual([1, 2]);
-    // delta after the tail frame appends from the REAL total, base untouched
+    expect(full.frame.sbBase).toBe(full.frame.scrollbackTotal);
     core.sb = [...core.sb, row("h4", 5)];
-    const d = nextCellFrame(asCore(core), full.state, false, 2);
-    expect(d.frame.full).toBe(false);
-    expect(d.frame.scrollbackAppend.map((x) => x.index)).toEqual([3]);
-    expect(d.frame.sbBase).toBe(0);
+    const delta = nextCellFrame(asCore(core), full.state, false, SB_SNAPSHOT_HISTORY_ROWS);
+    expect(delta.frame.scrollbackAppend.map((x) => x.index)).toEqual([3]);
   });
 });
 
 describe("cell-proto round-trip", () => {
   function makeFrame(): CellGridFrame {
     return {
+      gridEpoch: "test-grid:0",
       cols: 6, rows: 2, cursorRow: 1, cursorCol: 3, cursorVisible: false, altScreen: true,
       cursorKeysApp: true, bracketedPaste: false,
       full: true,
@@ -141,11 +147,13 @@ describe("cell-proto round-trip", () => {
     expect(protoToCellFrame(pb)).toEqual(f);
   });
 
-  test("nonzero sbBase survives the proto round-trip (tail frame)", () => {
+  test("nonzero sbBase and grid epoch survive the proto round-trip", () => {
     const f = makeFrame();
-    f.sbBase = 9750;
+    f.sbBase = 10_000;
     f.scrollbackTotal = 10_000;
-    expect(protoToCellFrame(cellFrameToProto(f, "s")).sbBase).toBe(9750);
+    const roundTrip = protoToCellFrame(cellFrameToProto(f, "s"));
+    expect(roundTrip.sbBase).toBe(10_000);
+    expect(roundTrip.gridEpoch).toBe("test-grid:0");
   });
 
   test("absent rgb stays absent through the wire (optional presence)", () => {

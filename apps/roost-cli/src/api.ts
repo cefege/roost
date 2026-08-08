@@ -234,7 +234,7 @@ export async function api(args: string[]): Promise<void> {
         console.error(
           "roost api: unauthenticated, and self-authorization was refused.\n" +
           "  AuthAuthorizeBrowser only accepts loopback or tailnet callers — run this\n" +
-          "  from the coord Mac or a tailnet peer (or on a Mac with a registered worker).",
+          "  from the coordinator machine or a tailnet peer (or on a machine with a registered worker).",
         );
         process.exit(1);
       }

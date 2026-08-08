@@ -15,7 +15,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file roost/v1/cell.proto.
  */
 export const file_roost_v1_cell: GenFile = /*@__PURE__*/
-  fileDesc("ChNyb29zdC92MS9jZWxsLnByb3RvEghyb29zdC52MSKBAQoKUGJDZWxsU3BhbhIMCgR0ZXh0GAEgASgJEgoKAmZnGAIgASgNEgoKAmJnGAMgASgNEg0KBWZsYWdzGAQgASgNEhMKBmZnX3JnYhgFIAEoDUgAiAEBEhMKBmJnX3JnYhgGIAEoDUgBiAEBQgkKB19mZ19yZ2JCCQoHX2JnX3JnYiI/CglQYkNlbGxSb3cSDQoFaW5kZXgYASABKA0SIwoFc3BhbnMYAiADKAsyFC5yb29zdC52MS5QYkNlbGxTcGFuIvMDCg9QYkNlbGxHcmlkRnJhbWUSEgoKc2Vzc2lvbl9pZBgBIAEoCRIMCgRjb2xzGAIgASgNEgwKBHJvd3MYAyABKA0SEgoKY3Vyc29yX3JvdxgEIAEoDRISCgpjdXJzb3JfY29sGAUgASgNEhYKDmN1cnNvcl92aXNpYmxlGAYgASgIEhIKCmFsdF9zY3JlZW4YByABKAgSDAoEZnVsbBgIIAEoCBIqCg12aWV3cG9ydF9yb3dzGAkgAygLMhMucm9vc3QudjEuUGJDZWxsUm93EiwKD3Njcm9sbGJhY2tfcm93cxgKIAMoCzITLnJvb3N0LnYxLlBiQ2VsbFJvdxIuChFzY3JvbGxiYWNrX2FwcGVuZBgLIAMoCzITLnJvb3N0LnYxLlBiQ2VsbFJvdxIYChBzY3JvbGxiYWNrX3RvdGFsGAwgASgEEgsKA3NlcRgNIAEoBBIPCgdzYl9iYXNlGA4gASgEEhcKD2N1cnNvcl9rZXlzX2FwcBgPIAEoCBIXCg9icmFja2V0ZWRfcGFzdGUYECABKAgSEgoKcHR5X291dF9tcxgRIAEoBBIWCg53b3JrZXJfZW1pdF9tcxgSIAEoBBIVCg1jb29yZF9yZWN2X21zGBMgASgEEhcKD2Nvb3JkX2Zhbm91dF9tcxgUIAEoBGIGcHJvdG8z");
+  fileDesc("ChNyb29zdC92MS9jZWxsLnByb3RvEghyb29zdC52MSKBAQoKUGJDZWxsU3BhbhIMCgR0ZXh0GAEgASgJEgoKAmZnGAIgASgNEgoKAmJnGAMgASgNEg0KBWZsYWdzGAQgASgNEhMKBmZnX3JnYhgFIAEoDUgAiAEBEhMKBmJnX3JnYhgGIAEoDUgBiAEBQgkKB19mZ19yZ2JCCQoHX2JnX3JnYiI/CglQYkNlbGxSb3cSDQoFaW5kZXgYASABKA0SIwoFc3BhbnMYAiADKAsyFC5yb29zdC52MS5QYkNlbGxTcGFuIocECg9QYkNlbGxHcmlkRnJhbWUSEgoKc2Vzc2lvbl9pZBgBIAEoCRIMCgRjb2xzGAIgASgNEgwKBHJvd3MYAyABKA0SEgoKY3Vyc29yX3JvdxgEIAEoDRISCgpjdXJzb3JfY29sGAUgASgNEhYKDmN1cnNvcl92aXNpYmxlGAYgASgIEhIKCmFsdF9zY3JlZW4YByABKAgSDAoEZnVsbBgIIAEoCBIqCg12aWV3cG9ydF9yb3dzGAkgAygLMhMucm9vc3QudjEuUGJDZWxsUm93EiwKD3Njcm9sbGJhY2tfcm93cxgKIAMoCzITLnJvb3N0LnYxLlBiQ2VsbFJvdxIuChFzY3JvbGxiYWNrX2FwcGVuZBgLIAMoCzITLnJvb3N0LnYxLlBiQ2VsbFJvdxIYChBzY3JvbGxiYWNrX3RvdGFsGAwgASgEEgsKA3NlcRgNIAEoBBIPCgdzYl9iYXNlGA4gASgEEhcKD2N1cnNvcl9rZXlzX2FwcBgPIAEoCBIXCg9icmFja2V0ZWRfcGFzdGUYECABKAgSEgoKcHR5X291dF9tcxgRIAEoBBIWCg53b3JrZXJfZW1pdF9tcxgSIAEoBBIVCg1jb29yZF9yZWN2X21zGBMgASgEEhcKD2Nvb3JkX2Zhbm91dF9tcxgUIAEoBBISCgpncmlkX2Vwb2NoGBUgASgJYgZwcm90bzM");
 
 /**
  * @generated from message roost.v1.PbCellSpan
@@ -145,7 +145,7 @@ export type PbCellGridFrame = Message<"roost.v1.PbCellGridFrame"> & {
   viewportRows: PbCellRow[];
 
   /**
-   * full only: scrollback tail (see sb_base)
+   * full only; authoritative frames leave empty
    *
    * @generated from field: repeated roost.v1.PbCellRow scrollback_rows = 10;
    */
@@ -169,9 +169,8 @@ export type PbCellGridFrame = Message<"roost.v1.PbCellGridFrame"> & {
   seq: bigint;
 
   /**
-   * Absolute index of scrollback_rows[0]. Full frames may carry only a TAIL
-   * of retained history; [0, sb_base) is served by SessionsGetScrollbackCells.
-   * 0 = complete (also the pre-tail wire default).
+   * Absolute index represented before scrollback_rows. Authoritative full
+   * frames set this to scrollback_total and ship no historical rows.
    *
    * @generated from field: uint64 sb_base = 14;
    */
@@ -222,6 +221,13 @@ export type PbCellGridFrame = Message<"roost.v1.PbCellGridFrame"> & {
    * @generated from field: uint64 coord_fanout_ms = 20;
    */
   coordFanoutMs: bigint;
+
+  /**
+   * opaque worker-side grid numbering identity
+   *
+   * @generated from field: string grid_epoch = 21;
+   */
+  gridEpoch: string;
 };
 
 /**

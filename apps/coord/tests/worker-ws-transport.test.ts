@@ -14,6 +14,7 @@
 //      pending RPC — the exact spawn round-trip that hung under Connect-bidi.
 
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
+import type { HandlerContext } from "@connectrpc/connect";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -22,6 +23,7 @@ import {
   CoordWorkerUpSchema, CoordWorkerDownSchema, WHelloSchema, WRpcOkSchema, WBinarySchema,
 } from "@roost/shared/proto/worker_transport_pb";
 import type { CoordWorkerDown } from "@roost/shared/proto/worker_transport_pb";
+import { SessionsGetScrollbackCellsRequestSchema } from "@roost/shared/proto/coordinator_pb";
 import { openDb } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
 import { loadOrCreateCoordKey } from "../src/coord-key.ts";
@@ -38,6 +40,8 @@ import {
   type WorkerWsData,
 } from "../src/connect/worker-ws-handler.ts";
 import { getWorkerHubSocket, type WorkerServiceDeps } from "../src/connect/worker-service.ts";
+import { makeSessionScrollbackHandlers } from "../src/connect/handlers-sessions-scrollback.ts";
+import type { ConnectDeps } from "../src/connect/router.ts";
 import { createPendingRpc } from "../src/router/pending-rpcs.ts";
 import type { CoordConfig } from "@roost/shared/config";
 
@@ -48,6 +52,7 @@ let port: number;
 let workerFp: string;
 let workerJwt: string;
 let deps: WorkerServiceDeps;
+let connectDeps: ConnectDeps;
 
 beforeAll(async () => {
   workdir = mkdtempSync(join(tmpdir(), "roost-ws-transport-"));
@@ -74,6 +79,7 @@ beforeAll(async () => {
   publicUrl: undefined,
   handoffPath: join(workdir, "coord-handoff.json"), }
   deps = { db, coordKey, jwtCache, cfg };
+  connectDeps = { ...deps, sqlite };
 
   // Mint a worker keypair, authorize it, sign a worker JWT (sub == fp).
   const workerKeys = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);
@@ -234,6 +240,67 @@ describe("worker↔coord raw-WS transport", () => {
     // Coord side: the upstream rpc-ok must resolve the pending promise.
     const data = await pending.promise;
     expect(data).toEqual({ session_id: "sess-1", channel_id: 7 });
+    w.close();
+  });
+
+  test("scrollback epoch tokens survive browser to worker and worker to browser", async () => {
+    const w = connectWorker(workerFp, workerJwt);
+    await w.opened;
+    w.sendUp(helloFrame(workerFp));
+    await w.waitFor((frame) => frame.frame.case === "helloAck");
+
+    const sessionId = "00000000-0000-4000-8000-000000000777";
+    await connectDeps.db.insertInto("sessions").values({
+      id: sessionId,
+      worker_fp: workerFp,
+      channel: 7,
+      kind: "shell",
+      cwd: "/tmp",
+      status: "open",
+      created_at: Date.now(),
+    }).onConflict((conflict) => conflict.column("id").doNothing()).execute();
+    const handlers = makeSessionScrollbackHandlers(connectDeps);
+    const authCtx = {
+      values: { get: () => ({ fingerprint: "browser-fp", label: "test" }) },
+    } as unknown as HandlerContext;
+    const responsePromise = handlers.sessionsGetScrollbackCells(
+      create(SessionsGetScrollbackCellsRequestSchema, {
+        sessionId,
+        endRow: 500n,
+        maxRows: 1000,
+        gridEpoch: "browser-grid:4",
+      }),
+      authCtx,
+    );
+
+    const command = await w.waitFor((frame) => frame.frame.case === "browserCommand");
+    expect(command.frame.case).toBe("browserCommand");
+    const browserCommand = command.frame.value as { requestId: string; frameJson: string };
+    const controlFrame = JSON.parse(browserCommand.frameJson) as unknown;
+    expect(controlFrame).toMatchObject({
+      kind: "get-scrollback-cells",
+      session_id: sessionId,
+      grid_epoch: "browser-grid:4",
+      end_row: 500,
+      max_rows: 1000,
+    });
+
+    w.sendUp(create(CoordWorkerUpSchema, {
+      frame: { case: "rpcOk", value: create(WRpcOkSchema, {
+        requestId: browserCommand.requestId,
+        dataJson: JSON.stringify({
+          rows: [],
+          cols: 80,
+          total: 500,
+          start_row: 0,
+          end_row: 500,
+          grid_epoch: "worker-grid:9",
+        }),
+      }) },
+    }));
+
+    const response = await responsePromise;
+    expect(response.gridEpoch).toBe("worker-grid:9");
     w.close();
   });
 

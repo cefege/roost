@@ -94,8 +94,9 @@ describe("gridToCellFrame", () => {
       { row: 1, col: 3, visible: false },
       true,
     );
-    const f = gridToCellFrame(asCore(core), 7);
+    const f = gridToCellFrame(asCore(core), 7, "test-grid:0");
     expect(f.full).toBe(true);
+    expect(f.gridEpoch).toBe("test-grid:0");
     expect(f.cols).toBe(5);
     expect(f.rows).toBe(2);
     expect(f.altScreen).toBe(true);
@@ -112,14 +113,18 @@ describe("gridToCellFrame", () => {
 
   test("tailRows caps scrollback to the newest N lines with sbBase set", () => {
     const core = new MockCore([rowOf("v", 3)], [rowOf("old", 3), rowOf("mid", 3), rowOf("new", 3)]);
-    const f = gridToCellFrame(asCore(core), 1, 2);
+    const f = gridToCellFrame(asCore(core), 1, "test-grid:0", 2);
     expect(f.sbBase).toBe(1);
     expect(f.scrollbackTotal).toBe(3);
     expect(f.scrollbackRows.map((r) => [r.index, r.spans[0]?.text])).toEqual([[1, "mid"], [2, "new"]]);
     // tail deeper than history → complete frame, sbBase 0
-    const g = gridToCellFrame(asCore(core), 2, 250);
+    const g = gridToCellFrame(asCore(core), 2, "test-grid:0", 250);
     expect(g.sbBase).toBe(0);
     expect(g.scrollbackRows.length).toBe(3);
+
+    const viewportOnly = gridToCellFrame(asCore(core), 3, "test-grid:0", 0);
+    expect(viewportOnly.scrollbackRows).toEqual([]);
+    expect(viewportOnly.sbBase).toBe(viewportOnly.scrollbackTotal);
   });
 
   test("readScrollbackRangeCells serves [start, end) clamped to the grid", () => {

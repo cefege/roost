@@ -2,7 +2,9 @@
 // (2-byte BE channel_id + 1-byte dir + raw bytes per
 // `@roost/shared/wire/control.ts`) get demuxed via the channel→session
 // map (built from `opened` events) and published into globalBytesBus.
-// Sync stream's bytes branch is the SPA's sole byte path post-firehose.
+// Sync stream's bytes branch is the SPA's sole byte path post-firehose, and
+// publishBytes coalesces it on a 16 ms leading-edge governor (see
+// BYTE_COALESCE_MS) so a flooding PTY cannot bury the cell frames that paint.
 //
 // The per-session BoundedBus<Uint8Array> + reaper that this module used
 // to host was retired — no external code subscribes to it. Only the
@@ -124,6 +126,58 @@ export function primeChannelMap(rows: Array<{ id: string; worker_fp: string; cha
   }
 }
 
+// Per-session PTY-byte coalescer. Mirrors the worker's cell governor
+// (CELL_EMIT_COALESCE_MS, worker/session-constants.ts): LEADING-edge publish so
+// a single keystroke echo ships with zero added latency, then a RE-ARMED fixed
+// interval — never a reset deadline — so a continuously-producing PTY is
+// bounded at one bytes frame per window instead of one per chunk. Without it a
+// flood puts thousands of frames that paint NOTHING (the browser only mines
+// these bytes for the OSC-8 link map, asynchronously) ahead of the ~62 cell
+// frames/s that actually paint, on the same ordered socket and the same main
+// thread. Order and content are preserved: concatenation is append-only in
+// publish order and all three consumers (terminal-title-hub, last-activity-hub,
+// the SPA's Osc8Tracker) are carry-based stream scanners that cannot observe a
+// chunk boundary.
+const BYTE_COALESCE_MS = 16;
+// Hard flush bound. Keeps one frame well under sync-ws-handler's 8 MiB
+// BACKPRESSURE_LIMIT_BYTES even when a session dumps at full speed.
+const BYTE_COALESCE_CAP_BYTES = 256 * 1024;
+interface PendingBytes {
+  parts: Uint8Array[];
+  len: number;
+  timer: Timer | undefined;
+}
+const _pendingBytes = new Map<SessionId, PendingBytes>();
+
+function _flushPendingBytes(sessionId: SessionId, pending: PendingBytes): void {
+  if (pending.len === 0) return;
+  const joined = new Uint8Array(pending.len);
+  let at = 0;
+  for (const part of pending.parts) {
+    joined.set(part, at);
+    at += part.length;
+  }
+  pending.parts = [];
+  pending.len = 0;
+  globalBytesBus.publish({ session_id: sessionId, bytes: joined });
+}
+
+function _armByteCoalesce(sessionId: SessionId, pending: PendingBytes): void {
+  const timer = setTimeout(() => {
+    // Nothing absorbed this window: the session went quiet, so retire the entry
+    // and let its next chunk take the leading edge again.
+    if (pending.len === 0) {
+      if (_pendingBytes.get(sessionId) === pending) _pendingBytes.delete(sessionId);
+      return;
+    }
+    _flushPendingBytes(sessionId, pending);
+    _armByteCoalesce(sessionId, pending);
+  }, BYTE_COALESCE_MS);
+  // Never hold the process (or a coord test) open on this timer.
+  timer.unref?.();
+  pending.timer = timer;
+}
+
 export function publishBytes(workerFp: WorkerFp, channelId: ChannelId, bytes: Uint8Array): void {
   const sessionId = _channelToSession.get(_key(workerFp, channelId));
   if (!sessionId) {
@@ -136,7 +190,21 @@ export function publishBytes(workerFp: WorkerFp, channelId: ChannelId, bytes: Ui
     return;
   }
   _clearUnmappedDrop(workerFp, channelId);
-  globalBytesBus.publish({ session_id: sessionId, bytes });
+  const pending = _pendingBytes.get(sessionId);
+  if (!pending) {
+    globalBytesBus.publish({ session_id: sessionId, bytes });
+    const fresh: PendingBytes = { parts: [], len: 0, timer: undefined };
+    _pendingBytes.set(sessionId, fresh);
+    _armByteCoalesce(sessionId, fresh);
+    return;
+  }
+  pending.parts.push(bytes);
+  pending.len += bytes.length;
+  if (pending.len >= BYTE_COALESCE_CAP_BYTES) {
+    clearTimeout(pending.timer);
+    _flushPendingBytes(sessionId, pending);
+    _armByteCoalesce(sessionId, pending);
+  }
 }
 
 // R11 cell-shipping. Worker WCellGrid frames carry channel_id only (same
@@ -182,6 +250,13 @@ export function installByteHubBusHook(): void {
         _sessionToKeys.delete(ev.session_id);
       }
       evictSessionWorker(ev.session_id);
+      // Undelivered tail bytes are discarded, matching the worker's own
+      // post-close drop policy (session-emit.ts).
+      const pending = _pendingBytes.get(ev.session_id);
+      if (pending) {
+        clearTimeout(pending.timer);
+        _pendingBytes.delete(ev.session_id);
+      }
     } else if (ev.kind === "snapshot") {
       for (const s of ev.sessions) {
         _bindKey(_key(s.worker_fp, s.channel), s.id);

@@ -1,5 +1,5 @@
-// Settings → Agents → Launcher pane. Picks the agent the terminal's launch-
-// button (AgentLaunchButton) starts. Built-in selection saves immediately
+// Settings → Agents → Launcher pane. Picks the agent Roost auto-launches in
+// new terminals (lib/spawnSession.ts::maybeAutoLaunchAgent). Built-in selection saves immediately
 // (ThemePane feel); the Custom command needs an explicit Save (free text).
 // Server-stored via lib/agents.ts (app_settings KV), so the choice applies to
 // every device. Callers: SettingsRoot.tsx.
@@ -40,7 +40,7 @@ export const AgentLauncherPane: Component = () => {
   return (
     <div data-testid="agent-launcher-pane" style={{ "max-width": "560px" }}>
       <p class="md-body-s" style={{ color: "var(--md-sys-color-on-surface-variant)", margin: "0 0 18px 2px" }}>
-        Pick the agent your launch button starts. Applies to every device.
+        Pick the agent Roost auto-launches in new terminals. Applies to every device.
       </p>
 
       <Select

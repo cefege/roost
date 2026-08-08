@@ -5,4 +5,4 @@
 export * from "./types.ts";
 export { rowToSpans, gridToCellFrame, readScrollbackRangeCells } from "./grid-to-cells.ts";
 export { applyDelta } from "./diff-grid.ts";
-export { initCellEmitState, nextCellFrame, type CellEmitState } from "./emitter.ts";
+export { cellGridEpoch, initCellEmitState, nextCellFrame, type CellEmitState } from "./emitter.ts";

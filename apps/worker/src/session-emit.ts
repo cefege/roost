@@ -5,7 +5,7 @@ import type { SessionManager } from "./session-manager.ts";
 import type { ChannelId } from "@roost/shared";
 import { log, diag, isDiagEnabled, signal, asChannelId } from "@roost/shared";
 import { DIR_FROM_PTY } from "@roost/shared/wire";
-import { nextCellFrame, SB_SNAPSHOT_TAIL_ROWS } from "@roost/shared/cell";
+import { nextCellFrame, SB_SNAPSHOT_HISTORY_ROWS } from "@roost/shared/cell";
 import { cellFrameToProto } from "@roost/shared/cell/cell-proto";
 import type { MuxChannelCallbacks } from "./keeper/multiplexed-client.ts";
 import {
@@ -162,9 +162,9 @@ export function _scheduleCellEmit(this: SessionManager, channelId: number): void
 /** R11. Emit a cell frame upstream for `channelId`. Full frame on
  *  first emit / reframe (dims change, scrollback shrink, rebuild) or when
  *  forced (fresh viewer attach); delta from core.isDirtyRow otherwise.
- *  Full frames carry only a SB_SNAPSHOT_TAIL_ROWS scrollback tail (sbBase);
- *  viewers pull the rest via get-scrollback-cells — attach/resize cost stops
- *  scaling with history depth. clearDirty() AFTER reading so the next delta
+ *  Full frames carry the current viewport and zero historical rows; retained
+ *  history stays addressable through scrollbackTotal/sbBase and the explicit
+ *  get-scrollback-cells path. clearDirty() AFTER reading so the next delta
  *  carries only new changes — the worker's wtermCore dirty bits have no
  *  other consumer. */
 export function emitCellFrame(this: SessionManager, channelId: number, force: boolean): void {
@@ -181,7 +181,7 @@ export function emitCellFrame(this: SessionManager, channelId: number, force: bo
 		if (pending !== LEADING_SENTINEL) clearTimeout(pending);
 		this.cellEmitTimers.delete(channelId);
 	}
-	const { frame, state } = nextCellFrame(core, rec.cell_emit, force, SB_SNAPSHOT_TAIL_ROWS);
+	const { frame, state } = nextCellFrame(core, rec.cell_emit, force, SB_SNAPSHOT_HISTORY_ROWS);
 	rec.cell_emit = state;
 	core.clearDirty();
 	this.cellDirty.delete(channelId);

@@ -60,7 +60,7 @@ export async function spawnShell(
 		...initAgentOscState(),
 		wtermCore,
 		session_trace_id: newTraceId(),
-		cell_emit: initCellEmitState(),
+		cell_emit: initCellEmitState(newTraceId()),
 		lastPtyOutMs: 0,
 		spawnedAtMs: Date.now(),
 	};

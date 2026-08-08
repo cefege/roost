@@ -42,6 +42,7 @@ function fakeHost(): HTMLElement {
 function frame(o: { seq: number; cc?: number; cr?: number; rows?: (string | null)[]; alt?: boolean; full?: boolean; cols?: number }): CellGridFrame {
   const rows = o.rows ?? [null];
   return {
+    gridEpoch: "test-grid:0",
     cols: o.cols ?? 80, rows: 24,
     cursorRow: o.cr ?? 0, cursorCol: o.cc ?? 0, cursorVisible: true,
     altScreen: o.alt ?? false, cursorKeysApp: false, bracketedPaste: false, full: o.full ?? false,
@@ -293,6 +294,7 @@ describe("prediction-engine hardening", () => {
     clock.t = 200;
     // DELTA: only row 5 changed, at viewportRows ARRAY POSITION 0 (.index=5).
     const delta = {
+      gridEpoch: "test-grid:0",
       cols: 80, rows: 24, cursorRow: 5, cursorCol: 1, cursorVisible: true,
       altScreen: false, cursorKeysApp: false, bracketedPaste: false, full: false,
       viewportRows: [{ index: 5, spans: [{ text: "a", fg: 256, bg: 256, flags: 0 }] }],

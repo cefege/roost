@@ -12,6 +12,7 @@ import { createSignal, onCleanup } from "solid-js";
 import {
 	startCapture,
 	stopCapture,
+	releaseMic,
 	micWarmupMs,
 	captureStats,
 	repairCapture,
@@ -34,17 +35,25 @@ export interface Dictation {
 	reset: () => void;
 }
 
-const FINALIZE_WAIT_MS = 3000;
 const KEEPALIVE_MS = 5000;
 // One automatic reconnect on a transient drop before we surface an error —
 // kills most "sometimes Deepgram connection error" (network blips, brief coord
 // restart during token grant). The mic keeps running across the retry.
 const RECONNECT_DELAY_MS = 500;
-// How long a recording may deliver ZERO audio frames before the pipeline is
-// rebuilt (once) and then declared dead. Long enough to cover a cold device
-// open on a phone, short enough that nobody stands there talking into a mic
-// that will never hear them.
-const SILENCE_GRACE_MS = 2500;
+/** Engine deadlines. Mutable, not bare consts, so tests can shrink them (same
+ *  recipe as audioPcmCapture's `micIdle` / `micTimeouts`). */
+export const dictationTimings = {
+	/** Wait for Deepgram's from_finalize Results after a stop. */
+	finalizeWaitMs: 3_000,
+	/** How long a recording may deliver ZERO audio frames before the pipeline
+	 *  is rebuilt (once) and then declared dead. Long enough to cover a cold
+	 *  device open on a phone, short enough that nobody stands there talking
+	 *  into a mic that will never hear them. */
+	silenceGraceMs: 2_500,
+	/** startCapture() has not resolved by now → the device open is stalled. The
+	 *  silence watch cannot cover this: it is armed FROM that resolution. */
+	startGraceMs: 9_000,
+};
 // Baked at build time by vite (define in vite.config.ts), same read as
 // VersionBanner. The LITERAL member expression is what vite substitutes —
 // reaching it through a variable or optional chain silently yields the
@@ -106,8 +115,24 @@ export function createDeepgramDictation(
 	let segments: string[] = [];
 	let preBuffer: ArrayBuffer[] = []; // PCM captured before the WS finishes opening
 	let injectedKeyterms: string[] = []; // this recording's biasing terms (for hit-rate)
+	// A recording's IDENTITY. Every async continuation — the token grant, a
+	// socket handler, a timer, a repair — captures it at issue and bails when it
+	// no longer matches. `endIntent` cannot carry this: completeSend() resets it
+	// to null, which is indistinguishable from "a recording is live".
+	let runId = 0;
+	// pcmSink is a stable closure that repairCapture re-attaches across
+	// recordings, so it cannot capture a run token — this is its equivalent.
+	let recording = false;
+	let startTimer: ReturnType<typeof setTimeout> | null = null;
+	let captureAttached = false;
 
 	const teardown = () => {
+		runId++; // every in-flight continuation of the finished run is now stale
+		recording = false;
+		if (startTimer) {
+			clearTimeout(startTimer);
+			startTimer = null;
+		}
 		if (keepAlive) {
 			clearInterval(keepAlive);
 			keepAlive = null;
@@ -217,14 +242,14 @@ export function createDeepgramDictation(
 	// forever. Only ZERO frames triggers this: a real mic in a quiet room can
 	// legitimately report peak 0 for seconds, and killing that would be worse
 	// than the bug.
-	const armSilenceWatch = () => {
+	const armSilenceWatch = (run: number) => {
 		if (silenceTimer) {
 			clearTimeout(silenceTimer);
 			silenceTimer = null;
 		}
 		silenceTimer = setTimeout(() => {
 			silenceTimer = null;
-			if (endIntent !== null) return;
+			if (run !== runId || endIntent !== null) return;
 			const s = captureStats();
 			if (s.frames > 0) return;
 			if (repairedOnce) {
@@ -240,17 +265,17 @@ export function createDeepgramDictation(
 			});
 			repairCapture(pcmSink)
 				.then((attached) => {
-					if (endIntent !== null) return;
+					if (run !== runId || endIntent !== null) return;
 					if (!attached) {
 						giveUpSilent(captureStats());
 						return;
 					}
-					armSilenceWatch();
+					armSilenceWatch(run);
 				})
 				.catch(() => {
-					if (endIntent === null) giveUpSilent(captureStats());
+					if (run === runId && endIntent === null) giveUpSilent(captureStats());
 				});
-		}, SILENCE_GRACE_MS);
+		}, dictationTimings.silenceGraceMs);
 	};
 
 	const giveUpSilent = (s: CaptureStats) => {
@@ -268,6 +293,7 @@ export function createDeepgramDictation(
 
 	// Named so a repair can re-attach the SAME sink to the rebuilt pipeline.
 	const pcmSink = (pcm16: Int16Array) => {
+		if (!recording) return;
 		if (firstAudioMs < 0) firstAudioMs = performance.now() - tapMs;
 		chunksSent++;
 		bytesSent += pcm16.byteLength;
@@ -299,6 +325,8 @@ export function createDeepgramDictation(
 	};
 
 	const start = () => {
+		const run = ++runId;
+		recording = true;
 		setError(null);
 		endIntent = null;
 		retried = false;
@@ -316,6 +344,28 @@ export function createDeepgramDictation(
 		grantMs = -1;
 		wsOpenMs = -1;
 		timingEmitted = false;
+		captureAttached = false;
+
+		// A recording whose capture never comes UP must end with a reason. The
+		// silence watch is armed from startCapture's resolution and therefore
+		// cannot see the failure where startCapture never resolves at all — the
+		// measured iOS PWA case (path "none", ctx_state "suspended", repaired
+		// false, for the whole recording).
+		startTimer = setTimeout(() => {
+			startTimer = null;
+			if (run !== runId || endIntent !== null || captureAttached) return;
+			signal("voice.mic_failed", {
+				stage: "start_stalled",
+				...captureFacts(captureStats()),
+				...clientFacts(),
+				cooldownKey: "voice",
+			});
+			// The singleton is what stalled; drop it so the NEXT tap opens a
+			// fresh device instead of awaiting the same dead promise.
+			releaseMic();
+			setError("Mic didn't open — tap the mic again.");
+			fail();
+		}, dictationTimings.startGraceMs);
 
 		// Start the mic NOW, synchronously inside the tap gesture. Safari (and
 		// others) only grant getUserMedia within the user-gesture window — calling
@@ -323,10 +373,12 @@ export function createDeepgramDictation(
 		// prompting. Audio captured before the WS opens is buffered, then flushed.
 		startCapture(pcmSink)
 			.then((attached) => {
+				if (run !== runId) return;
 				if (attached) {
+					captureAttached = true;
 					micReadyMs = performance.now() - tapMs;
 					// Attached is not the same as ALIVE — see armSilenceWatch.
-					armSilenceWatch();
+					armSilenceWatch(run);
 					return;
 				}
 				if (endIntent !== null) return; // the user stopped/cancelled first
@@ -336,6 +388,7 @@ export function createDeepgramDictation(
 			})
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			.catch((e: any) => {
+				if (run !== runId) return;
 				const name = e?.name || "";
 				const msg = e?.message || "";
 				if (name === "NotAllowedError" || /denied|permission/i.test(msg)) {
@@ -367,23 +420,23 @@ export function createDeepgramDictation(
 				fail();
 			});
 
-		void connectWs();
+		void connectWs(run);
 	};
 
 	// Open (or RE-open, on a transient drop) the Deepgram socket. The mic keeps
 	// running across a reconnect, buffering into preBuffer, so no speech is lost.
-	const connectWs = async () => {
+	const connectWs = async (run: number) => {
 		let token: string;
 		try {
 			token = await opts.grantToken();
 			grantMs = performance.now() - tapMs;
 		} catch {
 			// Token grant can fail transiently (coord restarting) — reconnect once.
-			if (!retried && endIntent !== "cancel") {
+			if (!retried && run === runId) {
 				retried = true;
 				diag("voice.ws_retry", { stage: "grant" });
 				setTimeout(() => {
-					void connectWs();
+					void connectWs(run);
 				}, RECONNECT_DELAY_MS);
 				return;
 			}
@@ -394,7 +447,7 @@ export function createDeepgramDictation(
 			fail();
 			return;
 		}
-		if (endIntent === "cancel") return; // aborted during grant
+		if (run !== runId) return; // this recording already ended
 		let keyterms: string[] = [];
 		// KTF4 — was a silent catch; a throwing extractor on a new harness would
 		// vanish. Signal it (always-on) so the next regression is in *.err.log.
@@ -420,6 +473,7 @@ export function createDeepgramDictation(
 		ws.binaryType = "arraybuffer";
 
 		ws.onopen = () => {
+			if (run !== runId) return;
 			wsOpenMs = performance.now() - tapMs;
 			keepAlive = setInterval(() => {
 				try {
@@ -440,6 +494,7 @@ export function createDeepgramDictation(
 		};
 
 		ws.onmessage = (ev) => {
+			if (run !== runId) return;
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			let msg: any;
 			try {
@@ -489,6 +544,7 @@ export function createDeepgramDictation(
 			/* handled in onclose */
 		};
 		ws.onclose = (e) => {
+			if (run !== runId) return;
 			if (keepAlive) {
 				clearInterval(keepAlive);
 				keepAlive = null;
@@ -502,7 +558,7 @@ export function createDeepgramDictation(
 					retried = true;
 					diag("voice.ws_retry", { stage: "ws", code: e.code });
 					setTimeout(() => {
-						void connectWs();
+						void connectWs(run);
 					}, RECONNECT_DELAY_MS);
 					return;
 				}
@@ -533,7 +589,7 @@ export function createDeepgramDictation(
 			} catch {
 				/* ignore */
 			}
-			finalizeTimer = setTimeout(completeSend, FINALIZE_WAIT_MS);
+			finalizeTimer = setTimeout(completeSend, dictationTimings.finalizeWaitMs);
 		} else {
 			// WS never opened (grant/connect in flight or failed) — end with whatever we have.
 			completeSend();

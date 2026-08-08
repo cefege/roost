@@ -8,7 +8,11 @@
 import { describe, test, expect } from "bun:test";
 import { SessionManager } from "../src/session-manager.ts";
 import { asSessionId, asChannelId, asWorkerFp } from "@roost/shared";
-import { initCellEmitState, SB_SNAPSHOT_TAIL_ROWS } from "@roost/shared/cell";
+import {
+  initCellEmitState,
+  SB_SNAPSHOT_HISTORY_ROWS,
+  type CellGridFrame,
+} from "@roost/shared/cell";
 import { protoToCellFrame } from "@roost/shared/cell/cell-proto";
 import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
 import { WasmBridge } from "@wterm/core";
@@ -44,9 +48,18 @@ async function injectCellSession(mgr: SessionManager, channelId: number): Promis
     osc7_carry: new Uint8Array(0),
     ...initAgentOscState(),
     wtermCore,
-    cell_emit: initCellEmitState(),
+    cell_emit: initCellEmitState("test-grid"),
     lastPtyOutMs: 0,
   });
+}
+
+function expectViewportOnlySnapshot(raw: unknown): CellGridFrame {
+  const frame = protoToCellFrame(raw as PbCellGridFrame);
+  expect(frame.full).toBe(true);
+  expect(frame.scrollbackRows).toHaveLength(SB_SNAPSHOT_HISTORY_ROWS);
+  expect(frame.sbBase).toBe(frame.scrollbackTotal);
+  expect(frame.gridEpoch).toBe("test-grid:0");
+  return frame;
 }
 
 // emitUpstreamChunk is the PtyOut path: appendScrollback + sendBinaryUpstream +
@@ -129,7 +142,7 @@ describe("stale-seq claim snapshot recovery", () => {
     expect(frames.length).toBe(2);
     mgr.claimViewport(1, "viewer-A", 200, 60, 1, 6, held);
     expect(frames.length).toBe(3);
-    expect(protoToCellFrame(frames[2] as PbCellGridFrame).full).toBe(true);
+    expectViewportOnlySnapshot(frames[2]);
 
     const viewportState = mgr as unknown as {
       viewportClaims: Map<number, Map<string, { cols: number; rows: number }>>;
@@ -175,20 +188,17 @@ describe("B: skip cell emit when nobody is watching", () => {
     expect(frames.length).toBe(0);                  // emitted to nobody → nothing
     mgr.claimViewport(1, "v", 80, 24, 1, 1);        // a viewer attaches
     expect(frames.length).toBe(1);                  // full snapshot catches it up
+    expectViewportOnlySnapshot(frames[0]);
     append(mgr, 1, "fg\r\n");                        // now watched
     await sleep(40);
     expect(frames.length).toBe(2);                  // deltas flow again
   });
 });
 
-// A returning viewer's claim snapshot is the CONSTANT tail, however far it fell
-// behind while parked. The tail that bridged back to held_scrollback_total is
-// retired: it made a reveal slower the longer the pane had been away. A viewer
-// whose held window falls below sbBase collapses to this tail, pins the literal
-// bottom (the present), and refills [0, sbBase) behind the reader via
-// get-scrollback-cells.
-describe("claim snapshot tail is constant, whatever the returning viewer holds", () => {
-  test("a 1200-row-deep catch-up claim still gets sbBase = total - 250", async () => {
+// Every catch-up claim is viewport-only. The complete retained depth remains
+// addressable through scrollbackTotal/sbBase and explicit history paging.
+describe("claim snapshots never bundle retained history", () => {
+  test("a 1200-row-deep catch-up claim reports depth with zero history rows", async () => {
     const { mgr, frames } = mgrWithCellCounter();
     await injectCellSession(mgr, 1);
     const core = mgr.shellByChannel(1)!.wtermCore;
@@ -200,11 +210,8 @@ describe("claim snapshot tail is constant, whatever the returning viewer holds",
 
     mgr.claimViewport(1, "v", 80, 24, 1, 1);
     expect(frames.length).toBe(1);
-    const plain = protoToCellFrame(frames[0] as PbCellGridFrame);
-    expect(plain.full).toBe(true);
-    expect(plain.scrollbackTotal).toBe(total);
-    expect(plain.sbBase).toBe(total - SB_SNAPSHOT_TAIL_ROWS);
-    expect(plain.scrollbackRows.length).toBe(SB_SNAPSHOT_TAIL_ROWS);
+    const snapshot = expectViewportOnlySnapshot(frames[0]);
+    expect(snapshot.scrollbackTotal).toBe(total);
   });
 });
 
@@ -229,7 +236,7 @@ describe("claim snapshot only when the claimant is not provably current", () => 
     // One frame behind → catch-up snapshot.
     mgr.claimViewport(1, "v", 80, 24, 3, 3, held - 1);
     expect(frames.length).toBe(2);
-    expect(protoToCellFrame(frames[1] as PbCellGridFrame).full).toBe(true);
+    expectViewportOnlySnapshot(frames[1]);
   });
 
   test("a re-subscribing background claim catches up; a current one stays silent", async () => {
@@ -243,8 +250,7 @@ describe("claim snapshot only when the claimant is not provably current", () => 
     // Deck LRU re-promotes this pane: BACKGROUND, holds nothing.
     mgr.claimViewport(1, "v", 0, 0, 2, 5, 0);
     expect(frames.length).toBe(2);
-    const caught = protoToCellFrame(frames[1] as PbCellGridFrame);
-    expect(caught.full).toBe(true);
+    const caught = expectViewportOnlySnapshot(frames[1]);
 
     // Still subscribed and current → no repaint.
     mgr.claimViewport(1, "v", 0, 0, 3, 5, caught.seq);
@@ -269,8 +275,7 @@ describe("claim snapshot only when the claimant is not provably current", () => 
 
     mgr.claimViewport(1, "v", 80, 24, 2, 3, held);
     expect(frames.length).toBe(2);
-    const revealed = protoToCellFrame(frames[1] as PbCellGridFrame);
-    expect(revealed.full).toBe(true);
+    const revealed = expectViewportOnlySnapshot(frames[1]);
     expect(revealed.viewportRows.some((r) =>
       r.spans.map((s) => s.text).join("").includes("finished-while-away"),
     )).toBe(true);

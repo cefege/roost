@@ -59,12 +59,12 @@ async function injectSession(mgr: SessionManager, cols: number, rows: number): P
     osc7_carry: new Uint8Array(0),
     ...initAgentOscState(),
     wtermCore,
-    cell_emit: initCellEmitState(),
+    cell_emit: initCellEmitState("test-grid"),
   });
 }
 
 function cellGridText(core: TerminalCore): string {
-  const frame = gridToCellFrame(core, 0);
+  const frame = gridToCellFrame(core, 0, "test-grid:0");
   const lines: string[] = [];
   for (const r of frame.scrollbackRows) lines.push(r.spans.map(s => s.text).join(""));
   for (const r of frame.viewportRows) lines.push(r.spans.map(s => s.text).join(""));

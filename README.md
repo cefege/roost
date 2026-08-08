@@ -5,14 +5,17 @@
 
 # Roost
 
-**One control panel for every Mac you own.**
+**One control panel for every machine you own.**
 
-Roost is a self-hosted, Bun-powered terminal control plane. One Mac can host the coordinator and work as a worker itself; add every other Mac as a worker. Your main laptop, old MacBooks, and other Macs become one terminal fleet you can control from a laptop, tablet, or phone.
+Roost is a self-hosted, Bun-powered terminal control plane. One machine hosts the coordinator and works as a worker itself; add every other Mac or Linux box as a worker. Your main laptop, old MacBooks, and that Linux box in the corner become one terminal fleet you can control from a laptop, tablet, or phone.
+
+**macOS or Linux is only a requirement for the machines that run Roost** — the coordinator and the workers. You reach them from a browser, so the device in your hand can be anything: Mac, Windows, Linux, iPhone, Android, iPad, Android tablet.
 
 _I built Roost for my own daily workflow: real infrastructure, not a demo._
 
 [![License](https://img.shields.io/badge/license-GPL--3.0--only-blue)](LICENSE)
-![Platform](https://img.shields.io/badge/platform-macOS-lightgrey)
+![Servers](https://img.shields.io/badge/coordinator%20%2B%20workers-macOS%20%7C%20Linux-lightgrey)
+![Clients](https://img.shields.io/badge/clients-any%20browser%20%C2%B7%20iOS%20%7C%20Android%20%7C%20desktop-lightgrey)
 ![Runtime](https://img.shields.io/badge/runtime-Bun-14151a?logo=bun&logoColor=white)
 ![UI](https://img.shields.io/badge/ui-SolidJS-2c4f7c?logo=solid&logoColor=white)
 
@@ -21,17 +24,17 @@ _I built Roost for my own daily workflow: real infrastructure, not a demo._
 
 ## What it is
 
-One coordinator connects every Mac you own into one fleet, and the coordinator Mac can be a worker too. Add spare or older MacBooks, spread agent workloads across them, and manage every session from the same control panel. Pick a folder on any machine, open a workspace there, and the process runs on that machine while its native terminal stays available on every device you use.
+One coordinator connects every machine you own into one fleet, and the coordinator machine can be a worker too. Add spare or older MacBooks, a Mac mini, or a Linux box, spread agent workloads across them, and manage every session from the same control panel. Pick a folder on any machine, open a workspace there, and the process runs on that machine while its native terminal stays available on every device you use — including devices that could never host a worker, like a phone or tablet.
 
 Every session is a shell PTY rendered in the browser. Launch any agent CLI, shell, REPL, or TUI inside it and use that program's native terminal interface. Roost carries terminal input, output, and session state; it does not provide a structured agent API, HTML transcript, tool or approval UI, or a managed OMP dependency.
 
 ## The problem
 
-Once you have agents across several Macs, spare machines often sit unused while the main laptop carries the CPU and RAM load. "Remote" means SSH, separate terminals, and hunting for the session that needs you. Roost turns those Macs into workers, puts every session in one place, and lets you put the work on the machine that has capacity.
+Once you have agents across several machines, spare hardware often sits unused while the main laptop carries the CPU and RAM load. "Remote" means SSH, separate terminals, and hunting for the session that needs you. Roost turns those machines into workers, puts every session in one place, and lets you put the work on the machine that has capacity.
 
 ## Three ways I use it
 
-**Leave the heavy work at home.** Have old MacBooks or spare Macs sitting around? Add them as workers, choose the project folder on each one, and put the heavy agent runs there. Their CPU and RAM carry the workload while your main MacBook stays light enough to take with you. Roost keeps all of those sessions in the same control panel, so working from a different machine does not mean juggling a different workflow.
+**Leave the heavy work at home.** Have old MacBooks, a spare Mac mini, or a Linux box sitting around? Add them as workers, choose the project folder on each one, and put the heavy agent runs there. Their CPU and RAM carry the workload while your main laptop stays light enough to take with you. Roost keeps all of those sessions in the same control panel, so working from a different machine does not mean juggling a different workflow.
 
 **Take only a tablet.** Roost is a fully functional web app, not a cut-down remote viewer. Pair an iPad or Android tablet, add a keyboard, and you get the same terminal, pane layout, and shortcuts as the desktop surface. The work still runs on your workers at home; the tablet is simply another way into the same sessions.
 
@@ -41,10 +44,10 @@ Once you have agents across several Macs, spare machines often sit unused while 
 
 **Run any terminal program.** Pick a server and folder, open a terminal, and launch `omp`, Claude Code, Codex, a shell, a REPL, or any other TUI. Roost keeps the PTY alive and renders the program's own terminal interface on every device.
 
-**Build a fleet from Macs you already own.** Connect every Mac to one coordinator, then use each one as a worker, including the coordinator Mac. Put an agent run on an older MacBook, a spare desktop, or your main laptop, based on where you have CPU and RAM available. Pick a project folder on that worker and open a workspace there. Workers dial outbound only, so they do not expose an inbound port. The sidebar groups every live session by the machine it runs on, so the entire fleet stays legible in one browser tab.
+**Build a fleet from the machines you already own.** Connect every Mac and Linux box to one coordinator, then use each one as a worker, including the coordinator machine. Put an agent run on an older MacBook, a spare desktop, a Linux box, or your main laptop, based on where you have CPU and RAM available. Pick a project folder on that worker and open a workspace there. Workers dial outbound only, so they do not expose an inbound port. The sidebar groups every live session by the machine it runs on, so the entire fleet stays legible in one browser tab.
 
 
-**A full terminal on every device.** The same fully functional web app runs on desktop, iPhone, Android phones, iPads, and Android tablets. It renders the real persistent PTY with full ANSI, colors, and scrollback. Upload files into a session, download files from a worker to your browser, and use the terminal without caring which Mac runs it. Tablets keep the desktop layout, panes, and shortcuts. Phones add touch selection, an on-screen key row, and gestures for real work. Add it to your home screen and it installs as a standalone PWA with its own icon and no browser chrome.
+**A full terminal on every device.** The same fully functional web app runs on any modern browser — macOS, Windows, and Linux desktops, iPhone, Android phones, iPads, and Android tablets. Nothing to install on the device you browse from. It renders the real persistent PTY with full ANSI, colors, and scrollback. Upload files into a session, download files from a worker to your browser, and use the terminal without caring which machine runs it. Tablets keep the desktop layout, panes, and shortcuts. Phones add touch selection, an on-screen key row, and gestures for real work. Add it to your home screen and it installs as a standalone PWA with its own icon and no browser chrome.
 
 ![Desktop-grade on a tablet, the same real terminal and layout as a laptop](docs/media/tablet-desktop.png)
 
@@ -54,7 +57,7 @@ Once you have agents across several Macs, spare machines often sit unused while 
 
 ![A workspace: a tab bar of live sessions above one real terminal](docs/media/workspace-tabs.png)
 
-**Split the screen into as many terminals as you want.** A workspace isn't just one terminal. Split it right or down (⌘D / ⌘⇧D) into a tiled grid of live panes, drag the dividers to resize, or pick an arrange preset (Grid, Columns, Rows, Main + stack, or Equalize) to fill the space evenly. Every pane is a full session, and the layout follows you to every device.
+**Split the screen into as many terminals as you want.** A workspace isn't just one terminal. Drag a tab onto the edge of a pane to split right, left, up, or down, drag the dividers to resize, or hit the Arrange button for a preset (Grid, Columns, Rows, Main + stack, or Equalize) that fills the space evenly. On a Mac keyboard there are accelerators for all of it — ⌘D / ⌘⇧D to split the focused pane, ⌘⌥G/E/R/V/B for the presets — and ⌃1–9, ⌃⌥arrows, and ⌃⌥T work the same on Ctrl keyboards. Every pane is a full session, and the layout follows you to every device.
 
 ![Multiple terminals tiled in one workspace, auto-arranged to fill the screen](docs/media/split-panes.png)
 
@@ -92,7 +95,7 @@ status is stored: restart anything and it re-derives itself.
    ┌─────────┼───────────────────┐
    ▼         ▼                   ▼
  Worker    Worker              Worker        (Bun, one per machine)
- Mac A     Mac B               Mac C
+ Mac       Linux               Mac
    │  a keeper subprocess hosts every PTY and outlives worker restarts
 ```
 
@@ -101,13 +104,13 @@ The coordinator handles control and fan-out only. It holds an append-only event 
 
 ## Network
 
-Roost talks over whatever network your devices share. It's built and tested on [Tailscale](https://tailscale.com), which gives every device a stable name and connects your phone with no port-forwarding, and that's the recommended path. A Tailscale alternative (WireGuard, Headscale, ZeroTier, and the like) or a plain LAN works too, as long as your browser and the coordinator can reach each other. A few conveniences that resolve a machine's tailnet name, like one-click Screen Sharing and Open in Finder, are Tailscale-specific.
+Roost talks over whatever network your devices share. It's built and tested on [Tailscale](https://tailscale.com), which gives every device a stable name and connects your phone with no port-forwarding, and that's the recommended path. A Tailscale alternative (WireGuard, Headscale, ZeroTier, and the like) or a plain LAN works too, as long as your browser and the coordinator can reach each other. A few conveniences that resolve a machine's tailnet name, like one-click Screen Sharing and Open in Finder, are Tailscale- and macOS-specific.
 
-**[Cloudflare browser access](GETTING_STARTED.md#optional-browser-access-through-cloudflare) is optional.** Browsers may enter through Cloudflare Access and Tunnel, while the coordinator and every worker still communicate over Tailscale. A phone, tablet, or browser-only computer using the Cloudflare hostname needs only an ordinary browser, not Tailscale; worker Macs still need Tailscale. This removes the client-install requirement from browser devices without changing worker enrollment, worker WebSockets, `roost deploy`, `roost status`, direct-machine links, or coordinator relocation. Run `roost expose` only as a post-install step after Roost is already working over Tailscale.
+**[Cloudflare browser access](GETTING_STARTED.md#optional-browser-access-through-cloudflare) is optional.** Browsers may enter through Cloudflare Access and Tunnel, while the coordinator and every worker still communicate over Tailscale. A phone, tablet, or browser-only computer using the Cloudflare hostname needs only an ordinary browser, not Tailscale; worker machines still need Tailscale. That's the setup for reaching your fleet from a device you can't or won't install a VPN client on — a work laptop, a borrowed machine, a locked-down phone. Only the coordinator runs `cloudflared` (macOS via Homebrew, Linux via Cloudflare's apt/rpm repo). This removes the client-install requirement from browser devices without changing worker enrollment, worker WebSockets, `roost deploy`, `roost status`, direct-machine links, or coordinator relocation. Run `roost expose` only as a post-install step after Roost is already working over Tailscale.
 
 ## Install
 
-Roost runs on macOS today. It needs a shared network (Tailscale recommended). On the Mac you want as the coordinator:
+Roost's coordinator and workers run on macOS and Linux (launchd on macOS, `systemd --user` on Linux). Browsing devices need no install at all — any modern browser on any OS. It needs a shared network (Tailscale recommended). On the machine you want as the coordinator:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/cefege/roost/main/install.sh | bash
@@ -118,7 +121,7 @@ That installs Bun if needed, gets the code, starts the coordinator and a local w
 Two things make growing your fleet painless, with no SSH and no tokens to hand-copy:
 
 - **Add a phone or tablet by QR.** In **Settings → Pair a device**, scan the QR with your phone's camera. It opens Roost and signs itself in, with nothing to type.
-- **Add another Mac with one line.** Run `roost add-mac` on the coordinator (or **Settings → Machines → Add machine**) and paste the one-liner it prints on the new Mac. It self-installs and registers over the network, as a pull rather than a push.
+- **Add another machine with one line.** Run `roost add-mac` on the coordinator (or **Settings → Machines → Add machine**) and paste the one-liner it prints on the new Mac or Linux box. It self-installs and registers over the network, as a pull rather than a push.
 
 The full walkthrough, covering pairing devices and adding machines, is in [`GETTING_STARTED.md`](GETTING_STARTED.md).
 
@@ -130,26 +133,27 @@ Claude on the web and on your phone is a control plane too, but it drives Anthro
 
 |   | Claude on the web / phone | Roost |
 |---|---|---|
-| **What it drives** | Anthropic-hosted cloud sandboxes, or one local Mac tethered via `claude rc` | Every Mac you own, natively |
+| **What it drives** | Anthropic-hosted cloud sandboxes, or one local Mac tethered via `claude rc` | Every machine you own, Mac or Linux, natively |
 | **Open a new terminal while away** | No; limited to sandboxes or sessions already running | Yes; open a fresh terminal in any folder on any machine, from your phone |
 | **What runs in it** | Claude Code only | Any agent, shell, REPL, or TUI |
 | **Where your code lives** | A cloud VM (or the one tethered Mac) | Your own hardware, your own network |
 | **The surface** | A chat window onto the agent | The real terminal, with full ANSI, scrollback, and touch |
 | **Hosting** | SaaS, tied to an account | Self-hosted, no account, no telemetry |
 
-Your Mac's browser stays perfectly usable for claude.ai. Roost isn't a replacement for it; it's the piece the cloud can't be, which is native control of your own fleet from anywhere.
+Your desktop browser stays perfectly usable for claude.ai. Roost isn't a replacement for it; it's the piece the cloud can't be, which is native control of your own fleet from anywhere.
 
 ## Roadmap
 
-- **Headless servers**, so you can run workers on always-on boxes and not just laptops, and heavy jobs live on the machine that should own them.
-- **Windows.** The worker and coordinator are Bun and already run on macOS + Linux; the cross-platform desktop shell is scoped (`FEATURES/PLAN-NEUT.md`).
+- **Headless-server polish.** Linux workers already install as a `systemd --user` unit with linger, so an always-on box keeps running after logout; the remaining work is the setup path for a box you only ever reach over SSH.
+- **Windows as a *worker*.** Browsing Roost from Windows already works — it's a browser. What's missing is running a coordinator or worker there; both are Bun and already run on macOS + Linux, and the cross-platform desktop shell is scoped (`FEATURES/PLAN-NEUT.md`).
 - **Multi-user.** The schema already models multiple operators; a UI for it is next.
 
 ## Status
 
 Early, and honest about it. I use Roost every day as my primary coding surface, so the paths I hit are solid. Paths I don't may be rough.
 
-- macOS and Linux (launchd + systemd --user; no Windows yet)
+- Coordinator and workers: macOS and Linux (launchd on macOS, `systemd --user` on Linux; no Windows worker yet)
+- Browsing devices: any modern browser — macOS, Windows, Linux, iOS, iPadOS, Android — with nothing to install
 - Needs a shared network (Tailscale tested) and whatever terminal CLI tools you want to run
 - Single-user today; the schema is built for multiple operators but there's no UI for it yet
 

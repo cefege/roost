@@ -22,7 +22,7 @@ export async function addMac(args: string[]): Promise<void> {
   const { fqdn } = resolveTailscale();
   if (!fqdn) {
     console.error("ERROR: Tailscale not running / not on the coordinator host.");
-    console.error("  Run `roost add-mac` on the coordinator Mac with `tailscale up`.");
+    console.error("  Run `roost add-mac` on the coordinator machine with `tailscale up`.");
     process.exit(1);
   }
   const coordUrl = `https://${fqdn}:4102`;

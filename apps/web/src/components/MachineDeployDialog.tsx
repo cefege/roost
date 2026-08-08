@@ -137,7 +137,7 @@ export function MachineDeployDialog(props: MachineDeployDialogProps) {
               label="Machine label"
               value={label()}
               onInput={(v) => setLabel(v)}
-              placeholder="optional — defaults to the Mac's hostname"
+              placeholder="optional — defaults to the machine's hostname"
               style={{ width: "100%" }}
             />
           </div>

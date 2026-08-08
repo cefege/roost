@@ -17,6 +17,7 @@
 // LaunchAgent label: com.roost.worker-v2 (avoids collision with legacy
 // com.roost.worker until R6.5).
 
+import { existsSync } from "node:fs";
 import { tailnetSuffix } from "./status.ts";
 import { run, runOrDie, SSH_OPTS, RSYNC_RSH, sshExec, resolveLocalGitShaOrDie } from "./deploy-exec.ts";
 import { _isSelfHost } from "./deploy-self-host.ts";
@@ -119,11 +120,13 @@ export async function deploy(args: string[]): Promise<void> {
       "--exclude", "node_modules", "--exclude", "dist", "--exclude", "tests",
       "apps/web/", `${host}:${REMOTE_DIR}/apps/web/`,
     ], "rsync apps/web"),
-    runOrDie([
-      "rsync", "-az", "-e", RSYNC_RSH, "--delete",
-      "--exclude", "node_modules", "--exclude", "dist",
-      "vendor/", `${host}:${REMOTE_DIR}/vendor/`,
-    ], "rsync vendor"),
+    ...(existsSync("vendor")
+      ? [runOrDie([
+          "rsync", "-az", "-e", RSYNC_RSH, "--delete",
+          "--exclude", "node_modules", "--exclude", "dist",
+          "vendor/", `${host}:${REMOTE_DIR}/vendor/`,
+        ], "rsync vendor")]
+      : []),
     runOrDie([
       // Every apps/*/tsconfig.json extends this, and vite resolves the whole
       // extends chain (the @roost/* path aliases live in it) — without it the
@@ -191,7 +194,7 @@ export async function deploy(args: string[]): Promise<void> {
       );
       process.exit(7);
     }
-    remoteFqdn = `${host}.${sfx}`;
+    remoteFqdn = host.endsWith(`.${sfx}`) ? host : `${host}.${sfx}`;
   }
   const remoteTlsDir = `~/Library/Application\\ Support/RoostWorkerV2/tls`;
   const remoteCertPath = `~/Library/Application Support/RoostWorkerV2/tls/${remoteFqdn}.crt`;

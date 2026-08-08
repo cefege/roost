@@ -20,7 +20,6 @@ import {
   _workspaceProtoToWire, _taskProtoToWire, _webhookProtoToWire,
   _permProtoToWire, _mcpProtoToWire, _presenceProtoToWire,
 } from "./sync-proto-adapters.ts";
-import { isPageVisible } from "../lib/pageVisible.ts";
 // tRPC client retired — queries/RPCs route through coordClient (Connect).
 // The event firehose is _runConnectSync: a raw WebSocket to coord's
 // /ws/coord-sync multiplexing 8 domain buses + PTY bytes as FirehoseFrames.
@@ -38,7 +37,8 @@ import { setRoutableFps } from "./sync-routable.ts";
 export { workerOnline } from "./sync-routable.ts";
 // Per-session cell/presence fan-out lives in sync-dispatch.ts (leaf module).
 export {
-  registerCellHandler, registerPresenceHandler, cellFrameCount, cellFullFrameCount, lastFullFrameSbRows,
+  registerCellHandler, registerPresenceHandler, cellFrameCount, cellFullFrameCount,
+  lastFullFrameSbRows, cellGridEpoch,
 } from "./sync-dispatch.ts";
 // Per-domain delta handlers + keeper-death detector + delta-sub registries
 // live in sync-handlers.ts; the firehose calls them and iterates the sub Sets.
@@ -132,15 +132,13 @@ export function _abortSyncForVisibility(): void {
 }
 
 
-// Bounded-reconnect state (Author 2026-06-17: 'how do we propose this
-// doesn't happen again' — the SPA's Sync loop was retrying forever
-// after coord rotated its TLS cert, the broken request hot-looped,
-// the JS thread saturated, and the tab wedged. Cap retries at
-// SYNC_MAX_FAILURES → set _syncPaused → SPA shows a Reconnect button
-// that calls reconnectNow() → location.reload()).
+// Bounded reconnect protects the tab from a failed transport hot-loop. After
+// SYNC_MAX_FAILURES the single owning loop parks in place until resumeSyncNow()
+// wakes it, preserving the mounted terminal deck and its last painted grid.
 const SYNC_MAX_FAILURES = 8;          // ~60 s with the exponential backoff below
 let _syncFailures = 0;
 let _syncPaused = false;
+let _wakePausedSync: (() => void) | null = null;
 /** Read-only view of the sync-paused flag for sync-bootstrap's refocus handler
  *  (a `let` can't be reassigned across a module boundary, but a getter reads
  *  the live value). */
@@ -150,16 +148,12 @@ function _writeSyncPaused(paused: boolean): void {
   (window as Window & { __roostSyncPaused?: boolean }).__roostSyncPaused = paused;
 }
 
-/** Manually trigger a reconnect after the bounded-retry loop has given
- *  up — reloads the page (fresh sync stream + health poller). Called by
- *  the Reconnect button in ConnectionBanner. */
-// Reconnect button entrypoint — a full page reload re-establishes both
-// the sync stream and the health poller (the banner is gated on the
-// latter, not the sync stream). Author 2026-06-18: "reconnect button
-// seems to be dead."
+/** Manually recover the existing Sync loop and replace any live stale socket
+ *  without remounting the SPA or its persistent terminal deck. */
 export function reconnectNow(): void {
-  console.info("[sync.connect] manual reconnect requested — reloading page");
-  location.reload();
+  console.info("[sync.connect] manual reconnect requested");
+  resumeSyncNow();
+  _initiateWsClose("manual");
 }
 
 
@@ -217,16 +211,19 @@ export function syncSocketOpened(timeoutMs: number): Promise<void> {
 let _resumeRequested = false;
 let _wakeBackoff: (() => void) | null = null;
 
-/** Re-dial NOW rather than serving out the reconnect backoff. Called when the
- *  cause of the last failure has demonstrably been fixed — today only after a
- *  first-boot self-register authorizes this browser's key, which turns a
- *  guaranteed 401 into a guaranteed success. */
+/** Re-dial NOW after authorization, refocus, or an explicit reconnect. Wakes
+ * both exhaustion parking and an ordinary reconnect backoff. */
 export function resumeSyncNow(): void {
+  _syncPaused = false;
+  _writeSyncPaused(false);
   _syncFailures = 0;
   _resumeRequested = true;
-  const wake = _wakeBackoff;
+  const wakePaused = _wakePausedSync;
+  _wakePausedSync = null;
+  wakePaused?.();
+  const wakeBackoff = _wakeBackoff;
   _wakeBackoff = null;
-  wake?.();
+  wakeBackoff?.();
 }
 
 // Per-frame firehose dispatch — SHARED verbatim by the WebSocket transport
@@ -457,8 +454,15 @@ export async function _runConnectSync(): Promise<void> {
       if (_resumeSmokeTransport === resolve) _resumeSmokeTransport = null;
     }
     if (_syncPaused) {
-      console.warn("[sync.connect] paused — waiting for manual reconnect (page reload)");
-      return;
+      console.warn("[sync.connect] paused — waiting for in-place resume");
+      const { promise: resumed, resolve } = Promise.withResolvers<void>();
+      _wakePausedSync = resolve;
+      await resumed;
+      if (_wakePausedSync === resolve) _wakePausedSync = null;
+    }
+    if (_resumeRequested) {
+      _resumeRequested = false;
+      backoff = 1000;
     }
     let dialLink: LiveSyncLink | null = null;
     let abortReason: SyncAbortReason = null;
@@ -552,23 +556,11 @@ export async function _runConnectSync(): Promise<void> {
     }
     _syncFailures += 1;
     if (_syncFailures >= SYNC_MAX_FAILURES) {
-      console.warn(`[sync.connect] ${SYNC_MAX_FAILURES} consecutive failures — reloading page.`);
-      signal("reconnect.give_up", { failures: _syncFailures, action: "reload" });
-      // ponytail: reload the page instead of showing a "Reconnect" banner.
-      // After a coord restart, Chrome's TLS session ticket cache and HTTP/2
-      // connection pool hold stale state that prevents reconnection even with
-      // fresh AbortController + new request. A page reload clears everything:
-      // new TCP, new TLS handshake, new HTTP/2 session. The ~1s reload is
-      // faster than the user noticing the banner + clicking Reconnect + waiting.
-      // Only reload foreground tabs — background tabs reload on focus.
-      if (isPageVisible()) {
-        location.reload();
-      } else {
-        // Defer reload until the user switches back.
-        _syncPaused = true;
-        _writeSyncPaused(true);
-      }
-      return;
+      console.warn(`[sync.connect] ${SYNC_MAX_FAILURES} consecutive failures — parking Sync loop.`);
+      signal("reconnect.give_up", { failures: _syncFailures, action: "pause" });
+      _syncPaused = true;
+      _writeSyncPaused(true);
+      continue;
     }
     // resumeSyncNow may land before the sleep starts or while it is parked;
     // both are checked so neither ordering loses the wake.
@@ -585,6 +577,17 @@ export async function _runConnectSync(): Promise<void> {
 }
 /** Test-only: force-close the live firehose WS so the reconnect loop re-dials. */
 export function forceSyncReconnect(): void { _initiateWsClose("manual"); }
+
+/** Smoke-only: put the owning Sync loop into its real retry-exhausted parked
+ * state, then close the current tube so the loop reaches that park. Recovery
+ * remains exclusively resumeSyncNow()/the refocus path under test. */
+export function forceSyncRetryExhausted(): void {
+  if (typeof localStorage === "undefined" || localStorage.getItem("roostSmoke") !== "1") return;
+  _syncFailures = SYNC_MAX_FAILURES;
+  _syncPaused = true;
+  _writeSyncPaused(true);
+  _initiateWsClose("manual");
+}
 
 /** Smoke-only partition gate. Close the current tube and hold re-dial until the
  * paired resume, allowing the real PTY to diverge from the browser consumer. */

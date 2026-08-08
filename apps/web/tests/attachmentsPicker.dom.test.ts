@@ -1,8 +1,8 @@
 // Native-picker tripwire for lib/attachments.ts::pickFilesTo + injectPath.
 //
-// PickOptions is what routes the composer's "+" sheet to the rear camera vs the
-// photo library vs the file browser, and none of that is observable except
-// through the <input> the picker builds — hence this file.
+// PickOptions is what routes a picker call to the rear camera vs the photo
+// library vs the file browser, and none of that is observable except through
+// the <input> the picker builds — hence this file.
 //
 // No jsdom/happy-dom (repo convention, see cellRenderer.dom.test.ts): a small
 // fake covers exactly what the picker touches. The fake deliberately implements

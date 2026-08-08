@@ -812,6 +812,30 @@ retire client reflow + `claimHysteresis` + `scrollbackReplayQueue` + seqno
 splice + raw-ring/serialize split + drop browser `@wterm/core` WASM. cell-phase-5
 R11 anchor (this) + full suite green.
 
+**cell-phase-5 DONE 2026-08-08** (epoch-addressed viewport-only frames: FULL
+frames carry `scrollbackRows=[]` + `sbBase === scrollbackTotal` + `gridEpoch`;
+retained history only on reader demand via `SessionsGetScrollbackCells`;
+`held_scrollback_total` retired). Evidence, all on the same tree with
+`roost-worker` restarted onto it: `bun run typecheck` 5/5 packages; `bun
+scripts/lint-roost.ts` 0 violations; `bun run test:unit` 889 pass / 0 fail /
+4521 expect() / 118 files; `bun run test:terminal` 32 passed / 2 darwin-only
+skipped. Live canaries at `https://ovh1-8c32g.tail67850e.ts.net:4102/` —
+`roost-smoke: 5/5` plus real-keyboard `ROOST_LIVE_KEYBOARD_*` echo with
+`paneFocused().focused === true`; `render-stress: PASS (80 iters, screen
+"main")` on a 60-marker shell and on a 3000-marker deep session; multi-viewer
+hammer-A-probe-B and hammer-B-probe-A both `duplicated: []` / `outOfOrder: 0`.
+Deep-session contract observed live: cold attach → `atBottom`,
+`lastFullFrameSbRows === 0`, `scrollbackBackfillRequestCount === 0`; scrolling
+inside the held window issues no RPC, crossing the seam issues demand RPCs and
+repaints rows 1..3000 with `missing: 0` and an unchanged `gridEpoch`; a resize
+while off-bottom leaves `fromBottom` and the first visible marker untouched
+while `cellFullFrameCount` rises, `gridEpoch` changes, and
+`lastFullFrameSbRows` stays `0`; return-to-bottom re-latches `atBottom`.
+A resize de-materializes rows behind the demand seam (the retired epoch's held
+window is dropped, the spacer preserves `scrollHeight`) — reversible, so
+`runRenderStress` on `main` must take its baseline after one settle cycle or it
+reports `changedRange` with `duplicated: []` / `outOfOrder: 0`.
+
 **R11.4-RISK.** Hottest path; Author runs Claude Code INSIDE an Roost keeper
 PTY (`feedback_claude_code_runs_inside_roost_keeper_pty`). Build behind the
 flag; NEVER flip default / delete byte path until the full bun suite + live

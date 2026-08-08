@@ -58,15 +58,14 @@ export const ClientControlFrame = z.discriminatedUnion("kind", [
   Base.extend({ kind: z.literal("cursor-pos"), session_id: SessionId, col: z.number().int().nonnegative(), row: z.number().int().nonnegative() }),
   // request the worker's $HOME directory — response is rpc-ok { home: string }
   Base.extend({ kind: z.literal("get-home"), request_id: z.string() }),
-  // Lazy-history backfill (cell mode): serve pre-rendered scrollback rows
-  // [max(0, end_row - max_rows), end_row) of the CURRENT grid epoch.
-  // Client validates cols + overlap-row text identity and re-pulls on the
-  // next reframe if the epoch moved. rpc-ok data:
-  // { rows: CellRow[], cols, total, start_row, end_row }.
+  // Demand-driven history page from the immutable grid epoch named by the
+  // current authoritative frame. rpc-ok data:
+  // { rows: CellRow[], cols, total, start_row, end_row, grid_epoch }.
   Base.extend({
     kind: z.literal("get-scrollback-cells"),
     request_id: z.string(),
     session_id: SessionId,
+    grid_epoch: z.string(),
     end_row: z.number().int().nonnegative(),
     max_rows: z.number().int().positive(),
   }),

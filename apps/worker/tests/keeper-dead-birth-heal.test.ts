@@ -43,7 +43,7 @@ function injectSession(mgr: SessionManager, channelId: number, headSeq: number, 
     ...initAgentOscState(),
     wtermCore: null as never,
     session_trace_id: "t",
-    cell_emit: initCellEmitState(),
+    cell_emit: initCellEmitState("test-grid"),
     spawnedAtMs: Date.now() - ageMs,
   };
   (mgr as unknown as { sessions: Map<number, unknown> }).sessions.set(channelId, record);

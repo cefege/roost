@@ -11,15 +11,6 @@ export function _sha8(bytes: Uint8Array | Buffer): string {
 	return createHash("sha256").update(bytes).digest("hex").slice(0, 8);
 }
 
-// 8 MB sliding scrollback window kept on the worker per session.
-// Matches the keeper's ring (sb30) so getScrollback can serve a fresh
-// SPA the same depth of history the keeper started us with. ~24 KB
-// of memory overhead is rounding error for the saved roundtrip.
-// 2026-06-22: 8 MB → 1 MB, matched to KEEPER_RING_CAP_BYTES (multiplexed-main.ts).
-// Smaller per-channel footprint on a permanently RAM-full box; ~10k lines is
-// ample. See memory project_keeper_death_auto_respawn.
-export const SCROLLBACK_CAP_BYTES = 1 * 1024 * 1024;
-
 // OPT2-2: the grid is built by the SHARED createWtermCore (loads the same
 // roost-patched wasm the SPA does — MAX_SCROLLBACK_LINES 1k→10k, phase-pb9b
 // — so a serialized alt-screen snapshot carries full 10k-line depth). Coord

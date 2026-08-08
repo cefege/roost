@@ -446,8 +446,12 @@ export function startSyncFeed(
     if (sinceEventId <= 0) return;
     try {
       const rows = await getEventsSince(deps.db, sinceEventId, 1000);
-      for (const { id, event } of rows) {
+      for (let i = 0; i < rows.length; i += 1) {
+        const { id, event } = rows[i]!;
         emitSession(event, id);
+        if ((i + 1) % 16 === 0) {
+          await new Promise<void>((resolve) => setImmediate(resolve));
+        }
       }
       if (rows.length === 1000) {
         signal("sync.backfill_truncated", { sinceEventId, returned: rows.length, cooldownKey: "sync" });

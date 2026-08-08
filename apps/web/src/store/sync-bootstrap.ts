@@ -82,15 +82,9 @@ export function bootstrapSync(): void {
     document.addEventListener("visibilitychange", () => {
       if (!isPageVisible()) return;
       void refreshCoordAndWorkers();
-      // A4: if the bounded-retry loop already gave up (SYNC_MAX_FAILURES →
-      // _syncPaused, no live stream), refocus MUST re-arm it. _abortSync-
-      // ForVisibility is a no-op when paused (nothing to abort), so without
-      // this the tab stays stale until a manual Reconnect tap — exactly the
-      // iOS-suspend / partition wedge. On refocus, a page reload re-arms
-      // the sync loop.
-      // Background tabs that hit the retry cap are paused; on refocus,
-      // reload to get a clean TLS + HTTP/2 session with the current coord.
-      if (isSyncPaused()) { location.reload(); return; }
+      // A bounded-retry exhaustion parks the one owning Sync loop. Wake it in
+      // place so the persistent terminal deck and its painted grid survive.
+      if (isSyncPaused()) { resumeSyncNow(); return; }
       // Keep a live socket across a tab switch: re-dialing costs a JWT sign, a
       // TLS handshake and the since= event backfill, all ahead of the
       // terminal's reveal snapshot. Re-dial only when the link has actually

@@ -11,11 +11,13 @@
 import { coordClient } from "../connect.ts";
 import {
   forceSyncReconnect as forceSyncReconnectImpl,
+  forceSyncRetryExhausted as forceSyncRetryExhaustedImpl,
   pauseSyncTransport as pauseSyncTransportImpl,
   resumeSyncTransport as resumeSyncTransportImpl,
   cellFrameCount as cellFrameCountImpl,
   cellFullFrameCount as cellFullFrameCountImpl,
   lastFullFrameSbRows as lastFullFrameSbRowsImpl,
+  cellGridEpoch as cellGridEpochImpl,
   syncWsGeneration as syncWsGenerationImpl,
 } from "../store/sync.ts";
 import {
@@ -25,6 +27,7 @@ import {
 import { perfCounters, leakSample, resetPerfCounters as resetPerfCountersImpl } from "./leakWatch.ts";
 import { rootStore, setRootStore } from "../store/root.ts";
 import { setForceHidden, setForceVisible } from "./pageVisible.ts";
+import { scrollbackBackfillRequestCount as scrollbackBackfillRequestCountImpl } from "./scrollbackBackfill.ts";
 
 export interface SmokeApi {
   /** Send raw bytes via the coord RPC — BYPASSES the wterm textarea + focus
@@ -81,6 +84,8 @@ export interface SmokeApi {
   forceHidden(on: boolean): void;
   /** Force a firehose WebSocket reconnect (closes the live WS). */
   forceSyncReconnect(): void;
+  /** Park the existing Sync loop in its retry-exhausted state without recovering it. */
+  forceSyncRetryExhausted(): void;
   /** Close and pause the Sync tube; paired resume starts a fresh generation. */
   pauseSyncTransport(): void;
   resumeSyncTransport(): void;
@@ -89,10 +94,13 @@ export interface SmokeApi {
   /** How many FULL cell frames have arrived — a reveal of a current pane must
    *  not move this (the worker's claim snapshot is what it proves absent). */
   cellFullFrameCount(sessionId: string): number;
-  /** Scrollback rows the last FULL frame carried — the claim snapshot's size.
-   *  Constant (SB_SNAPSHOT_TAIL_ROWS) whatever the depth or the viewer's gap;
-   *  unlike the painted row count this does not race the backfill drain. */
+  /** Historical rows carried by the last authoritative full frame; viewport-
+   * only resume requires this to remain exactly zero. */
   lastFullFrameSbRows(sessionId: string): number;
+  /** Epoch-addressed retained-history RPCs issued for this session. */
+  scrollbackBackfillRequestCount(sessionId: string): number;
+  /** Opaque worker grid epoch on the latest cell frame. */
+  cellGridEpoch(sessionId: string): string;
   /** Drop exactly the next cell frame before counters and pane dispatch. */
   dropNextCellFrame(sessionId: string): void;
   droppedCellFrameCount(sessionId: string): number;
@@ -144,12 +152,36 @@ export interface SmokeApi {
   resetPerfCounters(): void;
 }
 
+// Created-resource registry, sessionStorage-backed (per tab, survives a reload).
+// A spec that reloads mid-test — composer draft retention, deep-history resume,
+// zoom — would otherwise wipe an in-memory Set and leak its sessions and
+// workspaces into the shared test stack, where the extra live PTYs perturb
+// every later scroll/frame assertion. cleanupCreated is the only reader.
+const CREATED_KEY = "roostSmoke.created.v1";
+
 export function maybeInstallSmokeBackdoor(): void {
   if (typeof window === "undefined") return;
   if (typeof localStorage === "undefined" || localStorage.getItem("roostSmoke") !== "1") return;
 
   const spawned = new Set<string>();
   const workspaces = new Set<string>();
+  try {
+    const raw = sessionStorage.getItem(CREATED_KEY);
+    const carried = raw ? JSON.parse(raw) : null;
+    if (carried && typeof carried === "object" && "sessions" in carried && "workspaces" in carried) {
+      const { sessions, workspaces: ws } = carried as { sessions: unknown; workspaces: unknown };
+      if (Array.isArray(sessions)) for (const id of sessions) spawned.add(String(id));
+      if (Array.isArray(ws)) for (const id of ws) workspaces.add(String(id));
+    }
+  } catch { /* privacy mode / unparseable — start clean */ }
+  const persistCreated = () => {
+    try {
+      sessionStorage.setItem(CREATED_KEY, JSON.stringify({
+        sessions: [...spawned],
+        workspaces: [...workspaces],
+      }));
+    } catch { /* privacy mode */ }
+  };
   const api: SmokeApi = {
     async cleanupCreated() {
       const killedSessions: string[] = [];
@@ -179,6 +211,7 @@ export function maybeInstallSmokeBackdoor(): void {
         }
       }
       workspaces.clear();
+      persistCreated();
       return { killedSessions, deletedWorkspaces, errors };
     },
     async runFlow() {
@@ -255,7 +288,9 @@ export function maybeInstallSmokeBackdoor(): void {
       const max = ns.length ? Math.max(...ns) : 0;
       const duplicated = ns.filter((n) => (counts.get(n) ?? 0) > 1).sort((a, b) => a - b);
       let missing = 0;
-      for (let n = min; n <= max; n++) if (!counts.has(n)) missing++;
+      if (ns.length > 0) {
+        for (let n = min; n <= max; n++) if (!counts.has(n)) missing++;
+      }
       // Render-order inversions: `seq 1..N | echo` is strictly increasing, so
       // ANY render-order drop (seq[i+1] < seq[i]) = MANGLE — rows out of
       // position. This is the secondary-device-mangle / tab-switch-corruption
@@ -287,6 +322,9 @@ export function maybeInstallSmokeBackdoor(): void {
     forceSyncReconnect() {
       forceSyncReconnectImpl();
     },
+    forceSyncRetryExhausted() {
+      forceSyncRetryExhaustedImpl();
+    },
     pauseSyncTransport() {
       pauseSyncTransportImpl();
     },
@@ -301,6 +339,12 @@ export function maybeInstallSmokeBackdoor(): void {
     },
     lastFullFrameSbRows(sessionId) {
       return lastFullFrameSbRowsImpl(sessionId);
+    },
+    scrollbackBackfillRequestCount(sessionId) {
+      return scrollbackBackfillRequestCountImpl(sessionId);
+    },
+    cellGridEpoch(sessionId) {
+      return cellGridEpochImpl(sessionId);
     },
     dropNextCellFrame(sessionId) {
       dropNextCellFrameImpl(sessionId);
@@ -351,6 +395,7 @@ export function maybeInstallSmokeBackdoor(): void {
         sessionId,
       });
       spawned.add(res.sessionId);
+      persistCreated();
       return { session_id: res.sessionId, channel_id: res.channelId };
     },
     async createWorkspace(workerFp, folder, sessionId) {
@@ -370,6 +415,7 @@ export function maybeInstallSmokeBackdoor(): void {
         attachSessionIds: [sessionId],
       });
       workspaces.add(ws.workspace!.id);
+      persistCreated();
       const session = rootStore.sessions[sessionId] as { channel?: number } | undefined;
       return { id: ws.workspace!.id, channel: session?.channel ?? 0 };
     },

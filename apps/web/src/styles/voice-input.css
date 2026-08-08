@@ -24,8 +24,6 @@
    [data-swiping="1"] gating). Permanent will-change kept every FAB on its
    own compositor layer across all mounted sessions and janked the drag. */
 html[data-fab-dragging="true"] .voice-input,
-html[data-fab-dragging="true"] .agent-launch-fab,
-html[data-fab-dragging="true"] .attach-file-fab,
 html[data-fab-dragging="true"] .term-nav-toggle,
 html[data-fab-dragging="true"] .term-chat,
 html[data-fab-dragging="true"] .term-nav {
@@ -33,13 +31,12 @@ html[data-fab-dragging="true"] .term-nav {
 }
 
 /* ── container: fixed bottom-right, safe-area aware ── */
-/* z 55: above the z-50 side FABs (agent-launch / attach) so the discard
-   ✕ can never be covered while recording, even if a gate is missed or
-   during a transition frame. It remains below the z-60+ modal overlays
-   (command palette, help, mobile deck,
-   dialogs) so those cover the mic when open. The caption is
-   pointer-events:none, so it overlays the term-nav pad (z 40) visually
-   without eating taps. */
+/* z 55: above .term-chat (45) and .term-nav-toggle (40) so the discard ✕ can
+   never be covered while recording, even if a gate is missed or during a
+   transition frame. It remains below the z-60+ modal overlays (command
+   palette, help, mobile deck, dialogs) so those cover the mic when open. The
+   caption is pointer-events:none, so it overlays the term-nav pad (z 40)
+   visually without eating taps. */
 .voice-input {
   position: fixed;
   right: calc(env(safe-area-inset-right, 0px) + 16px);
@@ -109,9 +106,15 @@ html[data-fab-dragging="true"] .term-nav {
   .voice-input--inline .voice-fab--discard:hover { box-shadow: none; }
 }
 
-/* ── mic FAB (M3 FAB: 56dp, large-shape corner, elevation 3) ── */
-.voice-fab {
-  position: relative;
+/* ── the 56dp corner-FAB container (M3 FAB: large-shape corner, elevation 3) ──
+   ONE anatomy for every corner FAB in this file: the mic, the term-nav toggle
+   and the chat toggle. Each class below then declares only what makes it
+   itself — where it sits and what colour it wears. The border-radius/opacity
+   legs of the transition are only ever driven by the mic's recording morph and
+   finalizing dim; they are inert on the other two. */
+.voice-fab,
+.term-nav-toggle,
+.term-chat-toggle {
   width: 56px;
   height: 56px;
   border-radius: var(--md-shape-lg);
@@ -122,10 +125,8 @@ html[data-fab-dragging="true"] .term-nav {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: var(--md-sys-color-primary-container);
-  color: var(--md-sys-color-on-primary-container);
-  box-shadow: var(--md-elev-3);
   overflow: hidden;
+  box-shadow: var(--md-elev-3);
   transition:
     background-color 200ms var(--md-ease-emphasized),
     box-shadow 200ms var(--md-ease-emphasized),
@@ -135,10 +136,14 @@ html[data-fab-dragging="true"] .term-nav {
   -webkit-tap-highlight-color: transparent;
 }
 
-/* M3 state layer — same-color overlay at hover/focus/press alphas. Shared
-   by the mic and agent-launch FABs (identical M3 press anatomy). */
+/* M3 state layer + press — a same-color ::after overlay at the hover/focus/press
+   alphas, shared by the three corner FABs AND the flat 44dp controls in the chat
+   pill. Only the elevated FABs raise on hover: .term-chat__ctl sits inside the
+   pill with no elevation of its own and must not gain one. */
 .voice-fab::after,
-.agent-launch-fab::after {
+.term-nav-toggle::after,
+.term-chat-toggle::after,
+.term-chat__ctl::after {
   content: "";
   position: absolute;
   inset: 0;
@@ -149,27 +154,53 @@ html[data-fab-dragging="true"] .term-nav {
 }
 @media (hover: hover) {
   .voice-fab:hover,
-  .agent-launch-fab:hover { box-shadow: var(--md-elev-4); }
+  .term-nav-toggle:hover,
+  .term-chat-toggle:hover { box-shadow: var(--md-elev-4); }
   .voice-fab:hover::after,
-  .agent-launch-fab:hover::after { opacity: 0.08; }
+  .term-nav-toggle:hover::after,
+  .term-chat-toggle:hover::after,
+  .term-chat__ctl:hover::after { opacity: 0.08; }
 }
 .voice-fab:focus-visible,
-.agent-launch-fab:focus-visible { outline: none; }
+.term-nav-toggle:focus-visible,
+.term-chat-toggle:focus-visible,
+.term-chat__ctl:focus-visible { outline: none; }
 .voice-fab:focus-visible::after,
-.agent-launch-fab:focus-visible::after { opacity: 0.12; }
+.term-nav-toggle:focus-visible::after,
+.term-chat-toggle:focus-visible::after,
+.term-chat__ctl:focus-visible::after { opacity: 0.12; }
 .voice-fab:active::after,
-.agent-launch-fab:active::after { opacity: 0.12; }
+.term-nav-toggle:active::after,
+.term-chat-toggle:active::after,
+.term-chat__ctl:active::after { opacity: 0.12; }
 .voice-fab:active,
-.agent-launch-fab:active { transform: scale(0.96); }
+.term-nav-toggle:active,
+.term-chat-toggle:active,
+.term-chat__ctl:active { transform: scale(0.96); }
 
-.voice-fab__icon {
+/* Material-Symbols glyph, lifted above each button's ::after state layer. Size
+   is the only difference: 26px in the corner FABs, 22px inside the chat pill. */
+.voice-fab__icon,
+.term-nav-toggle__icon,
+.term-chat-toggle__icon,
+.term-chat__icon {
   position: relative;
   z-index: 1;
   font-family: "Material Symbols Rounded";
-  font-size: 26px;
   line-height: 1;
   font-variation-settings: "FILL" 1, "wght" 500, "GRAD" 0, "opsz" 24;
   user-select: none;
+}
+.voice-fab__icon,
+.term-nav-toggle__icon,
+.term-chat-toggle__icon { font-size: 26px; }
+.term-chat__icon { font-size: 22px; }
+
+/* ── mic FAB ── */
+.voice-fab {
+  position: relative;
+  background: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
 }
 
 /* ── recording: morph to error color + larger radius + pulse ring ── */
@@ -199,10 +230,11 @@ html[data-fab-dragging="true"] .term-nav {
   100% { transform: scale(1.5); opacity: 0; }
 }
 
-/* ── finalizing: dim, non-interactive, breathing icon ── */
+/* ── finalizing: dim, breathing icon — still TAPPABLE: a second tap hurries the
+   send (forceFinish), and pointer-events:none turned any swallowed finalize
+   into a mic that breathed forever with no way out. ── */
 .voice-fab[data-finalizing="true"] {
   opacity: 0.62;
-  pointer-events: none;
 }
 .voice-fab[data-finalizing="true"] .voice-fab__icon {
   animation: voice-breathe 1.1s ease-in-out infinite;
@@ -231,104 +263,6 @@ html[data-fab-dragging="true"] .term-nav {
   from { opacity: 0; transform: scale(0.6) translateX(12px); }
   to   { opacity: 1; transform: scale(1) translateX(0); }
 }
-
-/* ── agent-launch FAB (M3 FAB: 56dp, tertiary-container, elevation 3) ── */
-/* Shells only (Terminal.tsx Show gate). Fixed bottom-right, one mic-width
-   to the LEFT of the mic FAB so they sit side by side on touch. Same M3
-   container + state-layer + press anatomy as .voice-fab. */
-.agent-launch-fab {
-  position: fixed;
-  right: calc(env(safe-area-inset-right, 0px) + 16px + 56px + 12px);
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
-  translate: 0 calc(-1 * var(--roost-fab-dy, 0px));
-  z-index: 50;
-  width: 56px;
-  height: 56px;
-  border-radius: var(--md-shape-lg);
-  border: none;
-  cursor: pointer;
-  pointer-events: auto;
-  touch-action: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  background: var(--md-sys-color-tertiary-container);
-  color: var(--md-sys-color-on-tertiary-container);
-  box-shadow: var(--md-elev-3);
-  transition:
-    background-color 200ms var(--md-ease-emphasized),
-    box-shadow 200ms var(--md-ease-emphasized),
-    transform 120ms var(--md-ease-standard);
-  -webkit-tap-highlight-color: transparent;
-}
-.agent-launch-fab__icon {
-  position: relative;
-  z-index: 1;
-  display: inline-flex;
-  line-height: 0;
-}
-.agent-launch-fab__icon svg { height: 26px; width: auto; }
-.agent-launch-fab__mono { font: 700 18px/1 ui-sans-serif, system-ui, sans-serif; color: currentColor; }
-
-
-/* ── attach-file FAB (M3 FAB: 56dp, secondary-container, elevation 3) ── */
-/* Always shown. Two mic-widths LEFT of the mic FAB (left of agent-launch)
-   so the bottom-right cluster reads mic ← agent ← attach. Same M3 container +
-   state-layer + press anatomy as .voice-fab. */
-.attach-file-fab {
-  position: fixed;
-  right: calc(env(safe-area-inset-right, 0px) + 16px + 2 * (56px + 12px));
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
-  translate: 0 calc(-1 * var(--roost-fab-dy, 0px));
-  z-index: 50;
-  width: 56px;
-  height: 56px;
-  border-radius: var(--md-shape-lg);
-  border: none;
-  cursor: pointer;
-  pointer-events: auto;
-  touch-action: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  background: var(--md-sys-color-secondary-container);
-  color: var(--md-sys-color-on-secondary-container);
-  box-shadow: var(--md-elev-3);
-  transition:
-    background-color 200ms var(--md-ease-emphasized),
-    box-shadow 200ms var(--md-ease-emphasized),
-    transform 120ms var(--md-ease-standard);
-  -webkit-tap-highlight-color: transparent;
-}
-.attach-file-fab::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: currentColor;
-  opacity: 0;
-  transition: opacity 120ms var(--md-ease-standard);
-  pointer-events: none;
-}
-@media (hover: hover) {
-  .attach-file-fab:hover { box-shadow: var(--md-elev-4); }
-  .attach-file-fab:hover::after { opacity: 0.08; }
-}
-.attach-file-fab:focus-visible { outline: none; }
-.attach-file-fab:focus-visible::after { opacity: 0.12; }
-.attach-file-fab:active { transform: scale(0.96); }
-.attach-file-fab:active::after { opacity: 0.12; }
-.attach-file-fab__icon {
-  position: relative;
-  z-index: 1;
-  font-family: "Material Symbols Rounded";
-  font-size: 26px;
-  line-height: 1;
-  font-variation-settings: "FILL" 1, "wght" 500, "GRAD" 0, "opsz" 24;
-  user-select: none;
-}
-
 
 /* ── caption (M3 snackbar: surface-container-highest, elevation 3) ── */
 .voice-caption {
@@ -367,55 +301,12 @@ html[data-fab-dragging="true"] .term-nav {
   bottom: calc(env(safe-area-inset-bottom, 0px) + 152px);
   translate: 0 calc(-1 * var(--roost-fab-dy, 0px));
   z-index: 40;
-  width: 56px;
-  height: 56px;
-  border-radius: var(--md-shape-lg);
-  border: none;
-  cursor: pointer;
-  pointer-events: auto;
-  touch-action: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
   background: var(--md-sys-color-surface-container-high);
   color: var(--md-sys-color-on-surface-variant);
-  box-shadow: var(--md-elev-3);
-  transition:
-    background-color 200ms var(--md-ease-emphasized),
-    box-shadow 200ms var(--md-ease-emphasized),
-    transform 120ms var(--md-ease-standard);
-  -webkit-tap-highlight-color: transparent;
 }
-.term-nav-toggle::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: currentColor;
-  opacity: 0;
-  transition: opacity 120ms var(--md-ease-standard);
-  pointer-events: none;
-}
-@media (hover: hover) {
-  .term-nav-toggle:hover { box-shadow: var(--md-elev-4); }
-  .term-nav-toggle:hover::after { opacity: 0.08; }
-}
-.term-nav-toggle:active::after { opacity: 0.12; }
-.term-nav-toggle:active { transform: scale(0.96); }
-.term-nav-toggle:focus-visible { outline: none; }
-.term-nav-toggle:focus-visible::after { opacity: 0.12; }
 .term-nav-toggle[data-open="true"] {
   background: var(--md-sys-color-secondary-container);
   color: var(--md-sys-color-on-secondary-container);
-}
-.term-nav-toggle__icon {
-  position: relative;
-  z-index: 1;
-  font-family: "Material Symbols Rounded";
-  font-size: 26px;
-  line-height: 1;
-  font-variation-settings: "FILL" 1, "wght" 500, "GRAD" 0, "opsz" 24;
-  user-select: none;
 }
 
 /* ── term-chat: the message FAB (closed) + its keyboard-docked composer ── */
@@ -424,7 +315,7 @@ html[data-fab-dragging="true"] .term-nav {
    the deck's swipe transform and anchors to the viewport, docked flush above
    the soft keyboard via --kb-offset. Only one pane's composer is open at a time
    (module guard). The open bar is a single full-width pill —
-   [+] [text field] [mic] [send] — with no floating ✕ FAB. */
+   [text field] [mic] [send] — with no floating ✕ FAB. */
 .term-chat {
   position: fixed;
   right: calc(env(safe-area-inset-right, 0px) + 16px);
@@ -437,18 +328,21 @@ html[data-fab-dragging="true"] .term-nav {
   gap: var(--md-space-3);
   pointer-events: none;
 }
-/* Open composer, portaled to <body>: viewport-anchored, docked just above the
-   soft keyboard (--kb-offset). A left-aligned column: the "+" sheet (when open)
-   rides above the pill bar, so both track --kb-offset with no anchor math. */
+/* Open composer, portaled to <body>: viewport-anchored 32px above the safe area
+   with no keyboard, or 8px above the reported keyboard inset when visible. */
 .term-chat__dock {
   /* One name for the bar's touch-target edge (iOS HIG minimum). Every control
-     in the pill and every menu row is sized from it, and the field's vertical
-     padding is DERIVED from it — so the row can never drift out of alignment. */
+     in the pill is sized from it, and the field's vertical padding is DERIVED
+     from it — so the row can never drift out of alignment. */
   --term-chat-control: 44px;
   position: fixed;
   left: calc(env(safe-area-inset-left, 0px) + var(--md-space-2));
   right: calc(env(safe-area-inset-right, 0px) + var(--md-space-2));
-  bottom: calc(env(safe-area-inset-bottom, 0px) + var(--kb-offset, 0px) + 8px);
+  bottom: calc(
+    env(safe-area-inset-bottom, 0px)
+    + max(var(--kb-offset, 0px), var(--md-space-6))
+    + var(--md-space-2)
+  );
   z-index: 56;
   display: flex;
   flex-direction: column;
@@ -457,16 +351,19 @@ html[data-fab-dragging="true"] .term-nav {
   pointer-events: none;
   font-family: var(--md-font);
 }
-/* The pill: full-width surface holding the four controls. Buttons stay pinned
-   to the bottom (align-items: flex-end) as the text field grows. */
+/* The pill: full-width surface holding the three controls. All three tracks
+   exist in every state, so the field's width — and therefore its wrap points —
+   never depends on how tall it is; `align-items: end` keeps the controls
+   bottom-aligned in the one row while the field grows upward. */
 .term-chat__box {
-  display: flex;
-  align-items: flex-end;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: end;
   gap: var(--md-space-1);
   padding: var(--md-space-1);
   border-radius: var(--md-shape-xl);
   /* -high, matching .term-nav — the established floating-panel tier in this
-     file. The "+" sheet floats ABOVE this and takes the higher tier. */
+     file. */
   background: var(--md-sys-color-surface-container-high);
   box-shadow: var(--md-elev-3);
   pointer-events: auto;
@@ -490,8 +387,8 @@ html[data-fab-dragging="true"] .term-nav {
   margin-bottom: var(--md-space-2);
 }
 .term-chat__input {
+  grid-column: 1;
   box-sizing: border-box;
-  flex: 1;
   min-width: 0;
   border: none;
   outline: none;
@@ -510,16 +407,23 @@ html[data-fab-dragging="true"] .term-nav {
   max-height: 160px;
   overflow-y: auto;
 }
+.voice-input--inline {
+  grid-column: 2;
+}
+.term-chat__send {
+  grid-column: 3;
+}
 .term-chat__input::placeholder {
   color: var(--md-sys-color-on-surface-variant);
-  /* The field narrows when the discard ✕ joins the row mid-recording; let the
-     placeholder clip on one line instead of wrapping into a cut-off second. */
+  /* The field shifts by 4px when the discard ✕ joins the row mid-recording (the
+     send control leaves as the ✕ arrives); the placeholder is one line by
+     design, so clip it rather than wrap into a cut-off second. */
   white-space: nowrap;
 }
-.term-chat__lead,
-.term-chat__send {
+/* The 44dp send control in the pill. Sized from --term-chat-control so the row
+   can never drift; the state layer above is shared with the corner FABs. */
+.term-chat__ctl {
   position: relative;
-  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -530,42 +434,12 @@ html[data-fab-dragging="true"] .term-nav {
   overflow: hidden;
   cursor: pointer;
   pointer-events: auto;
+  background: transparent;
+  color: var(--md-sys-color-on-surface-variant);
   transition:
     background-color 200ms var(--md-ease-emphasized),
     transform 120ms var(--md-ease-standard);
   -webkit-tap-highlight-color: transparent;
-}
-/* M3 state layer, the same anatomy .voice-fab and .term-nav-toggle use in this
-   file — without it these two were the only buttons in the bar with no hover,
-   focus or press response. */
-.term-chat__lead::after,
-.term-chat__send::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: currentColor;
-  opacity: 0;
-  transition: opacity 120ms var(--md-ease-standard);
-  pointer-events: none;
-}
-@media (hover: hover) {
-  .term-chat__lead:hover::after,
-  .term-chat__send:hover::after { opacity: 0.08; }
-}
-.term-chat__lead:focus-visible,
-.term-chat__send:focus-visible { outline: none; }
-.term-chat__lead:focus-visible::after,
-.term-chat__send:focus-visible::after { opacity: 0.12; }
-.term-chat__lead:active::after,
-.term-chat__send:active::after { opacity: 0.12; }
-.term-chat__lead {
-  background: transparent;
-  color: var(--md-sys-color-on-surface-variant);
-}
-/* The sheet is open — same canonical selected role the sibling nav toggle uses. */
-.term-chat__lead[aria-expanded="true"] {
-  background: var(--md-sys-color-secondary-container);
-  color: var(--md-sys-color-on-secondary-container);
 }
 /* Send is the bar's PRIMARY action, so it takes the primary role, not the tonal
    -container pair: primary-container measured 1.29:1 against the pill it sits
@@ -575,111 +449,13 @@ html[data-fab-dragging="true"] .term-nav {
   background: var(--md-sys-color-primary);
   color: var(--md-sys-color-on-primary);
 }
-.term-chat__lead:active,
-.term-chat__send:active { transform: scale(0.96); }
-.term-chat__icon,
-.term-chat__menu-icon {
-  /* Above the buttons' ::after state layer. */
-  position: relative;
-  z-index: 1;
-  font-family: "Material Symbols Rounded";
-  font-size: 22px;
-  line-height: 1;
-  font-variation-settings: "FILL" 1, "wght" 500, "GRAD" 0, "opsz" 24;
-  user-select: none;
-}
-.term-chat__menu-icon {
-  color: var(--md-sys-color-on-surface-variant);
-}
-
-/* ── term-chat__menu: the leading "+" sheet (photo / gallery / file) ──
-   A sibling in the dock column, left-aligned above the bar, so it rides
-   --kb-offset with the composer and needs no anchor math. */
-.term-chat__menu {
-  align-self: flex-start;
-  /* 180px matches the SPA's other two floating menus. */
-  min-width: 180px;
-  padding: var(--md-space-2) 0;
-  border-radius: var(--md-shape-lg);
-  background: var(--md-sys-color-surface-container-highest);
-  /* Hairline, like every other floating menu in the SPA: one tier of
-     separation is ~1.16:1 here, so the tier alone cannot delineate the two. */
-  border: 1px solid var(--md-sys-color-outline-variant);
-  box-shadow: var(--md-elev-3);
-  pointer-events: auto;
-  animation: voice-caption-enter 200ms var(--md-ease-emphasized);
-}
-.term-chat__menu-item {
-  display: flex;
-  align-items: center;
-  gap: var(--md-space-3);
-  width: 100%;
-  min-height: var(--term-chat-control);
-  padding: 0 var(--md-space-4);
-  border: none;
-  background: transparent;
-  color: var(--md-sys-color-on-surface);
-  font: var(--md-body-l-weight) var(--md-body-l-size)/var(--md-body-l-line) var(--md-font);
-  text-align: left;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-}
-.term-chat__menu-item:hover { background: var(--md-state-hover); }
-.term-chat__menu-item:active { background: var(--md-state-pressed); }
-.term-chat__menu-item:focus-visible {
-  background: var(--md-state-focus);
-  outline: none;
-}
 
 /* Chat toggle FAB — a mic-style primary FAB (twin of .voice-fab), positioned by
    the .term-chat flex container (relative, no fixed bottom/right/z-index). */
 .term-chat-toggle {
   position: relative;
-  width: 56px;
-  height: 56px;
-  border-radius: var(--md-shape-lg);
-  border: none;
-  cursor: pointer;
-  pointer-events: auto;
-  touch-action: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
   background: var(--md-sys-color-primary-container);
   color: var(--md-sys-color-on-primary-container);
-  box-shadow: var(--md-elev-3);
-  transition:
-    background-color 200ms var(--md-ease-emphasized),
-    box-shadow 200ms var(--md-ease-emphasized),
-    transform 120ms var(--md-ease-standard);
-  -webkit-tap-highlight-color: transparent;
-}
-.term-chat-toggle::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: currentColor;
-  opacity: 0;
-  transition: opacity 120ms var(--md-ease-standard);
-  pointer-events: none;
-}
-@media (hover: hover) {
-  .term-chat-toggle:hover { box-shadow: var(--md-elev-4); }
-  .term-chat-toggle:hover::after { opacity: 0.08; }
-}
-.term-chat-toggle:active::after { opacity: 0.12; }
-.term-chat-toggle:active { transform: scale(0.96); }
-.term-chat-toggle:focus-visible { outline: none; }
-.term-chat-toggle:focus-visible::after { opacity: 0.12; }
-.term-chat-toggle__icon {
-  position: relative;
-  z-index: 1;
-  font-family: "Material Symbols Rounded";
-  font-size: 26px;
-  line-height: 1;
-  font-variation-settings: "FILL" 1, "wght" 500, "GRAD" 0, "opsz" 24;
-  user-select: none;
 }
 
 /* ── term-nav: the special-keys sheet ── */
@@ -832,6 +608,5 @@ html[data-fab-dragging="true"] .term-nav {
   .voice-fab--discard,
   .voice-caption,
   .term-nav,
-  .term-chat__box,
-  .term-chat__menu { animation: none; }
+  .term-chat__box { animation: none; }
 }

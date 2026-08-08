@@ -9,6 +9,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync, statSync } from "node
 import { join } from "node:path";
 import { tmpdir, homedir } from "node:os";
 import * as bc from "../src/diag/byte-capture.ts";
+import { readRing } from "../src/session-scrollback-ring.ts";
 
 const RING_CAP = 256 * 1024;
 
@@ -21,18 +22,21 @@ describe("byte-capture", () => {
     bc.push(sid, new Uint8Array(100_000).fill(0xAA), 100_000);
     bc.push(sid, new Uint8Array(100_000).fill(0xBB), 200_000);
     const ring = bc._getRingForTest(sid)!;
-    expect(ring.buf.length).toBe(200_000);
+    const bytes = readRing(ring.ring);
+    expect(bytes.length).toBe(200_000);
     expect(ring.end_seq).toBe(200_000);
-    expect(ring.buf[0]).toBe(0xAA);
-    expect(ring.buf[100_000]).toBe(0xBB);
+    expect(bytes[0]).toBe(0xAA);
+    expect(bytes[100_000]).toBe(0xBB);
 
     // Push enough to exceed the cap. Verify ring keeps only the tail.
     bc.push(sid, new Uint8Array(200_000).fill(0xCC), 400_000);
     const ring2 = bc._getRingForTest(sid)!;
-    expect(ring2.buf.length).toBe(RING_CAP);
+    const bytes2 = readRing(ring2.ring);
+    expect(bytes2.length).toBe(RING_CAP);
     expect(ring2.end_seq).toBe(400_000);
-    // Tail should be 0xCC; head should still have some 0xBB.
-    expect(ring2.buf[ring2.buf.length - 1]).toBe(0xCC);
+    // Read is oldest→newest across the wrap: tail is 0xCC, head still 0xBB.
+    expect(bytes2[bytes2.length - 1]).toBe(0xCC);
+    expect(bytes2[0]).toBe(0xBB);
   });
 
   test("drop clears the ring", () => {
