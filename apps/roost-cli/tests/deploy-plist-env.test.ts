@@ -15,6 +15,7 @@ import fs from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { _backfillEnvFromPlist, _resolveDeployEnvValue } from "../src/deploy-plist-env.ts";
+import { _quoteRemoteShell, _selectMacCertificateFqdn } from "../src/deploy.ts";
 import { WORKER_UNIT } from "../src/service-ctl.ts";
 
 const KEYS = ["ROOST_COORDINATOR_URL", "ROOST_REACHABLE_ADDR", "ROOST_WORKER_LABEL", "HOME"] as const;
@@ -68,9 +69,7 @@ function backfillFrom(home: string): Promise<{ env: Record<string, string>; fill
 beforeEach(() => {
   saved = {};
   for (const k of KEYS) saved[k] = process.env[k];
-  // `missing` is computed off ambient process.env: a stray ROOST_* in the
-  // dev shell or a sibling test file would short-circuit the whole function
-  // and make these tests pass for the wrong reason.
+  // Keep ambient identity deterministic; precedence tests opt in explicitly.
   delete process.env.ROOST_COORDINATOR_URL;
   delete process.env.ROOST_REACHABLE_ADDR;
   delete process.env.ROOST_WORKER_LABEL;
@@ -202,48 +201,161 @@ describe("_backfillEnvFromPlist — parsing", () => {
   });
 });
 
+describe("_quoteRemoteShell", () => {
+  test("preserves remote-shell metacharacters without executing them", () => {
+    const commandSubstitution = join(root, "command-substitution");
+    const backtickSubstitution = join(root, "backtick-substitution");
+    const value = `$(touch ${commandSubstitution}) \`touch ${backtickSubstitution}\` $HOME O'Reilly`;
+    const proc = Bun.spawnSync([
+      "bash",
+      "-c",
+      `VALUE=${_quoteRemoteShell(value)}; printf '%s' "$VALUE"`,
+    ]);
+
+    expect(proc.exitCode).toBe(0);
+    expect(proc.stdout.toString()).toBe(value);
+    expect(fs.existsSync(commandSubstitution)).toBe(false);
+    expect(fs.existsSync(backtickSubstitution)).toBe(false);
+  });
+});
+
+describe("worker installer environment precedence", () => {
+  test("explicit enrolled identity wins while absent values use host-local defaults", () => {
+    const repo = join(root, "repo");
+    const scriptDir = join(repo, "apps/worker/scripts");
+    const installer = join(scriptDir, "install.sh");
+    const home = join(root, "home");
+    const unit = join(home, ".config/systemd/user/test-worker.service");
+    fs.mkdirSync(scriptDir, { recursive: true });
+    fs.mkdirSync(home, { recursive: true });
+    fs.copyFileSync(join(import.meta.dir, "../../worker/scripts/install.sh"), installer);
+    fs.chmodSync(installer, 0o700);
+    fs.writeFileSync(
+      join(repo, ".env.local"),
+      [
+        "ROOST_COORDINATOR_URL=https://stale.example:4102",
+        "ROOST_WORKER_LABEL=stale-worker",
+        "ROOST_REACHABLE_ADDR=stale.example",
+        "ROOST_WORKER_MEMORY_HIGH=4G",
+        "",
+      ].join("\n"),
+    );
+    const env = { ...process.env };
+    delete env.ROOST_WORKER_MEMORY_HIGH;
+    Object.assign(env, {
+      HOME: home,
+      BUN_BIN: "/bin/true",
+      ROOST_COORDINATOR_URL: "https://current.example:4102",
+      ROOST_WORKER_LABEL: "current-worker",
+      ROOST_REACHABLE_ADDR: "current.example",
+      ROOST_WORKER_AGENT_LABEL: "test-worker",
+      ROOST_WORKER_UNIT: unit,
+      ROOST_WORKER_DATA_DIR: join(root, "data"),
+      ROOST_WORKER_LOG_DIR: join(root, "logs"),
+    });
+
+    const proc = Bun.spawnSync(["bash", installer, "write-plist"], { env });
+    expect(proc.exitCode).toBe(0);
+    const definition = fs.readFileSync(unit, "utf8");
+    expect(definition).toContain("Environment=ROOST_COORDINATOR_URL=https://current.example:4102");
+    expect(definition).toContain("Environment=ROOST_WORKER_LABEL=current-worker");
+    expect(definition).toContain("Environment=ROOST_REACHABLE_ADDR=current.example");
+    expect(definition).toContain("MemoryHigh=4G");
+    expect(definition).not.toContain("stale");
+  });
+});
+
 describe("_backfillEnvFromPlist — precedence and absence", () => {
-  test("explicit per-host label and address still win", async () => {
-    const home = fakeHost("mac", {
+  test("an enrolled Mac keeps its installed identity over ambient coordinator-host identity", async () => {
+    process.env.ROOST_COORDINATOR_URL = "https://coord-host.tail1234.ts.net:4102";
+    process.env.ROOST_REACHABLE_ADDR = "coord-host.tail1234.ts.net";
+    process.env.ROOST_WORKER_LABEL = "coord-host";
+    const home = fakeHost("mac-worker", {
       plist: plistWith({
-        ROOST_REACHABLE_ADDR: "installed.tail1234.ts.net",
-        ROOST_WORKER_LABEL: "installed-label",
+        ROOST_COORDINATOR_URL: "https://enrolled-coord.tail1234.ts.net:4102",
+        ROOST_REACHABLE_ADDR: "mac-worker.tail1234.ts.net",
+        ROOST_WORKER_LABEL: "mac-worker",
       }),
     });
-    process.env.ROOST_REACHABLE_ADDR = "explicit.tail1234.ts.net";
-    process.env.ROOST_WORKER_LABEL = "explicit-label";
 
     const r = await backfillFrom(home);
-    expect(_resolveDeployEnvValue("ROOST_REACHABLE_ADDR", r.env)).toBe("explicit.tail1234.ts.net");
-    expect(_resolveDeployEnvValue("ROOST_WORKER_LABEL", r.env)).toBe("explicit-label");
-    expect(r.env.ROOST_REACHABLE_ADDR).toBeUndefined();
-    expect(r.env.ROOST_WORKER_LABEL).toBeUndefined();
-    expect(process.env.ROOST_REACHABLE_ADDR).toBe("explicit.tail1234.ts.net");
-    expect(process.env.ROOST_WORKER_LABEL).toBe("explicit-label");
+    expect(r.env).toEqual({
+      ROOST_COORDINATOR_URL: "https://enrolled-coord.tail1234.ts.net:4102",
+      ROOST_REACHABLE_ADDR: "mac-worker.tail1234.ts.net",
+      ROOST_WORKER_LABEL: "mac-worker",
+    });
+    expect(r.filled.sort()).toEqual([
+      "ROOST_COORDINATOR_URL",
+      "ROOST_REACHABLE_ADDR",
+      "ROOST_WORKER_LABEL",
+    ]);
+
+    const resolvedCoordinatorUrl = _resolveDeployEnvValue("ROOST_COORDINATOR_URL", r.env);
+    const resolvedWorkerLabel = _resolveDeployEnvValue("ROOST_WORKER_LABEL", r.env);
+    const resolvedReachableAddr = _resolveDeployEnvValue("ROOST_REACHABLE_ADDR", r.env);
+    expect(resolvedCoordinatorUrl).toBe("https://enrolled-coord.tail1234.ts.net:4102");
+    expect(resolvedWorkerLabel).toBe("mac-worker");
+    expect(resolvedReachableAddr).toBe("mac-worker.tail1234.ts.net");
+    expect(_selectMacCertificateFqdn("mac-worker", resolvedReachableAddr, "wrong-tail.ts.net"))
+      .toBe(resolvedReachableAddr);
+
+    expect(process.env.ROOST_COORDINATOR_URL).toBe("https://coord-host.tail1234.ts.net:4102");
+    expect(process.env.ROOST_REACHABLE_ADDR).toBe("coord-host.tail1234.ts.net");
+    expect(process.env.ROOST_WORKER_LABEL).toBe("coord-host");
   });
 
-  test("an installed systemd or plist coordinator URL beats stale ambient state", async () => {
-    process.env.ROOST_COORDINATOR_URL = "https://stale-shell.tail1234.ts.net:4102";
-    const hosts = [
-      fakeHost("mac", {
-        plist: plistWith({ ROOST_COORDINATOR_URL: "https://mac-coord.tail1234.ts.net:4102" }),
+  test("an enrolled Linux worker keeps its installed identity over ambient coordinator-host identity", async () => {
+    process.env.ROOST_COORDINATOR_URL = "https://coord-host.tail1234.ts.net:4102";
+    process.env.ROOST_REACHABLE_ADDR = "coord-host.tail1234.ts.net";
+    process.env.ROOST_WORKER_LABEL = "coord-host";
+    const home = fakeHost("linux-worker", {
+      unit: unitWith({
+        ROOST_COORDINATOR_URL: "https://enrolled-coord.tail1234.ts.net:4102",
+        ROOST_REACHABLE_ADDR: "linux-worker.tail1234.ts.net",
+        ROOST_WORKER_LABEL: "linux-worker",
       }),
-      fakeHost("linux", {
-        unit: unitWith({ ROOST_COORDINATOR_URL: "https://linux-coord.tail1234.ts.net:4102" }),
-      }),
-    ];
+    });
 
-    for (const [index, home] of hosts.entries()) {
-      const r = await backfillFrom(home);
-      const expected = index === 0
-        ? "https://mac-coord.tail1234.ts.net:4102"
-        : "https://linux-coord.tail1234.ts.net:4102";
-      expect(r.env.ROOST_COORDINATOR_URL).toBe(expected);
-      expect(r.filled).toContain("ROOST_COORDINATOR_URL");
-      expect(_resolveDeployEnvValue("ROOST_COORDINATOR_URL", r.env)).toBe(expected);
-      expect(process.env.ROOST_COORDINATOR_URL).toBe("https://stale-shell.tail1234.ts.net:4102");
-    }
+    const r = await backfillFrom(home);
+    expect(_resolveDeployEnvValue("ROOST_COORDINATOR_URL", r.env))
+      .toBe("https://enrolled-coord.tail1234.ts.net:4102");
+    expect(_resolveDeployEnvValue("ROOST_REACHABLE_ADDR", r.env))
+      .toBe("linux-worker.tail1234.ts.net");
+    expect(_resolveDeployEnvValue("ROOST_WORKER_LABEL", r.env)).toBe("linux-worker");
+    expect(r.filled.sort()).toEqual([
+      "ROOST_COORDINATOR_URL",
+      "ROOST_REACHABLE_ADDR",
+      "ROOST_WORKER_LABEL",
+    ]);
   });
+
+  test("a fresh target falls back to ambient deploy values", async () => {
+    process.env.ROOST_COORDINATOR_URL = "https://coord-host.tail1234.ts.net:4102";
+    process.env.ROOST_REACHABLE_ADDR = "fresh-mac.tail1234.ts.net";
+    process.env.ROOST_WORKER_LABEL = "fresh-mac";
+    const r = await backfillFrom(fakeHost("fresh-mac", {}));
+
+    expect(r).toEqual({ env: {}, filled: [] });
+    expect(_resolveDeployEnvValue("ROOST_COORDINATOR_URL", r.env))
+      .toBe("https://coord-host.tail1234.ts.net:4102");
+    expect(_resolveDeployEnvValue("ROOST_REACHABLE_ADDR", r.env))
+      .toBe("fresh-mac.tail1234.ts.net");
+    expect(_resolveDeployEnvValue("ROOST_WORKER_LABEL", r.env)).toBe("fresh-mac");
+    const resolvedReachableAddr = _resolveDeployEnvValue("ROOST_REACHABLE_ADDR", r.env);
+    expect(_selectMacCertificateFqdn("fresh-mac", resolvedReachableAddr, "tail1234.ts.net"))
+      .toBe("fresh-mac.tail1234.ts.net");
+  });
+
+  test("a fresh Mac derives its certificate FQDN when reachable address is absent", async () => {
+    process.env.ROOST_COORDINATOR_URL = "https://coord-host.tail1234.ts.net:4102";
+    const r = await backfillFrom(fakeHost("fresh-mac", {}));
+    const resolvedReachableAddr = _resolveDeployEnvValue("ROOST_REACHABLE_ADDR", r.env);
+
+    expect(resolvedReachableAddr).toBeUndefined();
+    expect(_selectMacCertificateFqdn("fresh-mac", resolvedReachableAddr, "tail1234.ts.net"))
+      .toBe("fresh-mac.tail1234.ts.net");
+  });
+
 
   test("missing service definition returns empty without throwing", async () => {
     const r = await backfillFrom(join(root, "does-not-exist"));

@@ -28,36 +28,31 @@ function _parseUnitEnv(unitText: string): Record<string, string> {
 }
 
 export interface HostEnvBackfill {
-  /** Values read off this host's own service definition. Never merged into
+  /** Values read from this host's own service definition. Never merged into
    *  process.env: `roost push` deploys every target in ONE process, so a
    *  global write leaks one machine's identity into the next machine's
-   *  install — ROOST_WORKER_LABEL and ROOST_REACHABLE_ADDR are per-host. */
+   *  install. */
   env: Record<string, string>;
-  /** Keys that came from the target rather than the caller's environment. */
+  /** Keys found in the target's installed service definition. */
   filled: string[];
 }
 
 /** Resolve one deploy variable without mutating ambient state. An enrolled
- *  worker's installed coordinator is authoritative; other per-host values
- *  remain explicit caller overrides. */
+ *  target's installed values are authoritative; ambient values are only a
+ *  fallback for a fresh target. */
 export function _resolveDeployEnvValue(
   key: string,
   installedEnv: Record<string, string>,
 ): string | undefined {
-  const ambient = process.env[key];
-  return key === "ROOST_COORDINATOR_URL"
-    ? installedEnv[key] ?? ambient
-    : ambient ?? installedEnv[key];
+  return installedEnv[key] ?? process.env[key];
 }
 
 /** Read deploy env vars from the existing worker service definition on the
  *  target box — the LaunchAgent plist on macOS, the systemd --user unit on
- *  Linux. The installed coordinator URL is always read because it is
- *  authoritative for an enrolled worker; other keys are read only when
- *  absent from the caller environment. */
+ *  Linux. All identity keys are always read so ambient values cannot hide an
+ *  enrolled target's installed identity. */
 export async function _backfillEnvFromPlist(host: string | "self"): Promise<HostEnvBackfill> {
   const KEYS = ["ROOST_COORDINATOR_URL", "ROOST_REACHABLE_ADDR", "ROOST_WORKER_LABEL"];
-  const requested = KEYS.filter((k) => k === "ROOST_COORDINATOR_URL" || !process.env[k]);
   const PLIST = "Library/LaunchAgents/com.roost.worker-v2.plist";
   const UNIT = `.config/systemd/user/${WORKER_UNIT}`;
   // Whichever the box has. Both parsers key off their own syntax, so
@@ -76,7 +71,7 @@ export async function _backfillEnvFromPlist(host: string | "self"): Promise<Host
   const parsed = { ..._parseUnitEnv(text), ..._parsePlistEnv(text) };
   const env: Record<string, string> = {};
   const filled: string[] = [];
-  for (const k of requested) {
+  for (const k of KEYS) {
     if (parsed[k]) {
       env[k] = parsed[k];
       filled.push(k);

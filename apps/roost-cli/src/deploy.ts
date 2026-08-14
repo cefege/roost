@@ -31,6 +31,27 @@ export { sshExec, _isSelfHost };
 
 const REMOTE_DIR = "~/RoostWorkerV2";
 
+/** Pick the FQDN used for a Mac worker certificate from the already-resolved
+ *  target identity, falling back to the target hostname for a fresh install. */
+export function _selectMacCertificateFqdn(
+  host: string,
+  resolvedReachableAddr: string | undefined,
+  tailnetDnsSuffix: string | null | undefined,
+): string | undefined {
+  if (resolvedReachableAddr) return resolvedReachableAddr;
+  if (!tailnetDnsSuffix) return undefined;
+  return host.endsWith(`.${tailnetDnsSuffix}`) ? host : `${host}.${tailnetDnsSuffix}`;
+}
+
+/** Quote one value for a POSIX remote-shell assignment without expansion. */
+export function _quoteRemoteShell(value: string): string {
+  return `'${value.replaceAll("'", `'\"'\"'`)}'`;
+}
+
+function remoteEnvAssignment(key: string, value: string): string {
+  return `${key}=${_quoteRemoteShell(value)}`;
+}
+
 export async function deploy(args: string[]): Promise<void> {
   const host = args[0];
   if (!host) {
@@ -74,17 +95,17 @@ export async function deploy(args: string[]): Promise<void> {
     if (filled.length > 0) {
       console.log(`>> reused from the installed unit on ${host}: ${filled.join(", ")}`);
     }
-    // An enrolled worker's installed coordinator is authoritative. Explicit
-    // caller values still win for the per-host label and reachable address.
+    // Installed target identity wins; ambient values only seed fresh installs.
     const resolved = (k: string): string | undefined => _resolveDeployEnvValue(k, hostEnv);
     if (!resolved("ROOST_COORDINATOR_URL")) {
       console.error("ERROR: ROOST_COORDINATOR_URL env var required (no prior install on target to reuse).");
       process.exit(6);
     }
     const passthroughEnv = ["ROOST_COORDINATOR_URL", "ROOST_BOOTSTRAP_TOKEN", "ROOST_WORKER_LABEL", "ROOST_REACHABLE_ADDR"]
-      .filter((k) => resolved(k))
-      .map((k) => `${k}=${JSON.stringify(resolved(k))}`)
-      .join(" ") + (gitSha ? ` GIT_SHA=${JSON.stringify(gitSha)}` : "");
+      .map((key) => [key, resolved(key)] as const)
+      .filter((entry): entry is readonly [string, string] => entry[1] !== undefined)
+      .map(([key, value]) => remoteEnvAssignment(key, value))
+      .join(" ") + (gitSha ? ` ${remoteEnvAssignment("GIT_SHA", gitSha)}` : "");
     await deployLinux(host, { gitSha, passthroughEnv });
     return;
   }
@@ -180,21 +201,33 @@ export async function deploy(args: string[]): Promise<void> {
   }
   console.log("   bun install ok");
 
+  const { env: hostEnv, filled } = await _backfillEnvFromPlist(host);
+  if (filled.length > 0) {
+    console.log(`>> reused from existing plist on ${host}: ${filled.join(", ")}`);
+  }
+  const resolved = (k: string): string | undefined => _resolveDeployEnvValue(k, hostEnv);
+  const resolvedCoordinatorUrl = resolved("ROOST_COORDINATOR_URL");
+  if (!resolvedCoordinatorUrl) {
+    console.error("ERROR: ROOST_COORDINATOR_URL env var required (no prior plist on target to reuse).");
+    console.error("  ROOST_COORDINATOR_URL=https://<your-coord-host>:4102 \\");
+    console.error("    ROOST_BOOTSTRAP_TOKEN=roost_bt_... \\");
+    console.error(`    bun apps/roost-cli/src/main.ts deploy ${host}`);
+    process.exit(6);
+  }
+  const resolvedReachableAddr = resolved("ROOST_REACHABLE_ADDR");
+
   // Mint a tailnet TLS cert on the remote so the worker can serve WSS to
   // browsers loading the SPA from https://<coord-fqdn>:4102/. `tailscale
   // cert` runs as the user (no sudo) on GUI Tailscale. The cert files
   // land in the worker's data dir, then ROOST_TLS_CERT_PATH / _KEY_PATH
   // are baked into the plist by install.sh.
-  let remoteFqdn = process.env.ROOST_REACHABLE_ADDR;
+  const certSuffix = resolvedReachableAddr ? null : tailnetSuffix();
+  const remoteFqdn = _selectMacCertificateFqdn(host, resolvedReachableAddr, certSuffix);
   if (!remoteFqdn) {
-    const sfx = tailnetSuffix();
-    if (!sfx) {
-      console.error(
-        `cannot resolve tailnet suffix for ${host}: set ROOST_TAILNET_SUFFIX in .env.local, or start tailscale (\`tailscale up\`), or pass ROOST_REACHABLE_ADDR`,
-      );
-      process.exit(7);
-    }
-    remoteFqdn = host.endsWith(`.${sfx}`) ? host : `${host}.${sfx}`;
+    console.error(
+      `cannot resolve tailnet suffix for ${host}: set ROOST_TAILNET_SUFFIX in .env.local, or start tailscale (\`tailscale up\`), or pass ROOST_REACHABLE_ADDR`,
+    );
+    process.exit(7);
   }
   const remoteTlsDir = `~/Library/Application\\ Support/RoostWorkerV2/tls`;
   const remoteCertPath = `~/Library/Application Support/RoostWorkerV2/tls/${remoteFqdn}.crt`;
@@ -202,7 +235,7 @@ export async function deploy(args: string[]): Promise<void> {
   console.log(`>> mint tailnet cert for ${remoteFqdn} on ${host}`);
   const certRes = await sshExec(
     host,
-    `mkdir -p ${remoteTlsDir} && cd ${remoteTlsDir} && tailscale cert ${remoteFqdn} 2>&1 | tail -5`,
+    `mkdir -p ${remoteTlsDir} && cd ${remoteTlsDir} && tailscale cert ${_quoteRemoteShell(remoteFqdn)} 2>&1 | tail -5`,
   );
   if (certRes.exit !== 0) {
     console.error("tailscale cert failed (worker will serve plain ws):");
@@ -222,7 +255,7 @@ export async function deploy(args: string[]): Promise<void> {
   // plist after redeem; ROOST_WORKER_LABEL / ROOST_REACHABLE_ADDR optional;
   // ROOST_TLS_{CERT,KEY}_PATH auto-derived from the mint above.
   const certEnv = certRes.exit === 0
-    ? ` ROOST_TLS_CERT_PATH=${JSON.stringify(remoteCertPath)} ROOST_TLS_KEY_PATH=${JSON.stringify(remoteKeyPath)}`
+    ? ` ${remoteEnvAssignment("ROOST_TLS_CERT_PATH", remoteCertPath)} ${remoteEnvAssignment("ROOST_TLS_KEY_PATH", remoteKeyPath)}`
     : "";
   // Stamp the local git HEAD into the remote install env so the deployed
   // worker reports it via heartbeat. .git isn't rsynced (apps/worker only),
@@ -232,25 +265,17 @@ export async function deploy(args: string[]): Promise<void> {
   // stamp captures the prior HEAD — drift badge fires falsely until the next
   // deploy after commit. Hit me once already (sb29 → sb30 keeper-bump deploy).
   const localGitSha = resolveLocalGitShaOrDie();
-  const gitShaEnv = localGitSha ? ` GIT_SHA=${JSON.stringify(localGitSha)}` : "";
-  const { env: hostEnv, filled } = await _backfillEnvFromPlist(host);
-  if (filled.length > 0) {
-    console.log(`>> reused from existing plist on ${host}: ${filled.join(", ")}`);
-  }
-  // Same rule as the Linux branch: preserve the installed coordinator while
-  // keeping explicit caller precedence for per-host values.
-  const resolved = (k: string): string | undefined => _resolveDeployEnvValue(k, hostEnv);
-  const passthroughEnv = ["ROOST_COORDINATOR_URL", "ROOST_BOOTSTRAP_TOKEN", "ROOST_WORKER_LABEL", "ROOST_REACHABLE_ADDR"]
-    .filter((k) => resolved(k))
-    .map((k) => `${k}=${JSON.stringify(resolved(k))}`)
+  const gitShaEnv = localGitSha ? ` ${remoteEnvAssignment("GIT_SHA", localGitSha)}` : "";
+  const installEnv: Array<[string, string | undefined]> = [
+    ["ROOST_COORDINATOR_URL", resolvedCoordinatorUrl],
+    ["ROOST_BOOTSTRAP_TOKEN", resolved("ROOST_BOOTSTRAP_TOKEN")],
+    ["ROOST_WORKER_LABEL", resolved("ROOST_WORKER_LABEL")],
+    ["ROOST_REACHABLE_ADDR", resolvedReachableAddr],
+  ];
+  const passthroughEnv = installEnv
+    .filter((entry): entry is [string, string] => entry[1] !== undefined)
+    .map(([key, value]) => remoteEnvAssignment(key, value))
     .join(" ") + certEnv + gitShaEnv;
-  if (!resolved("ROOST_COORDINATOR_URL")) {
-    console.error("ERROR: ROOST_COORDINATOR_URL env var required (no prior plist on target to reuse).");
-    console.error("  ROOST_COORDINATOR_URL=https://<your-coord-host>:4102 \\");
-    console.error("    ROOST_BOOTSTRAP_TOKEN=roost_bt_... \\");
-    console.error(`    bun apps/roost-cli/src/main.ts deploy ${host}`);
-    process.exit(6);
-  }
   const installSh = await sshExec(
     host,
     `${passthroughEnv} bash ${REMOTE_DIR}/apps/worker/scripts/install.sh install 2>&1`,

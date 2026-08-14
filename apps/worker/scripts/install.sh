@@ -6,10 +6,15 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd -P)"
-# Load YOUR setup from repo-root .env.local (gitignored) so ROOST_* below
-# come from one place. Explicit env still wins (set -a exports; caller's
-# pre-set vars override via the sourced file only if unset there).
+# Load host-local defaults from repo-root .env.local (gitignored), then restore
+# every variable explicitly exported by the caller. Deployment passes the
+# enrolled worker identity this way; a checkout-local coordinator URL must
+# never overwrite it. Variables absent from the caller still come from the
+# host-local file.
+_ROOST_CALLER_ENV="$(export -p)"
 set -a; [ -f "$REPO_ROOT/.env.local" ] && source "$REPO_ROOT/.env.local"; set +a
+eval "$_ROOST_CALLER_ENV"
+unset _ROOST_CALLER_ENV
 # MemoryHigh must scale with the host: every PTY session lives in the worker's
 # cgroup, so a flat cap sized for a laptop throttles the worker's own event loop
 # into D-state on a big box (2026-08-01: ovh1, 1.4M memory.high events, worker
