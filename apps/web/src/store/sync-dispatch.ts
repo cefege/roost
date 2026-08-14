@@ -27,6 +27,11 @@ const _droppedCellFrameCounts = new Map<string, number>();
 function smokeDropKey(sessionId: string): string {
   return `roostSmoke.dropCell.${sessionId}`;
 }
+// ONE module-load read. The persisted-drop backdoor is only ever armed by the
+// smoke harness, which sets localStorage.roostSmoke="1" and THEN reloads, so a
+// module-load read sees exactly what a per-frame read would. Per-frame it put
+// two synchronous localStorage calls on production's paint path.
+const _smokeEnabled = typeof localStorage !== "undefined" && localStorage.getItem("roostSmoke") === "1";
 
 export function dropNextCellFrame(sessionId: string): void {
   if (typeof localStorage === "undefined" || localStorage.getItem("roostSmoke") !== "1") return;
@@ -46,7 +51,7 @@ export function registerPresenceHandler(sessionId: string, fn: PresenceHandler):
 }
 
 export function _dispatchCell(pb: PbCellGridFrame): void {
-  const persistedDrop = typeof localStorage !== "undefined"
+  const persistedDrop = _smokeEnabled
     && localStorage.getItem(smokeDropKey(pb.sessionId)) === "1";
   if (persistedDrop) localStorage.removeItem(smokeDropKey(pb.sessionId));
   const runtimeDrop = _dropNextCellFrames.delete(pb.sessionId);

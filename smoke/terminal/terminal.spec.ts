@@ -1,7 +1,16 @@
+import { mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { setTimeout as delay } from "node:timers/promises";
+import { fromBinary } from "@bufbuild/protobuf";
 import { test, expect } from "./fixtures.ts";
 import type { Page } from "@playwright/test";
+import type { TerminalTestStack } from "./stack.ts";
 import { dirname, join } from "node:path";
+import {
+  FilesListDirRequestSchema,
+  SessionsInputRequestSchema,
+} from "../../apps/shared/src/gen/roost/v1/coordinator_pb.ts";
+import { encodeFolderPath } from "../../apps/web/src/lib/terminalHref.ts";
 
 const fixturePath = join(dirname(fileURLToPath(import.meta.url)), "resize-tui.ts");
 
@@ -10,8 +19,16 @@ interface RecoveryMarkerScan {
   duplicated: number[]; missing: number; outOfOrder: number; firstInversion: number;
 }
 
+interface SmokeSessionProjection {
+  id: string;
+  worker_fp: string;
+  cwd?: string;
+  spawn_cwd?: string;
+}
+
 interface RecoverySmokeApi {
   spawnShell(workerFp: string, folder: string, sessionId?: string): Promise<{ session_id: string; channel_id: number }>;
+  state(): { sessions: Record<string, SmokeSessionProjection> };
   createWorkspace(workerFp: string, folder: string, sessionId: string): Promise<{ id: string; channel: number }>;
   navigate(href: string): void;
   input(sessionId: string, text: string): Promise<void>;
@@ -58,14 +75,58 @@ async function switchToSmokeSession(page: Page, sessionId: string): Promise<void
   await expect(page.getByTestId(`terminal-slot-${sessionId}`)).toBeVisible();
 }
 
-// Auto-open is once per pane mount (CellTerminal's composerDefaultConsumed), so
-// after a pane switch or a reload the bar may land closed. Retention is what the
-// draft specs assert, not which state the bar happens to be in.
-async function openSmokeComposer(page: Page): Promise<void> {
+async function expectSmokeComposer(page: Page): Promise<void> {
   await expect(page.getByTestId("mobile-chat-input")).toBeVisible();
-  const toggle = page.getByTestId("terminal-chat-toggle");
-  if (await toggle.count() > 0) await toggle.click();
+  await expect(page.getByTestId("chat-box")).toBeVisible();
   await expect(page.getByTestId("chat-input")).toBeVisible();
+}
+
+async function readWorkerBytes(
+  client: TerminalTestStack["client"],
+  workerFp: string,
+  path: string,
+): Promise<Uint8Array> {
+  const parts: Uint8Array[] = [];
+  let offset = 0;
+  for (;;) {
+    const response = await client.filesReadChunk({
+      workerFp,
+      path,
+      offset: BigInt(offset),
+      len: 4 * 1024 * 1024,
+    });
+    if (response.data.length > 0) {
+      parts.push(response.data);
+      offset += response.data.length;
+    }
+    if (response.eof || response.data.length === 0) break;
+  }
+  const bytes = new Uint8Array(offset);
+  let writeOffset = 0;
+  for (const part of parts) {
+    bytes.set(part, writeOffset);
+    writeOffset += part.length;
+  }
+  return bytes;
+}
+
+async function readStoredComposerDraft(
+  page: Page,
+  sessionId: string,
+): Promise<{ present: boolean; value: string | null }> {
+  return page.evaluate((id) => {
+    try {
+      const raw = localStorage.getItem("roost.composerDrafts.v1");
+      const parsed: unknown = raw ? JSON.parse(raw) : {};
+      if (!parsed || typeof parsed !== "object" || !Object.prototype.hasOwnProperty.call(parsed, id)) {
+        return { present: false, value: null };
+      }
+      const value = Reflect.get(parsed, id);
+      return { present: true, value: typeof value === "string" ? value : null };
+    } catch {
+      return { present: false, value: null };
+    }
+  }, sessionId);
 }
 async function inputSmokeTerminal(page: Page, sessionId: string, text: string): Promise<void> {
   await page.evaluate(async ({ id, input }) => {
@@ -127,6 +188,114 @@ test("browser smoke flow creates and cleans its resources", async ({ smokePage }
     return smoke.runFlow();
   });
   expect(result.steps.filter((step) => !step.pass)).toEqual([]);
+});
+
+test("new-terminal server switch resets browse path before listing and spawning", async ({
+  multiWorkerSmokePage,
+  stack,
+  secondWorker,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium-desktop", "desktop multi-worker browse contract");
+
+  const suffix = crypto.randomUUID().slice(0, 8);
+  const aChildName = `a-only-${suffix}`;
+  const aChildPath = join(stack.workerHome, aChildName);
+  const bDefaultPath = join(secondWorker.home, `b-default-${suffix}`);
+  mkdirSync(aChildPath, { recursive: true });
+  mkdirSync(bDefaultPath, { recursive: true });
+
+  const bSeedSessionId = await multiWorkerSmokePage.evaluate(async ({ workerFp, cwd }) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return (await smokeWindow.__smoke.spawnShell(workerFp, cwd)).session_id;
+  }, { workerFp: secondWorker.workerFp, cwd: bDefaultPath });
+  await multiWorkerSmokePage.waitForFunction((sessionId) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return !!smokeWindow.__smoke.state().sessions[sessionId]?.cwd;
+  }, bSeedSessionId);
+
+  // FlatNewTerminal chooses the globally newest session. Cross a timestamp
+  // boundary, then seed A so the sidebar-scoped plus deterministically opens A.
+  await delay(10);
+  const aSeedSessionId = await multiWorkerSmokePage.evaluate(async ({ workerFp, cwd }) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return (await smokeWindow.__smoke.spawnShell(workerFp, cwd)).session_id;
+  }, { workerFp: stack.workerFp, cwd: stack.workerHome });
+  await multiWorkerSmokePage.waitForFunction((sessionId) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return !!smokeWindow.__smoke.state().sessions[sessionId]?.cwd;
+  }, aSeedSessionId);
+
+  const seedCwds = await multiWorkerSmokePage.evaluate(({ aId, bId }) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    const sessions = smokeWindow.__smoke.state().sessions;
+    return { a: sessions[aId]?.cwd, b: sessions[bId]?.cwd };
+  }, { aId: aSeedSessionId, bId: bSeedSessionId });
+  expect(seedCwds).toEqual({ a: stack.workerHome, b: bDefaultPath });
+
+  const listRequests: Array<{ workerFp: string; path: string }> = [];
+  const decodeErrors: string[] = [];
+  multiWorkerSmokePage.on("request", (request) => {
+    if (!new URL(request.url()).pathname.endsWith("/roost.v1.CoordinatorService/FilesListDir")) return;
+    const body = request.postDataBuffer();
+    if (!body) {
+      decodeErrors.push("FilesListDir request had no body");
+      return;
+    }
+    try {
+      const decoded = fromBinary(FilesListDirRequestSchema, body);
+      listRequests.push({ workerFp: decoded.workerFp, path: decoded.path });
+    } catch (error) {
+      decodeErrors.push(String(error));
+    }
+  });
+
+  await multiWorkerSmokePage
+    .getByTestId("folder-list")
+    .getByTestId("flat-new-terminal-button")
+    .click();
+  await expect(multiWorkerSmokePage).toHaveURL(`${stack.baseUrl}/browse/${stack.workerFp}`);
+  await expect(multiWorkerSmokePage.getByTestId("browse-server")).toHaveAttribute("title", "roost-terminal-test");
+  await expect(multiWorkerSmokePage.getByTestId("browse-crumb").last()).toHaveAttribute("title", stack.workerHome);
+
+  const aFolder = multiWorkerSmokePage
+    .locator('[data-testid="browse-tile"], [data-testid="browse-row"]')
+    .filter({ hasText: aChildName });
+  await expect(aFolder).toHaveCount(1);
+  await aFolder.click();
+  await expect(multiWorkerSmokePage.getByTestId("browse-crumb").last()).toHaveAttribute("title", aChildPath);
+  await expect(multiWorkerSmokePage.getByTestId("browse-back")).toBeEnabled();
+
+  await multiWorkerSmokePage.getByTestId("browse-server").click();
+  await multiWorkerSmokePage
+    .getByTestId("browse-server-option")
+    .filter({ hasText: secondWorker.label })
+    .click();
+  await expect(multiWorkerSmokePage).toHaveURL(`${stack.baseUrl}/browse/${secondWorker.workerFp}`);
+  await expect(multiWorkerSmokePage.getByTestId("browse-server")).toHaveAttribute("title", secondWorker.label);
+  await expect(multiWorkerSmokePage.getByTestId("browse-crumb").last()).toHaveAttribute("title", bDefaultPath);
+  await expect(multiWorkerSmokePage.getByTestId("browse-back")).toBeDisabled();
+
+  await expect.poll(
+    () => listRequests.some((request) =>
+      request.workerFp === secondWorker.workerFp && request.path === bDefaultPath),
+  ).toBe(true);
+  expect(decodeErrors).toEqual([]);
+  expect(listRequests).not.toContainEqual({ workerFp: secondWorker.workerFp, path: aChildPath });
+
+  await multiWorkerSmokePage.getByTestId("browse-open").click();
+  await expect(multiWorkerSmokePage).toHaveURL(
+    `${stack.baseUrl}/t/${secondWorker.workerFp}/${encodeFolderPath(bDefaultPath)}`,
+  );
+  await expect.poll(() => multiWorkerSmokePage.evaluate(({ workerFp, cwd, seedId }) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    const sessions = smokeWindow.__smoke.state().sessions;
+    return Object.values(sessions).filter((session) =>
+      session.id !== seedId
+      && session.worker_fp === workerFp
+      && session.cwd === cwd
+      && session.spawn_cwd === cwd
+    ).length;
+  }, { workerFp: secondWorker.workerFp, cwd: bDefaultPath, seedId: bSeedSessionId })).toBe(1);
 });
 
 test("dropped initial full frame reclaims immediately on the first delta", async ({ smokePage, stack }, testInfo) => {
@@ -326,9 +495,10 @@ test("terminal replay and Ctrl keys stay owned by the PTY", async ({ smokePage, 
   await smokePage.goto(`${stack.baseUrl}/s/${sessionId}`);
   const slot = smokePage.getByTestId(`terminal-slot-${sessionId}`);
   await expect(slot).toBeVisible();
-  await expect(smokePage.getByTestId("chat-box")).toHaveCount(0);
-  await expect(smokePage.getByTestId("chat-input")).toHaveCount(0);
-  await expect(smokePage.getByTestId("terminal-chat-toggle")).toHaveCount(0);
+  const composer = slot.getByTestId("mobile-chat-input");
+  await expect(composer).toBeVisible();
+  await expect(composer.getByTestId("chat-box")).toBeVisible();
+  await expect(composer.getByTestId("chat-input")).not.toBeFocused();
 
   await smokePage.evaluate(() => {
     document.body.tabIndex = -1;
@@ -369,182 +539,930 @@ test("terminal replay and Ctrl keys stay owned by the PTY", async ({ smokePage, 
   await smokePage.keyboard.press("Control+C");
 });
 
-test("nav pad taps reach the PTY without focusing the terminal textarea", async ({ mobileSmokePage, stack }, testInfo) => {
-  test.skip(testInfo.project.name !== "webkit-iphone", "iPhone terminal input contract");
-  const sessionId = await mobileSmokePage.evaluate(async (workerFp) => {
-    const smoke = (window as unknown as Window & { __smoke: { spawnShell(worker: string, folder: string): Promise<{ session_id: string }> } }).__smoke;
-    return (await smoke.spawnShell(workerFp, "/tmp")).session_id;
-  }, stack.workerFp);
-  await mobileSmokePage.goto(`${stack.baseUrl}/s/${sessionId}`);
-  const slot = mobileSmokePage.getByTestId(`terminal-slot-${sessionId}`);
-  await expect(slot).toBeVisible();
+test("desktop active terminal keeps a permanent reserved composer after send", async ({ smokePage, stack }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium-desktop", "desktop composer contract");
+  const sessionId = (await spawnSmokeShell(smokePage, stack.workerFp)).session_id;
+  await navigateToSmokeSession(smokePage, sessionId);
 
-  await mobileSmokePage.keyboard.type("cat -vet");
-  await mobileSmokePage.keyboard.press("Enter");
-  await mobileSmokePage.getByTestId("terminal-nav-toggle").click();
+  const slot = smokePage.getByTestId(`terminal-slot-${sessionId}`);
+  const display = slot.getByTestId("terminal-display");
+  const dock = slot.getByTestId("mobile-chat-input");
+  const box = dock.getByTestId("chat-box");
+  const input = box.getByTestId("chat-input");
+  const mic = box.getByTestId("mobile-voice-input");
+  const send = box.getByTestId("chat-send");
 
-  const paneFocused = () => mobileSmokePage.evaluate((id) => {
-    const smoke = (window as unknown as Window & {
-      __smoke: {
-        paneFocused(sessionId: string): {
-          hasSlot: boolean;
-          hasTextarea: boolean;
-          focused: boolean;
-        };
-      };
-    }).__smoke;
-    return smoke.paneFocused(id);
-  }, sessionId);
-  await mobileSmokePage.evaluate(() => {
-    (document.activeElement as HTMLElement | null)?.blur();
-    document.body.tabIndex = -1;
-    document.body.focus();
-  });
-  await expect.poll(paneFocused).toMatchObject({ hasTextarea: true, focused: false });
-
-  const clickWithoutFocus = async (testId: string) => {
-    await mobileSmokePage.getByTestId(testId).click();
-    await expect.poll(async () => (await paneFocused()).focused).toBe(false);
-  };
-  for (const testId of [
-    "nav-up",
-    "nav-down",
-    "nav-left",
-    "nav-right",
-    "nav-home",
-    "nav-end",
-    "nav-pgup",
-    "nav-pgdn",
-    "nav-esc",
-    "nav-tab",
-    "nav-mouse",
-    "nav-mouse",
-    "nav-ctrl",
-    "nav-ctrl",
-    "terminal-nav-toggle",
-    "terminal-nav-toggle",
-  ]) {
-    await clickWithoutFocus(testId);
-  }
-  await expect(mobileSmokePage.getByTestId("nav-mouse")).toHaveAttribute("aria-pressed", "false");
-  await expect(mobileSmokePage.getByTestId("nav-ctrl")).toHaveAttribute("aria-pressed", "false");
-  await expect(mobileSmokePage.getByTestId("terminal-nav-toggle")).toHaveAttribute("data-open", "true");
-
-  await clickWithoutFocus("nav-enter");
-  await expect.poll(() => slot.textContent()).toContain("^I$");
-});
-
-// The bar used to flip between a one-row and a two-row layout: a measured
-// 2-line height set data-multiline, which widened the field to full width, at
-// which the same text fit on ONE line, which narrowed it again — so every
-// keystroke in the ~28-44 character band toggled the whole shape. The layout
-// decision fed the measurement that produced it. The invariant that forbids
-// that feedback edge is asserted here: nothing in the bar moves HORIZONTALLY as
-// the draft grows, whatever its length; only the field's height changes.
-test("mobile composer keeps one control row at every draft length", async ({ mobileSmokePage, stack }) => {
-  const sessionId = (await spawnSmokeShell(mobileSmokePage, stack.workerFp)).session_id;
-  await navigateToSmokeSession(mobileSmokePage, sessionId);
-
-  const input = mobileSmokePage.getByTestId("chat-input");
-  const mic = mobileSmokePage.getByTestId("mobile-voice-input");
-  const send = mobileSmokePage.getByTestId("chat-send");
-
-  const composerGeometry = async () => {
-    const [inputBox, micBox, sendBox] = await Promise.all([
-      input.boundingBox(),
-      mic.boundingBox(),
-      send.boundingBox(),
-    ]);
-    expect(inputBox).not.toBeNull();
-    expect(micBox).not.toBeNull();
-    expect(sendBox).not.toBeNull();
-    return {
-      input: inputBox!,
-      mic: micBox!,
-      send: sendBox!,
-    };
-  };
-
-  // The pill animates in (voice-caption-enter: a 200ms translateY). Measuring
-  // before it settles bakes a sub-pixel offset into the baseline that the
-  // exact-equality check at the end would then report as a layout change.
-  await mobileSmokePage.getByTestId("chat-box")
-    .evaluate(async (el) => { await Promise.all(el.getAnimations().map((a) => a.finished)); });
-  await input.fill("short");
-  const baseline = await composerGeometry();
-
-  const expectOneRow = async (label: string) => {
-    const geometry = await composerGeometry();
-    const near = (actual: number, expected: number, tol: number, what: string) =>
-      expect(Math.abs(actual - expected), `${label}: ${what}`).toBeLessThanOrEqual(tol);
-    near(geometry.input.x, baseline.input.x, 1, "input.x");
-    near(geometry.input.width, baseline.input.width, 1, "input.width");
-    near(geometry.mic.x, baseline.mic.x, 1, "mic.x");
-    near(geometry.send.x, baseline.send.x, 1, "send.x");
-    // The field grows upward; the controls stay pinned to its bottom edge.
-    const fieldBottom = geometry.input.y + geometry.input.height;
-    near(geometry.mic.y + geometry.mic.height, fieldBottom, 2, "mic bottom");
-    near(geometry.send.y + geometry.send.height, fieldBottom, 2, "send bottom");
-    return geometry;
-  };
-
-  // An unbreakable token is the worst case for the wrap boundary.
-  const heights: number[] = [];
-  for (const length of [24, 28, 32, 36, 40, 44, 60, 240]) {
-    await input.fill("W".repeat(length));
-    heights.push((await expectOneRow(`W x ${length}`)).input.height);
-  }
-  // …and a draft the browser CAN break must hold the same row.
-  await input.fill("word ".repeat(9));
-  await expectOneRow("spaced draft");
-
-  // What DOES change is the field's height: monotonic in the draft length,
-  // strictly taller than one line at 240, and capped by the CSS max-height.
-  for (let i = 1; i < heights.length; i++) {
-    expect(heights[i]!, `height at step ${i}`).toBeGreaterThanOrEqual(heights[i - 1]! - 0.5);
-  }
-  expect(heights.at(-1)!).toBeGreaterThan(baseline.input.height);
-  for (const height of heights) expect(height).toBeLessThanOrEqual(160);
-
-  await input.fill("short");
-  expect(await composerGeometry()).toEqual(baseline);
-});
-
-// The bar is exactly three controls in every state — field, mic, send — and
-// never grows an attachment affordance. Escape now has a single layer: it
-// collapses the bar and keeps the draft.
-test("mobile composer is field + mic + send only", async ({ mobileSmokePage, stack }) => {
-  const sessionId = (await spawnSmokeShell(mobileSmokePage, stack.workerFp)).session_id;
-  await navigateToSmokeSession(mobileSmokePage, sessionId);
-
-  const input = mobileSmokePage.getByTestId("chat-input");
+  await expect(dock).toBeVisible();
+  await expect(display).toBeVisible();
+  await expect(box).toBeVisible();
   await expect(input).toBeVisible();
-  await expect(mobileSmokePage.getByTestId("mobile-voice-input")).toBeVisible();
-  await expect(mobileSmokePage.getByTestId("chat-send")).toBeVisible();
+  await expect(input).not.toBeFocused();
+  await expect(mic).toBeVisible();
+  await expect(mic.getByTestId("voice-mic")).toBeVisible();
+  await expect(send).toBeVisible();
+
+  // The only voice control is the inline mic in the permanent bar. Desktop no
+  // longer exposes the old corner toggle, standalone voice FAB, or nav pad.
+  await expect(smokePage.getByTestId("mobile-voice-input")).toHaveCount(1);
+  await expect(smokePage.getByTestId("voice-mic")).toHaveCount(1);
+  await expect(smokePage.getByTestId("terminal-chat-toggle")).toHaveCount(0);
+  await expect(smokePage.getByTestId("terminal-nav-toggle")).toHaveCount(0);
+  await expect(smokePage.getByTestId("terminal-nav-buttons")).toHaveCount(0);
+
+  await box.evaluate(async (el) => {
+    await Promise.all(el.getAnimations().map((animation) => animation.finished));
+  });
+  const readGeometry = () => smokePage.evaluate((id) => {
+    const slot = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
+    const terminal = slot?.querySelector('[data-testid="terminal-display"]');
+    const composer = slot?.querySelector('[data-testid="mobile-chat-input"]');
+    if (!(terminal instanceof HTMLElement) || !(composer instanceof HTMLElement)) return null;
+
+    const terminalRect = terminal.getBoundingClientRect();
+    const composerRect = composer.getBoundingClientRect();
+    const sidebar = document.querySelector('[data-testid="sidebar-desktop"]');
+    const sidebarRect = sidebar?.getBoundingClientRect();
+    const viewportBottom = window.visualViewport
+      ? window.visualViewport.offsetTop + window.visualViewport.height
+      : window.innerHeight;
+    return {
+      terminalBottom: terminalRect.bottom,
+      terminalHeight: terminalRect.height,
+      composerTop: composerRect.top,
+      composerHeight: composerRect.height,
+      bottomGap: viewportBottom - composerRect.bottom,
+      composerLeft: composerRect.left,
+      sidebarRight: sidebarRect?.right ?? 0,
+    };
+  }, sessionId);
+
+  await expect.poll(async () => {
+    const geometry = await readGeometry();
+    return geometry !== null
+      && geometry.terminalHeight > 0
+      && geometry.composerHeight > 0
+      && geometry.terminalBottom <= geometry.composerTop;
+  }, { message: "desktop terminal content must end above the composer dock" }).toBe(true);
+  await expect.poll(async () => {
+    const geometry = await readGeometry();
+    return geometry ? Math.abs(geometry.bottomGap - 8) : Number.POSITIVE_INFINITY;
+  }, { message: "desktop composer must rest about 8px above the viewport bottom" }).toBeLessThanOrEqual(4);
+  await expect.poll(async () => {
+    const geometry = await readGeometry();
+    return geometry ? geometry.composerLeft - geometry.sidebarRight : Number.NEGATIVE_INFINITY;
+  }, { message: "desktop composer must stay inside the terminal pane" }).toBeGreaterThanOrEqual(4);
+
+  const marker = `DESKTOP_COMPOSER_${crypto.randomUUID().replace(/-/g, "").slice(0, 8)}`;
+  await input.fill(`printf '%s\\n' ${marker}`);
+  await expect(input).toBeFocused();
+  await send.click();
+  await expect.poll(() => slot.textContent()).toContain(marker);
+  await expect(input).toHaveValue("");
+  await expect(dock).toBeVisible();
+  await expect(box).toBeVisible();
+  await expect(box).toHaveCount(1);
+});
+
+test("desktop split panes each own and route their composer", async ({ smokePage, stack }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium-desktop", "desktop pane composer contract");
+  const initialSessionId = (await spawnSmokeShell(smokePage, stack.workerFp)).session_id;
+  await navigateToSmokeSession(smokePage, initialSessionId);
+
+  await smokePage.keyboard.press("Meta+D");
+
+  const paneSlots = smokePage.locator("[data-pane-slot]");
+  await expect(paneSlots).toHaveCount(2);
+  await expect(paneSlots.nth(0)).toBeVisible();
+  await expect(paneSlots.nth(1)).toBeVisible();
+
+  const composers = smokePage.getByTestId("mobile-chat-input");
+  await expect(composers).toHaveCount(2);
+  await expect(composers.nth(0)).toBeVisible();
+  await expect(composers.nth(1)).toBeVisible();
+
+  const sessionIds = await paneSlots.evaluateAll((slots) => slots.map((slot) => {
+    const testId = slot.getAttribute("data-testid") ?? "";
+    return testId.startsWith("terminal-slot-")
+      ? testId.slice("terminal-slot-".length)
+      : "";
+  }));
+  expect(sessionIds).toHaveLength(2);
+  expect(sessionIds).toContain(initialSessionId);
+  expect(sessionIds.every(Boolean)).toBe(true);
+  expect(new Set(sessionIds).size).toBe(2);
+
+  const sessionA = sessionIds[0]!;
+  const sessionB = sessionIds[1]!;
+  const slotA = smokePage.getByTestId(`terminal-slot-${sessionA}`);
+  const slotB = smokePage.getByTestId(`terminal-slot-${sessionB}`);
+  const dockA = slotA.getByTestId("mobile-chat-input");
+  const dockB = slotB.getByTestId("mobile-chat-input");
+  const inputA = dockA.getByTestId("chat-input");
+  const inputB = dockB.getByTestId("chat-input");
+  const sendA = dockA.getByTestId("chat-send");
+  const sendB = dockB.getByTestId("chat-send");
+
+  await expect(dockA).toHaveAttribute("data-placement", "pane");
+  await expect(dockB).toHaveAttribute("data-placement", "pane");
+  await expect(dockA).toBeVisible();
+  await expect(dockB).toBeVisible();
+
+  const suffix = crypto.randomUUID().replace(/-/g, "").slice(0, 8);
+  const markerA = `SPLIT_COMPOSER_A_${suffix}`;
+  const markerB = `SPLIT_COMPOSER_B_${suffix}`;
+
+  await inputA.click();
+  await expect(inputA).toBeFocused();
+  await expect(slotA).toHaveAttribute("data-focused", "true");
+  await inputA.fill(`printf '%s\\n' ${markerA}`);
+  await sendA.click();
+  await expect.poll(() => slotA.textContent()).toContain(markerA);
+  await expect(slotB).not.toContainText(markerA);
+  await expect(slotA).not.toContainText(markerB);
+  await expect(slotB).not.toContainText(markerB);
+  await expect(dockA).toBeVisible();
+  await expect(dockB).toBeVisible();
+
+  await inputB.click();
+  await expect(inputB).toBeFocused();
+  await expect(slotB).toHaveAttribute("data-focused", "true");
+  await expect(dockA).toBeVisible();
+  await expect(dockB).toBeVisible();
+  await inputB.fill(`printf '%s\\n' ${markerB}`);
+  await sendB.click();
+  await expect.poll(() => slotB.textContent()).toContain(markerB);
+  await expect(slotA).not.toContainText(markerB);
+  await expect(slotB).not.toContainText(markerA);
+  await expect(dockA).toBeVisible();
+  await expect(dockB).toBeVisible();
+
+  const focusSlotABox = await slotA.boundingBox();
+  const focusSlotBBox = await slotB.boundingBox();
+  expect(focusSlotABox).not.toBeNull();
+  expect(focusSlotBBox).not.toBeNull();
+  const targetSlot = focusSlotABox!.x < focusSlotBBox!.x ? slotB : slotA;
+  const walkKey = focusSlotABox!.x < focusSlotBBox!.x
+    ? "Meta+Alt+ArrowRight"
+    : "Meta+Alt+ArrowLeft";
+
+  // Keyboard pane navigation overrides a composer focused in the pane being
+  // left. The unsent draft stays there; subsequent native input belongs to the
+  // newly focused PTY.
+  const heldDraft = `held draft ${suffix}`;
+  await inputA.click();
+  await inputA.fill(heldDraft);
+  await smokePage.keyboard.press(walkKey);
+  await expect(targetSlot).toHaveAttribute("data-focused", "true");
+  const focusedMarker = `SPLIT_COMPOSER_FOCUS_${suffix}`;
+  await smokePage.keyboard.type(`printf '%s\\n' ${focusedMarker}`);
+  await smokePage.keyboard.press("Enter");
+  await expect.poll(() => targetSlot.textContent()).toContain(focusedMarker);
+  await expect(inputA).toHaveValue(heldDraft);
+  await inputA.click();
+  await inputA.fill("");
+
+  // A pointer-only send claims before the deck's ancestor handler, but must
+  // release again when focus remained in the hidden PTY textarea.
+  await slotA.getByTestId("terminal-display").click();
+  await sendA.click();
+  await smokePage.keyboard.press(walkKey);
+  await expect(targetSlot).toHaveAttribute("data-focused", "true");
+  const keyboardMarker = `SPLIT_COMPOSER_KEYBOARD_${suffix}`;
+  await smokePage.keyboard.type(`printf '%s\\n' ${keyboardMarker}`);
+  await smokePage.keyboard.press("Enter");
+  await expect.poll(() => targetSlot.textContent()).toContain(keyboardMarker);
+
+  // Releasing outside an inactive pane's send control still ends its transient
+  // pointer claim. The window-level pointer-end watcher sees the off-dock release.
+  await slotA.getByTestId("terminal-display").click();
+  const sendBBox = await sendB.boundingBox();
+  const displayABox = await slotA.getByTestId("terminal-display").boundingBox();
+  expect(sendBBox).not.toBeNull();
+  expect(displayABox).not.toBeNull();
+  await smokePage.mouse.move(
+    sendBBox!.x + sendBBox!.width / 2,
+    sendBBox!.y + sendBBox!.height / 2,
+  );
+  await smokePage.mouse.down();
+  await smokePage.mouse.move(
+    displayABox!.x + displayABox!.width / 2,
+    displayABox!.y + displayABox!.height / 2,
+    { steps: 4 },
+  );
+  await smokePage.mouse.up();
+  await expect(slotB).toHaveAttribute("data-focused", "true");
+  const dragMarker = `SPLIT_COMPOSER_DRAG_${suffix}`;
+  await smokePage.keyboard.type(`printf '%s\\n' ${dragMarker}`);
+  await smokePage.keyboard.press("Enter");
+  await expect.poll(() => slotB.textContent()).toContain(dragMarker);
+
+
+  // A legal 10% divider position must reflow, not paint one session's buttons
+  // into its neighbor where they would become wrong-session hit targets.
+  const deckBox = await smokePage.getByTestId("terminal-deck").boundingBox();
+  const divider = smokePage.locator('[data-testid^="pane-divider-"]').first();
+  const dividerBox = await divider.boundingBox();
+  expect(deckBox).not.toBeNull();
+  expect(dividerBox).not.toBeNull();
+  expect(await divider.getAttribute("data-dir")).toBe("row");
+  await smokePage.mouse.move(
+    dividerBox!.x + dividerBox!.width / 2,
+    dividerBox!.y + dividerBox!.height / 2,
+  );
+  await smokePage.mouse.down();
+  await smokePage.mouse.move(
+    deckBox!.x + deckBox!.width * 0.1,
+    dividerBox!.y + dividerBox!.height / 2,
+    { steps: 6 },
+  );
+  await smokePage.mouse.up();
+
+  const slotABox = await slotA.boundingBox();
+  const slotBBox = await slotB.boundingBox();
+  expect(slotABox).not.toBeNull();
+  expect(slotBBox).not.toBeNull();
+  const narrowIsA = slotABox!.width < slotBBox!.width;
+  const narrowSlot = narrowIsA ? slotA : slotB;
+  const wideSlot = narrowIsA ? slotB : slotA;
+  const narrowDock = narrowSlot.getByTestId("mobile-chat-input");
+  const escapedControls = await narrowDock.evaluate((dock) => {
+    const slot = dock.closest("[data-pane-slot]");
+    if (!(slot instanceof HTMLElement)) return ["missing pane slot"];
+    const bounds = slot.getBoundingClientRect();
+    const controls = dock.querySelectorAll(
+      '[data-testid="chat-attach"], [data-testid="chat-input"], [data-testid="voice-mic"], [data-testid="chat-send"]',
+    );
+    return Array.from(controls).flatMap((control) => {
+      const rect = control.getBoundingClientRect();
+      return rect.left < bounds.left - 1 || rect.right > bounds.right + 1
+        ? [control.getAttribute("data-testid") ?? control.tagName]
+        : [];
+    });
+  });
+  expect(escapedControls).toEqual([]);
+
+  const narrowInput = narrowDock.getByTestId("chat-input");
+  const markerNarrow = `SPLIT_COMPOSER_NARROW_${suffix}`;
+  await narrowInput.fill(`printf '%s\\n' ${markerNarrow}`);
+  await narrowDock.getByTestId("chat-send").click();
+  await expect.poll(() => narrowSlot.textContent()).toContain(markerNarrow);
+
+  // A keyboard new-tab command overrides the focused composer but preserves its
+  // parked draft; native keystrokes must belong to the spawned terminal.
+  const parkedDraft = `parked new-tab draft ${suffix}`;
+  await wideSlot.getByTestId("terminal-display").click();
+  await expect(wideSlot).toHaveAttribute("data-focused", "true");
+  await narrowInput.evaluate((input) => input.focus());
+  await narrowInput.fill(parkedDraft);
+  await expect(narrowSlot).toHaveAttribute("data-focused", "true");
+  await smokePage.keyboard.press("Meta+Alt+T");
+  await expect.poll(() => paneSlots.evaluateAll((slots) => slots.map((slot) =>
+    (slot.getAttribute("data-testid") ?? "").replace(/^terminal-slot-/, ""),
+  ).filter(Boolean).length)).toBe(3);
+  const spawnedSessionId = await paneSlots.evaluateAll((slots, existingIds) =>
+    slots.map((slot) =>
+      (slot.getAttribute("data-testid") ?? "").replace(/^terminal-slot-/, ""),
+    ).find((id) => id && !existingIds.includes(id)),
+  [sessionA, sessionB]);
+  expect(spawnedSessionId).toBeTruthy();
+  const spawnedSlot = smokePage.getByTestId(`terminal-slot-${spawnedSessionId!}`);
+  await expect(spawnedSlot).toHaveAttribute("data-focused", "true");
+  const spawnedMarker = `SPLIT_COMPOSER_NEWTAB_${suffix}`;
+  await smokePage.keyboard.type(`printf '%s\\n' ${spawnedMarker}`);
+  await smokePage.keyboard.press("Enter");
+  await expect.poll(() => spawnedSlot.textContent()).toContain(spawnedMarker);
+  await expect(narrowInput).toHaveValue(parkedDraft);
+});
+
+test("desktop composer attaches exact files in order without submitting", async ({ smokePage, stack }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium-desktop", "desktop native attachment contract");
+  const sessionId = (await spawnSmokeShell(smokePage, stack.workerFp)).session_id;
+  await navigateToSmokeSession(smokePage, sessionId);
+
+  const suffix = crypto.randomUUID().replaceAll("-", "").slice(0, 8);
+  const firstName = `attach-first-${suffix}.bin`;
+  const secondName = `attach-second-${suffix}.txt`;
+  const firstBytes = Buffer.alloc(4 * 1024 * 1024 + 31);
+  for (let i = 0; i < firstBytes.length; i++) firstBytes[i] = (i * 17 + suffix.charCodeAt(i % suffix.length)) & 0xff;
+  const secondBytes = Buffer.from(`second-${suffix}\nline-two\0tail`, "utf8");
+
+  const slot = smokePage.getByTestId(`terminal-slot-${sessionId}`);
+  const dock = slot.getByTestId("mobile-chat-input");
+  const box = dock.getByTestId("chat-box");
+  const attach = box.getByTestId("chat-attach");
+  const input = box.getByTestId("chat-input");
+  await expect(attach).toBeVisible();
+  await expect(attach).toHaveAttribute("aria-label", "Attach files");
+  const [attachBox, inputBox] = await Promise.all([attach.boundingBox(), input.boundingBox()]);
+  expect(attachBox).not.toBeNull();
+  expect(inputBox).not.toBeNull();
+  expect(attachBox!.x + attachBox!.width).toBeLessThanOrEqual(inputBox!.x);
+
+  await input.fill("draft remains untouched");
+  await expect(input).toBeFocused();
+  const [slotBefore, dockBefore] = await Promise.all([slot.boundingBox(), dock.boundingBox()]);
+  expect(slotBefore).not.toBeNull();
+  expect(dockBefore).not.toBeNull();
+
+  const inputBatches: Uint8Array[] = [];
+  const inputDecodeErrors: string[] = [];
+  smokePage.on("request", (request) => {
+    if (!new URL(request.url()).pathname.endsWith("/roost.v1.CoordinatorService/SessionsInput")) return;
+    const body = request.postDataBuffer();
+    if (!body) {
+      inputDecodeErrors.push("SessionsInput request had no body");
+      return;
+    }
+    try {
+      const decoded = fromBinary(SessionsInputRequestSchema, body);
+      if (decoded.sessionId === sessionId) inputBatches.push(decoded.data);
+    } catch (error) {
+      inputDecodeErrors.push(String(error));
+    }
+  });
+
+  const [chooser] = await Promise.all([
+    smokePage.waitForEvent("filechooser"),
+    attach.click(),
+  ]);
+  await chooser.setFiles([
+    { name: firstName, mimeType: "application/octet-stream", buffer: firstBytes },
+    { name: secondName, mimeType: "text/plain", buffer: secondBytes },
+  ]);
+
+  await expect(input).toBeFocused();
+  await expect(input).toHaveValue("draft remains untouched");
+  await expect.poll(async () => {
+    const response = await stack.client.listAttachments({ sessionId });
+    return [firstName, secondName].every((name) => response.entries.some((entry) => entry.filename === name));
+  }, { timeout: 20_000 }).toBe(true);
+
+  const entries = (await stack.client.listAttachments({ sessionId })).entries;
+  const firstEntry = entries.find((entry) => entry.filename === firstName);
+  const secondEntry = entries.find((entry) => entry.filename === secondName);
+  expect(firstEntry).toBeDefined();
+  expect(secondEntry).toBeDefined();
+  expect(firstEntry!.sizeBytes).toBe(BigInt(firstBytes.length));
+  expect(secondEntry!.sizeBytes).toBe(BigInt(secondBytes.length));
+
+  const [storedFirst, storedSecond] = await Promise.all([
+    readWorkerBytes(stack.client, stack.workerFp, firstEntry!.absPath),
+    readWorkerBytes(stack.client, stack.workerFp, secondEntry!.absPath),
+  ]);
+  expect(storedFirst).toEqual(new Uint8Array(firstBytes));
+  expect(storedSecond).toEqual(new Uint8Array(secondBytes));
+
+  const expectedInput = `${firstEntry!.absPath} ${secondEntry!.absPath} `;
+  await expect.poll(() => inputBatches.reduce((total, batch) => total + batch.length, 0)).toBe(
+    new TextEncoder().encode(expectedInput).length,
+  );
+  expect(inputDecodeErrors).toEqual([]);
+  const injected = new Uint8Array(inputBatches.reduce((total, batch) => total + batch.length, 0));
+  let injectedOffset = 0;
+  for (const batch of inputBatches) {
+    injected.set(batch, injectedOffset);
+    injectedOffset += batch.length;
+  }
+  expect(new TextDecoder().decode(injected)).toBe(expectedInput);
+  expect(injected).not.toContain(13);
+  expect(injected).not.toContain(10);
+
+  const [slotAfter, dockAfter] = await Promise.all([slot.boundingBox(), dock.boundingBox()]);
+  expect(slotAfter).not.toBeNull();
+  expect(dockAfter).not.toBeNull();
+  for (const key of ["x", "y", "width", "height"] as const) {
+    expect(Math.abs(slotAfter![key] - slotBefore![key]), `terminal ${key}`).toBeLessThanOrEqual(1);
+    expect(Math.abs(dockAfter![key] - dockBefore![key]), `composer ${key}`).toBeLessThanOrEqual(1);
+  }
+});
+
+test("desktop composer submits Enter and grows above a stable terminal deck", async ({ smokePage, stack }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium-desktop", "desktop composer keyboard and geometry contract");
+  const sessionId = (await spawnSmokeShell(smokePage, stack.workerFp)).session_id;
+  await navigateToSmokeSession(smokePage, sessionId);
+
+  const deck = smokePage.getByTestId("terminal-deck");
+  const slot = smokePage.getByTestId(`terminal-slot-${sessionId}`);
+  const dock = slot.getByTestId("mobile-chat-input");
+  const box = dock.getByTestId("chat-box");
+  const input = dock.getByTestId("chat-input");
+  await expect(deck).toBeVisible();
+  await expect(dock).toBeVisible();
+  await expect(box).toBeVisible();
+  await expect(input).toBeVisible();
+  await box.evaluate(async (el) => {
+    await Promise.all(el.getAnimations().map((animation) => animation.finished));
+  });
+
+  const readGeometry = () => smokePage.evaluate((id) => {
+    const deckEl = document.querySelector('[data-testid="terminal-deck"]');
+    const slotEl = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
+    const terminalEl = slotEl?.querySelector('[data-testid="terminal-display"]');
+    const composerEl = slotEl?.querySelector('[data-testid="mobile-chat-input"]');
+    if (
+      !(deckEl instanceof HTMLElement)
+      || !(slotEl instanceof HTMLElement)
+      || !(terminalEl instanceof HTMLElement)
+      || !(composerEl instanceof HTMLElement)
+    ) return null;
+
+    const slotRect = slotEl.getBoundingClientRect();
+    const terminalRect = terminalEl.getBoundingClientRect();
+    const composerRect = composerEl.getBoundingClientRect();
+    return {
+      deckClientHeight: deckEl.clientHeight,
+      slotHeight: slotRect.height,
+      terminalBottom: terminalRect.bottom,
+      composerTop: composerRect.top,
+      composerHeight: composerRect.height,
+    };
+  }, sessionId);
+
+  await input.fill("one-row draft");
+  await expect(input).toBeFocused();
+  const baseline = await readGeometry();
+  if (!baseline) throw new Error("desktop composer geometry was unavailable at one row");
+  expect(baseline.deckClientHeight).toBeGreaterThan(0);
+  expect(baseline.slotHeight).toBeGreaterThan(0);
+  expect(baseline.composerHeight).toBeGreaterThan(0);
+
+  const growthDraft = [
+    "first composer row",
+    "second composer row",
+    "third composer row",
+    "fourth composer row",
+    "fifth composer row",
+  ].join("\n");
+  await input.fill(growthDraft);
+  await expect(input).toHaveValue(growthDraft);
+  await expect.poll(async () => {
+    const geometry = await readGeometry();
+    return geometry && geometry.composerHeight > baseline.composerHeight + 1
+      ? geometry.terminalBottom - geometry.composerTop
+      : Number.POSITIVE_INFINITY;
+  }, {
+    message: "grown desktop composer must move terminal content above its top",
+  }).toBeLessThanOrEqual(0);
+
+  const grown = await readGeometry();
+  if (!grown) throw new Error("desktop composer geometry was unavailable after growth");
+  expect(grown.composerHeight).toBeGreaterThan(baseline.composerHeight + 1);
+  expect(
+    Math.abs(grown.deckClientHeight - baseline.deckClientHeight),
+    "composer growth must not resize TerminalDeck",
+  ).toBeLessThanOrEqual(1);
+  expect(
+    Math.abs(grown.slotHeight - baseline.slotHeight),
+    "composer growth must not resize the terminal slot",
+  ).toBeLessThanOrEqual(1);
+  expect(grown.terminalBottom, "terminal visual bottom must stay at or above the composer").toBeLessThanOrEqual(
+    grown.composerTop,
+  );
+
+  const shiftMarker = `DESKTOP_SHIFT_${crypto.randomUUID().replace(/-/g, "").slice(0, 8)}`;
+  const shiftCommand = `printf '%s\\n' ${shiftMarker}`;
+  await input.fill(shiftCommand);
+  await input.press("Shift+Enter");
+  await expect(input).toHaveValue(`${shiftCommand}\n`);
+
+  // A command sent directly after Shift+Enter is a PTY ordering barrier: once
+  // it is visible, a mistakenly submitted Shift+Enter command would be visible too.
+  const barrier = `DESKTOP_SHIFT_BARRIER_${crypto.randomUUID().replace(/-/g, "").slice(0, 8)}`;
+  await inputSmokeTerminal(smokePage, sessionId, `printf '%s\\n' ${barrier}\n`);
+  await expect.poll(() => slot.textContent()).toContain(barrier);
+  expect((await slot.textContent()) ?? "").not.toContain(shiftMarker);
+
+  const enterMarker = `DESKTOP_ENTER_${crypto.randomUUID().replace(/-/g, "").slice(0, 8)}`;
+  await input.fill(`printf '%s\\n' ${enterMarker}`);
+  await expect(input).toBeFocused();
+  await input.press("Enter");
+  await expect.poll(() => slot.textContent()).toContain(enterMarker);
+  await expect(input).toHaveValue("");
+  await expect(input).toBeFocused();
+  await expect(dock).toBeVisible();
+  await expect(box).toBeVisible();
+  await expect(box).toHaveCount(1);
+});
+
+test("mobile composer starts unfocused and reserves terminal space through rotation", async ({ mobileSmokePage, stack }) => {
+  const sessionId = (await spawnSmokeShell(mobileSmokePage, stack.workerFp)).session_id;
+  await navigateToSmokeSession(mobileSmokePage, sessionId);
+
+  const dock = mobileSmokePage.getByTestId("mobile-chat-input");
+  const input = mobileSmokePage.getByTestId("chat-input");
+  await expect(dock).toBeVisible();
+  await expect(input).toBeVisible();
+  await expect(input).not.toBeFocused();
+  await mobileSmokePage.getByTestId("chat-box")
+    .evaluate(async (el) => { await Promise.all(el.getAnimations().map((animation) => animation.finished)); });
+
+  const initialViewport = mobileSmokePage.viewportSize();
+  expect(initialViewport).not.toBeNull();
+
+  const readGeometry = () => mobileSmokePage.evaluate((id) => {
+    const terminal = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
+    const composer = document.querySelector('[data-testid="mobile-chat-input"]');
+    if (!(terminal instanceof HTMLElement) || !(composer instanceof HTMLElement)) return null;
+
+    const safeAreaProbe = document.createElement("div");
+    safeAreaProbe.style.cssText = [
+      "position:fixed",
+      "visibility:hidden",
+      "pointer-events:none",
+      "padding-bottom:env(safe-area-inset-bottom, 0px)",
+    ].join(";");
+    document.body.append(safeAreaProbe);
+    const measuredSafeArea = Number.parseFloat(getComputedStyle(safeAreaProbe).paddingBottom);
+    safeAreaProbe.remove();
+
+    const terminalRect = terminal.getBoundingClientRect();
+    const composerRect = composer.getBoundingClientRect();
+    const keyboardOffset = Number.parseFloat(
+      getComputedStyle(document.documentElement).getPropertyValue("--kb-offset"),
+    );
+    const viewportBottom = window.visualViewport
+      ? window.visualViewport.offsetTop + window.visualViewport.height
+      : window.innerHeight;
+    return {
+      terminalBottom: terminalRect.bottom,
+      terminalHeight: terminalRect.height,
+      composerTop: composerRect.top,
+      composerHeight: composerRect.height,
+      bottomGap: viewportBottom - composerRect.bottom,
+      safeAreaBottom: Number.isFinite(measuredSafeArea) ? measuredSafeArea : 0,
+      keyboardOffset: Number.isFinite(keyboardOffset) ? keyboardOffset : 0,
+    };
+  }, sessionId);
+
+  const expectReservedGeometry = async (label: string) => {
+    await expect.poll(async () => {
+      const geometry = await readGeometry();
+      if (!geometry || geometry.terminalHeight <= 0 || geometry.composerHeight <= 0) {
+        return Number.POSITIVE_INFINITY;
+      }
+      return Math.abs(geometry.terminalBottom - geometry.composerTop);
+    }, { message: `${label}: terminal bottom must meet the composer top` }).toBeLessThanOrEqual(2);
+    await expect.poll(async () => (await readGeometry())?.keyboardOffset ?? Number.POSITIVE_INFINITY, {
+      message: `${label}: keyboard offset must clear without a simulated keyboard`,
+    }).toBe(0);
+    await expect.poll(async () => {
+      const geometry = await readGeometry();
+      return geometry
+        ? Math.abs(geometry.bottomGap - geometry.safeAreaBottom - 8)
+        : Number.POSITIVE_INFINITY;
+    }, {
+      message: `${label}: resting dock must sit about 8px above the measured safe area`,
+    }).toBeLessThanOrEqual(4);
+    const geometry = await readGeometry();
+    expect(geometry, `${label}: visible terminal and composer geometry`).not.toBeNull();
+    return geometry!;
+  };
+
+  const initial = await expectReservedGeometry("initial portrait");
+  const portrait = initialViewport!;
+  await mobileSmokePage.setViewportSize({ width: portrait.height, height: portrait.width });
+  await expectReservedGeometry("landscape");
+  await mobileSmokePage.setViewportSize(portrait);
+  await expectReservedGeometry("restored portrait");
+
+  // Crossing the real compact boundary swaps the body portal for this pane's
+  // inline instance. Instance-token cleanup must not clear the replacement's
+  // focus owner or leave the viewport reserve stuck on desktop.
+  await mobileSmokePage.setViewportSize({ width: 1024, height: 700 });
+  const slot = mobileSmokePage.getByTestId(`terminal-slot-${sessionId}`);
+  const paneDock = slot.getByTestId("mobile-chat-input");
+  await expect(paneDock).toBeVisible();
+  await expect(paneDock).toHaveAttribute("data-placement", "pane");
+  await expect.poll(() => paneDock.evaluate((el) => getComputedStyle(el).position)).toBe("relative");
+  await mobileSmokePage.setViewportSize(portrait);
+  await expect(mobileSmokePage.getByTestId("mobile-chat-input")).toHaveAttribute("data-placement", "viewport");
+  await expectReservedGeometry("portrait after desktop handoff");
+  await expect.poll(async () => {
+    const geometry = await readGeometry();
+    return geometry ? Math.abs(geometry.terminalHeight - initial.terminalHeight) : Number.POSITIVE_INFINITY;
+  }, { message: "portrait terminal height must recover after rotation" }).toBeLessThanOrEqual(2);
+
+  await expect(input).not.toBeFocused();
+  await input.tap();
+  await expect(input).toBeFocused();
+});
+
+// Compact composition is structurally two rows from its first paint. The field
+// always owns the full first row; its content never decides whether the actions
+// consume message width. Explicit lines and ordinary wrapping therefore share
+// one stable wrap width while only the top of the fixed dock moves.
+test("mobile composer gives multiline drafts the full message width", async ({ mobileSmokePage, stack }) => {
+  const sessionId = (await spawnSmokeShell(mobileSmokePage, stack.workerFp)).session_id;
+  await navigateToSmokeSession(mobileSmokePage, sessionId);
+
+  const box = mobileSmokePage.getByTestId("chat-box");
+  const input = mobileSmokePage.getByTestId("chat-input");
+
+  const readComposerGeometry = () => mobileSmokePage.evaluate(() => {
+    const dockEl = document.querySelector('[data-testid="mobile-chat-input"]');
+    const boxEl = document.querySelector('[data-testid="chat-box"]');
+    const inputEl = document.querySelector('[data-testid="chat-input"]');
+    const micEl = document.querySelector('[data-testid="voice-mic"]');
+    const sendEl = document.querySelector('[data-testid="chat-send"]');
+    if (
+      !(dockEl instanceof HTMLElement)
+      || !(boxEl instanceof HTMLElement)
+      || !(inputEl instanceof HTMLTextAreaElement)
+      || !(micEl instanceof HTMLElement)
+      || !(sendEl instanceof HTMLElement)
+    ) return null;
+
+    const rect = (el: HTMLElement) => {
+      const value = el.getBoundingClientRect();
+      return {
+        x: value.x,
+        y: value.y,
+        top: value.top,
+        right: value.right,
+        bottom: value.bottom,
+        left: value.left,
+        width: value.width,
+        height: value.height,
+      };
+    };
+    const px = (value: string) => {
+      const parsed = Number.parseFloat(value);
+      return Number.isFinite(parsed) ? parsed : 0;
+    };
+    const resolveMaxHeight = (value: string) => {
+      const probe = document.createElement("div");
+      probe.style.cssText = [
+        "position:fixed",
+        "visibility:hidden",
+        "pointer-events:none",
+        "box-sizing:border-box",
+        "height:10000px",
+      ].join(";");
+      probe.style.maxHeight = value;
+      document.body.append(probe);
+      const height = probe.getBoundingClientRect().height;
+      probe.remove();
+      return height;
+    };
+
+    const boxRect = rect(boxEl);
+    const boxStyle = getComputedStyle(boxEl);
+    const inputStyle = getComputedStyle(inputEl);
+    const paddingLeft = px(boxStyle.paddingLeft);
+    const paddingRight = px(boxStyle.paddingRight);
+    return {
+      dock: rect(dockEl),
+      box: boxRect,
+      input: rect(inputEl),
+      mic: rect(micEl),
+      send: rect(sendEl),
+      innerLeft: boxRect.left + paddingLeft,
+      innerRight: boxRect.right - paddingRight,
+      paddingTop: px(boxStyle.paddingTop),
+      paddingBottom: px(boxStyle.paddingBottom),
+      rowGap: px(boxStyle.rowGap),
+      columnGap: px(boxStyle.columnGap),
+      inputClientHeight: inputEl.clientHeight,
+      inputScrollHeight: inputEl.scrollHeight,
+      lineHeight: px(inputStyle.lineHeight),
+      overflowY: inputStyle.overflowY,
+      maxHeight: resolveMaxHeight(inputStyle.maxHeight),
+      contractMaxHeight: resolveMaxHeight("min(192px, 30dvh)"),
+    };
+  });
+
+  const geometry = async () => {
+    const value = await readComposerGeometry();
+    expect(value, "compact composer geometry").not.toBeNull();
+    return value!;
+  };
+  const near = (actual: number, expected: number, tolerance: number, label: string) =>
+    expect(Math.abs(actual - expected), label).toBeLessThanOrEqual(tolerance);
+
+  // The entrance animation translates the pill. Finish it before recording the
+  // fixed footer coordinates used throughout the growth assertions.
+  await box.evaluate(async (el) => {
+    await Promise.all(el.getAnimations().map((animation) => animation.finished));
+  });
+  await input.fill("short");
+  const baseline = await geometry();
+
+  const expectFullWidthRows = (
+    current: typeof baseline,
+    label: string,
+  ) => {
+    const innerWidth = current.innerRight - current.innerLeft;
+    near(current.input.left, current.innerLeft, 1, `${label}: textarea left`);
+    near(current.input.width, innerWidth, 1, `${label}: textarea uses the box inner width`);
+    near(current.input.right, current.innerRight, 1, `${label}: textarea right`);
+    expect(
+      current.input.right - current.mic.left,
+      `${label}: textarea continues across the mic and send columns`,
+    ).toBeGreaterThanOrEqual(current.mic.width + current.send.width - 2);
+    expect(
+      current.input.right - current.send.left,
+      `${label}: textarea continues across the send column`,
+    ).toBeGreaterThanOrEqual(current.send.width - 2);
+
+    near(current.mic.top, current.send.top, 1, `${label}: action row top`);
+    near(current.mic.bottom, current.send.bottom, 1, `${label}: action row bottom`);
+    near(current.send.right, current.innerRight, 1, `${label}: footer is right-aligned`);
+    near(
+      current.send.left - current.mic.right,
+      current.columnGap,
+      1,
+      `${label}: action gap`,
+    );
+    near(
+      current.mic.top - current.input.bottom,
+      current.rowGap,
+      1,
+      `${label}: textarea-to-footer gap`,
+    );
+    expect(current.mic.top, `${label}: mic is below the textarea`).toBeGreaterThan(
+      current.input.bottom,
+    );
+  };
+  const expectStableFooter = (
+    current: typeof baseline,
+    label: string,
+  ) => {
+    for (const control of ["mic", "send"] as const) {
+      for (const dimension of ["x", "y", "width", "height"] as const) {
+        near(
+          current[control][dimension],
+          baseline[control][dimension],
+          1,
+          `${label}: stable ${control}.${dimension}`,
+        );
+      }
+    }
+    near(current.box.left, baseline.box.left, 1, `${label}: stable box left`);
+    near(current.box.width, baseline.box.width, 1, `${label}: stable box width`);
+    near(current.input.left, baseline.input.left, 1, `${label}: stable textarea left`);
+    near(current.input.width, baseline.input.width, 1, `${label}: stable textarea width`);
+  };
+
+  expectFullWidthRows(baseline, "resting");
+  near(baseline.input.height, 40, 1, "resting textarea height");
+  near(baseline.mic.height, 44, 1, "resting mic height");
+  near(baseline.send.height, 44, 1, "resting send height");
+  near(baseline.rowGap, 4, 0.5, "resting row gap");
+  near(baseline.paddingTop + baseline.paddingBottom, 8, 1, "resting outer padding");
+  near(baseline.box.height, 96, 1, "settled compact box height");
+  near(baseline.dock.height, 96, 1, "settled compact dock height");
+
+  const explicitLines = [
+    "first explicit line",
+    "second explicit line",
+    "third explicit line",
+    "fourth explicit line",
+  ].join("\n");
+  await input.fill(explicitLines);
+  await expect(input).toHaveValue(explicitLines);
+  const multiline = await geometry();
+  expectFullWidthRows(multiline, "explicit newlines");
+  expectStableFooter(multiline, "explicit newlines");
+  expect(multiline.input.height, "explicit newlines grow the textarea").toBeGreaterThan(
+    baseline.input.height + multiline.lineHeight,
+  );
+  expect(multiline.input.height, "explicit newlines remain below the cap").toBeLessThan(
+    multiline.maxHeight - 1,
+  );
+  expect(multiline.dock.height, "explicit newlines grow the dock").toBeGreaterThan(
+    baseline.dock.height + 1,
+  );
+  expect(multiline.dock.top, "the growing dock moves upward").toBeLessThan(
+    baseline.dock.top - 1,
+  );
+  near(multiline.dock.bottom, baseline.dock.bottom, 1, "explicit newlines: stable dock bottom");
+
+  // Deliberately abundant prose guarantees overflow without choosing a string
+  // near any wrap threshold; text width never selects a different layout.
+  const wrappingDraft = (
+    "ordinary wrapping keeps every line as wide as the message surface "
+  ).repeat(80);
+  await input.fill(wrappingDraft);
+  await expect(input).toHaveValue(wrappingDraft);
+  const capped = await geometry();
+  expectFullWidthRows(capped, "long wrapping draft");
+  expectStableFooter(capped, "long wrapping draft");
+  near(capped.maxHeight, capped.contractMaxHeight, 1, "compact textarea CSS max-height");
+  near(capped.input.height, capped.maxHeight, 1, "long draft is capped at CSS max-height");
+  expect(
+    capped.inputScrollHeight - capped.inputClientHeight,
+    "capped textarea has internally scrollable overflow",
+  ).toBeGreaterThan(capped.lineHeight);
+  expect(capped.overflowY).toBe("auto");
+  expect(capped.dock.height, "wrapped text grows the dock to its cap").toBeGreaterThan(
+    multiline.dock.height + 1,
+  );
+  expect(capped.dock.top, "capped dock grows upward").toBeLessThan(multiline.dock.top - 1);
+  near(capped.dock.bottom, baseline.dock.bottom, 1, "long wrapping draft: stable dock bottom");
+
+  await input.fill("short");
+  const restored = await geometry();
+  expectFullWidthRows(restored, "shortened draft");
+  for (const surface of ["dock", "box", "input", "mic", "send"] as const) {
+    for (const dimension of ["x", "y", "width", "height"] as const) {
+      near(
+        restored[surface][dimension],
+        baseline[surface][dimension],
+        1,
+        `shortened draft restores ${surface}.${dimension}`,
+      );
+    }
+  }
+});
+
+// The permanent compact composer keeps its field and all three direct actions
+// mounted. Outside taps, Escape, and attachment selection must retain its draft.
+test("mobile composer is permanent field + attachment + mic + send", async ({ mobileSmokePage, stack }) => {
+  const sessionId = (await spawnSmokeShell(mobileSmokePage, stack.workerFp)).session_id;
+  await navigateToSmokeSession(mobileSmokePage, sessionId);
+
+  const suffix = crypto.randomUUID().replaceAll("-", "").slice(0, 8);
+  const fileName = `compact-attach-${suffix}.txt`;
+  const fileBytes = Buffer.from(`compact attachment ${suffix}\n`, "utf8");
+  const draft = `retained compact draft ${suffix}`;
+  const box = mobileSmokePage.getByTestId("chat-box");
+  const input = mobileSmokePage.getByTestId("chat-input");
+  const attach = box.getByTestId("chat-attach");
+  const slot = mobileSmokePage.getByTestId(`terminal-slot-${sessionId}`);
+  await expect(box).toBeVisible();
+  await expect(attach).toBeVisible();
+  await expect(attach).toHaveAttribute("aria-label", "Attach files");
+  await expect(box.getByTestId("mobile-voice-input")).toBeVisible();
+  await expect(box.getByTestId("voice-mic")).toBeVisible();
+  await expect(box.getByTestId("chat-send")).toBeVisible();
   await expect(mobileSmokePage.getByTestId("chat-lead")).toHaveCount(0);
   await expect(mobileSmokePage.getByTestId("chat-add-menu")).toHaveCount(0);
 
-  // Still three with a draft in the field.
-  await input.fill("hello");
-  await expect(mobileSmokePage.getByTestId("chat-lead")).toHaveCount(0);
-  await expect(mobileSmokePage.getByTestId("chat-send")).toBeVisible();
+  await input.fill(draft);
+  await expect(input).toBeFocused();
+  await slot.click({ position: { x: 8, y: 8 } });
+  await expect(box).toBeVisible();
+  await expect(input).not.toBeFocused();
+  await expect(input).toHaveValue(draft);
 
-  // Escape collapses the bar in one press; the draft survives.
+  await input.tap();
+  await expect(input).toBeFocused();
   await input.press("Escape");
-  await expect(mobileSmokePage.getByTestId("chat-box")).toHaveCount(0);
-  await mobileSmokePage.getByTestId("terminal-chat-toggle").click();
-  await expect(mobileSmokePage.getByTestId("chat-input")).toHaveValue("hello");
+  await expect(box).toBeVisible();
+  await expect(input).not.toBeFocused();
+  await expect(input).toHaveValue(draft);
+
+  const capturedInputs: Array<{ sessionId: string; data: number[] }> = [];
+  const inputDecodeErrors: string[] = [];
+  mobileSmokePage.on("request", (request) => {
+    if (!new URL(request.url()).pathname.endsWith("/roost.v1.CoordinatorService/SessionsInput")) return;
+    const body = request.postDataBuffer();
+    if (!body) {
+      inputDecodeErrors.push("SessionsInput request had no body");
+      return;
+    }
+    try {
+      const decoded = fromBinary(SessionsInputRequestSchema, body);
+      capturedInputs.push({ sessionId: decoded.sessionId, data: Array.from(decoded.data) });
+    } catch (error) {
+      inputDecodeErrors.push(String(error));
+    }
+  });
+
+  const [chooser] = await Promise.all([
+    mobileSmokePage.waitForEvent("filechooser"),
+    attach.click(),
+  ]);
+  await chooser.setFiles([{ name: fileName, mimeType: "text/plain", buffer: fileBytes }]);
+
+  await expect(input).toHaveValue(draft);
+  await expect.poll(async () => {
+    const response = await stack.client.listAttachments({ sessionId });
+    return response.entries.some((entry) => entry.filename === fileName);
+  }, { timeout: 20_000 }).toBe(true);
+
+  const entry = (await stack.client.listAttachments({ sessionId })).entries.find(
+    (candidate) => candidate.filename === fileName,
+  );
+  expect(entry).toBeDefined();
+  expect(entry!.sizeBytes).toBe(BigInt(fileBytes.length));
+
+  const expectedInput = Array.from(new TextEncoder().encode(`${entry!.absPath} `));
+  await expect.poll(() => capturedInputs.flatMap((batch) => batch.data)).toEqual(expectedInput);
+  expect(inputDecodeErrors).toEqual([]);
+  expect(capturedInputs.every((batch) => batch.sessionId === sessionId)).toBe(true);
+  expect(expectedInput).not.toContain(13);
+  expect(expectedInput).not.toContain(10);
+  await expect(input).toHaveValue(draft);
 });
 
-// voice-input.css carried three byte-identical copies of the FAB container, the
-// M3 state layer and the Material-Symbols glyph. They are one selector list
-// each now, so the merge is pinned through computed style: a typo in any list
-// changes a size, a corner or an elevation.
-test("composer controls and corner FABs share one M3 anatomy", async ({ mobileSmokePage, stack }) => {
+// The three compact actions share one flat 44dp M3 control anatomy.
+test("inline composer controls share one compact M3 anatomy", async ({ mobileSmokePage, stack }) => {
   const sessionId = (await spawnSmokeShell(mobileSmokePage, stack.workerFp)).session_id;
   await navigateToSmokeSession(mobileSmokePage, sessionId);
 
-  const anatomy = (testId: string) => mobileSmokePage.getByTestId(testId).evaluate((el) => {
+  const box = mobileSmokePage.getByTestId("chat-box");
+  const anatomy = (testId: string) => box.getByTestId(testId).evaluate((el) => {
     const style = getComputedStyle(el);
     return {
       width: style.width,
@@ -554,51 +1472,299 @@ test("composer controls and corner FABs share one M3 anatomy", async ({ mobileSm
     };
   });
 
-  await expect(mobileSmokePage.getByTestId("chat-box")).toBeVisible();
-  const [barSend, barMic] = await Promise.all([
-    anatomy("chat-send"),
+  await expect(box).toBeVisible();
+  const [attach, mic, send] = await Promise.all([
+    anatomy("chat-attach"),
     anatomy("voice-mic"),
+    anatomy("chat-send"),
   ]);
-  for (const [label, control] of [["chat-send", barSend], ["voice-mic", barMic]] as const) {
+  for (const [label, control] of [
+    ["chat-attach", attach],
+    ["voice-mic", mic],
+    ["chat-send", send],
+  ] as const) {
     expect(control.width, label).toBe("44px");
     expect(control.height, label).toBe("44px");
-    expect(control.borderRadius, label).toBe(barSend.borderRadius);
+    expect(control.borderRadius, label).toBe(send.borderRadius);
+    expect(control.boxShadow, label).toBe("none");
   }
-  // The in-bar tier carries the state layer but never an elevation.
-  expect(barSend.boxShadow).toBe("none");
-  expect(barMic.boxShadow).toBe("none");
-
-  // Collapsed, the same anatomy resolves to the 56dp corner tier.
-  await mobileSmokePage.getByTestId(`terminal-slot-${sessionId}`).click({ position: { x: 8, y: 8 } });
-  await expect(mobileSmokePage.getByTestId("chat-box")).toHaveCount(0);
-  const [chatToggle, cornerMic] = await Promise.all([
-    anatomy("terminal-chat-toggle"),
-    anatomy("voice-mic"),
-  ]);
-  for (const [label, fab] of [["terminal-chat-toggle", chatToggle], ["voice-mic", cornerMic]] as const) {
-    expect(fab.width, label).toBe("56px");
-    expect(fab.height, label).toBe("56px");
-  }
-  expect(chatToggle.borderRadius).toBe(cornerMic.borderRadius);
-  expect(chatToggle.boxShadow).toBe(cornerMic.boxShadow);
 });
 
-// The mobile terminal floats exactly three controls: record, message, keyboard.
-// The paperclip and agent-launch FABs were deleted; nothing may reintroduce a
-// button into this corner without failing here.
-test("mobile terminal floats only the mic, message and keyboard FABs", async ({ mobileSmokePage, stack }) => {
+test("mobile terminal keyboard toggles and dispatches special keys", async ({ mobileSmokePage, stack }) => {
   const sessionId = (await spawnSmokeShell(mobileSmokePage, stack.workerFp)).session_id;
   await navigateToSmokeSession(mobileSmokePage, sessionId);
+  await expectSmokeComposer(mobileSmokePage);
 
-  // Collapse the auto-opened composer so the corner stack is the visible state.
-  await mobileSmokePage.getByTestId(`terminal-slot-${sessionId}`).click({ position: { x: 8, y: 8 } });
-  await expect(mobileSmokePage.getByTestId("chat-box")).toHaveCount(0);
+  const dock = mobileSmokePage.getByTestId("mobile-chat-input");
+  const box = mobileSmokePage.getByTestId("chat-box");
+  const input = mobileSmokePage.getByTestId("chat-input");
+  const toggle = mobileSmokePage.getByTestId("terminal-nav-toggle");
+  const panel = mobileSmokePage.getByTestId("terminal-nav-buttons");
+  const paneFocused = () => mobileSmokePage.evaluate((id) => {
+    const smoke = (window as unknown as Window & {
+      __smoke: { paneFocused(sessionId: string): { focused: boolean } };
+    }).__smoke;
+    return smoke.paneFocused(id).focused;
+  }, sessionId);
 
-  await expect(mobileSmokePage.getByTestId("voice-mic")).toBeVisible();
-  await expect(mobileSmokePage.getByTestId("terminal-chat-toggle")).toBeVisible();
-  await expect(mobileSmokePage.getByTestId("terminal-nav-toggle")).toBeVisible();
-  await expect(mobileSmokePage.getByTestId("attach-file")).toHaveCount(0);
-  await expect(mobileSmokePage.getByTestId("agent-launch")).toHaveCount(0);
+  expect(await box.evaluate((el) => Array.from(el.children).map((child) =>
+    child instanceof HTMLElement ? child.dataset.testid ?? null : null,
+  ))).toEqual(["chat-attach", "chat-input", "mobile-voice-input", "chat-send"]);
+  await expect(toggle).toBeVisible();
+  await expect(toggle).toHaveAttribute("data-open", "false");
+  await expect(toggle).toHaveAttribute("aria-label", "Show terminal keys");
+  await expect(toggle).toHaveCSS("position", "fixed");
+  await expect(toggle).toHaveCSS("width", "56px");
+  await expect(toggle).toHaveCSS("height", "56px");
+  await expect(panel).toHaveCount(0);
+  await expect(dock.getByTestId("terminal-nav-toggle")).toHaveCount(0);
+  await expect(box.getByTestId("terminal-nav-toggle")).toHaveCount(0);
+
+  const readGeometry = () => mobileSmokePage.evaluate((id) => {
+    const terminal = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
+    const composerDock = document.querySelector('[data-testid="mobile-chat-input"]');
+    const chatBox = document.querySelector('[data-testid="chat-box"]');
+    const keyToggle = document.querySelector('[data-testid="terminal-nav-toggle"]');
+    const keyPanel = document.querySelector('[data-testid="terminal-nav-buttons"]');
+    if (
+      !(terminal instanceof HTMLElement)
+      || !(composerDock instanceof HTMLElement)
+      || !(chatBox instanceof HTMLElement)
+      || !(keyToggle instanceof HTMLElement)
+      || (keyPanel !== null && !(keyPanel instanceof HTMLElement))
+    ) return null;
+
+    const readRect = (element: HTMLElement) => {
+      const rect = element.getBoundingClientRect();
+      return {
+        left: rect.left,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+        width: rect.width,
+        height: rect.height,
+      };
+    };
+    const terminalRect = readRect(terminal);
+    const dockRect = readRect(composerDock);
+    const chatRect = readRect(chatBox);
+    const toggleRect = readRect(keyToggle);
+    const panelRect = keyPanel ? readRect(keyPanel) : null;
+    const viewport = window.visualViewport;
+    const viewportLeft = viewport?.offsetLeft ?? 0;
+    const viewportTop = viewport?.offsetTop ?? 0;
+    const viewportRight = viewportLeft + (viewport?.width ?? window.innerWidth);
+    const viewportBottom = viewportTop + (viewport?.height ?? window.innerHeight);
+    const panelStyle = keyPanel ? getComputedStyle(keyPanel) : null;
+    return {
+      terminal: terminalRect,
+      dock: dockRect,
+      chat: chatRect,
+      toggle: toggleRect,
+      panel: panelRect,
+      detached: !composerDock.contains(keyToggle)
+        && !chatBox.contains(keyToggle)
+        && (!keyPanel || (!composerDock.contains(keyPanel) && !chatBox.contains(keyPanel))),
+      togglePosition: getComputedStyle(keyToggle).position,
+      panelPosition: panelStyle?.position ?? null,
+      panelAboveToggle: panelRect ? panelRect.bottom <= toggleRect.top + 1 : null,
+      surfacesInside: [toggleRect, chatRect, ...(panelRect ? [panelRect] : [])].every((rect) =>
+        rect.left >= viewportLeft - 1
+        && rect.top >= viewportTop - 1
+        && rect.right <= viewportRight + 1
+        && rect.bottom <= viewportBottom + 1),
+      panelOverflowY: panelStyle?.overflowY ?? null,
+      panelScrollHeight: keyPanel?.scrollHeight ?? null,
+      panelClientHeight: keyPanel?.clientHeight ?? null,
+    };
+  }, sessionId);
+  const rectDelta = (
+    actual: { left: number; top: number; right: number; bottom: number; width: number; height: number },
+    expected: { left: number; top: number; right: number; bottom: number; width: number; height: number },
+  ) => Math.max(
+    Math.abs(actual.left - expected.left),
+    Math.abs(actual.top - expected.top),
+    Math.abs(actual.right - expected.right),
+    Math.abs(actual.bottom - expected.bottom),
+    Math.abs(actual.width - expected.width),
+    Math.abs(actual.height - expected.height),
+  );
+  const expectStableRect = (
+    actual: { left: number; top: number; right: number; bottom: number; width: number; height: number },
+    expected: { left: number; top: number; right: number; bottom: number; width: number; height: number },
+    label: string,
+  ) => {
+    const delta = rectDelta(actual, expected);
+    expect(delta, label).toBeLessThanOrEqual(2);
+  };
+
+  const draft = "unsent navigation draft";
+  await input.fill(draft);
+  await mobileSmokePage.evaluate(() => {
+    document.body.tabIndex = -1;
+    document.body.focus();
+  });
+  await box.evaluate(async (el) => {
+    await Promise.all(el.getAnimations().map((animation) => animation.finished));
+  });
+  const closedGeometry = await readGeometry();
+  expect(closedGeometry, "closed floating keyboard geometry").not.toBeNull();
+  expect(closedGeometry!.detached).toBe(true);
+  expect(closedGeometry!.togglePosition).toBe("fixed");
+  expect(closedGeometry!.surfacesInside).toBe(true);
+  expect(closedGeometry!.toggle.width).toBeCloseTo(56, 0);
+  expect(closedGeometry!.toggle.height).toBeCloseTo(56, 0);
+
+  await toggle.tap();
+  await expect(input).toHaveValue(draft);
+  await expect(toggle).toHaveAttribute("data-open", "true");
+  await expect(toggle).toHaveAttribute("aria-label", "Hide terminal keys");
+  await expect(panel).toBeVisible();
+  await expect(panel).toHaveCSS("position", "fixed");
+  await expect(dock.getByTestId("terminal-nav-buttons")).toHaveCount(0);
+  await expect(box.getByTestId("terminal-nav-buttons")).toHaveCount(0);
+  await panel.evaluate(async (el) => {
+    await Promise.all(el.getAnimations().map((animation) => animation.finished));
+  });
+
+  const expectOpenGeometry = async (label: string) => {
+    await expect.poll(async () => {
+      const geometry = await readGeometry();
+      if (!geometry?.panel) return false;
+      return geometry.detached
+        && geometry.togglePosition === "fixed"
+        && geometry.panelPosition === "fixed"
+        && geometry.panelAboveToggle === true
+        && geometry.surfacesInside;
+    }, { message: `${label}: detached fixed panel and toggle must remain inside the viewport` }).toBe(true);
+    const geometry = await readGeometry();
+    expect(geometry?.panel, `${label}: open floating keyboard geometry`).not.toBeNull();
+    return geometry!;
+  };
+
+  const initialPortrait = await expectOpenGeometry("initial portrait");
+  expectStableRect(initialPortrait.dock, closedGeometry!.dock, "opening must not move or resize the composer dock");
+  expectStableRect(initialPortrait.terminal, closedGeometry!.terminal, "opening must not change terminal geometry");
+
+  const directKeys = [
+    ["nav-esc", [0x1b]],
+    ["nav-tab", [0x09]],
+    ["nav-backspace", [0x7f]],
+    ["nav-home", [0x1b, 0x5b, 0x48]],
+    ["nav-up", [0x1b, 0x5b, 0x41]],
+    ["nav-end", [0x1b, 0x5b, 0x46]],
+    ["nav-pgup", [0x1b, 0x5b, 0x35, 0x7e]],
+    ["nav-left", [0x1b, 0x5b, 0x44]],
+    ["nav-down", [0x1b, 0x5b, 0x42]],
+    ["nav-right", [0x1b, 0x5b, 0x43]],
+    ["nav-pgdn", [0x1b, 0x5b, 0x36, 0x7e]],
+    ["nav-enter", [0x0d]],
+  ] as const;
+  const expectedDirectBytes = directKeys.flatMap(([, data]) => [...data]);
+  for (const [testId] of directKeys) await expect(mobileSmokePage.getByTestId(testId)).toBeVisible();
+  await expect(mobileSmokePage.getByTestId("nav-ctrl")).toBeVisible();
+  await expect(mobileSmokePage.getByTestId("nav-mouse")).toBeVisible();
+
+  const capturedInputs: Array<{ sessionId: string; data: number[] }> = [];
+  const inputDecodeErrors: string[] = [];
+  mobileSmokePage.on("request", (request) => {
+    if (!new URL(request.url()).pathname.endsWith("/roost.v1.CoordinatorService/SessionsInput")) return;
+    const body = request.postDataBuffer();
+    if (!body) {
+      inputDecodeErrors.push("SessionsInput request had no body");
+      return;
+    }
+    try {
+      const decoded = fromBinary(SessionsInputRequestSchema, body);
+      capturedInputs.push({ sessionId: decoded.sessionId, data: Array.from(decoded.data) });
+    } catch (error) {
+      inputDecodeErrors.push(String(error));
+    }
+  });
+
+  await mobileSmokePage.evaluate(() => {
+    document.body.tabIndex = -1;
+    document.body.focus();
+  });
+  expect(await mobileSmokePage.evaluate(() => document.activeElement === document.body)).toBe(true);
+  await expect.poll(paneFocused).toBe(false);
+  for (const [testId] of directKeys) {
+    await mobileSmokePage.getByTestId(testId).tap();
+    expect(await paneFocused(), `${testId} must not focus the hidden terminal textarea`).toBe(false);
+  }
+  await expect.poll(() =>
+    capturedInputs.reduce((total, inputBatch) => total + inputBatch.data.length, 0),
+  ).toBe(expectedDirectBytes.length);
+  expect(inputDecodeErrors).toEqual([]);
+  expect(capturedInputs.every((inputBatch) => inputBatch.sessionId === sessionId)).toBe(true);
+  expect(capturedInputs.flatMap((inputBatch) => inputBatch.data)).toEqual(expectedDirectBytes);
+
+  const mouse = mobileSmokePage.getByTestId("nav-mouse");
+  await expect(mouse).toHaveAttribute("aria-pressed", "false");
+  await mouse.tap();
+  await expect(mouse).toHaveAttribute("aria-pressed", "true");
+  expect(await paneFocused()).toBe(false);
+  await mouse.tap();
+  await expect(mouse).toHaveAttribute("aria-pressed", "false");
+  expect(await paneFocused()).toBe(false);
+
+  const ctrl = mobileSmokePage.getByTestId("nav-ctrl");
+  await ctrl.tap();
+  await expect(ctrl).toHaveAttribute("aria-pressed", "true");
+  const openPanelBox = await panel.boundingBox();
+  expect(openPanelBox).not.toBeNull();
+  await mobileSmokePage.mouse.click(8, Math.max(8, openPanelBox!.y / 2));
+  await expect.poll(paneFocused).toBe(true);
+  await mobileSmokePage.keyboard.type("c");
+  await expect.poll(() =>
+    capturedInputs.reduce((total, inputBatch) => total + inputBatch.data.length, 0),
+  ).toBe(expectedDirectBytes.length + 1);
+  expect(capturedInputs.every((inputBatch) => inputBatch.sessionId === sessionId)).toBe(true);
+  expect(capturedInputs.flatMap((inputBatch) => inputBatch.data).at(-1)).toBe(0x03);
+  await expect(mobileSmokePage.getByTestId("nav-ctrl")).toHaveAttribute("aria-pressed", "false");
+
+  const portrait = mobileSmokePage.viewportSize();
+  expect(portrait).not.toBeNull();
+  await mobileSmokePage.setViewportSize({ width: portrait!.height, height: portrait!.width });
+  const landscape = await expectOpenGeometry("landscape");
+  expect(landscape.panelOverflowY).toBe("auto");
+  expect(landscape.panelScrollHeight!).toBeGreaterThan(landscape.panelClientHeight!);
+  await panel.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+  await expect.poll(() => panel.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+  await mobileSmokePage.setViewportSize(portrait!);
+  await expectOpenGeometry("restored portrait");
+  await expect.poll(async () => {
+    const restored = await readGeometry();
+    if (!restored?.panel) return Number.POSITIVE_INFINITY;
+    return Math.max(
+      rectDelta(restored.dock, closedGeometry!.dock),
+      rectDelta(restored.terminal, closedGeometry!.terminal),
+      rectDelta(restored.toggle, initialPortrait.toggle),
+      rectDelta(restored.panel, initialPortrait.panel!),
+    );
+  }, { message: "portrait terminal and detached floating keypad geometry must recover" })
+    .toBeLessThanOrEqual(2);
+
+  await input.tap();
+  await expect(input).toBeFocused();
+  await expect(panel).toBeVisible();
+  await expect(toggle).toHaveAttribute("data-open", "true");
+  await expect(input).toHaveValue(draft);
+  expect(await paneFocused()).toBe(false);
+
+  await mobileSmokePage.getByTestId("nav-ctrl").tap();
+  await expect(mobileSmokePage.getByTestId("nav-ctrl")).toHaveAttribute("aria-pressed", "true");
+  await toggle.tap();
+  await expect(panel).toHaveCount(0);
+  await expect(toggle).toHaveAttribute("data-open", "false");
+  await expect(input).toHaveValue(draft);
+  expect(await paneFocused()).toBe(false);
+  await toggle.tap();
+  await expect(panel).toBeVisible();
+  await expect(toggle).toHaveAttribute("data-open", "true");
+  await expect(mobileSmokePage.getByTestId("nav-ctrl")).toHaveAttribute("aria-pressed", "false");
+  await expect(input).toHaveValue(draft);
+  expect(await paneFocused()).toBe(false);
 });
 
 // A mic that cannot start used to leave the button red and data-state="listening"
@@ -624,11 +1790,18 @@ test("a mic that cannot start ends the recording and says why", async ({ mobileS
   await mobileSmokePage.waitForFunction(() => typeof (window as unknown as Window & { __smoke?: unknown }).__smoke === "object");
   const sessionId = (await spawnSmokeShell(mobileSmokePage, stack.workerFp)).session_id;
   await navigateToSmokeSession(mobileSmokePage, sessionId);
+  const toggle = mobileSmokePage.getByTestId("terminal-nav-toggle");
+  const panel = mobileSmokePage.getByTestId("terminal-nav-buttons");
+  await expect(toggle).toHaveAttribute("data-open", "false");
+  await toggle.tap();
+  await expect(panel).toBeVisible();
 
   const voice = mobileSmokePage.getByTestId("mobile-voice-input");
   await expect(voice).toHaveAttribute("data-engine", "deepgram");
   const mic = mobileSmokePage.getByTestId("voice-mic");
   await mic.tap();
+  await expect(panel).toBeVisible();
+  await expect(toggle).toHaveAttribute("data-open", "true");
 
   await expect(voice).toHaveAttribute("data-state", "idle");
   await expect(mic).toHaveAttribute("data-recording", "false");
@@ -758,6 +1931,135 @@ test("an audio session suspended by the mic start fails the tap instead of recor
   await expect(mobileSmokePage.getByTestId("voice-caption")).toContainText("audio session stayed suspended");
 });
 
+// iOS can leave the activation-primer resume pending/rejected while
+// getUserMedia switches the OS audio session. That first resume is not the
+// liveness verdict: once the stream exists, the wired graph gets one
+// authoritative resume and must send real PCM before Deepgram can transcribe.
+test("mobile mic retries AudioContext resume after the input session opens", async ({ mobileSmokePage, stack }) => {
+  await stack.client.transcriptionSetConfig({ deepgramKey: "smoke-test-key", deepgramLanguage: "en" });
+  await mobileSmokePage.addInitScript(() => {
+    let inputSessionOpen = false;
+    let liveContext: { state: string } | null = null;
+    let liveNode: { port: { onmessage: ((e: { data: Float32Array }) => void) | null } } | null = null;
+
+    class RetryContext {
+      state = "suspended";
+      sampleRate = 48000;
+      destination = {};
+      audioWorklet = { addModule: () => Promise.resolve() };
+      resumeCalls = 0;
+      constructor() { liveContext = this; }
+      createMediaStreamSource() { return { connect() {}, disconnect() {} }; }
+      createScriptProcessor() { return { onaudioprocess: null, connect() {}, disconnect() {} }; }
+      resume() {
+        this.resumeCalls++;
+        if (this.resumeCalls === 1) {
+          return Promise.reject(new Error("the audio session did not respond in time — tap the mic again"));
+        }
+        if (!inputSessionOpen) return Promise.reject(new Error("the input session is not open"));
+        this.state = "running";
+        return Promise.resolve();
+      }
+      close() {
+        this.state = "closed";
+        return Promise.resolve();
+      }
+    }
+    class LiveWorkletNode {
+      port = { onmessage: null as ((e: { data: Float32Array }) => void) | null, close() {} };
+      constructor() { liveNode = this; }
+      connect() {}
+      disconnect() {}
+    }
+
+    const win = window as unknown as Record<string, unknown>;
+    win.AudioContext = RetryContext;
+    win.webkitAudioContext = RetryContext;
+    win.AudioWorkletNode = LiveWorkletNode;
+    const liveFrame = new Float32Array(2048).fill(0.25);
+    setInterval(() => {
+      if (inputSessionOpen && liveContext?.state === "running") {
+        liveNode?.port.onmessage?.({ data: liveFrame });
+      }
+    }, 20);
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: {
+        getUserMedia: () => {
+          inputSessionOpen = true;
+          return Promise.resolve({ getTracks: () => [{ stop() {} }] });
+        },
+      },
+    });
+
+    const RealWebSocket = window.WebSocket;
+    const PatchedWebSocket = function (url: string, protocols?: string | string[]) {
+      if (!String(url).includes("api.deepgram.com")) return new RealWebSocket(url, protocols);
+      let sentPcm = false;
+      let announcedPcm = false;
+      const sock = {
+        url, readyState: 0,
+        onopen: null as (() => void) | null,
+        onmessage: null as ((e: { data: string }) => void) | null,
+        onerror: null, onclose: null,
+        send(payload: unknown) {
+          if (payload instanceof ArrayBuffer) {
+            sentPcm ||= payload.byteLength > 0;
+            if (sentPcm && !announcedPcm) {
+              announcedPcm = true;
+              setTimeout(() => {
+                sock.onmessage?.({
+                  data: JSON.stringify({
+                    type: "Results", is_final: false,
+                    channel: { alternatives: [{ transcript: "PCM ready" }] },
+                  }),
+                });
+              }, 0);
+            }
+            return;
+          }
+          if (payload !== '{"type":"Finalize"}') return;
+          setTimeout(() => {
+            sock.onmessage?.({
+              data: JSON.stringify({
+                type: "Results", is_final: true, from_finalize: true,
+                channel: {
+                  alternatives: [{
+                    transcript: sentPcm ? "post-stream resume delivered audio" : "",
+                  }],
+                },
+              }),
+            });
+          }, 0);
+        },
+        close() { sock.readyState = 3; },
+      };
+      setTimeout(() => { sock.readyState = 1; sock.onopen?.(); }, 10);
+      return sock;
+    } as unknown as typeof WebSocket;
+    Object.assign(PatchedWebSocket, { CONNECTING: 0, OPEN: 1, CLOSING: 2, CLOSED: 3 });
+    win.WebSocket = PatchedWebSocket;
+  });
+
+  await mobileSmokePage.reload({ waitUntil: "domcontentloaded" });
+  await mobileSmokePage.waitForFunction(() => typeof (window as unknown as Window & { __smoke?: unknown }).__smoke === "object");
+  const sessionId = (await spawnSmokeShell(mobileSmokePage, stack.workerFp)).session_id;
+  await navigateToSmokeSession(mobileSmokePage, sessionId);
+
+  const voice = mobileSmokePage.getByTestId("mobile-voice-input");
+  await expect(voice).toHaveAttribute("data-engine", "deepgram");
+  const mic = mobileSmokePage.getByTestId("voice-mic");
+  const input = mobileSmokePage.getByTestId("chat-input");
+  await mic.tap();
+  await expect(voice).toHaveAttribute("data-state", "listening");
+  await expect(input).toHaveValue("PCM ready");
+
+  await mic.tap();
+  await expect(voice).toHaveAttribute("data-state", "idle", { timeout: 15_000 });
+  await expect(input).toHaveValue("post-stream resume delivered audio");
+  await expect(mobileSmokePage.getByTestId("voice-caption")).toHaveCount(0);
+});
+
 // The report this whole class comes from: on a phone the FIRST recording works
 // and every one after it is dead — the mic never leaves `listening`, or the stop
 // wedges in `finalizing`, or the caption reads "Deepgram connection dropped".
@@ -790,6 +2092,8 @@ test("a second recording works exactly like the first", async ({ mobileSmokePage
     win.AudioContext = LiveContext;
     win.webkitAudioContext = LiveContext;
     win.AudioWorkletNode = LiveWorkletNode;
+    let emitInterim = false;
+    win.__emitVoiceInterim = () => { emitInterim = true; };
     // 48 kHz × 40 ms = 1920 samples; 2048 clears the resampler's emit threshold,
     // so every tick delivers a real PCM chunk to the attached sink.
     setInterval(() => liveNode?.port.onmessage?.({ data: new Float32Array(2048).fill(0.3) }), 40);
@@ -822,7 +2126,18 @@ test("a second recording works exactly like the first", async ({ mobileSmokePage
         },
         close() { sock.readyState = 3; },
       };
-      setTimeout(() => { sock.readyState = 1; sock.onopen?.(); }, 10);
+      setTimeout(() => {
+        sock.readyState = 1;
+        sock.onopen?.();
+        if (emitInterim) {
+          sock.onmessage?.({
+            data: JSON.stringify({
+              type: "Results", is_final: false,
+              channel: { alternatives: [{ transcript: "still recording" }] },
+            }),
+          });
+        }
+      }, 10);
       return sock;
     } as unknown as typeof WebSocket;
     Object.assign(PatchedWebSocket, { CONNECTING: 0, OPEN: 1, CLOSING: 2, CLOSED: 3 });
@@ -838,27 +2153,299 @@ test("a second recording works exactly like the first", async ({ mobileSmokePage
   const mic = mobileSmokePage.getByTestId("voice-mic");
   const input = mobileSmokePage.getByTestId("chat-input");
 
+  const send = mobileSmokePage.getByTestId("chat-send");
+  await expect(input).not.toBeFocused();
   await mic.tap();
   await expect(voice).toHaveAttribute("data-state", "listening");
   await mic.tap();
   await expect(voice).toHaveAttribute("data-state", "idle", { timeout: 15_000 });
-  await expect(input).toHaveValue(/hello from the mic/);
+  await expect(input).toHaveValue("hello from the mic");
+  await expect(input).not.toBeFocused();
 
-  // Longer than the 4 s mobile idle release: the device really closes, so the
-  // next tap re-opens it cold and re-rolls exactly the dice the phone re-rolls.
+  await send.click();
+  await expect(input).toHaveValue("");
+  await expect(input).not.toBeFocused();
+  await expect.poll(() => readStoredComposerDraft(mobileSmokePage, sessionId)).toEqual({
+    present: false,
+    value: null,
+  });
+
+  // Longer than the 4 s mobile idle release: recording two opens the device
+  // cold, exactly like the reporter's second attempt.
   await mobileSmokePage.waitForTimeout(4_500);
+  await mic.tap();
+  await expect(voice).toHaveAttribute("data-state", "listening");
+  await expect(input).toHaveValue("");
+  expect(await readStoredComposerDraft(mobileSmokePage, sessionId)).toEqual({
+    present: false,
+    value: null,
+  });
+  await mic.tap();
+  await expect(voice).toHaveAttribute("data-state", "idle", { timeout: 15_000 });
+  await expect(input).toHaveValue("hello from the mic");
+  await expect(input).not.toBeFocused();
 
+  // Preserve the unsent-recordings contract: another finalized recording
+  // appends instead of replacing the still-unsent second transcript.
+  await mobileSmokePage.waitForTimeout(4_500);
   await mic.tap();
   await expect(voice).toHaveAttribute("data-state", "listening");
   await mic.tap();
   await expect(voice).toHaveAttribute("data-state", "idle", { timeout: 15_000 });
-  await expect(input).toHaveValue(/hello from the mic.*hello from the mic/);
-  // No error caption survived either recording.
+  await expect(input).toHaveValue("hello from the mic hello from the mic");
+  await expect(input).not.toBeFocused();
   await expect(mobileSmokePage.getByTestId("voice-caption")).toHaveCount(0);
+
+  // Hiding the only reachable composer must cancel the recording and restore
+  // the pre-dictation draft, not retain an interim hypothesis as ordinary text.
+  const settledDraft = "hello from the mic hello from the mic";
+  await mobileSmokePage.evaluate(() => {
+    const emitInterim = (window as unknown as { __emitVoiceInterim: () => void }).__emitVoiceInterim;
+    emitInterim();
+  });
+  await mic.tap();
+  await expect(voice).toHaveAttribute("data-state", "listening");
+  await expect(input).toHaveValue(`${settledDraft} still recording`);
+  const drawer = mobileSmokePage.getByTestId("sidebar-drawer");
+  await mobileSmokePage.getByTestId("mobile-deck-bar-menu").tap();
+  await expect(drawer).toHaveAttribute("data-open", "true");
+  await expect(mobileSmokePage.getByTestId("mobile-chat-input")).toHaveCount(0);
+  await mobileSmokePage.getByTestId("brand-row-collapse").tap();
+  await expect(drawer).toHaveAttribute("data-open", "false");
+  await expect(mobileSmokePage.getByTestId("chat-input")).toHaveValue(settledDraft);
+  await expect(mobileSmokePage.getByTestId("mobile-voice-input")).toHaveAttribute("data-state", "idle");
 });
 
-// The Chromium harness cannot reproduce WebKit's never-settling promise on its
-// own (the case above passes on the unfixed code for exactly that reason), so
+test("Web Speech second recording starts from an empty sent draft", async ({ mobileSmokePage, stack }) => {
+  await stack.client.transcriptionSetConfig({ deepgramKey: "", deepgramLanguage: "en" });
+  await mobileSmokePage.addInitScript(() => {
+    interface FakeResult extends Array<{ transcript: string }> {
+      isFinal: boolean;
+    }
+    interface FakeResultEvent {
+      resultIndex: number;
+      results: FakeResult[];
+    }
+    class FakeSpeechRecognition {
+      continuous = false;
+      interimResults = false;
+      lang = "";
+      onresult: ((event: FakeResultEvent) => void) | null = null;
+      onend: (() => void) | null = null;
+      onerror: ((event: { error: string }) => void) | null = null;
+      start() {}
+      stop() {
+        const result = [{ transcript: "hello from web speech" }] as FakeResult;
+        result.isFinal = true;
+        this.onresult?.({ resultIndex: 0, results: [result] });
+        queueMicrotask(() => this.onend?.());
+      }
+      abort() {
+        queueMicrotask(() => this.onend?.());
+      }
+    }
+    const speechWindow = window as unknown as Window & {
+      SpeechRecognition: typeof FakeSpeechRecognition;
+      webkitSpeechRecognition: typeof FakeSpeechRecognition;
+    };
+    speechWindow.SpeechRecognition = FakeSpeechRecognition;
+    speechWindow.webkitSpeechRecognition = FakeSpeechRecognition;
+  });
+  await mobileSmokePage.reload({ waitUntil: "domcontentloaded" });
+  await mobileSmokePage.waitForFunction(() => typeof (window as unknown as Window & { __smoke?: unknown }).__smoke === "object");
+  const sessionId = (await spawnSmokeShell(mobileSmokePage, stack.workerFp)).session_id;
+  await navigateToSmokeSession(mobileSmokePage, sessionId);
+
+  const voice = mobileSmokePage.getByTestId("mobile-voice-input");
+  const mic = mobileSmokePage.getByTestId("voice-mic");
+  const input = mobileSmokePage.getByTestId("chat-input");
+  await expect(voice).toHaveAttribute("data-engine", "web-speech");
+
+  await mic.tap();
+  await expect(voice).toHaveAttribute("data-state", "listening");
+  await mic.tap();
+  await expect(voice).toHaveAttribute("data-state", "idle");
+  await expect(input).toHaveValue("hello from web speech");
+
+  await mobileSmokePage.getByTestId("chat-send").click();
+  await expect(input).toHaveValue("");
+  await expect.poll(() => readStoredComposerDraft(mobileSmokePage, sessionId)).toEqual({
+    present: false,
+    value: null,
+  });
+
+  await mic.tap();
+  await expect(voice).toHaveAttribute("data-state", "listening");
+  await expect(input).toHaveValue("");
+  expect(await readStoredComposerDraft(mobileSmokePage, sessionId)).toEqual({
+    present: false,
+    value: null,
+  });
+  await mic.tap();
+  await expect(voice).toHaveAttribute("data-state", "idle");
+  await expect(input).toHaveValue("hello from web speech");
+});
+
+test("desktop dictation stops when its pane is parked and Enter cannot submit it", async ({ smokePage, stack }) => {
+  await stack.client.transcriptionSetConfig({ deepgramKey: "", deepgramLanguage: "en" });
+  await smokePage.addInitScript(() => {
+    interface FakeResult extends Array<{ transcript: string }> {
+      isFinal: boolean;
+    }
+    interface FakeResultEvent {
+      resultIndex: number;
+      results: FakeResult[];
+    }
+    let speechStarts = 0;
+    class FakeSpeechRecognition {
+      continuous = false;
+      interimResults = false;
+      lang = "";
+      onresult: ((event: FakeResultEvent) => void) | null = null;
+      onend: (() => void) | null = null;
+      onerror: ((event: { error: string }) => void) | null = null;
+      start() {
+        speechStarts += 1;
+        const result = [{ transcript: "still speaking" }] as FakeResult;
+        result.isFinal = false;
+        queueMicrotask(() => this.onresult?.({ resultIndex: 0, results: [result] }));
+      }
+      stop() {
+        const result = [{ transcript: "finished speech" }] as FakeResult;
+        result.isFinal = true;
+        this.onresult?.({ resultIndex: 0, results: [result] });
+        queueMicrotask(() => this.onend?.());
+      }
+      abort() {
+        queueMicrotask(() => this.onend?.());
+      }
+    }
+    const speechWindow = window as unknown as Window & {
+      SpeechRecognition: typeof FakeSpeechRecognition;
+      webkitSpeechRecognition: typeof FakeSpeechRecognition;
+      __speechStarts: () => number;
+    };
+    speechWindow.SpeechRecognition = FakeSpeechRecognition;
+    speechWindow.webkitSpeechRecognition = FakeSpeechRecognition;
+    speechWindow.__speechStarts = () => speechStarts;
+  });
+  await smokePage.reload({ waitUntil: "domcontentloaded" });
+  await smokePage.waitForFunction(
+    () => typeof (window as unknown as Window & { __smoke?: unknown }).__smoke === "object",
+  );
+
+  const firstId = (await spawnSmokeShell(smokePage, stack.workerFp)).session_id;
+  await navigateToSmokeSession(smokePage, firstId);
+  const firstSlot = smokePage.getByTestId(`terminal-slot-${firstId}`);
+  const firstDock = firstSlot.getByTestId("mobile-chat-input");
+  const firstVoice = firstDock.getByTestId("mobile-voice-input");
+  const firstInput = firstDock.getByTestId("chat-input");
+  await expect(firstVoice).toHaveAttribute("data-engine", "web-speech");
+  await firstInput.fill("typed base");
+  await firstDock.getByTestId("voice-mic").click();
+  await expect(firstVoice).toHaveAttribute("data-state", "listening");
+  await expect(firstInput).toHaveValue("typed base still speaking");
+
+  await firstInput.press("Enter");
+  await expect(firstVoice).toHaveAttribute("data-state", "listening");
+  await expect(firstInput).toHaveValue("typed base still speaking");
+
+  const secondId = (await spawnSmokeShell(smokePage, stack.workerFp)).session_id;
+  await switchToSmokeSession(smokePage, secondId);
+  const secondDock = smokePage
+    .getByTestId(`terminal-slot-${secondId}`)
+    .getByTestId("mobile-chat-input");
+  await expect(secondDock).toBeVisible();
+  await expect(secondDock.getByTestId("voice-mic")).toBeVisible();
+  await expect(firstVoice).toHaveAttribute("data-state", "idle");
+
+  await switchToSmokeSession(smokePage, firstId);
+  await expect(firstDock).toBeVisible();
+  await expect(firstInput).toHaveValue("typed base");
+  await expect(firstVoice).toHaveAttribute("data-state", "idle");
+
+  // Spotlight keeps covered pane DOM mounted, so it must explicitly deactivate
+  // that pane's recorder and expose the spotlit pane's mic.
+  await smokePage.keyboard.press("Meta+D");
+  await expect.poll(() => smokePage.locator("[data-pane-slot]").evaluateAll((slots) =>
+    slots.filter((slot) => {
+      const rect = slot.getBoundingClientRect();
+      return rect.right > 0 && rect.left < innerWidth && rect.bottom > 0 && rect.top < innerHeight;
+    }).length)).toBe(2);
+  const visibleIds = await smokePage.locator("[data-pane-slot]").evaluateAll((slots) =>
+    slots.flatMap((slot) => {
+      const rect = slot.getBoundingClientRect();
+      const testId = slot.getAttribute("data-testid") ?? "";
+      return rect.right > 0 && rect.left < innerWidth && testId.startsWith("terminal-slot-")
+        ? [testId.slice("terminal-slot-".length)]
+        : [];
+    }));
+  const spotlightId = visibleIds.find((id) => id !== firstId);
+  expect(spotlightId).toBeTruthy();
+  const spotlightSlot = smokePage.getByTestId(`terminal-slot-${spotlightId!}`);
+  const spotlightDock = spotlightSlot.getByTestId("mobile-chat-input");
+
+  // Both controls can already be activation targets when two clicks arrive in
+  // one task. The first claim must atomically exclude the retained second target.
+  const startsBeforeRace = await smokePage.evaluate(() =>
+    (window as unknown as Window & { __speechStarts: () => number }).__speechStarts());
+  await smokePage.evaluate(([firstSessionId, secondSessionId]) => {
+    const firstMic = document.querySelector(
+      `[data-testid="terminal-slot-${firstSessionId}"] [data-testid="voice-mic"]`,
+    );
+    const secondMic = document.querySelector(
+      `[data-testid="terminal-slot-${secondSessionId}"] [data-testid="voice-mic"]`,
+    );
+    if (!(firstMic instanceof HTMLElement) || !(secondMic instanceof HTMLElement)) {
+      throw new Error("both split-pane microphones must exist before the activation race");
+    }
+    firstMic.click();
+    secondMic.click();
+  }, [firstId, spotlightId!] as const);
+  await expect.poll(() => smokePage.evaluate(() =>
+    (window as unknown as Window & { __speechStarts: () => number }).__speechStarts()))
+    .toBe(startsBeforeRace + 1);
+  await expect(smokePage.locator(
+    '[data-testid="mobile-voice-input"][data-state="listening"]',
+  )).toHaveCount(1);
+  await expect(smokePage.getByTestId("voice-mic")).toHaveCount(1);
+  await smokePage.getByTestId("voice-discard").click();
+  await expect(firstDock.getByTestId("voice-mic")).toBeVisible();
+  await expect(spotlightDock.getByTestId("voice-mic")).toBeVisible();
+
+  await firstInput.click();
+  await firstDock.getByTestId("voice-mic").click();
+  await expect(firstVoice).toHaveAttribute("data-state", "listening");
+  await expect(firstInput).toHaveValue("typed base still speaking");
+  await expect(spotlightDock.getByTestId("voice-mic")).toHaveCount(0);
+  await spotlightSlot.getByTestId("terminal-display").click();
+  await smokePage.keyboard.press("Meta+Enter");
+  await expect(spotlightSlot).toHaveAttribute("data-spotlit", "true");
+  await expect(firstDock).toHaveAttribute("data-active", "false");
+  await expect(firstDock).toHaveAttribute("aria-hidden", "true");
+  await expect(firstDock).toHaveAttribute("inert", "");
+  await expect(spotlightDock).toHaveAttribute("data-active", "true");
+  await expect(spotlightDock).not.toHaveAttribute("aria-hidden", "true");
+  await expect(firstVoice).toHaveAttribute("data-state", "idle");
+  await expect(firstInput).toHaveValue("typed base");
+  await expect(spotlightDock.getByTestId("voice-mic")).toBeVisible();
+  // Compact suppresses the spotlight surface but retains its stored ID. The
+  // visible viewport composer must become active rather than a silent mic shell.
+  await smokePage.setViewportSize({ width: 390, height: 844 });
+  const compactDock = smokePage.getByTestId("mobile-chat-input");
+  await expect(compactDock).toHaveCount(1);
+  await expect(compactDock).toHaveAttribute("data-placement", "viewport");
+  await compactDock.getByTestId("voice-mic").click();
+  await expect(compactDock.getByTestId("mobile-voice-input")).toHaveAttribute(
+    "data-state",
+    "listening",
+  );
+  await compactDock.getByTestId("voice-discard").click();
+  await smokePage.keyboard.press("Escape");
+});
+
+// Chromium's ordinary media-device behavior cannot reproduce WebKit's
+// never-settling promise (and passes on the unfixed code), so
 // the stall is injected: getUserMedia parks forever on the FIRST call only.
 // Unfixed, that tap never resolves — `warming` keeps the dead promise for the
 // page's lifetime, so the mic breathes in `listening` and EVERY later tap awaits
@@ -954,45 +2541,80 @@ test("a stalled mic open ends the recording and the next tap still works", async
 test("mobile composer keeps an unsent draft per session, across panes and reloads", async ({ mobileSmokePage, stack }) => {
   const firstId = (await spawnSmokeShell(mobileSmokePage, stack.workerFp)).session_id;
   await navigateToSmokeSession(mobileSmokePage, firstId);
+  await expectSmokeComposer(mobileSmokePage);
+
+  const box = mobileSmokePage.getByTestId("chat-box");
   const input = mobileSmokePage.getByTestId("chat-input");
-  await expect(input).toBeVisible();
   await input.fill("half typed message");
 
-  // Tapping outside the bar keeps it too.
-  await mobileSmokePage.getByTestId(`terminal-slot-${firstId}`).click({ position: { x: 8, y: 8 } });
-  await expect(mobileSmokePage.getByTestId("chat-box")).toHaveCount(0);
-  await mobileSmokePage.getByTestId("terminal-chat-toggle").click();
+  const drawer = mobileSmokePage.getByTestId("sidebar-drawer");
+  await mobileSmokePage.getByTestId("mobile-deck-bar-menu").tap();
+  await expect(drawer).toHaveAttribute("data-open", "true");
+  await expect(mobileSmokePage.getByTestId("mobile-chat-input")).toHaveCount(0);
+  await expect(mobileSmokePage.getByTestId("terminal-nav-toggle")).toHaveCount(0);
+  await expect(mobileSmokePage.getByTestId("terminal-nav-buttons")).toHaveCount(0);
+
+  await mobileSmokePage.getByTestId("brand-row-collapse").tap();
+  await expect(drawer).toHaveAttribute("data-open", "false");
+  await expect(mobileSmokePage.getByTestId("mobile-chat-input")).toBeVisible();
   await expect(mobileSmokePage.getByTestId("chat-input")).toHaveValue("half typed message");
 
-  // Escape collapses the bar; the draft is retained.
-  await mobileSmokePage.getByTestId("chat-input").press("Escape");
-  await expect(mobileSmokePage.getByTestId("chat-box")).toHaveCount(0);
-  await mobileSmokePage.getByTestId("terminal-chat-toggle").click();
+  // Body-portaled controls must leave with the terminal surface. The persistent
+  // deck stays mounted behind /file, so hiding only its host is insufficient.
+  await mobileSmokePage.evaluate((workerFp) => {
+    const smoke = (window as unknown as Window & {
+      __smoke: { navigate(href: string): void };
+    }).__smoke;
+    smoke.navigate(`/file/${workerFp}/tmp/roost-composer-missing.txt`);
+  }, stack.workerFp);
+  await expect(mobileSmokePage.getByTestId("file-viewer-sheet")).toBeVisible();
+  await expect(mobileSmokePage.getByTestId("mobile-chat-input")).toHaveCount(0);
+  await expect(mobileSmokePage.getByTestId("terminal-nav-toggle")).toHaveCount(0);
+  await mobileSmokePage.evaluate((id) => {
+    const smoke = (window as unknown as Window & {
+      __smoke: { navigate(href: string): void };
+    }).__smoke;
+    smoke.navigate(`/s/${id}`);
+  }, firstId);
+  await expectSmokeComposer(mobileSmokePage);
   await expect(mobileSmokePage.getByTestId("chat-input")).toHaveValue("half typed message");
+
+  // Tapping the terminal blurs the field but keeps both bar and draft.
+  await mobileSmokePage.getByTestId(`terminal-slot-${firstId}`).click({ position: { x: 8, y: 8 } });
+  await expect(box).toBeVisible();
+  await expect(input).not.toBeFocused();
+  await expect(input).toHaveValue("half typed message");
+
+  // Escape has the same single-layer behavior: dismiss focus, retain content.
+  await input.tap();
+  await expect(input).toBeFocused();
+  await input.press("Escape");
+  await expect(box).toBeVisible();
+  await expect(input).not.toBeFocused();
+  await expect(input).toHaveValue("half typed message");
 
   // A different session gets its own empty draft; coming back restores this one.
   const secondId = (await spawnSmokeShell(mobileSmokePage, stack.workerFp)).session_id;
   await switchToSmokeSession(mobileSmokePage, secondId);
-  await openSmokeComposer(mobileSmokePage);
+  await expectSmokeComposer(mobileSmokePage);
   await expect(mobileSmokePage.getByTestId("chat-input")).toHaveValue("");
   await switchToSmokeSession(mobileSmokePage, firstId);
-  await openSmokeComposer(mobileSmokePage);
+  await expectSmokeComposer(mobileSmokePage);
   await expect(mobileSmokePage.getByTestId("chat-input")).toHaveValue("half typed message");
 
   // A reload restores it (localStorage, local device only).
   await mobileSmokePage.reload({ waitUntil: "domcontentloaded" });
   await expect(mobileSmokePage.getByTestId(`terminal-slot-${firstId}`)).toBeVisible();
-  await openSmokeComposer(mobileSmokePage);
+  await expectSmokeComposer(mobileSmokePage);
   await expect(mobileSmokePage.getByTestId("chat-input")).toHaveValue("half typed message");
 
-  // Send is the only thing that consumes it.
+  // Send is the only thing that consumes it, and does not dismiss the dock.
   await mobileSmokePage.getByTestId("chat-send").click();
-  await expect(mobileSmokePage.getByTestId("chat-box")).toHaveCount(0);
-  await mobileSmokePage.getByTestId("terminal-chat-toggle").click();
+  await expect(mobileSmokePage.getByTestId("chat-box")).toBeVisible();
   await expect(mobileSmokePage.getByTestId("chat-input")).toHaveValue("");
 });
 
-test("mobile composer preserves input and the Ctrl pad interrupts", async ({ mobileSmokePage, stack }, testInfo) => {
+test("mobile composer preserves and submits terminal input", async ({ mobileSmokePage, stack }, testInfo) => {
   test.skip(testInfo.project.name !== "webkit-iphone", "iPhone terminal input contract");
   const sessionId = await mobileSmokePage.evaluate(async (workerFp) => {
     const smoke = (window as unknown as Window & { __smoke: { spawnShell(worker: string, folder: string): Promise<{ session_id: string }> } }).__smoke;
@@ -1001,12 +2623,12 @@ test("mobile composer preserves input and the Ctrl pad interrupts", async ({ mob
   await mobileSmokePage.goto(`${stack.baseUrl}/s/${sessionId}`);
   const slot = mobileSmokePage.getByTestId(`terminal-slot-${sessionId}`);
   await expect(slot).toBeVisible();
+  await expectSmokeComposer(mobileSmokePage);
 
-  await expect(mobileSmokePage.getByTestId("mobile-chat-input")).toHaveAttribute("data-open", "true");
-  await expect(mobileSmokePage.getByTestId("chat-box")).toBeVisible();
+  const box = mobileSmokePage.getByTestId("chat-box");
   const initialInput = mobileSmokePage.getByTestId("chat-input");
-  await expect(initialInput).toBeVisible();
-  await expect(mobileSmokePage.getByTestId("terminal-chat-toggle")).toHaveCount(0);
+  await expect(initialInput).not.toBeFocused();
+  await initialInput.tap();
   await expect(initialInput).toBeFocused();
 
   await inputSmokeTerminal(
@@ -1017,10 +2639,12 @@ test("mobile composer preserves input and the Ctrl pad interrupts", async ({ mob
   await initialInput.fill("  x  ");
   await mobileSmokePage.getByTestId("chat-send").click();
   await expect.poll(() => slot.textContent()).toContain("<  x  >");
-  await expect(mobileSmokePage.getByTestId("terminal-chat-toggle")).toBeVisible();
-  await expect(mobileSmokePage.getByTestId("chat-box")).toHaveCount(0);
+  await expect(box).toBeVisible();
+  await expect(initialInput).toHaveValue("");
 
   await slot.click({ position: { x: 8, y: 8 } });
+  await expect(box).toBeVisible();
+  await expect(initialInput).not.toBeFocused();
   await expect.poll(() => mobileSmokePage.evaluate((id) => {
     const smoke = (window as unknown as Window & {
       __smoke: { paneFocused(sessionId: string): { focused: boolean } };
@@ -1032,93 +2656,60 @@ test("mobile composer preserves input and the Ctrl pad interrupts", async ({ mob
   await mobileSmokePage.keyboard.press("Enter");
   await expect.poll(() => slot.textContent()).toContain(directMarker);
 
-  // Reopen: three controls, and typing never adds a fourth.
-  await mobileSmokePage.getByTestId("terminal-chat-toggle").click();
+  // The same permanent three-control bar accepts another draft.
   await expect(mobileSmokePage.getByTestId("chat-lead")).toHaveCount(0);
-  await mobileSmokePage.getByTestId("chat-input").fill("y");
+  await initialInput.fill("y");
   await expect(mobileSmokePage.getByTestId("chat-lead")).toHaveCount(0);
   await expect(mobileSmokePage.getByTestId("chat-send")).toBeVisible();
-  // Tapping outside collapses the bar without discarding: reopening shows "y".
+
+  // Tapping outside and Escape each blur without discarding or unmounting.
   await slot.click({ position: { x: 8, y: 8 } });
-  await expect(mobileSmokePage.getByTestId("chat-box")).toHaveCount(0);
-  await mobileSmokePage.getByTestId("terminal-chat-toggle").click();
-  await expect(mobileSmokePage.getByTestId("chat-input")).toHaveValue("y");
-  // Tapping outside keeps it too.
-  await slot.click({ position: { x: 8, y: 8 } });
-  await expect(mobileSmokePage.getByTestId("chat-box")).toHaveCount(0);
-  await mobileSmokePage.getByTestId("terminal-chat-toggle").click();
-  await expect(mobileSmokePage.getByTestId("chat-input")).toHaveValue("y");
-  // Leave the next block its empty-draft, closed-bar precondition.
-  await mobileSmokePage.getByTestId("chat-input").fill("");
-  await mobileSmokePage.keyboard.press("Escape");
-  await expect(mobileSmokePage.getByTestId("chat-box")).toHaveCount(0);
+  await expect(box).toBeVisible();
+  await expect(initialInput).not.toBeFocused();
+  await expect(initialInput).toHaveValue("y");
+  await initialInput.tap();
+  await initialInput.press("Escape");
+  await expect(box).toBeVisible();
+  await expect(initialInput).not.toBeFocused();
+  await expect(initialInput).toHaveValue("y");
 
   // Enter is a NEWLINE, never a submit: only the send button commits the draft.
-  await mobileSmokePage.getByTestId("terminal-chat-toggle").click();
   const composed = mobileSmokePage.getByTestId("chat-input");
   await composed.fill("printf 'ENTER_LINE_A\\n'");
   await composed.press("Enter");
   await mobileSmokePage.keyboard.type("printf 'ENTER_LINE_B\\n'");
-  // Enter grew the draft instead of submitting: two lines, composer still open.
   await expect(composed).toHaveValue("printf 'ENTER_LINE_A\\n'\nprintf 'ENTER_LINE_B\\n'");
-  await expect(mobileSmokePage.getByTestId("chat-box")).toHaveCount(1);
+  await expect(box).toBeVisible();
   await mobileSmokePage.getByTestId("chat-send").click();
   await expect.poll(() => slot.textContent()).toContain("ENTER_LINE_A");
   await expect.poll(() => slot.textContent()).toContain("ENTER_LINE_B");
+  await expect(composed).toHaveValue("");
+  await expect(box).toBeVisible();
 
   await inputSmokeTerminal(
     mobileSmokePage,
     sessionId,
     `IFS= read -r line; printf '<%s>\\n' "$line"\r`,
   );
-  await mobileSmokePage.getByTestId("terminal-chat-toggle").click();
   await mobileSmokePage.getByTestId("chat-send").click();
   await expect.poll(() => slot.textContent()).toContain("<>");
-
-  await inputSmokeTerminal(mobileSmokePage, sessionId, "sleep 30\r");
-  await mobileSmokePage.getByTestId("terminal-nav-toggle").click();
-  await expect(mobileSmokePage.getByTestId("nav-tab")).toBeVisible();
-  await expect(mobileSmokePage.getByTestId("nav-home")).toBeVisible();
-  await expect(mobileSmokePage.getByTestId("nav-end")).toBeVisible();
-  const ctrl = mobileSmokePage.getByTestId("nav-ctrl");
-  await expect(ctrl).toHaveAttribute("aria-pressed", "false");
-  await ctrl.click();
-  await expect(ctrl).toHaveAttribute("aria-pressed", "true");
-  await mobileSmokePage.getByTestId("terminal-nav-toggle").click();
-  await mobileSmokePage.getByTestId("terminal-nav-toggle").click();
-  await expect(mobileSmokePage.getByTestId("nav-ctrl")).toHaveAttribute("aria-pressed", "false");
-  await mobileSmokePage.getByTestId("nav-ctrl").click();
-  await expect.poll(() => mobileSmokePage.evaluate((id) => {
-    const smoke = (window as unknown as Window & {
-      __smoke: { paneFocused(sessionId: string): { focused: boolean } };
-    }).__smoke;
-    return smoke.paneFocused(id).focused;
-  }, sessionId)).toBe(false);
-  await slot.click({ position: { x: 8, y: 8 } });
-  await expect.poll(() => mobileSmokePage.evaluate((id) => {
-    const smoke = (window as unknown as Window & {
-      __smoke: { paneFocused(sessionId: string): { focused: boolean } };
-    }).__smoke;
-    return smoke.paneFocused(id).focused;
-  }, sessionId)).toBe(true);
-  await mobileSmokePage.keyboard.type("c");
-  const marker = `TOUCH_CTRL_${crypto.randomUUID().replace(/-/g, "").slice(0, 8)}`;
-  await mobileSmokePage.keyboard.type(`printf '%s\\n' ${marker}`);
-  await mobileSmokePage.keyboard.press("Enter");
-  await expect.poll(() => slot.textContent()).toContain(marker);
+  await expect(composed).toHaveValue("");
+  await expect(box).toBeVisible();
 
   const secondSessionId = (await spawnSmokeShell(mobileSmokePage, stack.workerFp)).session_id;
   await switchToSmokeSession(mobileSmokePage, secondSessionId);
-  await expect(mobileSmokePage.getByTestId("mobile-chat-input")).toHaveAttribute("data-open", "true");
-  await expect(mobileSmokePage.getByTestId("chat-input")).toBeFocused();
-  await mobileSmokePage.getByTestId("chat-input").press("Escape");
-  await expect(mobileSmokePage.getByTestId("terminal-chat-toggle")).toBeVisible();
-  await expect(mobileSmokePage.getByTestId("chat-box")).toHaveCount(0);
+  await expectSmokeComposer(mobileSmokePage);
+  const secondInput = mobileSmokePage.getByTestId("chat-input");
+  await expect(secondInput).not.toBeFocused();
+  await secondInput.tap();
+  await expect(secondInput).toBeFocused();
+  await secondInput.press("Escape");
+  await expect(mobileSmokePage.getByTestId("chat-box")).toBeVisible();
+  await expect(secondInput).not.toBeFocused();
   await switchToSmokeSession(mobileSmokePage, sessionId);
-  await expect(mobileSmokePage.getByTestId("chat-box")).toHaveCount(0);
+  await expectSmokeComposer(mobileSmokePage);
   await switchToSmokeSession(mobileSmokePage, secondSessionId);
-  await expect(mobileSmokePage.getByTestId("terminal-chat-toggle")).toBeVisible();
-  await expect(mobileSmokePage.getByTestId("chat-box")).toHaveCount(0);
+  await expectSmokeComposer(mobileSmokePage);
 });
 
 test("trusted keyboard input and bottom-follow behavior", async ({ smokePage, stack }) => {
@@ -1719,8 +3310,8 @@ test("long hidden deep-history resume paints the current viewport before history
     }, sessionId);
     expect(before.atBottom).toBe(true);
 
-    // Stay dormant beyond the retired 60 s hidden-stream grace. The frame-count
-    // assertion below must remain flat for the entire interval.
+    // Stay dormant beyond the retired 60 s hidden-stream grace. No cell frames
+    // may reach this withdrawn viewer during the entire interval.
     await smokePage.waitForTimeout(62_000);
     const currentMarker = `CURRENT_${crypto.randomUUID().replaceAll("-", "")}`;
     await smokePage.evaluate(() => {

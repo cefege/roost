@@ -37,9 +37,14 @@ browser flow still exercises the SPA side of the same mutations.
 
 ## Prerequisites
 
-- coord-v2 LaunchAgent running on `:4102` (M1)
-- worker-v2 LaunchAgent running on `:2224` (M1 minimum; M5 too if testing multi-worker)
-- The Chrome instance running humanchrome's MCP extension is open AND authorized against coord (browser pubkey in `authorized_keys`). If 401s appear, run [[reference_live_coord_pubkey_bootstrap]] before the smoke.
+- coordinator service running on loopback `:4103`, with Tailscale Serve
+  forwarding private HTTPS `:4102 → 127.0.0.1:4103`; optional Cloudflare
+  browser access remains on `127.0.0.1:4104`
+- worker service running and connected outbound to
+  `/ws/coord-worker/:fp` (workers have no inbound listener or `:2224`)
+- The Chrome instance running the browser harness is open and authorized
+  against the coordinator. If 401s appear, complete the normal browser pairing
+  or on-host authorization path before the smoke.
 
 ## The flow — shared browser harness
 

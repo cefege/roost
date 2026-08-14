@@ -24,7 +24,7 @@ export function restartWorkerCmd(os: ServiceOs): string {
 export function verifyWorkerCmd(os: ServiceOs): string {
   return os === "linux"
     ? `${XDG} systemctl --user show ${WORKER_UNIT} -p ActiveState -p SubState -p MainPID`
-    : `launchctl print gui/$(id -u)/${WORKER_AGENT} 2>&1 | grep -E '^\\s*(state|pid|active count)' | head -5`;
+    : `set -o pipefail; launchctl print gui/$(id -u)/${WORKER_AGENT} 2>&1 | grep -E '^\\s*(state|pid|active count)' | head -5`;
 }
 export function restartCoordCmd(os: ServiceOs): string {
   return os === "linux"

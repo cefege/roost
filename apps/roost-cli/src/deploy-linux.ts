@@ -8,7 +8,7 @@
 // No `tailscale cert` step: the worker has had no inbound TLS surface since
 // phase-25e, and no rsync: the checkout is the source of truth.
 
-import { sshExec } from "./deploy-exec.ts";
+import { finishWorkerDeploy, sshExec } from "./deploy-exec.ts";
 import { verifyWorkerCmd, WORKER_UNIT } from "./service-ctl.ts";
 
 export async function deployLinux(
@@ -81,7 +81,5 @@ export async function deployLinux(
 
   console.log(`>> verifying service is up on ${host}`);
   const verify = await sshExec(host, verifyWorkerCmd("linux"));
-  console.log(verify.stdout.trim().split("\n").map((l) => `   ${l}`).join("\n"));
-
-  console.log(`>> done — ${host} v2 worker deployed (linux)`);
+  finishWorkerDeploy(verify, `>> done — ${host} v2 worker deployed (linux)`);
 }

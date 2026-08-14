@@ -3,7 +3,7 @@
   "private": true,
   "license": "GPL-3.0-only",
   "type": "module",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "description": "Roost v2 monorepo — Bun + TS + Solid. An AI engineer's daily driver: real infrastructure for running a fleet of coding agents, not a demo.",
   "workspaces": [
     "apps/*",

@@ -1,10 +1,10 @@
 // TranscriptionPane — voice dictation settings (Settings → Voice).
 // Deepgram only: paste an API key (stored on the coordinator, shared by every
 // device), Test it, or remove it. No key → the mic uses the browser's built-in
-// Web Speech. Plus the client-only mic-on-desktop toggle. Keys are write-only:
-// coord returns them masked and never echoes the secret.
+// Web Speech. Keys are write-only: coord returns them masked and never echoes
+// the secret.
 // Callers: SettingsRoot.tsx. Depends on: coordClient transcription* RPCs +
-// lib/micOnDesktop (client pref) + lib/deepgramKey (cache dropped on save).
+// lib/deepgramKey (cache dropped on save).
 
 import { createEffect, createResource, createSignal, Show } from "solid-js";
 import { coordClient } from "../../connect.ts";
@@ -109,7 +109,6 @@ const LANGUAGES: { value: string; label: string }[] = [
   { value: "multi", label: "Multilingual (code-switching)" },
   { value: "__auto__", label: "Auto-detect" },
 ];
-import { micOnDesktop, setMicOnDesktop } from "../../lib/micOnDesktop.ts";
 import { keytermBiasing, setKeytermBiasing } from "../../lib/keytermBiasingPref.ts";
 
 function Field(props: { label: string; hint?: string; children: unknown }) {
@@ -124,7 +123,7 @@ function Field(props: { label: string; hint?: string; children: unknown }) {
   );
 }
 
-// Pill toggle — role=switch, no global CSS. Used for mic-on-desktop.
+// Pill toggle — role=switch, no global CSS. Used for dictation preferences.
 function SwitchRow(props: { headline: string; support?: string; checked: boolean; onChange: (v: boolean) => void; testId?: string }) {
   return (
     <div style={{ display: "flex", "align-items": "center", gap: "var(--md-space-4)" }}>
@@ -252,15 +251,8 @@ export function TranscriptionPane() {
         </div>
       </section>
 
-      {/* ── Mic button placement (client pref) ── */}
-      <Card title="Mic button">
-        <SwitchRow
-          headline="Show the mic on desktop"
-          support="The mic floats bottom-right of the terminal. It always appears on compact/mobile widths — turn this off to hide it on desktop. This device only; applies immediately."
-          checked={micOnDesktop()}
-          onChange={setMicOnDesktop}
-          testId="mic-on-desktop-toggle"
-        />
+      {/* ── Dictation behavior (client pref) ── */}
+      <Card title="Dictation">
         <SwitchRow
           headline="Bias dictation to on-screen terms"
           support="Feeds the terminal's visible text, your recent commands, and learned project jargon to Deepgram as keyterms — so names like Kysely, tailnet, or coordFactory transcribe correctly. Turn off to A/B against plain transcription. This device only; next recording."

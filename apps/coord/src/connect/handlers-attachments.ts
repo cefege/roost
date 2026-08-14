@@ -155,7 +155,7 @@ export function makeAttachmentHandlers(
         entries: data.entries.map(e => create(AttachmentEntrySchema, {
           filename: e.filename,
           sizeBytes: BigInt(e.size_bytes),
-          mtimeMs: BigInt(e.mtime_ms),
+          mtimeMs: BigInt(Math.trunc(e.mtime_ms)),
           absPath: e.abs_path,
         })),
       });

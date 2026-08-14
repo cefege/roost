@@ -30,12 +30,6 @@ Status authoritative in this table; detail files linked per row.
 | **T3.1** | createCoord(deps) multi-runtime factory + Node demo | — | 894a90d3 + f5ddbb1c |
 | **T3.2** | headless coord e2e test harness + bidi routing test | — | 4d55a51c + c17cb5ac |
 
-## Deleted / superseded product modes
-
-| Feature | Status | Replacement |
-|---|---|---|
-| **Structured/HTML agent mode** | **DELETED** — terminal-only cutover, 2026-07-30 | Every session is a shell PTY. Agent CLIs run inside it and keep their native terminal UI; Roost owns no agent RPC child, structured transcript, approval UI, or OMP dependency. |
-
 ## Deferred / decision gates
 
 | Feature | Reason | Unblock |

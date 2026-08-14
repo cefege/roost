@@ -419,10 +419,10 @@ async function openPipeline(): Promise<void> {
 		const Ctx = window.AudioContext ?? legacyWindow.webkitAudioContext;
 		if (!Ctx) throw new Error("Web Audio is not supported");
 		myCtx = new Ctx();
-		const resumed = resumeCtx(myCtx).then(
-			() => ({ ok: true }) as const,
-			(error: unknown) => ({ ok: false, error }) as const,
-		);
+		// iOS may reject or stall this activation-primer while getUserMedia
+		// transitions the OS audio session; the post-stream resume/state check
+		// below owns the liveness verdict.
+		const initialResume = resumeCtx(myCtx).catch(() => { /* best effort */ });
 		const requestedStream = navigator.mediaDevices.getUserMedia({
 			audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
 		});
@@ -441,8 +441,7 @@ async function openPipeline(): Promise<void> {
 				throw e as Error;
 			},
 		);
-		const resumeResult = await resumed;
-		if (!resumeResult.ok) throw resumeResult.error;
+		await initialResume;
 		if (generation !== myGen) { abandon(); return; }
 		mySource = myCtx.createMediaStreamSource(myStream);
 

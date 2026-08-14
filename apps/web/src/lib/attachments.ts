@@ -10,8 +10,8 @@
 // final chunk. Memory is O(chunk) on every hop — a multi-GB file never sits
 // in one buffer.
 //
-// Serial queue: a module-level Promise chain ensures uploads complete in drop
-// order so multiple-drop paths inject in the same order the user saw them queue.
+// Serial queues preserve direct-upload order and serialize each complete
+// hash → probe → upload → sink operation selected through an attachment entry.
 
 import { coordClient } from "../connect.ts";
 import { log } from "@roost/shared/log";
@@ -27,6 +27,7 @@ const CHUNK_BYTES = 4 * 1024 * 1024;
 
 // Serial queue: each call awaits the prior chain link.
 let uploadQueue: Promise<unknown> = Promise.resolve();
+let attachmentQueue: Promise<unknown> = Promise.resolve();
 
 export interface UploadResult {
   abs_path: string;
@@ -52,12 +53,12 @@ export function setShortPathPref(v: boolean): void {
   catch { /* private mode */ }
 }
 
-export async function uploadAttachment(
-  session: { id: string },  // only the id string is needed (wire field, unbranded)
+async function uploadAttachmentWithPref(
+  session: { id: string },
   file: File,
-  onProgress?: (bytesSent: number) => void,  // fired after each chunk is acked
+  shortPath: boolean,
+  onProgress?: (bytesSent: number) => void,
 ): Promise<UploadResult> {
-  const shortPath = getShortPathPref();
   const uploadId = crypto.randomUUID();
   // Chain serially; preserve drop order even when caller awaits concurrently.
   const myTurn = uploadQueue.then(async () => {
@@ -88,6 +89,14 @@ export async function uploadAttachment(
   return myTurn;
 }
 
+export async function uploadAttachment(
+  session: { id: string },  // only the id string is needed (wire field, unbranded)
+  file: File,
+  onProgress?: (bytesSent: number) => void,  // fired after each chunk is acked
+): Promise<UploadResult> {
+  return uploadAttachmentWithPref(session, file, getShortPathPref(), onProgress);
+}
+
 /** Upload one file with a live transfer card (hashing → dedup-probe → upload),
  *  then hand the resulting absolute path to `sink`. The sink is a parameter
  *  because the chat composer builds an attachment chip from it while the
@@ -96,31 +105,41 @@ export async function uploadAttachment(
 export async function enqueueAttachmentTo(session: Session, file: File, sink: (absPath: string, file: File) => void): Promise<void> {
   const id = crypto.randomUUID();
   addTransfer({ id, name: file.name, dir: "up", bytes_total: file.size, state: "hashing" });
-  try {
-    // Content dedup: hash first, ask the worker if it already holds these exact
-    // bytes. Hit → reuse the existing path, skip the upload. Probe is
-    // best-effort — any failure falls through to a normal upload.
-    if (file.size > 0 && file.size <= DEDUP_MAX_BYTES) {
-      try {
-        const sha256 = await sha256Hex(file);
-        const probe = await coordClient.attachmentProbe({
-          sessionId: session.id, sha256, size: BigInt(file.size), filename: file.name, shortPath: getShortPathPref(),
-        });
-        if (probe.hit) {
-          sink(probe.absPath, file);
-          markTransferState(id, "dedup");
-          return;
-        }
-      } catch { /* probe best-effort: fall through to a normal upload */ }
+  const myTurn = attachmentQueue.then(async () => {
+    const shortPath = getShortPathPref();
+    try {
+      // Content dedup: hash first, ask the worker if it already holds these exact
+      // bytes. Hit → reuse the existing path, skip the upload. Probe is
+      // best-effort — any failure falls through to a normal upload.
+      if (file.size > 0 && file.size <= DEDUP_MAX_BYTES) {
+        try {
+          const sha256 = await sha256Hex(file);
+          const probe = await coordClient.attachmentProbe({
+            sessionId: session.id, sha256, size: BigInt(file.size), filename: file.name, shortPath,
+          });
+          if (probe.hit) {
+            sink(probe.absPath, file);
+            markTransferState(id, "dedup");
+            return;
+          }
+        } catch { /* probe best-effort: fall through to a normal upload */ }
+      }
+      markTransferState(id, "active");
+      const res = await uploadAttachmentWithPref(
+        session,
+        file,
+        shortPath,
+        (sent) => setTransferProgress(id, sent),
+      );
+      sink(res.abs_path, file);
+      markTransferState(id, "ok");
+    } catch (err) {
+      log.warn("attachments", "transfer_failed", { msg: String(err) });
+      markTransferState(id, "err", err instanceof Error ? err.message : String(err));
     }
-    markTransferState(id, "active");
-    const res = await uploadAttachment(session, file, (sent) => setTransferProgress(id, sent));
-    sink(res.abs_path, file);
-    markTransferState(id, "ok");
-  } catch (err) {
-    log.warn("attachments", "transfer_failed", { msg: String(err) });
-    markTransferState(id, "err", err instanceof Error ? err.message : String(err));
-  }
+  });
+  attachmentQueue = myTurn.catch(() => undefined);
+  return myTurn;
 }
 
 /** Type an uploaded file's absolute path into the session PTY (trailing space). */
@@ -161,11 +180,21 @@ export function pickFilesTo(
   // is honored by every engine that supports HTML Media Capture.
   if (opts?.capture) input.setAttribute("capture", opts.capture);
   input.style.display = "none";
-  input.onchange = () => {
-    const files = input.files;
-    if (files) for (let i = 0; i < files.length; i++) void enqueueAttachmentTo(session, files[i]!, sink);
+  let cleaned = false;
+  const cleanup = () => {
+    if (cleaned) return;
+    cleaned = true;
     input.remove();
   };
+  input.onchange = () => {
+    try {
+      const files = input.files;
+      if (files) for (let i = 0; i < files.length; i++) void enqueueAttachmentTo(session, files[i]!, sink);
+    } finally {
+      cleanup();
+    }
+  };
+  input.oncancel = cleanup;
   document.body.appendChild(input);
   input.click();
 }

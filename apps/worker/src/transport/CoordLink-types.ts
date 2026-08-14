@@ -19,13 +19,11 @@ export interface CoordLinkDeps {
   staleLinkTimeoutMs?: number;
   staleCheckIntervalMs?: number;
   onHelloAck?: (msg: { coord_pubkey_b64: string; coord_pubkey_kid: string; reconnected: boolean }) => void;
+  onOpen?: (reconnected: boolean) => void;
   // Fires after hello + pending drain on every successful socket open.
   // reconnected=false only for the first open in this CoordLink lifetime.
-  onOpen?: (reconnected: boolean) => void;
   onBrowserCommand?: (msg: { browser_id: string; viewer_id: string; request_id: string; frame: ClientControlFrame }) => void;
   onBinary?: (channelId: number, dir: number, bytes: Uint8Array) => void;
-  // Streamed file upload (att1-stream). One call per DAttachmentChunk; the
-  // worker assembles by request_id and replies rpc-ok on `last`.
   onAttachmentChunk?: (msg: { request_id: string; session_id: string; filename: string; short_path: boolean; data: Uint8Array; last: boolean; seq: number }) => void;
   onCoordMovePrepare?: (msg: {
     request_id: string; handoff_id: string; source_url: string; target_url: string;
@@ -44,10 +42,7 @@ export interface CoordLinkDeps {
 export interface CoordLink {
   send(frame: UpstreamFrame): boolean;
   sendBinary(bytes: Uint8Array | ArrayBufferView): boolean;
-  // R11. Volatile — dropped when the stream is down (the worker
-  // re-sends a full frame on reconnect/attach), so no pending buffer.
   sendCellGrid(channelId: number, frame: PbCellGridFrame): boolean;
-  // Volatile — the registry resends active records after every reconnect.
   sendAgentStatus(status: AgentStatusUpdate): boolean;
   state(): CoordLinkState;
   relocate(targetUrl: string, force?: boolean): void;

@@ -7,6 +7,7 @@ import { For, Index, Show, createMemo, createSignal, createEffect, onMount, onCl
 import { useNavigate } from "@solidjs/router";
 import { rootStore } from "../store/root.ts";
 import { CellTerminal } from "./CellTerminal.tsx";
+import { activeComposeSessionId, releaseActiveComposeFocus } from "./TerminalComposeButton.tsx";
 import { PaneStrip } from "./PaneStrip.tsx";
 import { MobileDeckBar } from "./MobileDeckBar.tsx";
 import { PaneDivider } from "./PaneDivider.tsx";
@@ -39,6 +40,7 @@ import { diag } from "@roost/shared/diag";
 import { prefersReducedMotion } from "../lib/prefersReducedMotion.ts";
 
 const STRIP_H = 40; // per-pane tab strip height (px)
+
 /** Mobile (compact) deck-level bar height (px) — the Chrome-style workspace
  *  bar ([menu][title][+][count]) rendered above the full-bleed terminal. */
 const MOBILE_STRIP_H = 48;
@@ -98,7 +100,10 @@ function sameParkSizes(
   return true;
 }
 
-export function TerminalDeck(props: { activeSessionId: string | null }) {
+export function TerminalDeck(props: {
+  activeSessionId: string | null;
+  surfaceVisible: boolean;
+}) {
   const navigate = useNavigate();
   // Every open terminal belongs to the shared pane model.
   const openSessions = createMemo(() => Object.values(rootStore.sessions).filter((s) => s.status === "open"));
@@ -286,6 +291,7 @@ export function TerminalDeck(props: { activeSessionId: string | null }) {
       return changed ? next : previous;
     });
   });
+
 
   const mountedSessions = createMemo(() => {
     const warmIds = warmSessionIds();
@@ -519,7 +525,10 @@ export function TerminalDeck(props: { activeSessionId: string | null }) {
     activeSessionId: () => props.activeSessionId,
     navigate,
   };
-  function doSelect(id: string): void { selectTabOp(opsCtx, id, spotlightPane()?.paneId ?? null); }
+  function doSelect(id: string): void {
+    if (activeComposeSessionId() !== id) releaseActiveComposeFocus();
+    selectTabOp(opsCtx, id, spotlightPane()?.paneId ?? null);
+  }
 
   // ── Swipe arm/track/end (driven by MobileDeckBar's onSwipe* callbacks) ──
   // armSwipe picks direction from the first dx sign, resolves the neighbor
@@ -605,6 +614,7 @@ export function TerminalDeck(props: { activeSessionId: string | null }) {
   async function doNewTab(paneId: string): Promise<void> {
     const anchor = anchorFor(paneId);
     if (!anchor) return;
+    releaseActiveComposeFocus();
     apply((l) => focusPane(l, paneId)); // reconcile appends the optimistic placeholder into this pane
     const sid = beginOptimisticSpawn(anchor); // tab + pane + CellTerminal render THIS frame
     navigate(`/s/${sid}`); // URL-fold selects the new tab in the focused pane
@@ -626,6 +636,7 @@ export function TerminalDeck(props: { activeSessionId: string | null }) {
     const paneId = l.focusedPaneId;
     const anchor = anchorFor(paneId);
     if (!anchor) return;
+    releaseActiveComposeFocus();
     const id = await spawnSibling(anchor);
     await waitForSession(id); // must be live before it can occupy a split pane
     maybeAutoLaunchAgent(id);
@@ -645,6 +656,18 @@ export function TerminalDeck(props: { activeSessionId: string | null }) {
     const fid = layout()?.focusedPaneId;
     return ps.find((p) => p.paneId === fid) ?? ps.find((p) => p.focused) ?? null;
   }
+  // History, URL folds, optimistic reconciliation, and shortcuts can all change
+  // the keyboard-owning tab without unmounting its old pane composer. React only
+  // to that selection transition (not a new claim in an unfocused pane), then
+  // clear a claim that belongs to the session being left.
+  createEffect(on(
+    () => focusedPaneView()?.selectedTab ?? null,
+    (selectedId) => {
+      const ownerId = activeComposeSessionId();
+      if (ownerId && ownerId !== selectedId) releaseActiveComposeFocus();
+    },
+    { defer: true },
+  ));
   /** ⌘/Ctrl+1..8 → Nth tab of the focused pane, 9 → its LAST (browser
    *  convention). Routes through doSelect — the very call a strip tab click
    *  makes — so select + pane focus + navigate + spotlight-follow stay one path.
@@ -673,7 +696,13 @@ export function TerminalDeck(props: { activeSessionId: string | null }) {
       const d = dx * dx + dy * dy;
       if (d < bestD) { bestD = d; bestId = p.paneId; }
     }
-    if (bestId) doFocusPane(bestId);
+    if (bestId) {
+      // A pane-navigation chord owns the keyboard even when another pane's
+      // composer textarea is focused. Release that old token before focus can
+      // mount a compact replacement; the new pane's terminal then wins focus.
+      releaseActiveComposeFocus();
+      doFocusPane(bestId);
+    }
   }
   // "Arrange" — balance keeps the current tree (panes/tabs/focus), only
   // re-balancing ratios; the rebuild kinds replace the layout with a preset
@@ -750,6 +779,17 @@ export function TerminalDeck(props: { activeSessionId: string | null }) {
       e.preventDefault(); // suppress win/linux autoscroll + compat mousedown into the TUI mouse-forward path
       doSpotlight();
     }
+  }
+
+  // Keyboard and assistive-tech focus does not produce pointerdown. Let a
+  // composer focus claim bubble first, then align the deck's shortcut target
+  // with the pane that actually owns that focused control.
+  function onDeckFocusIn(e: FocusEvent): void {
+    const target = e.target;
+    if (!(target instanceof Element) || !target.closest('[data-testid="mobile-chat-input"]')) return;
+    const pane = target.closest<HTMLElement>("[data-pane-id]");
+    const paneId = pane?.getAttribute("data-pane-id");
+    if (paneId && paneId !== layout()?.focusedPaneId) doFocusPane(paneId);
   }
 
   // ⌘D split right · ⌘⇧D split down · ⌘⏎ bring-to-front (spotlight) ·
@@ -871,6 +911,10 @@ export function TerminalDeck(props: { activeSessionId: string | null }) {
     });
   });
 
+  // Composer growth must not change this element's client box: its
+  // ResizeObserver drives pane geometry and terminal PTY row claims. Shift the
+  // painted deck on the compositor instead, with no transition that could leave
+  // an intermediate terminal/composer overlap.
   return (
     <div
       ref={deckEl}
@@ -878,7 +922,15 @@ export function TerminalDeck(props: { activeSessionId: string | null }) {
       data-multi-pane={view().panes.length > 1 ? "true" : "false"}
       data-resizing={isResizeDragging() ? "true" : undefined}
       onPointerDown={onDeckPointerDown}
-      style={{ flex: "1", position: "relative", overflow: "hidden", background: "var(--term-bg)", "touch-action": isCompact() ? "pan-y" : "auto" }}
+      onFocusIn={onDeckFocusIn}
+      style={{
+        flex: "1",
+        position: "relative",
+        overflow: "hidden",
+        background: "var(--term-bg)",
+        "touch-action": isCompact() ? "pan-y" : "auto",
+        transform: "translate3d(0, calc(0px - var(--term-chat-growth, 0px)), 0)",
+      }}
     >
       <Show when={openSessions().length === 0}>
         <div style={{ position: "absolute", inset: "0", display: "flex", "align-items": "center", "justify-content": "center", color: "var(--text-lo)", "font-size": "13px" }}>
@@ -893,7 +945,18 @@ export function TerminalDeck(props: { activeSessionId: string | null }) {
           const slot = createMemo(() => slotBySession().get(s.id) ?? null, undefined, { equals: sameSlot });
           return (
             <div data-testid={`terminal-slot-${s.id}`} data-pane-slot data-pane data-pane-id={slot()?.paneId ?? ""} data-focused={slot()?.focused ? "true" : "false"} data-spotlit={slot()?.spotlit ? "true" : undefined} style={{ ...termStyle(slot(), parkSizeBySession().get(s.id)), ...swipeStyleFor(s.id) }}>
-              <CellTerminal session={s} inLayout={!!slot()} focused={slot()?.focused ?? false} spotlit={slot()?.spotlit ?? false} />
+              <CellTerminal
+                session={s}
+                inLayout={!!slot()}
+                focused={slot()?.focused ?? false}
+                spotlit={slot()?.spotlit ?? false}
+
+                surfaceVisible={props.surfaceVisible}
+                surfaceActive={
+                  props.surfaceVisible
+                  && (spotlightPane() === null || slot()?.spotlit === true)
+                }
+              />
             </div>
           );
         }}

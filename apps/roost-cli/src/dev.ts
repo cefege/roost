@@ -1,5 +1,5 @@
-// `roost dev` — boot coord (:4102) + worker (:2224) + web (:5174) in
-// parallel. Each runs in its own subprocess; SIGINT propagates.
+// `roost dev` — boot a direct coord (:4102), an outbound-only worker, and
+// web (:5174) in parallel. Each subprocess receives SIGINT on shutdown.
 
 import { spawn, type Subprocess } from "bun";
 

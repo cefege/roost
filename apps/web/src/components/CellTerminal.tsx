@@ -32,15 +32,14 @@ import { createScrollbackBackfill } from "../lib/scrollbackBackfill.ts";
 import { PredictiveEcho } from "../lib/predictiveEcho.ts";
 import { TerminalContextMenu } from "./TerminalContextMenu.tsx";
 import { pickAndAttachFiles, enqueueAttachment } from "../lib/attachments.ts";
-import { MobileVoiceInput } from "./MobileVoiceInput.tsx";
 import type { TerminalContext } from "../lib/keytermContext.ts";
+import { TerminalComposeButton, activeComposeSessionId } from "./TerminalComposeButton.tsx";
 import { TerminalNavButtons } from "./TerminalNavButtons.tsx";
-import { TerminalComposeButton, activeComposeChannel } from "./TerminalComposeButton.tsx";
 import { IconButton } from "./Settings/md/IconButton.tsx";
 import { mouseForwardEnabled } from "../lib/mouseForwardPref.ts";
 import { isCompact, isTouchDevice } from "../lib/windowSizeClass.ts";
-import { micOnDesktop } from "../lib/micOnDesktop.ts";
-import { keyboardOnDesktop } from "../lib/keyboardOnDesktop.ts";
+import { uiStore } from "../store/uiStore.ts";
+import { FOCUS_OWNERS } from "../lib/focusOwners.ts";
 import { osc8TrackerFor, subscribeOsc8Mappings } from "../lib/terminalOsc8.ts";
 import { attachTerminalLinks, type ResolveFile, type TerminalLinkAttachment } from "./terminal-links.ts";
 import { downloadWorkerFileByHref } from "../lib/downloadWorkerFile.ts";
@@ -95,6 +94,14 @@ interface CellTerminalProps {
 	// The floated pane's selected tab (spotlight). Flipping this is an
 	// intent-bearing resize → force an exact re-fit (see effect in onMount).
 	spotlit?: boolean;
+
+	// False while a non-terminal route overlays the persistent deck. Compact
+	// accessories portal to <body>, so they must unmount explicitly rather than
+	// relying on the deck host's visibility/pointer-events gate.
+	surfaceVisible: boolean;
+	// False when another desktop pane's spotlight scrim covers this surface.
+	// Kept separate from surfaceVisible because the composer DOM stays mounted.
+	surfaceActive: boolean;
 }
 
 const CLAIM_DEBOUNCE_MS = 150;
@@ -107,6 +114,7 @@ const CLAIM_DEBOUNCE_MS = 150;
 // refresh/tab-switch re-claims. 30s = ¼ TTL, matching the "viewers refresh
 // every 30s" the worker's reaper comment already assumes.
 const CLAIM_HEARTBEAT_MS = 30_000;
+
 
 
 
@@ -143,16 +151,10 @@ function _registerCursorPoll(cb: () => void): () => void {
 // notice self-clears the instant a frame lands. See lib/offlineWatch.ts.
 const OFFLINE_GRACE_MS = 3000;
 
-// Elements that legitimately own the keyboard / pointer — a click or keystroke
-// landing inside one must NOT be yanked back to the terminal: real text widgets,
-// open overlays (rename dialog / ⌘K palette / context menu), and the terminal
-// itself (its own click + selection are fine). Everything else (bare buttons:
-// sidebar ✕/FAB, mic, nav-keys, launch FAB, tabs, toasts) is fair game to keep
-// terminal focus. Shared by BOTH focus guards below so the allowlist can't drift.
-const FOCUS_OWNERS =
-	'input, textarea, select, [contenteditable=""], [contenteditable="true"], [role="textbox"], [role="searchbox"], [role="dialog"], [role="menu"], dialog, .wterm';
+
 
 export function CellTerminal(props: CellTerminalProps) {
+	const sessionId = props.session.id;
 	// Resolve a file path from terminal output → internal file-viewer href.
 	// Absolute paths pass through; relative resolve against the session cwd;
 	// ~/ paths derive the home dir from cwd (e.g. /Users/you/Code/foo →
@@ -177,10 +179,12 @@ export function CellTerminal(props: CellTerminalProps) {
 		return `/file/${props.session.worker_fp}/${enc.replace(/^\//, "")}${line ? `#L${line}` : ""}`;
 	};
 
+	const attachSelectedFiles = () => pickAndAttachFiles(props.session);
+
 	let displayRef: HTMLDivElement | undefined; // visible — CellGridRenderer paints here
 	let inputHostRef: HTMLDivElement | undefined; // hidden — RoostTerm (input + mode oracle)
+	const [ctrlArmed, setCtrlArmed] = createSignal(false);
 
-	let composerDefaultConsumed = false;
 	let renderer: CellGridRenderer | null = null;
 	let linkAttachment: TerminalLinkAttachment | null = null;
 	let unsubscribeOsc8Mappings: (() => void) | null = null;
@@ -211,8 +215,7 @@ export function CellTerminal(props: CellTerminalProps) {
 	let lastClaimed = { cols: 0, rows: 0 }; // last ADOPTED claim — hold-anchor for VIEWPORT wobble
 	let resizeObs: ResizeObserver | null = null;
 	let claimTimer: ReturnType<typeof setTimeout> | null = null;
-	// Last claim/withdraw actually sent — dedups the double-withdraw when a pane
-	// hides and its offscreen ResizeObserver tick also routes through sendPark.
+	// Last claim/withdraw actually sent — dedups duplicate hidden/offscreen signals.
 	let _lastSent: "claim" | "withdraw" | null = null;
 	// One intent claim per cold mount: set on any real claim send, so the INITIAL
 	// effect no-ops when the inLayout TAB_VISIBLE effect already claimed (each
@@ -223,17 +226,17 @@ export function CellTerminal(props: CellTerminalProps) {
 	let revealT0 = 0;
 	const sendTerminalText = (text: string, submit = false): void => {
 		if (text.length === 0) {
-			if (submit) inputChannel.sendInput(props.session.id, CR_BYTES);
+			if (submit) inputChannel.sendInput(sessionId, CR_BYTES);
 			return;
 		}
 		inputChannel.sendInput(
-			props.session.id,
+			sessionId,
 			buildPtyPayload(text, frameBracketed),
 		);
-		recordInput(props.session.id, text);
+		recordInput(sessionId, text);
 		if (submit) {
 			setTimeout(
-				() => inputChannel.sendInput(props.session.id, CR_BYTES),
+				() => inputChannel.sendInput(sessionId, CR_BYTES),
 				enterDelayMs(text),
 			);
 		}
@@ -287,7 +290,6 @@ export function CellTerminal(props: CellTerminalProps) {
 	// conditionally pins new output when a render began at the literal bottom.
 	// This component does not classify, restore, or otherwise write scrollTop.
 	const [altScreen, setAltScreen] = createSignal(false); // tracks frame.altScreen — gates mouse/touch forwarding + wheel passivity
-	const [ctrlArmed, setCtrlArmed] = createSignal(false);
 
 	// True while this session is an optimistic placeholder (spawn RPC in flight).
 	// For a non-optimistic session this is always false → every gate below is a
@@ -309,7 +311,10 @@ export function CellTerminal(props: CellTerminalProps) {
 		retryOffline();
 	});
 	createEffect(() =>
-		offlineWatch.update(props.inLayout !== false && pageVisible(), hasFrame()),
+		offlineWatch.update(
+			props.inLayout === true && props.surfaceActive && isPageVisible(),
+			hasFrame(),
+		),
 	);
 	onCleanup(() => offlineWatch.dispose());
 	const offlineSibling = () =>
@@ -338,12 +343,16 @@ export function CellTerminal(props: CellTerminalProps) {
 		return true;
 	}
 
-	// A hidden browser tab must not drag the SCD-min PTY size or consume cell
-	// delivery. Withdraw this viewer's claim immediately; visibility recovery
-	// reclaims an authoritative snapshot for panes that are actually in layout.
-	// isPageVisible() also honors the deterministic __smoke.forceVisible pin.
+	// Zero-size claims remove inactive viewers from the SCD-min PTY size.
+	// Hidden, offscreen, and unmounted panes withdraw immediately. Visibility
+	// reads route through isPageVisible() so the __smoke.forceVisible automation
+	// pin applies.
 	function sendWithdraw(): void {
 		backfillRef?.suspend();
+		if (claimTimer) {
+			clearTimeout(claimTimer);
+			claimTimer = null;
+		}
 		if (_lastSent === "withdraw") return; // already withdrawn — skip the duplicate RPC
 		_lastSent = "withdraw";
 		lastClaimed = { cols: 0, rows: 0 }; // re-show must re-claim, not be held by a stale anchor
@@ -363,26 +372,21 @@ export function CellTerminal(props: CellTerminalProps) {
 		});
 	}
 
-	/** Leaving the visible layout: withdraw immediately while keeping the
-	 *  mounted renderer and its last painted grid dormant for a later reclaim. */
+	/** Leaving the visible surface releases paint state and the viewport claim. */
 	function sendPark(): void {
 		releasePaintHolds();
 		sendWithdraw();
 	}
+
 
 	// cause = the browser event behind this claim (ResizeCause model).
 	// Worker hint only; defaults to VIEWPORT (a plain ResizeObserver tick).
 	function sendClaim(cause: ResizeCause = ResizeCause.VIEWPORT): void {
 		if (!displayRef || unmounted) return;
 		if (pending()) return; // placeholder has no PTY yet — don't fire a doomed round-trip
-		// Hidden tab → withdraw instead of claim (don't pin the SCD-min).
-		if (!isPageVisible()) {
-			sendWithdraw();
-			return;
-		}
-		// A non-active deck pane stays mounted but withdraws so the worker stops
-		// emitting cells. Switching back reclaims an authoritative snapshot.
-		if (props.inLayout === false) {
+		// Only a pane currently visible on the active terminal surface may claim
+		// dimensions. Every other state withdraws immediately.
+		if (!isPageVisible() || props.inLayout !== true || !props.surfaceActive) {
 			sendPark();
 			return;
 		}
@@ -467,7 +471,7 @@ export function CellTerminal(props: CellTerminalProps) {
 		// then (syncInputModes checks it explicitly). The continuation is attached
 		// further down, once syncInputModes and the input wiring it needs exist.
 		const initializedTerm = new RoostTerm(inputHostRef!, {
-			autoFocus: props.focused === true && !isTouchDevice() && activeComposeChannel() === null,
+			autoFocus: props.focused === true && !isTouchDevice() && activeComposeSessionId() === null,
 			renderless: true,
 		});
 		const termReady = initializedTerm.init();
@@ -480,7 +484,7 @@ export function CellTerminal(props: CellTerminalProps) {
 		const backfill = createScrollbackBackfill({
 			sessionId: props.session.id,
 			renderer: () => renderer,
-			active: () => props.inLayout !== false && isPageVisible(),
+			active: () => props.inLayout === true && props.surfaceActive && isPageVisible(),
 		});
 		backfillRef = backfill;
 		// Programmatic bottom pins can emit scroll events. Only an off-bottom
@@ -548,7 +552,9 @@ export function CellTerminal(props: CellTerminalProps) {
 				sendClaimNow(ResizeCause.TAB_VISIBLE);
 			};
 			unsubCell = registerCellHandler(props.session.id, (frame) => {
-				if (props.inLayout !== true || !isPageVisible()) return;
+				// Hidden and offscreen panes are unsubscribed. Their next visible
+				// claim receives one authoritative full snapshot.
+				if (!isPageVisible() || props.inLayout !== true || !props.surfaceActive) return;
 				const diagOn = isDiagEnabled();
 				const _frameArr = diagOn ? performance.now() : 0;
 				// Echo RTT tracker: input→cell-frame round-trip, works even when
@@ -597,7 +603,7 @@ export function CellTerminal(props: CellTerminalProps) {
 					diag("cell.reveal", { sid: props.session.id, ms: Math.round(performance.now() - revealT0), full: frame.full });
 					revealT0 = 0;
 				}
-				if (diagOn) {
+				if (diagOn && isPageVisible() && props.inLayout === true && props.surfaceActive) {
 					requestAnimationFrame(() => requestAnimationFrame(() => {
 						diag("cell.paint_screen", { sid: props.session.id, dur_ms: performance.now() - _frameArr });
 					}));
@@ -641,7 +647,7 @@ export function CellTerminal(props: CellTerminalProps) {
 		let lastSentRow = -1,
 			lastSentCol = -1;
 		const releaseCursorPoll = _registerCursorPoll(() => {
-			if (props.inLayout === false || !isPageVisible()) return;
+			if (props.inLayout !== true || !props.surfaceActive || !isPageVisible()) return;
 			if (lastCurRow === lastSentRow && lastCurCol === lastSentCol) return;
 			lastSentRow = lastCurRow;
 			lastSentCol = lastCurCol;
@@ -652,12 +658,12 @@ export function CellTerminal(props: CellTerminalProps) {
 			});
 		});
 
-		// Claim heartbeat refreshes only the currently visible pane. Parked and
-		// browser-hidden panes stay withdrawn and consume no cell frames.
+		// Heartbeats refresh only the active, visible pane; dormant panes withdraw.
 		const claimHeartbeat = setInterval(() => {
 			if (
 				!isPageVisible()
 				|| props.inLayout !== true
+				|| !props.surfaceActive
 				|| lastClaimed.cols <= 0
 				|| lastClaimed.rows <= 0
 			) return;
@@ -681,7 +687,7 @@ export function CellTerminal(props: CellTerminalProps) {
 				props.inLayout === true
 				&& props.focused === true
 				&& !isTouchDevice()
-				&& activeComposeChannel() === null
+				&& activeComposeSessionId() === null
 			) {
 				initializedTerm.forceFocus();
 				requestAnimationFrame(() => {
@@ -689,14 +695,15 @@ export function CellTerminal(props: CellTerminalProps) {
 						!unmounted
 						&& props.inLayout === true
 						&& props.focused === true
-						&& activeComposeChannel() === null
+						&& activeComposeSessionId() === null
 					) initializedTerm.forceFocus();
 				});
 			}
 			syncInputModes(); // flush modes seen before the hidden wterm existed
 			initializedTerm.onData = (data: string) => {
-				const controlledData = ctrlArmed() ? applyCtrlModifier(data) : data;
-				if (ctrlArmed()) setCtrlArmed(false);
+				const armed = ctrlArmed();
+				const controlledData = armed ? applyCtrlModifier(data) : data;
+				if (armed) setCtrlArmed(false);
 				const bytes = new TextEncoder().encode(controlledData);
 				predictor?.predict(bytes); // speculative echo before the round-trip
 				inputChannel.sendInput(props.session.id, bytes);
@@ -928,8 +935,16 @@ export function CellTerminal(props: CellTerminalProps) {
 		// letterboxed (narrower than the pane), so a drop on the surrounding margin
 		// missed the grid handler → the browser opened the image in a new tab.
 		// file drags only so text/selection drags aren't hijacked.
-		const dragHasFiles = (e: DragEvent) =>
-			!!e.dataTransfer && Array.from(e.dataTransfer.types).includes("Files");
+		const dragHasFiles = (e: DragEvent) => e.dataTransfer?.types.includes("Files") ?? false;
+		const enqueueFileItems = (items: DataTransferItemList | null | undefined) => {
+			if (!items) return;
+			for (let i = 0; i < items.length; i++) {
+				const item = items[i]!;
+				if (item.kind !== "file") continue;
+				const file = item.getAsFile();
+				if (file) void enqueueAttachment(props.session, file);
+			}
+		};
 		const onDragOver = (e: DragEvent) => {
 			if (!props.focused || !isPageVisible() || !dragHasFiles(e)) return;
 			e.preventDefault(); // allow the drop + stop the browser opening the file
@@ -937,24 +952,10 @@ export function CellTerminal(props: CellTerminalProps) {
 		const onDrop = (e: DragEvent) => {
 			if (!props.focused || !isPageVisible() || !dragHasFiles(e)) return;
 			e.preventDefault();
-			const items = e.dataTransfer?.items;
-			if (!items) return;
-			for (let i = 0; i < items.length; i++) {
-				if (items[i]!.kind === "file") {
-					const f = items[i]!.getAsFile();
-					if (f) void enqueueAttachment(props.session, f);
-				}
-			}
+			enqueueFileItems(e.dataTransfer?.items);
 		};
 		const onPaste = (e: ClipboardEvent) => {
-			const items = e.clipboardData?.items;
-			if (!items) return;
-			for (let i = 0; i < items.length; i++) {
-				if (items[i]!.kind === "file") {
-					const f = items[i]!.getAsFile();
-					if (f) void enqueueAttachment(props.session, f);
-				}
-			}
+			enqueueFileItems(e.clipboardData?.items);
 			// A native paste otherwise lands in wterm's hidden textarea and rides
 			// onData straight to the PTY, which is where the unbracketed-multiline
 			// foot-gun actually happens — so route a risky payload through the same
@@ -976,31 +977,18 @@ export function CellTerminal(props: CellTerminalProps) {
 		// already-active never got focused → focus stuck on <body> → every keystroke
 		// dropped. THIS was the cell-phase-3b "can't input in cell mode" bug. Created
 		// inside onMount so `term` is already assigned when it first runs.
-		// Claim gate: every pane IN the layout claims size + gets cells; a pane that
-		// leaves the layout withdraws so the worker stops emitting to it (re-claim +
-		// snapshot on return). Hidden panes stay MOUNTED (no remount — persistent
-		// deck) but go dormant. Multiple panes claim at once now (tiling) — each is a
-		// distinct session/PTY, so no SCD self-clamp.
-		// inLayout is derived from a per-layout-commit slot object (TerminalDeck
-		// slotBySession → new ref every focus/close) — reading props.inLayout raw
-		// re-runs this effect on EVERY layout mutation → a spurious TAB_VISIBLE
-		// re-claim → full snapshot repaint of every terminal at once. Memo dedupes
-		// on the boolean value so we re-claim/withdraw ONLY on a real in↔out flip.
-		// on(): the callback body is non-tracking by design — sendClaimNow runs
-		// sendClaim SYNCHRONOUSLY inside this effect (unlike the old scheduleClaim
-		// timer, whose sendClaim ran outside tracking), so its reactive reads
-		// (pending(), raw props.inLayout at the withdraw gate) would otherwise
-		// join this effect's deps → re-run per slot rect change → band-bypassing
-		// TAB_VISIBLE claim per deck resize. on() keys re-runs to the flag alone.
-		const inLayoutFlag = createMemo(() => props.inLayout);
-		createEffect(on(inLayoutFlag, (flag) => {
-			if (!flag) {
+		// Only a pane on the visible terminal surface owns a viewport claim.
+		// Offscreen sessions stay mounted with their last grid but withdraw
+		// immediately; reveal reclaims and receives an authoritative snapshot.
+		// Memoizing this boolean avoids reclaims on unrelated layout object churn.
+		const claimVisibleFlag = createMemo(
+			() => props.inLayout === true && props.surfaceActive,
+		);
+		createEffect(on(claimVisibleFlag, (visible) => {
+			if (!visible) {
 				sendPark();
 				return;
 			}
-			// Revealing a pane reclaims its viewport but never restores or adjusts
-			// the viewer's DOM scroll position. Stamp reveal-start for the
-			// cell.reveal forensics diag (first frame applied afterwards).
 			revealT0 = performance.now();
 			sendClaimNow(ResizeCause.TAB_VISIBLE);
 		}));
@@ -1009,13 +997,14 @@ export function CellTerminal(props: CellTerminalProps) {
 		// a pane doesn't pop the on-screen keyboard. This effect is intentionally
 		// non-deferred: selection must focus in the same reactive turn.
 		const focusGate = createMemo(
-			() => props.inLayout === true && props.focused === true,
+			() => claimVisibleFlag() && props.focused === true,
 		);
 		createEffect(() => {
-			if (focusGate() && !isTouchDevice() && activeComposeChannel() === null) term?.forceFocus();
-		});
-		createEffect(() => {
-			if (!focusGate()) setCtrlArmed(false);
+			if (!focusGate()) {
+				setCtrlArmed(false);
+				return;
+			}
+			if (!isTouchDevice() && activeComposeSessionId() === null) term?.forceFocus();
 		});
 
 
@@ -1027,7 +1016,7 @@ export function CellTerminal(props: CellTerminalProps) {
 		// over locals only (L11 feedback_no_props_read_in_oncleanup).
 		runWithOwner(cellOwner, () =>
 			createEffect(() => {
-				if (!inLayoutFlag()) return;
+				if (!claimVisibleFlag()) return;
 				document.addEventListener("selectionchange", onSelectionChange);
 				window.addEventListener("pointerup", onSelectionSettled);
 				window.addEventListener("keyup", onSelectionSettled);
@@ -1086,11 +1075,7 @@ export function CellTerminal(props: CellTerminalProps) {
 		// on any real claim send) guarantees exactly one intent claim per cold
 		// mount — the inLayout TAB_VISIBLE effect usually wins and this no-ops.
 		createEffect(() => {
-			// Don't fire until the deck has measured and assigned a slot (inLayout) AND
-			// any optimistic spawn has resolved (pending). Before that, a claim would
-			// either withdraw (inLayout=false) or be dropped (pending=true), consuming
-			// initialClaimSent and preventing re-fire when both conditions are met.
-			if (pending() || props.inLayout !== true) return;
+			if (pending() || !claimVisibleFlag()) return;
 			if (initialClaimSent) return;
 			sendClaim(ResizeCause.INITIAL);
 		});
@@ -1146,7 +1131,7 @@ export function CellTerminal(props: CellTerminalProps) {
 			if (s === wasSpotlit) return;
 			wasSpotlit = s;
 			requestAnimationFrame(() => {
-				if (props.inLayout !== false && isPageVisible()) {
+				if (claimVisibleFlag() && isPageVisible()) {
 					sendClaim(ResizeCause.VIEWPORT);
 				}
 			});
@@ -1162,16 +1147,16 @@ export function CellTerminal(props: CellTerminalProps) {
 		// the INITIAL claim covers mount.
 		createEffect(on(arrangeEpoch, () => {
 			requestAnimationFrame(() => {
-				if (props.inLayout !== false && isPageVisible()) {
+				if (claimVisibleFlag() && isPageVisible()) {
 					sendClaim(ResizeCause.VIEWPORT);
 				}
 			});
 		}, { defer: true }));
 
-		// Browser visibility is a hard subscription boundary. The mounted grid
-		// remains intact while hidden; returning reclaims only visible panes.
+		// Hidden and offscreen panes withdraw immediately; visibility recovery
+		// reclaims one authoritative snapshot on the existing Sync socket.
 		const onVisibility = () => {
-			if (!isPageVisible() || props.inLayout !== true) {
+			if (!claimVisibleFlag() || !isPageVisible()) {
 				sendPark();
 				return;
 			}
@@ -1185,7 +1170,7 @@ export function CellTerminal(props: CellTerminalProps) {
 		// its socket (sync-bootstrap.ts::shouldRedialOnRefocus) and lands its
 		// repaint through onVisibility's claim, which no longer races a close.
 		createEffect(on(syncStreamOpen, (open) => {
-			if (!open || props.inLayout === false || !isPageVisible()) return;
+			if (!open || !claimVisibleFlag() || !isPageVisible()) return;
 			sendClaimNow(ResizeCause.TAB_VISIBLE);
 		}, { defer: true }));
 
@@ -1198,10 +1183,10 @@ export function CellTerminal(props: CellTerminalProps) {
 		// (visibilitychange doesn't always fire on restore).
 		const onPageHide = () => {
 			releasePaintHolds();
-			if (props.inLayout !== false) sendWithdraw();
+			sendWithdraw();
 		};
 		const onPageShow = () => {
-			if (isPageVisible() && props.inLayout !== false) {
+			if (isPageVisible() && claimVisibleFlag()) {
 				sendClaimNow(ResizeCause.TAB_VISIBLE);
 			}
 		};
@@ -1220,7 +1205,7 @@ export function CellTerminal(props: CellTerminalProps) {
 		//     click still fires, so the button works). This is the primary fix —
 		//     focus never leaves, so no keystroke is lost.
 		const onDocMousedown = (e: MouseEvent) => {
-			if (!props.focused || !isPageVisible()) return;
+			if (!props.focused || !props.surfaceActive || !isPageVisible()) return;
 			if (e.button !== 0) return; // left only; right-click → context menu
 			const t = e.target as HTMLElement | null;
 			// Allow clicks inside ANY pane (this one or another) — clicking a pane must
@@ -1334,6 +1319,7 @@ export function CellTerminal(props: CellTerminalProps) {
 				displayRef?.removeEventListener("paste", onPaste);
 				inputHostRef?.removeEventListener("paste", onPaste);
 				clearTimeout(claimTimer ?? undefined);
+
 				predictor?.dispose();
 				renderer?.dispose();
 				unregPreview();
@@ -1364,8 +1350,7 @@ export function CellTerminal(props: CellTerminalProps) {
 		unmounted = true;
 	});
 
-	// Deepgram keyterm biasing input — one reader shared by the corner mic and the
-	// composer's inline mic, so the two can never bias off different snapshots.
+	// Deepgram keyterm biasing input for the composer's inline mic.
 	const readTerminalContext = (): TerminalContext => ({
 		grid: renderer?.gridText() ?? "",
 		scrollback: renderer?.scrollbackText() ?? "",
@@ -1396,6 +1381,7 @@ export function CellTerminal(props: CellTerminalProps) {
 			</Show>
 			<div
 				ref={displayRef}
+				data-testid="terminal-display"
 				style={{ flex: "1", "min-width": "0", "min-height": "0", "touch-action": "pan-y" }}
 			/>
 			{/* Optimistic spawn placeholder: paint the pane instantly; the real
@@ -1455,45 +1441,49 @@ export function CellTerminal(props: CellTerminalProps) {
 					</p>
 				</Dialog>
 			</Show>
-			{/* Mic + on-screen keypad — always on touch/compact; on desktop each is
-          gated by its own pref (mic / nav pad). Input rides inputChannel.
-          inLayout: a PARKED pane must not paint a position:fixed FAB over the
-          visible one (every other FAB here already guards on it; this one did
-          not, so a background terminal's mic landed on the visible pane). */}
-			<Show when={(isCompact() || isTouchDevice() || micOnDesktop()) && activeComposeChannel() === null && props.inLayout !== false}>
-				<MobileVoiceInput
-					channelId={props.session.channel}
-					onTerminalSubmit={(text) => sendTerminalText(text, true)}
-
-					readContext={readTerminalContext}
-					refocusTerminal={() => term?.forceFocus()}
-				/>
-			</Show>
-			<Show when={(isCompact() || isTouchDevice() || keyboardOnDesktop()) && activeComposeChannel() === null && props.inLayout !== false}>
+			{/* Compact has one active, body-portaled composer and keypad. Keep both
+			    unmounted while the mobile drawer or a non-terminal overlay is open. */}
+			<Show when={
+				props.inLayout === true
+				&& props.focused === true
+				&& isCompact()
+				&& !uiStore.sidebarOpen
+				&& props.surfaceVisible
+			}>
 				<TerminalNavButtons
-					onKey={(key) => term?.dispatchKeydown(key)}
+					onKey={(key: string) => { term?.dispatchKeydown(key); }}
 					ctrlArmed={ctrlArmed()}
-					onCtrlArmedChange={(armed) => {
+					onCtrlArmedChange={(armed: boolean) => {
 						if (armed && !isTouchDevice()) term?.forceFocus();
 						setCtrlArmed(armed);
 					}}
 				/>
-			</Show>
-
-			<Show when={(isCompact() || isTouchDevice()) && props.inLayout !== false && props.focused === true}>
 				<TerminalComposeButton
+					placement="viewport"
 					session={props.session}
-					refocusTerminal={() => term?.forceFocus()}
+					active={props.surfaceActive}
 					onSubmit={(text) => sendTerminalText(text, true)}
+					onAttachFiles={attachSelectedFiles}
 					readContext={readTerminalContext}
-					initialOpen={isCompact() && !composerDefaultConsumed}
-					onOpen={() => { composerDefaultConsumed = true; }}
+				/>
+			</Show>
+			{/* Keep every mounted desktop session's inline composer alive while its
+			    slot is parked. That preserves the exact display height across tab
+			    reveals; only each pane's selected slot is visible. */}
+			<Show when={!isCompact()}>
+				<TerminalComposeButton
+					placement="pane"
+					session={props.session}
+					active={props.inLayout === true && props.surfaceActive}
+					onSubmit={(text) => sendTerminalText(text, true)}
+					onAttachFiles={attachSelectedFiles}
+					readContext={readTerminalContext}
 				/>
 			</Show>
 			<TerminalContextMenu
 				session={props.session}
 				getContainer={() => displayRef ?? null}
-				onAttachFile={() => pickAndAttachFiles(props.session)}
+				onAttachFile={attachSelectedFiles}
 				onPasteText={sendTerminalText}
 
 			/>

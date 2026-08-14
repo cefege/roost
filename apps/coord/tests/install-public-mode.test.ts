@@ -48,11 +48,29 @@ exit 0
 `);
   executable(join(bin, "curl"), `#!/bin/sh
 headers=""
+output=""
+url=""
 while [ "$#" -gt 0 ]; do
-  if [ "$1" = "-D" ]; then headers="$2"; shift 2; else shift; fi
+  case "$1" in
+    -D) headers="$2"; shift 2 ;;
+    -o) output="$2"; shift 2 ;;
+    -w|-X|-H|--data) shift 2 ;;
+    -*) shift ;;
+    *) url="$1"; shift ;;
+  esac
 done
-status="${"$"}{ROOST_TEST_CURL_STATUS:-401}"
-if [ "$status" = 401 ]; then printf 'HTTP/1.1 401 Unauthorized\\r\\nX-Roost-Auth-Layer: access\\r\\n\\r\\n' > "$headers"; fi
+case "$url" in
+  */roost.v1.CoordinatorService/MiscHealth)
+    status="${"$"}{ROOST_TEST_HEALTH_STATUS:-200}"
+    if [ -n "$output" ]; then printf '%s' "${"$"}{ROOST_TEST_HEALTH_BODY:-{\\"ok\\":true}}" > "$output"; fi
+    ;;
+  *)
+    status="${"$"}{ROOST_TEST_CURL_STATUS:-401}"
+    if [ "$status" = 401 ] && [ -n "$headers" ]; then
+      printf 'HTTP/1.1 401 Unauthorized\\r\\nX-Roost-Auth-Layer: access\\r\\n\\r\\n' > "$headers"
+    fi
+    ;;
+esac
 printf '%s' "$status"
 `);
   const unit = join(dir, "coord.service");
@@ -93,11 +111,15 @@ describe("public coordinator service install", () => {
     const service = readFileSync(unit, "utf8");
     expect(service).toContain("Environment=ROOST_PUBLIC_BIND=127.0.0.1:4104");
     expect(service).toContain("Environment=ROOST_CF_ACCESS_TEAM_DOMAIN=example.cloudflareaccess.com");
+    expect(service).toContain("Environment=ROOST_FRONTED=1");
+    expect(service).toContain("Environment=ROOST_COORD_LOOPBACK_PORT=4103");
   });
 
   test("wrong readiness, immediate exit, and tailscale failure restore an existing unit", () => {
     const failures: Array<Record<string, string>> = [
       { ROOST_TEST_CURL_STATUS: "200" },
+      { ROOST_TEST_HEALTH_STATUS: "503" },
+      { ROOST_TEST_HEALTH_BODY: "{\"ok\":false}" },
       { ROOST_TEST_PROCESS_DEAD: "1" },
       { ROOST_TEST_TAILSCALE_FAIL: "1" },
     ];

@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import { dirname, join } from "node:path";
 import type { Database } from "bun:sqlite";
@@ -9,6 +8,7 @@ import {
   sendCoordinatorSnapshotStart,
 } from "../connect/worker-send.ts";
 import { connectWorkers } from "../connect/worker-registry.ts";
+import { createSqliteSnapshot } from "../db/snapshot.ts";
 import type { CoordinatorMoveRuntime, MoveSnapshot, MoveWorker } from "./runtime.ts";
 import type { MovePhase } from "./state.ts";
 
@@ -106,25 +106,13 @@ export function createBunCoordinatorMoveRuntime(options: {
       const handoffDir = join(dirname(options.handoffPath), "handoffs", state.handoffId);
       fs.mkdirSync(handoffDir, { recursive: true, mode: 0o700 });
       const snapshot = join(handoffDir, "coordinator_v2.snapshot");
-      options.sqlite.prepare("VACUUM INTO ?").run(snapshot);
+      const { size, sha256 } = createSqliteSnapshot(options.sqlite, snapshot);
+      const chunk = new Uint8Array(CHUNK_SIZE);
       try {
-        const size = fs.statSync(snapshot).size;
-        const hasher = createHash("sha256");
-        const chunk = new Uint8Array(CHUNK_SIZE);
-        const hashFd = fs.openSync(snapshot, "r");
-        try {
-          for (;;) {
-            const read = fs.readSync(hashFd, chunk, 0, chunk.length, null);
-            if (read === 0) break;
-            hasher.update(chunk.subarray(0, read));
-          }
-        } finally {
-          fs.closeSync(hashFd);
-        }
         // One budget covers the whole transfer plus the target's fsync, sha256,
         // integrity_check, renames and installer run — scale it with payload.
         const receipt = sendCoordinatorSnapshotStart(state.targetWorkerFp, {
-          handoffId: state.handoffId, totalSize: BigInt(size), sha256: hasher.digest("hex"),
+          handoffId: state.handoffId, totalSize: BigInt(size), sha256,
           coordKeyPem: fs.readFileSync(options.coordKeyPath),
           // authorized_keys.roost is an OPTIONAL bootstrap-import file — main.ts
           // guards its read with existsSync and the authoritative keys live in

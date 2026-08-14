@@ -31,11 +31,11 @@ around it by inlining.
 it, never open it, never grep it, never edit it, never delete it, never
 send a sub-agent into it.** It is the oh-my-pi source monorepo — a
 separate project of Author's. Roost NEVER spawns `omp` or any other agent as a
-headless child, consumes an agent JSONL/RPC API, vendors an agent runtime, or
-imports or relays an agent browser UI. `omp` is only one optional CLI a user
-may launch inside a normal Roost shell PTY. Every product and web-UI change lives in this
-repo. The external source tree always carries Author's uncommitted in-flight
-work, and it is the install this agent is EXECUTING INSIDE — editing or
+headless child, vendors an agent runtime, or imports an agent browser UI.
+`omp` is only one optional CLI a user may launch inside a normal Roost shell
+PTY; Roost does not own the agent lifecycle. The external source tree always
+carries Author's uncommitted in-flight work, and it is the install this agent
+is EXECUTING INSIDE — editing or
 deleting it corrupts the running harness. No task in this repo is ever
 completed by changing a file over there. Author 2026-07-25: "You never
 touch the omp folder. It's fucking pointless. Don't really don't open it.
@@ -92,6 +92,7 @@ Re-interpret every artifact enumerated in L0-SCOPE through this lens:
     | "store doesn't update / sidebar doesn't reflect delete" | `feedback_solid_setstore_record_replace.md` | `setStore("k", (prev) => newRecord)` on a Record subtree (silent no-op) | per-key writes: `setStore("k", id, value)` / `setStore("k", id, undefined)` |
     | "SPA store doesn't reflect a SessionEvent variant / coord and SPA projections disagree (stale channel)" | `feedback_spa_projector_delegates_to_shared_foldevent.md` | re-implementing the event switch in `store/projector.ts` as a hand-mirror of `@roost/shared` foldEvent (drifts — dropped `respawned`) | `foldEventIntoStore` DELEGATES to shared `foldEvent` over the affected map slice, then diffs per-key into the Solid store. No projector switch. Tripwire: `store.test.ts` projection-agreement test drives the REAL rootStore vs `foldAll`. |
     | "terminal disconnects on nav / lost scrollback" | `feedback_persistent_terminal_deck.md` | `<Show when={activeSession()}>{(s) => <Terminal .../>}</Show>` (remount per nav) | `<For each={openSessions()}>` deck + `visibility: visible↔hidden` |
+    | "omp launcher stops opening in a normal terminal" | n/a | spawn `omp` as a headless child, vendor its runtime, or import an agent browser UI | `omp` runs as an ordinary command in a normal shell PTY; Roost never spawns, supervises, or owns the agent session. |
     | "Cannot read properties of null (reading 'X')" inside Solid cleanup | `feedback_no_props_read_in_oncleanup.md` | reading `props.foo.bar` inside `onCleanup(() => …)` (reactive getter mid-cleanNode) | capture `const stableX = props.foo.bar` at component body scope before `onCleanup` |
     | "+ New workspace silent hang on a worker" | `feedback_worker_deploy_macos_repairs.md` | bare `deploy` to a fresh mac | also: chmod +x node-pty spawn-helper, strip `com.apple.provenance`/`quarantine`, `codesign -s -`, drop `{"type":"commonjs"}` into `keeper/`, `--external=node-pty` in build, ship `ROOST_REACHABLE_ADDR` |
     | "browser 401 on workers.list after fresh context" | `reference_live_coord_pubkey_bootstrap.md` | manual debugging / the retired `POST /api/trpc/auth.authorizeBrowser` route | Connect `AuthAuthorizeBrowser` (loopback-or-tailnet) with the pubkey: `roost api <verb>` SELF-authorizes its own key on Unauthenticated (`apps/roost-cli/src/api.ts` bootstrap); a fresh BROWSER's IDB WebCrypto pubkey goes through the same RPC or the pair flow (loopback `PairApprove`) |
@@ -166,16 +167,15 @@ git history on `n6/solid-rewrite` if you need v1 source for reference.
 | App | Path | Stack | Role | Port |
 |---|---|---|---|---|
 | **Web SPA** | `apps/web/` | Solid 1.x + plain Vite + `@solidjs/router` 0.16 + `@wterm/dom` + `@connectrpc/connect-web` | sidebar + wterm-rendered terminal pane; single Solid `createStore` root + selectors; URL-driven nav state | Vite dev :5174; static build at `apps/web/dist/` served by coord |
-| **Coord** | `apps/coord/` | Bun.serve native fetch + Connect-RPC + Kysely + `bun:sqlite` | Connect routes under `/roost.v1.CoordinatorService/*` + raw-WS worker transport `/ws/coord-worker/:fp` (was Connect bidi WorkerService.Attach — swapped: Bun can't hold a Connect bidi, see L11); EdDSA JWT auth via interceptor; append-only `events` table + `sessions` projection; `createCoord(deps)` factory portable to any fetch-capable runtime | :4102 |
+| **Coord** | `apps/coord/` | Bun.serve native fetch + Connect-RPC + Kysely + `bun:sqlite` | Connect routes under `/roost.v1.CoordinatorService/*`; browser firehose `/ws/coord-sync`; outbound-worker transport `/ws/coord-worker/:fp`; EdDSA JWT auth via interceptor; append-only `events` table + `sessions` projection; `createCoord(deps)` factory portable to any fetch-capable runtime | Bun loopback :4103; Tailscale Serve :4102 → :4103; optional Cloudflare browser listener :4104 |
 | **Worker** | `apps/worker/` | Bun + single multiplexed Bun keeper subprocess (`Bun.spawn` `terminal:` PTY) + `@connectrpc/connect-node` | outbound raw WebSocket to coord (CoordLink → `/ws/coord-worker/:fp`, proto frames over WS); FSM per channel; SessionEvents stream via CoordWorkerUp.event. One keeper process per worker hosts all PTYs over one UDS. | — |
 | **Shared** | `apps/shared/` | Zod schemas + protobuf gen + branded TS types + config + trace + log | single source of truth for wire shapes; protos in `proto/roost/v1/`; gen TS at `src/gen/roost/v1/`; both Zod (in-app) and proto (wire) shapes coexist with adapters | — |
 | **CLI** | `apps/roost-cli/` | Bun TS | `roost dev/test/deploy/logs/reset/state/cutover` — replaces 7+ legacy shell scripts | — |
 
-**Terminal-only boundary:** every live session is a shell PTY. Launcher
+**Agent lifecycle boundary:** every live session remains a shell PTY. Launcher
 configuration may type a command such as `omp`, Claude Code, or Codex into that
-shell, but Roost only transports terminal input, output, and session state.
-There is no structured agent/session API, HTML transcript, approval UI,
-headless agent child, or Roost-managed OMP dependency.
+shell; Roost never spawns, supervises, or owns an agent session.
+
 `apps/coord/src/agent-config.ts` (`AgentConfig`) and
 `apps/web/src/lib/agents.ts` are terminal launcher configuration: they resolve a
 command string and type it into the shell PTY. Their `agent` terminology does
@@ -209,13 +209,10 @@ to carry status, and do NOT persist it — a restart must re-derive it.
   - Auth: SPA mints EdDSA JWT in WebCrypto, coord verifies via
     interceptor that stashes the caller on context.
 - **Worker ↔ Coord**: raw Bun WebSocket `/ws/coord-worker/:fp?token=<jwt>`
-  (worker dials outbound at boot; auth = query-param JWT, Bun's client
-  WebSocket has no custom-header API). Frames are proto-typed `CoordWorkerUp` /
-  `CoordWorkerDown` oneofs serialized binary (`toBinary`/`fromBinary`): hello,
-  event, presence, rpc_ok/err, binary {ch,dir,seq,data}, refresh_jwt. JWT
-  rotates in-band via WRefreshJwt — no reconnect blip every TTL−30s. (Was
-  Connect bidi `WorkerService.Attach` over HTTP/2 — Bun can't hold a Connect
-  bidi; see L11 `project_worker_coord_raw_ws_not_connect_bidi.md`.)
+  (worker dials outbound at boot; there is no worker listener or `:2224`).
+  Frames are proto-typed `CoordWorkerUp` / `CoordWorkerDown` oneofs serialized
+  binary (`toBinary`/`fromBinary`): hello, event, presence, rpc_ok/err, binary
+  `{ch,dir,seq,data}`, refresh_jwt. JWT rotates in-band via `WRefreshJwt`.
 - **Multi-runtime ready**: protocol layer lives in
   `apps/coord/src/coord-factory.ts::createCoord(deps)` returning a
   `(Request, ctx?) => Promise<Response>` handler. `main.ts` is the
@@ -229,8 +226,8 @@ to carry status, and do NOT persist it — a restart must re-derive it.
 
 ### Run / dev / deploy
 
-- **Full stack dev** → `bun apps/roost-cli/src/main.ts dev` (boots coord
-  :4102 + worker :2224 + Vite :5174 in parallel)
+- **Full stack dev** → `bun apps/roost-cli/src/main.ts dev` (boots a direct
+  coordinator on :4102, an outbound-only worker, and Vite :5174 in parallel)
 - **Tests** → `bun run test:unit` (hermetic), `bun run test:terminal`
   (isolated coord + worker + browser), `bun run test:live-api` (tailnet
   data-plane canary; requires `ROOST_COORD_URL`), `bun run test` (unit then
@@ -238,8 +235,8 @@ to carry status, and do NOT persist it — a restart must re-derive it.
 - **Deploy worker to tailnet host** → `bun apps/roost-cli/src/main.ts deploy <host>`
   (rsync + `bun install --production` + `launchctl kickstart -k`)
 - **Install LaunchAgents** →
-  - `bash apps/coord/scripts/install.sh install` → `com.roost.coordinator-v2` on :4102
-  - `bash apps/worker/scripts/install.sh install` → `com.roost.worker-v2` on :2224
+  - `bash apps/coord/scripts/install.sh install` → `com.roost.coordinator-v2`; production uses Tailscale :4102 → Bun loopback :4103
+  - `bash apps/worker/scripts/install.sh install` → outbound-only `com.roost.worker-v2` (no listener)
 - **DB cutover (legacy → v2)** → `bun apps/roost-cli/src/main.ts cutover`
   (reads `coordinator.db`, writes `coordinator_v2.db`; synthesizes
   `opened` events per open legacy session)
@@ -294,10 +291,8 @@ to carry status, and do NOT persist it — a restart must re-derive it.
 
 10. **Reuse existing utilities — don't fork.** Always check first:
     - Web: `apps/web/src/store/{root,projector,sync,selectors}.ts` +
-      `apps/web/src/connect.ts` (Connect-RPC client, replaces the
-      retired `trpc.ts`) + `apps/web/src/ws/input-channel.ts`
-      (client-streaming PTY input via `coordClient.inputStream` —
-      replaces the retired worker-direct WSS) +
+      `apps/web/src/connect.ts` (Connect client replacing retired `trpc.ts`) +
+      `apps/web/src/ws/input-channel.ts` (persistent client-streaming `InputStream` PTY channel) +
       `apps/web/src/auth/{web-key,trust}.ts`. Single root store; no
       per-chip stores. Add a selector + a JSX line; do NOT add a new store.
     - Worker: `apps/worker/src/{main,session-manager,fsm,heartbeat,
@@ -394,12 +389,14 @@ launchctl list | grep roost
 # expect: com.roost.coordinator-v2  com.roost.worker-v2
 
 lsof -iTCP -sTCP:LISTEN -P -n | grep bun
-# expect: bun on :4102 (coord) and :2224 (worker WSS)
+# expect: coordinator Bun on loopback :4103, plus optional public :4104.
+# The worker is outbound-only and owns no TCP listener.
+tailscale serve status
+# expect: private :4102 mapped to http://127.0.0.1:4103
 ```
 
-- Coord down → workers + sessions lists go stale, workspaces don't
-  sync, MCP relay events stop streaming. Browser direct WS to workers
-  still works because PTY bytes don't go through coord. Restart with
+- Coord down → workers redial and browsers lose state/terminal fan-out; keeper
+  subprocesses preserve the PTYs until the coordinator returns. Restart with
   `bash apps/coord/scripts/install.sh reinstall`.
 - Worker down → that Mac's PTYs unavailable; other Macs in the multi-Mac
   topology keep working. Restart with `launchctl kickstart -k gui/$UID/com.roost.worker-v2`.
@@ -682,7 +679,7 @@ lsof -iTCP -sTCP:LISTEN -P -n | grep bun
 
 ### `apps/roost-cli/` (the unified CLI)
 - **Entry:** `src/main.ts` dispatches to one of:
-  - `dev` — boot coord (:4102) + worker (:2224) + Vite (:5174) in parallel
+  - `dev` — boot a direct coord (:4102), outbound-only worker, and Vite (:5174)
   - `test <unit|worker|terminal|live-api|all>` — explicit test profiles
   - `deploy <host>` — rsync to tailnet host + `bun install --production`
     + `launchctl kickstart -k`

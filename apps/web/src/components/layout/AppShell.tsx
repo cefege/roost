@@ -14,7 +14,7 @@ import { beginResizeDrag, endResizeDrag } from "../../lib/resizeDrag.ts";
 import { EDGE_PX, lockAxis, openOffsetPx, shouldOpen, closeOffsetPx, shouldClose } from "../../lib/edgeSwipeDrawer.ts";
 import { registerDrawer, dragDrawer, settleDrawerOpen, settleDrawerClose } from "../../lib/drawerDrag.ts";
 import { attachElasticOverscroll } from "../../lib/overscroll.ts";
-import { composerActive } from "../TerminalComposeButton.tsx";
+import { composerActive, composerHeightPx } from "../TerminalComposeButton.tsx";
 
 // ─── inline CSS helpers ─────────────────────────────────────────────────
 // Style objects are evaluated once; any dynamic value must live in JSX
@@ -32,9 +32,9 @@ function shellStyle() {
     //  - resize (toggle on): shell height = 100svh − --kb-offset, so the
     //    terminal's ResizeObserver re-claims a smaller grid and grows back on
     //    dismiss.
-    // Frozen at full height while the chat composer owns the keyboard
-    // (composerActive): the composer floats above the keyboard, so shrinking
-    // the terminal underneath it only makes the scrollback jump as --kb-offset ramps.
+    // A mounted composer reserves only its resting row in mainStyle(). Measured
+    // multiline growth shifts the painted deck instead of resizing its observed
+    // box and reclaiming PTY rows; the dock offset already owns the keyboard.
     height: keyboardResize() && !composerActive() ? "calc(100svh - var(--kb-offset, 0px))" : "100svh",
     transition: "height var(--md-sys-motion-duration-medium1) var(--md-sys-motion-easing-emphasized)",
     overflow: "hidden",
@@ -48,6 +48,7 @@ function shellStyle() {
 // icon rail via [data-collapsed="true"] in sidebar.css. NOT a separate
 // worker-initials component — that diverged from the real folder list.
 const COLLAPSED_RAIL_PX = 52;
+const SIDEBAR_RESIZER_PX = 4;
 
 function desktopSidebarStyle() {
   return {
@@ -139,10 +140,23 @@ function mainStyle() {
     overflow: "hidden",
     display: "flex",
     "flex-direction": "column",
+    "box-sizing": "border-box",
+    "min-height": "0",
+    "--term-chat-growth": "0px",
   } as const;
-  // No transform while the composer is active — the terminal stays put; the
-  // composer docks itself above the keyboard via its own --kb-offset.
-  if (keyboardResize() || composerActive()) return base;
+  // Keep the deck's layout box at the one-row reserve. ResizeObserver publishes
+  // only the dock's border-box height; its excess becomes an inherited
+  // paint-only translate so TerminalDeck and the PTY grid never resize/reclaim
+  // while the draft wraps. The dock offset is the shared safe-area, keyboard,
+  // and 8px bottom-gap expression.
+  if (composerActive()) {
+    return {
+      ...base,
+      "padding-bottom": "calc(var(--term-chat-rest-height) + var(--term-chat-dock-offset))",
+      "--term-chat-growth": `max(0px, calc(${composerHeightPx()}px - var(--term-chat-rest-height)))`,
+    };
+  }
+  if (keyboardResize()) return base;
   return {
     ...base,
     transform: "translateY(calc(var(--kb-offset, 0px) * -1))",
@@ -156,6 +170,15 @@ export function AppShell(props: ParentProps) {
   const isMobile = isCompact;
   const location = useLocation();
 
+  // Keep the portaled composer inside the main pane as the desktop rail resizes.
+  createEffect(() => {
+    const mainLeft = isMobile()
+      ? 0
+      : uiStore.sidebarCollapsed
+        ? COLLAPSED_RAIL_PX
+        : uiStore.sidebarWidth + SIDEBAR_RESIZER_PX;
+    document.documentElement.style.setProperty("--roost-main-left", `${mainLeft}px`);
+  });
   // Mobile drawer overlays the main pane. Navigating from inside the drawer
   // (any sidebar nav source: SessionRow, MachineSection spawn, FlatNewTerminal,
   // context menu, empty-state CTA, command palette, deep link) switches the
@@ -278,6 +301,7 @@ export function AppShell(props: ParentProps) {
     window.removeEventListener("touchmove", onTouchMove, { capture: true });
     window.removeEventListener("touchend", onTouchEnd, { capture: true });
     window.removeEventListener("touchcancel", onTouchEnd, { capture: true });
+    document.documentElement.style.removeProperty("--roost-main-left");
   });
 
   return (

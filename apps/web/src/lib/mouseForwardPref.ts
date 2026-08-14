@@ -2,9 +2,9 @@
 // SGR-1006 mouse-tracking (claude fullscreen click / drag / scroll) instead
 // of letting the browser handle them. OFF (default) = native browser
 // selection + DOM scroll; ON = claude gets the mouse, so a finger-swipe
-// scrolls claude and a click hits its UI. Toggled from the terminal nav pad
-// (TerminalNavButtons). Module-level signal so every deck-mounted pane shares
-// one state; localStorage makes the choice sticky across reloads.
+// scrolls claude and a click hits its UI. Toggled from Settings → Terminal.
+// Module-level signal so every deck-mounted pane shares one state; localStorage
+// makes the choice sticky across reloads.
 //
 // Consumed by CellTerminal's pointer/touch handlers (only forward when this
 // is on AND the session is in alt-screen — a plain shell keeps native scroll).

@@ -4,20 +4,22 @@
 //   → restore the empty embed stubs so the working tree stays clean.
 // The output binaries embed the Bun runtime, so they run with no Bun installed.
 //
-// Default: the host-native `dist/roost` PLUS the full release matrix, so one
-// macOS runner can publish every asset. Cross-compilation is safe here because
-// there are no native modules anywhere — the PTY is Bun's native
-// Bun.spawn({terminal}) and the DB is bun:sqlite. `--host-only` skips the
-// matrix for fast local builds.
+// Default: the full release matrix, with `dist/roost` copied from the explicit
+// Darwin arm64 target for deterministic compatibility. Cross-compilation is
+// safe here because there are no native modules anywhere — the PTY is Bun's
+// native Bun.spawn({terminal}) and the DB is bun:sqlite. `--host-only` instead
+// builds only the host-native `dist/roost` for fast local builds.
 import { $ } from "bun";
 import { existsSync } from "node:fs";
+import { copyFile } from "node:fs/promises";
 
 const OUT = "dist/roost";
 // Asset names must match releaseAssetName() in apps/roost-cli/src/update.ts and
-// the `case` in install-binary.sh, minus the legacy unsuffixed darwin-arm64
-// `roost` which is emitted separately as the host build below.
+// the `case` in install-binary.sh. The unsuffixed compatibility asset is copied
+// from the explicit Darwin arm64 output after every full matrix build.
+const DARWIN_ARM64_OUT = "dist/roost-darwin-arm64";
 const TARGETS = [
-  { target: "bun-darwin-arm64", out: "dist/roost-darwin-arm64" },
+  { target: "bun-darwin-arm64", out: DARWIN_ARM64_OUT },
   { target: "bun-darwin-x64", out: "dist/roost-darwin-x64" },
   { target: "bun-linux-x64", out: "dist/roost-linux-x64" },
   { target: "bun-linux-arm64", out: "dist/roost-linux-arm64" },
@@ -42,14 +44,16 @@ try {
   await $`bun scripts/gen-embed.ts`;
 
   const define = `__ROOST_VERSION__=${JSON.stringify(VERSION)}`;
-  console.log(`>> bun build --compile → ${OUT} (host, version ${VERSION})`);
-  await $`bun build --compile --define ${define} apps/roost-cli/src/main.ts --outfile ${OUT}`;
-
-  if (!hostOnly) {
+  if (hostOnly) {
+    console.log(`>> bun build --compile → ${OUT} (host, version ${VERSION})`);
+    await $`bun build --compile --define ${define} apps/roost-cli/src/main.ts --outfile ${OUT}`;
+  } else {
     for (const t of TARGETS) {
       console.log(`>> bun build --compile --target=${t.target} → ${t.out}`);
       await $`bun build --compile --target=${t.target} --define ${define} apps/roost-cli/src/main.ts --outfile ${t.out}`;
     }
+    console.log(`>> copy ${DARWIN_ARM64_OUT} → ${OUT}`);
+    await copyFile(DARWIN_ARM64_OUT, OUT);
   }
 } finally {
   console.log(">> restore embed stubs");

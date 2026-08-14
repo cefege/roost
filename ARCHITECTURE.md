@@ -7,8 +7,8 @@ A tour of how Roost fits together. For build/run, see
 collaborators) is [`CLAUDE.md`](CLAUDE.md).
 
 Roost is three TypeScript apps on [Bun](https://bun.sh), plus a shared wire
-package. Everything speaks one RPC framework end to end
-([Connect-RPC](https://connectrpc.com) + protobuf).
+package. Protobuf messages travel over Connect-RPC for browser requests and
+raw WebSockets for long-lived browser sync and outbound worker transport.
 
 ```text
   Browser  (Solid SPA, any device on your tailnet)
@@ -20,12 +20,14 @@ package. Everything speaks one RPC framework end to end
      │    · scrollback       history, resumable from a byte offset
      ▼
  ┌────────────────────────────────────────────┐
- │ Coordinator  (Bun · one Mac · :4102)        │
+ │ Coordinator  (Bun loopback · :4103)        │
+ │ Tailscale Serve :4102 → 127.0.0.1:4103     │
+ │ optional Cloudflare browser listener :4104 │
  │   append-only `events` table  (SQLite)      │
  │     → projected into a `sessions` table     │
  │   EdDSA-JWT auth · fans deltas to every tab │
  └────────────────┬───────────────────────────┘
-                  │  raw WebSocket · protobuf frames · worker dials outbound
+                  │  `/ws/coord-worker/:fp` · protobuf · outbound dial
      ┌────────────┼────────────────────┐
      ▼            ▼                     ▼
   Worker       Worker                Worker     (Bun · one per Mac)
@@ -84,12 +86,9 @@ buffer, the coordinator caps unacknowledged work at 512 frames, 4 MiB, and a
 immediately reconnects without reloading, and visible terminals recover through
 the same authoritative snapshot path.
 
-This is Roost's only interactive data plane. Agent CLIs such as `omp`, Claude
-Code, or Codex may be launched inside the shell PTY, manually or through the
-terminal launcher configuration. Their text, tools, and approval prompts remain
-inside their native terminal UI. Roost has no structured agent/session API,
-HTML transcript renderer, approval UI, headless agent child, or managed OMP
-dependency.
+Every session remains a shell PTY. Agent CLIs such as `omp`, Claude Code, or
+Codex may be launched inside it, manually or through terminal launcher
+configuration. Roost never spawns, supervises, or owns an agent session.
 
 ## Agent status (volatile, metadata only)
 

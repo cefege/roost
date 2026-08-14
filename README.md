@@ -26,7 +26,7 @@ _I built Roost for my own daily workflow: real infrastructure, not a demo._
 
 One coordinator connects every machine you own into one fleet, and the coordinator machine can be a worker too. Add spare or older MacBooks, a Mac mini, or a Linux box, spread agent workloads across them, and manage every session from the same control panel. Pick a folder on any machine, open a workspace there, and the process runs on that machine while its native terminal stays available on every device you use — including devices that could never host a worker, like a phone or tablet.
 
-Every session is a shell PTY rendered in the browser. Launch any agent CLI, shell, REPL, or TUI inside it and use that program's native terminal interface. Roost carries terminal input, output, and session state; it does not provide a structured agent API, HTML transcript, tool or approval UI, or a managed OMP dependency.
+Every session is a shell PTY rendered in the browser. Launch any agent CLI, shell, REPL, or TUI inside it and use that program's native terminal interface. Roost never spawns, supervises, or owns an agent session; the CLI remains an ordinary command in its shell PTY.
 
 ## The problem
 
@@ -104,19 +104,22 @@ The coordinator handles control and fan-out only. It holds an append-only event 
 
 ## Network
 
-Roost talks over whatever network your devices share. It's built and tested on [Tailscale](https://tailscale.com), which gives every device a stable name and connects your phone with no port-forwarding, and that's the recommended path. A Tailscale alternative (WireGuard, Headscale, ZeroTier, and the like) or a plain LAN works too, as long as your browser and the coordinator can reach each other. A few conveniences that resolve a machine's tailnet name, like one-click Screen Sharing and Open in Finder, are Tailscale- and macOS-specific.
+Roost's supported automated production topology is [Tailscale](https://tailscale.com): it gives every device a stable name, provides the trusted private enrollment boundary, and connects phones without port-forwarding. WireGuard, Headscale, ZeroTier, other VPNs, and a plain LAN can be wired up manually when browser and coordinator reachability is already solved, but those paths are not exercised by the installer or release canaries.
 
 **[Cloudflare browser access](GETTING_STARTED.md#optional-browser-access-through-cloudflare) is optional.** Browsers may enter through Cloudflare Access and Tunnel, while the coordinator and every worker still communicate over Tailscale. A phone, tablet, or browser-only computer using the Cloudflare hostname needs only an ordinary browser, not Tailscale; worker machines still need Tailscale. That's the setup for reaching your fleet from a device you can't or won't install a VPN client on — a work laptop, a borrowed machine, a locked-down phone. Only the coordinator runs `cloudflared` (macOS via Homebrew, Linux via Cloudflare's apt/rpm repo). This removes the client-install requirement from browser devices without changing worker enrollment, worker WebSockets, `roost deploy`, `roost status`, direct-machine links, or coordinator relocation. Run `roost expose` only as a post-install step after Roost is already working over Tailscale.
 
 ## Install
 
-Roost's coordinator and workers run on macOS and Linux (launchd on macOS, `systemd --user` on Linux). Browsing devices need no install at all — any modern browser on any OS. It needs a shared network (Tailscale recommended). On the machine you want as the coordinator:
+Roost's coordinator and workers run on macOS and Linux (launchd on macOS, `systemd --user` on Linux). Browsing devices need no install at all — any modern browser on any OS. The supported production install uses Tailscale. On the machine you want as the coordinator:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/cefege/roost/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/cefege/roost/main/install-binary.sh | bash
+"$HOME/.local/bin/roost" quickstart
 ```
 
-That installs Bun if needed, gets the code, starts the coordinator and a local worker, and opens Roost in your browser already signed in. There are no tokens to copy.
+This installs the checksum-verified release binary, then `quickstart` configures the coordinator, local worker, and browser pairing. There are no tokens to copy.
+
+For source development only, `curl -fsSL https://raw.githubusercontent.com/cefege/roost/main/install.sh | bash` installs Bun and a checkout that tracks `main`; it is not the pinned production release path.
 
 Two things make growing your fleet painless, with no SSH and no tokens to hand-copy:
 

@@ -19,11 +19,12 @@
 
 import { existsSync } from "node:fs";
 import { tailnetSuffix } from "./status.ts";
-import { run, runOrDie, SSH_OPTS, RSYNC_RSH, sshExec, resolveLocalGitShaOrDie } from "./deploy-exec.ts";
+import { finishWorkerDeploy, run, runOrDie, SSH_OPTS, RSYNC_RSH, sshExec, resolveLocalGitShaOrDie } from "./deploy-exec.ts";
 import { _isSelfHost } from "./deploy-self-host.ts";
 import { _backfillEnvFromPlist, _resolveDeployEnvValue } from "./deploy-plist-env.ts";
 import { _deployLocal } from "./deploy-local.ts";
 import { deployLinux } from "./deploy-linux.ts";
+import { verifyWorkerCmd } from "./service-ctl.ts";
 
 // Re-export the public surface external modules import from ./deploy.ts —
 // keeper-refresh.ts pulls { _isSelfHost, sshExec }; main/push/quickstart use deploy.
@@ -310,11 +311,6 @@ export async function deploy(args: string[]): Promise<void> {
   const { promise: settled, resolve: markSettled } = Promise.withResolvers<void>();
   setTimeout(markSettled, 1500);
   await settled;
-  const verify = await sshExec(
-    host,
-    `launchctl print gui/$(id -u)/com.roost.worker-v2 2>&1 | grep -E '^\\s*(state|pid|active count)' | head -5`,
-  );
-  console.log(verify.stdout.trim().split("\n").map((l) => `   ${l}`).join("\n"));
-
-  console.log(`>> done — ${host} v2 worker deployed`);
+  const verify = await sshExec(host, verifyWorkerCmd("darwin"));
+  finishWorkerDeploy(verify, `>> done — ${host} v2 worker deployed`);
 }

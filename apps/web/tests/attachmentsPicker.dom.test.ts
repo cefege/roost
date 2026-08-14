@@ -21,9 +21,11 @@ interface FakeInput {
   accept: string;
   style: { display: string };
   onchange: (() => void) | null;
-  files: null;
+  oncancel: (() => void) | null;
+  files: File[] | null;
   clicked: number;
   removed: boolean;
+  removeCount: number;
   setAttribute(name: string, value: string): void;
   getAttribute(name: string): string | null;
   click(): void;
@@ -41,13 +43,20 @@ function makeInput(): FakeInput {
     accept: "",
     style: { display: "" },
     onchange: null,
+    oncancel: null,
     files: null,
     clicked: 0,
     removed: false,
+    removeCount: 0,
     setAttribute(name, value) { attrs.set(name, value); },
     getAttribute(name) { return attrs.get(name) ?? null; },
     click() { this.clicked++; },
-    remove() { this.removed = true; },
+    remove() {
+      this.removed = true;
+      this.removeCount++;
+      const index = appended.indexOf(this);
+      if (index >= 0) appended.splice(index, 1);
+    },
   };
 }
 
@@ -65,8 +74,24 @@ Object.defineProperty(globalThis, "document", {
 });
 
 const sendInput = mock((_sessionId: string, _bytes: Uint8Array) => {});
+const attachmentProbe = mock(async (_request: {
+  sessionId: string;
+  sha256: string;
+  size: bigint;
+  filename: string;
+  shortPath: boolean;
+}) => ({ hit: false, absPath: "" }));
+const attachFileChunk = mock(async (request: {
+  uploadId: string;
+  sessionId: string;
+  filename: string;
+  shortPath: boolean;
+  data: Uint8Array;
+  last: boolean;
+  seq: number;
+}) => ({ absPath: request.last ? `/tmp/${request.filename}` : "" }));
 
-mock.module("../src/connect.ts", () => ({ coordClient: {} }));
+mock.module("../src/connect.ts", () => ({ coordClient: { attachmentProbe, attachFileChunk } }));
 mock.module("../src/ws/input-channel.ts", () => ({ inputChannel: { sendInput } }));
 mock.module("../src/store/transfers.ts", () => ({
   addTransfer: mock(() => {}),
@@ -78,7 +103,7 @@ mock.module("../src/store/transfers.ts", () => ({
 // and input-channel.ts before mock.module can replace them, dialing a Connect
 // transport at module load. The `import type` above is erased, so it does not
 // defeat the mocks.
-const { pickFilesTo, injectPath } = await import("../src/lib/attachments.ts");
+const { pickFilesTo, injectPath, enqueueAttachmentTo } = await import("../src/lib/attachments.ts");
 
 const session = { id: "s1", channel: 1 } as unknown as Session;
 
@@ -93,6 +118,12 @@ beforeEach(() => {
   created = [];
   appended = [];
   sendInput.mockClear();
+  attachmentProbe.mockReset();
+  attachmentProbe.mockImplementation(async () => ({ hit: false, absPath: "" }));
+  attachFileChunk.mockReset();
+  attachFileChunk.mockImplementation(async (request) => ({
+    absPath: request.last ? `/tmp/${request.filename}` : "",
+  }));
 });
 
 describe("pickFilesTo", () => {
@@ -129,6 +160,114 @@ describe("pickFilesTo", () => {
     expect(appended).toEqual([el]);
     expect(el.clicked).toBe(1);
   });
+
+  test("change and cancel both remove the transient input exactly once", () => {
+    const changed = pick();
+    changed.files = [];
+    changed.onchange?.();
+    changed.oncancel?.();
+    expect(changed.removed).toBe(true);
+    expect(changed.removeCount).toBe(1);
+    expect(appended).not.toContain(changed);
+
+    const cancelled = pick();
+    cancelled.oncancel?.();
+    cancelled.onchange?.();
+    expect(cancelled.removed).toBe(true);
+    expect(cancelled.removeCount).toBe(1);
+    expect(appended).not.toContain(cancelled);
+  });
+
+});
+
+describe("enqueueAttachmentTo", () => {
+  test("serializes hash through sink, preserves selection order, and reconstructs exact chunks", async () => {
+    const chunkBytes = 4 * 1024 * 1024;
+    const firstBytes = new Uint8Array(chunkBytes + 17);
+    for (let i = 0; i < firstBytes.length; i++) firstBytes[i] = (i * 31 + 7) & 0xff;
+    const first = new File([firstBytes], "first.bin", { type: "application/octet-stream" });
+    const second = new File([new Uint8Array([9, 8, 7])], "second.bin");
+    const events: string[] = [];
+    const firstHashGate = Promise.withResolvers<void>();
+    const firstArrayBuffer = first.arrayBuffer.bind(first);
+    const secondArrayBuffer = second.arrayBuffer.bind(second);
+    Object.defineProperty(first, "arrayBuffer", {
+      value: async () => {
+        events.push("hash:first");
+        await firstHashGate.promise;
+        return firstArrayBuffer();
+      },
+    });
+    Object.defineProperty(second, "arrayBuffer", {
+      value: async () => {
+        events.push("hash:second");
+        return secondArrayBuffer();
+      },
+    });
+
+    attachmentProbe.mockImplementation(async (request) => {
+      events.push(`probe:${request.filename}`);
+      return request.filename === second.name
+        ? { hit: true, absPath: "/tmp/second-dedup.bin" }
+        : { hit: false, absPath: "" };
+    });
+    attachFileChunk.mockImplementation(async (request) => {
+      events.push(`upload:${request.filename}:${request.seq}`);
+      return { absPath: request.last ? "/tmp/first.bin" : "" };
+    });
+
+    const sinkOrder: string[] = [];
+    const firstDone = enqueueAttachmentTo(session, first, (path) => {
+      events.push("sink:first");
+      sinkOrder.push(path);
+    });
+    const secondDone = enqueueAttachmentTo(session, second, (path) => {
+      events.push("sink:second");
+      sinkOrder.push(path);
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(events).toEqual(["hash:first"]);
+
+    firstHashGate.resolve();
+    await Promise.all([firstDone, secondDone]);
+
+    expect(events).toEqual([
+      "hash:first",
+      "probe:first.bin",
+      "upload:first.bin:0",
+      "upload:first.bin:1",
+      "sink:first",
+      "hash:second",
+      "probe:second.bin",
+      "sink:second",
+    ]);
+    expect(sinkOrder).toEqual(["/tmp/first.bin", "/tmp/second-dedup.bin"]);
+
+    const firstChunks = attachFileChunk.mock.calls.map(([request]) => request);
+    expect(firstChunks.map(({ seq, last }) => ({ seq, last }))).toEqual([
+      { seq: 0, last: false },
+      { seq: 1, last: true },
+    ]);
+    const reconstructed = new Uint8Array(firstChunks.reduce((total, chunk) => total + chunk.data.length, 0));
+    let offset = 0;
+    for (const chunk of firstChunks) {
+      reconstructed.set(chunk.data, offset);
+      offset += chunk.data.length;
+    }
+    expect(reconstructed).toEqual(firstBytes);
+  });
+
+  test("failed upload never calls the sink", async () => {
+    const sink = mock((_path: string, _file: File) => {});
+    attachmentProbe.mockImplementation(async () => ({ hit: false, absPath: "" }));
+    attachFileChunk.mockImplementation(async () => { throw new Error("upload failed"); });
+
+    await enqueueAttachmentTo(session, new File([new Uint8Array([1, 2, 3])], "broken.bin"), sink);
+
+    expect(sink).not.toHaveBeenCalled();
+  });
+
 });
 
 describe("injectPath", () => {

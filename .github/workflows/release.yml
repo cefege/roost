@@ -1,12 +1,5 @@
 name: release
 
-# Cut a release by pushing a tag:  git tag v0.1.0 && git push --tags
-# Builds every `roost` binary (SPA + migrations + wasm embedded) on ONE macOS
-# runner — scripts/build-binary.ts cross-compiles the darwin + linux matrix, so
-# no build matrix is needed — and attaches them + their sha256 files to the
-# GitHub Release that `roost update` and the curl/Homebrew installers pull from.
-# `roost` (unsuffixed) stays the darwin-arm64 asset so existing installs never
-# 404; see releaseAssetName() in apps/roost-cli/src/update.ts.
 on:
   push:
     tags: ["v*"]
@@ -15,21 +8,131 @@ permissions:
   contents: write
 
 jobs:
-  build:
-    runs-on: macos-latest
+  verify:
+    name: verify (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.3.14"
       - run: bun install --frozen-lockfile
-      - run: bun scripts/build-binary.ts
-      - name: checksum
+      - name: Install Playwright browsers
+        run: bunx playwright install --with-deps chromium ${{ matrix.os == 'macos-15' && 'webkit' || '' }}
+      - run: bun x tsgo -p tsconfig.base.json --noEmit
+      - run: bun run test:unit
+      - run: bun run test:terminal
+
+  build:
+    name: build release candidates
+    needs: verify
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+      - run: bun install --frozen-lockfile
+      - name: Require tag to match package version
         run: |
+          PACKAGE_VERSION="$(bun -e 'process.stdout.write((await Bun.file("package.json").json()).version)')"
+          if [ "$GITHUB_REF_NAME" != "v$PACKAGE_VERSION" ]; then
+            echo "tag $GITHUB_REF_NAME does not match package version v$PACKAGE_VERSION" >&2
+            exit 1
+          fi
+      - run: bun scripts/build-binary.ts
+      - name: Verify compatibility asset and checksums
+        run: |
+          cmp dist/roost dist/roost-darwin-arm64
           cd dist
-          for f in roost roost-darwin-arm64 roost-darwin-x64 roost-linux-x64 roost-linux-arm64; do
-            shasum -a 256 "$f" | awk '{print $1}' | tee "$f.sha256"
+          for asset in roost roost-darwin-arm64 roost-darwin-x64 roost-linux-x64 roost-linux-arm64; do
+            shasum -a 256 "$asset" | awk '{print $1}' > "$asset.sha256"
           done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-candidates
+          if-no-files-found: error
+          path: |
+            dist/roost
+            dist/roost.sha256
+            dist/roost-darwin-arm64
+            dist/roost-darwin-arm64.sha256
+            dist/roost-darwin-x64
+            dist/roost-darwin-x64.sha256
+            dist/roost-linux-x64
+            dist/roost-linux-x64.sha256
+            dist/roost-linux-arm64
+            dist/roost-linux-arm64.sha256
+
+  native-smoke:
+    name: native smoke (${{ matrix.runner }} / ${{ matrix.asset }})
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            asset: roost
+            file_marker: "arm64"
+          - runner: macos-15-intel
+            asset: roost-darwin-x64
+            file_marker: "x86_64"
+          - runner: ubuntu-24.04
+            asset: roost-linux-x64
+            file_marker: "x86-64"
+          - runner: ubuntu-24.04-arm
+            asset: roost-linux-arm64
+            file_marker: "aarch64"
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-candidates
+          path: dist
+      - name: Exercise native candidate
+        env:
+          ASSET: ${{ matrix.asset }}
+          FILE_MARKER: ${{ matrix.file_marker }}
+        run: |
+          set -euo pipefail
+          cd dist
+          chmod 0755 "$ASSET"
+          FILE_OUTPUT="$(file "$ASSET")"
+          echo "$FILE_OUTPUT"
+          case "$FILE_OUTPUT" in
+            *"$FILE_MARKER"*) ;;
+            *) echo "unexpected architecture for $ASSET" >&2; exit 1 ;;
+          esac
+          PACKAGE_VERSION="$(bun -e 'process.stdout.write((await Bun.file("../package.json").json()).version)')"
+          CANDIDATE_VERSION="$("./$ASSET" version)"
+          case "$CANDIDATE_VERSION" in
+            "$PACKAGE_VERSION"+?*) ;;
+            *) echo "unexpected version: $CANDIDATE_VERSION" >&2; exit 1 ;;
+          esac
+          export HOME="$(mktemp -d)"
+          "./$ASSET" quickstart --dry-run
+          INSTALL_DIR="$(mktemp -d)"
+          ROOST_LOCAL_BIN="$PWD/$ASSET" ROOST_BIN_DIR="$INSTALL_DIR" bash ../install-binary.sh
+          INSTALLED_VERSION="$("$INSTALL_DIR/roost" version)"
+          test "$INSTALLED_VERSION" = "$CANDIDATE_VERSION"
+
+  publish:
+    name: publish GitHub Release
+    needs: native-smoke
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-candidates
+          path: dist
       - uses: softprops/action-gh-release@v2
         with:
           files: |

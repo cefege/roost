@@ -246,12 +246,43 @@ describe("audioPcmCapture warm pipeline", () => {
     expect(second).toBeGreaterThan(0);
   });
 
-  test("resume failure disposes the fulfilled stream and context", async () => {
+  test("a timed-out pre-stream resume recovers after the input session is live", async () => {
     const stream = makeStream();
-    const resumeError = new Error("resume denied");
+    let inputSessionLive = false;
     initialContextState = "suspended";
-    resumeImpl = () => Promise.reject(resumeError);
+    micTimeouts.resumeMs = 20;
+    resumeImpl = () => {
+      if (resumeCalls === 1) return Promise.withResolvers<void>().promise;
+      if (!inputSessionLive) return Promise.reject(new Error("input session is not live"));
+      return Promise.resolve();
+    };
+    getUserMediaImpl = () => {
+      inputSessionLive = true;
+      return Promise.resolve(stream);
+    };
+    addModuleGate.resolve();
+    let chunks = 0;
+
+    await expect(startCapture(() => { chunks++; })).resolves.toBe(true);
+    if (!(lastContext instanceof WorkletCtx)) {
+      throw new Error("expected a worklet AudioContext");
+    }
+
+    expect(resumeCalls).toBe(2);
+    expect(lastContext.state).toBe("running");
+    expect(stream.track.stopped).toBe(false);
+    expect(lastContext.closed).toBe(false);
+    expect(isMicWarm()).toBe(true);
+    pushAudio(0.5);
+    expect(chunks).toBeGreaterThan(0);
+  });
+
+  test("a context still suspended after the post-stream retry is rejected and disposed", async () => {
+    const stream = makeStream();
+    initialContextState = "suspended";
+    resumeRefusals = 2;
     getUserMediaImpl = () => Promise.resolve(stream);
+    addModuleGate.resolve();
 
     const started = startCapture(() => {});
     if (!(lastContext instanceof WorkletCtx)) {
@@ -259,7 +290,8 @@ describe("audioPcmCapture warm pipeline", () => {
     }
     const openedContext = lastContext;
 
-    await expect(started).rejects.toBe(resumeError);
+    await expect(started).rejects.toThrow(/audio session stayed suspended/);
+    expect(resumeCalls).toBe(2);
     expect(stream.track.stopped).toBe(true);
     expect(openedContext.closed).toBe(true);
     expect(isMicWarm()).toBe(false);

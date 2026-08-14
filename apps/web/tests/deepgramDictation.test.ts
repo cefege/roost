@@ -11,7 +11,7 @@
 // stubbed the same way as audioPcmCapture.test.ts — both modules read them
 // lazily, so a static import is safe.
 
-import { expect, test, describe, beforeEach } from "bun:test";
+import { expect, test, describe, beforeEach, afterAll } from "bun:test";
 import { createRoot } from "solid-js";
 import type { Dictation, DeepgramDictationOpts } from "../src/lib/deepgramDictation.ts";
 import { createDeepgramDictation, dictationTimings } from "../src/lib/deepgramDictation.ts";
@@ -82,6 +82,12 @@ class FakeWS {
 }
 
 // ── global stubs ──────────────────────────────────────────────────────────
+const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+const originalAudioWorkletNode = Object.getOwnPropertyDescriptor(globalThis, "AudioWorkletNode");
+const originalWebSocket = Object.getOwnPropertyDescriptor(globalThis, "WebSocket");
+const originalCreateObjectURL = URL.createObjectURL;
+const originalRevokeObjectURL = URL.revokeObjectURL;
 const g = globalThis as unknown as {
 	window: { AudioContext?: unknown; WebSocket?: unknown };
 	URL: { createObjectURL: (b: unknown) => string; revokeObjectURL: (u: string) => void };
@@ -167,6 +173,20 @@ describe("deepgramDictation run token", () => {
 		getUserMediaImpl = () => Promise.resolve(makeStream());
 		g.window.AudioContext = WorkletCtx;
 		g.window.WebSocket = FakeWS;
+	});
+
+	afterAll(() => {
+		releaseMic();
+		if (originalNavigator) Object.defineProperty(globalThis, "navigator", originalNavigator);
+		else Reflect.deleteProperty(globalThis, "navigator");
+		if (originalWindow) Object.defineProperty(globalThis, "window", originalWindow);
+		else Reflect.deleteProperty(globalThis, "window");
+		if (originalAudioWorkletNode) Object.defineProperty(globalThis, "AudioWorkletNode", originalAudioWorkletNode);
+		else Reflect.deleteProperty(globalThis, "AudioWorkletNode");
+		if (originalWebSocket) Object.defineProperty(globalThis, "WebSocket", originalWebSocket);
+		else Reflect.deleteProperty(globalThis, "WebSocket");
+		URL.createObjectURL = originalCreateObjectURL;
+		URL.revokeObjectURL = originalRevokeObjectURL;
 	});
 
 	test("a stop before the socket opens never creates one", async () => {

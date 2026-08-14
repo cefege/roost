@@ -1,92 +1,105 @@
-// Nightly DB backup. Copies coord DB to <backups_dir>/coord_v2.<timestamp>.db.gz.
-// Keeps the 14 most recent backups; older files are deleted.
-// backups_dir = dirname(dbPath) + "/backups".
-// Callers: main.ts (startup + setInterval 24h).
+// Nightly DB backup. Creates a verified SQLite snapshot, then compresses it to
+// <backups_dir>/coord_v2.<timestamp>.db.gz. Keeps the 14 most recent backups.
 
-import { existsSync, mkdirSync, readdirSync, unlinkSync, statSync } from "node:fs";
-import { join, dirname } from "node:path";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  statSync,
+} from "node:fs";
+import { dirname, join } from "node:path";
 import { log } from "@roost/shared/log";
+import type { Database } from "bun:sqlite";
+import { createSqliteSnapshot } from "./db/snapshot.ts";
 
 const MAX_BACKUPS = 14;
 const BACKUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
-function backupsDir(dbPath: string): string {
-  return join(dirname(dbPath), "backups");
-}
-
-function timestampTag(): string {
-  return new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-}
 
 function listBackups(dir: string): string[] {
   if (!existsSync(dir)) return [];
   return readdirSync(dir)
-    .filter((f) => f.startsWith("coord_v2.") && f.endsWith(".db.gz"))
-    .map((f) => join(dir, f))
-    .sort(); // ISO timestamp prefix sorts chronologically
+    .filter((file) => file.startsWith("coord_v2.") && file.endsWith(".db.gz"))
+    .map((file) => join(dir, file))
+    .sort();
 }
 
-async function runBackup(dbPath: string): Promise<void> {
-  const dir = backupsDir(dbPath);
-  mkdirSync(dir, { recursive: true });
+export async function runBackup(
+  sqlite: Database,
+  dbPath: string,
+  reason: "scheduled" | "pre-migration",
+): Promise<string> {
+  const dir = join(dirname(dbPath), "backups");
 
-  const tag = timestampTag();
+  const tag = new Date().toISOString().replace(/[:.]/g, "-").replace(/Z$/, "");
   const destPath = join(dir, `coord_v2.${tag}.db.gz`);
+  const snapshotPath = join(dir, `.coord_v2.${tag}.snapshot.db`);
+  const archivePath = join(dir, `.coord_v2.${tag}.db.gz.tmp`);
 
   try {
-    // Bun-native gzip (NOT node:zlib — heap-corruption/segfault class, see
-    // main.ts). The coord DB is small enough to gzip in one buffer and backups
-    // aren't latency-sensitive, so a streaming transform isn't worth a node:zlib
-    // dependency.
-    const raw = new Uint8Array(await Bun.file(dbPath).arrayBuffer());
-    await Bun.write(destPath, Bun.gzipSync(raw));
-    log.info("backup", "backup_written", { path: destPath });
-  } catch (err) {
-    log.error("backup", "backup_failed", { error: (err as Error).message, destPath });
-    // Remove partial file on failure.
-    try { unlinkSync(destPath); } catch { /* ignore */ }
-    return;
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    chmodSync(dir, 0o700);
+    createSqliteSnapshot(sqlite, snapshotPath);
+    const raw = new Uint8Array(await Bun.file(snapshotPath).arrayBuffer());
+    await Bun.write(archivePath, Bun.gzipSync(raw));
+    chmodSync(archivePath, 0o600);
+    renameSync(archivePath, destPath);
+    chmodSync(destPath, 0o600);
+    log.info("backup", "backup_written", { path: destPath, reason });
+  } catch (error) {
+    try { rmSync(archivePath, { force: true }); } catch { /* parent may be unusable */ }
+    try { rmSync(destPath, { force: true }); } catch { /* parent may be unusable */ }
+    log.error("backup", "backup_failed", {
+      error: (error as Error).message,
+      destPath,
+      reason,
+    });
+    throw error;
+  } finally {
+    try { rmSync(snapshotPath, { force: true }); } catch { /* parent may be unusable */ }
   }
 
-  // Prune: keep newest MAX_BACKUPS, delete the rest.
   const all = listBackups(dir);
   const excess = all.slice(0, Math.max(0, all.length - MAX_BACKUPS));
   for (const old of excess) {
     try {
-      unlinkSync(old);
+      rmSync(old, { force: true });
       log.info("backup", "backup_pruned", { path: old });
-    } catch (err) {
-      log.warn("backup", "backup_prune_failed", { path: old, error: (err as Error).message });
+    } catch (error) {
+      log.warn("backup", "backup_prune_failed", {
+        path: old,
+        error: (error as Error).message,
+      });
     }
   }
+  return destPath;
 }
 
-// Returns true if the most recent backup is older than 24h (or none exist).
 function backupStale(dbPath: string): boolean {
-  const dir = backupsDir(dbPath);
+  const dir = join(dirname(dbPath), "backups");
   const all = listBackups(dir);
   if (all.length === 0) return true;
-  const latest = all.at(-1)!;
   try {
-    const { mtimeMs } = statSync(latest);
-    return Date.now() - mtimeMs > BACKUP_INTERVAL_MS;
+    return Date.now() - statSync(all.at(-1)!).mtimeMs > BACKUP_INTERVAL_MS;
   } catch {
     return true;
   }
 }
 
-// Schedules a 24h recurring backup. Runs one immediately at startup if stale.
-export function scheduleBackups(dbPath: string): void {
+function runScheduledBackup(sqlite: Database, dbPath: string): void {
+  void runBackup(sqlite, dbPath, "scheduled").catch(() => {
+    // runBackup logged the actionable error; scheduled work has no caller.
+  });
+}
+
+export function scheduleBackups(sqlite: Database, dbPath: string): void {
   if (!existsSync(dbPath)) {
     log.warn("backup", "backup_skip_no_db", { dbPath });
     return;
   }
-
-  if (backupStale(dbPath)) {
-    void runBackup(dbPath);
-  }
-
-  setInterval(() => {
-    void runBackup(dbPath);
-  }, BACKUP_INTERVAL_MS).unref();
+  if (backupStale(dbPath)) runScheduledBackup(sqlite, dbPath);
+  setInterval(() => runScheduledBackup(sqlite, dbPath), BACKUP_INTERVAL_MS).unref();
 }

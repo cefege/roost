@@ -80,13 +80,32 @@ async function integrationAssets(): Promise<{ omp: string; pi: string }> {
   return { omp, pi };
 }
 
+async function retireOwnedOmpExtension(directory: string): Promise<void> {
+  const target = join(directory, "roost-omp-" + "session-api.ts");
+  let content: string;
+  try {
+    content = await readFile(target, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw error;
+  }
+  if (!content.includes("ROOST_INTEGRATION_ID=omp")) return;
+  try {
+    await rm(target);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+}
+
 export async function installAgentIntegrations(
   env: NodeJS.ProcessEnv = process.env,
   home = homedir(),
 ): Promise<InstalledAgentIntegrations> {
+  const ompDirectory = resolveOmpExtensionDir(env, home);
+  await retireOwnedOmpExtension(ompDirectory);
   const assets = await integrationAssets();
   const [omp, pi] = await Promise.all([
-    installOwnedAsset(resolveOmpExtensionDir(env, home), OMP_INSTALL_NAME, "omp", assets.omp),
+    installOwnedAsset(ompDirectory, OMP_INSTALL_NAME, "omp", assets.omp),
     installOwnedAsset(resolvePiExtensionDir(env, home), PI_INSTALL_NAME, "pi", assets.pi),
   ]);
   return { omp, pi };

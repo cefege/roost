@@ -102,8 +102,8 @@ export async function runWorker() {
 		cfg.coordinatorUrl = url;
 		client = createCoordClient({ cfg, getJwt: () => mintJwt(key, "roost-coordinator") });
 	};
-	let sessionMgrForResnapshot: SessionManager | null = null;
-	let agentRegistryForReconnect: AgentStatusRegistry | null = null;
+  let sessionMgrForResnapshot: SessionManager | null = null;
+  let agentRegistryForReconnect: AgentStatusRegistry | null = null;
 
 	// Install: redeem one-shot bootstrap token (first boot only) + register
 	// (idempotent, retried by heartbeat). Redeem MUST precede CoordLink so coord

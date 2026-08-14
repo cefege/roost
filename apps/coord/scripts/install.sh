@@ -121,7 +121,7 @@ PUBLIC_PLIST=""
 # OVERWRITES client XFF with the authenticated tailnet IP). Direct: 0.0.0.0 TLS.
 if [[ "$FRONTED" == "1" ]]; then
   BIND_VALUE="127.0.0.1:${COORD_LOOPBACK_PORT}"
-  TRUST_PROXY_PLIST=$'\n    <key>ROOST_TRUST_PROXY</key>\n    <string>1</string>'
+  TRUST_PROXY_PLIST=$'\n    <key>ROOST_TRUST_PROXY</key>\n    <string>1</string>\n    <key>ROOST_FRONTED</key>\n    <string>1</string>\n    <key>ROOST_COORD_LOOPBACK_PORT</key>\n    <string>'"${COORD_LOOPBACK_PORT}"$'</string>'
 else
   BIND_VALUE="0.0.0.0:${TAILNET_HTTPS_PORT}"
   TRUST_PROXY_PLIST=""
@@ -279,7 +279,11 @@ EOF
       echo "Environment=ROOST_TLS_KEY_PATH=${TLS_KEY_PATH}"
     fi
     [[ -n "$GIT_SHA_RESOLVED" ]]      && echo "Environment=ROOST_GIT_SHA=${GIT_SHA_RESOLVED}"
-    [[ "$FRONTED" == "1" ]]           && echo "Environment=ROOST_TRUST_PROXY=1"
+    if [[ "$FRONTED" == "1" ]]; then
+      echo "Environment=ROOST_TRUST_PROXY=1"
+      echo "Environment=ROOST_FRONTED=1"
+      echo "Environment=ROOST_COORD_LOOPBACK_PORT=${COORD_LOOPBACK_PORT}"
+    fi
     [[ -n "${ROOST_EXEC_BIN:-}" ]]    && echo "Environment=ROOST_EXEC_BIN=${ROOST_EXEC_BIN}"
     [[ -n "${ROOST_PUBLIC_BIND:-}" ]]             && echo "Environment=ROOST_PUBLIC_BIND=${ROOST_PUBLIC_BIND}"
     [[ -n "${ROOST_WEB_PUBLIC_URL:-}" ]]          && echo "Environment=ROOST_WEB_PUBLIC_URL=${ROOST_WEB_PUBLIC_URL}"
@@ -411,30 +415,55 @@ service_alive() {
 wait_until_ready() {
   local attempts="${ROOST_INSTALL_READY_ATTEMPTS:-30}"
   local interval="${ROOST_INSTALL_READY_INTERVAL_SECS:-1}"
-  local headers code
+  local health_scheme health_bind health_url body headers private_code public_code
+  local curl_tls_args=()
+  if [[ "$FRONTED" == "1" ]]; then
+    health_scheme="http"
+    health_bind="127.0.0.1:${COORD_LOOPBACK_PORT}"
+  else
+    health_scheme="http"
+    health_bind="$BIND_VALUE"
+    if [[ -n "$TLS_CERT_PATH" && -n "$TLS_KEY_PATH" ]]; then
+      health_scheme="https"
+      curl_tls_args=(-k)
+    fi
+  fi
+  health_url="${health_scheme}://${health_bind}/roost.v1.CoordinatorService/MiscHealth"
+
   for ((i = 0; i < attempts; i++)); do
     if ! service_alive; then
       echo "coordinator exited before readiness" >&2
       return 1
     fi
-    if [[ -z "${ROOST_PUBLIC_BIND:-}" ]]; then
-      return 0
-    fi
-    headers="$(mktemp)"
-    code="$(curl -sS -D "$headers" -o /dev/null -w '%{http_code}' "http://${ROOST_PUBLIC_BIND}/" 2>/dev/null || true)"
-    if [[ "$code" == "401" ]]; then
-      shopt -s nocasematch
-      if [[ "$(cat "$headers")" == *"x-roost-auth-layer: access"* ]]; then
-        shopt -u nocasematch
-        rm -f "$headers"
+
+    body="$(mktemp)"
+    private_code="$(curl "${curl_tls_args[@]}" -sS -o "$body" -w '%{http_code}' \
+      -X POST -H 'content-type: application/json' --data '{}' "$health_url" 2>/dev/null || true)"
+    if [[ "$private_code" == "200" && "$(< "$body")" =~ \"ok\"[[:space:]]*:[[:space:]]*true ]]; then
+      rm -f "$body"
+      if [[ -z "${ROOST_PUBLIC_BIND:-}" ]]; then
         return 0
       fi
-      shopt -u nocasematch
+
+      headers="$(mktemp)"
+      public_code="$(curl -sS -D "$headers" -o /dev/null -w '%{http_code}' \
+        "http://${ROOST_PUBLIC_BIND}/" 2>/dev/null || true)"
+      if [[ "$public_code" == "401" ]]; then
+        shopt -s nocasematch
+        if [[ "$(< "$headers")" == *"x-roost-auth-layer: access"* ]]; then
+          shopt -u nocasematch
+          rm -f "$headers"
+          return 0
+        fi
+        shopt -u nocasematch
+      fi
+      rm -f "$headers"
+    else
+      rm -f "$body"
     fi
-    rm -f "$headers"
     sleep "$interval"
   done
-  echo "coordinator public listener did not become Access-ready" >&2
+  echo "coordinator health/readiness probes did not succeed" >&2
   return 1
 }
 

@@ -143,6 +143,7 @@ export type SignalKind =
   | "sync.auth_rejected"        // coord rejected a browser Sync WS upgrade (jwt invalid / missing token); kv.reason
   | "sync.ws_frame_dropped"     // coord's ws.send returned 0 = the frame was DROPPED, not merely backpressured. A cell frame lost here is what the SPA's cell.seq_gap then recovers from; without this the coord side of that story is invisible
   | "cell.seq_gap"              // SPA saw a cell-frame seq discontinuity (frame lost in transit) → forced a catch-up claim. A BURST means the socket is losing frames, not that recovery is broken
+  | "cell.paint_lag"            // PTY→browser-arrival latency for a cell frame exceeded the per-session felt-lag floor by PAINT_LAG_SIGNAL_MS (skew-corrected); kv's per-hop values name the hop that owns the delay
   | "sync.prehydration_overflow" // SPA held more than the pre-hydration cap of Sync frames before the bootstrap snapshot landed → queue dropped and the socket re-dialed to backfill from the persisted cursor
   | "event.append_failed"       // coord appendEvent DB tx failed (event-log durability)
   | "audit.write_failed"        // coord audit_log insert failed (audit/compliance trail hole)

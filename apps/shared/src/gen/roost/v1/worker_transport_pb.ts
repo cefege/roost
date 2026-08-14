@@ -460,8 +460,6 @@ export type DBrowserCommand = Message<"roost.v1.DBrowserCommand"> & {
   requestId: string;
 
   /**
-   * ClientControlFrame serialized
-   *
    * @generated from field: string frame_json = 4;
    */
   frameJson: string;
@@ -502,10 +500,6 @@ export const DBinarySchema: GenMessage<DBinary> = /*@__PURE__*/
   messageDesc(file_roost_v1_worker_transport, 15);
 
 /**
- * D-4b ack — coord echoes the worker's client_seq after a successful
- * (or dedup'd) event insert. Worker uses this to drop entries from the
- * unacked outbox.
- *
  * @generated from message roost.v1.DEventAck
  */
 export type DEventAck = Message<"roost.v1.DEventAck"> & {
@@ -523,12 +517,6 @@ export const DEventAckSchema: GenMessage<DEventAck> = /*@__PURE__*/
   messageDesc(file_roost_v1_worker_transport, 16);
 
 /**
- * Streamed file upload SPA→coord→worker. Coord relays the AttachFileChunk
- * stream as a sequence of these (raw bytes, no base64 inflation). The worker
- * assembles per request_id into a temp file, renames on `last`, then replies
- * WRpcOk { request_id, data_json:{abs_path} }. Additive frame (no
- * PROTOCOL_VERSION bump): a pre-stream worker simply never receives it.
- *
  * @generated from message roost.v1.DAttachmentChunk
  */
 export type DAttachmentChunk = Message<"roost.v1.DAttachmentChunk"> & {
@@ -538,43 +526,31 @@ export type DAttachmentChunk = Message<"roost.v1.DAttachmentChunk"> & {
   requestId: string;
 
   /**
-   * first chunk only
-   *
    * @generated from field: string session_id = 2;
    */
   sessionId: string;
 
   /**
-   * first chunk only
-   *
    * @generated from field: string filename = 3;
    */
   filename: string;
 
   /**
-   * first chunk only
-   *
    * @generated from field: bool short_path = 4;
    */
   shortPath: boolean;
 
   /**
-   * raw chunk bytes
-   *
    * @generated from field: bytes data = 5;
    */
   data: Uint8Array;
 
   /**
-   * final chunk → close + rename + reply
-   *
    * @generated from field: bool last = 6;
    */
   last: boolean;
 
   /**
-   * 0-based chunk index; worker rejects out-of-order
-   *
    * @generated from field: uint32 seq = 7;
    */
   seq: number;
@@ -627,8 +603,6 @@ export type DCoordMovePrepare = Message<"roost.v1.DCoordMovePrepare"> & {
   estimatedDbSize: bigint;
 
   /**
-   * CHECK | PREPARE
-   *
    * @generated from field: string action = 8;
    */
   action: string;
@@ -750,8 +724,6 @@ export type DCoordRelocate = Message<"roost.v1.DCoordRelocate"> & {
   targetUrl: string;
 
   /**
-   * STAGE | ACTIVATE | COMMIT | ABORT
-   *
    * @generated from field: string action = 5;
    */
   action: string;
@@ -846,9 +818,6 @@ export const CoordWorkerDownSchema: GenMessage<CoordWorkerDown> = /*@__PURE__*/
  */
 export const WorkerService: GenService<{
   /**
-   * Worker dials this once at boot. Coord verifies the JWT in the
-   * initial metadata; upstream Hello carries worker_fp for routing.
-   *
    * @generated from rpc roost.v1.WorkerService.Attach
    */
   attach: {

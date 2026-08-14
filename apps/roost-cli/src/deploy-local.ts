@@ -1,4 +1,4 @@
-import { run, resolveLocalGitShaOrDie } from "./deploy-exec.ts";
+import { finishWorkerDeploy, run, resolveLocalGitShaOrDie } from "./deploy-exec.ts";
 import { _backfillEnvFromPlist, _resolveDeployEnvValue } from "./deploy-plist-env.ts";
 import { restartWorkerCmd, verifyWorkerCmd, WORKER_AGENT, WORKER_UNIT, type ServiceOs } from "./service-ctl.ts";
 
@@ -73,7 +73,5 @@ export async function _deployLocal(host: string): Promise<void> {
   setTimeout(markSettled, 1500);
   await settled;
   const verify = await run(["bash", "-c", verifyWorkerCmd(os)], { quiet: true });
-  console.log(verify.stdout.trim().split("\n").map((l) => `   ${l}`).join("\n"));
-
-  console.log(`>> done — ${host} v2 worker deployed (local)`);
+  finishWorkerDeploy(verify, `>> done — ${host} v2 worker deployed (local)`);
 }

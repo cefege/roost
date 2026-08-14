@@ -11,7 +11,7 @@
 // Owners: apps/web/src/main.tsx (installer), CellTerminal.tsx + sync.ts +
 // RoostTerm.ts + input-channel.ts (callers via the global `diag` export).
 
-import { setDiagSink, setSignalSink, isDiagEnabled } from "@roost/shared/diag";
+import { setDiagSink, setSignalSink, isDiagEnabled, signal } from "@roost/shared/diag";
 import { coordClient } from "../connect.ts";
 
 const FLUSH_MAX_ENTRIES = 64;
@@ -37,7 +37,7 @@ export function getSessionTraceId(sid: string): string {
 }
 
 /** Reap a closed session's trace-id entry. No-op when absent. */
-export function pruneSessionTrace(sid: string): void { _sessionTrace.delete(sid); }
+export function pruneSessionTrace(sid: string): void { _sessionTrace.delete(sid); _lagFloor.delete(sid); }
 
 /** Live trace-id map size, for the leak-watch accumulator sample. */
 export function sessionTraceSize(): number { return _sessionTrace.size; }
@@ -89,6 +89,19 @@ function _printEchoRtt(): void {
 // frame-arrival→pixels (double-rAF, ~1-frame floor). window.__roostLag() prints
 // p50/p95/max per segment + the dominant hop. All wall-clock ms; valid
 const LAG_CAP = 500;
+// Felt-lag alarm floor for the always-on cell.paint_lag signal. The worker's own
+// coalesce budget is 16 ms and the documented first-paint budget is 40 ms
+// (CLAUDE.md), so 750 ms is unambiguously user-felt and far above any legitimate
+// coalesce window plus tailnet RTT.
+const PAINT_LAG_SIGNAL_MS = 750;
+// Per-session clock-offset estimate: the smallest raw (browser recvWall −
+// worker ptyOutMs) ever seen for that session. ptyOutMs is the WORKER's clock,
+// so the raw difference carries an unknown constant offset and must never be
+// compared to an absolute threshold — only the EXCESS above this floor is lag.
+// NTP-scale drift is ms/hour and is swamped by the threshold; a session whose
+// very first frames are already lagged under-reports, which is the correct
+// direction to fail.
+const _lagFloor = new Map<string, number>();
 const _lag: Record<string, number[]> = {
   queue_wait: [], post: [], worker_prep: [], w2c_wire: [], coord_internal: [], c2client_wire: [], paint: [], paint_screen: [],
 };
@@ -98,20 +111,51 @@ function _pushLag(seg: string, ms: number): void {
   buf.push(ms);
   if (buf.length > LAG_CAP) buf.shift();
 }
-type LagStamps = { ptyOutMs: bigint; workerEmitMs: bigint; coordRecvMs: bigint; coordFanoutMs: bigint };
+type LagStamps = { sessionId: string; full: boolean; ptyOutMs: bigint; workerEmitMs: bigint; coordRecvMs: bigint; coordFanoutMs: bigint };
 /** Collect the down-leg segment durations from a raw cell frame's stamps.
- *  recvWall = Date.now() captured at browser dispatch. Skips any segment whose
- *  needed stamp is 0/unset (Number(bigint) is lossless for ms < 2^53). */
+ *  recvWall = Date.now() captured at browser dispatch. The diag ring skips any
+ *  segment whose needed stamp is 0/unset (Number(bigint) is lossless for
+ *  ms < 2^53); the ALWAYS-ON paint-lag check reports such a segment as -1. */
 export function recordCellLag(pb: LagStamps, recvWall: number): void {
-  if (!isDiagEnabled()) return;
   const ptyOut = Number(pb.ptyOutMs);
   const workerEmit = Number(pb.workerEmitMs);
   const coordRecv = Number(pb.coordRecvMs);
   const coordFanout = Number(pb.coordFanoutMs);
-  if (ptyOut > 0 && workerEmit > 0) _pushLag("worker_prep", workerEmit - ptyOut);
-  if (workerEmit > 0 && coordRecv > 0) _pushLag("w2c_wire", coordRecv - workerEmit);
-  if (coordRecv > 0 && coordFanout > 0) _pushLag("coord_internal", coordFanout - coordRecv);
-  if (coordFanout > 0) _pushLag("c2client_wire", recvWall - coordFanout);
+  const havePrep = ptyOut > 0 && workerEmit > 0;
+  const haveW2c = workerEmit > 0 && coordRecv > 0;
+  const haveInternal = coordRecv > 0 && coordFanout > 0;
+  const haveDownLeg = coordFanout > 0;
+  // w2c_wire / c2client_wire cross a clock boundary, so a legitimate value can
+  // be negative; presence of the stamps — not its sign — decides reporting.
+  const workerPrep = havePrep ? workerEmit - ptyOut : -1;
+  const w2cWire = haveW2c ? coordRecv - workerEmit : -1;
+  const coordInternal = haveInternal ? coordFanout - coordRecv : -1;
+  const c2clientWire = haveDownLeg ? recvWall - coordFanout : -1;
+  if (isDiagEnabled()) {
+    if (havePrep) _pushLag("worker_prep", workerPrep);
+    if (haveW2c) _pushLag("w2c_wire", w2cWire);
+    if (haveInternal) _pushLag("coord_internal", coordInternal);
+    if (haveDownLeg) _pushLag("c2client_wire", c2clientWire);
+  }
+  // Deltas only. A FULL frame is a snapshot of retained state, so its ptyOutMs
+  // is the age of the newest retained byte, not a latency: revealing a pane
+  // whose session last printed minutes ago legitimately carries a ptyOut that
+  // old. Measured live before this guard: three of seven alarms were reveals of
+  // idle sessions (worker_prep 6.4 s / 37.9 s / 114.3 s with c2client_wire
+  // NEGATIVE, i.e. the frame arrived promptly). The symptom this signal owns —
+  // painted output falling behind live output — rides the delta path.
+  if (pb.full || ptyOut <= 0) return;
+  const sid = pb.sessionId;
+  const raw = recvWall - ptyOut;
+  const floor = Math.min(_lagFloor.get(sid) ?? raw, raw);
+  _lagFloor.set(sid, floor);
+  const excess = raw - floor;
+  if (excess > PAINT_LAG_SIGNAL_MS) {
+    signal("cell.paint_lag", {
+      sid, total_ms: excess, worker_prep: workerPrep, w2c_wire: w2cWire,
+      coord_internal: coordInternal, c2client_wire: c2clientWire, cooldownKey: sid,
+    });
+  }
 }
 function _pct(arr: number[], p: number): number {
   const s = [...arr].sort((a, b) => a - b);

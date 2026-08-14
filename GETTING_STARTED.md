@@ -1,10 +1,11 @@
 <!-- AUDIENCE: human -->
 # Getting started with Roost
 
-Roost runs across your machines — Macs and Linux boxes — over your own network.
-[Tailscale](https://tailscale.com) is the tested, recommended setup. One machine
-runs the coordinator + a worker; your phone and other devices connect to it over
-your tailnet.
+Roost runs across your macOS and Linux machines. The supported automated
+production topology is [Tailscale](https://tailscale.com): one machine runs the
+coordinator plus a worker, and browsers and other workers reach it through the
+tailnet. WireGuard, Headscale, ZeroTier, other VPNs, and a plain LAN are manual,
+unverified alternatives rather than equivalent installer paths.
 
 **Only the coordinator and the workers need macOS or Linux.** Everything you
 browse *from* — a Mac, a Windows PC, a Linux desktop, an iPhone, an Android
@@ -13,8 +14,8 @@ phone, an iPad, an Android tablet, whatever — needs nothing but a browser
 
 ## Prerequisite: Tailscale
 
-Roost needs Tailscale running on the coordinator and every worker machine (it's
-the private network they use to communicate).
+Roost's supported setup requires Tailscale on the coordinator and every worker
+machine; it is both the private transport and trusted enrollment boundary.
 
 1. Install it: `brew install tailscale` on macOS (or the Mac App Store app);
    on Linux, follow <https://tailscale.com/download/linux>.
@@ -25,13 +26,25 @@ the private network they use to communicate).
 
 ## Install + run
 
+Install the checksum-verified release binary, then run the guided production
+setup:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/cefege/roost/main/install-binary.sh | bash
+"$HOME/.local/bin/roost" quickstart
+```
+
+`quickstart` configures the coordinator, local worker, and browser pairing. No
+tokens need to be copied.
+
+The source/development path is separate:
+
 ```sh
 curl -fsSL https://raw.githubusercontent.com/cefege/roost/main/install.sh | bash
 ```
 
-That installs Bun (if needed), gets the code, starts the coordinator and a
-local worker, and opens Roost in your browser already signed in. No tokens to
-copy.
+That command installs Bun and a checkout which tracks `main`; it is not a
+pinned production release.
 
 ## Optional: browser access through Cloudflare
 
@@ -291,15 +304,61 @@ To **update** a machine that's already joined, use `roost deploy <host>` (or the
 "Deploy" button on its drift badge) — that's the push path for pushing new
 code to existing workers.
 
-## Check on it
+## Check current health and recent anomalies
 
 ```sh
 roost status
+roost doctor --since 1h
 ```
 
-Shows whether Tailscale, the coordinator, the worker, and TLS are all
-healthy, with the fix for anything that's down. (`roost doctor` is the same
-command.)
+`roost status` is the current service/network/fleet gate: Tailscale state,
+coordinator and worker services, coordinator health and tagged SHA, worker
+freshness, and whether TLS is provided by Tailscale Serve or a direct
+certificate. `roost doctor --since <window>` is different: it summarizes local
+logs from that time window and reports anomaly counts such as uncaught errors,
+sequence gaps, queue overflows, degraded keepers, and failed backups/readiness.
+
+## Backups and rollback scope
+
+The coordinator creates a verified SQLite snapshot before applying pending
+migrations to an existing database and on the scheduled backup interval. It
+integrity-checks the standalone snapshot before compressing it and retains the
+14 newest `coord_v2.<timestamp>.db.gz` archives in the coordinator data
+directory's `backups/` folder.
+
+These archives are same-host rollback material. They do not survive loss of the
+coordinator disk and are not off-host disaster recovery; copy them to storage
+with an independent failure domain if host-loss recovery is required.
+
+## Release rollout and canaries
+
+Roll source-managed fleets from one tagged checkout, coordinator first so its
+SPA and protocol match the workers:
+
+1. Record the deployed SHA, create and integrity-check a predeploy snapshot,
+   and save `roost doctor --since 24h` anomaly counts as the baseline.
+2. Verify the published binary and checksum in a temporary install directory;
+   `roost version` must show the release version plus the tagged commit SHA.
+3. Reinstall/restart the coordinator with its existing environment, then
+   deploy its local worker. Stop and roll back immediately if readiness fails.
+4. Run `roost status`, `roost api workers`, and the live API canary:
+   ```sh
+   ROOST_API_SMOKE=1 ROOST_COORD_URL=https://<coord>.<tailnet>.ts.net:4102 \
+     bun test smoke/api_smoke.test.ts
+   ```
+5. Deploy remote workers one at a time. After each host, require it online with
+   the tagged SHA and repeat the API canary; never continue past a failed check.
+6. Run the `roost-smoke` browser flow, including its separate trusted-keyboard
+   marker and cleanup, then run `roost-render-stress` for 80 iterations plus
+   the two-size multi-viewer pass.
+7. Restart the coordinator and local worker. Require a new coordinator boot
+   timestamp, all workers online, and the pre-restart PTY to paint a new marker.
+   Compare `roost doctor --since 1h` on every host with the saved baseline and
+   reject new uncaught errors, sequence gaps, queue overflows, degraded keepers,
+   or failed backup/readiness events.
+8. If Cloudflare access is enabled, require an unauthenticated public
+   `MiscHealth` POST to receive the Access challenge rather than origin 200,
+   while the authorized browser and private Tailscale URL both remain healthy.
 
 ## Logs
 

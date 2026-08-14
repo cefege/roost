@@ -79,7 +79,6 @@ fi
 BOOTSTRAP_TOKEN_PLIST=""
 LABEL_PLIST=""
 REACHABLE_ADDR_PLIST=""
-TLS_PLIST=""
 if [[ -n "${ROOST_BOOTSTRAP_TOKEN:-}" ]]; then
   BOOTSTRAP_TOKEN_PLIST=$'\n    <key>ROOST_BOOTSTRAP_TOKEN</key>\n    <string>'"${ROOST_BOOTSTRAP_TOKEN}"$'</string>'
 fi
@@ -88,16 +87,6 @@ if [[ -n "${ROOST_WORKER_LABEL:-}" ]]; then
 fi
 if [[ -n "${ROOST_REACHABLE_ADDR:-}" ]]; then
   REACHABLE_ADDR_PLIST=$'\n    <key>ROOST_REACHABLE_ADDR</key>\n    <string>'"${ROOST_REACHABLE_ADDR}"$'</string>'
-fi
-# Tailnet TLS via `tailscale cert <fqdn>`. When both are set, worker
-# serves WSS instead of WS — required for browsers connecting over
-# https:// (mixed-content rule blocks ws:// from https origin).
-# Expand a leading tilde here — the plist value goes straight to
-# readFileSync which doesn't shell-expand.
-if [[ -n "${ROOST_TLS_CERT_PATH:-}" && -n "${ROOST_TLS_KEY_PATH:-}" ]]; then
-  ROOST_TLS_CERT_PATH="${ROOST_TLS_CERT_PATH/#\~/$HOME}"
-  ROOST_TLS_KEY_PATH="${ROOST_TLS_KEY_PATH/#\~/$HOME}"
-  TLS_PLIST=$'\n    <key>ROOST_TLS_CERT_PATH</key>\n    <string>'"${ROOST_TLS_CERT_PATH}"$'</string>\n    <key>ROOST_TLS_KEY_PATH</key>\n    <string>'"${ROOST_TLS_KEY_PATH}"$'</string>'
 fi
 
 # Stamp the current repo HEAD into the LaunchAgent so the running worker
@@ -161,7 +150,7 @@ write_plist() {
     <key>ROOST_COORDINATOR_URL</key>
     <string>${ROOST_COORDINATOR_URL}</string>
     <key>ROOST_DIAG</key>
-    <string>\${ROOST_DIAG:-0}</string>${BOOTSTRAP_TOKEN_PLIST}${LABEL_PLIST}${REACHABLE_ADDR_PLIST}${TLS_PLIST}${GIT_SHA_PLIST}${EXEC_BIN_PLIST}${WORKDIR_PLIST}
+    <string>\${ROOST_DIAG:-0}</string>${BOOTSTRAP_TOKEN_PLIST}${LABEL_PLIST}${REACHABLE_ADDR_PLIST}${GIT_SHA_PLIST}${EXEC_BIN_PLIST}${WORKDIR_PLIST}
   </dict>
   <key>RunAtLoad</key>
   <true/>
@@ -352,7 +341,7 @@ case "$cmd" in
   install)
     if $IS_LINUX; then write_unit; write_logrotate; bootstrap_systemd; else write_plist; bootstrap; fi
     echo
-    echo "Worker v2 starting on :2224. Logs:"
+    echo "Worker v2 installed; it connects outbound to ${ROOST_COORDINATOR_URL}. Logs:"
     echo "  bun apps/roost-cli/src/main.ts logs worker"
     ;;
   write-plist)

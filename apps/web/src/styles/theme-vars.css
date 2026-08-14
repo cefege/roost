@@ -18,11 +18,6 @@
  */
 
 :root {
-  /* Per-browser vertical lift for the bottom-right terminal FAB cluster.
-     Default 0 (docked at the corner); overridden at runtime by
-     lib/fabDragOffset.ts::onFabPointerDown drag. Read by voice-input.css. */
-  --roost-fab-dy: 0px;
-
   /* ── M3 motion system (easing + duration scale) ──────────────────────────
      The thing that makes UI feel "native Material" vs generic: emphasized
      easing + the M3 duration scale, applied consistently. Enter uses

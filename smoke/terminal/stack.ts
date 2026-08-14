@@ -1,5 +1,5 @@
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdtempSync, openSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, openSync, readFileSync, rmSync } from "node:fs";
 import { once } from "node:events";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -8,6 +8,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { buildAuthorizedApiClient, type AuthorizedApiClient } from "../../apps/roost-cli/src/api.ts";
 const REPOSITORY_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const WORKER_LABEL = "roost-terminal-test";
+const SECOND_WORKER_LABEL = "roost-terminal-test-second";
 const COORD_START_TIMEOUT_MS = 20_000;
 const WORKER_READY_TIMEOUT_MS = 30_000;
 
@@ -16,15 +17,27 @@ type RunningService = {
   logPath: string;
 };
 
+export type TerminalTestWorker = {
+  workerFp: string;
+  label: string;
+  home: string;
+  logPath: string;
+};
+
 export type TerminalTestStack = {
   baseUrl: string;
   workerFp: string;
+  workerHome: string;
   coordLogPath: string;
   workerLogPath: string;
+  secondWorkerLogPath: string;
   // The authorized client the harness already had to mint to bootstrap the
   // worker. Exposed so callers don't build a second (unauthorized) one.
   client: AuthorizedApiClient;
-  // Bounce the worker process, keeping coord and the persisted worker
+  // Lazily start one independent worker with its own HOME, data, key, log, and
+  // keeper. Repeated calls return the same running worker.
+  startSecondWorker(): Promise<TerminalTestWorker>;
+  // Bounce the primary worker process, keeping coord and the persisted worker
   // identity. Resolves once the same fingerprint is routable again.
   restartWorker(): Promise<void>;
   stop(): Promise<void>;
@@ -119,12 +132,19 @@ export async function startTerminalTestStack(
 ): Promise<TerminalTestStack> {
   const root = mkdtempSync(join(tmpdir(), "roost-terminal-system-"));
   const home = options.useRealHome ? (process.env.HOME ?? join(root, "home")) : join(root, "home");
+  const secondHome = join(root, "second-home");
   const coordLogPath = join(root, "coord.log");
   const workerLogPath = join(root, "worker.log");
+  const secondWorkerLogPath = join(root, "second-worker.log");
   const workerDataDir = join(root, "worker-data");
+  const secondWorkerDataDir = join(root, "second-worker-data");
   const bunExecutable = process.env.ROOST_TEST_BUN ?? "bun";
+  mkdirSync(home, { recursive: true });
+  mkdirSync(secondHome, { recursive: true });
   let coord: RunningService | undefined;
   let worker: RunningService | undefined;
+  let secondWorker: RunningService | undefined;
+  let secondWorkerStart: Promise<TerminalTestWorker> | undefined;
   let client: AuthorizedApiClient | undefined;
 
   const stop = async () => {
@@ -159,6 +179,8 @@ export async function startTerminalTestStack(
         }
       }
     } finally {
+      await stopChild(secondWorker).catch((error) => errors.push(`stop second worker: ${String(error)}`));
+      await stopKeeper(secondWorkerDataDir).catch((error) => errors.push(`stop second keeper: ${String(error)}`));
       await stopChild(worker).catch((error) => errors.push(`stop worker: ${String(error)}`));
       await stopKeeper(workerDataDir).catch((error) => errors.push(`stop keeper: ${String(error)}`));
       await stopChild(coord).catch((error) => errors.push(`stop coordinator: ${String(error)}`));
@@ -204,51 +226,96 @@ export async function startTerminalTestStack(
       keyPath: join(root, "api.key"),
       label: "roost-terminal-test-api",
     });
-    const bootstrapToken = (await client.authMintBootstrap({ kind: "worker", label: WORKER_LABEL })).token;
-
-    const startWorker = (): RunningService => {
-      const workerLog = openSync(workerLogPath, "a");
+    const startWorker = (config: {
+      label: string;
+      home: string;
+      logPath: string;
+      dataDir: string;
+      bootstrapToken: string;
+    }): RunningService => {
+      const workerLog = openSync(config.logPath, "a");
       return {
-        logPath: workerLogPath,
+        logPath: config.logPath,
         child: spawn(bunExecutable, ["apps/worker/src/main.ts"], {
           cwd: REPOSITORY_ROOT,
-          env: childEnvironment(home, {
+          env: childEnvironment(config.home, {
             ROOST_COORDINATOR_URL: baseUrl,
-            // Only the first boot redeems it; afterwards the persisted worker
-            // key in ROOST_WORKER_DATA_DIR is the identity, so a restart comes
-            // back as the SAME fingerprint — which is what makes coord's
-            // respawn-on-hello sweep target the existing session rows.
-            ROOST_BOOTSTRAP_TOKEN: bootstrapToken,
-            ROOST_WORKER_LABEL: WORKER_LABEL,
-            ROOST_WORKER_DATA_DIR: workerDataDir,
-            ROOST_WORKER_KEY_PATH: join(workerDataDir, "worker.key"),
+            // Only the first boot redeems the token; persisted data owns the
+            // identity on restart.
+            ROOST_BOOTSTRAP_TOKEN: config.bootstrapToken,
+            ROOST_WORKER_LABEL: config.label,
+            ROOST_WORKER_DATA_DIR: config.dataDir,
+            ROOST_WORKER_KEY_PATH: join(config.dataDir, "worker.key"),
             ROOST_KEEPER_QUIET: "1",
           }),
           stdio: ["ignore", workerLog, workerLog],
         }),
       };
     };
-    const awaitWorkerRoutable = () => waitFor("worker routable", WORKER_READY_TIMEOUT_MS, async () => {
-      const result = await client!.workersList({});
-      const candidate = result.workers.find((item) => item.label === WORKER_LABEL);
-      return candidate && result.routableFps.includes(candidate.fp) ? candidate.fp : undefined;
-    }).catch((error) => { throw new Error(`${error}\nworker log:\n${logTail(workerLogPath)}`); });
+    const awaitWorkerRoutable = (label: string, logPath: string) =>
+      waitFor(`${label} routable`, WORKER_READY_TIMEOUT_MS, async () => {
+        const result = await client!.workersList({});
+        const candidate = result.workers.find((item) => item.label === label);
+        return candidate && result.routableFps.includes(candidate.fp) ? candidate.fp : undefined;
+      }).catch((error) => { throw new Error(`${error}\nworker log:\n${logTail(logPath)}`); });
 
-    worker = startWorker();
-    const workerFp = await awaitWorkerRoutable();
+    const bootstrapToken = (await client.authMintBootstrap({ kind: "worker", label: WORKER_LABEL })).token;
+    worker = startWorker({
+      label: WORKER_LABEL,
+      home,
+      logPath: workerLogPath,
+      dataDir: workerDataDir,
+      bootstrapToken,
+    });
+    const workerFp = await awaitWorkerRoutable(WORKER_LABEL, workerLogPath);
 
-    // Full worker bounce, keeping coord and the persisted worker identity.
+    const startSecondWorker = (): Promise<TerminalTestWorker> => {
+      secondWorkerStart ??= (async () => {
+        const secondBootstrapToken = (
+          await client!.authMintBootstrap({ kind: "worker", label: SECOND_WORKER_LABEL })
+        ).token;
+        secondWorker = startWorker({
+          label: SECOND_WORKER_LABEL,
+          home: secondHome,
+          logPath: secondWorkerLogPath,
+          dataDir: secondWorkerDataDir,
+          bootstrapToken: secondBootstrapToken,
+        });
+        const workerFp = await awaitWorkerRoutable(SECOND_WORKER_LABEL, secondWorkerLogPath);
+        return { workerFp, label: SECOND_WORKER_LABEL, home: secondHome, logPath: secondWorkerLogPath };
+      })();
+      return secondWorkerStart;
+    };
+
+    // Full primary-worker bounce, keeping coord and the persisted identity.
     // The keeper is deliberately left alone: it is designed to outlive the
     // worker, and agent sessions never touch it anyway.
     const restartWorker = async () => {
       await stopChild(worker);
-      worker = startWorker();
-      await awaitWorkerRoutable();
+      worker = startWorker({
+        label: WORKER_LABEL,
+        home,
+        logPath: workerLogPath,
+        dataDir: workerDataDir,
+        bootstrapToken,
+      });
+      await awaitWorkerRoutable(WORKER_LABEL, workerLogPath);
     };
 
-    return { baseUrl, workerFp, coordLogPath, workerLogPath, client, restartWorker, stop };
+    return {
+      baseUrl,
+      workerFp,
+      workerHome: home,
+      coordLogPath,
+      workerLogPath,
+      secondWorkerLogPath,
+      client,
+      startSecondWorker,
+      restartWorker,
+      stop,
+    };
   } catch (error) {
-    const logs = `coord log:\n${logTail(coordLogPath)}\nworker log:\n${logTail(workerLogPath)}`;
+    const logs = `coord log:\n${logTail(coordLogPath)}\nworker log:\n${logTail(workerLogPath)}\nsecond worker log:\n${logTail(secondWorkerLogPath)}`;
     await stop().catch(() => undefined);
     throw new Error(`${String(error)}\n${logs}`);
   }

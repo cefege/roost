@@ -3,7 +3,12 @@
 // Pure decision (needsUpdate) + orchestration (runUpdate) are injectable so
 // they're unit-tested without a network; the `update` wrapper wires the real
 // GitHub fetch + atomic self-replace.
-import { chmodSync, renameSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { once } from "node:events";
+import { createWriteStream, renameSync } from "node:fs";
+import { chmod, rm } from "node:fs/promises";
+import { basename } from "node:path";
+import { finished } from "node:stream/promises";
 import { ROOST_VERSION } from "./version.ts";
 import { currentServiceOs, restartCoordCmd, restartWorkerCmd } from "./service-ctl.ts";
 
@@ -14,9 +19,62 @@ const REPO = "cefege/roost";
  *  other target is explicit. install-binary.sh's `case` mirrors this exactly —
  *  change both together or the installer 404s. */
 export function releaseAssetName(platform: string = process.platform, arch: string = process.arch): string {
-  if (platform === "darwin") return arch === "arm64" ? "roost" : "roost-darwin-x64";
-  if (platform === "linux") return arch === "arm64" ? "roost-linux-arm64" : "roost-linux-x64";
+  if (platform === "darwin" && arch === "arm64") return "roost";
+  if (platform === "darwin" && arch === "x64") return "roost-darwin-x64";
+  if (platform === "linux" && arch === "x64") return "roost-linux-x64";
+  if (platform === "linux" && arch === "arm64") return "roost-linux-arm64";
   throw new Error(`no prebuilt roost binary for ${platform}/${arch}`);
+}
+
+/** Download a release binary, stream-hash it, and leave an executable candidate
+ * only when its separately published checksum matches exactly. */
+export async function downloadVerifiedReleaseAsset(asset: string, destPath: string): Promise<void> {
+  const baseUrl = `https://github.com/${REPO}/releases/latest/download`;
+  await rm(destPath, { force: true });
+  try {
+    const checksumResponse = await fetch(`${baseUrl}/${asset}.sha256`, {
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!checksumResponse.ok) {
+      throw new Error(`checksum download failed: HTTP ${checksumResponse.status}`);
+    }
+    const checksumText = await checksumResponse.text();
+    const checksumMatch = /^([0-9a-f]{64})[ \t\r\n\v\f]*$/.exec(checksumText);
+    if (!checksumMatch) throw new Error(`invalid checksum file for ${asset}`);
+
+    const binaryResponse = await fetch(`${baseUrl}/${asset}`, {
+      signal: AbortSignal.timeout(120_000),
+    });
+    if (!binaryResponse.ok) throw new Error(`download failed: HTTP ${binaryResponse.status}`);
+    if (!binaryResponse.body) throw new Error(`download failed: empty response for ${asset}`);
+
+    const hash = createHash("sha256");
+    const output = createWriteStream(destPath, { flags: "w", mode: 0o600 });
+    const reader = binaryResponse.body.getReader();
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        hash.update(value);
+        if (!output.write(value)) await once(output, "drain");
+      }
+      output.end();
+      await finished(output);
+    } catch (error) {
+      output.destroy();
+      throw error;
+    } finally {
+      reader.releaseLock();
+    }
+
+    if (hash.digest("hex") !== checksumMatch[1]) {
+      throw new Error(`checksum mismatch for ${asset}`);
+    }
+    await chmod(destPath, 0o755);
+  } catch (error) {
+    await rm(destPath, { force: true });
+    throw error;
+  }
 }
 
 /** Compare the running version to a release tag. "dev" (from-source) is always
@@ -61,6 +119,9 @@ export async function runUpdate(deps: UpdateDeps): Promise<{ updated: boolean; t
 }
 
 export async function update(_args: string[]): Promise<void> {
+  if (basename(process.execPath) === "bun") {
+    throw new Error("source installs cannot self-update the Bun runtime; install the release binary with install-binary.sh");
+  }
   await runUpdate({
     currentVersion: ROOST_VERSION,
     execPath: process.execPath,
@@ -81,14 +142,7 @@ export async function update(_args: string[]): Promise<void> {
         return "";
       }
     },
-    downloadBinary: async (dest) => {
-      const r = await fetch(`https://github.com/${REPO}/releases/latest/download/${releaseAssetName()}`, {
-        signal: AbortSignal.timeout(120_000),
-      });
-      if (!r.ok) throw new Error(`download failed: HTTP ${r.status}`);
-      await Bun.write(dest, r);
-      chmodSync(dest, 0o755);
-    },
+    downloadBinary: (dest) => downloadVerifiedReleaseAsset(releaseAssetName(), dest),
     replaceSelf: (from) => { renameSync(from, process.execPath); },
   });
 }

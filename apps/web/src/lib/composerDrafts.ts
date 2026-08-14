@@ -1,19 +1,11 @@
-// composerDrafts — the unsent text sitting in a session's mobile composer bar,
-// retained per session on THIS device (localStorage, never server-side). The
-// composer component is torn down whenever its pane loses focus (CellTerminal's
-// <Show> on props.focused), so a component signal cannot hold a draft across a
-// pane switch, a nav-away, or a reload — WhatsApp/Telegram behaviour needs this
-// module. Collapsing the bar (✕ / tap-outside / Escape) keeps the draft; only
-// SEND consumes it, by writing "".
+// composerDrafts — unsent terminal-composer text retained per session on this
+// device (localStorage, never server-side).
 //
-// Owner of this state: this module. getComposerDraft / saveComposerDraft — grep
-// these. Nothing prunes on session death: the LRU-by-write cap below is the only
-// eviction, deliberately, because the CellTerminal cleanup that would be the
-// obvious prune hook fires on nav-away — exactly when the draft must survive.
-//
-// Perf: one top-level key holding the whole map, parsed ONCE at import. Reads
-// happen at composer mount, not per render, so no signal is needed.
-
+// Owner of this state: this module. getComposerDraft / saveComposerDraft are the
+// persistence API; subscribeComposerDraft keeps the brief responsive handoff
+// between a pane composer and a viewport composer coherent. Nothing prunes on
+// session death: navigation and parked-pane lifecycle must retain drafts, so the
+// LRU-by-write cap below is the only eviction.
 const DRAFTS_KEY = "roost.composerDrafts.v1";
 
 // Bounds the blob. Evicted oldest-write-first (saveComposerDraft re-inserts).
@@ -29,10 +21,28 @@ function readDrafts(): Map<string, string> {
 }
 
 const drafts = readDrafts();
+const subscribers = new Map<string, Set<(text: string) => void>>();
 
 /** The retained draft for a session, or "" if none. */
 export function getComposerDraft(sessionId: string): string {
   return drafts.get(sessionId) ?? "";
+}
+
+/** Follow writes made by another live composer instance for the same session. */
+export function subscribeComposerDraft(
+  sessionId: string,
+  subscriber: (text: string) => void,
+): () => void {
+  let sessionSubscribers = subscribers.get(sessionId);
+  if (!sessionSubscribers) {
+    sessionSubscribers = new Set();
+    subscribers.set(sessionId, sessionSubscribers);
+  }
+  sessionSubscribers.add(subscriber);
+  return () => {
+    sessionSubscribers!.delete(subscriber);
+    if (sessionSubscribers!.size === 0) subscribers.delete(sessionId);
+  };
 }
 
 /** Write-through the session's draft. "" removes the entry. */
@@ -45,6 +55,7 @@ export function saveComposerDraft(sessionId: string, text: string): void {
   drafts.delete(sessionId);
   if (text !== "") drafts.set(sessionId, text);
   while (drafts.size > MAX_DRAFTS) drafts.delete(drafts.keys().next().value as string);
+  for (const subscriber of subscribers.get(sessionId) ?? []) subscriber(text);
   // In-memory first: a quota failure still keeps the draft for the tab's life.
   // Never trimmed or truncated — leading/trailing spaces are real PTY input.
   try {

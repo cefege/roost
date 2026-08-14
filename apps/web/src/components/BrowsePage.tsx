@@ -64,16 +64,26 @@ function MetaTime(props: { ms: number; class: string }) {
 }
 export function BrowsePage() {
   const params = useParams<{ workerFp: string }>();
+  return (
+    <Show when={params.workerFp} keyed>
+      {(workerFp) => <WorkerBrowsePage workerFp={workerFp} />}
+    </Show>
+  );
+}
+
+function WorkerBrowsePage(props: { workerFp: string }) {
+  const workerFp = props.workerFp;
   const navigate = useNavigate();
+  const initialDir = [...allSessions()]
+    .filter((session) => String(session.worker_fp) === workerFp)
+    .sort((a, b) => b.created_at - a.created_at)[0]?.cwd ?? "~";
 
   // Navigation is click-driven: `cwd` is the canonical current directory
-  // (no trailing slash, "~" = home). `historyState` tracks every dir change
-  // as a browser-style stack (truncate-forward-on-push). Back/Forward move
-  // the cursor; tiles/breadcrumbs push entries. No typed path — every
-  // dir change is an explicit click.
-  const [cwd, setCwd] = createSignal("~");
-  const [startDir, setStartDir] = createSignal("~");
-  const [historyState, setHistoryState] = createSignal<HistoryState>(initHistory("~"));
+  // (no trailing slash, "~" = home). Every worker-keyed owner starts with its
+  // own newest session cwd and owns its complete browser/history lifecycle.
+  const [cwd, setCwd] = createSignal(initialDir);
+  const [startDir] = createSignal(initialDir);
+  const [historyState, setHistoryState] = createSignal<HistoryState>(initHistory(initialDir));
   const [activeIdx, setActiveIdx] = createSignal(0);
   const [serverMenuOpen, setServerMenuOpen] = createSignal(false);
   const [crumbMenuOpen, setCrumbMenuOpen] = createSignal(false);
@@ -88,7 +98,7 @@ export function BrowsePage() {
   const [newFolderBusy, setNewFolderBusy] = createSignal(false);
   let newFolderInput: HTMLElement | undefined;
 
-  const folderServer = createMemo(() => params.workerFp ?? "");
+  const folderServer = () => workerFp;
   const serverLabel = createMemo(() => rootStore.workers[folderServer()]?.label ?? folderServer().slice(0, 8));
   const serverOnline = createMemo(() => { const w = rootStore.workers[folderServer()]; return w ? workerOnline(w) : false; });
 
@@ -227,19 +237,11 @@ export function BrowsePage() {
     queueMicrotask(measureCrumbs);
   }));
 
-  // Mount: seed cwd + history from this server's most-recent session,
-  // else "~" (home). Home is "~" (never ""); the empty-string→root bug
-  // from the old string-nav model is gone at the representation level.
   onMount(() => {
-    const fp = folderServer();
-    const recent = [...allSessions()].filter((s) => String(s.worker_fp) === fp)
-      .sort((a, b) => b.created_at - a.created_at)[0];
-    const sd = recent?.cwd ?? "~";
-    setStartDir(sd);
-    setCwd(sd);
-    setHistoryState(initHistory(sd));
-    requestAnimationFrame(() => resultsRef?.focus());
+    const frame = requestAnimationFrame(() => resultsRef?.focus());
+    onCleanup(() => cancelAnimationFrame(frame));
   });
+
 
   // Every navigation is an explicit click: push the new dir onto history
   // (truncating any forward branch) and set cwd. No typed-path tracking,

@@ -8,6 +8,7 @@ export function defaultAgentReportSocketPath(
   return env.ROOST_AGENT_SOCKET_PATH || join(home, ".roost", "agent-report.sock");
 }
 
+
 export function withAgentStatusEnvironment(
   base: Record<string, string>,
   sessionId: string,

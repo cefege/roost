@@ -194,7 +194,10 @@ export function MainPane() {
         }}
         aria-hidden={overlayActive() ? "true" : undefined}
       >
-        <TerminalDeck activeSessionId={activeOpenSession()?.id ?? null} />
+        <TerminalDeck
+          activeSessionId={activeOpenSession()?.id ?? null}
+          surfaceVisible={!overlayActive()}
+        />
 
         {/* Stuck-terminal escape: the pane resolves to no live terminal AND
             bootstrap is wedged (coord unreachable or browser unpaired) — show

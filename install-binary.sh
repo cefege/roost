@@ -13,13 +13,16 @@ say() { printf '>> %s\n' "$1"; }
 die() { printf 'ERROR: %s\n' "$1" >&2; exit 1; }
 
 # Asset names mirror releaseAssetName() in apps/roost-cli/src/update.ts — the
-# `roost` (darwin-arm64) arm stays unsuffixed for back-compat with existing
+# Darwin arm64 `roost` asset stays unsuffixed for back-compat with existing
 # release links. Change both together or the installer 404s.
-case "$(uname -s)/$(uname -m)" in
-  Darwin/*)      ASSET="roost" ;;
+OS="$(uname -s)"
+ARCH="$(uname -m)"
+case "$OS/$ARCH" in
+  Darwin/arm64)  ASSET="roost" ;;
+  Darwin/x86_64) ASSET="roost-darwin-x64" ;;
   Linux/x86_64)  ASSET="roost-linux-x64" ;;
   Linux/aarch64) ASSET="roost-linux-arm64" ;;
-  *) die "no prebuilt roost binary for $(uname -s)/$(uname -m) — install from source: https://github.com/$REPO" ;;
+  *) die "no prebuilt roost binary for $OS/$ARCH — install from source: https://github.com/$REPO" ;;
 esac
 
 # Tailscale is walked through interactively by `roost quickstart`; just a nudge.
@@ -33,14 +36,41 @@ fi
 
 mkdir -p "$BIN_DIR"
 DEST="$BIN_DIR/roost"
+TMP_DIR="$(mktemp -d "$BIN_DIR/.roost-install.XXXXXX")"
+chmod 0700 "$TMP_DIR"
+cleanup() { rm -rf "$TMP_DIR"; }
+trap cleanup EXIT HUP INT TERM
+CANDIDATE="$TMP_DIR/roost"
+
 if [ -n "${ROOST_LOCAL_BIN:-}" ]; then
   say "installing local binary $ROOST_LOCAL_BIN → $DEST"
-  cp "$ROOST_LOCAL_BIN" "$DEST"
+  cp "$ROOST_LOCAL_BIN" "$CANDIDATE"
 else
   say "downloading $ASSET → $DEST"
-  curl -fsSL "https://github.com/$REPO/releases/latest/download/$ASSET" -o "$DEST"
+  DIGEST_FILE="$TMP_DIR/$ASSET.sha256"
+  curl -fsSL "https://github.com/$REPO/releases/latest/download/$ASSET" -o "$CANDIDATE"
+  curl -fsSL "https://github.com/$REPO/releases/latest/download/$ASSET.sha256" -o "$DIGEST_FILE"
+
+  DIGEST_CONTENT="$(< "$DIGEST_FILE")"
+  if [[ ! "$DIGEST_CONTENT" =~ ^([0-9a-f]{64})[[:space:]]*$ ]]; then
+    die "invalid checksum file for $ASSET"
+  fi
+  EXPECTED_SHA256="${BASH_REMATCH[1]}"
+  if [ "$OS" = "Darwin" ]; then
+    ACTUAL_OUTPUT="$(shasum -a 256 "$CANDIDATE")"
+  else
+    ACTUAL_OUTPUT="$(sha256sum "$CANDIDATE")"
+  fi
+  ACTUAL_SHA256="${ACTUAL_OUTPUT%%[[:space:]]*}"
+  if [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
+    die "checksum mismatch for $ASSET"
+  fi
 fi
-chmod +x "$DEST"
+
+chmod 0755 "$CANDIDATE"
+mv -f "$CANDIDATE" "$DEST"
+trap - EXIT HUP INT TERM
+cleanup
 
 say "installed roost $("$DEST" version)"
 case ":$PATH:" in

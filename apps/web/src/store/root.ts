@@ -26,15 +26,13 @@ export interface PairRequest {
 
 
 export interface RootState {
-  workers: Record<string, Worker>;           // key = WorkerFp
-  sessions: Record<string, Session>;         // key = SessionId
-  workspaces: Record<string, Workspace>;     // key = WorkspaceId
-  tasks: Record<string, Task>;               // key = TaskId
-  permission_rules: Record<string, PermissionRule>; // key = PermissionRuleId
-  mcp_relays: Record<string, McpRelay>;      // key = McpRelayId
-  pair_requests: Record<string, PairRequest>; // key = ephemeral_id
-  /** Latest active coding-agent status per terminal. Volatile: Sync seeds it
-   *  after each reconnect and inactive frames delete it. key = SessionId. */
+  workers: Record<string, Worker>;
+  sessions: Record<string, Session>;
+  workspaces: Record<string, Workspace>;
+  tasks: Record<string, Task>;
+  permission_rules: Record<string, PermissionRule>;
+  mcp_relays: Record<string, McpRelay>;
+  pair_requests: Record<string, PairRequest>;
   agent_status: Record<string, AgentStatus>;
   coord_identity: { fingerprint_hex: string; git_sha: string; public_url: string; public_listener: boolean; relocated_to_url?: string; handoff_id?: string } | null;
   /** OSC-0/OSC-2 title from the terminal core. Empty until the program sets

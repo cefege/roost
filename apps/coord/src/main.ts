@@ -7,7 +7,7 @@ import { runMigrations } from "./db/migrate.ts";
 import { loadOrCreateCoordKey } from "./coord-key.ts";
 import { importAuthorizedKeys } from "./authorized-keys.ts";
 import { newJwtCache } from "./jwt.ts";
-import { scheduleBackups } from "./backup.ts";
+import { runBackup, scheduleBackups } from "./backup.ts";
 import { scheduleAuditRetention } from "./audit-retention.ts";
 import { installByteHubBusHook } from "./byte-hub.ts";
 import { createCoord } from "./coord-factory.ts";
@@ -23,10 +23,13 @@ import type { Server, ServerWebSocket } from "bun";
 import { workspaceBus } from "./buses.ts";
 import { asWorkspaceId } from "@roost/shared/wire";
 import { log } from "@roost/shared/log";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { dirname, join } from "node:path";
 import { WEB_ASSETS } from "./web-embed.generated.ts";
 import { createSpaResponder } from "./spa.ts";
 import { MIGRATIONS } from "./migrations-embed.generated.ts";
+import { createSqliteSnapshot } from "./db/snapshot.ts";
 import {
   resolveCallerOrigin,
   type CallerOrigin,
@@ -48,8 +51,17 @@ export async function runCoord() {
     process.exit(1);
   }
 
+  const databaseExisted = existsSync(cfg.dbPath);
   const { db, sqlite } = openDb(cfg.dbPath);
-  await runMigrations(sqlite, MIGRATIONS.length > 0 ? MIGRATIONS : undefined);
+  await runMigrations(
+    sqlite,
+    MIGRATIONS.length > 0 ? MIGRATIONS : undefined,
+    databaseExisted
+      ? async () => {
+          await runBackup(sqlite, cfg.dbPath, "pre-migration");
+        }
+      : undefined,
+  );
   log.info("main", "db_ready", { path: cfg.dbPath });
 
   try {
@@ -185,22 +197,29 @@ export async function runCoord() {
     : null;
 
 
-  function dbExportResponse(origin: CallerOrigin): Response {
+  async function dbExportResponse(origin: CallerOrigin): Promise<Response> {
     if (!origin.onHost) {
       return new Response(JSON.stringify({ error: "on-host only" }), {
         status: 403, headers: { "content-type": "application/json" },
       });
     }
     if (!existsSync(cfg.dbPath)) return new Response(null, { status: 404 });
-    const stat = statSync(cfg.dbPath);
-    return new Response(Bun.file(cfg.dbPath), {
-      status: 200,
-      headers: {
-        "content-type": "application/x-sqlite3",
-        "content-length": String(stat.size),
-        "content-disposition": `attachment; filename="coordinator_v2.db"`,
-      },
-    });
+
+    const snapshotPath = join(dirname(cfg.dbPath), `.coord-export-${randomUUID()}.db`);
+    try {
+      const { size } = createSqliteSnapshot(sqlite, snapshotPath);
+      const body = await Bun.file(snapshotPath).arrayBuffer();
+      return new Response(body, {
+        status: 200,
+        headers: {
+          "content-type": "application/x-sqlite3",
+          "content-length": String(size),
+          "content-disposition": `attachment; filename="coordinator_v2.db"`,
+        },
+      });
+    } finally {
+      rmSync(snapshotPath, { force: true });
+    }
   }
 
   const [host, portStr] = cfg.bind.split(":") as [string, string];
@@ -352,7 +371,7 @@ export async function runCoord() {
   // blind rollback — plus up to ~15s of delayed first byte.
   void move.recover().catch((error) => log.error("coord", "move_recover_failed", { error: String(error) }));
 
-  scheduleBackups(cfg.dbPath);
+  scheduleBackups(sqlite, cfg.dbPath);
   scheduleAuditRetention(sqlite, cfg.auditRetentionDays);
 
   const shutdown = (): void => {

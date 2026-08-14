@@ -47,7 +47,7 @@ export interface StatusReport {
   workerAgentLoaded: boolean;
   coord: { reachable: boolean; gitSha: string | null };
   workers: WorkerStatus[];
-  tlsCertConfigured: boolean;
+  tlsMode: "tailscale-serve" | "direct" | "missing";
   url: string | null;
   handoff: HandoffStatus | null;
 }
@@ -207,17 +207,46 @@ function workerInventory(): WorkerStatus[] {
   }
 }
 
-/** TLS posture read out of the service definition: a plist <key> on darwin,
- *  an `Environment=` line in the systemd unit on Linux. */
-function tlsCertConfigured(): boolean {
-  if (!existsSync(COORD_SERVICE_FILE)) return false;
+function serviceEnvironmentValue(
+  serviceDefinition: string,
+  name: string,
+  platform: NodeJS.Platform,
+): string | null {
+  const match = platform === "darwin"
+    ? new RegExp(`<key>${name}</key>\\s*<string>([^<]*)</string>`).exec(serviceDefinition)
+    : new RegExp(`^Environment=\"?${name}=([^\"\\r\\n]+)\"?$`, "m").exec(serviceDefinition);
+  return match?.[1] ?? null;
+}
+
+export function resolveTlsMode(
+  serviceDefinition: string | null,
+  tailscaleServeStatus: string | null,
+  platform: NodeJS.Platform = process.platform,
+): StatusReport["tlsMode"] {
+  if (!serviceDefinition) return "missing";
+  if (serviceEnvironmentValue(serviceDefinition, "ROOST_FRONTED", platform) === "1") {
+    const loopbackPort = serviceEnvironmentValue(
+      serviceDefinition,
+      "ROOST_COORD_LOOPBACK_PORT",
+      platform,
+    ) ?? "4103";
+    return tailscaleServeStatus?.includes(`http://127.0.0.1:${loopbackPort}`)
+      ? "tailscale-serve"
+      : "missing";
+  }
+  const cert = serviceEnvironmentValue(serviceDefinition, "ROOST_TLS_CERT_PATH", platform);
+  const key = serviceEnvironmentValue(serviceDefinition, "ROOST_TLS_KEY_PATH", platform);
+  return cert && key ? "direct" : "missing";
+}
+
+function currentTlsMode(): StatusReport["tlsMode"] {
+  if (!existsSync(COORD_SERVICE_FILE)) return "missing";
   try {
-    const text = readFileSync(COORD_SERVICE_FILE, "utf8");
-    return process.platform === "darwin"
-      ? /<key>ROOST_TLS_CERT_PATH<\/key>/.test(text)
-      : /^Environment=ROOST_TLS_CERT_PATH=/m.test(text);
+    const serviceDefinition = readFileSync(COORD_SERVICE_FILE, "utf8");
+    const serve = runCapture(["tailscale", "serve", "status"]);
+    return resolveTlsMode(serviceDefinition, serve.exit === 0 ? serve.stdout : null);
   } catch {
-    return false;
+    return "missing";
   }
 }
 
@@ -248,7 +277,7 @@ export async function statusReport(): Promise<StatusReport> {
     workerAgentLoaded: launchAgentLoaded(WORKER_LABEL),
     coord,
     workers: workerInventory(),
-    tlsCertConfigured: tlsCertConfigured(),
+    tlsMode: currentTlsMode(),
     url: ts.fqdn ? `https://${ts.fqdn}:4102` : null,
     handoff: readHandoff(),
   };
@@ -297,8 +326,14 @@ export function printStatusReport(r: StatusReport): void {
     console.log(`  coordinator move ${r.handoff.phase} (${r.handoff.role}, → ${r.handoff.targetUrl})`);
   }
 
-  console.log(`  ${mark(r.tlsCertConfigured)} coord TLS cert configured`);
-  if (!r.tlsCertConfigured) console.log(`      → mint: tailscale cert <fqdn> ; then reinstall coord (phones/other devices need HTTPS)`);
+  if (r.tlsMode === "tailscale-serve") {
+    console.log("  ✓ coord TLS: tailscale serve");
+  } else if (r.tlsMode === "direct") {
+    console.log("  ✓ coord TLS: direct certificate");
+  } else {
+    console.log("  ✗ coord TLS: missing");
+    console.log("      → reinstall coord to restore Tailscale Serve, or configure both direct TLS paths");
+  }
 
   if (r.workers.length === 0) {
     console.log(`  ✗ workers: none registered`);

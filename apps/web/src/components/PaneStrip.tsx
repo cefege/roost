@@ -192,8 +192,8 @@ export function PaneStrip(props: PaneStripProps) {
       if (!d) return; // not armed → onClick fires → selects
 
       // Swallow the trailing click so a drag (tile-drop or reorder) doesn't
-      // also fire onClick→onSelect. One-shot capture-phase listener mirrors
-      // fabDragOffset.ts:82-89 — fires before the button's onClick, cancels it.
+      // also fire onClick→onSelect. The one-shot capture listener runs before
+      // the button's click handler and cancels only that completed drag.
       const swallowClick = () => {
         window.addEventListener("click",
           (ce) => { ce.stopPropagation(); ce.preventDefault(); },

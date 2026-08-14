@@ -25,6 +25,22 @@ export async function run(cmd: string[], opts: { quiet?: boolean; env?: Record<s
   return { exit, stdout, stderr };
 }
 
+export function finishWorkerDeploy(
+  result: { exit: number; stdout: string; stderr: string },
+  successMessage: string,
+): void {
+  if (result.exit !== 0) {
+    throw new Error(
+      `worker service verification failed (exit ${result.exit})\n`
+      + `stdout:\n${result.stdout || "(empty)"}\n`
+      + `stderr:\n${result.stderr || "(empty)"}`,
+    );
+  }
+  const output = result.stdout.trim();
+  if (output) console.log(output.split("\n").map((line) => `   ${line}`).join("\n"));
+  console.log(successMessage);
+}
+
 // Capture-or-throw helper for steps where a non-zero exit is fatal. Used
 // for rsync calls (the original code discarded the result) and any other
 // `await run(...)` that should not silently continue on failure.

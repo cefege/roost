@@ -55,10 +55,8 @@ message WAgentStatus {
 }
 
 
-
-
 message CoordWorkerUp {
-  reserved 4, 5, 13;  // retired fields; 13 remains reserved
+  reserved 4, 5, 13;
   oneof frame {
     WHello hello = 1;
     WPong pong = 2;
@@ -82,27 +80,19 @@ message DBrowserCommand {
   string browser_id = 1;
   string viewer_id = 2;
   string request_id = 3;
-  string frame_json = 4;  // ClientControlFrame serialized
+  string frame_json = 4;
 }
 message DBinary { uint32 channel_id = 1; uint32 direction = 2; bytes data = 3; }
-// D-4b ack — coord echoes the worker's client_seq after a successful
-// (or dedup'd) event insert. Worker uses this to drop entries from the
-// unacked outbox.
 message DEventAck { uint64 client_seq = 1; }
 
-// Streamed file upload SPA→coord→worker. Coord relays the AttachFileChunk
-// stream as a sequence of these (raw bytes, no base64 inflation). The worker
-// assembles per request_id into a temp file, renames on `last`, then replies
-// WRpcOk { request_id, data_json:{abs_path} }. Additive frame (no
-// PROTOCOL_VERSION bump): a pre-stream worker simply never receives it.
 message DAttachmentChunk {
   string request_id = 1;
-  string session_id = 2;  // first chunk only
-  string filename = 3;    // first chunk only
-  bool short_path = 4;    // first chunk only
-  bytes data = 5;         // raw chunk bytes
-  bool last = 6;          // final chunk → close + rename + reply
-  uint32 seq = 7;         // 0-based chunk index; worker rejects out-of-order
+  string session_id = 2;
+  string filename = 3;
+  bool short_path = 4;
+  bytes data = 5;
+  bool last = 6;
+  uint32 seq = 7;
 }
 
 message DCoordMovePrepare {
@@ -113,7 +103,7 @@ message DCoordMovePrepare {
   string expected_coord_kid = 5;
   string expected_git_sha = 6;
   uint64 estimated_db_size = 7;
-  string action = 8; // CHECK | PREPARE
+  string action = 8;
 }
 
 message DCoordMoveSnapshotStart {
@@ -139,7 +129,7 @@ message DCoordRelocate {
   string handoff_id = 2;
   string source_url = 3;
   string target_url = 4;
-  string action = 5; // STAGE | ACTIVATE | COMMIT | ABORT
+  string action = 5;
 }
 
 message CoordWorkerDown {
@@ -158,7 +148,5 @@ message CoordWorkerDown {
 }
 
 service WorkerService {
-  // Worker dials this once at boot. Coord verifies the JWT in the
-  // initial metadata; upstream Hello carries worker_fp for routing.
   rpc Attach(stream CoordWorkerUp) returns (stream CoordWorkerDown);
 }

@@ -2,18 +2,14 @@
 // prefs, persisted per device, reactive (apply immediately, no reload):
 //  - keyboard resize: shrink the terminal to fit above the soft keyboard
 //    (default OFF — push is the default) vs push it up off-screen (lib/keyboardResizePref).
-//  - key pad on desktop: show the on-screen nav pad on desktop widths
-//    (default ON) (lib/keyboardOnDesktop).
 //  - mouse mode: forward clicks/scroll/swipe to a fullscreen app
-//    vs native browser select/scroll (lib/mouseForwardPref). Also
-//    toggled from the on-screen nav pad; this is the desktop-reachable home.
+//    vs native browser select/scroll (lib/mouseForwardPref).
 // Callers: SettingsRoot.tsx.
 
 import { Show } from "solid-js";
 import { Card, Switch, IconButton, Button } from "./md/primitives.tsx";
 import { Select } from "./md/Select.tsx";
 import { keyboardResize, setKeyboardResize } from "../../lib/keyboardResizePref.ts";
-import { keyboardOnDesktop, setKeyboardOnDesktop } from "../../lib/keyboardOnDesktop.ts";
 import { mouseForwardEnabled, toggleMouseForward } from "../../lib/mouseForwardPref.ts";
 import { predictMode, setPredictMode } from "../../lib/predictPref.ts";
 import {
@@ -52,20 +48,11 @@ export function TerminalPane() {
         />
       </Card>
 
-      <Card title="On-screen key pad">
-        <SwitchRow
-          headline="Show the key pad on desktop"
-          support="The key pad (Ctrl, Tab, navigation keys, Enter, and mouse mode) floats bottom-right of the terminal behind a keyboard-icon button. It always appears on compact/mobile widths — turn this off to hide it on desktop. This device only; applies immediately."
-          checked={keyboardOnDesktop()}
-          onChange={setKeyboardOnDesktop}
-          testId="keyboard-on-desktop-toggle"
-        />
-      </Card>
 
       <Card title="Mouse mode">
         <SwitchRow
           headline="Forward mouse + touch to fullscreen apps"
-          support="On: clicks, scroll, and finger-swipes go to the fullscreen app instead of the browser. Off: native browser selection and scrolling. Also toggleable from the on-screen key pad. This device only."
+          support="On: clicks, scroll, and finger-swipes go to the fullscreen app instead of the browser. Off: native browser selection and scrolling. This device only."
           checked={mouseForwardEnabled()}
           onChange={toggleMouseForward}
           testId="mouse-forward-toggle"

@@ -1,17 +1,11 @@
-// MobileVoiceInput — mic button + live transcript.
-// State: idle → listening → finalizing → (deliver). Tap to start; tap again to
-// stop, which finalizes and delivers automatically — no review step. Where the
-// text lands depends on the caller: without onTranscript it is submitted to the
-// PTY (the corner FAB), with onTranscript it is inserted into the caller's draft
-// (the composer bar) and the caller's own send commits it. While recording (or
-// finalizing) an ✕ button discards without delivering.
+// MobileVoiceInput — the terminal composer's inline mic.
+// State: idle → listening → finalizing → insert. Tap to start; tap again to
+// finalize into the draft. While recording/finalizing, an ✕ discards both the
+// engine result and its provisional draft tail.
 //
-// Engine: if a Deepgram key is configured in coord, dictation streams to
-// Deepgram (deepgramDictation); otherwise it uses the browser's built-in Web
-// Speech recognizer. The tap/finalize/deliver UI is identical for both.
-// Callers: CellTerminal.tsx (corner FAB) and TerminalComposeButton.tsx
-// (variant="inline" inside the composer bar, where onTranscript redirects the
-// finalized text into the draft instead of auto-sending).
+// If a Deepgram key is configured in coord, dictation streams to Deepgram;
+// otherwise it uses the browser's built-in Web Speech recognizer. The
+// tap/finalize/insert UI is identical for both.
 
 import type { Component } from "solid-js";
 import {
@@ -21,7 +15,7 @@ import {
 	onCleanup,
 	onMount,
 } from "solid-js";
-import type { ChannelId } from "@roost/shared/wire";
+import type { SessionId } from "@roost/shared/wire";
 import { coordClient } from "../connect.ts";
 import { createDeepgramDictation } from "../lib/deepgramDictation.ts";
 import {
@@ -37,7 +31,6 @@ import {
 } from "../lib/keytermContext.ts";
 import { learnTerms, lexiconTopTerms } from "../lib/keytermLexicon.ts";
 import { keytermBiasing } from "../lib/keytermBiasingPref.ts";
-import { onFabPointerDown } from "../lib/fabDragOffset.ts";
 import { isTouchDevice } from "../lib/windowSizeClass.ts";
 
 // The capture pipeline stays warm after a recording so the next tap skips a
@@ -50,12 +43,13 @@ import { isTouchDevice } from "../lib/windowSizeClass.ts";
 // open is the only thing that ever ate the first spoken word.
 if (isTouchDevice()) micIdle.releaseMs = 4_000;
 
-// ─── shared recording state ───────────────────────────────────────────────
-// All MobileVoiceInput instances share this signal. Only one can record at a
-// time — the owning instance renders; all others return null early. This
-// prevents multiple position:fixed elements from overlapping at the same
-// viewport coordinates when multiple terminals are visible.
-export const [activeVoiceChannel, setActiveVoiceChannel] = createSignal<number | null>(null);
+// Every recording belongs to one concrete component instance. The immutable
+// session ID provides globally meaningful diagnostics; the token prevents a
+// responsive replacement for that same session from rendering a second live
+// mic or releasing the first instance's claim.
+type VoiceOwner = { sessionId: SessionId; token: number };
+let nextVoiceOwnerToken = 0;
+const [activeVoiceOwner, setActiveVoiceOwner] = createSignal<VoiceOwner | null>(null);
 
 // Transcription config is global, not per-pane. Cached at module scope because
 // the composer's inline mic remounts on every composer open — a per-mount RPC
@@ -127,29 +121,16 @@ function createSpeechRecognition(): AnySpeechRecognition {
 type VoiceState = "idle" | "listening" | "finalizing";
 
 interface Props {
-	channelId: ChannelId;
-	/** Submits finalized dictation through the pane's current terminal mode. */
-	onTerminalSubmit: (text: string) => void;
-
-	// bias Deepgram toward on-screen jargon (keytermContext). Deepgram-only.
+	ownerId: SessionId;
+	/** False when this composer's terminal surface is parked or covered. */
+	active: boolean;
+	onActiveChange?: (active: boolean) => void;
+	/** Inserts finalized speech into the owning composer's retained draft. */
+	onTranscript: (text: string) => void;
+	/** Replaces the provisional tail; null discards it and restores the base. */
+	onLiveTranscript: (text: string | null) => void;
+	// Bias Deepgram toward on-screen jargon (keytermContext). Deepgram-only.
 	readContext?: () => TerminalContext;
-	// Re-grab the hidden wterm textarea after a send/discard. The mic <button>
-	// holds DOM focus while recording; auto-send fires from an engine callback
-	// (no click/focus event) so nothing re-focuses the terminal → the next Enter
-	// hits a global handler (jumps workspace) instead of the PTY. CellTerminal
-	// passes term.forceFocus() here.
-	refocusTerminal?: () => void;
-	/** When set, a finalized transcript goes HERE instead of the PTY (chat
-	 *  composer): the composer owns the draft and its own send path. */
-	onTranscript?: (text: string) => void;
-	/** When set, the caller paints the transcript itself (the composer streams it
-	 *  into its text field), so this component renders NO transcript caption —
-	 *  two boxes for one utterance is just noise. `text` is the whole transcript
-	 *  so far and REPLACES the previous value; `null` means the dictation ended
-	 *  without committing (discard) and the caller should drop what it showed. */
-	onLiveTranscript?: (text: string | null) => void;
-	/** "inline" drops the position:fixed FAB dock so the mic can sit in a row. */
-	variant?: "fab" | "inline";
 }
 
 // ─── component ───────────────────────────────────────────────────────────
@@ -165,6 +146,18 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 	const [interimText, setInterimText] = createSignal("");
 	const [finalText, setFinalText] = createSignal("");
 	const [errorMsg, setErrorMsg] = createSignal<string | null>(null);
+	const ownerToken = ++nextVoiceOwnerToken;
+	const ownsVoice = () => activeVoiceOwner()?.token === ownerToken;
+	const claimVoice = (): boolean => {
+		const owner = activeVoiceOwner();
+		if (owner && owner.token !== ownerToken) return false;
+		if (!owner) setActiveVoiceOwner({ sessionId: props.ownerId, token: ownerToken });
+		return true;
+	};
+	const releaseVoice = () => {
+		if (ownsVoice()) setActiveVoiceOwner(null);
+	};
+	createEffect(() => props.onActiveChange?.(voiceState() !== "idle"));
 
 	// Deepgram config from coord (which engine + language).
 	ensureTranscriptionConfig();
@@ -205,7 +198,7 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 	createEffect(() => {
 		const live = `${dispFinal()} ${dispInterim()}`.trim();
 		if (voiceState() === "idle") return;
-		props.onLiveTranscript?.(live);
+		props.onLiveTranscript(live);
 	});
 
 	let recognition: AnySpeechRecognition | null = null;
@@ -245,36 +238,46 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 		};
 		recognition.onerror = (e: SpeechRecognitionErrorEvent) => {
 			setErrorMsg(e.error ?? "recognition error");
-			props.onLiveTranscript?.(null);
+			props.onLiveTranscript(null);
 			setVoiceState("idle");
-			setActiveVoiceChannel(null);
+			releaseVoice();
 			setTimeout(() => setErrorMsg(null), 3000);
 		};
 	});
 
 	onCleanup(() => {
 		clearFinalizeWatchdog();
-		if (activeVoiceChannel() === props.channelId) setActiveVoiceChannel(null);
-		try {
-			recognition?.abort();
-		} catch {
-			/* ignore */
+		if (voiceState() !== "idle") {
+			discard();
+		} else {
+			releaseVoice();
+			try {
+				recognition?.abort();
+			} catch {
+				/* ignore */
+			}
 		}
+		props.onActiveChange?.(false);
 		recognition = null;
 	});
 
 	const startRecording = () => {
 		clearFinalizeWatchdog();
-		setVoiceState("listening");
-		// Claim the recording slot — all other terminals' MobileVoiceInput instances hide.
-		setActiveVoiceChannel(props.channelId);
-		if (useDeepgram()) {
+		if (!props.active || !claimVoice()) return;
+		const deepgram = useDeepgram();
+		// Clear the selected engine while still idle. The live-feed effect ignores
+		// these reset writes instead of reopening the prior dictation baseline.
+		if (deepgram) {
 			dg.reset();
-			dg.start();
 		} else {
 			webIntent = null;
 			setFinalText("");
 			setInterimText("");
+		}
+		setVoiceState("listening");
+		if (deepgram) {
+			dg.start();
+		} else {
 			try {
 				recognition?.start();
 			} catch {
@@ -319,22 +322,16 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 		else forceFinish(); // finalizing: a second tap hurries the send, never wedges
 	};
 
-	// Reset the transcript + state back to idle and hand focus back to the
-	// terminal. Shared by auto-send (empty + after-send) and discard.
+	// Reset transcript/state and release the singleton recording slot.
 	const resetToIdle = () => {
 		clearFinalizeWatchdog();
+		// Mark idle before clearing engine text so the live-feed effect cannot
+		// reopen a baseline with reset-generated empty text.
+		setVoiceState("idle");
 		dg.reset();
 		setFinalText("");
 		setInterimText("");
-		setVoiceState("idle");
-		setActiveVoiceChannel(null);
-		// Release the recording slot — other terminals' mic buttons reappear.
-		// Only refocus if focus never left the recording UI. If the user clicked
-		// another terminal during recording, leave focus there.
-		const voiceEl = document.querySelector('[data-testid="mobile-voice-input"]');
-		if (!voiceEl || voiceEl.contains(document.activeElement)) {
-			props.refocusTerminal?.();
-		}
+		releaseVoice();
 	};
 
 	// A failed recording must LEAVE the recording state — the engine has already
@@ -345,25 +342,22 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 	const failToIdle = () => {
 		clearFinalizeWatchdog();
 		if (voiceState() === "idle") return;
-		props.onLiveTranscript?.(null);
+		props.onLiveTranscript(null);
 		setFinalText("");
 		setInterimText("");
 		setVoiceState("idle");
-		setActiveVoiceChannel(null);
+		releaseVoice();
 	};
 
-	// Called from the engine's end callback (auto-send) — NOT a button anymore.
+	// Called from the engine's end callback. Final speech belongs in the draft;
+	// the composer's explicit send action is the only PTY submission path.
 	const deliver = (text: string) => {
 		if (text.length === 0) {
+			props.onLiveTranscript(null);
 			resetToIdle();
 			return;
 		}
-		if (props.onTranscript) {
-			props.onTranscript(text);
-			resetToIdle();
-			return;
-		}
-		props.onTerminalSubmit(text);
+		props.onTranscript(text);
 		resetToIdle();
 	};
 	const sendTranscript = () => { deliver(`${dispFinal()} ${dispInterim()}`.trim()); };
@@ -398,76 +392,47 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 				/* ignore */
 			}
 		}
-		// The caller painted this dictation; tell it to drop what it showed.
-		props.onLiveTranscript?.(null);
+		// Restore the caller's pre-dictation draft.
+		props.onLiveTranscript(null);
 		resetToIdle();
 	};
 
-	const isActive = () => voiceState() !== "idle";
-	// An error still needs a surface of its own — it must never land in the
-	// caller's draft, where send would type it into the PTY. The TRANSCRIPT
-	// caption is what a live-feed caller replaces.
-	const showCaption = () => !!dispError() || (isActive() && !props.onLiveTranscript);
-	// With onTranscript set (the composer's inline mic) stopping INSERTS into the
-	// draft — it never submits. A "send" glyph would sit right beside the bar's
-	// real send button and mean something different, so the wording and the
-	// finalizing glyph follow the destination.
-	const inserts = () => !!props.onTranscript;
-	// Material Symbols Rounded ligature per state.
-	const micIcon = () => {
-		return voiceState() === "listening"
-			? "stop"
-			: voiceState() === "finalizing"
-				? inserts()
-					? "keyboard_return"
-					: "send"
-				: "mic";
-	};
+	// A parked/covered composer must never keep recording without reachable
+	// stop/discard controls. Discard also restores any provisional parent draft.
+	createEffect(() => {
+		if (!props.active && voiceState() !== "idle") discard();
+	});
 
-	// Only ONE MobileVoiceInput DOM tree exists at a time — no position:fixed
-	// overlap when multiple terminals are visible. The gate is read HERE, in the
-	// JSX, so it stays reactive: the component body runs untracked, so a
-	// mount-time snapshot left an instance created while another channel held
-	// the slot rendering null forever. Show only toggles the DOM subtree — the
-	// instance, its engine, its onMount and its onCleanup all survive.
+	const isActive = () => voiceState() !== "idle";
+	// Material Symbols Rounded ligature per state. Finalizing inserts into the
+	// draft; there is intentionally no direct-send voice mode.
+	const micIcon = () => voiceState() === "listening"
+		? "stop"
+		: voiceState() === "finalizing"
+			? "keyboard_return"
+			: "mic";
+
+	// Only the owner instance remains rendered while recording. A session ID is
+	// not sufficient here: responsive swaps briefly create two mic instances for
+	// the same session.
 	return (
-		<Show when={activeVoiceChannel() === null || activeVoiceChannel() === props.channelId}>
+		<Show when={activeVoiceOwner() === null || ownsVoice()}>
 			<div
-				class={props.variant === "inline" ? "voice-input voice-input--inline" : "voice-input"}
+				class="voice-input voice-input--inline"
 				data-testid="mobile-voice-input"
 				data-state={voiceState()}
 				data-engine={!engineAvailable ? "unavailable" : useDeepgram() ? "deepgram" : "web-speech"}
 			>
-				{/* Transcript caption (M3 snackbar). */}
-				<Show when={showCaption()}>
-					<div
-						class={
-							dispError() ? "voice-caption voice-caption--error" : "voice-caption"
-						}
-						data-testid="voice-caption"
-					>
-						<Show
-							when={dispError()}
-							fallback={
-								<>
-									<span class="voice-caption__final">{dispFinal()}</span>
-									<Show when={dispInterim()}>
-										<span class="voice-caption__interim">
-											{dispFinal() ? " " : ""}
-											{dispInterim()}
-										</span>
-									</Show>
-									<Show when={!dispFinal() && !dispInterim()}>
-										<span class="voice-caption__hint">
-											{voiceState() === "finalizing" ? (inserts() ? "Inserting…" : "Sending…") : "Listening…"}
-										</span>
-									</Show>
-								</>
-							}
+				{/* Errors need their own surface; transcript text lives in the field. */}
+				<Show when={dispError()}>
+					{(error) => (
+						<div
+							class="voice-caption voice-caption--error"
+							data-testid="voice-caption"
 						>
-							<span class="voice-caption__error">Mic error: {dispError()}</span>
-						</Show>
-					</div>
+							<span class="voice-caption__error">Mic error: {error()}</span>
+						</div>
+					)}
 				</Show>
 
 				{/* ✕ discard (small tonal FAB) + mic (stop = send), side by side. */}
@@ -490,8 +455,7 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 						data-testid="voice-mic"
 						data-recording={voiceState() === "listening" ? "true" : "false"}
 						data-finalizing={voiceState() === "finalizing" ? "true" : "false"}
-						onPointerDown={(e) => {
-							if (props.variant !== "inline") onFabPointerDown(e);
+						onPointerDown={() => {
 							// Open the device and fetch the key on press, not on release:
 							// the cold getUserMedia is what used to eat the first words.
 							if (voiceState() === "idle" && useDeepgram()) {
@@ -504,13 +468,9 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 						onClick={() => toggleRecord()}
 						aria-label={
 							voiceState() === "listening"
-								? inserts()
-									? "Stop and insert"
-									: "Stop and send"
+								? "Stop and insert"
 								: voiceState() === "finalizing"
-									? inserts()
-										? "Inserting"
-										: "Sending"
+									? "Inserting"
 									: "Start recording"
 						}
 					>

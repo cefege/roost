@@ -34,9 +34,13 @@ describe("agent integration paths", () => {
 });
 
 describe("agent integration installation", () => {
-  test("atomically installs owned assets and is idempotent", async () => {
+  test("atomically installs both retained owned assets and is idempotent", async () => {
     const home = await tempHome();
     const installed = await installAgentIntegrations({}, home);
+    expect(installed).toEqual({
+      omp: join(resolveOmpExtensionDir({}, home), "roost-omp-agent-state.ts"),
+      pi: join(resolvePiExtensionDir({}, home), "roost-pi-agent-state.ts"),
+    });
     const omp = await readFile(installed.omp, "utf8");
     const pi = await readFile(installed.pi, "utf8");
     expect(omp).toContain("ROOST_INTEGRATION_ID=omp");
@@ -46,6 +50,32 @@ describe("agent integration installation", () => {
     expect(await installAgentIntegrations({}, home)).toEqual(installed);
     expect((await stat(installed.omp)).ino).toBe(inode);
     expect((await readdir(resolveOmpExtensionDir({}, home))).some((name) => name.endsWith(".tmp"))).toBe(false);
+  });
+
+  test("removes an owned retired OMP session API extension before installing retained assets", async () => {
+    const home = await tempHome();
+    const directory = resolveOmpExtensionDir({}, home);
+    const retired = join(directory, "roost-omp-" + "session-api.ts");
+    await mkdir(directory, { recursive: true });
+    await writeFile(retired, "// ROOST_INTEGRATION_ID=omp\n");
+
+    const installed = await installAgentIntegrations({}, home);
+
+    await expect(readFile(retired, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    expect(await readFile(installed.omp, "utf8")).toContain("ROOST_INTEGRATION_ID=omp");
+    expect(await readFile(installed.pi, "utf8")).toContain("ROOST_INTEGRATION_ID=pi");
+  });
+
+  test("preserves an unowned file at the retired OMP session API filename", async () => {
+    const home = await tempHome();
+    const directory = resolveOmpExtensionDir({}, home);
+    const retired = join(directory, "roost-omp-" + "session-api.ts");
+    await mkdir(directory, { recursive: true });
+    await writeFile(retired, "// user extension\n");
+
+    await installAgentIntegrations({}, home);
+
+    expect(await readFile(retired, "utf8")).toBe("// user extension\n");
   });
 
   test("preserves a user file at the owned filename", async () => {

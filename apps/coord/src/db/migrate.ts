@@ -18,6 +18,7 @@ const MIGRATIONS_DIR = resolve(
 export async function runMigrations(
   sqlite: Database,
   embedded?: { name: string; sql: string }[],
+  beforeApply?: (pendingNames: readonly string[]) => Promise<void>,
 ): Promise<void> {
 
   // Ensure _migrations table exists before we query it.
@@ -39,9 +40,12 @@ export async function runMigrations(
   const appliedRows = sqlite.prepare("SELECT name FROM _migrations").all() as { name: string }[];
   const applied = new Set(appliedRows.map((r) => r.name));
 
-  for (const { name, sql } of migrations) {
-    if (applied.has(name)) continue;
+  const pending = migrations.filter(({ name }) => !applied.has(name));
+  if (pending.length > 0 && beforeApply) {
+    await beforeApply(pending.map(({ name }) => name));
+  }
 
+  for (const { name, sql } of pending) {
     try {
       sqlite.exec("BEGIN");
       sqlite.exec(sql);

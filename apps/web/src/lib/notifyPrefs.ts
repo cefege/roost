@@ -73,7 +73,7 @@ export async function disableDesktopNotifications(
   await unsubscribe();
 }
 
-if (typeof window !== "undefined") {
+if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
   window.addEventListener("storage", (event) => {
     if (event.key === STORAGE_KEY) setPrefs(parse(event.newValue));
   });
