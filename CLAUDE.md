@@ -123,7 +123,7 @@ Re-interpret every artifact enumerated in L0-SCOPE through this lens:
     | "tab switch shows stale terminal content / a returned-to pane sits above the live bottom and never follows output again / bottom-follow works foreground but dies after a park" | n/a — fixed 2026-07-29 (measured: a 250-row `.cell-block` remembered at 29 rows reported 487.11px instead of 4199.22px; revealing it grew `scrollHeight` by exactly that 3712px) | latch the bottom in intent state, correct scroll at reveal, add an `atBottom()` tolerance, or defer `_pinToBottom` to a rAF — all forbidden by the row above; equally wrong: leave a parked pane painting at a DIFFERENT box size (`TerminalDeck.termStyle`'s old fixed 800×600 park) so its scroll maximum moves under it | **A pane that keeps painting off-screen must have TRUTHFUL geometry, not a corrected scroll position.** Three invariants, all measured live: (1) `termStyle` parks a pane at its own leaf's rect (`parkSizeBySession`), so `clientHeight` is identical parked vs revealed; (2) block placeholders are a BARE length, never `contain-intrinsic-size: auto <len>` — `auto` makes the browser reuse a block's LAST RENDERED size, so a block that grows while skipped understates `scrollHeight` until it materializes; (3) the OPEN tail block opts out of `content-visibility` until it seals (`_appendScrollback`) — a skipped subtree's intrinsic size is re-evaluated at rendering-lifecycle time, not on append, so appending into a locked tail leaves `scrollHeight` stale for the rest of the task and the pre-mutation `atBottom()` reads a bottom that no longer exists. Sealed blocks stay skipped → deep-history layout stays O(blocks) (forced layout on reveal measured 0.5ms vs 6.1ms before). Regression cases: `apps/web/tests/cellRenderer.dom.test.ts` "frames applied while the box height is unchanged stay pinned", "the placeholder is a bare length", "only the OPEN tail block opts out of content-visibility". |
     | "scrollbar thumb size/position jumps with no user action / reader lands on a different row after a tab switch or re-attach / scroll bar 'all over the place'" | n/a — fixed 2026-07-29 (same day as the row above; that row fixed parked GEOMETRY, this fixes the SCROLL SPACE) | anything that writes `scrollTop` to compensate — intent state, reveal correction, restoring a remembered row — all still forbidden by row 120; equally wrong: shipping the whole ring in every full frame (forbidden by the row two above) or just making `SB_SNAPSHOT_TAIL_ROWS` bigger, which only moves the lie | **The painted scroll space must represent the WHOLE session history, not just the shipped tail.** A full frame carries only the newest `SB_SNAPSHOT_TAIL_ROWS` plus `sbBase` = the count of rows not shipped, and nothing stood in for `[0, sbBase)` — so `scrollHeight` described ~250 rows of an 8000-row session, every backfill `prependScrollback` grew it by another 250 (thumb shrank and jumped with no user action), and `renderFull`'s `replaceChildren` left the browser's retained pixel offset over completely different rows. Fix: `CellGridRenderer` reserves the unpainted `[0, sbBase)` history as a `.cell-sb-spacer` SIBLING of `.cell-scrollback` (`_syncSpacer`, called from `_appendScrollback` / `prependScrollback` / the `fonts.ready` hook), so an absolute row index has a FIXED pixel offset for the epoch: prepends shrink it by exactly what they paint, evictions grow it by exactly what they drop, and a reframe repaints the same rows at the same offsets — native `scrollTop` therefore preserves the reader's row across all three with ZERO application scroll writes, and the thumb reflects `scrollbackTotal`. Sibling placement is load-bearing: `_evictScrollback` takes `scrollbackEl.firstElementChild` as a block, and `nearHistoryTop()` reads `scrollbackEl.offsetTop` — which now includes the spacer, so a reader who drags into reserved-but-unpainted space keeps the backfill drain pulling toward them. Regression cases: `apps/web/tests/cellRenderer.dom.test.ts` "the spacer reserves the unpainted history", "a backfill prepend shrinks the spacer by exactly the rows it adds", "an eviction grows the spacer by exactly the rows it drops", "a reframe keeps the reader on the same absolute row". |
     | "a worker shows offline/down in the SPA while `systemctl --user status roost-worker` says active (running) and the host has GBs free / worker log silent for minutes then `link_stale_no_downstream` + `listChannels timed out` + `heartbeat beat failed [unavailable] HTTP 502` / coord `worker-ws close`→`open` gap of ~361s" | n/a — fixed 2026-08-01 (measured on ovh1: cgroup `memory.current=3401814016` vs `memory.high=3221225472`, `memory.events high` climbing ~150k/min, worker MainPID in `D (disk sleep)`, 6 PTY sessions = 2.9 GB in the SAME cgroup, `SwapFree 172 kB` so reclaim had nowhere to go) | chase the 502 into tailscale-serve, restart the worker, or read the SPA's host metrics and conclude the box is healthy — `host-sample-linux.ts` reads host-wide `/proc/meminfo`, so a unit strangled by its own `MemoryHigh` publishes "8.7 GB of 33.6 GB used" while every allocation in its cgroup is throttled; equally wrong: adding `MemoryMax` (every PTY session shares this cgroup, so a hard cap plus `Restart=always` turns one fat session into a fleet-wide session wipe) | **Three layers, all required.** (1) `MemoryHigh` must scale with the host: `apps/worker/scripts/install.sh::default_worker_mem_high` = 60% of `/proc/meminfo` MemTotal, floor 3G, absolute (systemd only takes % from v240); `TasksMax=4096`, not 512. The live value can sit in a hand-written `~/.config/systemd/user/roost-worker.service.d/limits.conf` drop-in that OUTRANKS the deployed unit body — check the drop-in before editing the unit. (2) A dial that never fires `ws.onopen` is NOT an auth rejection: coord answers a bad JWT with an HTTP 401 upgrade, indistinguishable from a timeout or a proxy 502 in Bun's client `WebSocket`, so 3 throttle-induced dials used to arm `AUTH_REJECT_BACKOFF_CAP_MS` and turn a ~20s stall into ~6 min of "down". `CoordLink-constants.ts::backoffCapMs(streak, hasOpened)` keys escalation on `hasOpened` (`AUTH_REJECT_THRESHOLD_AFTER_OPEN=60`); log is `reconnect_backoff_escalated`, never `auth_rejection_escalated`. (3) `host-sample-linux.ts::sampleCgroupPressure` + `heartbeat.ts::logCgroupPressure` emit `cgroup_memory_high_exceeded`/`_cleared` so the next occurrence is one grep, not a guess. Regression: `apps/worker/tests/coord-link-backoff-cap.test.ts`. |
-    | "tab switch / return to the browser tab makes a terminal reload before the bottom is readable / deck switches are instant at first then slow forever" | n/a — fixed 2026-08-01 | treat it as history serialization and shrink/skip the scrollback tail (forbidden by the rows above), or add a spinner/placeholder over the reveal | **Reveal must need neither a socket re-dial nor a snapshot.** (a) `sync-bootstrap.ts` refocus keeps a live Sync WS unless `shouldRedialOnRefocus(syncLinkIdleMs())` — the old unconditional `_abortSyncForVisibility` put a JWT sign + TLS handshake + `since=` backfill ahead of the reveal frame and threw the first claim's snapshot away. (b) An in-layout pane holds a 0×0 BACKGROUND claim for `HIDDEN_STREAM_KEEP_MS` while the browser tab is hidden instead of withdrawing. (c) `claimViewport` emits a snapshot only when `_needsClaimSnapshot` — client-sent `held_cell_seq` ≠ `cell_emit.seq`, **or** the channel was unwatched (`wasStreaming === false`), because `_hasActiveViewer` gates emission off so a frozen seq proves nothing — for background AND real claims. (d) `sendBackgroundClaim` may re-subscribe after a withdraw — (c) guarantees a fresh base — so the deck's background LRU survives a browser-tab switch instead of dying at the first one. |
+    | "tab switch / return to the browser tab makes a terminal reload before the bottom is readable / deck switches are instant at first then slow forever" | n/a — repaired 2026-08-13 | treat it as history serialization and shrink/skip the scrollback tail (forbidden by the rows above), keep hidden/offscreen panes streaming, or add a spinner over reveal | **Keep the Sync socket; dormancy costs exactly one viewport snapshot.** (a) `sync-bootstrap.ts` has one reconnect-loop owner and refocus keeps a healthy Sync WS, so reveal never waits on a second dial. (b) Hidden and offscreen panes immediately send `WITHDRAW`; no 0×0 BACKGROUND claim, grace timer, or deck LRU keeps cells flowing into an invisible renderer. (c) A visible return claim carries `held_cell_seq`; `_needsClaimSnapshot` sees the channel was unwatched and emits one viewport-only authoritative snapshot before deltas resume. (d) The mounted `CellGridRenderer` applies that snapshot without replaying retained history, so the live bottom returns immediately while offscreen cell-frame count stays flat. |
     | "tab switch lands in scrollback / watches history paint top-down / a stale pane reveals mid-history or in blank space and crawls to the bottom 250 rows per round trip" | n/a — fixed 2026-08-01 (6th attempt at this class; smoke now samples the READER'S POSITION at 50 ms during reveal — prior five "passed" because nothing asserted what the reader SEES at first paint) | zero the claim's held boundary for bottom-followers (`heldScrollbackTotal: 0` → worker returns the plain 250-row tail → `mergeFullFrame` null → `renderFull` wipes ≤2000 painted rows, reader clamps into the stale spacer, `nearHistoryTop()` starts a top-down drain); let geometry changes silently unlatch bottom-follow (box shrink/grow while parked, the 800×600 park fallback, spacer synced AFTER `replaceChildren`); mount MainPane under per-screen `<Route>` entries so a /file or /search visit remounts the whole deck cold | **A reveal lands on the present, always at the literal bottom.** (a) SUPERSEDED — see the row below: the claim snapshot is now ALWAYS `SB_SNAPSHOT_TAIL_ROWS` and history is refilled behind the reader; (b) `CellGridRenderer.noteBoxResize()` re-pins a reader who was at the OLD box's bottom (`max(prev,next)` covers shrink+grow; ResizeObserver calls it BEFORE the drag gate); (c) `renderFull` syncs the spacer BEFORE wiping painted content (scroll max never dips under scrollTop); (d) apply()'s slow path pins to bottom when `incoming.sbBase > heldTotal-1` (held window has no image in the new epoch — collapse allowed, bottom mandatory); (e) ONE route definition for all MainPane screens (App.tsx path array) + an always-mounted deck host (visibility flip, children `visibility:"inherit"`) so /file//search never tears the deck down. Regression: `terminal.spec.ts` "deck switch to a stale deep-history pane…", "…window shrank…", "/file round-trip keeps the deck warm". |
     | "tab switch / reveal waits on history before the live bottom is readable / deep sessions reveal slower than shallow ones" | n/a — fixed 2026-08-04 (measured: a 2000-row catch-up frame is 324–516 KiB of proto, 38 ms of blocked worker event loop, and ~300 ms of `renderFull` scrollback DOM built BEFORE `renderViewport()`) | bridge the claim snapshot's tail back to the viewer's held boundary (`_claimTailRows`, cap 2000), or replace that with a constant 250-row tail plus a reveal-triggered three-wide proactive refill — either form puts retained history work ahead of or immediately behind the current viewport, scales resume work with session depth, and mutates the painted grid without reader demand; equally wrong: racing history away or reordering a mixed history+viewport `renderFull` (breaks the single `_pinToBottom` writer, row 122) | **Every authoritative FULL frame is viewport-only and epoch-addressed.** It carries `scrollbackRows=[]`, `sbBase===scrollbackTotal`, and opaque `gridEpoch`; the renderer immediately replaces the current viewport and truthful spacer, then issues zero history RPCs while the reader remains at bottom. Only explicit scroll/find demand fetches disjoint `SessionsGetScrollbackCells` ranges carrying that epoch; worker checks the epoch before and after each cooperative slice and returns an error rather than splice re-numbered rows. While the reader is off-bottom, every FULL frame — including an epoch change — is retained off-DOM as the latest pending frame and deltas fold into it; the painted frame, spacer, `scrollTop`, and visible row remain immutable until an explicit return to bottom applies the latest frame once. If the worker ring dropped the requested prefix, the shorter response's `startRow` is the retained floor: paint the surviving suffix and park there rather than rejecting the whole page or repeatedly requesting impossible rows. Paused Sync recovery resumes the mounted loop in place (no reload), and durable replay yields every 16 frames so live cells preempt it. Regression: `terminal.spec.ts` "deep-history attach/reveal…", "deck switch to a stale deep-history pane…", "long hidden deep-history resume paints the current viewport before history", and "streaming sequence repair leaves an off-bottom reader fixed"; `cellRenderer.dom.test.ts`; `scrollbackBackfill.test.ts`; `scrollback-cells-backfill.test.ts`. |
     | "brand-new browser: spawning a terminal does nothing — no pane, no sidebar row, store `sessions` stays empty until a reload / 'works on the second load'" | n/a — fixed 2026-08-02 (caught by `smoke/terminal/terminal.spec.ts:6` on a FRESH context; instrumented proof: lists 401 → self-register → retry OK, but the socket's first dial 401'd and the `opened` event fired during its 1s backoff) | dial the Sync socket after the bootstrap lists again (throws away the cold-start win for every warm boot to fix only the first-ever boot), or paper over it with a post-bootstrap `sessionsList` refetch | **The snapshot must be ordered AFTER the socket's first open, and an authorization must wake the backoff.** coord runs NO backfill for `since=0` (`handlers-streaming.ts` `backfill()` returns immediately), so an event published between `sessionsList` resolving and the socket opening is lost outright — there is nothing to replay it from. (a) `sync-bootstrap.ts` awaits `syncSocketOpened(SYNC_OPEN_WAIT_MS)` before applying the sessions snapshot, and `sync.ts`'s pre-hydration queue holds frames from the open until `drainPreHydration()`; the window is then closed, not merely shrunk. (b) after a first-boot `_attemptSelfRegister()` authorizes the key, `resumeSyncNow()` re-dials at once instead of serving out a 1s/2s/4s backoff. Any change to the dial ordering MUST keep both. |
@@ -192,14 +192,15 @@ agent's own extension directory (OMP, Pi) over a `0600` per-worker UDS, or from
 screen/OSC scanning as fallback. Do NOT reintroduce a structured agent session
 to carry status, and do NOT persist it — a restart must re-derive it.
 
-**Transport story** (Connect-RPC + protobuf, single framework end-to-end):
+**Transport story** (protobuf over Connect-RPC and dedicated WebSockets):
 - **Web ↔ Coord**:
   - Unary: `coordClient.X({...})` over HTTP/2 with protobuf binary
     (`createConnectTransport({ useBinaryFormat: true })`).
-  - Subscriptions: `coordClient.sync({ sinceEventId })` server-streaming
-    multiplexes 8 buses (sessions / presence / workspaces / tasks /
-    permissions / mcp / webhookTokens / audit + bytes + session_presence).
-    Reconnect-aware backfill via `since_event_id` cursor persisted to
+  - Subscriptions: `/ws/coord-sync?since=<cursor>&tab=<tab-id>&flow=1`
+    multiplexes domain deltas, authoritative terminal cells, and compact
+    terminal-link mappings.
+    Flow-enabled browsers cumulatively ACK only synchronously dispatched
+    delivery sequences; reconnect backfill uses the event cursor persisted to
     localStorage.
   - Keystrokes: `coordClient.inputStream(asyncIter)` client-streaming
     (replaces the retired `/ws/browser-input` raw WSS).
@@ -423,10 +424,12 @@ lsof -iTCP -sTCP:LISTEN -P -n | grep bun
   store using the SAME `foldEvent` exported from `@roost/shared/wire`.
   Coord projects with the same function — so SPA + coord projections agree
   by construction.
-- **Sync:** `src/store/sync.ts` bootstraps via Connect unary list calls,
-  then opens a single `coordClient.sync({ sinceEventId })` server-stream
-  that multiplexes deltas across 8 domains. `_lastSeenEventId` persists
-  to localStorage so reconnect-backfill catches gaps.
+- **Sync:** `src/store/sync.ts` bootstraps via Connect unary list calls, then
+  opens one protobuf WebSocket at `/ws/coord-sync` with exact `flow=1`
+  negotiation. Only the current accepting link dispatches frames, and it sends
+  a cumulative delivery ACK only after synchronous dispatch. A flow-pressure
+  close redials immediately; `_lastSeenEventId` remains in localStorage so
+  reconnect backfill catches missed events.
 - **Connect client:** `src/connect.ts` — `createClient(CoordinatorService,
   createConnectTransport({ useBinaryFormat: true }))` with a JWT
   interceptor. Same EdDSA key minting from `src/auth/web-key.ts`
@@ -436,12 +439,14 @@ lsof -iTCP -sTCP:LISTEN -P -n | grep bun
 - **PTY input:** `src/ws/input-channel.ts` — persistent client-streaming
   RPC `coordClient.inputStream(asyncIter)`. Replaces the retired
   `/ws/browser-input` raw WSS; reconnect-with-backoff + frame buffer.
-- **Terminal:** `src/components/Terminal.tsx` wraps `@wterm/dom`
-  (WASM core base64-inlined). PTY bytes arrive via the Sync stream
-  (`registerBytesHandler` per session_id) → `wterm.write(bytes)`;
-  `wterm.onData` → `inputChannel.sendInput(sid, bytes)`. att2a OSC 1337
-  inline image parser strips image bytes before writeRaw and renders
-  `<img>` overlays.
+- **Terminal:** `src/components/CellTerminal.tsx` paints coordinator-delivered
+  `PbCellGridFrame` snapshots/deltas with `CellGridRenderer`; raw PTY output
+  never enters the browser Sync socket. The coordinator parses OSC 8 once and
+  Sync forwards only compact `TerminalLinkFrame` text→URI mappings for DOM
+  linkification. Only panes on the visible terminal surface hold viewport
+  claims; mounted offscreen panes retain their last grid but receive no cells.
+  `RoostTerm` remains a renderless input/mode encoder whose `onData` feeds
+  `inputChannel.sendInput(sid, bytes)`.
 - **Sidebar:** `src/components/sidebar/` lists machines, workspaces, and shell
   sessions from the same `store.sessions` Map. Selection and filtering are
   derived from the URL and the root store, not separate per-view stores.
@@ -495,11 +500,15 @@ lsof -iTCP -sTCP:LISTEN -P -n | grep bun
 - **Connect handlers** under `src/connect/`:
   - `router.ts` — `buildConnectRouter(deps)` builds the `ConnectRouter`
     with all unary RPCs (workers/sessions/workspaces/tasks/webhooks/
-    permissions/mcp/auth/pair/misc/audit/files), the server-streaming
-    `Sync` firehose (8 buses + reconnect backfill via `since_event_id`),
-    the client-streaming `InputStream` for PTY input, the server-streaming
-    `Scrollback` for PTY history, plus the file-attachment + attachment-
-    browser RPCs (att1/att2).
+    permissions/mcp/auth/pair/misc/audit/files), the client-streaming
+    `InputStream` for PTY input, the server-streaming `Scrollback` for PTY
+    history, plus the file-attachment + attachment-browser RPCs (att1/att2).
+  - `sync-ws-handler.ts` — `/ws/coord-sync`, the protobuf Sync firehose. Exact
+    `flow=1` sockets use a cumulative delivery-sequence ACK window bounded at
+    512 frames, 4 MiB, and 3 seconds from the oldest unacknowledged send,
+    independently of Bun's native send buffer. Pressure closes with 1013 so the
+    browser reconnects through normal event backfill and terminal snapshot
+    reclaim.
   - `bun-handler.ts` — minimal Bun.serve↔Connect adapter (~80 lines).
     Path-routes by `UniversalHandler.requestPath`; converts Fetch Request
     ↔ UniversalServerRequest.
@@ -529,8 +538,9 @@ lsof -iTCP -sTCP:LISTEN -P -n | grep bun
 - **Buses:** `src/buses.ts` — `BoundedBus<T>` with subscribe/publish; one
   per domain (`sessionBus`, `presenceBus`, `workspaceBus`, `taskBus`,
   `webhookBus`, `permissionBus`, `mcpBus`, `auditBus`, `globalBytesBus`,
-  `globalPresenceBus`, `agentStatusBus`). `AuditRow` interface inlined here (no longer
-  imported from a router file).
+  `terminalLinkBus`, `globalPresenceBus`, `agentStatusBus`). Raw PTY bytes stay
+  coordinator-internal for title/activity/OSC parsing; browser Sync receives
+  cell grids plus compact terminal-link metadata. `AuditRow` is inlined here.
 - **Agent-status hub:** `src/agent-status-hub.ts` — in-memory only. Validates
   each worker frame against the session-owner cache (a worker cannot claim
   another's session), drops stale/equal revisions, keeps the active record per
@@ -540,8 +550,9 @@ lsof -iTCP -sTCP:LISTEN -P -n | grep bun
   `src/push-dispatch.ts` + `src/push-sender.ts` + `src/vapid.ts`;
   `push_subscriptions` (migration 0014) is the ONLY persisted piece, and a
   device viewing the transitioning session is suppressed via `viewer-tracker.ts`.
-- **SSE adapter:** `src/sse.ts` — `busToAsyncIterable` converts a
-  BoundedBus into an `AsyncIterable<T>`. Used by the Connect Sync handler.
+- **Async bus adapter:** `src/sse.ts` — `busToAsyncIterable` converts a
+  `BoundedBus` into an `AsyncIterable<T>` for deploy-output streams. Browser
+  Sync uses the dedicated protobuf WebSocket handler above.
 - **DB:** Kysely typed query builder via `kysely-bun-sqlite` dialect.
   Schema at `src/db/schema.ts`. Migrations at `migrations/0001_init.sql`
   applied by `src/db/migrate.ts` (custom MigrationProvider that strips

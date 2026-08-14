@@ -21,6 +21,8 @@ class FakeEl {
 	tagName: string;
 	ownerDocument: unknown;
 	textContent = "";
+	childNodes: unknown[] = [];
+	replacedWith: unknown[] | null = null;
 	private attrs = new Map<string, string>();
 	private listeners = new Map<string, Set<(ev: unknown) => void>>();
 	children: FakeEl[] = [];
@@ -49,6 +51,7 @@ class FakeEl {
 		for (const fn of this.listeners.get(ev.type) ?? []) fn(ev);
 	}
 	remove(): void {}
+	replaceWith(...nodes: unknown[]): void { this.replacedWith = nodes; }
 }
 
 class FakeEventTarget {
@@ -205,6 +208,30 @@ describe("attachTerminalLinks — visibility recovery", () => {
 		h.container.querySelectorAll = () => { scans++; return []; };
 		h.fireAllRaf();
 		expect(scans).toBe(1);
+		attachment.dispose();
+	});
+
+	test("late mapping refresh unwraps stale anchors and resets a dropped scan latch", () => {
+		h = makeHarness();
+		const attachment = attachTerminalLinks(asEl(h.container), null, {});
+		const anchor = new FakeEl("a", h.doc);
+		const child = new FakeEl("span", h.doc);
+		anchor.childNodes = [child];
+		let rowScans = 0;
+		h.container.querySelectorAll = (selector) => {
+			if (selector === "a.wterm-link") return [anchor];
+			rowScans += 1;
+			return [];
+		};
+
+		// Model a browser-dropped initial callback with scanScheduled still true.
+		h.rafQueue.length = 0;
+		attachment.refresh();
+
+		expect(anchor.replacedWith).toEqual([child]);
+		expect(h.rafQueue.length).toBe(1);
+		h.fireNextRaf();
+		expect(rowScans).toBe(1);
 		attachment.dispose();
 	});
 

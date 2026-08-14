@@ -16,6 +16,7 @@ import { setRoutableFps } from "./sync-routable.ts";
 import { _startCoordHealthPoller } from "./sync-health.ts";
 import { _runConnectSync, _abortSyncForVisibility, isSyncPaused, syncLinkIdleMs, drainPreHydration, syncSocketOpened, resumeSyncNow } from "./sync.ts";
 import { shouldRedialOnRefocus } from "./sync-watchdog.ts";
+import { createSingleSyncLoopStarter } from "./sync-flow.ts";
 import { _dispatchFragmentCredential } from "./sync-bootstrap.pair.ts";
 import { relocateRetiredBrowser } from "../auth/coordinator-relocation.ts";
 import { isPageVisible } from "../lib/pageVisible.ts";
@@ -176,6 +177,9 @@ export async function refreshCoordAndWorkers(): Promise<void> {
 // a real auth state → Onboarding).
 let _bootstrapRetries = 0;
 let _bootstrapRetryTimer: ReturnType<typeof setTimeout> | null = null;
+// `_runConnectSync` owns an infinite reconnect loop. Bootstrap retries share
+// this one starter instead of creating competing socket generations.
+const _startSyncLoop = createSingleSyncLoopStarter(() => { void _runConnectSync(); });
 function _scheduleBootstrapRetry(): void {
   if (_bootstrapRetryTimer) return;
   const delay = Math.min(1000 * 2 ** _bootstrapRetries, 10_000);
@@ -204,7 +208,7 @@ async function _bootstrap(): Promise<void> {
     // behind eight list RPCs only delayed first paint. Frames that arrive
     // before the sessions snapshot lands are held by sync.ts's pre-hydration
     // queue and replayed by drainPreHydration().
-    void _runConnectSync();
+    _startSyncLoop();
 
     // Phase 2: bulk lists via Connect. Self-register is NOT serialized ahead of
     // them any more: after the first successful authorization it is a no-op

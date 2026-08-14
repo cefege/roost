@@ -1425,11 +1425,9 @@ test("deep-history attach/reveal paints the live tail until history is requested
   expect(demanded).toMatchObject({ duplicated: [], missing: 0, outOfOrder: 0 });
 });
 
-// Returning to an already-open pane must be INSTANT: no Sync-socket re-dial and
-// no claim snapshot. Both legs assert the absence of work, which is why they
-// read syncWsGeneration() (socket dial count) and cellFullFrameCount() (worker
-// claim snapshots) rather than timing anything.
-test("returning to a streaming pane costs no re-dial and no snapshot", async ({ smokePage, stack }, testInfo) => {
+// Returning to an already-open pane keeps the Sync socket but reclaims an
+// authoritative snapshot. Hidden and offscreen panes must receive no cells.
+test("returning to a dormant pane reclaims once without a Sync re-dial", async ({ smokePage, stack }, testInfo) => {
   test.skip(testInfo.project.name !== "chromium-desktop", "desktop deck/visibility contract");
   const spawn = (folder: string) => smokePage.evaluate(async ({ workerFp, dir }) => {
     const smoke = (window as unknown as Window & {
@@ -1439,13 +1437,12 @@ test("returning to a streaming pane costs no re-dial and no snapshot", async ({ 
   }, { workerFp: stack.workerFp, dir: folder });
 
   const sessionA = await spawn("/tmp");
-  // Probe every quantity in ONE evaluate so a reveal can be inspected without
-  // polling — polling would hide the very round trip under test.
   const probe = () => smokePage.evaluate((id) => {
     const smoke = (window as unknown as Window & {
       __smoke: {
         renderProbe(sessionId: string): { atBottom: boolean };
         markerScan(sessionId: string, prefix: string): { max: number; duplicated: number[]; outOfOrder: number };
+        cellFrameCount(sessionId: string): number;
         cellFullFrameCount(sessionId: string): number;
         syncWsGeneration(): number;
       };
@@ -1456,6 +1453,7 @@ test("returning to a streaming pane costs no re-dial and no snapshot", async ({ 
       markerMax: scan.max,
       duplicated: scan.duplicated,
       outOfOrder: scan.outOfOrder,
+      frames: smoke.cellFrameCount(id),
       fullFrames: smoke.cellFullFrameCount(id),
       wsGeneration: smoke.syncWsGeneration(),
     };
@@ -1467,11 +1465,10 @@ test("returning to a streaming pane costs no re-dial and no snapshot", async ({ 
   await smokePage.keyboard.type("seq -f 'CELLLINE-%g' 1 8000");
   await smokePage.keyboard.press("Enter");
   await expect.poll(() => slotA.textContent(), { timeout: 60_000 }).toContain("CELLLINE-8000");
-  // Let the burst quiesce: a frame in flight during a claim legitimately costs
-  // one redundant snapshot, and this test asserts an exact count.
   await smokePage.waitForTimeout(1000);
 
-  // ── leg 1: deck tab switch away and back ──────────────────────────────────
+  // Deck switch: A withdraws while offscreen, then one claim snapshot restores
+  // the still-mounted renderer. The shared Sync socket stays open.
   const sessionB = await spawn("/tmp");
   await expect.poll(() => smokePage.evaluate((id) => {
     const smoke = (window as unknown as Window & { __smoke: { state(): { sessions: Record<string, unknown> } } }).__smoke;
@@ -1485,28 +1482,26 @@ test("returning to a streaming pane costs no re-dial and no snapshot", async ({ 
     smoke.navigate(`/s/${id}`);
   }, sessionB);
   await expect(smokePage.getByTestId(`tab-${sessionB}`)).toHaveAttribute("data-active", "true");
-  await smokePage.waitForTimeout(1000); // A parks into the background-stream set
+  await smokePage.waitForTimeout(1000);
+  expect((await probe()).frames).toBe(beforeSwitch.frames);
+
   await smokePage.evaluate((id) => {
     const smoke = (window as unknown as Window & { __smoke: { navigate(href: string): void } }).__smoke;
     smoke.navigate(`/s/${id}`);
   }, sessionA);
   await expect(smokePage.getByTestId(`tab-${sessionA}`)).toHaveAttribute("data-active", "true");
-
-  // A never stopped streaming, so its reveal claim carries the worker's own last
-  // emitted seq: the bottom is already painted and no full frame is emitted.
-  const afterSwitch = await probe();
-  expect(afterSwitch).toMatchObject({
+  await expect.poll(async () => (await probe()).fullFrames).toBe(beforeSwitch.fullFrames + 1);
+  expect(await probe()).toMatchObject({
     atBottom: true,
     markerMax: 8000,
     duplicated: [],
     outOfOrder: 0,
-    fullFrames: beforeSwitch.fullFrames,
     wsGeneration: beforeSwitch.wsGeneration,
   });
 
-  // The deterministic hidden pin dispatches visibilitychange without asking
-  // Chromium to background this test page, so lifecycle handlers run while
-  // assertions remain schedulable.
+  // Deterministic hidden pin: the page stays schedulable while lifecycle
+  // handlers withdraw A. Output advances at the PTY but no cell reaches the
+  // browser until visibility returns and one authoritative snapshot reclaims it.
   const beforeHide = await probe();
   await smokePage.evaluate(() => {
     const smoke = (window as unknown as Window & { __smoke: { forceHidden(on: boolean): void } }).__smoke;
@@ -1516,27 +1511,27 @@ test("returning to a streaming pane costs no re-dial and no snapshot", async ({ 
     const smoke = (window as unknown as Window & { __smoke: { input(sessionId: string, text: string): Promise<void> } }).__smoke;
     await smoke.input(id, "for i in $(seq 8001 8200); do echo CELLLINE-$i; sleep 0.01; done\r");
   }, sessionA);
-  // The hidden pane keeps its 0×0 BACKGROUND claim, so deltas keep painting
-  // while the tab is away — wait for the LAST line before returning so the
-  // reveal claim can't race a frame in flight.
-  await expect.poll(() => smokePage.evaluate((id) => {
-    const smoke = (window as unknown as Window & { __smoke: { markerScan(sessionId: string, prefix: string): { max: number } } }).__smoke;
-    return smoke.markerScan(id, "CELLLINE-").max;
-  }, sessionA), { timeout: 60_000, intervals: [250] }).toBe(8200);
-  await smokePage.waitForTimeout(500);
+  await smokePage.waitForTimeout(3000);
+  expect(await probe()).toMatchObject({
+    markerMax: 8000,
+    frames: beforeHide.frames,
+    fullFrames: beforeHide.fullFrames,
+    wsGeneration: beforeHide.wsGeneration,
+  });
 
   await smokePage.evaluate(() => {
     const smoke = (window as unknown as Window & { __smoke: { forceHidden(on: boolean): void } }).__smoke;
     smoke.forceHidden(false);
   });
+  await expect.poll(async () => (await probe()).markerMax, { timeout: 60_000 }).toBe(8200);
   const afterShow = await probe();
   expect(afterShow).toMatchObject({
     atBottom: true,
     markerMax: 8200,
     duplicated: [],
     outOfOrder: 0,
-    fullFrames: beforeHide.fullFrames,   // the pane never fell behind
-    wsGeneration: beforeHide.wsGeneration, // the Sync socket survived the hide
+    fullFrames: beforeHide.fullFrames + 1,
+    wsGeneration: beforeHide.wsGeneration,
   });
 });
 
@@ -1724,7 +1719,8 @@ test("long hidden deep-history resume paints the current viewport before history
     }, sessionId);
     expect(before.atBottom).toBe(true);
 
-    // HIDDEN_STREAM_KEEP_MS (60s) + VIEWER_WITHDRAW_GRACE_MS (800ms).
+    // Stay dormant beyond the retired 60 s hidden-stream grace. The frame-count
+    // assertion below must remain flat for the entire interval.
     await smokePage.waitForTimeout(62_000);
     const currentMarker = `CURRENT_${crypto.randomUUID().replaceAll("-", "")}`;
     await smokePage.evaluate(() => {

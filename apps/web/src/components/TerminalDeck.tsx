@@ -39,11 +39,6 @@ import { diag } from "@roost/shared/diag";
 import { prefersReducedMotion } from "../lib/prefersReducedMotion.ts";
 
 const STRIP_H = 40; // per-pane tab strip height (px)
-// Parked panes that keep streaming (CellTerminal backgroundStream). Capped: each
-// one keeps a worker channel emitting, and the coord fans every cell frame to
-// every Sync socket. Four covers switching back and forth between the tabs a
-// user actually cycles; deeper history still arrives on demand at reveal.
-const BACKGROUND_STREAM_LIMIT = 4;
 /** Mobile (compact) deck-level bar height (px) — the Chrome-style workspace
  *  bar ([menu][title][+][count]) rendered above the full-bleed terminal. */
 const MOBILE_STRIP_H = 48;
@@ -292,32 +287,6 @@ export function TerminalDeck(props: { activeSessionId: string | null }) {
     });
   });
 
-  // Parked panes that keep streaming (CellTerminal backgroundStream), most
-  // recently parked first. A pane enters only by going visible→parked, so it is
-  // already current at that moment and needs no catch-up snapshot; it leaves on
-  // reveal, on close, or when pushed past the cap (→ real withdraw).
-  // A MEMO, not a signal written from an effect: CellTerminal reads this through
-  // props.backgroundStream inside its own park effect, and a memo is recomputed in
-  // the Updates phase — strictly before user effects — so the park always sees the
-  // current set. Writing it from an effect made the two effects race: a pane could
-  // park against the pre-park set, withdraw, and then be refused promotion (a
-  // withdrawn pane is no longer current) → it never streamed at all.
-  let parkedRecency: string[] = []; // most recently parked first
-  let prevSelected: ReadonlySet<string> = new Set<string>();
-  const bgStreamIds = createMemo<ReadonlySet<string>>(
-    () => {
-      const openIds = new Set<string>(openSessions().map((session) => session.id));
-      const selected = new Set<string>(slotBySession().keys());
-      for (const id of prevSelected)
-        if (!selected.has(id) && openIds.has(id))
-          parkedRecency = [id, ...parkedRecency.filter((x) => x !== id)];
-      prevSelected = selected;
-      parkedRecency = parkedRecency.filter((id) => openIds.has(id) && !selected.has(id));
-      return new Set<string>(parkedRecency.slice(0, BACKGROUND_STREAM_LIMIT));
-    },
-    new Set<string>(),
-    { equals: (a, b) => a.size === b.size && [...b].every((id) => a.has(id)) },
-  );
   const mountedSessions = createMemo(() => {
     const warmIds = warmSessionIds();
     const selectedIds = slotBySession();
@@ -924,7 +893,7 @@ export function TerminalDeck(props: { activeSessionId: string | null }) {
           const slot = createMemo(() => slotBySession().get(s.id) ?? null, undefined, { equals: sameSlot });
           return (
             <div data-testid={`terminal-slot-${s.id}`} data-pane-slot data-pane data-pane-id={slot()?.paneId ?? ""} data-focused={slot()?.focused ? "true" : "false"} data-spotlit={slot()?.spotlit ? "true" : undefined} style={{ ...termStyle(slot(), parkSizeBySession().get(s.id)), ...swipeStyleFor(s.id) }}>
-              <CellTerminal session={s} inLayout={!!slot()} focused={slot()?.focused ?? false} spotlit={slot()?.spotlit ?? false} backgroundStream={!slot() && bgStreamIds().has(s.id)} />
+              <CellTerminal session={s} inLayout={!!slot()} focused={slot()?.focused ?? false} spotlit={slot()?.spotlit ?? false} />
             </div>
           );
         }}

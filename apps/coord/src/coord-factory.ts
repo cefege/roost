@@ -16,6 +16,7 @@ import { buildConnectRouter } from "./connect/router.ts";
 import { makeConnectBunHandler } from "./connect/bun-handler.ts";
 import { startTerminalTitleHub } from "./terminal-title-hub.ts";
 import { startLastActivityHub } from "./last-activity-hub.ts";
+import { startTerminalLinkHub } from "./terminal-link-hub.ts";
 import { startAgentStatusHub, stopAgentStatusHub } from "./agent-status-hub.ts";
 import { log } from "@roost/shared/log";
 import type { KyselyDB } from "./db/connection.ts";
@@ -68,6 +69,8 @@ export function createCoord(deps: CoordDeps): CoordHandle {
   // byte stream (throttled), broadcast via Sync. Drives the sidebar "Last
   // activity" filter aging out idle open sessions.
   const stopLastActivityHub = startLastActivityHub();
+  // Completed OSC 8 mappings only: browsers no longer receive raw PTY bytes.
+  const stopTerminalLinkHub = startTerminalLinkHub();
   // Volatile coding-agent status: validate worker ownership, retain the latest
   // active revision per session, and clear it on terminal close.
   startAgentStatusHub({ db: deps.db });
@@ -120,6 +123,7 @@ export function createCoord(deps: CoordDeps): CoordHandle {
   function dispose(): void {
     stopTerminalTitleHub();
     stopLastActivityHub();
+    stopTerminalLinkHub();
     stopAgentStatusHub();
   }
 

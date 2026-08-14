@@ -11,8 +11,8 @@
 // display comes from the cell grid.
 //
 // The ONLY terminal renderer (byte mode / Terminal.tsx deleted 2026-06-23 — cell
-// is canonical). Ports that rode the byte stream live here: ghost cursors
-// (cellRenderer.setGhosts), OSC 8 links (Osc8Tracker + attachTerminalLinks).
+// is canonical). Metadata alongside the cell stream lives here: ghost cursors
+// (cellRenderer.setGhosts) and compact OSC 8 mappings (attachTerminalLinks).
 // Input rides inputChannel.sendInput (bytes).
 
 import {
@@ -41,7 +41,7 @@ import { mouseForwardEnabled } from "../lib/mouseForwardPref.ts";
 import { isCompact, isTouchDevice } from "../lib/windowSizeClass.ts";
 import { micOnDesktop } from "../lib/micOnDesktop.ts";
 import { keyboardOnDesktop } from "../lib/keyboardOnDesktop.ts";
-import { osc8TrackerFor } from "../lib/terminalOsc8.ts";
+import { osc8TrackerFor, subscribeOsc8Mappings } from "../lib/terminalOsc8.ts";
 import { attachTerminalLinks, type ResolveFile, type TerminalLinkAttachment } from "./terminal-links.ts";
 import { downloadWorkerFileByHref } from "../lib/downloadWorkerFile.ts";
 import { registerRenderer } from "../lib/terminalPreview.ts";
@@ -95,9 +95,6 @@ interface CellTerminalProps {
 	// The floated pane's selected tab (spotlight). Flipping this is an
 	// intent-bearing resize → force an exact re-fit (see effect in onMount).
 	spotlit?: boolean;
-	// Parked but kept streaming (deck LRU) — claim 0×0 with cause BACKGROUND so the
-	// worker keeps emitting deltas without letting this pane constrain the PTY size.
-	backgroundStream?: boolean;
 }
 
 const CLAIM_DEBOUNCE_MS = 150;
@@ -111,15 +108,6 @@ const CLAIM_DEBOUNCE_MS = 150;
 // every 30s" the worker's reaper comment already assumes.
 const CLAIM_HEARTBEAT_MS = 30_000;
 
-// A hidden browser tab keeps its IN-LAYOUT panes subscribed (0×0 BACKGROUND
-// claim — excluded from the SCD min, deltas keep flowing) so returning to the
-// tab paints with zero network. Bounded because the claim heartbeat is gated
-// off while hidden: must stay under VIEWER_CLAIM_FRESH_MS (70s,
-// @roost/shared/viewport) so no freshness/reaper edge can fire mid-window.
-const HIDDEN_STREAM_KEEP_MS = 60_000;
-// A parked pane re-subscribes this long after the tab becomes visible, so the
-// revealed pane's snapshot is never queued behind a parked pane's catch-up.
-const PARKED_RESUBSCRIBE_MS = 250;
 
 
 
@@ -195,6 +183,7 @@ export function CellTerminal(props: CellTerminalProps) {
 	let composerDefaultConsumed = false;
 	let renderer: CellGridRenderer | null = null;
 	let linkAttachment: TerminalLinkAttachment | null = null;
+	let unsubscribeOsc8Mappings: (() => void) | null = null;
 	const releasePaintHolds = (): void => {
 		const selection = displayRef?.ownerDocument.getSelection();
 		const ownsEndpoint = !!selection && (
@@ -222,14 +211,9 @@ export function CellTerminal(props: CellTerminalProps) {
 	let lastClaimed = { cols: 0, rows: 0 }; // last ADOPTED claim — hold-anchor for VIEWPORT wobble
 	let resizeObs: ResizeObserver | null = null;
 	let claimTimer: ReturnType<typeof setTimeout> | null = null;
-	// Browser-tab-hidden keep-alive window for an in-layout pane, and the
-	// deferred parked re-subscribe (both cleared on teardown / re-show).
-	let hiddenStreamTimer: ReturnType<typeof setTimeout> | null = null;
-	let parkedResubscribeTimer: ReturnType<typeof setTimeout> | null = null;
-	// Last claim/withdraw actually sent — dedups the double-withdraw: pane hide
-	// withdraws, then the off-screen park's ResizeObserver tick routes through
-	// sendClaim → sees inLayout=false → would withdraw AGAIN. Reset on claim.
-	let _lastSent: "claim" | "background" | "withdraw" | null = null;
+	// Last claim/withdraw actually sent — dedups the double-withdraw when a pane
+	// hides and its offscreen ResizeObserver tick also routes through sendPark.
+	let _lastSent: "claim" | "withdraw" | null = null;
 	// One intent claim per cold mount: set on any real claim send, so the INITIAL
 	// effect no-ops when the inLayout TAB_VISIBLE effect already claimed (each
 	// forced its own full snapshot before — worker treats both as intentMount).
@@ -354,13 +338,10 @@ export function CellTerminal(props: CellTerminalProps) {
 		return true;
 	}
 
-	// Phase-4 (G9, the ignore-inactive-client-size policy): a BACKGROUND tab must not drag the
-	// SCD-min PTY size for the foreground viewers. Withdraw this viewer's claim
-	// (cols=0/rows=0 → worker withdrawViewport) when hidden; re-claim when
-	// visible. The byte renderer (Terminal.tsx) already did this; cell mode (the
-	// default) didn't, so a hidden cell tab pinned everyone to its size for the
-	// 70s claim-freshness window. Visibility reads route through isPageVisible()
-	// (lib/pageVisible.ts) so the __smoke.forceVisible automation pin applies.
+	// A hidden browser tab must not drag the SCD-min PTY size or consume cell
+	// delivery. Withdraw this viewer's claim immediately; visibility recovery
+	// reclaims an authoritative snapshot for panes that are actually in layout.
+	// isPageVisible() also honors the deterministic __smoke.forceVisible pin.
 	function sendWithdraw(): void {
 		backfillRef?.suspend();
 		if (_lastSent === "withdraw") return; // already withdrawn — skip the duplicate RPC
@@ -382,59 +363,11 @@ export function CellTerminal(props: CellTerminalProps) {
 		});
 	}
 
-	// A parked pane in the deck's background set: claim 0×0 with cause BACKGROUND.
-	// Zero dims keep it out of the SCD min (and clear its viewer presence dot),
-	// but the claim STAYS in the worker's viewportClaims, so _hasActiveViewer keeps
-	// cell deltas flowing. The pane therefore never falls behind: revealing it
-	// needs no catch-up frame, no renderFull, no eviction/backfill oscillation —
-	// and (because the deck parks it at its own leaf's rect) every frame applied
-	// while parked is pinned at the geometry it will be revealed at.
-	//
-	// Re-subscribing after a withdraw carries heldCellSeq. If the viewer fell
-	// behind, the worker sends a viewport-only authoritative snapshot before
-	// deltas resume.
-	function sendBackgroundClaim(): void {
-		backfillRef?.suspend();
-		if (_lastSent === "background") return;
-		_lastSent = "background";
-		lastClaimed = { cols: 0, rows: 0 }; // a reveal must re-claim a real size
-		claimSeq += 1;
-		diag("cell.claim", {
-			sid: props.session.id,
-			cols: 0,
-			rows: 0,
-			client_seq: claimSeq,
-			background: true,
-		});
-		void coordClient.sessionsResize({
-			sessionId: props.session.id,
-			cols: 0,
-			rows: 0,
-			clientSeq: BigInt(claimSeq),
-			cause: ResizeCause.BACKGROUND,
-			heldCellSeq: renderer?.heldFrameSeq() ?? 0,
-		});
-	}
-
-	/** Leaving the layout: keep streaming when the deck says this pane is in the
-	 *  background set, otherwise withdraw. */
+	/** Leaving the visible layout: withdraw immediately while keeping the
+	 *  mounted renderer and its last painted grid dormant for a later reclaim. */
 	function sendPark(): void {
 		releasePaintHolds();
-		if (props.backgroundStream === true) sendBackgroundClaim();
-		else sendWithdraw();
-	}
-
-	/** Browser tab hidden: an in-layout pane stays subscribed for a bounded window
-	 *  so a tab switch back is instant; a parked pane withdraws immediately. */
-	function sendHiddenPark(): void {
-		releasePaintHolds();
-		if (hiddenStreamTimer) { clearTimeout(hiddenStreamTimer); hiddenStreamTimer = null; }
-		if (props.inLayout !== true) { sendWithdraw(); return; }
-		sendBackgroundClaim();
-		hiddenStreamTimer = setTimeout(() => {
-			hiddenStreamTimer = null;
-			sendWithdraw();
-		}, HIDDEN_STREAM_KEEP_MS);
+		sendWithdraw();
 	}
 
 	// cause = the browser event behind this claim (ResizeCause model).
@@ -447,12 +380,8 @@ export function CellTerminal(props: CellTerminalProps) {
 			sendWithdraw();
 			return;
 		}
-		// B (draw only to attached clients): a non-active deck pane is mounted but
-		// visibility:hidden — park it (sendPark). Outside the deck's background set
-		// that is a real withdraw, so the worker stops emitting cells to it; without
-		// it every tab claims ALL open sessions → nothing is ever "unwatched" and the
-		// worker emit gate never fires. Switching back re-claims (INITIAL/TAB_VISIBLE)
-		// → snapshot repaints.
+		// A non-active deck pane stays mounted but withdraws so the worker stops
+		// emitting cells. Switching back reclaims an authoritative snapshot.
 		if (props.inLayout === false) {
 			sendPark();
 			return;
@@ -488,8 +417,8 @@ export function CellTerminal(props: CellTerminalProps) {
 			rows,
 			clientSeq: BigInt(claimSeq),
 			cause,
-			// Held cell-frame seq: a reveal of a pane that never stopped streaming
-			// matches the worker's last emit, so the claim repaints nothing.
+			// The worker skips a repaint when this watermark is current, or sends
+			// one authoritative viewport-only full frame when the dormant grid fell behind.
 			heldCellSeq: renderer?.heldFrameSeq() ?? 0,
 		});
 	}
@@ -619,6 +548,7 @@ export function CellTerminal(props: CellTerminalProps) {
 				sendClaimNow(ResizeCause.TAB_VISIBLE);
 			};
 			unsubCell = registerCellHandler(props.session.id, (frame) => {
+				if (props.inLayout !== true || !isPageVisible()) return;
 				const diagOn = isDiagEnabled();
 				const _frameArr = diagOn ? performance.now() : 0;
 				// Echo RTT tracker: input→cell-frame round-trip, works even when
@@ -667,7 +597,7 @@ export function CellTerminal(props: CellTerminalProps) {
 					diag("cell.reveal", { sid: props.session.id, ms: Math.round(performance.now() - revealT0), full: frame.full });
 					revealT0 = 0;
 				}
-				if (diagOn && isPageVisible() && props.inLayout !== false) {
+				if (diagOn) {
 					requestAnimationFrame(() => requestAnimationFrame(() => {
 						diag("cell.paint_screen", { sid: props.session.id, dur_ms: performance.now() - _frameArr });
 					}));
@@ -722,24 +652,15 @@ export function CellTerminal(props: CellTerminalProps) {
 			});
 		});
 
-		// Claim heartbeat: keep dimensions and claimSeq unchanged, but report the
-		// renderer's applied watermark. The worker refreshes claim liveness and
-		// emits a full snapshot only when heldCellSeq is zero/behind. A parked pane
-		// keeps its 0×0 BACKGROUND heartbeat and reconciles on reveal.
+		// Claim heartbeat refreshes only the currently visible pane. Parked and
+		// browser-hidden panes stay withdrawn and consume no cell frames.
 		const claimHeartbeat = setInterval(() => {
-			if (!isPageVisible()) return;
-			if (props.inLayout === false) {
-				if (_lastSent !== "background") return;
-				void coordClient.sessionsResize({
-					sessionId: props.session.id,
-					cols: 0,
-					rows: 0,
-					clientSeq: BigInt(claimSeq),
-					cause: ResizeCause.BACKGROUND,
-				});
-				return;
-			}
-			if (lastClaimed.cols <= 0 || lastClaimed.rows <= 0) return;
+			if (
+				!isPageVisible()
+				|| props.inLayout !== true
+				|| lastClaimed.cols <= 0
+				|| lastClaimed.rows <= 0
+			) return;
 			void coordClient.sessionsResize({
 				sessionId: props.session.id,
 				cols: lastClaimed.cols,
@@ -795,9 +716,7 @@ export function CellTerminal(props: CellTerminalProps) {
 			});
 		});
 
-		// DECCKM / bracketed-paste modes come from the cell frame (see syncInputModes).
-		// OSC 8 is tracked in sync-dispatch so links emitted before this pane was
-		// first visited remain available when its renderer mounts.
+		// OSC 8 mappings are retained in sync-dispatch before a pane is visited.
 		const osc8 = osc8TrackerFor(props.session.id);
 		// Linkify rendered .cell-row text (OSC 8 links + regex URLs), Cmd/Ctrl-gated.
 		linkAttachment = attachTerminalLinks(displayRef!, osc8, {
@@ -811,6 +730,9 @@ export function CellTerminal(props: CellTerminalProps) {
 			onArmedHoverChange: (active) => {
 				if (renderer?.setArmedHold(active)) backfill.onFullFrame();
 			},
+		});
+		unsubscribeOsc8Mappings = subscribeOsc8Mappings(props.session.id, () => {
+			linkAttachment?.refresh();
 		});
 
 		// MOBILE keyboard fix: tapping a sidebar row to switch terminals closes the
@@ -1081,22 +1003,7 @@ export function CellTerminal(props: CellTerminalProps) {
 			// cell.reveal forensics diag (first frame applied afterwards).
 			revealT0 = performance.now();
 			sendClaimNow(ResizeCause.TAB_VISIBLE);
-			// A still-streaming pane may need no frame; retained history remains
-			// dormant until the reader explicitly scrolls or searches.
 		}));
-		// LRU eviction while parked downgrades a background claim to a real withdraw.
-		// Re-promotion into the set re-subscribes for real: the background claim
-		// carries heldCellSeq, so the worker sends a catch-up snapshot when this
-		// pane fell behind and nothing when it did not — either way the pane is
-		// current for its next reveal. Only meaningful while parked and page-visible
-		// — a hidden tab's panes are handled by onVisibility, and a pane in layout
-		// holds a real claim.
-		const bgFlag = createMemo(() => props.backgroundStream === true);
-		createEffect(on(bgFlag, (bg) => {
-			if (props.inLayout === true || !isPageVisible()) return;
-			if (bg) sendBackgroundClaim();
-			else sendWithdraw();
-		}, { defer: true }));
 		// Focus gate: only the focused pane's terminal grabs the keyboard. Touch
 		// devices skip it (an explicit tap on the display still focuses) so selecting
 		// a pane doesn't pop the on-screen keyboard. This effect is intentionally
@@ -1261,23 +1168,14 @@ export function CellTerminal(props: CellTerminalProps) {
 			});
 		}, { defer: true }));
 
-		// G9: a hidden browser tab must not pin the SCD-min size for foreground
-		// viewers, so it drops to a 0×0 claim — kept subscribed while in layout
-		// (HIDDEN_STREAM_KEEP_MS) so the return paints with no round trip.
+		// Browser visibility is a hard subscription boundary. The mounted grid
+		// remains intact while hidden; returning reclaims only visible panes.
 		const onVisibility = () => {
-			if (!isPageVisible()) { sendHiddenPark(); return; }
-			if (hiddenStreamTimer) { clearTimeout(hiddenStreamTimer); hiddenStreamTimer = null; }
-			if (props.inLayout === true) {
-				sendClaimNow(ResizeCause.TAB_VISIBLE);
+			if (!isPageVisible() || props.inLayout !== true) {
+				sendPark();
 				return;
 			}
-			// Parked panes re-subscribe AFTER the visible pane's claim so its
-			// snapshot is never queued behind theirs.
-			clearTimeout(parkedResubscribeTimer ?? undefined);
-			parkedResubscribeTimer = setTimeout(() => {
-				parkedResubscribeTimer = null;
-				if (isPageVisible() && props.inLayout !== true) sendPark();
-			}, PARKED_RESUBSCRIBE_MS);
+			sendClaimNow(ResizeCause.TAB_VISIBLE);
 		};
 		document.addEventListener("visibilitychange", onVisibility);
 		// Re-claim whenever the firehose WS (re)opens. Cell content is live-forward
@@ -1413,6 +1311,8 @@ export function CellTerminal(props: CellTerminalProps) {
 				releasePaintHolds();
 				unsubCell();
 				unsubPresence();
+				unsubscribeOsc8Mappings?.();
+				unsubscribeOsc8Mappings = null;
 				linkAttachment?.dispose();
 				linkAttachment = null;
 				releaseCursorPoll();
@@ -1434,8 +1334,6 @@ export function CellTerminal(props: CellTerminalProps) {
 				displayRef?.removeEventListener("paste", onPaste);
 				inputHostRef?.removeEventListener("paste", onPaste);
 				clearTimeout(claimTimer ?? undefined);
-				clearTimeout(hiddenStreamTimer ?? undefined);
-				clearTimeout(parkedResubscribeTimer ?? undefined);
 				predictor?.dispose();
 				renderer?.dispose();
 				unregPreview();

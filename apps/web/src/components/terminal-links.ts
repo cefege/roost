@@ -189,6 +189,8 @@ function _wrapRange(
 /** Attachment controls for a terminal linkifier instance. */
 export interface TerminalLinkAttachment {
   releaseInteraction(): void;
+  /** Re-link existing rows after a newly received producer mapping. */
+  refresh(): void;
   dispose(): void;
 }
 
@@ -497,6 +499,17 @@ export function attachTerminalLinks(
   obs.observe(container, { childList: true, characterData: true, subtree: true });
   // Initial pass for whatever's already rendered.
   scheduleScan();
+
+  const refresh = (): void => {
+    _cancelScan();
+    scanScheduled = false;
+    for (const anchor of container.querySelectorAll<HTMLAnchorElement>(`a.${LINK_CLASS}`)) {
+      anchor.replaceWith(...Array.from(anchor.childNodes));
+    }
+    dirtyRows.clear();
+    fullScanNeeded = true;
+    scheduleScan();
+  };
   // Visibility recovery. A rAF queued while the tab is hidden can be DROPPED by
   // the browser (not merely deferred) after a long-backgrounded / throttled /
   // slept tab — leaving scanScheduled===true with no pending callback. Every
@@ -531,5 +544,5 @@ export function attachTerminalLinks(
     hintEl?.remove();
     hintEl = null;
   };
-  return { releaseInteraction, dispose };
+  return { releaseInteraction, refresh, dispose };
 }

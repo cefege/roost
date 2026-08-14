@@ -1,12 +1,12 @@
-// Which sessions each browser TAB streams cell frames and PTY bytes for.
+// Which sessions each browser TAB streams authoritative cell frames for.
 // Driven by sessionsResize (handlers-sessions.ts) and read by the Sync fanout
-// (handlers-streaming.ts::startSyncFeed) so a tab is no longer sent — and no
-// longer re-serialized — every frame of every session on the fleet.
+// (handlers-streaming.ts::startSyncFeed), so a tab is no longer sent — and no
+// longer re-serialized — every cell frame on the fleet. Raw PTY bytes never
+// enter browser Sync; compact terminal-link mappings are intentionally global.
 //
-// Mirrors the worker's viewportClaims exactly: a BACKGROUND claim (0x0, cause
-// BACKGROUND) KEEPS the subscription, because that parked-pane keep-alive is
-// what makes a reveal need no socket re-dial and no snapshot. Only an explicit
-// WITHDRAW, a session close, or the shared claim TTL drops it.
+// Mirrors the worker's viewportClaims: positive claims subscribe, while current
+// browsers send a real 0×0 WITHDRAW as soon as a pane becomes hidden/offscreen.
+// Withdraw tombstones, session close, and the shared claim TTL prune state.
 //
 // Module-level singleton (one per coord), same shape and schedule as
 // viewer-tracker.ts: importing this module starts the TTL reaper and the
@@ -17,27 +17,101 @@ import { VIEWER_CLAIM_TTL_MS } from "@roost/shared/viewport";
 
 const REAP_INTERVAL_MS = 10_000;
 
-// viewerKey (`${fingerprint}:${tabId}`) → sessionId → last claim wall-clock.
-const _sessionsByViewer = new Map<string, Map<string, number>>();
+interface CellSubscription {
+	readonly subscribed: boolean;
+	// Highest effective intent sequence observed for this viewer/session. Keep
+	// it across WITHDRAW as a tombstone so a delayed older claim cannot revive
+	// it. Legacy sequence zero is translated into the next effective sequence.
+	readonly clientSeq: bigint;
+	readonly lastMs: number;
+}
 
-export function subscribeCells(viewerKey: string, sessionId: string): void {
+/** An accepted mutation. Its object identity makes rollback conditional: an
+ * older failed send can restore its exact predecessor only while no newer
+ * mutation has replaced the installed entry. */
+export interface CellSubscriptionMutation {
+	readonly effectiveClientSeq: bigint;
+	rollback(): boolean;
+}
+
+// viewerKey (`${fingerprint}:${tabId}`) → sessionId → ordered membership.
+const _sessionsByViewer = new Map<string, Map<string, CellSubscription>>();
+
+export function mutateCellSubscription(
+	viewerKey: string,
+	sessionId: string,
+	subscribed: boolean,
+	clientSeq = 0n,
+	refreshEqual = false,
+): CellSubscriptionMutation | null {
+	const prior = _sessionsByViewer.get(viewerKey)?.get(sessionId);
+	if (clientSeq > 0n && prior) {
+		if (clientSeq < prior.clientSeq) return null;
+		if (clientSeq === prior.clientSeq) {
+			// Heartbeats deliberately reuse the current intent sequence. They may
+			// refresh a live claim (and be forwarded for held-cell repair), but
+			// equality can never change membership.
+			if (!refreshEqual || !subscribed || !prior.subscribed) return null;
+		}
+	}
+
+	// Legacy claims remain arrival-ordered, but the coordinator owns the
+	// synthesized watermark and forwards it to the worker. A legacy withdraw
+	// preserves the prior watermark because the worker withdraw path removes the
+	// claim before inspecting client_seq; advancing only here would suppress the
+	// next ordered reclaim that the worker would accept.
+	const effectiveClientSeq = clientSeq > 0n
+		? clientSeq
+		: subscribed
+			? (prior?.clientSeq ?? -1n) + 1n
+			: (prior?.clientSeq ?? 0n);
 	let sessions = _sessionsByViewer.get(viewerKey);
 	if (!sessions) {
 		sessions = new Map();
 		_sessionsByViewer.set(viewerKey, sessions);
 	}
-	sessions.set(sessionId, Date.now());
+	const applied: CellSubscription = {
+		subscribed,
+		clientSeq: effectiveClientSeq,
+		lastMs: Date.now(),
+	};
+	sessions.set(sessionId, applied);
+
+	return {
+		effectiveClientSeq,
+		rollback(): boolean {
+			const current = _sessionsByViewer.get(viewerKey);
+			if (!current || current.get(sessionId) !== applied) return false;
+			if (prior) {
+				current.set(sessionId, prior);
+			} else {
+				current.delete(sessionId);
+				if (current.size === 0) _sessionsByViewer.delete(viewerKey);
+			}
+			return true;
+		},
+	};
 }
 
-export function unsubscribeCells(viewerKey: string, sessionId: string): void {
-	const sessions = _sessionsByViewer.get(viewerKey);
-	if (!sessions) return;
-	sessions.delete(sessionId);
-	if (sessions.size === 0) _sessionsByViewer.delete(viewerKey);
+export function subscribeCells(
+	viewerKey: string,
+	sessionId: string,
+	clientSeq = 0n,
+	refreshEqual = false,
+): boolean {
+	return mutateCellSubscription(viewerKey, sessionId, true, clientSeq, refreshEqual) !== null;
+}
+
+export function unsubscribeCells(
+	viewerKey: string,
+	sessionId: string,
+	clientSeq = 0n,
+): boolean {
+	return mutateCellSubscription(viewerKey, sessionId, false, clientSeq, false) !== null;
 }
 
 export function isSubscribed(viewerKey: string, sessionId: string): boolean {
-	return _sessionsByViewer.get(viewerKey)?.has(sessionId) === true;
+	return _sessionsByViewer.get(viewerKey)?.get(sessionId)?.subscribed === true;
 }
 
 // A closed Sync socket deliberately does NOT clear the set. Subscriptions are
@@ -50,22 +124,28 @@ export function isSubscribed(viewerKey: string, sessionId: string): boolean {
  *  is how a live investigation answers "why is this tab painting/not painting". */
 export function _cellSubscriptionSnapshot(): Record<string, string[]> {
 	const out: Record<string, string[]> = {};
-	for (const [viewerKey, sessions] of _sessionsByViewer) out[viewerKey] = [...sessions.keys()];
+	for (const [viewerKey, sessions] of _sessionsByViewer) {
+		const subscribed = [...sessions]
+			.filter(([, entry]) => entry.subscribed)
+			.map(([sessionId]) => sessionId);
+		if (subscribed.length > 0) out[viewerKey] = subscribed;
+	}
 	return out;
 }
 
 // A tab that crashed or slept past the shared claim TTL is no longer a viewer —
 // the same TTL the worker and the viewer tracker use, so the three sides cannot
 // disagree about who is watching.
-setInterval(() => {
-	const now = Date.now();
+export function _reapCellSubscriptions(now = Date.now()): void {
 	for (const [viewerKey, sessions] of _sessionsByViewer) {
-		for (const [sessionId, lastMs] of sessions) {
-			if (now - lastMs > VIEWER_CLAIM_TTL_MS) sessions.delete(sessionId);
+		for (const [sessionId, entry] of sessions) {
+			if (now - entry.lastMs > VIEWER_CLAIM_TTL_MS) sessions.delete(sessionId);
 		}
 		if (sessions.size === 0) _sessionsByViewer.delete(viewerKey);
 	}
-}, REAP_INTERVAL_MS).unref?.();
+}
+
+setInterval(() => _reapCellSubscriptions(), REAP_INTERVAL_MS).unref?.();
 
 // A closed session can never produce another frame; drop it from every tab now
 // rather than leaving TTL-lived entries behind (same reasoning as the viewer

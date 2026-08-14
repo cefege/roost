@@ -1,11 +1,9 @@
 // Sync — single Connect server-streaming RPC replacing sync.firehose
-// tRPC subscription. Multiplexes 8 buses (sessions/presence/workspaces/
-// tasks/permissions/mcp/globalBytes/globalPresence) over one stream.
+// tRPC subscription. Multiplexes coordinator state buses plus authoritative
+// terminal cell grids and compact terminal-link metadata over one stream.
 //
 // Wire shape: FirehoseFrame oneof. Event-typed variants carry a JSON
 // payload (existing per-domain event shapes from @roost/shared/wire).
-// Bytes variant uses proto-native fields (session_id, data, seq) —
-// binary efficient, no base64.
 
 syntax = "proto3";
 package roost.v1;
@@ -30,10 +28,13 @@ message JsonEvent {
   string payload_json = 1;
 }
 
-message BytesFrame {
+// Completed OSC 8 mapping, parsed and sanitized centrally by the coordinator.
+// Volatile and compact: browsers retain mappings they receive, but reconnects
+// do not replay coordinator parser state.
+message TerminalLinkFrame {
   string session_id = 1;
-  bytes data = 2;  // raw PTY bytes — no base64
-  uint64 seq = 3;
+  string text = 2;
+  string uri = 3;
 }
 
 message SessionPresence {
@@ -89,10 +90,12 @@ message AgentStatusFrame {
 
 
 message FirehoseFrame {
-  reserved 28;  // retired field
+  reserved 7, 28;  // retired fields
+  // Per-socket application-delivery sequence. Zero means legacy/unenforced.
+  uint64 delivery_seq = 31;
   oneof frame {
     JsonEvent sessions = 1;       // legacy fallback: any kind not yet in session_event_proto
-    BytesFrame bytes = 7;
+    TerminalLinkFrame terminal_link = 30;
     SessionPresence session_presence = 8;
     AuditRow audit_row = 10;
     SessionEventProto session_event = 11;
@@ -128,6 +131,12 @@ message FirehoseFrame {
     CoordinatorRelocationFrame coordinator_relocation = 27;
     AgentStatusFrame agent_status = 29;
   }
+}
+
+// Browser acknowledgement after synchronous application dispatch. Cumulative:
+// every delivery sequence through ack_delivery_seq has been consumed.
+message SyncClientFrame {
+  uint64 ack_delivery_seq = 1;
 }
 
 message KeepaliveFrame {

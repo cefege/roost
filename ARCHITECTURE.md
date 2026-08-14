@@ -13,10 +13,10 @@ package. Everything speaks one RPC framework end to end
 ```text
   Browser  (Solid SPA, any device on your tailnet)
      │
-     │  Connect-RPC over HTTP/2, protobuf binary
+     │  Connect-RPC over HTTP/2 + protobuf Sync WebSocket
      │    · unary            list calls, mutations
-     │    · Sync stream      live deltas for 8 domains in one connection
-     │    · inputStream      keystrokes (client-streaming)
+     │    · Sync WebSocket   live deltas, cells, compact terminal links
+     │    · inputStream      keystrokes (client-streaming RPC)
      │    · scrollback       history, resumable from a byte offset
      ▼
  ┌────────────────────────────────────────────┐
@@ -66,12 +66,23 @@ and gets exactly the events it missed.
 
 ## The terminal data plane
 
-**Terminal bytes (keystroke → screen).** The browser streams keystrokes up a
-single long-lived `inputStream` RPC. The coordinator forwards them over the
-worker's WebSocket; the worker writes them into the keeper, which writes the
-PTY. Output flows back the same way and rides the `Sync` stream's bytes channel
-out to every browser watching that session.
+**Terminal input and output.** The browser streams keystrokes up a single
+long-lived `inputStream` RPC. The coordinator forwards them over the worker's
+WebSocket; the worker writes them into the keeper, which writes the PTY. Raw
+output returns only as far as the coordinator. The worker sends authoritative
+cell-grid snapshots and deltas, while the coordinator derives compact OSC 8
+text-to-URI mappings; those cells and links, never raw PTY bytes, cross the
+browser `Sync` WebSocket. Only visible panes claim cell delivery. Mounted
+offscreen panes keep their last grid without receiving cells, then reclaim an
+authoritative snapshot when revealed.
 
+**Guarded browser delivery.** A browser opts into application flow control with
+exact `flow=1` negotiation and cumulatively acknowledges delivery sequence
+numbers only after synchronous dispatch. Independently of the native WebSocket
+buffer, the coordinator caps unacknowledged work at 512 frames, 4 MiB, and a
+3-second oldest-frame age. Backpressure closes the stale socket; the browser
+immediately reconnects without reloading, and visible terminals recover through
+the same authoritative snapshot path.
 
 This is Roost's only interactive data plane. Agent CLIs such as `omp`, Claude
 Code, or Codex may be launched inside the shell PTY, manually or through the
@@ -144,8 +155,9 @@ failure modes and their fixes are catalogued in `CLAUDE.md`.
 - **Worker process crashes** — the keeper is a separate process, so PTYs
   survive; the restarted worker reattaches over the UDS and re-adopts open
   sessions.
-- **Browser disconnects** — the `Sync` stream reconnects and backfills from the
-  last event id; scrollback re-fetches from the last byte offset.
+- **Browser disconnects** — the `Sync` WebSocket reconnects and backfills
+  missed events from the last event id; visible terminal panes reclaim the
+  current authoritative grid while history remains demand-paged.
 - **Coordinator restarts** — workers redial, browsers reconnect, and every
   session is re-projected from the event log. No state is lost because the log
   is the source of truth.

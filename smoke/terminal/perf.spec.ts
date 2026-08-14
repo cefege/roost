@@ -24,6 +24,12 @@ type PerfSmoke = {
   input(sessionId: string, text: string): Promise<void>;
   perfProbe(sessionId: string): PerfProbe;
   resetPerfCounters(): void;
+  cellFrameCount(sessionId: string): number;
+  cellFullFrameCount(sessionId: string): number;
+  syncWsGeneration(): number;
+  paneFocused(sessionId: string): { focused: boolean };
+  viewportText(sessionId: string): string;
+  navigate(href: string): void;
 };
 
 const FLOOD_LINES = 20_000;
@@ -102,4 +108,133 @@ test("terminal perf baseline: cold first row and a 20k-line flood", async ({ smo
   // The flood is also a correctness sample: measuring must never come at the
   // cost of the history invariants the whole model exists to protect.
   expect(scan).toMatchObject({ duplicated: [], outOfOrder: 0 });
+});
+
+test("offscreen mounted terminals receive no cell frames under load", async ({ smokePage, stack }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium-desktop", "desktop offscreen load");
+  test.setTimeout(180_000);
+
+  const sessionIds = await smokePage.evaluate(async (workerFp) => {
+    const smoke = (window as unknown as Window & { __smoke: PerfSmoke }).__smoke;
+    return Promise.all(Array.from({ length: 10 }, async () =>
+      (await smoke.spawnShell(workerFp, "/tmp")).session_id));
+  }, stack.workerFp);
+
+  for (const sessionId of sessionIds) {
+    await smokePage.evaluate((id) => {
+      const smoke = (window as unknown as Window & { __smoke: PerfSmoke }).__smoke;
+      smoke.navigate(`/s/${id}`);
+    }, sessionId);
+    await smokePage.waitForFunction((id) => {
+      const smoke = (window as unknown as Window & { __smoke: PerfSmoke }).__smoke;
+      return smoke.renderProbe(id).nonEmptyRows > 0;
+    }, sessionId);
+  }
+  const visibleId = sessionIds.at(-1)!;
+  await smokePage.waitForTimeout(500);
+  const before = await smokePage.evaluate((ids) => {
+    const smoke = (window as unknown as Window & { __smoke: PerfSmoke }).__smoke;
+    return Object.fromEntries(ids.map((id) => [id, smoke.cellFrameCount(id)]));
+  }, sessionIds);
+
+  await smokePage.evaluate(async (ids) => {
+    const smoke = (window as unknown as Window & { __smoke: PerfSmoke }).__smoke;
+    await Promise.all(ids.map((id, index) =>
+      smoke.input(id, `seq -f 'OFFSCREEN-${index}-%g' 1 2000\r`)));
+  }, sessionIds);
+  await expect.poll(() => smokePage.evaluate((id) => {
+    const smoke = (window as unknown as Window & { __smoke: PerfSmoke }).__smoke;
+    return smoke.markerScan(id, "OFFSCREEN-9-").max;
+  }, visibleId), { timeout: 60_000, intervals: [100] }).toBe(2000);
+  await smokePage.waitForTimeout(500);
+
+  const after = await smokePage.evaluate((ids) => {
+    const smoke = (window as unknown as Window & { __smoke: PerfSmoke }).__smoke;
+    return Object.fromEntries(ids.map((id) => [id, smoke.cellFrameCount(id)]));
+  }, sessionIds);
+  expect(after[visibleId]! - before[visibleId]!).toBeGreaterThan(0);
+  for (const hiddenId of sessionIds.slice(0, -1)) {
+    expect(after[hiddenId]! - before[hiddenId]!).toBe(0);
+  }
+});
+
+test("stalled browser consumer reconnects without reloading and resumes input", async ({ smokePage, stack }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium-desktop", "desktop transport recovery");
+  test.setTimeout(120_000);
+
+  const sessionId = await smokePage.evaluate(async (workerFp) => {
+    const smoke = (window as unknown as Window & { __smoke: PerfSmoke }).__smoke;
+    return (await smoke.spawnShell(workerFp, "/tmp")).session_id;
+  }, stack.workerFp);
+  await smokePage.evaluate((id) => {
+    const smoke = (window as unknown as Window & { __smoke: PerfSmoke }).__smoke;
+    smoke.navigate(`/s/${id}`);
+  }, sessionId);
+  await smokePage.waitForFunction((id) => {
+    const smoke = (window as unknown as Window & { __smoke: PerfSmoke }).__smoke;
+    return smoke.renderProbe(id).nonEmptyRows > 0;
+  }, sessionId);
+
+  const suffix = `${Date.now()}_${Math.floor(Math.random() * 1_000_000)}`;
+  const recoveryMarker = `STALL_RECOVER_${suffix}`;
+  const before = await smokePage.evaluate(({ id, canary }) => {
+    const win = window as unknown as Window & {
+      __smoke: PerfSmoke;
+      __stallCanary?: string;
+    };
+    win.__stallCanary = canary;
+    return {
+      generation: win.__smoke.syncWsGeneration(),
+      fullFrames: win.__smoke.cellFullFrameCount(id),
+    };
+  }, { id: sessionId, canary: suffix });
+
+  await smokePage.evaluate(async ({ id, markerSuffix }) => {
+    const smoke = (window as unknown as Window & { __smoke: PerfSmoke }).__smoke;
+    await smoke.input(
+      id,
+      `sleep .25; seq 1 4000; sleep 3.5; m='STALL_RECOVER_''${markerSuffix}'; printf '%s\\n' "$m"\r`,
+    );
+    const blockedUntil = performance.now() + 4_500;
+    while (performance.now() < blockedUntil) {
+      // The flood starts the ACK deadline; the marker lands after the stale socket closes.
+    }
+  }, { id: sessionId, markerSuffix: suffix });
+
+  await expect.poll(() => smokePage.evaluate(() => {
+    const smoke = (window as unknown as Window & { __smoke: PerfSmoke }).__smoke;
+    return smoke.syncWsGeneration();
+  }), { timeout: 30_000, intervals: [100] }).toBeGreaterThan(before.generation);
+  await smokePage.waitForFunction(({ id, marker }) => {
+    const smoke = (window as unknown as Window & { __smoke: PerfSmoke }).__smoke;
+    return smoke.viewportText(id).includes(marker);
+  }, { id: sessionId, marker: recoveryMarker });
+
+  const recovered = await smokePage.evaluate(({ id, marker, canary }) => {
+    const win = window as unknown as Window & {
+      __smoke: PerfSmoke;
+      __stallCanary?: string;
+    };
+    const text = win.__smoke.viewportText(id);
+    return {
+      canary: win.__stallCanary,
+      markerCount: text.split(marker).length - 1,
+      fullFrames: win.__smoke.cellFullFrameCount(id),
+    };
+  }, { id: sessionId, marker: recoveryMarker, canary: suffix });
+  expect(recovered.canary).toBe(suffix);
+  expect(recovered.markerCount).toBe(1);
+  expect(recovered.fullFrames - before.fullFrames).toBe(1);
+
+  await expect.poll(() => smokePage.evaluate((id) => {
+    const smoke = (window as unknown as Window & { __smoke: PerfSmoke }).__smoke;
+    return smoke.paneFocused(id).focused;
+  }, sessionId), { timeout: 15_000, intervals: [100] }).toBe(true);
+  const keyboardMarker = `KEYBOARD_RECOVER_${suffix}`;
+  await smokePage.keyboard.type(`printf 'KEYBOARD_RECOVER_''${suffix}\\n'`);
+  await smokePage.keyboard.press("Enter");
+  await smokePage.waitForFunction(({ id, marker }) => {
+    const smoke = (window as unknown as Window & { __smoke: PerfSmoke }).__smoke;
+    return smoke.viewportText(id).includes(marker);
+  }, { id: sessionId, marker: keyboardMarker });
 });

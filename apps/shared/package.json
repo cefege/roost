@@ -19,6 +19,7 @@
     "./viewport": "./src/viewport.ts",
     "./wterm-wasm": "./src/wterm-wasm.ts",
     "./wterm-core-factory": "./src/wterm-core-factory.ts",
+    "./terminal-osc8": "./src/terminal-osc8.ts",
     "./cell": "./src/cell/index.ts",
     "./cell/cell-proto": "./src/cell/cell-proto.ts",
     "./proto/*": "./src/gen/roost/v1/*.ts",

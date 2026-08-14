@@ -27,6 +27,7 @@ import { globalPresenceBus } from "../src/buses.ts";
 import { __setConnectWorkerForTest } from "../src/connect/worker-service.ts";
 import { primeChannelMap } from "../src/byte-hub.ts";
 import type { CoordConfig } from "@roost/shared/config";
+import { isSubscribed } from "../src/connect/cell-subscriptions.ts";
 
 let workdir: string;
 let coord: CoordHandle;
@@ -285,6 +286,196 @@ describe("per-tab viewer identity — resize and cursor presence", () => {
     };
     expect(last.frame.case).toBe("browserCommand");
     expect(last.frame.value.viewerId).toBe(`${browserFp}:tab-WIRE`);
+  });
+
+  test("stale resize intents neither change membership nor reach the worker", async () => {
+    const sid = "77777777-7777-4777-8777-777777777777";
+    const tabId = "tab-ORDER";
+    const viewerKey = `${browserFp}:${tabId}`;
+    await seedSession(sid);
+    workerSends = [];
+
+    await authedFetch("/roost.v1.CoordinatorService/SessionsResize", {
+      sessionId: sid, cols: 80, rows: 24,
+      clientSeq: "1", cause: "RESIZE_CAUSE_INITIAL",
+    }, tabId);
+    await authedFetch("/roost.v1.CoordinatorService/SessionsResize", {
+      sessionId: sid, cols: 0, rows: 0,
+      clientSeq: "2", cause: "RESIZE_CAUSE_WITHDRAW",
+    }, tabId);
+    await authedFetch("/roost.v1.CoordinatorService/SessionsResize", {
+      sessionId: sid, cols: 80, rows: 24,
+      clientSeq: "3", cause: "RESIZE_CAUSE_TAB_VISIBLE",
+    }, tabId);
+    expect(workerSends).toHaveLength(3);
+    expect(isSubscribed(viewerKey, sid)).toBe(true);
+
+    // The old withdraw arrives after the newer reclaim: neither coord nor
+    // worker may apply it, so the newly visible pane stays subscribed.
+    await authedFetch("/roost.v1.CoordinatorService/SessionsResize", {
+      sessionId: sid, cols: 0, rows: 0,
+      clientSeq: "2", cause: "RESIZE_CAUSE_WITHDRAW",
+    }, tabId);
+    expect(workerSends).toHaveLength(3);
+    expect(isSubscribed(viewerKey, sid)).toBe(true);
+
+    await authedFetch("/roost.v1.CoordinatorService/SessionsResize", {
+      sessionId: sid, cols: 0, rows: 0,
+      clientSeq: "4", cause: "RESIZE_CAUSE_WITHDRAW",
+    }, tabId);
+    expect(workerSends).toHaveLength(4);
+    expect(isSubscribed(viewerKey, sid)).toBe(false);
+
+    // The old claim arrives after the newer withdraw: it must not revive
+    // coordinator delivery or be forwarded into the worker's empty claim map.
+    await authedFetch("/roost.v1.CoordinatorService/SessionsResize", {
+      sessionId: sid, cols: 80, rows: 24,
+      clientSeq: "3", cause: "RESIZE_CAUSE_TAB_VISIBLE",
+    }, tabId);
+    expect(workerSends).toHaveLength(4);
+    expect(isSubscribed(viewerKey, sid)).toBe(false);
+  });
+
+  test("equal current heartbeat refreshes and reaches the worker exactly once", async () => {
+    const sid = "88888888-8888-4888-8888-888888888888";
+    const tabId = "tab-HEARTBEAT";
+    const viewerKey = `${browserFp}:${tabId}`;
+    await seedSession(sid);
+    workerSends = [];
+
+    await authedFetch("/roost.v1.CoordinatorService/SessionsResize", {
+      sessionId: sid, cols: 90, rows: 30,
+      clientSeq: "20", cause: "RESIZE_CAUSE_INITIAL",
+    }, tabId);
+    await authedFetch("/roost.v1.CoordinatorService/SessionsResize", {
+      sessionId: sid, cols: 90, rows: 30, heldCellSeq: 17,
+      clientSeq: "20", cause: "RESIZE_CAUSE_HEARTBEAT",
+    }, tabId);
+    expect(workerSends).toHaveLength(2);
+    expect(isSubscribed(viewerKey, sid)).toBe(true);
+
+    await authedFetch("/roost.v1.CoordinatorService/SessionsResize", {
+      sessionId: sid, cols: 91, rows: 31,
+      clientSeq: "20", cause: "RESIZE_CAUSE_VIEWPORT",
+    }, tabId);
+    await authedFetch("/roost.v1.CoordinatorService/SessionsResize", {
+      sessionId: sid, cols: 90, rows: 30,
+      clientSeq: "19", cause: "RESIZE_CAUSE_HEARTBEAT",
+    }, tabId);
+    await authedFetch("/roost.v1.CoordinatorService/SessionsResize", {
+      sessionId: sid, cols: 0, rows: 0,
+      clientSeq: "20", cause: "RESIZE_CAUSE_WITHDRAW",
+    }, tabId);
+    expect(workerSends).toHaveLength(2);
+    expect(isSubscribed(viewerKey, sid)).toBe(true);
+  });
+
+  test("failed first ordered claim rolls back and same-sequence retry reaches worker", async () => {
+    const sid = "99999999-9999-4999-8999-999999999999";
+    const tabId = "tab-RETRY";
+    const viewerKey = `${browserFp}:${tabId}`;
+    await seedSession(sid);
+    workerSends = [];
+    let sendAttempts = 0;
+    __setConnectWorkerForTest(FAKE_WORKER_FP, {
+      workerFp: FAKE_WORKER_FP,
+      send: (frame: unknown) => {
+        sendAttempts += 1;
+        if (sendAttempts === 1) throw new Error("injected first send failure");
+        return workerSends.push(frame);
+      },
+    });
+
+    try {
+      const failed = await authedFetch(
+        "/roost.v1.CoordinatorService/SessionsResize",
+        {
+          sessionId: sid, cols: 80, rows: 24,
+          clientSeq: "30", cause: "RESIZE_CAUSE_INITIAL",
+        },
+        tabId,
+      );
+      const failedBody = await failed.json();
+      expect(failedBody.accepted ?? false).toBe(false);
+      expect(isSubscribed(viewerKey, sid)).toBe(false);
+
+      const retried = await authedFetch(
+        "/roost.v1.CoordinatorService/SessionsResize",
+        {
+          sessionId: sid, cols: 80, rows: 24,
+          clientSeq: "30", cause: "RESIZE_CAUSE_INITIAL",
+        },
+        tabId,
+      );
+      const retriedBody = await retried.json();
+      expect(retriedBody.accepted).toBe(true);
+      expect(sendAttempts).toBe(2);
+      expect(workerSends).toHaveLength(1);
+      expect(isSubscribed(viewerKey, sid)).toBe(true);
+
+      const sent = workerSends[0] as {
+        frame: { value: { frameJson: string } };
+      };
+      expect(JSON.parse(sent.frame.value.frameJson).client_seq).toBe(30);
+    } finally {
+      __setConnectWorkerForTest(FAKE_WORKER_FP, {
+        workerFp: FAKE_WORKER_FP,
+        send: (frame: unknown) => workerSends.push(frame),
+      });
+    }
+  });
+
+  test("mixed ordered and legacy resizes forward the coordinator effective sequence", async () => {
+    const sid = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const tabId = "tab-MIXED-SEQUENCE";
+    const viewerKey = `${browserFp}:${tabId}`;
+    await seedSession(sid);
+    workerSends = [];
+
+    await authedFetch("/roost.v1.CoordinatorService/SessionsResize", {
+      sessionId: sid, cols: 80, rows: 24,
+      clientSeq: "80", cause: "RESIZE_CAUSE_INITIAL",
+    }, tabId);
+    await authedFetch("/roost.v1.CoordinatorService/SessionsResize", {
+      sessionId: sid, cols: 81, rows: 25,
+      cause: "RESIZE_CAUSE_VIEWPORT",
+    }, tabId);
+    // Legacy claim advanced both sides to 81, so ordered equality is filtered.
+    await authedFetch("/roost.v1.CoordinatorService/SessionsResize", {
+      sessionId: sid, cols: 82, rows: 26,
+      clientSeq: "81", cause: "RESIZE_CAUSE_VIEWPORT",
+    }, tabId);
+    // Worker withdraw ignores client_seq, so coord forwards but does not advance
+    // the effective watermark; the next ordered intent must still pass.
+    await authedFetch("/roost.v1.CoordinatorService/SessionsResize", {
+      sessionId: sid, cols: 0, rows: 0,
+      cause: "RESIZE_CAUSE_WITHDRAW",
+    }, tabId);
+    await authedFetch("/roost.v1.CoordinatorService/SessionsResize", {
+      sessionId: sid, cols: 83, rows: 27,
+      clientSeq: "82", cause: "RESIZE_CAUSE_TAB_VISIBLE",
+    }, tabId);
+
+    const sentResizes = workerSends.map((sent) => {
+      const frameJson = (sent as {
+        frame: { value: { frameJson: string } };
+      }).frame.value.frameJson;
+      const frame = JSON.parse(frameJson) as {
+        client_seq: number; cols: number; rows: number;
+      };
+      return {
+        clientSeq: frame.client_seq,
+        cols: frame.cols,
+        rows: frame.rows,
+      };
+    });
+    expect(sentResizes).toEqual([
+      { clientSeq: 80, cols: 80, rows: 24 },
+      { clientSeq: 81, cols: 81, rows: 25 },
+      { clientSeq: 81, cols: 0, rows: 0 },
+      { clientSeq: 82, cols: 83, rows: 27 },
+    ]);
+    expect(isSubscribed(viewerKey, sid)).toBe(true);
   });
 
   test("cursor presence and worker command use the composite tab identity", async () => {

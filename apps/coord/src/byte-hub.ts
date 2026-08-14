@@ -2,9 +2,9 @@
 // (2-byte BE channel_id + 1-byte dir + raw bytes per
 // `@roost/shared/wire/control.ts`) get demuxed via the channel→session
 // map (built from `opened` events) and published into globalBytesBus.
-// Sync stream's bytes branch is the SPA's sole byte path post-firehose, and
-// publishBytes coalesces it on a 16 ms leading-edge governor (see
-// BYTE_COALESCE_MS) so a flooding PTY cannot bury the cell frames that paint.
+// Browser Sync never receives these bytes. Coordinator-only title, activity,
+// and OSC-8 consumers share a 16 ms leading-edge coalescer so a flooding PTY
+// cannot force redundant parser scans.
 //
 // The per-session BoundedBus<Uint8Array> + reaper that this module used
 // to host was retired — no external code subscribes to it. Only the
@@ -126,21 +126,17 @@ export function primeChannelMap(rows: Array<{ id: string; worker_fp: string; cha
   }
 }
 
-// Per-session PTY-byte coalescer. Mirrors the worker's cell governor
-// (CELL_EMIT_COALESCE_MS, worker/session-constants.ts): LEADING-edge publish so
-// a single keystroke echo ships with zero added latency, then a RE-ARMED fixed
-// interval — never a reset deadline — so a continuously-producing PTY is
-// bounded at one bytes frame per window instead of one per chunk. Without it a
-// flood puts thousands of frames that paint NOTHING (the browser only mines
-// these bytes for the OSC-8 link map, asynchronously) ahead of the ~62 cell
-// frames/s that actually paint, on the same ordered socket and the same main
-// thread. Order and content are preserved: concatenation is append-only in
-// publish order and all three consumers (terminal-title-hub, last-activity-hub,
-// the SPA's Osc8Tracker) are carry-based stream scanners that cannot observe a
+// Per-session coordinator-internal PTY-byte coalescer. Mirrors the worker's
+// cell governor (CELL_EMIT_COALESCE_MS, worker/session-constants.ts):
+// LEADING-edge publish gives a single keystroke echo zero added latency, then
+// a RE-ARMED fixed interval — never a reset deadline — bounds continuous PTY
+// output to one parser batch per window instead of one batch per chunk.
+// Order and content are preserved: concatenation is append-only in publish
+// order, and all three consumers (terminal-title-hub, last-activity-hub, and
+// terminal-link-hub) are carry-based stream scanners that cannot observe a
 // chunk boundary.
 const BYTE_COALESCE_MS = 16;
-// Hard flush bound. Keeps one frame well under sync-ws-handler's 8 MiB
-// BACKPRESSURE_LIMIT_BYTES even when a session dumps at full speed.
+// Bound each pending parser batch and its temporary concatenation allocation.
 const BYTE_COALESCE_CAP_BYTES = 256 * 1024;
 interface PendingBytes {
   parts: Uint8Array[];

@@ -28,12 +28,12 @@ import { appendEvent } from "../event-log.ts";
 import { workspaceBus } from "../buses.ts";
 import { requireAuth, tabIdKey, remoteAddressKey } from "./auth-interceptor.ts";
 import type { Caller } from "./auth-interceptor.ts";
-import { getWorkerHubSocket } from "./worker-service.ts";
+import { getWorkerHubSocket, sendBrowserCommand } from "./worker-service.ts";
 import { getCachedSessionWorker, cacheSessionWorker } from "../byte-hub.ts";
 import { createPendingRpc } from "../router/pending-rpcs.ts";
 import { sendBrowserCmd, forwardToSessionWorker } from "./router-helpers.ts";
 import { _bumpViewer } from "./viewer-tracker.ts";
-import { subscribeCells, unsubscribeCells } from "./cell-subscriptions.ts";
+import { mutateCellSubscription } from "./cell-subscriptions.ts";
 import type { ConnectDeps } from "./router.ts";
 import { makeSessionScrollbackHandlers } from "./handlers-sessions-scrollback.ts";
 
@@ -197,35 +197,79 @@ export function makeSessionHandlers(
       // currently invoke sessionsResize).
       const tabId = ctx.values.get(tabIdKey);
       const viewerKey = tabId ? `${caller.fingerprint}:${tabId}` : caller.fingerprint;
-      // Forward first; bump the viewer map only if the worker accepted.
-      // Previously the bump was unconditional → phantom dots persisted
-      // for 60s against killed sessions / offline workers. Withdraws
-      // (cols=0||rows=0) still update the map even when the forward
-      // fails so a closing tab clears its dot even mid-worker-bounce.
-      // client_seq is uint64 on the wire (bigint) but the Zod
-      // ClientControlFrame uses plain number — values comfortably fit in
-      // Number.MAX_SAFE_INTEGER for a monotonic per-window counter (would
-      // need ~285 years at 1 kHz). Convert via Number(); 0 means "unset".
-      const clientSeq = req.clientSeq ? Number(req.clientSeq) : undefined;
-      // Record the cell/byte subscription BEFORE the worker is told, because a
-      // frame produced by the worker's claim snapshot can reach the Sync fanout
-      // before this returns — filtering it out would blank the pane. A 0x0
-      // BACKGROUND claim KEEPS the subscription (that parked-pane keep-alive is
-      // why a reveal needs no re-dial and no snapshot); only WITHDRAW drops it.
-      if (req.cause === ResizeCause.WITHDRAW) unsubscribeCells(viewerKey, req.sessionId);
-      else subscribeCells(viewerKey, req.sessionId);
-      const ok = await forwardToSessionWorker(deps.db, req.sessionId, caller, {
-        kind: "resize" as const,
-        session_id: asSessionId(req.sessionId),
-        cols: req.cols, rows: req.rows,
-        client_seq: clientSeq,
-        cause: req.cause || undefined, // numeric ResizeCause; 0/unset → omit
-        held_cell_seq: req.heldCellSeq || undefined,
-      } as ClientControlFrame, viewerKey);
+      // client_seq is uint64 on the wire (bigint), while the worker's
+      // ClientControlFrame uses a number. The subscription mutation below owns
+      // the effective sequence (including legacy zero synthesis), then we
+      // forward that exact value so coordinator and worker watermarks align.
+      // Values comfortably fit Number.MAX_SAFE_INTEGER for a monotonic
+      // per-window counter (would need ~285 years at 1 kHz).
+      // Resolve the async DB leg before entering the ordered transition/send
+      // critical section. Once membership is applied there must be no await
+      // before the worker send, otherwise an older request could resume after a
+      // newer one and deliver the two accepted intents in reverse order.
+      const workerRow = await deps.db.selectFrom("sessions").select(["worker_fp"])
+        .where("id", "=", req.sessionId).executeTakeFirst();
+      // Apply ordered membership BEFORE the worker is told: a reclaim snapshot
+      // can reach Sync fanout before this RPC returns. Keep the accepted seq
+      // across withdraws so neither a delayed old withdraw nor an old claim is
+      // forwarded to the worker. Equal HEARTBEAT is the sole exception: it
+      // refreshes a current claim and lets the worker perform held-cell repair
+      // without changing membership or the sequence watermark.
+      // Match the worker's membership rule: legacy 0×0 is a withdraw too,
+      // while the retired BACKGROUND mode intentionally kept a 0×0 claim.
+      const withdrawsCells = req.cause !== ResizeCause.BACKGROUND
+        && (req.cols <= 0 || req.rows <= 0);
+      const subscriptionMutation = mutateCellSubscription(
+        viewerKey,
+        req.sessionId,
+        !withdrawsCells,
+        req.clientSeq,
+        req.cause === ResizeCause.HEARTBEAT,
+      );
+      if (!subscriptionMutation) {
+        // The request is already superseded (or is an equal non-heartbeat
+        // replay). Treat that as idempotent success without a worker hop.
+        return create(SessionsResizeResponseSchema, { accepted: true });
+      }
+      const effectiveClientSeq = Number(subscriptionMutation.effectiveClientSeq);
+
+      const ok = workerRow
+        ? sendBrowserCommand(workerRow.worker_fp, {
+          browser_id: caller.fingerprint,
+          viewer_id: viewerKey,
+          request_id: randomUUID(),
+          frame: {
+            kind: "resize" as const,
+            session_id: asSessionId(req.sessionId),
+            cols: req.cols, rows: req.rows,
+            client_seq: effectiveClientSeq,
+            cause: req.cause || undefined, // numeric ResizeCause; 0/unset → omit
+            held_cell_seq: req.heldCellSeq || undefined,
+          } as ClientControlFrame,
+        })
+        : false;
+      if (!ok && workerRow) {
+        log.warn("handlers-sessions.sessionsResize", "send_failed", {
+          worker_fp: workerRow.worker_fp,
+        });
+      }
+      // A failed ordered transition must become retryable, but only while this
+      // exact installed object is still current. A nested/newer transition
+      // replaces it by identity and therefore cannot be undone here. Legacy
+      // zero retains its historical arrival-order behavior on forward failure.
+      if (!ok && req.clientSeq > 0n) subscriptionMutation.rollback();
+
       const isWithdraw = req.cols <= 0 || req.rows <= 0;
-      if (ok || isWithdraw) {
+      if (ok || (isWithdraw && req.clientSeq === 0n)) {
         const clientIp = ctx.values.get(remoteAddressKey) ?? undefined;
-        _bumpViewer(req.sessionId, viewerKey, req.cols, req.rows, clientSeq, clientIp);
+        _bumpViewer(
+          req.sessionId,
+          viewerKey,
+          req.cols,
+          req.rows,
+          effectiveClientSeq,
+          clientIp,
+        );
       }
       return create(SessionsResizeResponseSchema, { accepted: ok });
     },

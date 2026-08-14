@@ -1,12 +1,12 @@
 // Sync firehose — one server-streaming RPC for in-memory state buses,
-// including terminal bytes, cell frames, and browser UI coordination.
+// including cell frames, compact terminal-link metadata, and browser UI coordination.
 
 import type { ServiceImpl } from "@connectrpc/connect";
 import { ConnectError, Code } from "@connectrpc/connect";
 import { create } from "@bufbuild/protobuf";
 import { CoordinatorService } from "@roost/shared/proto/coordinator_pb";
 import {
-  FirehoseFrameSchema, type FirehoseFrame, BytesFrameSchema, SessionPresenceSchema,
+  FirehoseFrameSchema, type FirehoseFrame, TerminalLinkFrameSchema, SessionPresenceSchema,
   WorkerRoutableFrameSchema, TerminalTitleFrameSchema, LastActivityFrameSchema,
   UiStateFrameSchema, UiCommandFrameSchema, AgentStatusFrameSchema,
 } from "@roost/shared/proto/sync_pb";
@@ -29,7 +29,7 @@ import {
 } from "@roost/shared/proto/wire_pb";
 import {
   sessionBus, presenceBus, workspaceBus, taskBus, webhookBus,
-  permissionBus, mcpBus, globalBytesBus, globalPresenceBus, auditBus,
+  permissionBus, mcpBus, terminalLinkBus, globalPresenceBus, auditBus,
   titleBus, lastActivityBus, workerRoutableBus, globalCellBus, agentStatusBus,
   pairBus, uiBus, type TaskBusMsg, type PairRequestDelta, type AuditRow,
 } from "../buses.ts";
@@ -76,19 +76,35 @@ export function makeStreamingHandlers(
 // (sync-ws-handler.ts). SHARED so the WS reader can't diverge from the frame
 // shapes the SPA already decodes.
 //
-// Ordering contract: subscribe FIRST (unsubs below), THEN call backfill() — a
-// sessionBus.publish landing between getEventsSince and the subscribe would
-// otherwise be lost on this connection. yieldedSessionIds dedups live events
-// whose _event_id was already replayed by the backfill.
+// Ordering contract: subscribe FIRST, emit retained volatile snapshots, flush
+// live frames that arrived while a paced seed was in progress, THEN backfill.
+// yieldedSessionIds dedups live events whose _event_id was already replayed by
+// the backfill. Legacy callers omit pacedSeedPush and retain synchronous seeds.
+export interface SyncFeedSeedOptions {
+  pacedSeedPush: (frame: FirehoseFrame) => Promise<boolean>;
+}
+
 export function startSyncFeed(
   deps: ConnectDeps,
   sinceEventId: number,
-  push: (f: FirehoseFrame) => void,
+  sink: (f: FirehoseFrame) => void,
   /** Per-tab identity of the socket this feed serves. Non-null → the two hot
    *  per-session buses ship only sessions this tab claimed. null (older SPA,
    *  CLI, test client) FAILS OPEN and ships every session, as before. */
   viewerKey: string | null = null,
-): { backfill: () => Promise<void>; dispose: () => void } {
+  seedOptions?: SyncFeedSeedOptions,
+): { seeded: Promise<void>; backfill: () => Promise<void>; dispose: () => void } {
+  let disposed = false;
+  let seeding = seedOptions !== undefined;
+  const queuedLiveFrames: FirehoseFrame[] = [];
+  const push = (frame: FirehoseFrame): void => {
+    if (disposed) return;
+    if (seeding) {
+      queuedLiveFrames.push(frame);
+      return;
+    }
+    sink(frame);
+  };
   // Backfill + live sessionBus both encode SessionEvent through here.
   const sessionFirehoseFrame = (e: SessionEvent, eventId: number): FirehoseFrame =>
     create(FirehoseFrameSchema, { frame: { case: "sessionEvent", value: eventToProto(e, eventId) } });
@@ -302,11 +318,12 @@ export function startSyncFeed(
     webhookBus.subscribe(e => { const f = webhookFrame(e); if (f) push(f); }),
     auditBus.subscribe(e => push(auditFrame(e))),
     pairBus.subscribe(e => push(pairFrame(e))),
-    globalBytesBus.subscribe(({ session_id, bytes }) => {
-      if (viewerKey && !isSubscribed(viewerKey, session_id)) return;
+    // Compact mappings are deliberately unfiltered: a pane may be offscreen
+    // when its link arrives, and the browser registry retains it until revisit.
+    terminalLinkBus.subscribe(({ session_id, text, uri }) => {
       push(create(FirehoseFrameSchema, {
-        frame: { case: "bytes", value: create(BytesFrameSchema, {
-          sessionId: session_id, data: bytes,
+        frame: { case: "terminalLink", value: create(TerminalLinkFrameSchema, {
+          sessionId: session_id, text, uri,
         })},
       }));
     }),
@@ -365,85 +382,122 @@ export function startSyncFeed(
           }))),
   ];
 
-  // Seed this connection with the live routable worker set (coord's WS
-  // membership) so the online indicator is correct immediately, not after
-  // the next connect/disconnect or workersList refresh.
-  push(create(FirehoseFrameSchema, {
-    frame: { case: "workerRoutable", value: create(WorkerRoutableFrameSchema, { fps: listRoutableFps() })},
-  }));
+  function* retainedSeedFrames(): Generator<FirehoseFrame> {
+    // Live routable worker membership is volatile, so seed it before the
+    // per-session snapshots below.
+    yield create(FirehoseFrameSchema, {
+      frame: {
+        case: "workerRoutable",
+        value: create(WorkerRoutableFrameSchema, { fps: listRoutableFps() }),
+      },
+    });
 
-  // Seed the CURRENT terminal title per session (titleBus is volatile too).
-  for (const { session_id, title } of getTitleSnapshot()) {
-    push(create(FirehoseFrameSchema, {
-      frame: { case: "terminalTitle", value: create(TerminalTitleFrameSchema, {
-        sessionId: session_id, title,
-      })},
-    }));
+    for (const { session_id, title } of getTitleSnapshot()) {
+      yield create(FirehoseFrameSchema, {
+        frame: {
+          case: "terminalTitle",
+          value: create(TerminalTitleFrameSchema, { sessionId: session_id, title }),
+        },
+      });
+    }
+
+    for (const { session_id, ts_ms } of getLastActivitySnapshot()) {
+      yield create(FirehoseFrameSchema, {
+        frame: {
+          case: "lastActivity",
+          value: create(LastActivityFrameSchema, { sessionId: session_id, tsMs: ts_ms }),
+        },
+      });
+    }
+
+    for (const status of getAgentStatusSnapshot()) yield agentStatusFrame(status);
+
+    for (const { fp, tabId, state } of getUiStateSnapshot()) {
+      yield create(FirehoseFrameSchema, {
+        frame: {
+          case: "uiState",
+          value: create(UiStateFrameSchema, { fp, tabId, state }),
+        },
+      });
+    }
   }
 
-
-  // Seed the CURRENT last-activity ms per session so the "Last activity"
-  // filter can age out idle open sessions immediately on page load
-  // (lastActivityBus is throttled/volatile, not backfilled).
-  for (const { session_id, ts_ms } of getLastActivitySnapshot()) {
-    push(create(FirehoseFrameSchema, {
-      frame: { case: "lastActivity", value: create(LastActivityFrameSchema, {
-        sessionId: session_id, tsMs: ts_ms,
-      })},
-    }));
-  }
-
-  // Seed current agent status after the live subscription above. A racing
-  // update is ordered live-then-snapshot, and browser revision checks dedupe
-  // the older copy without losing the newer one.
-  for (const status of getAgentStatusSnapshot()) {
-    push(agentStatusFrame(status));
-  }
-
-  // Seed the CURRENT ui_state per live browser tab (uiBus is volatile,
-  // presence-class — B10). A fresh Sync subscriber (agent) sees the
-  // spatial model immediately instead of waiting on each tab's next
-  // heartbeat. ui_command is fire-and-forget by design: never seeded.
-  for (const { fp, tabId, state } of getUiStateSnapshot()) {
-    push(create(FirehoseFrameSchema, {
-      frame: { case: "uiState", value: create(UiStateFrameSchema, { fp, tabId, state }) },
-    }));
-  }
-
-  // Seed the CURRENT pending pair requests as a FULL snapshot (pairBus is
-  // volatile — B10). A snapshot (not per-row deltas) lets the SPA REPLACE
-  // its set on every (re)connect, so removals that happened while this
-  // browser was disconnected can't linger until the next approve/deny.
-  // Subscribes above already ran: a pairBus publish racing this query is
-  // ordered delta-then-snapshot, and the snapshot already contains the row
-  // (the DB write precedes the publish in the pair handlers). Fired as a
-  // floating query (startSyncFeed is sync); dispose() may win the race, but
-  // push()'s own send-guard tolerates a closed socket.
-  void (async () => {
+  const loadPairSnapshot = async (): Promise<FirehoseFrame | null> => {
     try {
       const pending = await deps.db.selectFrom("pair_requests")
         .select(["ephemeral_id", "label", "created_at_ms"])
         .where("status", "=", "pending").execute();
-      push(create(FirehoseFrameSchema, { frame: { case: "pairRequestDelta", value: create(PairRequestDeltaProtoSchema, {
-        kind: { case: "snapshot", value: create(PairRequestsSnapshotSchema, {
-          pending: pending.map((r) => create(PairRequestSchema, {
-            ephemeralId: r.ephemeral_id, label: r.label, createdAtMs: BigInt(r.created_at_ms),
-          })),
-        }) },
-      })}}));
+      return create(FirehoseFrameSchema, {
+        frame: {
+          case: "pairRequestDelta",
+          value: create(PairRequestDeltaProtoSchema, {
+            kind: {
+              case: "snapshot",
+              value: create(PairRequestsSnapshotSchema, {
+                pending: pending.map((row) => create(PairRequestSchema, {
+                  ephemeralId: row.ephemeral_id,
+                  label: row.label,
+                  createdAtMs: BigInt(row.created_at_ms),
+                })),
+              }),
+            },
+          }),
+        },
+      });
     } catch (e) {
       log.warn("connect.sync", "pair_seed_failed", { error: String(e) });
+      return null;
     }
-  })();
+  };
 
-  // T1.4 — reconnect backfill. SPA tracks the last event id it saw (stamped
-  // into the SessionEvent payload as _event_id) and passes it on reopen.
-  // Replay capped at 1000 rows so a multi-hour gap doesn't stall forever.
-  // Call AFTER subscribes are live so an event firing during the
-  // getEventsSince await isn't lost; live sessionBus events whose _event_id
-  // matches a backfilled id are deduped via skipLiveSession.
+  let seeded: Promise<void>;
+  if (!seedOptions) {
+    // Legacy clients are not application-windowed. Preserve their current
+    // synchronous retained burst and floating pair snapshot behavior.
+    for (const frame of retainedSeedFrames()) push(frame);
+    seeded = Promise.resolve();
+    void (async () => {
+      const pairSnapshot = await loadPairSnapshot();
+      if (pairSnapshot) push(pairSnapshot);
+    })();
+  } else {
+    // Start after startSyncFeed returns so open() can first retain this feed on
+    // ws.data. Every await is ACK-coupled by sync-ws-handler; no fixed chunk can
+    // outrun a slow consumer. Live frames queue only for this seed phase, then
+    // flush in original arrival order before durable replay begins.
+    seeded = Promise.resolve().then(async () => {
+      for (const frame of retainedSeedFrames()) {
+        if (disposed || !(await seedOptions.pacedSeedPush(frame))) return;
+      }
+
+      const pairSnapshot = await loadPairSnapshot();
+      if (
+        pairSnapshot
+        && (disposed || !(await seedOptions.pacedSeedPush(pairSnapshot)))
+      ) return;
+
+      let queueIndex = 0;
+      while (!disposed) {
+        if (queueIndex === queuedLiveFrames.length) {
+          seeding = false;
+          queuedLiveFrames.length = 0;
+          return;
+        }
+        const frame = queuedLiveFrames[queueIndex++]!;
+        if (!(await seedOptions.pacedSeedPush(frame))) return;
+      }
+    }).catch((e) => {
+      log.warn("connect.sync", "retained_seed_failed", { error: String(e) });
+    });
+  }
+
+  // T1.4 — reconnect backfill. Subscribe and finish any paced retained seed
+  // first, so nothing can land in the subscription/seed gap. Once seeding ends,
+  // live session events and durable rows retain the existing whichever-emits-
+  // first event-id dedup while replay yields every sixteen rows.
   const backfill = async (): Promise<void> => {
-    if (sinceEventId <= 0) return;
+    if (seedOptions) await seeded;
+    if (disposed || sinceEventId <= 0) return;
     try {
       const rows = await getEventsSince(deps.db, sinceEventId, 1000);
       for (let i = 0; i < rows.length; i += 1) {
@@ -462,7 +516,13 @@ export function startSyncFeed(
     }
   };
 
-  const dispose = (): void => { for (const u of unsubs) u(); };
+  const dispose = (): void => {
+    if (disposed) return;
+    disposed = true;
+    seeding = false;
+    queuedLiveFrames.length = 0;
+    for (const unsubscribe of unsubs) unsubscribe();
+  };
 
-  return { backfill, dispose };
+  return { seeded, backfill, dispose };
 }

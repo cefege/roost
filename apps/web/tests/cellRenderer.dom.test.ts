@@ -207,11 +207,10 @@ describe("CellGridRenderer DOM — append-only scrollback, no reflow", () => {
     expect(rows1[2]).not.toBe(h1);
   });
 
-  // heldFrameSeq is what a viewport claim reports (CellTerminal sendClaim /
-  // sendBackgroundClaim → held_cell_seq), and the worker skips its claim
-  // snapshot on a match. It MUST track the last APPLIED frame across deltas —
-  // reporting a stale seq costs a redundant repaint, reporting one the viewer
-  // never applied would suppress a repaint it needs.
+  // heldFrameSeq is what a visible viewport claim reports as held_cell_seq.
+  // It MUST track the last APPLIED frame across deltas: reporting a stale seq
+  // costs a redundant repaint, while reporting one the viewer never applied
+  // would suppress the authoritative reclaim snapshot it needs.
   test("heldFrameSeq tracks the last applied frame across a full frame then deltas", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement); // FakeEl covers the renderer's DOM surface

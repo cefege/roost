@@ -9,8 +9,6 @@ import { setRootStore, rootStore } from "./root.ts";
 import type { PairRequest } from "./root.ts";
 import type { PairRequestDeltaProto } from "@roost/shared/proto/events_pb";
 import type { UiCommandFrame, FirehoseFrame, AgentStatusFrame } from "@roost/shared/proto/sync_pb";
-import { FirehoseFrameSchema } from "@roost/shared/proto/sync_pb";
-import { fromBinary } from "@bufbuild/protobuf";
 import { protoToEvent } from "@roost/shared/wire/event-proto";
 import { signCoordinatorJwt } from "../auth/web-key.ts";
 import { getTabId } from "../auth/tab-id.ts";
@@ -22,12 +20,23 @@ import {
 } from "./sync-proto-adapters.ts";
 // tRPC client retired — queries/RPCs route through coordClient (Connect).
 // The event firehose is _runConnectSync: a raw WebSocket to coord's
-// /ws/coord-sync multiplexing 8 domain buses + PTY bytes as FirehoseFrames.
+// /ws/coord-sync carrying state, cell grids, and compact terminal metadata.
 import type { Worker } from "@roost/shared/wire";
 import { signal, diag } from "@roost/shared/diag";
 import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
-import { _dispatchBytes, _dispatchCell, _dispatchPresence } from "./sync-dispatch.ts";
+import { _dispatchCell, _dispatchPresence, _dispatchTerminalLink } from "./sync-dispatch.ts";
 import { startStaleWatchdog, type StaleWatchdog } from "./sync-watchdog.ts";
+import {
+  canAcceptSyncLink,
+  canOpenSyncLink,
+  decodeFirehoseFrame,
+  dispatchSyncFrameCausally,
+  drainPreHydrationFrames,
+  enqueuePreHydrationFrame,
+  isImmediateSyncRedial,
+  isSyncBackpressureClose,
+  type PreHydrationSyncState,
+} from "./sync-flow.ts";
 import { applyAgentStatusFrame } from "./agent-status.ts";
 // Worker-routability signal lives in sync-routable.ts (leaf): _runConnectSync
 // writes it; the UI reads workerOnline (re-exported here so consumers keep
@@ -72,11 +81,12 @@ function _scheduleLastSeenPersist(): void {
   }, 1000);
 }
 
-type SyncAbortReason = "visibility" | "manual" | "stale" | null;
+type SyncAbortReason = "visibility" | "manual" | "stale" | "flow" | null;
 interface LiveSyncLink {
   ws: WebSocket;
   gen: number;
   abortReason: SyncAbortReason;
+  accepting: boolean;
   resolveClosed: () => void;
   closeEscapeTimer: ReturnType<typeof setTimeout> | null;
   watchdog: StaleWatchdog | null;
@@ -103,6 +113,7 @@ export function syncWsGeneration(): number { return _wsGen; }
 const WS_CLOSE_ESCAPE_MS = 5_000;
 
 function _cleanupLink(link: LiveSyncLink): void {
+  link.accepting = false;
   clearTimeout(link.closeEscapeTimer ?? undefined);
   link.closeEscapeTimer = null;
   link.watchdog?.stop();
@@ -112,6 +123,7 @@ function _cleanupLink(link: LiveSyncLink): void {
 function _armCloseEscape(link: LiveSyncLink): void {
   clearTimeout(link.closeEscapeTimer ?? undefined);
   link.closeEscapeTimer = setTimeout(() => {
+    link.accepting = false;
     link.closeEscapeTimer = null;
     if (_liveLink === link) setOpen(false);
     link.resolveClosed();
@@ -121,7 +133,15 @@ function _armCloseEscape(link: LiveSyncLink): void {
 function _initiateWsClose(reason: Exclude<SyncAbortReason, null>): void {
   const link = _liveLink;
   if (!link) return;
+  link.accepting = false;
   link.abortReason = reason;
+  if (_liveLink === link) setOpen(false);
+  try { link.ws.close(); } catch { link.resolveClosed(); }
+  _armCloseEscape(link);
+}
+
+function _closeFailedLink(link: LiveSyncLink): void {
+  link.accepting = false;
   if (_liveLink === link) setOpen(false);
   try { link.ws.close(); } catch { link.resolveClosed(); }
   _armCloseEscape(link);
@@ -162,12 +182,14 @@ export function reconnectNow(): void {
 // needs nothing but a JWT and the persisted event cursor), which shaves a full
 // round trip off first paint. That creates one ordering hazard: a session delta
 // arriving before sessionsList's snapshot is applied would be clobbered by that
-// older snapshot. So every frame decoded before hydration is held here and
-// replayed, in arrival order, through the same dispatch switch.
+// older snapshot. Every entry retains its owning link so ordered replay can
+// ACK only the same transport generation that delivered it.
 const PRE_HYDRATION_CAP = 5000;
 let _queueingPreHydration = true;
-let _preHydrationQueue: FirehoseFrame[] = [];
-let _preHydrationOverflow = false;
+const _preHydrationState: PreHydrationSyncState<LiveSyncLink, FirehoseFrame> = {
+  entries: [],
+  overflowed: false,
+};
 
 /** Replay everything held since the socket opened, then let frames flow live.
  *  Called by sync-bootstrap the instant the sessions snapshot lands — and also
@@ -176,14 +198,14 @@ let _preHydrationOverflow = false;
  *  design, so draining into an empty store is harmless). */
 export function drainPreHydration(): void {
   _queueingPreHydration = false;
-  const queued = _preHydrationQueue;
-  _preHydrationQueue = [];
-  for (const frame of queued) _dispatchSyncFrame(frame);
-  if (!_preHydrationOverflow) return;
+  const overflowed = drainPreHydrationFrames(
+    _preHydrationState,
+    _consumeSyncFrame,
+  );
+  if (!overflowed) return;
   // The queue overflowed, so an unknown set of deltas was dropped. A re-dial
   // replays them from the persisted cursor via `since=`, which is the only way
   // back to a truthful store.
-  _preHydrationOverflow = false;
   signal("sync.prehydration_overflow", { cap: PRE_HYDRATION_CAP, cooldownKey: "sync" });
   forceSyncReconnect();
 }
@@ -229,10 +251,11 @@ export function resumeSyncNow(): void {
 // Per-frame firehose dispatch — SHARED verbatim by the WebSocket transport
 // below. Every case preserved exactly, including the _lastSeenEventId bump +
 // _scheduleLastSeenPersist() in the sessions/sessionEvent cases.
-function _dispatchSyncFrame(frame: FirehoseFrame): void {
+function _dispatchSyncFrame(frame: FirehoseFrame): boolean {
   const k = frame.frame?.case as (typeof frame.frame.case) | "keepalive";
-  if (!k) return;
+  if (!k) return false;
   const v = frame.frame.value;
+  let consumed = true;
   // ONE reactive flush per frame: multi-write handlers (snapshot
   // fold, viewers list, session deletion) otherwise trigger a
   // downstream recompute per setRootStore call.
@@ -249,6 +272,7 @@ function _dispatchSyncFrame(frame: FirehoseFrame): void {
               _handleSessionsEvent(ev);
             } catch (e) {
               signal("diag.corruption_signal", { kind: "sync_json_parse", frame: "sessions", msg: String(e), cooldownKey: "sync" });
+              throw e;
             }
             break;
           }
@@ -256,7 +280,7 @@ function _dispatchSyncFrame(frame: FirehoseFrame): void {
             // T1.2 — proto-typed SessionEvent variant. Decode to the
             // legacy wire shape and feed the existing projector.
             const decoded = protoToEvent(v as never);
-            if (!decoded) break;
+            if (!decoded) { consumed = false; break; }
             if (decoded._event_id > _lastSeenEventId) {
               _lastSeenEventId = decoded._event_id;
               _scheduleLastSeenPersist();
@@ -267,26 +291,31 @@ function _dispatchSyncFrame(frame: FirehoseFrame): void {
           case "workerPresence": {
             const wire = _presenceProtoToWire(v as any);
             if (wire) _handlePresenceEvent(wire);
+            else consumed = false;
             break;
           }
           case "workspaceDelta": {
             const wire = _workspaceProtoToWire(v as any);
             if (wire) _handleWorkspacesDelta(wire);
+            else consumed = false;
             break;
           }
           case "taskDelta": {
             const wire = _taskProtoToWire(v as any);
             if (wire) _handleTasksDelta(wire);
+            else consumed = false;
             break;
           }
           case "permissionDelta": {
             const wire = _permProtoToWire(v as any);
             if (wire) _handlePermissionsDelta(wire);
+            else consumed = false;
             break;
           }
           case "mcpMsg": {
             const wire = _mcpProtoToWire(v as any);
             if (wire) _handleMcpEvent(wire);
+            else consumed = false;
             break;
           }
           case "webhookTokenDelta": {
@@ -295,7 +324,7 @@ function _dispatchSyncFrame(frame: FirehoseFrame): void {
               for (const sub of _webhookDeltaSubs) {
                 try { sub(wire); } catch (e) { diag("sync.delta_sub_failed", { frame: "webhookToken", error: String(e) }); }
               }
-            }
+            } else consumed = false;
             break;
           }
           case "auditRow": {
@@ -320,9 +349,9 @@ function _dispatchSyncFrame(frame: FirehoseFrame): void {
             void relocateBrowserToCoordinator(relocation.handoffId, relocation.targetUrl);
             break;
           }
-          case "bytes": {
-            const b = v as { sessionId: string; data: Uint8Array; seq: bigint };
-            _dispatchBytes(b.sessionId, b.data);
+          case "terminalLink": {
+            const link = v as { sessionId: string; text: string; uri: string };
+            _dispatchTerminalLink(link.sessionId, link.text, link.uri);
             break;
           }
           case "cellGrid": {
@@ -358,6 +387,7 @@ function _dispatchSyncFrame(frame: FirehoseFrame): void {
               }
             } catch (e) {
               signal("diag.corruption_signal", { kind: "sync_json_parse", frame: "sessionPresence", msg: String(e), cooldownKey: "sync" });
+              throw e;
             }
             break;
           }
@@ -413,28 +443,56 @@ function _dispatchSyncFrame(frame: FirehoseFrame): void {
                 if (!keep.has(id)) setRootStore("pair_requests", id, undefined as unknown as PairRequest);
               }
             }
+            else consumed = false;
+            break;
+          }
+          case "uiState": {
+            // Browser tabs deliberately do not project peer UI state. Routing
+            // and discarding this agent-facing frame is its full consumption.
             break;
           }
           case "uiCommand": {
             // ui-cc — agent-driven UI command (coord UiDispatch → ui_command
             // frame). Forwarded to the handler UiBridge registered with router
-            // navigate bound; no bridge mounted → drops silently (the agent
-            // reads UiDispatch's `delivered` count instead). `uiState` frames
-            // are this SPA's own reflection — deliberately NO case for them
-            // (agents consume them via UiListStates / their own Sync stream);
-            // they fall through the switch silently like any unknown frame.
+            // navigate bound; no bridge mounted → the command is deliberately
+            // consumed as a no-op (the agent reads UiDispatch's `delivered`
+            // count instead).
             _dispatchUiCommand(v as UiCommandFrame);
             break;
           }
-          case ("keepalive" as const): {
+          case "keepalive": {
             // Liveness heartbeat from coord. The watchdog's addEventListener
             // ("message") listener already reset lastMsgAt — no state change.
-            // NOTE: Type assertion required because keepalive is not in the
-            // generated FirehoseFrame proto but is sent by coord.
+            break;
+          }
+          default: {
+            consumed = false;
             break;
           }
         }
         });
+  return consumed;
+}
+
+function _consumeSyncFrame(link: LiveSyncLink, frame: FirehoseFrame): void {
+  try {
+    const outcome = dispatchSyncFrameCausally(
+      () => _liveLink,
+      link,
+      WebSocket.OPEN,
+      frame,
+      _dispatchSyncFrame,
+    );
+    if (outcome === "unapplied") throw new Error("unapplied sync frame");
+  } catch (e) {
+    signal("diag.corruption_signal", {
+      kind: "sync_ws_dispatch",
+      frame: frame.frame.case ?? "unknown",
+      msg: String(e),
+      cooldownKey: "sync",
+    });
+    _closeFailedLink(link);
+  }
 }
 
 // Firehose transport — a raw browser WebSocket to coord's /ws/coord-sync.
@@ -474,10 +532,10 @@ export async function _runConnectSync(): Promise<void> {
       const override = typeof localStorage !== "undefined" ? localStorage.getItem("roost.coordinatorUrl") : null;
       const wsBase = (override || location.origin).replace(/^http/, "ws");
       const jwt = await signCoordinatorJwt();
-      // tab= gives coord a per-TAB identity for this socket, the same
-      // `${fingerprint}:${tabId}` key sessionsResize claims use, so the cell +
-      // byte fanout can ship only the sessions THIS tab actually claimed.
-      const url = `${wsBase}/ws/coord-sync?since=${_lastSeenEventId}&tab=${encodeURIComponent(getTabId())}`;
+      // tab= gives coord the same per-tab identity used by viewport claims.
+      // Exact flow=1 opts this current SPA into application-consumption ACKs;
+      // cached older SPAs omit it and retain legacy native-buffer behavior.
+      const url = `${wsBase}/ws/coord-sync?since=${_lastSeenEventId}&tab=${encodeURIComponent(getTabId())}&flow=1`;
       const ws = new WebSocket(url, ["roost-auth", jwt]);
       ws.binaryType = "arraybuffer";
       const gen = ++_wsGen;
@@ -486,6 +544,7 @@ export async function _runConnectSync(): Promise<void> {
         ws,
         gen,
         abortReason: null,
+        accepting: false,
         resolveClosed,
         closeEscapeTimer: null,
         watchdog: null,
@@ -493,10 +552,12 @@ export async function _runConnectSync(): Promise<void> {
       dialLink = link;
       _liveLink = link;
       ws.onopen = () => {
-        if (_liveLink !== link) {
-          try { ws.close(); } catch { /* obsolete dial */ }
+        if (!canOpenSyncLink(_liveLink, link, WebSocket.OPEN)) {
+          link.accepting = false;
+          try { ws.close(); } catch { /* obsolete or closing dial */ }
           return;
         }
+        link.accepting = true;
         // A successful open = upgrade + JWT verify succeeded (the WS analog of
         // the old "reset on first frame"). Clear the failure counter + backoff.
         _syncFailures = 0;
@@ -512,25 +573,40 @@ export async function _runConnectSync(): Promise<void> {
         });
       };
       ws.onmessage = (ev) => {
-        if (_liveLink !== link) return;
+        // This callback is the acceptance gate. Queue replay deliberately does
+        // not repeat it: those entries were accepted by their owner already.
+        if (!canAcceptSyncLink(_liveLink, link, WebSocket.OPEN)) return;
+        let frame: FirehoseFrame;
         try {
-          const frame = fromBinary(FirehoseFrameSchema, new Uint8Array(ev.data as ArrayBuffer));
-          if (_queueingPreHydration) {
-            if (_preHydrationQueue.length >= PRE_HYDRATION_CAP) {
-              _preHydrationQueue = [];
-              _preHydrationOverflow = true;
-            } else {
-              _preHydrationQueue.push(frame);
-            }
-            return;
-          }
-          _dispatchSyncFrame(frame);
+          frame = decodeFirehoseFrame(new Uint8Array(ev.data as ArrayBuffer));
         } catch (e) {
-          signal("diag.corruption_signal", { kind: "sync_ws_decode", frame: "firehose", msg: String(e), cooldownKey: "sync" });
+          signal("diag.corruption_signal", {
+            kind: "sync_ws_decode",
+            frame: "firehose",
+            msg: String(e),
+            cooldownKey: "sync",
+          });
+          _closeFailedLink(link);
+          return;
         }
+        if (_queueingPreHydration) {
+          const queueResult = enqueuePreHydrationFrame(
+            _preHydrationState,
+            { link, frame },
+            PRE_HYDRATION_CAP,
+          );
+          if (queueResult === "overflow") _initiateWsClose("manual");
+          return;
+        }
+        _consumeSyncFrame(link, frame);
       };
       ws.onerror = (e) => { console.debug("[sync.connect] ws error", e); };
-      ws.onclose = () => {
+      ws.onclose = (event) => {
+        link.accepting = false;
+        if (
+          link.abortReason === null
+          && isSyncBackpressureClose(event.code, event.reason)
+        ) link.abortReason = "flow";
         _cleanupLink(link);
         if (_liveLink === link) setOpen(false);
         link.resolveClosed();
@@ -549,8 +625,8 @@ export async function _runConnectSync(): Promise<void> {
         }
       }
     }
-    // Visibility / manual / watchdog closes are intentional and skip failures.
-    if (abortReason === "visibility" || abortReason === "manual" || abortReason === "stale") {
+    // Intentional lifecycle closes and server flow recovery redial immediately.
+    if (isImmediateSyncRedial(abortReason)) {
       backoff = 1000;
       continue;
     }
