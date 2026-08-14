@@ -416,7 +416,7 @@ wait_until_ready() {
   local attempts="${ROOST_INSTALL_READY_ATTEMPTS:-30}"
   local interval="${ROOST_INSTALL_READY_INTERVAL_SECS:-1}"
   local health_scheme health_bind health_url body headers private_code public_code
-  local curl_tls_args=()
+  local curl_cmd=(curl)
   if [[ "$FRONTED" == "1" ]]; then
     health_scheme="http"
     health_bind="127.0.0.1:${COORD_LOOPBACK_PORT}"
@@ -425,7 +425,7 @@ wait_until_ready() {
     health_bind="$BIND_VALUE"
     if [[ -n "$TLS_CERT_PATH" && -n "$TLS_KEY_PATH" ]]; then
       health_scheme="https"
-      curl_tls_args=(-k)
+      curl_cmd+=(-k)
     fi
   fi
   health_url="${health_scheme}://${health_bind}/roost.v1.CoordinatorService/MiscHealth"
@@ -437,7 +437,7 @@ wait_until_ready() {
     fi
 
     body="$(mktemp)"
-    private_code="$(curl "${curl_tls_args[@]}" -sS -o "$body" -w '%{http_code}' \
+    private_code="$("${curl_cmd[@]}" -sS -o "$body" -w '%{http_code}' \
       -X POST -H 'content-type: application/json' --data '{}' "$health_url" 2>/dev/null || true)"
     if [[ "$private_code" == "200" && "$(< "$body")" =~ \"ok\"[[:space:]]*:[[:space:]]*true ]]; then
       rm -f "$body"
