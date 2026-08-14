@@ -15,7 +15,7 @@ import fs from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { _backfillEnvFromPlist, _resolveDeployEnvValue } from "../src/deploy-plist-env.ts";
-import { _quoteRemoteShell, _selectMacCertificateFqdn } from "../src/deploy.ts";
+import { _quoteRemoteShell, _remoteCertCommand, _selectMacCertificateFqdn } from "../src/deploy.ts";
 import { WORKER_UNIT } from "../src/service-ctl.ts";
 
 const KEYS = ["ROOST_COORDINATOR_URL", "ROOST_REACHABLE_ADDR", "ROOST_WORKER_LABEL", "HOME"] as const;
@@ -216,6 +216,23 @@ describe("_quoteRemoteShell", () => {
     expect(proc.stdout.toString()).toBe(value);
     expect(fs.existsSync(commandSubstitution)).toBe(false);
     expect(fs.existsSync(backtickSubstitution)).toBe(false);
+  });
+
+  test("certificate command preserves the tailscale failure status", () => {
+    const bin = join(root, "bin");
+    const tailscale = join(bin, "tailscale");
+    fs.mkdirSync(bin, { recursive: true });
+    fs.writeFileSync(tailscale, "#!/usr/bin/env bash\nexit 23\n");
+    fs.chmodSync(tailscale, 0o700);
+
+    const proc = Bun.spawnSync(["bash", "-c", _remoteCertCommand("worker.example")], {
+      env: {
+        ...process.env,
+        HOME: join(root, "remote-home"),
+        PATH: `${bin}:${process.env.PATH ?? "/usr/bin:/bin"}`,
+      },
+    });
+    expect(proc.exitCode).toBe(23);
   });
 });
 

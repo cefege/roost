@@ -48,6 +48,13 @@ export function _quoteRemoteShell(value: string): string {
   return `'${value.replaceAll("'", `'\"'\"'`)}'`;
 }
 
+/** Build the remote certificate command without a pipeline so the SSH result
+ * is tailscale's exit status, not a trailing output filter's. */
+export function _remoteCertCommand(remoteFqdn: string): string {
+  const remoteTlsDir = "~/Library/Application\\ Support/RoostWorkerV2/tls";
+  return `mkdir -p ${remoteTlsDir} && cd ${remoteTlsDir} && tailscale cert ${_quoteRemoteShell(remoteFqdn)} 2>&1`;
+}
+
 function remoteEnvAssignment(key: string, value: string): string {
   return `${key}=${_quoteRemoteShell(value)}`;
 }
@@ -229,13 +236,13 @@ export async function deploy(args: string[]): Promise<void> {
     );
     process.exit(7);
   }
-  const remoteTlsDir = `~/Library/Application\\ Support/RoostWorkerV2/tls`;
+  // Keep service paths unescaped: they are data values, not shell fragments.
   const remoteCertPath = `~/Library/Application Support/RoostWorkerV2/tls/${remoteFqdn}.crt`;
   const remoteKeyPath = `~/Library/Application Support/RoostWorkerV2/tls/${remoteFqdn}.key`;
   console.log(`>> mint tailnet cert for ${remoteFqdn} on ${host}`);
   const certRes = await sshExec(
     host,
-    `mkdir -p ${remoteTlsDir} && cd ${remoteTlsDir} && tailscale cert ${_quoteRemoteShell(remoteFqdn)} 2>&1 | tail -5`,
+    _remoteCertCommand(remoteFqdn),
   );
   if (certRes.exit !== 0) {
     console.error("tailscale cert failed (worker will serve plain ws):");
