@@ -378,11 +378,13 @@ test("dropped final frame is repaired by the applied-sequence heartbeat", async 
     (id) => (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.viewportText(id),
     sessionId,
   )).toContain("HEARTBEAT-READY-001");
-  await expect.poll(() => smokePage.evaluate(
-    (id) => (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.viewportText(id)
-      .includes("HEARTBEAT-READY-001bash-5.1$"),
-    sessionId,
-  )).toBe(true);
+  await expect.poll(() => smokePage.evaluate((id) => {
+    // The test bootstrap installs this typed in-process harness on window.
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return /HEARTBEAT-READY-001bash-\d+(?:\.\d+)+\$/.test(
+      smokeWindow.__smoke.viewportText(id),
+    );
+  }, sessionId)).toBe(true);
   await waitForStableCellFrames(smokePage, sessionId);
   await smokePage.evaluate(
     async (id) => (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.input(
@@ -2788,6 +2790,8 @@ test("streaming sequence repair leaves an off-bottom reader fixed", async ({ smo
       dropped: smoke.droppedCellFrameCount(id),
     };
   }, sessionId);
+  await expect.poll(async () => (await sample()).row, { timeout: 10_000 })
+    .toContain("READERLINE-");
   const before = await sample();
 
   await smokePage.evaluate(async (id) => {
