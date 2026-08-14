@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { afterEach, describe, expect, test } from "bun:test";
 import {
   chmodSync,
@@ -42,12 +43,13 @@ function runInstaller(
     chmodSync(destination, 0o755);
   }
   executable(payload, "#!/bin/sh\nprintf 'test-version\\n'\n");
+  const payloadSha256 = createHash("sha256").update(readFileSync(payload)).digest("hex");
 
   executable(join(bin, "uname"), `#!/bin/sh\ncase "$1" in\n  -s) printf '%s\\n' "$FAKE_OS" ;;\n  -m) printf '%s\\n' "$FAKE_ARCH" ;;\n  *) exit 2 ;;\nesac\n`);
   executable(join(bin, "tailscale"), "#!/bin/sh\nexit 0\n");
-  executable(join(bin, "shasum"), `#!/bin/sh\nlast=''\nfor arg in "$@"; do last="$arg"; done\nexec /usr/bin/sha256sum "$last"\n`);
-  executable(join(bin, "sha256sum"), "#!/bin/sh\nexec /usr/bin/sha256sum \"$@\"\n");
-  executable(join(bin, "curl"), `#!/bin/sh\nset -eu\nurl=''\nout=''\nwhile [ "$#" -gt 0 ]; do\n  case "$1" in\n    -o) out="$2"; shift 2 ;;\n    -*) shift ;;\n    *) url="$1"; shift ;;\n  esac\ndone\nprintf '%s\\n' "$url" >> "$CURL_LOG"\ncase "$url" in\n  *.sha256)\n    case "$CURL_MODE" in\n      malformed-digest) printf 'NOT-A-DIGEST\\n' > "$out" ;;\n      missing-digest) exit 22 ;;\n      *) set -- $(/usr/bin/sha256sum "$PAYLOAD"); printf '%s\\n' "$1" > "$out" ;;\n    esac\n    ;;\n  *)\n    if [ "$CURL_MODE" = altered-binary ]; then\n      printf '#!/bin/sh\\nprintf truncated\\n' > "$out"\n    else\n      cp "$PAYLOAD" "$out"\n    fi\n    ;;\nesac\n`);
+  executable(join(bin, "shasum"), `#!/bin/sh\nlast=''\nfor arg in "$@"; do last="$arg"; done\ndigest="$PAYLOAD_SHA256"\ncmp -s "$last" "$PAYLOAD" || digest='0000000000000000000000000000000000000000000000000000000000000000'\nprintf '%s  %s\\n' "$digest" "$last"\n`);
+  executable(join(bin, "sha256sum"), `#!/bin/sh\nlast=''\nfor arg in "$@"; do last="$arg"; done\ndigest="$PAYLOAD_SHA256"\ncmp -s "$last" "$PAYLOAD" || digest='0000000000000000000000000000000000000000000000000000000000000000'\nprintf '%s  %s\\n' "$digest" "$last"\n`);
+  executable(join(bin, "curl"), `#!/bin/sh\nset -eu\nurl=''\nout=''\nwhile [ "$#" -gt 0 ]; do\n  case "$1" in\n    -o) out="$2"; shift 2 ;;\n    -*) shift ;;\n    *) url="$1"; shift ;;\n  esac\ndone\nprintf '%s\\n' "$url" >> "$CURL_LOG"\ncase "$url" in\n  *.sha256)\n    case "$CURL_MODE" in\n      malformed-digest) printf 'NOT-A-DIGEST\\n' > "$out" ;;\n      missing-digest) exit 22 ;;\n      *) printf '%s\\n' "$PAYLOAD_SHA256" > "$out" ;;\n    esac\n    ;;\n  *)\n    if [ "$CURL_MODE" = altered-binary ]; then\n      printf '#!/bin/sh\\nprintf truncated\\n' > "$out"\n    else\n      cp "$PAYLOAD" "$out"\n    fi\n    ;;\nesac\n`);
 
   const result = Bun.spawnSync(["bash", INSTALLER], {
     cwd: ROOT,
@@ -59,6 +61,7 @@ function runInstaller(
       CURL_LOG: curlLog,
       CURL_MODE: options.mode ?? "valid",
       PAYLOAD: payload,
+      PAYLOAD_SHA256: payloadSha256,
       ROOST_BIN_DIR: destDir,
       ...(options.local || options.localBin
         ? { ROOST_LOCAL_BIN: options.local ? payload : options.localBin! }

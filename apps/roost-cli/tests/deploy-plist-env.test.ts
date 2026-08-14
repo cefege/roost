@@ -242,9 +242,13 @@ describe("worker installer environment precedence", () => {
     const scriptDir = join(repo, "apps/worker/scripts");
     const installer = join(scriptDir, "install.sh");
     const home = join(root, "home");
+    const bin = join(root, "linux-bin");
     const unit = join(home, ".config/systemd/user/test-worker.service");
     fs.mkdirSync(scriptDir, { recursive: true });
     fs.mkdirSync(home, { recursive: true });
+    fs.mkdirSync(bin, { recursive: true });
+    fs.writeFileSync(join(bin, "uname"), "#!/bin/sh\nprintf 'Linux\\n'\n");
+    fs.chmodSync(join(bin, "uname"), 0o700);
     fs.copyFileSync(join(import.meta.dir, "../../worker/scripts/install.sh"), installer);
     fs.chmodSync(installer, 0o700);
     fs.writeFileSync(
@@ -261,6 +265,7 @@ describe("worker installer environment precedence", () => {
     delete env.ROOST_WORKER_MEMORY_HIGH;
     Object.assign(env, {
       HOME: home,
+      PATH: `${bin}:${process.env.PATH ?? "/usr/bin:/bin"}`,
       BUN_BIN: "/bin/true",
       ROOST_COORDINATOR_URL: "https://current.example:4102",
       ROOST_WORKER_LABEL: "current-worker",

@@ -40,6 +40,9 @@ case "$*" in
 esac
 exit 0
 `);
+  executable(join(bin, "stat"), `#!/bin/sh
+if [ "$1" = "-c" ]; then printf '640\\n'; else exec /usr/bin/stat "$@"; fi
+`);
   executable(join(bin, "tailscale"), `#!/bin/sh
 printf 'tailscale %s\\n' "$*" >> "$ROOST_TEST_LOG"
 if [ "$1 $2" = "serve --bg" ] && [ "${"$"}{ROOST_TEST_TAILSCALE_FAIL:-0}" = 1 ]; then exit 1; fi
@@ -62,7 +65,13 @@ done
 case "$url" in
   */roost.v1.CoordinatorService/MiscHealth)
     status="${"$"}{ROOST_TEST_HEALTH_STATUS:-200}"
-    if [ -n "$output" ]; then printf '%s' "${"$"}{ROOST_TEST_HEALTH_BODY:-{\\"ok\\":true}}" > "$output"; fi
+    if [ -n "$output" ]; then
+      if [ "${"$"}{ROOST_TEST_HEALTH_BODY+x}" = x ]; then
+        printf '%s' "$ROOST_TEST_HEALTH_BODY" > "$output"
+      else
+        printf '%s' '{"ok":true}' > "$output"
+      fi
+    fi
     ;;
   *)
     status="${"$"}{ROOST_TEST_CURL_STATUS:-401}"
