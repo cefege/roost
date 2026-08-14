@@ -182,17 +182,17 @@ EOF
 
 bootstrap() {
   launchctl bootout "gui/$UID/${LABEL}" 2>/dev/null || true
-  # bootout is asynchronous — without a beat, the immediate bootstrap can
-  # race and fail with "Input/output error (5)" because the prior service
-  # record is still being unloaded. Retry up to 3 times with a short pause.
+  # bootout is asynchronous — on loaded daily-driver agents launchd can keep
+  # returning "Input/output error (5)" for several seconds after the service
+  # disappears. Retry for up to ten seconds before failing the deployment.
   local i
-  for i in 1 2 3; do
+  for i in 1 2 3 4 5 6 7 8 9 10; do
     sleep 1
     if launchctl bootstrap "gui/$UID" "$PLIST" 2>/dev/null; then
       break
     fi
-    if [[ $i -eq 3 ]]; then
-      echo "launchctl bootstrap failed after 3 retries" >&2
+    if [[ $i -eq 10 ]]; then
+      echo "launchctl bootstrap failed after 10 retries" >&2
       exit 1
     fi
   done

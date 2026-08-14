@@ -280,6 +280,59 @@ describe("worker installer environment precedence", () => {
     expect(definition).toContain("MemoryHigh=4G");
     expect(definition).not.toContain("stale");
   });
+
+  test("macOS bootstrap survives a slow launchd unload", () => {
+    const repo = join(root, "mac-repo");
+    const scriptDir = join(repo, "apps/worker/scripts");
+    const installer = join(scriptDir, "install.sh");
+    const home = join(root, "mac-home");
+    const bin = join(root, "mac-bin");
+    const attempts = join(root, "bootstrap-attempts");
+    fs.mkdirSync(scriptDir, { recursive: true });
+    fs.mkdirSync(home, { recursive: true });
+    fs.mkdirSync(join(home, "Library/LaunchAgents"), { recursive: true });
+    fs.mkdirSync(bin, { recursive: true });
+    fs.copyFileSync(join(import.meta.dir, "../../worker/scripts/install.sh"), installer);
+    fs.chmodSync(installer, 0o700);
+    fs.writeFileSync(join(bin, "uname"), "#!/usr/bin/env bash\necho Darwin\n");
+    fs.writeFileSync(join(bin, "sleep"), "#!/usr/bin/env bash\nexit 0\n");
+    fs.writeFileSync(
+      join(bin, "launchctl"),
+      [
+        "#!/usr/bin/env bash",
+        "if [[ \"$1\" == \"bootstrap\" ]]; then",
+        "  n=0",
+        "  [[ -f \"$ROOST_TEST_ATTEMPTS\" ]] && n=$(cat \"$ROOST_TEST_ATTEMPTS\")",
+        "  n=$((n + 1))",
+        "  printf '%s' \"$n\" > \"$ROOST_TEST_ATTEMPTS\"",
+        "  [[ $n -ge 5 ]]",
+        "  exit",
+        "fi",
+        "exit 0",
+        "",
+      ].join("\n"),
+    );
+    for (const name of ["uname", "sleep", "launchctl"]) {
+      fs.chmodSync(join(bin, name), 0o700);
+    }
+
+    const proc = Bun.spawnSync(["bash", installer, "install"], {
+      env: {
+        ...process.env,
+        HOME: home,
+        PATH: `${bin}:${process.env.PATH ?? "/usr/bin:/bin"}`,
+        BUN_BIN: "/bin/true",
+        ROOST_COORDINATOR_URL: "https://current.example:4102",
+        ROOST_WORKER_AGENT_LABEL: "test-worker",
+        ROOST_WORKER_DATA_DIR: join(root, "mac-data"),
+        ROOST_WORKER_LOG_DIR: join(root, "mac-logs"),
+        ROOST_TEST_ATTEMPTS: attempts,
+      },
+    });
+
+    expect(proc.exitCode).toBe(0);
+    expect(fs.readFileSync(attempts, "utf8")).toBe("5");
+  });
 });
 
 describe("_backfillEnvFromPlist — precedence and absence", () => {
