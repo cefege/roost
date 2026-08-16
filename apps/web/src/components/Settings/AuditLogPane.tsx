@@ -8,7 +8,9 @@
 
 import { createSignal, For, Show, onMount, onCleanup, createMemo } from "solid-js";
 import { coordClient } from "../../connect.ts";
-import { registerAuditDelta } from "../../store/sync.ts";
+import { registerAuditDelta, registerLazySyncDomain } from "../../store/sync.ts";
+import { SyncDomain } from "@roost/shared/proto/sync_pb";
+import type { AuditRow as PbAuditRow } from "@roost/shared/proto/wire_pb";
 import { Card, Button, EmptyState, Icon, TextField } from "./md/primitives.tsx";
 
 interface AuditRow {
@@ -50,6 +52,19 @@ function rowMatchesFilters(
   if (row.status < statusMin || row.status > statusMax) return false;
   return true;
 }
+function auditRowsFromProto(rows: readonly PbAuditRow[]): AuditRow[] {
+  return rows.map((row) => ({
+    id: Number(row.id),
+    ts: Number(row.ts),
+    caller_fp: row.callerFp ?? null,
+    caller_label: row.callerLabel ?? null,
+    method: row.method,
+    path: row.path,
+    status: row.status,
+    trace_id: row.traceId ?? null,
+  }));
+}
+
 
 export function AuditLogPane() {
   const [allRows, setAllRows] = createSignal<AuditRow[]>([]);
@@ -84,13 +99,7 @@ export function AuditLogPane() {
         limit: PAGE_LIMIT,
         cursor: cursor !== undefined ? String(cursor) : undefined,
       });
-      const rows: AuditRow[] = result.rows.map((r) => ({
-        id: Number(r.id), ts: Number(r.ts),
-        caller_fp: r.callerFp ?? null,
-        caller_label: r.callerLabel ?? null,
-        method: r.method, path: r.path, status: r.status,
-        trace_id: r.traceId ?? null,
-      }));
+      const rows = auditRowsFromProto(result.rows);
       if (replace) setAllRows(rows);
       else setAllRows((prev) => [...prev, ...rows]);
       setNextCursor(result.nextCursor ? Number(result.nextCursor) : null);
@@ -107,15 +116,39 @@ export function AuditLogPane() {
   }
 
   onMount(() => {
-    void fetchPage(undefined, true);
+    // Local consumer first: once the lazy server subscription is emitted, no
+    // accepted delta can race past this pane's handler.
     const unsubDeltas = registerAuditDelta((raw) => {
       const row = raw as AuditRow;
       setAllRows((prev) => {
-        if (prev.some((r) => r.id === row.id)) return prev;
+        if (prev.some((existing) => existing.id === row.id)) return prev;
         return [row, ...prev];
       });
     });
-    onCleanup(() => unsubDeltas());
+    const unsubDomain = registerLazySyncDomain(SyncDomain.AUDIT, async () => {
+      setLoading(true);
+      setLoadErr(null);
+      try {
+        const result = await coordClient.auditList({ limit: PAGE_LIMIT });
+        const rows = auditRowsFromProto(result.rows);
+        const cursor = result.nextCursor ? Number(result.nextCursor) : null;
+        return {
+          apply: () => {
+            setAllRows(rows);
+            setNextCursor(cursor);
+          },
+        };
+      } catch (error) {
+        setLoadErr(error instanceof Error ? error.message : String(error));
+        throw error;
+      } finally {
+        setLoading(false);
+      }
+    });
+    onCleanup(() => {
+      unsubDomain();
+      unsubDeltas();
+    });
   });
 
   return (

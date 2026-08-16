@@ -30,6 +30,7 @@ import { log } from "@roost/shared/log";
 import { signal, diag } from "@roost/shared/diag";
 import { connectWorkers, _publishRoutable, type WorkerHandle } from "./worker-registry.ts";
 import { handleWorkerAgentStatus } from "../agent-status-hub.ts";
+import { resolvePendingSpawnOpened } from "./pending-spawns.ts";
 
 export interface WorkerServiceDeps {
   db: KyselyDB;
@@ -37,6 +38,17 @@ export interface WorkerServiceDeps {
   jwtCache: JwtCache;
   cfg: CoordConfig;
   move?: CoordinatorMoveService;
+  onWorkerConnected?: (workerFp: string) => Promise<void> | void;
+  onUpdateProgress?: (workerFp: string, progress: {
+    request_id: string;
+    job_id: string;
+    sequence: number;
+    phase: string;
+    message: string;
+    terminal: boolean;
+    success: boolean;
+    error?: string;
+  }) => void;
 }
 
 // ─── makeWorkerConn — transport-agnostic per-connection worker link ──
@@ -150,6 +162,9 @@ export function makeWorkerConn(
           }) },
         }));
         log.info("worker-service", "hello", { worker_fp: fp });
+        void Promise.resolve(deps.onWorkerConnected?.(fp)).catch((error) => {
+          log.warn("worker-service", "connected_callback_failed", { worker_fp: fp, error: String(error) });
+        });
         // Respawn-if-missing 3s after hello (grace for the worker's own
         // snapshot events to land first); idempotent on the worker side.
         setTimeout(() => {
@@ -209,6 +224,13 @@ export function makeWorkerConn(
         } finally {
           lease?.release();
         }
+        if (ev.kind === "opened") {
+          resolvePendingSpawnOpened(
+            workerFp,
+            ev.session_id,
+            Number(ev.channel),
+          );
+        }
         if (clientSeq > 0) {
           trySend("event_ack", create(CoordWorkerDownSchema, {
             frame: { case: "eventAck", value: create(DEventAckSchema, {
@@ -251,6 +273,38 @@ export function makeWorkerConn(
           completed_revision: Number(status.completedRevision),
           updated_at: status.updatedAt,
           active: status.active,
+        });
+        return;
+      }
+      case "viewportResult": {
+        resolvePendingRpc(f.frame.value.requestId, f.frame.value);
+        return;
+      }
+      case "inputResult": {
+        resolvePendingRpc(f.frame.value.requestId, f.frame.value);
+        return;
+      }
+      case "updateProgress": {
+        if (!workerFp) {
+          diag("worker.frame_dropped", { reason: "update_progress_before_hello", worker_fp: caller.fingerprint });
+          requestClose();
+          return;
+        }
+        const progress = f.frame.value;
+        const sequence = Number(progress.sequence);
+        if (!progress.jobId || !Number.isSafeInteger(sequence) || sequence < 0) {
+          diag("worker.frame_dropped", { reason: "invalid_update_progress", worker_fp: workerFp });
+          return;
+        }
+        deps.onUpdateProgress?.(workerFp, {
+          request_id: progress.requestId,
+          job_id: progress.jobId,
+          sequence,
+          phase: progress.phase,
+          message: progress.message,
+          terminal: progress.terminal,
+          success: progress.success,
+          error: progress.error || undefined,
         });
         return;
       }

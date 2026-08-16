@@ -21,7 +21,7 @@ message HostMetrics {
 message Worker {
   string fp = 1;
   string label = 2;
-  string os = 3;  // "darwin" | "linux"
+  string os = 3;  // "darwin" | "linux" | "win32"
   optional string git_sha = 4;
   optional HostMetrics host_metrics = 5;
   uint64 registered_at_ms = 6;

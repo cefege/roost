@@ -85,7 +85,7 @@ async function collectStaleJournal(
   journal: CoordRelocationJournal,
 ): Promise<void> {
   if (journal.state === "COMMITTED") {
-    if (options.currentCoordinatorUrl?.() === journal.target_url) options.relocation.discard();
+    if (options.currentCoordinatorUrl?.() === journal.target_url) await options.relocation.discard();
     return;
   }
   if (journal.state === "ACTIVATED") {
@@ -102,7 +102,7 @@ async function collectStaleJournal(
     if (targetPhase !== CoordinatorMovePhase.ROLLED_BACK && targetPhase !== CoordinatorMovePhase.FAILED) return;
     options.setCoordinatorEndpoint(journal.source_url);
     options.link.relocate(journal.source_url);
-    options.relocation.discard();
+    await options.relocation.discard();
     return;
   }
   if (journal.state !== "STAGED") return;
@@ -114,7 +114,7 @@ async function collectStaleJournal(
   }
   if (phase === "gone" || phase === CoordinatorMovePhase.COMMITTED
     || phase === CoordinatorMovePhase.ROLLED_BACK || phase === CoordinatorMovePhase.FAILED) {
-    options.relocation.discard();
+    await options.relocation.discard();
   }
 }
 
@@ -150,7 +150,7 @@ async function resolveUnreachableSource(
     if (journal.state !== "ACTIVATED") return true;
     options.setCoordinatorEndpoint(journal.source_url);
     options.link.relocate(journal.source_url);
-    options.relocation.discard();
+    await options.relocation.discard();
     return false;
   }
   if (!TARGET_OWNED_PHASES.has(target.value.phase)) return true;
@@ -159,7 +159,7 @@ async function resolveUnreachableSource(
   // only the runtime journal; the target's COMMIT is still responsible for the
   // durable service-definition cutover after it has received every worker.
   if (journal.state !== "ACTIVATED") {
-    options.relocation.activate({
+    await options.relocation.activate({
       handoff_id: journal.handoff_id,
       source_url: journal.source_url,
       target_url: journal.target_url,

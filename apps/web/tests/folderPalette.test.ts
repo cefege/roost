@@ -1,5 +1,13 @@
 import { expect, test } from "bun:test";
-import { childPath, pathCrumbs, parentPath, collapseCrumbsTo } from "../src/lib/folderPalette.ts";
+import {
+  childPath as childPathNative,
+  pathCrumbs as pathCrumbsNative,
+  parentPath as parentPathNative,
+  collapseCrumbsTo,
+} from "../src/lib/folderPalette.ts";
+const childPath = (dir: string, name: string) => childPathNative("", dir, name);
+const pathCrumbs = (dir: string) => pathCrumbsNative("", dir);
+const parentPath = (dir: string) => parentPathNative("", dir);
 
 test("childPath joins, handling root + trailing slash", () => {
   expect(childPath("~/code", "roost")).toBe("~/code/roost");
@@ -26,6 +34,16 @@ test("parentPath drops last segment; roots stay put", () => {
   expect(parentPath("~/Code")).toBe("~");
   expect(parentPath("~")).toBe("~");
   expect(parentPath("/")).toBe("/");
+});
+test("Windows drive and UNC breadcrumbs retain native roots", () => {
+  expect(pathCrumbsNative("", "C:/Users/Ada/Code")).toEqual([
+    { label: "C:", path: "C:/" },
+    { label: "Users", path: "C:/Users" },
+    { label: "Ada", path: "C:/Users/Ada" },
+    { label: "Code", path: "C:/Users/Ada/Code" },
+  ]);
+  expect(parentPathNative("", "C:/Users/Ada")).toBe("C:/Users");
+  expect(childPathNative("", "//server/share", "build")).toBe("//server/share/build");
 });
 
 test("collapseCrumbsTo: hideMiddle 0 returns all crumbs, no ellipsis", () => {

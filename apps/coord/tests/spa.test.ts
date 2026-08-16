@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { normalizeManifestUrlKey } from "../../../scripts/gen-embed.ts";
 import { createSpaResponder } from "../src/spa.ts";
 
 
@@ -19,8 +20,8 @@ describe("createSpaResponder", () => {
       writeFileSync(join(embeddedRoot, "assets", "embedded.js"), "embedded bundle");
 
       const responder = createSpaResponder(diskRoot, new Map([
-        ["index.html", join(embeddedRoot, "index.html")],
-        ["assets/embedded.js", join(embeddedRoot, "assets", "embedded.js")],
+        ["index.html", { raw: join(embeddedRoot, "index.html") }],
+        ["assets/embedded.js", { raw: join(embeddedRoot, "assets", "embedded.js") }],
       ]));
 
       const root = await responder(new URL("http://t/"), "GET", "");
@@ -53,8 +54,8 @@ describe("createSpaResponder", () => {
       writeFileSync(join(embeddedRoot, "index.html"), "embedded index");
       writeFileSync(join(embeddedRoot, "assets", "embedded.js"), "embedded bundle");
       const responder = createSpaResponder(diskRoot, new Map([
-        ["index.html", join(embeddedRoot, "index.html")],
-        ["assets/embedded.js", join(embeddedRoot, "assets", "embedded.js")],
+        ["index.html", { raw: join(embeddedRoot, "index.html") }],
+        ["assets/embedded.js", { raw: join(embeddedRoot, "assets", "embedded.js") }],
       ]));
 
       const root = await responder(new URL("http://t/"), "GET", "");
@@ -70,5 +71,69 @@ describe("createSpaResponder", () => {
     } finally {
       rmSync(workdir, { recursive: true, force: true });
     }
+  });
+
+  test("does not resolve disk assets outside the SPA root", async () => {
+    const workdir = mkdtempSync(join(tmpdir(), "roost-spa-"));
+    try {
+      const diskRoot = join(workdir, "disk");
+      const outsideRoot = join(workdir, "outside");
+      mkdirSync(diskRoot, { recursive: true });
+      mkdirSync(outsideRoot, { recursive: true });
+      writeFileSync(join(diskRoot, "index.html"), "disk index");
+      writeFileSync(join(outsideRoot, "secret.js"), "secret");
+      const responder = createSpaResponder(diskRoot, new Map());
+      const traversalUrl = { pathname: "/assets/../../outside/secret.js" } as URL;
+
+      const response = await responder(traversalUrl, "GET", "");
+      expect(response.status).toBe(404);
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
+  test("serves embedded gzip bytes directly and preserves raw and HEAD semantics", async () => {
+    const workdir = mkdtempSync(join(tmpdir(), "roost-spa-"));
+    try {
+      const rawIndex = join(workdir, "index.html");
+      const rawAsset = join(workdir, "app.js");
+      const gzipAsset = join(workdir, "app.js.gz");
+      writeFileSync(rawIndex, "embedded index");
+      writeFileSync(rawAsset, "raw javascript");
+      // Deliberately not a valid gzip stream: the responder must serve the
+      // generated variant as-is rather than recompressing the raw file.
+      writeFileSync(gzipAsset, "build-time gzip bytes");
+      const responder = createSpaResponder(undefined, new Map([
+        ["index.html", { raw: rawIndex }],
+        ["assets/app-deadbeef.js", { raw: rawAsset, gzip: gzipAsset }],
+      ]));
+
+      const compressed = await responder(new URL("http://t/assets/app-deadbeef.js"), "GET", "br, gzip");
+      expect(compressed.status).toBe(200);
+      expect(compressed.headers.get("content-encoding")).toBe("gzip");
+      expect(compressed.headers.get("vary")).toBe("accept-encoding");
+      expect(compressed.headers.get("content-type")).toBe("application/javascript; charset=utf-8");
+      expect(compressed.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+      expect(await compressed.text()).toBe("build-time gzip bytes");
+
+      const raw = await responder(new URL("http://t/assets/app-deadbeef.js"), "GET", "gzip;q=0, br");
+      expect(raw.headers.get("content-encoding")).toBeNull();
+      expect(raw.headers.get("vary")).toBe("accept-encoding");
+      expect(await raw.text()).toBe("raw javascript");
+
+      const head = await responder(new URL("http://t/assets/app-deadbeef.js"), "HEAD", "gzip");
+      expect(head.headers.get("content-encoding")).toBe("gzip");
+      expect(head.headers.get("vary")).toBe("accept-encoding");
+      expect(await head.text()).toBe("");
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
+  test("normalizes Windows build paths into URL manifest keys", () => {
+    expect(normalizeManifestUrlKey("assets\\chunks\\terminal-deadbeef.js"))
+      .toBe("assets/chunks/terminal-deadbeef.js");
+    expect(normalizeManifestUrlKey("assets/chunks/terminal-deadbeef.js"))
+      .toBe("assets/chunks/terminal-deadbeef.js");
   });
 });

@@ -3,6 +3,7 @@
 
 import type { Session } from "@roost/shared/wire";
 import { rootStore } from "../store/root.ts";
+import { sameWorkerPath, workerPathBasename, workerPathIdentity } from "./nativePath.ts";
 
 /** Terminals live in their current cwd. */
 export function folderPathOf(session: Session): string {
@@ -12,7 +13,7 @@ export function folderPathOf(session: Session): string {
 /** Stable per-(worker, folder) key. Same-folder sessions collapse into one
  *  tab strip / one sidebar folder row. */
 export function folderKeyOf(session: Session): string {
-  return `${session.worker_fp}::${folderPathOf(session)}`;
+  return `${session.worker_fp}::${workerPathIdentity(session.worker_fp, folderPathOf(session))}`;
 }
 
 /** The workspace backing a (worker, folder) bucket, if any — resolved by
@@ -22,7 +23,7 @@ export function folderKeyOf(session: Session): string {
  *  workspace's folder. */
 export function workspaceForFolder(workerFp: string, folderPath: string) {
   for (const ws of Object.values(rootStore.workspaces)) {
-    if (ws.worker_fp === workerFp && ws.folder_path === folderPath) return ws;
+    if (ws.worker_fp === workerFp && sameWorkerPath(workerFp, ws.folder_path, folderPath)) return ws;
   }
   return null;
 }
@@ -35,6 +36,5 @@ export function folderDisplayName(session: Session): string {
   const path = folderPathOf(session);
   const ws = workspaceForFolder(session.worker_fp, path);
   if (ws?.name) return ws.name;
-  const parts = path.split("/").filter(Boolean);
-  return parts[parts.length - 1] ?? path;
+  return workerPathBasename(session.worker_fp, path) || path;
 }

@@ -4,16 +4,17 @@
 // list inside a second Card with mime-icon by extension and inline
 // actions; expiry chip color reflects TTL state.
 // Callers: SettingsRoot.tsx. Depends on: coordClient, rootStore,
-// inputChannel, attachments lib, md/primitives.
+// Sync v2 terminal outbound, attachments lib, md/primitives.
 
 import { createResource, createSignal, For, Show, onCleanup } from "solid-js";
 import { coordClient } from "../../connect.ts";
 import { rootStore } from "../../store/root.ts";
-import { inputChannel } from "../../ws/input-channel.ts";
+import { sendTerminalInput } from "../../ws/sync-outbound.ts";
 import { getShortPathPref, setShortPathPref } from "../../lib/attachments.ts";
 import { Card, Button, EmptyState, List, ListRow, Icon, Switch, Select } from "./md/primitives.tsx";
 import { formatBytes } from "../../lib/format.ts";
 import { isPageVisible } from "../../lib/pageVisible.ts";
+import { supportedWorkerPlatform, workerPathBasename } from "../../lib/nativePath.ts";
 
 function formatAge(mtimeMs: number): string {
   const ageMs = Date.now() - mtimeMs;
@@ -57,6 +58,15 @@ export function AttachmentsPane() {
     sessionOptions()[0]?.id ?? null,
   );
   const [refreshTick, setRefreshTick] = createSignal(0);
+  const selectedSession = () => {
+    const id = selectedId();
+    return id ? rootStore.sessions[id] ?? null : null;
+  };
+  const usesManagedCopies = () => {
+    const session = selectedSession();
+    if (!session) return false;
+    return supportedWorkerPlatform(rootStore.workers[session.worker_fp]?.os) === "win32";
+  };
   const [statusMsg, setStatusMsg] = createSignal<string | null>(null);
 
   // Hidden-tab gate: skip the refresh while hidden; next visible tick refreshes.
@@ -79,8 +89,15 @@ export function AttachmentsPane() {
   );
 
   async function injectPath(sid: string, absPath: string): Promise<void> {
-    inputChannel.sendInput(sid, new TextEncoder().encode(absPath + " "));
-    setStatusMsg(`Injected ${absPath}`);
+    const admission = sendTerminalInput(sid, new TextEncoder().encode(absPath + " "));
+    if (!admission.accepted) {
+      setStatusMsg(`Inject failed: ${admission.reason}`);
+      return;
+    }
+    const outcome = await admission.result;
+    setStatusMsg(outcome.status === "accepted"
+      ? `Injected ${absPath}`
+      : `Inject failed: ${outcome.reason}`);
     setTimeout(() => setStatusMsg(null), 2000);
   }
   async function copyToClipboard(absPath: string): Promise<void> {
@@ -117,14 +134,14 @@ export function AttachmentsPane() {
             class="md-input"
             options={sessionOptions().map((s) => ({
               value: s.id,
-              label: `${s.kind} — ${s.cwd.split("/").pop() ?? s.cwd} (${s.id.slice(0, 8)})`,
+              label: `${s.kind} — ${workerPathBasename(s.worker_fp, s.cwd) || s.cwd} (${s.id.slice(0, 8)})`,
             }))}
           />
         </div>
 
         <div class="md-body-m" style={{ display: "inline-flex", "align-items": "center", gap: "var(--md-space-2)", color: "var(--md-sys-color-on-surface-variant)" }}>
           <Switch
-            label="Use short-path symlinks for injected paths"
+            label="Use short attachment paths"
             checked={getShortPathPref()}
             onChange={(checked) => {
               setShortPathPref(checked);
@@ -132,7 +149,7 @@ export function AttachmentsPane() {
               setTimeout(() => setStatusMsg(null), 1500);
             }}
           />
-          Use short-path symlinks for injected paths
+          Use short-path {usesManagedCopies() ? "managed copies" : "symlinks"} for injected paths
         </div>
 
         <Show when={statusMsg()}>

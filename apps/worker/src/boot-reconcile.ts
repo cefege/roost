@@ -11,6 +11,8 @@ import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
 import type { CoordClient } from "./coord-client.ts";
 import type { SessionEventSink } from "./event-sink.ts";
 import type { SessionManager } from "./session-manager.ts";
+import { resolveShellSpec } from "./shell-spec.ts";
+import { withAgentStatusEnvironment } from "./agent-status/environment.ts";
 
 export function setupReconcile(deps: {
 	client: () => CoordClient;
@@ -59,15 +61,24 @@ export function setupReconcile(deps: {
 			const res = await client().sessionsList({ workerFp, status: "open" });
 			const shellRows = res.sessions;
 			const resumeResults = await Promise.all(
-				shellRows.map(async (r) => ({
-					session: r,
-					resumed: await sessionMgr.resume({
-						sessionId: r.id as never,
-						channelId: r.channel as never,
-						kind: r.kind as never,
+				shellRows.map(async (r) => {
+					const shellSpec = resolveShellSpec({
 						cwd: r.cwd,
-					}),
-				})),
+						sessionId: String(r.id),
+						envOverlay: withAgentStatusEnvironment({}, String(r.id)),
+					});
+					return {
+						session: r,
+						shellSpec,
+						resumed: await sessionMgr.resume({
+							sessionId: r.id as never,
+							channelId: r.channel as never,
+							kind: r.kind as never,
+							cwd: shellSpec.cwd,
+							shellSpec,
+						}),
+					};
+				}),
 			);
 			const needRespawn = resumeResults.filter((r) => !r.resumed);
 			let respawned = 0;
@@ -77,6 +88,7 @@ export function setupReconcile(deps: {
 					oldSessionId: o.session.id as never,
 					cwd: o.session.cwd,
 					kind: "shell" as const,
+					shellSpec: o.shellSpec,
 				};
 				let ok = false;
 				// Transient keeper readiness failures are retried; a terminal spawn

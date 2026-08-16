@@ -8,37 +8,37 @@
 import type { ServiceImpl } from "@connectrpc/connect";
 import { Code, ConnectError } from "@connectrpc/connect";
 import { create } from "@bufbuild/protobuf";
-import { randomUUID, createHash } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import {
   CoordinatorService,
-  SessionsListResponseSchema, SessionsSpawnResponseSchema, SessionsAttachResponseSchema,
+  SessionsListResponseSchema, SessionsAttachResponseSchema,
   SessionsKillResponseSchema, SessionsRenameResponseSchema, SessionsResizeResponseSchema,
   SessionsInputResponseSchema, SessionsCursorPosResponseSchema,
   SessionsAssignWorkspaceResponseSchema,
-  ResizeCause,
 } from "@roost/shared/proto/coordinator_pb";
 import { sessionToProto } from "@roost/shared/wire/session-proto";
 import { asSessionId, asWorkspaceId } from "@roost/shared/wire";
 import { safeJsonParse } from "@roost/shared/json";
 import type { ClientControlFrame } from "@roost/shared/wire";
 import { log } from "@roost/shared/log";
-import { diag } from "@roost/shared/diag";
 import type { KyselyDB } from "../db/connection.ts";
 import { appendEvent } from "../event-log.ts";
 import { workspaceBus } from "../buses.ts";
 import { requireAuth, tabIdKey, remoteAddressKey } from "./auth-interceptor.ts";
-import type { Caller } from "./auth-interceptor.ts";
-import { getWorkerHubSocket, sendBrowserCommand } from "./worker-service.ts";
-import { getCachedSessionWorker, cacheSessionWorker } from "../byte-hub.ts";
+import { getWorkerHubSocket } from "./worker-service.ts";
 import { createPendingRpc } from "../router/pending-rpcs.ts";
 import { sendBrowserCmd, forwardToSessionWorker } from "./router-helpers.ts";
-import { _bumpViewer } from "./viewer-tracker.ts";
-import { mutateCellSubscription } from "./cell-subscriptions.ts";
 import type { ConnectDeps } from "./router.ts";
 import { makeSessionScrollbackHandlers } from "./handlers-sessions-scrollback.ts";
+import { handleSessionsSpawn } from "./handler-session-spawn.ts";
+import { bindSyncSessionSnapshot } from "./sync-snapshot-registry.ts";
+import {
+  nextCompatibilityInputSeq,
+  processInputControl,
+  processViewportControl,
+  terminalViewerIdentity,
+} from "./session-control.ts";
 
-const _coordSha8 = (b: Uint8Array): string =>
-  createHash("sha256").update(b).digest("hex").slice(0, 8);
 
 // DB row → proto Session through the shared terminal-session adapter.
 function sessionRowToProto(row: any) {
@@ -63,18 +63,6 @@ function sessionRowToProto(row: any) {
     spawn_cwd: row.spawn_cwd ?? null,
   });
 }
-/** SessionsSpawnRequest → the worker control frame for its kind. */
-export function _spawnFrameFor(req: {
-  kind: string; folder: string; cols?: number; rows?: number; sessionId?: string;
-}): ClientControlFrame {
-  const sid = req.sessionId ? { session_id: asSessionId(req.sessionId) } : {};
-  switch (req.kind) {
-    case "shell":
-      return { kind: "spawn-shell", folder: req.folder, cols: req.cols, rows: req.rows, ...sid };
-    default:
-      throw new ConnectError(`unknown session kind ${req.kind}`, Code.InvalidArgument);
-  }
-}
 
 type SessionMethods =
   | "sessionsList" | "sessionsSpawn" | "sessionsAttach" | "sessionsKill"
@@ -87,7 +75,7 @@ export function makeSessionHandlers(
 ): Pick<ServiceImpl<typeof CoordinatorService>, SessionMethods> {
   return {
     async sessionsList(req, ctx) {
-      requireAuth(ctx.values);
+      const caller = requireAuth(ctx.values);
       let q = deps.db.selectFrom("sessions").select([
         "id", "worker_fp", "channel", "kind", "cwd", "workspace_id", "status",
         "created_at", "closed_at", "custom_title", "git_branch", "git_remote",
@@ -97,21 +85,22 @@ export function makeSessionHandlers(
       const status = req.status || "open";
       if (status !== "all") q = q.where("status", "=", status as any);
       const rows = await q.execute();
-      return create(SessionsListResponseSchema, { sessions: rows.map(sessionRowToProto) });
+      const syncSnapshotToken = req.syncSocketId
+        ? bindSyncSessionSnapshot(req.syncSocketId, caller.fingerprint, rows.map((row) => row.id))
+        : null;
+      return create(SessionsListResponseSchema, {
+        sessions: rows.map(sessionRowToProto),
+        syncSnapshotToken: syncSnapshotToken ?? undefined,
+      });
     },
 
     async sessionsSpawn(req, ctx) {
-      const caller = requireAuth(ctx.values);
-      const sock = getWorkerHubSocket(req.workerFp);
-      if (!sock) throw new ConnectError(`worker ${req.workerFp.slice(0, 12)} not connected`, Code.FailedPrecondition);
-      const pending = createPendingRpc<{ session_id: string; channel_id: number }>(15_000, req.workerFp);
-      const frame = _spawnFrameFor(req);
-      sendBrowserCmd(sock, caller, pending.request_id, frame);
-      const data = await pending.promise;
-      return create(SessionsSpawnResponseSchema, {
-        sessionId: data.session_id,
-        channelId: data.channel_id,
-      });
+      return handleSessionsSpawn(
+        deps,
+        req,
+        requireAuth(ctx.values),
+        ctx.values.get(tabIdKey),
+      );
     },
 
     async sessionsAttach(req, ctx) {
@@ -189,129 +178,40 @@ export function makeSessionHandlers(
 
     async sessionsResize(req, ctx) {
       const caller = requireAuth(ctx.values);
-      // Per-tab id from x-roost-tab-id header. Two tabs from the same
-      // browser have the same caller.fingerprint but different tab_id;
-      // composing them gives the viewport-claim maps (coord + worker)
-      // a per-tab key so one tab's withdraw doesn't kill the other
-      // tab's claim. tab_id is null only for non-SPA callers (none
-      // currently invoke sessionsResize).
-      const tabId = ctx.values.get(tabIdKey);
-      const viewerKey = tabId ? `${caller.fingerprint}:${tabId}` : caller.fingerprint;
-      // client_seq is uint64 on the wire (bigint), while the worker's
-      // ClientControlFrame uses a number. The subscription mutation below owns
-      // the effective sequence (including legacy zero synthesis), then we
-      // forward that exact value so coordinator and worker watermarks align.
-      // Values comfortably fit Number.MAX_SAFE_INTEGER for a monotonic
-      // per-window counter (would need ~285 years at 1 kHz).
-      // Resolve the async DB leg before entering the ordered transition/send
-      // critical section. Once membership is applied there must be no await
-      // before the worker send, otherwise an older request could resume after a
-      // newer one and deliver the two accepted intents in reverse order.
-      const workerRow = await deps.db.selectFrom("sessions").select(["worker_fp"])
-        .where("id", "=", req.sessionId).executeTakeFirst();
-      // Apply ordered membership BEFORE the worker is told: a reclaim snapshot
-      // can reach Sync fanout before this RPC returns. Keep the accepted seq
-      // across withdraws so neither a delayed old withdraw nor an old claim is
-      // forwarded to the worker. Equal HEARTBEAT is the sole exception: it
-      // refreshes a current claim and lets the worker perform held-cell repair
-      // without changing membership or the sequence watermark.
-      // Match the worker's membership rule: legacy 0×0 is a withdraw too,
-      // while the retired BACKGROUND mode intentionally kept a 0×0 claim.
-      const withdrawsCells = req.cause !== ResizeCause.BACKGROUND
-        && (req.cols <= 0 || req.rows <= 0);
-      const subscriptionMutation = mutateCellSubscription(
-        viewerKey,
-        req.sessionId,
-        !withdrawsCells,
-        req.clientSeq,
-        req.cause === ResizeCause.HEARTBEAT,
-      );
-      if (!subscriptionMutation) {
-        // The request is already superseded (or is an equal non-heartbeat
-        // replay). Treat that as idempotent success without a worker hop.
-        return create(SessionsResizeResponseSchema, { accepted: true });
-      }
-      const effectiveClientSeq = Number(subscriptionMutation.effectiveClientSeq);
-
-      const ok = workerRow
-        ? sendBrowserCommand(workerRow.worker_fp, {
-          browser_id: caller.fingerprint,
-          viewer_id: viewerKey,
-          request_id: randomUUID(),
-          frame: {
-            kind: "resize" as const,
-            session_id: asSessionId(req.sessionId),
-            cols: req.cols, rows: req.rows,
-            client_seq: effectiveClientSeq,
-            cause: req.cause || undefined, // numeric ResizeCause; 0/unset → omit
-            held_cell_seq: req.heldCellSeq || undefined,
-          } as ClientControlFrame,
-        })
-        : false;
-      if (!ok && workerRow) {
-        log.warn("handlers-sessions.sessionsResize", "send_failed", {
-          worker_fp: workerRow.worker_fp,
-        });
-      }
-      // A failed ordered transition must become retryable, but only while this
-      // exact installed object is still current. A nested/newer transition
-      // replaces it by identity and therefore cannot be undone here. Legacy
-      // zero retains its historical arrival-order behavior on forward failure.
-      if (!ok && req.clientSeq > 0n) subscriptionMutation.rollback();
-
-      const isWithdraw = req.cols <= 0 || req.rows <= 0;
-      if (ok || (isWithdraw && req.clientSeq === 0n)) {
-        const clientIp = ctx.values.get(remoteAddressKey) ?? undefined;
-        _bumpViewer(
-          req.sessionId,
-          viewerKey,
-          req.cols,
-          req.rows,
-          effectiveClientSeq,
-          clientIp,
-        );
-      }
-      return create(SessionsResizeResponseSchema, { accepted: ok });
+      const result = await processViewportControl(deps, {
+        identity: terminalViewerIdentity(
+          caller.fingerprint,
+          ctx.values.get(tabIdKey),
+          ctx.values.get(remoteAddressKey) ?? undefined,
+        ),
+        sessionId: req.sessionId,
+        clientSeq: req.clientSeq,
+        cols: req.cols,
+        rows: req.rows,
+        cause: req.cause,
+        heldCellSeq: BigInt(req.heldCellSeq),
+      });
+      return create(SessionsResizeResponseSchema, {
+        accepted: result.status === "accepted",
+      });
     },
 
 
     async sessionsInput(req, ctx) {
       const caller = requireAuth(ctx.values);
-      const cached = getCachedSessionWorker(req.sessionId);
-      let row: { worker_fp: string; channel: number } | undefined = cached;
-      if (!row) {
-        const dbRow = await deps.db.selectFrom("sessions").select(["worker_fp", "channel"]).where("id", "=", req.sessionId).executeTakeFirst();
-        if (dbRow) {
-          row = { worker_fp: dbRow.worker_fp, channel: dbRow.channel };
-          cacheSessionWorker(req.sessionId, row.worker_fp, row.channel);
-        }
-      }
-      if (!row) {
-        diag("bytes.up_relay", { sid: req.sessionId, len: req.data.length, ok: false, why: "no_session" });
-        return create(SessionsInputResponseSchema, { accepted: false });
-      }
-      const sock = getWorkerHubSocket(row.worker_fp);
-      if (!sock) {
-        diag("bytes.up_relay", { sid: req.sessionId, len: req.data.length, ok: false, why: "no_worker_sock", worker_fp: row.worker_fp });
-        return create(SessionsInputResponseSchema, { accepted: false });
-      }
-      const payload = req.data;
-      const frame = new Uint8Array(3 + payload.length);
-      new DataView(frame.buffer).setUint16(0, row.channel, false);
-      frame[2] = 1; // DIR_TO_PTY
-      frame.set(payload, 3);
-      try {
-        sock.send(frame);
-        diag("bytes.up_relay", {
-          sid: req.sessionId, len: payload.length, sha8: _coordSha8(payload),
-          ok: true, worker_fp: row.worker_fp, channel: row.channel, caller_fp: caller.fingerprint,
-        });
-        return create(SessionsInputResponseSchema, { accepted: true });
-      } catch (e) {
-        log.warn("sessions.input.connect", "send_failed", { error: String(e) });
-        diag("bytes.up_relay", { sid: req.sessionId, len: payload.length, ok: false, why: "send_throw", err: String(e) });
-        return create(SessionsInputResponseSchema, { accepted: false });
-      }
+      const result = await processInputControl(deps, {
+        identity: terminalViewerIdentity(
+          caller.fingerprint,
+          ctx.values.get(tabIdKey),
+          ctx.values.get(remoteAddressKey) ?? undefined,
+        ),
+        sessionId: req.sessionId,
+        inputSeq: nextCompatibilityInputSeq(),
+        data: req.data,
+      });
+      return create(SessionsInputResponseSchema, {
+        accepted: result.status === "accepted",
+      });
     },
 
     async sessionsCursorPos(req, ctx) {

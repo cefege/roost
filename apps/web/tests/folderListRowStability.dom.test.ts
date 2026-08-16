@@ -13,7 +13,6 @@ import type { SessionEvent } from "@roost/shared/wire";
 import { foldEventIntoStore } from "../src/store/projector.ts";
 import { rootStore, setRootStore } from "../src/store/root.ts";
 import { getSessionTraceId, sessionTraceSize } from "../src/lib/diag.ts";
-import { InputChannel, inputMapSizes } from "../src/ws/input-channel.ts";
 
 const FP = asWorkerFp("c".repeat(64));
 const SID_A = asSessionId("00000000-0000-4000-8000-00000000c001");
@@ -57,18 +56,14 @@ describe("session store row stability (projector reconcile)", () => {
   });
 
   test("closed reaps the session, its volatile slices, AND the per-session accumulators", () => {
-    // Seed every per-session accumulator the close reaper owns so each drop is
-    // observable. _sessionTrace and _lastSendTs have no other reaper.
-    getSessionTraceId(SID_A);                                         // → diag _sessionTrace[SID_A]
-    new InputChannel(async () => {}).sendInput(SID_A, new Uint8Array([65])); // → _lastSendTs[SID_A]
+    // Seed the diagnostic per-session accumulator so its close cleanup remains observable.
+    getSessionTraceId(SID_A);
     const traceBefore = sessionTraceSize();
-    const mapsBefore = inputMapSizes();
 
     foldEventIntoStore({ kind: "closed", session_id: SID_A, ts: 4000 } as SessionEvent);
 
     expect(rootStore.sessions[SID_A]).toBeUndefined();
     expect(sessionTraceSize()).toBe(traceBefore - 1);
-    expect(inputMapSizes()).toBe(mapsBefore - 1);
     // Sibling untouched by the deletion.
     expect(rootStore.sessions[SID_B]?.cwd).toBe("/repo/b");
   });

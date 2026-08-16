@@ -11,11 +11,12 @@ import { join } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { MultiplexedKeeperPool, probeKeeperCompatible, type MuxChannelCallbacks } from "../src/keeper/multiplexed-client.ts";
 import { KEEPER_BUILD_STAMP } from "../src/keeper/keeper-stamp.ts";
+import { muxLocalEndpoint } from "../src/keeper/keeper-pool-config.ts";
+import { keeperTestShellSpec } from "./keeper-test-fixtures.ts";
 
 const SOCK_DIR = join(tmpdir(), `roost-test-keeper-stamp-${process.pid}`);
 process.env.ROOST_WORKER_DATA_DIR = SOCK_DIR;
 process.env.ROOST_KEEPER_QUIET = "1";
-const SOCK_PATH = join(SOCK_DIR, "mux-keeper.sock");
 
 const pool = new MultiplexedKeeperPool();
 let _nextCh = 700;
@@ -41,11 +42,15 @@ describe("keeper-stamp — code-version stamp + handshake agreement", () => {
   test("a real keeper reports OUR exact stamp over HelloResp (worker+keeper agree)", async () => {
     // Bring the keeper subprocess up (spawn a trivial channel), then probe it.
     await pool.spawn({
-      channelId: _nextCh++, cwd: homedir(),
-      argv: ["/bin/sh", "-c", "exec sleep 60"],
-      cols: 80, rows: 24, env: { TERM: "xterm-256color" }, callbacks: noop,
+      channelId: _nextCh++,
+      shellSpec: keeperTestShellSpec({
+        executable: "/bin/sh",
+        argv: ["-c", "exec sleep 60"],
+        cwd: homedir(),
+      }),
+      cols: 80, rows: 24, callbacks: noop,
     });
-    const result = await probeKeeperCompatible(SOCK_PATH);
+    const result = await probeKeeperCompatible(muxLocalEndpoint());
     expect(result.compatible).toBe(true);
     // The keeper is a SEPARATE process that computed its stamp from the same
     // source files — it must equal ours, or staleness would false-positive.

@@ -12,7 +12,7 @@
 import { diag, signal } from "@roost/shared/diag";
 import { rootStore } from "../store/root.ts";
 import { cellFrameCountSize } from "../store/sync-dispatch.ts";
-import { inputMapSizes } from "../ws/input-channel.ts";
+import { inputMapSizes } from "../ws/sync-outbound.ts";
 import { sessionTraceSize } from "./diag.ts";
 
 // Always-on input→echo RTT ring. Fed by recordInputRtt() from the CellTerminal
@@ -38,14 +38,23 @@ function p(arr: number[], q: number): number {
 // hearing about the ≥STALL_MS outliers.
 let _longTaskCount = 0;
 let _longTaskMs = 0;
+let _longTaskState: "available" | "unavailable" = "unavailable";
 
 export function resetPerfCounters(): void {
   _longTaskCount = 0;
   _longTaskMs = 0;
 }
 
-export function perfCounters(): { longTaskCount: number; longTaskMs: number } {
-  return { longTaskCount: _longTaskCount, longTaskMs: Math.round(_longTaskMs) };
+export function perfCounters(): {
+  longTaskState: "available" | "unavailable";
+  longTaskCount: number;
+  longTaskMs: number;
+} {
+  return {
+    longTaskState: _longTaskState,
+    longTaskCount: _longTaskCount,
+    longTaskMs: Math.round(_longTaskMs),
+  };
 }
 
 // Accumulators to watch: anything keyed per-session (the leak class) + the
@@ -95,11 +104,14 @@ export function installLeakWatch(): void {
     diag("diag.leak_sample", s);
     console.info("[leakwatch] sample", s);
   };
+  periodic({ boot: 1 });
+  setInterval(() => periodic(), SAMPLE_MS);
+  if (typeof PerformanceObserver === "undefined") return;
+  const supportedTypes = PerformanceObserver.supportedEntryTypes;
+  if (Array.isArray(supportedTypes) && !supportedTypes.includes("longtask")) return;
   try {
-    periodic({ boot: 1 });
-    setInterval(() => periodic(), SAMPLE_MS);
     let lastStall = -STALL_THROTTLE_MS; // so the first stall is never throttled
-    new PerformanceObserver((list) => {
+    const observer = new PerformanceObserver((list) => {
       for (const e of list.getEntries()) {
         _longTaskCount++;
         _longTaskMs += e.duration;
@@ -111,9 +123,11 @@ export function installLeakWatch(): void {
         signal("perf.longtask_stall", s);
         console.info("[leakwatch] STALL", s);
       }
-    }).observe({ type: "longtask", buffered: false });
+    });
+    observer.observe({ type: "longtask", buffered: false });
+    _longTaskState = "available";
   } catch {
-    /* PerformanceObserver('longtask') / performance.memory unsupported — the
-       periodic sample above still installs; the correlation is best-effort. */
+    // Unsupported means unavailable, never a passing zero-duration sample.
+    _longTaskState = "unavailable";
   }
 }

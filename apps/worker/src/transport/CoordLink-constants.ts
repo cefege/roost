@@ -27,6 +27,17 @@ export function backoffCapMs(nonOpenStreak: number, hasOpened: boolean): number 
   return nonOpenStreak >= threshold ? AUTH_REJECT_BACKOFF_CAP_MS : BACKOFF_MAX_MS;
 }
 export const PENDING_CAP = 1024;
+// Pending frames are encoded before admission so the byte cap is exact rather
+// than an estimate over mutable proto objects.
+export const PENDING_BYTES_CAP = 8 * 1024 * 1024;
+// Leave headroom below the pending cap for native WebSocket buffering. Bun
+// exposes the browser-compatible bufferedAmount counter but no drain event, so
+// CoordLink samples it on a short bounded timer while work is waiting.
+export const WS_BUFFERED_HIGH_WATER_BYTES = 4 * 1024 * 1024;
+export const WS_DRAIN_RETRY_MS = 4;
+// Raw PTY bytes feed coordinator-only metadata scanners. Cells normally go
+// first, but an old metadata frame is promoted so it cannot starve forever.
+export const RAW_METADATA_MAX_AGE_MS = 100;
 // Minimum stream uptime before the dial counters reset to 0. A
 // helloAck-then-immediate-drop pattern would otherwise cycle
 // attempt:1 forever, hiding a coord flap pathology from telemetry.

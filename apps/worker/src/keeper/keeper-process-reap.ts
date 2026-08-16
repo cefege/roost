@@ -1,8 +1,9 @@
-// Process-tree reaping for the multiplexed keeper. Split out of
-// multiplexed-main.ts; the entry owns the single `channels` Map and passes it
-// into reapAllChannelsSync so there is exactly one source of truth.
+// Process-tree reaping for the multiplexed keeper. POSIX retains the PTY
+// close/process-group/tree sweep. Windows closes its authenticated job-host
+// control channel and waits for ACTIVE_PROCESS_ZERO before releasing ConPTY.
 
 import type { Channel } from "./keeper-types.ts";
+import { assertNeverPlatform, supportedHostPlatform } from "@roost/shared/platform";
 
 // Grace between the graceful reap signals (PTY master close + group SIGTERM)
 // and the SIGKILL sweep of survivors. A short termination grace interval.
@@ -49,13 +50,11 @@ function isProcessAlive(pid: number): boolean {
   try { process.kill(pid, 0); return true; } catch { return false; }
 }
 
-/** Graceful reap of one channel's whole tree + escalation. */
-export function reapChannelTree(ch: Channel): void {
+function reapPosixChannel(ch: Channel): void {
   const leader = ch.proc.pid;
   const tree = collectProcessTree(leader);
-  try { ch.proc.terminal?.close(); } catch { /* already closed */ }   // SIGHUP -> fg group + reclaims master fd
-  // Guard: kill(-1) / kill(-0) would signal EVERY reachable process. `leader`
-  // is always a real spawned pid (>1), but never let that invariant slip.
+  try { ch.terminal.close(); } catch { /* already closed */ } // SIGHUP -> foreground group
+  // Guard: kill(-1) / kill(-0) would signal every reachable process.
   if (leader > 1) try { process.kill(-leader, "SIGTERM"); } catch { /* gone / no group */ }
   setTimeout(() => {
     for (const pid of tree) if (isProcessAlive(pid)) {
@@ -64,16 +63,57 @@ export function reapChannelTree(ch: Channel): void {
   }, REAP_GRACE_MS);
 }
 
-/** Synchronous all-channel sweep for keeper shutdown (no grace window — the
- *  host is exiting; a deferred timer would never fire). SIGKILL every child so
- *  none orphan to launchd on deploy/kickstart. */
-export function reapAllChannelsSync(channels: Map<number, Channel>): void {
+/** Graceful reap of one channel's whole tree + escalation. */
+export async function reapChannelTree(ch: Channel): Promise<void> {
+  const platform = supportedHostPlatform();
+  switch (platform) {
+    case "darwin":
+    case "linux":
+      reapPosixChannel(ch);
+      return;
+    case "win32":
+      if (!ch.jobHost) throw new Error(`Windows channel ${ch.childPid} has no job-host`);
+      try {
+        await ch.jobHost.close();
+      } finally {
+        // close() settles only after the helper has exited. A resolved close
+        // additionally proves JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO.
+        try { ch.terminal.close(); } catch { /* already closed */ }
+      }
+      return;
+    default:
+      return assertNeverPlatform(platform);
+  }
+}
+
+function reapAllPosixChannelsSync(channels: Map<number, Channel>): void {
   const victims: number[] = [];
   for (const ch of channels.values()) {
     victims.push(...collectProcessTree(ch.proc.pid));
-    try { ch.proc.terminal?.close(); } catch { /* ignore */ }
+    try { ch.terminal.close(); } catch { /* ignore */ }
   }
   for (const pid of victims) if (isProcessAlive(pid)) {
     try { process.kill(pid, "SIGKILL"); } catch { /* ignore */ }
+  }
+}
+
+/** Reap every channel before keeper shutdown. Windows must wait for each job. */
+export async function reapAllChannels(channels: Map<number, Channel>): Promise<void> {
+  const platform = supportedHostPlatform();
+  switch (platform) {
+    case "darwin":
+    case "linux":
+      reapAllPosixChannelsSync(channels);
+      return;
+    case "win32": {
+      const results = await Promise.allSettled(
+        Array.from(channels.values(), (channel) => reapChannelTree(channel)),
+      );
+      const rejected = results.find((result) => result.status === "rejected");
+      if (rejected?.status === "rejected") throw rejected.reason;
+      return;
+    }
+    default:
+      return assertNeverPlatform(platform);
   }
 }

@@ -2,25 +2,23 @@
 // terminal on (server, spawn folder) instead of the ephemeral session id, so a
 // bookmark survives a session death+respawn in the same folder.
 //
-// Called by: CommandPalette.pickFolder (builds the href on open), MainPane
-// (decode the splat → resolveSessionByFolder). Encoding mirrors
-// the /file/ link builder in CellTerminal.tsx:90 — per-segment
-// encodeURIComponent, leading slash stripped (the @solidjs/router *splat drops
-// it and re-adds none).
+// Called by: terminalHref (build), MainPane/selectors (decode). All native path
+// semantics live in lib/nativePath; these route-named wrappers preserve the
+// established public helper names used by smoke/tests.
 
 import type { Session } from "@roost/shared/wire";
+import { decodeWorkerPathRoute, encodeWorkerPathRoute } from "./nativePath.ts";
 
-// Absolute folder path → splat segment. Per-segment encode, strip the leading
-// slash (router splats carry no leading slash).
-export function encodeFolderPath(abs: string): string {
-  return abs.split("/").map((s) => (s ? encodeURIComponent(s) : s)).join("/").replace(/^\//, "");
+// Absolute folder path → splat segment. POSIX bytes remain unchanged; Windows
+// drive/UNC roots use the shared codec's explicit tagged route prefixes.
+export function encodeFolderPath(abs: string, workerFp = ""): string {
+  return encodeWorkerPathRoute(workerFp, abs);
 }
 
-// Splat param → absolute folder path. Re-add the leading slash the router
-// stripped, decode each segment.
-export function decodeFolderPath(splat: string): string {
-  const inner = splat.split("/").map((s) => (s ? decodeURIComponent(s) : s)).join("/").replace(/^\//, "");
-  return "/" + inner;
+// Splat param → canonical worker path. A tagged Windows route can decode before
+// the independently-hydrated workers domain has published its OS record.
+export function decodeFolderPath(splat: string, workerFp = ""): string {
+  return decodeWorkerPathRoute(workerFp, splat);
 }
 
 // Build the stable URL for a session. Falls back to /s/:id for pre-migration
@@ -28,5 +26,5 @@ export function decodeFolderPath(splat: string): string {
 export function terminalHref(session: Session): string {
   const folder = session.spawn_cwd ?? null;
   if (!folder) return `/s/${session.id}`;
-  return `/t/${session.worker_fp}/${encodeFolderPath(folder)}`;
+  return `/t/${session.worker_fp}/${encodeFolderPath(folder, session.worker_fp)}`;
 }

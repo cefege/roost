@@ -9,6 +9,7 @@ import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import { sql } from "kysely";
 import { randomUUID } from "node:crypto";
 import { log } from "@roost/shared/log";
+import { isSupportedHostPlatform } from "@roost/shared/platform";
 import {
   CoordinatorService,
   AuthCoordIdentityRequestSchema, AuthCoordIdentityResponseSchema,
@@ -23,7 +24,7 @@ import {
 } from "@roost/shared/proto/coordinator_pb";
 import { PairRequestSchema } from "@roost/shared/proto/wire_pb";
 import { callerOrigin, requireAuth, optionalAuth, authorizationKey } from "./auth-interceptor.ts";
-import { fingerprintOf, invalidateJwtKey } from "../jwt.ts";
+import { fingerprintOf, invalidateJwtKey, refreshJwtKey } from "../jwt.ts";
 import { decodeEd25519Pubkey, isAuthorizedKeyRevoked } from "../authorized-keys.ts";
 import { assertOnHost, assertOnHostOrTailnet } from "../middleware/caller-origin.ts";
 import { COORD_GIT_SHA } from "../git-sha.ts";
@@ -127,6 +128,9 @@ export function makeAuthHandlers(
       await deps.db.insertInto("authorized_keys").values({
         fingerprint: fp, public_key: pubkey, label: req.label, added_at: Date.now(),
       }).onConflict((oc) => oc.column("fingerprint").doUpdateSet({ label: req.label })).execute();
+      // Authorization must not advance the revocation generation: a verifier
+      // may already have loaded this newly committed row.
+      refreshJwtKey(deps.jwtCache, fp);
       _invalidateLabel(fp);
       log.info("auth.connect", "browser_authorized", { fp, label: req.label });
       return create(AuthAuthorizeBrowserResponseSchema, { fingerprint: fp });
@@ -148,6 +152,9 @@ export function makeAuthHandlers(
     },
 
     async authRedeemWorker(req, _ctx) {
+      if (!isSupportedHostPlatform(req.os)) {
+        throw new ConnectError("unsupported worker os", Code.InvalidArgument);
+      }
       const pubkey = decodeEd25519Pubkey(req.sshPubkeyB64);
       if (!pubkey) throw new ConnectError("invalid ssh_pubkey_b64", Code.InvalidArgument);
       const fp = await fingerprintOf(pubkey);
@@ -179,6 +186,7 @@ export function makeAuthHandlers(
           last_seen_ms: now,
         })).execute();
       });
+      refreshJwtKey(deps.jwtCache, fp);
       log.info("auth.connect", "worker_redeemed", { fp, label: req.label });
       return create(AuthRedeemWorkerResponseSchema, {
         fingerprint: fp, label: req.label,
@@ -208,6 +216,7 @@ export function makeAuthHandlers(
           fingerprint: fp, public_key: pubkey, label: req.label, added_at: now,
         }).onConflict((oc) => oc.column("fingerprint").doUpdateSet({ label: req.label })).execute();
       });
+      refreshJwtKey(deps.jwtCache, fp);
       log.info("auth.connect", "browser_redeemed", { fp, label: req.label });
       return create(AuthRedeemBrowserResponseSchema, { fingerprint: fp, label: req.label });
     },
@@ -299,6 +308,7 @@ export function makeAuthHandlers(
             fingerprint, public_key: pubkey, label: req.label, added_at: now,
           }).onConflict((oc) => oc.column("fingerprint").doUpdateSet({ label: req.label })).execute();
         });
+        refreshJwtKey(deps.jwtCache, fingerprint);
       } catch (error) {
         if (error instanceof ConnectError) throw error;
         const message = String((error as Error)?.message ?? error);
@@ -405,6 +415,7 @@ export function makeAuthHandlers(
         }).onConflict((oc) => oc.column("fingerprint").doUpdateSet({ label: row.label })).execute();
         approvedFp = fp;
       });
+      refreshJwtKey(deps.jwtCache, approvedFp);
       _invalidateLabel(approvedFp);
       pairBus.publish({ kind: "removed", ephemeral_id: req.ephemeralId });
       log.info("pair.connect", "approved", { ephemeral_id: req.ephemeralId, fp: approvedFp });
@@ -518,6 +529,7 @@ export function makeAuthHandlers(
         await trx.deleteFrom("authorized_keys")
           .where("fingerprint", "=", caller.fingerprint).execute();
       });
+      refreshJwtKey(deps.jwtCache, fingerprint);
       invalidateJwtKey(deps.jwtCache, caller.fingerprint);
       _invalidateLabel(caller.fingerprint);
       deps.onKeyRevoked?.(caller.fingerprint);

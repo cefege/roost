@@ -10,6 +10,7 @@ import type { JSX } from "solid-js";
 import { helpOpen, closeHelp } from "../lib/keyboardShortcuts.ts";
 import { Button } from "./Settings/md/primitives.tsx";
 import { createOverlayPresence } from "../lib/overlayMotion.ts";
+import { platformShortcutLabel } from "../lib/browserPlatform.ts";
 
 // ── Static shortcut catalogue ─────────────────────────────────────────────────
 
@@ -22,29 +23,29 @@ interface ShortcutEntry {
 
 const SHORTCUTS: ShortcutEntry[] = [
   // Navigation
-  { category: "Navigation", label: "Command palette / open terminal", binding: "⌘K" },
-  { category: "Navigation", label: "Filter the sidebar", binding: "⌘F (no terminal on screen) / Ctrl+F" },
-  { category: "Navigation", label: "Toggle sidebar", binding: "⌘B" },
+  { category: "Navigation", label: "Command palette / open terminal", binding: platformShortcutLabel("commandPalette", "⌘K") },
+  { category: "Navigation", label: "Filter the sidebar", binding: platformShortcutLabel("sidebarSearch", "⌘F (no terminal on screen) / Ctrl+F") },
+  { category: "Navigation", label: "Toggle sidebar", binding: platformShortcutLabel("toggleSidebar", "⌘B") },
   { category: "Navigation", label: "Move / open in sidebar", binding: "↑ ↓ ↵" },
-  { category: "Navigation", label: "Move focus to the adjacent pane", binding: "⌘⌥← ↑ → ↓ / Ctrl+Alt+← ↑ → ↓" },
+  { category: "Navigation", label: "Move focus to the adjacent pane", binding: platformShortcutLabel("paneFocus", "⌘⌥← ↑ → ↓ / Ctrl+Alt+← ↑ → ↓") },
   { category: "Navigation", label: "Help", binding: "Shift+?" },
   { category: "Navigation", label: "Close modal / Escape", binding: "Esc" },
   // Terminal
   { category: "Terminal", label: "Context menu", binding: "Right-click" },
-  { category: "Terminal", label: "New terminal in the focused pane (same folder & server)", binding: "⌘⌥T / Ctrl+Alt+T" },
-  { category: "Terminal", label: "Focus tab 1–8 / last tab in the focused pane", binding: "⌘1–⌘8 / ⌘9 · Ctrl+1–8 / Ctrl+9" },
+  { category: "Terminal", label: "New terminal in the focused pane (same folder & server)", binding: platformShortcutLabel("newTerminal", "⌘⌥T / Ctrl+Alt+T") },
+  { category: "Terminal", label: "Focus tab 1–8 / last tab in the focused pane", binding: platformShortcutLabel("terminalTab", "⌘1–⌘8 / ⌘9 · Ctrl+1–8 / Ctrl+9") },
   { category: "Terminal", label: "Kill session", binding: "context menu" },
-  { category: "Terminal", label: "Bring pane to front / push back", binding: "⌘↵ / middle-click / right-click" },
-  { category: "Terminal", label: "Split right / split down", binding: "⌘D / ⌘⇧D" },
-  { category: "Terminal", label: "Arrange — equalize pane sizes", binding: "Cmd+Opt+B" },
-  { category: "Terminal", label: "Arrange — grid / columns / rows / main+stack", binding: "Cmd+Opt+G / E / R / V" },
-  { category: "Terminal", label: "Copy selection / paste", binding: "⌘⇧C / ⌘⇧V" },
-  { category: "Terminal", label: "Text size — bigger / smaller / reset", binding: "⌘+ / ⌘− / ⌘0" },
-  { category: "Terminal", label: "Find in scrollback", binding: "⌘F / Ctrl+⇧F" },
+  { category: "Terminal", label: "Bring pane to front / push back", binding: platformShortcutLabel("spotlight", "⌘↵ / middle-click / right-click") },
+  { category: "Terminal", label: "Split right / split down", binding: `${platformShortcutLabel("splitRight", "⌘D")} / ${platformShortcutLabel("splitDown", "⌘⇧D")}` },
+  { category: "Terminal", label: "Arrange — equalize pane sizes", binding: platformShortcutLabel("arrangeBalance", "Cmd+Opt+B") },
+  { category: "Terminal", label: "Arrange — grid / columns / rows / main+stack", binding: `${platformShortcutLabel("arrangeGrid", "Cmd+Opt+G")} / E / R / V` },
+  { category: "Terminal", label: "Copy selection / paste", binding: `${platformShortcutLabel("terminalCopy", "⌘⇧C")} / ${platformShortcutLabel("terminalPaste", "⌘⇧V")}` },
+  { category: "Terminal", label: "Text size — bigger / smaller / reset", binding: `${platformShortcutLabel("termFontIncrease", "⌘+")} / ${platformShortcutLabel("termFontDecrease", "⌘−")} / ${platformShortcutLabel("termFontReset", "⌘0")}` },
+  { category: "Terminal", label: "Find in scrollback", binding: platformShortcutLabel("terminalFind", "⌘F / Ctrl+⇧F") },
   { category: "Terminal", label: "Find next / previous match", binding: "↵ / ⇧↵ · ⌘G / ⌘⇧G" },
   { category: "Terminal", label: "Close find", binding: "Esc" },
   // Settings
-  { category: "Settings", label: "Open Settings", binding: "⌘," },
+  { category: "Settings", label: "Open Settings", binding: platformShortcutLabel("settings", "⌘,") },
 ];
 
 // ── Component ─────────────────────────────────────────────────────────────────

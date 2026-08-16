@@ -19,8 +19,12 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { assertNeverPlatform, supportedHostPlatform } from "@roost/shared/platform";
 import { MANIFEST_NAME, resolveSessionDirWithinBase, sanitizeAttachmentName } from "./attachment-reaper.ts";
 import { log } from "@roost/shared/log";
+import { normalizeWorkerPath } from "./util/path.ts";
+
+const HOST_PLATFORM = supportedHostPlatform();
 
 export interface AttachmentChunk {
   request_id: string;
@@ -99,7 +103,8 @@ export function handleAttachmentChunk(chunk: AttachmentChunk, reply: AttachmentR
       log.info("worker", "attachment_stream_saved", {
         session_id: chunk.session_id, fname, size: inflight.bytesWritten,
       });
-      reply.ok(inflight.shortPath ? linkShortPath(inflight.dir, fpath) : fpath);
+      const replyPath = inflight.shortPath ? shortAttachmentPath(inflight.dir, fpath) : fpath;
+      reply.ok(normalizeWorkerPath(replyPath, HOST_PLATFORM));
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -151,20 +156,36 @@ function uniqueName(dir: string, sanitized: string): string {
   return `${stem} (${Date.now()})${ext}`;
 }
 
-// att2c — optional shorter symlink under <dir>/.shortcuts/pN → real file, so a
-// shorter path gets injected into the prompt. Opt-in (roost.useShortAttachPaths).
-function linkShortPath(dir: string, fpath: string): string {
+// att2c — optional shorter path under <dir>/.shortcuts/pN. POSIX keeps its
+// symlink behavior. Windows creates a managed copy so it never depends on
+// symlink privilege/developer mode; attachment-reaper counts and expires it.
+function shortAttachmentPath(dir: string, fpath: string): string {
+  const shortcutsDir = path.join(dir, ".shortcuts");
   try {
-    const shortcutsDir = path.join(dir, ".shortcuts");
     fs.mkdirSync(shortcutsDir, { recursive: true, mode: 0o700 });
-    const existing = fs.existsSync(shortcutsDir)
-      ? fs.readdirSync(shortcutsDir).filter(n => /^p\d+$/.test(n)) : [];
-    const sp = path.join(shortcutsDir, `p${existing.length + 1}`);
-    try { fs.unlinkSync(sp); } catch { /* doesn't exist */ }
-    fs.symlinkSync(fpath, sp);
-    return sp;
-  } catch (e) {
-    log.warn("worker", "short_path_symlink_failed", { error: String(e) });
+    const occupied = new Set(
+      fs.readdirSync(shortcutsDir).filter((name) => /^p\d+$/.test(name)),
+    );
+    let index = 1;
+    while (occupied.has(`p${index}`)) index++;
+    const shortcutPath = path.join(shortcutsDir, `p${index}`);
+    switch (HOST_PLATFORM) {
+      case "darwin":
+      case "linux":
+        fs.symlinkSync(fpath, shortcutPath);
+        break;
+      case "win32":
+        fs.copyFileSync(fpath, shortcutPath, fs.constants.COPYFILE_EXCL);
+        break;
+      default:
+        return assertNeverPlatform(HOST_PLATFORM);
+    }
+    return shortcutPath;
+  } catch (error) {
+    log.warn("worker", "short_attachment_path_failed", {
+      platform: HOST_PLATFORM,
+      error: String(error),
+    });
     return fpath;
   }
 }
@@ -210,5 +231,6 @@ export function probeAttachment(sessionId: string, sha256: string, shortPath: bo
   if (!fname) return { hit: false, abs_path: "" };
   const fpath = path.join(dir, fname);
   if (!fs.existsSync(fpath)) return { hit: false, abs_path: "" };
-  return { hit: true, abs_path: shortPath ? linkShortPath(dir, fpath) : fpath };
+  const resolvedPath = shortPath ? shortAttachmentPath(dir, fpath) : fpath;
+  return { hit: true, abs_path: normalizeWorkerPath(resolvedPath, HOST_PLATFORM) };
 }

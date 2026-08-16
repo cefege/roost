@@ -6,6 +6,8 @@
 // HISTSIZE + SAVEHIST > 0 to actually persist on shell exit, so we
 // set all three. Defaults of zsh (HISTSIZE=10, SAVEHIST=10) would
 // silently truncate.
+// PowerShell uses a distinct file in the same hashed root through
+// Set-PSReadLineOption -HistorySavePath.
 //
 // Trade-off: a user with `setopt SHARE_HISTORY` in ~/.zshrc loses
 // the global cross-tab history for sessions inside roost — they get
@@ -16,8 +18,12 @@ import { createHash } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { supportedHostPlatform, workerDataDir } from "@roost/shared";
 
-const HISTORY_ROOT = join(homedir(), ".roost", "history");
+const HOST_PLATFORM = supportedHostPlatform();
+const HISTORY_ROOT = HOST_PLATFORM === "win32"
+  ? join(workerDataDir(process.env, HOST_PLATFORM), "history")
+  : join(homedir(), ".roost", "history");
 let _ensuredRoot = false;
 
 function ensureRoot(): void {
@@ -26,9 +32,17 @@ function ensureRoot(): void {
   _ensuredRoot = true;
 }
 
-function histfilePathFor(cwd: string): string {
-  const slug = createHash("sha256").update(cwd).digest("hex").slice(0, 12);
-  return join(HISTORY_ROOT, `${slug}.history`);
+function historyPathFor(cwd: string, suffix: string): string {
+  const identity = HOST_PLATFORM === "win32"
+    ? cwd.replaceAll("\\", "/").toLocaleLowerCase("en-US")
+    : cwd;
+  const slug = createHash("sha256").update(identity).digest("hex").slice(0, 12);
+  return join(HISTORY_ROOT, `${slug}.${suffix}`);
+}
+
+export function psReadLineHistoryPath(cwd: string): string {
+  ensureRoot();
+  return historyPathFor(cwd, "psreadline_history");
 }
 
 /** Env block to merge into a shell PTY spawn. Returns the HISTFILE
@@ -38,7 +52,7 @@ function histfilePathFor(cwd: string): string {
 export function withHistfile(cwd: string): Record<string, string> {
   ensureRoot();
   return {
-    HISTFILE: histfilePathFor(cwd),
+    HISTFILE: historyPathFor(cwd, "history"),
     HISTSIZE: "10000",
     SAVEHIST: "10000",
   };

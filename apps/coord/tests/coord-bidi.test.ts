@@ -5,19 +5,27 @@
 //   2. A connected worker over the raw-WS transport (worker-ws-handler.ts)
 //   3. A real PTY subprocess on the worker
 //
-// (2) + (3) live outside this harness (Bun.serve WSS + node-pty); the
-// smoke under /roost-smoke covers the full flow against the deployed
-// worker. This file proves the SPA-facing routing surface end-to-end:
-// auth-gated entry, downstream frame composition, error semantics when
-// the worker leg isn't attached. Together with apps/shared/tests/
-// event-proto.test.ts (proto round-trip) and coord-e2e.test.ts
-// (factory + auth surface), the wire shape is covered without
-// requiring a Bun.serve + node-pty harness in unit tests.
+// (2) + (3) live outside this harness (Bun.serve WSS + Bun.Terminal); the
+// smoke under /roost-smoke covers the full flow against the deployed worker.
+// This file proves auth-gated unary setup plus the canonical Sync v2 terminal
+// control hook: downstream typed-frame composition, acknowledged outcomes, and
+// rollback when the worker leg is unavailable. Together with the shared proto
+// round-trip tests and coord-e2e.test.ts, the wire shape is covered without a
+// real PTY in these unit tests.
 
-import { describe, test, expect, beforeAll, afterAll } from "bun:test";
+import { create } from "@bufbuild/protobuf";
+import { describe, test, expect, beforeAll, afterAll, vi } from "bun:test";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { ResizeCause } from "@roost/shared/proto/coordinator_pb";
+import {
+  TerminalViewportStatus,
+  WViewportResultSchema,
+  type CoordWorkerDown,
+  type DViewportRequest,
+} from "@roost/shared/proto/worker_transport_pb";
+import { VIEWER_WITHDRAW_GRACE_MS } from "@roost/shared/viewport";
 import { openDb } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
 import { loadOrCreateCoordKey } from "../src/coord-key.ts";
@@ -28,6 +36,15 @@ import { __setConnectWorkerForTest } from "../src/connect/worker-service.ts";
 import { primeChannelMap } from "../src/byte-hub.ts";
 import type { CoordConfig } from "@roost/shared/config";
 import { isSubscribed } from "../src/connect/cell-subscriptions.ts";
+import { _viewersBySession } from "../src/connect/viewer-tracker.ts";
+import type { ConnectDeps } from "../src/connect/router.ts";
+import {
+  makeSyncTerminalControlHooks,
+  type SyncTerminalCommand,
+  type SyncTerminalControlHooks,
+  type SyncTerminalResultControl,
+} from "../src/connect/sync-terminal-controls.ts";
+import { resolvePendingRpc } from "../src/router/pending-rpcs.ts";
 
 let workdir: string;
 let coord: CoordHandle;
@@ -35,6 +52,7 @@ let cleanup: () => void;
 let browserJwt: string;
 let browserFp: string;
 let db: import("../src/db/connection.ts").KyselyDB;
+let terminalControlHooks: SyncTerminalControlHooks;
 
 beforeAll(async () => {
   workdir = mkdtempSync(join(tmpdir(), "roost-coord-bidi-"));
@@ -60,7 +78,9 @@ beforeAll(async () => {
   logDir: workdir,
   publicUrl: undefined,
   handoffPath: join(workdir, "coord-handoff.json"), }
-  coord = createCoord({ db, sqlite, coordKey, cfg, jwtCache });
+  const deps: ConnectDeps = { db, sqlite, coordKey, cfg, jwtCache };
+  coord = createCoord(deps);
+  terminalControlHooks = makeSyncTerminalControlHooks(deps);
 
   // Mint a browser keypair, authorize it loopback-only, sign a JWT.
   const browserKeys = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);
@@ -101,26 +121,89 @@ function authedFetch(path: string, body: unknown, tabId?: string): Promise<Respo
   }));
 }
 
-// _publishViewers is async (awaits label + tailnet-hostname lookup) and
-// withdraws are deferred VIEWER_WITHDRAW_GRACE_MS (hysteresis), so tests
-// must let those land before snapshotting. ms defaults to a microtask-ish
-// flush for synchronous claims; pass GRACE+margin after a withdraw.
-const settle = (ms = 60) => new Promise((r) => setTimeout(r, ms));
-const AFTER_WITHDRAW_MS = 1000; // > VIEWER_WITHDRAW_GRACE_MS (800) + margin
 
-// Subscribe to the viewer-presence fanout. Captures every published
-// `{kind: "viewers", fps: [...]}` for a given session_id until unsub().
-function captureViewers(targetSid: string): { stop(): string[][] } {
-  const snapshots: string[][] = [];
-  const unsub = globalPresenceBus.subscribe(({ session_id, data }) => {
-    if (session_id !== targetSid) return;
-    const d = data as { kind?: string; fps?: string[] };
-    if (d.kind === "viewers") snapshots.push([...(d.fps ?? [])]);
-  });
-  return { stop(): string[][] { unsub(); return snapshots; } };
+const TERMINAL_DOMAIN_GENERATION = 7n;
+
+function syncViewerKey(tabId: string): string {
+  return `${browserFp}:${tabId}`;
 }
 
-describe("coord-bidi spawn → input → kill routing", () => {
+function dispatchSyncTerminalCommand(
+  tabId: string,
+  command: SyncTerminalCommand,
+  remoteAddress = "127.0.0.1",
+): Promise<SyncTerminalResultControl> {
+  const { promise, resolve } = Promise.withResolvers<SyncTerminalResultControl>();
+  let replied = false;
+  terminalControlHooks.onV2Command({
+    caller: { fingerprint: browserFp, label: "test-browser" },
+    viewerKey: syncViewerKey(tabId),
+    remoteAddress,
+    socketId: `coord-bidi:${tabId}`,
+    command,
+    reply(control): boolean {
+      if (replied) return false;
+      replied = true;
+      resolve(control);
+      return true;
+    },
+  });
+  return promise;
+}
+
+interface ViewportCommand {
+  sessionId: string;
+  cols: number;
+  rows: number;
+  clientSeq: bigint;
+  cause: ResizeCause;
+  heldCellSeq?: bigint;
+}
+
+function dispatchSyncViewport(
+  tabId: string,
+  command: ViewportCommand,
+  remoteAddress?: string,
+): Promise<SyncTerminalResultControl> {
+  return dispatchSyncTerminalCommand(tabId, {
+    case: "viewport",
+    value: {
+      ...command,
+      heldCellSeq: command.heldCellSeq ?? 0n,
+      domainGeneration: TERMINAL_DOMAIN_GENERATION,
+    },
+  }, remoteAddress);
+}
+
+async function acceptSyncViewport(
+  tabId: string,
+  command: ViewportCommand,
+  remoteAddress?: string,
+): Promise<Extract<SyncTerminalResultControl, { case: "viewportAccepted" }>["value"]> {
+  const result = await dispatchSyncViewport(tabId, command, remoteAddress);
+  expect(result.case).toBe("viewportAccepted");
+  if (result.case !== "viewportAccepted") {
+    throw new Error(`expected viewport acceptance, received ${result.case}`);
+  }
+  expect(result.value.domainGeneration).toBe(TERMINAL_DOMAIN_GENERATION);
+  return result.value;
+}
+
+async function rejectSyncViewport(
+  tabId: string,
+  command: ViewportCommand,
+  remoteAddress?: string,
+): Promise<Extract<SyncTerminalResultControl, { case: "viewportRejected" }>["value"]> {
+  const result = await dispatchSyncViewport(tabId, command, remoteAddress);
+  expect(result.case).toBe("viewportRejected");
+  if (result.case !== "viewportRejected") {
+    throw new Error(`expected viewport rejection, received ${result.case}`);
+  }
+  expect(result.value.domainGeneration).toBe(TERMINAL_DOMAIN_GENERATION);
+  return result.value;
+}
+
+describe("coord-bidi spawn → Sync input → kill routing", () => {
   test("SessionsSpawn with no worker attached → FAILED_PRECONDITION", async () => {
     const resp = await authedFetch("/roost.v1.CoordinatorService/SessionsSpawn", {
       workerFp: "deadbeef".repeat(8),
@@ -146,14 +229,26 @@ describe("coord-bidi spawn → input → kill routing", () => {
     expect(body.accepted ?? false).toBe(false);
   });
 
-  test("SessionsInput on unknown session → accepted falsy (no crash)", async () => {
-    const resp = await authedFetch("/roost.v1.CoordinatorService/SessionsInput", {
-      sessionId: "00000000-0000-0000-0000-000000000000",
-      bytes: btoa("ls\r"),
+  test("Sync input on an unknown session returns an acknowledged rejection", async () => {
+    const result = await dispatchSyncTerminalCommand("tab-UNKNOWN-INPUT", {
+      case: "input",
+      value: {
+        sessionId: "00000000-0000-0000-0000-000000000000",
+        inputSeq: 1n,
+        data: Uint8Array.of(0x6c, 0x73, 0x0d),
+        domainGeneration: TERMINAL_DOMAIN_GENERATION,
+      },
     });
-    expect(resp.status).toBe(200);
-    const body = await resp.json();
-    expect(body.accepted ?? false).toBe(false);
+    expect(result.case).toBe("inputRejected");
+    if (result.case !== "inputRejected") {
+      throw new Error(`expected input rejection, received ${result.case}`);
+    }
+    expect(result.value).toMatchObject({
+      sessionId: "00000000-0000-0000-0000-000000000000",
+      inputSeq: 1n,
+      domainGeneration: TERMINAL_DOMAIN_GENERATION,
+    });
+    expect(result.value.reason).toMatch(/unknown session/);
   });
 
   test("SessionsList authenticated → 200 + sessions array (may be omitted when empty)", async () => {
@@ -173,16 +268,15 @@ describe("coord-bidi spawn → input → kill routing", () => {
   });
 });
 
-// SessionsResize is the wire-level entry for multi-viewer viewport
-// claims. Coord composes `${fp}:${tabId}` from the JWT caller +
-// `x-roost-tab-id` header, forwards as a ClientControlFrame to the
-// worker, and bumps the per-session viewer map. Phase-t1.1 fix
-// verification — without the composite key, two tabs from the same
-// browser would collapse into one entry, and one tab's pagehide
-// would drop the other tab's claim.
+// Sync v2 owns browser viewport claims. Its socket identity supplies the
+// `${fp}:${tabId}` viewer key, and the command hook does not acknowledge an
+// intent until the worker returns a typed COMMITTED result. Without the
+// composite key, two tabs from the same browser would collapse into one entry,
+// and one tab's withdraw would drop the other tab's claim.
 describe("per-tab viewer identity — resize and cursor presence", () => {
   const FAKE_WORKER_FP = "deadbeef".repeat(8); // 64 hex chars
-  let workerSends: unknown[] = [];
+  let workerSends: CoordWorkerDown[] = [];
+  let nextChannelResizeSeq = 0n;
 
   async function seedSession(sid: string): Promise<void> {
     // Ensure worker row exists (FK), then insert/upsert the session row.
@@ -197,283 +291,306 @@ describe("per-tab viewer identity — resize and cursor presence", () => {
     }).onConflict((oc) => oc.column("id").doNothing()).execute();
   }
 
-  beforeAll(() => {
+  function captureAndAcknowledgeWorkerSend(frame: CoordWorkerDown): number {
+    workerSends.push(frame);
+    if (frame.frame.case === "viewportRequest") {
+      const request = frame.frame.value;
+      nextChannelResizeSeq += 1n;
+      resolvePendingRpc(request.requestId, create(WViewportResultSchema, {
+        requestId: request.requestId,
+        sessionId: request.sessionId,
+        clientSeq: request.clientSeq,
+        status: TerminalViewportStatus.COMMITTED,
+        channelResizeSeq: nextChannelResizeSeq,
+        cols: request.cols,
+        rows: request.rows,
+        resized: true,
+      }));
+    }
+    return 1;
+  }
+
+  function attachAcknowledgingWorker(
+    send: (frame: CoordWorkerDown) => number = captureAndAcknowledgeWorkerSend,
+  ): void {
     __setConnectWorkerForTest(FAKE_WORKER_FP, {
       workerFp: FAKE_WORKER_FP,
-      send: (frame: unknown) => workerSends.push(frame),
+      send,
     });
+  }
+
+  function viewportRequests(): DViewportRequest[] {
+    const requests: DViewportRequest[] = [];
+    for (const sent of workerSends) {
+      if (sent.frame.case === "viewportRequest") requests.push(sent.frame.value);
+    }
+    return requests;
+  }
+
+  beforeAll(() => {
+    attachAcknowledgingWorker();
   });
   afterAll(() => { __setConnectWorkerForTest(FAKE_WORKER_FP, null); });
 
   test("two tabs from same fp register as TWO viewers (composite key prevents collapse)", async () => {
     const sid = "11111111-1111-1111-1111-111111111111";
     await seedSession(sid);
-    const cap = captureViewers(sid);
-    await authedFetch("/roost.v1.CoordinatorService/SessionsResize",
-      { sessionId: sid, cols: 80, rows: 24 }, "tab-A");
-    await authedFetch("/roost.v1.CoordinatorService/SessionsResize",
-      { sessionId: sid, cols: 100, rows: 30 }, "tab-B");
-    await settle();
-    const snaps = cap.stop();
-    expect(snaps.length).toBeGreaterThanOrEqual(2);
-    const final = snaps[snaps.length - 1]!.slice().sort();
-    expect(final).toEqual([`${browserFp}:tab-A`, `${browserFp}:tab-B`].sort());
+    await acceptSyncViewport("tab-A", {
+      sessionId: sid, cols: 80, rows: 24,
+      clientSeq: 1n, cause: ResizeCause.INITIAL,
+    });
+    await acceptSyncViewport("tab-B", {
+      sessionId: sid, cols: 100, rows: 30,
+      clientSeq: 1n, cause: ResizeCause.INITIAL,
+    });
+
+    const final = [...(_viewersBySession.get(sid)?.keys() ?? [])].sort();
+    expect(final).toEqual([syncViewerKey("tab-A"), syncViewerKey("tab-B")].sort());
   });
 
   test("withdraw (cols=0) for tab-A keeps tab-B alive (composite isolation)", async () => {
-    const sid = "22222222-2222-2222-2222-222222222222";
-    await seedSession(sid);
-    await authedFetch("/roost.v1.CoordinatorService/SessionsResize",
-      { sessionId: sid, cols: 80, rows: 24 }, "tab-A");
-    await authedFetch("/roost.v1.CoordinatorService/SessionsResize",
-      { sessionId: sid, cols: 100, rows: 30 }, "tab-B");
-    const cap = captureViewers(sid);
-    await authedFetch("/roost.v1.CoordinatorService/SessionsResize",
-      { sessionId: sid, cols: 0, rows: 0 }, "tab-A");
-    await settle(AFTER_WITHDRAW_MS); // withdraw is deferred (hysteresis)
-    const snaps = cap.stop();
-    expect(snaps.length).toBeGreaterThan(0);
-    const final = snaps[snaps.length - 1]!;
-    expect(final).toEqual([`${browserFp}:tab-B`]);
+    vi.useFakeTimers();
+    try {
+      const sid = "22222222-2222-2222-2222-222222222222";
+      await seedSession(sid);
+      await acceptSyncViewport("tab-A", {
+        sessionId: sid, cols: 80, rows: 24,
+        clientSeq: 1n, cause: ResizeCause.INITIAL,
+      });
+      await acceptSyncViewport("tab-B", {
+        sessionId: sid, cols: 100, rows: 30,
+        clientSeq: 1n, cause: ResizeCause.INITIAL,
+      });
+      await acceptSyncViewport("tab-A", {
+        sessionId: sid, cols: 0, rows: 0,
+        clientSeq: 2n, cause: ResizeCause.WITHDRAW,
+      });
+
+      expect(isSubscribed(syncViewerKey("tab-A"), sid)).toBe(false);
+      expect(isSubscribed(syncViewerKey("tab-B"), sid)).toBe(true);
+      vi.advanceTimersByTime(VIEWER_WITHDRAW_GRACE_MS);
+      expect([...(_viewersBySession.get(sid)?.keys() ?? [])]).toEqual([
+        syncViewerKey("tab-B"),
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
-  test("missing x-roost-tab-id → bare fingerprint key (no composite)", async () => {
+  test("remote-address changes do not split one Sync tab identity", async () => {
     const sid = "33333333-3333-3333-3333-333333333333";
+    const tabId = "tab-STABLE";
     await seedSession(sid);
-    const cap = captureViewers(sid);
-    await authedFetch("/roost.v1.CoordinatorService/SessionsResize",
-      { sessionId: sid, cols: 80, rows: 24 }); // no x-roost-tab-id
-    await settle();
-    const snaps = cap.stop();
-    expect(snaps.length).toBeGreaterThanOrEqual(1);
-    const final = snaps[snaps.length - 1]!;
-    expect(final).toEqual([browserFp]);
+    await acceptSyncViewport(tabId, {
+      sessionId: sid, cols: 80, rows: 24,
+      clientSeq: 1n, cause: ResizeCause.INITIAL,
+    }, "100.64.0.10");
+    await acceptSyncViewport(tabId, {
+      sessionId: sid, cols: 100, rows: 30,
+      clientSeq: 2n, cause: ResizeCause.VIEWPORT,
+    }, "100.64.0.11");
+
+    expect([...(_viewersBySession.get(sid)?.keys() ?? [])]).toEqual([
+      syncViewerKey(tabId),
+    ]);
   });
 
-  test("withdraw without worker attached still clears the viewer map", async () => {
+  test("rejected withdraw rolls subscription and viewer presence back atomically", async () => {
     const sid = "44444444-4444-4444-4444-444444444444";
+    const tabId = "tab-Z";
+    const viewerKey = syncViewerKey(tabId);
     await seedSession(sid);
-    // Seed a live claim through the worker.
-    await authedFetch("/roost.v1.CoordinatorService/SessionsResize",
-      { sessionId: sid, cols: 80, rows: 24 }, "tab-Z");
-    // Detach the worker mid-session.
-    __setConnectWorkerForTest(FAKE_WORKER_FP, null);
-    const cap = captureViewers(sid);
-    const r = await authedFetch("/roost.v1.CoordinatorService/SessionsResize",
-      { sessionId: sid, cols: 0, rows: 0 }, "tab-Z");
-    const body = await r.json();
-    expect(body.accepted ?? false).toBe(false);   // forward failed
-    await settle(AFTER_WITHDRAW_MS); // withdraw is deferred (hysteresis)
-    const snaps = cap.stop();
-    expect(snaps[snaps.length - 1]).toEqual([]);  // but withdraw cleared the map
-    // Re-attach the fake worker for any later tests.
-    __setConnectWorkerForTest(FAKE_WORKER_FP, {
-      workerFp: FAKE_WORKER_FP,
-      send: (frame: unknown) => workerSends.push(frame),
+    await acceptSyncViewport(tabId, {
+      sessionId: sid, cols: 80, rows: 24,
+      clientSeq: 1n, cause: ResizeCause.INITIAL,
     });
+
+    __setConnectWorkerForTest(FAKE_WORKER_FP, null);
+    try {
+      const rejected = await rejectSyncViewport(tabId, {
+        sessionId: sid, cols: 0, rows: 0,
+        clientSeq: 2n, cause: ResizeCause.WITHDRAW,
+      });
+      expect(rejected.reason).toMatch(/worker unavailable/);
+    } finally {
+      attachAcknowledgingWorker();
+    }
+
+    expect(isSubscribed(viewerKey, sid)).toBe(true);
+    expect(_viewersBySession.get(sid)?.has(viewerKey)).toBe(true);
   });
 
-  test("worker receives composite viewer_id in browser-command frame", async () => {
+  test("worker receives composite viewer_id in the typed viewport request", async () => {
     const sid = "55555555-5555-5555-5555-555555555555";
     await seedSession(sid);
     workerSends = [];
-    await authedFetch("/roost.v1.CoordinatorService/SessionsResize",
-      { sessionId: sid, cols: 80, rows: 24 }, "tab-WIRE");
-    // The fake worker captured the CoordWorkerDown frame. Extract viewerId.
-    expect(workerSends.length).toBeGreaterThan(0);
-    const last = workerSends[workerSends.length - 1] as {
-      frame: { case: string; value: { viewerId: string } };
-    };
-    expect(last.frame.case).toBe("browserCommand");
-    expect(last.frame.value.viewerId).toBe(`${browserFp}:tab-WIRE`);
+    await acceptSyncViewport("tab-WIRE", {
+      sessionId: sid, cols: 80, rows: 24,
+      clientSeq: 1n, cause: ResizeCause.INITIAL,
+    });
+
+    const requests = viewportRequests();
+    expect(requests).toHaveLength(1);
+    expect(requests[0]!.viewerId).toBe(syncViewerKey("tab-WIRE"));
   });
 
   test("stale resize intents neither change membership nor reach the worker", async () => {
     const sid = "77777777-7777-4777-8777-777777777777";
     const tabId = "tab-ORDER";
-    const viewerKey = `${browserFp}:${tabId}`;
+    const viewerKey = syncViewerKey(tabId);
     await seedSession(sid);
     workerSends = [];
 
-    await authedFetch("/roost.v1.CoordinatorService/SessionsResize", {
+    await acceptSyncViewport(tabId, {
       sessionId: sid, cols: 80, rows: 24,
-      clientSeq: "1", cause: "RESIZE_CAUSE_INITIAL",
-    }, tabId);
-    await authedFetch("/roost.v1.CoordinatorService/SessionsResize", {
+      clientSeq: 1n, cause: ResizeCause.INITIAL,
+    });
+    await acceptSyncViewport(tabId, {
       sessionId: sid, cols: 0, rows: 0,
-      clientSeq: "2", cause: "RESIZE_CAUSE_WITHDRAW",
-    }, tabId);
-    await authedFetch("/roost.v1.CoordinatorService/SessionsResize", {
+      clientSeq: 2n, cause: ResizeCause.WITHDRAW,
+    });
+    await acceptSyncViewport(tabId, {
       sessionId: sid, cols: 80, rows: 24,
-      clientSeq: "3", cause: "RESIZE_CAUSE_TAB_VISIBLE",
-    }, tabId);
-    expect(workerSends).toHaveLength(3);
+      clientSeq: 3n, cause: ResizeCause.TAB_VISIBLE,
+    });
+    expect(viewportRequests()).toHaveLength(3);
     expect(isSubscribed(viewerKey, sid)).toBe(true);
 
-    // The old withdraw arrives after the newer reclaim: neither coord nor
-    // worker may apply it, so the newly visible pane stays subscribed.
-    await authedFetch("/roost.v1.CoordinatorService/SessionsResize", {
+    // An old withdraw arriving after the newer reclaim is explicitly rejected;
+    // neither coordinator nor worker may apply it.
+    const staleWithdraw = await rejectSyncViewport(tabId, {
       sessionId: sid, cols: 0, rows: 0,
-      clientSeq: "2", cause: "RESIZE_CAUSE_WITHDRAW",
-    }, tabId);
-    expect(workerSends).toHaveLength(3);
+      clientSeq: 2n, cause: ResizeCause.WITHDRAW,
+    });
+    expect(staleWithdraw.reason).toMatch(/stale|conflicting/);
+    expect(viewportRequests()).toHaveLength(3);
     expect(isSubscribed(viewerKey, sid)).toBe(true);
 
-    await authedFetch("/roost.v1.CoordinatorService/SessionsResize", {
+    await acceptSyncViewport(tabId, {
       sessionId: sid, cols: 0, rows: 0,
-      clientSeq: "4", cause: "RESIZE_CAUSE_WITHDRAW",
-    }, tabId);
-    expect(workerSends).toHaveLength(4);
+      clientSeq: 4n, cause: ResizeCause.WITHDRAW,
+    });
+    expect(viewportRequests()).toHaveLength(4);
     expect(isSubscribed(viewerKey, sid)).toBe(false);
 
-    // The old claim arrives after the newer withdraw: it must not revive
-    // coordinator delivery or be forwarded into the worker's empty claim map.
-    await authedFetch("/roost.v1.CoordinatorService/SessionsResize", {
+    // The old claim cannot revive coordinator delivery or reach the worker.
+    const staleClaim = await rejectSyncViewport(tabId, {
       sessionId: sid, cols: 80, rows: 24,
-      clientSeq: "3", cause: "RESIZE_CAUSE_TAB_VISIBLE",
-    }, tabId);
-    expect(workerSends).toHaveLength(4);
+      clientSeq: 3n, cause: ResizeCause.TAB_VISIBLE,
+    });
+    expect(staleClaim.reason).toMatch(/stale|conflicting/);
+    expect(viewportRequests()).toHaveLength(4);
     expect(isSubscribed(viewerKey, sid)).toBe(false);
   });
 
   test("equal current heartbeat refreshes and reaches the worker exactly once", async () => {
     const sid = "88888888-8888-4888-8888-888888888888";
     const tabId = "tab-HEARTBEAT";
-    const viewerKey = `${browserFp}:${tabId}`;
+    const viewerKey = syncViewerKey(tabId);
     await seedSession(sid);
     workerSends = [];
 
-    await authedFetch("/roost.v1.CoordinatorService/SessionsResize", {
+    await acceptSyncViewport(tabId, {
       sessionId: sid, cols: 90, rows: 30,
-      clientSeq: "20", cause: "RESIZE_CAUSE_INITIAL",
-    }, tabId);
-    await authedFetch("/roost.v1.CoordinatorService/SessionsResize", {
-      sessionId: sid, cols: 90, rows: 30, heldCellSeq: 17,
-      clientSeq: "20", cause: "RESIZE_CAUSE_HEARTBEAT",
-    }, tabId);
-    expect(workerSends).toHaveLength(2);
+      clientSeq: 20n, cause: ResizeCause.INITIAL,
+    });
+    await acceptSyncViewport(tabId, {
+      sessionId: sid, cols: 90, rows: 30, heldCellSeq: 17n,
+      clientSeq: 20n, cause: ResizeCause.HEARTBEAT,
+    });
+    expect(viewportRequests()).toHaveLength(2);
     expect(isSubscribed(viewerKey, sid)).toBe(true);
 
-    await authedFetch("/roost.v1.CoordinatorService/SessionsResize", {
+    await rejectSyncViewport(tabId, {
       sessionId: sid, cols: 91, rows: 31,
-      clientSeq: "20", cause: "RESIZE_CAUSE_VIEWPORT",
-    }, tabId);
-    await authedFetch("/roost.v1.CoordinatorService/SessionsResize", {
+      clientSeq: 20n, cause: ResizeCause.VIEWPORT,
+    });
+    await rejectSyncViewport(tabId, {
       sessionId: sid, cols: 90, rows: 30,
-      clientSeq: "19", cause: "RESIZE_CAUSE_HEARTBEAT",
-    }, tabId);
-    await authedFetch("/roost.v1.CoordinatorService/SessionsResize", {
+      clientSeq: 19n, cause: ResizeCause.HEARTBEAT,
+    });
+    await rejectSyncViewport(tabId, {
       sessionId: sid, cols: 0, rows: 0,
-      clientSeq: "20", cause: "RESIZE_CAUSE_WITHDRAW",
-    }, tabId);
-    expect(workerSends).toHaveLength(2);
+      clientSeq: 20n, cause: ResizeCause.WITHDRAW,
+    });
+    expect(viewportRequests()).toHaveLength(2);
     expect(isSubscribed(viewerKey, sid)).toBe(true);
   });
 
   test("failed first ordered claim rolls back and same-sequence retry reaches worker", async () => {
     const sid = "99999999-9999-4999-8999-999999999999";
     const tabId = "tab-RETRY";
-    const viewerKey = `${browserFp}:${tabId}`;
+    const viewerKey = syncViewerKey(tabId);
     await seedSession(sid);
     workerSends = [];
     let sendAttempts = 0;
-    __setConnectWorkerForTest(FAKE_WORKER_FP, {
-      workerFp: FAKE_WORKER_FP,
-      send: (frame: unknown) => {
-        sendAttempts += 1;
-        if (sendAttempts === 1) throw new Error("injected first send failure");
-        return workerSends.push(frame);
-      },
+    attachAcknowledgingWorker((frame) => {
+      sendAttempts += 1;
+      if (sendAttempts === 1) throw new Error("injected first send failure");
+      return captureAndAcknowledgeWorkerSend(frame);
     });
 
     try {
-      const failed = await authedFetch(
-        "/roost.v1.CoordinatorService/SessionsResize",
-        {
-          sessionId: sid, cols: 80, rows: 24,
-          clientSeq: "30", cause: "RESIZE_CAUSE_INITIAL",
-        },
-        tabId,
-      );
-      const failedBody = await failed.json();
-      expect(failedBody.accepted ?? false).toBe(false);
+      const command: ViewportCommand = {
+        sessionId: sid, cols: 80, rows: 24,
+        clientSeq: 30n, cause: ResizeCause.INITIAL,
+      };
+      const failed = await rejectSyncViewport(tabId, command);
+      expect(failed.reason).toMatch(/worker unavailable/);
       expect(isSubscribed(viewerKey, sid)).toBe(false);
 
-      const retried = await authedFetch(
-        "/roost.v1.CoordinatorService/SessionsResize",
-        {
-          sessionId: sid, cols: 80, rows: 24,
-          clientSeq: "30", cause: "RESIZE_CAUSE_INITIAL",
-        },
-        tabId,
-      );
-      const retriedBody = await retried.json();
-      expect(retriedBody.accepted).toBe(true);
+      await acceptSyncViewport(tabId, command);
       expect(sendAttempts).toBe(2);
-      expect(workerSends).toHaveLength(1);
+      expect(viewportRequests()).toHaveLength(1);
       expect(isSubscribed(viewerKey, sid)).toBe(true);
-
-      const sent = workerSends[0] as {
-        frame: { value: { frameJson: string } };
-      };
-      expect(JSON.parse(sent.frame.value.frameJson).client_seq).toBe(30);
+      expect(viewportRequests()[0]!.clientSeq).toBe(30n);
     } finally {
-      __setConnectWorkerForTest(FAKE_WORKER_FP, {
-        workerFp: FAKE_WORKER_FP,
-        send: (frame: unknown) => workerSends.push(frame),
-      });
+      attachAcknowledgingWorker();
     }
   });
 
-  test("mixed ordered and legacy resizes forward the coordinator effective sequence", async () => {
+  test("zero-sequence compatibility commands forward the coordinator effective sequence", async () => {
     const sid = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
     const tabId = "tab-MIXED-SEQUENCE";
-    const viewerKey = `${browserFp}:${tabId}`;
+    const viewerKey = syncViewerKey(tabId);
     await seedSession(sid);
     workerSends = [];
 
-    await authedFetch("/roost.v1.CoordinatorService/SessionsResize", {
+    await acceptSyncViewport(tabId, {
       sessionId: sid, cols: 80, rows: 24,
-      clientSeq: "80", cause: "RESIZE_CAUSE_INITIAL",
-    }, tabId);
-    await authedFetch("/roost.v1.CoordinatorService/SessionsResize", {
-      sessionId: sid, cols: 81, rows: 25,
-      cause: "RESIZE_CAUSE_VIEWPORT",
-    }, tabId);
-    // Legacy claim advanced both sides to 81, so ordered equality is filtered.
-    await authedFetch("/roost.v1.CoordinatorService/SessionsResize", {
-      sessionId: sid, cols: 82, rows: 26,
-      clientSeq: "81", cause: "RESIZE_CAUSE_VIEWPORT",
-    }, tabId);
-    // Worker withdraw ignores client_seq, so coord forwards but does not advance
-    // the effective watermark; the next ordered intent must still pass.
-    await authedFetch("/roost.v1.CoordinatorService/SessionsResize", {
-      sessionId: sid, cols: 0, rows: 0,
-      cause: "RESIZE_CAUSE_WITHDRAW",
-    }, tabId);
-    await authedFetch("/roost.v1.CoordinatorService/SessionsResize", {
-      sessionId: sid, cols: 83, rows: 27,
-      clientSeq: "82", cause: "RESIZE_CAUSE_TAB_VISIBLE",
-    }, tabId);
-
-    const sentResizes = workerSends.map((sent) => {
-      const frameJson = (sent as {
-        frame: { value: { frameJson: string } };
-      }).frame.value.frameJson;
-      const frame = JSON.parse(frameJson) as {
-        client_seq: number; cols: number; rows: number;
-      };
-      return {
-        clientSeq: frame.client_seq,
-        cols: frame.cols,
-        rows: frame.rows,
-      };
+      clientSeq: 80n, cause: ResizeCause.INITIAL,
     });
+    await acceptSyncViewport(tabId, {
+      sessionId: sid, cols: 81, rows: 25,
+      clientSeq: 0n, cause: ResizeCause.VIEWPORT,
+    });
+    // The zero-sequence claim advanced both sides to 81, so ordered equality
+    // is rejected without another worker request.
+    await rejectSyncViewport(tabId, {
+      sessionId: sid, cols: 82, rows: 26,
+      clientSeq: 81n, cause: ResizeCause.VIEWPORT,
+    });
+    // A zero-sequence withdraw preserves the effective watermark because the
+    // worker removes the claim before inspecting client_seq.
+    await acceptSyncViewport(tabId, {
+      sessionId: sid, cols: 0, rows: 0,
+      clientSeq: 0n, cause: ResizeCause.WITHDRAW,
+    });
+    await acceptSyncViewport(tabId, {
+      sessionId: sid, cols: 83, rows: 27,
+      clientSeq: 82n, cause: ResizeCause.TAB_VISIBLE,
+    });
+
+    const sentResizes = viewportRequests().map((request) => ({
+      clientSeq: request.clientSeq,
+      cols: request.cols,
+      rows: request.rows,
+    }));
     expect(sentResizes).toEqual([
-      { clientSeq: 80, cols: 80, rows: 24 },
-      { clientSeq: 81, cols: 81, rows: 25 },
-      { clientSeq: 81, cols: 0, rows: 0 },
-      { clientSeq: 82, cols: 83, rows: 27 },
+      { clientSeq: 80n, cols: 80, rows: 24 },
+      { clientSeq: 81n, cols: 81, rows: 25 },
+      { clientSeq: 81n, cols: 0, rows: 0 },
+      { clientSeq: 82n, cols: 83, rows: 27 },
     ]);
     expect(isSubscribed(viewerKey, sid)).toBe(true);
   });
@@ -498,10 +615,11 @@ describe("per-tab viewer identity — resize and cursor presence", () => {
     expect(deltas).toHaveLength(1);
     expect(deltas[0]!.viewer_id).toBe(`${browserFp}:tab-CURSOR`);
     expect(workerSends.length).toBeGreaterThan(0);
-    const last = workerSends[workerSends.length - 1] as {
-      frame: { case: string; value: { viewerId: string } };
-    };
+    const last = workerSends[workerSends.length - 1]!;
     expect(last.frame.case).toBe("browserCommand");
+    if (last.frame.case !== "browserCommand") {
+      throw new Error(`expected browser command, received ${last.frame.case}`);
+    }
     expect(last.frame.value.viewerId).toBe(`${browserFp}:tab-CURSOR`);
   });
 
@@ -525,10 +643,11 @@ describe("per-tab viewer identity — resize and cursor presence", () => {
     expect(deltas).toHaveLength(1);
     expect(deltas[0]!.viewer_id).toBe(browserFp);
     expect(workerSends.length).toBeGreaterThan(0);
-    const last = workerSends[workerSends.length - 1] as {
-      frame: { case: string; value: { viewerId: string } };
-    };
+    const last = workerSends[workerSends.length - 1]!;
     expect(last.frame.case).toBe("browserCommand");
+    if (last.frame.case !== "browserCommand") {
+      throw new Error(`expected browser command, received ${last.frame.case}`);
+    }
     expect(last.frame.value.viewerId).toBe(browserFp);
   });
 });

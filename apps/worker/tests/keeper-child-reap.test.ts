@@ -23,6 +23,7 @@ import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { MultiplexedKeeperPool, type MuxChannelCallbacks } from "../src/keeper/multiplexed-client.ts";
+import { keeperTestShellSpec } from "./keeper-test-fixtures.ts";
 
 const SOCK_DIR = join(tmpdir(), `roost-test-keeper-reap-${process.pid}`);
 process.env.ROOST_WORKER_DATA_DIR = SOCK_DIR;
@@ -89,10 +90,13 @@ describe("keeper-child-reap — closing a channel kills the whole process tree",
     // installs SIGTERM->SIG_IGN (the load-bearing pre-fix leak). Spawned on a
     // PTY by the keeper. spawn() resolves to the shell pid.
     const shellPid = await pool.spawn({
-      channelId, cwd: homedir(),
-      argv: ["/bin/bash", "--norc", "-i"],
+      channelId,
+      shellSpec: keeperTestShellSpec({
+        executable: "/bin/bash",
+        argv: ["--norc", "-i"],
+        cwd: homedir(),
+      }),
       cols: 200, rows: 50,
-      env: { TERM: "xterm-256color" },
       callbacks: noopCallbacks,
     });
     spawnedPids.push(shellPid);
@@ -133,10 +137,13 @@ describe("keeper-child-reap — closing a channel kills the whole process tree",
   test("a nohup'd job that IGNORES SIGHUP is still reaped (escalation SIGKILL path)", async () => {
     const channelId = _nextCh++;
     const shellPid = await pool.spawn({
-      channelId, cwd: homedir(),
-      argv: ["/bin/bash", "--norc", "-i"],
+      channelId,
+      shellSpec: keeperTestShellSpec({
+        executable: "/bin/bash",
+        argv: ["--norc", "-i"],
+        cwd: homedir(),
+      }),
       cols: 200, rows: 50,
-      env: { TERM: "xterm-256color" },
       callbacks: noopCallbacks,
     });
     spawnedPids.push(shellPid);

@@ -7,6 +7,7 @@ import { busToAsyncIterable } from "./sse.ts";
 import { signal } from "@roost/shared/diag";
 import type { SignalKind } from "@roost/shared/diag";
 import { resolveTailnetDnsName } from "@roost/shared/tailnet";
+import { sendWindowsUpdateBroker } from "./connect/worker-send.ts";
 
 export type DeployStreamMsg =
   | { kind: "line"; text: string }
@@ -21,6 +22,18 @@ interface DeployJob {
   exitCode?: number | null;
   error?: string;
   bus: BoundedBus<DeployStreamMsg>;
+  windowsUpdate?: {
+    workerFp: string;
+    manifestUrl: string;
+    signatureUrl: string;
+    manifestSha256: string;
+    publisherSha256: string;
+    lastSequence: number;
+    inFlight: boolean;
+    pollTimer: Timer | null;
+    deadlineTimer: Timer | null;
+    lastTransportError?: string;
+  };
 }
 
 const _deployJobs = new Map<string, DeployJob>();
@@ -33,7 +46,12 @@ const _deployJobs = new Map<string, DeployJob>();
 const KNOWN_DEPLOY_SIGNALS = new Set(["deploy.cert_skipped"]);
 const DEPLOY_JOB_TTL_MS = 5 * 60 * 1000;
 function _gcJob(jobId: string): void {
-  setTimeout(() => _deployJobs.delete(jobId), DEPLOY_JOB_TTL_MS);
+  setTimeout(() => {
+    const job = _deployJobs.get(jobId);
+    clearTimeout(job?.windowsUpdate?.pollTimer ?? undefined);
+    clearTimeout(job?.windowsUpdate?.deadlineTimer ?? undefined);
+    _deployJobs.delete(jobId);
+  }, DEPLOY_JOB_TTL_MS);
 }
 
 export interface DeployStartResult {
@@ -154,6 +172,168 @@ export function startDeploy(host: string): DeployStartResult {
   } catch (e) {
     emitDone(null, (e as Error).message);
     return { ok: true, jobId };
+  }
+}
+
+export interface WindowsUpdateDeployOptions {
+  workerFp: string;
+  manifestUrl: string;
+  signatureUrl: string;
+  manifestSha256: string;
+  publisherSha256: string;
+}
+
+const WINDOWS_UPDATE_TIMEOUT_MS = 15 * 60 * 1000;
+const WINDOWS_UPDATE_POLL_MS = 2_000;
+const MAX_PERSISTED_UPDATE_LINES = 2_048;
+
+function emitWindowsUpdateLine(job: DeployJob, text: string): void {
+  const line = text.replace(/\r?\n/g, " ").trim();
+  if (!line) return;
+  if (job.lines.length >= MAX_PERSISTED_UPDATE_LINES) job.lines.shift();
+  job.lines.push(line);
+  job.bus.publish({ kind: "line", text: line });
+}
+
+function finishWindowsUpdate(job: DeployJob, exit: number, error?: string): void {
+  if (job.status === "done") return;
+  job.status = "done";
+  job.exitCode = exit;
+  job.error = error;
+  const update = job.windowsUpdate;
+  if (update?.pollTimer) {
+    clearTimeout(update.pollTimer);
+    update.pollTimer = null;
+  }
+  if (update?.deadlineTimer) {
+    clearTimeout(update.deadlineTimer);
+    update.deadlineTimer = null;
+  }
+  if (error) {
+    signal("deploy.failed", { host: job.host, exit, reason: error, cooldownKey: job.host });
+  }
+  job.bus.publish({ kind: "done", exit, error });
+  _gcJob(job.jobId);
+}
+
+function scheduleWindowsUpdateStatus(job: DeployJob, delayMs = WINDOWS_UPDATE_POLL_MS): void {
+  const update = job.windowsUpdate;
+  if (!update || job.status !== "running" || update.pollTimer) return;
+  update.pollTimer = setTimeout(() => {
+    update.pollTimer = null;
+    void issueWindowsUpdateCommand(job, "STATUS");
+  }, delayMs);
+}
+
+async function issueWindowsUpdateCommand(job: DeployJob, action: "START" | "STATUS"): Promise<void> {
+  const update = job.windowsUpdate;
+  if (!update || job.status !== "running" || update.inFlight) return;
+  update.inFlight = true;
+  try {
+    const pending = sendWindowsUpdateBroker(update.workerFp, {
+      jobId: job.jobId,
+      action,
+      manifestUrl: action === "START" ? update.manifestUrl : undefined,
+      signatureUrl: action === "START" ? update.signatureUrl : undefined,
+      manifestSha256: action === "START" ? update.manifestSha256 : undefined,
+      publisherSha256: action === "START" ? update.publisherSha256 : undefined,
+    });
+    await pending.promise;
+    update.lastTransportError = undefined;
+  } catch (error) {
+    // The expected update path stops/restarts worker while RoostUpdaterV2
+    // remains outside its Shawl job. Keep the deploy job alive and ask the
+    // reconnected worker to replay its journal instead of treating the lost
+    // command ACK as update failure.
+    const message = (error as Error).message;
+    if (update.lastTransportError !== message) {
+      update.lastTransportError = message;
+      emitWindowsUpdateLine(job, `worker link unavailable; waiting for persisted updater progress (${message})`);
+    }
+  } finally {
+    update.inFlight = false;
+    scheduleWindowsUpdateStatus(job);
+  }
+}
+
+export function startWindowsUpdateDeploy(host: string, options: WindowsUpdateDeployOptions): DeployStartResult {
+  if (!/^[A-Za-z0-9.-]+$/.test(host)) return { ok: false, error: "invalid host" };
+  if (!/^[a-f0-9]{64}$/.test(options.workerFp)) return { ok: false, error: "invalid worker fingerprint" };
+  if (!/^[a-f0-9]{64}$/i.test(options.manifestSha256)) return { ok: false, error: "invalid manifest digest" };
+  if (options.publisherSha256 && !/^[a-f0-9]{64}$/i.test(options.publisherSha256)) {
+    return { ok: false, error: "invalid Windows publisher pin" };
+  }
+  try {
+    if (new URL(options.manifestUrl).protocol !== "https:" || new URL(options.signatureUrl).protocol !== "https:") {
+      return { ok: false, error: "Windows update manifest URLs must use HTTPS" };
+    }
+  } catch {
+    return { ok: false, error: "invalid Windows update manifest URL" };
+  }
+
+  const jobId = crypto.randomUUID();
+  const job: DeployJob = {
+    jobId,
+    host,
+    startedAt: Date.now(),
+    lines: [],
+    status: "running",
+    bus: new BoundedBus<DeployStreamMsg>(2048),
+    windowsUpdate: {
+      workerFp: options.workerFp,
+      manifestUrl: options.manifestUrl,
+      signatureUrl: options.signatureUrl,
+      manifestSha256: options.manifestSha256.toLowerCase(),
+      publisherSha256: options.publisherSha256.toLowerCase(),
+      lastSequence: -1,
+      inFlight: false,
+      pollTimer: null,
+      deadlineTimer: null,
+    },
+  };
+  _deployJobs.set(jobId, job);
+  job.windowsUpdate!.deadlineTimer = setTimeout(() => {
+    finishWindowsUpdate(job, 1, `Windows update timed out after ${WINDOWS_UPDATE_TIMEOUT_MS / 1000}s`);
+  }, WINDOWS_UPDATE_TIMEOUT_MS);
+  emitWindowsUpdateLine(job, `starting signed Windows update on ${host}`);
+  void issueWindowsUpdateCommand(job, "START");
+  return { ok: true, jobId };
+}
+
+export function handleWorkerUpdateProgress(workerFp: string, progress: {
+  request_id: string;
+  job_id: string;
+  sequence: number;
+  phase: string;
+  message: string;
+  terminal: boolean;
+  success: boolean;
+  error?: string;
+}): void {
+  const job = _deployJobs.get(progress.job_id);
+  const update = job?.windowsUpdate;
+  if (!job || !update || update.workerFp !== workerFp || job.status !== "running") return;
+  if (progress.sequence <= update.lastSequence) return;
+  update.lastSequence = progress.sequence;
+  update.lastTransportError = undefined;
+  const detail = progress.message || progress.error || progress.phase;
+  emitWindowsUpdateLine(job, `[${progress.phase || "update"}] ${detail}`);
+  if (progress.terminal) {
+    finishWindowsUpdate(job, progress.success ? 0 : 1, progress.success ? undefined : (progress.error || "Windows update failed"));
+  } else {
+    scheduleWindowsUpdateStatus(job);
+  }
+}
+
+export function resumeWindowsUpdateDeploysForWorker(workerFp: string): void {
+  for (const job of _deployJobs.values()) {
+    const update = job.windowsUpdate;
+    if (!update || update.workerFp !== workerFp || job.status !== "running") continue;
+    if (update.pollTimer) {
+      clearTimeout(update.pollTimer);
+      update.pollTimer = null;
+    }
+    void issueWindowsUpdateCommand(job, "STATUS");
   }
 }
 

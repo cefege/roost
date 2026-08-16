@@ -80,8 +80,11 @@ export interface AuthInterceptorDeps {
 // server-streaming endpoints must never hold the drain open.
 const WRITE_METHODS: Record<string, true | undefined> = {
   WorkersRegister: true, WorkersHeartbeat: true, WorkersRename: true, WorkersDelete: true, WorkersDeployStart: true,
-  SessionsSpawn: true, SessionsAttach: true, SessionsKill: true, SessionsRename: true, SessionsResize: true,
-  SessionsInput: true, SessionsCursorPos: true, SessionsAssignWorkspace: true,
+  SessionsSpawn: true, SessionsAttach: true, SessionsKill: true, SessionsRename: true,
+  // SessionsResize/Input acquire their lease only after entering the shared
+  // per-viewer/session FIFO (session-control.ts). Taking one here would let a
+  // queued command hold the move drain open before it has begun.
+  SessionsCursorPos: true, SessionsAssignWorkspace: true,
   TasksEnqueue: true, TasksNextPending: true, TasksSetState: true, TasksCancel: true,
   WorkspacesCreate: true, WorkspacesUpdate: true, WorkspacesDelete: true, WorkspacesSetSessions: true,
   WebhookTokensMint: true, WebhookTokensDelete: true,

@@ -16,6 +16,9 @@
 // has no custom-header API), via verifyJwt (see worker-conn.ts).
 
 export { __setConnectWorkerForTest, listRoutableFps } from "./worker-registry.ts";
-export { getWorkerHubSocket, sendBrowserCommand, sendAttachmentChunk } from "./worker-send.ts";
+export {
+  getWorkerHubSocket, sendBrowserCommand, sendAttachmentChunk,
+  sendTerminalInputRequest, sendTerminalViewportRequest,
+} from "./worker-send.ts";
 export { makeWorkerConn } from "./worker-conn.ts";
 export type { WorkerServiceDeps, WorkerConn } from "./worker-conn.ts";

@@ -366,10 +366,9 @@ describe("CellGridRenderer DOM — append-only scrollback, no reflow", () => {
   });
 });
 
-// ── viewport diff — unchanged rows keep node identity (idle-churn kill) ──
-// renderViewport re-renders only rows whose rowSig changed. A regression back
-// to full replaceChildren re-renders every row per frame (the deck-wide idle
-// churn: ~1.5k nodes/3s per quiet pane) and flips these node-identity checks.
+// ── viewport patching — only authoritative dirty rows are inspected ──────
+// A regression to full reconstruction/re-hashing either changes untouched
+// node identity or trips the poisoned-row accessor below.
 describe("CellGridRenderer DOM — viewport diff", () => {
   test("a content-identical delta touches NO viewport row nodes", () => {
     const c = makeContainer();
@@ -396,6 +395,20 @@ describe("CellGridRenderer DOM — viewport diff", () => {
     expect(viewportEl.children[1].children[0].textContent).toBe("v1-changed");
   });
 
+  test("a sparse delta never reads or hashes an untouched held row", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    seedHeldHistory(r, 80, [row(0, "stable"), row(1, "old")], []);
+    const stable = r.currentFrame!.viewportRows[0]!;
+    Object.defineProperty(stable, "spans", {
+      configurable: true,
+      get: () => { throw new Error("untouched row was inspected"); },
+    });
+
+    expect(r.applyDeltaFrame(deltaFrame(80, 2, [row(1, "new")], [], 2))).toBe(true);
+    expect(vpEl(c).children[1].children[0].textContent).toBe("new");
+  });
+
   test("a viewport-only full frame rebuild prunes surplus viewport rows", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
@@ -415,12 +428,29 @@ describe("CellGridRenderer DOM — viewport diff", () => {
     seedHeldHistory(r, 80, [row(0, "A"), row(1, "B"), row(2, "C")], []);
     const nB = viewportEl.children[1];
     const nC = viewportEl.children[2];
-    // One line scrolled out: A moved to scrollback, viewport is now B,C,D.
-    r.apply(deltaFrame(80, 3, [row(0, "B"), row(1, "C"), row(2, "D")], [row(0, "A")], 2));
+    // One line scrolled out: A moved to scrollback. Only newly exposed D is
+    // carried as a dirty row; B/C transfer through the canonical model + DOM.
+    expect(r.applyDeltaFrame({
+      ...deltaFrame(80, 3, [row(2, "D")], [row(0, "A")], 2),
+      scrollbackTotal: 1,
+    })).toBe(true);
     expect(viewportEl.children[0]).toBe(nB); // shifted up, node reused
     expect(viewportEl.children[1]).toBe(nC); // shifted up, node reused
     expect(viewportEl.children[2]).not.toBe(nC); // the only newly rendered row
     expect(viewportEl.children[2].children[0].textContent).toBe("D");
+    expect(r.gridText()).toBe("B\nC\nD");
+  });
+
+  test("a scrolling delta without every exposed tail row requests repair", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    seedHeldHistory(r, 80, [row(0, "A"), row(1, "B"), row(2, "C")], []);
+    const before = r.gridText();
+    expect(r.applyDeltaFrame({
+      ...deltaFrame(80, 3, [], [row(0, "A")], 2),
+      scrollbackTotal: 1,
+    })).toBe(false);
+    expect(r.gridText()).toBe(before);
   });
 });
 

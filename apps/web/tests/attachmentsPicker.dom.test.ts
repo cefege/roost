@@ -73,7 +73,11 @@ Object.defineProperty(globalThis, "document", {
   },
 });
 
-const sendInput = mock((_sessionId: string, _bytes: Uint8Array) => {});
+const sendInput = mock((_sessionId: string, _bytes: Uint8Array) => ({
+  accepted: true as const,
+  inputSeq: 1n,
+  outcome: Promise.resolve({ status: "accepted" as const, inputSeq: 1n, writtenBytes: _bytes.byteLength }),
+}));
 const attachmentProbe = mock(async (_request: {
   sessionId: string;
   sha256: string;
@@ -92,17 +96,16 @@ const attachFileChunk = mock(async (request: {
 }) => ({ absPath: request.last ? `/tmp/${request.filename}` : "" }));
 
 mock.module("../src/connect.ts", () => ({ coordClient: { attachmentProbe, attachFileChunk } }));
-mock.module("../src/ws/input-channel.ts", () => ({ inputChannel: { sendInput } }));
+mock.module("../src/ws/sync-outbound.ts", () => ({ sendTerminalInput: sendInput }));
 mock.module("../src/store/transfers.ts", () => ({
   addTransfer: mock(() => {}),
   markTransferState: mock(() => {}),
   setTransferProgress: mock(() => {}),
 }));
 
-// Dynamic import is REQUIRED: a static import binds the real ../src/connect.ts
-// and input-channel.ts before mock.module can replace them, dialing a Connect
-// transport at module load. The `import type` above is erased, so it does not
-// defeat the mocks.
+// Dynamic import is REQUIRED: a static import binds the real transport modules
+// before mock.module can replace them, dialing Connect/Sync at module load.
+// The `import type` above is erased, so it does not defeat the mocks.
 const { pickFilesTo, injectPath, enqueueAttachmentTo } = await import("../src/lib/attachments.ts");
 
 const session = { id: "s1", channel: 1 } as unknown as Session;

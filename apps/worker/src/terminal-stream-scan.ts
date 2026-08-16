@@ -5,6 +5,11 @@
 // _scanOsc7 extracts cwd-change (OSC 7) sequences for cwd tracking.
 // _scanAgentOsc extracts title/progress metadata for agent-state fallback.
 // Sole caller: session-scrollback.ts. Split out of session-manager.ts.
+import { supportedHostPlatform, type SupportedHostPlatform } from "@roost/shared/platform";
+import { parseOsc7WorkerPath } from "./util/path.ts";
+
+const HOST_PLATFORM = supportedHostPlatform();
+
 
 // All alt-screen toggles are `ESC [ ? N { h | l }` where N ∈ {47, 1047, 1049}.
 // h=enter, l=leave. 1049 is the modern variant (saves cursor + clears alt
@@ -73,7 +78,10 @@ export function _scanAltModeTransitions(combined: Uint8Array, prevAlt: boolean):
 // that should be re-fed on the next chunk). On match, newCwd is the
 // LAST complete OSC 7 path observed in the chunk — multiple cd's in
 // one chunk collapse to the final destination.
-export function _scanOsc7(combined: Uint8Array): { newCwd: string | null; carry: Uint8Array } {
+export function _scanOsc7(
+  combined: Uint8Array,
+  platform: SupportedHostPlatform = HOST_PLATFORM,
+): { newCwd: string | null; carry: Uint8Array } {
   let cursor = 0;
   let lastCwd: string | null = null;
   while (cursor < combined.length) {
@@ -109,21 +117,15 @@ export function _scanOsc7(combined: Uint8Array): { newCwd: string | null; carry:
         : start;
       return { newCwd: lastCwd, carry: combined.subarray(carryFrom) };
     }
-    // Payload is `file://<host>/<percent-encoded-path>`. Strip the
-    // `file://` and the host segment up to the next `/`. Decode the
-    // payload bytes as UTF-8 — Apple Terminal's chpwd hook percent-
-    // encodes everything, but custom PROMPT_COMMAND hooks (zsh-vcs,
-    // starship, prezto) often emit raw UTF-8 bytes for non-ASCII
-    // directory names. String.fromCharCode would mojibake those into
-    // Latin-1 codepoints that decodeURIComponent passes through
-    // unchanged → wrong cwd recorded.
+    // Payload is `file://<host>/<percent-encoded-path>`. The worker path
+    // parser preserves historical POSIX behavior and reconstructs canonical
+    // Windows `C:/...` and `//server/share/...` paths from drive/UNC OSC 7.
+    // Decode payload bytes as UTF-8 first: custom prompts often emit raw UTF-8
+    // rather than percent-encoding non-ASCII directory names.
     const payload = combined.subarray(start + _OSC7_PREFIX.length, termIdx);
     const raw = new TextDecoder("utf-8", { fatal: false }).decode(payload);
-    const m = /^file:\/\/[^/]*(\/.*)$/.exec(raw);
-    if (m) {
-      try { lastCwd = decodeURIComponent(m[1]!); }
-      catch { lastCwd = m[1]!; }
-    }
+    const parsedPath = parseOsc7WorkerPath(raw, platform);
+    if (parsedPath !== null) lastCwd = parsedPath;
     cursor = termIdx + termLen;
   }
   return { newCwd: lastCwd, carry: new Uint8Array(0) };

@@ -21,6 +21,7 @@ const HEALTH_BANNER_GRACE_MS = 8_000;
 let _healthConsecutiveFailures = 0;
 let _healthPollInFlight = false;
 let _pollerStartedAt = 0;
+let _healthPollerStarted = false;
 
 function _writeCoordHealth(snapshot: CoordHealthSnapshot): void {
   (window as Window & { __roostCoordHealth?: CoordHealthSnapshot }).__roostCoordHealth = snapshot;
@@ -73,6 +74,8 @@ async function _pollCoordHealth(): Promise<void> {
 }
 
 export function _startCoordHealthPoller(): void {
+  if (_healthPollerStarted) return;
+  _healthPollerStarted = true;
   _pollerStartedAt = performance.now();
   // Immediate first poll so banner reacts within one tick rather than 5 s.
   void _pollCoordHealth();

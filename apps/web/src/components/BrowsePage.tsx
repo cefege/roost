@@ -28,6 +28,7 @@ import { colorForFp } from "../lib/fpColor.ts";
 import { isCompact } from "../lib/windowSizeClass.ts";
 import { addToast } from "../lib/toastStore.ts";
 import { childPath, pathCrumbs, collapseCrumbsTo, type CrumbView } from "../lib/folderPalette.ts";
+import { workerPathBasename } from "../lib/nativePath.ts";
 import { initHistory, pushHistory as pushHistoryFn, goBack as goBackFn, goForward as goForwardFn, canGoBack as canBackFn, canGoForward as canFwdFn, type HistoryState } from "../lib/browseHistory.ts";
 import { uiStore, setHomeFolderViewMode, setHomeFolderShowFiles } from "../store/uiStore.ts";
 import { FolderGlyph } from "./FolderGlyph.tsx";
@@ -138,7 +139,7 @@ function WorkerBrowsePage(props: { workerFp: string }) {
   });
 
   const cwdNow = createMemo(() => dirData()?.resolved ?? cwd());
-  const crumbs = createMemo(() => pathCrumbs(cwdNow()));
+  const crumbs = createMemo(() => pathCrumbs(folderServer(), cwdNow()));
   const crumbViews = createMemo<CrumbView[]>(() => collapseCrumbsTo(crumbs(), hideMiddle()));
   const backEnabled = createMemo(() => canBackFn(historyState()));
   const forwardEnabled = createMemo(() => canFwdFn(historyState()));
@@ -159,7 +160,7 @@ function WorkerBrowsePage(props: { workerFp: string }) {
     const fp = folderServer();
     if (!fp) return new Map();
     const base = cwdNow();
-    const childPaths = filteredDirs().map((d) => childPath(base, d.name));
+    const childPaths = filteredDirs().map((d) => childPath(fp, base, d.name));
     return computeFolderActivity(allSessions(), fp, childPaths);
   });
   // Subtitle per folder: human-readable summary from session activity.
@@ -251,7 +252,7 @@ function WorkerBrowsePage(props: { workerFp: string }) {
     setHistoryState((s) => pushHistoryFn(s, path));
     setActiveIdx(0);
   }
-  function drill(name: string) { pushCwd(childPath(cwd(), name)); }
+  function drill(name: string) { pushCwd(childPath(folderServer(), cwd(), name)); }
   function goToDir(path: string) { pushCwd(path); }
   function goBack() {
     const next = goBackFn(historyState());
@@ -297,7 +298,7 @@ function WorkerBrowsePage(props: { workerFp: string }) {
     if (!fp) return;
     setNewFolderBusy(true);
     try {
-      const target = childPath(cwd(), name);
+      const target = childPath(fp, cwd(), name);
       const res = await coordClient.filesMkdir({ workerFp: fp as unknown as WorkerFp, path: target });
       setNewFolderOpen(false);
       pushCwd(res.resolvedPath || target);
@@ -507,7 +508,7 @@ function WorkerBrowsePage(props: { workerFp: string }) {
                 onClick={() => void pickFolder(r)} title={r}
               >
                 <FolderGlyph size={11} />
-                {r.split("/").filter(Boolean).pop() || r}
+                {workerPathBasename(folderServer(), r) || r}
               </button>
             )}
           </For>
@@ -542,7 +543,7 @@ function WorkerBrowsePage(props: { workerFp: string }) {
           <div class="df-browse-list">
             <For each={filteredDirs()}>
               {(d, i) => {
-                const path = childPath(cwdNow(), d.name);
+                const path = childPath(folderServer(), cwdNow(), d.name);
                 const activity = folderActivity().get(path);
                 const terminals = activity?.terminals ?? 0;
                 return (
@@ -581,7 +582,7 @@ function WorkerBrowsePage(props: { workerFp: string }) {
           <div class="df-browse-grid">
             <For each={filteredDirs()}>
               {(d, i) => {
-                const path = childPath(cwdNow(), d.name);
+                const path = childPath(folderServer(), cwdNow(), d.name);
                 const activity = folderActivity().get(path);
                 const terminals = activity?.terminals ?? 0;
                 const subtitle = folderSubtitles().get(path);

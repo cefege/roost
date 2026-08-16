@@ -1,155 +1,498 @@
-// Terminal perf baseline. Measures the two numbers a user feels — how long a
-// cold load takes to paint a first row, and how much main-thread jank a large
-// output flood costs — and asserts only the two STRUCTURAL ceilings that a
-// regression breaches but jitter cannot. Every other figure is printed so a
-// before/after run can be compared in a PR body.
-//
-// Convention (same as terminal.spec.ts's reveal tests): assert the ABSENCE of
-// work, never a wall-clock budget. A CI runner's wall clock is noise; a full
-// frame per flood or half the flood spent in long tasks is a real defect.
+// Terminal performance and paint-correctness qualification probes. Hosted CI
+// publishes wall-clock distributions but gates deterministic structural
+// invariants; pinned qualification machines opt into the absolute budgets with
+// ROOST_PERF_QUALIFY=1.
 
+import type { Browser, BrowserContext, Page } from "@playwright/test";
+import type { SpaPhaseTimeline } from "../../apps/web/src/lib/diag.ts";
+import type { SmokeApi } from "../../apps/web/src/lib/smoke.ts";
 import { test, expect } from "./fixtures.ts";
+import { encodePtyFixtureCommand, PTY_FIXTURE_READY } from "./pty-fixture-protocol.ts";
+import type { TerminalTestWorker } from "./stack.ts";
 
-type PerfProbe = {
-  longTaskCount: number; longTaskMs: number;
-  cellFrames: number; cellFullFrames: number;
-  domNodes: number; cellRows: number; heldSbRows: number; heapMb: number;
-  inputRttP50: number; inputRttP95: number;
+type SmokeWindow = Window & {
+  readonly __smoke: SmokeApi;
+  __roostDriverBeforeNavigationEpochMs?: number;
+  __stallCanary?: string;
 };
 
-type PerfSmoke = {
-  spawnShell(worker: string, folder: string): Promise<{ session_id: string }>;
-  renderProbe(sessionId: string): { nonEmptyRows: number };
-  markerScan(sessionId: string, prefix: string): { max: number; duplicated: number[]; outOfOrder: number };
-  input(sessionId: string, text: string): Promise<void>;
-  perfProbe(sessionId: string): PerfProbe;
-  resetPerfCounters(): void;
-  cellFrameCount(sessionId: string): number;
-  cellFullFrameCount(sessionId: string): number;
-  syncWsGeneration(): number;
-  paneFocused(sessionId: string): { focused: boolean };
-  viewportText(sessionId: string): string;
-  navigate(href: string): void;
-};
+// Playwright serializes callbacks without module closures. This erased binding
+// types the browser global once without adding a runtime helper to those callbacks.
+declare const window: SmokeWindow;
 
 const FLOOD_LINES = 20_000;
+const QUALIFY = process.env.ROOST_PERF_QUALIFY === "1";
 
-test("terminal perf baseline: cold first row and a 20k-line flood", async ({ smokePage, stack }, testInfo) => {
+type NavigationMeasurement = {
+  driverBeforeGotoEpochMs: number;
+  navigationStartEpochMs: number;
+  driverToPaintMs: number;
+  navigationToPaintMs: number;
+  phaseTimeline: SpaPhaseTimeline;
+};
+
+function workerFolder(worker: TerminalTestWorker): string {
+  return process.platform === "win32" ? worker.home.replaceAll("\\", "/") : worker.home;
+}
+
+function percentile(values: readonly number[], quantile: number): number {
+  if (values.length === 0) return -1;
+  const sorted = [...values].sort((left, right) => left - right);
+  return sorted[Math.min(sorted.length - 1, Math.floor(quantile * sorted.length))]!;
+}
+
+async function installColdInit(context: BrowserContext): Promise<void> {
+  await context.addInitScript(() => {
+    localStorage.setItem("roostSmoke", "1");
+    localStorage.setItem("roost.whatsNew.lastSeenVersion", "2.0.0");
+    const driverEpoch = Number(new URL(location.href).searchParams.get("__roost_driver_nav"));
+    if (Number.isFinite(driverEpoch) && driverEpoch > 0) {
+      window.__roostDriverBeforeNavigationEpochMs = driverEpoch;
+    }
+  });
+}
+
+async function measureNavigation(
+  page: Page,
+  baseUrl: string,
+  sessionId: string,
+): Promise<NavigationMeasurement> {
+  const driverBeforeGotoEpochMs = Date.now();
+  const url = new URL(`/s/${sessionId}`, baseUrl);
+  url.searchParams.set("__roost_driver_nav", String(driverBeforeGotoEpochMs));
+  await page.goto(url.href, { waitUntil: "domcontentloaded" });
+  await page.waitForFunction(() => typeof window.__smoke === "object");
+  const measured = await page.evaluate(async ({ id, marker, driverEpoch }) => {
+    const smoke = window.__smoke;
+    const proof = await smoke.waitForPaintedMarker(id, marker, 60_000);
+    const phaseTimeline = smoke.phaseTimeline();
+    return {
+      navigationStartEpochMs: phaseTimeline.navigationStartEpochMs,
+      driverToPaintMs: proof.epochMs - driverEpoch,
+      navigationToPaintMs: proof.epochMs - phaseTimeline.navigationStartEpochMs,
+      phaseTimeline,
+    };
+  }, { id: sessionId, marker: PTY_FIXTURE_READY, driverEpoch: driverBeforeGotoEpochMs });
+  return { driverBeforeGotoEpochMs, ...measured };
+}
+
+async function measureFreshNavigation(
+  browser: Browser,
+  baseUrl: string,
+  sessionId: string,
+): Promise<NavigationMeasurement> {
+  const context = await browser.newContext();
+  await installColdInit(context);
+  const page = await context.newPage();
+  try {
+    return await measureNavigation(page, baseUrl, sessionId);
+  } finally {
+    await context.close();
+  }
+}
+
+async function waitForFixtureWorker(page: Page, workerFp: string): Promise<void> {
+  await page.waitForFunction((fp) => {
+    const smoke = window.__smoke;
+    return !!smoke.state().workers[fp];
+  }, workerFp);
+}
+
+async function spawnFixtureSession(
+  page: Page,
+  worker: TerminalTestWorker,
+): Promise<string> {
+  await waitForFixtureWorker(page, worker.workerFp);
+  return page.evaluate(async ({ workerFp, folder }) => {
+    const smoke = window.__smoke;
+    return (await smoke.spawnShell(workerFp, folder)).session_id;
+  }, { workerFp: worker.workerFp, folder: workerFolder(worker) });
+}
+
+async function navigateAndProve(page: Page, sessionId: string, marker: string): Promise<void> {
+  await page.evaluate(({ id, expected }) => {
+    const smoke = window.__smoke;
+    smoke.navigate(`/s/${id}`);
+    return smoke.waitForPaintedMarker(id, expected, 60_000);
+  }, { id: sessionId, expected: marker });
+}
+
+test("terminal perf: navigation-origin paint and retained 20k flood", async ({ coldSmokePage, browser, stack }, testInfo) => {
   test.skip(testInfo.project.name !== "chromium-desktop", "desktop perf budget");
-  test.setTimeout(300_000);
+  test.setTimeout(360_000);
 
-  const sessionId = await smokePage.evaluate(async (workerFp) => {
-    const smoke = (window as unknown as Window & { __smoke: PerfSmoke }).__smoke;
-    return (await smoke.spawnShell(workerFp, "/tmp")).session_id;
-  }, stack.workerFp);
+  const fixtureWorker = await stack.startPtyFixtureWorker();
+  const spawned = await stack.client.sessionsSpawn({
+    workerFp: fixtureWorker.workerFp,
+    kind: "shell",
+    folder: workerFolder(fixtureWorker),
+    cols: 80,
+    rows: 24,
+  });
+  const sessionId = spawned.sessionId;
 
-  // Cold first row: a fresh document load straight onto the pane URL, timed
-  // from navigation commit to the first non-empty painted row. This is the
-  // whole bootstrap waterfall — identity, lists, Sync dial, claim, first frame.
-  const coldStart = Date.now();
-  await smokePage.goto(`${stack.baseUrl}/s/${sessionId}`, { waitUntil: "commit" });
-  await smokePage.waitForFunction((id) => {
-    const smoke = (window as unknown as Window & { __smoke?: PerfSmoke }).__smoke;
-    return !!smoke && smoke.renderProbe(id).nonEmptyRows > 0;
-  }, sessionId, { timeout: 60_000 });
-  const coldFirstRowMs = Date.now() - coldStart;
+  const cold = await measureNavigation(coldSmokePage, stack.baseUrl, sessionId);
+  const fresh: NavigationMeasurement[] = [];
+  await coldSmokePage.evaluate((id) => {
+    const smoke = window.__smoke;
+    smoke.trackCreatedSession(id);
+  }, sessionId);
+  for (let sample = 0; sample < 5; sample++) {
+    fresh.push(await measureFreshNavigation(browser, stack.baseUrl, sessionId));
+  }
 
-  const before = await smokePage.evaluate((id) => {
-    const smoke = (window as unknown as Window & { __smoke: PerfSmoke }).__smoke;
+  const before = await coldSmokePage.evaluate((id) => {
+    const smoke = window.__smoke;
     smoke.resetPerfCounters();
     return smoke.perfProbe(id);
   }, sessionId);
+  const floodFrame = encodePtyFixtureCommand({ op: "FLOOD", prefix: "PERFLINE-", count: FLOOD_LINES });
+  const flood = await coldSmokePage.evaluate(async ({ id, frame, marker }) => {
+    const smoke = window.__smoke;
+    const started = performance.now();
+    await smoke.input(id, frame);
+    const proof = await smoke.waitForPaintedMarker(id, marker, 180_000);
+    return { wallMs: proof.monotonicMs - started, proof };
+  }, { id: sessionId, frame: floodFrame, marker: `PERFLINE-${FLOOD_LINES}` });
 
-  const floodStart = Date.now();
-  await smokePage.evaluate(async ({ id, lines }) => {
-    const smoke = (window as unknown as Window & { __smoke: PerfSmoke }).__smoke;
-    await smoke.input(id, `seq -f 'PERFLINE-%g' 1 ${lines}\r`);
-  }, { id: sessionId, lines: FLOOD_LINES });
-  await expect.poll(() => smokePage.evaluate((id) => {
-    const smoke = (window as unknown as Window & { __smoke: PerfSmoke }).__smoke;
-    return smoke.markerScan(id, "PERFLINE-").max;
-  }, sessionId), { timeout: 180_000, intervals: [250] }).toBe(FLOOD_LINES);
-  const floodWallMs = Date.now() - floodStart;
-
-  const after = await smokePage.evaluate((id) => {
-    const smoke = (window as unknown as Window & { __smoke: PerfSmoke }).__smoke;
+  const after = await coldSmokePage.evaluate((id) => {
+    const smoke = window.__smoke;
     return smoke.perfProbe(id);
   }, sessionId);
-  const scan = await smokePage.evaluate((id) => {
-    const smoke = (window as unknown as Window & { __smoke: PerfSmoke }).__smoke;
+  const scan = await coldSmokePage.evaluate((id) => {
+    const smoke = window.__smoke;
     return smoke.markerScan(id, "PERFLINE-");
+  }, sessionId);
+  // Outside the timed window: page the authoritative retained range without
+  // pulling it into the DOM, then prove the exact surviving marker sequence.
+  const retained = await coldSmokePage.evaluate((id) => {
+    const smoke = window.__smoke;
+    return smoke.retainedMarkerScan(id, "PERFLINE-");
   }, sessionId);
 
   const report = {
-    cold_first_row_ms: coldFirstRowMs,
-    flood_wall_ms: floodWallMs,
-    flood_long_task_count: after.longTaskCount,
-    flood_long_task_ms: after.longTaskMs,
+    cold_navigation_ms: cold.navigationToPaintMs,
+    cold_driver_to_paint_ms: cold.driverToPaintMs,
+    fresh_navigation_ms: fresh.map((sample) => sample.navigationToPaintMs),
+    flood_wall_ms: flood.wallMs,
+    flood_long_tasks: after.longTaskState === "available"
+      ? { state: "available", count: after.longTaskCount, ms: after.longTaskMs }
+      : { state: "unavailable" },
     flood_cell_frames: after.cellFrames - before.cellFrames,
     flood_cell_full_frames: after.cellFullFrames - before.cellFullFrames,
+    retained_floor: retained.retainedFloor,
+    retained_cap: retained.retainedCap,
+    retained_total: retained.scrollbackTotal,
+    retained_marker_min: retained.markerMin,
+    retained_marker_max: retained.markerMax,
     dom_nodes: after.domNodes,
     cell_rows: after.cellRows,
     held_sb_rows: after.heldSbRows,
     heap_mb: after.heapMb,
-    input_rtt_p50: after.inputRttP50,
-    input_rtt_p95: after.inputRttP95,
+    phases: cold.phaseTimeline,
   };
   console.log(`[perf] ${JSON.stringify(report)}`);
   await testInfo.attach("perf.json", { body: JSON.stringify(report, null, 2), contentType: "application/json" });
 
-  // Ceiling 1: a flood must not spend most of its wall clock in main-thread
-  // long tasks. Breaching this means per-chunk work grew super-linearly, which
-  // is exactly the class the paint/worker phases delete.
-  expect(after.longTaskMs).toBeLessThan(0.5 * floodWallMs);
-  // Ceiling 2: streaming output is deltas. A full frame during a flood means a
-  // reframe loop (dims churn, scrollback-shrink misdetect) — the corruption
-  // class, not a slow frame. Three allows for the shell's own settling.
+  if (after.longTaskState === "available") {
+    expect(after.longTaskMs).toBeLessThan(0.5 * flood.wallMs);
+  } else {
+    expect(report.flood_long_tasks).toEqual({ state: "unavailable" });
+  }
+  for (const navigation of [cold, ...fresh]) {
+    expect(navigation.phaseTimeline.driverBeforeNavigationEpochMs).toBe(
+      navigation.driverBeforeGotoEpochMs,
+    );
+    expect(navigation.driverToPaintMs).toBeGreaterThanOrEqual(navigation.navigationToPaintMs);
+  }
   expect(report.flood_cell_full_frames).toBeLessThanOrEqual(3);
-  // The flood is also a correctness sample: measuring must never come at the
-  // cost of the history invariants the whole model exists to protect.
-  expect(scan).toMatchObject({ duplicated: [], outOfOrder: 0 });
+  expect(scan).toMatchObject({ max: FLOOD_LINES, duplicated: [], missing: 0, outOfOrder: 0 });
+  expect(retained.rowGapCount).toBe(0);
+  expect(retained.rowIndices).toHaveLength(retained.retainedCap);
+  if (retained.rowIndices.length > 0) {
+    expect(retained.rowIndices[0]).toBe(retained.retainedFloor);
+    expect(retained.rowIndices.at(-1)).toBe(retained.scrollbackTotal - 1);
+  }
+  expect(retained.markerDuplicated).toEqual([]);
+  expect(retained.markerMissing).toBe(0);
+  expect(retained.markerOutOfOrder).toBe(0);
+  expect(retained.markerIds).toHaveLength(retained.retainedCap);
+  for (let index = 1; index < retained.markerIds.length; index++) {
+    expect(retained.markerIds[index]).toBe(retained.markerIds[index - 1]! + 1);
+  }
+  if (retained.retainedCap < FLOOD_LINES) expect(retained.markerMin).toBeGreaterThan(1);
+
+  if (QUALIFY) {
+    expect(cold.navigationToPaintMs).toBeLessThanOrEqual(1_000);
+    for (const sample of fresh) expect(sample.navigationToPaintMs).toBeLessThanOrEqual(1_000);
+    expect(flood.wallMs).toBeLessThanOrEqual(7_500);
+  }
+});
+
+test("terminal perf: trusted key, shallow/deep reveal, and child-observed resize", async ({ smokePage, stack }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium-desktop", "desktop interaction distributions");
+  test.setTimeout(360_000);
+
+  const fixtureWorker = await stack.startPtyFixtureWorker();
+  const shallowId = await spawnFixtureSession(smokePage, fixtureWorker);
+  const deepId = await spawnFixtureSession(smokePage, fixtureWorker);
+  await navigateAndProve(smokePage, shallowId, PTY_FIXTURE_READY);
+  const suffix = crypto.randomUUID().replaceAll("-", "").slice(0, 12);
+  const shallowMarker = `SHALLOW_READY:${suffix}`;
+  await smokePage.evaluate(async ({ id, frame, marker }) => {
+    const smoke = window.__smoke;
+    await smoke.input(id, frame);
+    await smoke.waitForPaintedMarker(id, marker);
+  }, {
+    id: shallowId,
+    frame: encodePtyFixtureCommand({ op: "EMIT", text: shallowMarker }),
+    marker: shallowMarker,
+  });
+
+  await navigateAndProve(smokePage, deepId, PTY_FIXTURE_READY);
+  const deepMarker = `DEEP_READY:${suffix}`;
+  await smokePage.evaluate(async ({ id, floodFrame, finalFrame, floodMarker, marker }) => {
+    const smoke = window.__smoke;
+    await smoke.input(id, floodFrame);
+    await smoke.waitForPaintedMarker(id, floodMarker, 120_000);
+    await smoke.input(id, finalFrame);
+    await smoke.waitForPaintedMarker(id, marker);
+  }, {
+    id: deepId,
+    floodFrame: encodePtyFixtureCommand({ op: "FLOOD", prefix: "DEEPLINE-", count: 5_000 }),
+    finalFrame: encodePtyFixtureCommand({ op: "EMIT", text: deepMarker }),
+    floodMarker: "DEEPLINE-5000",
+    marker: deepMarker,
+  });
+
+  const revealSamples: Array<{ kind: "shallow" | "deep"; ms: number; cached: boolean }> = [];
+  for (let sample = 0; sample < 20; sample++) {
+    const deep = sample % 2 === 1;
+    const id = deep ? deepId : shallowId;
+    const marker = deep ? deepMarker : shallowMarker;
+    revealSamples.push(await smokePage.evaluate(async ({ id, marker, kind }) => {
+      const smoke = window.__smoke;
+      const beforeFrames = smoke.cellFrameCount(id);
+      const timingId = await smoke.beginTerminalTiming("reveal", id);
+      smoke.navigate(`/s/${id}`);
+      const result = await smoke.finishTerminalTiming(timingId, id, marker, 30_000);
+      return { kind, ms: result.durationMs, cached: smoke.cellFrameCount(id) === beforeFrames };
+    }, { id, marker, kind: deep ? "deep" as const : "shallow" as const }));
+  }
+  const shallowReveal = revealSamples.filter((sample) => sample.kind === "shallow").map((sample) => sample.ms);
+  const deepReveal = revealSamples.filter((sample) => sample.kind === "deep").map((sample) => sample.ms);
+  const cachedReveal = revealSamples.filter((sample) => sample.cached).map((sample) => sample.ms);
+
+  await navigateAndProve(smokePage, shallowId, shallowMarker);
+  const resizeNonce = crypto.randomUUID().replaceAll("-", "").slice(0, 12);
+  const resize = await smokePage.evaluate(async ({ id, frame, marker }) => {
+    const smoke = window.__smoke;
+    const deck = document.querySelector('[data-testid="terminal-deck"]') as HTMLElement | null;
+    if (!deck) throw new Error("terminal deck missing");
+    const originalStyle = deck.getAttribute("style");
+    const lastMark = smoke.phaseTimeline().marks.at(-1)?.index ?? -1;
+    const timingId = await smoke.beginTerminalTiming("resize", id);
+    const rect = deck.getBoundingClientRect();
+    deck.style.width = `${Math.max(320, Math.round(rect.width - 160))}px`;
+    deck.style.height = `${Math.max(220, Math.round(rect.height - 96))}px`;
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const deadline = performance.now() + 15_000;
+        const check = () => {
+          const accepted = smoke.phaseTimeline().marks.some((phase) =>
+            phase.index > lastMark
+            && phase.name === "viewport_accept"
+            && phase.detail.sessionId === id);
+          if (accepted) { resolve(); return; }
+          if (performance.now() >= deadline) { reject(new Error("viewport acceptance timed out")); return; }
+          requestAnimationFrame(check);
+        };
+        check();
+      });
+      await smoke.input(id, frame);
+      const timing = await smoke.finishTerminalTiming(timingId, id, marker, 30_000);
+      return { timing, dimensions: smoke.terminalDimensions(id) };
+    } finally {
+      if (originalStyle === null) deck.removeAttribute("style");
+      else deck.setAttribute("style", originalStyle);
+    }
+  }, {
+    id: shallowId,
+    frame: encodePtyFixtureCommand({ op: "REPORT_SIZE", nonce: resizeNonce }),
+    marker: `SIZE:${resizeNonce}:`,
+  });
+  const observedSize = new RegExp(`SIZE:${resizeNonce}:(\\d+)x(\\d+)`).exec(resize.timing.rowText);
+  expect(observedSize).not.toBeNull();
+  expect({ cols: Number(observedSize![1]), rows: Number(observedSize![2]) }).toEqual(resize.dimensions);
+
+  const slot = smokePage.getByTestId(`terminal-slot-${shallowId}`);
+  await slot.click();
+  await expect.poll(() => smokePage.evaluate((id) => {
+    const smoke = window.__smoke;
+    return smoke.paneFocused(id).focused;
+  }, shallowId)).toBe(true);
+  const keySamples: number[] = [];
+  for (let sample = 0; sample < 45; sample++) {
+    const nonce = `${sample}-${crypto.randomUUID().replaceAll("-", "").slice(0, 8)}`;
+    await smokePage.evaluate(async ({ id, frame, marker }) => {
+      const smoke = window.__smoke;
+      await smoke.input(id, frame);
+      await smoke.waitForPaintedMarker(id, marker);
+    }, {
+      id: shallowId,
+      frame: encodePtyFixtureCommand({ op: "ARM_KEY", nonce }),
+      marker: `ARMED:${nonce}`,
+    });
+    const timingId = await smokePage.evaluate((id) => {
+      const smoke = window.__smoke;
+      return smoke.beginTerminalTiming("trusted_key", id);
+    }, shallowId);
+    await smokePage.keyboard.press("x");
+    const result = await smokePage.evaluate(({ timingId, id, marker }) => {
+      const smoke = window.__smoke;
+      return smoke.finishTerminalTiming(timingId, id, marker);
+    }, { timingId, id: shallowId, marker: `ACK:${nonce}` });
+    expect(result.trustedKey).toBe(true);
+    if (sample >= 5) keySamples.push(result.durationMs);
+  }
+
+  const interactionReport = {
+    reveal_shallow_ms: shallowReveal,
+    reveal_deep_ms: deepReveal,
+    reveal_shallow_p95_ms: percentile(shallowReveal, 0.95),
+    reveal_deep_p95_ms: percentile(deepReveal, 0.95),
+    reveal_cached_css_only_ms: cachedReveal,
+    resize_child_observed_ms: resize.timing.durationMs,
+    trusted_key_ms: keySamples,
+    trusted_key_p50_ms: percentile(keySamples, 0.5),
+    trusted_key_p95_ms: percentile(keySamples, 0.95),
+    trusted_key_max_ms: Math.max(...keySamples),
+  };
+  console.log(`[perf.interaction] ${JSON.stringify(interactionReport)}`);
+  await testInfo.attach("perf-interaction.json", {
+    body: JSON.stringify(interactionReport, null, 2),
+    contentType: "application/json",
+  });
+
+  if (QUALIFY) {
+    expect(interactionReport.reveal_shallow_p95_ms).toBeLessThanOrEqual(150);
+    expect(Math.max(...shallowReveal)).toBeLessThanOrEqual(300);
+    expect(interactionReport.reveal_deep_p95_ms).toBeLessThanOrEqual(150);
+    expect(Math.max(...deepReveal)).toBeLessThanOrEqual(300);
+    expect(interactionReport.reveal_deep_p95_ms - interactionReport.reveal_shallow_p95_ms).toBeLessThanOrEqual(50);
+    expect(interactionReport.resize_child_observed_ms).toBeLessThanOrEqual(250);
+    expect(interactionReport.trusted_key_p50_ms).toBeLessThanOrEqual(75);
+    expect(interactionReport.trusted_key_p95_ms).toBeLessThanOrEqual(150);
+    expect(interactionReport.trusted_key_max_ms).toBeLessThanOrEqual(300);
+  }
+});
+
+test("terminal perf: optimistic first marker paints while spawn response is held", async ({ smokePage, stack }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium-desktop", "desktop optimistic paint endpoint");
+  test.setTimeout(120_000);
+
+  const fixtureWorker = await stack.startPtyFixtureWorker();
+  const anchorId = await spawnFixtureSession(smokePage, fixtureWorker);
+  await navigateAndProve(smokePage, anchorId, PTY_FIXTURE_READY);
+  const oldIds = await smokePage.evaluate(() => {
+    const smoke = window.__smoke;
+    return Object.keys(smoke.state().sessions);
+  });
+
+  let releaseResponse!: () => void;
+  let sawRequest!: () => void;
+  let routeDone!: () => void;
+  const release = new Promise<void>((resolve) => { releaseResponse = resolve; });
+  const intercepted = new Promise<void>((resolve) => { sawRequest = resolve; });
+  const finished = new Promise<void>((resolve) => { routeDone = resolve; });
+  let responseReleased = false;
+  let requestIntercepted = false;
+  await smokePage.route("**/roost.v1.CoordinatorService/SessionsSpawn", async (route) => {
+    requestIntercepted = true;
+    sawRequest();
+    try {
+      const response = await route.fetch();
+      await release;
+      responseReleased = true;
+      await route.fulfill({ response });
+    } finally {
+      routeDone();
+    }
+  });
+
+  const timingId = await smokePage.evaluate(() => {
+    const smoke = window.__smoke;
+    return smoke.beginTerminalTiming("optimistic");
+  });
+  try {
+    await smokePage.getByTestId("tab-new").first().click();
+    await intercepted;
+    await smokePage.waitForFunction((existing) => {
+      const smoke = window.__smoke;
+      return Object.keys(smoke.state().sessions).some((id) => !existing.includes(id));
+    }, oldIds);
+    const optimisticId = await smokePage.evaluate((existing) => {
+      const smoke = window.__smoke;
+      return Object.keys(smoke.state().sessions).find((id) => !existing.includes(id))!;
+    }, oldIds);
+    await smokePage.evaluate((id) => {
+      const smoke = window.__smoke;
+      smoke.trackCreatedSession(id);
+    }, optimisticId);
+    const timing = await smokePage.evaluate(({ timingId, id, marker }) => {
+      const smoke = window.__smoke;
+      return smoke.finishTerminalTiming(timingId, id, marker, 60_000);
+    }, { timingId, id: optimisticId, marker: PTY_FIXTURE_READY });
+    expect(responseReleased).toBe(false);
+    expect(await smokePage.evaluate((id) => {
+      const smoke = window.__smoke;
+      return smoke.lastFullFrameSbRows(id);
+    }, optimisticId)).toBe(0);
+    await testInfo.attach("perf-optimistic.json", {
+      body: JSON.stringify({ optimistic_marker_ms: timing.durationMs, response_released_at_paint: responseReleased }, null, 2),
+      contentType: "application/json",
+    });
+  } finally {
+    releaseResponse();
+    if (requestIntercepted) await finished.catch(() => undefined);
+    await smokePage.unroute("**/roost.v1.CoordinatorService/SessionsSpawn");
+  }
 });
 
 test("offscreen mounted terminals receive no cell frames under load", async ({ smokePage, stack }, testInfo) => {
   test.skip(testInfo.project.name !== "chromium-desktop", "desktop offscreen load");
   test.setTimeout(180_000);
 
-  const sessionIds = await smokePage.evaluate(async (workerFp) => {
-    const smoke = (window as unknown as Window & { __smoke: PerfSmoke }).__smoke;
+  const fixtureWorker = await stack.startPtyFixtureWorker();
+  await waitForFixtureWorker(smokePage, fixtureWorker.workerFp);
+  const sessionIds = await smokePage.evaluate(async ({ workerFp, folder }) => {
+    const smoke = window.__smoke;
     return Promise.all(Array.from({ length: 10 }, async () =>
-      (await smoke.spawnShell(workerFp, "/tmp")).session_id));
-  }, stack.workerFp);
+      (await smoke.spawnShell(workerFp, folder)).session_id));
+  }, { workerFp: fixtureWorker.workerFp, folder: workerFolder(fixtureWorker) });
 
-  for (const sessionId of sessionIds) {
-    await smokePage.evaluate((id) => {
-      const smoke = (window as unknown as Window & { __smoke: PerfSmoke }).__smoke;
-      smoke.navigate(`/s/${id}`);
-    }, sessionId);
-    await smokePage.waitForFunction((id) => {
-      const smoke = (window as unknown as Window & { __smoke: PerfSmoke }).__smoke;
-      return smoke.renderProbe(id).nonEmptyRows > 0;
-    }, sessionId);
-  }
+  for (const sessionId of sessionIds) await navigateAndProve(smokePage, sessionId, PTY_FIXTURE_READY);
   const visibleId = sessionIds.at(-1)!;
   await smokePage.waitForTimeout(500);
   const before = await smokePage.evaluate((ids) => {
-    const smoke = (window as unknown as Window & { __smoke: PerfSmoke }).__smoke;
+    const smoke = window.__smoke;
     return Object.fromEntries(ids.map((id) => [id, smoke.cellFrameCount(id)]));
   }, sessionIds);
 
-  await smokePage.evaluate(async (ids) => {
-    const smoke = (window as unknown as Window & { __smoke: PerfSmoke }).__smoke;
-    await Promise.all(ids.map((id, index) =>
-      smoke.input(id, `seq -f 'OFFSCREEN-${index}-%g' 1 2000\r`)));
-  }, sessionIds);
-  await expect.poll(() => smokePage.evaluate((id) => {
-    const smoke = (window as unknown as Window & { __smoke: PerfSmoke }).__smoke;
-    return smoke.markerScan(id, "OFFSCREEN-9-").max;
-  }, visibleId), { timeout: 60_000, intervals: [100] }).toBe(2000);
+  const offscreenFloodFrames = sessionIds.map((_, index) =>
+    encodePtyFixtureCommand({ op: "FLOOD", prefix: `OFFSCREEN-${index}-`, count: 2_000 }));
+  await smokePage.evaluate(async ({ ids, frames }) => {
+    const smoke = window.__smoke;
+    await Promise.all(ids.map((id, index) => smoke.input(id, frames[index]!)));
+  }, { ids: sessionIds, frames: offscreenFloodFrames });
+  await smokePage.evaluate(({ id, marker }) => {
+    const smoke = window.__smoke;
+    return smoke.waitForPaintedMarker(id, marker, 60_000);
+  }, { id: visibleId, marker: "OFFSCREEN-9-2000" });
   await smokePage.waitForTimeout(500);
 
   const after = await smokePage.evaluate((ids) => {
-    const smoke = (window as unknown as Window & { __smoke: PerfSmoke }).__smoke;
+    const smoke = window.__smoke;
     return Object.fromEntries(ids.map((id) => [id, smoke.cellFrameCount(id)]));
   }, sessionIds);
   expect(after[visibleId]! - before[visibleId]!).toBeGreaterThan(0);
@@ -162,26 +505,13 @@ test("stalled browser consumer reconnects without reloading and resumes input", 
   test.skip(testInfo.project.name !== "chromium-desktop", "desktop transport recovery");
   test.setTimeout(120_000);
 
-  const sessionId = await smokePage.evaluate(async (workerFp) => {
-    const smoke = (window as unknown as Window & { __smoke: PerfSmoke }).__smoke;
-    return (await smoke.spawnShell(workerFp, "/tmp")).session_id;
-  }, stack.workerFp);
-  await smokePage.evaluate((id) => {
-    const smoke = (window as unknown as Window & { __smoke: PerfSmoke }).__smoke;
-    smoke.navigate(`/s/${id}`);
-  }, sessionId);
-  await smokePage.waitForFunction((id) => {
-    const smoke = (window as unknown as Window & { __smoke: PerfSmoke }).__smoke;
-    return smoke.renderProbe(id).nonEmptyRows > 0;
-  }, sessionId);
-
+  const fixtureWorker = await stack.startPtyFixtureWorker();
+  const sessionId = await spawnFixtureSession(smokePage, fixtureWorker);
+  await navigateAndProve(smokePage, sessionId, PTY_FIXTURE_READY);
   const suffix = `${Date.now()}_${Math.floor(Math.random() * 1_000_000)}`;
   const recoveryMarker = `STALL_RECOVER_${suffix}`;
   const before = await smokePage.evaluate(({ id, canary }) => {
-    const win = window as unknown as Window & {
-      __smoke: PerfSmoke;
-      __stallCanary?: string;
-    };
+    const win = window;
     win.__stallCanary = canary;
     return {
       generation: win.__smoke.syncWsGeneration(),
@@ -189,32 +519,28 @@ test("stalled browser consumer reconnects without reloading and resumes input", 
     };
   }, { id: sessionId, canary: suffix });
 
-  await smokePage.evaluate(async ({ id, markerSuffix }) => {
-    const smoke = (window as unknown as Window & { __smoke: PerfSmoke }).__smoke;
-    await smoke.input(
-      id,
-      `sleep .25; seq 1 4000; sleep 3.5; m='STALL_RECOVER_''${markerSuffix}'; printf '%s\\n' "$m"\r`,
-    );
+  const stalledFrames = encodePtyFixtureCommand({ op: "FLOOD", prefix: "STALLLINE-", count: 4_000 })
+    + encodePtyFixtureCommand({ op: "EMIT", text: recoveryMarker, delayMs: 3_500 });
+  await smokePage.evaluate(async ({ id, frames }) => {
+    const smoke = window.__smoke;
+    await smoke.input(id, frames);
     const blockedUntil = performance.now() + 4_500;
     while (performance.now() < blockedUntil) {
-      // The flood starts the ACK deadline; the marker lands after the stale socket closes.
+      // The flood starts the ACK deadline; the delayed marker lands after the stale socket closes.
     }
-  }, { id: sessionId, markerSuffix: suffix });
+  }, { id: sessionId, frames: stalledFrames });
 
   await expect.poll(() => smokePage.evaluate(() => {
-    const smoke = (window as unknown as Window & { __smoke: PerfSmoke }).__smoke;
+    const smoke = window.__smoke;
     return smoke.syncWsGeneration();
   }), { timeout: 30_000, intervals: [100] }).toBeGreaterThan(before.generation);
-  await smokePage.waitForFunction(({ id, marker }) => {
-    const smoke = (window as unknown as Window & { __smoke: PerfSmoke }).__smoke;
-    return smoke.viewportText(id).includes(marker);
+  await smokePage.evaluate(({ id, marker }) => {
+    const smoke = window.__smoke;
+    return smoke.waitForPaintedMarker(id, marker, 30_000);
   }, { id: sessionId, marker: recoveryMarker });
 
   const recovered = await smokePage.evaluate(({ id, marker, canary }) => {
-    const win = window as unknown as Window & {
-      __smoke: PerfSmoke;
-      __stallCanary?: string;
-    };
+    const win = window;
     const text = win.__smoke.viewportText(id);
     return {
       canary: win.__stallCanary,
@@ -226,15 +552,25 @@ test("stalled browser consumer reconnects without reloading and resumes input", 
   expect(recovered.markerCount).toBe(1);
   expect(recovered.fullFrames - before.fullFrames).toBe(1);
 
-  await expect.poll(() => smokePage.evaluate((id) => {
-    const smoke = (window as unknown as Window & { __smoke: PerfSmoke }).__smoke;
-    return smoke.paneFocused(id).focused;
-  }, sessionId), { timeout: 15_000, intervals: [100] }).toBe(true);
-  const keyboardMarker = `KEYBOARD_RECOVER_${suffix}`;
-  await smokePage.keyboard.type(`printf 'KEYBOARD_RECOVER_''${suffix}\\n'`);
-  await smokePage.keyboard.press("Enter");
-  await smokePage.waitForFunction(({ id, marker }) => {
-    const smoke = (window as unknown as Window & { __smoke: PerfSmoke }).__smoke;
-    return smoke.viewportText(id).includes(marker);
-  }, { id: sessionId, marker: keyboardMarker });
+  await smokePage.getByTestId(`terminal-slot-${sessionId}`).click();
+  const keyNonce = `recover-${suffix}`;
+  await smokePage.evaluate(async ({ id, frame, marker }) => {
+    const smoke = window.__smoke;
+    await smoke.input(id, frame);
+    await smoke.waitForPaintedMarker(id, marker);
+  }, {
+    id: sessionId,
+    frame: encodePtyFixtureCommand({ op: "ARM_KEY", nonce: keyNonce }),
+    marker: `ARMED:${keyNonce}`,
+  });
+  const timingId = await smokePage.evaluate((id) => {
+    const smoke = window.__smoke;
+    return smoke.beginTerminalTiming("trusted_key", id);
+  }, sessionId);
+  await smokePage.keyboard.press("x");
+  const keyResult = await smokePage.evaluate(({ timingId, id, marker }) => {
+    const smoke = window.__smoke;
+    return smoke.finishTerminalTiming(timingId, id, marker);
+  }, { timingId, id: sessionId, marker: `ACK:${keyNonce}` });
+  expect(keyResult.trustedKey).toBe(true);
 });

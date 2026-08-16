@@ -1,6 +1,12 @@
-import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
+import {
+  applyPrivateDacl,
+  durableRemove,
+  durableWriteFile,
+} from "@roost/shared/durability";
+import { supportedHostPlatform } from "@roost/shared/platform";
 import {
   OMP_AGENT_INTEGRATION,
   PI_AGENT_INTEGRATION,
@@ -41,6 +47,7 @@ async function installOwnedAsset(
   integrationId: "omp" | "pi",
   content: string,
 ): Promise<string> {
+  const platform = supportedHostPlatform();
   await mkdir(directory, { recursive: true, mode: 0o700 });
   const target = join(directory, filename);
   let existing: string | null = null;
@@ -49,18 +56,20 @@ async function installOwnedAsset(
     const code = (error as NodeJS.ErrnoException).code;
     if (code !== "ENOENT") throw error;
   }
-  if (existing === content) return target;
+  if (existing === content) {
+    if (platform === "win32") {
+      await applyPrivateDacl(target, { platform, mode: 0o600, privateDacl: true });
+    }
+    return target;
+  }
   if (existing !== null && !existing.includes(`ROOST_INTEGRATION_ID=${integrationId}`)) {
     throw new Error(`refusing to overwrite non-Roost extension: ${target}`);
   }
-  const temp = join(directory, `.${filename}.${process.pid}.${Date.now()}.tmp`);
-  try {
-    await writeFile(temp, content, { mode: 0o600, flag: "wx" });
-    await chmod(temp, 0o600);
-    await rename(temp, target);
-  } finally {
-    await rm(temp, { force: true });
-  }
+  await durableWriteFile(target, content, {
+    platform,
+    mode: 0o600,
+    privateDacl: true,
+  });
   return target;
 }
 
@@ -90,11 +99,7 @@ async function retireOwnedOmpExtension(directory: string): Promise<void> {
     throw error;
   }
   if (!content.includes("ROOST_INTEGRATION_ID=omp")) return;
-  try {
-    await rm(target);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-  }
+  await durableRemove(target, { platform: supportedHostPlatform() });
 }
 
 export async function installAgentIntegrations(

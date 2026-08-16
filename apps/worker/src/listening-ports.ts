@@ -4,17 +4,34 @@
 // SessionEvent → chips in apps/web/src/components/sidebar/FolderList.tsx.
 // Called by session-manager.ts (_startPorts) on spawn + a 90s poll.
 //
-// macOS/BSD: ps + lsof. Linux: ps + `ss` (AlmaLinux ships iproute2, not
-// lsof). Every failure path yields [] — never throws. Mirrors pr-status.ts.
+// POSIX tools run under service managers with minimal PATHs. Windows never
+// invokes ps/ss/lsof; process and socket ownership comes from the typed helper.
+import { log } from "@roost/shared";
+import {
+  assertNeverPlatform,
+  supportedHostPlatform,
+} from "@roost/shared/platform";
+import {
+  windowsListeningPorts,
+  windowsProcessSnapshot,
+  type WindowsListeningPort,
+} from "@roost/shared/windows-helper";
 
-// The worker runs under a service manager whose PATH is minimal
-// (/usr/bin:/bin) — lsof lives in /usr/sbin on macOS and ss in /usr/sbin on
-// Linux, absent from it, so a bare spawn ENOENTs and the port scan silently
-// returns []. Augment PATH for every tool spawn.
-// (CLAUDE.md L11 LaunchAgent-env class, same as the TERM=unknown row.)
-const TOOL_PATH = process.platform === "linux"
-  ? `/usr/local/bin:/usr/sbin:/usr/bin:/bin:${process.env.PATH ?? ""}`
-  : `/opt/homebrew/bin:/usr/local/bin:/usr/sbin:/usr/bin:/bin:${process.env.PATH ?? ""}`;
+const HOST_PLATFORM = supportedHostPlatform();
+let TOOL_PATH: string;
+switch (HOST_PLATFORM) {
+  case "linux":
+    TOOL_PATH = `/usr/local/bin:/usr/sbin:/usr/bin:/bin:${process.env.PATH ?? ""}`;
+    break;
+  case "darwin":
+    TOOL_PATH = `/opt/homebrew/bin:/usr/local/bin:/usr/sbin:/usr/bin:/bin:${process.env.PATH ?? ""}`;
+    break;
+  case "win32":
+    TOOL_PATH = process.env.PATH ?? process.env.Path ?? "";
+    break;
+  default:
+    assertNeverPlatform(HOST_PLATFORM);
+}
 
 async function run(cmd: string[]): Promise<string | null> {
   try {
@@ -27,24 +44,37 @@ async function run(cmd: string[]): Promise<string | null> {
   }
 }
 
-/** All descendant pids of `root` (inclusive), via one `ps -eo pid,ppid` walk. */
+/** All descendant pids of `root` (inclusive), via one platform snapshot. */
 async function descendantPids(root: number): Promise<number[]> {
-  const out = await run(["ps", "-Ao", "pid,ppid"]);
-  if (!out) return [root];
   const children = new Map<number, number[]>();
-  for (const line of out.split("\n").slice(1)) {
-    const m = line.trim().match(/^(\d+)\s+(\d+)/);
-    if (!m) continue;
-    const pid = Number(m[1]);
-    const ppid = Number(m[2]);
-    (children.get(ppid) ?? children.set(ppid, []).get(ppid)!).push(pid);
+  if (HOST_PLATFORM === "win32") {
+    for (const record of await windowsProcessSnapshot()) {
+      const list = children.get(record.ppid);
+      if (list) list.push(record.pid);
+      else children.set(record.ppid, [record.pid]);
+    }
+  } else {
+    const out = await run(["ps", "-Ao", "pid,ppid"]);
+    if (!out) return [root];
+    for (const line of out.split("\n").slice(1)) {
+      const m = line.trim().match(/^(\d+)\s+(\d+)/);
+      if (!m) continue;
+      const pid = Number(m[1]);
+      const ppid = Number(m[2]);
+      const list = children.get(ppid);
+      if (list) list.push(pid);
+      else children.set(ppid, [pid]);
+    }
   }
   const seen = new Set<number>([root]);
   const stack = [root];
   while (stack.length) {
-    const p = stack.pop()!;
-    for (const c of children.get(p) ?? []) {
-      if (!seen.has(c)) { seen.add(c); stack.push(c); }
+    const pid = stack.pop()!;
+    for (const child of children.get(pid) ?? []) {
+      if (!seen.has(child)) {
+        seen.add(child);
+        stack.push(child);
+      }
     }
   }
   return [...seen];
@@ -104,25 +134,57 @@ export function parseSsListenPorts(out: string, pids: Set<number>): number[] {
   return [...ports].sort((a, b) => a - b);
 }
 
-/** Distinct reachable LISTEN ports held by `root`'s process tree, ascending.
- *  [] on any failure / none. `lsof -p` takes a comma-list. */
+/** Filter structured GetExtendedTcpTable rows to a session process tree. */
+export function filterWindowsListenPorts(
+  records: readonly WindowsListeningPort[],
+  pids: ReadonlySet<number>,
+): number[] {
+  const ports = new Set<number>();
+  for (const record of records) {
+    if (!pids.has(record.pid)) continue;
+    const address = record.address.replace(/^\[(.*)\]$/, "$1");
+    if (address === "::1" || /^127\./.test(address)) continue;
+    ports.add(record.port);
+  }
+  return [...ports].sort((a, b) => a - b);
+}
+
+/** Distinct reachable LISTEN ports held by `root`'s process tree, ascending. */
 export async function readListeningPorts(root: number | null | undefined): Promise<number[]> {
   if (!root || root <= 0) return [];
-  const pids = await descendantPids(root);
-  if (pids.length === 0) return [];
-  if (process.platform === "linux") {
-    // ss has no pid selector; list every listening socket with its owning
-    // process and filter to the tree here.
-    const out = await run(["ss", "-ltnpH"]);
-    if (!out) return [];
-    return parseSsListenPorts(out, new Set(pids));
+  try {
+    const pids = await descendantPids(root);
+    if (pids.length === 0) return [];
+    switch (HOST_PLATFORM) {
+      case "linux": {
+        // ss has no pid selector; list every listening socket with its owning
+        // process and filter to the tree here.
+        const out = await run(["ss", "-ltnpH"]);
+        if (!out) return [];
+        return parseSsListenPorts(out, new Set(pids));
+      }
+      case "darwin": {
+        // -a ANDs the pid filter with LISTEN. Without it lsof ORs selection
+        // types and leaks every listening socket on the host.
+        const out = await run([
+          "lsof", "-nP", "-iTCP", "-sTCP:LISTEN", "-a", "-p", pids.join(","),
+        ]);
+        if (!out) return [];
+        return parseReachableListenPorts(out);
+      }
+      case "win32":
+        return filterWindowsListenPorts(await windowsListeningPorts(), new Set(pids));
+      default:
+        return assertNeverPlatform(HOST_PLATFORM);
+    }
+  } catch (error) {
+    log.warn("listening-ports", "scan_failed", {
+      platform: HOST_PLATFORM,
+      root_pid: root,
+      error: String(error),
+    });
+    return [];
   }
-  // -a ANDs the pid filter with the LISTEN filter. WITHOUT it lsof ORs
-  // different selection types → returns EVERY listening socket on the host,
-  // not just this session's tree (verified: leaked redis/chrome/system ports).
-  const out = await run(["lsof", "-nP", "-iTCP", "-sTCP:LISTEN", "-a", "-p", pids.join(",")]);
-  if (!out) return [];
-  return parseReachableListenPorts(out);
 }
 
 /** Order-insensitive equality so the poll only emits on a real change. */

@@ -12,6 +12,8 @@ import {
   verifyJwt,
   newJwtCache,
   invalidateJwtKey,
+  jwtKeyGeneration,
+  refreshJwtKey,
 } from "../src/jwt.ts";
 import type { DB } from "../src/db/schema.ts";
 
@@ -179,6 +181,49 @@ describe("JWT rejection", () => {
 });
 
 describe("JWT cache generations", () => {
+  test("authorization refresh preserves a concurrent verifier that loaded the committed row", async () => {
+    const pair = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);
+    const raw = new Uint8Array(await crypto.subtle.exportKey("raw", pair.publicKey));
+    const fingerprint = await fingerprintOf(raw);
+    await db.insertInto("authorized_keys").values({
+      fingerprint,
+      public_key: raw,
+      label: "newly-authorized",
+      added_at: Date.now(),
+    }).execute();
+
+    const cache = newJwtCache();
+    const token = await signJwt(
+      { aud: "roost-coordinator", sub: "test", iat: Math.floor(Date.now() / 1000) },
+      pair.privateKey,
+      fingerprint,
+    );
+    const entered = Promise.withResolvers<void>();
+    const resume = Promise.withResolvers<void>();
+    const verifying = verifyJwt(token, {
+      db,
+      cache,
+      jwtMaxAgeSecs: 300,
+      importKey: async (authorizedRaw) => {
+        entered.resolve();
+        await resume.promise;
+        const spki = new Uint8Array(SPKI_PREFIX.length + authorizedRaw.length);
+        spki.set(SPKI_PREFIX);
+        spki.set(authorizedRaw, SPKI_PREFIX.length);
+        return crypto.subtle.importKey("spki", spki, { name: "Ed25519" }, true, ["verify"]);
+      },
+    });
+    await entered.promise;
+    refreshJwtKey(cache, fingerprint);
+    expect(jwtKeyGeneration(cache, fingerprint)).toBe(0);
+    resume.resolve();
+
+    const caller = await verifying;
+    expect(caller.fingerprint).toBe(fingerprint);
+    expect(caller.label).toBe("newly-authorized");
+    expect(cache.entries.has(fingerprint)).toBe(true);
+  });
+
   test("invalidation during a deferred key import rejects and does not repopulate", async () => {
     const cache = newJwtCache();
     const token = await signJwt(

@@ -10,13 +10,19 @@ import { newTraceId } from "@roost/shared/trace";
 import { initCellEmitState } from "@roost/shared/cell";
 import { FsmChannel } from "./fsm.ts";
 import { expandTilde } from "./util/path.ts";
-import { withHistfile } from "./keeper/histfile.ts";
 import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
 import { _createWtermCore } from "./session-constants.ts";
 import { createSbRing } from "./session-scrollback-ring.ts";
 import { withAgentStatusEnvironment } from "./agent-status/environment.ts";
 import { initAgentOscState } from "./terminal-stream-scan.ts";
+import { resolveShellSpec } from "./shell-spec.ts";
 
+export interface InitialViewportPreclaim {
+	viewerId: string;
+	clientSeq: bigint;
+	cols: number;
+	rows: number;
+}
 /** Spawn a plain shell session. Returns the channelId.
  *  targetSessionId: optional explicit session id to use instead of
  *  a fresh uuid. Coord's "respawn-if-missing" path uses this so the
@@ -27,11 +33,29 @@ export async function spawnShell(
 	cols?: number,
 	rows?: number,
 	targetSessionId?: SessionId,
+	initialViewport?: InitialViewportPreclaim,
 ): Promise<SessionRecord> {
+	if (targetSessionId && this.getBySessionId(targetSessionId)) {
+		throw new Error(`session ${targetSessionId} is already live`);
+	}
+	if (
+		initialViewport
+		&& (
+			initialViewport.cols !== cols
+			|| initialViewport.rows !== rows
+			|| initialViewport.clientSeq <= 0n
+		)
+	) {
+		throw new Error("initial viewport preclaim does not match spawn dimensions");
+	}
 	const channelId = this.nextChannelId();
 	const sessionId = targetSessionId ?? asSessionId(randomUUID());
-	const shell = process.env.SHELL ?? "/bin/bash";
 	const resolvedCwd = expandTilde(cwd);
+	const shellSpec = resolveShellSpec({
+		cwd: resolvedCwd,
+		sessionId: String(sessionId),
+		envOverlay: withAgentStatusEnvironment({}, String(sessionId)),
+	});
 	const fsm = new FsmChannel((from, to, event) =>
 		this._onTransition(sessionId, channelId, from, to, event),
 	);
@@ -51,6 +75,7 @@ export async function spawnShell(
 		socketPath,
 		kind: "shell",
 		cwd: resolvedCwd,
+		shellSpec,
 		fsm,
 		scrollback: createSbRing(),
 		head_seq: 0,
@@ -65,6 +90,7 @@ export async function spawnShell(
 		spawnedAtMs: Date.now(),
 	};
 	this.sessions.set(channelId, record);
+	this.channelResizeSeq.set(channelId, 0);
 	diag("session.spawn", {
 		sid: sessionId,
 		channel_id: channelId,
@@ -78,16 +104,33 @@ export async function spawnShell(
 	try {
 		record.childPid = await getMultiplexedPool().spawn({
 			channelId,
-			cwd: resolvedCwd,
-			argv: [shell],
+			shellSpec,
 			cols: cols ?? 80,
 			rows: rows ?? 24,
-			env: withAgentStatusEnvironment(withHistfile(resolvedCwd), String(sessionId)),
 			callbacks: this.muxCallbacks(channelId),
 		});
 	} catch (e) {
 		this._dropChannelState(channelId);
 		throw e;
+	}
+
+	// The PTY/core already started at this exact size. Install the authenticated
+	// viewer directly instead of routing through claimViewport, which would
+	// schedule a redundant resize/rebuild and could emit cells before `opened`.
+	if (initialViewport) {
+		this.viewportClaims.set(channelId, new Map([[
+			initialViewport.viewerId,
+			{
+				cols: initialViewport.cols,
+				rows: initialViewport.rows,
+				lastMs: Date.now(),
+				clientSeq: initialViewport.clientSeq,
+			},
+		]]));
+		this.lastAppliedSize.set(channelId, {
+			cols: initialViewport.cols,
+			rows: initialViewport.rows,
+		});
 	}
 
 	this.emitEvent({
@@ -99,6 +142,10 @@ export async function spawnShell(
 		cwd: resolvedCwd,
 		ts: Date.now(),
 	});
+
+	// The durable opened frame is the chronology fence. The first viewport-only
+	// full follows it on the worker link, and rpc-ok follows the full.
+	if (initialViewport) this.emitCellSnapshot(channelId);
 
 	// The keeper PTY is the initial attachment, so every natural close
 	// satisfies the lifecycle invariant.

@@ -67,6 +67,11 @@ message LastActivityFrame {
 // SPA replaces its routable set wholesale → the online indicator stops lying.
 message WorkerRoutableFrame {
   repeated string fps = 1;
+  // V2 retained seeds are bounded chunks. Empty snapshot_id means a live
+  // full-set replacement (legacy behavior).
+  string snapshot_id = 2;
+  uint32 chunk_index = 3;
+  uint32 chunk_count = 4;
 }
 
 message CoordinatorRelocationFrame {
@@ -89,10 +94,119 @@ message AgentStatusFrame {
 }
 
 
+// Sync v2 divides application traffic into independently hydrated domains.
+// Enum values are stable wire identifiers; controls themselves are never
+// delivery-sequenced and therefore never consume the application ACK window.
+enum SyncDomain {
+  SYNC_DOMAIN_UNSPECIFIED = 0;
+  SYNC_DOMAIN_TERMINAL = 1;
+  SYNC_DOMAIN_WORKERS = 2;
+  SYNC_DOMAIN_WORKSPACES = 3;
+  SYNC_DOMAIN_TASKS = 4;
+  SYNC_DOMAIN_PERMISSIONS = 5;
+  SYNC_DOMAIN_MCP = 6;
+  SYNC_DOMAIN_PAIR = 7;
+  SYNC_DOMAIN_WEBHOOK = 8;
+  SYNC_DOMAIN_AUDIT = 9;
+}
+
+message SyncDomainGeneration {
+  SyncDomain domain = 1;
+  uint64 generation = 2;
+  bool subscribed = 3;
+}
+
+message SyncSubscribedFrame {
+  string socket_id = 1;
+  string process_epoch = 2;
+  repeated SyncDomainGeneration generations = 3;
+}
+
+message SyncDomainResetFrame {
+  SyncDomain domain = 1;
+  uint64 generation = 2;
+  string reason = 3;
+  bool subscribed = 4;
+}
+
+message SyncDomainReadyCommand {
+  SyncDomain domain = 1;
+  uint64 generation = 2;
+  optional string snapshot_token = 3;
+}
+
+message SyncDomainSubscriptionCommand {
+  SyncDomain domain = 1;
+  uint64 generation = 2;
+}
+
+// Terminal-control command/result messages are declared here so the raw Sync
+// socket can carry them without importing coordinator.proto (which imports this
+// file for the retired Connect Sync declaration).
+message ViewportCommand {
+  string session_id = 1;
+  uint32 cols = 2;
+  uint32 rows = 3;
+  uint64 client_seq = 4;
+  uint32 cause = 5;
+  uint64 held_cell_seq = 6;
+  uint64 domain_generation = 7;
+}
+
+message ViewportAccepted {
+  string session_id = 1;
+  uint64 client_seq = 2;
+  uint64 domain_generation = 3;
+  uint32 effective_cols = 4;
+  uint32 effective_rows = 5;
+  uint64 channel_resize_seq = 6;
+}
+
+message ViewportRejected {
+  string session_id = 1;
+  uint64 client_seq = 2;
+  uint64 domain_generation = 3;
+  string reason = 4;
+}
+
+message InputCommand {
+  string session_id = 1;
+  uint64 input_seq = 2;
+  bytes data = 3;
+  uint64 domain_generation = 4;
+}
+
+message InputAccepted {
+  string session_id = 1;
+  uint64 input_seq = 2;
+  uint64 domain_generation = 3;
+  uint32 written_bytes = 4;
+}
+
+message InputRejected {
+  string session_id = 1;
+  uint64 input_seq = 2;
+  uint64 domain_generation = 3;
+  string reason = 4;
+}
+
+message InputAmbiguous {
+  string session_id = 1;
+  uint64 input_seq = 2;
+  uint64 domain_generation = 3;
+  uint32 written_bytes = 4;
+  string reason = 5;
+}
+
+
 message FirehoseFrame {
   reserved 7, 28;  // retired fields
-  // Per-socket application-delivery sequence. Zero means legacy/unenforced.
+  // Per-socket application-delivery sequence. Zero means legacy/unenforced or
+  // an unsequenced v2 control frame.
   uint64 delivery_seq = 31;
+  // Present on v2 application frames. Controls leave both fields at zero.
+  uint64 domain_generation = 32;
+  SyncDomain domain = 33;
   oneof frame {
     JsonEvent sessions = 1;       // legacy fallback: any kind not yet in session_event_proto
     TerminalLinkFrame terminal_link = 30;
@@ -113,30 +227,40 @@ message FirehoseFrame {
     TerminalTitleFrame terminal_title = 21;
     LastActivityFrame last_activity = 22;
     PairRequestDeltaProto pair_request_delta = 23;
-    // ui-cc — browser-tab UI state + command channel (G1/G2). ui_state
-    // re-broadcasts a tab's UiReportState (agents watch the spatial model
-    // live); ui_command carries a UiDispatch to the live SPA tab(s) that
-    // execute it with their existing pure layout ops. Both volatile,
-    // presence-class (no replay; state re-seeded on Sync connect).
+    // ui-cc is subscriber/control traffic rather than pair-domain hydration.
     UiStateFrame ui_state = 24;
     UiCommandFrame ui_command = 25;
-    // Application-level keepalive. Coord sends one every 30s on each Sync WS
-    // so the browser stale-link watchdog (apps/web/src/store/sync-watchdog.ts)
-    // can tell a half-open connection (silence past 90s → force-close +
-    // reconnect) from a merely idle session. Mirrors the worker bidi
-    // keepalive (worker-conn.ts). The browser WebSocket API does not surface
-    // WS-level pings to JS, so this MUST be a data frame that arrives in
-    // onmessage.
     KeepaliveFrame keepalive = 26;
     CoordinatorRelocationFrame coordinator_relocation = 27;
     AgentStatusFrame agent_status = 29;
+
+    // v2 controls. These are emitted only to sync_v=2 sockets with
+    // delivery_seq=0, so cached flow=1 clients never observe them.
+    SyncSubscribedFrame subscribed = 40;
+    SyncDomainResetFrame domain_reset = 41;
+    ViewportAccepted viewport_accepted = 42;
+    ViewportRejected viewport_rejected = 43;
+    InputAccepted input_accepted = 44;
+    InputRejected input_rejected = 45;
+    InputAmbiguous input_ambiguous = 46;
   }
 }
 
-// Browser acknowledgement after synchronous application dispatch. Cumulative:
-// every delivery sequence through ack_delivery_seq has been consumed.
+// Browser acknowledgement after synchronous application dispatch. ACKs are
+// cumulative. A canonical command-only frame omits ack_delivery_seq (or leaves
+// it zero); controls never consume or advance the application ACK window.
 message SyncClientFrame {
-  uint64 ack_delivery_seq = 1;
+  optional uint64 ack_delivery_seq = 1;
+  oneof command {
+    SyncDomainSubscriptionCommand domain_subscribe = 2;
+    SyncDomainSubscriptionCommand domain_unsubscribe = 3;
+    SyncDomainReadyCommand domain_ready = 4;
+    ViewportCommand viewport = 5;
+    InputCommand input = 6;
+  }
+  // Opaque v2 socket identity from SyncSubscribedFrame. A stale socket id is
+  // ignored rather than allowing an old generation to ACK or mutate a new one.
+  string socket_id = 10;
 }
 
 message KeepaliveFrame {

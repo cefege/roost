@@ -8,7 +8,11 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { assertNeverPlatform, supportedHostPlatform, type SupportedHostPlatform } from "@roost/shared/platform";
 import { log } from "@roost/shared/log";
+import { isWorkerPathWithin, normalizeWorkerPath } from "./util/path.ts";
+
+const HOST_PLATFORM = supportedHostPlatform();
 
 const TTL_MS = 24 * 60 * 60 * 1000;
 const SIZE_CAP_BYTES = 1024 * 1024 * 1024;  // 1 GB
@@ -19,7 +23,7 @@ const SWEEP_INTERVAL_MS = 60 * 60 * 1000;  // 1h
 export const MANIFEST_NAME = ".roost-manifest.json";
 
 export function attachmentBaseDir(): string {
-  return path.join(os.homedir(), ".roost", "attachments");
+  return normalizeWorkerPath(path.join(os.homedir(), ".roost", "attachments"), HOST_PLATFORM);
 }
 
 export function attachmentSessionDir(sessionId: string): string {
@@ -31,10 +35,9 @@ export function attachmentSessionDir(sessionId: string): string {
 // Returns the resolved dir, or null on escape. Single source for the save /
 // list / delete sites that each used to inline this check.
 export function resolveSessionDirWithinBase(sessionId: string): string | null {
-  const baseResolved = path.resolve(attachmentBaseDir());
-  const resolved = path.resolve(attachmentSessionDir(sessionId));
-  if (resolved === baseResolved || resolved.startsWith(baseResolved + path.sep)) return resolved;
-  return null;
+  const baseResolved = normalizeWorkerPath(path.resolve(attachmentBaseDir()), HOST_PLATFORM);
+  const resolved = normalizeWorkerPath(path.resolve(attachmentSessionDir(sessionId)), HOST_PLATFORM);
+  return isWorkerPathWithin(baseResolved, resolved, HOST_PLATFORM) ? resolved : null;
 }
 
 export function startAttachmentReaper(): { stop: () => void } {
@@ -69,12 +72,52 @@ async function sweepAttachments(): Promise<void> {
     for (const fname of files) {
       if (fname === MANIFEST_NAME) continue;
       const fpath = path.join(sidDir, fname);
+      if (fname === ".shortcuts") {
+        let shortcuts: string[];
+        try { shortcuts = fs.readdirSync(fpath); }
+        catch { continue; }
+        for (const shortcut of shortcuts) {
+          const shortcutPath = path.join(fpath, shortcut);
+          let shortcutStat: fs.Stats;
+          try { shortcutStat = fs.statSync(shortcutPath); }
+          catch { continue; }
+          if (!shortcutStat.isFile()) continue;
+          if (now - shortcutStat.mtimeMs > TTL_MS) {
+            try { fs.unlinkSync(shortcutPath); }
+            catch (e) {
+              log.warn("attachment-reaper", "unlink_failed", {
+                path: shortcutPath,
+                error: String(e),
+              });
+            }
+          } else {
+            // Windows shortcuts are real managed copies. Counting every file
+            // below .shortcuts keeps both TTL and the 1 GiB cap truthful.
+            survivors.push({
+              path: shortcutPath,
+              size: shortcutStat.size,
+              mtime: shortcutStat.mtimeMs,
+            });
+            totalSize += shortcutStat.size;
+          }
+        }
+        try {
+          if (fs.readdirSync(fpath).length === 0) fs.rmdirSync(fpath);
+        } catch { /* concurrent shortcut creation */ }
+        continue;
+      }
       let fstat: fs.Stats;
       try { fstat = fs.statSync(fpath); }
       catch { continue; }
+      if (!fstat.isFile()) continue;
       if (now - fstat.mtimeMs > TTL_MS) {
         try { fs.unlinkSync(fpath); }
-        catch (e) { log.warn("attachment-reaper", "unlink_failed", { path: fpath, error: String(e) }); }
+        catch (e) {
+          log.warn("attachment-reaper", "unlink_failed", {
+            path: fpath,
+            error: String(e),
+          });
+        }
       } else {
         survivors.push({ path: fpath, size: fstat.size, mtime: fstat.mtimeMs });
         totalSize += fstat.size;
@@ -103,15 +146,39 @@ async function sweepAttachments(): Promise<void> {
   }
 }
 
-/** Sanitize an upload filename: strip `/`, NUL, leading dots; truncate to 80
- * chars; preserve extension. Caller prepends a timestamp prefix. */
-export function sanitizeAttachmentName(raw: string): string {
-  const ext = path.extname(raw);
-  const stemMax = Math.max(1, 80 - ext.length);
-  let stem = path.basename(raw, ext)
-    .replace(/[\/\x00]/g, "")
-    .replace(/^\.+/, "")
-    .slice(0, stemMax);
-  if (!stem) stem = "file";
-  return `${stem}${ext}`;
+/** Sanitize an upload filename while preserving its extension. */
+export function sanitizeAttachmentName(
+  raw: string,
+  platform: SupportedHostPlatform = HOST_PLATFORM,
+): string {
+  switch (platform) {
+    case "darwin":
+    case "linux": {
+      const ext = path.posix.extname(raw);
+      const stemMax = Math.max(1, 80 - ext.length);
+      let stem = path.posix.basename(raw, ext)
+        .replace(/[\/\x00]/g, "")
+        .replace(/^\.+/, "")
+        .slice(0, stemMax);
+      if (!stem) stem = "file";
+      return `${stem}${ext}`;
+    }
+    case "win32": {
+      let leaf = path.win32.basename(raw)
+        .replace(/[<>:"/\\|?*\x00]/g, "")
+        .replace(/[. ]+$/g, "");
+      if (!leaf) leaf = "file";
+      const ext = path.win32.extname(leaf);
+      const stemMax = Math.max(1, 80 - ext.length);
+      let stem = path.win32.basename(leaf, ext)
+        .replace(/^\.+/, "")
+        .replace(/[. ]+$/g, "")
+        .slice(0, stemMax);
+      if (!stem) stem = "file";
+      if (/^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(stem)) stem = `_${stem}`;
+      return `${stem}${ext}`.slice(0, 80).replace(/[. ]+$/g, "");
+    }
+    default:
+      return assertNeverPlatform(platform);
+  }
 }

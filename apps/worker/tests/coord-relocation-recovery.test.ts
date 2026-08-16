@@ -16,8 +16,8 @@ const journal = {
 function link(relocations: string[]): CoordLink {
   return {
     send: () => false,
-    sendBinary: () => false,
-    sendCellGrid: () => false,
+    sendBinary: () => "dropped",
+    sendCellGrid: () => "dropped",
     sendAgentStatus: () => false,
     state: () => ({ kind: "reconnecting", nextDialAtMs: 0, backoffMs: 100 }),
     relocate: (url) => { relocations.push(url); },

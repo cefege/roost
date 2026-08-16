@@ -20,7 +20,14 @@ import { VIEWER_WITHDRAW_GRACE_MS, VIEWER_CLAIM_TTL_MS as VIEWER_TTL_MS } from "
 
 const VIEWER_REAP_INTERVAL_MS = 10_000;
 const _pendingViewerWithdraws = new Map<string, ReturnType<typeof setTimeout>>();
-interface ViewerEntry { cols: number; rows: number; lastMs: number; clientSeq: number; lastIp?: string }
+interface ViewerEntry {
+  cols: number;
+  rows: number;
+  lastMs: number;
+  clientSeq: number;
+  lastIp?: string;
+  callerFp?: string;
+}
 export const _viewersBySession = new Map<string, Map<string, ViewerEntry>>();
 // fp → authorized_keys.label cache. Populated lazily on first publish.
 // Invalidated whenever a label changes via _invalidateLabel (called from
@@ -56,7 +63,10 @@ async function _publishViewers(sessionId: string): Promise<void> {
         cols: e.cols,
         rows: e.rows,
         lastMs: e.lastMs,
-        label: _composeViewerLabel(await _labelFor(fp), resolveHostname(e.lastIp)),
+        label: _composeViewerLabel(
+          await _labelFor(e.callerFp ?? fp),
+          resolveHostname(e.lastIp),
+        ),
       })))
     : [];
   globalPresenceBus.publish({
@@ -75,6 +85,7 @@ export function _bumpViewer(
   rows: number,
   clientSeq?: number,
   clientIp?: string,
+  callerFp?: string,
 ): void {
   let m = _viewersBySession.get(sessionId);
   const pendKey = `${sessionId}:${viewerFp}`;
@@ -110,9 +121,17 @@ export function _bumpViewer(
     // the latest-pointer is gone (SCD min is order-independent).
     prev.lastMs = Date.now();
     if (clientIp) prev.lastIp = clientIp;
+    if (callerFp) prev.callerFp = callerFp;
     return;
   }
-  m.set(viewerFp, { cols, rows, lastMs: Date.now(), clientSeq: seq, lastIp: clientIp });
+  m.set(viewerFp, {
+    cols,
+    rows,
+    lastMs: Date.now(),
+    clientSeq: seq,
+    lastIp: clientIp,
+    callerFp,
+  });
   // Republish on membership/dims change so peers recompute the SCD min.
   void _publishViewers(sessionId);
 }

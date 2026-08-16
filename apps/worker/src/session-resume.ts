@@ -1,6 +1,6 @@
 // Resume a survivor-keeper session + respawn a dead PTY under the same sid.
-// Split out of session-manager.ts (400-line cap); bodies byte-for-byte
-// unchanged, called with a SessionManager `this`.
+// Split out of session-manager.ts (400-line cap); called with a
+// SessionManager `this`.
 
 import type { SessionManager } from "./session-manager.ts";
 import type { SessionRecord } from "./session-record.ts";
@@ -10,15 +10,20 @@ import { newTraceId } from "@roost/shared/trace";
 import { initCellEmitState } from "@roost/shared/cell";
 import { FsmChannel } from "./fsm.ts";
 import { expandTilde } from "./util/path.ts";
-import { withHistfile } from "./keeper/histfile.ts";
-import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
+import {
+	getMultiplexedPool,
+	type KeeperHistoryRecords,
+} from "./keeper/multiplexed-client.ts";
 import { ALT_ENTER_SEQS, _scanAltModeTransitions } from "./terminal-stream-scan.ts";
 import { _createWtermCore } from "./session-constants.ts";
-import { createSbRing } from "./session-scrollback-ring.ts";
+import { appendToRing, createSbRing, readRing } from "./session-scrollback-ring.ts";
 import { withAgentStatusEnvironment } from "./agent-status/environment.ts";
 import { initAgentOscState } from "./terminal-stream-scan.ts";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { resolveShellSpec } from "./shell-spec.ts";
+import type { ShellSpec } from "./shell-spec.ts";
+import { KeeperFeature } from "./keeper/protocol-v2.ts";
 
 /** Rebuild SessionRecord for a session whose keeper survived this
  * worker restart. Probes the mux pool; if the channel is alive in the
@@ -30,6 +35,7 @@ export async function resume(this: SessionManager, opts: {
 	channelId: ChannelId;
 	kind: "shell";
 	cwd: string;
+	shellSpec: ShellSpec;
 }): Promise<boolean> {
 	if (this.sessions.has(opts.channelId)) return false;
 	if (opts.channelId >= this._nextChannel)
@@ -44,40 +50,69 @@ export async function resume(this: SessionManager, opts: {
 		const liveChannel = live.find((c) => c.channelId === opts.channelId);
 		if (!liveChannel) return false;
 		pool.reattach(opts.channelId, this.muxCallbacks(opts.channelId));
-		const wtermCore = await _createWtermCore(80, 24);
-		// RC2: re-read the surviving channel's retained ring + head_seq from
-		// the keeper so history survives this worker restart instead of being
-		// zeroed. Resolves {headSeq:0, bytes:[]} on a keeper that pre-dates
-		// GetHistory (timeout → graceful fallback to the old empty behavior).
-		// Because the keeper's head_seq never reset (it outlived the worker),
-		// the SPA's persisted lastSeq stays valid → clean delta on reconnect,
-		// no seq-epoch reset. See [[project_scrollback_raw_ring_single_source]].
-		let resumedBytes: Uint8Array = new Uint8Array(0);
+		let orderedHistory: KeeperHistoryRecords | null = null;
+		let legacyBytes: Uint8Array = new Uint8Array(0);
 		let resumedHeadSeq = 0;
-		try {
-			const hist = await pool.getHistory(opts.channelId);
-			resumedBytes = hist.bytes;
-			resumedHeadSeq = hist.headSeq;
-		} catch (e) {
+		let historyError: unknown;
+		const orderedHistorySupported = pool.supportsKeeperFeature(
+			KeeperFeature.OrderedHistory,
+		);
+		if (orderedHistorySupported) {
+			try {
+				orderedHistory = await pool.getHistoryRecords(opts.channelId);
+				resumedHeadSeq = orderedHistory.headSeq;
+			} catch (error) {
+				historyError = error;
+			}
+		} else {
+			// Drain-only compatibility for the currently deployed pre-capability
+			// keeper. New keepers always take the ordered branch above.
+			try {
+				const legacy = await pool.getHistory(opts.channelId);
+				legacyBytes = legacy.bytes;
+				resumedHeadSeq = legacy.headSeq;
+			} catch (error) {
+				historyError = error;
+			}
+		}
+		if (historyError) {
 			log.warn("session-manager", "resume_history_failed", {
 				channelId: opts.channelId,
-				error: String(e),
+				error: String(historyError),
 			});
 			signal("scrollback.history_lost", {
 				sid: opts.sessionId,
 				channel_id: opts.channelId,
-				error: String(e),
+				error: String(historyError),
 				cooldownKey: opts.sessionId,
 			});
+			// A keeper that advertised ordered history must satisfy that
+			// contract. Adopting it with an empty 80x24 core would replay bytes
+			// under the wrong geometry, so force the normal respawn path.
+			if (orderedHistorySupported) throw historyError;
 		}
-		// Derive the real alternate-screen state from retained terminal bytes.
-		const resumedAlt =
-			resumedBytes.length > 0
-				? _scanAltModeTransitions(resumedBytes, false)
-				: false;
-		// Replay the ring into the headless core to reconstruct the current screen
-		// for cell emission and fresh mounts.
-		if (resumedBytes.length > 0) wtermCore.writeRaw(resumedBytes);
+		const wtermCore = await _createWtermCore(
+			orderedHistory?.baseCols ?? 80,
+			orderedHistory?.baseRows ?? 24,
+		);
+		const resumedScrollback = createSbRing();
+		if (orderedHistory) {
+			for (const historyRecord of orderedHistory.records) {
+				if (historyRecord.kind === "output") {
+					appendToRing(resumedScrollback, historyRecord.bytes);
+					wtermCore.writeRaw(historyRecord.bytes);
+				} else {
+					wtermCore.resize(historyRecord.cols, historyRecord.rows);
+				}
+			}
+		} else if (legacyBytes.length > 0) {
+			appendToRing(resumedScrollback, legacyBytes);
+			wtermCore.writeRaw(legacyBytes);
+		}
+		const resumedBytes = readRing(resumedScrollback);
+		const resumedAlt = resumedBytes.length > 0
+			? _scanAltModeTransitions(resumedBytes, false)
+			: false;
 		// Restore an active alternate screen only when the retained stream shows
 		// it. Replayed terminal replies belong to historical output and must not
 		// be injected into live stdin.
@@ -90,8 +125,9 @@ export async function resume(this: SessionManager, opts: {
 			socketPath: `mux:${opts.channelId}`,
 			kind: opts.kind,
 			cwd: opts.cwd,
+			shellSpec: opts.shellSpec,
 			fsm,
-			scrollback: createSbRing(resumedBytes),
+			scrollback: resumedScrollback,
 			head_seq: resumedHeadSeq,
 			alt_mode: resumedAlt,
 			mode_carry: new Uint8Array(0),
@@ -108,6 +144,14 @@ export async function resume(this: SessionManager, opts: {
 			childPid: liveChannel.pid,
 		};
 		this.sessions.set(opts.channelId, record);
+		this.channelResizeSeq.set(
+			opts.channelId,
+			orderedHistory?.records.reduce(
+				(latest, historyRecord) =>
+					historyRecord.kind === "resize" ? Math.max(latest, historyRecord.seq) : latest,
+				0,
+			) ?? 0,
+		);
 		this._startGitBranch(record);
 		this._startPorts(record);
 		// OMP bridge state reconnects independently of terminal byte replay.
@@ -148,19 +192,26 @@ export async function respawn(this: SessionManager, opts: {
 	kind: "shell";
 	cols?: number;
 	rows?: number;
+	shellSpec?: ShellSpec;
 }): Promise<void> {
 	// Tear down any leftover record without going through closedByKeeper
 	// (which would emit a stray `closed`). Removing from this.sessions
 	// first means the async Exit-frame round-trip from the keeper finds
 	// no record and bails harmlessly.
 	const existing = this.getBySessionId(opts.oldSessionId);
+	const requestedCwd = expandTilde(opts.cwd);
+	const shellSpec = existing?.shellSpec ?? opts.shellSpec ?? resolveShellSpec({
+		cwd: requestedCwd,
+		sessionId: String(opts.oldSessionId),
+		envOverlay: withAgentStatusEnvironment({}, String(opts.oldSessionId)),
+	});
 	if (existing) {
 		this._dropChannelState(existing.channelId);
 		getMultiplexedPool().kill(existing.channelId);
 	}
 
 	const channelId = this.nextChannelId();
-	const resolvedCwd = expandTilde(opts.cwd);
+	const resolvedCwd = shellSpec.cwd;
 	const cols = opts.cols ?? 80;
 	const rows = opts.rows ?? 24;
 	const fsm = new FsmChannel((from, to, event) =>
@@ -168,15 +219,13 @@ export async function respawn(this: SessionManager, opts: {
 	);
 	const wtermCore = await _createWtermCore(cols, rows);
 
-	const argv = [process.env.SHELL ?? "/bin/bash"];
-	const env = withAgentStatusEnvironment(withHistfile(resolvedCwd), String(opts.oldSessionId));
-
 	const record: SessionRecord = {
 		sessionId: opts.oldSessionId,
 		channelId,
 		socketPath: `mux:${channelId}`,
 		kind: opts.kind,
 		cwd: resolvedCwd,
+		shellSpec,
 		fsm,
 		scrollback: createSbRing(),
 		head_seq: 0,
@@ -207,11 +256,9 @@ export async function respawn(this: SessionManager, opts: {
 	try {
 		record.childPid = await getMultiplexedPool().spawn({
 			channelId,
-			cwd: resolvedCwd,
-			argv,
+			shellSpec,
 			cols,
 			rows,
-			env,
 			callbacks: this.muxCallbacks(channelId),
 		});
 	} catch (e) {

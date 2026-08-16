@@ -16,6 +16,9 @@ import {
   failOptimisticSpawn,
   abortOptimisticSpawn,
   isPendingSpawn,
+  publishMountedSpawnMeasurement,
+  waitForMountedSpawnMeasurement,
+  takeSpawnViewportSeed,
   wasAborted,
   clearAborted,
 } from "../src/store/optimisticSpawn.ts";
@@ -102,5 +105,48 @@ describe("optimisticSpawn", () => {
     expect(isPendingSpawn(a)).toBe(false);
     expect(isPendingSpawn(b)).toBe(true); // clearing one leaves the other pending
     endOptimisticSpawn(b);
+  });
+
+  test("mounted measurement is one-shot and seeds the effective preclaim before pending clears", async () => {
+    const id = beginOptimisticSpawn(anchor());
+    const waiting = waitForMountedSpawnMeasurement(id, 100);
+    expect(publishMountedSpawnMeasurement(id, {
+      cols: 101,
+      rows: 37,
+      clientSeq: 4,
+    })).toBe(true);
+    expect(publishMountedSpawnMeasurement(id, {
+      cols: 80,
+      rows: 24,
+      clientSeq: 5,
+    })).toBe(false);
+    expect(await waiting).toEqual({ cols: 101, rows: 37, clientSeq: 4 });
+
+    endOptimisticSpawn(id, {
+      cols: 101,
+      rows: 37,
+      clientSeq: 4,
+      effectiveClientSeq: 9,
+    });
+    expect(takeSpawnViewportSeed(id)).toEqual({
+      cols: 101,
+      rows: 37,
+      clientSeq: 4,
+      effectiveClientSeq: 9,
+    });
+    expect(takeSpawnViewportSeed(id)).toBeNull();
+  });
+
+  test("aborting resolves an in-flight mount measurement without spawning", async () => {
+    const id = beginOptimisticSpawn(anchor());
+    const waiting = waitForMountedSpawnMeasurement(id, 100);
+    abortOptimisticSpawn(id);
+    expect(await waiting).toBeNull();
+    expect(publishMountedSpawnMeasurement(id, {
+      cols: 80,
+      rows: 24,
+      clientSeq: 1,
+    })).toBe(false);
+    clearAborted(id);
   });
 });

@@ -22,7 +22,7 @@ interface StatusParams {
 
 const originalEnv: Record<string, string | undefined> = {};
 const envNames = [
-  "ROOST_AGENT_SOCKET_PATH", "ROOST_SESSION_ID", "ROOST_AGENT_STATUS_DISABLED",
+  "ROOST_AGENT_ENDPOINT", "ROOST_AGENT_CAPABILITY", "ROOST_SESSION_ID", "ROOST_AGENT_STATUS_DISABLED",
   "ROOST_AGENT_HEARTBEAT_MS", "ROOST_OMP_IDLE_DEBOUNCE_MS", "ROOST_OMP_RETRY_GRACE_MS",
 ];
 for (const name of envNames) originalEnv[name] = process.env[name];
@@ -94,7 +94,8 @@ async function startCollector(): Promise<{
   const listening = Promise.withResolvers<void>();
   reportServer.listen(path, listening.resolve);
   await listening.promise;
-  process.env.ROOST_AGENT_SOCKET_PATH = path;
+  process.env.ROOST_AGENT_ENDPOINT = path;
+  process.env.ROOST_AGENT_CAPABILITY = "test-capability";
   process.env.ROOST_SESSION_ID = "11111111-1111-4111-8111-111111111111";
   return {
     reports,

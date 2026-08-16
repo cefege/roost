@@ -9,6 +9,7 @@
 import { createSignal } from "solid-js";
 import { moveCursor, activateCursor } from "./sidebarCursor.ts";
 import { stepTermFontSize, resetTermFontSize } from "./terminalFontPref.ts";
+import { browserPlatform, matchesPlatformShortcut } from "./browserPlatform.ts";
 
 /** True when the event target is a text-editable surface (input/textarea/
  *  contentEditable). xterm's PTY uses an off-screen textarea, so this guard
@@ -87,19 +88,27 @@ export function setSettingsOpener(open: (() => void) | null): void { _openSettin
 // directly elsewhere — installKeyboardShortcuts wires it to window.
 export function handleKeydown(e: KeyboardEvent): void {
 	if (e.defaultPrevented) return;
-	// Modifier chords that must survive the terminal-deferral guard below. That
-	// guard hands every NON-Meta key straight to the PTY, so on Linux/Windows
-	// (Ctrl, no metaKey) these would never be seen if they sat after it.
-	// preventDefault keeps the browser's own page zoom from firing too.
-	if ((e.metaKey || e.ctrlKey) && !e.altKey) {
-		if (terminalOwnsKeyboard()) {
-			if (e.key === "=" || e.key === "+") { e.preventDefault(); stepTermFontSize(1); return; }
-			if (e.key === "-" || e.key === "_") { e.preventDefault(); stepTermFontSize(-1); return; }
-			if (e.key === "0") { e.preventDefault(); resetTermFontSize(); return; }
-		}
-		// ⌘, — open Settings. HelpOverlay has advertised this since forever with
-		// no handler anywhere; this is that handler.
-		if (e.key === ",") { e.preventDefault(); _openSettings?.(); return; }
+	const platform = browserPlatform();
+	// Font and Settings chords are punctuation/digit based, so they are safe to
+	// handle before terminal focus recovery on every platform.
+	if (terminalOwnsKeyboard()) {
+		if (matchesPlatformShortcut(e, "termFontIncrease", platform)) { e.preventDefault(); stepTermFontSize(1); return; }
+		if (matchesPlatformShortcut(e, "termFontDecrease", platform)) { e.preventDefault(); stepTermFontSize(-1); return; }
+		if (matchesPlatformShortcut(e, "termFontReset", platform)) { e.preventDefault(); resetTermFontSize(); return; }
+	}
+	if (matchesPlatformShortcut(e, "settings", platform)) {
+		e.preventDefault();
+		_openSettings?.();
+		return;
+	}
+	// Windows uses the shifted native command chord, never plain Ctrl+letter.
+	// Handle it before the non-Meta terminal guard; Linux Ctrl+K retains its
+	// existing terminal deferral and macOS Command+K already bypasses the guard.
+	if (platform === "windows" && matchesPlatformShortcut(e, "commandPalette", platform)) {
+		e.preventDefault();
+		if (_cmdPaletteOpen()) closeCmdPalette();
+		else openCmdPalette();
+		return;
 	}
 
 	// window capture runs before wterm or CellTerminal can prevent the event.
@@ -128,8 +137,8 @@ export function handleKeydown(e: KeyboardEvent): void {
 		return;
 	}
 
-	// Cmd-K (macOS Meta) or Ctrl-K: toggle CommandPalette.
-	if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+	// Platform command-palette chord (macOS/Linux behavior is unchanged).
+	if (matchesPlatformShortcut(e, "commandPalette", platform)) {
 		e.preventDefault();
 		if (_cmdPaletteOpen()) closeCmdPalette();
 		else openCmdPalette();

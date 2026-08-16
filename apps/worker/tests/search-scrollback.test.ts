@@ -33,6 +33,7 @@ import { initCellEmitState, readScrollbackRangeCells, type CellRow } from "@roos
 import { createWtermCore } from "@roost/shared/wterm-core-factory";
 import { createSbRing } from "../src/session-scrollback-ring.ts";
 import { initAgentOscState } from "../src/terminal-stream-scan.ts";
+import { keeperTestShellSpec } from "./keeper-test-fixtures.ts";
 
 const SID = asSessionId("00000000-0000-0000-0000-000000000001");
 const CID = 1;
@@ -69,6 +70,7 @@ async function injectSession(mgr: SessionManager): Promise<SessionShellRecord> {
     socketPath: "/dev/null",
     kind: "shell",
     cwd: "/",
+    shellSpec: keeperTestShellSpec({ executable: process.execPath, cwd: "/" }),
     fsm,
     scrollback: createSbRing(new Uint8Array(SEED)),
     head_seq: SEED.length,

@@ -24,10 +24,17 @@ import { AgentScreenDetector } from "./agent-status/detector.ts";
 import { AgentStatusRegistry } from "./agent-status/registry.ts";
 import { installAgentIntegrations } from "./agent-status/install-integrations.ts";
 import { startAgentReportServer, type AgentReportServer } from "./agent-status/report-server.ts";
+import { handleUpdateBrokerCommand } from "../../roost-cli/src/windows-update-control.ts";
+import { serveServiceHealth } from "@roost/shared/service-health";
 import { asWorkerFp } from "@roost/shared";
 import { log, diag, isDiagEnabled, signal, workerDataDir } from "@roost/shared";
 import { coordDataDir, coordServicePath, workerServicePath } from "@roost/shared/paths";
-import { createHash } from "node:crypto";
+import { prepareWtermCoreModule } from "@roost/shared/wterm-core-factory";
+import {
+	TerminalInputStatus,
+	TerminalViewportStatus,
+} from "@roost/shared/proto/worker_transport_pb";
+import { createHash, randomUUID } from "node:crypto";
 const _workerSha8 = (b: Uint8Array): string =>
 	createHash("sha256").update(b).digest("hex").slice(0, 8);
 import { join } from "node:path";
@@ -68,7 +75,13 @@ export async function runWorker() {
 		process.exit(1);
 	});
 	log.info("worker", "starting");
-	await handleKeeperSurvivor(join(SUPPORT, "mux-keeper.sock"));
+	// Compile the shared patched WTerm module while the independent keeper
+	// readiness/adoption probe is in flight. Session creation reuses the same
+	// single-flight promise, so the first shell never starts a second compile.
+	await Promise.all([
+		handleKeeperSurvivor(),
+		prepareWtermCoreModule(),
+	]);
 
 	diag("worker.boot", { step: "config" });
 	const cfg = loadWorkerConfig();
@@ -76,6 +89,10 @@ export async function runWorker() {
 		coordinatorUrl: cfg.coordinatorUrl,
 		label: cfg.label,
 	});
+	const healthVersion = process.env.ROOST_VERSION ?? "dev";
+	const healthBuild = process.env.GIT_SHA ?? process.env.ROOST_GIT_SHA ?? healthVersion;
+	const processEpoch = randomUUID();
+	let workerReady = false;
 
 	diag("worker.boot", { step: "key" });
 	const key = await loadWorkerKey(cfg.workerKeyPath);
@@ -93,6 +110,8 @@ export async function runWorker() {
 		join(SUPPORT, "coord-relocation.json"),
 		workerServicePath(),
 	);
+	await relocation.recoverTransaction();
+	await coordTarget.recoverTransaction();
 	const recoveredRelocation = relocation.load();
 	// COMMITTED counts too: commit() now keeps the journal so a service restart
 	// before the next full login still finds the new endpoint.
@@ -139,8 +158,64 @@ export async function runWorker() {
 		onHelloAck: ({ reconnected }) => {
 			if (reconnected) sessionMgrForResnapshot?.resnapshotClaimedSessions();
 		},
+		onWritable: () => {
+			sessionMgrForResnapshot?.flushPendingCellRepairs();
+		},
 		onOpen: (reconnected) => {
 			if (reconnected) agentRegistryForReconnect?.resend();
+		},
+		onInputRequest: async (request) => {
+			const result = await sessionMgr.writeTerminalInput(
+				request.sessionId,
+				request.inputSeq,
+				request.data,
+			);
+			coordLink.send({
+				kind: "input-result",
+				request_id: request.requestId,
+				session_id: request.sessionId,
+				input_seq: request.inputSeq,
+				status: result.status === "accepted"
+					? TerminalInputStatus.ACCEPTED
+					: result.status === "rejected"
+						? TerminalInputStatus.REJECTED
+						: TerminalInputStatus.AMBIGUOUS,
+				written_bytes: result.writtenBytes,
+				reason: result.status === "accepted" ? undefined : result.reason,
+			});
+		},
+		onViewportRequest: async (request) => {
+			const result = await sessionMgr.applyTerminalViewport({
+				sessionId: request.sessionId,
+				viewerId: request.viewerId,
+				clientSeq: request.clientSeq,
+				cols: request.cols,
+				rows: request.rows,
+				cause: request.cause,
+				heldCellSeq: request.heldCellSeq,
+			});
+			coordLink.send(result.status === "committed" ? {
+				kind: "viewport-result",
+				request_id: request.requestId,
+				session_id: request.sessionId,
+				client_seq: request.clientSeq,
+				status: TerminalViewportStatus.COMMITTED,
+				channel_resize_seq: BigInt(result.channelResizeSeq),
+				cols: result.cols,
+				rows: result.rows,
+				resized: result.resized,
+			} : {
+				kind: "viewport-result",
+				request_id: request.requestId,
+				session_id: request.sessionId,
+				client_seq: request.clientSeq,
+				status: TerminalViewportStatus.REJECTED,
+				channel_resize_seq: 0n,
+				cols: 0,
+				rows: 0,
+				resized: false,
+				reason: result.reason,
+			});
 		},
 		// phase-24c-1: PTY input routed via sessions.input mutation arrives
 		// here as a downstream binary frame. Demux by channel_id, only
@@ -207,11 +282,11 @@ export async function runWorker() {
 			// coordinator happened to persist them.
 			try {
 				if (request.action === "STAGE") {
-					relocation.stage(request);
+					await relocation.stage(request);
 					return;
 				}
 				if (request.action === "ACTIVATE") {
-					relocation.activate(request);
+					await relocation.activate(request);
 					setCoordinatorEndpoint(request.target_url);
 					setTimeout(() => coordLink.relocate(request.target_url), 0);
 					return;
@@ -223,7 +298,7 @@ export async function runWorker() {
 					);
 					// No-op on every worker but the new host: only the move target
 					// has a handoffs/<id>/ staging + rollback directory.
-					coordTarget.finalizeCommit(request.handoff_id);
+					await coordTarget.finalizeCommit(request.handoff_id);
 					reannounceAfterRelocation(request.target_url);
 					return;
 				}
@@ -243,6 +318,36 @@ export async function runWorker() {
 					error: String(error), cooldownKey: request.handoff_id,
 				});
 				throw error;
+			}
+		},
+		onUpdateBroker: async (command) => {
+			switch (process.platform) {
+				case "win32": {
+					const progress = await handleUpdateBrokerCommand({
+						requestId: command.request_id,
+						jobId: command.job_id,
+						action: command.action,
+						manifestUrl: command.manifest_url,
+						signatureUrl: command.signature_url,
+						manifestSha256: command.manifest_sha256,
+						publisherSha256: command.publisher_sha256,
+					});
+					return progress.map((frame) => ({
+						request_id: frame.requestId,
+						job_id: frame.jobId,
+						sequence: frame.sequence,
+						phase: frame.phase,
+						message: frame.message,
+						terminal: frame.terminal,
+						success: frame.success,
+						error: frame.error,
+					}));
+				}
+				case "darwin":
+				case "linux":
+					throw new Error("Windows update broker command received on a POSIX worker");
+				default:
+					throw new Error(`unsupported worker platform: ${process.platform}`);
 			}
 		},
 		onBrowserCommand: (msg) => handleBrowserCommand(msg, { coordLink, sessionMgr }),
@@ -305,7 +410,8 @@ export async function runWorker() {
 	const sessionMgr = new SessionManager({
 		workerFp,
 		sink,
-		sendBinaryUpstream: (bytes) => coordLink.sendBinary(bytes),
+		sendBinaryUpstream: (channelId, direction, endSeq, bytes) =>
+			coordLink.sendBinary(channelId, direction, endSeq, bytes),
 		sendCellGridUpstream: (channelId, frame) =>
 			coordLink.sendCellGrid(channelId, frame),
 	});
@@ -318,6 +424,18 @@ export async function runWorker() {
 	sessionMgr.setAgentStatusHooks({
 		terminalChanged: (channelId) => agentDetector.schedule(channelId),
 		sessionClosed: (sessionId) => agentDetector.closeSession(sessionId),
+	});
+	const serviceHealth = await serveServiceHealth("worker", () => {
+		const targetLinkReady = coordLink.state().kind === "open";
+		return {
+			role: "worker",
+			version: healthVersion,
+			build: healthBuild,
+			processEpoch,
+			ready: workerReady && targetLinkReady,
+			targetLinkReady,
+			coordinatorUrl: cfg.coordinatorUrl,
+		};
 	});
 
 
@@ -356,6 +474,7 @@ export async function runWorker() {
 	diag("worker.boot", { step: "snapshot" });
 	await emitSnapshot({ mgr: sessionMgr, sink, workerFp });
 
+	workerReady = true;
 	log.info("worker", "ready", {
 		fingerprint: workerFp,
 		coordLinkState: coordLink.state().kind,
@@ -371,6 +490,12 @@ export async function runWorker() {
 	const shutdown = async (sig: string) => {
 		if (_shuttingDown) return;
 		_shuttingDown = true;
+		workerReady = false;
+		try {
+			await serviceHealth.close();
+		} catch {
+			/* best-effort */
+		}
 		if (agentReportServer) {
 			try {
 				await agentReportServer.close();

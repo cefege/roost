@@ -8,7 +8,7 @@ import { render } from "solid-js/web";
 import { App } from "./App.tsx";
 import { loadTheme, applyTheme } from "./lib/theme.ts";
 import { loadAgentConfig } from "./lib/agents.ts";
-import { installSpaDiag, installSignalShip } from "./lib/diag.ts";
+import { installSpaDiag, installSignalShip, markPhase } from "./lib/diag.ts";
 import { installLeakWatch } from "./lib/leakWatch.ts";
 import { applyTermFontSize } from "./lib/terminalFontPref.ts";
 import "./lib/keyboardInset.ts"; // side effect: track soft-keyboard inset via --kb-offset
@@ -20,6 +20,8 @@ import "./styles/sidebar.css";
 import "./styles/voice-input.css";
 import "./styles/settings-dense.css";
 import "./styles/drive.css";
+
+markPhase("module_start");
 
 // Apply before Solid renders any component so data-theme is set on first paint.
 applyTheme(loadTheme());

@@ -24,6 +24,7 @@ import { describe, test, expect, afterAll } from "bun:test";
 import { SessionManager } from "../src/session-manager.ts";
 import { getMultiplexedPool, type MuxChannelCallbacks } from "../src/keeper/multiplexed-client.ts";
 import { asWorkerFp } from "@roost/shared";
+import { keeperTestShellSpec } from "./keeper-test-fixtures.ts";
 
 const pool = getMultiplexedPool();
 const TRACKED_CH = 900;
@@ -44,10 +45,13 @@ function freshMgr(): SessionManager {
 
 async function spawnRawCat(channelId: number): Promise<void> {
   await pool.spawn({
-    channelId, cwd: homedir(),
-    argv: ["/bin/sh", "-c", "stty raw -echo 2>/dev/null; exec /bin/cat"],
+    channelId,
+    shellSpec: keeperTestShellSpec({
+      executable: "/bin/sh",
+      argv: ["-c", "stty raw -echo 2>/dev/null; exec /bin/cat"],
+      cwd: homedir(),
+    }),
     cols: 200, rows: 50,
-    env: { TERM: "xterm-256color" },
     callbacks: noopCallbacks,
   });
 }

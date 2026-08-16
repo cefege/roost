@@ -17,6 +17,7 @@
 // Pure — unit-tested in keytermContext.test.ts. Caller: MobileVoiceInput.
 
 import { STOP } from "./keytermStopwords.ts";
+import { workerPathBasename } from "./nativePath.ts";
 
 export interface TerminalContext {
 	grid: string; // visible viewport — what's on screen now
@@ -71,9 +72,8 @@ const EXT =
 // Path → basename, strip a code extension, trim edge punctuation. A path token
 // reduces to the spoken word ("deepgramDictation"), not "apps/web/src/lib/…".
 function normalize(raw: string): string {
-	let t = raw;
-	if (t.includes("/")) t = t.slice(t.lastIndexOf("/") + 1);
-	t = t.replace(/^[("'`[{<]+/, "").replace(/[)"'`\]}>.,;:!?]+$/, "");
+	let t = raw.replace(/^[("'`[{<]+/, "").replace(/[)"'`\]}>.,;:!?]+$/, "");
+	if (t.includes("/") || t.includes("\\")) t = workerPathBasename("", t);
 	t = t.replace(EXT, "");
 	return t;
 }

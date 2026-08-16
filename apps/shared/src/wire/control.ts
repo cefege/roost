@@ -40,6 +40,11 @@ export const ClientControlFrame = z.discriminatedUnion("kind", [
     rows: z.number().int().positive().optional(),
     // caller-minted id (optimistic spawn); worker reuses it verbatim
     session_id: SessionId.optional(),
+    // Mounted optimistic spawn. The coordinator derives viewer_id from the
+    // authenticated tab and replaces this requested sequence with its effective
+    // membership watermark before forwarding.
+    preclaim_initial_viewport: z.boolean().optional(),
+    initial_viewport_client_seq: z.number().int().positive().optional(),
   }),
   Base.extend({ kind: z.literal("kill"), session_id: SessionId }),
   Base.extend({ kind: z.literal("read-file"), request_id: z.string(), path: z.string(), max_lines: z.number().int().positive().optional() }),

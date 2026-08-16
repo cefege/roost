@@ -3,7 +3,7 @@
 // Pure decision (needsUpdate) + orchestration (runUpdate) are injectable so
 // they're unit-tested without a network; the `update` wrapper wires the real
 // GitHub fetch + atomic self-replace.
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { createWriteStream, renameSync } from "node:fs";
 import { chmod, rm } from "node:fs/promises";
@@ -13,6 +13,10 @@ import { ROOST_VERSION } from "./version.ts";
 import { currentServiceOs, restartCoordCmd, restartWorkerCmd } from "./service-ctl.ts";
 
 const REPO = "cefege/roost";
+export const WINDOWS_RELEASE_ASSET = "roost-windows-x64.zip";
+export const WINDOWS_RELEASE_MANIFEST_ASSET = "roost-windows-x64.manifest.json";
+export const WINDOWS_RELEASE_SIGNATURE_ASSET = "roost-windows-x64.manifest.json.p7s";
+export const WINDOWS_RELEASE_REQUIRED_FILES = ["roost.exe", "roost-win-helper.exe", "shawl.exe"] as const;
 
 /** Release asset for a platform/arch pair. `roost` stays unsuffixed for
  *  darwin-arm64 so existing installs' `roost update` keeps resolving; every
@@ -23,6 +27,7 @@ export function releaseAssetName(platform: string = process.platform, arch: stri
   if (platform === "darwin" && arch === "x64") return "roost-darwin-x64";
   if (platform === "linux" && arch === "x64") return "roost-linux-x64";
   if (platform === "linux" && arch === "arm64") return "roost-linux-arm64";
+  if (platform === "win32" && arch === "x64") return WINDOWS_RELEASE_ASSET;
   throw new Error(`no prebuilt roost binary for ${platform}/${arch}`);
 }
 
@@ -122,27 +127,68 @@ export async function update(_args: string[]): Promise<void> {
   if (basename(process.execPath) === "bun") {
     throw new Error("source installs cannot self-update the Bun runtime; install the release binary with install-binary.sh");
   }
+  if (process.platform === "win32") {
+    if (process.arch !== "x64") throw new Error(`no prebuilt roost binary for win32/${process.arch}`);
+    const release = await fetchLatestRelease();
+    if (!release.tag) {
+      console.log(">> no published release found — nothing to update to.");
+      return;
+    }
+    if (!needsUpdate(ROOST_VERSION, release.tag)) {
+      console.log(`>> already up to date (${release.tag}).`);
+      return;
+    }
+    const base = `https://github.com/${REPO}/releases/download/${encodeURIComponent(release.tag)}`;
+    const manifestUrl = `${base}/${WINDOWS_RELEASE_MANIFEST_ASSET}`;
+    const signatureUrl = `${base}/${WINDOWS_RELEASE_SIGNATURE_ASSET}`;
+    const response = await fetch(manifestUrl, { signal: AbortSignal.timeout(30_000) });
+    if (!response.ok) throw new Error(`Windows release manifest download failed: HTTP ${response.status}`);
+    const manifestSha256 = createHash("sha256").update(new Uint8Array(await response.arrayBuffer())).digest("hex");
+    const jobId = randomUUID();
+    // This Windows-only graph imports native service/durability helpers; keep
+    // it out of the POSIX self-replace path, whose load behavior stays intact.
+    const { handleUpdateBrokerCommand } = await import("./windows-update-control.ts");
+    const progress = await handleUpdateBrokerCommand({
+      requestId: randomUUID(),
+      jobId,
+      action: "START",
+      manifestUrl,
+      signatureUrl,
+      manifestSha256,
+      // The DACL-protected local pin is authoritative. A POSIX coordinator or
+      // local CLI is allowed to leave this empty, never to replace that pin.
+      publisherSha256: "",
+    });
+    for (const entry of progress) console.log(`>> [${entry.phase}] ${entry.message}`);
+    console.log(`>> update ${jobId} staged; RoostUpdaterV2 was started through SCM.`);
+    return;
+  }
+  if (process.platform !== "darwin" && process.platform !== "linux") {
+    throw new Error(`self-update is unsupported on ${process.platform}`);
+  }
   await runUpdate({
     currentVersion: ROOST_VERSION,
     execPath: process.execPath,
     log: (m) => console.log(`>> ${m}`),
-    fetchLatestTag: async () => {
-      try {
-        const r = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, {
-          headers: { accept: "application/vnd.github+json" },
-          signal: AbortSignal.timeout(10_000),
-        });
-        if (!r.ok) return "";
-        const j: unknown = await r.json();
-        if (j && typeof j === "object" && "tag_name" in j && typeof j.tag_name === "string") {
-          return j.tag_name;
-        }
-        return "";
-      } catch {
-        return "";
-      }
-    },
+    fetchLatestTag: async () => (await fetchLatestRelease()).tag,
     downloadBinary: (dest) => downloadVerifiedReleaseAsset(releaseAssetName(), dest),
     replaceSelf: (from) => { renameSync(from, process.execPath); },
   });
+}
+
+async function fetchLatestRelease(): Promise<{ tag: string }> {
+  try {
+    const response = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, {
+      headers: { accept: "application/vnd.github+json" },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok) return { tag: "" };
+    const value: unknown = await response.json();
+    if (value && typeof value === "object" && "tag_name" in value && typeof value.tag_name === "string") {
+      return { tag: value.tag_name };
+    }
+    return { tag: "" };
+  } catch {
+    return { tag: "" };
+  }
 }

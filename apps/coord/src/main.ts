@@ -13,15 +13,19 @@ import { installByteHubBusHook } from "./byte-hub.ts";
 import { createCoord } from "./coord-factory.ts";
 import { handleWorkerWsUpgrade, makeWorkerWsHandler, type WorkerWsData } from "./connect/worker-ws-handler.ts";
 import { handleSyncWsUpgrade, makeSyncWsHandler, type SyncWsData } from "./connect/sync-ws-handler.ts";
+import { makeSyncTerminalControlHooks } from "./connect/sync-terminal-controls.ts";
 import { CoordinatorMoveOrchestrator } from "./coord-move/orchestrator.ts";
 import { HandoffStateStore } from "./coord-move/state.ts";
 import { createBunCoordinatorMoveRuntime } from "./coord-move/bun-runtime.ts";
 import { handleInternalHandoffRequest } from "./coord-move/internal-http.ts";
+import { COORD_GIT_SHA } from "./git-sha.ts";
 import { connectWorkers } from "./connect/worker-registry.ts";
+import { handleWorkerUpdateProgress, resumeWindowsUpdateDeploysForWorker } from "./deploy-jobs.ts";
 import type { WorkerServiceDeps } from "./connect/worker-service.ts";
 import type { Server, ServerWebSocket } from "bun";
 import { workspaceBus } from "./buses.ts";
 import { asWorkspaceId } from "@roost/shared/wire";
+import { serveServiceHealth } from "@roost/shared/service-health";
 import { log } from "@roost/shared/log";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { randomUUID } from "node:crypto";
@@ -42,6 +46,7 @@ import { makePublicSurface } from "./middleware/public-surface.ts";
 
 export async function runCoord() {
   const bootMs = Date.now();
+  const processEpoch = randomUUID();
 
   let cfg: CoordConfig;
   try {
@@ -151,12 +156,23 @@ export async function runCoord() {
   // Raw-WS worker transport deps (Bun-specific; coord-factory stays
   // fetch-only/portable). The WS handler (worker-ws-handler.ts) reuses the
   // shared worker-conn registry + makeWorkerConn from worker-service.ts.
-  const wsDeps: WorkerServiceDeps = { db, coordKey, jwtCache, cfg, move };
+  const wsDeps: WorkerServiceDeps = {
+    db,
+    coordKey,
+    jwtCache,
+    cfg,
+    move,
+    onWorkerConnected: resumeWindowsUpdateDeploysForWorker,
+    onUpdateProgress: handleWorkerUpdateProgress,
+  };
   const workerWs = makeWorkerWsHandler(wsDeps);
   // Sync firehose raw-WS (/ws/coord-sync) also needs SQLite for Connect deps;
   // its feed is shared with the former Connect sync via handlers-streaming.ts.
   const syncDeps = { db, sqlite, coordKey, jwtCache, cfg, move };
-  const syncWs = makeSyncWsHandler(syncDeps);
+  const syncWs = makeSyncWsHandler(
+    syncDeps,
+    makeSyncTerminalControlHooks(syncDeps),
+  );
   closeRevokedSockets = (fingerprint) => {
     syncWs.closeForFingerprint(fingerprint);
     workerWs.closeForFingerprint(fingerprint);
@@ -363,6 +379,28 @@ export async function runCoord() {
       access_team: cfg.cfAccessTeamDomain,
     });
   }
+  let closeServiceHealth: (() => Promise<void>) | undefined;
+  switch (process.platform) {
+    case "win32": {
+      const health = await serveServiceHealth("coordinator", () => ({
+        role: "coordinator",
+        version: process.env.ROOST_VERSION ?? COORD_GIT_SHA,
+        build: COORD_GIT_SHA,
+        processEpoch,
+        ready: true,
+        dbReady: true,
+        listenerReady: true,
+        advertisedUrl: cfg.publicUrl ?? `https://${host}:${server.port}`,
+      }));
+      closeServiceHealth = () => health.close();
+      break;
+    }
+    case "darwin":
+    case "linux":
+      break;
+    default:
+      throw new Error(`unsupported coordinator platform: ${process.platform}`);
+  }
 
   log.info("main", "listening", { bind: `${host}:${server.port}`, tls: !!tls, http2: !!tls, uptime_ms: Date.now() - bootMs });
   // AFTER Bun.serve: recovery stages/commits/aborts workers, and `online` is
@@ -374,16 +412,24 @@ export async function runCoord() {
   scheduleBackups(sqlite, cfg.dbPath);
   scheduleAuditRetention(sqlite, cfg.auditRetentionDays);
 
-  const shutdown = (): void => {
+  let shuttingDown = false;
+  const shutdown = async (): Promise<void> => {
+    if (shuttingDown) return;
+    shuttingDown = true;
     log.info("main", "shutdown");
+    try {
+      await closeServiceHealth?.();
+    } catch (error) {
+      log.warn("main", "service_health_close_failed", { error: String(error) });
+    }
     server.stop(true);
     publicServer?.stop(true);
     coord.dispose();
     try { sqlite.close(); } catch { /* ignore */ }
     process.exit(0);
   };
-  process.on("SIGTERM", shutdown);
-  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", () => { void shutdown(); });
+  process.on("SIGINT", () => { void shutdown(); });
 }
 
 if (import.meta.main) {

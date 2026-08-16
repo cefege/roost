@@ -8,6 +8,7 @@ import { decodeFolderPath } from "../lib/terminalHref.ts";
 import type { Session } from "@roost/shared/wire";
 import { folderKeyOf } from "../lib/folderKey.ts";
 import { isPendingClose } from "../lib/pendingClose.ts";
+import { sameWorkerPath } from "../lib/nativePath.ts";
 
 // Module-level memos must be wrapped in createRoot — without an owner,
 // Solid warns "computations created outside a `createRoot` or `render`
@@ -30,7 +31,7 @@ export function resolveSessionByFolder(workerFp: string, folderPath: string): Se
   let best: Session | null = null;
   for (const s of Object.values(rootStore.sessions)) {
     if (s.status !== "open" || s.worker_fp !== workerFp) continue;
-    if ((s.spawn_cwd ?? s.cwd) !== folderPath) continue;
+    if (!sameWorkerPath(workerFp, s.spawn_cwd ?? s.cwd, folderPath)) continue;
     if (!best || s.created_at > best.created_at) best = s;
   }
   return best;
@@ -69,7 +70,7 @@ export function activeSessionForPath(pathname: string): Session | null {
   const s = pathname.match(/^\/s\/([^/]+)/);
   if (s) return rootStore.sessions[s[1]] ?? null;
   const t = pathname.match(/^\/t\/([^/]+)\/(.*)$/);
-  if (t) return resolveSessionByFolder(t[1], decodeFolderPath(t[2]));
+  if (t) return resolveSessionByFolder(t[1], decodeFolderPath(t[2], t[1]));
   const w = pathname.match(/^\/w\/([^/]+)/);
   if (w) return resolveSessionByWorkspace(w[1]);
   return null;

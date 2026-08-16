@@ -1,183 +1,341 @@
-// Multiplexed keeper subprocess. One process per worker; hosts N PTYs
-// over a single UDS. Channel_id discriminates per frame.
+// Multiplexed keeper subprocess. One process per worker; hosts N PTYs over a
+// capability-authenticated local endpoint. Channel_id discriminates frames.
 //
-// Runs on BUN. Pre-2026-06-16 the keeper had to run on Node because
-// node-pty's libuv polling didn't integrate with Bun's event loop —
-// the worker (Bun) would spawn this subprocess under Node specifically
-// for PTY access. Bun 1.3 ships native PTY via Bun.spawn({terminal:
-// {...}}), so node-pty is gone and the runtime split with it.
-//
-// Entry for BOTH `bun run multiplexed-main.ts <sock>` (from source) and
-// `roost keeper <sock>` (compiled binary self-exec via roost-cli/keeper.ts).
-// The body lives in runKeeper() so importing this module for the subcommand
-// has no side effects; only import.meta.main (source) auto-runs it.
+// Entry for `bun run multiplexed-main.ts <endpoint>` (source), compiled
+// self-exec `roost keeper <endpoint>`, and supervised
+// `roost keeper --service`. The body is side-effect-free on import.
 
 import * as fs from "node:fs";
 import * as net from "node:net";
-import * as os from "node:os";
-import * as path from "node:path";
-import { decodeMuxFrames } from "./protocol-v2.ts";
+import {
+  LOCAL_ENDPOINT_MAX_UNAUTHENTICATED_CONNECTIONS,
+  LOCAL_ENDPOINT_UNAUTHENTICATED_MAX_BYTES,
+  LOCAL_ENDPOINT_UNAUTHENTICATED_TIMEOUT_MS,
+  cleanupLocalEndpoint,
+  localEndpointFromEnv,
+  prepareLocalEndpoint,
+  secureLocalEndpoint,
+  verifyLocalEndpointCapability,
+  type LocalEndpoint,
+} from "@roost/shared";
+import {
+  KEEPER_PROTOCOL_VERSION,
+  MuxFrameType,
+  decodeKeeperHelloRequest,
+  decodeMuxFrames,
+  encodeKeeperHelloResponse,
+  encodeMuxFrame,
+  isEmptyKeeperPayload,
+  negotiateKeeperFeatures,
+  type MuxFrame,
+} from "./protocol-v2.ts";
+import { KEEPER_BUILD_STAMP } from "./keeper-stamp.ts";
 import { _log } from "./keeper-log.ts";
-import { reapAllChannelsSync } from "./keeper-process-reap.ts";
+import { reapAllChannels } from "./keeper-process-reap.ts";
 import { handleFrame, type FrameHandlerCtx } from "./keeper-frame-handler.ts";
+import { muxLocalEndpoint } from "./keeper-pool-config.ts";
 import type { Channel, ClientState } from "./keeper-types.ts";
 
-export function runKeeper(sockPath: string): void {
-  // Custom ZDOTDIR that prepends `setopt NO_PROMPT_SP NO_PROMPT_CR` to
-  // the user's zsh startup. PROMPT_SP is zsh's "preserve partial line"
-  // feature; it emits cols-1 spaces + CR before every prompt to push
-  // any unterminated previous output to its own line. Without this, the
-  // SPA's wterm shows whitespace junk between every command — the
-  // PROMPT_EOL_MARK="" env var only hides the visible marker, not the
-  // spaces. The custom .zshrc unsets the option then sources the user's
-  // real ~/.zshrc so everything else (path, aliases, theme) still works.
-  const ZSH_OVERRIDE_DIR = (() => {
-    const dir = path.join(os.tmpdir(), "roost-zsh-noPROMPT_SP");
-    try {
-      fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-      fs.writeFileSync(path.join(dir, ".zshrc"), [
-        "# roost: disable PROMPT_SP so the SPA wterm doesn't see whitespace junk",
-        "unsetopt PROMPT_SP PROMPT_CR 2>/dev/null",
-        "PROMPT_EOL_MARK=''",
-        "# Source the real user zshrc so theme/aliases/path still load",
-        'if [ -f "$HOME/.zshrc" ]; then source "$HOME/.zshrc"; fi',
-        "# roost: emit OSC 7 (file://host/cwd) on every cd so the SPA",
-        "# sidebar row label can update from session.cwd. Without this,",
-        "# the sidebar shows the spawn cwd forever even after the user",
-        "# `cd`s elsewhere. session-manager._scanOsc7 picks the sequence",
-        "# up and emits a cwd SessionEvent.",
-        "function roost_emit_osc7 { print -Pn \"\\e]7;file://${HOST}${PWD}\\e\\\\\" }",
-        "autoload -Uz add-zsh-hook 2>/dev/null && add-zsh-hook chpwd roost_emit_osc7",
-        "roost_emit_osc7  # initial cwd on shell start",
-        "",
-      ].join("\n"));
-    } catch (e) {
-      _log("error", "multiplexed-keeper", "zdotdir_write_failed", { error: String(e) });
-    }
-    return dir;
-  })();
+interface KeeperClientState extends ClientState {
+  authenticated: boolean;
+  protocolCompatible: boolean;
+  unauthenticatedBytes: number;
+  authenticationTimer: NodeJS.Timeout | null;
+}
 
-  // Bash has no chpwd hook and no ZDOTDIR equivalent, so cwd tracking rides
-  // on PROMPT_COMMAND from an rcfile we pass with --rcfile. Without it the
-  // sidebar row label pins to the spawn directory forever on any box whose
-  // login shell is bash (every stock Linux worker).
-  const BASH_RC_PATH = (() => {
-    const dir = path.join(os.tmpdir(), "roost-bash-osc7");
-    const file = path.join(dir, "roost.bashrc");
-    try {
-      fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-      fs.writeFileSync(file, [
-        "# roost: source the user's real bashrc first so PATH/aliases still load",
-        'if [ -f "$HOME/.bashrc" ]; then . "$HOME/.bashrc"; fi',
-        "# roost: emit OSC 7 (file://host/cwd) after every command so the SPA",
-        "# sidebar row label tracks `cd`. session-manager._scanOsc7 parses it.",
-        `roost_emit_osc7() { printf '\\033]7;file://%s%s\\033\\\\' "\${HOSTNAME}" "$PWD"; }`,
-        'PROMPT_COMMAND="roost_emit_osc7${PROMPT_COMMAND:+; $PROMPT_COMMAND}"',
-        "roost_emit_osc7",
-        "",
-      ].join("\n"));
-    } catch (e) {
-      _log("error", "multiplexed-keeper", "bashrc_write_failed", { error: String(e) });
-    }
-    return file;
-  })();
+function endpointForKeeper(argument: string): LocalEndpoint {
+  if (argument === "--service") return muxLocalEndpoint();
+  const hasSpawnHandoff = [
+    "ROOST_KEEPER_ENDPOINT",
+    "ROOST_KEEPER_CAPABILITY",
+    "ROOST_KEEPER_ENDPOINT_KIND",
+    "ROOST_KEEPER_CAPABILITY_PATH",
+  ].some(name => process.env[name] !== undefined);
+  const endpoint = hasSpawnHandoff
+    ? localEndpointFromEnv(process.env, "ROOST_KEEPER")
+    : muxLocalEndpoint();
+  if (endpoint.address !== argument) {
+    throw new Error("keeper endpoint argument does not match protected endpoint state");
+  }
+  return endpoint;
+}
 
-  try { fs.unlinkSync(sockPath); } catch { /* ignore */ }
-  const dir = path.dirname(sockPath);
-  try { fs.mkdirSync(dir, { recursive: true, mode: 0o700 }); } catch { /* ignore */ }
+export function runKeeper(endpointArgument: string): void {
+  void startKeeper(endpointArgument).catch((error) => {
+    _log("error", "multiplexed-keeper", "startup_failed", { error: String(error) });
+    process.exit(1);
+  });
+}
 
-  const pidPath = `${sockPath}.pid`;
+async function startKeeper(endpointArgument: string): Promise<void> {
+  const endpoint = endpointForKeeper(endpointArgument);
+  await prepareLocalEndpoint(endpoint);
+
+  const pidPath = endpoint.isFilesystemPath ? `${endpoint.address}.pid` : null;
+  let ownsPidFile = false;
   const removePidFile = () => {
+    if (!pidPath || !ownsPidFile) return;
     try { fs.unlinkSync(pidPath); } catch { /* already absent */ }
   };
   process.once("exit", removePidFile);
+
   const channels = new Map<number, Channel>();
-  const clients = new Set<ClientState>();
+  // Only authenticated clients enter this set: broadcast must never leak PTY
+  // output to a peer that merely connected to the local transport.
+  const clients = new Set<KeeperClientState>();
+  const unauthenticatedClients = new Set<KeeperClientState>();
+  let shuttingDown = false;
 
   function broadcast(frame: Buffer): void {
-    for (const c of clients) {
-      try { c.socket.write(frame); } catch { /* dead socket */ }
+    for (const client of clients) {
+      try { client.socket.write(frame); } catch { /* dead socket */ }
     }
   }
 
-  // Single source of truth for keeper state, handed to the extracted frame
-  // handler so `channels`/`broadcast`/the shell overrides live in exactly one
-  // place (this entry) — the handler mutates them through the same references.
-  const frameCtx: FrameHandlerCtx = { channels, broadcast, ZSH_OVERRIDE_DIR, BASH_RC_PATH };
+  const frameCtx: FrameHandlerCtx = { channels, broadcast };
 
-  const server = net.createServer((socket) => {
-    const client: ClientState = { buf: Buffer.alloc(0), socket };
-    clients.add(client);
+  function removeClient(client: KeeperClientState): void {
+    if (client.authenticationTimer) {
+      clearTimeout(client.authenticationTimer);
+      client.authenticationTimer = null;
+    }
+    unauthenticatedClients.delete(client);
+    clients.delete(client);
+  }
 
-    socket.on("data", (chunk: Buffer) => {
-      client.buf = Buffer.concat([client.buf, chunk]);
-      const { frames, remaining } = decodeMuxFrames(client.buf);
+  function rejectClient(client: KeeperClientState): void {
+    removeClient(client);
+    try { client.socket.destroy(); } catch { /* already closed */ }
+  }
+
+  let server: net.Server;
+
+  async function shutdown(reason: string, acknowledge?: net.Socket): Promise<void> {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    _log("info", "multiplexed-keeper", "shutting_down", {
+      reason,
+      channels: channels.size,
+    });
+    if (acknowledge && !acknowledge.destroyed) {
+      await new Promise<void>((resolve) => {
+        let done = false;
+        const finish = () => {
+          if (done) return;
+          done = true;
+          clearTimeout(timer);
+          resolve();
+        };
+        const timer = setTimeout(finish, 250);
+        try {
+          acknowledge.end(
+            encodeMuxFrame(MuxFrameType.ShutdownAck, 0, new Uint8Array(0)),
+            finish,
+          );
+        } catch {
+          finish();
+        }
+      });
+    }
+    try { server.close(); } catch { /* not listening or already closed */ }
+    for (const client of unauthenticatedClients) rejectClient(client);
+    for (const client of clients) rejectClient(client);
+    try {
+      await reapAllChannels(channels);
+    } catch (error) {
+      _log("error", "multiplexed-keeper", "child_reap_failed", {
+        error: String(error),
+      });
+    }
+    removePidFile();
+    try {
+      await cleanupLocalEndpoint(endpoint);
+    } catch (error) {
+      _log("error", "multiplexed-keeper", "endpoint_cleanup_failed", {
+        error: String(error),
+        kind: endpoint.kind,
+      });
+    }
+    process.exit(0);
+  }
+
+  server = net.createServer((socket) => {
+    if (unauthenticatedClients.size >= LOCAL_ENDPOINT_MAX_UNAUTHENTICATED_CONNECTIONS) {
+      socket.destroy();
+      return;
+    }
+    const client: KeeperClientState = {
+      buf: Buffer.alloc(0),
+      socket,
+      authenticated: false,
+      protocolCompatible: false,
+      unauthenticatedBytes: 0,
+      authenticationTimer: null,
+    };
+    unauthenticatedClients.add(client);
+    client.authenticationTimer = setTimeout(
+      () => rejectClient(client),
+      LOCAL_ENDPOINT_UNAUTHENTICATED_TIMEOUT_MS,
+    );
+
+    socket.on("data", (chunk: Buffer | Uint8Array) => {
+      if (!client.authenticated) {
+        client.unauthenticatedBytes += chunk.byteLength;
+        if (client.unauthenticatedBytes > LOCAL_ENDPOINT_UNAUTHENTICATED_MAX_BYTES) {
+          rejectClient(client);
+          return;
+        }
+      }
+      client.buf = Buffer.concat([client.buf, Buffer.from(chunk)]);
+      let frames: MuxFrame[];
+      let remaining: Buffer;
+      try {
+        ({ frames, remaining } = decodeMuxFrames(client.buf));
+      } catch {
+        rejectClient(client);
+        return;
+      }
       client.buf = remaining;
-      // Isolate each frame: a throw in one handler must NOT propagate out of
-      // socket.on("data") and crash the keeper that hosts every live PTY.
-      for (const f of frames) {
-        try { handleFrame(frameCtx, client, f); }
-        catch (e) { _log("error", "multiplexed-keeper", "handle_frame_failed", { type: f.type, channelId: f.channelId, error: String(e) }); }
+
+      for (const frame of frames) {
+        if (!client.authenticated) {
+          if (frame.type !== MuxFrameType.Hello || frame.channelId !== 0) {
+            rejectClient(client);
+            return;
+          }
+          const hello = decodeKeeperHelloRequest(frame.payload);
+          if (!hello
+              || !verifyLocalEndpointCapability(endpoint.capability, hello.capability)) {
+            rejectClient(client);
+            return;
+          }
+          const features = negotiateKeeperFeatures(hello.features);
+          try {
+            socket.write(encodeMuxFrame(
+              MuxFrameType.HelloResp,
+              0,
+              encodeKeeperHelloResponse({
+                version: KEEPER_PROTOCOL_VERSION,
+                authenticated: true,
+                features,
+                build: KEEPER_BUILD_STAMP,
+                pid: process.pid,
+              }),
+            ));
+          } catch {
+            rejectClient(client);
+            return;
+          }
+          client.authenticated = true;
+          client.protocolCompatible = hello.version === KEEPER_PROTOCOL_VERSION;
+          clearTimeout(client.authenticationTimer ?? undefined);
+          client.authenticationTimer = null;
+          unauthenticatedClients.delete(client);
+          clients.add(client);
+          continue;
+        }
+
+        if (frame.type === MuxFrameType.Shutdown) {
+          if (frame.channelId !== 0 || !isEmptyKeeperPayload(frame.payload)) {
+            rejectClient(client);
+            return;
+          }
+          void shutdown("authenticated_shutdown", socket);
+          return;
+        }
+        if (!client.protocolCompatible) {
+          rejectClient(client);
+          return;
+        }
+        // Isolate each command: one malformed channel operation must not crash
+        // the keeper that owns every live PTY.
+        try {
+          handleFrame(frameCtx, client, frame);
+        } catch (error) {
+          _log("error", "multiplexed-keeper", "handle_frame_failed", {
+            type: frame.type,
+            channelId: frame.channelId,
+            error: String(error),
+          });
+        }
       }
     });
-    socket.on("close", () => { clients.delete(client); });
-    socket.on("error", (e) => {
-      _log("warn", "multiplexed-keeper", "client_socket_error", { error: String(e) });
-      clients.delete(client);
+    socket.on("close", () => removeClient(client));
+    socket.on("error", (error) => {
+      _log("warn", "multiplexed-keeper", "client_socket_error", {
+        error: String(error),
+      });
+      removeClient(client);
     });
   });
 
-  server.on("error", (e) => {
-    // listen() failure (EADDRINUSE on a stale socket, permission) — was an
-    // unhandled 'error' event → silent keeper crash at boot.
-    _log("error", "multiplexed-keeper", "server_error", { error: String(e), sockPath });
+  server.on("error", (error) => {
+    _log("error", "multiplexed-keeper", "server_error", {
+      error: String(error),
+      endpoint: endpoint.address,
+      kind: endpoint.kind,
+    });
+    if (server.listening) void shutdown("server_error");
+    else process.exit(1);
   });
 
-  server.listen(sockPath, () => {
-    try { fs.chmodSync(sockPath, 0o600); } catch { /* ignore */ }
-    try {
-      fs.writeFileSync(pidPath, `${process.pid}\n`, { mode: 0o600 });
-    } catch (e) {
-      _log("error", "multiplexed-keeper", "pid_file_write_failed", { error: String(e), pidPath, sockPath });
-    }
-    _log("info", "multiplexed-keeper", "listening", { sockPath });
+  server.listen(endpoint.address, () => {
+    void (async () => {
+      await secureLocalEndpoint(endpoint);
+      if (pidPath) {
+        try {
+          fs.writeFileSync(pidPath, `${process.pid}\n`, { mode: 0o600 });
+          ownsPidFile = true;
+        } catch (error) {
+          _log("error", "multiplexed-keeper", "pid_file_write_failed", {
+            error: String(error),
+            pidPath,
+            endpoint: endpoint.address,
+          });
+        }
+      }
+      _log("info", "multiplexed-keeper", "listening", {
+        endpoint: endpoint.address,
+        kind: endpoint.kind,
+      });
+    })().catch((error) => {
+      _log("error", "multiplexed-keeper", "endpoint_secure_failed", {
+        error: String(error),
+        kind: endpoint.kind,
+      });
+      void shutdown("endpoint_secure_failed");
+    });
   });
 
-  // The keeper outlives the worker and hosts every live PTY. Its silent crash
-  // loses every session, so log the cause before the process exits. Do not
-  // swallow the error: the runtime still decides termination.
-  process.on("uncaughtException", (e) => {
-    _log("error", "multiplexed-keeper", "uncaught_exception", { error: String(e), stack: e?.stack ?? null });
+  process.on("uncaughtException", (error) => {
+    _log("error", "multiplexed-keeper", "uncaught_exception", {
+      error: String(error),
+      stack: error?.stack ?? null,
+    });
   });
   process.on("unhandledRejection", (reason) => {
-    _log("error", "multiplexed-keeper", "unhandled_rejection", { reason: String(reason) });
+    _log("error", "multiplexed-keeper", "unhandled_rejection", {
+      reason: String(reason),
+    });
   });
-
-  // External SIGTERM (worker's stale-keeper kill at main.ts, restartKeeper on
-  // deploy/kickstart). Default action = terminate with NO child cleanup → every
-  // PTY child orphans to launchd. Sweep the trees first, then exit.
   process.on("SIGTERM", () => {
-    _log("info", "multiplexed-keeper", "sigterm_reaping_children", { channels: channels.size });
-    reapAllChannelsSync(channels);
-    removePidFile();
-    process.exit(0);
+    void shutdown("sigterm");
   });
 
-  setInterval(() => {
-    if (!fs.existsSync(sockPath)) {
-      _log("info", "multiplexed-keeper", "socket_removed_exiting");
-      reapAllChannelsSync(channels);
-      removePidFile();
-      process.exit(0);
-    }
-  }, 30_000);
+  if (endpoint.isFilesystemPath) {
+    setInterval(() => {
+      if (!fs.existsSync(endpoint.address)) {
+        void shutdown("socket_removed");
+      }
+    }, 30_000);
+  }
 }
 
 if (import.meta.main) {
-  const sock = process.argv[2];
-  if (!sock) {
-    _log("error", "multiplexed-keeper", "missing_socket_path_arg");
+  const endpointArgument = process.argv[2];
+  if (!endpointArgument) {
+    _log("error", "multiplexed-keeper", "missing_endpoint_arg");
     process.exit(2);
   }
-  runKeeper(sock);
+  runKeeper(endpointArgument);
 }

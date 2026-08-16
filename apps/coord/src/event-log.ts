@@ -90,6 +90,36 @@ export async function getEventsSince(
   }));
 }
 
+/** Capture a durable recovery cutoff after the live bus subscription exists. */
+export async function getEventMaxId(db: KyselyDB): Promise<number> {
+  const row = await db
+    .selectFrom("events")
+    .select(({ fn }) => fn.max<number>("id").as("max_id"))
+    .executeTakeFirst();
+  return Number(row?.max_id ?? 0);
+}
+
+/** Page one stable recovery interval: cursor < id <= cutoff. */
+export async function getEventsThrough(
+  db: KyselyDB,
+  cursor: number,
+  cutoff: number,
+  limit = 256,
+): Promise<Array<{ id: number; event: SessionEvent }>> {
+  const rows = await db
+    .selectFrom("events")
+    .select(["id", "payload_json"])
+    .where("id", ">", cursor)
+    .where("id", "<=", cutoff)
+    .orderBy("id", "asc")
+    .limit(limit)
+    .execute();
+  return rows.map((row) => ({
+    id: Number(row.id),
+    event: JSON.parse(row.payload_json) as SessionEvent,
+  }));
+}
+
 // Delete a session's workspace_sessions junction row and, if that
 // session was the LAST pane in any workspace, delete the workspace
 // itself. Returns the orphaned workspace ids so the caller can emit

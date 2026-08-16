@@ -1,22 +1,117 @@
+import { createHmac } from "node:crypto";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
+import {
+  resolveLocalEndpoint,
+  verifyLocalEndpointCapability,
+  type LocalEndpoint,
+} from "@roost/shared/local-endpoint";
+import {
+  assertNeverPlatform,
+  supportedHostPlatform,
+  type SupportedHostPlatform,
+} from "@roost/shared/platform";
+import { workerDataDir } from "@roost/shared/paths";
+
+const sessionCapabilities = new Map<string, string>();
+
+export function resolveAgentReportEndpoint(
+  env: NodeJS.ProcessEnv = process.env,
+  home = homedir(),
+  platform: SupportedHostPlatform = supportedHostPlatform(),
+): LocalEndpoint {
+  const dataDir = platform === "win32" ? workerDataDir(env, platform) : join(home, ".roost");
+  const endpoint = resolveLocalEndpoint({
+    name: "agent-report",
+    dataDir,
+    platform,
+    env,
+  });
+  const configured = env.ROOST_AGENT_ENDPOINT
+    ?? (platform === "win32" ? undefined : env.ROOST_AGENT_SOCKET_PATH);
+  if (!configured) return endpoint;
+  switch (platform) {
+    case "darwin":
+    case "linux":
+      if (!isAbsolute(configured)) throw new Error("ROOST_AGENT_ENDPOINT must be an absolute UDS path");
+      return { ...endpoint, address: configured, isFilesystemPath: true, kind: "uds" };
+    case "win32":
+      if (!configured.startsWith("\\\\.\\pipe\\")) {
+        throw new Error("ROOST_AGENT_ENDPOINT must be a Windows named-pipe path");
+      }
+      return { ...endpoint, address: configured, isFilesystemPath: false, kind: "named-pipe" };
+    default:
+      return assertNeverPlatform(platform);
+  }
+}
 
 export function defaultAgentReportSocketPath(
   env: NodeJS.ProcessEnv = process.env,
   home = homedir(),
 ): string {
-  return env.ROOST_AGENT_SOCKET_PATH || join(home, ".roost", "agent-report.sock");
+  return resolveAgentReportEndpoint(env, home).address;
 }
 
+function capabilityForSession(
+  sessionId: string,
+  endpoint: LocalEndpoint,
+): string {
+  const cacheKey = `${endpoint.capability}\0${sessionId}`;
+  let capability = sessionCapabilities.get(cacheKey);
+  if (capability) return capability;
+  // HMAC output is a distinct pseudorandom capability per session while
+  // remaining stable across worker restarts for keeper-surviving agents.
+  capability = createHmac("sha256", endpoint.capability)
+    .update("roost-agent-report-session\0")
+    .update(sessionId)
+    .digest("hex");
+  sessionCapabilities.set(cacheKey, capability);
+  return capability;
+}
+
+export function verifyAgentReportCapability(
+  endpoint: LocalEndpoint,
+  sessionId: string,
+  received: unknown,
+): boolean {
+  return verifyLocalEndpointCapability(
+    capabilityForSession(sessionId, endpoint),
+    received,
+  );
+}
 
 export function withAgentStatusEnvironment(
   base: Record<string, string>,
   sessionId: string,
   env: NodeJS.ProcessEnv = process.env,
 ): Record<string, string> {
-  return {
-    ...base,
-    ROOST_AGENT_SOCKET_PATH: defaultAgentReportSocketPath(env),
+  const platform = supportedHostPlatform();
+  const endpoint = resolveAgentReportEndpoint(env, homedir(), platform);
+  const overlay: Record<string, string> = {
+    ROOST_AGENT_ENDPOINT: endpoint.address,
+    ROOST_AGENT_ENDPOINT_KIND: endpoint.kind,
+    ROOST_AGENT_CAPABILITY: capabilityForSession(sessionId, endpoint),
     ROOST_SESSION_ID: sessionId,
   };
+  switch (platform) {
+    case "darwin":
+    case "linux":
+      return { ...base, ...overlay };
+    case "win32": {
+      // Windows environment names are case-insensitive. Replace an existing
+      // differently-cased key instead of emitting an ambiguous duplicate.
+      const merged = { ...base };
+      const keyByFolded = new Map(
+        Object.keys(merged).map((key) => [key.toLocaleLowerCase("en-US"), key]),
+      );
+      for (const [key, value] of Object.entries(overlay)) {
+        const oldKey = keyByFolded.get(key.toLocaleLowerCase("en-US"));
+        if (oldKey && oldKey !== key) delete merged[oldKey];
+        merged[key] = value;
+      }
+      return merged;
+    }
+    default:
+      return assertNeverPlatform(platform);
+  }
 }

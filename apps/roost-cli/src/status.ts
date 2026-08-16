@@ -11,14 +11,21 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { log } from "@roost/shared/log";
 import { coordDataDir, coordServiceLabel, coordServicePath, workerServiceLabel } from "@roost/shared/paths";
-import { COORD_UNIT, WORKER_UNIT } from "./service-ctl.ts";
+import {
+  COORD_UNIT,
+  WINDOWS_SERVICE_NAMES,
+  WORKER_UNIT,
+  windowsServiceDefinitionsPath,
+} from "./service-ctl.ts";
 
 const COORD_LABEL = coordServiceLabel();
 const WORKER_LABEL = workerServiceLabel();
 const COORD_DATA_DIR = coordDataDir();
 const COORD_DB = join(COORD_DATA_DIR, "coordinator_v2.db");
-// launchd plist on darwin, systemd user unit on linux.
-const COORD_SERVICE_FILE = coordServicePath();
+// launchd plist, systemd user unit, or protected Windows definitions.
+const COORD_SERVICE_FILE = process.platform === "win32"
+  ? windowsServiceDefinitionsPath()
+  : coordServicePath();
 const WORKER_STALE_MS = 90_000;
 // Default of cfg.handoffPath (apps/shared/src/config.ts:71); the CLI does not
 // load the coord config, so honour the same env override by hand.
@@ -155,14 +162,32 @@ export function tailnetSuffix(): string | null {
   return fqdn ? fqdn.split(".").slice(1).join(".").replace(/\.$/, "") || null : null;
 }
 
-/** Worker/coord service loaded? launchd on macOS, systemd --user on Linux. */
+/** Worker/coord service running under the native platform manager? */
 function launchAgentLoaded(label: string): boolean {
-  if (process.platform === "linux") {
-    const unit = label === WORKER_LABEL ? WORKER_UNIT : COORD_UNIT;
-    return runCapture(["systemctl", "--user", "is-active", unit]).exit === 0;
+  const worker = label === WORKER_LABEL;
+  switch (process.platform) {
+    case "linux":
+      return runCapture([
+        "systemctl",
+        "--user",
+        "is-active",
+        worker ? WORKER_UNIT : COORD_UNIT,
+      ]).exit === 0;
+    case "darwin": {
+      const uid = process.getuid?.() ?? "";
+      return runCapture(["launchctl", "print", `gui/${uid}/${label}`]).exit === 0;
+    }
+    case "win32": {
+      const result = runCapture([
+        "sc.exe",
+        "query",
+        worker ? WINDOWS_SERVICE_NAMES.worker : WINDOWS_SERVICE_NAMES.coordinator,
+      ]);
+      return result.exit === 0 && /STATE\s*:\s*4\b/i.test(result.stdout);
+    }
+    default:
+      throw new Error(`unsupported status platform: ${process.platform}`);
   }
-  const uid = process.getuid?.() ?? "";
-  return runCapture(["launchctl", "print", `gui/${uid}/${label}`]).exit === 0;
 }
 
 /** POST the public MiscHealth Connect RPC (JSON protocol). Returns null on any
@@ -212,10 +237,27 @@ function serviceEnvironmentValue(
   name: string,
   platform: NodeJS.Platform,
 ): string | null {
-  const match = platform === "darwin"
-    ? new RegExp(`<key>${name}</key>\\s*<string>([^<]*)</string>`).exec(serviceDefinition)
-    : new RegExp(`^Environment=\"?${name}=([^\"\\r\\n]+)\"?$`, "m").exec(serviceDefinition);
-  return match?.[1] ?? null;
+  switch (platform) {
+    case "darwin":
+      return new RegExp(`<key>${name}</key>\\s*<string>([^<]*)</string>`)
+        .exec(serviceDefinition)?.[1] ?? null;
+    case "linux":
+      return new RegExp(`^Environment=\"?${name}=([^\"\\r\\n]+)\"?$`, "m")
+        .exec(serviceDefinition)?.[1] ?? null;
+    case "win32": {
+      try {
+        const stored = JSON.parse(serviceDefinition) as {
+          services?: { coordinator?: { environment?: Record<string, unknown> } };
+        };
+        const value = stored.services?.coordinator?.environment?.[name];
+        return typeof value === "string" ? value : null;
+      } catch {
+        return null;
+      }
+    }
+    default:
+      throw new Error(`unsupported TLS service platform: ${platform}`);
+  }
 }
 
 export function resolveTlsMode(

@@ -373,7 +373,7 @@ export function PaneStrip(props: PaneStripProps) {
           <Show when={subtitle()}>
             <div class="df-tab-hovercard-line">{subtitle()}</div>
           </Show>
-          <div class="df-tab-hovercard-cwd">{shortCwd(p.s.cwd)}</div>
+          <div class="df-tab-hovercard-cwd">{shortCwd(p.s.cwd, p.s.worker_fp)}</div>
           <div class="df-tab-hovercard-preview" style={{ display: hasPreview() ? "block" : "none" }}>
             <div ref={previewRef} class="terminal-card-preview-text" />
           </div>

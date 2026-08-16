@@ -129,10 +129,14 @@ export function writeAuditLog(opts: {
   path: string;
   traceId: string | undefined;
   callerFp: string | null;
-}): void {
+  /** Terminal input uses strict mode so a completed write cannot be reported
+   * without an explicit audit-persistence outcome. Other request audits remain
+   * best-effort to avoid changing interceptor failure semantics. */
+  throwOnFailure?: boolean;
+}): Promise<void> {
   recordRequest(opts.path);
   if (opts.status >= 400) recordError(opts.path);
-  void opts.db
+  return opts.db
     .insertInto("audit_log")
     .values({
       ts: Date.now(),
@@ -157,5 +161,8 @@ export function writeAuditLog(opts: {
         trace_id: (inserted.trace_id as string | null) ?? null,
       });
     })
-    .catch((e) => signal("audit.write_failed", { error: String(e), path: opts.path, cooldownKey: "audit" }));
+    .catch((e) => {
+      signal("audit.write_failed", { error: String(e), path: opts.path, cooldownKey: "audit" });
+      if (opts.throwOnFailure) throw e;
+    });
 }

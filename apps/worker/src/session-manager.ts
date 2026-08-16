@@ -8,12 +8,15 @@ import * as gitPorts from "./session-git-ports.ts";
 import * as viewport from "./session-viewport.ts";
 import * as spawnFns from "./session-spawn.ts";
 import * as resumeFns from "./session-resume.ts";
+import type { InitialViewportPreclaim } from "./session-spawn.ts";
 import * as lifecycle from "./session-lifecycle.ts";
+import * as terminalControl from "./session-terminal-control.ts";
 
 import { getMultiplexedPool, type MuxChannelCallbacks } from "./keeper/multiplexed-client.ts";
 import { log, asChannelId } from "@roost/shared";
 import type { TerminalCore } from "@wterm/core";
 import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
+import type { TransportSendResult } from "./transport/CoordLink-types.ts";
 import type { SessionEventSink } from "./event-sink.ts";
 import type { ChannelState, FsmEvent } from "./fsm.ts";
 import type {
@@ -27,12 +30,27 @@ import {
 	STRAY_REAP_INTERVAL_MS,
 } from "./session-constants.ts";
 import type { SessionRecord, SessionShellRecord, ViewportClaim } from "./session-record.ts";
+import type { ShellSpec } from "./shell-spec.ts";
 
 export type { SessionRecord, SessionShellRecord } from "./session-record.ts";
+interface PendingRawMetadataFrame {
+	endSeq: number;
+	bytes: Uint8Array;
+}
+
+interface PendingRawMetadataQueue {
+	frames: PendingRawMetadataFrame[];
+	bytes: number;
+}
+
 
 export class SessionManager {
 	sessions = new Map<number, SessionRecord>();
 	_nextChannel = 1;
+	// Caller-minted UUID reservation closes the await-before-register window in
+	// session-spawn (wterm-core creation is async). Coordinator idempotency means
+	// one command should arrive, but the worker remains the final collision gate.
+	private readonly pendingSpawnSessionIds = new Set<SessionId>();
 	readonly workerFp: WorkerFp;
 	readonly sink: SessionEventSink;
 	// Per-channel viewport claims keyed by viewer fingerprint. Empty map
@@ -52,6 +70,17 @@ export class SessionManager {
 	// CELL_EMIT_COALESCE_MS.
 	cellEmitTimers = new Map<number, ReturnType<typeof setTimeout>>();
 	cellDirty = new Set<number>();
+	// Raw PTY bytes are coordinator-only metadata input. Stage them separately
+	// from cells so ready cell frames lead, while retaining FIFO byte order.
+	rawMetadataQueues = new Map<number, PendingRawMetadataQueue>();
+	rawMetadataTimers = new Map<number, NodeJS.Timeout>();
+	rawMetadataQueuedBytes = 0;
+	// One-shot latency hint: the first PTY chunk after an admitted input may
+	// bypass an already-armed trailing cell timer.
+	inputSensitiveChannels = new Set<number>();
+	// A dropped delta is never guessed forward. The next writable edge emits
+	// one authoritative full repair for that channel.
+	pendingCellRepairs = new Set<number>();
 	viewportReaperTimer: ReturnType<typeof setInterval> | null = null;
 	strayReaperTimer: ReturnType<typeof setInterval> | null = null;
 	// channelId -> consecutive sweeps seen as a stray (see STRAY_REAP_STRIKES).
@@ -65,16 +94,27 @@ export class SessionManager {
 	// is the single source of truth: same ring + same size = same grid, every
 	// time. Chained so rapid resizes don't overlap; the last replay wins.
 	_wtermRebuildChain = new Map<number, Promise<void>>();
-	// Bytes upstream sink. The mux pool callback path (muxCallbacks
-	// below) routes every PTY chunk through emitUpstreamChunk → this
-	// sink → CoordWorkerUp.binary frame.
-	readonly sendBinaryUpstream: ((bytes: Uint8Array) => void) | null;
-	// R11 cell-grid cell-shipping sink. Cells are the ONLY renderer since cell-phase-4
-	// (byte renderer deleted, commit e8f450b9) — the SPA paints nothing but
-	// these frames. null only in tests that don't wire a cell sink; the
-	// _hasActiveViewer gate already suppresses emission to unwatched channels.
+	// Typed terminal controls serialize per channel. Cell emission gates while a
+	// correlated resize is unresolved; post-ACK bytes buffer until the canonical
+	// core has crossed the ordered resize boundary.
+	terminalControlChains = new Map<number, Promise<void>>();
+	channelResizeSeq = new Map<number, number>();
+	cellEmissionGates = new Set<number>();
+	postResizeOutput = new Map<number, Buffer[]>();
+	// Structured raw-metadata sink. Passing fields directly avoids constructing
+	// and immediately reparsing the old private 11-byte header.
+	readonly sendBinaryUpstream:
+		| ((
+			channelId: number,
+			direction: number,
+			endSeq: number,
+			bytes: Uint8Array,
+		) => TransportSendResult | void)
+		| null;
+	// Cells are the sole renderer. A void result is accepted only for narrow
+	// legacy test sinks; production CoordLink always returns a truthful result.
 	readonly sendCellGridUpstream:
-		| ((channelId: number, frame: PbCellGridFrame) => void)
+		| ((channelId: number, frame: PbCellGridFrame) => TransportSendResult | void)
 		| null;
 
 	// Sliding-window timestamps of emit_no_session events → keeper.degraded.
@@ -109,8 +149,16 @@ export class SessionManager {
 	constructor(opts: {
 		workerFp: WorkerFp;
 		sink: SessionEventSink;
-		sendBinaryUpstream?: (bytes: Uint8Array) => void;
-		sendCellGridUpstream?: (channelId: number, frame: PbCellGridFrame) => void;
+		sendBinaryUpstream?: (
+			channelId: number,
+			direction: number,
+			endSeq: number,
+			bytes: Uint8Array,
+		) => TransportSendResult | void;
+		sendCellGridUpstream?: (
+			channelId: number,
+			frame: PbCellGridFrame,
+		) => TransportSendResult | void;
 	}) {
 		this.workerFp = opts.workerFp;
 		this.sink = opts.sink;
@@ -166,11 +214,26 @@ export class SessionManager {
 		return undefined;
 	}
 
-	/** Route a PTY input chunk to the multiplexed keeper. */
+	/** Route a legacy PTY input chunk to the multiplexed keeper. Sync v2's
+	 * acknowledged input lane calls markInputSensitive at the same admission
+	 * point before its keeper write. */
 	async input(channelId: number, bytes: Uint8Array): Promise<void> {
 		if (!this.sessions.has(channelId)) return;
+		this.markInputSensitive(channelId);
 		getMultiplexedPool().input(channelId, bytes);
 	}
+
+	markInputSensitive(channelId: number): void {
+		if (this.sessions.has(channelId)) this.inputSensitiveChannels.add(channelId);
+	}
+	writeTerminalInput(sessionId: string, inputSeq: bigint, bytes: Uint8Array): Promise<terminalControl.WorkerInputResult> {
+		return terminalControl.writeTerminalInput.call(this, sessionId, inputSeq, bytes);
+	}
+
+	applyTerminalViewport(intent: terminalControl.WorkerViewportIntent): Promise<terminalControl.WorkerViewportResult> {
+		return terminalControl.applyTerminalViewport.call(this, intent);
+	}
+
 
 	/** Return all live sessions for snapshot emission. */
 	allSessions() {
@@ -205,8 +268,20 @@ export class SessionManager {
 	}
 
 
-	_scheduleCellEmit(channelId: number): void {
-		return emit._scheduleCellEmit.call(this, channelId);
+	_scheduleCellEmit(channelId: number, promoteInputEcho = false): void {
+		return emit._scheduleCellEmit.call(this, channelId, promoteInputEcho);
+	}
+
+	_enqueueRawMetadata(channelId: number, endSeq: number, chunk: Buffer): void {
+		return emit._enqueueRawMetadata.call(this, channelId, endSeq, chunk);
+	}
+
+	flushPendingCellRepairs(): void {
+		return emit.flushPendingCellRepairs.call(this);
+	}
+
+	_disposeOutputState(channelId: number): void {
+		return emit._disposeOutputState.call(this, channelId);
 	}
 
 	emitCellFrame(channelId: number, force: boolean): void {
@@ -239,7 +314,7 @@ export class SessionManager {
 		return gitPorts._resolvePr.call(this, rec);
 	}
 
-	claimViewport(channelId: number, viewerFp: string, cols: number, rows: number, clientSeq?: number, cause?: number, heldCellSeq?: number): void {
+	claimViewport(channelId: number, viewerFp: string, cols: number, rows: number, clientSeq?: number | bigint, cause?: number, heldCellSeq?: number): void {
 		return viewport.claimViewport.call(this, channelId, viewerFp, cols, rows, clientSeq, cause, heldCellSeq);
 	}
 
@@ -267,8 +342,34 @@ export class SessionManager {
 		return viewport._rebuildWtermCore.call(this, channelId, cols, rows);
 	}
 
-	spawnShell(cwd: string, cols?: number, rows?: number, targetSessionId?: SessionId): Promise<SessionRecord> {
-		return spawnFns.spawnShell.call(this, cwd, cols, rows, targetSessionId);
+	spawnShell(
+		cwd: string,
+		cols?: number,
+		rows?: number,
+		targetSessionId?: SessionId,
+		initialViewport?: InitialViewportPreclaim,
+	): Promise<SessionRecord> {
+		if (
+			targetSessionId
+			&& (
+				this.getBySessionId(targetSessionId)
+				|| this.pendingSpawnSessionIds.has(targetSessionId)
+			)
+		) {
+			return Promise.reject(new Error(`session ${targetSessionId} is already live or spawning`));
+		}
+		if (targetSessionId) this.pendingSpawnSessionIds.add(targetSessionId);
+		const spawned = spawnFns.spawnShell.call(
+			this,
+			cwd,
+			cols,
+			rows,
+			targetSessionId,
+			initialViewport,
+		);
+		return targetSessionId
+			? spawned.finally(() => this.pendingSpawnSessionIds.delete(targetSessionId))
+			: spawned;
 	}
 
 
@@ -278,11 +379,11 @@ export class SessionManager {
 		return spawnFns.respawnIfMissing.call(this, sessionId, cwd, cols, rows);
 	}
 
-	resume(opts: { sessionId: SessionId; channelId: ChannelId; kind: "shell"; cwd: string }): Promise<boolean> {
+	resume(opts: { sessionId: SessionId; channelId: ChannelId; kind: "shell"; cwd: string; shellSpec: ShellSpec }): Promise<boolean> {
 		return resumeFns.resume.call(this, opts);
 	}
 
-	respawn(opts: { oldSessionId: SessionId; cwd: string; kind: "shell"; cols?: number; rows?: number }): Promise<void> {
+	respawn(opts: { oldSessionId: SessionId; cwd: string; kind: "shell"; cols?: number; rows?: number; shellSpec?: ShellSpec }): Promise<void> {
 		return resumeFns.respawn.call(this, opts);
 	}
 

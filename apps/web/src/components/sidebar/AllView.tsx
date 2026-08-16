@@ -11,6 +11,7 @@ import { uiStore, toggleSidebarCollapsed, closeSidebar } from "../../store/uiSto
 import { isCompact } from "../../lib/windowSizeClass.ts";
 import { allSessions } from "../../store/selectors.ts";
 import { terminalOwnsKeyboard } from "../../lib/keyboardShortcuts.ts";
+import { matchesPlatformShortcut, platformShortcutLabel } from "../../lib/browserPlatform.ts";
 import { SidebarSearch } from "./SidebarSearch.tsx";
 import { SidebarEmptyState } from "./SidebarEmptyState.tsx";
 import { SessionRow } from "./SessionRow.tsx";
@@ -51,17 +52,10 @@ export function AllView() {
     else openSearch();
   }
   function onGlobalKeyDown(e: KeyboardEvent) {
-    if (e.defaultPrevented) return;
-
-    // ⌘F is contested: with a terminal deck on screen the focused pane's
-    // find-in-scrollback owns it (CellTerminal binds ⌘F and Ctrl+⇧F). Plain
-    // Ctrl+F is NOT contested — it is readline's forward-char, so it belongs to
-    // the PTY when the terminal has focus and to this filter otherwise (wterm
-    // preventDefaults it when it consumes it, and the guard above respects that).
-    if ((e.metaKey || e.ctrlKey) && e.key === "f" && !(e.metaKey && terminalOwnsKeyboard())) {
-      e.preventDefault();
-      openSearch();
-    }
+    if (e.defaultPrevented || terminalOwnsKeyboard()) return;
+    if (!matchesPlatformShortcut(e, "sidebarSearch")) return;
+    e.preventDefault();
+    openSearch();
   }
   onMount(() => document.addEventListener("keydown", onGlobalKeyDown));
   onCleanup(() => document.removeEventListener("keydown", onGlobalKeyDown));
@@ -89,7 +83,7 @@ export function AllView() {
         <span style={{ "margin-left": "auto", display: "inline-flex", "align-items": "center", gap: "2px", position: "relative" }}>
           <md-icon-button
             aria-label="Search"
-            title="Search sessions & workspaces (⌘F)"
+            title={`Search sessions & workspaces (${platformShortcutLabel("sidebarSearch", "⌘F")})`}
             onClick={toggleSearch}
             data-testid="brand-row-search"
           >
@@ -112,7 +106,7 @@ export function AllView() {
           </md-icon-button>
           <md-icon-button
             aria-label="Collapse sidebar"
-            title="Collapse sidebar (⌘B)"
+            title={`Collapse sidebar (${platformShortcutLabel("toggleSidebar", "⌘B")})`}
             data-testid="brand-row-collapse"
             // Mobile: the drawer is driven by sidebarOpen, NOT sidebarCollapsed
             // (a desktop-only icon-rail concept) — so toggleSidebarCollapsed did

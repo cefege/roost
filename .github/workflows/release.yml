@@ -126,12 +126,16 @@ jobs:
 
   publish:
     name: publish GitHub Release
-    needs: native-smoke
+    needs: [native-smoke, windows-release]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/download-artifact@v4
         with:
           name: release-candidates
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-release-candidates
           path: dist
       - uses: softprops/action-gh-release@v2
         with:
@@ -146,3 +150,139 @@ jobs:
             dist/roost-linux-x64.sha256
             dist/roost-linux-arm64
             dist/roost-linux-arm64.sha256
+            dist/roost-windows-x64.zip
+            dist/roost-windows-x64.zip.sha256
+            dist/roost-windows-x64.manifest.json
+            dist/roost-windows-x64.manifest.json.sha256
+            dist/roost-windows-x64.manifest.json.p7s
+            dist/roost-windows-x64.manifest.json.p7s.sha256
+
+  windows-verify:
+    name: verify Windows Server 2022
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - run: bun install --frozen-lockfile
+      - name: Windows invariant gate
+        run: |
+          bun x tsgo -p tsconfig.base.json --noEmit
+          bun test --isolate apps/shared/tests/ apps/coord/tests/ apps/web/tests/ apps/roost-cli/tests/ smoke/bun_smoke.test.ts
+      - name: Native keeper and ConPTY gate
+        run: >-
+          bun test
+          apps/worker/tests/keeper-history-resume.test.ts
+          apps/worker/tests/keeper-input-stress.test.ts
+          apps/worker/tests/keeper-child-reap.test.ts
+          apps/worker/tests/listening-ports.test.ts
+      - name: Install and update gate
+        run: bun test --isolate apps/roost-cli/tests/
+      - name: Coordinator move gate
+        run: >-
+          bun test
+          apps/coord/tests/coordinator-move-handlers.test.ts
+          apps/coord/tests/coordinator-move-orchestrator.test.ts
+          apps/coord/tests/coordinator-move-e2e.test.ts
+      - name: Install Playwright Chromium artifact
+        run: bunx playwright install chromium
+      - name: Terminal gate on Chromium
+        run: bun run test:terminal
+      - name: Build Windows candidate with generated embeds
+        run: bun scripts/build-binary.ts --windows-only
+      - name: Build Windows SDK helper with static CRT
+        shell: pwsh
+        run: ./scripts/windows/build-helper.ps1
+      - name: Embedded SPA on Chromium artifact
+        run: >-
+          bun scripts/windows/smoke-embedded-assets.ts
+          --binary dist/roost-windows-x64.exe
+          --channel chromium
+          --artifact-dir test-results/release-windows-chromium
+      - name: Embedded SPA on installed Edge
+        run: >-
+          bun scripts/windows/smoke-embedded-assets.ts
+          --binary dist/roost-windows-x64.exe
+          --channel msedge
+          --artifact-dir test-results/release-windows-edge
+      - name: Windows browser artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-windows-browser-artifacts
+          if-no-files-found: warn
+          path: |
+            playwright-report/
+            test-results/
+
+  windows-release:
+    name: sign and package Windows release
+    needs: [verify, windows-verify, build]
+    runs-on: windows-2022
+    timeout-minutes: 30
+    environment: release-signing
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - run: bun install --frozen-lockfile
+      - name: Require tag, Shawl pins and protected signing identity
+        shell: pwsh
+        env:
+          WINDOWS_SIGNING_PFX_BASE64: ${{ secrets.WINDOWS_SIGNING_PFX_BASE64 }}
+          WINDOWS_SIGNING_PFX_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PFX_PASSWORD }}
+          ROOST_WINDOWS_PUBLISHER_SHA256: ${{ secrets.ROOST_WINDOWS_PUBLISHER_SHA256 }}
+          SHAWL_WIN64_SHA256: f883c5d09c9beae2efaeabd8513e7d3f57cd1d0864cec3df4f4a7b6ee904351c
+          SHAWL_LEGAL_SHA256: a2a1743a64b79922062906eb32cdaf23db131769f8cabcc98e5d57bbf66eb0b0
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          if ($env:GITHUB_REF_NAME -ne "v$version") { throw "tag does not match package version v$version" }
+          foreach ($name in @("WINDOWS_SIGNING_PFX_BASE64", "WINDOWS_SIGNING_PFX_PASSWORD", "ROOST_WINDOWS_PUBLISHER_SHA256", "SHAWL_WIN64_SHA256", "SHAWL_LEGAL_SHA256")) {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) { throw "$name is a release blocker and is missing" }
+          }
+          if ($env:ROOST_WINDOWS_PUBLISHER_SHA256 -notmatch "^[0-9a-fA-F]{64}$") { throw "ROOST_WINDOWS_PUBLISHER_SHA256 must be 64 hex" }
+          if ($env:SHAWL_WIN64_SHA256 -ne "f883c5d09c9beae2efaeabd8513e7d3f57cd1d0864cec3df4f4a7b6ee904351c") { throw "Shawl win64 pin changed" }
+          if ($env:SHAWL_LEGAL_SHA256 -ne "a2a1743a64b79922062906eb32cdaf23db131769f8cabcc98e5d57bbf66eb0b0") { throw "Shawl legal pin changed" }
+          try { $null = [Convert]::FromBase64String($env:WINDOWS_SIGNING_PFX_BASE64) } catch { throw "WINDOWS_SIGNING_PFX_BASE64 is invalid" }
+      - name: Build versioned Windows PE and embedded assets
+        run: |
+          bun run --cwd apps/web build
+          bun scripts/build-binary.ts --windows-only
+      - name: Build helper with Windows SDK and /MT
+        shell: pwsh
+        run: ./scripts/windows/build-helper.ps1
+      - name: Authenticode sign, timestamp, checksum and package
+        shell: pwsh
+        env:
+          WINDOWS_SIGNING_PFX_BASE64: ${{ secrets.WINDOWS_SIGNING_PFX_BASE64 }}
+          WINDOWS_SIGNING_PFX_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PFX_PASSWORD }}
+          ROOST_WINDOWS_PUBLISHER_SHA256: ${{ secrets.ROOST_WINDOWS_PUBLISHER_SHA256 }}
+          WINDOWS_TIMESTAMP_URL: https://timestamp.digicert.com
+          SHAWL_WIN64_SHA256: f883c5d09c9beae2efaeabd8513e7d3f57cd1d0864cec3df4f4a7b6ee904351c
+          SHAWL_LEGAL_SHA256: a2a1743a64b79922062906eb32cdaf23db131769f8cabcc98e5d57bbf66eb0b0
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $publishedAt = ([DateTimeOffset]::Parse((git show -s --format=%cI HEAD))).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+          ./scripts/windows/package-windows.ps1 -Version $version -PublishedAt $publishedAt
+          ./scripts/windows/verify-windows-package.ps1
+          ./dist/windows-package/install.ps1 -InstallRoot (Join-Path $env:RUNNER_TEMP "roost-install-smoke") -StageOnly
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-release-candidates
+          if-no-files-found: error
+          path: |
+            dist/roost-windows-x64.zip
+            dist/roost-windows-x64.zip.sha256
+            dist/roost-windows-x64.manifest.json
+            dist/roost-windows-x64.manifest.json.sha256
+            dist/roost-windows-x64.manifest.json.p7s
+            dist/roost-windows-x64.manifest.json.p7s.sha256

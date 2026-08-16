@@ -28,6 +28,7 @@ import {
 import { isCompact, isTouchDevice } from "../lib/windowSizeClass.ts";
 import type { TerminalContext } from "../lib/keytermContext.ts";
 import type { Session } from "@roost/shared/wire";
+import type { InputAdmission } from "../ws/sync-outbound.ts";
 
 interface Props {
   placement: "viewport" | "pane";
@@ -35,7 +36,7 @@ interface Props {
   /** Whether this session currently owns a visible terminal surface. */
   active: boolean;
   /** Submits the draft through the pane's current terminal mode. */
-  onSubmit: (text: string) => void;
+  onSubmit: (text: string) => InputAdmission;
   /** Opens the native picker and attaches selected files to the terminal. */
   onAttachFiles: () => void;
   /** Live terminal text for Deepgram keyterm biasing; forwarded to the mic. */
@@ -63,6 +64,8 @@ export function TerminalComposeButton(props: Props) {
   const sessionId = props.session.id;
   const ownerToken = ++nextComposeOwnerToken;
   const [draft, setDraft] = createSignal(getComposerDraft(sessionId));
+  const [pendingSubmission, setPendingSubmission] = createSignal<string | null>(null);
+  const [submissionStatus, setSubmissionStatus] = createSignal<string | null>(null);
   const unsubscribeDraft = subscribeComposerDraft(sessionId, setDraft);
   const ownsComposeFocus = () => activeComposeOwner()?.token === ownerToken;
   const claimComposeFocus = () => setActiveComposeOwner({ sessionId, token: ownerToken });
@@ -221,16 +224,34 @@ export function TerminalComposeButton(props: Props) {
   // only when it already had it, so send keeps an open keyboard open but does
   // not undo an intentional Escape/outside blur.
   const sendLine = () => {
-    if (!props.active) return;
+    if (!props.active || pendingSubmission() !== null) return;
+    const text = draft();
     const retainInputFocus = document.activeElement === inputEl;
-    props.onSubmit(draft());
+    const admission = props.onSubmit(text);
+    if (!admission.accepted) {
+      setSubmissionStatus(admission.reason);
+      return;
+    }
+    setPendingSubmission(text);
     dictationBase = null;
     setDraft("");
-    queueMicrotask(() => {
-      autoGrow();
-      if (!retainInputFocus || !inputEl) return;
-      inputEl.focus({ preventScroll: true });
-      inputEl.setSelectionRange(0, 0);
+    setSubmissionStatus(null);
+    void admission.result.then((outcome) => {
+      setPendingSubmission(null);
+      if (outcome.status === "rejected") {
+        if (draft() === "") setDraft(text);
+        setSubmissionStatus(outcome.reason);
+      } else if (outcome.status === "ambiguous") {
+        setSubmissionStatus("Input may have been partially sent; it was not retried.");
+      } else {
+        setSubmissionStatus(null);
+      }
+      queueMicrotask(() => {
+        autoGrow();
+        if (!retainInputFocus || !inputEl) return;
+        inputEl.focus({ preventScroll: true });
+        inputEl.setSelectionRange(inputEl.value.length, inputEl.value.length);
+      });
     });
   };
 
@@ -275,7 +296,7 @@ export function TerminalComposeButton(props: Props) {
             type="button"
             class="term-chat__ctl term-chat__attach"
             data-testid="chat-attach"
-            disabled={!props.active}
+            disabled={!props.active || pendingSubmission() !== null}
             onMouseDown={keepKeyboard}
             onClick={() => { if (props.active) props.onAttachFiles(); }}
             aria-label="Attach files"
@@ -286,7 +307,7 @@ export function TerminalComposeButton(props: Props) {
           <textarea
             class="term-chat__input"
             data-testid="chat-input"
-            disabled={!props.active}
+            disabled={!props.active || pendingSubmission() !== null}
             aria-label="Terminal input"
             rows={1}
             placeholder={dictating() ? "Listening…" : "Type terminal input…"}
@@ -322,7 +343,7 @@ export function TerminalComposeButton(props: Props) {
           />
           <MobileVoiceInput
             ownerId={sessionId}
-            active={props.active}
+            active={props.active && pendingSubmission() === null}
             onActiveChange={setDictating}
             onTranscript={commitDictation}
             onLiveTranscript={showDictation}
@@ -336,7 +357,7 @@ export function TerminalComposeButton(props: Props) {
               type="button"
               class="term-chat__ctl term-chat__send"
               data-testid="chat-send"
-              disabled={!props.active}
+              disabled={!props.active || pendingSubmission() !== null}
               onMouseDown={keepKeyboard}
               onClick={sendLine}
               aria-label="Send to terminal"
@@ -345,6 +366,9 @@ export function TerminalComposeButton(props: Props) {
             </button>
           </Show>
         </div>
+        <Show when={submissionStatus()}>
+          {(message) => <div class="term-chat__status" role="status">{message()}</div>}
+        </Show>
       </div>
   );
 

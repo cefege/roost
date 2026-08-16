@@ -208,11 +208,16 @@ export function _dropChannelState(this: SessionManager, channelId: number): void
 	this.viewportClaims.delete(channelId);
 	this.lastAppliedSize.delete(channelId);
 	this._wtermRebuildChain.delete(channelId);
+	this.terminalControlChains.delete(channelId);
+	this.channelResizeSeq.delete(channelId);
+	this.cellEmissionGates.delete(channelId);
+	this.postResizeOutput.delete(channelId);
 	const cellTimer = this.cellEmitTimers.get(channelId);
 	if (cellTimer !== undefined) {
 		clearTimeout(cellTimer);
 		this.cellEmitTimers.delete(channelId);
 	}
+	this._disposeOutputState(channelId);
 }
 
 /** Diag snapshot helper for diag.snapshot RPC. */

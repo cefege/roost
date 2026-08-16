@@ -1,19 +1,11 @@
-// CellTerminal — cell-grid model terminal pane (R11, cell mode). Renders OUTPUT via
-// CellGridRenderer (pre-rendered cells, never reflows → no history corruption)
-// and handles INPUT via a HIDDEN @wterm/dom instance used ONLY as a keystroke
-// encoder + terminal-mode oracle.
+// CellTerminal — the canonical cell-grid terminal pane. The worker owns VT
+// parsing; this pane paints pre-rendered cells with CellGridRenderer and sends
+// input through a synchronous pane-local textarea controller. No browser-side
+// terminal core, hidden mirrored grid, WASM input oracle, or output reparse.
 //
-// Why the hidden wterm: keystroke→bytes encoding is mode-dependent — arrows
-// (DECCKM ESC[?1h), bracketed paste (ESC[?2004h), keypad — and those modes are
-// set by OUTPUT bytes. We feed the byte stream into the hidden wterm so its
-// onData encodes correctly in full-screen TUIs, and reuse RoostTerm's
-// focus behavior. The hidden wterm reflows internally but is never shown;
-// display comes from the cell grid.
-//
-// The ONLY terminal renderer (byte mode / Terminal.tsx deleted 2026-06-23 — cell
-// is canonical). Metadata alongside the cell stream lives here: ghost cursors
-// (cellRenderer.setGhosts) and compact OSC 8 mappings (attachTerminalLinks).
-// Input rides inputChannel.sendInput (bytes).
+// Metadata alongside the cell stream lives here: remote cursor ghosts, OSC 8
+// mappings, file links, predictive overlay and mouse SGR forwarding. Input and
+// viewport control ride the generation-aware Sync v2 outbound owner.
 
 import {
 	onMount,
@@ -26,7 +18,7 @@ import {
 	runWithOwner,
 	on,
 } from "solid-js";
-import { RoostTerm } from "../lib/RoostTerm.ts";
+import { TerminalInputController } from "../lib/terminalInputController.ts";
 import { CellGridRenderer } from "../lib/cellRenderer.ts";
 import { createScrollbackBackfill } from "../lib/scrollbackBackfill.ts";
 import { PredictiveEcho } from "../lib/predictiveEcho.ts";
@@ -43,26 +35,34 @@ import { FOCUS_OWNERS } from "../lib/focusOwners.ts";
 import { osc8TrackerFor, subscribeOsc8Mappings } from "../lib/terminalOsc8.ts";
 import { attachTerminalLinks, type ResolveFile, type TerminalLinkAttachment } from "./terminal-links.ts";
 import { downloadWorkerFileByHref } from "../lib/downloadWorkerFile.ts";
+import { resolveWorkerPath, workerFileHref } from "../lib/nativePath.ts";
 import { registerRenderer } from "../lib/terminalPreview.ts";
 import {
 	registerCellHandler,
 	registerPresenceHandler,
+	setCellMountClaimActive,
 } from "../store/sync.ts";
-import { inputChannel, consumeLastInputSendTs } from "../ws/input-channel.ts";
+import {
+	consumeLastInputSendTs,
+	seedTerminalViewportIntent,
+	sendTerminalInput,
+	sendTerminalViewportIntent,
+	type InputAdmission,
+} from "../ws/sync-outbound.ts";
 import {
 	recordInput,
 	getInputText,
 	clearInput,
 } from "../lib/terminalInputHistory.ts";
-import { buildPtyPayload, CR_BYTES, enterDelayMs } from "../lib/ptyPaste.ts";
-import { applyCtrlModifier } from "../lib/terminalInput.ts";
+import { buildPtyPayload, CR_BYTES } from "../lib/ptyPaste.ts";
+import { applyCtrlModifier, isAltGraphKey } from "../lib/terminalInput.ts";
 
 
 import { coordClient } from "../connect.ts";
 import { ResizeCause } from "@roost/shared/proto/coordinator_pb";
 import { isResizeDragging, arrangeEpoch } from "../lib/resizeDrag.ts";
 import { diag, isDiagEnabled, signal } from "@roost/shared/diag";
-import { getSessionTraceId } from "../lib/diag.ts";
+import { getSessionTraceId, markPhase, markPhaseOnce } from "../lib/diag.ts";
 import { recordInputRtt } from "../lib/leakWatch.ts";
 import { termFontSize } from "../lib/terminalFontPref.ts";
 import { copyOnSelect } from "../lib/copyOnSelectPref.ts";
@@ -79,7 +79,12 @@ import { syncStreamOpen } from "../store/sync-stream-open.ts";
 import { newestOpenSessionForFolderKey } from "../store/selectors.ts";
 import { folderKeyOf } from "../lib/folderKey.ts";
 import { TerminalOfflineNotice } from "./TerminalOfflineNotice.tsx";
-import { isPendingSpawn } from "../store/optimisticSpawn.ts";
+import {
+	isPendingSpawn,
+	publishMountedSpawnMeasurement,
+	takeSpawnViewportSeed,
+} from "../store/optimisticSpawn.ts";
+import { predictMode } from "../lib/predictPref.ts";
 
 interface CellTerminalProps {
 	session: Session;
@@ -155,34 +160,20 @@ const OFFLINE_GRACE_MS = 3000;
 
 export function CellTerminal(props: CellTerminalProps) {
 	const sessionId = props.session.id;
-	// Resolve a file path from terminal output → internal file-viewer href.
-	// Absolute paths pass through; relative resolve against the session cwd;
-	// ~/ paths derive the home dir from cwd (e.g. /Users/you/Code/foo →
-	// /Users/you). Feeds clickable file links (Cmd-click → FileViewerSheet).
+	// Resolve terminal-emitted POSIX, drive, UNC, or relative paths through the
+	// single worker-aware codec before building the reversible file route.
 	const resolveFile: ResolveFile = (rawPath, line) => {
-		const cwd = props.session.cwd;
-		let abs: string;
-		if (rawPath.startsWith("/")) abs = rawPath;
-		else if (rawPath.startsWith("~/")) {
-			// Derive home dir from cwd (e.g. /Users/you/Code/foo → /Users/you).
-			if (!cwd) return null;
-			const parts = cwd.split("/");
-			if (parts.length < 3) return null;
-			abs = "/" + parts[1] + "/" + parts[2] + rawPath.slice(1);
-		}
-		else if (!cwd) return null;
-		else abs = cwd.replace(/\/+$/, "") + "/" + rawPath.replace(/^\.\//, "");
-		const enc = abs
-			.split("/")
-			.map((s) => (s ? encodeURIComponent(s) : s))
-			.join("/");
-		return `/file/${props.session.worker_fp}/${enc.replace(/^\//, "")}${line ? `#L${line}` : ""}`;
+		const abs = resolveWorkerPath(
+			props.session.worker_fp,
+			props.session.cwd,
+			rawPath,
+		);
+		return abs ? workerFileHref(props.session.worker_fp, abs, line) : null;
 	};
 
 	const attachSelectedFiles = () => pickAndAttachFiles(props.session);
 
-	let displayRef: HTMLDivElement | undefined; // visible — CellGridRenderer paints here
-	let inputHostRef: HTMLDivElement | undefined; // hidden — RoostTerm (input + mode oracle)
+	let displayRef: HTMLDivElement | undefined;
 	const [ctrlArmed, setCtrlArmed] = createSignal(false);
 
 	let renderer: CellGridRenderer | null = null;
@@ -202,8 +193,9 @@ export function CellTerminal(props: CellTerminalProps) {
 	// it to pull an unpainted match row in before jumping to it.
 	let backfillRef: ScrollbackBackfill | null = null;
 	let predictor: PredictiveEcho | null = null;
-	let term: RoostTerm | null = null;
-	let frameBracketed = false; // latest paste mode from cell frames; default matches wterm
+	let inputController: TerminalInputController | null = null;
+	let frameCursorApp = false;
+	let frameBracketed = false;
 
 	let cellW = 0;
 	let cellH = 0;
@@ -211,8 +203,10 @@ export function CellTerminal(props: CellTerminalProps) {
 	// effect below is purely change-driven — starting at 0 would make its first
 	// run look like a change and fire a redundant claim on every cold mount.
 	let lastZoomPx = termFontSize();
+	let latestClaimSeq = 0n;
 	let claimSeq = 0;
 	let lastClaimed = { cols: 0, rows: 0 }; // last ADOPTED claim — hold-anchor for VIEWPORT wobble
+	let lastEnqueued = { cols: 0, rows: 0 };
 	let resizeObs: ResizeObserver | null = null;
 	let claimTimer: ReturnType<typeof setTimeout> | null = null;
 	// Last claim/withdraw actually sent — dedups duplicate hidden/offscreen signals.
@@ -224,22 +218,32 @@ export function CellTerminal(props: CellTerminalProps) {
 	// Reveal forensics: performance.now() at the inLayout flip → true; the first
 	// frame applied afterwards emits diag("cell.reveal") with the elapsed ms.
 	let revealT0 = 0;
-	const sendTerminalText = (text: string, submit = false): void => {
-		if (text.length === 0) {
-			if (submit) inputChannel.sendInput(sessionId, CR_BYTES);
-			return;
-		}
-		inputChannel.sendInput(
-			sessionId,
-			buildPtyPayload(text, frameBracketed),
-		);
-		recordInput(sessionId, text);
+	const sendTerminalText = (text: string, submit = false): InputAdmission => {
+		const payload = text.length === 0 ? new Uint8Array(0) : buildPtyPayload(text, frameBracketed);
+		const bytes = submit ? new Uint8Array(payload.byteLength + CR_BYTES.byteLength) : payload;
 		if (submit) {
-			setTimeout(
-				() => inputChannel.sendInput(sessionId, CR_BYTES),
-				enterDelayMs(text),
-			);
+			bytes.set(payload);
+			bytes.set(CR_BYTES, payload.byteLength);
 		}
+		const admission = sendTerminalInput(sessionId, bytes);
+		if (!admission.accepted) {
+			signal("input.drop_burst", {
+				sid: sessionId,
+				reason: admission.reason,
+				cooldownKey: sessionId,
+			});
+			return admission;
+		}
+		if (text.length > 0) recordInput(sessionId, text);
+		void admission.result.then((result) => {
+			if (result.status === "accepted") return;
+			signal("input.drop_burst", {
+				sid: sessionId,
+				reason: result.status === "ambiguous" ? "ambiguous" : result.reason,
+				cooldownKey: sessionId,
+			});
+		});
+		return admission;
 	};
 
 	// A paste of ≥2 newlines into a shell WITHOUT bracketed paste executes every
@@ -247,23 +251,33 @@ export function CellTerminal(props: CellTerminalProps) {
 	// of it" foot-gun. With bracketed paste on, the shell buffers it safely, so
 	// there is nothing to warn about and no prompt.
 	const MULTILINE_PASTE_MIN_NEWLINES = 2;
+	const countLineBreaks = (text: string): number =>
+		text.match(/\r\n|\r|\n/g)?.length ?? 0;
 	const [pendingPaste, setPendingPaste] = createSignal<string | null>(null);
 	const pendingPasteLines = () => {
 		const text = pendingPaste();
-		return text === null ? 0 : text.split("\n").length;
+		return text === null ? 0 : countLineBreaks(text) + 1;
 	};
 
 	/** The single entry point for every clipboard-originated paste: the ⌘⇧V
 	 *  chord, the context menu, and a native paste we intercepted. */
 	function pasteText(text: string): void {
 		if (text.length === 0) return;
-		const newlines = text.split("\n").length - 1;
-		if (newlines >= MULTILINE_PASTE_MIN_NEWLINES && !frameBracketed) {
+		if (countLineBreaks(text) >= MULTILINE_PASTE_MIN_NEWLINES && !frameBracketed) {
 			setPendingPaste(text);
 			return;
 		}
 		sendTerminalText(text);
 	}
+	const enqueueFileItems = (items: DataTransferItemList | null | undefined) => {
+		if (!items) return;
+		for (let i = 0; i < items.length; i++) {
+			const item = items[i]!;
+			if (item.kind !== "file") continue;
+			const file = item.getAsFile();
+			if (file) void enqueueAttachment(props.session, file);
+		}
+	};
 
 	async function copySelectionToClipboard(): Promise<void> {
 		const text = window.getSelection()?.toString() ?? "";
@@ -343,11 +357,28 @@ export function CellTerminal(props: CellTerminalProps) {
 		return true;
 	}
 
+	function measureViewport(): { cols: number; rows: number } | null {
+		if (!displayRef) return null;
+		if ((cellW === 0 || cellH === 0) && !measureCell()) return null;
+		const cs = getComputedStyle(displayRef);
+		const padL = parseFloat(cs.paddingLeft) || 0;
+		const padR = parseFloat(cs.paddingRight) || 0;
+		const padT = parseFloat(cs.paddingTop) || 0;
+		const padB = parseFloat(cs.paddingBottom) || 0;
+		const usableW = Math.max(0, displayRef.clientWidth - padL - padR);
+		const usableH = Math.max(0, displayRef.clientHeight - padT - padB);
+		return {
+			cols: Math.max(1, Math.floor(usableW / cellW)),
+			rows: Math.max(1, Math.floor(usableH / cellH)),
+		};
+	}
+
 	// Zero-size claims remove inactive viewers from the SCD-min PTY size.
 	// Hidden, offscreen, and unmounted panes withdraw immediately. Visibility
 	// reads route through isPageVisible() so the __smoke.forceVisible automation
 	// pin applies.
 	function sendWithdraw(): void {
+		setCellMountClaimActive(props.session.id, false);
 		backfillRef?.suspend();
 		if (claimTimer) {
 			clearTimeout(claimTimer);
@@ -356,19 +387,18 @@ export function CellTerminal(props: CellTerminalProps) {
 		if (_lastSent === "withdraw") return; // already withdrawn — skip the duplicate RPC
 		_lastSent = "withdraw";
 		lastClaimed = { cols: 0, rows: 0 }; // re-show must re-claim, not be held by a stale anchor
-		claimSeq += 1;
+		lastEnqueued = { cols: 0, rows: 0 };
+		const admission = sendTerminalViewportIntent(props.session.id, {
+			cols: 0,
+			rows: 0,
+			cause: ResizeCause.WITHDRAW,
+		});
+		latestClaimSeq = admission.sequence;
 		diag("cell.claim", {
 			sid: props.session.id,
 			cols: 0,
 			rows: 0,
-			client_seq: claimSeq,
-		});
-		void coordClient.sessionsResize({
-			sessionId: props.session.id,
-			cols: 0,
-			rows: 0,
-			clientSeq: BigInt(claimSeq),
-			cause: ResizeCause.WITHDRAW,
+			client_seq: admission.sequence,
 		});
 	}
 
@@ -390,40 +420,39 @@ export function CellTerminal(props: CellTerminalProps) {
 			sendPark();
 			return;
 		}
-		if (cellW === 0 || cellH === 0) {
-			if (!measureCell()) return;
-		}
-		const cs = getComputedStyle(displayRef);
-		const padL = parseFloat(cs.paddingLeft) || 0;
-		const padR = parseFloat(cs.paddingRight) || 0;
-		const padT = parseFloat(cs.paddingTop) || 0;
-		const padB = parseFloat(cs.paddingBottom) || 0;
-		const usableW = Math.max(0, displayRef.clientWidth - padL - padR);
-		const usableH = Math.max(0, displayRef.clientHeight - padT - padB);
-		const cols = Math.max(1, Math.floor(usableW / cellW));
-		const rows = Math.max(1, Math.floor(usableH / cellH));
+		const measured = measureViewport();
+		if (!measured) return;
+		const { cols, rows } = measured;
 		// Suppress no-change claims to avoid needless resize round-trips.
-		if (cause === ResizeCause.VIEWPORT && lastClaimed.cols > 0
-			&& cols === lastClaimed.cols && rows === lastClaimed.rows) return;
-		lastClaimed = { cols, rows };
+		if (cause === ResizeCause.VIEWPORT && lastEnqueued.cols > 0
+			&& cols === lastEnqueued.cols && rows === lastEnqueued.rows) return;
+		lastEnqueued = { cols, rows };
 		_lastSent = "claim";
 		initialClaimSent = true;
-		claimSeq += 1;
-		diag("cell.claim", {
-			sid: props.session.id,
+		setCellMountClaimActive(props.session.id, true);
+		const admission = sendTerminalViewportIntent(props.session.id, {
 			cols,
 			rows,
-			client_seq: claimSeq,
-		});
-		void coordClient.sessionsResize({
-			sessionId: props.session.id,
-			cols,
-			rows,
-			clientSeq: BigInt(claimSeq),
 			cause,
 			// The worker skips a repaint when this watermark is current, or sends
 			// one authoritative viewport-only full frame when the dormant grid fell behind.
 			heldCellSeq: renderer?.heldFrameSeq() ?? 0,
+		});
+		latestClaimSeq = admission.sequence;
+		claimSeq = Math.max(claimSeq, Number(admission.sequence));
+		diag("cell.claim", {
+			sid: props.session.id,
+			cols,
+			rows,
+			client_seq: admission.sequence,
+		});
+		void admission.result.then((result) => {
+			if (result.sequence !== latestClaimSeq) return;
+			if (result.status === "accepted") {
+				lastClaimed = { cols, rows };
+			} else {
+				lastEnqueued = lastClaimed;
+			}
 		});
 	}
 
@@ -450,31 +479,11 @@ export function CellTerminal(props: CellTerminalProps) {
 	}
 
 
-	onMount(async () => {
+	onMount(() => {
 		try {
-		inputChannel.start();
-		const sid = props.session.id; // body-scope capture for onCleanup (L11)
-		// Owner captured BEFORE the `await term.init()` below. onCleanup after an
-		// await registers against a null owner (Solid drops it) → the teardown block
-		// never runs → document drop/paste/mousedown/keydown listeners + intervals
-		// leak per unmount. Leaked stale `onDrop` closures pass their isActive guard
-		// (disposed memo's last value) → N× enqueueAttachment on one drop. Bind the
-		// post-await onCleanup to this owner so teardown actually fires on unmount.
+		// Sync v2 owns connection and replay; no per-pane input channel startup.
+		const sid = props.session.id;
 		const cellOwner = getOwner();
-
-		// The keystroke encoder's WASM instantiate is started here but NOT awaited:
-		// the browser wterm is renderless (RoostTerm.ts) and is only an input
-		// oracle, so nothing about painting the grid needs it. Awaiting it put a
-		// wasm compile ahead of the renderer, the cell subscription and the first
-		// viewport claim on every pane mount. `term` stays null until init lands,
-		// which is what makes every `term?.` call site below a safe no-op until
-		// then (syncInputModes checks it explicitly). The continuation is attached
-		// further down, once syncInputModes and the input wiring it needs exist.
-		const initializedTerm = new RoostTerm(inputHostRef!, {
-			autoFocus: props.focused === true && !isTouchDevice() && activeComposeSessionId() === null,
-			renderless: true,
-		});
-		const termReady = initializedTerm.init();
 		runWithOwner(cellOwner, () => {
 			// ── output: cells ────────────────────────────────────────────────
 			renderer = new CellGridRenderer(displayRef!);
@@ -499,21 +508,8 @@ export function CellTerminal(props: CellTerminalProps) {
 			if (!renderer.atBottom() && renderer.nearHistoryTop()) backfill.onUserScrollUp();
 		};
 		displayRef!.addEventListener("scroll", onScroll, { passive: true });
-		// Predictive local echo — speculative client overlay, gated on
-		// SRTT + alt-screen; no-op on a fast link. See lib/predictiveEcho.ts.
-		predictor = new PredictiveEcho(renderer.predictionHost, {
-			sid: props.session.id,
-			onCursor: (col) => renderer?.setPredictedCursor(col),
-		});
-		// Debug bridge (Step-1 diagnostic lever): behind the existing smoke flag so
-		// production `window` stays clean. The last-mounted pane re-binds the
-		// global, so focus the pane under test; on dispose, `predictor = null`
-		// makes the closure return null. Returns counts/SRTT/epoch/mode only — no
-		// session content.
-		if (typeof localStorage !== "undefined" && localStorage.getItem("roostSmoke") === "1") {
-			(window as Window & { __roostPredictDebug?: () => unknown }).__roostPredictDebug =
-				() => predictor?._debug() ?? null;
-		}
+		// Predictor is initialized only after the cell handler and first visible
+		// claim below, keeping speculative/UI work out of first-paint setup.
 		// Ghost cursors: this viewer's latest cursor (sent to others) + the map of
 		// OTHER viewers' cursors (received via presence, painted by cellRenderer).
 		let lastCurRow = 0,
@@ -528,17 +524,9 @@ export function CellTerminal(props: CellTerminalProps) {
 		>();
 		let unsubCell: () => void;
 		let unsubPresence: () => void;
-		// Input-encoding modes now ride the cell frame (cursorKeysApp / bracketedPaste)
-		// instead of re-parsing the whole output byte stream through the hidden wterm.
-		// We keep the hidden wterm ONLY as the keystroke encoder; write the tiny mode-set
-		// escapes when a flag flips so its onData encodes arrows (DECCKM) + paste correctly.
-		let frameCursorApp = false; // latest cursor-key mode from cell frames
-		let syncedCursorApp = false, syncedBracketed = false; // what the hidden wterm knows (wterm defaults: both off)
-		const syncInputModes = () => {
-			if (!term) return;
-			if (frameCursorApp !== syncedCursorApp) { syncedCursorApp = frameCursorApp; term.write(frameCursorApp ? "\x1b[?1h" : "\x1b[?1l"); }
-			if (frameBracketed !== syncedBracketed) { syncedBracketed = frameBracketed; term.write(frameBracketed ? "\x1b[?2004h" : "\x1b[?2004l"); }
-		};
+		// Input modes ride cell frames directly; the textarea encoder reads these
+		// booleans synchronously and never reparses PTY output.
+		let measurementRaf = 0;
 		runWithOwner(cellOwner, () => {
 			const requestFullFrame = (got: number) => {
 				if (awaitingFullFrame) return;
@@ -588,10 +576,18 @@ export function CellTerminal(props: CellTerminalProps) {
 					});
 				}
 				const _ap = diagOn ? performance.now() : 0;
-				if (!renderer.apply(frame)) {
+				const applied = frame.full
+					? renderer.applyFullFrame(frame)
+					: renderer.applyDeltaFrame(frame);
+				if (!applied) {
 					requestFullFrame(frame.seq);
 					return;
 				}
+				markPhaseOnce("first_cell_apply", props.session.id, {
+					sessionId: props.session.id,
+					sequence: frame.seq,
+					full: frame.full,
+				});
 				awaitingFullFrame = false;
 				setHasFrame(true);
 				lastAppliedSeq = frame.seq;
@@ -610,12 +606,114 @@ export function CellTerminal(props: CellTerminalProps) {
 				}
 				frameCursorApp = frame.cursorKeysApp;
 				frameBracketed = frame.bracketedPaste;
-				syncInputModes();
 				lastCurRow = frame.cursorRow;
 				lastCurCol = frame.cursorCol;
 				predictor?.onFrame(frame); // reconcile predictions against the authoritative grid
 				if (frame.full) backfill.onFullFrame();
+			}, () => requestFullFrame(0));
+			markPhase("terminal_mount", { sessionId: props.session.id });
+			// Optimistic spawn may begin only after renderer + repair-aware cell
+			// handler installation. Reserve the mounted slot's real dimensions;
+			// one rAF retry covers layout not yet measurable in onMount.
+			const publishSpawnMeasurement = (): boolean => {
+				if (
+					!pending()
+					|| props.inLayout !== true
+					|| !props.surfaceActive
+					|| !isPageVisible()
+				) return false;
+				const measured = measureViewport();
+				if (!measured) return false;
+				const measuredClientSeq = claimSeq + 1;
+				const published = publishMountedSpawnMeasurement(props.session.id, {
+					...measured,
+					clientSeq: measuredClientSeq,
+				});
+				if (published) {
+					claimSeq = measuredClientSeq;
+					lastClaimed = measured;
+					lastEnqueued = measured;
+					_lastSent = "claim";
+					setCellMountClaimActive(props.session.id, true);
+				}
+				return published;
+			};
+			if (!publishSpawnMeasurement()) {
+				measurementRaf = requestAnimationFrame(() => {
+					measurementRaf = 0;
+					publishSpawnMeasurement();
+				});
+			}
+
+			// Persist the ordinary initial claim only after the renderer and cell
+			// handler are ready. Optimistic sessions seed this owner on reconcile.
+			if (!pending() && props.inLayout === true && props.surfaceActive && isPageVisible()) {
+				sendClaim(ResizeCause.INITIAL);
+			}
+
+			predictor = new PredictiveEcho(renderer!.predictionHost, {
+				mode: predictMode,
+				sid: props.session.id,
+				onCursor: (col) => renderer?.setPredictedCursor(col),
 			});
+			createEffect(() => {
+				predictMode();
+				predictor?.refreshPreference();
+			});
+			if (typeof localStorage !== "undefined" && localStorage.getItem("roostSmoke") === "1") {
+				(window as Window & { __roostPredictDebug?: () => unknown }).__roostPredictDebug =
+					() => predictor?._debug() ?? null;
+			}
+
+			inputController = new TerminalInputController(displayRef!, {
+				cursorKeysApplication: () => frameCursorApp,
+				onData: (data) => {
+					const armed = ctrlArmed();
+					const controlledData = armed ? applyCtrlModifier(data) : data;
+					if (armed) setCtrlArmed(false);
+					const bytes = new TextEncoder().encode(controlledData);
+					const admission = sendTerminalInput(props.session.id, bytes);
+					if (!admission.accepted) {
+						signal("input.drop_burst", {
+							sid: props.session.id,
+							reason: admission.reason,
+							cooldownKey: props.session.id,
+						});
+						return;
+					}
+					predictor?.predict(bytes);
+					recordInput(props.session.id, controlledData);
+					void admission.result.then((result) => {
+						if (result.status === "accepted") return;
+						signal("input.drop_burst", {
+							sid: props.session.id,
+							reason: result.status === "ambiguous" ? "ambiguous" : result.reason,
+							cooldownKey: props.session.id,
+						});
+					});
+				},
+				onPaste: (text, event) => {
+					enqueueFileItems(event.clipboardData?.items);
+					pasteText(text);
+				},
+				ariaLabel: `Terminal input — ${sessionTitle(props.session)}`,
+			});
+			if (
+				props.inLayout === true
+				&& props.focused === true
+				&& !isTouchDevice()
+				&& activeComposeSessionId() === null
+			) {
+				inputController.forceFocus();
+				requestAnimationFrame(() => {
+					if (
+						!unmounted
+						&& props.inLayout === true
+						&& props.focused === true
+						&& activeComposeSessionId() === null
+					) inputController?.forceFocus();
+				});
+			}
 
 			// Receive remote viewers' cursors → ghostMap → cellRenderer (ch/lh overlay).
 			unsubPresence = registerPresenceHandler(props.session.id, (msg) => {
@@ -634,13 +732,14 @@ export function CellTerminal(props: CellTerminalProps) {
 					});
 					renderer?.setGhosts(ghostMap);
 				} else if (
-					f.kind === "presence-leave" &&
-					typeof f.viewer_id === "string"
+					f.kind === "presence-leave"
+					&& typeof f.viewer_id === "string"
 				) {
 					if (ghostMap.delete(f.viewer_id)) renderer?.setGhosts(ghostMap);
 				}
 			});
 		});
+
 
 		// Send THIS viewer's cursor so others' ghostMaps update. Gated on visible +
 		// active (a hidden deck pane has no one watching). 500ms, only on change.
@@ -667,61 +766,14 @@ export function CellTerminal(props: CellTerminalProps) {
 				|| lastClaimed.cols <= 0
 				|| lastClaimed.rows <= 0
 			) return;
-			void coordClient.sessionsResize({
-				sessionId: props.session.id,
+			sendTerminalViewportIntent(props.session.id, {
 				cols: lastClaimed.cols,
 				rows: lastClaimed.rows,
-				clientSeq: BigInt(claimSeq),
 				cause: ResizeCause.HEARTBEAT,
 				heldCellSeq: renderer?.heldFrameSeq() ?? 0,
 			});
 		}, CLAIM_HEARTBEAT_MS);
 
-		// Init continuation: publish `term`, take focus, and wire the encoder. A
-		// keystroke arriving before this lands is simply not encoded — the pane
-		// cannot be focused before the encoder exists, and forceFocus runs here.
-		void termReady.then(() => runWithOwner(cellOwner, () => {
-			if (unmounted) { initializedTerm.destroy(); return; }
-			term = initializedTerm;
-			if (
-				props.inLayout === true
-				&& props.focused === true
-				&& !isTouchDevice()
-				&& activeComposeSessionId() === null
-			) {
-				initializedTerm.forceFocus();
-				requestAnimationFrame(() => {
-					if (
-						!unmounted
-						&& props.inLayout === true
-						&& props.focused === true
-						&& activeComposeSessionId() === null
-					) initializedTerm.forceFocus();
-				});
-			}
-			syncInputModes(); // flush modes seen before the hidden wterm existed
-			initializedTerm.onData = (data: string) => {
-				const armed = ctrlArmed();
-				const controlledData = armed ? applyCtrlModifier(data) : data;
-				if (armed) setCtrlArmed(false);
-				const bytes = new TextEncoder().encode(controlledData);
-				predictor?.predict(bytes); // speculative echo before the round-trip
-				inputChannel.sendInput(props.session.id, bytes);
-				recordInput(props.session.id, controlledData); // typed text → keyterm context
-			};
-		})).catch((e: unknown) => {
-			// Without this the encoder's rejection is an unhandled rejection and the
-			// pane silently cannot accept input (the "can't input anything" class).
-			initializedTerm.destroy();
-			term = null;
-			signal("diag.corruption_signal", {
-				kind: "cell_mount_failed",
-				sid: props.session.id,
-				session_trace_id: getSessionTraceId(props.session.id),
-				msg: String(e),
-				cooldownKey: props.session.id,
-			});
-		});
 
 		// OSC 8 mappings are retained in sync-dispatch before a pane is visited.
 		const osc8 = osc8TrackerFor(props.session.id);
@@ -760,9 +812,8 @@ export function CellTerminal(props: CellTerminalProps) {
 		const isNavFallthrough = () =>
 			isTouchDevice() && Date.now() - lastActivatedMs < NAV_FALLTHROUGH_MS;
 
-		// Clicks land on visible cell rows, not the off-screen textarea — bridge
-		// them to the hidden wterm's focus (RoostTerm's own bridge is on the
-		// hidden host, which never receives these clicks).
+		// Clicks land on visible cells, so bridge them back to this pane's
+		// textarea after native selection/focus handling settles.
 		const onDisplayDown = (ev: MouseEvent) => {
 			// Left-click only: right-click (button 2) opens the context menu and
 			// must NOT steal focus — forceFocus collapses the window selection, and
@@ -772,7 +823,7 @@ export function CellTerminal(props: CellTerminalProps) {
 			if (isNavFallthrough()) return;
 			const t = ev.target as HTMLElement | null;
 			if (t?.closest("button, input, textarea, a")) return;
-			queueMicrotask(() => term?.forceFocus());
+			queueMicrotask(() => inputController?.forceFocus());
 		};
 		displayRef!.addEventListener("mousedown", onDisplayDown);
 
@@ -785,7 +836,7 @@ export function CellTerminal(props: CellTerminalProps) {
 			if (t?.closest("button, input, textarea, a")) return;
 			const sel = displayRef?.ownerDocument.getSelection();
 			if (sel && !sel.isCollapsed) return; // text selected → don't steal focus
-			term?.forceFocus();
+			inputController?.forceFocus();
 		};
 		displayRef!.addEventListener("click", onDisplayClick);
 
@@ -824,7 +875,7 @@ export function CellTerminal(props: CellTerminalProps) {
 		const modifierBypass = (ev: MouseEvent | WheelEvent) =>
 			ev.shiftKey || ev.altKey;
 		const sendSeq = (seq: string) =>
-			inputChannel.sendInput(props.session.id, new TextEncoder().encode(seq));
+			sendTerminalInput(props.session.id, new TextEncoder().encode(seq));
 		const cellOf = (
 			clientX: number,
 			clientY: number,
@@ -936,15 +987,6 @@ export function CellTerminal(props: CellTerminalProps) {
 		// missed the grid handler → the browser opened the image in a new tab.
 		// file drags only so text/selection drags aren't hijacked.
 		const dragHasFiles = (e: DragEvent) => e.dataTransfer?.types.includes("Files") ?? false;
-		const enqueueFileItems = (items: DataTransferItemList | null | undefined) => {
-			if (!items) return;
-			for (let i = 0; i < items.length; i++) {
-				const item = items[i]!;
-				if (item.kind !== "file") continue;
-				const file = item.getAsFile();
-				if (file) void enqueueAttachment(props.session, file);
-			}
-		};
 		const onDragOver = (e: DragEvent) => {
 			if (!props.focused || !isPageVisible() || !dragHasFiles(e)) return;
 			e.preventDefault(); // allow the drop + stop the browser opening the file
@@ -954,33 +996,9 @@ export function CellTerminal(props: CellTerminalProps) {
 			e.preventDefault();
 			enqueueFileItems(e.dataTransfer?.items);
 		};
-		const onPaste = (e: ClipboardEvent) => {
-			enqueueFileItems(e.clipboardData?.items);
-			// A native paste otherwise lands in wterm's hidden textarea and rides
-			// onData straight to the PTY, which is where the unbracketed-multiline
-			// foot-gun actually happens — so route a risky payload through the same
-			// confirmation path the ⌘⇧V chord uses.
-			const text = e.clipboardData?.getData("text") ?? "";
-			if (!frameBracketed && text.split("\n").length - 1 >= MULTILINE_PASTE_MIN_NEWLINES) {
-				e.preventDefault();
-				pasteText(text);
-			}
-		};
-		// The display never has focus (wterm's textarea does, off-screen in
-		// inputHostRef), so the paste event fires there — listen on both.
-		displayRef!.addEventListener("paste", onPaste);
-		inputHostRef!.addEventListener("paste", onPaste);
 
-		// Focus the hidden textarea whenever this pane is the active one. NON-
-		// deferred (mirrors Terminal.tsx ~L945) so it fires on mount too: the prior
-		// { defer: true } variant skipped the initial run, so a pane that mounts
-		// already-active never got focused → focus stuck on <body> → every keystroke
-		// dropped. THIS was the cell-phase-3b "can't input in cell mode" bug. Created
-		// inside onMount so `term` is already assigned when it first runs.
-		// Only a pane on the visible terminal surface owns a viewport claim.
-		// Offscreen sessions stay mounted with their last grid but withdraw
-		// immediately; reveal reclaims and receives an authoritative snapshot.
-		// Memoizing this boolean avoids reclaims on unrelated layout object churn.
+		// Visibility owns both viewport admission and keyboard focus. Parked panes
+		// remain mounted but withdraw immediately; reveal reclaims a full repair.
 		const claimVisibleFlag = createMemo(
 			() => props.inLayout === true && props.surfaceActive,
 		);
@@ -989,6 +1007,7 @@ export function CellTerminal(props: CellTerminalProps) {
 				sendPark();
 				return;
 			}
+			if (_lastSent === "claim" && initialClaimSent) return;
 			revealT0 = performance.now();
 			sendClaimNow(ResizeCause.TAB_VISIBLE);
 		}));
@@ -1004,16 +1023,12 @@ export function CellTerminal(props: CellTerminalProps) {
 				setCtrlArmed(false);
 				return;
 			}
-			if (!isTouchDevice() && activeComposeSessionId() === null) term?.forceFocus();
+			if (!isTouchDevice() && activeComposeSessionId() === null) inputController?.forceFocus();
 		});
 
 
-		// Per-pane GLOBAL listeners (window/document) attach only while this pane
-		// is IN the layout: the deck keeps every open session mounted, so the old
-		// unconditional attach scaled N handlers per pointer/selection/drag event
-		// app-wide. runWithOwner(cellOwner): post-await effects have no owner, and
-		// this one MUST dispose on unmount or the listeners leak. Cleanup closes
-		// over locals only (L11 feedback_no_props_read_in_oncleanup).
+		// Per-pane GLOBAL listeners attach only while this pane is in the layout;
+		// parked tabs stay mounted without multiplying document event work.
 		runWithOwner(cellOwner, () =>
 			createEffect(() => {
 				if (!claimVisibleFlag()) return;
@@ -1060,23 +1075,38 @@ export function CellTerminal(props: CellTerminalProps) {
 		// session is renamed or its running program changes.
 		runWithOwner(cellOwner, () =>
 			createEffect(() => {
-				renderer?.setAccessibleLabel(`Terminal — ${sessionTitle(props.session)}`);
+				const title = sessionTitle(props.session);
+				renderer?.setAccessibleLabel(`Terminal — ${title}`);
+				inputController?.setAccessibleLabel(`Terminal input — ${title}`);
 			}),
 		);
 
-		// ── viewport claim — drives PTY/grid size; worker emits a full cell
-		//    snapshot on claim so the pane paints immediately. sendClaim()
-		//    self-measures on first call (cellW/cellH still 0). ──────────────
-		// Fire the INITIAL claim once the session is real. Non-optimistic: now
-		// (pending already false) — identical timing to the old unconditional call.
-		// Optimistic: when the spawn confirms and pending flips false. Bare
-		// createEffect post-await matches the inLayout/focus effects above (tracks
-		// reactively, re-runs on the flip); initialClaimSent (component scope, set
-		// on any real claim send) guarantees exactly one intent claim per cold
-		// mount — the inLayout TAB_VISIBLE effect usually wins and this no-ops.
+		// Reconcile the coordinator-installed preclaim into the persisted Sync
+		// viewport owner before deciding whether a corrective INITIAL is needed.
 		createEffect(() => {
-			if (pending() || !claimVisibleFlag()) return;
-			if (initialClaimSent) return;
+			if (pending()) return;
+			const seed = takeSpawnViewportSeed(props.session.id);
+			if (seed) {
+				const hasNewerIntent = claimSeq > seed.clientSeq;
+				claimSeq = Math.max(claimSeq, seed.effectiveClientSeq);
+				latestClaimSeq = BigInt(Math.max(Number(latestClaimSeq), seed.effectiveClientSeq));
+				seedTerminalViewportIntent(
+					props.session.id,
+					BigInt(seed.effectiveClientSeq),
+					seed.cols,
+					seed.rows,
+					ResizeCause.INITIAL,
+				);
+				lastClaimed = { cols: seed.cols, rows: seed.rows };
+				lastEnqueued = lastClaimed;
+				_lastSent = "claim";
+				setCellMountClaimActive(props.session.id, true);
+				const current = measureViewport();
+				initialClaimSent = !hasNewerIntent
+					&& current?.cols === seed.cols
+					&& current.rows === seed.rows;
+			}
+			if (!claimVisibleFlag() || initialClaimSent) return;
 			sendClaim(ResizeCause.INITIAL);
 		});
 		// Terminal zoom: the cell box changed without the container changing, so
@@ -1193,12 +1223,9 @@ export function CellTerminal(props: CellTerminalProps) {
 		window.addEventListener("pagehide", onPageHide);
 		window.addEventListener("pageshow", onPageShow);
 
-		// ── FOCUS SAFETY NET (the "sometimes can't type, refresh/switch fixes it"
-		//    bug) ──────────────────────────────────────────────────────────────
-		// wterm's textarea lives offscreen; clicking any bare control (sidebar
-		// ✕/FAB, mic, nav-keys, launch FAB, tabs) parks focus ON the control →
-		// onData stops firing → keystrokes vanish until remount/pane-switch. Two
-		// capture-phase nets on this active+visible pane keep that from happening:
+		// The pane textarea lives offscreen; clicking bare chrome can park focus on
+		// a control. Capture-phase prevention plus key recovery keeps ownership
+		// stable without interfering with real inputs, dialogs, menus or panes.
 		//
 		// (1) mousedown PREVENT — a click on anything outside FOCUS_OWNERS keeps
 		//     focus on the terminal (preventDefault blocks the focus-shift; the
@@ -1215,12 +1242,9 @@ export function CellTerminal(props: CellTerminalProps) {
 		};
 		document.addEventListener("mousedown", onDocMousedown, true);
 		//
-		// (2) keydown RECOVER — backstop for focus an overlay grabbed
-		//     programmatically (⌘K palette, rename dialog) and then dropped, where
-		//     no mousedown fired. Recovers on a real typing key when focus is parked
-		//     nowhere (body/html) or on a bare control; leaves text widgets/overlays
-		//     and Space/Enter (button activation) alone. inputHostRef short-circuit
-		//     keeps the per-keystroke hot path off the closest() walk.
+		// Keydown recovery is the backstop for an overlay that grabbed focus and
+		// later dropped it. The textarea identity check keeps the normal
+		// per-keystroke path off every selector walk.
 		const onDocKeydown = (e: KeyboardEvent) => {
 			if (e.defaultPrevented) return;
 			if (!e.isTrusted && isTouchDevice()) return;
@@ -1259,20 +1283,20 @@ export function CellTerminal(props: CellTerminalProps) {
 				return;
 			}
 			const ae = document.activeElement as HTMLElement | null;
-			if (inputHostRef?.contains(ae)) return; // already typing into this terminal
+			if (inputController?.ownsTarget(ae)) return;
 			if (ae === document.body || ae === document.documentElement) {
-				if (e.metaKey || e.altKey || e.isComposing) return;
+				const altGraph = isAltGraphKey(e);
+				if (e.metaKey || (e.altKey && !altGraph) || e.isComposing) return;
 				if (e.key === "Control" || e.key === "Shift") return;
 
-				term?.forceFocus();
-				if (term?.dispatchKeydown(e.key, {
+				inputController?.forceFocus();
+				if (inputController?.dispatchKeydown(e.key, {
 					code: e.code,
-					location: e.location,
-					repeat: e.repeat,
 					ctrlKey: e.ctrlKey,
 					shiftKey: e.shiftKey,
 					altKey: e.altKey,
 					metaKey: e.metaKey,
+					altGraph,
 				})) {
 					e.preventDefault();
 					e.stopPropagation();
@@ -1287,7 +1311,7 @@ export function CellTerminal(props: CellTerminalProps) {
 				via: "keydown",
 				key: "char",
 			});
-			term?.forceFocus();
+			inputController?.forceFocus();
 		};
 		document.addEventListener("keydown", onDocKeydown, true);
 
@@ -1316,26 +1340,26 @@ export function CellTerminal(props: CellTerminalProps) {
 				displayRef?.removeEventListener("touchstart", onTouchStart);
 				displayRef?.removeEventListener("touchend", onTouchEnd);
 				displayRef?.removeEventListener("touchcancel", onTouchEnd);
-				displayRef?.removeEventListener("paste", onPaste);
-				inputHostRef?.removeEventListener("paste", onPaste);
 				clearTimeout(claimTimer ?? undefined);
+				if (measurementRaf !== 0) cancelAnimationFrame(measurementRaf);
+				setCellMountClaimActive(sid, false);
 
 				predictor?.dispose();
 				renderer?.dispose();
 				unregPreview();
-				term?.destroy();
+				inputController?.destroy();
 				clearInput(sid); // drop the typed-text ring on real unmount
 				predictor = null;
 				renderer = null;
-				term = null;
+				inputController = null;
 			}),
 		);
 		});
 		} catch (e) {
-			term?.destroy();
-			term = null;
-			// A renderer/term init throw here is an unhandled rejection = silent
-			// dead pane (the "can't input" class). Surface it as a corruption signal.
+			inputController?.destroy();
+			inputController = null;
+			// A synchronous pane setup failure must surface instead of leaving a
+			// silent, painted-but-untypable terminal.
 			signal("diag.corruption_signal", {
 				kind: "cell_mount_failed",
 				sid: props.session.id,
@@ -1376,7 +1400,7 @@ export function CellTerminal(props: CellTerminalProps) {
 				<TerminalFindBar
 					find={find}
 					altScreen={altScreen()}
-					onDismiss={() => { find.closeFind(); term?.forceFocus(); }}
+					onDismiss={() => { find.closeFind(); inputController?.forceFocus(); }}
 				/>
 			</Show>
 			<div
@@ -1391,20 +1415,6 @@ export function CellTerminal(props: CellTerminalProps) {
 					Starting…
 				</div>
 			</Show>
-			{/* Off-screen, NOT aria-hidden: Chrome blocks programmatic focus on
-          descendants of aria-hidden subtrees → the textarea must stay reachable
-          or input dies. Hidden from sight via -99999px is enough. */}
-			<div
-				ref={inputHostRef}
-				style={{
-					position: "absolute",
-					left: "-99999px",
-					top: "0",
-					width: "240px",
-					height: "120px",
-					overflow: "hidden",
-				}}
-			/>
 			{/* Unbracketed multi-line paste confirmation. Registered in FOCUS_OWNERS
           (md-dialog) so the pane's focus guards let its buttons take focus.
           Mounted ONLY while a paste is pending: md-dialog keeps its slotted
@@ -1451,10 +1461,10 @@ export function CellTerminal(props: CellTerminalProps) {
 				&& props.surfaceVisible
 			}>
 				<TerminalNavButtons
-					onKey={(key: string) => { term?.dispatchKeydown(key); }}
+					onKey={(key: string) => { inputController?.dispatchKeydown(key); }}
 					ctrlArmed={ctrlArmed()}
 					onCtrlArmedChange={(armed: boolean) => {
-						if (armed && !isTouchDevice()) term?.forceFocus();
+						if (armed && !isTouchDevice()) inputController?.forceFocus();
 						setCtrlArmed(armed);
 					}}
 				/>
@@ -1484,7 +1494,7 @@ export function CellTerminal(props: CellTerminalProps) {
 				session={props.session}
 				getContainer={() => displayRef ?? null}
 				onAttachFile={attachSelectedFiles}
-				onPasteText={sendTerminalText}
+				onPasteText={pasteText}
 
 			/>
 			<Show when={offline()}>

@@ -1,13 +1,19 @@
 // Per-session terminal metadata / cell-frame / presence dispatch.
+import { markPhaseOnce } from "../lib/diag.ts";
 // Split out of store/sync.ts. The Sync firehose pumps each session payload
 // here; CellTerminal registers cell and presence handlers on mount. Compact
 // terminal-link mappings are retained even when no pane is mounted.
 
+import { toBinary } from "@bufbuild/protobuf";
 import { protoToCellFrame } from "@roost/shared/cell/cell-proto";
 import type { CellGridFrame } from "@roost/shared/cell";
-import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
+import {
+  PbCellGridFrameSchema,
+  type PbCellGridFrame,
+} from "@roost/shared/proto/cell_pb";
 import { recordCellLag } from "../lib/diag.ts";
 import { recordOsc8Link } from "../lib/terminalOsc8.ts";
+import { rootStore } from "./root.ts";
 type PresenceHandler = (msg: unknown) => void;
 // R11 cell-grid cell-shipping. CellTerminal (cell mode) registers a per-session
 // handler that feeds frames into its CellGridRenderer.
@@ -24,6 +30,89 @@ const _cellFullFrameSbRows = new Map<string, number>();
 const _cellGridEpochs = new Map<string, string>();
 const _dropNextCellFrames = new Set<string>();
 const _droppedCellFrameCounts = new Map<string, number>();
+
+// Opened can enter the reactive store one turn before TerminalDeck mounts its
+// CellTerminal. Only store-known sessions with a live browser claim may bridge
+// that gap. Every buffer starts at an authoritative full frame.
+const MOUNT_BUFFER_MAX_FRAMES = 64;
+const MOUNT_BUFFER_MAX_BYTES = 4 * 1024 * 1024;
+const MOUNT_BUFFER_MAX_MS = 3_000;
+interface CellMountBuffer {
+  frames: PbCellGridFrame[];
+  bytes: number;
+  timer: ReturnType<typeof setTimeout>;
+}
+const _cellMountClaimed = new Set<string>();
+const _cellMountBuffers = new Map<string, CellMountBuffer>();
+const _cellMountRepairPending = new Set<string>();
+
+function clearCellMountBuffer(sessionId: string, requestRepair: boolean): void {
+  const pending = _cellMountBuffers.get(sessionId);
+  if (pending) {
+    clearTimeout(pending.timer);
+    _cellMountBuffers.delete(sessionId);
+  }
+  if (requestRepair) _cellMountRepairPending.add(sessionId);
+}
+
+/** Mirrors the outbound viewport registry's current membership. It is separate
+ * from handler presence: a preclaimed optimistic session is active before its
+ * opened event triggers the final reactive mount turn. */
+export function setCellMountClaimActive(sessionId: string, active: boolean): void {
+  if (active) {
+    _cellMountClaimed.add(sessionId);
+    return;
+  }
+  _cellMountClaimed.delete(sessionId);
+  clearCellMountBuffer(sessionId, false);
+  _cellMountRepairPending.delete(sessionId);
+}
+
+function bufferCellForMount(pb: PbCellGridFrame): void {
+  const sessionId = pb.sessionId;
+  // Unknown and inactive sessions deliberately remain live-drop. A Sync seed
+  // cannot make an unclaimed terminal start retaining fleet-wide cell traffic.
+  if (!rootStore.sessions[sessionId] || !_cellMountClaimed.has(sessionId)) return;
+
+  let pending = _cellMountBuffers.get(sessionId);
+  if (pb.full) {
+    if (pb.cols <= 0 || pb.rows <= 0 || pb.seq <= 0n) {
+      clearCellMountBuffer(sessionId, true);
+      return;
+    }
+    // A newer authoritative full supersedes an older not-yet-mounted chain.
+    clearCellMountBuffer(sessionId, false);
+    const timer = setTimeout(() => {
+      if (_cellMountBuffers.get(sessionId) === pending) {
+        clearCellMountBuffer(sessionId, true);
+      }
+    }, MOUNT_BUFFER_MAX_MS);
+    pending = { frames: [], bytes: 0, timer };
+    _cellMountBuffers.set(sessionId, pending);
+  } else {
+    if (!pending) {
+      _cellMountRepairPending.add(sessionId);
+      return;
+    }
+    const priorSeq = pending.frames.at(-1)?.seq ?? 0n;
+    if (pb.seq !== priorSeq + 1n) {
+      clearCellMountBuffer(sessionId, true);
+      return;
+    }
+  }
+
+  const encodedBytes = toBinary(PbCellGridFrameSchema, pb).byteLength;
+  if (
+    !pending
+    || pending.frames.length >= MOUNT_BUFFER_MAX_FRAMES
+    || pending.bytes + encodedBytes > MOUNT_BUFFER_MAX_BYTES
+  ) {
+    clearCellMountBuffer(sessionId, true);
+    return;
+  }
+  pending.frames.push(pb);
+  pending.bytes += encodedBytes;
+}
 function smokeDropKey(sessionId: string): string {
   return `roostSmoke.dropCell.${sessionId}`;
 }
@@ -41,9 +130,24 @@ export function dropNextCellFrame(sessionId: string): void {
 export function droppedCellFrameCount(sessionId: string): number {
   return _droppedCellFrameCounts.get(sessionId) ?? 0;
 }
-export function registerCellHandler(sessionId: string, fn: CellHandler): () => void {
+export function registerCellHandler(
+  sessionId: string,
+  fn: CellHandler,
+  requestFullRepair?: () => void,
+): () => void {
+  // Drain the retained full→delta chain in this same call stack before the
+  // handler becomes visible to newer Sync frames.
+  const pending = _cellMountBuffers.get(sessionId);
+  if (pending) {
+    clearTimeout(pending.timer);
+    _cellMountBuffers.delete(sessionId);
+    for (const frame of pending.frames) fn(protoToCellFrame(frame));
+  }
   _cellHandlers.set(sessionId, fn);
-  return () => { if (_cellHandlers.get(sessionId) === fn) _cellHandlers.delete(sessionId); };
+  if (_cellMountRepairPending.delete(sessionId)) requestFullRepair?.();
+  return () => {
+    if (_cellHandlers.get(sessionId) === fn) _cellHandlers.delete(sessionId);
+  };
 }
 export function registerPresenceHandler(sessionId: string, fn: PresenceHandler): () => void {
   _presenceHandlers.set(sessionId, fn);
@@ -51,6 +155,11 @@ export function registerPresenceHandler(sessionId: string, fn: PresenceHandler):
 }
 
 export function _dispatchCell(pb: PbCellGridFrame): void {
+  markPhaseOnce("first_cell_receive", pb.sessionId, {
+    sessionId: pb.sessionId,
+    sequence: pb.seq,
+    full: pb.full,
+  });
   const persistedDrop = _smokeEnabled
     && localStorage.getItem(smokeDropKey(pb.sessionId)) === "1";
   if (persistedDrop) localStorage.removeItem(smokeDropKey(pb.sessionId));
@@ -71,7 +180,11 @@ export function _dispatchCell(pb: PbCellGridFrame): void {
     _cellFullFrameSbRows.set(pb.sessionId, pb.scrollbackRows.length);
   }
   const fn = _cellHandlers.get(pb.sessionId);
-  if (fn) fn(protoToCellFrame(pb));
+  if (fn) {
+    fn(protoToCellFrame(pb));
+    return;
+  }
+  bufferCellForMount(pb);
 }
 
 /** Test-only: how many cell frames have arrived for this session. */
@@ -106,11 +219,43 @@ export function pruneCellFrameCount(sessionId: string): void {
   _dropNextCellFrames.delete(sessionId);
   if (typeof localStorage !== "undefined") localStorage.removeItem(smokeDropKey(sessionId));
   _droppedCellFrameCounts.delete(sessionId);
+  setCellMountClaimActive(sessionId, false);
 }
 
 /** Live size of the per-session frame-count map — a leak-watch accumulator. */
 export function cellFrameCountSize(): number {
   return _cellFrameCounts.size;
+}
+
+export interface CellMountBufferStats {
+  sessions: number;
+  frames: number;
+  bytes: number;
+  pendingRepairs: number;
+}
+
+/** Deterministic diagnostics/test seam for the explicit mount-gap bounds. */
+export function cellMountBufferStats(): CellMountBufferStats {
+  let frames = 0;
+  let bytes = 0;
+  for (const pending of _cellMountBuffers.values()) {
+    frames += pending.frames.length;
+    bytes += pending.bytes;
+  }
+  return {
+    sessions: _cellMountBuffers.size,
+    frames,
+    bytes,
+    pendingRepairs: _cellMountRepairPending.size,
+  };
+}
+
+/** Sync generation reset: buffered frames belong to the old socket and can
+ * never cross into the next generation. Replayed current claims request repair. */
+export function resetCellMountBuffers(): void {
+  for (const pending of _cellMountBuffers.values()) clearTimeout(pending.timer);
+  _cellMountBuffers.clear();
+  _cellMountRepairPending.clear();
 }
 
 export function _dispatchTerminalLink(

@@ -12,11 +12,8 @@ import { rootStore } from "../../store/root.ts";
 import { activeSessionForPath } from "../../store/selectors.ts";
 import { openSidebar } from "../../store/uiStore.ts";
 import { IconButton } from "../Settings/md/primitives.tsx";
+import { workerPathBasename } from "../../lib/nativePath.ts";
 
-function leafDir(cwd: string): string {
-  const parts = cwd.split("/").filter(Boolean);
-  return parts.length ? parts[parts.length - 1]! : "~";
-}
 
 export function MobileTopBar() {
   const location = useLocation();
@@ -31,7 +28,7 @@ export function MobileTopBar() {
     if (session) {
       const osc = rootStore.terminal_title[session.id]?.trim();
       if (osc) return osc.slice(0, 60);
-      return leafDir(session.cwd);
+      return workerPathBasename(session.worker_fp, session.cwd) || "~";
     }
     if (path.startsWith("/s/") || path.startsWith("/t/") || path.startsWith("/w/")) return "Terminal";
     return "Roost";

@@ -2,6 +2,14 @@
 // eacea2daf0b72973173b728936b27478374f2cd2 (Apache-2.0).
 
 import { log } from "@roost/shared";
+import {
+  assertNeverPlatform,
+  supportedHostPlatform,
+  type SupportedHostPlatform,
+} from "@roost/shared/platform";
+import { windowsProcessSnapshot } from "@roost/shared/windows-helper";
+
+const HOST_PLATFORM = supportedHostPlatform();
 
 export const BUILTIN_AGENT_COMMANDS = {
   codex: ["codex"],
@@ -56,10 +64,73 @@ export function parsePsSnapshot(output: string): ProcessRecord[] {
   return records;
 }
 
-function executableName(value: string): string {
-  const clean = value.replace(/^["']|["'],?$/g, "");
-  const slash = clean.lastIndexOf("/");
-  return (slash >= 0 ? clean.slice(slash + 1) : clean).replace(/\.(?:js|mjs|cjs|ts)$/, "");
+function executableName(value: string, platform: SupportedHostPlatform): string {
+  const clean = value.trim().replace(/^["']|["'],?$/g, "");
+  const slash = Math.max(clean.lastIndexOf("/"), clean.lastIndexOf("\\"));
+  let name = (slash >= 0 ? clean.slice(slash + 1) : clean)
+    .replace(/\.(?:js|mjs|cjs|ts)$/, "");
+  if (platform === "win32") {
+    name = name.replace(/\.(?:exe|cmd|bat|com)$/i, "").toLocaleLowerCase("en-US");
+  }
+  return name;
+}
+
+function windowsCommandLineArgs(commandLine: string): string[] {
+  const args: string[] = [];
+  let current = "";
+  let started = false;
+  let quoted = false;
+  for (let index = 0; index < commandLine.length;) {
+    const char = commandLine[index]!;
+    if ((char === " " || char === "\t") && !quoted) {
+      if (started) {
+        args.push(current);
+        current = "";
+        started = false;
+      }
+      index++;
+      continue;
+    }
+    if (char === "\\") {
+      let end = index;
+      while (commandLine[end] === "\\") end++;
+      const count = end - index;
+      if (commandLine[end] === "\"") {
+        current += "\\".repeat(Math.floor(count / 2));
+        started = true;
+        if (count % 2 === 1) {
+          current += "\"";
+        } else if (quoted && commandLine[end + 1] === "\"") {
+          current += "\"";
+          end++;
+        } else {
+          quoted = !quoted;
+        }
+        index = end + 1;
+        continue;
+      }
+      current += "\\".repeat(count);
+      started = true;
+      index = end;
+      continue;
+    }
+    if (char === "\"") {
+      started = true;
+      if (quoted && commandLine[index + 1] === "\"") {
+        current += "\"";
+        index += 2;
+      } else {
+        quoted = !quoted;
+        index++;
+      }
+      continue;
+    }
+    current += char;
+    started = true;
+    index++;
+  }
+  if (started) args.push(current);
+  return args;
 }
 
 const RUNTIME_COMMANDS = ["node", "nodejs", "bun", "deno"];
@@ -76,28 +147,39 @@ const AGENT_PACKAGE_MARKERS: Readonly<Record<BuiltinAgentId, readonly string[]>>
   omp: ["/@oh-my-pi/pi-coding-agent/", "/oh-my-pi/"],
 };
 
-export function identifyAgentProcess(record: ProcessRecord): BuiltinAgentId | null {
-  const argv = record.args.trim().split(/\s+/).filter(Boolean);
+export function identifyAgentProcess(
+  record: ProcessRecord,
+  platform: SupportedHostPlatform = HOST_PLATFORM,
+): BuiltinAgentId | null {
+  const argv = platform === "win32"
+    ? windowsCommandLineArgs(record.args)
+    : record.args.trim().split(/\s+/).filter(Boolean);
   let commandIndex = 0;
-  if (executableName(argv[0] ?? "") === "env") {
+  if (executableName(argv[0] ?? "", platform) === "env") {
     commandIndex++;
     while (/^[A-Za-z_][A-Za-z0-9_]*=/.test(argv[commandIndex] ?? "")) commandIndex++;
   }
   const command = argv[commandIndex] ?? "";
-  const commandName = executableName(command);
-  const candidates = [executableName(record.comm), commandName];
+  const commandName = executableName(command, platform);
+  const candidates = [executableName(record.comm, platform), commandName];
   let scriptPath = "";
   if (RUNTIME_COMMANDS.includes(commandName)) {
     let scriptIndex = commandIndex + 1;
     while ((argv[scriptIndex] ?? "").startsWith("-")) scriptIndex++;
     scriptPath = (argv[scriptIndex] ?? "").replace(/^["']|["']$/g, "");
-    candidates.push(executableName(scriptPath));
+    candidates.push(executableName(scriptPath, platform));
   }
+  const normalizedScriptPath = platform === "win32"
+    ? scriptPath.replace(/\\/g, "/").toLocaleLowerCase("en-US")
+    : scriptPath;
   for (const [agentId, commands] of Object.entries(BUILTIN_AGENT_COMMANDS) as Array<
     [BuiltinAgentId, readonly string[]]
   >) {
     if (candidates.some((candidate) => commands.some((name) => name === candidate))) return agentId;
-    if (scriptPath && AGENT_PACKAGE_MARKERS[agentId].some((marker) => scriptPath.includes(marker))) return agentId;
+    if (
+      normalizedScriptPath &&
+      AGENT_PACKAGE_MARKERS[agentId].some((marker) => normalizedScriptPath.includes(marker))
+    ) return agentId;
   }
   return null;
 }
@@ -126,12 +208,12 @@ export function findAgentProcessIdentity(
   const tree = descendants(records, rootPid);
   for (let depth = 0; depth < tree.length; depth++) {
     const record = tree[depth]!;
-    const agentId = identifyAgentProcess(record);
+    const agentId = identifyAgentProcess(record, HOST_PLATFORM);
     if (!agentId) continue;
     const exactCommand = BUILTIN_AGENT_COMMANDS[agentId].some(
-      (name) => name === executableName(record.comm),
+      (name) => name === executableName(record.comm, HOST_PLATFORM),
     );
-    const foreground = record.tpgid > 0 && record.pgid === record.tpgid;
+    const foreground = HOST_PLATFORM !== "win32" && record.tpgid > 0 && record.pgid === record.tpgid;
     const score = (exactCommand ? 100 : 0) + (foreground ? 50 : 0) + depth;
     if (!best || score > best.score) best = { identity: { agentId, pid: record.pid }, score };
   }
@@ -143,16 +225,25 @@ interface HeldIdentity extends AgentProcessIdentity { misses: number }
 export type ProcessSnapshotReader = () => Promise<ProcessRecord[]>;
 
 async function readProcessSnapshot(): Promise<ProcessRecord[]> {
-  const proc = Bun.spawn([
-    "ps", "-A", "-o", "pid=,ppid=,pgid=,tpgid=,comm=,args=",
-  ], { stdout: "pipe", stderr: "pipe" });
-  const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]);
-  if (exitCode !== 0) throw new Error(stderr.trim() || `ps exited ${exitCode}`);
-  return parsePsSnapshot(stdout);
+  switch (HOST_PLATFORM) {
+    case "darwin":
+    case "linux": {
+      const proc = Bun.spawn([
+        "ps", "-A", "-o", "pid=,ppid=,pgid=,tpgid=,comm=,args=",
+      ], { stdout: "pipe", stderr: "pipe" });
+      const [stdout, stderr, exitCode] = await Promise.all([
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+        proc.exited,
+      ]);
+      if (exitCode !== 0) throw new Error(stderr.trim() || `ps exited ${exitCode}`);
+      return parsePsSnapshot(stdout);
+    }
+    case "win32":
+      return windowsProcessSnapshot();
+    default:
+      return assertNeverPlatform(HOST_PLATFORM);
+  }
 }
 
 export class AgentProcessScanner {

@@ -7,6 +7,7 @@
 // Called by: BrowsePage.tsx (the "+" folder browser).
 
 import type { Session } from "@roost/shared/wire";
+import { workerPathIdentity } from "./nativePath.ts";
 
 export interface FolderActivity {
   /** Total sessions whose cwd is this folder or any descendant. */
@@ -34,15 +35,16 @@ export function computeFolderActivity(
   const out = new Map<string, FolderActivity>();
 
   for (const fp of folderPaths) {
-    const base = stripTrailingSlash(fp);
-    // For root "/", prefix is "/" and every path matches. For everything else,
-    // a session at /a/b counts toward /a if its cwd is /a OR starts with /a/.
-    const prefix = base.endsWith("/") ? base : base + "/";
+    const base = workerPathIdentity(workerFp, fp);
+    // Identity keys preserve POSIX case and case-fold Windows while retaining
+    // canonical forward-slash boundaries. A separator suffix prevents sibling
+    // prefixes (`C:/work` vs `C:/worker`) from colliding.
+    const prefix = base.endsWith("/") ? base : `${base}/`;
 
     let terminals = 0;
 
     for (const s of serverSessions) {
-      const cwd = stripTrailingSlash(s.cwd);
+      const cwd = workerPathIdentity(workerFp, s.cwd);
       if (cwd !== base && !cwd.startsWith(prefix)) continue;
       terminals++;
     }
@@ -53,9 +55,4 @@ export function computeFolderActivity(
   }
 
   return out;
-}
-
-function stripTrailingSlash(p: string): string {
-  if (p.length <= 1) return p; // preserve "/" and "~"
-  return p.replace(/\/+$/, "");
 }

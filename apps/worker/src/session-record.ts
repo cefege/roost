@@ -11,12 +11,16 @@ import type { CellEmitState } from "@roost/shared/cell";
 import type { PrStatus } from "./pr-status.ts";
 import type { SbRing } from "./session-scrollback-ring.ts";
 import type { AgentOscState } from "./terminal-stream-scan.ts";
+import type { ShellSpec } from "./shell-spec.ts";
 
 interface SessionRecordCommon {
 	sessionId: SessionId;
 	channelId: ChannelId;
 	socketPath: string;
 	cwd: string;
+	// Immutable launch contract retained for same-session keeper-loss respawn.
+	// `cwd` may drift through OSC 7; shellSpec.cwd remains the spawn folder.
+	shellSpec: ShellSpec;
 	// Local git branch of cwd (worker-resolved). undefined = not yet resolved,
 	// null = folder isn't a repo. Set by _startGitBranch; announced in
 	// snapshots + pushed via the `git` SessionEvent. gitWatchDispose closes the
@@ -100,5 +104,5 @@ export interface ViewportClaim {
 	cols: number;
 	rows: number;
 	lastMs: number;
-	clientSeq?: number;
+	clientSeq?: bigint;
 }

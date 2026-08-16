@@ -6,10 +6,11 @@
 // #L<n> fragment support: scrolls to line on mount; "copy link" per line.
 
 import { Show, createSignal, createEffect, createMemo, For, Index } from "solid-js";
-import { useParams } from "@solidjs/router";
+import { useLocation, useParams } from "@solidjs/router";
 import { coordClient } from "../connect.ts";
 import { tokenizeLines, shouldHighlight, extFromPath, type Token } from "../lib/syntaxLite.ts";
 import "../styles/syntax-vars.css";
+import { decodeWorkerPathRoute } from "../lib/nativePath.ts";
 
 // ─── helpers ─────────────────────────────────────────────────────────────
 
@@ -74,11 +75,15 @@ function PlainLine(props: { text: string }) {
 
 export function FileViewerSheet() {
   const params = useParams<{ workerFp?: string; path?: string }>();
+  const route = useLocation();
 
   const workerFp = createMemo(() => params.workerFp ?? "");
   const filePath = createMemo(() => {
-    // @solidjs/router wildcard *path includes trailing segments.
-    return params.path ? `/${params.path}` : "";
+    const fp = workerFp();
+    const encoded = route.pathname.match(/^\/file\/[^/]+\/(.+)$/)?.[1];
+    if (!fp || !encoded) return "";
+    try { return decodeWorkerPathRoute(fp, encoded); }
+    catch { return ""; }
   });
   const targetLine = createMemo(() => parseLineFromHash());
 
@@ -121,7 +126,7 @@ export function FileViewerSheet() {
           setIsBinary(false);
           const split = text.split("\n");
           setLines(split);
-          const ext = extFromPath(path);
+          const ext = extFromPath(path, fp);
           setTokenGrid(shouldHighlight(ext) ? tokenizeLines(split) : null);
         }
         setLoading(false);

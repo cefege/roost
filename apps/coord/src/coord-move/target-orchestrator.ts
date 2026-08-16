@@ -11,7 +11,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { log } from "@roost/shared/log";
 import type { CoordConfig } from "@roost/shared/config";
 import type { CoordKey } from "../coord-key.ts";
-import { HandoffStateStore, type HandoffState, type MovePhase } from "./state.ts";
+import { HandoffStateStore, isTerminalPhase, type HandoffState, type MovePhase } from "./state.ts";
 import { CoordinatorWriteGate } from "./write-gate.ts";
 import type { CoordinatorMoveRuntime, MoveSnapshot, MoveWorker } from "./runtime.ts";
 
@@ -45,6 +45,20 @@ export abstract class CoordinatorMoveTargetRole {
     return this.options.store.load();
   }
 
+  /**
+   * Persisting a terminal phase, changing the write gate, and announcing a
+   * retired source are one lifecycle commit. The store callback runs after
+   * durable replacement but before completion observers can resume.
+   */
+  protected writeTerminalState(state: HandoffState): Promise<HandoffState> {
+    if (!isTerminalPhase(state.phase)) throw new Error(`coordinator move phase ${state.phase} is not terminal`);
+    const retiresSource = state.role === "SOURCE" && state.phase === "COMMITTED";
+    return this.options.store.writeDurable(state, (persisted) => {
+      this.gate.setMode(retiresSource ? "retired" : "active");
+      if (retiresSource) this.options.runtime.publishRelocation(this.snapshot(persisted, "COMMITTED"));
+    });
+  }
+
   async internalStatus(handoffId: string, secret: string): Promise<HandoffState & { connected_worker_fps: string[] }> {
     const state = this.status(handoffId);
     if (!state || !this.secretMatches(state, secret)) throw new Error("handoff not found");
@@ -58,7 +72,7 @@ export abstract class CoordinatorMoveTargetRole {
     const { connected_worker_fps: _connectedWorkerFps, ...state } = await this.internalStatus(handoffId, secret);
     if (state.role !== "TARGET") throw new Error("handoff target role required");
     if (state.phase === "COMMITTED") return;
-    if (state.phase !== "COMMITTING") this.options.store.write({ ...state, phase: "COMMITTING" });
+    if (state.phase !== "COMMITTING") await this.options.store.writeDurable({ ...state, phase: "COMMITTING" });
     this.gate.setMode("active");
     if (this.run) return;
     this.runCommitTargetWorkers(handoffId);
@@ -74,7 +88,7 @@ export abstract class CoordinatorMoveTargetRole {
     this.clearTargetAutoCommit();
     // Record the rollback before asking the target's own worker to uninstall
     // this pending coordinator. Once it does, this process can disappear.
-    this.options.store.write({ ...state, phase: "ROLLING_BACK" });
+    await this.options.store.writeDurable({ ...state, phase: "ROLLING_BACK" });
     this.gate.setMode("target_pending");
     // runTargetAbort always lands terminal — ROLLED_BACK, or FAILED plus a
     // rethrow. Either way the gate is ours to restore, and `active` is exactly
@@ -88,7 +102,7 @@ export abstract class CoordinatorMoveTargetRole {
   }
 
   /** The TARGET branch of recover(); the SOURCE branch stays in the subclass. */
-  protected recoverTarget(state: HandoffState, terminal: boolean): void {
+  protected async recoverTarget(state: HandoffState, terminal: boolean): Promise<void> {
     // A TARGET that already reached ROLLED_BACK/FAILED owns nothing; without
     // this it boots into target_pending forever and rejects every write.
     if (terminal && state.phase !== "COMMITTED") {
@@ -122,10 +136,10 @@ export abstract class CoordinatorMoveTargetRole {
     const failed = results.find((result) => result.status === "rejected");
     const latest = this.options.store.load() ?? state;
     if (failed?.status === "rejected") {
-      this.options.store.write({ ...latest, phase: "FAILED", error: String(failed.reason) });
+      await this.writeTerminalState({ ...latest, phase: "FAILED", error: String(failed.reason) });
       throw failed.reason;
     }
-    this.options.store.write({ ...latest, phase: "ROLLED_BACK" });
+    await this.writeTerminalState({ ...latest, phase: "ROLLED_BACK" });
   }
 
   private async retryTargetAbort(state: HandoffState): Promise<void> {
@@ -144,9 +158,9 @@ export abstract class CoordinatorMoveTargetRole {
   /** Surface a background-run failure on the handoff state so the UI can show
    *  it. `void promise` attaches no rejection handler and coord installs no
    *  unhandledRejection hook. */
-  protected recordRunError(handoffId: string, error: unknown): void {
+  protected async recordRunError(handoffId: string, error: unknown): Promise<void> {
     const current = this.status(handoffId);
-    if (current) this.options.store.write({ ...current, error: String((error as Error)?.message ?? error) });
+    if (current) await this.options.store.writeDurable({ ...current, error: String((error as Error)?.message ?? error) });
     log.error("coord-move", "run_failed", { handoff_id: handoffId, error: String(error) });
   }
 
@@ -191,7 +205,7 @@ export abstract class CoordinatorMoveTargetRole {
         this.targetAutoCommitTimer = setTimeout(() => void attempt(), remainingMs);
         return;
       }
-      this.options.store.write({ ...fresh, phase: "COMMITTING" });
+      await this.options.store.writeDurable({ ...fresh, phase: "COMMITTING" });
       this.gate.setMode("active");
       this.runCommitTargetWorkers(fresh.handoff_id);
     };
@@ -201,8 +215,8 @@ export abstract class CoordinatorMoveTargetRole {
   /** A target restarted at COMMITTING must keep trying: until every expected
    *  worker acks, commit_acked_worker_fps stays partial and
    *  authRedeemCoordinatorRelocation rejects every relocated browser. */
-  private scheduleCommitRetry(handoffId: string, error: unknown): void {
-    this.recordRunError(handoffId, error);
+  private async scheduleCommitRetry(handoffId: string, error: unknown): Promise<void> {
+    await this.recordRunError(handoffId, error);
     const state = this.status(handoffId);
     if (!state || state.role !== "TARGET" || state.phase !== "COMMITTING") return;
     this.commitRetryTimer = setTimeout(() => {
@@ -238,12 +252,11 @@ export abstract class CoordinatorMoveTargetRole {
       await this.options.runtime.commitWorker(worker, this.snapshot({ ...state, secret: "target" }, "COMMITTING"));
       const current = this.status(handoffId);
       if (!current) throw new Error("target handoff disappeared");
-      this.options.store.write({ ...current, commit_acked_worker_fps: [...current.commit_acked_worker_fps, workerFp] });
+      await this.options.store.writeDurable({ ...current, commit_acked_worker_fps: [...current.commit_acked_worker_fps, workerFp] });
     }
     const committed = this.status(handoffId);
     if (committed && committed.commit_acked_worker_fps.length === committed.expected_worker_fps.length) {
-      this.options.store.write({ ...committed, phase: "COMMITTED" });
-      this.gate.setMode("active");
+      await this.writeTerminalState({ ...committed, phase: "COMMITTED" });
       await this.replayCommittedWorkers(this.status(handoffId)!);
     }
   }

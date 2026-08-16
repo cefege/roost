@@ -25,7 +25,7 @@ import { makeAuthHandlers } from "../src/connect/handlers-auth.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";
 import { pairBus, type PairRequestDelta } from "../src/buses.ts";
 import { onHostKey, remoteAddressKey } from "../src/connect/auth-interceptor.ts";
-import { fingerprintOf } from "../src/jwt.ts";
+import { fingerprintOf, newJwtCache } from "../src/jwt.ts";
 
 // The generated ServiceImpl types handler returns as MessageInitShape | Promise<…>
 // (sync-or-async, partial-field). These handlers are all `async` and return
@@ -80,9 +80,11 @@ beforeAll(async () => {
     added_at: Date.now(),
   }).execute();
   closeDb = () => { try { sqlite.close(); } catch { /* ignore */ } };
-  // The pair handlers touch only deps.db; the remaining ConnectDeps surface
-  // (coordKey etc.) is irrelevant here.
-  handlers = makeAuthHandlers({ db } as unknown as ConnectDeps) as unknown as PairHandlers;
+  // Pair approval authorizes a new key and refreshes the shared JWT cache.
+  handlers = makeAuthHandlers({
+    db,
+    jwtCache: newJwtCache(),
+  } as unknown as ConnectDeps) as unknown as PairHandlers;
 
   const keys = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);
   const rawPub = new Uint8Array(await crypto.subtle.exportKey("raw", keys.publicKey));

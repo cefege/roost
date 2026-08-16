@@ -3,6 +3,7 @@
 
 import type { ClientControlFrame } from "@roost/shared/wire";
 import type { CoordLink } from "./transport/CoordLink.ts";
+import { normalizeWorkerPath } from "./util/path.ts";
 
 export function handleListAttachments(
 	frame: Extract<ClientControlFrame, { kind: "list-attachments" }>,
@@ -43,7 +44,7 @@ export function handleListAttachments(
 								filename: fname,
 								size_bytes: stat.size,
 								mtime_ms: stat.mtimeMs,
-								abs_path: fpath,
+								abs_path: normalizeWorkerPath(fpath),
 							});
 						} catch {
 							/* ignore individual stat errors */

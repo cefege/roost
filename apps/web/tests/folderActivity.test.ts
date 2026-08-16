@@ -91,4 +91,12 @@ describe("computeFolderActivity", () => {
     const result = computeFolderActivity(sessions, FP, ["~"]);
     expect(result.get("~")).toEqual({ terminals: 1 });
   });
+  test("Windows descendants compare case-insensitively at segment boundaries", () => {
+    const sessions = [
+      sess({ cwd: "c:/work/project/src" }),
+      sess({ cwd: "C:/WORKER/not-a-child" }),
+    ];
+    const result = computeFolderActivity(sessions, FP, ["C:/Work/Project"]);
+    expect(result.get("C:/Work/Project")).toEqual({ terminals: 1 });
+  });
 });

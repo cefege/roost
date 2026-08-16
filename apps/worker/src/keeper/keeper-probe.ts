@@ -1,77 +1,233 @@
-// Worker-side probe of a possibly-stale keeper socket. Extracted from
-// multiplexed-client.ts; both symbols are re-exported from there so callers
-// keep the same import path.
+// Authenticated worker-side Hello probe for the multiplexed keeper.
 
-import { createConnection } from "node:net";
-import { existsSync } from "node:fs";
+import { Socket } from "node:net";
+import type { LocalEndpoint } from "@roost/shared";
 import {
   MuxFrameType,
   KEEPER_PROTOCOL_VERSION,
-  encodeMuxFrame, decodeMuxFrames,
+  SUPPORTED_KEEPER_FEATURES,
+  decodeKeeperHelloResponse,
+  decodeMuxFrames,
+  encodeKeeperHelloRequest,
+  encodeMuxFrame,
+  isEmptyKeeperPayload,
+  type KeeperFeature,
+  type MuxFrame,
 } from "./protocol-v2.ts";
 
-/** Probe a possibly-stale keeper socket for protocol compatibility.
- *  Returns true iff:
- *    - sock file is absent (nothing to probe; caller will spawn fresh), OR
- *    - sock accepts a connection AND replies to Hello with a
- *      HelloResp whose version matches KEEPER_PROTOCOL_VERSION
- *      within `timeoutMs`.
- *  Returns false on:
- *    - ECONNREFUSED (dead unlink-after-crash sock), OR
- *    - connect/Hello-write/HelloResp timeout (old keeper that pre-dates
- *      Hello silently drops the frame), OR
- *    - HelloResp.version !== KEEPER_PROTOCOL_VERSION (deployed-against
- *      a wire change since last keeper boot).
- *  Replaces the pre-rewrite "always kill at worker boot" rule —
- *  same-version survivor keepers now resume their channels intact, so
- *  worker restarts (LaunchAgent kickstart, CoordLink reconnect storm
- *  before phase-pathl idleTimeout fix) no longer wipe every running
- *  shell. See apps/worker/src/main.ts::killStaleKeeper for the only
- *  remaining call site. */
-/** Result of a keeper Hello probe. `compatible` is the WIRE-version verdict
- *  (the only thing that gates killStaleKeeper). `keeperStamp` is the survivor's
- *  reported KEEPER_BUILD_STAMP — code-freshness, surfaced but NOT gated on
- *  (undefined = pre-stamp keeper or no keeper). */
 export interface KeeperProbeResult {
+  /** The endpoint accepted a transport connection. */
+  reachable: boolean;
+  /** The peer returned the strict post-capability-auth Hello response. */
+  authenticated: boolean;
+  /** Authentication, wire version, and every required feature matched. */
   compatible: boolean;
   keeperStamp?: string;
+  features: readonly KeeperFeature[];
 }
 
-export async function probeKeeperCompatible(
-  sockPath: string,
+export interface AuthenticatedKeeperConnection extends KeeperProbeResult {
+  reachable: true;
+  authenticated: true;
+  socket: Socket;
+  /** Complete frames coalesced behind HelloResp in the same read. */
+  pendingFrames: MuxFrame[];
+  /** Partial frame bytes received behind HelloResp. */
+  remaining: Buffer;
+}
+
+interface FailedKeeperConnection extends KeeperProbeResult {
+  authenticated: false;
+  socket?: never;
+  pendingFrames?: never;
+  remaining?: never;
+}
+
+export type KeeperConnectionAttempt = AuthenticatedKeeperConnection | FailedKeeperConnection;
+
+function hasRequiredFeatures(features: readonly string[]): boolean {
+  const available = new Set(features);
+  return SUPPORTED_KEEPER_FEATURES.every(feature => available.has(feature));
+}
+
+/** Connect and perform the capability-bearing Hello as the first frame.
+ * Successful sockets are returned paused so the caller can install its
+ * long-lived frame listener without an intervening data event. */
+export function connectKeeperAuthenticated(
+  endpoint: LocalEndpoint,
   timeoutMs: number = 800,
-): Promise<KeeperProbeResult> {
-  if (!existsSync(sockPath)) return { compatible: true };
-  return new Promise<KeeperProbeResult>((resolve) => {
-    let resolved = false;
-    const done = (ok: boolean, keeperStamp?: string) => {
-      if (resolved) return;
-      resolved = true;
-      try { probe.destroy(); } catch { /* ignore */ }
-      resolve({ compatible: ok, keeperStamp });
-    };
-    const probe = createConnection(sockPath);
+): Promise<KeeperConnectionAttempt> {
+  return new Promise<KeeperConnectionAttempt>((resolve) => {
+    const socket = new Socket();
+    let connected = false;
+    let settled = false;
     let rxBuf = Buffer.alloc(0) as Buffer;
-    const timer = setTimeout(() => done(false), timeoutMs);
-    probe.once("error", () => { clearTimeout(timer); done(false); });
-    probe.once("connect", () => {
-      probe.write(encodeMuxFrame(
-        MuxFrameType.Hello, 0,
-        JSON.stringify({ version: KEEPER_PROTOCOL_VERSION }),
-      ));
-    });
-    probe.on("data", (chunk: Buffer | Uint8Array) => {
+
+    const finishFailure = (reachable: boolean) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      socket.removeListener("data", onData);
+      socket.removeListener("connect", onConnect);
+      socket.removeListener("close", onClose);
+      socket.removeListener("error", onError);
+      try { socket.destroy(); } catch { /* already closed */ }
+      resolve({
+        reachable,
+        authenticated: false,
+        compatible: !reachable,
+        features: [],
+      });
+    };
+
+    const onConnect = () => {
+      connected = true;
+      try {
+        socket.write(encodeMuxFrame(
+          MuxFrameType.Hello,
+          0,
+          encodeKeeperHelloRequest({
+            version: KEEPER_PROTOCOL_VERSION,
+            capability: endpoint.capability,
+            features: [...SUPPORTED_KEEPER_FEATURES],
+            pid: process.pid,
+          }),
+        ));
+      } catch {
+        finishFailure(true);
+      }
+    };
+
+    const onData = (chunk: Buffer | Uint8Array) => {
       rxBuf = Buffer.concat([rxBuf, Buffer.from(chunk)]);
-      const { frames } = decodeMuxFrames(rxBuf);
-      for (const f of frames) {
-        if (f.type !== MuxFrameType.HelloResp) continue;
-        clearTimeout(timer);
-        try {
-          const v = JSON.parse(f.payload.toString("utf8")) as { version?: number; build?: string };
-          done(v.version === KEEPER_PROTOCOL_VERSION, v.build);
-        } catch { done(false); }
+      let frames: MuxFrame[];
+      let remaining: Buffer;
+      try {
+        ({ frames, remaining } = decodeMuxFrames(rxBuf));
+      } catch {
+        finishFailure(true);
         return;
       }
-    });
+      if (frames.length === 0) {
+        rxBuf = remaining;
+        return;
+      }
+      const helloFrame = frames[0];
+      if (helloFrame.type !== MuxFrameType.HelloResp || helloFrame.channelId !== 0) {
+        finishFailure(true);
+        return;
+      }
+      const hello = decodeKeeperHelloResponse(helloFrame.payload);
+      if (!hello) {
+        finishFailure(true);
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
+      socket.removeListener("data", onData);
+      socket.removeListener("connect", onConnect);
+      socket.removeListener("close", onClose);
+      socket.removeListener("error", onError);
+      socket.pause();
+      const features = hello.features.filter((feature): feature is KeeperFeature =>
+        SUPPORTED_KEEPER_FEATURES.includes(feature as KeeperFeature));
+      resolve({
+        reachable: true,
+        authenticated: true,
+        compatible: hello.version === KEEPER_PROTOCOL_VERSION
+          && hasRequiredFeatures(hello.features),
+        keeperStamp: hello.build,
+        features,
+        socket,
+        pendingFrames: frames.slice(1),
+        remaining,
+      });
+    };
+
+    const onClose = () => finishFailure(connected);
+    const onError = () => finishFailure(connected);
+    const timer = setTimeout(() => finishFailure(connected), timeoutMs);
+    socket.once("connect", onConnect);
+    socket.on("data", onData);
+    socket.once("close", onClose);
+    socket.once("error", onError);
+    try {
+      socket.connect(endpoint.address);
+    } catch {
+      finishFailure(false);
+    }
+  });
+}
+
+/** Probe without retaining the authenticated transport. */
+export async function probeKeeperCompatible(
+  endpoint: LocalEndpoint,
+  timeoutMs: number = 800,
+): Promise<KeeperProbeResult> {
+  const attempt = await connectKeeperAuthenticated(endpoint, timeoutMs);
+  if (attempt.authenticated) {
+    try { attempt.socket.destroy(); } catch { /* already closed */ }
+  }
+  return {
+    reachable: attempt.reachable,
+    authenticated: attempt.authenticated,
+    compatible: attempt.compatible,
+    keeperStamp: attempt.keeperStamp,
+    features: attempt.features,
+  };
+}
+
+/** Ask an authenticated keeper to shut down. Version compatibility is not
+ * required: this is the drain path for an old but capability-aware keeper. */
+export async function shutdownKeeperAuthenticated(
+  endpoint: LocalEndpoint,
+  timeoutMs: number = 2_000,
+): Promise<boolean> {
+  const attempt = await connectKeeperAuthenticated(endpoint, timeoutMs);
+  if (!attempt.authenticated) return false;
+  const socket = attempt.socket;
+  return new Promise<boolean>((resolve) => {
+    let settled = false;
+    let rxBuf = attempt.remaining;
+    const finish = (ok: boolean) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      socket.removeListener("data", onData);
+      socket.removeListener("close", onClose);
+      socket.removeListener("error", onError);
+      try { socket.destroy(); } catch { /* already closed */ }
+      resolve(ok);
+    };
+    const onData = (chunk: Buffer | Uint8Array) => {
+      rxBuf = Buffer.concat([rxBuf, Buffer.from(chunk)]);
+      let frames: MuxFrame[];
+      try {
+        ({ frames, remaining: rxBuf } = decodeMuxFrames(rxBuf));
+      } catch {
+        finish(false);
+        return;
+      }
+      for (const frame of frames) {
+        if (frame.type === MuxFrameType.ShutdownAck
+            && frame.channelId === 0
+            && isEmptyKeeperPayload(frame.payload)) {
+          finish(true);
+          return;
+        }
+      }
+    };
+    const onClose = () => finish(false);
+    const onError = () => finish(false);
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    socket.on("data", onData);
+    socket.once("close", onClose);
+    socket.once("error", onError);
+    try {
+      socket.write(encodeMuxFrame(MuxFrameType.Shutdown, 0, new Uint8Array(0)));
+      socket.resume();
+    } catch {
+      finish(false);
+    }
   });
 }

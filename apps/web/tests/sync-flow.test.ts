@@ -12,11 +12,8 @@ import {
   createSingleSyncLoopStarter,
   decodeFirehoseFrame,
   dispatchSyncFrameCausally,
-  drainPreHydrationFrames,
-  enqueuePreHydrationFrame,
   isImmediateSyncRedial,
   isSyncBackpressureClose,
-  type PreHydrationSyncState,
   type SyncFlowLink,
 } from "../src/store/sync-flow.ts";
 
@@ -145,74 +142,6 @@ describe("causal Sync delivery", () => {
   });
 });
 
-describe("pre-hydration Sync queue", () => {
-  test("replays retained link/frame pairs in arrival order", () => {
-    const a = makeLink("a");
-    const b = makeLink("b");
-    const state: PreHydrationSyncState<TestLink, number> = { entries: [], overflowed: false };
-    enqueuePreHydrationFrame(state, { link: a, frame: 1 }, 3);
-    enqueuePreHydrationFrame(state, { link: b, frame: 2 }, 3);
-    enqueuePreHydrationFrame(state, { link: a, frame: 3 }, 3);
-    const replayed: string[] = [];
-
-    expect(drainPreHydrationFrames(
-      state,
-      (link, value) => { replayed.push(`${link.id}:${value}`); },
-    )).toBe(false);
-    expect(replayed).toEqual(["a:1", "b:2", "a:3"]);
-    expect(state).toEqual({ entries: [], overflowed: false });
-  });
-
-  test("dispatches accepted stale-owner entries without a cross-generation ACK", () => {
-    const stale = makeLink("stale");
-    const current = makeLink("current");
-    const state: PreHydrationSyncState<TestLink, FirehoseFrame> = {
-      entries: [],
-      overflowed: false,
-    };
-    enqueuePreHydrationFrame(state, { link: stale, frame: frame(51n) }, 3);
-    enqueuePreHydrationFrame(state, { link: stale, frame: frame(52n) }, 3);
-    stale.accepting = false;
-    stale.ws.readyState = 3;
-    const replayed: bigint[] = [];
-
-    expect(drainPreHydrationFrames(
-      state,
-      (owner, queuedFrame) => {
-        expect(dispatchSyncFrameCausally(
-          () => current,
-          owner,
-          OPEN,
-          queuedFrame,
-          (acceptedFrame) => {
-            replayed.push(acceptedFrame.deliverySeq);
-            return true;
-          },
-        )).toBe("dispatched");
-      },
-    )).toBe(false);
-    expect(replayed).toEqual([51n, 52n]);
-    expect(stale.sent).toEqual([]);
-    expect(current.sent).toEqual([]);
-  });
-
-  test("overflow clears the unknowably gapped queue and latches later drops", () => {
-    const link = makeLink("a");
-    const state: PreHydrationSyncState<TestLink, number> = { entries: [], overflowed: false };
-    expect(enqueuePreHydrationFrame(state, { link, frame: 1 }, 2)).toBe("queued");
-    expect(enqueuePreHydrationFrame(state, { link, frame: 2 }, 2)).toBe("queued");
-    expect(enqueuePreHydrationFrame(state, { link, frame: 3 }, 2)).toBe("overflow");
-    expect(enqueuePreHydrationFrame(state, { link, frame: 4 }, 2)).toBe("latched");
-    const replayed: number[] = [];
-
-    expect(drainPreHydrationFrames(
-      state,
-      (_owner, value) => { replayed.push(value); },
-    )).toBe(true);
-    expect(replayed).toEqual([]);
-    expect(state).toEqual({ entries: [], overflowed: false });
-  });
-});
 
 describe("Sync reconnect ownership", () => {
   test("only an exact application-pressure close redials immediately", () => {

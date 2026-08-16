@@ -19,6 +19,7 @@ import type { SessionShellRecord } from "../src/session-record.ts";
 import { createSbRing } from "../src/session-scrollback-ring.ts";
 import { initAgentOscState } from "../src/terminal-stream-scan.ts";
 import type { CoordLink } from "../src/transport/CoordLink.ts";
+import { keeperTestShellSpec } from "./keeper-test-fixtures.ts";
 
 const SID = asSessionId("00000000-0000-0000-0000-000000000001");
 const CID = 1;
@@ -47,6 +48,7 @@ async function injectSession(manager: SessionManager): Promise<SessionShellRecor
     socketPath: "/dev/null",
     kind: "shell",
     cwd: "/",
+    shellSpec: keeperTestShellSpec({ executable: process.execPath, cwd: "/" }),
     fsm: {} as unknown as FsmChannel,
     scrollback: createSbRing(SEED),
     head_seq: SEED.length,

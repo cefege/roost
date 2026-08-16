@@ -9,13 +9,16 @@
 //   .wterm.cell-grid > .cell-scrollback (append-only, immutable rows)
 //                    > .cell-viewport   (re-rendered each frame, ~rows els)
 // Scrollback rows are immutable (append-only) so we append, never re-render
-// them — deep history costs one paint per line, ever. The viewport (bounded
-// at `rows`) re-renders wholesale per frame, which is cheap.
-//
-// Pure style mapping (spanStyle / ansi256ToCss) is exported + unit-tested;
-// the DOM glue is verified live via /roost-smoke (no jsdom in this repo).
+// them — deep history costs one paint per line, ever. Full repairs rebuild the
+// bounded viewport explicitly; normal deltas inspect and patch only the dirty
+// row indices carried on the wire.
 
-import { applyDelta, type CellGridFrame, type CellRow } from "@roost/shared/cell";
+import {
+  applyDelta as foldCellDelta,
+  deltaViewportShift,
+  type CellGridFrame,
+  type CellRow,
+} from "@roost/shared/cell";
 import { renderRow, rowText, rowHash, type FindHit } from "./cellRow.ts";
 
 const SB_BLOCK = 250; // scrollback rows per content-visibility block. sizeBlock() writes each block's EXACT pixel placeholder, so this is perf tuning only — any positive value renders identically.
@@ -126,6 +129,18 @@ export class CellGridRenderer {
   // costs one Map lookup per painted row when nothing is being searched.
   private _findHits: ReadonlyMap<number, FindHit[]> = new Map();
   private _activeHit: { row: number; col: number } | null = null;
+  // Cached DOM state: a cursor-only delta should update model/ACK state without
+  // repeating identical class/style writes.
+  private _paintedCols: number | null = null;
+  private _paintedAltScreen: boolean | null = null;
+  private _paintedCursorVisible: boolean | null = null;
+  private _paintedCursorRow = -1;
+  private _paintedCursorCol = -1;
+  private _paintedSpacerHeight = "";
+  // Reused duplicate/tail-validation stamps. Sized only on a full repair, so a
+  // sparse delta allocates nothing regardless of pane count.
+  private _dirtyMarks = new Uint32Array(0);
+  private _dirtyMarkGeneration = 0;
 
   constructor(private readonly container: HTMLElement) {
     this.doc = container.ownerDocument;
@@ -189,47 +204,100 @@ export class CellGridRenderer {
     if (this.ghostsEl.parentElement !== this.viewportEl) this.viewportEl.appendChild(this.ghostsEl);
   }
 
-  /** Apply a full or delta frame. false requests an authoritative repair. */
+  /** Compatibility dispatcher for non-hot-path callers. CellTerminal names the
+   * full-repair versus sparse-delta contract explicitly. */
   apply(incoming: CellGridFrame): boolean {
+    return incoming.full
+      ? this.applyFullFrame(incoming)
+      : this.applyDeltaFrame(incoming);
+  }
+
+  /** Apply an authoritative full repair. */
+  applyFullFrame(incoming: CellGridFrame): boolean {
+    if (!incoming.full || incoming.viewportRows.length !== incoming.rows) return false;
+    for (let i = 0; i < incoming.viewportRows.length; i++) {
+      if (incoming.viewportRows[i]!.index !== i) return false;
+    }
+    if (this._dirtyMarks.length !== incoming.rows) {
+      this._dirtyMarks = new Uint32Array(incoming.rows);
+      this._dirtyMarkGeneration = 0;
+    }
+
     const wasAtBottom = this.atBottom();
     if (this.readerPendingFrame) {
-      if (!incoming.full) {
-        const folded = applyDelta(this.readerPendingFrame, incoming);
-        if (!folded) return false;
-        this.readerPendingFrame = folded;
-        return true;
-      }
       this.readerPendingFrame = incoming;
       return true;
     }
-    if (incoming.full) {
-      const current = this.frame;
-      const epochChanged = current !== null && current.gridEpoch !== incoming.gridEpoch;
-      const freezeReader = current !== null && !wasAtBottom;
-      if (freezeReader) {
-        this.readerPendingFrame = incoming;
-        return true;
-      }
-      this.frame = incoming;
-      const pinToBottom = wasAtBottom || epochChanged;
-      if (this.holding) {
-        this.pendingRender = true;
-        this.pendingPinToBottom ||= pinToBottom;
-        return true;
-      }
-      this.renderFull(pinToBottom);
+    const current = this.frame;
+    const epochChanged = current !== null && current.gridEpoch !== incoming.gridEpoch;
+    const freezeReader = current !== null && !wasAtBottom;
+    if (freezeReader) {
+      this.readerPendingFrame = incoming;
       return true;
     }
-    if (!this.frame) return false;
+    this.frame = incoming;
+    const pinToBottom = wasAtBottom || epochChanged;
+    if (this.holding) {
+      this.pendingRender = true;
+      this.pendingPinToBottom ||= pinToBottom;
+      return true;
+    }
+    this.renderFull(pinToBottom);
+    return true;
+  }
+
+  /** Apply one sparse delta. Only incoming.viewportRows is hashed/patched; held
+   * rows outside that list are never visited on the normal frame hot path. */
+  applyDeltaFrame(incoming: CellGridFrame): boolean {
+    if (incoming.full) return false;
+    const base = this.readerPendingFrame ?? this.frame;
+    if (!base
+      || incoming.gridEpoch !== base.gridEpoch
+      || incoming.cols !== base.cols
+      || incoming.rows !== base.rows
+      || incoming.altScreen !== base.altScreen
+      || base.viewportRows.length !== base.rows
+      || incoming.scrollbackRows.length !== 0) return false;
+
+    const dirty = incoming.viewportRows;
+    let generation = (this._dirtyMarkGeneration + 1) >>> 0;
+    if (generation === 0) {
+      this._dirtyMarks.fill(0);
+      generation = 1;
+    }
+    this._dirtyMarkGeneration = generation;
+    for (const row of dirty) {
+      if (!Number.isInteger(row.index) || row.index < 0 || row.index >= base.rows
+        || this._dirtyMarks[row.index] === generation) return false;
+      this._dirtyMarks[row.index] = generation;
+    }
+    // A scrollback append is not by itself proof that the viewport shifted:
+    // immutable history can advance while the visible grid stays unchanged.
+    // Shift/reuse only across the exact held-head boundary; then every newly
+    // exposed tail row must still be authoritative.
+    const scrolled = deltaViewportShift(base, incoming);
+    for (let i = base.rows - scrolled; i < base.rows; i++) {
+      if (this._dirtyMarks[i] !== generation) return false;
+    }
+    if (!this.readerPendingFrame && !this.holding && this._rowEls.length !== base.rows) {
+      return false;
+    }
+
+    const wasAtBottom = this.atBottom();
     const appended = incoming.scrollbackAppend;
-    const folded = applyDelta(this.frame, incoming);
+    const folded = foldCellDelta(base, incoming);
     if (!folded) return false;
+    if (this.readerPendingFrame) {
+      this.readerPendingFrame = folded;
+      return true;
+    }
     this.frame = folded;
-    // Mid-hold (selection / Cmd-hover): fold frames into this.frame but freeze
-    // the DOM — the rebuild on release reconciles to the latest.
-    if (this.holding) { this.pendingRender = true; return true; }
-    this._appendScrollback(appended, wasAtBottom);
-    this.renderViewport(this.frame.altScreen ? 0 : appended.length);
+    if (this.holding) {
+      this.pendingRender = true;
+      return true;
+    }
+    if (appended.length > 0) this._appendScrollback(appended, wasAtBottom);
+    this.renderDelta(dirty, scrolled);
     this.setGridWidth();
     this._syncAltScreen();
     this._pinToBottom(wasAtBottom);
@@ -243,7 +311,10 @@ export class CellGridRenderer {
    *  so CSS hides scrollback + locks scroll while alt is active; leaving alt
    *  restores both. */
   private _syncAltScreen(): void {
-    this.container.classList.toggle("alt-active", this.frame?.altScreen === true);
+    const active = this.frame?.altScreen === true;
+    if (active === this._paintedAltScreen) return;
+    this._paintedAltScreen = active;
+    this.container.classList.toggle("alt-active", active);
   }
 
   /** True while ANY hold is active — freezes viewport/scrollback repaints. */
@@ -301,7 +372,7 @@ export class CellGridRenderer {
     this._rowEls = [];
     this._rowHashes = [];
     this._appendScrollback(this.frame.scrollbackRows, wasAtBottom);
-    this.renderViewport();
+    this.renderViewportRepair();
     this.setGridWidth();
     this._syncAltScreen();
     this._pinToBottom(wasAtBottom);
@@ -425,8 +496,10 @@ export class CellGridRenderer {
   private _syncSpacer(): void {
     const rows = this.frame ? this.frame.sbBase : 0;
     const rowH = this.rowHeight();
-    const px = rows * (rowH > 0 ? rowH : DEFAULT_ROW_PX);
-    this.spacerEl.style.setProperty("height", `${px.toFixed(2)}px`);
+    const height = `${(rows * (rowH > 0 ? rowH : DEFAULT_ROW_PX)).toFixed(2)}px`;
+    if (height === this._paintedSpacerHeight) return;
+    this._paintedSpacerHeight = height;
+    this.spacerEl.style.setProperty("height", height);
   }
 
   /** Immutable identity and absolute range for demand-driven history paging. */
@@ -444,35 +517,24 @@ export class CellGridRenderer {
    *  reported on viewport claims so the worker can skip a redundant snapshot. */
   heldFrameSeq(): number { return this.readerPendingFrame?.seq ?? this.frame?.seq ?? 0; }
 
-  // `scrolled` = rows that left the viewport top for scrollback this frame
-  // (authoritative from the frame: scrollbackAppend length / scrollbackTotal
-  // delta; 0 in alt-screen). Dropping those elements shifts the stacked rows
-  // below up for free, so a scrolling viewport re-renders only its NEW tail
-  // rows. Pure reuse hint — the sig-checked diff below still validates every
-  // row, so a wrong count costs re-renders, never wrong pixels.
-  private renderViewport(scrolled = 0): void {
+  /** Full viewport reconciliation is reserved for authoritative repairs, hold
+   * release, and explicit find-highlight changes. Normal deltas never call it. */
+  private renderViewportRepair(): void {
     if (!this.frame) return;
     const rows = this.frame.viewportRows;
-    const k = Math.min(scrolled, this._rowEls.length);
-    for (let i = 0; i < k; i++) this._rowEls[i]!.remove();
-    if (k > 0) { this._rowEls.splice(0, k); this._rowHashes.splice(0, k); }
-    // A viewport row's ABSOLUTE index is scrollbackTotal + its viewport row, the
-    // same space the worker's match rows live in.
     const vpBase = this.frame.scrollbackTotal;
     for (let i = 0; i < rows.length; i++) {
       const hits = this._findHits.get(vpBase + i);
       const activeCol = this._activeHit?.row === vpBase + i ? this._activeHit.col : undefined;
       const hash = rowHash(rows[i]!, hits, activeCol);
       if (i < this._rowEls.length) {
-        if (this._rowHashes[i] === hash) continue; // unchanged row → zero DOM writes
+        if (this._rowHashes[i] === hash) continue;
         const el = renderRow(rows[i]!, this.doc, hits, activeCol);
         this._rowEls[i]!.replaceWith(el);
         this._rowEls[i] = el;
         this._rowHashes[i] = hash;
       } else {
         const el = renderRow(rows[i]!, this.doc, hits, activeCol);
-        // Append after the existing rows (before the cursor overlay when
-        // attached, so overlays keep sitting at the tail).
         this.viewportEl.insertBefore(el, this.cursorEl.parentElement === this.viewportEl ? this.cursorEl : null);
         this._rowEls.push(el);
         this._rowHashes.push(hash);
@@ -482,7 +544,51 @@ export class CellGridRenderer {
       this._rowEls.pop()!.remove();
       this._rowHashes.pop();
     }
-    // The diff never wipes the overlays — attach once if missing.
+    this.attachViewportOverlays();
+  }
+
+  /** Shift scroll-reused nodes, compare only authoritative dirty rows, then
+   * build any newly exposed tail. No untouched held row is read or hashed. */
+  private renderDelta(dirtyRows: readonly CellRow[], scrolled: number): void {
+    if (!this.frame) return;
+    const rows = this.frame.viewportRows;
+    const shifted = Math.min(scrolled, this._rowEls.length);
+    for (let i = 0; i < shifted; i++) this._rowEls[i]!.remove();
+    if (shifted > 0) {
+      this._rowEls.splice(0, shifted);
+      this._rowHashes.splice(0, shifted);
+    }
+
+    const vpBase = this.frame.scrollbackTotal;
+    for (const row of dirtyRows) {
+      const index = row.index;
+      if (index >= this._rowEls.length) continue;
+      const hits = this._findHits.get(vpBase + index);
+      const activeCol = this._activeHit?.row === vpBase + index ? this._activeHit.col : undefined;
+      const hash = rowHash(row, hits, activeCol);
+      if (this._rowHashes[index] === hash) continue;
+      const el = renderRow(row, this.doc, hits, activeCol);
+      this._rowEls[index]!.replaceWith(el);
+      this._rowEls[index] = el;
+      this._rowHashes[index] = hash;
+    }
+
+    // Validation in applyDeltaFrame guarantees every missing tail index arrived
+    // in dirtyRows. Read it from the already-folded canonical model once here.
+    while (this._rowEls.length < rows.length) {
+      const index = this._rowEls.length;
+      const row = rows[index]!;
+      const hits = this._findHits.get(vpBase + index);
+      const activeCol = this._activeHit?.row === vpBase + index ? this._activeHit.col : undefined;
+      const el = renderRow(row, this.doc, hits, activeCol);
+      this.viewportEl.insertBefore(el, this.cursorEl.parentElement === this.viewportEl ? this.cursorEl : null);
+      this._rowEls.push(el);
+      this._rowHashes.push(rowHash(row, hits, activeCol));
+    }
+    this.attachViewportOverlays();
+  }
+
+  private attachViewportOverlays(): void {
     if (this.cursorEl.parentElement !== this.viewportEl) this.viewportEl.appendChild(this.cursorEl);
     if (this.ghostsEl.parentElement !== this.viewportEl) this.viewportEl.appendChild(this.ghostsEl);
     this.updateCursor();
@@ -494,6 +600,7 @@ export class CellGridRenderer {
   // use the authoritative position. Set via setPredictedCursor().
   private predictedCol: number | null = null;
   setPredictedCursor(col: number | null): void {
+    if (this.predictedCol === col) return;
     this.predictedCol = col;
     this.updateCursor();
   }
@@ -505,16 +612,28 @@ export class CellGridRenderer {
   private updateCursor(): void {
     if (!this.frame) return;
     const c = this.cursorEl;
-    if (!this.frame.cursorVisible) { c.style.display = "none"; return; }
-    c.style.display = "block";
-    c.style.top = `${this.frame.cursorRow}lh`;
-    c.style.left = `${this.predictedCol ?? this.frame.cursorCol}ch`;
+    const visible = this.frame.cursorVisible;
+    if (visible !== this._paintedCursorVisible) {
+      this._paintedCursorVisible = visible;
+      c.style.display = visible ? "block" : "none";
+    }
+    if (!visible) return;
+    if (this.frame.cursorRow !== this._paintedCursorRow) {
+      this._paintedCursorRow = this.frame.cursorRow;
+      c.style.top = `${this.frame.cursorRow}lh`;
+    }
+    const col = this.predictedCol ?? this.frame.cursorCol;
+    if (col !== this._paintedCursorCol) {
+      this._paintedCursorCol = col;
+      c.style.left = `${col}ch`;
+    }
   }
 
   // Pin the painted width to the grid's cols (ch units, monospace) so a
   // wider pane letterboxes (margin) instead of stretching — no reflow.
   private setGridWidth(): void {
-    if (!this.frame) return;
+    if (!this.frame || this.frame.cols === this._paintedCols) return;
+    this._paintedCols = this.frame.cols;
     this.container.style.setProperty("--cell-cols", String(this.frame.cols));
   }
 
@@ -569,7 +688,10 @@ export class CellGridRenderer {
    *  preference changes the cell box without resizing the container, so nothing
    *  else would invalidate it — and a stale height leaves every block
    *  placeholder and the spacer sized for the old font. */
-  invalidateRowHeight(): void { this._rowH = 0; }
+  invalidateRowHeight(): void {
+    this._rowH = 0;
+    this._paintedSpacerHeight = "";
+  }
 
   /** Scrollback rows are immutable and append-only, so their painted element is
    *  built once — including whatever highlights were current at the time. */
@@ -594,7 +716,7 @@ export class CellGridRenderer {
     for (const row of affected) {
       if (row < this.frame.scrollbackTotal) this._repaintScrollbackRow(row);
     }
-    this.renderViewport();
+    this.renderViewportRepair();
   }
 
   /** Replace one painted scrollback row in place. Walks the blocks accumulating

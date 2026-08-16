@@ -8,6 +8,7 @@
 
 import { Show, createSignal, onCleanup, onMount, type JSX } from "solid-js";
 import { Portal } from "solid-js/web";
+import { platformShortcutLabel } from "../lib/browserPlatform.ts";
 import type { ArrangeKind } from "../store/paneLayoutPresets.ts";
 import { ctxMenuSurfaceStyle, CtxMenuItem, CtxMenuSeparator } from "./contextMenuPrimitives.tsx";
 
@@ -23,10 +24,10 @@ interface Item {
 }
 
 const ITEMS: Item[] = [
-  { kind: "tiled", label: "Grid", hint: "Cmd+Opt+G", testid: "arrange-grid" },
-  { kind: "even", label: "Columns", hint: "Cmd+Opt+E", testid: "arrange-columns" },
-  { kind: "rows", label: "Rows", hint: "Cmd+Opt+R", testid: "arrange-rows" },
-  { kind: "main-vertical", label: "Main + stack", hint: "Cmd+Opt+V", testid: "arrange-main" },
+  { kind: "tiled", label: "Grid", hint: platformShortcutLabel("arrangeGrid", "Cmd+Opt+G"), testid: "arrange-grid" },
+  { kind: "even", label: "Columns", hint: platformShortcutLabel("arrangeColumns", "Cmd+Opt+E"), testid: "arrange-columns" },
+  { kind: "rows", label: "Rows", hint: platformShortcutLabel("arrangeRows", "Cmd+Opt+R"), testid: "arrange-rows" },
+  { kind: "main-vertical", label: "Main + stack", hint: platformShortcutLabel("arrangeMain", "Cmd+Opt+V"), testid: "arrange-main" },
 ];
 
 // Icon shapes per preset, 24-unit grid, stroke style matches the df-arrange-btn
@@ -155,7 +156,7 @@ export function ArrangeMenu(props: Props) {
               style={surfaceStyle(pos().right, pos().y)}
             >
               <CtxMenuItem testid="arrange-balance" onClick={() => choose("balance")}>
-                <ArrangeRow kind="balance" label="Equalize sizes" hint="Cmd+Opt+B" />
+                <ArrangeRow kind="balance" label="Equalize sizes" hint={platformShortcutLabel("arrangeBalance", "Cmd+Opt+B")} />
               </CtxMenuItem>
               <CtxMenuSeparator />
               {ITEMS.map((it) => (

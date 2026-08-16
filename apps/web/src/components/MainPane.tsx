@@ -46,7 +46,7 @@ export function MainPane() {
     // /t/:workerFp/*folderPath — stable route, resolves by (server, spawn
     // folder) to the newest live session in that folder (null → safety net).
     if (params.workerFp && params.folderPath !== undefined) {
-      return resolveSessionByFolder(params.workerFp, decodeFolderPath(params.folderPath));
+      return resolveSessionByFolder(params.workerFp, decodeFolderPath(params.folderPath, params.workerFp));
     }
     // /s/:sessionId — primary route, resolves by id directly.
     if (params.sessionId) {

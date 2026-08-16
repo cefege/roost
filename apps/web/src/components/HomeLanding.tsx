@@ -8,6 +8,7 @@ import { openSidebar } from "../store/uiStore.ts";
 import { isCompact } from "../lib/windowSizeClass.ts";
 import { BrandMark } from "./BrandMark.tsx";
 import { FlatNewTerminal } from "./sidebar/FlatNewTerminal.tsx";
+import { platformShortcutLabel } from "../lib/browserPlatform.ts";
 
 export function HomeLanding() {
   return (
@@ -24,8 +25,8 @@ export function HomeLanding() {
       </div>
 
       <p class="home-landing-tagline" data-testid="home-tagline">
-        Press <kbd class="home-landing-kbd">⌘K</kbd> to open a terminal ·{" "}
-        <kbd class="home-landing-kbd">⌘F</kbd> to filter the sidebar ·{" "}
+        Press <kbd class="home-landing-kbd">{platformShortcutLabel("commandPalette", "⌘K")}</kbd> to open a terminal ·{" "}
+        <kbd class="home-landing-kbd">{platformShortcutLabel("sidebarSearch", "⌘F")}</kbd> to filter the sidebar ·{" "}
         <kbd class="home-landing-kbd">Shift ?</kbd> for shortcuts
       </p>
 
@@ -35,7 +36,7 @@ export function HomeLanding() {
         </div>
         <div class="home-landing-empty-title">Open a workspace</div>
         <div class="home-landing-empty-sub">
-          Select a workspace from the sidebar, or press <kbd class="home-landing-kbd">⌘K</kbd> to open a new terminal.
+          Select a workspace from the sidebar, or press <kbd class="home-landing-kbd">{platformShortcutLabel("commandPalette", "⌘K")}</kbd> to open a new terminal.
         </div>
       </div>
     </div>

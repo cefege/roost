@@ -1,19 +1,30 @@
-// Shared module constants + socket-path helper for the multiplexed keeper
-// pool. Extracted from multiplexed-client.ts so the pool's split-out method
-// modules (keeper-pool-*.ts) can import them without cycling back through the
-// client. Internal-only — not part of the public import surface.
+// Shared endpoint and process constants for the multiplexed keeper pool.
+// Internal-only — not part of the public import surface.
 
-import { join } from "node:path";
-import { workerDataDir } from "@roost/shared";
+import { fileURLToPath } from "node:url";
+import { resolveLocalEndpoint, workerDataDir, type LocalEndpoint } from "@roost/shared";
+
+export const MUX_KEEPER_ENDPOINT_NAME = "mux-keeper";
+
+let resolvedMuxEndpoint: LocalEndpoint | null = null;
+
+/** Resolve once per process so every pool operation uses the same persisted
+ * capability and (on Windows) randomized user-scoped named-pipe address. */
+export function muxLocalEndpoint(): LocalEndpoint {
+  if (!resolvedMuxEndpoint) {
+    resolvedMuxEndpoint = resolveLocalEndpoint({
+      name: MUX_KEEPER_ENDPOINT_NAME,
+      dataDir: workerDataDir(),
+    });
+  }
+  return resolvedMuxEndpoint;
+}
 
 // Bun runs .ts directly (no transpile step). multiplexed-main.ts is the
 // keeper entry — same source the worker imports types from, no build
-// step, no parallel .js artifact.
-export const MUX_KEEPER_MAIN_TS = new URL("./multiplexed-main.ts", import.meta.url).pathname;
-
-export function muxSocketPath(): string {
-  return join(workerDataDir(), "mux-keeper.sock");
-}
+// step, no parallel .js artifact. fileURLToPath preserves Windows drive
+// letters; URL.pathname would produce an unusable /C:/... command argument.
+export const MUX_KEEPER_MAIN_TS = fileURLToPath(new URL("./multiplexed-main.ts", import.meta.url));
 
 // Always use the same Bun binary the worker is currently running on —
 // guaranteed present, no path search needed. (Was previously findNode()

@@ -45,6 +45,7 @@
   --md-sys-motion-duration-extra-long3: 900ms;
   --md-sys-motion-duration-extra-long4: 1000ms;
 
+  --roost-main-left: 0px;
   /* ── 1. CANONICAL FALLBACK (Dark) — engine overrides via inline style ── */
   --bg-base: #1a1719;
   --surface-0: #141113;
@@ -301,13 +302,11 @@
   --green: var(--status-ok);
   --peach: var(--status-warn);
 
-  /* ── Terminal palette bridge → @wterm/dom ──
-     wterm reads --term-color-0..15 / --term-cursor (+ --term-bg/fg) but
-     scopes them to .wterm. These :root aliases (a) feed app-chrome consumers
-     outside the grid and (b) are the source the .wterm bridge in sidebar.css
-     re-points wterm's own vars at. Index→name order = themes.ts ANSI block.
-     --terminal-grid-* are distinct so the bridge can reference bg/fg without
-     a self-collision against wterm's own --term-bg/--term-fg. */
+  /* ── Terminal palette bridge ──
+     Cell spans reference --term-color-0..15 plus --term-bg/fg/cursor. These
+     aliases feed app chrome outside the grid and the scoped .wterm bridge in
+     sidebar.css. Index→name order matches the themes.ts ANSI block.
+     --terminal-grid-* avoid self-references at the .wterm scope. */
   --term-color-0: var(--ansi-black);
   --term-color-1: var(--ansi-red);
   --term-color-2: var(--ansi-green);

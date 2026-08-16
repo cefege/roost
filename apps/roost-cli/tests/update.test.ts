@@ -28,8 +28,13 @@ describe("releaseAssetName", () => {
     expect(releaseAssetName("linux", "x64")).toBe("roost-linux-x64");
     expect(releaseAssetName("linux", "arm64")).toBe("roost-linux-arm64");
   });
+  test("win32/x64 resolves to the packaged release archive", () => {
+    expect(releaseAssetName("win32", "x64")).toBe("roost-windows-x64.zip");
+  });
   test("unsupported platform throws rather than guessing", () => {
-    expect(() => releaseAssetName("win32", "x64")).toThrow(/no prebuilt roost binary/);
+    expect(() => releaseAssetName("freebsd", "x64")).toThrow(
+      "no prebuilt roost binary for freebsd/x64",
+    );
   });
   test("unsupported architecture throws rather than guessing", () => {
     expect(() => releaseAssetName("linux", "riscv64")).toThrow(/no prebuilt roost binary/);

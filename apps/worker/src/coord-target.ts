@@ -4,8 +4,16 @@ import { createHash } from "node:crypto";
 import { resolveTailnetDnsName } from "@roost/shared/tailnet";
 import { Database } from "bun:sqlite";
 import { COORD_INSTALL_SH } from "@roost/shared/install-scripts";
-import { coordServiceLabel } from "@roost/shared/paths";
+import { coordServiceLabel, roostServiceDir } from "@roost/shared/paths";
+import { applyPrivateDacl, durableRemove, durableWriteFile, flushDurablePath } from "@roost/shared/durability";
 import { log } from "@roost/shared/log";
+import {
+  WindowsCoordinatorTargetTransaction,
+} from "./coord-relocation-windows.ts";
+import {
+  createDefaultWindowsCoordRuntime,
+  type WindowsCoordRuntime,
+} from "./coord-relocation-windows-runtime.ts";
 
 const coordLabel = (): string => coordServiceLabel();
 
@@ -15,7 +23,7 @@ export interface CoordTargetPaths {
   keyPath: string;
   authorizedKeysPath: string;
   handoffPath: string;
-  /** launchd plist on darwin, systemd user unit on linux. */
+  /** launchd plist, systemd unit, or Windows service-definition asset. */
   servicePath: string;
 }
 
@@ -46,7 +54,7 @@ interface RollbackPresent {
   service: boolean;
 }
 
-interface CoordTargetRuntime {
+export interface CoordTargetRuntime {
   platform: string;
   gitSha: string;
   tailnetDnsName(): string;
@@ -55,6 +63,7 @@ interface CoordTargetRuntime {
   /** One reachability probe of the relocated coordinator's advertised URL.
    *  Injectable so tests need no listening socket. */
   coordHealthy?(targetUrl: string): Promise<boolean>;
+  windows?: WindowsCoordRuntime;
 }
 
 function systemdEnv(): Record<string, string | undefined> {
@@ -76,29 +85,47 @@ const defaultRuntime: CoordTargetRuntime = {
   gitSha: process.env.GIT_SHA ?? process.env.ROOST_GIT_SHA ?? "dev",
   tailnetDnsName: resolveTailnetDnsName,
   async isCoordServiceActive(label) {
-    if (process.platform === "darwin") {
-      const child = Bun.spawn(["launchctl", "print", `gui/${process.getuid?.() ?? 0}/${label}`], { stdout: "ignore", stderr: "ignore" });
-      return await child.exited === 0;
+    switch (process.platform) {
+      case "darwin": {
+        const child = Bun.spawn(["launchctl", "print", `gui/${process.getuid?.() ?? 0}/${label}`], { stdout: "ignore", stderr: "ignore" });
+        return await child.exited === 0;
+      }
+      case "linux": {
+        const child = Bun.spawn(["systemctl", "--user", "is-active", `${label}.service`], {
+          stdout: "ignore", stderr: "ignore", env: systemdEnv(),
+        });
+        return await child.exited === 0;
+      }
+      case "win32":
+        return (await createDefaultWindowsCoordRuntime().queryService("coordinator")).state === "running";
+      default:
+        throw new Error(`unsupported coordinator target platform: ${process.platform}`);
     }
-    const child = Bun.spawn(["systemctl", "--user", "is-active", `${label}.service`], {
-      stdout: "ignore", stderr: "ignore", env: systemdEnv(),
-    });
-    return await child.exited === 0;
   },
   async restoreCoordService(label, servicePath) {
-    if (process.platform === "darwin") {
-      const uid = process.getuid?.() ?? 0;
-      const bootout = Bun.spawn(["launchctl", "bootout", `gui/${uid}/${label}`], { stdout: "ignore", stderr: "ignore" });
-      await bootout.exited;
-      const bootstrap = Bun.spawn(["launchctl", "bootstrap", `gui/${uid}`, servicePath], { stdout: "ignore", stderr: "ignore" });
-      if (await bootstrap.exited !== 0) throw new Error("failed to restore prior coordinator LaunchAgent");
-      return;
+    switch (process.platform) {
+      case "darwin": {
+        const uid = process.getuid?.() ?? 0;
+        const bootout = Bun.spawn(["launchctl", "bootout", `gui/${uid}/${label}`], { stdout: "ignore", stderr: "ignore" });
+        await bootout.exited;
+        const bootstrap = Bun.spawn(["launchctl", "bootstrap", `gui/${uid}`, servicePath], { stdout: "ignore", stderr: "ignore" });
+        if (await bootstrap.exited !== 0) throw new Error("failed to restore prior coordinator LaunchAgent");
+        return;
+      }
+      case "linux": {
+        const reload = Bun.spawn(["systemctl", "--user", "daemon-reload"], { stdout: "ignore", stderr: "ignore", env: systemdEnv() });
+        await reload.exited;
+        const restart = Bun.spawn(["systemctl", "--user", "restart", `${label}.service`], { stdout: "ignore", stderr: "ignore", env: systemdEnv() });
+        if (await restart.exited !== 0) throw new Error("failed to restore prior coordinator systemd unit");
+        return;
+      }
+      case "win32":
+        throw new Error("Windows coordinator restoration must use the relocation service transaction");
+      default:
+        throw new Error(`unsupported coordinator target platform: ${process.platform}`);
     }
-    const reload = Bun.spawn(["systemctl", "--user", "daemon-reload"], { stdout: "ignore", stderr: "ignore", env: systemdEnv() });
-    await reload.exited;
-    const restart = Bun.spawn(["systemctl", "--user", "restart", `${label}.service`], { stdout: "ignore", stderr: "ignore", env: systemdEnv() });
-    if (await restart.exited !== 0) throw new Error("failed to restore prior coordinator systemd unit");
   },
+  windows: process.platform === "win32" ? createDefaultWindowsCoordRuntime() : undefined,
 };
 
 function coordinatorKeyFingerprint(pem: Uint8Array): string {
@@ -155,8 +182,38 @@ function assertWritableDirectory(path: string, mustExist = false): void {
 export class CoordTarget {
   #inflight: InflightSnapshot | null = null;
   #prepared: PreparedTarget | null = null;
+  readonly #windows: WindowsCoordinatorTargetTransaction | null;
 
-  constructor(private readonly paths: CoordTargetPaths, private readonly runtime: CoordTargetRuntime = defaultRuntime) {}
+  constructor(private readonly paths: CoordTargetPaths, private readonly runtime: CoordTargetRuntime = defaultRuntime) {
+    switch (runtime.platform) {
+      case "darwin":
+      case "linux":
+        this.#windows = null;
+        break;
+      case "win32":
+        this.#windows = new WindowsCoordinatorTargetTransaction({
+          ...paths,
+          currentManifestPath: join(roostServiceDir(), "current.json"),
+        }, runtime.windows ?? createDefaultWindowsCoordRuntime());
+        break;
+      default:
+        throw new Error(`unsupported coordinator target platform: ${runtime.platform}`);
+    }
+  }
+
+  async recoverTransaction(): Promise<void> {
+    switch (this.runtime.platform) {
+      case "darwin":
+      case "linux":
+        return;
+      case "win32":
+        if (!this.#windows) throw new Error("Windows coordinator relocation runtime is unavailable");
+        await this.#windows.recoverActive();
+        return;
+      default:
+        throw new Error(`unsupported coordinator target platform: ${this.runtime.platform}`);
+    }
+  }
 
   async prepare(request: {
     handoff_id: string;
@@ -167,10 +224,11 @@ export class CoordTarget {
     estimated_db_size: bigint;
     expected_git_sha: string;
   }): Promise<void> {
-    // No platform gate: install.sh and the service helpers are dual-platform.
-    // A stale in-flight receive (coord crashed, socket dropped) leaves an open
-    // fd behind that would make every retry report "was not prepared".
-    this.#discardInflight();
+    if (this.runtime.platform !== "win32") {
+      // A stale in-flight receive (coord crashed, socket dropped) leaves an
+      // open fd behind that would make every retry report "was not prepared".
+      this.#discardInflight();
+    }
     if (this.runtime.gitSha !== request.expected_git_sha) {
       throw new Error(`worker version ${this.runtime.gitSha} does not match coordinator`);
     }
@@ -188,12 +246,33 @@ export class CoordTarget {
     const available = Number(stat.bavail) * Number(stat.bsize);
     const required = Number(request.estimated_db_size) * 2 + 256 * 1024 * 1024;
     if (available < required) throw new Error(`insufficient disk: required ${required}, available ${available}`);
-    await this.assertNoActiveCoordinator();
-    await this.assertCanFrontCoordinator();
+    const retiredCoordinator = await this.assertNoActiveCoordinator();
+    if (this.runtime.platform !== "win32") await this.assertCanFrontCoordinator();
+
+    if (this.runtime.platform === "win32") {
+      if (!this.#windows) throw new Error("Windows coordinator relocation runtime is unavailable");
+      if (request.action === "CHECK") {
+        await this.#windows.preflight(request.handoff_id, retiredCoordinator);
+        return;
+      }
+      this.#prepared = {
+        handoffId: request.handoff_id,
+        sourceUrl: request.source_url,
+        targetUrl: request.target_url,
+        expectedCoordKid: request.expected_coord_kid,
+        expectedGitSha: request.expected_git_sha,
+      };
+      await this.#windows.prepare(request.handoff_id, request.target_url, retiredCoordinator);
+      this.#discardInflight();
+      const handoffDir = join(this.paths.dataDir, "handoffs", request.handoff_id);
+      await durableWriteFile(join(handoffDir, "prepared.json"), JSON.stringify(this.#prepared), {
+        platform: "win32", mode: 0o600, privateDacl: true,
+      });
+      return;
+    }
     if (request.action === "CHECK") return;
 
     fs.mkdirSync(this.paths.dataDir, { recursive: true, mode: 0o700 });
-
     const handoffDir = join(this.paths.dataDir, "handoffs", request.handoff_id);
     fs.mkdirSync(handoffDir, { recursive: true, mode: 0o700 });
     this.#prepared = {
@@ -206,14 +285,9 @@ export class CoordTarget {
     // Preserve the pre-move landing before write-plist can replace it.
     this.captureRollback(join(handoffDir, "rollback"));
     await this.captureServeConfig(join(handoffDir, "rollback"));
-    // Captured first, so the rollback still records the retired coordinator's
-    // service definition and can reinstate it.
     await this.stopRetiredCoordinator(request.handoff_id);
     await this.runInstaller("write-plist", request.handoff_id);
     if (!process.env.ROOST_EXEC_BIN) await this.buildSourceSpa();
-    // Durable: the worker exits on any unhandled rejection, and PREPARE →
-    // snapshot can span a full `bun run build`. An in-memory-only record turns
-    // any restart in that window into a dead move.
     fs.writeFileSync(join(handoffDir, "prepared.json"), JSON.stringify(this.#prepared), { mode: 0o600 });
     this.fsyncDirectory(handoffDir);
   }
@@ -251,7 +325,11 @@ export class CoordTarget {
     authorized_keys: Uint8Array;
     secret_sha256: string;
     expected_worker_fps: string[];
-  }): void {
+  }): void | Promise<void> {
+    if (this.runtime.platform === "win32") return this.#startWindowsSnapshot(request);
+    if (this.runtime.platform !== "darwin" && this.runtime.platform !== "linux") {
+      throw new Error(`unsupported coordinator target platform: ${this.runtime.platform}`);
+    }
     const prepared = this.#loadPrepared(request.handoff_id);
     if (!prepared) throw new Error("coordinator target was not prepared");
     if (this.#inflight) {
@@ -283,6 +361,64 @@ export class CoordTarget {
     };
   }
 
+  async #startWindowsSnapshot(request: Parameters<CoordTarget["startSnapshot"]>[0]): Promise<void> {
+    if (!this.#windows) throw new Error("Windows coordinator relocation runtime is unavailable");
+    await this.#windows.ensurePrepared(request.handoff_id);
+    const prepared = this.#loadPrepared(request.handoff_id);
+    if (!prepared) throw new Error("coordinator target was not prepared");
+    try {
+      if (this.#inflight) {
+        if (this.#inflight.handoffId !== request.handoff_id) {
+          throw new Error("another coordinator snapshot is already in flight");
+        }
+        const previous = this.#inflight;
+        this.#inflight = null;
+        try { fs.closeSync(previous.fd); } catch { /* already closed */ }
+        if (fs.existsSync(previous.file)) {
+          await this.#windows.beforeFileMutation(request.handoff_id, "discard-incomplete-snapshot", previous.file);
+          await durableRemove(previous.file, { platform: "win32", privateDacl: true });
+        }
+      }
+      const dir = join(this.paths.dataDir, "handoffs", request.handoff_id);
+      const file = join(dir, "coordinator_v2.snapshot");
+      if (fs.existsSync(file)) {
+        await this.#windows.beforeFileMutation(request.handoff_id, "discard-stale-snapshot", file);
+        await durableRemove(file, { platform: "win32", privateDacl: true });
+      }
+      const key = join(dir, "ssh_ed25519.key");
+      const authorizedKeys = join(dir, "authorized_keys.roost");
+      const handoff = join(dir, "target-handoff.json");
+      await this.#windows.beforeFileMutation(request.handoff_id, "stage-key", key);
+      await durableWriteFile(key, request.coord_key_pem, { platform: "win32", mode: 0o600, privateDacl: true });
+      await this.#windows.beforeFileMutation(request.handoff_id, "stage-authorized-keys", authorizedKeys);
+      await durableWriteFile(authorizedKeys, request.authorized_keys, { platform: "win32", mode: 0o600, privateDacl: true });
+      await this.#windows.beforeFileMutation(request.handoff_id, "stage-target-handoff", handoff);
+      await durableWriteFile(handoff, JSON.stringify({
+        version: 1, handoff_id: request.handoff_id, role: "TARGET", phase: "WAITING_FOR_WORKERS",
+        source_url: prepared.sourceUrl, target_url: prepared.targetUrl, target_worker_fp: "target-pending",
+        expected_worker_fps: request.expected_worker_fps, commit_acked_worker_fps: [],
+        expected_coord_kid: prepared.expectedCoordKid, expected_git_sha: prepared.expectedGitSha,
+        secret_sha256: request.secret_sha256, started_at_ms: Date.now(), updated_at_ms: Date.now(),
+      }), { platform: "win32", mode: 0o600, privateDacl: true });
+      await this.#windows.beforeFileMutation(request.handoff_id, "create-snapshot", file);
+      const fd = fs.openSync(file, "wx", 0o600);
+      try {
+        await applyPrivateDacl(file, { platform: "win32" });
+      } catch (error) {
+        fs.closeSync(fd);
+        throw error;
+      }
+      this.#inflight = {
+        handoffId: request.handoff_id, file, fd,
+        expectedSize: Number(request.total_size), expectedSha256: request.sha256,
+        nextSeq: 0, received: 0, hasher: new Bun.CryptoHasher("sha256"),
+      };
+    } catch (error) {
+      await this.abort(request.handoff_id).catch(() => {});
+      throw error;
+    }
+  }
+
   async appendSnapshot(chunk: { handoff_id: string; seq: number; data: Uint8Array; last: boolean }): Promise<void> {
     const inflight = this.#inflight;
     if (!inflight || inflight.handoffId !== chunk.handoff_id) throw new Error("unknown coordinator snapshot");
@@ -293,6 +429,10 @@ export class CoordTarget {
       if (chunk.seq < inflight.nextSeq) return;
       if (chunk.seq !== inflight.nextSeq) {
         throw new Error(`snapshot chunk out of order: expected ${inflight.nextSeq}, got ${chunk.seq}`);
+      }
+      if (this.runtime.platform === "win32") {
+        if (!this.#windows) throw new Error("Windows coordinator relocation runtime is unavailable");
+        await this.#windows.beforeFileMutation(chunk.handoff_id, `append-snapshot-chunk-${chunk.seq}`, inflight.file);
       }
       let offset = 0;
       while (offset < chunk.data.length) {
@@ -308,6 +448,9 @@ export class CoordTarget {
       fs.fsyncSync(inflight.fd);
       fs.closeSync(inflight.fd);
       this.#inflight = null;
+      if (this.runtime.platform === "win32") {
+        await flushDurablePath(inflight.file, { platform: "win32" });
+      }
       const actualSha256 = inflight.hasher.digest("hex");
       if (inflight.received !== inflight.expectedSize || actualSha256 !== inflight.expectedSha256) {
         throw new Error("coordinator snapshot checksum mismatch");
@@ -320,10 +463,23 @@ export class CoordTarget {
         check.close();
       }
       const prepared = this.#loadPrepared(chunk.handoff_id);
-      if (coordinatorKeyFingerprint(fs.readFileSync(join(dir, "ssh_ed25519.key"))) !== prepared?.expectedCoordKid) {
+      if (!prepared) throw new Error("coordinator target was not prepared");
+      if (coordinatorKeyFingerprint(fs.readFileSync(join(dir, "ssh_ed25519.key"))) !== prepared.expectedCoordKid) {
         throw new Error("coordinator key fingerprint does not match source");
       }
-
+      if (this.runtime.platform === "win32") {
+        if (!this.#windows) throw new Error("Windows coordinator relocation runtime is unavailable");
+        await this.#windows.promote(inflight.handoffId, {
+          db: inflight.file,
+          key: join(dir, "ssh_ed25519.key"),
+          authorizedKeys: join(dir, "authorized_keys.roost"),
+          handoff: join(dir, "target-handoff.json"),
+        }, prepared.expectedGitSha);
+        return;
+      }
+      if (this.runtime.platform !== "darwin" && this.runtime.platform !== "linux") {
+        throw new Error(`unsupported coordinator target platform: ${this.runtime.platform}`);
+      }
       // A -wal/-shm pair left by whatever database previously lived at this
       // path would be replayed into the one we are about to rename in. The
       // retired coordinator that owned them was stopped at PREPARE.
@@ -355,6 +511,25 @@ export class CoordTarget {
     // wedges every retry behind "coordinator target was not prepared". Only
     // ours, though: a late or duplicate ABORT for a previous handoff must not
     // destroy an unrelated in-flight receive.
+    if (this.runtime.platform === "win32") {
+      if (!this.#windows) throw new Error("Windows coordinator relocation runtime is unavailable");
+      if (this.#inflight?.handoffId === handoffId) {
+        const inflight = this.#inflight;
+        this.#inflight = null;
+        try { fs.closeSync(inflight.fd); } catch { /* already closed */ }
+        if (fs.existsSync(inflight.file)) {
+          await this.#windows.beforeFileMutation(handoffId, "abort-incomplete-snapshot", inflight.file);
+          await durableRemove(inflight.file, { platform: "win32", privateDacl: true });
+        }
+      }
+      if (this.#prepared?.handoffId === handoffId) this.#prepared = null;
+      await this.#windows.rollback(handoffId);
+      fs.rmSync(join(this.paths.dataDir, "handoffs", handoffId), { recursive: true, force: true });
+      return;
+    }
+    if (this.runtime.platform !== "darwin" && this.runtime.platform !== "linux") {
+      throw new Error(`unsupported coordinator target platform: ${this.runtime.platform}`);
+    }
     if (this.#inflight?.handoffId === handoffId) this.#discardInflight();
     // The PREPARE record is about to be deleted with the directory below; a
     // stale in-memory copy would let a late START open a file under a
@@ -456,11 +631,11 @@ export class CoordTarget {
   /** A retired source coordinator is deliberately left running to serve
    *  discovery, so a live coordinator service alone must not block the role
    *  coming back. Only a coordinator that is NOT a committed source does. */
-  private async assertNoActiveCoordinator(): Promise<void> {
-    if (!await this.runtime.isCoordServiceActive(coordLabel())) return;
+  private async assertNoActiveCoordinator(): Promise<boolean> {
+    if (!await this.runtime.isCoordServiceActive(coordLabel())) return false;
     try {
       const local = JSON.parse(fs.readFileSync(this.paths.handoffPath, "utf8")) as { role?: string; phase?: string };
-      if (local.role === "SOURCE" && local.phase === "COMMITTED") return;
+      if (local.role === "SOURCE" && local.phase === "COMMITTED") return true;
     } catch {
       // No readable handoff file: this is a plain active coordinator.
     }
@@ -482,7 +657,16 @@ export class CoordTarget {
     // Only the fronted mode invokes serve_front (install.sh:299); a direct-TLS
     // target never calls `tailscale serve`, so its capability is irrelevant.
     if (process.env.ROOST_FRONTED === "0") return;
-    if (this.runtime.platform === "darwin") return; // GUI client runs as the user
+    switch (this.runtime.platform) {
+      case "darwin":
+        return; // GUI client runs as the user.
+      case "linux":
+        break;
+      case "win32":
+        throw new Error("Windows Tailscale preflight must run inside the relocation transaction");
+      default:
+        throw new Error(`unsupported coordinator target platform: ${this.runtime.platform}`);
+    }
     const ts = process.env.ROOST_TAILSCALE_BIN ?? "tailscale";
     const probe = Bun.spawn([ts, "serve", "--bg", "--https=65535", "http://127.0.0.1:1"], {
       stdout: "pipe", stderr: "pipe",
@@ -506,8 +690,19 @@ export class CoordTarget {
    *  signing key. abort() removes it; the commit path never did, so every
    *  completed move left one more copy on disk forever. Safe here: the source
    *  has already retired by the time a COMMIT frame reaches this worker. */
-  finalizeCommit(handoffId: string): void {
-    fs.rmSync(join(this.paths.dataDir, "handoffs", handoffId), { recursive: true, force: true });
+  async finalizeCommit(handoffId: string): Promise<void> {
+    switch (this.runtime.platform) {
+      case "darwin":
+      case "linux":
+        fs.rmSync(join(this.paths.dataDir, "handoffs", handoffId), { recursive: true, force: true });
+        return;
+      case "win32":
+        if (!this.#windows) throw new Error("Windows coordinator relocation runtime is unavailable");
+        await this.#windows.commit(handoffId);
+        return;
+      default:
+        throw new Error(`unsupported coordinator target platform: ${this.runtime.platform}`);
+    }
   }
 
   /** assertNoActiveCoordinator lets a retired SOURCE box accept a move back,
@@ -546,6 +741,12 @@ export class CoordTarget {
   }
 
   private async runInstaller(command: "write-plist" | "install" | "uninstall", handoffId: string): Promise<void> {
+    if (this.runtime.platform === "win32") {
+      throw new Error("Windows coordinator promotion must use the SCM relocation transaction");
+    }
+    if (this.runtime.platform !== "darwin" && this.runtime.platform !== "linux") {
+      throw new Error(`unsupported coordinator target platform: ${this.runtime.platform}`);
+    }
     const dir = join(this.paths.dataDir, "handoffs", handoffId);
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     const script = process.env.ROOST_COORDINATOR_INSTALL_SCRIPT ?? (COORD_INSTALL_SH ? join(dir, "install-coordinator.sh") : join(process.cwd(), "apps", "coord", "scripts", "install.sh"));

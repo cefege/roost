@@ -57,3 +57,90 @@ jobs:
           path: |
             playwright-report/
             test-results/
+
+
+  windows-2022:
+    name: windows server 2022 deterministic gates
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - name: install
+        run: bun install --frozen-lockfile
+      - name: Windows invariants
+        run: |
+          bun x tsgo -p tsconfig.base.json --noEmit
+          bun test --isolate apps/shared/tests/ apps/coord/tests/ apps/web/tests/ apps/roost-cli/tests/ smoke/bun_smoke.test.ts
+      - name: Native keeper and ConPTY
+        run: >-
+          bun test
+          apps/worker/tests/keeper-history-resume.test.ts
+          apps/worker/tests/keeper-input-stress.test.ts
+          apps/worker/tests/keeper-child-reap.test.ts
+          apps/worker/tests/listening-ports.test.ts
+      - name: Install and update invariants
+        run: bun test --isolate apps/roost-cli/tests/
+      - name: Coordinator move invariants
+        run: >-
+          bun test
+          apps/coord/tests/coordinator-move-handlers.test.ts
+          apps/coord/tests/coordinator-move-orchestrator.test.ts
+          apps/coord/tests/coordinator-move-e2e.test.ts
+      - name: Build embedded Windows binary
+        run: |
+          bun run --cwd apps/web build
+          bun scripts/build-binary.ts --windows-only
+      - name: Build native helper with static MSVC runtime
+        shell: pwsh
+        run: ./scripts/windows/build-helper.ps1
+      - name: Exercise native Windows executables
+        shell: pwsh
+        run: |
+          ./dist/roost-windows-x64.exe version
+          $helper = ./dist/roost-win-helper.exe version | ConvertFrom-Json
+          if ($null -eq $helper) { throw "helper did not emit version JSON" }
+      - name: Install Playwright Chromium artifact
+        run: bunx playwright install chromium
+      - name: Terminal on Chromium
+        run: bun run test:terminal
+      - name: Exercise generated embeds in Chromium artifact
+        run: >-
+          bun scripts/windows/smoke-embedded-assets.ts
+          --binary dist/roost-windows-x64.exe
+          --channel chromium
+          --artifact-dir test-results/windows-chromium-embedded
+      - name: Exercise generated embeds in installed Edge
+        run: >-
+          bun scripts/windows/smoke-embedded-assets.ts
+          --binary dist/roost-windows-x64.exe
+          --channel msedge
+          --artifact-dir test-results/windows-edge-embedded
+      - name: Assemble and verify unsigned CI package
+        shell: pwsh
+        env:
+          SHAWL_WIN64_SHA256: f883c5d09c9beae2efaeabd8513e7d3f57cd1d0864cec3df4f4a7b6ee904351c
+          SHAWL_LEGAL_SHA256: a2a1743a64b79922062906eb32cdaf23db131769f8cabcc98e5d57bbf66eb0b0
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $publishedAt = ([DateTimeOffset]::Parse((git show -s --format=%cI HEAD))).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+          ./scripts/windows/package-windows.ps1 -Version $version -PublishedAt $publishedAt -Unsigned
+          ./scripts/windows/verify-windows-package.ps1 -AllowUnsigned
+      - name: Windows Chromium, Edge, terminal and package artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-2022-artifacts
+          if-no-files-found: warn
+          path: |
+            playwright-report/
+            test-results/
+            dist/roost-windows-x64.zip
+            dist/roost-windows-x64.zip.sha256
+            dist/roost-windows-x64.manifest.json
+            dist/roost-windows-x64.manifest.json.sha256

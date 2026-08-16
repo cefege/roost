@@ -147,12 +147,14 @@ export type SignalKind =
   | "sync.prehydration_overflow" // SPA held more than the pre-hydration cap of Sync frames before the bootstrap snapshot landed → queue dropped and the socket re-dialed to backfill from the persisted cursor
   | "event.append_failed"       // coord appendEvent DB tx failed (event-log durability)
   | "audit.write_failed"        // coord audit_log insert failed (audit/compliance trail hole)
+  | "audit.input_queue_backpressure" // coord terminal-input audit queue reached its bounded capacity; producers are waiting for durable audit writes
   | "worker.auth_rejected"      // coord rejected a worker WS upgrade (jwt invalid / fp mismatch); kv.reason
   | "worker.protocol_violation" // worker sent event-before-hello / an undecodable frame; kv.reason
   | "rpc.worker_timeout"        // coord→worker pending RPC timed out; browser spawn/attach hangs
   | "auth.rpc_rejected"         // a Connect RPC returned 401/Unauthenticated (jwt verify fail or no caller); kv.reason,path
   | "worker.uncaught"           // worker uncaughtException/unhandledRejection (mirror of spa.uncaught); kv.kind=error|rejection
   | "transport.event_drop"      // SessionEvent evicted from the unacked outbox on overflow (at-least-once broken = data loss)
+  | "transport.raw_metadata_drop" // bounded worker/CoordLink metadata lane rejected bytes; cells remain authoritative but title/activity/link scanners saw a gap
   | "heartbeat.stalled"         // N consecutive heartbeat failures to coord (worker invisible to fleet)
   | "scrollback.history_lost"   // resume fell back to an empty ring after getHistory failed (full scrollback wipe)
   | "worker.coord_relocate_failed" // worker STAGE/ACTIVATE/COMMIT/ABORT of a coordinator move threw; kv.action,handoff_id

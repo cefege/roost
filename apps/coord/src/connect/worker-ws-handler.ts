@@ -30,6 +30,10 @@ import { jwtKeyGeneration, verifyJwt } from "../jwt.ts";
 import { log } from "@roost/shared/log";
 import { signal } from "@roost/shared/diag";
 import { makeWorkerConn, type WorkerConn, type WorkerServiceDeps } from "./worker-service.ts";
+import { protoToEvent } from "@roost/shared/wire/event-proto";
+import { asChannelId, asWorkerFp } from "@roost/shared/wire";
+import { lookupSessionId } from "../byte-hub.ts";
+import { AnnouncedChannelBarrier } from "./announced-channel-barrier.ts";
 
 const WS_PATH_RE = /^\/ws\/coord-worker\/([a-f0-9]{64})$/;
 
@@ -42,6 +46,9 @@ export interface WorkerWsData {
   // not await our async handler between them, so chain handleUpstream calls
   // here to keep event appends ordered (the seqno-splice invariant).
   tail: Promise<void>;
+  // Cells may overtake the async durable opened append, but only after this
+  // socket synchronously decoded that exact worker/channel announcement.
+  announcedChannels: AnnouncedChannelBarrier;
 }
 
 /** Bun fetch-handler hook. Returns:
@@ -83,7 +90,14 @@ export async function handleWorkerWsUpgrade(
   if (!worker || jwtKeyGeneration(deps.jwtCache, fp) !== caller.keyGeneration) {
     return new Response("unauthorized", { status: 401 });
   }
-  const data: WorkerWsData = { kind: "worker", caller, fp, conn: null, tail: Promise.resolve() };
+  const data: WorkerWsData = {
+    kind: "worker",
+    caller,
+    fp,
+    conn: null,
+    tail: Promise.resolve(),
+    announcedChannels: new AnnouncedChannelBarrier(),
+  };
   const ok = server.upgrade(req, { data });
   if (ok) return undefined; // hijacked
   return new Response("upgrade failed", { status: 400 });
@@ -137,12 +151,44 @@ export function makeWorkerWsHandler(deps: WorkerServiceDeps) {
         log.warn("worker-ws", "decode_failed", { worker_fp: ws.data.fp, error: String(e) });
         return;
       }
-      // Fast path: in-memory terminal bus publishes — no DB write or ordering
-      // constraint. Process immediately so an echo cell frame never waits
-      // behind a DB-writing event frame. The message was copied off Bun's
-      // pooled buffer above, keeping deferred `bytes` views valid.
       const fcase = frame.frame.case;
-      if (fcase === "binary" || fcase === "cellGrid") {
+      let opened: { sessionId: string; channelId: number } | null = null;
+      if (fcase === "event") {
+        try {
+          const event = protoToEvent(frame.frame.value.event as never);
+          if (event?.kind === "opened" && event.worker_fp === ws.data.fp) {
+            opened = {
+              sessionId: event.session_id,
+              channelId: Number(event.channel),
+            };
+            // Synchronous recognition happens before this event joins the async
+            // append tail, closing the opened→cell fast-path race.
+            ws.data.announcedChannels.announce(
+              opened.channelId,
+              opened.sessionId,
+            );
+          }
+        } catch {
+          // The normal worker-conn decoder owns protocol diagnostics.
+        }
+      }
+      // Fast path: in-memory terminal bus publishes — no DB write or ordering
+      // constraint. A cell for a synchronously announced channel waits behind
+      // only that channel's durable opened append.
+      if (fcase === "cellGrid") {
+        const channelId = frame.frame.value.channelId;
+        const queued = ws.data.announcedChannels.enqueue(
+          channelId,
+          frame,
+          toBinary(CoordWorkerUpSchema, frame).byteLength,
+        );
+        if (queued !== "not-announced") return;
+        void conn.handleUpstream(frame).catch((e) => {
+          log.warn("worker-ws", "handle_failed", { worker_fp: ws.data.fp, error: String(e) });
+        });
+        return;
+      }
+      if (fcase === "binary") {
         void conn.handleUpstream(frame).catch((e) => {
           log.warn("worker-ws", "handle_failed", { worker_fp: ws.data.fp, error: String(e) });
         });
@@ -150,8 +196,21 @@ export function makeWorkerWsHandler(deps: WorkerServiceDeps) {
       }
       // Slow path: event frames preserve appendEvent ordering.
       ws.data.tail = ws.data.tail
-        .then(() => conn.handleUpstream(frame))
+        .then(async () => {
+          await conn.handleUpstream(frame);
+          if (!opened) return;
+          ws.data.announcedChannels.commit(
+            opened.channelId,
+            opened.sessionId,
+            () => lookupSessionId(
+              asWorkerFp(ws.data.fp),
+              asChannelId(opened!.channelId),
+            ) === opened!.sessionId,
+            (buffered) => { void conn.handleUpstream(buffered); },
+          );
+        })
         .catch((e) => {
+          if (opened) ws.data.announcedChannels.fail(opened.channelId);
           // A throw = fatal (DB durability fault); tear down so the worker
           // reconnects + replays unacked.
           log.warn("worker-ws", "handle_failed", { worker_fp: ws.data.fp, error: String(e) });
@@ -161,6 +220,7 @@ export function makeWorkerWsHandler(deps: WorkerServiceDeps) {
     },
     close(ws: ServerWebSocket<WorkerWsData>): void {
       sockets.delete(ws);
+      ws.data.announcedChannels.clear();
       ws.data.conn?.close();
       ws.data.conn = null;
       log.info("worker-ws", "close", { worker_fp: ws.data.fp });

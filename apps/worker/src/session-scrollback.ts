@@ -6,12 +6,16 @@
 import type { SessionManager } from "./session-manager.ts";
 import type { TerminalCore } from "@wterm/core";
 import { diag, isDiagEnabled, signal } from "@roost/shared";
+import { supportedHostPlatform } from "@roost/shared/platform";
 import * as byteCapture from "./diag/byte-capture.ts";
 import { synthQueryReplies } from "./terminal-query-reply.ts";
 import { _scanAgentOsc, _scanAltModeTransitions, _scanOsc7 } from "./terminal-stream-scan.ts";
 import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
 import { _sha8, MODE_CARRY_MAX } from "./session-constants.ts";
 import { appendToRing } from "./session-scrollback-ring.ts";
+import { canonicalExistingWorkerPath } from "./util/path.ts";
+
+const HOST_PLATFORM = supportedHostPlatform();
 
 /** Append a chunk to the per-session scrollback ring, evicting oldest
  *  bytes if the cap is exceeded. Called from attachOutputClient's
@@ -27,17 +31,14 @@ export function appendScrollback(this: SessionManager, channelId: number, chunk:
 	if (!rec) return -1;
 	const core = rec.wtermCore;
 	if (!core) return -1;
+	const bytes = new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength);
 	appendToRing(rec.scrollback, chunk);
 	rec.head_seq += chunk.length;
 	// Diag: per-chunk byte capture into a fixed-capacity 256 KB SbRing, so the
 	// push is O(chunk). Deliberately always-on rather than ROOST_DIAG-gated —
 	// an anomaly fires when diag was off, and the tail is only ever read by
 	// byteCapture.dump, which must not find an empty ring.
-	byteCapture.push(
-		String(rec.sessionId),
-		new Uint8Array(chunk),
-		rec.head_seq,
-	);
+	byteCapture.push(String(rec.sessionId), bytes, rec.head_seq);
 	// `diag` is a no-op function when the firehose is off, but its ARGUMENTS
 	// always evaluate — so _sha8 ran a real sha256 over every PTY chunk on the
 	// default production path. The guard is what makes it free.
@@ -57,7 +58,7 @@ export function appendScrollback(this: SessionManager, channelId: number, chunk:
 	// we've fed it — its job here is solely to support clean fresh-mount
 	// replay at the headless cols/rows. Live deltas still ride the raw
 	// ring above.
-	core.writeRaw(new Uint8Array(chunk));
+	core.writeRaw(bytes);
 	// Answer terminal capability probes so the app that asked hears back. Two
 	// sources: (1) DSR (ESC[6n cursor pos) the core DOES answer → getResponse();
 	// (2) Primary DA (ESC[c) + XTVERSION (ESC[>0q) the core does NOT answer →
@@ -66,7 +67,7 @@ export function appendScrollback(this: SessionManager, channelId: number, chunk:
 	this._answerTerminalQueries(
 		core,
 		channelId,
-		new Uint8Array(chunk),
+		bytes,
 	);
 	// phase-ssb-altmode: scan for DEC private mode 1049/47/1047
 	// transitions so getScrollbackSince can prepend the right enter
@@ -74,14 +75,14 @@ export function appendScrollback(this: SessionManager, channelId: number, chunk:
 	// bridges the last MODE_CARRY_MAX bytes across chunk boundaries.
 	const combined = new Uint8Array(rec.mode_carry.length + chunk.length);
 	combined.set(rec.mode_carry, 0);
-	combined.set(chunk, rec.mode_carry.length);
+	combined.set(bytes, rec.mode_carry.length);
 	rec.alt_mode = _scanAltModeTransitions(combined, rec.alt_mode);
 	rec.mode_carry =
 		combined.length > MODE_CARRY_MAX
 			? combined.subarray(combined.length - MODE_CARRY_MAX)
 			: combined;
 	const agentOsc = _scanAgentOsc(
-		rec.agentOscCarry + rec.agentOscDecoder.decode(chunk, { stream: true }),
+		rec.agentOscCarry + rec.agentOscDecoder.decode(bytes, { stream: true }),
 	);
 	rec.agentOscCarry = agentOsc.carry;
 	if (agentOsc.title !== null) rec.rawOscTitle = agentOsc.title;
@@ -92,15 +93,24 @@ export function appendScrollback(this: SessionManager, channelId: number, chunk:
 	// and every browser sees the update via the events stream.
 	const osc7Combined = new Uint8Array(rec.osc7_carry.length + chunk.length);
 	osc7Combined.set(rec.osc7_carry, 0);
-	osc7Combined.set(chunk, rec.osc7_carry.length);
-	const { newCwd, carry } = _scanOsc7(osc7Combined);
+	osc7Combined.set(bytes, rec.osc7_carry.length);
+	const { newCwd, carry } = _scanOsc7(osc7Combined, HOST_PLATFORM);
 	rec.osc7_carry = carry;
-	if (newCwd && newCwd !== rec.cwd) {
-		rec.cwd = newCwd;
+	let canonicalCwd = newCwd;
+	if (canonicalCwd && HOST_PLATFORM === "win32") {
+		try {
+			canonicalCwd = canonicalExistingWorkerPath(canonicalCwd, HOST_PLATFORM);
+		} catch {
+			// The directory can disappear between prompt emission and scan.
+			// Keep the already-normalized OSC path rather than dropping the cwd.
+		}
+	}
+	if (canonicalCwd && canonicalCwd !== rec.cwd) {
+		rec.cwd = canonicalCwd;
 		this.emitEvent({
 			kind: "cwd",
 			session_id: rec.sessionId,
-			cwd: newCwd,
+			cwd: canonicalCwd,
 			ts: Date.now(),
 		});
 		// New cwd may be a different repo/branch — re-resolve + re-watch.

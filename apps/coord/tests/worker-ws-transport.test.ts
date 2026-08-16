@@ -39,6 +39,7 @@ import {
   makeWorkerWsHandler,
   type WorkerWsData,
 } from "../src/connect/worker-ws-handler.ts";
+import { AnnouncedChannelBarrier } from "../src/connect/announced-channel-barrier.ts";
 import { getWorkerHubSocket, type WorkerServiceDeps } from "../src/connect/worker-service.ts";
 import { makeSessionScrollbackHandlers } from "../src/connect/handlers-sessions-scrollback.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";
@@ -345,6 +346,7 @@ describe("worker↔coord raw-WS transport", () => {
       fp: workerFp,
       conn: null,
       tail: Promise.resolve(),
+      announcedChannels: new AnnouncedChannelBarrier(),
     };
     invalidateJwtKey(deps.jwtCache, workerFp);
     let closed: [number, string] | undefined;

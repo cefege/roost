@@ -3,6 +3,7 @@
 // kind maps to --syntax-<kind> CSS vars (keyword/string/comment/number/plain).
 // JavaScript-ish rules applied for most extensions; good enough for code nav.
 // Callers: FileViewerSheet.tsx per-line highlighting.
+import { workerPathBasename } from "./nativePath.ts";
 
 type TokenKind = "keyword" | "string" | "comment" | "number" | "plain";
 export type Token = { text: string; kind: TokenKind };
@@ -154,8 +155,8 @@ export function shouldHighlight(ext: string): boolean {
 }
 
 // Extract extension from a file path (no dot, lowercase).
-export function extFromPath(path: string): string {
-  const base = path.split("/").pop() ?? "";
+export function extFromPath(path: string, workerFp = ""): string {
+  const base = workerPathBasename(workerFp, path);
   const dot = base.lastIndexOf(".");
   return dot >= 0 ? base.slice(dot + 1).toLowerCase() : "";
 }

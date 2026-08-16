@@ -1,6 +1,6 @@
 // att1d — SPA file upload primitive. Drag/paste/pick a File →
 // stream bytes to coord via chunked Connect AttachFileChunk → return abs_path
-// that the SPA injects into the PTY via inputChannel.
+// that the SPA injects into the PTY via Sync v2.
 //
 // att1-stream: NO size ceiling. The file is sliced with Blob.slice into
 // bounded chunks and sent one unary AttachFileChunk per slice (serial, in
@@ -15,7 +15,7 @@
 
 import { coordClient } from "../connect.ts";
 import { log } from "@roost/shared/log";
-import { inputChannel } from "../ws/input-channel.ts";
+import { sendTerminalInput } from "../ws/sync-outbound.ts";
 import { addTransfer, markTransferState, setTransferProgress } from "../store/transfers.ts";
 import type { Session } from "@roost/shared/wire";
 
@@ -144,7 +144,7 @@ export async function enqueueAttachmentTo(session: Session, file: File, sink: (a
 
 /** Type an uploaded file's absolute path into the session PTY (trailing space). */
 export function injectPath(session: Session, absPath: string): void {
-  inputChannel.sendInput(session.id, new TextEncoder().encode(`${absPath} `));
+  sendTerminalInput(session.id, new TextEncoder().encode(`${absPath} `));
 }
 
 /** Upload + inject the abs_path into the PTY (trailing space). Shared by

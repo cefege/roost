@@ -17,11 +17,12 @@
 //  - Suppressed entirely in alt-screen (claude/vim) — can't predict a TUI.
 //
 // Driven by CellTerminal: predict() on each keystroke, onFrame() on each
-// authoritative CellGridFrame. Kill switch: localStorage.roostPredict === "0".
+// authoritative CellGridFrame. The display preference is an injected typed
+// accessor, so this hot path performs no storage reads.
 
 import type { CellGridFrame } from "@roost/shared/cell";
 import { diag } from "@roost/shared/diag";
-
+import type { PredictMode } from "./predictPref.ts";
 // SRTT/2 thresholds. send_interval = SRTT/2. Lowered so local echo engages on a
 // LAN/tailnet link (~15-30ms RTT) — where every keystroke otherwise visibly
 // trails one full round-trip (the everyday typing lag) — and only a true
@@ -81,11 +82,21 @@ export class PredictiveEcho {
   private readonly now: () => number;
   private readonly onCursor: (col: number | null) => void;
   private readonly sid: string;
+  private readonly getMode: () => PredictMode;
 
-  constructor(private readonly viewportEl: HTMLElement, opts?: { now?: () => number; onCursor?: (col: number | null) => void; sid?: string }) {
-    this.now = opts?.now ?? nowMs;
-    this.sid = opts?.sid ?? "";
-    this.onCursor = opts?.onCursor ?? (() => {});
+  constructor(
+    private readonly viewportEl: HTMLElement,
+    opts: {
+      mode: () => PredictMode;
+      now?: () => number;
+      onCursor?: (col: number | null) => void;
+      sid?: string;
+    },
+  ) {
+    this.now = opts.now ?? nowMs;
+    this.sid = opts.sid ?? "";
+    this.onCursor = opts.onCursor ?? (() => {});
+    this.getMode = opts.mode;
     this.overlay = viewportEl.ownerDocument.createElement("div");
     this.overlay.className = "cell-predict";
     this.overlay.style.position = "absolute";
@@ -95,26 +106,12 @@ export class PredictiveEcho {
     viewportEl.appendChild(this.overlay);
   }
 
-  // display_preference: the four prediction
-  // modes, settable via localStorage.roostPredict. Back-compat aliases for the
-  // values shipped earlier ('0'→never, 'force'→always).
-  private mode(): "adaptive" | "always" | "never" | "experimental" {
-    let v = "";
-    try { v = localStorage.getItem("roostPredict") ?? ""; } catch { v = ""; }
-    if (v === "0" || v === "never") return "never";
-    if (v === "force" || v === "always") return "always";
-    if (v === "experimental") return "experimental";
-    return "adaptive"; // default
-  }
-  private enabled(): boolean { return this.mode() !== "never"; }
-
   /** The display gate: Always/Experimental
    *  paint unconditionally; Adaptive paints only when srtt_trigger||glitch_trigger
    *  (the SRTT hysteresis) — i.e. only on a slow link. The epoch
    *  confidence gate (isTentative) is applied separately in repaint. */
-  private shouldShow(): boolean {
-    const m = this.mode();
-    if (m === "always" || m === "experimental") return true;
+  private shouldShow(mode: PredictMode): boolean {
+    if (mode === "always" || mode === "experimental") return true;
     const half = this.srtt / 2;
     // srtt_trigger hysteresis: arm at
     // SRTT/2 > SHOW_ON, stay armed through the 20–30 ms dead-band, disarm only
@@ -143,7 +140,7 @@ export class PredictiveEcho {
    *  display is gated in repaint). Only printable width-1 + backspace; anything
    *  ambiguous bumps the epoch so later predictions stay hidden until reproven. */
   predict(bytes: Uint8Array): void {
-    if (!this.enabled() || this.altScreen) { if (this.preds.length) this.resetAll(); return; }
+    if (this.getMode() === "never" || this.altScreen) { if (this.preds.length) this.resetAll(); return; }
     // Paste guard (paste = bytes > 100 →
     // reset): never predict a paste — it floods the overlay and its echo is
     // unguessable. Reset any pending predictions and drop.
@@ -151,7 +148,7 @@ export class PredictiveEcho {
     // Experimental mode: no tentative epoch — predictions
     // show IMMEDIATELY (predictionEpoch == confirmedEpoch ⇒ not tentative),
     // trading the no-flicker guarantee for zero-latency display.
-    if (this.mode() === "experimental") this.predictionEpoch = this.confirmedEpoch;
+    if (this.getMode() === "experimental") this.predictionEpoch = this.confirmedEpoch;
     for (let i = 0; i < bytes.length; i++) {
       const b = bytes[i]!;
       if (b === 0x7f || b === 0x08) {            // backspace
@@ -236,7 +233,7 @@ export class PredictiveEcho {
         this.confirmedEpoch = Math.max(this.confirmedEpoch, p.epoch);
         this.sampleRtt(now - p.bornMs);
         this.glitch = false;
-      } else if (this.mode() === "experimental") {
+      } else if (this.getMode() === "experimental") {
         // Experimental mode: reset just the wrong cell — never a
         // hard reset, never an epoch kill. Flickerier, but each cell
         // self-corrects independently.
@@ -268,9 +265,10 @@ export class PredictiveEcho {
   /** Paint visible, non-tentative predictions into the overlay (re-attached
    *  because the renderer's replaceChildren wipes viewport children). */
   private repaint(): void {
-    // Re-attach (renderViewport's replaceChildren may have removed us).
+    // Re-attach after an explicit full repair may have rebuilt the viewport.
     if (this.overlay.parentNode !== this.viewportEl) this.viewportEl.appendChild(this.overlay);
-    const show = this.enabled() && !this.altScreen && this.shouldShow();
+    const mode = this.getMode();
+    const show = mode !== "never" && !this.altScreen && this.shouldShow(mode);
     if (!show) { this.overlay.replaceChildren(); this.onCursor(null); return; }
     // Predicted cursor (ConditionalCursorMove): the caret leads the
     // echoed chars / an arrow move. Suppressed while any char prediction is
@@ -294,6 +292,13 @@ export class PredictiveEcho {
     this.overlay.replaceChildren(frag);
   }
 
+  /** Apply a reactive Settings change immediately, even while the terminal is
+   * idle and no keystroke/frame would otherwise trigger repaint. */
+  refreshPreference(): void {
+    if (this.getMode() === "never") this.resetAll();
+    else this.repaint();
+  }
+
   dispose(): void {
     this.overlay.remove();
     this.preds = [];
@@ -301,11 +306,12 @@ export class PredictiveEcho {
 
   /** Test seam — internal state for unit tests (no DOM assertions needed). */
   _debug(): { total: number; visible: number; srtt: number; confirmedEpoch: number; predictionEpoch: number; mode: string; predCursorCol: number } {
-    const showing = this.enabled() && !this.altScreen && this.shouldShow();
+    const mode = this.getMode();
+    const showing = mode !== "never" && !this.altScreen && this.shouldShow(mode);
     const visible = showing ? this.preds.filter((p) => !this.isTentative(p)).length : 0;
     return {
       total: this.preds.length, visible, srtt: this.srtt,
-      confirmedEpoch: this.confirmedEpoch, predictionEpoch: this.predictionEpoch, mode: this.mode(),
+      confirmedEpoch: this.confirmedEpoch, predictionEpoch: this.predictionEpoch, mode,
       predCursorCol: this.predCursorCol,
     };
   }

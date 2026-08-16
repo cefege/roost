@@ -7,6 +7,7 @@
 import type { ServiceImpl } from "@connectrpc/connect";
 import { Code, ConnectError } from "@connectrpc/connect";
 import { create } from "@bufbuild/protobuf";
+import { isSupportedHostPlatform } from "@roost/shared/platform";
 import {
 	type CoordinatorService,
 	WorkersListResponseSchema,
@@ -24,7 +25,7 @@ import {
 	workerRowToWirePresence,
 } from "@roost/shared/wire/row-proto";
 import { presenceBus } from "../buses.ts";
-import { startDeploy, deployOutput } from "../deploy-jobs.ts";
+import { startDeploy, startWindowsUpdateDeploy, deployOutput, type DeployStartResult } from "../deploy-jobs.ts";
 import { listRoutableFps } from "./worker-service.ts";
 import { requireAuth } from "./auth-interceptor.ts";
 import type { ConnectDeps } from "./router.ts";
@@ -41,6 +42,34 @@ type WorkerMethods =
 	| "transfersOutput"
 	| "workersDeployStart";
 
+async function startWindowsDeploy(host: string, workerFp: string): Promise<DeployStartResult> {
+	const publisherSha256 = process.env.ROOST_WINDOWS_PUBLISHER_SHA256 ?? "";
+	if (!listRoutableFps().includes(workerFp)) {
+		return { ok: false, error: "Windows worker is offline; signed update control requires its authenticated worker link" };
+	}
+	const releaseBase = process.env.ROOST_RELEASE_BASE_URL
+		?? "https://github.com/cefege/roost/releases/latest/download";
+	const manifestUrl = `${releaseBase}/roost-windows-x64.manifest.json`;
+	const signatureUrl = `${releaseBase}/roost-windows-x64.manifest.json.p7s`;
+	let manifestSha256 = "";
+	try {
+		const response = await fetch(`${manifestUrl}.sha256`, { signal: AbortSignal.timeout(10_000) });
+		if (!response.ok) return { ok: false, error: `Windows manifest checksum download failed: HTTP ${response.status}` };
+		const match = /^([a-f0-9]{64})(?:\s.*)?$/i.exec((await response.text()).trim());
+		if (!match) return { ok: false, error: "Windows manifest checksum response is malformed" };
+		manifestSha256 = match[1]!;
+	} catch (error) {
+		return { ok: false, error: `Windows manifest checksum download failed: ${String(error)}` };
+	}
+	return startWindowsUpdateDeploy(host, {
+		workerFp,
+		manifestUrl,
+		signatureUrl,
+		manifestSha256,
+		publisherSha256,
+	});
+}
+
 export function makeWorkerHandlers(
 	deps: ConnectDeps,
 ): Pick<ServiceImpl<typeof CoordinatorService>, WorkerMethods> {
@@ -55,6 +84,9 @@ export function makeWorkerHandlers(
 		},
 
 		async workersRegister(req, ctx) {
+			if (req.os !== undefined && !isSupportedHostPlatform(req.os)) {
+				throw new ConnectError("unsupported worker os", Code.InvalidArgument);
+			}
 			const caller = requireAuth(ctx.values);
 			const fp = caller.fingerprint;
 			const existing = await deps.db
@@ -263,7 +295,17 @@ export function makeWorkerHandlers(
 
 		async workersDeployStart(req, ctx) {
 			requireAuth(ctx.values);
-			const result = startDeploy(req.host);
+			const worker = await deps.db.selectFrom("workers")
+				.select(["fp", "os"])
+				.where((eb) => eb.or([
+					eb("fp", "=", req.host),
+					eb("label", "=", req.host),
+					eb("reachable_addr", "=", req.host),
+				]))
+				.executeTakeFirst();
+			const result = worker?.os === "win32"
+				? await startWindowsDeploy(req.host, worker.fp)
+				: startDeploy(req.host);
 			return create(WorkersDeployStartResponseSchema, {
 				ok: result.ok,
 				jobId: result.jobId ?? "",

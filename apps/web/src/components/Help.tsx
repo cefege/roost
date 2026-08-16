@@ -3,13 +3,14 @@
 
 import { useNavigate } from "@solidjs/router";
 import { onMount, onCleanup } from "solid-js";
+import { platformShortcutLabel } from "../lib/browserPlatform.ts";
 
 const KEYBINDINGS: Array<{ key: string; action: string }> = [
-  { key: "⌘K", action: "Command palette / open terminal" },
-  { key: "⌘F", action: "Search" },
-  { key: "⌘B", action: "Toggle sidebar" },
+  { key: platformShortcutLabel("commandPalette", "⌘K"), action: "Command palette / open terminal" },
+  { key: platformShortcutLabel("sidebarSearch", "⌘F"), action: "Search" },
+  { key: platformShortcutLabel("toggleSidebar", "⌘B"), action: "Toggle sidebar" },
   { key: "↑ ↓ ↵", action: "Move / open in sidebar" },
-  { key: "⌘,", action: "Settings" },
+  { key: platformShortcutLabel("settings", "⌘,"), action: "Settings" },
   { key: "Shift+?", action: "Help" },
   { key: "Esc", action: "Close overlay" },
 ];

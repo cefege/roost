@@ -7,9 +7,12 @@ import { create } from "@bufbuild/protobuf";
 import {
   CoordWorkerDownSchema, DBrowserCommandSchema, DBinarySchema, DAttachmentChunkSchema,
   DCoordMovePrepareSchema, DCoordMoveSnapshotStartSchema, DCoordMoveSnapshotChunkSchema, DCoordRelocateSchema,
+  DInputRequestSchema, DViewportRequestSchema,
+  type WInputResult, type WViewportResult,
+  DUpdateBrokerSchema,
 } from "@roost/shared/proto/worker_transport_pb";
-import { createPendingRpc } from "../router/pending-rpcs.ts";
 import { connectWorkers } from "./worker-registry.ts";
+import { createPendingRpc, rejectPendingRpc } from "../router/pending-rpcs.ts";
 import { log } from "@roost/shared/log";
 
 /** Socket-shape shim: presents the worker-conn registry to call sites
@@ -79,6 +82,100 @@ export function sendBrowserCommand(
   } catch { return false; }
 }
 
+const INPUT_CONTROL_TIMEOUT_MS = 5_000;
+// A keeper-applied resize with a lost ACK must status-reconcile the same
+// sequence. Keep the coordinator lane/gate alive through that reconciliation
+// rather than fabricating a rejection after the ordinary RPC deadline.
+const VIEWPORT_CONTROL_TIMEOUT_MS = 120_000;
+
+export interface TerminalWorkerRequest<T> {
+  /** True only when Bun accepted or queued the encoded worker frame. */
+  admitted: boolean;
+  result: Promise<T>;
+}
+
+/** Send one terminal-input batch and wait for the keeper-completed result.
+ * A non-zero Bun send result is transport admission only; the returned promise
+ * resolves exclusively from WInputResult after the keeper has written all
+ * bytes, rejected before writing, or reported a partial/unknown ambiguity. */
+export function sendTerminalInputRequest(
+  workerFp: string,
+  message: { sessionId: string; inputSeq: bigint; data: Uint8Array },
+  timeoutMs = INPUT_CONTROL_TIMEOUT_MS,
+): TerminalWorkerRequest<WInputResult> {
+  const worker = connectWorkers.get(workerFp);
+  if (!worker) {
+    return { admitted: false, result: Promise.reject(new Error("worker offline")) };
+  }
+  const pending = createPendingRpc<WInputResult>(timeoutMs, workerFp);
+  let admitted = false;
+  try {
+    const sent = worker.send(create(CoordWorkerDownSchema, {
+      frame: { case: "inputRequest", value: create(DInputRequestSchema, {
+        requestId: pending.request_id,
+        sessionId: message.sessionId,
+        inputSeq: message.inputSeq,
+        data: message.data,
+      }) },
+    }));
+    admitted = sent !== 0;
+    if (!admitted) rejectPendingRpc(pending.request_id, "worker transport dropped terminal input");
+  } catch (error) {
+    rejectPendingRpc(
+      pending.request_id,
+      error instanceof Error ? error.message : "worker transport failed terminal input",
+    );
+  }
+  return { admitted, result: pending.promise };
+}
+
+/** Send one viewport mutation and wait for a committed/no-op or rejected
+ * worker result. A dropped, missing, or late result never becomes acceptance;
+ * the caller keeps the browser intent pending and may reconcile the same
+ * client sequence. */
+export function sendTerminalViewportRequest(
+  workerFp: string,
+  message: {
+    sessionId: string;
+    viewerId: string;
+    clientSeq: bigint;
+    cols: number;
+    rows: number;
+    cause: number;
+    heldCellSeq: bigint;
+  },
+  timeoutMs = VIEWPORT_CONTROL_TIMEOUT_MS,
+): TerminalWorkerRequest<WViewportResult> {
+  const worker = connectWorkers.get(workerFp);
+  if (!worker) {
+    return { admitted: false, result: Promise.reject(new Error("worker offline")) };
+  }
+  const pending = createPendingRpc<WViewportResult>(timeoutMs, workerFp);
+  let admitted = false;
+  try {
+    const sent = worker.send(create(CoordWorkerDownSchema, {
+      frame: { case: "viewportRequest", value: create(DViewportRequestSchema, {
+        requestId: pending.request_id,
+        sessionId: message.sessionId,
+        viewerId: message.viewerId,
+        clientSeq: message.clientSeq,
+        cols: message.cols,
+        rows: message.rows,
+        cause: message.cause,
+        heldCellSeq: message.heldCellSeq,
+      }) },
+    }));
+    admitted = sent !== 0;
+    if (!admitted) rejectPendingRpc(pending.request_id, "worker transport dropped viewport request");
+  } catch (error) {
+    rejectPendingRpc(
+      pending.request_id,
+      error instanceof Error ? error.message : "worker transport failed viewport request",
+    );
+  }
+  return { admitted, result: pending.promise };
+}
+
 /** att1-stream — relay one streamed-upload chunk to a worker. The first chunk
  *  carries metadata; every chunk carries `data`; `last` triggers rename+reply.
  *  Returns false if the worker isn't connected. */
@@ -142,4 +239,34 @@ export function sendCoordinatorSnapshotChunk(workerFp: string, message: {
   const worker = connectWorkers.get(workerFp);
   if (!worker) throw new Error("worker offline");
   return worker.send(create(CoordWorkerDownSchema, { frame: { case: "coordMoveSnapshotChunk", value: create(DCoordMoveSnapshotChunkSchema, message) } }));
+}
+
+export function sendWindowsUpdateBroker(workerFp: string, message: {
+  jobId: string;
+  action: "START" | "STATUS";
+  manifestUrl?: string;
+  signatureUrl?: string;
+  manifestSha256?: string;
+  publisherSha256?: string;
+}, timeoutMs = 30_000): { requestId: string; promise: Promise<unknown> } {
+  const worker = connectWorkers.get(workerFp);
+  if (!worker) throw new Error("worker offline");
+  const pending = createPendingRpc(timeoutMs, workerFp);
+  try {
+    const sent = worker.send(create(CoordWorkerDownSchema, {
+      frame: { case: "updateBroker", value: create(DUpdateBrokerSchema, {
+        requestId: pending.request_id,
+        jobId: message.jobId,
+        action: message.action,
+        manifestUrl: message.manifestUrl ?? "",
+        signatureUrl: message.signatureUrl ?? "",
+        manifestSha256: message.manifestSha256 ?? "",
+        publisherSha256: message.publisherSha256 ?? "",
+      }) },
+    }));
+    if (sent <= 0) throw new Error("worker update command was not queued");
+  } catch (error) {
+    rejectPendingRpc(pending.request_id, (error as Error).message);
+  }
+  return { requestId: pending.request_id, promise: pending.promise };
 }

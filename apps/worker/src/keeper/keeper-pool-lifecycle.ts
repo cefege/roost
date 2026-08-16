@@ -1,112 +1,120 @@
 // Multiplexed keeper pool — connection lifecycle + inbound frame dispatch.
-// Free functions extracted from MultiplexedKeeperPool (multiplexed-client.ts);
-// each takes the pool instance as its first argument. Behavior is unchanged —
-// the class methods now delegate here.
+// Connection setup resolves a platform LocalEndpoint and does not expose the
+// pool socket until a capability-authenticated Hello completes.
 
-import { createConnection } from "node:net";
-import { existsSync, mkdirSync, unlinkSync, openSync, closeSync } from "node:fs";
+import { existsSync, mkdirSync, openSync, closeSync } from "node:fs";
 import { join, basename } from "node:path";
-import { signal, diag, workerLogDir } from "@roost/shared";
-import { MuxFrameType, decodeMuxFrames } from "./protocol-v2.ts";
+import {
+  localEndpointEnv,
+  prepareLocalEndpoint,
+  signal,
+  diag,
+  workerLogDir,
+} from "@roost/shared";
+import {
+  MuxFrameType,
+  decodeKeeperHistoryRecords,
+  decodeMuxFrames,
+  decodePtyInResult,
+  decodeResizeResult,
+  encodeMuxFrame,
+} from "./protocol-v2.ts";
 import { KEEPER_BUILD_STAMP } from "./keeper-stamp.ts";
-import { muxSocketPath, MUX_KEEPER_MAIN_TS, BUN_BIN } from "./keeper-pool-config.ts";
+import { muxLocalEndpoint, MUX_KEEPER_MAIN_TS, BUN_BIN } from "./keeper-pool-config.ts";
+import { connectKeeperAuthenticated } from "./keeper-probe.ts";
 import type { MultiplexedKeeperPool } from "./multiplexed-client.ts";
+import {
+  settlePendingInput,
+  settlePendingKeeperCommandsOnDisconnect,
+  settlePendingResize,
+} from "./keeper-pool-io.ts";
+import {
+  KEEPER_HISTORY_LIVE_BUFFER_MAX_BYTES,
+  releasePendingHistoryOutput,
+} from "./keeper-pool-channels.ts";
 
 export async function ensureConnection(pool: MultiplexedKeeperPool): Promise<void> {
   if (pool.socket && !pool.socket.destroyed) return;
   if (pool.connectPromise) return pool.connectPromise;
   pool.connectPromise = (async () => {
-    const sockPath = muxSocketPath();
-    const dir = join(sockPath, "..");
-    mkdirSync(dir, { recursive: true });
+    const endpoint = muxLocalEndpoint();
+    let attempt = await connectKeeperAuthenticated(endpoint);
 
-    // Stale-sock detection: the keeper subprocess writes a sock file at
-    // listen() time and unlinks it on clean exit, but a kill -9 / OOM
-    // / launchctl bootout leaves the sock file behind. A connect to that
-    // file gets ECONNREFUSED. Probe with a quick non-blocking connect; if
-    // it fails, unlink the stale sock and respawn.
-    if (existsSync(sockPath)) {
-      const alive = await new Promise<boolean>((resolve) => {
-        const probe = createConnection(sockPath);
-        const done = (ok: boolean) => { try { probe.destroy(); } catch { /* ignore */ } resolve(ok); };
-        probe.once("connect", () => done(true));
-        probe.once("error", () => done(false));
-        setTimeout(() => done(false), 500);
-      });
-      if (!alive) {
-        try { unlinkSync(sockPath); } catch { /* ignore */ }
-      }
-    }
+    if (!attempt.reachable) {
+      // POSIX removes a dead socket here; named-pipe preparation is
+      // deliberately a no-op because pipe names are not filesystem entries.
+      // This happens only after the authenticated adoption dial failed.
+      await prepareLocalEndpoint(endpoint);
 
-    if (!existsSync(sockPath)) {
-      // Discriminator: from source, process.execPath is `bun` and we run the
-      // keeper .ts; in the compiled `roost` binary it's the binary itself, so
-      // self-exec `roost keeper <sock>` (the .ts isn't on disk). NOT keyed off
-      // MUX_KEEPER_MAIN_TS existence — that path derives from import.meta.url,
-      // which is synthetic inside a compiled binary.
-      const fromSource = basename(process.execPath) === "bun";
+      // Discriminator: from source, process.execPath is bun/bun.exe and we
+      // run the keeper .ts. A compiled roost binary self-execs its keeper
+      // subcommand because the source path is synthetic inside the binary.
+      const execName = basename(process.execPath).toLowerCase();
+      const fromSource = execName === "bun" || execName === "bun.exe";
       if (fromSource && !existsSync(MUX_KEEPER_MAIN_TS)) {
         throw new Error(`multiplexed-main.ts missing at ${MUX_KEEPER_MAIN_TS}`);
       }
-      // Redirect keeper stderr to a real log file. Without this, every
-      // console.error / log.error from the keeper subprocess goes to
-      // /dev/null (the prior "ignore" stdio) and operators have no way
-      // to diagnose a hung session beyond reading the worker's own
-      // log. The keeper log lives alongside the worker's at
-      // ~/Library/Logs/RoostWorker/keeper.err.log so a `tail -f` in
-      // that dir captures everything from the worker process tree.
-      // Test spawners set ROOST_KEEPER_QUIET=1 so test keepers don't
-      // pollute the production keeper.err.log.
+
       const quiet = process.env.ROOST_KEEPER_QUIET === "1";
       let keeperStderr: "ignore" | number = "ignore";
       if (!quiet) {
         const logDir = workerLogDir();
         try { mkdirSync(logDir, { recursive: true }); } catch { /* ignore */ }
-        const keeperLogPath = join(logDir, "keeper.err.log");
-        keeperStderr = openSync(keeperLogPath, "a", 0o644);
+        keeperStderr = openSync(join(logDir, "keeper.err.log"), "a", 0o644);
       }
+      const endpointEnv = localEndpointEnv(endpoint, "ROOST_KEEPER");
+      const keeperEnv = { ...(process.env as Record<string, string>) };
+      for (const name of Object.keys(endpointEnv)) delete keeperEnv[name];
+      if (fromSource) Object.assign(keeperEnv, endpointEnv);
+
       const proc = Bun.spawn({
         cmd: fromSource
-          ? [BUN_BIN, "run", MUX_KEEPER_MAIN_TS, sockPath]
-          : [process.execPath, "keeper", sockPath],
+          ? [BUN_BIN, "run", MUX_KEEPER_MAIN_TS, endpoint.address]
+          : [process.execPath, "keeper", endpoint.address],
         detached: true,
         stdio: ["ignore", "ignore", keeperStderr],
-        env: process.env as Record<string, string>,
+        env: keeperEnv,
       });
       pool._keeperProc = proc;
-      // Fresh keeper = current code by definition.
       pool._runningKeeperStamp = KEEPER_BUILD_STAMP;
-      if (typeof keeperStderr === "number") try { closeSync(keeperStderr); } catch { /* parent doesn't need fd; child holds its own */ }
-      // Keeper death was previously silent: detached + unref() meant the
-      // worker never observed why/when the keeper exited, so a keeper
-      // crash left every PTY orphaned with NO log line. unref() detaches
-      // the child from the event loop but `.exited` still resolves — await
-      // it purely to emit an always-on signal. A non-zero exit or a signal
-      // code (SIGKILL/SIGSEGV/OOM) is the smoking gun for "all terminals
-      // went 'not connected'". CLAUDE.md keeper-death row.
+      if (typeof keeperStderr === "number") {
+        try { closeSync(keeperStderr); } catch { /* child owns its duplicate */ }
+      }
       void proc.exited.then((exitCode) => {
         signal("keeper.died", {
           exit_code: exitCode,
           signal_code: proc.signalCode ?? null,
           pid: proc.pid,
-          sock: sockPath,
+          sock: endpoint.address,
         });
-      }).catch(() => { /* spawn-time reject already surfaced below */ });
+      }).catch(() => { /* spawn-time reject is surfaced by readiness below */ });
       proc.unref();
+
+      // Endpoint existence is not readiness (and has no meaning for a named
+      // pipe). Keep dialing until a capability-authenticated Hello succeeds.
       const deadline = Date.now() + 5000;
-      while (Date.now() < deadline && !existsSync(sockPath)) {
+      do {
+        attempt = await connectKeeperAuthenticated(endpoint, 500);
+        if (attempt.authenticated || attempt.reachable) break;
         await Bun.sleep(50);
-      }
-      if (!existsSync(sockPath)) {
-        pool.connectPromise = null;
-        throw new Error(`multiplexed-keeper: socket did not appear at ${sockPath}`);
-      }
+      } while (Date.now() < deadline);
     }
 
-    await new Promise<void>((resolve, reject) => {
-      const s = createConnection(sockPath, () => resolve());
-      s.on("data", (chunk: Buffer | Uint8Array) => handleFrameData(pool, Buffer.from(chunk)));
-      s.on("close", () => {
+    if (!attempt.authenticated) {
+      const reason = attempt.reachable
+        ? "accepted a connection but did not authenticate"
+        : "did not become ready";
+      throw new Error(`multiplexed-keeper: endpoint ${reason} at ${endpoint.address}`);
+    }
+    if (!attempt.compatible) {
+      try { attempt.socket.destroy(); } catch { /* already closed */ }
+      throw new Error(`multiplexed-keeper: incompatible keeper at ${endpoint.address}`);
+    }
+
+    const connection = attempt;
+    const s = connection.socket;
+    s.on("data", (chunk: Buffer | Uint8Array) => handleFrameData(pool, Buffer.from(chunk)));
+    s.on("close", () => {
         pool.socket = null;
         // Adopted (survivor) keeper: this pool connected to a pre-existing
         // socket without spawning, so no proc.exited above owns its death.
@@ -136,6 +144,12 @@ export async function ensureConnection(pool: MultiplexedKeeperPool): Promise<voi
         pool._cachedListChannels = null;
         for (const r of pool.pendingGetHistory) r.reject(closeErr);
         pool.pendingGetHistory = [];
+        for (const waiters of pool.pendingGetHistoryRecords.values()) {
+          for (const waiter of waiters) waiter.reject(closeErr);
+        }
+        pool.pendingGetHistoryRecords.clear();
+        pool.pendingHistoryOutput.clear();
+        settlePendingKeeperCommandsOnDisconnect(pool);
         // Symmetric with the other pending-state clears: avoid leaving
         // a stale promise reference that a future synchronous reader
         // might branch on. The .finally inside listChannels would
@@ -153,12 +167,17 @@ export async function ensureConnection(pool: MultiplexedKeeperPool): Promise<voi
           setTimeout(() => { try { fn(); } catch { /* reconcile logs its own errors */ } }, 0);
         }
       });
-      s.on("error", (err) => {
-        for (const cbs of pool.channels.values()) cbs.onError(err);
-        if (!pool.socket) reject(err);
-      });
-      pool.socket = s;
+    s.on("error", (err) => {
+      for (const cbs of pool.channels.values()) cbs.onError(err);
     });
+    pool.socket = s;
+    pool.setKeeperFeatures(connection.features);
+    pool.buf = Buffer.alloc(0);
+    for (const frame of connection.pendingFrames) {
+      handleFrameData(pool, encodeMuxFrame(frame.type, frame.channelId, frame.payload));
+    }
+    pool.buf = connection.remaining;
+    s.resume();
   })();
   try {
     await pool.connectPromise;
@@ -180,8 +199,11 @@ function handleFrameData(pool: MultiplexedKeeperPool, chunk: Buffer): void {
   pool.buf = Buffer.concat([pool.buf, chunk]);
   const { frames, remaining } = decodeMuxFrames(pool.buf);
   pool.buf = remaining;
-  for (const f of frames) {
-    switch (f.type) {
+  const dispatchFrom = (start: number): void => {
+    for (let frameIndex = start; frameIndex < frames.length; frameIndex++) {
+      const f = frames[frameIndex]!;
+      let pauseAfterFrame = false;
+      switch (f.type) {
       case MuxFrameType.SpawnAck: {
         const p = pool.pendingSpawns.get(f.channelId);
         if (p) {
@@ -207,8 +229,32 @@ function handleFrameData(pool: MultiplexedKeeperPool, chunk: Buffer): void {
         break;
       }
       case MuxFrameType.PtyOut: {
-        const cbs = pool.channels.get(f.channelId);
-        if (cbs) cbs.onOutput(f.payload);
+        const historyOutput = pool.pendingHistoryOutput.get(f.channelId);
+        if (historyOutput) {
+          const retained = Buffer.from(f.payload);
+          if (historyOutput.bytes + retained.byteLength <= KEEPER_HISTORY_LIVE_BUFFER_MAX_BYTES) {
+            historyOutput.chunks.push(retained);
+            historyOutput.bytes += retained.byteLength;
+            break;
+          }
+          const waiters = pool.pendingGetHistoryRecords.get(f.channelId);
+          const waiter = waiters?.shift();
+          pool.pendingGetHistoryRecords.delete(f.channelId);
+          if (waiter) {
+            waiter.reject(new Error("getHistoryRecords: live output buffer overflow"));
+            pauseAfterFrame = true;
+            queueMicrotask(() => {
+              releasePendingHistoryOutput(pool, f.channelId);
+              pool.channels.get(f.channelId)?.onOutput(retained);
+            });
+          } else {
+            releasePendingHistoryOutput(pool, f.channelId);
+            pool.channels.get(f.channelId)?.onOutput(retained);
+          }
+          break;
+        }
+        const callbacks = pool.channels.get(f.channelId);
+        if (callbacks) callbacks.onOutput(f.payload);
         else diag("keeper.pty_out_no_cbs", { channel_id: f.channelId });
         break;
       }
@@ -255,9 +301,83 @@ function handleFrameData(pool: MultiplexedKeeperPool, chunk: Buffer): void {
         }
         break;
       }
+      case MuxFrameType.PtyInAck:
+      case MuxFrameType.PtyInReject:
+      case MuxFrameType.PtyInAmbiguous: {
+        const result = decodePtyInResult(f.type, f.payload);
+        if (!result) {
+          signal("worker.protocol_violation", {
+            reason: "keeper_input_result_invalid",
+            cooldownKey: "keeper",
+          });
+          break;
+        }
+        if (!settlePendingInput(pool, f.channelId, result.inputSeq, result)) {
+          diag("keeper.input_result_no_waiter", {
+            channel_id: f.channelId,
+            input_seq: result.inputSeq,
+            result: result.kind,
+          });
+        }
+        break;
+      }
+      case MuxFrameType.ResizeAck:
+      case MuxFrameType.ResizeReject: {
+        const result = decodeResizeResult(f.type, f.payload);
+        if (!result) {
+          signal("worker.protocol_violation", {
+            reason: "keeper_resize_result_invalid",
+            cooldownKey: "keeper",
+          });
+          break;
+        }
+        if (!settlePendingResize(pool, f.channelId, result.seq, result)) {
+          diag("keeper.resize_result_no_waiter", {
+            channel_id: f.channelId,
+            resize_seq: result.seq,
+            result: result.kind,
+          });
+        }
+        // Promise continuations queued by resolve() must apply/rollback the
+        // geometry boundary before coalesced post-result PtyOut is dispatched.
+        pauseAfterFrame = true;
+        break;
+      }
+      case MuxFrameType.GetHistoryRecordsResp: {
+        const waiters = pool.pendingGetHistoryRecords.get(f.channelId);
+        const waiter = waiters?.shift();
+        if (waiters?.length === 0) pool.pendingGetHistoryRecords.delete(f.channelId);
+        if (!waiter) {
+          diag("keeper.history_records_no_waiter", { channel_id: f.channelId });
+          break;
+        }
+        const history = decodeKeeperHistoryRecords(f.payload);
+        if (!history) {
+          waiter.reject(new Error("getHistoryRecords: invalid keeper response"));
+          pauseAfterFrame = true;
+          queueMicrotask(() => releasePendingHistoryOutput(pool, f.channelId));
+          signal("worker.protocol_violation", {
+            reason: "keeper_history_records_invalid",
+            cooldownKey: "keeper",
+          });
+          break;
+        }
+        pool.pendingHistoryOutput.delete(f.channelId);
+        waiter.resolve(history);
+        // Apply the retained snapshot before any coalesced live output that
+        // follows its exact keeper-stream boundary.
+        pauseAfterFrame = true;
+        break;
+      }
       default:
         diag("keeper.unknown_frame", { frame_kind: f.type });
         break;
+      }
+      if (pauseAfterFrame && frameIndex + 1 < frames.length) {
+        queueMicrotask(() => dispatchFrom(frameIndex + 1));
+        return;
+      }
     }
-  }
+  };
+  dispatchFrom(0);
 }

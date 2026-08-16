@@ -35,7 +35,7 @@ export function handleBrowserCommand(
 			return;
 		}
 		case "spawn-shell": {
-			handleSpawnShell(frame, request_id, { coordLink, sessionMgr });
+			handleSpawnShell(frame, viewer_id, request_id, { coordLink, sessionMgr });
 			return;
 		}
 		case "attach": {

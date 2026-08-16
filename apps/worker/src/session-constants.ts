@@ -27,6 +27,12 @@ export const MODE_CARRY_MAX = 7;
 // of PtyOut chunks into a single latest-state delta. Imperceptible echo latency
 // on a local/LAN worker; bounds frame rate under floods.
 export const CELL_EMIT_COALESCE_MS = 16;
+// Coordinator-only raw terminal metadata follows the same leading/trailing
+// cadence as cells. These caps bound the brief worker-side staging queues; the
+// encoded CoordLink outbox has its own independent 8 MiB cap.
+export const RAW_METADATA_COALESCE_MS = CELL_EMIT_COALESCE_MS;
+export const RAW_METADATA_CHANNEL_CAP_BYTES = 256 * 1024;
+export const RAW_METADATA_AGGREGATE_CAP_BYTES = 2 * 1024 * 1024;
 
 
 

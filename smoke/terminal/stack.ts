@@ -6,9 +6,12 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
 import { buildAuthorizedApiClient, type AuthorizedApiClient } from "../../apps/roost-cli/src/api.ts";
+import { resolveLocalEndpoint } from "../../apps/shared/src/local-endpoint.ts";
+import { shutdownKeeperAuthenticated } from "../../apps/worker/src/keeper/keeper-probe.ts";
 const REPOSITORY_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const WORKER_LABEL = "roost-terminal-test";
 const SECOND_WORKER_LABEL = "roost-terminal-test-second";
+const PTY_FIXTURE_WORKER_LABEL = "roost-terminal-test-pty-fixture";
 const COORD_START_TIMEOUT_MS = 20_000;
 const WORKER_READY_TIMEOUT_MS = 30_000;
 
@@ -30,6 +33,7 @@ export type TerminalTestStack = {
   workerHome: string;
   coordLogPath: string;
   workerLogPath: string;
+  ptyFixtureWorkerLogPath: string;
   secondWorkerLogPath: string;
   // The authorized client the harness already had to mint to bootstrap the
   // worker. Exposed so callers don't build a second (unauthorized) one.
@@ -37,6 +41,8 @@ export type TerminalTestStack = {
   // Lazily start one independent worker with its own HOME, data, key, log, and
   // keeper. Repeated calls return the same running worker.
   startSecondWorker(): Promise<TerminalTestWorker>;
+  /** Lazily start a worker whose shell is the compiled portable PTY fixture. */
+  startPtyFixtureWorker(): Promise<TerminalTestWorker>;
   // Bounce the primary worker process, keeping coord and the persisted worker
   // identity. Resolves once the same fingerprint is routable again.
   restartWorker(): Promise<void>;
@@ -96,35 +102,11 @@ async function stopChild(service: RunningService | undefined): Promise<void> {
   }
 }
 
-function keeperMatches(pid: number, socketPath: string): boolean {
-  try {
-    const command = execFileSync("ps", ["-wwww", "-p", String(pid), "-o", "command="], { encoding: "utf8" });
-    return command.includes("multiplexed-main.ts") && command.includes(socketPath);
-  } catch {
-    return false;
-  }
-}
-
 async function stopKeeper(workerDataDir: string): Promise<void> {
-  const socketPath = join(workerDataDir, "mux-keeper.sock");
-  let pid = 0;
-  try { pid = Number.parseInt(readFileSync(`${socketPath}.pid`, "utf8").trim(), 10); } catch {}
-  if (!Number.isSafeInteger(pid) || pid <= 0 || !keeperMatches(pid, socketPath)) return;
-
-  try { process.kill(pid, "SIGTERM"); } catch { return; }
-  const deadline = Date.now() + 5_000;
-  while (Date.now() < deadline) {
-    try { process.kill(pid, 0); } catch { return; }
-    await delay(50);
-  }
-  if (!keeperMatches(pid, socketPath)) return;
-  try { process.kill(pid, "SIGKILL"); } catch { return; }
-  const forcedDeadline = Date.now() + 2_000;
-  while (Date.now() < forcedDeadline) {
-    try { process.kill(pid, 0); } catch { return; }
-    await delay(50);
-  }
-  if (keeperMatches(pid, socketPath)) throw new Error(`keeper did not stop: pid=${pid} socket=${socketPath}`);
+  await shutdownKeeperAuthenticated(resolveLocalEndpoint({
+    name: "mux-keeper",
+    dataDir: workerDataDir,
+  }));
 }
 
 export async function startTerminalTestStack(
@@ -136,15 +118,25 @@ export async function startTerminalTestStack(
   const coordLogPath = join(root, "coord.log");
   const workerLogPath = join(root, "worker.log");
   const secondWorkerLogPath = join(root, "second-worker.log");
+  const ptyFixtureHome = join(root, "pty-fixture-home");
+  const ptyFixtureLogPath = join(root, "pty-fixture-worker.log");
+  const ptyFixtureDataDir = join(root, "pty-fixture-worker-data");
+  const ptyFixtureExecutable = join(
+    root,
+    process.platform === "win32" ? "roost-pty-fixture.exe" : "roost-pty-fixture",
+  );
   const workerDataDir = join(root, "worker-data");
   const secondWorkerDataDir = join(root, "second-worker-data");
   const bunExecutable = process.env.ROOST_TEST_BUN ?? "bun";
   mkdirSync(home, { recursive: true });
   mkdirSync(secondHome, { recursive: true });
+  mkdirSync(ptyFixtureHome, { recursive: true });
   let coord: RunningService | undefined;
   let worker: RunningService | undefined;
   let secondWorker: RunningService | undefined;
   let secondWorkerStart: Promise<TerminalTestWorker> | undefined;
+  let ptyFixtureWorker: RunningService | undefined;
+  let ptyFixtureWorkerStart: Promise<TerminalTestWorker> | undefined;
   let client: AuthorizedApiClient | undefined;
 
   const stop = async () => {
@@ -180,6 +172,8 @@ export async function startTerminalTestStack(
       }
     } finally {
       await stopChild(secondWorker).catch((error) => errors.push(`stop second worker: ${String(error)}`));
+      await stopChild(ptyFixtureWorker).catch((error) => errors.push(`stop PTY fixture worker: ${String(error)}`));
+      await stopKeeper(ptyFixtureDataDir).catch((error) => errors.push(`stop PTY fixture keeper: ${String(error)}`));
       await stopKeeper(secondWorkerDataDir).catch((error) => errors.push(`stop second keeper: ${String(error)}`));
       await stopChild(worker).catch((error) => errors.push(`stop worker: ${String(error)}`));
       await stopKeeper(workerDataDir).catch((error) => errors.push(`stop keeper: ${String(error)}`));
@@ -232,6 +226,7 @@ export async function startTerminalTestStack(
       logPath: string;
       dataDir: string;
       bootstrapToken: string;
+      shell?: string;
     }): RunningService => {
       const workerLog = openSync(config.logPath, "a");
       return {
@@ -247,6 +242,7 @@ export async function startTerminalTestStack(
             ROOST_WORKER_DATA_DIR: config.dataDir,
             ROOST_WORKER_KEY_PATH: join(config.dataDir, "worker.key"),
             ROOST_KEEPER_QUIET: "1",
+            ...(config.shell ? { SHELL: config.shell, ROOST_SHELL: config.shell } : {}),
           }),
           stdio: ["ignore", workerLog, workerLog],
         }),
@@ -286,6 +282,41 @@ export async function startTerminalTestStack(
       })();
       return secondWorkerStart;
     };
+    const startPtyFixtureWorker = (): Promise<TerminalTestWorker> => {
+      ptyFixtureWorkerStart ??= (async () => {
+        execFileSync(
+          bunExecutable,
+          [
+            "build",
+            "--compile",
+            join(REPOSITORY_ROOT, "smoke", "terminal", "pty-fixture.ts"),
+            "--outfile",
+            ptyFixtureExecutable,
+          ],
+          { cwd: REPOSITORY_ROOT, stdio: "pipe" },
+        );
+        const fixtureBootstrapToken = (
+          await client!.authMintBootstrap({ kind: "worker", label: PTY_FIXTURE_WORKER_LABEL })
+        ).token;
+        ptyFixtureWorker = startWorker({
+          label: PTY_FIXTURE_WORKER_LABEL,
+          home: ptyFixtureHome,
+          logPath: ptyFixtureLogPath,
+          dataDir: ptyFixtureDataDir,
+          bootstrapToken: fixtureBootstrapToken,
+          shell: ptyFixtureExecutable,
+        });
+        const workerFp = await awaitWorkerRoutable(PTY_FIXTURE_WORKER_LABEL, ptyFixtureLogPath);
+        return {
+          workerFp,
+          label: PTY_FIXTURE_WORKER_LABEL,
+          home: ptyFixtureHome,
+          logPath: ptyFixtureLogPath,
+        };
+      })();
+      return ptyFixtureWorkerStart;
+    };
+
 
     // Full primary-worker bounce, keeping coord and the persisted identity.
     // The keeper is deliberately left alone: it is designed to outlive the
@@ -309,8 +340,10 @@ export async function startTerminalTestStack(
       coordLogPath,
       workerLogPath,
       secondWorkerLogPath,
+      ptyFixtureWorkerLogPath: ptyFixtureLogPath,
       client,
       startSecondWorker,
+      startPtyFixtureWorker,
       restartWorker,
       stop,
     };

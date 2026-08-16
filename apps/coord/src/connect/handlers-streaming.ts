@@ -4,11 +4,12 @@
 import type { ServiceImpl } from "@connectrpc/connect";
 import { ConnectError, Code } from "@connectrpc/connect";
 import { create } from "@bufbuild/protobuf";
+import { randomUUID } from "node:crypto";
 import { CoordinatorService } from "@roost/shared/proto/coordinator_pb";
 import {
   FirehoseFrameSchema, type FirehoseFrame, TerminalLinkFrameSchema, SessionPresenceSchema,
   WorkerRoutableFrameSchema, TerminalTitleFrameSchema, LastActivityFrameSchema,
-  UiStateFrameSchema, UiCommandFrameSchema, AgentStatusFrameSchema,
+  UiStateFrameSchema, UiCommandFrameSchema, AgentStatusFrameSchema, SyncDomain,
 } from "@roost/shared/proto/sync_pb";
 import { eventToProto } from "@roost/shared/wire/event-proto";
 import {
@@ -33,7 +34,7 @@ import {
   titleBus, lastActivityBus, workerRoutableBus, globalCellBus, agentStatusBus,
   pairBus, uiBus, type TaskBusMsg, type PairRequestDelta, type AuditRow,
 } from "../buses.ts";
-import { getEventsSince } from "../event-log.ts";
+import { getEventMaxId, getEventsSince, getEventsThrough } from "../event-log.ts";
 import { listRoutableFps } from "./worker-service.ts";
 import { getTitleSnapshot } from "../terminal-title-hub.ts";
 import { getUiStateSnapshot } from "./handlers-ui.ts";
@@ -41,6 +42,7 @@ import { getLastActivitySnapshot } from "../last-activity-hub.ts";
 import { getAgentStatusSnapshot } from "../agent-status-hub.ts";
 import { requireAuth } from "./auth-interceptor.ts";
 import { isSubscribed } from "./cell-subscriptions.ts";
+import { _viewersBySession } from "./viewer-tracker.ts";
 import { log } from "@roost/shared/log";
 import { signal } from "@roost/shared/diag";
 import type {
@@ -69,41 +71,156 @@ export function makeStreamingHandlers(
   };
 }
 
-// startSyncFeed — the shared Sync firehose engine. Multiplexes every in-memory
-// bus onto FirehoseFrames, seeds the volatile per-connection snapshots, and
-// (via backfill) replays the durable sessionBus from sinceEventId, funnelling
-// each frame into the single `push` sink. Consumed by the raw-WS handler
-// (sync-ws-handler.ts). SHARED so the WS reader can't diverge from the frame
-// shapes the SPA already decodes.
-//
-// Ordering contract: subscribe FIRST, emit retained volatile snapshots, flush
-// live frames that arrived while a paced seed was in progress, THEN backfill.
-// yieldedSessionIds dedups live events whose _event_id was already replayed by
-// the backfill. Legacy callers omit pacedSeedPush and retain synchronous seeds.
+// startSyncFeed is shared by cached flow=1 clients and Sync v2. Legacy callers
+// retain their synchronous/ACK-paced seed behavior. V2 subscribes every live
+// bus synchronously, emits no application seed before readiness, and tags each
+// application item for the socket scheduler.
+export type SyncFeedLane = "cell" | "session" | "retained" | "nonterminal" | "control";
+
+export interface SyncFeedFrameMeta {
+  readonly domain: SyncDomain | null;
+  readonly lane: SyncFeedLane;
+  readonly sessionId?: string;
+  readonly announces?: readonly string[];
+  readonly closes?: readonly string[];
+  /** Retained snapshot item that must precede the pre-ready live segment. */
+  readonly beforeBuffered?: boolean;
+}
+
 export interface SyncFeedSeedOptions {
+  readonly version?: 1;
   pacedSeedPush: (frame: FirehoseFrame) => Promise<boolean>;
+}
+
+export interface SyncFeedV2Options {
+  readonly version: 2;
+  onRecoveryReset: (reason: string) => void;
+}
+
+export interface SyncFeed {
+  readonly seeded: Promise<void>;
+  backfill(): Promise<void>;
+  seedDomain(domain: SyncDomain, sessionIds?: ReadonlySet<string>): Promise<void>;
+  dispose(): void;
+}
+
+function frameMeta(frame: FirehoseFrame): SyncFeedFrameMeta {
+  switch (frame.frame.case) {
+    case "cellGrid":
+      return { domain: SyncDomain.TERMINAL, lane: "cell", sessionId: frame.frame.value.sessionId };
+    case "sessions": {
+      try {
+        const event = JSON.parse(frame.frame.value.payloadJson) as {
+          kind?: unknown;
+          session_id?: unknown;
+        };
+        const sessionId = typeof event.session_id === "string" ? event.session_id : undefined;
+        return {
+          domain: SyncDomain.TERMINAL,
+          lane: "session",
+          sessionId,
+          announces: event.kind === "opened" && sessionId ? [sessionId] : undefined,
+          closes: event.kind === "closed" && sessionId ? [sessionId] : undefined,
+        };
+      } catch {
+        return { domain: SyncDomain.TERMINAL, lane: "session" };
+      }
+    }
+    case "sessionEvent": {
+      const kind = frame.frame.value.kind;
+      if (kind.case === "opened") {
+        return {
+          domain: SyncDomain.TERMINAL,
+          lane: "session",
+          sessionId: kind.value.sessionId,
+          announces: [kind.value.sessionId],
+        };
+      }
+      if (kind.case === "closed") {
+        return {
+          domain: SyncDomain.TERMINAL,
+          lane: "session",
+          sessionId: kind.value.sessionId,
+          closes: [kind.value.sessionId],
+        };
+      }
+      if (kind.case === "snapshot") {
+        return {
+          domain: SyncDomain.TERMINAL,
+          lane: "session",
+          announces: kind.value.sessions.map((session) => session.id),
+        };
+      }
+      const sessionId = kind.case === undefined ? undefined : "sessionId" in kind.value
+        ? kind.value.sessionId
+        : undefined;
+      return { domain: SyncDomain.TERMINAL, lane: "session", sessionId };
+    }
+    case "terminalLink":
+    case "sessionPresence":
+    case "terminalTitle":
+    case "lastActivity":
+    case "agentStatus":
+      return {
+        domain: SyncDomain.TERMINAL,
+        lane: "session",
+        sessionId: frame.frame.value.sessionId,
+      };
+    case "workerPresence":
+    case "workerRoutable":
+      return { domain: SyncDomain.WORKERS, lane: "nonterminal" };
+    case "workspaceDelta":
+      return { domain: SyncDomain.WORKSPACES, lane: "nonterminal" };
+    case "taskDelta":
+      return { domain: SyncDomain.TASKS, lane: "nonterminal" };
+    case "permissionDelta":
+      return { domain: SyncDomain.PERMISSIONS, lane: "nonterminal" };
+    case "mcpMsg":
+      return { domain: SyncDomain.MCP, lane: "nonterminal" };
+    case "pairRequestDelta":
+      return { domain: SyncDomain.PAIR, lane: "nonterminal" };
+    case "webhookTokenDelta":
+      return { domain: SyncDomain.WEBHOOK, lane: "nonterminal" };
+    case "auditRow":
+      return { domain: SyncDomain.AUDIT, lane: "nonterminal" };
+    case "uiState":
+    case "uiCommand":
+    case "keepalive":
+    case "coordinatorRelocation":
+    case "subscribed":
+    case "domainReset":
+    case "viewportAccepted":
+    case "viewportRejected":
+    case "inputAccepted":
+    case "inputRejected":
+    case "inputAmbiguous":
+    case undefined:
+      return { domain: null, lane: "control" };
+  }
 }
 
 export function startSyncFeed(
   deps: ConnectDeps,
   sinceEventId: number,
-  sink: (f: FirehoseFrame) => void,
+  sink: (frame: FirehoseFrame, meta?: SyncFeedFrameMeta) => void,
   /** Per-tab identity of the socket this feed serves. Non-null → the two hot
    *  per-session buses ship only sessions this tab claimed. null (older SPA,
    *  CLI, test client) FAILS OPEN and ships every session, as before. */
   viewerKey: string | null = null,
-  seedOptions?: SyncFeedSeedOptions,
-): { seeded: Promise<void>; backfill: () => Promise<void>; dispose: () => void } {
+  seedOptions?: SyncFeedSeedOptions | SyncFeedV2Options,
+): SyncFeed {
+  const v2Options = seedOptions?.version === 2 ? seedOptions : null;
+  const legacySeedOptions = seedOptions && seedOptions.version !== 2 ? seedOptions : null;
   let disposed = false;
-  let seeding = seedOptions !== undefined;
-  const queuedLiveFrames: FirehoseFrame[] = [];
-  const push = (frame: FirehoseFrame): void => {
+  let seeding = legacySeedOptions !== null;
+  const queuedLiveFrames: Array<{ frame: FirehoseFrame; meta: SyncFeedFrameMeta }> = [];
+  const push = (frame: FirehoseFrame, meta = frameMeta(frame)): void => {
     if (disposed) return;
     if (seeding) {
-      queuedLiveFrames.push(frame);
+      queuedLiveFrames.push({ frame, meta });
       return;
     }
-    sink(frame);
+    sink(frame, meta);
   };
   // Backfill + live sessionBus both encode SessionEvent through here.
   const sessionFirehoseFrame = (e: SessionEvent, eventId: number): FirehoseFrame =>
@@ -273,33 +390,66 @@ export function startSyncFeed(
       },
     });
 
-  // B10 — KNOWN INVARIANT (deliberate, not a bug): only sessionBus is
-  // durable. sessionBus events live in the `events` table, so a reconnect
-  // backfills them via sinceEventId (below). The OTHER buses (presence /
-  // workspace / task / permission / mcp / webhook / audit) are
-  // fire-and-forget in-memory — a delta emitted while a SPA is
-  // disconnected is NOT replayed on reconnect. That gap is closed two
-  // other ways, by design: (1) the SPA re-bootstraps every domain via the
-  // unary *List calls on reload/visibility-regain, and (2) every mutation
-  // republishes full state on each UPDATE (the publishTaskState-on-every-
-  // UPDATE rule, feedback_task_state_delta_only_created). Do NOT add a
-  // per-bus cursor / durable-bus recovery layer for this — it's a large
-  // build for a gap the bootstrap already covers (audit wf_728b67c1 B10,
-  // deferred). If a specific domain proves to need durable replay, give
-  // THAT domain an events-table projection like sessions, don't build a
-  // generic layer.
+  // Only terminal/session events are durable. V2 takes a stable DB cutoff
+  // after subscribing, pages the complete interval, then drains bus events
+  // above that cutoff in numeric id order. Every other domain is refreshed
+  // from its authoritative list for each domain generation.
   const yieldedSessionIds = new Set<number>();
-  // Dedup session events across backfill + live delivery: whichever path emits
-  // a given _event_id FIRST records it; the other skips. The check-add-push is
-  // synchronous (atomic in single-threaded JS), so a live event firing during
-  // the backfill await can't double-send even though the sink (ws.send) is
-  // unbuffered — this replaces the old "queue drained only after backfill" order.
-  const emitSession = (e: SessionEvent, eventId: number): void => {
+  const pendingRecoveryEvents = new Map<number, SessionEvent>();
+  let recoveringSessions = v2Options !== null && sinceEventId > 0;
+  let recoveryAborted = false;
+  let pendingRecoveryBytes = 0;
+  const sessionMeta = (event: SessionEvent): SyncFeedFrameMeta => {
+    const announces = event.kind === "opened"
+      ? [String(event.session_id)]
+      : event.kind === "snapshot"
+        ? event.sessions.map((session) => String(session.id))
+        : undefined;
+    const closes = event.kind === "closed" ? [String(event.session_id)] : undefined;
+    const sessionId = "session_id" in event ? String(event.session_id) : undefined;
+    return {
+      domain: SyncDomain.TERMINAL,
+      lane: "session",
+      sessionId,
+      announces,
+      closes,
+    };
+  };
+  const emitSessionNow = (event: SessionEvent, eventId: number): void => {
     if (eventId > 0) {
       if (yieldedSessionIds.has(eventId)) return;
       yieldedSessionIds.add(eventId);
     }
-    push(sessionFirehoseFrame(e, eventId));
+    push(sessionFirehoseFrame(event, eventId), sessionMeta(event));
+  };
+  const emitSession = (event: SessionEvent, eventId: number): void => {
+    if (recoveringSessions) {
+      if (eventId <= 0) {
+        recoveryAborted = true;
+        recoveringSessions = false;
+        pendingRecoveryEvents.clear();
+        pendingRecoveryBytes = 0;
+        v2Options?.onRecoveryReset("unstamped_session_event");
+        return;
+      }
+      const estimatedBytes = JSON.stringify(event).length;
+      if (
+        pendingRecoveryEvents.size >= 512
+        || pendingRecoveryBytes + estimatedBytes > 4 * 1024 * 1024
+      ) {
+        recoveryAborted = true;
+        recoveringSessions = false;
+        pendingRecoveryEvents.clear();
+        pendingRecoveryBytes = 0;
+        v2Options?.onRecoveryReset("recovery_live_overflow");
+        emitSessionNow(event, eventId);
+        return;
+      }
+      pendingRecoveryEvents.set(eventId, event);
+      pendingRecoveryBytes += estimatedBytes;
+      return;
+    }
+    emitSessionNow(event, eventId);
   };
 
   const unsubs = [
@@ -382,6 +532,7 @@ export function startSyncFeed(
           }))),
   ];
 
+
   function* retainedSeedFrames(): Generator<FirehoseFrame> {
     // Live routable worker membership is volatile, so seed it before the
     // per-session snapshots below.
@@ -450,30 +601,104 @@ export function startSyncFeed(
     }
   };
 
+  const seedDomain = async (
+    domain: SyncDomain,
+    sessionIds?: ReadonlySet<string>,
+  ): Promise<void> => {
+    if (!v2Options || disposed) return;
+    const retained = (frame: FirehoseFrame, sessionId?: string): void => {
+      if (disposed) return;
+      push(frame, { domain, lane: "retained", sessionId, beforeBuffered: true });
+    };
+
+    if (domain === SyncDomain.WORKERS) {
+      const fps = listRoutableFps();
+      const snapshotId = randomUUID();
+      const chunkSize = 256;
+      const chunkCount = Math.max(1, Math.ceil(fps.length / chunkSize));
+      for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex += 1) {
+        retained(create(FirehoseFrameSchema, {
+          frame: {
+            case: "workerRoutable",
+            value: create(WorkerRoutableFrameSchema, {
+              fps: fps.slice(chunkIndex * chunkSize, (chunkIndex + 1) * chunkSize),
+              snapshotId,
+              chunkIndex,
+              chunkCount,
+            }),
+          },
+        }));
+      }
+      return;
+    }
+    if (domain !== SyncDomain.TERMINAL) return;
+
+    for (const { session_id, title } of getTitleSnapshot()) {
+      if (sessionIds && !sessionIds.has(session_id)) continue;
+      retained(create(FirehoseFrameSchema, {
+        frame: {
+          case: "terminalTitle",
+          value: create(TerminalTitleFrameSchema, { sessionId: session_id, title }),
+        },
+      }), session_id);
+    }
+    for (const { session_id, ts_ms } of getLastActivitySnapshot()) {
+      if (sessionIds && !sessionIds.has(session_id)) continue;
+      retained(create(FirehoseFrameSchema, {
+        frame: {
+          case: "lastActivity",
+          value: create(LastActivityFrameSchema, { sessionId: session_id, tsMs: ts_ms }),
+        },
+      }), session_id);
+    }
+    for (const status of getAgentStatusSnapshot()) {
+      if (sessionIds && !sessionIds.has(status.session_id)) continue;
+      retained(agentStatusFrame(status), status.session_id);
+    }
+    for (const [sessionId, viewers] of _viewersBySession) {
+      const entries = [...viewers.entries()].map(([fp, viewer]) => ({
+        fp,
+        viewerKey: fp,
+        cols: viewer.cols,
+        rows: viewer.rows,
+        lastMs: viewer.lastMs,
+      }));
+      if (sessionIds && !sessionIds.has(sessionId)) continue;
+      retained(create(FirehoseFrameSchema, {
+        frame: {
+          case: "sessionPresence",
+          value: create(SessionPresenceSchema, {
+            sessionId,
+            payloadJson: JSON.stringify({
+              kind: "viewers",
+              fps: entries.map((entry) => entry.fp),
+              entries,
+            }),
+          }),
+        },
+      }), sessionId);
+    }
+  };
+
   let seeded: Promise<void>;
   if (!seedOptions) {
-    // Legacy clients are not application-windowed. Preserve their current
-    // synchronous retained burst and floating pair snapshot behavior.
+    // Non-flow legacy clients retain the synchronous retained burst.
     for (const frame of retainedSeedFrames()) push(frame);
     seeded = Promise.resolve();
     void (async () => {
       const pairSnapshot = await loadPairSnapshot();
       if (pairSnapshot) push(pairSnapshot);
     })();
-  } else {
-    // Start after startSyncFeed returns so open() can first retain this feed on
-    // ws.data. Every await is ACK-coupled by sync-ws-handler; no fixed chunk can
-    // outrun a slow consumer. Live frames queue only for this seed phase, then
-    // flush in original arrival order before durable replay begins.
+  } else if (legacySeedOptions) {
+    // Cached flow=1 clients retain the existing one-frame/one-ACK seed pacing.
     seeded = Promise.resolve().then(async () => {
       for (const frame of retainedSeedFrames()) {
-        if (disposed || !(await seedOptions.pacedSeedPush(frame))) return;
+        if (disposed || !(await legacySeedOptions.pacedSeedPush(frame))) return;
       }
-
       const pairSnapshot = await loadPairSnapshot();
       if (
         pairSnapshot
-        && (disposed || !(await seedOptions.pacedSeedPush(pairSnapshot)))
+        && (disposed || !(await legacySeedOptions.pacedSeedPush(pairSnapshot)))
       ) return;
 
       let queueIndex = 0;
@@ -483,36 +708,101 @@ export function startSyncFeed(
           queuedLiveFrames.length = 0;
           return;
         }
-        const frame = queuedLiveFrames[queueIndex++]!;
-        if (!(await seedOptions.pacedSeedPush(frame))) return;
+        const entry = queuedLiveFrames[queueIndex++]!;
+        if (!(await legacySeedOptions.pacedSeedPush(entry.frame))) return;
       }
-    }).catch((e) => {
-      log.warn("connect.sync", "retained_seed_failed", { error: String(e) });
+    }).catch((error) => {
+      log.warn("connect.sync", "retained_seed_failed", { error: String(error) });
+    });
+  } else {
+    // V2's caller emits subscribed only after startSyncFeed has synchronously
+    // installed every bus listener. Defer control-only UI retention one
+    // microtask so it cannot overtake that subscribed barrier.
+    seeded = Promise.resolve();
+    queueMicrotask(() => {
+      if (disposed) return;
+      for (const { fp, tabId, state } of getUiStateSnapshot()) {
+        push(create(FirehoseFrameSchema, {
+          frame: {
+            case: "uiState",
+            value: create(UiStateFrameSchema, { fp, tabId, state }),
+          },
+        }), { domain: null, lane: "control" });
+      }
     });
   }
 
-  // T1.4 — reconnect backfill. Subscribe and finish any paced retained seed
-  // first, so nothing can land in the subscription/seed gap. Once seeding ends,
-  // live session events and durable rows retain the existing whichever-emits-
-  // first event-id dedup while replay yields every sixteen rows.
   const backfill = async (): Promise<void> => {
-    if (seedOptions) await seeded;
+    await seeded;
     if (disposed || sinceEventId <= 0) return;
+
+    if (v2Options) {
+      try {
+        const cutoff = await getEventMaxId(deps.db);
+        if (recoveryAborted) return;
+        if (cutoff < sinceEventId) {
+          recoveringSessions = false;
+          pendingRecoveryEvents.clear();
+          v2Options.onRecoveryReset("cursor_ahead_of_log");
+          return;
+        }
+        let cursor = sinceEventId;
+        while (!disposed && !recoveryAborted && cursor < cutoff) {
+          const rows = await getEventsThrough(deps.db, cursor, cutoff);
+          if (rows.length === 0) {
+            recoveringSessions = false;
+            pendingRecoveryEvents.clear();
+            v2Options.onRecoveryReset("recovery_gap");
+            return;
+          }
+          for (const { id, event } of rows) {
+            if (recoveryAborted) return;
+            if (id <= cursor || id > cutoff) {
+              recoveringSessions = false;
+              pendingRecoveryEvents.clear();
+              v2Options.onRecoveryReset("recovery_order");
+              return;
+            }
+            emitSessionNow(event, id);
+            cursor = id;
+          }
+          await new Promise<void>((resolve) => setImmediate(resolve));
+        }
+        if (disposed || recoveryAborted) return;
+
+        const liveTail = [...pendingRecoveryEvents.entries()]
+          .filter(([id]) => id > cutoff)
+          .sort(([left], [right]) => left - right);
+        pendingRecoveryEvents.clear();
+        pendingRecoveryBytes = 0;
+        for (const [id, event] of liveTail) emitSessionNow(event, id);
+        recoveringSessions = false;
+      } catch (error) {
+        recoveringSessions = false;
+        pendingRecoveryEvents.clear();
+        pendingRecoveryBytes = 0;
+        log.warn("connect.sync", "backfill_failed", { error: String(error), sinceEventId });
+        signal("sync.backfill_failed", { error: String(error), sinceEventId, cooldownKey: "sync" });
+        v2Options.onRecoveryReset("recovery_failed");
+      }
+      return;
+    }
+
     try {
       const rows = await getEventsSince(deps.db, sinceEventId, 1000);
-      for (let i = 0; i < rows.length; i += 1) {
-        const { id, event } = rows[i]!;
+      for (let index = 0; index < rows.length; index += 1) {
+        const { id, event } = rows[index]!;
         emitSession(event, id);
-        if ((i + 1) % 16 === 0) {
+        if ((index + 1) % 16 === 0) {
           await new Promise<void>((resolve) => setImmediate(resolve));
         }
       }
       if (rows.length === 1000) {
         signal("sync.backfill_truncated", { sinceEventId, returned: rows.length, cooldownKey: "sync" });
       }
-    } catch (e) {
-      log.warn("connect.sync", "backfill_failed", { error: String(e), sinceEventId });
-      signal("sync.backfill_failed", { error: String(e), sinceEventId, cooldownKey: "sync" });
+    } catch (error) {
+      log.warn("connect.sync", "backfill_failed", { error: String(error), sinceEventId });
+      signal("sync.backfill_failed", { error: String(error), sinceEventId, cooldownKey: "sync" });
     }
   };
 
@@ -520,9 +810,11 @@ export function startSyncFeed(
     if (disposed) return;
     disposed = true;
     seeding = false;
+    recoveringSessions = false;
     queuedLiveFrames.length = 0;
+    pendingRecoveryEvents.clear();
     for (const unsubscribe of unsubs) unsubscribe();
   };
 
-  return { seeded, backfill, dispose };
+  return { seeded, backfill, seedDomain, dispose };
 }

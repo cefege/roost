@@ -17,6 +17,7 @@ import {
   TERM_FONT_MIN_PX, TERM_FONT_MAX_PX,
 } from "../../lib/terminalFontPref.ts";
 import { copyOnSelect, setCopyOnSelect } from "../../lib/copyOnSelectPref.ts";
+import { platformShortcutLabel } from "../../lib/browserPlatform.ts";
 
 function SwitchRow(props: { headline: string; support?: string; checked: boolean; onChange: (v: boolean) => void; testId?: string }) {
   return (
@@ -61,7 +62,7 @@ export function TerminalPane() {
       <Card title="Selection">
         <SwitchRow
           headline="Copy on select"
-          support="On: releasing a selection in the terminal puts it on the clipboard immediately (the tmux/xterm habit). Off: copy explicitly with ⌘/Ctrl+Shift+C or the right-click menu. Off by default because it overwrites the system clipboard without being asked. This device only."
+          support={`On: releasing a selection in the terminal puts it on the clipboard immediately (the tmux/xterm habit). Off: copy explicitly with ${platformShortcutLabel("terminalCopy", "⌘/Ctrl+Shift+C")} or the right-click menu. Off by default because it overwrites the system clipboard without being asked. This device only.`}
           checked={copyOnSelect()}
           onChange={setCopyOnSelect}
           testId="copy-on-select-toggle"
@@ -96,7 +97,7 @@ export function TerminalPane() {
             </Button>
           </div>
           <p class="md-body-s" style={{ color: "var(--md-sys-color-on-surface-variant)", margin: "0" }}>
-            Also ⌘ / Ctrl with + , − or 0 while a terminal is on screen. Changing the
+            Also {platformShortcutLabel("termFontIncrease", "⌘ / Ctrl with +")} , {platformShortcutLabel("termFontDecrease", "−")} or {platformShortcutLabel("termFontReset", "0")} while a terminal is on screen. Changing the
             text size changes how many columns and rows fit, so every open terminal
             re-sizes its shell to match. This device only.
           </p>

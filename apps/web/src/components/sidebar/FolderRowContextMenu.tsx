@@ -21,6 +21,10 @@ import { rootStore } from "../../store/root.ts";
 import { workspaceForFolder } from "../../lib/folderKey.ts";
 import { openRenameDialog } from "../../lib/renameDialog.ts";
 import { ctxMenuSurfaceStyle, CtxMenuItem } from "../contextMenuPrimitives.tsx";
+import { supportedWorkerPlatform } from "../../lib/nativePath.ts";
+import { invokeMachineAction, machineActionsForWorker } from "../../lib/machineActions.ts";
+import type { MachineActionDefinition } from "../../lib/machineActions.ts";
+import { addToast } from "../../lib/toastStore.ts";
 
 interface FolderRowContextMenuProps {
 	pos: { x: number; y: number };
@@ -84,30 +88,40 @@ export function FolderRowContextMenu(props: FolderRowContextMenuProps) {
 		});
 	}
 
-	function handleScreenShare() {
+	async function handleMachineAction(action: MachineActionDefinition) {
 		const host = workerHost(props.workerFp);
 		props.onClose();
 		if (!host) return;
-		window.location.href = `vnc://${host}`;
+		try {
+			await invokeMachineAction(action, host);
+		} catch (err) {
+			addToast(`Machine action failed: ${err instanceof Error ? err.message : String(err)}`, "err");
+		}
 	}
 
 	const hasReachableAddr = () => workerHost(props.workerFp) !== null;
-	const items = () => [
-		{
-			label: "Rename…",
-			testid: "rename",
-			onClick: handleRename,
-			disabled: false,
-			title: undefined as string | undefined,
-		},
-		{
-			label: "Screen sharing",
-			testid: "screen-share",
-			onClick: handleScreenShare,
-			disabled: !hasReachableAddr(),
-			title: hasReachableAddr() ? undefined : NO_ADDR_TOOLTIP,
-		},
-	];
+	const items = () => {
+		const platform = supportedWorkerPlatform(rootStore.workers[props.workerFp]?.os);
+		const machineItems = platform
+			? machineActionsForWorker(platform, false).map((action) => ({
+					label: action.label,
+					testid: action.id,
+					onClick: () => void handleMachineAction(action),
+					disabled: !hasReachableAddr(),
+					title: hasReachableAddr() ? undefined : NO_ADDR_TOOLTIP,
+				}))
+			: [];
+		return [
+			{
+				label: "Rename…",
+				testid: "rename",
+				onClick: handleRename,
+				disabled: false,
+				title: undefined as string | undefined,
+			},
+			...machineItems,
+		];
+	};
 
 	return (
 		<Show when={props.pos}>

@@ -1,23 +1,19 @@
-// `roost keeper-refresh <host> [--yes]` — deliberately replace a host's keeper
-// so it re-spawns on the current code (the keeper outlives a deploy, so a
-// behavior-only change stays dormant until the keeper restarts — surfaced as a
-// "keeper stale" badge in the SPA MachinesPane).
-//
-// DESTRUCTIVE: SIGTERM to the keeper reaps every PTY child (reap fix) — the
-// worker's setOnKeeperDeath then re-spawns sessions under the same ids, but
-// they lose scrollback and running subprocesses. Hence the --yes gate.
-//
-// Mechanism: SIGTERM the keeper process (`pkill -f multiplexed-main.ts`), self
-// locally or remote via ssh (reuses deploy.ts helpers). No coord RPC.
-
+// `roost keeper-refresh <host> --yes` is the only workflow authorized to
+// stop a keeper. It is destructive, explicitly confirmed, and serialized
+// with update/coordinator-relocation through the machine transaction lock.
+import { acquireMachineTransaction } from "@roost/shared/machine-transaction";
+import { roostServiceDir } from "@roost/shared/paths";
+import { mkdirSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { _isSelfHost, sshExec } from "./deploy.ts";
+import { createWindowsServiceManager } from "./service-ctl.ts";
 
 const KEEPER_PROC_PATTERN = "multiplexed-main.ts";
 
 export async function keeperRefresh(args: string[]): Promise<void> {
-  const host = args.find((a) => !a.startsWith("--"));
+  const host = args.find((argument) => !argument.startsWith("--"));
   if (!host) {
-    console.error("usage: roost keeper-refresh <host> [--yes]");
+    console.error("usage: roost keeper-refresh <host> --yes");
     process.exit(2);
   }
   if (!args.includes("--yes")) {
@@ -27,25 +23,63 @@ export async function keeperRefresh(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  const remoteCmd = `pkill -TERM -f ${KEEPER_PROC_PATTERN}`;
-  if (await _isSelfHost(host)) {
-    console.log(`>> local keeper-refresh (pkill -TERM -f ${KEEPER_PROC_PATTERN})`);
-    const proc = Bun.spawn({ cmd: ["pkill", "-TERM", "-f", KEEPER_PROC_PATTERN], stdio: ["inherit", "inherit", "inherit"] });
-    await proc.exited;
-    // pkill: 0 = matched+signalled, 1 = no match (keeper wasn't running → the
-    // next worker op spawns a fresh one anyway). Either is success here.
-    console.log(proc.exitCode === 0 ? ">> keeper signalled; worker will re-spawn it on current code" : ">> no running keeper matched (a fresh one spawns on next use)");
-    return;
+  switch (process.platform) {
+    case "darwin":
+    case "linux":
+    case "win32":
+      break;
+    default:
+      throw new Error(`unsupported keeper-refresh platform: ${process.platform}`);
   }
 
-  console.log(`>> ssh ${host} '${remoteCmd}'`);
-  const r = await sshExec(host, remoteCmd);
-  if (r.exit === 0) {
-    console.log(">> keeper signalled; worker will re-spawn it on current code");
-  } else if (r.exit === 1) {
-    console.log(">> no running keeper matched (a fresh one spawns on next use)");
-  } else {
-    console.error(`ssh pkill failed (exit ${r.exit}): ${r.stderr.trim()}`);
-    process.exit(r.exit);
+  const journalPath = join(
+    roostServiceDir(undefined, process.platform),
+    "transactions",
+    "keeper-refresh.json",
+  );
+  mkdirSync(dirname(journalPath), { recursive: true });
+  const transaction = await acquireMachineTransaction("keeper-refresh", journalPath);
+  try {
+    const self = await _isSelfHost(host);
+    if (process.platform === "win32") {
+      if (!self) {
+        throw new Error("Windows keeper-refresh is native-local only; use the coordinator machine control for a remote host");
+      }
+      const manager = createWindowsServiceManager();
+      const keeper = await manager.query("keeper");
+      if (!keeper.installed) throw new Error("RoostKeeperV2 is not installed");
+      console.log(">> local keeper-refresh (graceful SCM stop RoostKeeperV2)");
+      await manager.stop("keeper", { timeoutMs: 30_000 });
+      await manager.start("keeper");
+      console.log(">> keeper restarted on current code");
+      return;
+    }
+
+    const remoteCmd = `pkill -TERM -f ${KEEPER_PROC_PATTERN}`;
+    if (self) {
+      console.log(`>> local keeper-refresh (pkill -TERM -f ${KEEPER_PROC_PATTERN})`);
+      const proc = Bun.spawn({
+        cmd: ["pkill", "-TERM", "-f", KEEPER_PROC_PATTERN],
+        stdio: ["inherit", "inherit", "inherit"],
+      });
+      await proc.exited;
+      // pkill 0 = signalled; 1 = no match. Both retain the existing behavior.
+      console.log(proc.exitCode === 0
+        ? ">> keeper signalled; worker will re-spawn it on current code"
+        : ">> no running keeper matched (a fresh one spawns on next use)");
+      return;
+    }
+
+    console.log(`>> ssh ${host} '${remoteCmd}'`);
+    const result = await sshExec(host, remoteCmd);
+    if (result.exit === 0) {
+      console.log(">> keeper signalled; worker will re-spawn it on current code");
+    } else if (result.exit === 1) {
+      console.log(">> no running keeper matched (a fresh one spawns on next use)");
+    } else {
+      throw new Error(`ssh pkill failed (exit ${result.exit}): ${result.stderr.trim()}`);
+    }
+  } finally {
+    await transaction.release();
   }
 }

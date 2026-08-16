@@ -1,0 +1,102 @@
+{
+  "schemaVersion": 1,
+  "variables": {
+    "installDir": "absolute directory containing the signed release payload",
+    "workerDataDir": "resolved shared worker data directory",
+    "workerLogDir": "resolved shared worker log directory",
+    "coordDataDir": "resolved shared coordinator data directory",
+    "coordLogDir": "resolved shared coordinator log directory",
+    "roostServiceDir": "resolved machine-local Roost service directory",
+    "publisherSha256": "lowercase SHA-256 of the publisher leaf certificate DER",
+    "coordinatorUrl": "enrolled coordinator URL",
+    "winHelper": "absolute path to roost-win-helper.exe"
+  },
+  "logPolicy": {
+    "encoding": "utf-8",
+    "rotateBytes": 2097152,
+    "retainedCopies": 2
+  },
+  "services": [
+    {
+      "role": "keeper",
+      "name": "RoostKeeperV2",
+      "startMode": "automatic",
+      "dependsOn": [],
+      "cwd": "${workerDataDir}",
+      "logDir": "${workerLogDir}\\keeper",
+      "shawlArgv": [
+        "run", "--name", "RoostKeeperV2", "--no-restart", "--kill-process-tree",
+        "--stop-timeout", "15000", "--cwd", "${workerDataDir}",
+        "--log-dir", "${workerLogDir}\\keeper", "--log-as", "keeper",
+        "--log-cmd-as", "keeper-stdio", "--log-rotate", "bytes=2097152", "--log-retain", "2",
+        "--env", "ROOST_WINDOWS_PUBLISHER_SHA256=${publisherSha256}",
+        "--env", "ROOST_WORKER_DATA_DIR=${workerDataDir}",
+        "--env", "ROOST_WORKER_LOG_DIR=${workerLogDir}",
+        "--env", "ROOST_WIN_HELPER=${winHelper}",
+        "--env", "ROOST_LOG_ENCODING=utf-8",
+        "--", "${installDir}\\roost.exe", "keeper", "--service"
+      ]
+    },
+    {
+      "role": "worker",
+      "name": "RoostWorkerV2",
+      "startMode": "automatic",
+      "dependsOn": ["RoostKeeperV2"],
+      "cwd": "${workerDataDir}",
+      "logDir": "${workerLogDir}\\worker",
+      "shawlArgv": [
+        "run", "--name", "RoostWorkerV2", "--no-restart", "--kill-process-tree",
+        "--stop-timeout", "15000", "--cwd", "${workerDataDir}",
+        "--log-dir", "${workerLogDir}\\worker", "--log-as", "worker",
+        "--log-cmd-as", "worker-stdio", "--log-rotate", "bytes=2097152", "--log-retain", "2",
+        "--env", "ROOST_WINDOWS_PUBLISHER_SHA256=${publisherSha256}",
+        "--env", "ROOST_WORKER_DATA_DIR=${workerDataDir}",
+        "--env", "ROOST_WORKER_LOG_DIR=${workerLogDir}",
+        "--env", "ROOST_WIN_HELPER=${winHelper}",
+        "--env", "ROOST_COORDINATOR_URL=${coordinatorUrl}",
+        "--env", "ROOST_LOG_ENCODING=utf-8",
+        "--", "${installDir}\\roost.exe", "worker"
+      ]
+    },
+    {
+      "role": "coordinator",
+      "name": "RoostCoordinatorV2",
+      "startMode": {
+        "coordinatorHost": "automatic",
+        "workerOnlyHost": "manual"
+      },
+      "dependsOn": [],
+      "cwd": "${coordDataDir}",
+      "logDir": "${coordLogDir}\\coordinator",
+      "shawlArgv": [
+        "run", "--name", "RoostCoordinatorV2", "--no-restart", "--kill-process-tree",
+        "--stop-timeout", "15000", "--cwd", "${coordDataDir}",
+        "--log-dir", "${coordLogDir}\\coordinator", "--log-as", "coordinator",
+        "--log-cmd-as", "coordinator-stdio", "--log-rotate", "bytes=2097152", "--log-retain", "2",
+        "--env", "ROOST_WINDOWS_PUBLISHER_SHA256=${publisherSha256}",
+        "--env", "ROOST_COORD_DATA_DIR=${coordDataDir}",
+        "--env", "ROOST_COORD_LOG_DIR=${coordLogDir}",
+        "--env", "ROOST_LOG_ENCODING=utf-8",
+        "--", "${installDir}\\roost.exe", "coord"
+      ]
+    },
+    {
+      "role": "updater",
+      "name": "RoostUpdaterV2",
+      "startMode": "demand",
+      "dependsOn": [],
+      "cwd": "${roostServiceDir}",
+      "logDir": "${roostServiceDir}\\logs\\updater",
+      "shawlArgv": [
+        "run", "--name", "RoostUpdaterV2", "--no-restart", "--kill-process-tree",
+        "--stop-timeout", "15000", "--cwd", "${roostServiceDir}",
+        "--log-dir", "${roostServiceDir}\\logs\\updater", "--log-as", "updater",
+        "--log-cmd-as", "updater-stdio", "--log-rotate", "bytes=2097152", "--log-retain", "2",
+        "--env", "ROOST_WINDOWS_PUBLISHER_SHA256=${publisherSha256}",
+        "--env", "ROOST_SERVICE_DIR=${roostServiceDir}",
+        "--env", "ROOST_LOG_ENCODING=utf-8",
+        "--", "${installDir}\\roost.exe", "__windows-updater-broker"
+      ]
+    }
+  ]
+}

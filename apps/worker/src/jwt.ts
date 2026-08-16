@@ -3,10 +3,10 @@
 // native crypto.subtle (WebCrypto Ed25519) — no external crypto lib.
 // Callers: coord-client.ts (Authorization header on every coord RPC).
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { dirname } from "node:path";
 import { log } from "@roost/shared";
+import { durableWriteFile } from "@roost/shared/durability";
 
 // PKCS8 DER prefix for a raw 32-byte Ed25519 seed. crypto.subtle.importKey
 // only accepts pkcs8/jwk/spki — prepend this to the seed to import it.
@@ -141,8 +141,7 @@ async function generateAndWriteKey(keyPath: string): Promise<{ privSeed: Uint8Ar
   const privSeed = pkcs8.subarray(pkcs8.length - 32);
   const pubKey = new Uint8Array(await crypto.subtle.exportKey("raw", pair.publicKey));
   const pem = encodeOpenSshEd25519(privSeed, pubKey);
-  mkdirSync(dirname(keyPath), { recursive: true });
-  writeFileSync(keyPath, pem, { mode: 0o600 });
+  await durableWriteFile(keyPath, pem, { mode: 0o600, privateDacl: true });
   return { privSeed: Uint8Array.from(privSeed), pubKey };
 }
 

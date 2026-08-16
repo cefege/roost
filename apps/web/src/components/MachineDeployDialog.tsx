@@ -6,9 +6,13 @@
 import { createMemo, createSignal, Show } from "solid-js";
 import { coordClient } from "../connect.ts";
 import { rootStore } from "../store/root.ts";
-import { TextField, Button, IconButton } from "./Settings/md/primitives.tsx";
+import { TextField, Button, IconButton, Select } from "./Settings/md/primitives.tsx";
 import { workerCoordinatorUrl } from "../lib/workerCoordinatorUrl.ts";
 import { animateOverlayPanel } from "../lib/overlayMotion.ts";
+import { browserPlatform } from "../lib/browserPlatform.ts";
+import { buildMachineJoinCommand, machinePlatformLabel } from "../lib/machineJoinCommand.ts";
+import { supportedWorkerPlatform } from "../lib/nativePath.ts";
+import type { SupportedHostPlatform } from "@roost/shared/platform";
 
 interface MachineDeployDialogProps {
   onClose: () => void;
@@ -36,6 +40,10 @@ const DIALOG_STYLE = {
 
 
 export function MachineDeployDialog(props: MachineDeployDialogProps) {
+  const clientPlatform = browserPlatform();
+  const [targetPlatform, setTargetPlatform] = createSignal<SupportedHostPlatform>(
+    clientPlatform === "windows" ? "win32" : clientPlatform === "linux" ? "linux" : "darwin",
+  );
   const [label, setLabel] = createSignal("");
   const [loading, setLoading] = createSignal(false);
   const [error, setError] = createSignal("");
@@ -61,11 +69,7 @@ export function MachineDeployDialog(props: MachineDeployDialogProps) {
       const result = await coordClient.authMintBootstrap({ kind: "worker", label: lbl });
       // Worker enrollment is intentionally denied on the public web listener.
       // Only the coordinator-advertised private/tailnet origin may be embedded.
-      const labelEnv = lbl ? ` ROOST_WORKER_LABEL=${JSON.stringify(lbl)}` : "";
-      const cmd = `curl -fsSL https://raw.githubusercontent.com/cefege/roost/main/join.sh | `
-        + `ROOST_COORDINATOR_URL=${JSON.stringify(coordinatorUrl)} `
-        + `ROOST_BOOTSTRAP_TOKEN=${JSON.stringify(result.token)}${labelEnv} bash`;
-      setDeployCmd(cmd);
+      setDeployCmd(buildMachineJoinCommand(targetPlatform(), coordinatorUrl, result.token, lbl));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -105,9 +109,9 @@ export function MachineDeployDialog(props: MachineDeployDialogProps) {
         </div>
 
         <p style={{ "font-size": "var(--md-body-s-size)", color: "var(--text-lo)", "margin-bottom": "16px", "line-height": "1.5" }}>
-          Mint a one-time bootstrap token for a new worker. Run the
-          generated command on the target Mac to register it with this
-          coordinator. The token expires after 24 hours.
+          Mint a one-time bootstrap token for a new worker. Run the generated
+          command on the target machine to register it with this coordinator.
+          The token expires after 24 hours.
         </p>
 
         <Show
@@ -131,6 +135,19 @@ export function MachineDeployDialog(props: MachineDeployDialogProps) {
           }
         >
         <Show when={!deployCmd()}>
+          <div style={{ "margin-bottom": "12px" }}>
+            <Select
+              label="Operating system"
+              value={targetPlatform()}
+              onChange={(value) => setTargetPlatform(supportedWorkerPlatform(value) ?? "darwin")}
+              testId="machine-deploy-platform"
+              options={[
+                { value: "darwin", label: "macOS" },
+                { value: "linux", label: "Linux" },
+                { value: "win32", label: "Windows 11 / Server 2022" },
+              ]}
+            />
+          </div>
           <div style={{ "margin-bottom": "12px" }}>
             <TextField
               testId="machine-deploy-label"
@@ -164,7 +181,7 @@ export function MachineDeployDialog(props: MachineDeployDialogProps) {
         <Show when={deployCmd()}>
           <div>
             <div style={{ "font-size": "11px", color: "var(--text-lo)", "margin-bottom": "8px", "text-transform": "uppercase", "letter-spacing": "0.06em" }}>
-              Run this on the new Mac (Tailscale must be running there):
+              Run this on the new {machinePlatformLabel(targetPlatform())} (Tailscale must be running there):
             </div>
             <div style={{
               background: "var(--bg-base)",

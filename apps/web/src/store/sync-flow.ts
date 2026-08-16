@@ -51,6 +51,7 @@ export function dispatchSyncFrameCausally<Link extends SyncFlowLink>(
   openState: number,
   frame: FirehoseFrame,
   dispatch: (frame: FirehoseFrame) => boolean,
+  socketId = "",
 ): "unapplied" | "dispatched" | "acked" {
   if (!frame.frame.case || !dispatch(frame)) return "unapplied";
   if (!canAcceptSyncLink(getCurrent(), link, openState) || frame.deliverySeq <= 0n) {
@@ -58,43 +59,11 @@ export function dispatchSyncFrameCausally<Link extends SyncFlowLink>(
   }
   link.ws.send(toBinary(SyncClientFrameSchema, create(SyncClientFrameSchema, {
     ackDeliverySeq: frame.deliverySeq,
+    socketId,
   })));
   return "acked";
 }
 
-export interface PreHydrationSyncState<Link, Frame> {
-  entries: Array<{ link: Link; frame: Frame }>;
-  overflowed: boolean;
-}
-
-/** Queue until the cap; once overflowed, clear and latch all later drops. */
-export function enqueuePreHydrationFrame<Link, Frame>(
-  state: PreHydrationSyncState<Link, Frame>,
-  entry: { link: Link; frame: Frame },
-  cap: number,
-): "queued" | "overflow" | "latched" {
-  if (state.overflowed) return "latched";
-  if (state.entries.length >= cap) {
-    state.entries = [];
-    state.overflowed = true;
-    return "overflow";
-  }
-  state.entries.push(entry);
-  return "queued";
-}
-
-/** Drain one ordered snapshot. Return whether dropped frames require a redial. */
-export function drainPreHydrationFrames<Link, Frame>(
-  state: PreHydrationSyncState<Link, Frame>,
-  consume: (link: Link, frame: Frame) => void,
-): boolean {
-  const entries = state.entries;
-  const overflowed = state.overflowed;
-  state.entries = [];
-  state.overflowed = false;
-  for (const entry of entries) consume(entry.link, entry.frame);
-  return overflowed;
-}
 
 export function isSyncBackpressureClose(code: number, reason: string): boolean {
   return code === 1013 && reason === "sync backpressure";

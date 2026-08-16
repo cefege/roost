@@ -164,7 +164,7 @@ describe("claimed-session resnapshot after coordinator reconnect", () => {
     await injectCellSession(mgr, 1);
     await injectCellSession(mgr, 2);
     await injectCellSession(mgr, 3);
-    const claim = { cols: 80, rows: 24, lastMs: Date.now(), clientSeq: 1 };
+    const claim = { cols: 80, rows: 24, lastMs: Date.now(), clientSeq: 1n };
     mgr.viewportClaims.set(1, new Map([["viewer-a", claim], ["viewer-b", claim]]));
     mgr.viewportClaims.set(2, new Map());
     mgr.viewportClaims.set(3, new Map([["viewer-c", claim]]));

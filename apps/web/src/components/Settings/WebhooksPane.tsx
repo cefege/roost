@@ -9,7 +9,8 @@
 
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { coordClient } from "../../connect.ts";
-import { registerWebhookDelta } from "../../store/sync.ts";
+import { registerLazySyncDomain, registerWebhookDelta } from "../../store/sync.ts";
+import { SyncDomain } from "@roost/shared/proto/sync_pb";
 import type { WebhookToken, WebhookTokenMint, WebhookTokenDelta } from "@roost/shared/wire";
 import { asWebhookTokenId } from "@roost/shared/wire";
 import { WebhookTokenMintDialog } from "../WebhookTokenMintDialog.tsx";
@@ -48,29 +49,50 @@ export function WebhooksPane() {
     }
   }
 
-  let sseUnsub: (() => void) | null = null;
-  let disposed = false;
   onMount(() => {
-    void loadTokens();
-    const unsub = registerWebhookDelta((raw) => {
+    // Install the local consumer before subscription; the hydrator then
+    // performs fetch/apply and only its generation-scoped apply emits ready.
+    const unsubDeltas = registerWebhookDelta((raw) => {
       const delta = raw as WebhookTokenDelta;
       if (delta.kind === "created") {
-        const t = delta.token;
+        const token = delta.token;
         setTokens((prev) => {
-          if (prev.some((x) => x.id === t.id)) return prev;
-          return [t, ...prev].sort((a, b) => b.created_at_ms - a.created_at_ms);
+          if (prev.some((existing) => existing.id === token.id)) return prev;
+          return [token, ...prev].sort((a, b) => b.created_at_ms - a.created_at_ms);
         });
       } else if (delta.kind === "deleted") {
-        setTokens((prev) => prev.filter((x) => x.id !== delta.id));
+        setTokens((prev) => prev.filter((token) => token.id !== delta.id));
       }
     });
-    if (disposed) { unsub(); return; }
-    sseUnsub = unsub;
-  });
-  onCleanup(() => {
-    disposed = true;
-    try { sseUnsub?.(); } catch { /* ignore */ }
-    sseUnsub = null;
+    const unsubDomain = registerLazySyncDomain(SyncDomain.WEBHOOK, async () => {
+      try {
+        const response = await coordClient.webhookTokensList({});
+        const next: WebhookToken[] = response.tokens.map((token) => ({
+          id: token.id as never,
+          label: token.label,
+          last4: token.last4,
+          scopes: token.scopes as never,
+          created_at_ms: Number(token.createdAtMs),
+          last_used_at_ms: token.lastUsedAtMs !== undefined
+            ? Number(token.lastUsedAtMs)
+            : null,
+        }));
+        next.sort((a, b) => b.created_at_ms - a.created_at_ms);
+        return {
+          apply: () => {
+            setTokens(next);
+            setLoadErr(null);
+          },
+        };
+      } catch (error) {
+        setLoadErr(error instanceof Error ? error.message : String(error));
+        throw error;
+      }
+    });
+    onCleanup(() => {
+      unsubDomain();
+      unsubDeltas();
+    });
   });
 
   function handleMinted(_token: WebhookTokenMint) {

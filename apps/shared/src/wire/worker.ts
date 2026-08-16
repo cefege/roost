@@ -19,7 +19,7 @@ export type HostMetrics = z.infer<typeof HostMetrics>;
 export const Worker = z.object({
   fp: WorkerFp,
   label: z.string().min(1),
-  os: z.enum(["darwin", "linux"]),
+  os: z.enum(["darwin", "linux", "win32"]),
   git_sha: z.string().nullable(),            // drift badge; null = pre-0018
   host_metrics: HostMetrics.nullable(),      // volatile; decays on disconnect
   registered_at_ms: z.number().int().positive(),

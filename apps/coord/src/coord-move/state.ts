@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import { dirname, join } from "node:path";
 import { z } from "zod";
+import { durableWriteFile } from "@roost/shared/durability";
+import { acquireMachineTransaction } from "@roost/shared/machine-transaction";
 
 export const MOVE_PHASES = [
   "PREPARING_TARGET", "STAGING_WORKERS", "DRAINING_SOURCE", "COPYING_STATE",
@@ -64,6 +66,10 @@ function fsyncDirectory(path: string): void {
   try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
 }
 
+export interface CoordinatorMoveTransaction {
+  release(): Promise<void> | void;
+}
+
 export class HandoffStateStore {
   constructor(readonly path: string) {}
 
@@ -76,7 +82,12 @@ export class HandoffStateStore {
     }
   }
 
+  /** Synchronous POSIX compatibility path used by fixtures and seed tooling. */
   write(state: HandoffState): HandoffState {
+    if (process.platform === "win32") throw new Error("Windows handoff state writes must use writeDurable");
+    if (process.platform !== "darwin" && process.platform !== "linux") {
+      throw new Error(`unsupported coordinator move platform: ${process.platform}`);
+    }
     const parsed = handoffSchema.parse({ ...state, updated_at_ms: Date.now() });
     const parent = dirname(this.path);
     fs.mkdirSync(parent, { recursive: true, mode: 0o700 });
@@ -92,6 +103,46 @@ export class HandoffStateStore {
     }
   }
 
+  /**
+   * `onCommitted` runs synchronously after the replacement is durable and
+   * before this promise settles. Lifecycle owners use that boundary to make an
+   * in-memory gate transition visible no later than the persisted phase.
+   */
+  async writeDurable(
+    state: HandoffState,
+    onCommitted?: (persisted: HandoffState) => void,
+  ): Promise<HandoffState> {
+    const parsed = handoffSchema.parse({ ...state, updated_at_ms: Date.now() });
+    switch (process.platform) {
+      case "darwin":
+      case "linux": {
+        const persisted = this.write(parsed);
+        onCommitted?.(persisted);
+        return persisted;
+      }
+      case "win32":
+        await durableWriteFile(this.path, `${JSON.stringify(parsed)}\n`, {
+          platform: "win32", mode: 0o600, privateDacl: true,
+        });
+        onCommitted?.(parsed);
+        return parsed;
+      default:
+        throw new Error(`unsupported coordinator move platform: ${process.platform}`);
+    }
+  }
+
+  async acquireTransaction(): Promise<CoordinatorMoveTransaction> {
+    switch (process.platform) {
+      case "darwin":
+      case "linux":
+        return { release() {} };
+      case "win32":
+        return acquireMachineTransaction("relocation", this.path, { platform: "win32" });
+      default:
+        throw new Error(`unsupported coordinator move platform: ${process.platform}`);
+    }
+  }
+
   archiveTerminal(state: HandoffState): void {
     if (!isTerminalPhase(state.phase)) throw new Error("cannot archive non-terminal handoff");
     const historyDir = join(dirname(this.path), "handoffs", state.handoff_id);
@@ -100,5 +151,24 @@ export class HandoffStateStore {
     fs.writeFileSync(historyPath, `${JSON.stringify(state)}\n`, { encoding: "utf8", mode: 0o600 });
     fsyncFile(historyPath);
     fsyncDirectory(historyDir);
+  }
+
+  async archiveTerminalDurable(state: HandoffState): Promise<void> {
+    if (!isTerminalPhase(state.phase)) throw new Error("cannot archive non-terminal handoff");
+    switch (process.platform) {
+      case "darwin":
+      case "linux":
+        this.archiveTerminal(state);
+        return;
+      case "win32": {
+        const historyPath = join(dirname(this.path), "handoffs", state.handoff_id, "history.json");
+        await durableWriteFile(historyPath, `${JSON.stringify(state)}\n`, {
+          platform: "win32", mode: 0o600, privateDacl: true,
+        });
+        return;
+      }
+      default:
+        throw new Error(`unsupported coordinator move platform: ${process.platform}`);
+    }
   }
 }

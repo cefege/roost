@@ -31,7 +31,9 @@ const KEEPER_SOURCE_FILES = [
   // behaviour. A detached keeper outlives a worker deploy: without this entry
   // a stale keeper keeps running the old grow-and-slice copy and reports
   // itself fresh.
-  "../session-scrollback-ring.ts",
+  "../session-scrollback-ring.ts", "../shell-spec.ts",
+  "../../../shared/src/platform.ts", "../../../shared/src/native-path.ts",
+  "../../../shared/src/local-endpoint.ts", "../../../shared/src/windows-helper.ts",
 ];
 
 function computeKeeperBuildStamp(): string {

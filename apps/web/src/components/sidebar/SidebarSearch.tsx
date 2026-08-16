@@ -9,6 +9,7 @@
 // canonical pattern.
 
 import type { JSX } from "solid-js";
+import { platformShortcutLabel } from "../../lib/browserPlatform.ts";
 
 interface SidebarSearchProps {
   query: string;
@@ -75,7 +76,7 @@ export function SidebarSearch(props: SidebarSearchProps) {
           </svg>
         </button>
       ) : (
-        <span class="df-search-kbd" aria-hidden="true">⌘F</span>
+        <span class="df-search-kbd" aria-hidden="true">{platformShortcutLabel("sidebarSearch", "⌘F")}</span>
       )}
     </div>
   );

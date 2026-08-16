@@ -4,7 +4,7 @@
 // + ROOST_KEEPER_MODE switch were retired 2026-06-15.
 //
 // Surface: MultiplexedKeeperPool.ensure() starts the keeper (idempotent);
-// pool.spawn({channelId, cwd, argv, cols, rows}) opens a channel;
+// pool.spawn({channelId, shellSpec, cols, rows}) opens a channel;
 // pool.attach(channelId, callbacks) registers per-channel handlers;
 // pool.input/resize/kill drive the channel from worker side.
 //
@@ -13,10 +13,37 @@
 import { type Socket } from "node:net";
 import { signal } from "@roost/shared";
 import { ensureConnection } from "./keeper-pool-lifecycle.ts";
-import { spawnChannel, listPoolChannels, listPoolChannelsFresh, reattachChannel, getChannelHistory } from "./keeper-pool-channels.ts";
-import { channelInput, channelResize, channelKill, disposePool } from "./keeper-pool-io.ts";
+import {
+  spawnChannel,
+  listPoolChannels,
+  listPoolChannelsFresh,
+  reattachChannel,
+  getChannelHistory,
+  getChannelHistoryRecords,
+} from "./keeper-pool-channels.ts";
+import {
+  channelInput,
+  channelInputRequest,
+  channelResize,
+  channelResizeRequest,
+  channelResizeStatus,
+  channelKill,
+  disposePool,
+} from "./keeper-pool-io.ts";
+import type {
+  KeeperHistoryRecords,
+  KeeperInputResult,
+  KeeperResizeResult,
+} from "./protocol-v2.ts";
+import type { ShellSpec } from "../shell-spec.ts";
 
-export { probeKeeperCompatible } from "./keeper-probe.ts";
+export { probeKeeperCompatible, shutdownKeeperAuthenticated } from "./keeper-probe.ts";
+export type {
+  KeeperHistoryRecord,
+  KeeperHistoryRecords,
+  KeeperInputResult,
+  KeeperResizeResult,
+} from "./protocol-v2.ts";
 
 export type MuxChannelCallbacks = {
   onOutput: (chunk: Buffer) => void;
@@ -49,6 +76,25 @@ export class MultiplexedKeeperPool {
     resolve: (r: { headSeq: number; bytes: Uint8Array }) => void;
     reject: (e: Error) => void;
   }> = [];
+  pendingGetHistoryRecords = new Map<number, Array<{
+    resolve: (history: KeeperHistoryRecords) => void;
+    reject: (error: Error) => void;
+  }>>();
+  pendingHistoryOutput = new Map<number, { chunks: Buffer[]; bytes: number }>();
+  pendingInputs = new Map<string, {
+    channelId: number;
+    inputSeq: number;
+    expectedBytes: number;
+    timer: ReturnType<typeof setTimeout>;
+    resolve: (result: KeeperInputResult) => void;
+  }>();
+  pendingResizes = new Map<string, {
+    channelId: number;
+    seq: number;
+    timer: ReturnType<typeof setTimeout>;
+    resolve: (result: KeeperResizeResult) => void;
+  }>();
+  _pendingInputUsage = new Map<number, { commands: number; bytes: number }>();
   connectPromise: Promise<void> | null = null;
   // Invoked once per worker→keeper socket close (= keeper died). main.ts
   // registers the boot resume/respawn reconcile loop here so a keeper that
@@ -60,7 +106,7 @@ export class MultiplexedKeeperPool {
   // Handle to the live keeper subprocess so a DEGRADED survivor (births dead
   // PTYs without dying — emit_no_session bursts) can be force-restarted. Kill
   // → socket close → _onKeeperDeath → reconcile → ensure() spawns a fresh one.
-  _keeperProc: ReturnType<typeof Bun.spawn> | null = null;
+  _keeperProc: Bun.Subprocess | null = null;
 
   // KEEPER_BUILD_STAMP the RUNNING keeper reports. Set to our own stamp when
   // we spawn a fresh keeper (= current code); set by the worker to a survivor's
@@ -71,6 +117,14 @@ export class MultiplexedKeeperPool {
   /** Record the stamp of a keeper the worker ADOPTED (compatible survivor at
    *  boot). Fresh spawns set the stamp themselves in ensure(). */
   setRunningKeeperStamp(stamp: string): void { this._runningKeeperStamp = stamp; }
+  /** Features returned by the authenticated Hello for this exact socket. */
+  keeperFeatures = new Set<string>();
+  setKeeperFeatures(features: readonly string[]): void {
+    this.keeperFeatures = new Set(features);
+  }
+  supportsKeeperFeature(feature: string): boolean {
+    return this.keeperFeatures.has(feature);
+  }
 
   /** Force a fresh keeper: kill the current subprocess. The socket-close
    *  handler (above) clears pool state + drives the worker's reconcile, and
@@ -93,11 +147,9 @@ export class MultiplexedKeeperPool {
    * the first PtyOut frames after SpawnAck route correctly. */
   async spawn(opts: {
     channelId: number;
-    cwd: string;
-    argv: string[];
+    shellSpec: ShellSpec;
     cols: number;
     rows: number;
-    env?: Record<string, string>;
     callbacks: MuxChannelCallbacks;
   }): Promise<number> {
     return spawnChannel(this, opts);
@@ -143,6 +195,11 @@ export class MultiplexedKeeperPool {
     return getChannelHistory(this, channelId);
   }
 
+  /** Capability-gated ordered output/resize history for worker adoption. */
+  async getHistoryRecords(channelId: number): Promise<KeeperHistoryRecords> {
+    return getChannelHistoryRecords(this, channelId);
+  }
+
   // Per-(logTarget) timestamp of the last "dropped: socket closed"
   // warn, so a drag-resize burst (~60 fps) or a 5 KB paste during the
   // ms-to-seconds reconnect window emits ONE log line per second per
@@ -154,8 +211,23 @@ export class MultiplexedKeeperPool {
     channelInput(this, channelId, bytes);
   }
 
+  /** Acknowledged logical input. Full ACK is the only accepted result. */
+  requestInput(channelId: number, inputSeq: number, bytes: Uint8Array): Promise<KeeperInputResult> {
+    return channelInputRequest(this, channelId, inputSeq, bytes);
+  }
+
   resize(channelId: number, cols: number, rows: number): void {
     channelResize(this, channelId, cols, rows);
+  }
+
+  /** Apply a logical resize sequence at most once. */
+  requestResize(channelId: number, seq: number, cols: number, rows: number): Promise<KeeperResizeResult> {
+    return channelResizeRequest(this, channelId, seq, cols, rows);
+  }
+
+  /** Query the keeper's cached result without reapplying terminal.resize. */
+  queryResizeStatus(channelId: number, seq: number): Promise<KeeperResizeResult> {
+    return channelResizeStatus(this, channelId, seq);
   }
 
   kill(channelId: number): void {

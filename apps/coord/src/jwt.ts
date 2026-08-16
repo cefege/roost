@@ -81,6 +81,13 @@ export function invalidateJwtKey(cache: JwtCache, fingerprint: string): void {
   cache.entries.delete(fingerprint);
 }
 
+/** Drop a cached authorized-key snapshot without changing its revocation
+ * generation. Authorization/upsert callers use this after commit so a
+ * verifier that already loaded an authorized row remains valid. */
+export function refreshJwtKey(cache: JwtCache, fingerprint: string): void {
+  cache.entries.delete(fingerprint);
+}
+
 async function lookupKey(
   db: KyselyDB,
   cache: JwtCache,

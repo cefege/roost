@@ -1,10 +1,11 @@
 import { existsSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
-// Text assets worth compressing on the fly. woff2/wasm/png/jpg are already
-// compressed — re-encoding them wastes CPU for ~0 gain, so they stream raw.
+// Text assets compressed at build time for embedded production builds and on
+// demand only for mutable source-run builds.
 const COMPRESSIBLE_EXT: Record<string, true> = {
-  ".js": true, ".css": true, ".html": true, ".json": true, ".svg": true, ".map": true, ".txt": true,
+  ".js": true, ".mjs": true, ".css": true, ".html": true, ".json": true, ".svg": true, ".map": true, ".txt": true,
+  ".webmanifest": true,
 };
 
 const MIME: Record<string, string> = {
@@ -22,10 +23,9 @@ const MIME: Record<string, string> = {
   ".webmanifest": "application/manifest+json",
 };
 
-// Memoized gzip bodies, keyed by servable path and invalidated on an mtime/size
-// mismatch so a rebuilt or re-embedded asset is never served stale. Bounded to
-// 32 entries (oldest insertion dropped) — the SPA has ~10 compressible assets,
-// so the cap only exists so a hostile URL space can't grow it.
+// Source-run disk assets remain mutable, so their gzip bodies are memoized and
+// invalidated on an mtime/size mismatch. Embedded production assets never use
+// this cache: their raw and gzip files are both embedded at build time.
 const GZIP_CACHE_MAX = 32;
 interface GzipEntry { mtimeMs: number; size: number; gz: Uint8Array<ArrayBuffer> }
 const _gzipCache = new Map<string, GzipEntry>();
@@ -44,6 +44,27 @@ async function gzipCached(path: string): Promise<Uint8Array<ArrayBuffer>> {
   return gz;
 }
 
+export interface EmbeddedSpaAsset {
+  readonly raw: string;
+  readonly gzip?: string;
+}
+
+function acceptsGzip(value: string): boolean {
+  let wildcard = false;
+  for (const item of value.split(",")) {
+    const [codingPart, ...parameters] = item.split(";");
+    const coding = codingPart?.trim().toLowerCase();
+    let accepted = true;
+    for (const parameter of parameters) {
+      const match = /^\s*q\s*=\s*(\d*(?:\.\d+)?)\s*$/i.exec(parameter);
+      if (match) accepted = Number(match[1]) > 0;
+    }
+    if (coding === "gzip") return accepted;
+    if (coding === "*") wildcard = accepted;
+  }
+  return wildcard;
+}
+
 /**
  * Create a responder from exactly one complete SPA build. A valid on-disk
  * index wins for source runs; otherwise compiled installations use the
@@ -51,28 +72,38 @@ async function gzipCached(path: string): Promise<Uint8Array<ArrayBuffer>> {
  */
 export function createSpaResponder(
   webDistPath: string | undefined,
-  embeddedAssets: ReadonlyMap<string, string>,
+  embeddedAssets: ReadonlyMap<string, EmbeddedSpaAsset>,
 ): (url: URL, method: string, acceptEncoding: string) => Promise<Response> {
   const spaRoot = diskSpaRoot(webDistPath);
   const webAssets = spaRoot || embeddedAssets.size === 0 ? null : embeddedAssets;
 
-  // rel (no leading slash) → servable path: an embedded-file path or a disk path.
-  function resolveAsset(rel: string): string | null {
+  // rel (no leading slash) → an embedded raw/gzip descriptor or disk path.
+  function resolveAsset(rel: string): EmbeddedSpaAsset | null {
     if (!rel) return null;
     if (webAssets) return webAssets.get(rel) ?? null;
     if (!spaRoot) return null;
     const candidate = join(spaRoot, rel);
-    const safe = candidate === spaRoot || candidate.startsWith(spaRoot + "/");
-    return safe && existsSync(candidate) && statSync(candidate).isFile() ? candidate : null;
+    const child = relative(spaRoot, candidate);
+    const safe = child !== ".." && !child.startsWith(`..${sep}`) && !isAbsolute(child);
+    return safe && existsSync(candidate) && statSync(candidate).isFile()
+      ? { raw: candidate }
+      : null;
   }
 
-  function resolveIndex(): string | null {
+  function resolveIndex(): EmbeddedSpaAsset | null {
     if (webAssets) return webAssets.get("index.html") ?? null;
-    return spaRoot ? join(spaRoot, "index.html") : null;
+    return spaRoot ? { raw: join(spaRoot, "index.html") } : null;
   }
 
   async function fileResponse(
-    path: string, rel: string, ext: string, method: string, acceptEncoding: string, isIndex: boolean, hashed: boolean,
+    asset: EmbeddedSpaAsset,
+    rel: string,
+    ext: string,
+    method: string,
+    acceptEncoding: string,
+    isIndex: boolean,
+    hashed: boolean,
+    isEmbedded: boolean,
   ): Promise<Response> {
     const headers: Record<string, string> = {
       "content-type": MIME[ext] ?? "application/octet-stream",
@@ -96,19 +127,15 @@ export function createSpaResponder(
       // Revalidate on every load instead.
       headers["cache-control"] = "no-cache";
     }
-    // On-the-fly gzip via Bun's NATIVE Bun.gzipSync — NOT node:zlib (heap
-    // corruption + random-later segfault under load; see git history +
-    // feedback_no_connect_node_compression_under_bun). gzip only: Bun has no
-    // native brotli sync, and gzip (~4.3x on the SPA chunks) is plenty.
-    // Memoized: the 345 KB index, 625 KB vendor chunk and 72 KB CSS were
-    // recompressed for every cold load by every client.
-    if (COMPRESSIBLE_EXT[ext] && acceptEncoding.includes("gzip")) {
-      const gz = await gzipCached(path);
+    const gzipAvailable = isEmbedded ? asset.gzip !== undefined : COMPRESSIBLE_EXT[ext] === true;
+    if (gzipAvailable) headers["vary"] = "accept-encoding";
+    if (gzipAvailable && acceptsGzip(acceptEncoding)) {
       headers["content-encoding"] = "gzip";
-      headers["vary"] = "accept-encoding";
-      return new Response(method === "HEAD" ? null : gz, { status: 200, headers });
+      if (method === "HEAD") return new Response(null, { status: 200, headers });
+      const body = isEmbedded ? Bun.file(asset.gzip!) : await gzipCached(asset.raw);
+      return new Response(body, { status: 200, headers });
     }
-    return new Response(Bun.file(path), { status: 200, headers });
+    return new Response(method === "HEAD" ? null : Bun.file(asset.raw), { status: 200, headers });
   }
 
   return async function spaResponse(url: URL, method: string, acceptEncoding: string): Promise<Response> {
@@ -119,13 +146,13 @@ export function createSpaResponder(
     const asset = resolveAsset(rel);
     if (asset) {
       const dot = rel.lastIndexOf(".");
-      return fileResponse(asset, rel, dot >= 0 ? rel.slice(dot) : "", method, acceptEncoding, false, rel.startsWith("assets/"));
+      return fileResponse(asset, rel, dot >= 0 ? rel.slice(dot) : "", method, acceptEncoding, false, rel.startsWith("assets/"), webAssets !== null);
     }
     if (rel.startsWith("assets/")) {
       return new Response("not found", { status: 404 });
     }
     const index = resolveIndex();
-    if (index) return fileResponse(index, "index.html", ".html", method, acceptEncoding, true, false);
+    if (index) return fileResponse(index, "index.html", ".html", method, acceptEncoding, true, false, webAssets !== null);
     return new Response("not found", { status: 404 });
   };
 }

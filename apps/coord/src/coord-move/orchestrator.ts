@@ -1,7 +1,7 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import { COORD_GIT_SHA } from "../git-sha.ts";
-import { isTerminalPhase, type HandoffState, type MovePhase } from "./state.ts";
+import { isTerminalPhase, type CoordinatorMoveTransaction, type HandoffState, type MovePhase } from "./state.ts";
 import type { CoordinatorWriteGate } from "./write-gate.ts";
 import type { MoveWorker } from "./runtime.ts";
 import { CoordinatorMoveTargetRole } from "./target-orchestrator.ts";
@@ -74,25 +74,28 @@ export class CoordinatorMoveOrchestrator extends CoordinatorMoveTargetRole imple
   #starting = false;
 
   async preflight(targetWorkerFp: string): Promise<MovePreflight> {
+    const transaction = await this.options.store.acquireTransaction();
+    try {
+      return await this.#preflightUnlocked(targetWorkerFp);
+    } finally {
+      await transaction.release();
+    }
+  }
+
+  async #preflightUnlocked(targetWorkerFp: string): Promise<MovePreflight> {
     const sourceUrl = this.options.cfg.publicUrl ?? "";
     const workers = await this.options.workers();
     const target = workers.find((worker) => worker.fp === targetWorkerFp);
     const targetUrl = target ? publicTargetUrl(target) : "";
     const blockers: MoveBlocker[] = [];
     const previous = this.options.store.load();
-    if (previous && !isTerminalPhase(previous.phase)) {
-      blockers.push(blocker("move_in_progress", "Another coordinator move is already in progress."));
-    }
-    if (!sourceUrl) {
-      blockers.push(blocker("public_url_unavailable", "Set ROOST_COORDINATOR_PUBLIC_URL on the current coordinator and restart it."));
-    }
+    if (previous && !isTerminalPhase(previous.phase)) blockers.push(blocker("move_in_progress", "Another coordinator move is already in progress."));
+    if (!sourceUrl) blockers.push(blocker("public_url_unavailable", "Set ROOST_COORDINATOR_PUBLIC_URL on the current coordinator and restart it."));
     if (!target) {
       blockers.push(blocker("target_offline", "Bring the selected machine online before moving the coordinator.", targetWorkerFp));
     } else {
       const sourceHost = sourceUrl ? new URL(sourceUrl).hostname.toLowerCase() : "";
-      if (sourceHost && target.reachableAddr?.toLowerCase() === sourceHost) {
-        blockers.push(blocker("target_same_as_source", "This machine already hosts the coordinator.", target.fp));
-      }
+      if (sourceHost && target.reachableAddr?.toLowerCase() === sourceHost) blockers.push(blocker("target_same_as_source", "This machine already hosts the coordinator.", target.fp));
       if (!target.online) blockers.push(blocker("target_offline", `Bring ${target.label} online before moving the coordinator.`, target.fp));
       if (!target.reachableAddr) blockers.push(blocker("target_address_missing", `${target.label} has not reported a Tailscale address.`, target.fp));
       if (target.gitSha !== COORD_GIT_SHA) blockers.push(blocker("target_version_mismatch", `Deploy coordinator version ${SHA8} to ${target.label} first.`, target.fp));
@@ -102,8 +105,6 @@ export class CoordinatorMoveOrchestrator extends CoordinatorMoveTargetRole imple
       }
     }
     for (const worker of workers) {
-      // The target's own offline/version state is already reported above with
-      // a target-specific message; a second near-identical line just confuses.
       if (worker.fp === targetWorkerFp) continue;
       if (!worker.online) blockers.push(blocker("worker_offline", `Bring ${worker.label} online or remove it from Machines before moving.`, worker.fp));
       else if (worker.gitSha !== COORD_GIT_SHA) blockers.push(blocker("worker_version_mismatch", `Deploy coordinator version ${SHA8} to ${worker.label} first.`, worker.fp));
@@ -114,15 +115,18 @@ export class CoordinatorMoveOrchestrator extends CoordinatorMoveTargetRole imple
   async start(targetWorkerFp: string): Promise<string> {
     if (this.run || this.#starting) throw new Error("Another coordinator move is already in progress.");
     this.#starting = true;
+    let transaction: CoordinatorMoveTransaction | null = null;
+    let transactionOwnedByRun = false;
     try {
-      const preflight = await this.preflight(targetWorkerFp);
+      transaction = await this.options.store.acquireTransaction();
+      const preflight = await this.#preflightUnlocked(targetWorkerFp);
       if (!preflight.eligible) throw new Error(preflight.blockers[0]!.message);
       const existing = this.options.store.load();
-      if (existing) this.options.store.archiveTerminal(existing);
+      if (existing) await this.options.store.archiveTerminalDurable(existing);
       const workers = await this.options.workers();
       const secret = randomBytes(32).toString("base64url");
       const now = Date.now();
-      const state = this.options.store.write({
+      const state = await this.options.store.writeDurable({
         version: 1,
         handoff_id: randomUUID(),
         role: "SOURCE",
@@ -139,12 +143,17 @@ export class CoordinatorMoveOrchestrator extends CoordinatorMoveTargetRole imple
         started_at_ms: now,
         updated_at_ms: now,
       });
+      transactionOwnedByRun = true;
       this.run = this.execute(state)
         .catch((error) => this.recordRunError(state.handoff_id, error))
-        .finally(() => { this.run = null; });
+        .finally(async () => {
+          this.run = null;
+          await transaction!.release();
+        });
       return state.handoff_id;
     } finally {
       this.#starting = false;
+      if (transaction && !transactionOwnedByRun) await transaction.release();
     }
   }
 
@@ -152,7 +161,7 @@ export class CoordinatorMoveOrchestrator extends CoordinatorMoveTargetRole imple
     const state = this.options.store.load();
     if (!state) return;
     if (state.role === "TARGET") {
-      this.recoverTarget(state, isTerminalPhase(state.phase));
+      await this.recoverTarget(state, isTerminalPhase(state.phase));
       return;
     }
     if (isTerminalPhase(state.phase)) {
@@ -164,35 +173,49 @@ export class CoordinatorMoveOrchestrator extends CoordinatorMoveTargetRole imple
       }
       return;
     }
-    await this.#awaitExpectedWorkers(state.expected_worker_fps);
-    if (state.phase === "ROLLING_BACK") {
-      await this.rollbackRecovered(state);
-      return;
+    const transaction = await this.options.store.acquireTransaction();
+    let transactionOwnedByRun = false;
+    try {
+      await this.#awaitExpectedWorkers(state.expected_worker_fps);
+      if (state.phase === "ROLLING_BACK") {
+        await this.rollbackRecovered(state);
+        return;
+      }
+      const targetPhase = await this.options.runtime.targetStatus(this.snapshot(state, state.phase));
+      if (targetPhase === "ROLLED_BACK" || targetPhase === "FAILED") {
+        await this.rollbackRecovered(state);
+        return;
+      }
+      if (targetPhase === "COMMITTED") {
+        await this.#retire(state, "COMMITTED");
+        return;
+      }
+      if (targetPhase === "COMMITTING" || state.phase === "COMMITTING") {
+        this.gate.setMode("retired");
+        transactionOwnedByRun = true;
+        this.run = this.finishCommit(state)
+          .catch((error) => this.recordRunError(state.handoff_id, error))
+          .finally(async () => {
+            this.run = null;
+            await transaction.release();
+          });
+        return;
+      }
+      if (targetPhase === "WAITING_FOR_WORKERS" && state.phase !== "WAITING_FOR_WORKERS") {
+        await this.options.store.writeDurable({ ...state, phase: "WAITING_FOR_WORKERS" });
+      }
+      const resumed = this.options.store.load();
+      if (!resumed) return;
+      transactionOwnedByRun = true;
+      this.run = this.execute(resumed)
+        .catch((error) => this.recordRunError(resumed.handoff_id, error))
+        .finally(async () => {
+          this.run = null;
+          await transaction.release();
+        });
+    } finally {
+      if (!transactionOwnedByRun) await transaction.release();
     }
-    const targetPhase = await this.options.runtime.targetStatus(this.snapshot(state, state.phase));
-    if (targetPhase === "ROLLED_BACK" || targetPhase === "FAILED") {
-      await this.rollbackRecovered(state);
-      return;
-    }
-    if (targetPhase === "COMMITTED") {
-      this.#retire(state, "COMMITTED");
-      return;
-    }
-    if (targetPhase === "COMMITTING" || state.phase === "COMMITTING") {
-      this.gate.setMode("retired");
-      this.run = this.finishCommit(state)
-        .catch((error) => this.recordRunError(state.handoff_id, error))
-        .finally(() => { this.run = null; });
-      return;
-    }
-    if (targetPhase === "WAITING_FOR_WORKERS" && state.phase !== "WAITING_FOR_WORKERS") {
-      this.options.store.write({ ...state, phase: "WAITING_FOR_WORKERS" });
-    }
-    const resumed = this.options.store.load();
-    if (!resumed) return;
-    this.run = this.execute(resumed)
-      .catch((error) => this.recordRunError(resumed.handoff_id, error))
-      .finally(() => { this.run = null; });
   }
   private async execute(initial: HandoffState): Promise<void> {
     const staged: MoveWorker[] = [];
@@ -202,7 +225,7 @@ export class CoordinatorMoveOrchestrator extends CoordinatorMoveTargetRole imple
       const current = this.options.store.load() ?? initial;
       try {
         if (current.phase === "COMMITTING") {
-          this.options.store.write({ ...current, error: (error as Error).message });
+          await this.options.store.writeDurable({ ...current, error: (error as Error).message });
           this.gate.setMode("retired");
           // COMMITTING is not terminal: returning here leaves the source
           // retired with no in-process retry. finishCommit is bounded and
@@ -217,11 +240,11 @@ export class CoordinatorMoveOrchestrator extends CoordinatorMoveTargetRole imple
           const targetPhase = await this.options.runtime
             .targetStatus(this.snapshot({ ...current, secret: initial.secret }, current.phase)).catch(() => null);
           if (targetPhase === "COMMITTING" || targetPhase === "COMMITTED") {
-            this.#retire({ ...current, secret: initial.secret }, "COMMITTED");
+            await this.#retire({ ...current, secret: initial.secret }, "COMMITTED");
             return;
           }
         }
-        this.options.store.write({ ...current, phase: "ROLLING_BACK", error: (error as Error).message });
+        await this.options.store.writeDurable({ ...current, phase: "ROLLING_BACK", error: (error as Error).message });
         // A process can crash after durable staging but before this invocation
         // populated `staged`. ABORT is idempotent, so include every expected
         // source-connected worker when recovering that durable boundary.
@@ -240,7 +263,7 @@ export class CoordinatorMoveOrchestrator extends CoordinatorMoveTargetRole imple
           rollbackError = cause;
         }
         const latest = this.options.store.load() ?? current;
-        this.options.store.write({
+        await this.writeTerminalState({
           ...latest,
           phase: "FAILED",
           error: rollbackError
@@ -267,7 +290,7 @@ export class CoordinatorMoveOrchestrator extends CoordinatorMoveTargetRole imple
 
     if (state.phase === "PREPARING_TARGET") {
       await this.options.runtime.prepareTarget(this.snapshot(state, "PREPARING_TARGET"));
-      this.transition(initial, "STAGING_WORKERS");
+      await this.transition(initial, "STAGING_WORKERS");
       state = this.options.store.load()!;
     }
     if (state.phase === "STAGING_WORKERS") {
@@ -275,25 +298,25 @@ export class CoordinatorMoveOrchestrator extends CoordinatorMoveTargetRole imple
         await this.options.runtime.stageWorker(worker, this.snapshot(state, "STAGING_WORKERS"));
         staged.push(worker);
       }
-      this.transition(initial, "DRAINING_SOURCE");
+      await this.transition(initial, "DRAINING_SOURCE");
       state = this.options.store.load()!;
     }
     if (state.phase === "DRAINING_SOURCE") {
       await this.gate.beginDrain();
-      this.transition(initial, "COPYING_STATE");
+      await this.transition(initial, "COPYING_STATE");
       state = this.options.store.load()!;
     }
     if (state.phase === "COPYING_STATE") {
       await this.gate.beginDrain();
       await this.options.runtime.copySnapshot(this.snapshot(state, "COPYING_STATE"));
-      this.transition(initial, "WAITING_FOR_WORKERS");
+      await this.transition(initial, "WAITING_FOR_WORKERS");
       state = this.options.store.load()!;
     }
     if (state.phase === "WAITING_FOR_WORKERS") {
       await this.gate.beginDrain();
       for (const worker of workers) await this.options.runtime.activateWorker(worker, this.snapshot(state, "WAITING_FOR_WORKERS"));
       await this.options.runtime.waitForWorkers(this.snapshot(state, "WAITING_FOR_WORKERS"), 60_000);
-      this.transition(initial, "COMMITTING");
+      await this.transition(initial, "COMMITTING");
       state = this.options.store.load()!;
     }
     if (state.phase === "COMMITTING") await this.finishCommit(state);
@@ -309,27 +332,26 @@ export class CoordinatorMoveOrchestrator extends CoordinatorMoveTargetRole imple
         await this.options.runtime.commitTarget(snapshot);
         if (await this.options.runtime.targetStatus(snapshot) === "COMMITTED") {
           await this.options.runtime.targetHealthy(snapshot);
-          this.#retire(state, "COMMITTED");
+          await this.#retire(state, "COMMITTED");
           return;
         }
       } catch (error) {
         lastError = (error as Error).message;
-        this.options.store.write({ ...(this.options.store.load() ?? state), error: lastError });
+        await this.options.store.writeDurable({ ...(this.options.store.load() ?? state), error: lastError });
       }
       if (Date.now() >= deadline) {
         const phase = await this.options.runtime.targetStatus(snapshot).catch(() => null);
         if (phase === "COMMITTING" || phase === "COMMITTED") {
           // The target owns the cluster even though this side never got a
           // clean confirmation — retiring is the only correct end state.
-          this.#retire(state, "COMMITTED");
+          await this.#retire(state, "COMMITTED");
           return;
         }
-        this.options.store.write({
+        await this.writeTerminalState({
           ...(this.options.store.load() ?? state),
           phase: "FAILED",
           error: lastError ?? "coordinator move timed out waiting for the target to commit",
         });
-        this.gate.setMode("active");
         return;
       }
       await Bun.sleep(5_000);
@@ -337,10 +359,8 @@ export class CoordinatorMoveOrchestrator extends CoordinatorMoveTargetRole imple
   }
 
   /** The single post-commit exit: durable COMMITTED, gate retired, browsers told. */
-  #retire(state: HandoffState, phase: "COMMITTED"): void {
-    this.options.store.write({ ...(this.options.store.load() ?? state), phase, error: undefined });
-    this.gate.setMode("retired");
-    this.options.runtime.publishRelocation(this.snapshot(state, phase));
+  async #retire(state: HandoffState, phase: "COMMITTED"): Promise<void> {
+    await this.writeTerminalState({ ...(this.options.store.load() ?? state), phase, error: undefined });
   }
 
   /** The staged/activated set is the one snapshotted at start(), resolved
@@ -370,24 +390,23 @@ export class CoordinatorMoveOrchestrator extends CoordinatorMoveTargetRole imple
 
   private async rollbackRecovered(state: HandoffState): Promise<void> {
     const snapshot = this.snapshot(state, "ROLLING_BACK");
-    this.options.store.write({ ...state, phase: "ROLLING_BACK" });
+    await this.options.store.writeDurable({ ...state, phase: "ROLLING_BACK" });
     const workers = await this.options.workers();
     await Promise.allSettled(workers
       .filter((worker) => state.expected_worker_fps.includes(worker.fp))
       .map((worker) => this.options.runtime.abortWorker(worker, snapshot)));
     try {
       await this.options.runtime.abortTarget(snapshot);
-      this.options.store.write({ ...(this.options.store.load() ?? state), phase: "ROLLED_BACK" });
+      await this.writeTerminalState({ ...(this.options.store.load() ?? state), phase: "ROLLED_BACK" });
     } catch (error) {
-      this.options.store.write({ ...(this.options.store.load() ?? state), phase: "FAILED", error: (error as Error).message });
+      await this.writeTerminalState({ ...(this.options.store.load() ?? state), phase: "FAILED", error: (error as Error).message });
     }
-    this.gate.setMode("active");
   }
 
-  private transition(initial: HandoffState, phase: MovePhase): void {
+  private async transition(initial: HandoffState, phase: MovePhase): Promise<void> {
     const current = this.options.store.load();
     if (!current || current.handoff_id !== initial.handoff_id) throw new Error("coordinator handoff state disappeared");
-    this.options.store.write({ ...current, phase });
+    await this.options.store.writeDurable({ ...current, phase });
   }
 
   private async estimateDbSize(): Promise<number> {

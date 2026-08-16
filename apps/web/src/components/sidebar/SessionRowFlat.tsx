@@ -62,7 +62,7 @@ export function SessionRowFlat(props: SessionRowFlatProps) {
           title={props.session.cwd}
         >
           <FolderGlyph size={11} class="df-flat-folder-icon" />
-          <span class="df-flat-path-text">{shortCwd(props.session.cwd)}</span>
+          <span class="df-flat-path-text">{shortCwd(props.session.cwd, props.session.worker_fp)}</span>
         </span>
       </span>
       <span class="df-flat-activity">

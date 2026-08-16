@@ -26,11 +26,32 @@ import { newTraceId } from "@roost/shared/trace";
  *  cell_emit.seq freezes and a seq match would prove nothing. Unknown seq (0 /
  *  undefined) or behind → emit. A mismatch caused by a frame still in flight
  *  costs one redundant snapshot, so this errs toward emitting. */
-function _needsClaimSnapshot(
+export function needsClaimSnapshot(
 	mgr: SessionManager, channelId: number, heldCellSeq: number | undefined, wasStreaming: boolean,
 ): boolean {
 	if (!heldCellSeq || !wasStreaming) return true;
 	return mgr.shellByChannel(channelId)?.cell_emit.seq !== heldCellSeq;
+}
+
+/** Current smallest-common dimensions across fresh, sizing claims. Background
+ * (0×0) claims keep output live without constraining the PTY. */
+export function desiredViewportSize(
+	this: SessionManager,
+	channelId: number,
+): { cols: number; rows: number } | null {
+	const claims = this.viewportClaims.get(channelId);
+	if (!claims || claims.size === 0) return null;
+	const now = Date.now();
+	let minCols = Infinity;
+	let minRows = Infinity;
+	for (const claim of claims.values()) {
+		if (now - claim.lastMs > VIEWER_CLAIM_FRESH_MS) continue;
+		if (claim.cols > 0 && claim.cols < minCols) minCols = claim.cols;
+		if (claim.rows > 0 && claim.rows < minRows) minRows = claim.rows;
+	}
+	return minCols === Infinity || minRows === Infinity
+		? null
+		: { cols: minCols, rows: minRows };
 }
 
 /** Register or refresh a viewer's viewport claim, then resize the
@@ -46,7 +67,7 @@ export function claimViewport(
 	viewerFp: string,
 	cols: number,
 	rows: number,
-	clientSeq?: number,
+	clientSeq?: number | bigint,
 	// numeric roost.v1.ResizeCause — the browser event behind this claim
 	// (1=INITIAL, 2=VIEWPORT, 3=TAB_VISIBLE, 4=WITHDRAW, 5=BACKGROUND,
 	// 6=HEARTBEAT). Hint only; cell snapshots remain state-based.
@@ -94,8 +115,8 @@ export function claimViewport(
 	// SPA builds) treat every claim as an intent — bump unconditionally.
 	// That preserves the prior latest-wins semantics for those callers.
 	const prior = claims.get(viewerFp);
-	const priorSeq = prior?.clientSeq ?? -1;
-	const seq = clientSeq ?? priorSeq + 1; // legacy: synthesize fresh
+	const priorSeq = prior?.clientSeq ?? -1n;
+	const seq = clientSeq === undefined ? priorSeq + 1n : BigInt(clientSeq);
 	const seqAdvanced = seq > priorSeq;
 	if (prior && !seqAdvanced) {
 		// Stale-seq packet (heartbeat or WAN reorder): refresh lastMs so the
@@ -106,7 +127,7 @@ export function claimViewport(
 		prior.lastMs = Date.now();
 		const snapshotCheckCause = cause === 1 || cause === 3 || cause === 6;
 		const resnapshot = snapshotCheckCause
-			&& _needsClaimSnapshot(this, channelId, heldCellSeq, wasStreaming);
+			&& needsClaimSnapshot(this, channelId, heldCellSeq, wasStreaming);
 		diag("viewport.claim", {
 			sid: rec?.sessionId,
 			viewer_key: viewerFp,
@@ -146,7 +167,7 @@ export function claimViewport(
 	// with no repaint at all. A background claim is NOT categorically excluded —
 	// a parked pane re-subscribing after a withdraw needs its catch-up frame —
 	// but it still must not size another viewer's rebuild tail (above).
-	if (_needsClaimSnapshot(this, channelId, heldCellSeq, wasStreaming))
+	if (needsClaimSnapshot(this, channelId, heldCellSeq, wasStreaming))
 		this.emitCellSnapshot(channelId as ChannelId);
 }
 
@@ -230,37 +251,13 @@ export function _recomputeViewport(this: SessionManager, channelId: number): voi
 		this.lastAppliedSize.delete(channelId);
 		return;
 	}
-	const claims = this.viewportClaims.get(channelId);
-	if (!claims || claims.size === 0) {
-		// No viewer is claiming — leave the PTY at whatever it last had.
-		// Resizing to a default would thrash the running TUI for no gain.
+	const claims = this.viewportClaims.get(channelId)!;
+	const desired = desiredViewportSize.call(this, channelId);
+	if (!desired) {
+		// No fresh sizing viewer is claiming. Leave the PTY at its last size.
 		return;
 	}
-	// SCD — smallest-common-denominator. PTY = min(cols) × min(rows)
-	// across ALL active claims (each dimension min'd independently, =
-	// the intersection every viewer can fully render). NO viewer is
-	// ever clipped. min is order-independent + idempotent → a stable
-	// fixed point: a refresh/focus can never hijack the size and the
-	// recompute can't oscillate (the WINDOW_SIZE_LATEST pathology, Author
-	// 2026-06-18 "refresh gains priority over everything"). N==1 falls
-	// out for free (min of one claim = that claim = perfect fit).
-	// See memory feedback_viewport_scd_min_policy.
-	// A3: liveness-weighted SCD. Exclude claims not refreshed within
-	// VIEWER_CLAIM_FRESH_MS (~2× heartbeat) from the min — a dead viewer
-	// (kill-9/WiFi/sleep, no graceful withdraw) otherwise pins everyone to
-	// its tiny window for the full 120s TTL. If EVERY claim is stale, leave
-	// the PTY where it is (don't thrash) and let the reaper remove them.
-	const now = Date.now();
-	let minCols = Infinity,
-		minRows = Infinity;
-	for (const c of claims.values()) {
-		if (now - c.lastMs > VIEWER_CLAIM_FRESH_MS) continue;
-		if (c.cols > 0 && c.cols < minCols) minCols = c.cols;
-		if (c.rows > 0 && c.rows < minRows) minRows = c.rows;
-	}
-	if (minCols === Infinity || minRows === Infinity) return;
-	const cols = minCols,
-		rows = minRows;
+	const { cols, rows } = desired;
 	const chosen_key =
 		claims.size === 1 ? (claims.keys().next().value as string) : "scd_min";
 	const chose_via: "only" | "scd_min" =

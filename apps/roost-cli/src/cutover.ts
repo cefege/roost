@@ -20,9 +20,15 @@ const LEGACY = `${process.env.HOME}/Library/Application Support/RoostCoordinator
 const V2 = `${process.env.HOME}/Library/Application Support/RoostCoordinator/coordinator_v2.db`;
 
 export async function cutover(args: string[]): Promise<void> {
-  if (process.platform !== "darwin") {
-    console.log("cutover is macOS-only — the legacy v1 coordinator never ran on Linux, so there is nothing to migrate");
-    return;
+  switch (process.platform) {
+    case "darwin":
+      break;
+    case "linux":
+    case "win32":
+      console.log(`cutover is macOS-only — no legacy v1 coordinator state exists on ${process.platform}`);
+      return;
+    default:
+      throw new Error(`unsupported cutover platform: ${process.platform}`);
   }
   const force = args.includes("--force");
   if (!existsSync(LEGACY)) {
@@ -88,7 +94,16 @@ export async function cutover(args: string[]): Promise<void> {
         if (Number.isFinite(parsed)) ws_listen_port = parsed;
       }
       const ws_scheme = r.ws_scheme === "wss" ? "wss" : "ws";
-      const os = r.os === "linux" ? "linux" : "darwin";
+      let os: "darwin" | "linux" | "win32";
+      switch (r.os) {
+        case "darwin":
+        case "linux":
+        case "win32":
+          os = r.os;
+          break;
+        default:
+          throw new Error(`unsupported legacy worker platform: ${r.os}`);
+      }
       stmt.run(
         r.fingerprint, r.label, r.reachable_addr, r.ssh_port,
         ws_listen_port, ws_scheme, os, r.git_sha,

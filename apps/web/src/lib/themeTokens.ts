@@ -25,12 +25,9 @@ export const CANONICAL_TOKENS = [
   // state (nav rail, list-row, theme tile). Pairs with on-secondary-container
   // for the text/icon on top. Replaces the old ad-hoc bg/border-selected tints.
   "secondary-container", "on-secondary-container",
-  // ANSI 16. Live-wired to the wterm grid: theme-vars.css aliases :root
-  // --term-color-0..15 → these --ansi-* tokens, and sidebar.css's .wterm
-  // block re-points wterm's own --term-color-N (which it scopes to .wterm,
-  // shadowing :root) at the same --ansi-* sources. @wterm/dom's renderer
-  // emits inline var(--term-color-N) per cell, so theme switches reflow the
-  // grid with no re-render. Also feeds app-chrome consumers outside the grid.
+  // ANSI 16. Cell spans emit inline var(--term-color-N), and the .wterm bridge
+  // in sidebar.css points those names at this canonical palette. Theme changes
+  // therefore repaint existing rows without reconstructing their DOM.
   "ansi-black", "ansi-red", "ansi-green", "ansi-yellow",
   "ansi-blue", "ansi-magenta", "ansi-cyan", "ansi-white",
   "ansi-bright-black", "ansi-bright-red", "ansi-bright-green", "ansi-bright-yellow",

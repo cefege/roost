@@ -9,8 +9,8 @@
 // @generated from file roost/v1/worker_transport.proto (package roost.v1, syntax proto3)
 /* eslint-disable */
 
-import type { GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
-import { fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
+import type { GenEnum, GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
+import { enumDesc, fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
 import type { SessionEventProto } from "./events_pb.ts";
 import { file_roost_v1_events } from "./events_pb.ts";
 import type { PbCellGridFrame } from "./cell_pb.ts";
@@ -21,7 +21,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file roost/v1/worker_transport.proto.
  */
 export const file_roost_v1_worker_transport: GenFile = /*@__PURE__*/
-  fileDesc("Ch9yb29zdC92MS93b3JrZXJfdHJhbnNwb3J0LnByb3RvEghyb29zdC52MSIsCgZXSGVsbG8SEQoJd29ya2VyX2ZwGAEgASgJEg8KB3ZlcnNpb24YAiABKAkiEwoFV1BvbmcSCgoCdHMYASABKAQiTwoNV1Nlc3Npb25FdmVudBIqCgVldmVudBgBIAEoCzIbLnJvb3N0LnYxLlNlc3Npb25FdmVudFByb3RvEhIKCmNsaWVudF9zZXEYAiABKAQiLwoGV1JwY09rEhIKCnJlcXVlc3RfaWQYASABKAkSEQoJZGF0YV9qc29uGAIgASgJIjAKCVdScGNFcnJvchISCgpyZXF1ZXN0X2lkGAEgASgJEg8KB21lc3NhZ2UYAiABKAkiLQoNV1RyYW5zZmVyTGluZRIOCgZqb2JfaWQYASABKAkSDAoEdGV4dBgCIAEoCSI8Cg1XVHJhbnNmZXJEb25lEg4KBmpvYl9pZBgBIAEoCRIMCgRleGl0GAIgASgFEg0KBWVycm9yGAMgASgJIksKB1dCaW5hcnkSEgoKY2hhbm5lbF9pZBgBIAEoDRIRCglkaXJlY3Rpb24YAiABKA0SCwoDc2VxGAMgASgEEgwKBGRhdGEYBCABKAwiGgoLV1JlZnJlc2hKd3QSCwoDand0GAEgASgJIkkKCVdDZWxsR3JpZBISCgpjaGFubmVsX2lkGAEgASgNEigKBWZyYW1lGAIgASgLMhkucm9vc3QudjEuUGJDZWxsR3JpZEZyYW1lIrcBCgxXQWdlbnRTdGF0dXMSEgoKc2Vzc2lvbl9pZBgBIAEoCRIQCghhZ2VudF9pZBgCIAEoCRINCgVzdGF0ZRgDIAEoCRIUCgdtZXNzYWdlGAQgASgJSACIAQESEAoIcmV2aXNpb24YBSABKAQSGgoSY29tcGxldGVkX3JldmlzaW9uGAYgASgEEhIKCnVwZGF0ZWRfYXQYByABKAESDgoGYWN0aXZlGAggASgIQgoKCF9tZXNzYWdlIvcDCg1Db29yZFdvcmtlclVwEiEKBWhlbGxvGAEgASgLMhAucm9vc3QudjEuV0hlbGxvSAASHwoEcG9uZxgCIAEoCzIPLnJvb3N0LnYxLldQb25nSAASKAoFZXZlbnQYAyABKAsyFy5yb29zdC52MS5XU2Vzc2lvbkV2ZW50SAASIgoGcnBjX29rGAYgASgLMhAucm9vc3QudjEuV1JwY09rSAASKAoJcnBjX2Vycm9yGAcgASgLMhMucm9vc3QudjEuV1JwY0Vycm9ySAASMAoNdHJhbnNmZXJfbGluZRgIIAEoCzIXLnJvb3N0LnYxLldUcmFuc2ZlckxpbmVIABIwCg10cmFuc2Zlcl9kb25lGAkgASgLMhcucm9vc3QudjEuV1RyYW5zZmVyRG9uZUgAEiMKBmJpbmFyeRgKIAEoCzIRLnJvb3N0LnYxLldCaW5hcnlIABIsCgtyZWZyZXNoX2p3dBgLIAEoCzIVLnJvb3N0LnYxLldSZWZyZXNoSnd0SAASKAoJY2VsbF9ncmlkGAwgASgLMhMucm9vc3QudjEuV0NlbGxHcmlkSAASLgoMYWdlbnRfc3RhdHVzGA4gASgLMhYucm9vc3QudjEuV0FnZW50U3RhdHVzSABCBwoFZnJhbWVKBAgEEAVKBAgFEAZKBAgNEA4iPwoJREhlbGxvQWNrEhgKEGNvb3JkX3B1YmtleV9iNjQYASABKAkSGAoQY29vcmRfcHVia2V5X2tpZBgCIAEoCSITCgVEUGluZxIKCgJ0cxgBIAEoBCJgCg9EQnJvd3NlckNvbW1hbmQSEgoKYnJvd3Nlcl9pZBgBIAEoCRIRCgl2aWV3ZXJfaWQYAiABKAkSEgoKcmVxdWVzdF9pZBgDIAEoCRISCgpmcmFtZV9qc29uGAQgASgJIj4KB0RCaW5hcnkSEgoKY2hhbm5lbF9pZBgBIAEoDRIRCglkaXJlY3Rpb24YAiABKA0SDAoEZGF0YRgDIAEoDCIfCglERXZlbnRBY2sSEgoKY2xpZW50X3NlcRgBIAEoBCKJAQoQREF0dGFjaG1lbnRDaHVuaxISCgpyZXF1ZXN0X2lkGAEgASgJEhIKCnNlc3Npb25faWQYAiABKAkSEAoIZmlsZW5hbWUYAyABKAkSEgoKc2hvcnRfcGF0aBgEIAEoCBIMCgRkYXRhGAUgASgMEgwKBGxhc3QYBiABKAgSCwoDc2VxGAcgASgNIsQBChFEQ29vcmRNb3ZlUHJlcGFyZRISCgpyZXF1ZXN0X2lkGAEgASgJEhIKCmhhbmRvZmZfaWQYAiABKAkSEgoKc291cmNlX3VybBgDIAEoCRISCgp0YXJnZXRfdXJsGAQgASgJEhoKEmV4cGVjdGVkX2Nvb3JkX2tpZBgFIAEoCRIYChBleHBlY3RlZF9naXRfc2hhGAYgASgJEhkKEWVzdGltYXRlZF9kYl9zaXplGAcgASgEEg4KBmFjdGlvbhgIIAEoCSLJAQoXRENvb3JkTW92ZVNuYXBzaG90U3RhcnQSEgoKcmVxdWVzdF9pZBgBIAEoCRISCgpoYW5kb2ZmX2lkGAIgASgJEhIKCnRvdGFsX3NpemUYAyABKAQSDgoGc2hhMjU2GAQgASgJEhUKDWNvb3JkX2tleV9wZW0YBSABKAwSFwoPYXV0aG9yaXplZF9rZXlzGAYgASgMEhUKDXNlY3JldF9zaGEyNTYYByABKAkSGwoTZXhwZWN0ZWRfd29ya2VyX2ZwcxgIIAMoCSJWChdEQ29vcmRNb3ZlU25hcHNob3RDaHVuaxISCgpoYW5kb2ZmX2lkGAEgASgJEgsKA3NlcRgCIAEoDRIMCgRkYXRhGAMgASgMEgwKBGxhc3QYBCABKAgicAoORENvb3JkUmVsb2NhdGUSEgoKcmVxdWVzdF9pZBgBIAEoCRISCgpoYW5kb2ZmX2lkGAIgASgJEhIKCnNvdXJjZV91cmwYAyABKAkSEgoKdGFyZ2V0X3VybBgEIAEoCRIOCgZhY3Rpb24YBSABKAkioQQKD0Nvb3JkV29ya2VyRG93bhIoCgloZWxsb19hY2sYASABKAsyEy5yb29zdC52MS5ESGVsbG9BY2tIABIfCgRwaW5nGAIgASgLMg8ucm9vc3QudjEuRFBpbmdIABI0Cg9icm93c2VyX2NvbW1hbmQYAyABKAsyGS5yb29zdC52MS5EQnJvd3NlckNvbW1hbmRIABIjCgZiaW5hcnkYBCABKAsyES5yb29zdC52MS5EQmluYXJ5SAASKAoJZXZlbnRfYWNrGAUgASgLMhMucm9vc3QudjEuREV2ZW50QWNrSAASNgoQYXR0YWNobWVudF9jaHVuaxgGIAEoCzIaLnJvb3N0LnYxLkRBdHRhY2htZW50Q2h1bmtIABI5ChJjb29yZF9tb3ZlX3ByZXBhcmUYByABKAsyGy5yb29zdC52MS5EQ29vcmRNb3ZlUHJlcGFyZUgAEkYKGWNvb3JkX21vdmVfc25hcHNob3Rfc3RhcnQYCCABKAsyIS5yb29zdC52MS5EQ29vcmRNb3ZlU25hcHNob3RTdGFydEgAEkYKGWNvb3JkX21vdmVfc25hcHNob3RfY2h1bmsYCSABKAsyIS5yb29zdC52MS5EQ29vcmRNb3ZlU25hcHNob3RDaHVua0gAEjIKDmNvb3JkX3JlbG9jYXRlGAogASgLMhgucm9vc3QudjEuRENvb3JkUmVsb2NhdGVIAEIHCgVmcmFtZTJRCg1Xb3JrZXJTZXJ2aWNlEkAKBkF0dGFjaBIXLnJvb3N0LnYxLkNvb3JkV29ya2VyVXAaGS5yb29zdC52MS5Db29yZFdvcmtlckRvd24oATABYgZwcm90bzM", [file_roost_v1_events, file_roost_v1_cell]);
+  fileDesc("Ch9yb29zdC92MS93b3JrZXJfdHJhbnNwb3J0LnByb3RvEghyb29zdC52MSIsCgZXSGVsbG8SEQoJd29ya2VyX2ZwGAEgASgJEg8KB3ZlcnNpb24YAiABKAkiEwoFV1BvbmcSCgoCdHMYASABKAQiTwoNV1Nlc3Npb25FdmVudBIqCgVldmVudBgBIAEoCzIbLnJvb3N0LnYxLlNlc3Npb25FdmVudFByb3RvEhIKCmNsaWVudF9zZXEYAiABKAQiLwoGV1JwY09rEhIKCnJlcXVlc3RfaWQYASABKAkSEQoJZGF0YV9qc29uGAIgASgJIjAKCVdScGNFcnJvchISCgpyZXF1ZXN0X2lkGAEgASgJEg8KB21lc3NhZ2UYAiABKAkiLQoNV1RyYW5zZmVyTGluZRIOCgZqb2JfaWQYASABKAkSDAoEdGV4dBgCIAEoCSI8Cg1XVHJhbnNmZXJEb25lEg4KBmpvYl9pZBgBIAEoCRIMCgRleGl0GAIgASgFEg0KBWVycm9yGAMgASgJIksKB1dCaW5hcnkSEgoKY2hhbm5lbF9pZBgBIAEoDRIRCglkaXJlY3Rpb24YAiABKA0SCwoDc2VxGAMgASgEEgwKBGRhdGEYBCABKAwiGgoLV1JlZnJlc2hKd3QSCwoDand0GAEgASgJIkkKCVdDZWxsR3JpZBISCgpjaGFubmVsX2lkGAEgASgNEigKBWZyYW1lGAIgASgLMhkucm9vc3QudjEuUGJDZWxsR3JpZEZyYW1lIrcBCgxXQWdlbnRTdGF0dXMSEgoKc2Vzc2lvbl9pZBgBIAEoCRIQCghhZ2VudF9pZBgCIAEoCRINCgVzdGF0ZRgDIAEoCRIUCgdtZXNzYWdlGAQgASgJSACIAQESEAoIcmV2aXNpb24YBSABKAQSGgoSY29tcGxldGVkX3JldmlzaW9uGAYgASgEEhIKCnVwZGF0ZWRfYXQYByABKAESDgoGYWN0aXZlGAggASgIQgoKCF9tZXNzYWdlIpkBCg9XVXBkYXRlUHJvZ3Jlc3MSEgoKcmVxdWVzdF9pZBgBIAEoCRIOCgZqb2JfaWQYAiABKAkSEAoIc2VxdWVuY2UYAyABKAQSDQoFcGhhc2UYBCABKAkSDwoHbWVzc2FnZRgFIAEoCRIQCgh0ZXJtaW5hbBgGIAEoCBIPCgdzdWNjZXNzGAcgASgIEg0KBWVycm9yGAggASgJIp8BCgxXSW5wdXRSZXN1bHQSEgoKcmVxdWVzdF9pZBgBIAEoCRISCgpzZXNzaW9uX2lkGAIgASgJEhEKCWlucHV0X3NlcRgDIAEoBBItCgZzdGF0dXMYBCABKA4yHS5yb29zdC52MS5UZXJtaW5hbElucHV0U3RhdHVzEhUKDXdyaXR0ZW5fYnl0ZXMYBSABKA0SDgoGcmVhc29uGAYgASgJItgBCg9XVmlld3BvcnRSZXN1bHQSEgoKcmVxdWVzdF9pZBgBIAEoCRISCgpzZXNzaW9uX2lkGAIgASgJEhIKCmNsaWVudF9zZXEYAyABKAQSMAoGc3RhdHVzGAQgASgOMiAucm9vc3QudjEuVGVybWluYWxWaWV3cG9ydFN0YXR1cxIaChJjaGFubmVsX3Jlc2l6ZV9zZXEYBSABKAQSDAoEY29scxgGIAEoDRIMCgRyb3dzGAcgASgNEg8KB3Jlc2l6ZWQYCCABKAgSDgoGcmVhc29uGAkgASgJIpMFCg1Db29yZFdvcmtlclVwEiEKBWhlbGxvGAEgASgLMhAucm9vc3QudjEuV0hlbGxvSAASHwoEcG9uZxgCIAEoCzIPLnJvb3N0LnYxLldQb25nSAASKAoFZXZlbnQYAyABKAsyFy5yb29zdC52MS5XU2Vzc2lvbkV2ZW50SAASIgoGcnBjX29rGAYgASgLMhAucm9vc3QudjEuV1JwY09rSAASKAoJcnBjX2Vycm9yGAcgASgLMhMucm9vc3QudjEuV1JwY0Vycm9ySAASMAoNdHJhbnNmZXJfbGluZRgIIAEoCzIXLnJvb3N0LnYxLldUcmFuc2ZlckxpbmVIABIwCg10cmFuc2Zlcl9kb25lGAkgASgLMhcucm9vc3QudjEuV1RyYW5zZmVyRG9uZUgAEiMKBmJpbmFyeRgKIAEoCzIRLnJvb3N0LnYxLldCaW5hcnlIABIsCgtyZWZyZXNoX2p3dBgLIAEoCzIVLnJvb3N0LnYxLldSZWZyZXNoSnd0SAASKAoJY2VsbF9ncmlkGAwgASgLMhMucm9vc3QudjEuV0NlbGxHcmlkSAASLgoMYWdlbnRfc3RhdHVzGA4gASgLMhYucm9vc3QudjEuV0FnZW50U3RhdHVzSAASNAoPdmlld3BvcnRfcmVzdWx0GA8gASgLMhkucm9vc3QudjEuV1ZpZXdwb3J0UmVzdWx0SAASLgoMaW5wdXRfcmVzdWx0GBAgASgLMhYucm9vc3QudjEuV0lucHV0UmVzdWx0SAASNAoPdXBkYXRlX3Byb2dyZXNzGB4gASgLMhkucm9vc3QudjEuV1VwZGF0ZVByb2dyZXNzSABCBwoFZnJhbWVKBAgEEAVKBAgFEAZKBAgNEA4iPwoJREhlbGxvQWNrEhgKEGNvb3JkX3B1YmtleV9iNjQYASABKAkSGAoQY29vcmRfcHVia2V5X2tpZBgCIAEoCSITCgVEUGluZxIKCgJ0cxgBIAEoBCJgCg9EQnJvd3NlckNvbW1hbmQSEgoKYnJvd3Nlcl9pZBgBIAEoCRIRCgl2aWV3ZXJfaWQYAiABKAkSEgoKcmVxdWVzdF9pZBgDIAEoCRISCgpmcmFtZV9qc29uGAQgASgJIj4KB0RCaW5hcnkSEgoKY2hhbm5lbF9pZBgBIAEoDRIRCglkaXJlY3Rpb24YAiABKA0SDAoEZGF0YRgDIAEoDCIfCglERXZlbnRBY2sSEgoKY2xpZW50X3NlcRgBIAEoBCJYCg1ESW5wdXRSZXF1ZXN0EhIKCnJlcXVlc3RfaWQYASABKAkSEgoKc2Vzc2lvbl9pZBgCIAEoCRIRCglpbnB1dF9zZXEYAyABKAQSDAoEZGF0YRgEIAEoDCKjAQoQRFZpZXdwb3J0UmVxdWVzdBISCgpyZXF1ZXN0X2lkGAEgASgJEhIKCnNlc3Npb25faWQYAiABKAkSEQoJdmlld2VyX2lkGAMgASgJEhIKCmNsaWVudF9zZXEYBCABKAQSDAoEY29scxgFIAEoDRIMCgRyb3dzGAYgASgNEg0KBWNhdXNlGAcgASgNEhUKDWhlbGRfY2VsbF9zZXEYCCABKAQiiQEKEERBdHRhY2htZW50Q2h1bmsSEgoKcmVxdWVzdF9pZBgBIAEoCRISCgpzZXNzaW9uX2lkGAIgASgJEhAKCGZpbGVuYW1lGAMgASgJEhIKCnNob3J0X3BhdGgYBCABKAgSDAoEZGF0YRgFIAEoDBIMCgRsYXN0GAYgASgIEgsKA3NlcRgHIAEoDSLEAQoRRENvb3JkTW92ZVByZXBhcmUSEgoKcmVxdWVzdF9pZBgBIAEoCRISCgpoYW5kb2ZmX2lkGAIgASgJEhIKCnNvdXJjZV91cmwYAyABKAkSEgoKdGFyZ2V0X3VybBgEIAEoCRIaChJleHBlY3RlZF9jb29yZF9raWQYBSABKAkSGAoQZXhwZWN0ZWRfZ2l0X3NoYRgGIAEoCRIZChFlc3RpbWF0ZWRfZGJfc2l6ZRgHIAEoBBIOCgZhY3Rpb24YCCABKAkiyQEKF0RDb29yZE1vdmVTbmFwc2hvdFN0YXJ0EhIKCnJlcXVlc3RfaWQYASABKAkSEgoKaGFuZG9mZl9pZBgCIAEoCRISCgp0b3RhbF9zaXplGAMgASgEEg4KBnNoYTI1NhgEIAEoCRIVCg1jb29yZF9rZXlfcGVtGAUgASgMEhcKD2F1dGhvcml6ZWRfa2V5cxgGIAEoDBIVCg1zZWNyZXRfc2hhMjU2GAcgASgJEhsKE2V4cGVjdGVkX3dvcmtlcl9mcHMYCCADKAkiVgoXRENvb3JkTW92ZVNuYXBzaG90Q2h1bmsSEgoKaGFuZG9mZl9pZBgBIAEoCRILCgNzZXEYAiABKA0SDAoEZGF0YRgDIAEoDBIMCgRsYXN0GAQgASgIInAKDkRDb29yZFJlbG9jYXRlEhIKCnJlcXVlc3RfaWQYASABKAkSEgoKaGFuZG9mZl9pZBgCIAEoCRISCgpzb3VyY2VfdXJsGAMgASgJEhIKCnRhcmdldF91cmwYBCABKAkSDgoGYWN0aW9uGAUgASgJIqMBCg1EVXBkYXRlQnJva2VyEhIKCnJlcXVlc3RfaWQYASABKAkSDgoGam9iX2lkGAIgASgJEg4KBmFjdGlvbhgDIAEoCRIUCgxtYW5pZmVzdF91cmwYBCABKAkSFQoNc2lnbmF0dXJlX3VybBgFIAEoCRIXCg9tYW5pZmVzdF9zaGEyNTYYBiABKAkSGAoQcHVibGlzaGVyX3NoYTI1NhgHIAEoCSK9BQoPQ29vcmRXb3JrZXJEb3duEigKCWhlbGxvX2FjaxgBIAEoCzITLnJvb3N0LnYxLkRIZWxsb0Fja0gAEh8KBHBpbmcYAiABKAsyDy5yb29zdC52MS5EUGluZ0gAEjQKD2Jyb3dzZXJfY29tbWFuZBgDIAEoCzIZLnJvb3N0LnYxLkRCcm93c2VyQ29tbWFuZEgAEiMKBmJpbmFyeRgEIAEoCzIRLnJvb3N0LnYxLkRCaW5hcnlIABIoCglldmVudF9hY2sYBSABKAsyEy5yb29zdC52MS5ERXZlbnRBY2tIABI2ChBhdHRhY2htZW50X2NodW5rGAYgASgLMhoucm9vc3QudjEuREF0dGFjaG1lbnRDaHVua0gAEjkKEmNvb3JkX21vdmVfcHJlcGFyZRgHIAEoCzIbLnJvb3N0LnYxLkRDb29yZE1vdmVQcmVwYXJlSAASRgoZY29vcmRfbW92ZV9zbmFwc2hvdF9zdGFydBgIIAEoCzIhLnJvb3N0LnYxLkRDb29yZE1vdmVTbmFwc2hvdFN0YXJ0SAASRgoZY29vcmRfbW92ZV9zbmFwc2hvdF9jaHVuaxgJIAEoCzIhLnJvb3N0LnYxLkRDb29yZE1vdmVTbmFwc2hvdENodW5rSAASMgoOY29vcmRfcmVsb2NhdGUYCiABKAsyGC5yb29zdC52MS5EQ29vcmRSZWxvY2F0ZUgAEjYKEHZpZXdwb3J0X3JlcXVlc3QYCyABKAsyGi5yb29zdC52MS5EVmlld3BvcnRSZXF1ZXN0SAASMAoNaW5wdXRfcmVxdWVzdBgMIAEoCzIXLnJvb3N0LnYxLkRJbnB1dFJlcXVlc3RIABIwCg11cGRhdGVfYnJva2VyGB4gASgLMhcucm9vc3QudjEuRFVwZGF0ZUJyb2tlckgAQgcKBWZyYW1lKqkBChNUZXJtaW5hbElucHV0U3RhdHVzEiUKIVRFUk1JTkFMX0lOUFVUX1NUQVRVU19VTlNQRUNJRklFRBAAEiIKHlRFUk1JTkFMX0lOUFVUX1NUQVRVU19BQ0NFUFRFRBABEiIKHlRFUk1JTkFMX0lOUFVUX1NUQVRVU19SRUpFQ1RFRBACEiMKH1RFUk1JTkFMX0lOUFVUX1NUQVRVU19BTUJJR1VPVVMQAyqRAQoWVGVybWluYWxWaWV3cG9ydFN0YXR1cxIoCiRURVJNSU5BTF9WSUVXUE9SVF9TVEFUVVNfVU5TUEVDSUZJRUQQABImCiJURVJNSU5BTF9WSUVXUE9SVF9TVEFUVVNfQ09NTUlUVEVEEAESJQohVEVSTUlOQUxfVklFV1BPUlRfU1RBVFVTX1JFSkVDVEVEEAIyUQoNV29ya2VyU2VydmljZRJACgZBdHRhY2gSFy5yb29zdC52MS5Db29yZFdvcmtlclVwGhkucm9vc3QudjEuQ29vcmRXb3JrZXJEb3duKAEwAWIGcHJvdG8z", [file_roost_v1_events, file_roost_v1_cell]);
 
 /**
  * @generated from message roost.v1.WHello
@@ -319,6 +319,162 @@ export const WAgentStatusSchema: GenMessage<WAgentStatus> = /*@__PURE__*/
   messageDesc(file_roost_v1_worker_transport, 10);
 
 /**
+ * Durable Windows update-broker progress. Progress is journal-backed on the
+ * worker host and replayed after a worker reconnect; sequence is monotonic per
+ * job. A terminal frame is retained with the journal rather than inferred from
+ * transport closure.
+ *
+ * @generated from message roost.v1.WUpdateProgress
+ */
+export type WUpdateProgress = Message<"roost.v1.WUpdateProgress"> & {
+  /**
+   * @generated from field: string request_id = 1;
+   */
+  requestId: string;
+
+  /**
+   * @generated from field: string job_id = 2;
+   */
+  jobId: string;
+
+  /**
+   * @generated from field: uint64 sequence = 3;
+   */
+  sequence: bigint;
+
+  /**
+   * @generated from field: string phase = 4;
+   */
+  phase: string;
+
+  /**
+   * @generated from field: string message = 5;
+   */
+  message: string;
+
+  /**
+   * @generated from field: bool terminal = 6;
+   */
+  terminal: boolean;
+
+  /**
+   * @generated from field: bool success = 7;
+   */
+  success: boolean;
+
+  /**
+   * @generated from field: string error = 8;
+   */
+  error: string;
+};
+
+/**
+ * Describes the message roost.v1.WUpdateProgress.
+ * Use `create(WUpdateProgressSchema)` to create a new message.
+ */
+export const WUpdateProgressSchema: GenMessage<WUpdateProgress> = /*@__PURE__*/
+  messageDesc(file_roost_v1_worker_transport, 11);
+
+/**
+ * @generated from message roost.v1.WInputResult
+ */
+export type WInputResult = Message<"roost.v1.WInputResult"> & {
+  /**
+   * @generated from field: string request_id = 1;
+   */
+  requestId: string;
+
+  /**
+   * @generated from field: string session_id = 2;
+   */
+  sessionId: string;
+
+  /**
+   * @generated from field: uint64 input_seq = 3;
+   */
+  inputSeq: bigint;
+
+  /**
+   * @generated from field: roost.v1.TerminalInputStatus status = 4;
+   */
+  status: TerminalInputStatus;
+
+  /**
+   * @generated from field: uint32 written_bytes = 5;
+   */
+  writtenBytes: number;
+
+  /**
+   * @generated from field: string reason = 6;
+   */
+  reason: string;
+};
+
+/**
+ * Describes the message roost.v1.WInputResult.
+ * Use `create(WInputResultSchema)` to create a new message.
+ */
+export const WInputResultSchema: GenMessage<WInputResult> = /*@__PURE__*/
+  messageDesc(file_roost_v1_worker_transport, 12);
+
+/**
+ * @generated from message roost.v1.WViewportResult
+ */
+export type WViewportResult = Message<"roost.v1.WViewportResult"> & {
+  /**
+   * @generated from field: string request_id = 1;
+   */
+  requestId: string;
+
+  /**
+   * @generated from field: string session_id = 2;
+   */
+  sessionId: string;
+
+  /**
+   * @generated from field: uint64 client_seq = 3;
+   */
+  clientSeq: bigint;
+
+  /**
+   * @generated from field: roost.v1.TerminalViewportStatus status = 4;
+   */
+  status: TerminalViewportStatus;
+
+  /**
+   * @generated from field: uint64 channel_resize_seq = 5;
+   */
+  channelResizeSeq: bigint;
+
+  /**
+   * @generated from field: uint32 cols = 6;
+   */
+  cols: number;
+
+  /**
+   * @generated from field: uint32 rows = 7;
+   */
+  rows: number;
+
+  /**
+   * @generated from field: bool resized = 8;
+   */
+  resized: boolean;
+
+  /**
+   * @generated from field: string reason = 9;
+   */
+  reason: string;
+};
+
+/**
+ * Describes the message roost.v1.WViewportResult.
+ * Use `create(WViewportResultSchema)` to create a new message.
+ */
+export const WViewportResultSchema: GenMessage<WViewportResult> = /*@__PURE__*/
+  messageDesc(file_roost_v1_worker_transport, 13);
+
+/**
  * @generated from message roost.v1.CoordWorkerUp
  */
 export type CoordWorkerUp = Message<"roost.v1.CoordWorkerUp"> & {
@@ -391,6 +547,24 @@ export type CoordWorkerUp = Message<"roost.v1.CoordWorkerUp"> & {
      */
     value: WAgentStatus;
     case: "agentStatus";
+  } | {
+    /**
+     * @generated from field: roost.v1.WViewportResult viewport_result = 15;
+     */
+    value: WViewportResult;
+    case: "viewportResult";
+  } | {
+    /**
+     * @generated from field: roost.v1.WInputResult input_result = 16;
+     */
+    value: WInputResult;
+    case: "inputResult";
+  } | {
+    /**
+     * @generated from field: roost.v1.WUpdateProgress update_progress = 30;
+     */
+    value: WUpdateProgress;
+    case: "updateProgress";
   } | { case: undefined; value?: undefined };
 };
 
@@ -399,7 +573,7 @@ export type CoordWorkerUp = Message<"roost.v1.CoordWorkerUp"> & {
  * Use `create(CoordWorkerUpSchema)` to create a new message.
  */
 export const CoordWorkerUpSchema: GenMessage<CoordWorkerUp> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 11);
+  messageDesc(file_roost_v1_worker_transport, 14);
 
 /**
  * @generated from message roost.v1.DHelloAck
@@ -421,7 +595,7 @@ export type DHelloAck = Message<"roost.v1.DHelloAck"> & {
  * Use `create(DHelloAckSchema)` to create a new message.
  */
 export const DHelloAckSchema: GenMessage<DHelloAck> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 12);
+  messageDesc(file_roost_v1_worker_transport, 15);
 
 /**
  * @generated from message roost.v1.DPing
@@ -438,7 +612,7 @@ export type DPing = Message<"roost.v1.DPing"> & {
  * Use `create(DPingSchema)` to create a new message.
  */
 export const DPingSchema: GenMessage<DPing> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 13);
+  messageDesc(file_roost_v1_worker_transport, 16);
 
 /**
  * @generated from message roost.v1.DBrowserCommand
@@ -470,7 +644,7 @@ export type DBrowserCommand = Message<"roost.v1.DBrowserCommand"> & {
  * Use `create(DBrowserCommandSchema)` to create a new message.
  */
 export const DBrowserCommandSchema: GenMessage<DBrowserCommand> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 14);
+  messageDesc(file_roost_v1_worker_transport, 17);
 
 /**
  * @generated from message roost.v1.DBinary
@@ -497,7 +671,7 @@ export type DBinary = Message<"roost.v1.DBinary"> & {
  * Use `create(DBinarySchema)` to create a new message.
  */
 export const DBinarySchema: GenMessage<DBinary> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 15);
+  messageDesc(file_roost_v1_worker_transport, 18);
 
 /**
  * @generated from message roost.v1.DEventAck
@@ -514,7 +688,95 @@ export type DEventAck = Message<"roost.v1.DEventAck"> & {
  * Use `create(DEventAckSchema)` to create a new message.
  */
 export const DEventAckSchema: GenMessage<DEventAck> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 16);
+  messageDesc(file_roost_v1_worker_transport, 19);
+
+/**
+ * Dedicated terminal-control requests. SPA Sync v2 and the compatibility
+ * unary handlers both use these typed frames so transport admission is never
+ * mistaken for a completed PTY write/resize.
+ *
+ * @generated from message roost.v1.DInputRequest
+ */
+export type DInputRequest = Message<"roost.v1.DInputRequest"> & {
+  /**
+   * @generated from field: string request_id = 1;
+   */
+  requestId: string;
+
+  /**
+   * @generated from field: string session_id = 2;
+   */
+  sessionId: string;
+
+  /**
+   * @generated from field: uint64 input_seq = 3;
+   */
+  inputSeq: bigint;
+
+  /**
+   * @generated from field: bytes data = 4;
+   */
+  data: Uint8Array;
+};
+
+/**
+ * Describes the message roost.v1.DInputRequest.
+ * Use `create(DInputRequestSchema)` to create a new message.
+ */
+export const DInputRequestSchema: GenMessage<DInputRequest> = /*@__PURE__*/
+  messageDesc(file_roost_v1_worker_transport, 20);
+
+/**
+ * @generated from message roost.v1.DViewportRequest
+ */
+export type DViewportRequest = Message<"roost.v1.DViewportRequest"> & {
+  /**
+   * @generated from field: string request_id = 1;
+   */
+  requestId: string;
+
+  /**
+   * @generated from field: string session_id = 2;
+   */
+  sessionId: string;
+
+  /**
+   * @generated from field: string viewer_id = 3;
+   */
+  viewerId: string;
+
+  /**
+   * @generated from field: uint64 client_seq = 4;
+   */
+  clientSeq: bigint;
+
+  /**
+   * @generated from field: uint32 cols = 5;
+   */
+  cols: number;
+
+  /**
+   * @generated from field: uint32 rows = 6;
+   */
+  rows: number;
+
+  /**
+   * @generated from field: uint32 cause = 7;
+   */
+  cause: number;
+
+  /**
+   * @generated from field: uint64 held_cell_seq = 8;
+   */
+  heldCellSeq: bigint;
+};
+
+/**
+ * Describes the message roost.v1.DViewportRequest.
+ * Use `create(DViewportRequestSchema)` to create a new message.
+ */
+export const DViewportRequestSchema: GenMessage<DViewportRequest> = /*@__PURE__*/
+  messageDesc(file_roost_v1_worker_transport, 21);
 
 /**
  * @generated from message roost.v1.DAttachmentChunk
@@ -561,7 +823,7 @@ export type DAttachmentChunk = Message<"roost.v1.DAttachmentChunk"> & {
  * Use `create(DAttachmentChunkSchema)` to create a new message.
  */
 export const DAttachmentChunkSchema: GenMessage<DAttachmentChunk> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 17);
+  messageDesc(file_roost_v1_worker_transport, 22);
 
 /**
  * @generated from message roost.v1.DCoordMovePrepare
@@ -613,7 +875,7 @@ export type DCoordMovePrepare = Message<"roost.v1.DCoordMovePrepare"> & {
  * Use `create(DCoordMovePrepareSchema)` to create a new message.
  */
 export const DCoordMovePrepareSchema: GenMessage<DCoordMovePrepare> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 18);
+  messageDesc(file_roost_v1_worker_transport, 23);
 
 /**
  * @generated from message roost.v1.DCoordMoveSnapshotStart
@@ -665,7 +927,7 @@ export type DCoordMoveSnapshotStart = Message<"roost.v1.DCoordMoveSnapshotStart"
  * Use `create(DCoordMoveSnapshotStartSchema)` to create a new message.
  */
 export const DCoordMoveSnapshotStartSchema: GenMessage<DCoordMoveSnapshotStart> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 19);
+  messageDesc(file_roost_v1_worker_transport, 24);
 
 /**
  * @generated from message roost.v1.DCoordMoveSnapshotChunk
@@ -697,7 +959,7 @@ export type DCoordMoveSnapshotChunk = Message<"roost.v1.DCoordMoveSnapshotChunk"
  * Use `create(DCoordMoveSnapshotChunkSchema)` to create a new message.
  */
 export const DCoordMoveSnapshotChunkSchema: GenMessage<DCoordMoveSnapshotChunk> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 20);
+  messageDesc(file_roost_v1_worker_transport, 25);
 
 /**
  * @generated from message roost.v1.DCoordRelocate
@@ -734,7 +996,61 @@ export type DCoordRelocate = Message<"roost.v1.DCoordRelocate"> & {
  * Use `create(DCoordRelocateSchema)` to create a new message.
  */
 export const DCoordRelocateSchema: GenMessage<DCoordRelocate> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 21);
+  messageDesc(file_roost_v1_worker_transport, 26);
+
+/**
+ * Authenticated coordinator control for the out-of-job Windows updater. The
+ * worker validates the detached vendor signature before it creates the local
+ * journal and asks SCM to start RoostUpdaterV2. STATUS replays persisted
+ * progress and never starts a second broker.
+ *
+ * @generated from message roost.v1.DUpdateBroker
+ */
+export type DUpdateBroker = Message<"roost.v1.DUpdateBroker"> & {
+  /**
+   * @generated from field: string request_id = 1;
+   */
+  requestId: string;
+
+  /**
+   * @generated from field: string job_id = 2;
+   */
+  jobId: string;
+
+  /**
+   * START | STATUS
+   *
+   * @generated from field: string action = 3;
+   */
+  action: string;
+
+  /**
+   * @generated from field: string manifest_url = 4;
+   */
+  manifestUrl: string;
+
+  /**
+   * @generated from field: string signature_url = 5;
+   */
+  signatureUrl: string;
+
+  /**
+   * @generated from field: string manifest_sha256 = 6;
+   */
+  manifestSha256: string;
+
+  /**
+   * @generated from field: string publisher_sha256 = 7;
+   */
+  publisherSha256: string;
+};
+
+/**
+ * Describes the message roost.v1.DUpdateBroker.
+ * Use `create(DUpdateBrokerSchema)` to create a new message.
+ */
+export const DUpdateBrokerSchema: GenMessage<DUpdateBroker> = /*@__PURE__*/
+  messageDesc(file_roost_v1_worker_transport, 27);
 
 /**
  * @generated from message roost.v1.CoordWorkerDown
@@ -803,6 +1119,24 @@ export type CoordWorkerDown = Message<"roost.v1.CoordWorkerDown"> & {
      */
     value: DCoordRelocate;
     case: "coordRelocate";
+  } | {
+    /**
+     * @generated from field: roost.v1.DViewportRequest viewport_request = 11;
+     */
+    value: DViewportRequest;
+    case: "viewportRequest";
+  } | {
+    /**
+     * @generated from field: roost.v1.DInputRequest input_request = 12;
+     */
+    value: DInputRequest;
+    case: "inputRequest";
+  } | {
+    /**
+     * @generated from field: roost.v1.DUpdateBroker update_broker = 30;
+     */
+    value: DUpdateBroker;
+    case: "updateBroker";
   } | { case: undefined; value?: undefined };
 };
 
@@ -811,7 +1145,68 @@ export type CoordWorkerDown = Message<"roost.v1.CoordWorkerDown"> & {
  * Use `create(CoordWorkerDownSchema)` to create a new message.
  */
 export const CoordWorkerDownSchema: GenMessage<CoordWorkerDown> = /*@__PURE__*/
-  messageDesc(file_roost_v1_worker_transport, 22);
+  messageDesc(file_roost_v1_worker_transport, 28);
+
+/**
+ * Truthful terminal-control outcomes. These frames are correlated with the
+ * downstream request_id; unlike the legacy browser-command/binary paths, an
+ * accepted result proves the keeper completed the PTY operation.
+ *
+ * @generated from enum roost.v1.TerminalInputStatus
+ */
+export enum TerminalInputStatus {
+  /**
+   * @generated from enum value: TERMINAL_INPUT_STATUS_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: TERMINAL_INPUT_STATUS_ACCEPTED = 1;
+   */
+  ACCEPTED = 1,
+
+  /**
+   * @generated from enum value: TERMINAL_INPUT_STATUS_REJECTED = 2;
+   */
+  REJECTED = 2,
+
+  /**
+   * @generated from enum value: TERMINAL_INPUT_STATUS_AMBIGUOUS = 3;
+   */
+  AMBIGUOUS = 3,
+}
+
+/**
+ * Describes the enum roost.v1.TerminalInputStatus.
+ */
+export const TerminalInputStatusSchema: GenEnum<TerminalInputStatus> = /*@__PURE__*/
+  enumDesc(file_roost_v1_worker_transport, 0);
+
+/**
+ * @generated from enum roost.v1.TerminalViewportStatus
+ */
+export enum TerminalViewportStatus {
+  /**
+   * @generated from enum value: TERMINAL_VIEWPORT_STATUS_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: TERMINAL_VIEWPORT_STATUS_COMMITTED = 1;
+   */
+  COMMITTED = 1,
+
+  /**
+   * @generated from enum value: TERMINAL_VIEWPORT_STATUS_REJECTED = 2;
+   */
+  REJECTED = 2,
+}
+
+/**
+ * Describes the enum roost.v1.TerminalViewportStatus.
+ */
+export const TerminalViewportStatusSchema: GenEnum<TerminalViewportStatus> = /*@__PURE__*/
+  enumDesc(file_roost_v1_worker_transport, 1);
 
 /**
  * @generated from service roost.v1.WorkerService

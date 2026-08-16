@@ -11,7 +11,7 @@ const MAX = 80;
 export function folderHeadline(session: Session): string {
   const custom = session.custom_title?.trim();
   if (custom) return custom.slice(0, MAX);
-  return pathBasename(session.cwd) || "Terminal";
+  return pathBasename(session.cwd, session.worker_fp) || "Terminal";
 }
 
 /** Structured program detail for an open terminal, if the process reports one. */
@@ -24,5 +24,5 @@ export function programSubtitle(session: Session): string | null {
 export function sessionTitle(session: Session): string {
   const custom = session.custom_title?.trim();
   if (custom) return custom.slice(0, MAX);
-  return programSubtitle(session) || shortCwd(session.cwd) || "shell";
+  return programSubtitle(session) || shortCwd(session.cwd, session.worker_fp) || "shell";
 }

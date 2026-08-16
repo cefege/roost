@@ -117,6 +117,23 @@ test("absolute path resolves; version string does not", () => {
   expect(computeRowLinks(["v1.2.3 shipped"], 80, [], stubResolve)
     .some(s => s.kind === "file")).toBe(false);
 });
+test("Windows drive, UNC, and backslash paths reach the resolver intact", () => {
+  const seen: Array<{ path: string; line: number | null }> = [];
+  const resolve = (path: string, line: number | null) => {
+    seen.push({ path, line });
+    return "/file/windows";
+  };
+  computeRowLinks([
+    String.raw`C:\Users\Ada\src\main.ts:42`,
+    String.raw`\\server\share\logs\build.log:7`,
+    "D:/work/roost/readme.md",
+  ], 120, [], resolve);
+  expect(seen).toEqual([
+    { path: String.raw`C:\Users\Ada\src\main.ts`, line: 42 },
+    { path: String.raw`\\server\share\logs\build.log`, line: 7 },
+    { path: "D:/work/roost/readme.md", line: null },
+  ]);
+});
 
 test("bare filename links only with a :line", () => {
   expect(computeRowLinks(["see FolderList.tsx here"], 80, [], stubResolve)

@@ -9,18 +9,30 @@ import { reconcile } from "solid-js/store";
 import { setRootStore, rootStore } from "./root.ts";
 import type { PairRequest } from "./root.ts";
 import { signal, diag } from "@roost/shared/diag";
+import { SyncDomain } from "@roost/shared/proto/sync_pb";
+import type { SessionsListResponse } from "@roost/shared/proto/coordinator_pb";
 import { sessionFromProto } from "@roost/shared/wire/session-proto";
 import type { Worker, Session, Workspace, Task, PermissionRule, McpRelay } from "@roost/shared/wire";
-import { getPublicKeyB64 } from "../auth/web-key.ts";
+import { getPublicKeyB64, persistedWebKeyAtStartup } from "../auth/web-key.ts";
 import { setRoutableFps } from "./sync-routable.ts";
 import { _startCoordHealthPoller } from "./sync-health.ts";
-import { _runConnectSync, _abortSyncForVisibility, isSyncPaused, syncLinkIdleMs, drainPreHydration, syncSocketOpened, resumeSyncNow } from "./sync.ts";
+import {
+  _runConnectSync,
+  _abortSyncForVisibility,
+  forceSyncReconnect,
+  isSyncPaused,
+  registerSyncDomainHydrator,
+  resumeSyncNow,
+  syncLinkIdleMs,
+  waitForSyncSubscribed,
+} from "./sync.ts";
 import { shouldRedialOnRefocus } from "./sync-watchdog.ts";
 import { createSingleSyncLoopStarter } from "./sync-flow.ts";
 import { _dispatchFragmentCredential } from "./sync-bootstrap.pair.ts";
 import { relocateRetiredBrowser } from "../auth/coordinator-relocation.ts";
 import { isPageVisible } from "../lib/pageVisible.ts";
 import { setSessionsHydrated } from "./sync-hydrated.ts";
+import { markPhase } from "../lib/diag.ts";
 
 // Set browser_unauthorized; emit the auth.relogin_401 signal ONLY on the
 // rising edge (authed → unauth) so a persistently-unpaired browser doesn't
@@ -33,10 +45,9 @@ function setBrowserUnauthorized(next: boolean): void {
 
 let synced = false;
 
-// Longest the sessions snapshot waits for the Sync socket to open before it is
-// applied anyway. The socket is dialed in parallel with the list RPCs, so this
-// only bites when the WS upgrade is failing while unary RPCs still work.
-const SYNC_OPEN_WAIT_MS = 3000;
+// Longest bootstrap waits for the v2 subscribed barrier before using one
+// protected SessionsList solely to classify first-use auth versus offline.
+const SYNC_SUBSCRIBED_WAIT_MS = 3000;
 
 // True once the Phase-1 `sessionsList` has populated the store at least once.
 // MainPane's dead-URL safety net reads this to tell "still bootstrapping"
@@ -50,10 +61,12 @@ export { sessionsHydrated } from "./sync-hydrated.ts";
 // ─── self-register ────────────────────────────────────────────────────────────
 
 async function _attemptSelfRegister(): Promise<void> {
+  markPhase("self_register_start");
   try {
     const ssh_pubkey_b64 = await getPublicKeyB64();
     const { coordClient } = await import("../connect.ts");
     await coordClient.authAuthorizeBrowser({ sshPubkeyB64: ssh_pubkey_b64, label: "web-browser" });
+    markPhase("self_register_complete", { status: "fulfilled" });
   } catch (err) {
     // PermissionDenied = non-loopback caller → expected; Onboarding
     // handles the explicit-token redeem flow. Any other code (coord
@@ -64,6 +77,9 @@ async function _attemptSelfRegister(): Promise<void> {
     // every loopback-deny showed up as a noisy warn in console.
     const { ConnectError, Code } = await import("@connectrpc/connect");
     const isExpected = err instanceof ConnectError && err.code === Code.PermissionDenied;
+    markPhase("self_register_complete", {
+      status: isExpected ? "denied" : "rejected",
+    });
     if (!isExpected) {
       console.warn("[sync] self-register failed (unexpected)", err);
     }
@@ -177,6 +193,7 @@ export async function refreshCoordAndWorkers(): Promise<void> {
 // a real auth state → Onboarding).
 let _bootstrapRetries = 0;
 let _bootstrapRetryTimer: ReturnType<typeof setTimeout> | null = null;
+let _hydratorsInstalled = false;
 // `_runConnectSync` owns an infinite reconnect loop. Bootstrap retries share
 // this one starter instead of creating competing socket generations.
 const _startSyncLoop = createSingleSyncLoopStarter(() => { void _runConnectSync(); });
@@ -185,79 +202,33 @@ function _scheduleBootstrapRetry(): void {
   const delay = Math.min(1000 * 2 ** _bootstrapRetries, 10_000);
   _bootstrapRetries++;
   console.warn("[sync.bootstrap] coord unreachable — retrying in", delay, "ms (attempt", _bootstrapRetries, ")");
-  _bootstrapRetryTimer = setTimeout(() => { _bootstrapRetryTimer = null; void _bootstrap(); }, delay);
+  _bootstrapRetryTimer = setTimeout(() => {
+    _bootstrapRetryTimer = null;
+    if (_hydratorsInstalled) forceSyncReconnect();
+    else void _bootstrap();
+  }, delay);
 }
 
 async function _bootstrap(): Promise<void> {
+  const firstUseWebKey = !persistedWebKeyAtStartup;
   try {
-    // Phase -1: scrub and redeem exactly one complete fragment credential.
-    // Pair and relocation bearers never enter an HTTP URL or Referer.
+    // Fragment credential redemption and identity remain the only serial
+    // prerequisites. Every authoritative domain list starts after the v2
+    // subscribed control installs this socket's generation tokens.
     if (await _dispatchFragmentCredential()) return;
-
-    // Phase 0: discover a retired source before any mutation or bulk list.
-    // Its mint endpoint can carry this browser to the committed coordinator.
+    // Kept dynamic to preserve the deliberate bootstrap → sync one-way edge:
+    // connect.ts reaches the root store and eagerly importing it here creates
+    // an initialization cycle during cold module evaluation.
     const { classifyAuthFailure, coordClient } = await import("../connect.ts");
     const initialIdentity = await Promise.resolve(coordClient.authCoordIdentity({})).then(
       (value) => ({ status: "fulfilled" as const, value }),
       (reason) => ({ status: "rejected" as const, reason }),
     );
-    if (initialIdentity.status === "fulfilled" && await relocateRetiredBrowser(initialIdentity.value) !== "failed") return;
-
-    // Phase 1: open the Sync socket NOW, in parallel with the lists below. It
-    // needs nothing but a JWT and the persisted event cursor, so serializing it
-    // behind eight list RPCs only delayed first paint. Frames that arrive
-    // before the sessions snapshot lands are held by sync.ts's pre-hydration
-    // queue and replayed by drainPreHydration().
-    _startSyncLoop();
-
-    // Phase 2: bulk lists via Connect. Self-register is NOT serialized ahead of
-    // them any more: after the first successful authorization it is a no-op
-    // upsert, so every later load paid a round trip for nothing. If the lists
-    // come back Unauthenticated we register and retry the batch once, which
-    // leaves first-boot behavior unchanged.
-    const listBatch = () => Promise.allSettled([
-      coordClient.workersList({}),
-      coordClient.sessionsList({}),
-      coordClient.workspacesList({}),
-      coordClient.tasksList({}),
-      coordClient.permissionsList({}),
-      coordClient.mcpList({}),
-      coordClient.pairList({}),
-    ]);
-    const authRequiredPaths = [
-      "/roost.v1.CoordinatorService/WorkersList",
-      "/roost.v1.CoordinatorService/SessionsList",
-      "/roost.v1.CoordinatorService/WorkspacesList",
-      "/roost.v1.CoordinatorService/TasksList",
-      "/roost.v1.CoordinatorService/PermissionsList",
-      "/roost.v1.CoordinatorService/McpList",
-      "/roost.v1.CoordinatorService/PairList",
-    ];
-    const isUnauth = (
-      result: PromiseSettledResult<unknown>,
-      index: number,
-    ): boolean => result.status === "rejected"
-      && classifyAuthFailure(result.reason, authRequiredPaths[index] ?? "") === "device";
-    let settled = await listBatch();
-    if (settled.some(isUnauth)) {
-      // Loopback browser self-register. If we're behind a non-loopback proxy the
-      // mutation 403s and we fall through to Onboarding — the render path picks
-      // up zero-workers + the 401 lists.
-      await _attemptSelfRegister();
-      settled = await listBatch();
-      // The Phase-1 socket dial used a key coord did not know yet, so it was
-      // rejected and parked in the reconnect backoff. The key is authorized now:
-      // re-dial immediately instead of losing every event published during that
-      // backoff (a fresh browser's since=0 gets no backfill to recover them).
-      if (!settled.some(isUnauth)) resumeSyncNow();
-    }
-    const [workers, sessions, workspaces, tasks, permRules, mcpRelays, pairRequests] = settled;
-    // BEFORE the retry gate below: on a retired source every authed list
-    // rejects with a non-Unauthenticated error, so `wFail && sFail` returns
-    // early — and relocated_to_url would never be stored, leaving
-    // ConnectionBanner's "Open new coordinator" button permanently unrendered.
-    // Phase 0's identity result is reused: a second AuthCoordIdentity here was
-    // a duplicate round trip for a value we already hold.
+    markPhase("identity_complete", { status: initialIdentity.status });
+    if (
+      initialIdentity.status === "fulfilled"
+      && await relocateRetiredBrowser(initialIdentity.value) !== "failed"
+    ) return;
     if (initialIdentity.status === "fulfilled") {
       setRootStore("coord_identity", {
         fingerprint_hex: initialIdentity.value.fingerprintHex,
@@ -268,176 +239,237 @@ async function _bootstrap(): Promise<void> {
         handoff_id: initialIdentity.value.handoffId,
       });
     }
-
-    // Detect "this browser isn't trusted by the coord" — Connect-ES
-     // throws ConnectError with `code: "unauthenticated"` on a missing /
-     // invalid / unknown-kid JWT. If ANY of the authed list calls came
-     // back unauthenticated, surface it as `browser_unauthorized` so
-     // AllView renders the `browser-unpaired` empty state with a CTA
-     // to /pair (Onboarding) instead of the misleading `no-machines`
-     // empty state. Cross-Mac access path. coord_identity + pairList
-     // are public — don't count them.
-     {
-       const authedSettleds = [workers, sessions, workspaces, tasks, permRules, mcpRelays];
-       const sawUnauth = authedSettleds.some(isUnauth);
-       setBrowserUnauthorized(sawUnauth);
-
-       // Transient coord-unreachable (network reject, NOT auth) → retry the
-       // whole bootstrap with backoff. Both critical lists rejected for a
-       // non-auth reason = coord down → the store is empty → app blank. This
-       // is the "blank/can't input after a deploy" bug. Auth-rejection is a
-       // real state (Onboarding), so don't retry it.
-       const wFail = workers.status === "rejected";
-       const sFail = sessions.status === "rejected";
-       if (!sawUnauth && (wFail || sFail)) {
-         _scheduleBootstrapRetry();
-         if (wFail && sFail) {
-           // Nothing to populate this round — but the Sync socket is already
-           // live, so release its held frames rather than stranding them until
-           // a retry finally hydrates.
-           drainPreHydration();
-           return;
-         }
-         // partial failure: fall through to populate whatever succeeded
-       } else {
-         _bootstrapRetries = 0;
-         if (_bootstrapRetryTimer) { clearTimeout(_bootstrapRetryTimer); _bootstrapRetryTimer = null; }
-       }
-     }
-
-     if (workers.status === "fulfilled") {
-      setRoutableFps(new Set(workers.value.routableFps));
-      const rec: Record<string, Worker> = {};
-      for (const w of workers.value.workers) {
-        rec[w.fp] = {
-          fp: w.fp as never, label: w.label, os: w.os as never,
-          git_sha: w.gitSha ?? null,
-          host_metrics: w.hostMetrics ? {
-            cpu_pct: w.hostMetrics.cpuPct,
-            mem_used_bytes: Number(w.hostMetrics.memUsedBytes),
-            mem_total_bytes: Number(w.hostMetrics.memTotalBytes),
-            disk_used_bytes: Number(w.hostMetrics.diskUsedBytes),
-            disk_total_bytes: Number(w.hostMetrics.diskTotalBytes),
-            net_rx_bps: Number(w.hostMetrics.netRxBps),
-            net_tx_bps: Number(w.hostMetrics.netTxBps),
-            sampled_at_ms: Number(w.hostMetrics.sampledAtMs),
-          } : null,
-          registered_at_ms: Number(w.registeredAtMs),
-          last_seen_ms: Number(w.lastSeenMs),
-          reachable_addr: w.reachableAddr ?? null,
-          keeper_stale: w.keeperStale ?? null,
-        };
-      }
-      // Per-fp reconcile in ONE batch — same rationale as
-      // refreshCoordAndWorkers above; keeps no-delete semantics.
-      batch(() => {
-        for (const [fp, w] of Object.entries(rec)) setRootStore("workers", fp, reconcile(w));
-      });
+    // A loopback coordinator can authorize a first-use browser immediately.
+    // Do it before opening Sync: otherwise the guaranteed 401 consumes the
+    // three-second subscribed timeout before bootstrap performs this same RPC.
+    markPhase("self_register_gate", {
+      firstUseWebKey,
+      identityStatus: initialIdentity.status,
+    });
+    if (firstUseWebKey && initialIdentity.status === "fulfilled") {
+      await _attemptSelfRegister();
     }
-    if (sessions.status === "fulfilled") {
-      // Wait for the socket's first open before publishing the snapshot. Deltas
-      // are queued from that instant, so ordering the snapshot AFTER it means no
-      // event can fall between the two — the coord runs no backfill for a fresh
-      // browser's since=0, so an event lost in that window is lost for good.
-      // Normally already open (dialed in Phase 1, in parallel with these lists);
-      // the bound keeps a WS-refusing coord from leaving the app blank.
-      await syncSocketOpened(SYNC_OPEN_WAIT_MS);
-      const rec: Record<string, Session> = {};
-      for (const s of sessions.value.sessions) {
-        // sessionFromProto validates each complete session row. A bad row must
-        // not abort bootstrap for workers, workspaces, tasks, or permissions;
-        // skip it and surface the same validation failure from live projection.
+
+
+    _startSyncLoop();
+    const subscribed = await waitForSyncSubscribed(SYNC_SUBSCRIBED_WAIT_MS);
+    if (!subscribed) {
+      // Never publish this pre-barrier result. It exists only to distinguish a
+      // first-use unknown key from an unreachable/old coordinator.
+      const probe = await Promise.resolve(coordClient.sessionsList({})).then(
+        (value) => ({ status: "fulfilled" as const, value }),
+        (reason) => ({ status: "rejected" as const, reason }),
+      );
+      if (
+        probe.status === "rejected"
+        && classifyAuthFailure(
+          probe.reason,
+          "/roost.v1.CoordinatorService/SessionsList",
+        ) === "device"
+      ) {
+        setBrowserUnauthorized(true);
+        await _attemptSelfRegister();
+        resumeSyncNow();
+      } else if (probe.status === "fulfilled") {
+        setBrowserUnauthorized(false);
+      }
+      _startCoordHealthPoller();
+      _scheduleBootstrapRetry();
+      return;
+    }
+    if (_hydratorsInstalled) return;
+    _hydratorsInstalled = true;
+
+    const terminalFailure = async (reason: unknown): Promise<void> => {
+      const authFailure = classifyAuthFailure(
+        reason,
+        "/roost.v1.CoordinatorService/SessionsList",
+      );
+      if (authFailure === "device") {
+        setBrowserUnauthorized(true);
+        await _attemptSelfRegister();
+        resumeSyncNow();
+        forceSyncReconnect();
+        return;
+      }
+      _startCoordHealthPoller();
+      _scheduleBootstrapRetry();
+    };
+
+    // Registering a hydrator synchronously starts it for the current token.
+    // Terminal goes first, but all calls are in flight before any can settle.
+    registerSyncDomainHydrator(SyncDomain.TERMINAL, async (token) => {
+      let response: SessionsListResponse;
+      try {
+        response = await coordClient.sessionsList({ syncSocketId: token.socketId });
+      } catch (reason) {
+        await terminalFailure(reason);
+        return null;
+      }
+      if (!response.syncSnapshotToken) {
+        diag("sync.snapshot_token_missing", { domain: "terminal" });
+        forceSyncReconnect();
+        return null;
+      }
+      const sessions: Record<string, Session> = {};
+      for (const session of response.sessions) {
         try {
-          rec[s.id] = sessionFromProto(s);
-        } catch (e) {
-          console.warn("[sync.bootstrap] session_from_proto_failed", s.id, e);
-          diag("sync.session_from_proto_failed", { error: String(e), sid: s.id });
+          sessions[session.id] = sessionFromProto(session);
+        } catch (error) {
+          console.warn("[sync.bootstrap] session_from_proto_failed", session.id, error);
+          diag("sync.session_from_proto_failed", {
+            error: String(error),
+            sid: session.id,
+          });
         }
       }
-      setRootStore("sessions", rec);
-      setSessionsHydrated(true);
-      // The snapshot is in: replay every delta the live socket already
-      // delivered, in arrival order, before anything else reads the store.
-      drainPreHydration();
-    }
-    if (workspaces.status === "fulfilled") {
-      const rec: Record<string, Workspace> = {};
-      for (const w of workspaces.value.workspaces) {
-        rec[w.id] = {
-          id: w.id as never, worker_fp: w.workerFp as never,
-          name: w.name, folder_path: w.folderPath,
-          color: w.color ?? null, position: w.position,
-          version: Number(w.version),
-          created_at_ms: Number(w.createdAtMs),
-          updated_at_ms: Number(w.updatedAtMs),
-          session_ids: w.sessionIds as never,
-        };
-      }
-      setRootStore("workspaces", rec);
-    }
-    if (tasks.status === "fulfilled") {
-      const rec: Record<string, Task> = {};
-      for (const t of tasks.value.tasks) {
-        rec[t.id] = {
-          id: t.id as never, state: t.state as never,
-          payload: JSON.parse(t.payloadJson),
-          enqueued_at_ms: Number(t.enqueuedAtMs),
-          claimed_at_ms: t.claimedAtMs !== undefined ? Number(t.claimedAtMs) : null,
-          claimed_by: (t.claimedBy ?? null) as never,
-          finished_at_ms: t.finishedAtMs !== undefined ? Number(t.finishedAtMs) : null,
-          result: t.resultJson ? JSON.parse(t.resultJson) : null,
-          completion_check: t.completionCheck ?? null,
-          completion_check_last_attempt_ms: t.completionCheckLastAttemptMs !== undefined ? Number(t.completionCheckLastAttemptMs) : null,
-          claim_ttl_ms: Number(t.claimTtlMs),
-        };
-      }
-      setRootStore("tasks", rec);
-    }
-    if (permRules.status === "fulfilled") {
-      const rec: Record<string, PermissionRule> = {};
-      for (const r of permRules.value.rules) {
-        rec[r.id] = {
-          id: r.id as never,
-          tool_pattern: r.toolPattern,
-          folder_glob: r.folderGlob,
-          decision: r.decision as never,
-          enabled: r.enabled,
-          created_at_ms: Number(r.createdAtMs),
-        };
-      }
-      setRootStore("permission_rules", rec);
-    }
-    if (mcpRelays.status === "fulfilled") {
-      const rec: Record<string, McpRelay> = {};
-      for (const r of mcpRelays.value.relays) {
-        rec[r.id] = {
-          id: r.id as never, label: r.label, kind: r.kind as never,
-          config: JSON.parse(r.configJson),
-          created_at_ms: Number(r.createdAtMs),
-        };
-      }
-      setRootStore("mcp_relays", rec);
-    }
-    if (pairRequests.status === "fulfilled") {
-      const rec: Record<string, PairRequest> = {};
-      for (const p of pairRequests.value.requests) {
-        rec[p.ephemeralId] = {
-          ephemeral_id: p.ephemeralId, label: p.label,
-          created_at_ms: Number(p.createdAtMs),
-        };
-      }
-      setRootStore("pair_requests", rec);
-    }
+      return {
+        snapshotToken: response.syncSnapshotToken,
+        apply: () => {
+          setRootStore("sessions", sessions);
+          setSessionsHydrated(true);
+          setBrowserUnauthorized(false);
+          markPhase("sessions_list_publish", {
+            socketGeneration: token.socketGeneration,
+            domainGeneration: token.domainGeneration,
+            sessions: Object.keys(sessions).length,
+          });
+          _bootstrapRetries = 0;
+          if (_bootstrapRetryTimer) {
+            clearTimeout(_bootstrapRetryTimer);
+            _bootstrapRetryTimer = null;
+          }
+          _startCoordHealthPoller();
+        },
+      };
+    });
 
-    // Phase 1b: live pair-request updates ride the Sync stream now
-    // (pairRequestDelta frames + per-connect snapshot seed) — the old 5 s
-    // pairList poller is gone (perf sweep C2.4). The pairList seed above
-    // just covers the sub-second window until the stream's first snapshot.
-    // The Sync socket itself was already dialed in Phase 1, above.
-  } catch (err) {
-    console.error("[sync] bootstrap failed", err);
-    signal("diag.corruption_signal", { kind: "bootstrap_failed", msg: String(err), cooldownKey: "bootstrap" });
-    // The socket may already be live; never leave its frames stranded.
-    drainPreHydration();
+    registerSyncDomainHydrator(SyncDomain.WORKERS, async () => {
+      const response = await coordClient.workersList({});
+      const workers: Record<string, Worker> = {};
+      for (const worker of response.workers) {
+        workers[worker.fp] = {
+          fp: worker.fp as never,
+          label: worker.label,
+          os: worker.os as never,
+          git_sha: worker.gitSha ?? null,
+          host_metrics: worker.hostMetrics ? {
+            cpu_pct: worker.hostMetrics.cpuPct,
+            mem_used_bytes: Number(worker.hostMetrics.memUsedBytes),
+            mem_total_bytes: Number(worker.hostMetrics.memTotalBytes),
+            disk_used_bytes: Number(worker.hostMetrics.diskUsedBytes),
+            disk_total_bytes: Number(worker.hostMetrics.diskTotalBytes),
+            net_rx_bps: Number(worker.hostMetrics.netRxBps),
+            net_tx_bps: Number(worker.hostMetrics.netTxBps),
+            sampled_at_ms: Number(worker.hostMetrics.sampledAtMs),
+          } : null,
+          registered_at_ms: Number(worker.registeredAtMs),
+          last_seen_ms: Number(worker.lastSeenMs),
+          reachable_addr: worker.reachableAddr ?? null,
+          keeper_stale: worker.keeperStale ?? null,
+        };
+      }
+      return {
+        apply: () => {
+          setRoutableFps(new Set(response.routableFps));
+          setRootStore("workers", workers);
+        },
+      };
+    });
+
+    registerSyncDomainHydrator(SyncDomain.WORKSPACES, async () => {
+      const response = await coordClient.workspacesList({});
+      const workspaces: Record<string, Workspace> = {};
+      for (const workspace of response.workspaces) {
+        workspaces[workspace.id] = {
+          id: workspace.id as never,
+          worker_fp: workspace.workerFp as never,
+          name: workspace.name,
+          folder_path: workspace.folderPath,
+          color: workspace.color ?? null,
+          position: workspace.position,
+          version: Number(workspace.version),
+          created_at_ms: Number(workspace.createdAtMs),
+          updated_at_ms: Number(workspace.updatedAtMs),
+          session_ids: workspace.sessionIds as never,
+        };
+      }
+      return { apply: () => setRootStore("workspaces", workspaces) };
+    });
+
+    registerSyncDomainHydrator(SyncDomain.TASKS, async () => {
+      const response = await coordClient.tasksList({});
+      const tasks: Record<string, Task> = {};
+      for (const task of response.tasks) {
+        tasks[task.id] = {
+          id: task.id as never,
+          state: task.state as never,
+          payload: JSON.parse(task.payloadJson),
+          enqueued_at_ms: Number(task.enqueuedAtMs),
+          claimed_at_ms: task.claimedAtMs !== undefined ? Number(task.claimedAtMs) : null,
+          claimed_by: (task.claimedBy ?? null) as never,
+          finished_at_ms: task.finishedAtMs !== undefined ? Number(task.finishedAtMs) : null,
+          result: task.resultJson ? JSON.parse(task.resultJson) : null,
+          completion_check: task.completionCheck ?? null,
+          completion_check_last_attempt_ms: task.completionCheckLastAttemptMs !== undefined
+            ? Number(task.completionCheckLastAttemptMs)
+            : null,
+          claim_ttl_ms: Number(task.claimTtlMs),
+        };
+      }
+      return { apply: () => setRootStore("tasks", tasks) };
+    });
+
+    registerSyncDomainHydrator(SyncDomain.PERMISSIONS, async () => {
+      const response = await coordClient.permissionsList({});
+      const rules: Record<string, PermissionRule> = {};
+      for (const rule of response.rules) {
+        rules[rule.id] = {
+          id: rule.id as never,
+          tool_pattern: rule.toolPattern,
+          folder_glob: rule.folderGlob,
+          decision: rule.decision as never,
+          enabled: rule.enabled,
+          created_at_ms: Number(rule.createdAtMs),
+        };
+      }
+      return { apply: () => setRootStore("permission_rules", rules) };
+    });
+
+    registerSyncDomainHydrator(SyncDomain.MCP, async () => {
+      const response = await coordClient.mcpList({});
+      const relays: Record<string, McpRelay> = {};
+      for (const relay of response.relays) {
+        relays[relay.id] = {
+          id: relay.id as never,
+          label: relay.label,
+          kind: relay.kind as never,
+          config: JSON.parse(relay.configJson),
+          created_at_ms: Number(relay.createdAtMs),
+        };
+      }
+      return { apply: () => setRootStore("mcp_relays", relays) };
+    });
+
+    registerSyncDomainHydrator(SyncDomain.PAIR, async () => {
+      const response = await coordClient.pairList({});
+      const requests: Record<string, PairRequest> = {};
+      for (const request of response.requests) {
+        requests[request.ephemeralId] = {
+          ephemeral_id: request.ephemeralId,
+          label: request.label,
+          created_at_ms: Number(request.createdAtMs),
+        };
+      }
+      return { apply: () => setRootStore("pair_requests", requests) };
+    });
+  } catch (error) {
+    console.error("[sync] bootstrap failed", error);
+    signal("diag.corruption_signal", {
+      kind: "bootstrap_failed",
+      msg: String(error),
+      cooldownKey: "bootstrap",
+    });
+    _scheduleBootstrapRetry();
   }
 }

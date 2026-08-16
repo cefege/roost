@@ -1,43 +1,35 @@
-// Keeper survivor pre-clean for worker boot. Extracted from main.ts:
-// probe a leftover keeper subprocess/UDS from a previous worker generation
-// and either adopt the compatible survivor or kill the incompatible one.
+// Keeper survivor pre-clean for worker boot. Compatible authenticated
+// survivors are adopted; stale keepers are retired without treating a Windows
+// named pipe as a filesystem entry.
 
-import { log } from "@roost/shared";
 import {
-	probeKeeperCompatible,
+	cleanupLocalEndpoint,
+	log,
+	type LocalEndpoint,
+} from "@roost/shared";
+import {
 	getMultiplexedPool,
+	probeKeeperCompatible,
 } from "./keeper/multiplexed-client.ts";
+import {
+	shutdownKeeperAuthenticated,
+} from "./keeper/keeper-probe.ts";
+import { muxLocalEndpoint } from "./keeper/keeper-pool-config.ts";
 import { KEEPER_BUILD_STAMP } from "./keeper/keeper-stamp.ts";
-import { existsSync, unlinkSync } from "node:fs";
 
-// Pre-clean any keeper subprocess + UDS file left over from a previous
-// worker generation. `launchctl kickstart -k com.roost.worker-v2` SIGKILLs
-// the worker, but the multiplexed-main.ts keeper was spawned `detached:
-// true` (see multiplexed-client.ts) and survives. Whether to kill the
-// survivor depends on protocol compatibility:
-//
-//   compatible (Hello/HelloResp version matches KEEPER_PROTOCOL_VERSION):
-//     PRESERVE the keeper. resume() probes its live channel set via
-//     ListChannels + reattaches per-channel callbacks → every running shell
-//     session survives the worker restart with scrollback intact.
-//
-//   incompatible (no Hello response within 800ms OR version mismatch):
-//     KILL it. Old keepers either pre-date Hello (silently drop it) or
-//     reply with a stale version after a protocol-bump deploy. Their
-//     in-memory protocol code can hang Spawn frames for 15s ("Create
-//     folder failed: [internal] internal error" in the SPA) so a clean
-//     slate beats a torn one.
-//
-// Brand-new install with no sock file → probe returns true immediately,
-// kill is no-op, ensure() spawns a fresh keeper.
-function killStaleKeeper(sockPath: string): void {
+/** Legacy drain for a pre-auth POSIX keeper. Windows must never shell out to
+ * pgrep or unlink a pipe name; capability-aware keepers use Shutdown instead. */
+async function killLegacyPosixKeeper(endpoint: LocalEndpoint): Promise<void> {
+	if (endpoint.kind !== "uds") {
+		throw new Error("legacy keeper cannot be retired on a non-UDS endpoint");
+	}
 	try {
-		const r = Bun.spawnSync(
-			["pgrep", "-f", `multiplexed-main.ts ${sockPath}`],
+		const result = Bun.spawnSync(
+			["pgrep", "-f", `multiplexed-main.ts ${endpoint.address}`],
 			{ timeout: 2000, killSignal: "SIGKILL" },
 		);
-		if (r.exitCode === 0) {
-			const pids = r.stdout.toString().trim().split("\n").filter(Boolean);
+		if (result.exitCode === 0) {
+			const pids = result.stdout.toString().trim().split("\n").filter(Boolean);
 			for (const pid of pids) {
 				try {
 					process.kill(Number(pid), "SIGTERM");
@@ -45,45 +37,74 @@ function killStaleKeeper(sockPath: string): void {
 					/* gone already */
 				}
 			}
-			if (pids.length > 0)
-				log.info("worker", "killed_stale_keeper", { pids, sockPath });
+			if (pids.length > 0) {
+				log.info("worker", "killed_stale_keeper", {
+					pids,
+					endpoint: endpoint.address,
+				});
+			}
 		}
 	} catch {
-		/* pgrep not available — fall through to unlink */
+		/* pgrep unavailable; removing the UDS preserves the prior drain path */
 	}
-	if (existsSync(sockPath)) {
-		try {
-			unlinkSync(sockPath);
-			log.info("worker", "unlinked_stale_keeper_sock", { sockPath });
-		} catch (e) {
-			log.warn("worker", "stale_keeper_sock_unlink_failed", {
-				error: String(e),
-			});
-		}
-	}
+	await cleanupLocalEndpoint(endpoint);
 }
 
-export async function handleKeeperSurvivor(sockPath: string): Promise<void> {
-	const _probe = await probeKeeperCompatible(sockPath);
-	if (_probe.compatible) {
-		// Adopt the survivor. Its code stamp may be OLDER than ours (a behavior-only
-		// change landed since it spawned) — record it so the heartbeat flags a stale
-		// keeper (surfaced in the SPA; apply with `roost keeper-refresh`).
-		if (_probe.keeperStamp !== undefined)
-			getMultiplexedPool().setRunningKeeperStamp(_probe.keeperStamp);
+async function waitForKeeperExit(endpoint: LocalEndpoint): Promise<boolean> {
+	const deadline = Date.now() + 2_000;
+	do {
+		const probe = await probeKeeperCompatible(endpoint, 250);
+		if (!probe.reachable) return true;
+		await Bun.sleep(25);
+	} while (Date.now() < deadline);
+	return false;
+}
+
+export async function handleKeeperSurvivor(): Promise<void> {
+	const endpoint = muxLocalEndpoint();
+	const probe = await probeKeeperCompatible(endpoint);
+	if (!probe.reachable) {
+		// Removes only a dead POSIX socket. Named-pipe cleanup is a no-op.
+		await cleanupLocalEndpoint(endpoint);
+		return;
+	}
+
+	if (probe.compatible) {
+		if (probe.keeperStamp !== undefined) {
+			getMultiplexedPool().setRunningKeeperStamp(probe.keeperStamp);
+		}
 		log.info("worker", "keeper_survivor_compatible", {
-			sockPath,
-			keeper_build: _probe.keeperStamp ?? null,
+			endpoint: endpoint.address,
+			kind: endpoint.kind,
+			keeper_build: probe.keeperStamp ?? null,
 			worker_build: KEEPER_BUILD_STAMP,
 			keeper_stale:
-				_probe.keeperStamp !== undefined &&
-				_probe.keeperStamp !== KEEPER_BUILD_STAMP,
+				probe.keeperStamp !== undefined &&
+				probe.keeperStamp !== KEEPER_BUILD_STAMP,
 		});
-	} else {
-		log.info("worker", "keeper_survivor_incompatible_killing", {
-			sockPath,
-			worker_build: KEEPER_BUILD_STAMP,
-		});
-		killStaleKeeper(sockPath);
+		return;
 	}
+
+	log.info("worker", "keeper_survivor_incompatible_killing", {
+		endpoint: endpoint.address,
+		kind: endpoint.kind,
+		worker_build: KEEPER_BUILD_STAMP,
+		authenticated: probe.authenticated,
+	});
+
+	if (probe.authenticated) {
+		if (!await shutdownKeeperAuthenticated(endpoint) || !await waitForKeeperExit(endpoint)) {
+			throw new Error("authenticated stale keeper did not shut down");
+		}
+		await cleanupLocalEndpoint(endpoint);
+		return;
+	}
+
+	if (endpoint.kind === "uds") {
+		await killLegacyPosixKeeper(endpoint);
+		return;
+	}
+	throw new Error(
+		"named-pipe keeper rejected capability authentication; refusing unsafe replacement",
+	);
 }

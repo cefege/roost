@@ -10,6 +10,8 @@ import { allSessions } from "../store/selectors.ts";
 import { workerOnline } from "../store/sync.ts";
 import { queueTaskDialogStore } from "./QueueTaskDialog.tsx";
 import type { ItemKind } from "./CommandPalettePieces.tsx";
+import { workerPathBasename } from "../lib/nativePath.ts";
+import { platformShortcutLabel } from "../lib/browserPlatform.ts";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -28,7 +30,7 @@ export interface PaletteItem {
 
 function buildStaticActions(navigate: Navigator): PaletteItem[] {
   const items: PaletteItem[] = [
-    { id: "action:settings:machines", kind: "action", label: "Settings — Machines", hint: "⌘,", action: () => navigate("/settings/machines") },
+    { id: "action:settings:machines", kind: "action", label: "Settings — Machines", hint: platformShortcutLabel("settings", "⌘,"), action: () => navigate("/settings/machines") },
     { id: "action:settings:permissions", kind: "action", label: "Settings — Access", action: () => navigate("/settings/permissions") },
     { id: "action:settings:webhooks", kind: "action", label: "Settings — Webhooks", action: () => navigate("/settings/webhooks") },
     { id: "action:queue-new-task", kind: "action", label: "Queue new task", hint: "task queue", action: () => queueTaskDialogStore.open() },
@@ -86,7 +88,7 @@ export function buildDefaultItems(navigate: Navigator): PaletteItem[] {
     items.push({
       id: `session:${s.id}`,
       kind: "session",
-      label: s.cwd.split("/").pop() || s.cwd,
+      label: workerPathBasename(s.worker_fp, s.cwd) || s.cwd,
       hint: worker?.label ?? s.worker_fp.slice(0, 8),
       // Searchable-but-not-displayed full cwd.
       search: s.cwd,

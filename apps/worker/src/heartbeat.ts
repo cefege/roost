@@ -5,16 +5,35 @@
 // Callers: main.ts (started after runInstall completes).
 
 import type { CoordClient } from "./coord-client.ts";
+import { assertNeverPlatform, supportedHostPlatform } from "@roost/shared/platform";
 import { log, signal } from "@roost/shared";
 import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
 import { KEEPER_BUILD_STAMP } from "./keeper/keeper-stamp.ts";
 import { resolveTailnetDnsName } from "./install.ts";
 import { sampleHost as sampleDarwin } from "./host-sample-darwin.ts";
 import { sampleHost as sampleLinux, sampleCgroupPressure } from "./host-sample-linux.ts";
+import type { HostSample } from "./host-sample-types.ts";
+import { sampleHost as sampleWindows } from "./host-sample-win32.ts";
 
-const sampleHost = process.platform === "linux" ? sampleLinux : sampleDarwin;
-const cgroupPressure =
-	process.platform === "linux" ? sampleCgroupPressure : () => null;
+const HOST_PLATFORM = supportedHostPlatform();
+let sampleHost: () => HostSample | Promise<HostSample>;
+let cgroupPressure: typeof sampleCgroupPressure;
+switch (HOST_PLATFORM) {
+	case "darwin":
+		sampleHost = sampleDarwin;
+		cgroupPressure = () => null;
+		break;
+	case "linux":
+		sampleHost = sampleLinux;
+		cgroupPressure = sampleCgroupPressure;
+		break;
+	case "win32":
+		sampleHost = sampleWindows;
+		cgroupPressure = () => null;
+		break;
+	default:
+		assertNeverPlatform(HOST_PLATFORM);
+}
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
 // Consecutive heartbeat failures. Reset to 0 on a successful beat; when
@@ -113,7 +132,7 @@ type HostMetrics = {
 };
 let _cachedHostMetrics: HostMetrics | null = null;
 
-function collectHostMetrics(): HostMetrics {
+async function collectHostMetrics(): Promise<HostMetrics> {
 	// Cached resampler: return the prior snapshot if it's < 60s old.
 	// Skips the subprocess fan-out + leaves _prevNet untouched so the
 	// next real sample's bandwidth delta still spans a full 60s window.
@@ -134,7 +153,7 @@ function collectHostMetrics(): HostMetrics {
 		disk_used_bytes,
 		disk_total_bytes,
 		net,
-	} = sampleHost();
+	} = await sampleHost();
 	let net_rx_bps = 0;
 	let net_tx_bps = 0;
 
@@ -176,7 +195,7 @@ export async function startHeartbeat(opts: {
 	const { client } = opts;
 	const beat = async () => {
 		try {
-			const host_metrics = collectHostMetrics();
+			const host_metrics = await collectHostMetrics();
 			const git_sha = getGitSha();
 			// keeper_stale: the running keeper's stamp when it differs from ours
 			// (keeper running stale code), "" when current, undefined until known.

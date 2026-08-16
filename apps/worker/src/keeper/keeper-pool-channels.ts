@@ -4,17 +4,19 @@
 // the class methods now delegate here.
 
 import { signal } from "@roost/shared";
-import { MuxFrameType, encodeMuxFrame, encodeSpawnRequest } from "./protocol-v2.ts";
+import { KeeperFeature, MuxFrameType, encodeMuxFrame, encodeSpawnRequest } from "./protocol-v2.ts";
 import { SPAWN_ACK_TIMEOUT_MS } from "./keeper-pool-config.ts";
 import type { MultiplexedKeeperPool, MuxChannelCallbacks } from "./multiplexed-client.ts";
+import type { ShellSpec } from "../shell-spec.ts";
+import type { KeeperHistoryRecords } from "./protocol-v2.ts";
+export const KEEPER_HISTORY_LIVE_BUFFER_MAX_BYTES = 1 * 1024 * 1024;
+
 
 export async function spawnChannel(pool: MultiplexedKeeperPool, opts: {
   channelId: number;
-  cwd: string;
-  argv: string[];
+  shellSpec: ShellSpec;
   cols: number;
   rows: number;
-  env?: Record<string, string>;
   callbacks: MuxChannelCallbacks;
 }): Promise<number> {
   await pool.ensure();
@@ -36,7 +38,7 @@ export async function spawnChannel(pool: MultiplexedKeeperPool, opts: {
       pool.pendingSpawns.delete(opts.channelId);
       pool.channels.delete(opts.channelId);
       signal("spawn.no_ack", {
-        channel_id: opts.channelId, cwd: opts.cwd,
+        channel_id: opts.channelId, cwd: opts.shellSpec.cwd,
         waited_ms: SPAWN_ACK_TIMEOUT_MS, cooldownKey: "keeper",
       });
       entry.reject(new Error(`keeper spawn no-ack after ${SPAWN_ACK_TIMEOUT_MS}ms`));
@@ -46,9 +48,10 @@ export async function spawnChannel(pool: MultiplexedKeeperPool, opts: {
   pool.socket.write(encodeMuxFrame(
     MuxFrameType.Spawn, opts.channelId,
     encodeSpawnRequest({
-      channel_id: opts.channelId, cwd: opts.cwd,
-      cols: opts.cols, rows: opts.rows,
-      argv: opts.argv, env: opts.env,
+      channel_id: opts.channelId,
+      cols: opts.cols,
+      rows: opts.rows,
+      shell_spec: opts.shellSpec,
     }),
   ));
   return pidPromise;
@@ -119,5 +122,72 @@ export async function getChannelHistory(pool: MultiplexedKeeperPool, channelId: 
     }, 3000);
     pool.pendingGetHistory.push(waiter);
     pool.socket!.write(encodeMuxFrame(MuxFrameType.GetHistory, channelId, new Uint8Array(0)));
+  });
+}
+
+export function releasePendingHistoryOutput(
+  pool: MultiplexedKeeperPool,
+  channelId: number,
+): void {
+  const pending = pool.pendingHistoryOutput.get(channelId);
+  pool.pendingHistoryOutput.delete(channelId);
+  const callbacks = pool.channels.get(channelId);
+  if (!pending || !callbacks) return;
+  for (const chunk of pending.chunks) callbacks.onOutput(chunk);
+}
+
+export async function getChannelHistoryRecords(
+  pool: MultiplexedKeeperPool,
+  channelId: number,
+): Promise<KeeperHistoryRecords> {
+  await pool.ensure();
+  if (!pool.socket || pool.socket.destroyed) {
+    throw new Error("getHistoryRecords: keeper socket not connected");
+  }
+  if (!pool.supportsKeeperFeature(KeeperFeature.OrderedHistory)) {
+    throw new Error("getHistoryRecords: keeper lacks ordered history capability");
+  }
+  if (pool.pendingGetHistoryRecords.has(channelId)) {
+    throw new Error("getHistoryRecords: request already pending for channel");
+  }
+  pool.pendingHistoryOutput.set(channelId, { chunks: [], bytes: 0 });
+  return new Promise<KeeperHistoryRecords>((resolve, reject) => {
+    let timer: ReturnType<typeof setTimeout>;
+    const waiter = {
+      resolve: (history: KeeperHistoryRecords) => {
+        clearTimeout(timer);
+        resolve(history);
+      },
+      reject: (error: Error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    };
+    const waiters = pool.pendingGetHistoryRecords.get(channelId) ?? [];
+    waiters.push(waiter);
+    pool.pendingGetHistoryRecords.set(channelId, waiters);
+    timer = setTimeout(() => {
+      const current = pool.pendingGetHistoryRecords.get(channelId);
+      const index = current?.indexOf(waiter) ?? -1;
+      if (current && index >= 0) {
+        current.splice(index, 1);
+        if (current.length === 0) pool.pendingGetHistoryRecords.delete(channelId);
+      }
+      reject(new Error("getHistoryRecords timed out after 3000ms"));
+      queueMicrotask(() => releasePendingHistoryOutput(pool, channelId));
+    }, 3000);
+    try {
+      pool.socket!.write(encodeMuxFrame(
+        MuxFrameType.GetHistoryRecords,
+        channelId,
+        new Uint8Array(0),
+      ));
+    } catch (error) {
+      const index = waiters.indexOf(waiter);
+      if (index >= 0) waiters.splice(index, 1);
+      if (waiters.length === 0) pool.pendingGetHistoryRecords.delete(channelId);
+      waiter.reject(error instanceof Error ? error : new Error(String(error)));
+      queueMicrotask(() => releasePendingHistoryOutput(pool, channelId));
+    }
   });
 }

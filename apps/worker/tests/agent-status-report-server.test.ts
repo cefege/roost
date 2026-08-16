@@ -6,6 +6,7 @@ import { join } from "node:path";
 import type { AgentStatusUpdate } from "@roost/shared";
 import { startAgentReportServer, type AgentReportServer } from "../src/agent-status/report-server.ts";
 import { AgentStatusRegistry } from "../src/agent-status/registry.ts";
+import { withAgentStatusEnvironment } from "../src/agent-status/environment.ts";
 
 const sessionId = "11111111-1111-4111-8111-111111111111";
 const cleanupDirs: string[] = [];
@@ -36,17 +37,25 @@ async function request(path: string, body: string): Promise<Record<string, unkno
 }
 
 function report(seq: number, patch: Record<string, unknown> = {}): string {
+  if (!server) throw new Error("agent report server is not running");
+  const params = {
+    session_id: sessionId,
+    pid: 42,
+    agent: "omp",
+    state: "working",
+    seq,
+    active: true,
+    ...patch,
+  };
+  const capability = withAgentStatusEnvironment(
+    {},
+    String(params.session_id),
+  ).ROOST_AGENT_CAPABILITY;
   return `${JSON.stringify({
     version: 1,
+    capability,
     method: "agent.report",
-    params: {
-      pid: 42,
-      agent: "omp",
-      state: "working",
-      seq,
-      active: true,
-      ...patch,
-    },
+    params,
   })}\n`;
 }
 

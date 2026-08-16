@@ -26,8 +26,40 @@ import {
 } from "../store/sync-dispatch.ts";
 import { perfCounters, leakSample, resetPerfCounters as resetPerfCountersImpl } from "./leakWatch.ts";
 import { rootStore, setRootStore } from "../store/root.ts";
+import { workerPathBasename } from "./nativePath.ts";
 import { setForceHidden, setForceVisible } from "./pageVisible.ts";
 import { scrollbackBackfillRequestCount as scrollbackBackfillRequestCountImpl } from "./scrollbackBackfill.ts";
+import { sendTerminalInput } from "../ws/sync-outbound.ts";
+import { phaseTimeline as phaseTimelineImpl } from "./diag.ts";
+import type { SpaPhaseTimeline } from "./diag.ts";
+import {
+  beginTerminalTiming as beginTerminalTimingImpl,
+  finishTerminalTiming as finishTerminalTimingImpl,
+  runFlow as runFlowImpl,
+  runRenderStress as runRenderStressImpl,
+  waitForPaintedMarker as waitForPaintedMarkerImpl,
+} from "./smokeHarness.ts";
+import type {
+  PaintedMarkerProof,
+  TerminalTimingKind,
+  TerminalTimingResult,
+} from "./smokeHarness.ts";
+
+export type RetainedMarkerScan = {
+  gridEpoch: string;
+  pages: number;
+  scrollbackTotal: number;
+  retainedFloor: number;
+  retainedCap: number;
+  rowIndices: number[];
+  rowGapCount: number;
+  markerIds: number[];
+  markerMin: number;
+  markerMax: number;
+  markerMissing: number;
+  markerDuplicated: number[];
+  markerOutOfOrder: number;
+};
 
 export interface SmokeApi {
   /** Send raw bytes via the coord RPC — BYPASSES the wterm textarea + focus
@@ -64,6 +96,24 @@ export interface SmokeApi {
     // rows). firstInversion: the marker N where order first breaks, or -1.
     outOfOrder: number; firstInversion: number;
   };
+  /** Exact-marker paint proof: non-zero Range geometry inside the terminal and
+   * visual viewport, visible computed style, and the same proof after 2×rAF. */
+  waitForPaintedMarker(sessionId: string, marker: string, timeoutMs?: number): Promise<PaintedMarkerProof>;
+  /** Begin/finish the trusted-key, reveal, resize, and optimistic paint clocks.
+   * trusted_key starts on the real `isTrusted` keydown, not this method call. */
+  beginTerminalTiming(kind: TerminalTimingKind, sessionId?: string): Promise<string>;
+  finishTerminalTiming(
+    timingId: string,
+    sessionId: string,
+    marker: string,
+    timeoutMs?: number,
+  ): Promise<TerminalTimingResult>;
+  /** Latest authoritative grid dimensions represented by the painted DOM. */
+  terminalDimensions(sessionId: string): { cols: number; rows: number };
+  /** Bounded eager SPA bootstrap/terminal phase marks for this document. */
+  phaseTimeline(): SpaPhaseTimeline;
+  /** Page the server-retained cell range into a non-DOM marker accumulator. */
+  retainedMarkerScan(sessionId: string, prefix: string, pageRows?: number): Promise<RetainedMarkerScan>;
   /** Scroll a pane to an edge so the harness can assert history is reachable. */
   scrollToEdge(sessionId: string, edge: "top" | "bottom"): void;
   /** Snapshot of current SPA store state. */
@@ -115,6 +165,8 @@ export interface SmokeApi {
   spawnShell(workerFp: string, folder: string, sessionId?: string): Promise<{ session_id: string; channel_id: number }>;
   /** Create a workspace attached to a session — bypasses the cwd-picker UI. */
   createWorkspace(workerFp: string, folder: string, sessionId: string): Promise<{ id: string; channel: number }>;
+  /** Register a session created through the stack API/UI for scoped smoke cleanup. */
+  trackCreatedSession(sessionId: string): void;
   /** Test resources created by this tab, cleaned without touching live state. */
   cleanupCreated(): Promise<{ killedSessions: string[]; deletedWorkspaces: string[]; errors: string[] }>;
   runFlow(): Promise<{ steps: Array<{ name: string; pass: boolean; detail: unknown }>; summary: string }>;
@@ -142,6 +194,7 @@ export interface SmokeApi {
    *  resetPerfCounters(); every other field is a live total, so a caller wanting
    *  a per-window figure subtracts two reads.  */
   perfProbe(sessionId: string): {
+    longTaskState: "available" | "unavailable";
     longTaskCount: number; longTaskMs: number;
     cellFrames: number; cellFullFrames: number;
     domNodes: number; cellRows: number; heldSbRows: number; heapMb: number;
@@ -215,18 +268,129 @@ export function maybeInstallSmokeBackdoor(): void {
       return { killedSessions, deletedWorkspaces, errors };
     },
     async runFlow() {
-      const { runFlow } = await import("./smokeHarness.ts");
-      return runFlow(api);
+      return runFlowImpl(api);
     },
     async runRenderStress(options) {
-      const { runRenderStress } = await import("./smokeHarness.ts");
-      return runRenderStress(api, options);
+      return runRenderStressImpl(api, options);
+    },
+    async waitForPaintedMarker(sessionId, marker, timeoutMs) {
+      return waitForPaintedMarkerImpl(sessionId, marker, timeoutMs);
+    },
+    async beginTerminalTiming(kind, sessionId) {
+      return beginTerminalTimingImpl(kind, sessionId);
+    },
+    async finishTerminalTiming(timingId, sessionId, marker, timeoutMs) {
+      return finishTerminalTimingImpl(timingId, sessionId, marker, timeoutMs);
+    },
+    phaseTimeline() {
+      return phaseTimelineImpl();
+    },
+    async retainedMarkerScan(sessionId, prefix, pageRows = 512) {
+      if (!Number.isSafeInteger(pageRows) || pageRows < 1 || pageRows > 4_096) {
+        throw new Error(`invalid retained marker page size: ${pageRows}`);
+      }
+      const gridEpoch = cellGridEpochImpl(sessionId);
+      if (!gridEpoch) throw new Error(`no cell grid epoch for ${sessionId}`);
+      const escapedPrefix = prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const markerPattern = new RegExp(`${escapedPrefix}(\\d+)`, "g");
+      const chunks: Array<Array<{ index: number; spans: Array<{ text: string }> }>> = [];
+      let endRow = Number.MAX_SAFE_INTEGER;
+      let scrollbackTotal: number | undefined;
+      let retainedFloor = 0;
+      let pages = 0;
+      for (;;) {
+        if (pages >= 128) throw new Error(`retained marker pagination exceeded 128 pages for ${sessionId}`);
+        const response = await coordClient.sessionsGetScrollbackCells({
+          sessionId,
+          endRow: BigInt(endRow),
+          maxRows: pageRows,
+          gridEpoch,
+        });
+        pages++;
+        const responseStart = Number(response.startRow);
+        const responseEnd = Number(response.endRow);
+        const responseTotal = Number(response.scrollbackTotal);
+        if (
+          response.gridEpoch !== gridEpoch
+          || !Number.isSafeInteger(responseStart)
+          || !Number.isSafeInteger(responseEnd)
+          || !Number.isSafeInteger(responseTotal)
+          || responseStart < 0
+          || responseEnd < responseStart
+          || responseTotal < responseEnd
+        ) {
+          throw new Error(`invalid retained marker page for ${sessionId}`);
+        }
+        if (scrollbackTotal === undefined) scrollbackTotal = responseTotal;
+        else if (scrollbackTotal !== responseTotal) {
+          throw new Error(`scrollback changed during retained marker scan for ${sessionId}`);
+        }
+        for (let index = 0; index < response.rows.length; index++) {
+          if (response.rows[index]!.index !== responseStart + index) {
+            throw new Error(`non-contiguous retained page for ${sessionId} at ${responseStart + index}`);
+          }
+        }
+        if (response.rows.length > 0) chunks.unshift(response.rows);
+        if (responseStart === 0 || response.rows.length === 0) {
+          retainedFloor = responseStart;
+          break;
+        }
+        if (responseStart >= endRow) throw new Error(`retained marker page made no progress for ${sessionId}`);
+        endRow = responseStart;
+      }
+
+      const rows = chunks.flat();
+      const rowIndices = rows.map((row) => row.index);
+      let rowGapCount = 0;
+      for (let index = 1; index < rowIndices.length; index++) {
+        if (rowIndices[index] !== rowIndices[index - 1]! + 1) rowGapCount++;
+      }
+      const markerIds: number[] = [];
+      for (const row of rows) {
+        const text = row.spans.map((span) => span.text).join("");
+        markerPattern.lastIndex = 0;
+        let match: RegExpExecArray | null;
+        while ((match = markerPattern.exec(text)) !== null) {
+          const value = Number(match[1]);
+          if (Number.isSafeInteger(value)) markerIds.push(value);
+        }
+      }
+      const counts = new Map<number, number>();
+      for (const marker of markerIds) counts.set(marker, (counts.get(marker) ?? 0) + 1);
+      const unique = [...counts.keys()];
+      const markerMin = unique.length > 0 ? Math.min(...unique) : 0;
+      const markerMax = unique.length > 0 ? Math.max(...unique) : 0;
+      const markerDuplicated = unique.filter((value) => (counts.get(value) ?? 0) > 1).sort((a, b) => a - b);
+      let markerMissing = 0;
+      for (let value = markerMin; value <= markerMax && unique.length > 0; value++) {
+        if (!counts.has(value)) markerMissing++;
+      }
+      let markerOutOfOrder = 0;
+      for (let index = 1; index < markerIds.length; index++) {
+        if (markerIds[index]! < markerIds[index - 1]!) markerOutOfOrder++;
+      }
+      const total = scrollbackTotal ?? 0;
+      return {
+        gridEpoch,
+        pages,
+        scrollbackTotal: total,
+        retainedFloor,
+        retainedCap: total - retainedFloor,
+        rowIndices,
+        rowGapCount,
+        markerIds,
+        markerMin,
+        markerMax,
+        markerMissing,
+        markerDuplicated,
+        markerOutOfOrder,
+      };
     },
     async input(sessionId, text) {
-      await coordClient.sessionsInput({
-        sessionId,
-        data: new TextEncoder().encode(text),
-      });
+      const admission = sendTerminalInput(sessionId, new TextEncoder().encode(text));
+      if (!admission.accepted) throw new Error(admission.reason);
+      const outcome = await admission.result;
+      if (outcome.status !== "accepted") throw new Error(outcome.reason);
     },
     paneFocused(sessionId) {
       const slot = document.querySelector(`[data-testid="terminal-slot-${sessionId}"]`);
@@ -243,21 +407,18 @@ export function maybeInstallSmokeBackdoor(): void {
     },
     renderProbe(sessionId) {
       const slot = document.querySelector(`[data-testid="terminal-slot-${sessionId}"]`);
-      // .wterm is the scroll container for BOTH renderers (cell-grid also adds
-      // the .wterm class). Cell rows are .cell-row; byte rows are .term-row.
-      const c = slot?.querySelector(".wterm") as HTMLElement | null;
+      const c = slot?.querySelector(".cell-grid") as HTMLElement | null;
       if (!c) {
         return { found: false, mode: "none" as const, scrollTop: 0, scrollHeight: 0,
           clientHeight: 0, fromBottom: 0, atBottom: false, rowCount: 0,
           nonEmptyRows: 0, firstLine: "", lastLine: "" };
       }
-      const isCell = c.classList.contains("cell-grid");
-      const rows = Array.from(c.querySelectorAll(isCell ? ".cell-row" : ".term-row"))
+      const rows = Array.from(c.querySelectorAll(".cell-row"))
         .map((r) => (r.textContent ?? "").replace(/ /g, " ").replace(/\s+$/, ""));
       const nonEmpty = rows.filter((t) => t.trim() !== "");
       const fromBottom = c.scrollHeight - c.scrollTop - c.clientHeight;
       return {
-        found: true, mode: isCell ? "cell" as const : "byte" as const,
+        found: true, mode: "cell" as const,
         scrollTop: Math.round(c.scrollTop), scrollHeight: Math.round(c.scrollHeight),
         clientHeight: Math.round(c.clientHeight), fromBottom: Math.round(fromBottom),
         atBottom: c.scrollTop >= Math.max(0, c.scrollHeight - c.clientHeight),
@@ -267,11 +428,11 @@ export function maybeInstallSmokeBackdoor(): void {
     },
     markerScan(sessionId, prefix) {
       const slot = document.querySelector(`[data-testid="terminal-slot-${sessionId}"]`);
-      const c = slot?.querySelector(".wterm") as HTMLElement | null;
+      const c = slot?.querySelector(".cell-grid") as HTMLElement | null;
       const re = new RegExp(prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(\\d+)", "g");
       const counts = new Map<number, number>();
       const seq: number[] = []; // marker Ns in DOM render order
-      for (const row of c?.querySelectorAll(".cell-row, .term-row") ?? []) {
+      for (const row of c?.querySelectorAll(".cell-row") ?? []) {
         re.lastIndex = 0;
         const text = row.textContent ?? "";
         let match: RegExpExecArray | null;
@@ -304,6 +465,16 @@ export function maybeInstallSmokeBackdoor(): void {
         }
       }
       return { total, unique: ns.length, min, max, duplicated, missing, outOfOrder, firstInversion };
+    },
+    terminalDimensions(sessionId) {
+      const slot = document.querySelector(`[data-testid="terminal-slot-${CSS.escape(sessionId)}"]`);
+      const terminal = slot?.querySelector(".cell-grid") as HTMLElement | null;
+      const viewport = terminal?.querySelector(".cell-viewport");
+      const cols = Number.parseInt(terminal?.style.getPropertyValue("--cell-cols") ?? "", 10);
+      const rows = viewport
+        ? Array.from(viewport.children).filter((child) => child.classList.contains("cell-row")).length
+        : 0;
+      return { cols: Number.isSafeInteger(cols) ? cols : 0, rows };
     },
     scrollToEdge(sessionId, edge) {
       const slot = document.querySelector(`[data-testid="terminal-slot-${sessionId}"]`);
@@ -356,6 +527,7 @@ export function maybeInstallSmokeBackdoor(): void {
       const counters = perfCounters();
       const s = leakSample();
       return {
+        longTaskState: counters.longTaskState,
         longTaskCount: counters.longTaskCount,
         longTaskMs: counters.longTaskMs,
         cellFrames: cellFrameCountImpl(sessionId),
@@ -398,13 +570,17 @@ export function maybeInstallSmokeBackdoor(): void {
       persistCreated();
       return { session_id: res.sessionId, channel_id: res.channelId };
     },
+    trackCreatedSession(sessionId) {
+      spawned.add(sessionId);
+      persistCreated();
+    },
     async createWorkspace(workerFp, folder, sessionId) {
       const existing = new Set(
         Object.values(rootStore.workspaces)
           .filter((w: { worker_fp?: string; name?: string }) => w.worker_fp === workerFp)
           .map((w: { name?: string }) => w.name ?? "")
       );
-      const base = folder.split("/").filter(Boolean).pop() ?? "~";
+      const base = workerPathBasename(workerFp, folder) || "~";
       let name = base;
       let i = 2;
       while (existing.has(name)) { name = `${base} ${i++}`; }

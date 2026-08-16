@@ -16,10 +16,13 @@ import { isResizeDragging, pulseArrange } from "../lib/resizeDrag.ts";
 import { folderKeyOf, folderPathOf } from "../lib/folderKey.ts";
 import { isPendingClose } from "../lib/pendingClose.ts";
 import { shortCwd } from "../lib/sidebarFormat.ts";
-import { spawnShell, spawnInWorkspace, waitForSession, maybeAutoLaunchAgent } from "../lib/spawnSession.ts";
+import {
+  spawnShellDetailed, spawnInWorkspaceDetailed, waitForSession,
+  maybeAutoLaunchAgent, type SpawnInitialViewport, type SpawnShellResult,
+} from "../lib/spawnSession.ts";
 import {
   beginOptimisticSpawn, endOptimisticSpawn, failOptimisticSpawn,
-  wasAborted, clearAborted,
+  waitForMountedSpawnMeasurement, wasAborted, clearAborted,
 } from "../store/optimisticSpawn.ts";
 import { coordClient } from "../connect.ts";
 import { commitLayout, seedIfAbsent, resolveLayout } from "../store/paneLayoutStore.ts";
@@ -38,6 +41,7 @@ import { ArrangeMenu } from "./ArrangeMenu.tsx";
 import type { Session } from "@roost/shared/wire";
 import { diag } from "@roost/shared/diag";
 import { prefersReducedMotion } from "../lib/prefersReducedMotion.ts";
+import { browserPlatform, matchesPlatformShortcut, type PlatformShortcutId } from "../lib/browserPlatform.ts";
 
 const STRIP_H = 40; // per-pane tab strip height (px)
 
@@ -53,12 +57,18 @@ const SWIPE_DECEL = "var(--md-sys-motion-easing-emphasized-decelerate, cubic-bez
 // first ~15% of time and hid the swipe direction. Slide only; affordances keep SWIPE_DECEL.
 const SWIPE_SLIDE_EASE = "cubic-bezier(0.25, 0.46, 0.45, 0.94)";
 const NEW_BLOOM_MS = 300;       // container-transform reveal (M3 emphasized medium2)
-/** ⌘/Ctrl+⌥+arrow → geometric pane walk. Arrows are deliberately disjoint from
- *  the ⌘⌥B/E/R/G/V arrange presets, so both live in the same handler. */
+/** Geometric pane walk. Browser-platform key chords come from one PTY-safe map. */
 type PaneMoveDir = "left" | "right" | "up" | "down";
 const ARROW_PANE_DIR: Readonly<Record<string, PaneMoveDir | undefined>> = {
   ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down",
 };
+const ARRANGE_SHORTCUTS: ReadonlyArray<readonly [PlatformShortcutId, ArrangeKind]> = [
+  ["arrangeBalance", "balance"],
+  ["arrangeColumns", "even"],
+  ["arrangeRows", "rows"],
+  ["arrangeGrid", "tiled"],
+  ["arrangeMain", "main-vertical"],
+];
 
 // Deep-equal two PaneViews so the panes memo can REUSE the prior object ref when
 // a layout commit didn't actually change this pane. Keeps <For each={panes()}>
@@ -110,7 +120,7 @@ export function TerminalDeck(props: {
   const [warmSessionIds, setWarmSessionIds] = createSignal<ReadonlySet<string>>(new Set());
 
   const activeSession = createMemo(() => (props.activeSessionId ? rootStore.sessions[props.activeSessionId] ?? null : null));
-  const newTermFolder = createMemo(() => { const s = activeSession(); return s ? shortCwd(folderPathOf(s)) : ""; });
+  const newTermFolder = createMemo(() => { const s = activeSession(); return s ? shortCwd(folderPathOf(s), s.worker_fp) : ""; });
   const folderKey = createMemo(() => { const s = activeSession(); return s ? folderKeyOf(s) : null; });
   // Sessions that belong in the layout for the active folder. EXCLUDE
   // pending-close (soft-closed) sessions: a closed tab stays status="open" until
@@ -605,11 +615,26 @@ export function TerminalDeck(props: {
     const p = view().panes.find((pv) => pv.paneId === paneId);
     return (p && rootStore.sessions[p.selectedTab]) || activeSession();
   }
-  async function spawnSibling(anchor: Session, sessionId?: string): Promise<string> {
+  async function spawnSibling(
+    anchor: Session,
+    sessionId?: string,
+    initialViewport?: SpawnInitialViewport,
+  ): Promise<SpawnShellResult> {
     const folder = folderPathOf(anchor);
     return anchor.workspace_id
-      ? await spawnInWorkspace(anchor.worker_fp, anchor.workspace_id, folder, sessionId)
-      : await spawnShell(anchor.worker_fp, folder, sessionId);
+      ? await spawnInWorkspaceDetailed(
+        anchor.worker_fp,
+        anchor.workspace_id,
+        folder,
+        sessionId,
+        initialViewport,
+      )
+      : await spawnShellDetailed(
+        anchor.worker_fp,
+        folder,
+        sessionId,
+        initialViewport,
+      );
   }
   async function doNewTab(paneId: string): Promise<void> {
     const anchor = anchorFor(paneId);
@@ -618,15 +643,37 @@ export function TerminalDeck(props: {
     apply((l) => focusPane(l, paneId)); // reconcile appends the optimistic placeholder into this pane
     const sid = beginOptimisticSpawn(anchor); // tab + pane + CellTerminal render THIS frame
     navigate(`/s/${sid}`); // URL-fold selects the new tab in the focused pane
+    // Renderer + cell handler mount first and resolve the one-shot measurement.
+    // A genuinely slow/non-mounted placeholder takes the ordinary estimated
+    // spawn path after 100ms; it is never mislabeled as preclaimed.
+    const measured = await waitForMountedSpawnMeasurement(sid, 100);
+    // A close during the measurement window cancels before any PTY exists.
+    if (wasAborted(sid)) { clearAborted(sid); return; }
     const t0 = Date.now();
     try {
-      await spawnSibling(anchor, sid);
+      const result = await spawnSibling(anchor, sid, measured ?? undefined);
       diag("spawn.optimistic", { session_id: sid, rtt_ms: Date.now() - t0 });
       // Closed mid-flight → reap the now-real PTY and leave the tab gone.
       if (wasAborted(sid)) { clearAborted(sid); void coordClient.sessionsKill({ sessionId: sid }); return; }
-      endOptimisticSpawn(sid); // clears pending → CellTerminal fires INITIAL claim + paints
+      endOptimisticSpawn(
+        sid,
+        result.initialViewportPreclaimed && measured
+          ? {
+            ...measured,
+            effectiveClientSeq: result.effectiveClientSeq,
+          }
+          : undefined,
+      );
       maybeAutoLaunchAgent(sid);
     } catch (e) {
+      // The HTTP reply can be lost after the durable opened event. The pending
+      // coordinator registry reconciles that event, and the real channel has
+      // already replaced our channel=0 placeholder; never delete a live PTY.
+      if ((rootStore.sessions[sid]?.channel ?? 0) > 0) {
+        endOptimisticSpawn(sid);
+        maybeAutoLaunchAgent(sid);
+        return;
+      }
       failOptimisticSpawn(sid, e); // removes placeholder → reconcile prunes the tab + toast
     }
   }
@@ -637,7 +684,7 @@ export function TerminalDeck(props: {
     const anchor = anchorFor(paneId);
     if (!anchor) return;
     releaseActiveComposeFocus();
-    const id = await spawnSibling(anchor);
+    const { sessionId: id } = await spawnSibling(anchor);
     await waitForSession(id); // must be live before it can occupy a split pane
     maybeAutoLaunchAgent(id);
     apply((cur) => splitLeaf(cur, paneId, dir, id, false));
@@ -792,46 +839,53 @@ export function TerminalDeck(props: {
     if (paneId && paneId !== layout()?.focusedPaneId) doFocusPane(paneId);
   }
 
-  // ⌘D split right · ⌘⇧D split down · ⌘⏎ bring-to-front (spotlight) ·
-  // ⌘⌥B/E/R/G/V arrange presets · ⌘/Ctrl+1..9 tab N of the focused pane ·
-  // ⌘/Ctrl+⌥arrow walk to the adjacent pane · ⌘/Ctrl+⌥T new terminal in the
-  // focused pane (plain ⌘T is a browser accelerator a page can never see).
-  // Cmd-combos never reach the PTY, so intercepting them is safe. Only while a
-  // terminal folder is active.
+  // One browser-platform map owns every deck chord. macOS/Linux retain their
+  // existing bindings; Windows uses shifted/Alt bindings so plain Ctrl letters
+  // and Ctrl+Alt (AltGraph) always reach the pane-local terminal controller.
   onMount(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented) return;
-
       if (e.key === "Escape" && spotlightSessionId()) { e.preventDefault(); clearSpotlight(); return; }
-      // These three accept EITHER modifier: the ⌘-only gate below is
-      // macOS-shaped, but digits/arrows/new-tab are exactly what Linux and
-      // Windows users reach for with Ctrl. preventDefault keeps the browser's
-      // own Ctrl+N tab switch, Alt+Arrow history nav and Ctrl+Alt+T launcher
-      // from firing on top of ours.
-      const mod = e.metaKey || e.ctrlKey;
-      if (mod && folderKey()) {
-        if (e.altKey) {
-          const dir = ARROW_PANE_DIR[e.key];
-          if (dir) { e.preventDefault(); focusAdjacentPane(dir); return; }
-          if (e.key.toLowerCase() === "t") { e.preventDefault(); void doNewTab(layout()?.focusedPaneId ?? ""); return; }
-        } else if (e.key.length === 1 && e.key >= "1" && e.key <= "9") {
-          e.preventDefault();
-          activateTabAt(Number(e.key));
-          return;
-        }
-      }
-      if (!e.metaKey || e.ctrlKey) return;
       if (!folderKey()) return;
-      const k = e.key.toLowerCase();
-      if (e.altKey) { // ⌘⌥ = arrange presets
-        const preset: ArrangeKind | null =
-          k === "b" ? "balance" : k === "e" ? "even" : k === "r" ? "rows" :
-          k === "g" ? "tiled" : k === "v" ? "main-vertical" : null;
-        if (preset) { e.preventDefault(); doArrange(preset); }
+
+      const platform = browserPlatform();
+      const dir = ARROW_PANE_DIR[e.key];
+      if (dir && matchesPlatformShortcut(e, "paneFocus", platform)) {
+        e.preventDefault();
+        focusAdjacentPane(dir);
         return;
       }
-      if (k === "d") { e.preventDefault(); void doSplit(e.shiftKey ? "col" : "row"); }
-      else if (e.key === "Enter") { e.preventDefault(); doSpotlight(); }
+      if (matchesPlatformShortcut(e, "newTerminal", platform)) {
+        e.preventDefault();
+        void doNewTab(layout()?.focusedPaneId ?? "");
+        return;
+      }
+      if (matchesPlatformShortcut(e, "terminalTab", platform)) {
+        e.preventDefault();
+        activateTabAt(Number(e.key));
+        return;
+      }
+      if (matchesPlatformShortcut(e, "splitRight", platform)) {
+        e.preventDefault();
+        void doSplit("row");
+        return;
+      }
+      if (matchesPlatformShortcut(e, "splitDown", platform)) {
+        e.preventDefault();
+        void doSplit("col");
+        return;
+      }
+      if (matchesPlatformShortcut(e, "spotlight", platform)) {
+        e.preventDefault();
+        doSpotlight();
+        return;
+      }
+      for (const [shortcut, preset] of ARRANGE_SHORTCUTS) {
+        if (!matchesPlatformShortcut(e, shortcut, platform)) continue;
+        e.preventDefault();
+        doArrange(preset);
+        return;
+      }
     };
     document.addEventListener("keydown", onKey);
     onCleanup(() => document.removeEventListener("keydown", onKey));

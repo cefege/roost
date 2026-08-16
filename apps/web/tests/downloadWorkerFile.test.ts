@@ -1,9 +1,8 @@
-// parseFileHref must invert CellTerminal.resolveFile's `/file/<fp>/<enc path>`
-// format exactly — a mismatch means Cmd-clicking a terminal path downloads the
-// wrong file (or nothing). Mirrors resolveFile's encoding here so the two can't
-// drift silently.
+// File href parsing must invert the single browser-native path codec exactly;
+// otherwise terminal links fetch a different worker path than they display.
 
 import { describe, test, expect, mock } from "bun:test";
+import { workerFileHref } from "../src/lib/nativePath.ts";
 
 let responseData = new Uint8Array();
 const filesReadChunk = mock(async () => ({
@@ -71,10 +70,8 @@ function captureDownload(): DownloadCapture {
   };
 }
 
-// Same transform CellTerminal.resolveFile applies to build the href.
 function buildHref(workerFp: string, abs: string, line?: number): string {
-  const enc = abs.split("/").map((s) => (s ? encodeURIComponent(s) : s)).join("/");
-  return `/file/${workerFp}/${enc.replace(/^\//, "")}${line ? `#L${line}` : ""}`;
+  return workerFileHref(workerFp, abs, line ?? null);
 }
 
 describe("parseFileHref inverts resolveFile", () => {
@@ -93,6 +90,11 @@ describe("parseFileHref inverts resolveFile", () => {
   test("round-trips segments needing URL encoding (spaces, #, %)", () => {
     const abs = "/Users/me/my docs/a#b%c.ts";
     expect(parseFileHref(buildHref("fp", abs))).toEqual({ workerFp: "fp", path: abs });
+  });
+  test("round-trips Windows drive and UNC paths", () => {
+    for (const path of ["C:/Users/Ada/src/main.ts", "//server/share/My Folder/readme.md"]) {
+      expect(parseFileHref(buildHref("winfp", path))).toEqual({ workerFp: "winfp", path });
+    }
   });
 
   test("non-file href → null (not a terminal file link)", () => {

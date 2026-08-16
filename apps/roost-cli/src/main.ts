@@ -35,6 +35,25 @@ const SUBCOMMANDS = {
   worker,
   keeper,
   update,
+  "__windows-updater-broker": async (args: string[]) => {
+    if (process.platform !== "win32" || args.length !== 0) {
+      throw new Error("internal Windows updater broker dispatch refused");
+    }
+    // Platform-only modules depend on Windows native helpers and must not load
+    // into POSIX command paths.
+    const [{ createWindowsServiceManager }, { runWindowsUpdateBroker }, { DurableWindowsUpdateJournalStore }, { createServiceHealthProver, createWindowsUpdateNative }] = await Promise.all([
+      import("./service-ctl.ts"),
+      import("./windows-update-broker.ts"),
+      import("./windows-update-journal.ts"),
+      import("./windows-update-runtime.ts"),
+    ]);
+    await runWindowsUpdateBroker({
+      store: new DurableWindowsUpdateJournalStore(),
+      services: createWindowsServiceManager(),
+      native: createWindowsUpdateNative(),
+      health: createServiceHealthProver(),
+    });
+  },
   version,
   expose,
   dev,

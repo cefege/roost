@@ -7,30 +7,43 @@
 //    error toast) yet rethrow any OTHER error immediately.
 // 2. The per-session auto-launch guard: maybeAutoLaunchAgent is reachable from
 //    several racy new-tab paths; without a guard a second call re-queues the
-//    agent command and it gets typed twice into the same PTY (sendInput has no
-//    dedup). Two calls for one session id must send exactly once.
+//    agent command and it gets typed twice into the same PTY. Sync input
+//    admission must be attempted exactly once for two calls with one session id.
 //
 // mock.module must run before the unit's static imports resolve, so the deps
 // are mocked here and the unit is pulled in via a dynamic import below.
 
 import { test, expect, describe, mock } from "bun:test";
 import { ConnectError, Code } from "@connectrpc/connect";
+import { asWorkerFp } from "@roost/shared/wire";
 
 let enabled = true;
-const sendInput = mock((_sid: string, _bytes: Uint8Array) => {});
+const sendTerminalInput = mock((_sid: string, bytes: Uint8Array) => ({
+  accepted: true as const,
+  inputSeq: 1n,
+  result: Promise.resolve({
+    status: "accepted" as const,
+    inputSeq: 1n,
+    writtenBytes: bytes.byteLength,
+  }),
+}));
 
 mock.module("../src/lib/agents.ts", () => ({
   autoLaunchEnabled: () => enabled,
   resolveAgent: () => ({ command: "omp" }),
 }));
-mock.module("../src/ws/input-channel.ts", () => ({
-  inputChannel: { sendInput },
+mock.module("../src/ws/sync-outbound.ts", () => ({
+  sendTerminalInput,
 }));
 
 // Dynamic import: static imports hoist above the mock.module calls above, so the
 // unit must be pulled in after the deps are mocked (module-loading boundary).
-const { isWorkerReconnecting, withSpawnRetry, maybeAutoLaunchAgent } =
-  await import("../src/lib/spawnSession.ts");
+const {
+  isWorkerReconnecting,
+  withSpawnRetry,
+  maybeAutoLaunchAgent,
+  buildSpawnShellRequest,
+} = await import("../src/lib/spawnSession.ts");
 
 test("isWorkerReconnecting: only the transient precondition", () => {
   expect(isWorkerReconnecting(new ConnectError("worker abc123 not connected", Code.FailedPrecondition))).toBe(true);
@@ -63,26 +76,43 @@ test("withSpawnRetry: rethrows a non-transient error immediately (no retry)", as
   expect(calls).toBe(1);
 });
 
+test("mounted viewport opts into preclaim while carrying the caller UUID and sequence", () => {
+  const req = buildSpawnShellRequest(
+    asWorkerFp("aa".repeat(32)),
+    "/work",
+    "00000000-0000-4000-8000-000000000123",
+    { cols: 119, rows: 41, clientSeq: 7 },
+  );
+  expect(req).toMatchObject({
+    folder: "/work",
+    cols: 119,
+    rows: 41,
+    sessionId: "00000000-0000-4000-8000-000000000123",
+    preclaimInitialViewport: true,
+    initialViewportClientSeq: 7n,
+  });
+});
+
 describe("maybeAutoLaunchAgent", () => {
   test("fires at most once per session id", () => {
     maybeAutoLaunchAgent("s1");
     maybeAutoLaunchAgent("s1");
-    expect(sendInput).toHaveBeenCalledTimes(1);
-    const [sid, bytes] = sendInput.mock.calls[0];
+    expect(sendTerminalInput).toHaveBeenCalledTimes(1);
+    const [sid, bytes] = sendTerminalInput.mock.calls[0];
     expect(sid).toBe("s1");
     expect(new TextDecoder().decode(bytes)).toBe("omp\r");
   });
 
   test("a distinct session id is not blocked", () => {
     maybeAutoLaunchAgent("s2");
-    expect(sendInput).toHaveBeenCalledTimes(2);
-    expect(sendInput.mock.calls[1][0]).toBe("s2");
+    expect(sendTerminalInput).toHaveBeenCalledTimes(2);
+    expect(sendTerminalInput.mock.calls[1][0]).toBe("s2");
   });
 
   test("disabled config sends nothing", () => {
     enabled = false;
     maybeAutoLaunchAgent("s3");
-    expect(sendInput).toHaveBeenCalledTimes(2);
+    expect(sendTerminalInput).toHaveBeenCalledTimes(2);
     enabled = true;
   });
 });

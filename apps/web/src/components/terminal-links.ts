@@ -19,18 +19,15 @@
 import { computeRowLinks } from "./terminal-links.detect.ts";
 import type { ResolveFile, RowLinkSegment } from "./terminal-links.detect.ts";
 import { isPageVisible } from "../lib/pageVisible.ts";
+import { terminalLinkModifierKey } from "../lib/browserPlatform.ts";
 
 // Re-exported so the public import path (CellTerminal, terminal-links.test.ts)
 // resolves unchanged after the pure detection moved to ./terminal-links.detect.ts.
 export { computeRowLinks };
 export type { ResolveFile };
 
-// Row classes the renderers emit. Byte mode (@wterm/dom@0.3.0
-// renderer.js:206/310): "term-row" live + "term-row term-scrollback-row"
-// history. Cell mode (cellRenderer.ts renderRow): "cell-row". Match both so
-// the linkifier works in either renderer; after the byte-mode cut .term-row
-// simply never matches.
-const ROW_SELECTOR = ".term-row, .cell-row";
+// The canonical cell renderer emits one .cell-row per terminal row.
+const ROW_SELECTOR = ".cell-row";
 
 const LINK_CLASS = "wterm-link";
 
@@ -218,23 +215,9 @@ export function attachTerminalLinks(
 ): TerminalLinkAttachment {
   _injectCssOnce();
 
-  // Modifier-gated activation. Meta on macOS (Cmd), Ctrl elsewhere
-  // (the standard Cmd/Ctrl "ctrlOrSuper" convention). We listen
-  // on window so the modifier registers regardless of which element
-  // currently has focus inside the wterm container.
-  // `navigator.platform` is deprecated and reduced to generic strings on
-  // Chrome 110+ (UA-CH reduction) and Safari 17+. Fall back to userAgent
-  // and to UA-Client-Hints when available so Cmd-click still works on
-  // every modern browser running on macOS.
-  const _ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
-  const _platform = typeof navigator !== "undefined" ? navigator.platform : "";
-  const _uaCh = typeof navigator !== "undefined"
-    ? (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData
-    : undefined;
-  const isMac = (_uaCh?.platform === "macOS")
-    || /Mac|iPhone|iPad/i.test(_ua)
-    || /Mac|iPhone|iPad/i.test(_platform);
-  const modKey = isMac ? "Meta" : "Control";
+  // Modifier-gated activation. The centralized platform map keeps the same
+  // Command-on-macOS / Control-elsewhere behavior used by shortcut labels.
+  const modKey = terminalLinkModifierKey();
   // Repaint-hold coordination. The pane's cell renderer rebuilds every visible
   // row each frame (replaceChildren), destroying our wrapped <a> — so while the
   // user Cmd-hovers a link the cursor flickers pointer↔text as the anchor comes

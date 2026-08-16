@@ -24,7 +24,7 @@ message WorkersListResponse {
 
 message WorkersRegisterRequest {
   optional string label = 1;
-  optional string os = 2;  // darwin|linux
+  optional string os = 2;  // darwin|linux|win32
   optional string git_sha = 3;
   optional string reachable_addr = 4;
 }
@@ -99,8 +99,15 @@ message TransfersOutputFrame {
 message SessionsListRequest {
   optional string worker_fp = 1;
   optional string status = 2;  // open|closed|all; default "open"
+  // Sync v2 socket id from its subscribed control. When present, the
+  // coordinator binds the returned authoritative session ids to that socket
+  // and returns an opaque snapshot token for terminal domain_ready.
+  optional string sync_socket_id = 3;
 }
-message SessionsListResponse { repeated Session sessions = 1; }
+message SessionsListResponse {
+  repeated Session sessions = 1;
+  optional string sync_snapshot_token = 2;
+}
 
 message SessionsSpawnRequest {
   string worker_fp = 1;
@@ -109,10 +116,23 @@ message SessionsSpawnRequest {
   optional uint32 cols = 5;
   optional uint32 rows = 6;
   optional string session_id = 7;  // caller-minted id (optimistic spawn); worker reuses it verbatim
+  // Optimistic SPA spawn: cols/rows came from the mounted placeholder and the
+  // authenticated tab's viewport membership must exist before worker spawn.
+  // Non-SPA/public callers leave this false and retain ordinary spawn behavior.
+  bool preclaim_initial_viewport = 8;
+  // Monotonic sequence minted by the mounted pane for the preclaim. The
+  // coordinator owns the effective sequence and returns it below.
+  uint64 initial_viewport_client_seq = 9;
 }
 message SessionsSpawnResponse {
   string session_id = 1;
   uint32 channel_id = 2;
+  // True only when the coordinator and worker both installed the authenticated
+  // tab's measured viewport before the first cell frame.
+  bool initial_viewport_preclaimed = 3;
+  // Coordinator-owned sequence actually installed for the preclaim. Zero when
+  // initial_viewport_preclaimed is false.
+  uint64 effective_client_seq = 4;
 }
 
 message SessionsAttachRequest {

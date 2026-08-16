@@ -10,7 +10,11 @@ import {
   DEFAULT_COLOR, CELL_BOLD,
   type CellGridFrame,
 } from "../src/cell/index.ts";
-import { cellFrameToProto, protoToCellFrame } from "../src/cell/cell-proto.ts";
+import {
+  cellFrameToProto,
+  deepCloneCellFrameFromProto,
+  protoToCellFrame,
+} from "../src/cell/cell-proto.ts";
 
 // Configurable mock — set grid/scrollback/dirty between calls to drive the
 // emitter decision without a real VT engine.
@@ -140,11 +144,24 @@ describe("cell-proto round-trip", () => {
     };
   }
 
-  test("toProto → fromProto preserves the frame; session_id stamped separately", () => {
+  test("toProto → deep clone preserves the frame; session_id stamped separately", () => {
     const f = makeFrame();
     const pb = cellFrameToProto(f, "sess-123");
     expect(pb.sessionId).toBe("sess-123");
-    expect(protoToCellFrame(pb)).toEqual(f);
+    expect(deepCloneCellFrameFromProto(pb)).toEqual(f);
+  });
+
+  test("production conversion transfers decoded row and span arrays shallowly", () => {
+    const pb = cellFrameToProto(makeFrame(), "s");
+    const frame = protoToCellFrame(pb);
+    expect(frame.viewportRows).toBe(pb.viewportRows);
+    expect(frame.viewportRows[0]).toBe(pb.viewportRows[0]);
+    expect(frame.viewportRows[0]!.spans).toBe(pb.viewportRows[0]!.spans);
+    expect(frame.viewportRows[0]!.spans[0]).toBe(pb.viewportRows[0]!.spans[0]);
+
+    const clone = deepCloneCellFrameFromProto(pb);
+    expect(clone.viewportRows).not.toBe(pb.viewportRows);
+    expect(clone.viewportRows[0]!.spans[0]).not.toBe(pb.viewportRows[0]!.spans[0]);
   });
 
   test("nonzero sbBase and grid epoch survive the proto round-trip", () => {

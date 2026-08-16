@@ -9,10 +9,140 @@
 // the upstream diag() never invokes our sink.
 //
 // Owners: apps/web/src/main.tsx (installer), CellTerminal.tsx + sync.ts +
-// RoostTerm.ts + input-channel.ts (callers via the global `diag` export).
+// input-channel.ts (callers via the global `diag` export).
 
 import { setDiagSink, setSignalSink, isDiagEnabled, signal } from "@roost/shared/diag";
 import { coordClient } from "../connect.ts";
+
+// Fixed-size, always-on SPA phase recorder. Unlike the diagnostic firehose,
+// phase marks must exist on an ordinary cold navigation: enabling diagnostics
+// after the fact would make the bootstrap waterfall unmeasurable. The eager
+// ring is deliberately small and never grows with reconnects or session churn.
+const PHASE_MARK_CAPACITY = 256;
+
+export type SpaPhaseName =
+  | "module_start"
+  | "identity_complete"
+  | "self_register_gate"
+  | "self_register_start"
+  | "self_register_complete"
+  | "sync_subscribed"
+  | "snapshot_complete"
+  | "snapshot_applied"
+  | "sessions_list_publish"
+  | "terminal_mount"
+  | "viewport_enqueue"
+  | "viewport_accept"
+  | "first_cell_receive"
+  | "first_cell_apply"
+  | "marker_presented";
+
+export type SpaPhaseValue = string | number | boolean | bigint | null | undefined;
+
+export type SpaPhaseMark = {
+  index: number;
+  name: SpaPhaseName;
+  monotonicMs: number;
+  epochMs: number;
+  sinceNavigationMs: number;
+  onceKey?: string;
+  detail: Record<string, string | number | boolean | null>;
+};
+
+export type SpaPhaseTimeline = {
+  capacity: number;
+  dropped: number;
+  timeOriginEpochMs: number;
+  navigationStartEpochMs: number;
+  driverBeforeNavigationEpochMs: number | null;
+  marks: SpaPhaseMark[];
+};
+
+const _phaseTimeOrigin = typeof performance === "undefined" ? Date.now() : performance.timeOrigin;
+const _phaseNavigationStart = (() => {
+  if (typeof performance === "undefined") return _phaseTimeOrigin;
+  const entry = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
+  return performance.timeOrigin + (entry?.startTime ?? 0);
+})();
+const _phaseMarks = new Array<SpaPhaseMark | undefined>(PHASE_MARK_CAPACITY);
+let _phaseMarkWrites = 0;
+
+function phaseDetail(
+  detail: Readonly<Record<string, SpaPhaseValue>> | undefined,
+): Record<string, string | number | boolean | null> {
+  const safe: Record<string, string | number | boolean | null> = {};
+  if (!detail) return safe;
+  for (const [key, value] of Object.entries(detail)) {
+    if (value === undefined) continue;
+    safe[key] = typeof value === "bigint" ? value.toString() : value;
+  }
+  return safe;
+}
+
+function findPhaseOnce(name: SpaPhaseName, onceKey: string): SpaPhaseMark | undefined {
+  const available = Math.min(_phaseMarkWrites, PHASE_MARK_CAPACITY);
+  const first = Math.max(0, _phaseMarkWrites - available);
+  for (let index = first; index < _phaseMarkWrites; index++) {
+    const mark = _phaseMarks[index % PHASE_MARK_CAPACITY];
+    if (mark?.name === name && mark.onceKey === onceKey) return mark;
+  }
+  return undefined;
+}
+
+/** Record one bounded, synchronous bootstrap/terminal phase mark. */
+export function markPhase(
+  name: SpaPhaseName,
+  detail?: Readonly<Record<string, SpaPhaseValue>>,
+): SpaPhaseMark {
+  const monotonicMs = typeof performance === "undefined" ? 0 : performance.now();
+  const mark: SpaPhaseMark = {
+    index: _phaseMarkWrites,
+    name,
+    monotonicMs,
+    epochMs: _phaseTimeOrigin + monotonicMs,
+    sinceNavigationMs: _phaseTimeOrigin + monotonicMs - _phaseNavigationStart,
+    detail: phaseDetail(detail),
+  };
+  _phaseMarks[_phaseMarkWrites % PHASE_MARK_CAPACITY] = mark;
+  _phaseMarkWrites++;
+  return mark;
+}
+
+/** Record the first matching phase only within this bounded document ring. */
+export function markPhaseOnce(
+  name: SpaPhaseName,
+  onceKey: string,
+  detail?: Readonly<Record<string, SpaPhaseValue>>,
+): SpaPhaseMark {
+  const existing = findPhaseOnce(name, onceKey);
+  if (existing) return existing;
+  const mark = markPhase(name, detail);
+  mark.onceKey = onceKey;
+  return mark;
+}
+
+/** Snapshot the phase ring oldest→newest without exposing mutable storage. */
+export function phaseTimeline(): SpaPhaseTimeline {
+  const available = Math.min(_phaseMarkWrites, PHASE_MARK_CAPACITY);
+  const first = Math.max(0, _phaseMarkWrites - available);
+  const marks = new Array<SpaPhaseMark>(available);
+  for (let offset = 0; offset < available; offset++) {
+    marks[offset] = _phaseMarks[(first + offset) % PHASE_MARK_CAPACITY]!;
+  }
+  const driverEpoch = typeof window === "undefined"
+    ? undefined
+    : (window as Window & { __roostDriverBeforeNavigationEpochMs?: unknown })
+      .__roostDriverBeforeNavigationEpochMs;
+  return {
+    capacity: PHASE_MARK_CAPACITY,
+    dropped: Math.max(0, _phaseMarkWrites - PHASE_MARK_CAPACITY),
+    timeOriginEpochMs: _phaseTimeOrigin,
+    navigationStartEpochMs: _phaseNavigationStart,
+    driverBeforeNavigationEpochMs:
+      typeof driverEpoch === "number" && Number.isFinite(driverEpoch) ? driverEpoch : null,
+    marks: marks.map((mark) => ({ ...mark, detail: { ...mark.detail } })),
+  };
+}
 
 const FLUSH_MAX_ENTRIES = 64;
 const FLUSH_INTERVAL_MS = 100;

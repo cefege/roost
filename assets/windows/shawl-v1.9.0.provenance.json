@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "project": "Shawl",
+  "repository": "https://github.com/mtkennerly/shawl",
+  "release": "https://github.com/mtkennerly/shawl/releases/tag/v1.9.0",
+  "releaseApi": "https://api.github.com/repos/mtkennerly/shawl/releases/316808525",
+  "version": "1.9.0",
+  "tag": "v1.9.0",
+  "annotatedTagObject": "242b3070ef5d80187dc6debd4cbb632a6d245035",
+  "sourceCommit": "dbc4014c6d67027dc75a565d79fe9f493e897eb2",
+  "githubTagSignatureVerified": true,
+  "publishedAt": "2026-05-03T05:37:28Z",
+  "binary": {
+    "githubAssetId": 410957225,
+    "name": "shawl-v1.9.0-win64.zip",
+    "url": "https://github.com/mtkennerly/shawl/releases/download/v1.9.0/shawl-v1.9.0-win64.zip",
+    "size": 1297715,
+    "sha256": "f883c5d09c9beae2efaeabd8513e7d3f57cd1d0864cec3df4f4a7b6ee904351c"
+  },
+  "legal": {
+    "githubAssetId": 410957222,
+    "name": "shawl-v1.9.0-legal.zip",
+    "url": "https://github.com/mtkennerly/shawl/releases/download/v1.9.0/shawl-v1.9.0-legal.zip",
+    "size": 20372,
+    "sha256": "a2a1743a64b79922062906eb32cdaf23db131769f8cabcc98e5d57bbf66eb0b0"
+  }
+}

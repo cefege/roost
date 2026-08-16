@@ -5,19 +5,11 @@
 // gate (first keystroke of a burst hidden until confirmed), hard-reset on a
 // shown wrong guess, and alt-screen suppression.
 
-import { describe, test, expect, beforeEach } from "bun:test";
+import { describe, test, expect } from "bun:test";
 import { PredictiveEcho } from "../src/lib/predictiveEcho.ts";
+import { normalizePredictMode, type PredictMode } from "../src/lib/predictPref.ts";
 import type { CellGridFrame } from "@roost/shared/cell";
 
-// bun test has no DOM/localStorage — stub the kill-switch storage.
-const _ls: Record<string, string> = {};
-(globalThis as unknown as { localStorage: Storage }).localStorage = {
-  getItem: (k: string) => _ls[k] ?? null,
-  setItem: (k: string, v: string) => { _ls[k] = v; },
-  removeItem: (k: string) => { delete _ls[k]; },
-  clear: () => { for (const k of Object.keys(_ls)) delete _ls[k]; },
-  key: () => null, length: 0,
-} as Storage;
 
 // ── minimal fake DOM (only what the overlay touches) ──────────────────
 function fakeEl(): any {
@@ -55,14 +47,13 @@ function frame(o: { seq: number; cc?: number; cr?: number; rows?: (string | null
 const enc = (s: string) => new TextEncoder().encode(s);
 
 let clock = { t: 0 };
-function mk(): PredictiveEcho {
+function mk(mode: PredictMode = "adaptive"): PredictiveEcho {
   clock = { t: 0 };
-  const pe = new PredictiveEcho(fakeHost(), { now: () => clock.t });
+  const pe = new PredictiveEcho(fakeHost(), { mode: () => mode, now: () => clock.t });
   pe.onFrame(frame({ seq: 1, full: true, cc: 0 })); // initial full frame → anchor
   return pe;
 }
 
-beforeEach(() => { try { localStorage.removeItem("roostPredict"); } catch { /* noop */ } });
 
 describe("predictive echo SM", () => {
   test("slow link: first keystroke hidden, confirmed → next keystroke shown", () => {
@@ -124,33 +115,31 @@ describe("predictive echo SM", () => {
     expect(pe._debug().visible).toBe(0);
   });
 
-  test("kill switch (localStorage.roostPredict=0) disables", () => {
-    localStorage.setItem("roostPredict", "0");
-    const pe = mk();
+  test("injected never mode disables prediction", () => {
+    const pe = mk("never");
     pe.predict(enc("a"));
     expect(pe._debug().total).toBe(0);
   });
 });
 
-// display_preference: Adaptive/Always/Never/
-// Experimental. Roost maps roostPredict → mode, with '0'/'force' back-compat.
+// Display preference aliases normalize at the settings boundary; the engine
+// receives a typed getter and never reads storage on key/frame paths.
 describe("display_preference modes", () => {
   test("mode resolution + back-compat aliases", () => {
-    const cases: [string | null, string][] = [
+    const cases: [string | null, PredictMode][] = [
       [null, "adaptive"], ["adaptive", "adaptive"],
       ["0", "never"], ["never", "never"],
       ["force", "always"], ["always", "always"],
       ["experimental", "experimental"],
     ];
-    for (const [val, expected] of cases) {
-      if (val === null) localStorage.removeItem("roostPredict"); else localStorage.setItem("roostPredict", val);
-      expect(mk()._debug().mode).toBe(expected);
+    for (const [value, expected] of cases) {
+      expect(normalizePredictMode(value)).toBe(expected);
+      expect(mk(expected)._debug().mode).toBe(expected);
     }
   });
 
   test("Experimental: first keystroke shown IMMEDIATELY (no confidence gate, no RTT)", () => {
-    localStorage.setItem("roostPredict", "experimental");
-    const pe = mk();
+    const pe = mk("experimental");
     pe.predict(enc("a")); // no prior confirm, srtt=0 → still visible (epoch == confirmedEpoch)
     const d = pe._debug();
     expect(d.mode).toBe("experimental");
@@ -158,8 +147,7 @@ describe("display_preference modes", () => {
   });
 
   test("Always: shown after the epoch confirms even on a fast link", () => {
-    localStorage.setItem("roostPredict", "always");
-    const pe = mk();
+    const pe = mk("always");
     pe.predict(enc("a"));
     expect(pe._debug().visible).toBe(0); // first char tentative until confirmed
     clock.t = 5; pe.onFrame(frame({ seq: 2, cc: 1, rows: ["a"] })); // confirm (fast 5ms)
@@ -168,8 +156,7 @@ describe("display_preference modes", () => {
   });
 
   test("right/left arrow predicts a cursor move (CSI C/D)", () => {
-    localStorage.setItem("roostPredict", "always");
-    const pe = mk(); // initial frame cursor at col 0
+    const pe = mk("always"); // initial frame cursor at col 0
     pe.predict(new Uint8Array([0x1b, 0x5b, 0x43])); // ESC[C — right
     expect(pe._debug().predCursorCol).toBe(1);
     pe.predict(new Uint8Array([0x1b, 0x5b, 0x43])); // right again
@@ -180,17 +167,19 @@ describe("display_preference modes", () => {
   });
 
   test("predicted cursor (onCursor) leads the echoed chars when shown", () => {
-    localStorage.setItem("roostPredict", "experimental"); // shown immediately
     const cursorCalls: (number | null)[] = [];
-    const pe = new PredictiveEcho(fakeHost(), { now: () => clock.t, onCursor: (c) => cursorCalls.push(c) });
+    const pe = new PredictiveEcho(fakeHost(), {
+      mode: () => "experimental",
+      now: () => clock.t,
+      onCursor: (c) => cursorCalls.push(c),
+    });
     pe.onFrame(frame({ seq: 1, full: true, cc: 0 }));
     pe.predict(enc("ab")); // a@0, b@1 → caret should lead to col 2
     expect(cursorCalls[cursorCalls.length - 1]).toBe(2);
   });
 
   test("Experimental wrong guess resets only that cell (no hard reset)", () => {
-    localStorage.setItem("roostPredict", "experimental");
-    const pe = mk(); // initial frame seq=1
+    const pe = mk("experimental"); // initial frame seq=1
     pe.predict(enc("ab")); // a@0, b@1 — both shown immediately
     expect(pe._debug().visible).toBe(2);
     // Frame echoes "a" correctly but col1 is "x" (b was wrong).
@@ -269,7 +258,7 @@ describe("prediction-engine hardening", () => {
     // fixes. (The wire hands the predictor the RAW delta, not a diff-grid-
     // reconstructed full frame — see sync-dispatch._dispatchCell.)
     clock.t = 0;
-    const pe = new PredictiveEcho(fakeHost(), { now: () => clock.t });
+    const pe = new PredictiveEcho(fakeHost(), { mode: () => "adaptive", now: () => clock.t });
     // First FULL frame: 2 viewport rows → seeds the height tracker.
     pe.onFrame(frame({ seq: 1, full: true, cc: 0, rows: [null, null] }));
     pe.predict(enc("a"));                    // a@0, bornSeq 1, bornMs 0
@@ -288,7 +277,7 @@ describe("prediction-engine hardening", () => {
     // srtt stays 0 and Adaptive never arms. confirmedEpoch>0 is the
     // RTT-independent discriminator (wipe→0, reconcile→advances).
     clock.t = 0;
-    const pe = new PredictiveEcho(fakeHost(), { now: () => clock.t });
+    const pe = new PredictiveEcho(fakeHost(), { mode: () => "adaptive", now: () => clock.t });
     pe.onFrame(frame({ seq: 1, full: true, cr: 5, cc: 0, rows: [null] })); // cursor on row 5
     pe.predict(enc("a")); // a@(5,0), bornSeq 1
     clock.t = 200;

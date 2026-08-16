@@ -28,7 +28,7 @@ function current(): boolean {
 
 const [visible, setVisible] = createSignal(current());
 
-if (typeof document !== "undefined") {
+if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
   document.addEventListener("visibilitychange", () => setVisible(current()));
 }
 
@@ -48,7 +48,9 @@ function setVisibilityOverride(next: boolean | null): void {
   if (_visibilityOverride === next) return;
   _visibilityOverride = next;
   setVisible(current());
-  if (typeof document !== "undefined") document.dispatchEvent(new Event("visibilitychange"));
+  if (typeof document !== "undefined"
+    && typeof document.dispatchEvent === "function"
+    && typeof Event !== "undefined") document.dispatchEvent(new Event("visibilitychange"));
 }
 
 /** Pin foreground visibility; false releases every automation override. */

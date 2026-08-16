@@ -15,6 +15,7 @@ import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { MultiplexedKeeperPool, type MuxChannelCallbacks } from "../src/keeper/multiplexed-client.ts";
+import { keeperTestShellSpec } from "./keeper-test-fixtures.ts";
 
 const SOCK_DIR = join(tmpdir(), `roost-test-keeper-hist-${process.pid}`);
 process.env.ROOST_WORKER_DATA_DIR = SOCK_DIR;
@@ -47,10 +48,13 @@ async function spawnRawCat(): Promise<{
     onError: () => { /* don't care */ },
   };
   await pool.spawn({
-    channelId, cwd: homedir(),
-    argv: ["/bin/sh", "-c", "stty raw -echo 2>/dev/null; exec /bin/cat"],
+    channelId,
+    shellSpec: keeperTestShellSpec({
+      executable: "/bin/sh",
+      argv: ["-c", "stty raw -echo 2>/dev/null; exec /bin/cat"],
+      cwd: homedir(),
+    }),
     cols: 200, rows: 50,
-    env: { TERM: "xterm-256color" },
     callbacks: cb,
   });
   await Bun.sleep(150);

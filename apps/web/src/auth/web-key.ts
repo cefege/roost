@@ -49,6 +49,10 @@ function hadKeyBefore(): boolean {
   try { return localStorage.getItem(KEY_MINTED_FLAG) === "1"; } catch { return false; }
 }
 
+// Snapshot before any eager startup consumer can mint a key. The live flag
+// answers "has key now"; bootstrap needs "was this browser already enrolled?"
+export const persistedWebKeyAtStartup = hadKeyBefore();
+
 function markKeyMinted(): void {
   try { localStorage.setItem(KEY_MINTED_FLAG, "1"); } catch { /* private mode */ }
 }

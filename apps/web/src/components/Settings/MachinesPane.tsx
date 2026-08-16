@@ -22,6 +22,8 @@ import { formatBytes } from "../../lib/format.ts";
 import { coordinatorRole } from "../../lib/coordinatorMove.ts";
 import { coordinatorMovePhaseLabel } from "./CoordinatorMoveDialog.tsx";
 import { isPageVisible } from "../../lib/pageVisible.ts";
+import { supportedWorkerPlatform } from "../../lib/nativePath.ts";
+import { machinePlatformIcon } from "../../lib/machineActions.ts";
 import { CoordinatorMovePhase } from "@roost/shared/proto/coordinator_pb";
 
 function formatBps(bps: number): string {
@@ -175,7 +177,7 @@ function WorkerRow(props: { worker: Worker }) {
           }
         >
           <div style={{ display: "flex", "align-items": "center", gap: "var(--md-space-3)" }}>
-            <Icon name={w().os === "linux" ? "dns" : "desktop_mac"} size="lg" style={{ color: "var(--md-sys-color-primary)" }} />
+            <Icon name={machinePlatformIcon(supportedWorkerPlatform(w().os))} size="lg" style={{ color: "var(--md-sys-color-primary)" }} />
             <div style={{ flex: 1, "min-width": 0 }}>
               <div class="md-title-m" style={{ color: "var(--md-sys-color-on-surface)" }}>{w().label}</div>
               <div class="md-body-s" style={{ color: "var(--md-sys-color-on-surface-variant)" }}>

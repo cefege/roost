@@ -14,6 +14,7 @@ import { cmdPaletteOpen, closeCmdPalette } from "../lib/keyboardShortcuts.ts";
 import { isCompact } from "../lib/windowSizeClass.ts";
 import { KindBadge, CommandPaletteFooter } from "./CommandPalettePieces.tsx";
 import { type PaletteItem, matchesQuery, buildDefaultItems } from "./CommandPalette.data.ts";
+import { platformShortcutLabel } from "../lib/browserPlatform.ts";
 
 export function PaletteBody(props: { setPanelRef: (el: HTMLElement) => void }) {
   const navigate = useNavigate();
@@ -84,7 +85,7 @@ export function PaletteBody(props: { setPanelRef: (el: HTMLElement) => void }) {
         style={{ width: isCompact() ? "100%" : "560px", "max-height": isCompact() ? "90vh" : "60vh", display: "flex", "flex-direction": "column", background: "var(--md-sys-color-surface-container-high)", border: isCompact() ? "none" : "1px solid var(--md-sys-color-outline-variant)", "border-radius": isCompact() ? "var(--md-shape-xl) var(--md-shape-xl) 0 0" : "var(--md-shape-lg)", "box-shadow": "var(--md-elev-3)", overflow: "hidden", "padding-bottom": isCompact() ? "env(safe-area-inset-bottom, 0px)" : "0" }}
       >
         <div style={{ display: "flex", "align-items": "center", gap: "8px", padding: "10px 16px", "border-bottom": "1px solid var(--md-sys-color-outline-variant)" }}>
-          <span style={{ color: "var(--text-lo)", "font-size": "13px" }}>⌘</span>
+          <span style={{ color: "var(--text-lo)", "font-size": "13px" }}>{platformShortcutLabel("commandPalette", "⌘")}</span>
           <input ref={inputRef} type="text" value={query()} onInput={(e) => setQuery(e.currentTarget.value)}
             placeholder="Jump to session, workspace, or action…" data-testid="command-palette-input"
             style={{ flex: "1", background: "transparent", border: "none", outline: "none", color: "var(--text-hi)", "font-size": "var(--md-body-m-size)" }}

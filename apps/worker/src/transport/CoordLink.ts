@@ -22,21 +22,26 @@ import {
 import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
 import { ClientSeq } from "./client-seq.ts";
 import type {
-  CoordWorkerUp, CoordWorkerDown,
+  CoordWorkerUp,
+  CoordWorkerDown,
+  DInputRequest,
+  DViewportRequest,
 } from "@roost/shared/proto/worker_transport_pb";
 import type { AgentStatusUpdate, ClientControlFrame, SessionEvent } from "@roost/shared/wire";
 import { eventToProto } from "@roost/shared/wire/event-proto";
 import { log, diag, signal } from "@roost/shared";
-import { frameToProto, decodeBinaryFrame, binaryFrameToProto } from "./CoordLink-codec.ts";
+import { frameToProto, binaryFrameToProto } from "./CoordLink-codec.ts";
 import {
   BACKOFF_INITIAL_MS, BACKOFF_MULTIPLIER,
-  PENDING_CAP, STABLE_SESSION_MS, UNACKED_CAP,
+  PENDING_CAP, PENDING_BYTES_CAP, RAW_METADATA_MAX_AGE_MS,
+  WS_BUFFERED_HIGH_WATER_BYTES, WS_DRAIN_RETRY_MS,
+  STABLE_SESSION_MS, UNACKED_CAP,
   STALE_LINK_TIMEOUT_MS, STALE_CHECK_INTERVAL_MS,
   AUTH_REJECT_THRESHOLD, AUTH_REJECT_BACKOFF_CAP_MS,
   AUTH_REJECT_THRESHOLD_AFTER_OPEN, backoffCapMs,
 } from "./CoordLink-constants.ts";
-import type { CoordLinkDeps, CoordLink, UpstreamFrame, CoordLinkState } from "./CoordLink-types.ts";
-export type { CoordLinkDeps, CoordLink } from "./CoordLink-types.ts";
+import type { CoordLinkDeps, CoordLink, UpstreamFrame, CoordLinkState, TransportSendResult } from "./CoordLink-types.ts";
+export type { CoordLinkDeps, CoordLink, TransportSendResult } from "./CoordLink-types.ts";
 
 // ─── implementation ──────────────────────────────────────────────────
 
@@ -46,6 +51,11 @@ export type { CoordLinkDeps, CoordLink } from "./CoordLink-types.ts";
 // cooldown-gated) so a wedged worker is visible in `roost doctor`.
 const RECONNECT_GIVE_UP_AFTER = 10;
 let _reconnectFailures = 0;
+interface EncodedPending {
+  bytes: Uint8Array;
+  queuedAtMs: number;
+  kind: "control" | "raw";
+}
 
 export function startCoordLink(deps: CoordLinkDeps): CoordLink {
   const ttlSecs = deps.jwtTtlSecs ?? 300;
@@ -72,9 +82,19 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
   // Pending backoff dial. Held so relocate()/dispose() can cancel it — an
   // uncancelled timer means a second concurrent socket.
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-  let writer: ((f: CoordWorkerUp) => void) | null = null;
+  // `writer` accepts already-encoded bytes. Admission/backpressure checks live
+  // in tryWriteEncoded(), so every queued byte is counted exactly once.
+  let writer: ((bytes: Uint8Array) => void) | null = null;
+  let activeWs: WebSocket | null = null;
+  let linkReady = false;
   let closeStream: (() => void) | null = null;
-  const pending: Array<UpstreamFrame | { binary: Uint8Array }> = [];
+  let drainTimer: NodeJS.Timeout | null = null;
+  let pendingFrameCount = 0;
+  let pendingEncodedBytes = 0;
+  const controlPending: EncodedPending[] = [];
+  const rawPending: EncodedPending[] = [];
+  let writableNotificationPending = false;
+  let notifyingWritable = false;
   // D-4b at-least-once WITHIN A WORKER PROCESS.
   // clientSeq is fsynced (client-seq.ts) and survives restart so coord's
   // dedup key stays stable across reboots. `unacked` is in-memory only:
@@ -88,6 +108,10 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
   const snapshotRequestIds = new Map<string, string>();
   const clientSeq = new ClientSeq();
   const unacked = new Map<number, SessionEvent>();
+  // Events stay in `unacked` until the coordinator ACKs them. This separate
+  // set tracks which entries have not yet entered the current native socket;
+  // it prevents a bufferedAmount stall from replaying every already-sent event.
+  const unsentEventSeqs = new Set<number>();
 
   function setState(next: CoordLinkState): void {
     const from = state.kind;
@@ -101,36 +125,100 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
     if (refreshTimer !== null) { clearTimeout(refreshTimer); refreshTimer = null; }
   }
 
-  function scheduleRefresh(): void {
-    if (disposed) return;
-    clearRefreshTimer();
-    const refreshInMs = Math.max(1_000, (ttlSecs - 30) * 1000);
-    refreshTimer = setTimeout(async () => {
-      // T2.2 — in-band JWT rotation. Mint a new token and push it as a
-      // WRefreshJwt frame; stream stays open. If the writer is gone or
-      // mint fails, fall back to closing the stream so the reconnect
-      // path mints fresh on the next dial.
-      if (!writer) return;
-      try {
-        const jwt = await deps.mintJwt();
-        writer(create(CoordWorkerUpSchema, {
-          frame: { case: "refreshJwt", value: create(WRefreshJwtSchema, { jwt }) },
-        }));
-        log.debug("coord-link", "jwt_refreshed_inband");
-        scheduleRefresh();  // chain
-      } catch (e) {
-        log.warn("coord-link", "jwt_refresh_inband_failed", { error: (e as Error).message });
-        try { closeStream?.(); } catch { /* ignore */ }
-      }
-    }, refreshInMs);
+  function clearDrainTimer(): void {
+    if (drainTimer !== null) { clearTimeout(drainTimer); drainTimer = null; }
+  }
+
+  function encodeUpstream(frame: CoordWorkerUp): Uint8Array | null {
+    try {
+      return toBinary(CoordWorkerUpSchema, frame);
+    } catch (error) {
+      log.warn("coord-link", "upstream_encode_failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  }
+
+  function nativeHasCapacity(byteLength: number): boolean {
+    if (
+      !writer ||
+      !activeWs ||
+      activeWs.readyState !== WebSocket.OPEN ||
+      byteLength > PENDING_BYTES_CAP
+    ) return false;
+    const buffered = activeWs.bufferedAmount;
+    // Permit one large (but bounded) frame when the native queue is empty.
+    // Otherwise stop before crossing the high-water mark.
+    return buffered === 0
+      ? byteLength <= PENDING_BYTES_CAP
+      : buffered + byteLength <= WS_BUFFERED_HIGH_WATER_BYTES;
+  }
+
+  function tryWriteEncoded(bytes: Uint8Array): boolean {
+    if (!nativeHasCapacity(bytes.byteLength) || !writer) return false;
+    try {
+      writer(bytes);
+      return true;
+    } catch (error) {
+      diag("transport.frame_dropped", {
+        reason: "writer_throw",
+        kind: "encoded",
+        bytes: bytes.byteLength,
+      });
+      log.warn("coord-link", "writer_throw", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return false;
+    }
+  }
+
+  function scheduleDrain(): void {
+    if (disposed || !writer || drainTimer !== null) return;
+    drainTimer = setTimeout(drainQueues, WS_DRAIN_RETRY_MS);
+  }
+
+  function enqueueEncoded(kind: EncodedPending["kind"], bytes: Uint8Array): boolean {
+    if (
+      pendingFrameCount >= PENDING_CAP ||
+      pendingEncodedBytes + bytes.byteLength > PENDING_BYTES_CAP
+    ) {
+      diag("transport.frame_dropped", {
+        reason: pendingFrameCount >= PENDING_CAP ? "pending_frame_overflow" : "pending_byte_overflow",
+        kind,
+        frames: pendingFrameCount,
+        bytes: pendingEncodedBytes,
+        frame_bytes: bytes.byteLength,
+      });
+      return false;
+    }
+    const item: EncodedPending = { bytes, queuedAtMs: Date.now(), kind };
+    (kind === "raw" ? rawPending : controlPending).push(item);
+    pendingFrameCount += 1;
+    pendingEncodedBytes += bytes.byteLength;
+    scheduleDrain();
+    return true;
+  }
+
+  function removePendingHead(queue: EncodedPending[]): EncodedPending | undefined {
+    const item = queue.shift();
+    if (!item) return undefined;
+    pendingFrameCount -= 1;
+    pendingEncodedBytes -= item.bytes.byteLength;
+    return item;
+  }
+
+  function rawMetadataAged(now = Date.now()): boolean {
+    const oldest = rawPending[0];
+    return oldest !== undefined && now - oldest.queuedAtMs >= RAW_METADATA_MAX_AGE_MS;
   }
 
   /** Wrap a SessionEvent + client_seq into a WSessionEvent frame.
-   *  Caller is responsible for adding to unacked beforehand. */
+   * Caller is responsible for adding to unacked beforehand. */
   function encodeEventFrame(event: SessionEvent, seq: number): CoordWorkerUp | null {
     const proto = eventToProto(event, 0);
     if (!proto) {
-      log.warn("coord-link", "event_proto_encode_returned_null", { kind: (event as { kind: string }).kind });
+      log.warn("coord-link", "event_proto_encode_returned_null", { kind: event.kind });
       return null;
     }
     return create(CoordWorkerUpSchema, {
@@ -141,65 +229,219 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
     });
   }
 
-  /** Owns D-4b bookkeeping for SessionEvents. Stamps client_seq AFTER
-   *  cap-check, registers in `unacked` BEFORE writer (so writer-throw
-   *  leaves the entry registered for replay on reconnect — coord
-   *  dedups via UNIQUE INDEX). Events NEVER enter `pending` — they
-   *  live in `unacked` until acked, which dedups across reconnect for
-   *  free without `pending`-cap eviction risk.  */
+  function drainUnsentEvents(): void {
+    for (const seq of unsentEventSeqs) {
+      const event = unacked.get(seq);
+      if (!event) {
+        unsentEventSeqs.delete(seq);
+        continue;
+      }
+      const proto = encodeEventFrame(event, seq);
+      const bytes = proto ? encodeUpstream(proto) : null;
+      if (!bytes) {
+        // An unencodable event can never become sendable on reconnect.
+        unsentEventSeqs.delete(seq);
+        unacked.delete(seq);
+        signal("transport.event_drop", { dropped_seq: seq, reason: "encode", cooldownKey: "outbox" });
+        continue;
+      }
+      if (!tryWriteEncoded(bytes)) return;
+      unsentEventSeqs.delete(seq);
+    }
+  }
+
+  function drainControls(): void {
+    while (controlPending.length > 0) {
+      const item = controlPending[0]!;
+      if (!tryWriteEncoded(item.bytes)) return;
+      removePendingHead(controlPending);
+    }
+  }
+
+  function drainOneRaw(): boolean {
+    const item = rawPending[0];
+    if (!item || !tryWriteEncoded(item.bytes)) return false;
+    removePendingHead(rawPending);
+    return true;
+  }
+
+  function maybeNotifyWritable(): void {
+    if (
+      !writableNotificationPending ||
+      notifyingWritable ||
+      !linkReady ||
+      unsentEventSeqs.size > 0 ||
+      controlPending.length > 0 ||
+      !nativeHasCapacity(0)
+    ) return;
+    writableNotificationPending = false;
+    notifyingWritable = true;
+    try {
+      deps.onWritable?.();
+    } catch (error) {
+      log.warn("coord-link", "on_writable_failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      notifyingWritable = false;
+    }
+  }
+
+  function drainQueues(): void {
+    clearDrainTimer();
+    if (disposed || !writer) return;
+    // Durable/control chronology always fences cells and raw metadata. This is
+    // what preserves opened -> first full when native buffering is saturated.
+    drainUnsentEvents();
+    if (unsentEventSeqs.size > 0) {
+      scheduleDrain();
+      return;
+    }
+    // A cell that was dropped behind an earlier durable event is repaired
+    // before later RPC/control replies. This preserves opened -> first full ->
+    // spawn result even when the native socket was saturated at opened.
+    if (linkReady) {
+      maybeNotifyWritable();
+      if (writableNotificationPending) {
+        scheduleDrain();
+        return;
+      }
+    }
+    drainControls();
+    if (controlPending.length > 0) {
+      scheduleDrain();
+      return;
+    }
+    // Raw frames are held until helloAck. Authoritative repairs above lead the
+    // reconnect backlog.
+    if (!linkReady) return;
+    if (rawMetadataAged()) drainOneRaw();
+    while (rawPending.length > 0 && drainOneRaw()) { /* FIFO */ }
+    if (rawPending.length > 0 || writableNotificationPending) scheduleDrain();
+  }
+
+  function sendControlProto(frame: CoordWorkerUp): TransportSendResult {
+    const bytes = encodeUpstream(frame);
+    if (!bytes) return "dropped";
+    if (
+      unsentEventSeqs.size === 0 &&
+      controlPending.length === 0 &&
+      tryWriteEncoded(bytes)
+    ) return "sent";
+    return enqueueEncoded("control", bytes) ? "queued" : "dropped";
+  }
+
+  function scheduleRefresh(): void {
+    if (disposed) return;
+    clearRefreshTimer();
+    const refreshInMs = Math.max(1_000, (ttlSecs - 30) * 1000);
+    refreshTimer = setTimeout(async () => {
+      if (!writer) return;
+      try {
+        const jwt = await deps.mintJwt();
+        const result = sendControlProto(create(CoordWorkerUpSchema, {
+          frame: { case: "refreshJwt", value: create(WRefreshJwtSchema, { jwt }) },
+        }));
+        if (result === "dropped") throw new Error("refresh frame outbox full");
+        log.debug("coord-link", "jwt_refreshed_inband", { result });
+        scheduleRefresh();
+      } catch (error) {
+        log.warn("coord-link", "jwt_refresh_inband_failed", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        try { closeStream?.(); } catch { /* ignore */ }
+      }
+    }, refreshInMs);
+  }
+
+  /** Owns D-4b bookkeeping for SessionEvents. Events live in `unacked`
+   * until acked; unsentEventSeqs records native-socket admission. */
   function sendEvent(event: SessionEvent): boolean {
+    if (disposed) return false;
     if (unacked.size >= UNACKED_CAP) {
       const oldest = unacked.keys().next().value;
-      if (oldest !== undefined) unacked.delete(oldest);
+      if (oldest !== undefined) {
+        unacked.delete(oldest);
+        unsentEventSeqs.delete(oldest);
+      }
       log.error("coord-link", "unacked_overflow_drop", { cap: UNACKED_CAP, dropped_seq: oldest });
       signal("transport.event_drop", { dropped_seq: oldest, unacked_size: unacked.size, cooldownKey: "outbox" });
     }
     const seq = clientSeq.next();
     unacked.set(seq, event);
-    if (writer) {
-      const p = encodeEventFrame(event, seq);
-      if (p) { try { writer(p); return true; } catch { /* writer threw — entry stays in unacked, will replay on reconnect */ } }
-    }
-    return false;
+    unsentEventSeqs.add(seq);
+    if (writer) drainQueues();
+    return !unsentEventSeqs.has(seq);
   }
 
   function send(frame: UpstreamFrame): boolean {
     if (disposed) return false;
     if (frame.kind === "event") return sendEvent(frame.event);
-    if (writer) {
-      const p = frameToProto(frame);
-      if (p) { try { writer(p); return true; } catch { /* fall through */ } }
-    }
-    if (pending.length >= PENDING_CAP) { pending.shift(); diag("transport.frame_dropped", { reason: "pending_overflow", kind: frame.kind }); }
-    pending.push(frame);
-    return false;
+    const proto = frameToProto(frame);
+    return proto ? sendControlProto(proto) === "sent" : false;
   }
 
-  function sendBinary(bytes: Uint8Array | ArrayBufferView): boolean {
-    if (disposed) return false;
-    const arr = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-    const f = decodeBinaryFrame(arr);
-    if (!f) { diag("transport.frame_dropped", { reason: "binary_decode_null", kind: "binary" }); return false; }
-    if (writer) {
-      try { writer(binaryFrameToProto(f)); return true; }
-      catch { /* fall through */ }
-    }
-    if (pending.length >= PENDING_CAP) { pending.shift(); diag("transport.frame_dropped", { reason: "pending_overflow", kind: "binary" }); }
-    pending.push({ binary: arr });
-    return false;
+  function sendBinary(
+    channelId: number,
+    direction: number,
+    endSeq: number,
+    data: Uint8Array,
+  ): TransportSendResult {
+    if (disposed) return "dropped";
+    const bytes = encodeUpstream(binaryFrameToProto(channelId, direction, endSeq, data));
+    if (!bytes) return "dropped";
+    if (
+      linkReady &&
+      unsentEventSeqs.size === 0 &&
+      controlPending.length === 0 &&
+      rawPending.length === 0 &&
+      tryWriteEncoded(bytes)
+    ) return "sent";
+    return enqueueEncoded("raw", bytes) ? "queued" : "dropped";
   }
 
-  function sendCellGrid(channelId: number, frame: PbCellGridFrame): boolean {
-    if (disposed || !writer) return false;
-    const up = create(CoordWorkerUpSchema, {
+  function sendCellGrid(channelId: number, frame: PbCellGridFrame): TransportSendResult {
+    if (disposed) return "dropped";
+    if (
+      !linkReady ||
+      !writer ||
+      unsentEventSeqs.size > 0 ||
+      (controlPending.length > 0 && !notifyingWritable)
+    ) {
+      writableNotificationPending = true;
+      scheduleDrain();
+      return "dropped";
+    }
+    // Cells normally lead raw metadata. Once raw has waited 100 ms, admit one
+    // metadata frame before an ordinary delta so parser input cannot starve.
+    // Full repairs always lead reconnect backlog.
+    if (!frame.full && rawMetadataAged() && !drainOneRaw()) {
+      writableNotificationPending = true;
+      scheduleDrain();
+      return "dropped";
+    }
+    const bytes = encodeUpstream(create(CoordWorkerUpSchema, {
       frame: { case: "cellGrid", value: create(WCellGridSchema, { channelId, frame }) },
+    }));
+    if (bytes && tryWriteEncoded(bytes)) return "sent";
+    writableNotificationPending = true;
+    scheduleDrain();
+    diag("transport.frame_dropped", {
+      reason: bytes ? "native_backpressure" : "encode",
+      kind: "cellGrid",
+      channel_id: channelId,
     });
-    try { writer(up); return true; } catch { diag("transport.frame_dropped", { reason: "writer_throw", kind: "cellGrid" }); return false; }
+    return "dropped";
   }
 
   function sendAgentStatus(status: AgentStatusUpdate): boolean {
-    if (disposed || !writer) return false;
-    const up = create(CoordWorkerUpSchema, {
+    if (
+      disposed ||
+      !writer ||
+      unsentEventSeqs.size > 0 ||
+      controlPending.length > 0
+    ) return false;
+    const bytes = encodeUpstream(create(CoordWorkerUpSchema, {
       frame: { case: "agentStatus", value: create(WAgentStatusSchema, {
         sessionId: status.session_id,
         agentId: status.agent_id,
@@ -210,12 +452,8 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
         updatedAt: status.updated_at,
         active: status.active,
       }) },
-    });
-    try { writer(up); return true; }
-    catch {
-      diag("transport.frame_dropped", { reason: "writer_throw", kind: "agentStatus" });
-      return false;
-    }
+    }));
+    return bytes ? tryWriteEncoded(bytes) : false;
   }
 
 
@@ -260,12 +498,11 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
     let countersReset = false;
     let cleanedUp = false;
     let lastDownstreamAtMs = Date.now();
-    let staleTimer: ReturnType<typeof setInterval> | null = null;
+    let staleTimer: NodeJS.Timeout | null = null;
     let dialReconnected = false;
 
-    // `writer` stays null until OPEN so send()/sendBinary() take their
-    // queue-to-pending/unacked fallback rather than throwing into a
-    // not-yet-writable socket. `closeStream` is wired immediately so
+    // `writer` stays null until OPEN so sends enter the bounded encoded
+    // outbox/unacked lanes rather than touching a connecting socket.
     // dispose() / jwt-refresh-failure can tear down a connecting socket.
     closeStream = () => { try { ws.close(); } catch { /* ignore */ } };
 
@@ -274,8 +511,15 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
       if (cleanedUp) return;
       cleanedUp = true;
       clearRefreshTimer();
+      clearDrainTimer();
       if (staleTimer !== null) { clearInterval(staleTimer); staleTimer = null; }
       writer = null;
+      activeWs = null;
+      linkReady = false;
+      // Anything still awaiting an application ACK may have been lost with
+      // the native socket. Re-admit it on the next dial; coordinator dedup
+      // makes replay safe.
+      for (const seq of unacked.keys()) unsentEventSeqs.add(seq);
       closeStream = null;
       // A dial that never fired ws.onopen is not necessarily an auth
       // rejection — a 401 upgrade, a handshake timeout and a proxy 502 are
@@ -300,6 +544,22 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
       dialReconnected = hasOpened;
       hasOpened = true;
       _authRejectCount = 0;
+      linkReady = false;
+      activeWs = ws;
+      writer = (bytes: Uint8Array): void => {
+        const buffer = bytes.buffer;
+        if (buffer instanceof ArrayBuffer) {
+          ws.send(
+            bytes.byteOffset === 0 && bytes.byteLength === buffer.byteLength
+              ? buffer
+              : new Uint8Array(buffer, bytes.byteOffset, bytes.byteLength),
+          );
+          return;
+        }
+        // BufferSource excludes SharedArrayBuffer-backed views in lib.dom.
+        // Copy only at that boundary; protobuf's normal ArrayBuffer stays zero-copy.
+        ws.send(Uint8Array.from(bytes));
+      };
       scheduleRefresh();
       // Stale-link watchdog: coord pings every 30s; if the socket goes silent
       // past the timeout the backend is gone even though TCP looks alive
@@ -312,50 +572,38 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
         if (silentMs < staleTimeoutMs) return;
         log.warn("coord-link", "link_stale_no_downstream", { silent_ms: silentMs });
         try { ws.close(); } catch { /* ignore */ }
-        cleanup(); // idempotent (cleanedUp) — a late onclose no-ops
+        cleanup();
       }, deps.staleCheckIntervalMs ?? STALE_CHECK_INTERVAL_MS);
-      // Throwing writer (no swallow): if the socket isn't writable, the
-      // throw propagates to send()/sendBinary()'s catch, which keeps the
-      // frame queued for the next reconnect.
-      const w = (f: CoordWorkerUp): void => { ws.send(toBinary(CoordWorkerUpSchema, f)); };
-      writer = w;
-      // Flush in canonical order: hello → unacked replay (seq order) →
-      // pending drain. ws is OPEN here so these won't throw. D-4b: coord
-      // dedups replayed events via UNIQUE INDEX.
       try {
-        w(create(CoordWorkerUpSchema, {
-          frame: { case: "hello", value: create(WHelloSchema, { workerFp: deps.workerFp, version: deps.workerVersion }) },
+        const hello = encodeUpstream(create(CoordWorkerUpSchema, {
+          frame: { case: "hello", value: create(WHelloSchema, {
+            workerFp: deps.workerFp,
+            version: deps.workerVersion,
+          }) },
         }));
+        if (!hello || !writer) throw new Error("hello encode failed");
+        // The socket has just opened, so its native buffer is empty. Hello is
+        // the sole forced write; every application frame uses byte admission.
+        writer(hello);
         if (unacked.size > 0) {
-          const replaySeqs = Array.from(unacked.keys()).sort((a, b) => a - b);
-          log.info("coord-link", "replaying_unacked", { count: replaySeqs.length });
-          for (const seq of replaySeqs) {
-            const ev = unacked.get(seq)!;
-            const p = encodeEventFrame(ev, seq);
-            if (p) w(p);
-          }
+          for (const seq of unacked.keys()) unsentEventSeqs.add(seq);
+          log.info("coord-link", "replaying_unacked", { count: unsentEventSeqs.size });
         }
-        while (pending.length > 0) {
-          const item = pending.shift()!;
-          if ("binary" in item) {
-            const arr = (item as { binary: Uint8Array }).binary;
-            const f = decodeBinaryFrame(arr);
-            if (f) w(binaryFrameToProto(f));
-            // Malformed binary in the drain — log so the seqno-splice
-            // "unexplained gap" is at least diagnosable.
-            else log.warn("coord-link", "drain_drop_malformed_binary", { len: arr.length });
-          } else {
-            const p = frameToProto(item);
-            if (p) w(p);
-          }
-        }
+        // Events and controls may follow hello immediately. Raw metadata stays
+        // held until helloAck so authoritative cell repairs can lead it.
+        drainQueues();
         try {
           deps.onOpen?.(dialReconnected);
-        } catch (err) {
-          log.warn("coord-link", "on_open_failed", { error: err instanceof Error ? err.message : String(err) });
+        } catch (error) {
+          log.warn("coord-link", "on_open_failed", {
+            error: error instanceof Error ? error.message : String(error),
+          });
         }
-      } catch (err) {
-        log.warn("coord-link", "flush_failed", { error: (err as Error).message });
+      } catch (error) {
+        log.warn("coord-link", "flush_failed", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        try { ws.close(); } catch { /* ignore */ }
       }
     };
 
@@ -394,11 +642,16 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
     switch (k) {
       case "helloAck": {
         const ha = v as { coordPubkeyB64: string; coordPubkeyKid: string };
+        linkReady = true;
+        // SessionManager emits reconnect/full repairs synchronously from this
+        // callback. drainQueues() then releases raw metadata, preserving the
+        // repair-before-backlog boundary.
         deps.onHelloAck?.({
           coord_pubkey_b64: ha.coordPubkeyB64,
           coord_pubkey_kid: ha.coordPubkeyKid,
           reconnected,
         });
+        drainQueues();
         log.info("coord-link", "hello_ack", { coord_kid: ha.coordPubkeyKid, reconnected });
         return;
       }
@@ -420,6 +673,28 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
       case "binary": {
         const b = v as { channelId: number; direction: number; data: Uint8Array };
         deps.onBinary?.(b.channelId, b.direction, b.data);
+        return;
+      }
+      case "inputRequest": {
+        void Promise.resolve(deps.onInputRequest?.(v as DInputRequest))
+          .catch((error) => {
+            const request = v as { requestId: string };
+            log.warn("coord-link", "input_request_failed", {
+              request_id: request.requestId,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          });
+        return;
+      }
+      case "viewportRequest": {
+        void Promise.resolve(deps.onViewportRequest?.(v as DViewportRequest))
+          .catch((error) => {
+            const request = v as { requestId: string };
+            log.warn("coord-link", "viewport_request_failed", {
+              request_id: request.requestId,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          });
         return;
       }
       case "attachmentChunk": {
@@ -488,11 +763,47 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
           .catch((error) => send({ kind: "rpc-error", request_id: relocate.requestId, message: (error as Error).message }));
         return;
       }
+      case "updateBroker": {
+        const update = v as {
+          requestId: string;
+          jobId: string;
+          action: string;
+          manifestUrl: string;
+          signatureUrl: string;
+          manifestSha256: string;
+          publisherSha256: string;
+        };
+        if (update.action !== "START" && update.action !== "STATUS") {
+          send({ kind: "rpc-error", request_id: update.requestId, message: `unsupported updater action: ${update.action}` });
+          return;
+        }
+        if (!deps.onUpdateBroker) {
+          send({ kind: "rpc-error", request_id: update.requestId, message: "Windows update broker unsupported by this worker" });
+          return;
+        }
+        void Promise.resolve(deps.onUpdateBroker({
+          request_id: update.requestId,
+          job_id: update.jobId,
+          action: update.action,
+          manifest_url: update.manifestUrl,
+          signature_url: update.signatureUrl,
+          manifest_sha256: update.manifestSha256,
+          publisher_sha256: update.publisherSha256,
+        })).then((progress) => {
+          for (const frame of progress) send({ kind: "update-progress", ...frame });
+          const lastSequence = progress.length > 0 ? progress[progress.length - 1]!.sequence : 0;
+          send({ kind: "rpc-ok", request_id: update.requestId, data: { last_sequence: lastSequence } });
+        }).catch((error) => {
+          send({ kind: "rpc-error", request_id: update.requestId, message: (error as Error).message });
+        });
+        return;
+      }
       case "eventAck": {
         // D-4b: drop the acked entry from the unacked outbox so it
         // doesn't replay on the next reconnect.
         const seq = Number((v as { clientSeq: bigint }).clientSeq);
         unacked.delete(seq);
+        unsentEventSeqs.delete(seq);
         return;
       }
     }
@@ -552,6 +863,13 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
     disposed = true;
     if (reconnectTimer !== null) { clearTimeout(reconnectTimer); reconnectTimer = null; }
     clearRefreshTimer();
+    clearDrainTimer();
+    controlPending.length = 0;
+    rawPending.length = 0;
+    pendingFrameCount = 0;
+    pendingEncodedBytes = 0;
+    unsentEventSeqs.clear();
+    unacked.clear();
     try { closeStream?.(); } catch { /* ignore */ }
     setState({ kind: "closed" });
   }

@@ -37,6 +37,21 @@ describe("terminalHref URL builders", () => {
   test("terminalHref builds /t/<fp>/<encoded folder>", () => {
     expect(terminalHref(sess({}))).toBe(`/t/${FP}/Users/you/roost`);
   });
+  test("Windows drive and UNC folders use explicit reversible route tags", () => {
+    const drive = "C:/Users/Ada/My Folder";
+    const unc = "//fileserver/team/Build Artifacts";
+    expect(encodeFolderPath(drive)).toBe("~drive/C/Users/Ada/My%20Folder");
+    expect(decodeFolderPath(encodeFolderPath(drive))).toBe(drive);
+    expect(encodeFolderPath(unc)).toBe("~unc/fileserver/team/Build%20Artifacts");
+    expect(decodeFolderPath(encodeFolderPath(unc))).toBe(unc);
+  });
+
+  test("terminalHref tags a caller session's Windows drive path", () => {
+    expect(terminalHref(sess({
+      cwd: "D:/src/roost",
+      spawn_cwd: "D:/src/roost",
+    }))).toBe(`/t/${FP}/~drive/D/src/roost`);
+  });
 
   test("falls back to /s/<id> when spawn_cwd is absent", () => {
     const s = sess({ id: asSessionId("00000000-0000-4000-8000-000000000009") });

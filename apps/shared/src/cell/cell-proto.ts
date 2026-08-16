@@ -36,11 +36,12 @@ export function cellFrameToProto(f: CellGridFrame, sessionId: string): PbCellGri
   });
 }
 
-function _spanFromProto(s: PbCellSpan): CellSpan {
-  return { text: s.text, fg: s.fg, bg: s.bg, flags: s.flags, fgRgb: s.fgRgb, bgRgb: s.bgRgb };
-}
+/** Inbound protobuf rows are transferred to the cell model without rebuilding
+ * row/span objects. The sync dispatcher owns the decoded message and hands that
+ * ownership to exactly one renderer, so the structurally compatible arrays can
+ * be reused safely. */
 export function cellRowFromProto(r: PbCellRow): CellRow {
-  return { index: r.index, spans: r.spans.map(_spanFromProto) };
+  return r;
 }
 
 export function protoToCellFrame(p: PbCellGridFrame): CellGridFrame {
@@ -49,9 +50,38 @@ export function protoToCellFrame(p: PbCellGridFrame): CellGridFrame {
     cols: p.cols, rows: p.rows,
     cursorRow: p.cursorRow, cursorCol: p.cursorCol, cursorVisible: p.cursorVisible,
     altScreen: p.altScreen, cursorKeysApp: p.cursorKeysApp, bracketedPaste: p.bracketedPaste, full: p.full,
-    viewportRows: p.viewportRows.map(cellRowFromProto),
-    scrollbackRows: p.scrollbackRows.map(cellRowFromProto),
-    scrollbackAppend: p.scrollbackAppend.map(cellRowFromProto),
+    viewportRows: p.viewportRows,
+    scrollbackRows: p.scrollbackRows,
+    scrollbackAppend: p.scrollbackAppend,
+    scrollbackTotal: Number(p.scrollbackTotal),
+    sbBase: Number(p.sbBase),
+    seq: Number(p.seq),
+  };
+}
+
+/** Explicit deep-copy adapter for tests or exceptional callers that must retain
+ * a frame independently of the decoded protobuf message. Production rendering
+ * uses protoToCellFrame's ownership transfer instead. */
+export function deepCloneCellFrameFromProto(p: PbCellGridFrame): CellGridFrame {
+  const cloneRows = (rows: readonly PbCellRow[]): CellRow[] => rows.map((row) => ({
+    index: row.index,
+    spans: row.spans.map((span) => ({
+      text: span.text,
+      fg: span.fg,
+      bg: span.bg,
+      flags: span.flags,
+      fgRgb: span.fgRgb,
+      bgRgb: span.bgRgb,
+    })),
+  }));
+  return {
+    gridEpoch: p.gridEpoch,
+    cols: p.cols, rows: p.rows,
+    cursorRow: p.cursorRow, cursorCol: p.cursorCol, cursorVisible: p.cursorVisible,
+    altScreen: p.altScreen, cursorKeysApp: p.cursorKeysApp, bracketedPaste: p.bracketedPaste, full: p.full,
+    viewportRows: cloneRows(p.viewportRows),
+    scrollbackRows: cloneRows(p.scrollbackRows),
+    scrollbackAppend: cloneRows(p.scrollbackAppend),
     scrollbackTotal: Number(p.scrollbackTotal),
     sbBase: Number(p.sbBase),
     seq: Number(p.seq),

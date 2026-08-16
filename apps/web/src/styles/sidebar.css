@@ -997,19 +997,11 @@ aside[data-testid="sidebar-drawer"]::-webkit-scrollbar-thumb:hover,
 }
 
 /* Terminal palette bridge → Roost theme engine.
-   @wterm/dom scopes --term-bg/fg/cursor + --term-color-0..15 to .wterm
-   (package src/terminal.css), which SHADOWS the theme tokens the engine
-   (lib/theme.ts) writes on documentElement. We re-point each wterm var
-   at Roost's canonical token here so the grid repaints in lockstep with
-   the rest of the SPA on every theme switch. Source aliases live in
-   theme-vars.css (:root --term-color-N → --ansi-*, --terminal-grid-bg/fg,
-   --terminal-cursor). renderer.js emits inline var() per cell, so a CSS
-   var change reflows live DOM with no re-render — switching is automatic.
-   --terminal-grid-bg/fg are distinct names to avoid a self-collision
-   against wterm's own --term-bg/--term-fg at this same .wterm scope.
-   Structural (non-palette) overrides also kept here:
-   - JBM Nerd Font so terminal and shell icon glyphs render.
-   - padding + zero border so the canvas fills our pane edge-to-edge. */
+   Cell spans use --term-color-0..15; point those names at the canonical theme
+   tokens so an existing grid repaints without rebuilding row DOM.
+   --terminal-grid-bg/fg avoid self-references at this scoped .wterm boundary.
+   Structural terminal styles live here too: Nerd Font glyph support, pane
+   containment, padding, scrolling, and the pane-local input surface. */
 .wterm {
   --term-bg: var(--terminal-grid-bg);
   --term-fg: var(--terminal-grid-fg);
@@ -1049,25 +1041,38 @@ aside[data-testid="sidebar-drawer"]::-webkit-scrollbar-thumb:hover,
   height: 100%;
   box-sizing: border-box;
   padding: 12px 16px;
-  /* 2026-06-16: wterm renders scrollback as .term-scrollback-row DOM
-   * elements above the live grid (verified: getScrollbackCount=245,
-   * scrollHeight=5158 vs clientHeight=976 after writing 300 lines).
-   * Without overflow-y the rows are clipped + the user can't scroll
-   * up to see history. Author 2026-06-16: "THERE IS NO SCROLL".
-   * scrollbar-gutter: stable reserves the scrollbar's width even when
-   * the scrollbar is hidden. Without it, the scrollbar's appearance/
-   * disappearance on each scrollback write flips container contentRect
-   * width by ~15px → ResizeObserver fires → fitWterm calls wterm.resize
-   * at a different cols → emits a new claim → SCD round-trip → refetch
-   * writes scrollback → scrollbar flips again → infinite spazz loop on
-   * multi-viewer drag-resize. Author 2026-06-17. */
+  /* Scrollback rows live above the viewport. A stable gutter prevents its
+   * appearance from changing the content width, triggering a resize claim,
+   * and feeding a claim/repaint loop during multi-viewer drag-resize. */
   overflow-y: auto;
   overflow-x: hidden;
   scrollbar-gutter: stable;
 }
 
-/* Theme the text-selection tint (package terminal.css hardcodes a blue
-   rgba(86,156,214,0.3)); point it at the active theme's selection token. */
+/* Pane-local terminal keyboard/IME surface. It remains focusable (unlike
+   display:none/visibility:hidden) while contributing no grid nodes or layout.
+   One textarea belongs to each pane so focus, selection and composition state
+   can never leak across parked tabs. */
+.terminal-input {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  overflow: hidden;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  outline: none;
+  resize: none;
+  pointer-events: none;
+  caret-color: transparent;
+  color: transparent;
+  background: transparent;
+}
+
+/* Theme the terminal text-selection tint. */
 .wterm ::selection {
   background: var(--terminal-selection);
 }

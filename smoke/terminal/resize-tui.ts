@@ -30,7 +30,7 @@ function draw(): void {
 
 process.stdout.write(`${ESC}[?1049h${ESC}[?25l`);
 draw();
-process.on("SIGWINCH", draw);
+process.stdout.on("resize", draw);
 process.on("SIGTERM", () => { restore(); process.exit(0); });
 process.on("SIGINT", () => { restore(); process.exit(0); });
 process.on("exit", restore);

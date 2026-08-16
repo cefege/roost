@@ -4,6 +4,8 @@ import { startTerminalTestStack, type TerminalTestStack, type TerminalTestWorker
 
 type Fixtures = {
   smokePage: Page;
+  /** Fresh about:blank context: no Roost HTML/assets/modules have loaded. */
+  coldSmokePage: Page;
   mobileSmokePage: Page;
   multiWorkerSmokePage: Page;
 };
@@ -43,6 +45,12 @@ async function useSmokePage(
     if (testInfo.status !== testInfo.expectedStatus) {
       await testInfo.attach("coord.log", { body: readFileSync(stack.coordLogPath), contentType: "text/plain" });
       await testInfo.attach("worker.log", { body: readFileSync(stack.workerLogPath), contentType: "text/plain" });
+      if (existsSync(stack.ptyFixtureWorkerLogPath)) {
+        await testInfo.attach("pty-fixture-worker.log", {
+          body: readFileSync(stack.ptyFixtureWorkerLogPath),
+          contentType: "text/plain",
+        });
+      }
       if (existsSync(stack.secondWorkerLogPath)) {
         await testInfo.attach("second-worker.log", {
           body: readFileSync(stack.secondWorkerLogPath),
@@ -52,6 +60,47 @@ async function useSmokePage(
     }
     await page.evaluate(async () => {
       const smoke = (window as unknown as Window & { __smoke?: { forceVisible(on: boolean): void; cleanupCreated(): Promise<unknown> } }).__smoke;
+      smoke?.forceVisible(false);
+      await smoke?.cleanupCreated();
+    }).catch(() => undefined);
+    await context.close();
+  }
+}
+
+async function useColdSmokePage(
+  browser: Browser,
+  stack: TerminalTestStack,
+  use: (page: Page) => Promise<void>,
+  testInfo: TestInfo,
+): Promise<void> {
+  const context = await browser.newContext();
+  await context.addInitScript(() => {
+    localStorage.setItem("roostSmoke", "1");
+    localStorage.setItem("roost.whatsNew.lastSeenVersion", "2.0.0");
+    const driverEpoch = Number(new URL(location.href).searchParams.get("__roost_driver_nav"));
+    if (Number.isFinite(driverEpoch) && driverEpoch > 0) {
+      (window as Window & { __roostDriverBeforeNavigationEpochMs?: number })
+        .__roostDriverBeforeNavigationEpochMs = driverEpoch;
+    }
+  });
+  const page = await context.newPage();
+  try {
+    await use(page);
+  } finally {
+    if (testInfo.status !== testInfo.expectedStatus) {
+      await testInfo.attach("coord.log", { body: readFileSync(stack.coordLogPath), contentType: "text/plain" });
+      await testInfo.attach("worker.log", { body: readFileSync(stack.workerLogPath), contentType: "text/plain" });
+      if (existsSync(stack.ptyFixtureWorkerLogPath)) {
+        await testInfo.attach("pty-fixture-worker.log", {
+          body: readFileSync(stack.ptyFixtureWorkerLogPath),
+          contentType: "text/plain",
+        });
+      }
+    }
+    await page.evaluate(async () => {
+      const smoke = (window as Window & {
+        __smoke?: { forceVisible(on: boolean): void; cleanupCreated(): Promise<unknown> };
+      }).__smoke;
       smoke?.forceVisible(false);
       await smoke?.cleanupCreated();
     }).catch(() => undefined);
@@ -74,6 +123,9 @@ export const test = base.extend<Fixtures, WorkerFixtures>({
   }, { scope: "worker" }],
   smokePage: async ({ browser, stack }, use, testInfo) => {
     await useSmokePage(browser, stack, use, testInfo);
+  },
+  coldSmokePage: async ({ browser, stack }, use, testInfo) => {
+    await useColdSmokePage(browser, stack, use, testInfo);
   },
   multiWorkerSmokePage: async ({ browser, stack, secondWorker }, use, testInfo) => {
     await useSmokePage(browser, stack, use, testInfo, undefined, [stack.workerFp, secondWorker.workerFp]);

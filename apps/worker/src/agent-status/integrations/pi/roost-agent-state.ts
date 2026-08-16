@@ -1,16 +1,15 @@
 // Roost-owned integration adapted from Herdr at commit
 // eacea2daf0b72973173b728936b27478374f2cd2 (Apache-2.0).
-// ROOST_INTEGRATION_ID=pi ROOST_INTEGRATION_VERSION=1
+// ROOST_INTEGRATION_ID=pi ROOST_INTEGRATION_VERSION=2
 // @ts-nocheck
 
 import net from "node:net";
-import { homedir } from "node:os";
-import { join } from "node:path";
 
-const socketPath = process.env.ROOST_AGENT_SOCKET_PATH
-  || join(homedir(), ".roost", "agent-report.sock");
-const sessionId = process.env.ROOST_SESSION_ID || undefined;
-const disabled = process.env.ROOST_AGENT_STATUS_DISABLED === "1";
+const endpoint = process.env.ROOST_AGENT_ENDPOINT;
+const capability = process.env.ROOST_AGENT_CAPABILITY;
+const sessionId = process.env.ROOST_SESSION_ID;
+const disabled = process.env.ROOST_AGENT_STATUS_DISABLED === "1"
+  || !endpoint || !capability || !sessionId;
 const parsedHeartbeatMs = Number.parseInt(process.env.ROOST_AGENT_HEARTBEAT_MS ?? "", 10);
 const heartbeatMs = Number.isFinite(parsedHeartbeatMs) && parsedHeartbeatMs >= 0
   ? parsedHeartbeatMs : 10_000;
@@ -38,6 +37,7 @@ function sendAttempt(report: QueuedReport, timeoutMs: number): Promise<boolean> 
   if (disabled) return Promise.resolve(true);
   const request = {
     version: 1,
+    capability,
     method: "agent.report",
     params: {
       session_id: sessionId,
@@ -50,7 +50,7 @@ function sendAttempt(report: QueuedReport, timeoutMs: number): Promise<boolean> 
     },
   };
   const { promise, resolve } = Promise.withResolvers<boolean>();
-  const socket = net.createConnection(socketPath);
+  const socket = net.createConnection(endpoint);
   let settled = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const finish = (delivered: boolean) => {

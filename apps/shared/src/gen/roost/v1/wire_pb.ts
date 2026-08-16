@@ -83,7 +83,7 @@ export type Worker = Message<"roost.v1.Worker"> & {
   label: string;
 
   /**
-   * "darwin" | "linux"
+   * "darwin" | "linux" | "win32"
    *
    * @generated from field: string os = 3;
    */

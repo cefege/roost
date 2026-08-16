@@ -15,7 +15,11 @@ import { join, basename } from "node:path";
 import { deploy } from "./deploy.ts";
 import { resolveTailscale, ensureTailscale, statusReport, printStatusReport } from "./status.ts";
 import { ROOST_VERSION } from "./version.ts";
-import { installCoordAgent, installWorkerAgent } from "./install-binary-agents.ts";
+import {
+  installCoordAgent,
+  installWorkerAgent,
+  readWindowsServiceCredentials,
+} from "./install-binary-agents.ts";
 import { coordDataDir } from "@roost/shared/paths";
 
 const COORD_DATA_DIR = coordDataDir();
@@ -141,13 +145,20 @@ function mintCert(fqdn: string, force: boolean): void {
     // AFTER this — so take it here, best-effort, or a fresh box dies before the
     // thing that would have fixed it ever runs. `sudo -n` fails without cached
     // credentials; the cert call below is the real test either way.
-    if (process.platform !== "darwin") {
-      runCapture(["sudo", "-n", "tailscale", "set", `--operator=${userInfo().username}`]);
+    switch (process.platform) {
+      case "linux":
+        runCapture(["sudo", "-n", "tailscale", "set", `--operator=${userInfo().username}`]);
+        break;
+      case "darwin":
+      case "win32":
+        break;
+      default:
+        throw new Error(`unsupported quickstart platform: ${process.platform}`);
     }
     const cert = runCapture(["tailscale", "cert", "--cert-file", certPath, "--key-file", keyPath, fqdn]);
     if (cert.exit !== 0 && !existsSync(certPath)) {
       const detail = cert.stderr.trim() || cert.stdout.trim();
-      if (process.platform === "darwin") {
+      if (process.platform !== "linux") {
         die(`tailscale cert failed: ${detail}`,
           "HTTPS is required (browsers need a secure context off localhost).");
       }
@@ -199,9 +210,29 @@ async function waitForCoordHealth(fqdn: string, timeoutMs = 15_000): Promise<boo
 
 export async function quickstart(args: string[]): Promise<void> {
   const force = args.includes("--force");
-  const dry = args.includes("--dry-run"); // generate plists only; no cert/launchctl/browser
-  const binary = basename(process.execPath) !== "bun"; // compiled `roost` vs `bun … main.ts`
-
+  const dry = args.includes("--dry-run"); // generate service definitions only
+  const binary = basename(process.execPath).toLocaleLowerCase("en-US") !== "bun"
+    && basename(process.execPath).toLocaleLowerCase("en-US") !== "bun.exe";
+  switch (process.platform) {
+    case "darwin":
+    case "linux":
+    case "win32":
+      break;
+    default:
+      throw new Error(`unsupported quickstart platform: ${process.platform}`);
+  }
+  if (process.platform === "win32" && !binary) {
+    die("Windows quickstart requires the signed compiled release", "run install-binary.ps1");
+  }
+  const serviceCredentials = process.platform === "win32" && !dry
+    ? args.includes("--windows-service-credential-stdin")
+      ? await readWindowsServiceCredentials()
+      : die(
+        "Windows service credential frame is required",
+        "run quickstart through the signed install-binary.ps1 front door",
+      )
+    : undefined;
+  try {
   // 1. Tailscale gate (interactive; skipped for --dry-run).
   let fqdn: string;
   if (dry) {
@@ -226,6 +257,14 @@ export async function quickstart(args: string[]): Promise<void> {
     console.log(`   tailnet: ${fqdn}`);
   }
   const coordUrl = `https://${fqdn}:4102`;
+  const windowsCoordinatorEnvironment = process.platform === "win32"
+    ? {
+      ROOST_COORDINATOR_BIND: "0.0.0.0:4102",
+      ROOST_COORDINATOR_PUBLIC_URL: coordUrl,
+      ROOST_TLS_CERT_PATH: join(COORD_TLS_DIR, `${fqdn}.crt`),
+      ROOST_TLS_KEY_PATH: join(COORD_TLS_DIR, `${fqdn}.key`),
+    }
+    : undefined;
 
   if (binary) {
     // Compiled binary: SPA + migrations embedded, no repo. Skip bun install +
@@ -236,12 +275,14 @@ export async function quickstart(args: string[]): Promise<void> {
     if (!dry) mintCert(fqdn, force);
     await installCoordAgent({
       execPath: process.execPath, gitSha: ROOST_VERSION,
-      cmd: dry ? "write-plist" : "install", log: logStep,
+      cmd: dry ? "write-plist" : "install", credentials: serviceCredentials,
+      env: windowsCoordinatorEnvironment, log: logStep,
     });
     if (dry) {
       await installWorkerAgent({
         execPath: process.execPath, coordUrl, gitSha: ROOST_VERSION,
-        cmd: "write-plist", log: logStep,
+        cmd: "write-plist", coordinatorHost: true,
+        coordinatorEnvironment: windowsCoordinatorEnvironment, log: logStep,
       });
       console.log(`\n✓ --dry-run complete (service definitions generated; nothing installed).`);
       return;
@@ -256,7 +297,9 @@ export async function quickstart(args: string[]): Promise<void> {
     const workerToken = mintWorkerToken(`quickstart-${fqdn}`);
     await installWorkerAgent({
       execPath: process.execPath, coordUrl, bootstrapToken: workerToken,
-      gitSha: ROOST_VERSION, cmd: "install", log: logStep,
+      gitSha: ROOST_VERSION, cmd: "install", coordinatorHost: true,
+      coordinatorEnvironment: windowsCoordinatorEnvironment,
+      credentials: serviceCredentials, log: logStep,
     });
   } else {
     // From source: deps + build + the on-disk install scripts.
@@ -308,7 +351,19 @@ export async function quickstart(args: string[]): Promise<void> {
   logStep("opening the app (browser self-authorizes via #pair)");
   const token = mintBrowserToken(`quickstart-${fqdn}`);
   const openUrl = `${coordUrl}/#pair=${encodeURIComponent(token)}`;
-  await runInherit([process.platform === "linux" ? "xdg-open" : "open", openUrl]);
+  switch (process.platform) {
+    case "linux":
+      await runInherit(["xdg-open", openUrl]);
+      break;
+    case "darwin":
+      await runInherit(["open", openUrl]);
+      break;
+    case "win32":
+      await runInherit(["explorer.exe", openUrl]);
+      break;
+    default:
+      throw new Error(`unsupported quickstart platform: ${process.platform}`);
+  }
 
   const shim = binary ? null : installRoostShim(process.cwd());
   console.log(`\n✓ Roost is running.`);
@@ -320,5 +375,8 @@ export async function quickstart(args: string[]): Promise<void> {
     console.log(`  Health anytime:  ${shim.path} status   (add ~/.bun/bin to PATH for bare \`roost\`)`);
   } else {
     console.log(`  Health anytime:  bun apps/roost-cli/src/main.ts status`);
+  }
+  } finally {
+    if (serviceCredentials) serviceCredentials.password = undefined;
   }
 }

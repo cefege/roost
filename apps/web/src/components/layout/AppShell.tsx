@@ -15,6 +15,7 @@ import { EDGE_PX, lockAxis, openOffsetPx, shouldOpen, closeOffsetPx, shouldClose
 import { registerDrawer, dragDrawer, settleDrawerOpen, settleDrawerClose } from "../../lib/drawerDrag.ts";
 import { attachElasticOverscroll } from "../../lib/overscroll.ts";
 import { composerActive, composerHeightPx } from "../TerminalComposeButton.tsx";
+import { matchesPlatformShortcut } from "../../lib/browserPlatform.ts";
 
 // ─── inline CSS helpers ─────────────────────────────────────────────────
 // Style objects are evaluated once; any dynamic value must live in JSX
@@ -191,14 +192,12 @@ export function AppShell(props: ParentProps) {
     if (isMobile()) closeSidebar();
   }, { defer: true }));
 
-  // ⌘B / Ctrl+B toggles the desktop sidebar collapse.
+  // Platform map keeps macOS/Linux behavior and moves Windows off plain Ctrl+B.
   function onKeyDown(e: KeyboardEvent) {
     if (e.defaultPrevented) return;
-
-    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "b" && !e.shiftKey) {
-      e.preventDefault();
-      toggleSidebarCollapsed();
-    }
+    if (!matchesPlatformShortcut(e, "toggleSidebar")) return;
+    e.preventDefault();
+    toggleSidebarCollapsed();
   }
 
   // ── Left-edge swipe-to-open the mobile drawer ──────────────────────────

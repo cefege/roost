@@ -5,10 +5,17 @@ const BP_START = "\x1b[200~";
 const BP_END = "\x1b[201~";
 const ESC = "\x1b";
 
+/** PTYs consume Enter as CR. Normalize every clipboard/editor line ending in
+ * one pass so Windows CRLF never becomes two terminal Enters. */
+export function normalizeTerminalNewlines(text: string): string {
+  return text.replace(/\r\n|\r|\n/g, "\r");
+}
+
 export function buildPtyPayload(text: string, bracketedPaste: boolean): Uint8Array {
+  const normalized = normalizeTerminalNewlines(text);
   const payload = bracketedPaste
-    ? `${BP_START}${text.replaceAll(ESC, "")}${BP_END}`
-    : text;
+    ? `${BP_START}${normalized.replaceAll(ESC, "")}${BP_END}`
+    : normalized;
   return new TextEncoder().encode(payload);
 }
 

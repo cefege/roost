@@ -8,33 +8,38 @@ import { DIR_FROM_PTY } from "@roost/shared/wire";
 import { nextCellFrame, SB_SNAPSHOT_HISTORY_ROWS } from "@roost/shared/cell";
 import { cellFrameToProto } from "@roost/shared/cell/cell-proto";
 import type { MuxChannelCallbacks } from "./keeper/multiplexed-client.ts";
+import type { TransportSendResult } from "./transport/CoordLink-types.ts";
 import {
 	RECENTLY_CLOSED_TTL_MS,
 	KEEPER_DEGRADED_WINDOW_MS,
 	KEEPER_DEGRADED_THRESHOLD,
 	CELL_EMIT_COALESCE_MS,
+	RAW_METADATA_COALESCE_MS,
+	RAW_METADATA_CHANNEL_CAP_BYTES,
+	RAW_METADATA_AGGREGATE_CAP_BYTES,
 } from "./session-constants.ts";
 
 
-// Leading-edge sentinel: marks a microtask-queued cell emit in cellEmitTimers.
-// clearTimeout(LEADING_SENTINEL) is a no-op (coerces to NaN), so existing
-// clearTimeout calls on a pending sentinel are safe.
-const LEADING_SENTINEL = -1 as unknown as ReturnType<typeof setTimeout>;
+// Leading-edge sentinel shared by the cell and raw-metadata governors.
+const LEADING_SENTINEL = -1 as unknown as NodeJS.Timeout;
 
 // phase-ssb7: emitScrollbackMark + DIR_SCROLLBACK_MARK deleted.
 // Splice ordering is now per-byte end_seq on each FROM_PTY frame
 // (attachOutputClient.onOutput below). See CLAUDE.md L11 "scrollback
 // seam torn" row.
 
-/** Compose the upstream binary frame for a PTY chunk.
- *  Wire format: [u16 BE channelId][u8 DIR_FROM_PTY][u64 BE endSeq][bytes].
- *  Shared by attachOutputClient's legacy keeper callback AND
- *  muxCallbacks' pool keeper callback so any wire-format change
- *  lands in one place — guards the L11 scrollback-seam path. */
+/** Ingest one PTY chunk. All scrollback/grid consumers run synchronously
+ * before the pooled keeper buffer can be reused. Raw metadata gets one
+ * deliberate defensive copy because its send is deferred. */
 export function emitUpstreamChunk(this: SessionManager, channelId: number, chunk: Buffer): void {
+	const postResize = this.postResizeOutput.get(channelId);
+	if (postResize) {
+		// Keeper/socket buffers are pooled; own bytes retained across the async
+		// core rebuild and preserve post-boundary order.
+		postResize.push(Buffer.from(chunk));
+		return;
+	}
 	const rec = this.sessions.get(channelId);
-	// Oldest unrendered byte of the burst — the instant latency actually starts.
-	// emitCellFrame consumes and clears it.
 	if (rec && rec.lastPtyOutMs === 0) rec.lastPtyOutMs = Date.now();
 	diag("cell.recv", { sid: String(rec?.sessionId ?? ""), channel_id: channelId, len: chunk.length });
 	if (!this.sendBinaryUpstream) {
@@ -46,10 +51,6 @@ export function emitUpstreamChunk(this: SessionManager, channelId: number, chunk
 	}
 	const endSeq = this.appendScrollback(channelId, chunk);
 	if (endSeq < 0) {
-		// Post-close tail: bytes for a channel we deleted < RECENTLY_CLOSED_TTL_MS
-		// ago. Benign (keeper is a separate process; in-flight frames arrive after
-		// teardown). Drop silently — do NOT count toward _noSessionBurst, or the
-		// tail re-trips keeper.degraded after every reconcile → restart loop.
 		const closedAt = this.recentlyClosed.get(channelId);
 		if (
 			closedAt !== undefined &&
@@ -62,10 +63,6 @@ export function emitUpstreamChunk(this: SessionManager, channelId: number, chunk
 			channelId,
 			len: chunk.length,
 		});
-		// Burst of emit_no_session PAST the tail window = the keeper is emitting on
-		// channels this worker no longer maps — the degraded survivor-keeper class
-		// (births dead PTYs after a long uptime; CLAUDE.md keeper-death memory).
-		// Promote a sustained burst to a Tier-1 signal so `roost doctor` flags it.
 		this._noSessionBurst.push(Date.now());
 		const cutoff = Date.now() - KEEPER_DEGRADED_WINDOW_MS;
 		while (this._noSessionBurst.length && this._noSessionBurst[0]! < cutoff)
@@ -76,34 +73,157 @@ export function emitUpstreamChunk(this: SessionManager, channelId: number, chunk
 				window_ms: KEEPER_DEGRADED_WINDOW_MS,
 				cooldownKey: "keeper",
 			});
-			// Self-heal: ask the worker to restart the keeper (grace-gated in main.ts
-			// so the transient post-reconcile burst can't loop).
 			this.onKeeperDegraded?.();
 		}
-		return; // session killed mid-output
+		return;
 	}
-	const frame = Buffer.allocUnsafe(11 + chunk.length);
-	frame.writeUInt16BE(channelId, 0);
-	frame[2] = DIR_FROM_PTY;
-	frame.writeBigUInt64BE(BigInt(endSeq), 3);
-	chunk.copy(frame, 11);
-	this.sendBinaryUpstream(
-		new Uint8Array(frame.buffer, frame.byteOffset, frame.length),
-	);
-	log.debug("session-manager", "emit_upstream", {
-		channelId,
-		len: chunk.length,
-		endSeq,
-	});
 	this.onTerminalChanged?.(channelId);
-	// R11 — emit the cell-grid delta for this chunk (appendScrollback above
-	// already wrote the bytes into rec.wtermCore, so the grid + dirty rows
-	// are current). Parallel to bytes; gated off by default. Phase-3: coalesce
-	// — a burst of chunks emits ONE delta to the latest grid, not one per chunk.
-	// B (draw only to attached clients): skip the delta when NO viewer is
-	// watching — the grid still updates in wtermCore, and a viewer attaching
-	// re-claims → emitCellSnapshot repaints the whole grid.
-	if (this._hasActiveViewer(channelId)) this._scheduleCellEmit(channelId);
+	// Consume exactly once on the first returning chunk, even when no viewer is
+	// attached. With a viewer, this promotes the echo past an armed trailing
+	// timer; later output remains on the ordinary 16 ms cadence.
+	const promoteInputEcho = this.inputSensitiveChannels.delete(channelId);
+	if (this._hasActiveViewer(channelId)) {
+		this._scheduleCellEmit(channelId, promoteInputEcho);
+	}
+	// Schedule cells first. Its leading microtask/timer is therefore registered
+	// ahead of the lower-priority raw metadata lane.
+	this._enqueueRawMetadata(channelId, endSeq, chunk);
+}
+
+/** Stage coordinator-only raw bytes with strict per-channel and aggregate
+ * bounds. The copy is required: Bun may reuse the PTY/ConPTY callback buffer
+ * after this synchronous callback returns. */
+export function _enqueueRawMetadata(
+	this: SessionManager,
+	channelId: number,
+	endSeq: number,
+	chunk: Buffer,
+): void {
+	let queue = this.rawMetadataQueues.get(channelId);
+	if (!queue) {
+		queue = { frames: [], bytes: 0 };
+		this.rawMetadataQueues.set(channelId, queue);
+	}
+	if (
+		chunk.byteLength > RAW_METADATA_CHANNEL_CAP_BYTES ||
+		queue.bytes + chunk.byteLength > RAW_METADATA_CHANNEL_CAP_BYTES ||
+		this.rawMetadataQueuedBytes + chunk.byteLength > RAW_METADATA_AGGREGATE_CAP_BYTES
+	) {
+		diag("transport.frame_dropped", {
+			reason: "raw_metadata_stage_overflow",
+			kind: "raw",
+			channel_id: channelId,
+			channel_bytes: queue.bytes,
+			aggregate_bytes: this.rawMetadataQueuedBytes,
+			frame_bytes: chunk.byteLength,
+		});
+		signal("transport.raw_metadata_drop", {
+			channel_id: channelId,
+			reason: "stage_overflow",
+			cooldownKey: String(channelId),
+		});
+		return;
+	}
+	const stableBytes = Uint8Array.from(chunk);
+	queue.frames.push({ endSeq, bytes: stableBytes });
+	queue.bytes += stableBytes.byteLength;
+	this.rawMetadataQueuedBytes += stableBytes.byteLength;
+	if (this.rawMetadataTimers.has(channelId)) return;
+	this.rawMetadataTimers.set(channelId, LEADING_SENTINEL);
+	queueMicrotask(() => {
+		this.rawMetadataTimers.delete(channelId);
+		if (!this.sessions.has(channelId)) {
+			this._disposeOutputState(channelId);
+			return;
+		}
+		_flushRawMetadata.call(this, channelId);
+		_armRawMetadata.call(this, channelId);
+	});
+}
+
+function _flushRawMetadata(this: SessionManager, channelId: number): void {
+	const queue = this.rawMetadataQueues.get(channelId);
+	const send = this.sendBinaryUpstream;
+	if (!queue || !send) return;
+	while (queue.frames.length > 0) {
+		const frame = queue.frames[0]!;
+		let result: TransportSendResult;
+		try {
+			result = send(channelId, DIR_FROM_PTY, frame.endSeq, frame.bytes) ?? "sent";
+		} catch (error) {
+			log.warn("session-manager", "raw_sink_throw", {
+				channelId,
+				error: error instanceof Error ? error.message : String(error),
+			});
+			result = "dropped";
+		}
+		if (result === "dropped") {
+			const droppedFrames = queue.frames.length;
+			const droppedBytes = queue.bytes;
+			queue.frames.length = 0;
+			queue.bytes = 0;
+			this.rawMetadataQueuedBytes -= droppedBytes;
+			diag("transport.frame_dropped", {
+				reason: "coordlink_raw_drop",
+				kind: "raw",
+				channel_id: channelId,
+				frames: droppedFrames,
+				bytes: droppedBytes,
+			});
+			signal("transport.raw_metadata_drop", {
+				channel_id: channelId,
+				reason: "coordlink_outbox",
+				cooldownKey: String(channelId),
+			});
+			return;
+		}
+		queue.frames.shift();
+		queue.bytes -= frame.bytes.byteLength;
+		this.rawMetadataQueuedBytes -= frame.bytes.byteLength;
+		log.debug("session-manager", "emit_upstream", {
+			channelId,
+			len: frame.bytes.byteLength,
+			endSeq: frame.endSeq,
+			result,
+		});
+	}
+}
+
+function _armRawMetadata(this: SessionManager, channelId: number): void {
+	const timer = setTimeout(() => {
+		this.rawMetadataTimers.delete(channelId);
+		if (!this.sessions.has(channelId)) {
+			this._disposeOutputState(channelId);
+			return;
+		}
+		const queue = this.rawMetadataQueues.get(channelId);
+		if (!queue || queue.frames.length === 0) return;
+		_flushRawMetadata.call(this, channelId);
+		_armRawMetadata.call(this, channelId);
+	}, RAW_METADATA_COALESCE_MS);
+	this.rawMetadataTimers.set(channelId, timer);
+}
+
+export function flushPendingCellRepairs(this: SessionManager): void {
+	for (const channelId of this.pendingCellRepairs) {
+		if (!this.sessions.has(channelId)) {
+			this.pendingCellRepairs.delete(channelId);
+			continue;
+		}
+		if (this._hasActiveViewer(channelId)) this.emitCellFrame(channelId, true);
+	}
+}
+
+export function _disposeOutputState(this: SessionManager, channelId: number): void {
+	const rawTimer = this.rawMetadataTimers.get(channelId);
+	if (rawTimer !== undefined && rawTimer !== LEADING_SENTINEL) clearTimeout(rawTimer);
+	this.rawMetadataTimers.delete(channelId);
+	const queue = this.rawMetadataQueues.get(channelId);
+	if (queue) this.rawMetadataQueuedBytes -= queue.bytes;
+	this.rawMetadataQueues.delete(channelId);
+	this.inputSensitiveChannels.delete(channelId);
+	this.pendingCellRepairs.delete(channelId);
+	this.cellDirty.delete(channelId);
 }
 
 
@@ -123,35 +243,46 @@ export function resnapshotClaimedSessions(this: SessionManager): void {
 	}
 }
 
-/** Rate governor: leading-edge cell emit plus trailing coalesce.
- * The FIRST chunk in a burst queues a microtask after its UDS read settles into
- * wtermCore. A trailing CELL_EMIT_COALESCE_MS timer absorbs subsequent chunks. */
-export function _scheduleCellEmit(this: SessionManager, channelId: number): void {
-	// Trailing burst — a leading emit already fired this tick, or a trailing
-	// timer is pending. Absorb: wtermCore already holds these bytes.
-	if (this.cellEmitTimers.has(channelId)) { this.cellDirty.add(channelId); return; }
+/** Rate governor: leading-edge cell emit plus trailing coalesce. A single
+ * input-sensitive return chunk may replace an armed trailing timer with the
+ * existing leading microtask; the governor re-arms from that promoted echo. */
+export function _scheduleCellEmit(
+	this: SessionManager,
+	channelId: number,
+	promoteInputEcho = false,
+): void {
+	if (this.cellEmissionGates.has(channelId)) {
+		this.cellDirty.add(channelId);
+		return;
+	}
+	if (this.pendingCellRepairs.has(channelId)) {
+		this.cellDirty.add(channelId);
+		return;
+	}
+	const pending = this.cellEmitTimers.get(channelId);
+	if (pending !== undefined) {
+		this.cellDirty.add(channelId);
+		if (!promoteInputEcho || pending === LEADING_SENTINEL) return;
+		clearTimeout(pending);
+		this.cellEmitTimers.delete(channelId);
+	}
 
-	// Leading edge: queue a microtask so all PtyOut chunks delivered in this
-	// the common single-keystroke echo while preserving coalescing for bursts.
 	this.cellEmitTimers.set(channelId, LEADING_SENTINEL);
 	queueMicrotask(() => {
 		this.cellEmitTimers.delete(channelId);
 		if (!this.sessions.has(channelId)) return;
 		this.emitCellFrame(channelId, false);
-		// Trailing coalesce: absorb chunks for CELL_EMIT_COALESCE_MS, flush the
-		// latest grid, then RE-ARM while the channel is still producing. Without
-		// the re-arm the window closes after one flush and the next chunk starts
-		// a fresh leading edge microseconds later — two frames per 16ms, double
-		// the intended rate, and every frame is one scroll re-derive on every
-		// viewer. A channel that goes quiet lets the armed timer fire once,
-		// find nothing dirty, and stop.
+		if (this.pendingCellRepairs.has(channelId)) return;
 		const arm = (): void => {
 			const timer = setTimeout(() => {
 				this.cellEmitTimers.delete(channelId);
-				if (!this.sessions.has(channelId)) return;
-				if (!this.cellDirty.has(channelId)) return;
+				if (
+					!this.sessions.has(channelId) ||
+					this.pendingCellRepairs.has(channelId) ||
+					!this.cellDirty.has(channelId)
+				) return;
 				this.emitCellFrame(channelId, false);
-				arm();
+				if (!this.pendingCellRepairs.has(channelId)) arm();
 			}, CELL_EMIT_COALESCE_MS);
 			this.cellEmitTimers.set(channelId, timer);
 		};
@@ -168,6 +299,10 @@ export function _scheduleCellEmit(this: SessionManager, channelId: number): void
  *  carries only new changes — the worker's wtermCore dirty bits have no
  *  other consumer. */
 export function emitCellFrame(this: SessionManager, channelId: number, force: boolean): void {
+	if (this.cellEmissionGates.has(channelId)) {
+		this.cellDirty.add(channelId);
+		return;
+	}
 	const send = this.sendCellGridUpstream;
 	if (!send) return;
 	const rec = this.sessions.get(channelId);
@@ -181,12 +316,44 @@ export function emitCellFrame(this: SessionManager, channelId: number, force: bo
 		if (pending !== LEADING_SENTINEL) clearTimeout(pending);
 		this.cellEmitTimers.delete(channelId);
 	}
-	const { frame, state } = nextCellFrame(core, rec.cell_emit, force, SB_SNAPSHOT_HISTORY_ROWS);
+	const repair = this.pendingCellRepairs.has(channelId);
+	const { frame, state } = nextCellFrame(
+		core,
+		rec.cell_emit,
+		force || repair,
+		SB_SNAPSHOT_HISTORY_ROWS,
+	);
+	// session_id left empty: coord stamps it from the channel→session map.
+	const pb = cellFrameToProto(frame, "");
+	pb.ptyOutMs = BigInt(rec.lastPtyOutMs || Date.now());
+	pb.workerEmitMs = BigInt(Date.now());
+	let result: TransportSendResult;
+	try {
+		result = send(channelId, pb) ?? "sent";
+	} catch (error) {
+		log.warn("session-manager", "cell_sink_throw", {
+			channelId,
+			error: error instanceof Error ? error.message : String(error),
+		});
+		result = "dropped";
+	}
+	if (result === "dropped") {
+		// Do not advance the model watermark or clear dirty rows. A writable
+		// edge will regenerate one full frame from the current canonical core.
+		this.pendingCellRepairs.add(channelId);
+		diag("transport.frame_dropped", {
+			reason: "cell_sink_drop",
+			kind: "cellGrid",
+			channel_id: channelId,
+			seq: frame.seq,
+		});
+		return;
+	}
 	rec.cell_emit = state;
 	core.clearDirty();
 	this.cellDirty.delete(channelId);
-	// Gated: 12 fields per emitted frame, and diag()'s arguments evaluate even
-	// when the firehose is off.
+	this.pendingCellRepairs.delete(channelId);
+	rec.lastPtyOutMs = 0;
 	if (isDiagEnabled()) {
 		diag("cell.emit", {
 			sid: String(rec.sessionId),
@@ -200,15 +367,9 @@ export function emitCellFrame(this: SessionManager, channelId: number, force: bo
 			cursor_col: frame.cursorCol,
 			cursor_vis: frame.cursorVisible,
 			alt: frame.altScreen,
+			result,
 		});
 	}
-	// session_id left empty: coord's publishCellGrid stamps it from the
-	// channel→session map (byte-hub.ts), overwriting anything sent here.
-	const pb = cellFrameToProto(frame, "");
-	pb.ptyOutMs = BigInt(rec.lastPtyOutMs || Date.now());
-	pb.workerEmitMs = BigInt(Date.now());
-	rec.lastPtyOutMs = 0;
-	send(channelId, pb);
 }
 
 /** Register per-channel output handlers on the multiplexed pool. */

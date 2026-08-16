@@ -20,7 +20,7 @@ import { signal } from "@roost/shared/diag";
 import { rootStore, setRootStore } from "./root.ts";
 import { isPendingSpawn } from "./optimisticSpawn.ts";
 import { pruneCellFrameCount } from "./sync-dispatch.ts";
-import { pruneInputMaps } from "../ws/input-channel.ts";
+import { pruneTerminalOutbound } from "../ws/sync-outbound.ts";
 import { pruneSessionTrace } from "../lib/diag.ts";
 import { clearAgentStatusForSession } from "./agent-status.ts";
 
@@ -72,7 +72,7 @@ export function foldEventIntoStore(event: SessionEvent): void {
         setRootStore("session_viewers", id, undefined as unknown as never);
         clearAgentStatusForSession(id);
         pruneCellFrameCount(id); // module-private Map, same per-session-reaper duty
-        pruneInputMaps(id);    // _lastSendTs + dropTotals per-session maps
+        pruneTerminalOutbound(id); // input/viewport queues + persisted intent
         pruneSessionTrace(id); // diag session_trace_id cache
       }
     }

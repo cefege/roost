@@ -18,8 +18,57 @@ import { rootStore } from "../store/root.ts";
 import { estimateWtermSize } from "./wtermSizeEstimate.ts";
 import { log } from "@roost/shared/log";
 import type { WorkerFp, Session } from "@roost/shared/wire";
-import { inputChannel } from "../ws/input-channel.ts";
+import { sendTerminalInput } from "../ws/sync-outbound.ts";
 import { resolveAgent, autoLaunchEnabled } from "./agents.ts";
+
+export interface SpawnInitialViewport {
+  cols: number;
+  rows: number;
+  clientSeq: number;
+}
+
+export interface SpawnShellResult {
+  sessionId: string;
+  channelId: number;
+  initialViewportPreclaimed: boolean;
+  effectiveClientSeq: number;
+}
+
+export interface SpawnShellRequest {
+  workerFp: WorkerFp;
+  kind: "shell";
+  folder: string;
+  cols?: number;
+  rows?: number;
+  sessionId?: string;
+  preclaimInitialViewport?: boolean;
+  initialViewportClientSeq?: bigint;
+}
+
+/** Pure request builder shared with tests. A measured mount is the only path
+ * that asks the server to preclaim; estimates merely choose the PTY start size. */
+export function buildSpawnShellRequest(
+  workerFp: WorkerFp,
+  folder: string,
+  sessionId?: string,
+  initialViewport?: SpawnInitialViewport,
+): SpawnShellRequest {
+  const size = initialViewport ?? estimateWtermSize() ?? undefined;
+  return {
+    workerFp,
+    kind: "shell",
+    folder,
+    cols: size?.cols,
+    rows: size?.rows,
+    ...(sessionId ? { sessionId } : {}),
+    ...(initialViewport
+      ? {
+        preclaimInitialViewport: true,
+        initialViewportClientSeq: BigInt(initialViewport.clientSeq),
+      }
+      : {}),
+  };
+}
 
 // A session's agent command is auto-launched at most once. maybeAutoLaunchAgent
 // is reachable from several racy new-tab paths (swipe setTimeout + button clicks,
@@ -63,31 +112,65 @@ export async function withSpawnRetry<T>(call: () => Promise<T>): Promise<T> {
   }
 }
 
-export async function spawnShell(workerFp: WorkerFp, folder = "~", sessionId?: string): Promise<string> {
-  const sz = estimateWtermSize();
-  const result = await withSpawnRetry(() => coordClient.sessionsSpawn({
-    workerFp,
-    kind: "shell",
-    folder,
-    cols: sz?.cols,
-    rows: sz?.rows,
-    ...(sessionId ? { sessionId } : {}),
-  }));
-  return result.sessionId;
+export async function spawnShellDetailed(
+  workerFp: WorkerFp,
+  folder = "~",
+  sessionId?: string,
+  initialViewport?: SpawnInitialViewport,
+): Promise<SpawnShellResult> {
+  const result = await withSpawnRetry(() =>
+    coordClient.sessionsSpawn(
+      buildSpawnShellRequest(workerFp, folder, sessionId, initialViewport),
+    )
+  );
+  return {
+    sessionId: result.sessionId,
+    channelId: result.channelId,
+    initialViewportPreclaimed: result.initialViewportPreclaimed,
+    effectiveClientSeq: Number(result.effectiveClientSeq),
+  };
+}
+
+export async function spawnShell(
+  workerFp: WorkerFp,
+  folder = "~",
+  sessionId?: string,
+): Promise<string> {
+  return (await spawnShellDetailed(workerFp, folder, sessionId)).sessionId;
 }
 
 // Spawn into an existing workspace's folder and link the session to it.
+export async function spawnInWorkspaceDetailed(
+  workerFp: WorkerFp,
+  workspaceId: string,
+  folderPath: string,
+  sessionId?: string,
+  initialViewport?: SpawnInitialViewport,
+): Promise<SpawnShellResult> {
+  const result = await spawnShellDetailed(
+    workerFp,
+    folderPath,
+    sessionId,
+    initialViewport,
+  );
+  try {
+    await coordClient.sessionsAssignWorkspace({
+      sessionId: result.sessionId,
+      workspaceId,
+    });
+  } catch { /* projection still groups by workspace_id once the assign event lands */ }
+  return result;
+}
+
 export async function spawnInWorkspace(
   workerFp: WorkerFp,
   workspaceId: string,
   folderPath: string,
   sessionId?: string,
 ): Promise<string> {
-  const sid = await spawnShell(workerFp, folderPath, sessionId);
-  try {
-    await coordClient.sessionsAssignWorkspace({ sessionId: sid, workspaceId });
-  } catch { /* projection still groups by workspace_id once the assign event lands */ }
-  return sid;
+  return (
+    await spawnInWorkspaceDetailed(workerFp, workspaceId, folderPath, sessionId)
+  ).sessionId;
 }
 
 
@@ -110,16 +193,16 @@ export async function waitForSession(sessionId: string, timeoutMs = 2_000): Prom
 export function maybeAutoLaunchAgent(sessionId: string): void {
   if (!autoLaunchEnabled()) return;
   if (autoLaunchedSessionIds.has(sessionId)) return;
-  autoLaunchedSessionIds.add(sessionId);
   const cmd = resolveAgent().command + "\r";
-  inputChannel.sendInput(sessionId, new TextEncoder().encode(cmd));
+  const admission = sendTerminalInput(sessionId, new TextEncoder().encode(cmd));
+  if (admission.accepted) autoLaunchedSessionIds.add(sessionId);
 }
 
 /** Launch the selected default agent NOW, bypassing the auto-launch toggle
  *  (quick chats always launch — that's the point). At most once per session. */
 export function forceLaunchAgent(sessionId: string): void {
   if (autoLaunchedSessionIds.has(sessionId)) return;
-  autoLaunchedSessionIds.add(sessionId);
   const cmd = resolveAgent().command + "\r";
-  inputChannel.sendInput(sessionId, new TextEncoder().encode(cmd));
+  const admission = sendTerminalInput(sessionId, new TextEncoder().encode(cmd));
+  if (admission.accepted) autoLaunchedSessionIds.add(sessionId);
 }

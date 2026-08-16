@@ -44,4 +44,23 @@ describe("folderPathOf follows live cwd", () => {
     expect(folderKeyOf(s)).toBe(`${FP_A}::/tmp`);
     expect(folderDisplayName(s)).toBe("tmp"); // basename fallback — no workspace at /tmp
   });
+  test("Windows folder identity is case-insensitive while display keeps basename case", () => {
+    setRootStore("workspaces", {
+      [WS_ID]: { id: WS_ID, worker_fp: FP_A, folder_path: "C:/Users/Ada/Code", name: "WindowsProj" } as Workspace,
+    } as Record<string, Workspace>);
+    const matched = sess({
+      id: "00000000-0000-4000-8000-000000000002",
+      cwd: "c:/users/ada/code",
+      spawn_cwd: "c:/users/ada/code",
+    });
+    expect(folderKeyOf(matched)).toBe(`${FP_A}::c:/users/ada/code`);
+    expect(folderDisplayName(matched)).toBe("WindowsProj");
+
+    const unmatched = sess({
+      id: "00000000-0000-4000-8000-000000000003",
+      cwd: "C:/Users/Ada/OtherFolder",
+      spawn_cwd: "C:/Users/Ada/OtherFolder",
+    });
+    expect(folderDisplayName(unmatched)).toBe("OtherFolder");
+  });
 });

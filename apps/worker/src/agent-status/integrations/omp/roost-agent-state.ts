@@ -1,10 +1,8 @@
 // Roost-owned integration adapted from Herdr at commit
 // eacea2daf0b72973173b728936b27478374f2cd2 (Apache-2.0).
-// ROOST_INTEGRATION_ID=omp ROOST_INTEGRATION_VERSION=1
+// ROOST_INTEGRATION_ID=omp ROOST_INTEGRATION_VERSION=2
 
 import net from "node:net";
-import { homedir } from "node:os";
-import { join } from "node:path";
 
 type AgentState = "working" | "blocked" | "idle";
 type QueuedReport = { state: AgentState; message?: string; active: boolean; seq: number };
@@ -27,16 +25,18 @@ function durationEnv(name: string, fallback: number): number {
 }
 
 function createReporter(): (state: AgentState, message?: string, active?: boolean) => void {
-  const socketPath = process.env.ROOST_AGENT_SOCKET_PATH
-    || join(homedir(), ".roost", "agent-report.sock");
-  const sessionId = process.env.ROOST_SESSION_ID || undefined;
+  const endpoint = process.env.ROOST_AGENT_ENDPOINT;
+  const capability = process.env.ROOST_AGENT_CAPABILITY;
+  const sessionId = process.env.ROOST_SESSION_ID;
   let reportSeq = Date.now() * 1_000;
   let queuedReport: QueuedReport | undefined;
   let sendInFlight = false;
 
   const sendAttempt = (report: QueuedReport, timeoutMs: number): Promise<boolean> => {
+    if (!endpoint || !capability || !sessionId) return Promise.resolve(false);
     const request = {
       version: 1,
+      capability,
       method: "agent.report",
       params: {
         session_id: sessionId,
@@ -49,7 +49,7 @@ function createReporter(): (state: AgentState, message?: string, active?: boolea
       },
     };
     const { promise, resolve } = Promise.withResolvers<boolean>();
-    const socket = net.createConnection(socketPath);
+    const socket = net.createConnection(endpoint);
     let settled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const finish = (delivered: boolean) => {

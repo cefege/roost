@@ -16,6 +16,10 @@ import { rootStore } from "../../store/root.ts";
 import { workerOnline } from "../../store/sync.ts";
 import { openRenameDialog } from "../../lib/renameDialog.ts";
 import { folderHeadline } from "../../lib/sessionTitle.ts";
+import { supportedWorkerPlatform } from "../../lib/nativePath.ts";
+import { invokeMachineAction, machineActionsForWorker } from "../../lib/machineActions.ts";
+import type { MachineActionDefinition } from "../../lib/machineActions.ts";
+import { addToast } from "../../lib/toastStore.ts";
 import {
 	ctxMenuSurfaceStyle,
 	CtxMenuItem,
@@ -131,43 +135,39 @@ export function SessionRowContextMenu(props: SessionRowContextMenuProps) {
 		}
 	}
 
-	// ONLY the worker's reachable_addr (its LIVE tailnet DNSName, re-resolved each
-	// heartbeat). NEVER synthesize from the worker label — the label is the
-	// Tailscale HostName (e.g. "worker-host"), which is NOT a resolvable DNS
-	// name; the DNSName ("coord-host") is. null ⇒ the action is disabled, not
-	// pointed at a corpse. Shared by Finder (smb://) + Screen Sharing (vnc://).
+	// ONLY the live reachable address is actionable; labels are never DNS names.
 	const workerHost = (): string | null => {
 		const w = rootStore.workers[session().worker_fp];
-		return w?.reachable_addr && w.reachable_addr.length > 0
-			? w.reachable_addr
-			: null;
+		return w?.reachable_addr && w.reachable_addr.length > 0 ? w.reachable_addr : null;
 	};
 	const hasReachableAddr = () => workerHost() !== null;
 	const NO_ADDR_TOOLTIP =
 		"No reachable address yet — the machine's worker must heartbeat its live tailnet name first.";
 
-	function handleOpenInFinder() {
+	async function handleMachineAction(action: MachineActionDefinition) {
 		const host = workerHost();
 		props.onClose();
 		if (!host) return;
-		// location.href, NOT window.open(_,'_self') — the latter silently no-ops for
-		// a non-http protocol handler; this actually hands smb:// to macOS.
-		window.location.href = `smb://${host}`;
+		try {
+			await invokeMachineAction(action, host);
+			if (action.id === "network-share") addToast("Network share path copied", "ok");
+		} catch (err) {
+			addToast(`Machine action failed: ${err instanceof Error ? err.message : String(err)}`, "err");
+		}
 	}
 
-	// Screen Sharing (macOS VNC) to the owning Mac's DESKTOP. The only way to
-	// click acceptance dialogs (permission prompts, GUI confirms) on a remote
-	// Mac you're not physically at — without it, a worker that pops a dialog
-	// deadlocks the whole flow. vnc://<host> opens Screen Sharing.app; over
-	// tailnet the FQDN resolves. Restored from commit 8a973dbf (lost in a
-	// sidebar redesign).
-	function handleScreenShare() {
-		const host = workerHost();
-		props.onClose();
-		if (!host) return;
-		// location.href, NOT window.open(_,'_self') — see handleOpenInFinder.
-		window.location.href = `vnc://${host}`;
-	}
+	const machineItems = () => {
+		const worker = rootStore.workers[session().worker_fp];
+		const platform = supportedWorkerPlatform(worker?.os);
+		if (!platform) return [];
+		return machineActionsForWorker(platform, true).map((action) => ({
+			label: action.label,
+			testid: action.id,
+			onClick: () => void handleMachineAction(action),
+			disabled: !hasReachableAddr(),
+			title: hasReachableAddr() ? undefined : NO_ADDR_TOOLTIP,
+		}));
+	};
 
 	const primaryItems = () => [
 		{ label: "Rename…", testid: "rename", onClick: () => handleRename() },
@@ -181,20 +181,7 @@ export function SessionRowContextMenu(props: SessionRowContextMenuProps) {
 			testid: "restart",
 			onClick: () => void handleRestart(),
 		},
-		{
-			label: "Open in Finder",
-			testid: "finder",
-			onClick: () => handleOpenInFinder(),
-			disabled: !hasReachableAddr(),
-			title: hasReachableAddr() ? undefined : NO_ADDR_TOOLTIP,
-		},
-		{
-			label: "Screen sharing",
-			testid: "screen-share",
-			onClick: () => handleScreenShare(),
-			disabled: !hasReachableAddr(),
-			title: hasReachableAddr() ? undefined : NO_ADDR_TOOLTIP,
-		},
+		...machineItems(),
 		// Cross-worker transfer only when there's another worker to target.
 		...(Object.keys(rootStore.workers).length > 1
 			? [

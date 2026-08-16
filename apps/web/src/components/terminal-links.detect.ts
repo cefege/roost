@@ -13,10 +13,10 @@
 const URL_SCHEMES = "https?:\\/\\/|mailto:|ftp:\\/\\/|file:|ssh:\\/\\/|git:\\/\\/|tel:|magnet:|ipfs:\\/\\/|gemini:\\/\\/|gopher:\\/\\/|news:";
 // Char class for scheme-branch URL body.
 const SCHEME_URL_CHARS = "[\\w\\-.~:/?#@!$&*+,;=%]";
-// Runtime equivalent of SCHEME_URL_CHARS above (one source of truth): tests a
-// single char for URL membership. Used to strip non-URL "border" decoration
-// (e.g. │ from a TUI's boxed output) at soft-wrap row boundaries.
-const URL_CHAR_RE = new RegExp(SCHEME_URL_CHARS);
+// Runtime boundary character test used while joining soft-wrapped rows. It is
+// intentionally wider than URL syntax by one backslash so native Windows paths
+// are not trimmed at a wrap boundary.
+const LINK_CHAR_RE = /[\w\-.~:/\\?#@!$&*+,;=%]/;
 // IPv6 host with optional port: `https://[::1]:4102/`.
 const IPV6_BODY = "\\[[0-9a-fA-F:]+\\](?::\\d+)?";
 // Bracketed-word suffix that keeps the trailing `)` inside the URL if
@@ -41,30 +41,30 @@ const LOCALHOST_RE_SOURCE =
 const ARCHIVE_EXT_SOURCE =
   "\\.(?:tar\\.(?:gz|bz2|xz|zst|lz|lz4|lzma|Z)|t(?:gz|bz2|xz)|zip|7z|rar|dmg|gz|bz2|xz|zst|lz4|tar)";
 
-// File-path detection (a separate heuristic — terminals typically rely on OSC-8 hyperlinks for files).
-// Three gated branches to keep prose/domains out:
-//   A) a path with ≥1 "/" ending in filename.ext, optional :line[:col];
-//      optional leading ~/ or ./ or ../ (e.g. apps/web/src/foo.ts:42,
-//      /Users/you/x.rs, ~/Code/proj/a.py, ./a/b.py)
-//   C) a bare archive filename (.zip, .tar.gz, .7z, …) — distinctive extensions
-//      that virtually never collide with prose; no slash or :line required
-// ext is letter-first so version strings (1.2.3) don't match.
+// File-path detection (a separate heuristic — terminals typically rely on
+// OSC-8 hyperlinks for files). Windows drive/UNC/backslash forms are explicit
+// branches so the resolver receives the complete native path, not a suffix with
+// the drive/share root accidentally dropped.
+const PATH_SEP = "[/\\\\]";
+const PATH_PART = "[\\w.@\\-]+";
+const FILE_PART = "[\\w.@\\-]+\\.[A-Za-z][\\w-]{0,9}";
+const FILE_LINE = "(?::\\d+(?::\\d+)?)?";
 const FILE_RE_SOURCE =
-  // A) path with ≥1 "/" ending in filename.ext, optional :line[:col]
-  "(?:~\\/|\\.{0,2}\\/)?(?:[\\w.@\\-]+\\/)+[\\w.@\\-]+\\.[A-Za-z][\\w-]{0,9}(?::\\d+(?::\\d+)?)?" +
-  // B) bare filename.ext:line[:col] — no slash, :line disambiguates from prose
-  "|[\\w.@\\-]+\\.[A-Za-z][\\w-]{0,9}:\\d+(?::\\d+)?" +
-  // C) bare archive filename — distinctive extensions, no :line needed; \b
-  //    prevents matching partial extensions (e.g. .zip inside .zip.bak)
-  "|[\\w.@\\-]+" + ARCHIVE_EXT_SOURCE + "\\b";
+  // A) Windows drive-absolute path: C:/src/a.ts or C:\\src\\a.ts.
+  `[A-Za-z]:${PATH_SEP}(?:${PATH_PART}${PATH_SEP})*${FILE_PART}${FILE_LINE}` +
+  // B) Windows UNC path: //server/share/a.ts or \\\\server\\share\\a.ts.
+  `|(?:/{2}|\\\\{2})${PATH_PART}${PATH_SEP}${PATH_PART}${PATH_SEP}(?:${PATH_PART}${PATH_SEP})*${FILE_PART}${FILE_LINE}` +
+  // C) POSIX/home/relative path with at least one separator. PATH_SEP also
+  // accepts backslash-relative paths printed by PowerShell/cmd.
+  `|(?:~${PATH_SEP}|\\.{0,2}${PATH_SEP})?(?:${PATH_PART}${PATH_SEP})+${FILE_PART}${FILE_LINE}` +
+  // D) bare filename.ext:line[:col] — line disambiguates from prose.
+  `|${FILE_PART}:\\d+(?::\\d+)?` +
+  // E) distinctive bare archive filename.
+  `|${PATH_PART}${ARCHIVE_EXT_SOURCE}\\b`;
 
-/** Cheap "could this logical line contain ANY supported pattern?" test, run
- *  before the regex battery in _findMatches. Every pattern above needs one of
- *  these: the scheme list and LOCALHOST_RE_SOURCE need `:`, FILE_RE_SOURCE
- *  needs `/` or `.`, the GitHub issue forms need `#`, and a bare commit SHA is
- *  ≥7 hex characters. A NEW pattern that needs none of them MUST widen this in
- *  the same commit, or its links silently stop being detected. */
-export const ROW_LINK_HINT = /[:/.#]|[0-9a-f]{7}/;
+/** Cheap \"could this logical line contain ANY supported pattern?\" test, run
+ * before the regex battery in _findMatches. Backslash covers Windows paths. */
+export const ROW_LINK_HINT = /[:/.#\\]|[0-9a-f]{7}/;
 
 /** Resolve a raw file path (+ optional 1-based line) from terminal output into
  *  an internal `/file/<workerFp>/…#L<line>` href, or null to skip linkifying it
@@ -232,14 +232,14 @@ export function computeRowLinks(
       // leading and last row's trailing stay so the regex finds the scheme and
       // stops at the first non-URL char after the URL naturally.
       let lead = 0;
-      if (k > i) while (lead < text.length && !URL_CHAR_RE.test(text[lead])) lead++;
+      if (k > i) while (lead < text.length && !LINK_CHAR_RE.test(text[lead])) lead++;
       let trail = text.length;
-      if (k < j) while (trail > lead && !URL_CHAR_RE.test(text[trail - 1])) trail--;
+      if (k < j) while (trail > lead && !LINK_CHAR_RE.test(text[trail - 1])) trail--;
       const cleaned = text.slice(lead, trail);
       // Empty-after-strip guard: a row reduced to no URL chars is pure
       // decoration sitting between two URLs — keep it verbatim so its borders
       // break the regex instead of merging distinct URLs into one broken href.
-      const useLead = URL_CHAR_RE.test(cleaned) ? lead : 0;
+      const useLead = LINK_CHAR_RE.test(cleaned) ? lead : 0;
       const useText = useLead === lead ? cleaned : text;
       leadSkip.push(useLead);
       rowLens.push(useText.length);

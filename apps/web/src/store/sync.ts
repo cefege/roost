@@ -4,16 +4,30 @@
 // Called once from App.tsx on mount. R4.3 sync deliverable.
 
 import { batch } from "solid-js";
+import { create, toBinary } from "@bufbuild/protobuf";
 import { reconcile } from "solid-js/store";
 import { setRootStore, rootStore } from "./root.ts";
 import type { PairRequest } from "./root.ts";
 import type { PairRequestDeltaProto } from "@roost/shared/proto/events_pb";
-import type { UiCommandFrame, FirehoseFrame, AgentStatusFrame } from "@roost/shared/proto/sync_pb";
+import {
+  SyncClientFrameSchema,
+  SyncDomainReadyCommandSchema,
+  SyncDomainSubscriptionCommandSchema,
+  SyncDomain,
+  type SyncClientFrame,
+  type UiCommandFrame,
+  type SyncSubscribedFrame,
+  type SyncDomainResetFrame,
+  type WorkerRoutableFrame,
+  type FirehoseFrame,
+  type AgentStatusFrame,
+} from "@roost/shared/proto/sync_pb";
 import { protoToEvent } from "@roost/shared/wire/event-proto";
 import { signCoordinatorJwt } from "../auth/web-key.ts";
 import { getTabId } from "../auth/tab-id.ts";
 import { _dispatchUiCommand } from "../lib/uiCommandDispatch.ts";
 import { relocateBrowserToCoordinator } from "../auth/coordinator-relocation.ts";
+import { markPhase } from "../lib/diag.ts";
 import {
   _workspaceProtoToWire, _taskProtoToWire, _webhookProtoToWire,
   _permProtoToWire, _mcpProtoToWire, _presenceProtoToWire,
@@ -24,18 +38,18 @@ import {
 import type { Worker } from "@roost/shared/wire";
 import { signal, diag } from "@roost/shared/diag";
 import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
-import { _dispatchCell, _dispatchPresence, _dispatchTerminalLink } from "./sync-dispatch.ts";
+import {
+  _dispatchCell, _dispatchPresence, _dispatchTerminalLink,
+  resetCellMountBuffers,
+} from "./sync-dispatch.ts";
 import { startStaleWatchdog, type StaleWatchdog } from "./sync-watchdog.ts";
 import {
   canAcceptSyncLink,
   canOpenSyncLink,
   decodeFirehoseFrame,
   dispatchSyncFrameCausally,
-  drainPreHydrationFrames,
-  enqueuePreHydrationFrame,
   isImmediateSyncRedial,
   isSyncBackpressureClose,
-  type PreHydrationSyncState,
 } from "./sync-flow.ts";
 import { applyAgentStatusFrame } from "./agent-status.ts";
 // Worker-routability signal lives in sync-routable.ts (leaf): _runConnectSync
@@ -46,8 +60,9 @@ import { setRoutableFps } from "./sync-routable.ts";
 export { workerOnline } from "./sync-routable.ts";
 // Per-session cell/presence fan-out lives in sync-dispatch.ts (leaf module).
 export {
-  registerCellHandler, registerPresenceHandler, cellFrameCount, cellFullFrameCount,
-  lastFullFrameSbRows, cellGridEpoch,
+  registerCellHandler, registerPresenceHandler, setCellMountClaimActive,
+  cellFrameCount, cellFullFrameCount, lastFullFrameSbRows, cellGridEpoch,
+  cellMountBufferStats,
 } from "./sync-dispatch.ts";
 // Per-domain delta handlers + keeper-death detector + delta-sub registries
 // live in sync-handlers.ts; the firehose calls them and iterates the sub Sets.
@@ -82,15 +97,62 @@ function _scheduleLastSeenPersist(): void {
 }
 
 type SyncAbortReason = "visibility" | "manual" | "stale" | "flow" | null;
+
+interface SyncV2DomainState {
+  generation: bigint;
+  subscribed: boolean;
+  ready: boolean;
+}
+
+interface SyncV2LinkState {
+  socketId: string;
+  processEpoch: string;
+  domains: Map<SyncDomain, SyncV2DomainState>;
+  routableChunks: Map<string, {
+    count: number;
+    chunks: Array<string[] | undefined>;
+  }>;
+}
+
 interface LiveSyncLink {
   ws: WebSocket;
   gen: number;
   abortReason: SyncAbortReason;
   accepting: boolean;
   resolveClosed: () => void;
+  expectsV2: boolean;
   closeEscapeTimer: ReturnType<typeof setTimeout> | null;
   watchdog: StaleWatchdog | null;
+  v2: SyncV2LinkState | null;
 }
+
+export interface SyncDomainToken {
+  readonly socketGeneration: number;
+  readonly socketId: string;
+  readonly processEpoch: string;
+  readonly domain: SyncDomain;
+  readonly domainGeneration: bigint;
+}
+
+export interface SyncV2TerminalState {
+  readonly socketGeneration: number;
+  readonly socketId: string;
+  readonly processEpoch: string;
+  readonly domainGeneration: bigint;
+  readonly ready: boolean;
+}
+
+export type SyncV2Control = Extract<
+  FirehoseFrame["frame"],
+  {
+    case:
+      | "viewportAccepted"
+      | "viewportRejected"
+      | "inputAccepted"
+      | "inputRejected"
+      | "inputAmbiguous";
+  }
+>;
 
 // Only the current dial is globally reachable. Every lifecycle resource stays
 // on its owning record so late generation-N callbacks cannot mutate N+1.
@@ -98,6 +160,305 @@ let _liveLink: LiveSyncLink | null = null;
 let _wsGen = 0;
 let _smokeTransportPaused = false;
 let _resumeSmokeTransport: (() => void) | null = null;
+
+export interface SyncSubscribedState {
+  readonly socketGeneration: number;
+  readonly socketId: string;
+  readonly processEpoch: string;
+}
+
+export interface SyncDomainSnapshot {
+  readonly apply: () => void;
+  readonly snapshotToken?: string;
+}
+
+export type SyncDomainHydrator = (
+  token: SyncDomainToken,
+) => Promise<SyncDomainSnapshot | null>;
+
+const _v2ControlHandlers = new Set<(
+  control: SyncV2Control,
+  state: SyncV2TerminalState,
+) => void>();
+const _v2GenerationHandlers = new Set<(state: SyncV2TerminalState | null) => void>();
+const _domainHydrationTriggers = new Map<SyncDomain, Set<() => void>>();
+const _lazyHydrationTriggers = new Map<SyncDomain, Set<() => void>>();
+const _subscribedWaiters = new Set<(state: SyncSubscribedState) => void>();
+
+export function currentSyncDomainToken(domain: SyncDomain): SyncDomainToken | null {
+  const link = _liveLink;
+  const domainState = link?.v2?.domains.get(domain);
+  if (
+    !link
+    || !link.accepting
+    || link.ws.readyState !== WebSocket.OPEN
+    || !link.v2
+    || !domainState
+  ) return null;
+  return {
+    socketGeneration: link.gen,
+    socketId: link.v2.socketId,
+    processEpoch: link.v2.processEpoch,
+    domain,
+    domainGeneration: domainState.generation,
+  };
+}
+
+export function currentSyncV2TerminalState(): SyncV2TerminalState | null {
+  const token = currentSyncDomainToken(SyncDomain.TERMINAL);
+  if (!token) return null;
+  const ready = _liveLink?.v2?.domains.get(SyncDomain.TERMINAL)?.ready ?? false;
+  return {
+    socketGeneration: token.socketGeneration,
+    socketId: token.socketId,
+    processEpoch: token.processEpoch,
+    domainGeneration: token.domainGeneration,
+    ready,
+  };
+}
+
+function _notifyV2Generation(state: SyncV2TerminalState | null): void {
+  for (const handler of _v2GenerationHandlers) handler(state);
+}
+
+export function registerSyncV2GenerationHandler(
+  handler: (state: SyncV2TerminalState | null) => void,
+): () => void {
+  _v2GenerationHandlers.add(handler);
+  handler(currentSyncV2TerminalState());
+  return () => { _v2GenerationHandlers.delete(handler); };
+}
+
+export function registerSyncV2ControlHandler(
+  handler: (control: SyncV2Control, state: SyncV2TerminalState) => void,
+): () => void {
+  _v2ControlHandlers.add(handler);
+  return () => { _v2ControlHandlers.delete(handler); };
+}
+
+export function sendSyncV2Command(command: SyncClientFrame["command"]): boolean {
+  const link = _liveLink;
+  if (
+    !link
+    || !link.v2
+    || !link.accepting
+    || link.ws.readyState !== WebSocket.OPEN
+    || command.case === undefined
+  ) return false;
+  try {
+    link.ws.send(toBinary(SyncClientFrameSchema, create(SyncClientFrameSchema, {
+      socketId: link.v2.socketId,
+      command,
+    })));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function isCurrentSyncDomainToken(token: SyncDomainToken): boolean {
+  const current = currentSyncDomainToken(token.domain);
+  return !!current
+    && current.socketGeneration === token.socketGeneration
+    && current.socketId === token.socketId
+    && current.processEpoch === token.processEpoch
+    && current.domainGeneration === token.domainGeneration;
+}
+
+export function applySyncDomainSnapshot(
+  token: SyncDomainToken,
+  snapshot: SyncDomainSnapshot,
+): boolean {
+  if (!isCurrentSyncDomainToken(token)) return false;
+  const link = _liveLink!;
+  const domain = link.v2!.domains.get(token.domain)!;
+  if (!domain.subscribed) return false;
+  snapshot.apply();
+  markPhase("snapshot_applied", {
+    domain: SyncDomain[token.domain],
+    generation: token.domainGeneration,
+  });
+  if (!sendSyncV2Command({
+    case: "domainReady",
+    value: create(SyncDomainReadyCommandSchema, {
+      domain: token.domain,
+      generation: token.domainGeneration,
+      snapshotToken: snapshot.snapshotToken,
+    }),
+  })) return false;
+  if (!isCurrentSyncDomainToken(token)) return false;
+  domain.ready = true;
+  if (token.domain === SyncDomain.TERMINAL) {
+    setOpen(true);
+    _notifyV2Generation(currentSyncV2TerminalState());
+  }
+  return true;
+}
+
+function _triggerDomainHydration(domain: SyncDomain): void {
+  for (const trigger of _domainHydrationTriggers.get(domain) ?? []) trigger();
+  for (const trigger of _lazyHydrationTriggers.get(domain) ?? []) trigger();
+}
+
+function _registerDomainHydrator(
+  registry: Map<SyncDomain, Set<() => void>>,
+  domain: SyncDomain,
+  hydrate: SyncDomainHydrator,
+): () => void {
+  let disposed = false;
+  let lastGenerationKey = "";
+  let retryAttempt = 0;
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const run = (token: SyncDomainToken, generationKey: string): void => {
+    void Promise.resolve().then(() => hydrate(token)).then((snapshot) => {
+      markPhase("snapshot_complete", {
+        domain: SyncDomain[domain],
+        generation: token.domainGeneration,
+        status: snapshot ? "fulfilled" : "rejected",
+      });
+      if (disposed || !isCurrentSyncDomainToken(token)) return;
+      if (snapshot && applySyncDomainSnapshot(token, snapshot)) {
+        retryAttempt = 0;
+        return;
+      }
+      scheduleRetry(token, generationKey);
+    }).catch((error) => {
+      markPhase("snapshot_complete", {
+        domain: SyncDomain[domain],
+        generation: token.domainGeneration,
+        status: "rejected",
+      });
+      diag("sync.snapshot_failed", { domain, error: String(error) });
+      scheduleRetry(token, generationKey);
+    });
+  };
+
+  const scheduleRetry = (token: SyncDomainToken, generationKey: string): void => {
+    if (
+      disposed
+      || retryTimer
+      || lastGenerationKey !== generationKey
+      || !isCurrentSyncDomainToken(token)
+    ) return;
+    const state = _liveLink?.v2?.domains.get(domain);
+    if (!state?.subscribed || state.ready) return;
+    const delay = Math.min(500 * 2 ** retryAttempt, 10_000);
+    retryAttempt += 1;
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      if (!disposed && isCurrentSyncDomainToken(token)) run(token, generationKey);
+    }, delay);
+  };
+
+  const trigger = (): void => {
+    if (disposed) return;
+    const token = currentSyncDomainToken(domain);
+    const state = _liveLink?.v2?.domains.get(domain);
+    if (!token || !state?.subscribed || state.ready) return;
+    const generationKey = `${token.socketId}:${token.domainGeneration}`;
+    if (generationKey === lastGenerationKey) return;
+    if (retryTimer) {
+      clearTimeout(retryTimer);
+      retryTimer = null;
+    }
+    lastGenerationKey = generationKey;
+    retryAttempt = 0;
+    run(token, generationKey);
+  };
+
+  let triggers = registry.get(domain);
+  if (!triggers) {
+    triggers = new Set();
+    registry.set(domain, triggers);
+  }
+  triggers.add(trigger);
+  trigger();
+  return () => {
+    disposed = true;
+    clearTimeout(retryTimer ?? undefined);
+    retryTimer = null;
+    triggers!.delete(trigger);
+    if (triggers!.size === 0) registry.delete(domain);
+  };
+}
+
+export function registerSyncDomainHydrator(
+  domain: SyncDomain,
+  hydrate: SyncDomainHydrator,
+): () => void {
+  return _registerDomainHydrator(_domainHydrationTriggers, domain, hydrate);
+}
+
+function _activateLazyDomain(domain: SyncDomain): void {
+  const token = currentSyncDomainToken(domain);
+  const state = _liveLink?.v2?.domains.get(domain);
+  if (!token || !state || state.subscribed) return;
+  if (!sendSyncV2Command({
+    case: "domainSubscribe",
+    value: create(SyncDomainSubscriptionCommandSchema, {
+      domain,
+      generation: token.domainGeneration,
+    }),
+  })) return;
+  state.subscribed = true;
+  state.ready = false;
+  _triggerDomainHydration(domain);
+}
+
+export function registerLazySyncDomain(
+  domain: SyncDomain.AUDIT | SyncDomain.WEBHOOK,
+  hydrate: SyncDomainHydrator,
+): () => void {
+  const first = (_lazyHydrationTriggers.get(domain)?.size ?? 0) === 0;
+  const unregister = _registerDomainHydrator(_lazyHydrationTriggers, domain, hydrate);
+  if (first) _activateLazyDomain(domain);
+  return () => {
+    unregister();
+    if ((_lazyHydrationTriggers.get(domain)?.size ?? 0) !== 0) return;
+    const token = currentSyncDomainToken(domain);
+    const state = _liveLink?.v2?.domains.get(domain);
+    if (!token || !state?.subscribed) return;
+    sendSyncV2Command({
+      case: "domainUnsubscribe",
+      value: create(SyncDomainSubscriptionCommandSchema, {
+        domain,
+        generation: token.domainGeneration,
+      }),
+    });
+    state.subscribed = false;
+    state.ready = false;
+  };
+}
+
+export function waitForSyncSubscribed(timeoutMs: number): Promise<SyncSubscribedState | null> {
+  const link = _liveLink;
+  if (link?.v2) {
+    return Promise.resolve({
+      socketGeneration: link.gen,
+      socketId: link.v2.socketId,
+      processEpoch: link.v2.processEpoch,
+    });
+  }
+  const { promise, resolve } = Promise.withResolvers<SyncSubscribedState | null>();
+  let settled = false;
+  let timer: ReturnType<typeof setTimeout>;
+  const accept = (state: SyncSubscribedState): void => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timer);
+    _subscribedWaiters.delete(accept);
+    resolve(state);
+  };
+  _subscribedWaiters.add(accept);
+  timer = setTimeout(() => {
+    if (settled) return;
+    settled = true;
+    _subscribedWaiters.delete(accept);
+    resolve(null);
+  }, timeoutMs);
+  return promise;
+}
 
 /** Milliseconds since the current OPEN Sync socket received any frame. */
 export function syncLinkIdleMs(): number {
@@ -112,8 +473,15 @@ export function syncWsGeneration(): number { return _wsGen; }
 
 const WS_CLOSE_ESCAPE_MS = 5_000;
 
+function _deactivateV2Link(link: LiveSyncLink): void {
+  if (!link.v2) return;
+  link.v2 = null;
+  if (_liveLink === link) _notifyV2Generation(null);
+}
+
 function _cleanupLink(link: LiveSyncLink): void {
   link.accepting = false;
+  _deactivateV2Link(link);
   clearTimeout(link.closeEscapeTimer ?? undefined);
   link.closeEscapeTimer = null;
   link.watchdog?.stop();
@@ -124,6 +492,7 @@ function _armCloseEscape(link: LiveSyncLink): void {
   clearTimeout(link.closeEscapeTimer ?? undefined);
   link.closeEscapeTimer = setTimeout(() => {
     link.accepting = false;
+    _deactivateV2Link(link);
     link.closeEscapeTimer = null;
     if (_liveLink === link) setOpen(false);
     link.resolveClosed();
@@ -134,6 +503,7 @@ function _initiateWsClose(reason: Exclude<SyncAbortReason, null>): void {
   const link = _liveLink;
   if (!link) return;
   link.accepting = false;
+  _deactivateV2Link(link);
   link.abortReason = reason;
   if (_liveLink === link) setOpen(false);
   try { link.ws.close(); } catch { link.resolveClosed(); }
@@ -142,6 +512,7 @@ function _initiateWsClose(reason: Exclude<SyncAbortReason, null>): void {
 
 function _closeFailedLink(link: LiveSyncLink): void {
   link.accepting = false;
+  _deactivateV2Link(link);
   if (_liveLink === link) setOpen(false);
   try { link.ws.close(); } catch { link.resolveClosed(); }
   _armCloseEscape(link);
@@ -177,54 +548,11 @@ export function reconnectNow(): void {
 }
 
 
-// ─── pre-hydration queue ──────────────────────────────────────────────────
-// The Sync socket is dialed in PARALLEL with the bootstrap's list RPCs (it
-// needs nothing but a JWT and the persisted event cursor), which shaves a full
-// round trip off first paint. That creates one ordering hazard: a session delta
-// arriving before sessionsList's snapshot is applied would be clobbered by that
-// older snapshot. Every entry retains its owning link so ordered replay can
-// ACK only the same transport generation that delivered it.
-const PRE_HYDRATION_CAP = 5000;
-let _queueingPreHydration = true;
-const _preHydrationState: PreHydrationSyncState<LiveSyncLink, FirehoseFrame> = {
-  entries: [],
-  overflowed: false,
-};
-
-/** Replay everything held since the socket opened, then let frames flow live.
- *  Called by sync-bootstrap the instant the sessions snapshot lands — and also
- *  from its failure path, so frames are never stranded by a bootstrap that
- *  never hydrates (a cell frame for an unknown session drops silently by
- *  design, so draining into an empty store is harmless). */
-export function drainPreHydration(): void {
-  _queueingPreHydration = false;
-  const overflowed = drainPreHydrationFrames(
-    _preHydrationState,
-    _consumeSyncFrame,
-  );
-  if (!overflowed) return;
-  // The queue overflowed, so an unknown set of deltas was dropped. A re-dial
-  // replays them from the persisted cursor via `since=`, which is the only way
-  // back to a truthful store.
-  signal("sync.prehydration_overflow", { cap: PRE_HYDRATION_CAP, cooldownKey: "sync" });
-  forceSyncReconnect();
-}
-
-// ─── first-open barrier + backoff wake ────────────────────────────────────
-// A fresh browser sends `since=0`, and coord deliberately runs NO backfill for a
-// zero cursor (the bootstrap's list snapshots already carry that state). So any
-// event published between the sessions snapshot and this socket opening is lost
-// outright — there is nothing to replay it from. The bootstrap therefore waits
-// for the first open before applying the snapshot, which closes the window
-// instead of merely shrinking it.
-let _resolveFirstOpen: (() => void) | null = null;
-const _firstOpen = new Promise<void>((resolve) => { _resolveFirstOpen = resolve; });
-
-/** Resolves on the Sync socket's first successful open, or after `timeoutMs` —
- *  bounded so a coord that answers unary RPCs but refuses the WS upgrade cannot
- *  leave the store unhydrated (a blank app). */
-export function syncSocketOpened(timeoutMs: number): Promise<void> {
-  return Promise.race([_firstOpen, new Promise<void>((resolve) => setTimeout(resolve, timeoutMs))]);
+// Backward-compatible name for callers migrating from the raw-open barrier.
+// V2 resolves only after the subscribed control establishes socket/domain
+// generations, never at WebSocket.onopen.
+export async function syncSocketOpened(timeoutMs: number): Promise<void> {
+  await waitForSyncSubscribed(timeoutMs);
 }
 
 // Immediate re-dial request. Read by whichever side sees it first, so it works
@@ -474,21 +802,191 @@ function _dispatchSyncFrame(frame: FirehoseFrame): boolean {
   return consumed;
 }
 
+const SYNC_V2_DOMAINS = [
+  SyncDomain.TERMINAL,
+  SyncDomain.WORKERS,
+  SyncDomain.WORKSPACES,
+  SyncDomain.TASKS,
+  SyncDomain.PERMISSIONS,
+  SyncDomain.MCP,
+  SyncDomain.PAIR,
+  SyncDomain.WEBHOOK,
+  SyncDomain.AUDIT,
+] as const;
+
+function _handleSubscribed(link: LiveSyncLink, subscribed: SyncSubscribedFrame): void {
+  if (link.v2 || !subscribed.socketId || !subscribed.processEpoch) {
+    throw new Error("duplicate or malformed subscribed control");
+  }
+  const domains = new Map<SyncDomain, SyncV2DomainState>();
+  for (const entry of subscribed.generations) {
+    if (
+      !SYNC_V2_DOMAINS.includes(entry.domain as (typeof SYNC_V2_DOMAINS)[number])
+      || entry.generation <= 0n
+      || domains.has(entry.domain)
+    ) throw new Error("invalid subscribed domain generation");
+    domains.set(entry.domain, {
+      generation: entry.generation,
+      subscribed: entry.subscribed,
+      ready: false,
+    });
+  }
+  if (domains.size !== SYNC_V2_DOMAINS.length) {
+    throw new Error("incomplete subscribed domain generations");
+  }
+  link.v2 = {
+    socketId: subscribed.socketId,
+    processEpoch: subscribed.processEpoch,
+    domains,
+    routableChunks: new Map(),
+  };
+  _noteSyncConnect();
+  markPhase("sync_subscribed", {
+    generation: link.gen,
+    processEpoch: subscribed.processEpoch,
+  });
+  const state: SyncSubscribedState = {
+    socketGeneration: link.gen,
+    socketId: subscribed.socketId,
+    processEpoch: subscribed.processEpoch,
+  };
+  for (const resolve of _subscribedWaiters) resolve(state);
+  _subscribedWaiters.clear();
+  for (const domain of SYNC_V2_DOMAINS) {
+    if (_lazyHydrationTriggers.has(domain)) _activateLazyDomain(domain);
+    else if (domains.get(domain)?.subscribed) _triggerDomainHydration(domain);
+  }
+  _notifyV2Generation(currentSyncV2TerminalState());
+}
+
+function _handleDomainReset(link: LiveSyncLink, reset: SyncDomainResetFrame): void {
+  const v2 = link.v2;
+  const domain = v2?.domains.get(reset.domain);
+  if (!v2 || !domain || reset.generation <= 0n) {
+    throw new Error("invalid domain reset");
+  }
+  domain.generation = reset.generation;
+  domain.subscribed = reset.subscribed;
+  domain.ready = false;
+  if (reset.domain === SyncDomain.WORKERS) v2.routableChunks.clear();
+  if (reset.domain === SyncDomain.TERMINAL) {
+    setOpen(false);
+    _notifyV2Generation(currentSyncV2TerminalState());
+  }
+  if (reset.subscribed) _triggerDomainHydration(reset.domain);
+}
+
+function _dispatchRoutableChunk(
+  link: LiveSyncLink,
+  value: WorkerRoutableFrame,
+): boolean {
+  if (!value.snapshotId) {
+    setRoutableFps(new Set(value.fps));
+    return true;
+  }
+  if (
+    value.chunkCount <= 0
+    || value.chunkCount > 4096
+    || value.chunkIndex >= value.chunkCount
+  ) return false;
+  const chunks = link.v2!.routableChunks;
+  let snapshot = chunks.get(value.snapshotId);
+  if (!snapshot) {
+    chunks.clear();
+    snapshot = {
+      count: value.chunkCount,
+      chunks: new Array<string[] | undefined>(value.chunkCount),
+    };
+    chunks.set(value.snapshotId, snapshot);
+  }
+  if (snapshot.count !== value.chunkCount) return false;
+  snapshot.chunks[value.chunkIndex] = value.fps;
+  if (snapshot.chunks.some((chunk) => chunk === undefined)) return true;
+  setRoutableFps(new Set(snapshot.chunks.flatMap((chunk) => chunk!)));
+  chunks.delete(value.snapshotId);
+  return true;
+}
+
+function _dispatchV2Application(link: LiveSyncLink, frame: FirehoseFrame): boolean {
+  const v2 = link.v2;
+  const domain = v2?.domains.get(frame.domain);
+  if (!v2 || !domain || frame.deliverySeq <= 0n) {
+    throw new Error("malformed v2 application frame");
+  }
+  if (frame.domainGeneration !== domain.generation) return true;
+  if (!domain.subscribed) return true;
+  if (!domain.ready) {
+    throw new Error("application frame arrived before domain readiness");
+  }
+  if (frame.frame.case === "workerRoutable") {
+    return _dispatchRoutableChunk(link, frame.frame.value);
+  }
+  return _dispatchSyncFrame(frame);
+}
+
+function _handleV2Control(link: LiveSyncLink, frame: FirehoseFrame): boolean {
+  if (
+    frame.deliverySeq !== 0n
+    || frame.domain !== SyncDomain.UNSPECIFIED
+    || frame.domainGeneration !== 0n
+  ) throw new Error("sequenced v2 control");
+  switch (frame.frame.case) {
+    case "subscribed":
+      _handleSubscribed(link, frame.frame.value);
+      return true;
+    case "domainReset":
+      _handleDomainReset(link, frame.frame.value);
+      return true;
+    case "viewportAccepted":
+    case "viewportRejected":
+    case "inputAccepted":
+    case "inputRejected":
+    case "inputAmbiguous": {
+      const state = currentSyncV2TerminalState();
+      if (!state) return true;
+      const control = frame.frame as SyncV2Control;
+      for (const handler of _v2ControlHandlers) handler(control, state);
+      return true;
+    }
+    case "uiState":
+    case "uiCommand":
+    case "keepalive":
+    case "coordinatorRelocation":
+      return _dispatchSyncFrame(frame);
+    default:
+      return false;
+  }
+}
+
 function _consumeSyncFrame(link: LiveSyncLink, frame: FirehoseFrame): void {
   try {
+    const isControl = frame.deliverySeq === 0n;
+    if (link.expectsV2 && !link.v2) {
+      if (frame.frame.case !== "subscribed" || !_handleV2Control(link, frame)) {
+        throw new Error("application frame arrived before subscribed");
+      }
+      return;
+    }
+    if (link.v2 && isControl) {
+      if (!_handleV2Control(link, frame)) throw new Error("unknown v2 control");
+      return;
+    }
     const outcome = dispatchSyncFrameCausally(
       () => _liveLink,
       link,
       WebSocket.OPEN,
       frame,
-      _dispatchSyncFrame,
+      link.v2
+        ? (accepted) => _dispatchV2Application(link, accepted)
+        : _dispatchSyncFrame,
+      link.v2?.socketId ?? "",
     );
     if (outcome === "unapplied") throw new Error("unapplied sync frame");
-  } catch (e) {
+  } catch (error) {
     signal("diag.corruption_signal", {
       kind: "sync_ws_dispatch",
       frame: frame.frame.case ?? "unknown",
-      msg: String(e),
+      msg: String(error),
       cooldownKey: "sync",
     });
     _closeFailedLink(link);
@@ -532,10 +1030,10 @@ export async function _runConnectSync(): Promise<void> {
       const override = typeof localStorage !== "undefined" ? localStorage.getItem("roost.coordinatorUrl") : null;
       const wsBase = (override || location.origin).replace(/^http/, "ws");
       const jwt = await signCoordinatorJwt();
-      // tab= gives coord the same per-tab identity used by viewport claims.
-      // Exact flow=1 opts this current SPA into application-consumption ACKs;
-      // cached older SPAs omit it and retain legacy native-buffer behavior.
-      const url = `${wsBase}/ws/coord-sync?since=${_lastSeenEventId}&tab=${encodeURIComponent(getTabId())}&flow=1`;
+      // flow=1 preserves cumulative application ACKs; exact sync_v=2 opts this
+      // build into subscribed/domain controls without exposing them to cached
+      // flow=1 clients.
+      const url = `${wsBase}/ws/coord-sync?since=${_lastSeenEventId}&tab=${encodeURIComponent(getTabId())}&flow=1&sync_v=2`;
       const ws = new WebSocket(url, ["roost-auth", jwt]);
       ws.binaryType = "arraybuffer";
       const gen = ++_wsGen;
@@ -546,8 +1044,10 @@ export async function _runConnectSync(): Promise<void> {
         abortReason: null,
         accepting: false,
         resolveClosed,
+        expectsV2: true,
         closeEscapeTimer: null,
         watchdog: null,
+        v2: null,
       };
       dialLink = link;
       _liveLink = link;
@@ -558,14 +1058,8 @@ export async function _runConnectSync(): Promise<void> {
           return;
         }
         link.accepting = true;
-        // A successful open = upgrade + JWT verify succeeded (the WS analog of
-        // the old "reset on first frame"). Clear the failure counter + backoff.
-        _syncFailures = 0;
-        _noteSyncConnect();
-        backoff = 1000;
-        setOpen(true);
-        _resolveFirstOpen?.();
-        _resolveFirstOpen = null;
+        // Raw OPEN is not hydration readiness. The subscribed control installs
+        // generations; terminal domain_ready raises syncStreamOpen.
         link.watchdog = startStaleWatchdog(ws, {
           onStale: () => {
             if (_liveLink === link) _initiateWsClose("stale");
@@ -573,8 +1067,7 @@ export async function _runConnectSync(): Promise<void> {
         });
       };
       ws.onmessage = (ev) => {
-        // This callback is the acceptance gate. Queue replay deliberately does
-        // not repeat it: those entries were accepted by their owner already.
+        // This callback is the one link-identity acceptance gate.
         if (!canAcceptSyncLink(_liveLink, link, WebSocket.OPEN)) return;
         let frame: FirehoseFrame;
         try {
@@ -589,16 +1082,11 @@ export async function _runConnectSync(): Promise<void> {
           _closeFailedLink(link);
           return;
         }
-        if (_queueingPreHydration) {
-          const queueResult = enqueuePreHydrationFrame(
-            _preHydrationState,
-            { link, frame },
-            PRE_HYDRATION_CAP,
-          );
-          if (queueResult === "overflow") _initiateWsClose("manual");
-          return;
-        }
         _consumeSyncFrame(link, frame);
+        if (link.v2) {
+          _syncFailures = 0;
+          backoff = 1000;
+        }
       };
       ws.onerror = (e) => { console.debug("[sync.connect] ws error", e); };
       ws.onclose = (event) => {
@@ -607,8 +1095,10 @@ export async function _runConnectSync(): Promise<void> {
           link.abortReason === null
           && isSyncBackpressureClose(event.code, event.reason)
         ) link.abortReason = "flow";
-        _cleanupLink(link);
-        if (_liveLink === link) setOpen(false);
+        if (_liveLink === link) {
+          resetCellMountBuffers();
+          setOpen(false);
+        }
         link.resolveClosed();
       };
       await closed;

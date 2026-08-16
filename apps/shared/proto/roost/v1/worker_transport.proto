@@ -53,6 +53,56 @@ message WAgentStatus {
   double updated_at = 7;
   bool active = 8;
 }
+// Durable Windows update-broker progress. Progress is journal-backed on the
+// worker host and replayed after a worker reconnect; sequence is monotonic per
+// job. A terminal frame is retained with the journal rather than inferred from
+// transport closure.
+message WUpdateProgress {
+  string request_id = 1;
+  string job_id = 2;
+  uint64 sequence = 3;
+  string phase = 4;
+  string message = 5;
+  bool terminal = 6;
+  bool success = 7;
+  string error = 8;
+}
+
+
+// Truthful terminal-control outcomes. These frames are correlated with the
+// downstream request_id; unlike the legacy browser-command/binary paths, an
+// accepted result proves the keeper completed the PTY operation.
+enum TerminalInputStatus {
+  TERMINAL_INPUT_STATUS_UNSPECIFIED = 0;
+  TERMINAL_INPUT_STATUS_ACCEPTED = 1;
+  TERMINAL_INPUT_STATUS_REJECTED = 2;
+  TERMINAL_INPUT_STATUS_AMBIGUOUS = 3;
+}
+message WInputResult {
+  string request_id = 1;
+  string session_id = 2;
+  uint64 input_seq = 3;
+  TerminalInputStatus status = 4;
+  uint32 written_bytes = 5;
+  string reason = 6;
+}
+
+enum TerminalViewportStatus {
+  TERMINAL_VIEWPORT_STATUS_UNSPECIFIED = 0;
+  TERMINAL_VIEWPORT_STATUS_COMMITTED = 1;
+  TERMINAL_VIEWPORT_STATUS_REJECTED = 2;
+}
+message WViewportResult {
+  string request_id = 1;
+  string session_id = 2;
+  uint64 client_seq = 3;
+  TerminalViewportStatus status = 4;
+  uint64 channel_resize_seq = 5;
+  uint32 cols = 6;
+  uint32 rows = 7;
+  bool resized = 8;
+  string reason = 9;
+}
 
 
 message CoordWorkerUp {
@@ -69,6 +119,9 @@ message CoordWorkerUp {
     WRefreshJwt refresh_jwt = 11;
     WCellGrid cell_grid = 12;
     WAgentStatus agent_status = 14;
+    WViewportResult viewport_result = 15;
+    WInputResult input_result = 16;
+    WUpdateProgress update_progress = 30;
   }
 }
 
@@ -84,6 +137,27 @@ message DBrowserCommand {
 }
 message DBinary { uint32 channel_id = 1; uint32 direction = 2; bytes data = 3; }
 message DEventAck { uint64 client_seq = 1; }
+
+// Dedicated terminal-control requests. SPA Sync v2 and the compatibility
+// unary handlers both use these typed frames so transport admission is never
+// mistaken for a completed PTY write/resize.
+message DInputRequest {
+  string request_id = 1;
+  string session_id = 2;
+  uint64 input_seq = 3;
+  bytes data = 4;
+}
+
+message DViewportRequest {
+  string request_id = 1;
+  string session_id = 2;
+  string viewer_id = 3;
+  uint64 client_seq = 4;
+  uint32 cols = 5;
+  uint32 rows = 6;
+  uint32 cause = 7;
+  uint64 held_cell_seq = 8;
+}
 
 message DAttachmentChunk {
   string request_id = 1;
@@ -132,6 +206,20 @@ message DCoordRelocate {
   string action = 5;
 }
 
+// Authenticated coordinator control for the out-of-job Windows updater. The
+// worker validates the detached vendor signature before it creates the local
+// journal and asks SCM to start RoostUpdaterV2. STATUS replays persisted
+// progress and never starts a second broker.
+message DUpdateBroker {
+  string request_id = 1;
+  string job_id = 2;
+  string action = 3; // START | STATUS
+  string manifest_url = 4;
+  string signature_url = 5;
+  string manifest_sha256 = 6;
+  string publisher_sha256 = 7;
+}
+
 message CoordWorkerDown {
   oneof frame {
     DHelloAck hello_ack = 1;
@@ -144,6 +232,9 @@ message CoordWorkerDown {
     DCoordMoveSnapshotStart coord_move_snapshot_start = 8;
     DCoordMoveSnapshotChunk coord_move_snapshot_chunk = 9;
     DCoordRelocate coord_relocate = 10;
+    DViewportRequest viewport_request = 11;
+    DInputRequest input_request = 12;
+    DUpdateBroker update_broker = 30;
   }
 }
 

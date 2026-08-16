@@ -7,6 +7,8 @@ import { create } from "@bufbuild/protobuf";
 import {
   CoordWorkerUpSchema, WHelloSchema, WPongSchema, WBinarySchema,
   WRpcOkSchema, WRpcErrorSchema, WTransferLineSchema, WTransferDoneSchema,
+  WInputResultSchema, WViewportResultSchema,
+  WUpdateProgressSchema,
 } from "@roost/shared/proto/worker_transport_pb";
 import type { CoordWorkerUp } from "@roost/shared/proto/worker_transport_pb";
 import type { UpstreamFrame } from "./CoordLink-types.ts";
@@ -30,6 +32,27 @@ export function frameToProto(f: UpstreamFrame): CoordWorkerUp | null {
       return create(CoordWorkerUpSchema, { frame: { case: "rpcError", value: create(WRpcErrorSchema, {
         requestId: f.request_id, message: f.message,
       })}});
+    case "input-result":
+      return create(CoordWorkerUpSchema, { frame: { case: "inputResult", value: create(WInputResultSchema, {
+        requestId: f.request_id,
+        sessionId: f.session_id,
+        inputSeq: f.input_seq,
+        status: f.status,
+        writtenBytes: f.written_bytes,
+        reason: f.reason ?? "",
+      })}});
+    case "viewport-result":
+      return create(CoordWorkerUpSchema, { frame: { case: "viewportResult", value: create(WViewportResultSchema, {
+        requestId: f.request_id,
+        sessionId: f.session_id,
+        clientSeq: f.client_seq,
+        status: f.status,
+        channelResizeSeq: f.channel_resize_seq,
+        cols: f.cols,
+        rows: f.rows,
+        resized: f.resized,
+        reason: f.reason ?? "",
+      })}});
     case "transfer-line":
       return create(CoordWorkerUpSchema, { frame: { case: "transferLine", value: create(WTransferLineSchema, {
         jobId: f.job_id, text: f.text,
@@ -38,31 +61,35 @@ export function frameToProto(f: UpstreamFrame): CoordWorkerUp | null {
       return create(CoordWorkerUpSchema, { frame: { case: "transferDone", value: create(WTransferDoneSchema, {
         jobId: f.job_id, exit: f.exit ?? -1, error: f.error ?? "",
       })}});
+    case "update-progress":
+      return create(CoordWorkerUpSchema, { frame: { case: "updateProgress", value: create(WUpdateProgressSchema, {
+        requestId: f.request_id,
+        jobId: f.job_id,
+        sequence: BigInt(f.sequence),
+        phase: f.phase,
+        message: f.message,
+        terminal: f.terminal,
+        success: f.success,
+        error: f.error ?? "",
+      })}});
   }
 }
 
-// session-manager.emitUpstreamChunk frame layout (fixed-size 11-byte
-// header): [ch(2)][dir(1)][end_seq(8)][bytes]. Single helper used by
-// both the live send path and the reconnect drain so the layout
-// can't drift again — prior bug: the drain copy still sliced
-// arr.subarray(3) with seq=0 after sendBinary was fixed to 11+seq,
-// re-introducing the `00 00 00 00 00 00 XX YY` garbage prefix on
-// every reconnect with buffered binary.
-export function decodeBinaryFrame(arr: Uint8Array): { ch: number; dir: number; seq: bigint; data: Uint8Array } | null {
-  if (arr.length < 11) return null;
-  const ch = (arr[0]! << 8) | arr[1]!;
-  const dir = arr[2]!;
-  // Single DataView.getBigUint64 call instead of an 8-iteration BigInt
-  // shift-accumulate loop. Fires on every PTY chunk + every drained
-  // item on reconnect.
-  const seq = new DataView(arr.buffer, arr.byteOffset + 3, 8).getBigUint64(0, false);
-  return { ch, dir, seq, data: arr.subarray(11) };
-}
-
-export function binaryFrameToProto(f: { ch: number; dir: number; seq: bigint; data: Uint8Array }): CoordWorkerUp {
+/** Build the typed worker binary frame. The caller supplies structured fields
+ * directly; the old private 11-byte header and immediate decode pass were pure
+ * construct/reparse work on every PTY chunk. */
+export function binaryFrameToProto(
+  channelId: number,
+  direction: number,
+  endSeq: number,
+  data: Uint8Array,
+): CoordWorkerUp {
   return create(CoordWorkerUpSchema, {
     frame: { case: "binary", value: create(WBinarySchema, {
-      channelId: f.ch, direction: f.dir, seq: f.seq, data: f.data,
+      channelId,
+      direction,
+      seq: BigInt(endSeq),
+      data,
     })},
   });
 }
