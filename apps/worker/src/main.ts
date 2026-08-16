@@ -24,7 +24,6 @@ import { AgentScreenDetector } from "./agent-status/detector.ts";
 import { AgentStatusRegistry } from "./agent-status/registry.ts";
 import { installAgentIntegrations } from "./agent-status/install-integrations.ts";
 import { startAgentReportServer, type AgentReportServer } from "./agent-status/report-server.ts";
-import { handleUpdateBrokerCommand } from "../../roost-cli/src/windows-update-control.ts";
 import { serveServiceHealth } from "@roost/shared/service-health";
 import { asWorkerFp } from "@roost/shared";
 import { log, diag, isDiagEnabled, signal, workerDataDir } from "@roost/shared";
@@ -323,6 +322,7 @@ export async function runWorker() {
 		onUpdateBroker: async (command) => {
 			switch (process.platform) {
 				case "win32": {
+					const { handleUpdateBrokerCommand } = await import("../../roost-cli/src/windows-update-control.ts");
 					const progress = await handleUpdateBrokerCommand({
 						requestId: command.request_id,
 						jobId: command.job_id,
