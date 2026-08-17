@@ -7,6 +7,7 @@
 import type { ServiceImpl } from "@connectrpc/connect";
 import { Code, ConnectError } from "@connectrpc/connect";
 import { create } from "@bufbuild/protobuf";
+import { createHash } from "node:crypto";
 import { isSupportedHostPlatform } from "@roost/shared/platform";
 import {
 	type CoordinatorService,
@@ -42,10 +43,32 @@ type WorkerMethods =
 	| "transfersOutput"
 	| "workersDeployStart";
 
-async function startWindowsDeploy(host: string, workerFp: string): Promise<DeployStartResult> {
+export type WorkerDeployRecord = {
+	fp: string;
+	os: string | null;
+	label: string;
+	reachable_addr: string | null;
+};
+
+export type WorkerDeployTargetResolution =
+	| { worker: WorkerDeployRecord; error: null }
+	| { worker: undefined; error: null }
+	| { worker: undefined; error: string };
+
+async function startWindowsDeploy(
+	workerFp: string,
+	expectedGitSha?: string,
+	expectedManifestSha256?: string,
+): Promise<DeployStartResult> {
 	const publisherSha256 = process.env.ROOST_WINDOWS_PUBLISHER_SHA256 ?? "";
 	if (!listRoutableFps().includes(workerFp)) {
 		return { ok: false, error: "Windows worker is offline; signed update control requires its authenticated worker link" };
+	}
+	if (expectedGitSha !== undefined && !/^[a-f0-9]{40,64}$/i.test(expectedGitSha)) {
+		return { ok: false, error: "expected Windows build identity is malformed" };
+	}
+	if (expectedManifestSha256 !== undefined && !/^[a-f0-9]{64}$/i.test(expectedManifestSha256)) {
+		return { ok: false, error: "expected Windows manifest digest is malformed" };
 	}
 	const releaseBase = process.env.ROOST_RELEASE_BASE_URL
 		?? "https://github.com/cefege/roost/releases/latest/download";
@@ -53,21 +76,106 @@ async function startWindowsDeploy(host: string, workerFp: string): Promise<Deplo
 	const signatureUrl = `${releaseBase}/roost-windows-x64.manifest.json.p7s`;
 	let manifestSha256 = "";
 	try {
-		const response = await fetch(`${manifestUrl}.sha256`, { signal: AbortSignal.timeout(10_000) });
-		if (!response.ok) return { ok: false, error: `Windows manifest checksum download failed: HTTP ${response.status}` };
-		const match = /^([a-f0-9]{64})(?:\s.*)?$/i.exec((await response.text()).trim());
-		if (!match) return { ok: false, error: "Windows manifest checksum response is malformed" };
-		manifestSha256 = match[1]!;
+		const [manifestResponse, checksumResponse] = await Promise.all([
+			fetch(manifestUrl, { signal: AbortSignal.timeout(10_000) }),
+			fetch(`${manifestUrl}.sha256`, { signal: AbortSignal.timeout(10_000) }),
+		]);
+		if (!manifestResponse.ok) {
+			return { ok: false, error: `Windows manifest download failed: HTTP ${manifestResponse.status}` };
+		}
+		if (!checksumResponse.ok) {
+			return { ok: false, error: `Windows manifest checksum download failed: HTTP ${checksumResponse.status}` };
+		}
+		const manifestBytes = new Uint8Array(await manifestResponse.arrayBuffer());
+		manifestSha256 = createHash("sha256").update(manifestBytes).digest("hex");
+		const match = /^([a-f0-9]{64})(?:\s.*)?$/i.exec((await checksumResponse.text()).trim());
+		if (!match || match[1]!.toLowerCase() !== manifestSha256) {
+			return { ok: false, error: "Windows manifest checksum does not match the release manifest" };
+		}
+		if (expectedManifestSha256
+			&& expectedManifestSha256.toLowerCase() !== manifestSha256) {
+			return { ok: false, error: "Windows release manifest changed after fleet preflight" };
+		}
+		let manifest: unknown;
+		try {
+			manifest = JSON.parse(new TextDecoder().decode(manifestBytes));
+		} catch {
+			return { ok: false, error: "Windows release manifest is not valid JSON" };
+		}
+		if (!manifest
+			|| typeof manifest !== "object"
+			|| !("schemaVersion" in manifest)
+			|| manifest.schemaVersion !== 1
+			|| !("platform" in manifest)
+			|| manifest.platform !== "win32"
+			|| !("arch" in manifest)
+			|| manifest.arch !== "x64"
+			|| !("version" in manifest)
+			|| typeof manifest.version !== "string"
+			|| !/^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/.test(manifest.version)
+			|| !("build" in manifest)
+			|| typeof manifest.build !== "string"
+			|| !/^[a-f0-9]{40,64}$/i.test(manifest.build)) {
+			return { ok: false, error: "Windows release manifest identity is malformed" };
+		}
+		const build = manifest.build;
+		if (expectedGitSha && build.toLowerCase() !== expectedGitSha.toLowerCase()) {
+			return {
+				ok: false,
+				error: `Windows release build ${build} does not match requested fleet build ${expectedGitSha}`,
+			};
+		}
 	} catch (error) {
-		return { ok: false, error: `Windows manifest checksum download failed: ${String(error)}` };
+		return { ok: false, error: `Windows manifest preflight failed: ${String(error)}` };
 	}
-	return startWindowsUpdateDeploy(host, {
+	return await startWindowsUpdateDeploy(workerFp, {
 		workerFp,
 		manifestUrl,
 		signatureUrl,
 		manifestSha256,
 		publisherSha256,
 	});
+}
+
+export function resolveWorkerDeployTarget(
+	workers: readonly WorkerDeployRecord[],
+	requestedHost: string,
+): WorkerDeployTargetResolution {
+	const fingerprintMatches = workers.filter((worker) => worker.fp === requestedHost);
+	if (fingerprintMatches.length > 1) {
+		return {
+			worker: undefined,
+			error: `ambiguous deploy target "${requestedHost}" matches multiple worker fingerprints`,
+		};
+	}
+	if (fingerprintMatches[0]) return { worker: fingerprintMatches[0], error: null };
+
+	const aliasMatches = workers.filter((worker) =>
+		worker.label === requestedHost || worker.reachable_addr === requestedHost);
+	if (aliasMatches.length > 1) {
+		return {
+			worker: undefined,
+			error: `ambiguous deploy target "${requestedHost}" matches multiple registered workers; use the worker fingerprint`,
+		};
+	}
+	return { worker: aliasMatches[0], error: null };
+}
+
+export function workerDeployHost(
+	worker: {
+		fp?: string;
+		os?: string | null;
+		label: string;
+		reachable_addr: string | null;
+	} | undefined,
+	requestedHost: string,
+): string {
+	if (worker?.os === "win32" && worker.fp) return worker.fp;
+	const reachableAddr = worker?.reachable_addr?.trim();
+	if (reachableAddr) return reachableAddr;
+	const label = worker?.label.trim();
+	if (label) return label;
+	return requestedHost;
 }
 
 export function makeWorkerHandlers(
@@ -141,12 +249,9 @@ export function makeWorkerHandlers(
 						sampled_at_ms: Number(req.hostMetrics.sampledAtMs),
 					}
 				: undefined;
-			// keeper_stale: worker sends "" when the keeper is current, the running
-			// stamp when stale, undefined if it hasn't probed yet. Map ""→null.
-			const newKeeperStale =
-				req.keeperStale !== undefined
-					? req.keeperStale || null
-					: (prior?.keeper_stale ?? null);
+			// Preserve all three states in the existing nullable column:
+			// null = unknown/unreported, "" = current, non-empty = stale build.
+			const newKeeperStale = req.keeperStale ?? null;
 			// reachable_addr self-heals on every beat: the worker re-resolves its
 			// LIVE tailnet DNSName each beat (heartbeat.ts) so a machine rename
 			// corrects within 30s, not only at boot. Only persist a non-empty value
@@ -161,9 +266,7 @@ export function makeWorkerHandlers(
 				.set({
 					last_seen_ms: now,
 					...(req.gitSha !== undefined && { git_sha: req.gitSha }),
-					...(req.keeperStale !== undefined && {
-						keeper_stale: req.keeperStale || null,
-					}),
+					keeper_stale: newKeeperStale,
 					...(hm !== undefined && { host_metrics_json: JSON.stringify(hm) }),
 					...(newReachableAddr !== undefined && {
 						reachable_addr: newReachableAddr,
@@ -295,17 +398,31 @@ export function makeWorkerHandlers(
 
 		async workersDeployStart(req, ctx) {
 			requireAuth(ctx.values);
-			const worker = await deps.db.selectFrom("workers")
-				.select(["fp", "os"])
+			const workers = await deps.db.selectFrom("workers")
+				.select(["fp", "os", "label", "reachable_addr"])
 				.where((eb) => eb.or([
 					eb("fp", "=", req.host),
 					eb("label", "=", req.host),
 					eb("reachable_addr", "=", req.host),
 				]))
-				.executeTakeFirst();
+				.execute();
+			const target = resolveWorkerDeployTarget(workers, req.host);
+			if (target.error) {
+				return create(WorkersDeployStartResponseSchema, {
+					ok: false,
+					jobId: "",
+					error: target.error,
+				});
+			}
+			const worker = target.worker;
+			const host = workerDeployHost(worker, req.host);
 			const result = worker?.os === "win32"
-				? await startWindowsDeploy(req.host, worker.fp)
-				: startDeploy(req.host);
+				? await startWindowsDeploy(
+					worker.fp,
+					req.expectedGitSha,
+					req.expectedManifestSha256,
+				)
+				: startDeploy(host);
 			return create(WorkersDeployStartResponseSchema, {
 				ok: result.ok,
 				jobId: result.jobId ?? "",

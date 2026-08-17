@@ -114,6 +114,18 @@ export function rejectPendingRpc(request_id: string, message: string): boolean {
   return true;
 }
 
+/** Reject a request that never reached the worker because its transport was
+ * unavailable. Callers may safely retry these; worker rpc-error replies use
+ * Code.Internal and are permanent command failures. */
+export function rejectPendingRpcUnavailable(request_id: string, message: string): boolean {
+  const entry = _pending.get(request_id);
+  if (!entry) return false;
+  clearTimeout(entry.timer);
+  _pending.delete(request_id);
+  entry.reject(new ConnectError(message || "worker transport unavailable", Code.Unavailable));
+  return true;
+}
+
 export function _pendingRpcStats(): { pending: number } {
   return { pending: _pending.size };
 }

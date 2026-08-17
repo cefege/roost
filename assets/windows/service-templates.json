@@ -34,6 +34,7 @@
         "--env", "ROOST_WORKER_LOG_DIR=${workerLogDir}",
         "--env", "ROOST_WIN_HELPER=${winHelper}",
         "--env", "ROOST_LOG_ENCODING=utf-8",
+        "--env", "ROOST_SERVICE_ROLE=keeper",
         "--", "${installDir}\\roost.exe", "keeper", "--service"
       ]
     },
@@ -55,6 +56,7 @@
         "--env", "ROOST_WIN_HELPER=${winHelper}",
         "--env", "ROOST_COORDINATOR_URL=${coordinatorUrl}",
         "--env", "ROOST_LOG_ENCODING=utf-8",
+        "--env", "ROOST_SERVICE_ROLE=worker",
         "--", "${installDir}\\roost.exe", "worker"
       ]
     },
@@ -77,13 +79,14 @@
         "--env", "ROOST_COORD_DATA_DIR=${coordDataDir}",
         "--env", "ROOST_COORD_LOG_DIR=${coordLogDir}",
         "--env", "ROOST_LOG_ENCODING=utf-8",
+        "--env", "ROOST_SERVICE_ROLE=coordinator",
         "--", "${installDir}\\roost.exe", "coord"
       ]
     },
     {
       "role": "updater",
       "name": "RoostUpdaterV2",
-      "startMode": "demand",
+      "startMode": "automatic",
       "dependsOn": [],
       "cwd": "${roostServiceDir}",
       "logDir": "${roostServiceDir}\\logs\\updater",
@@ -95,6 +98,7 @@
         "--env", "ROOST_WINDOWS_PUBLISHER_SHA256=${publisherSha256}",
         "--env", "ROOST_SERVICE_DIR=${roostServiceDir}",
         "--env", "ROOST_LOG_ENCODING=utf-8",
+        "--env", "ROOST_SERVICE_ROLE=updater",
         "--", "${installDir}\\roost.exe", "__windows-updater-broker"
       ]
     }

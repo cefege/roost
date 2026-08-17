@@ -10,7 +10,7 @@ import { TextField, Button, IconButton, Select } from "./Settings/md/primitives.
 import { workerCoordinatorUrl } from "../lib/workerCoordinatorUrl.ts";
 import { animateOverlayPanel } from "../lib/overlayMotion.ts";
 import { browserPlatform } from "../lib/browserPlatform.ts";
-import { buildMachineJoinCommand, machinePlatformLabel } from "../lib/machineJoinCommand.ts";
+import { buildMachineJoinCommand, machinePlatformLabel } from "@roost/shared/machine-join-command";
 import { supportedWorkerPlatform } from "../lib/nativePath.ts";
 import type { SupportedHostPlatform } from "@roost/shared/platform";
 
@@ -45,6 +45,7 @@ export function MachineDeployDialog(props: MachineDeployDialogProps) {
     clientPlatform === "windows" ? "win32" : clientPlatform === "linux" ? "linux" : "darwin",
   );
   const [label, setLabel] = createSignal("");
+  const [windowsPublisherSha256, setWindowsPublisherSha256] = createSignal("");
   const [loading, setLoading] = createSignal(false);
   const [error, setError] = createSignal("");
   const [deployCmd, setDeployCmd] = createSignal<string | null>(null);
@@ -66,10 +67,15 @@ export function MachineDeployDialog(props: MachineDeployDialogProps) {
         return;
       }
       const lbl = label().trim();
+      const publisher = targetPlatform() === "win32" ? windowsPublisherSha256().trim() : undefined;
+      if (targetPlatform() === "win32" && !/^[0-9a-f]{64}$/i.test(publisher ?? "")) {
+        setError("Windows enrollment requires the trusted 64-hex release-publisher SHA-256.");
+        return;
+      }
       const result = await coordClient.authMintBootstrap({ kind: "worker", label: lbl });
       // Worker enrollment is intentionally denied on the public web listener.
       // Only the coordinator-advertised private/tailnet origin may be embedded.
-      setDeployCmd(buildMachineJoinCommand(targetPlatform(), coordinatorUrl, result.token, lbl));
+      setDeployCmd(buildMachineJoinCommand(targetPlatform(), coordinatorUrl, result.token, lbl, publisher));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -148,6 +154,22 @@ export function MachineDeployDialog(props: MachineDeployDialogProps) {
               ]}
             />
           </div>
+          <Show when={targetPlatform() === "win32"}>
+            <div style={{ "margin-bottom": "12px" }}>
+              <TextField
+                testId="machine-deploy-windows-publisher"
+                label="Trusted release-publisher SHA-256"
+                value={windowsPublisherSha256()}
+                onInput={(value) => setWindowsPublisherSha256(value)}
+                placeholder="64 hexadecimal characters"
+                style={{ width: "100%" }}
+              />
+              <p style={{ color: "var(--text-lo)", "font-size": "11px", "line-height": "1.4", margin: "6px 0 0" }}>
+                Get this certificate fingerprint through the trusted release
+                channel, not from the manifest or script being downloaded.
+              </p>
+            </div>
+          </Show>
           <div style={{ "margin-bottom": "12px" }}>
             <TextField
               testId="machine-deploy-label"

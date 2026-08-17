@@ -54,7 +54,11 @@ async function readEndpoint(servicePath: string): Promise<string> {
     expect(await get.exited).toBe(0);
     return value;
   }
-  return fs.readFileSync(servicePath, "utf8").match(/^Environment=ROOST_COORDINATOR_URL=(.*)$/m)?.[1] ?? "";
+  return fs.readFileSync(servicePath, "utf8")
+    .match(/^Environment=(?:"ROOST_COORDINATOR_URL=((?:\\.|[^"])*)"|ROOST_COORDINATOR_URL=(.*))$/m)
+    ?.slice(1).find((value) => value !== undefined)
+    ?.replace(/\\"/g, "\"")
+    .replace(/\\\\/g, "\\") ?? "";
 }
 
 test("a late abort leaves a committed worker pointed at the target", async () => {

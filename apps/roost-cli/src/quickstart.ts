@@ -9,22 +9,53 @@
 
 import { spawn } from "bun";
 import { Database } from "bun:sqlite";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync, chmodSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  renameSync,
+  rmdirSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { randomUUID } from "node:crypto";
 import { homedir, tmpdir, userInfo } from "node:os";
-import { join, basename } from "node:path";
+import { basename, dirname, join, win32 } from "node:path";
 import { deploy } from "./deploy.ts";
 import { resolveTailscale, ensureTailscale, statusReport, printStatusReport } from "./status.ts";
 import { ROOST_VERSION } from "./version.ts";
 import {
   installCoordAgent,
   installWorkerAgent,
+  protectWindowsRoleStateTree,
   readWindowsServiceCredentials,
+  restoreWindowsFileSecurityTree,
+  snapshotWindowsFileSecurityTree,
+  type WindowsFileSecurityTreeSnapshot,
 } from "./install-binary-agents.ts";
-import { coordDataDir } from "@roost/shared/paths";
+import { coordDataDir, roostServiceDir } from "@roost/shared/paths";
+import { ROOST_BUILD_SHA } from "@roost/shared/build-identity";
+import { probeServiceHealth } from "@roost/shared/service-health";
+import {
+  acquireMachineTransaction,
+  type MachineTransactionLock,
+} from "@roost/shared/machine-transaction";
+import {
+  durableRemove,
+  durableReplace,
+  durableWriteFile,
+  flushDurablePath,
+} from "@roost/shared/durability";
+import { windowsApplyArtifactDacl } from "@roost/shared/windows-helper";
+import {
+  WINDOWS_SERVICE_ROLES,
+  createWindowsServiceManager,
+  type WindowsServiceManager,
+  type WindowsServiceSnapshotSet,
+} from "./service-ctl.ts";
 
-const COORD_DATA_DIR = coordDataDir();
-const COORD_DB = join(COORD_DATA_DIR, "coordinator_v2.db");
-const COORD_TLS_DIR = join(COORD_DATA_DIR, "tls");
 const WEB_DIST_INDEX = "apps/web/dist/index.html";
 
 function logStep(msg: string): void {
@@ -32,9 +63,243 @@ function logStep(msg: string): void {
 }
 
 function die(msg: string, ...hint: string[]): never {
-  console.error(`\nERROR: ${msg}`);
-  for (const h of hint) console.error(`  ${h}`);
-  process.exit(1);
+  const error = new Error([msg, ...hint].join(" ")) as Error & { exitCode: number };
+  error.exitCode = 1;
+  throw error;
+}
+
+interface CoordinatorPaths {
+  dataDir: string;
+  logDir: string;
+  tlsDir: string;
+  database: string;
+  authorizedKeys: string;
+  key: string;
+  handoff: string;
+}
+
+function requireCanonicalWindowsPath(name: string, expected?: string): string {
+  const value = process.env[name]?.trim();
+  if (!value || !win32.isAbsolute(value) || /[\0\r\n]/.test(value)) {
+    throw new Error(`${name} must be an explicit absolute Windows path`);
+  }
+  const normalized = win32.normalize(value);
+  const canonical = normalized.length > 3 ? normalized.replace(/[\\/]+$/, "") : normalized;
+  if (expected) {
+    const normalizedExpected = win32.normalize(expected);
+    const canonicalExpected = normalizedExpected.length > 3
+      ? normalizedExpected.replace(/[\\/]+$/, "")
+      : normalizedExpected;
+    if (canonical.toLocaleLowerCase("en-US") !== canonicalExpected.toLocaleLowerCase("en-US")) {
+      throw new Error(`${name} does not match the canonical Windows install layout`);
+    }
+  }
+  return canonical;
+}
+
+
+function coordinatorPaths(): CoordinatorPaths {
+  if (process.platform !== "win32") {
+    const dataDir = coordDataDir();
+    return {
+      dataDir,
+      logDir: process.env.ROOST_COORD_LOG_DIR ?? join(dataDir, "..", "..", "logs", "coordinator"),
+      tlsDir: process.env.ROOST_COORDINATOR_TLS_DIR ?? join(dataDir, "tls"),
+      database: process.env.ROOST_COORDINATOR_DB ?? join(dataDir, "coordinator_v2.db"),
+      authorizedKeys: process.env.ROOST_COORDINATOR_AUTHORIZED_KEYS ?? join(dataDir, "authorized_keys.roost"),
+      key: process.env.ROOST_COORDINATOR_KEY_PATH ?? join(dataDir, "ssh_ed25519.key"),
+      handoff: process.env.ROOST_COORDINATOR_HANDOFF_PATH ?? join(dataDir, "coord-handoff.json"),
+    };
+  }
+  const installRoot = requireCanonicalWindowsPath("ROOST_INSTALL_ROOT");
+  const serviceDir = requireCanonicalWindowsPath(
+    "ROOST_SERVICE_DIR",
+    win32.join(installRoot, "service"),
+  );
+  const dataDir = requireCanonicalWindowsPath(
+    "ROOST_COORD_DATA_DIR",
+    win32.join(serviceDir, "data", "coordinator"),
+  );
+  return {
+    dataDir,
+    logDir: requireCanonicalWindowsPath(
+      "ROOST_COORD_LOG_DIR",
+      win32.join(serviceDir, "logs", "coordinator"),
+    ),
+    tlsDir: requireCanonicalWindowsPath(
+      "ROOST_COORDINATOR_TLS_DIR",
+      win32.join(dataDir, "tls"),
+    ),
+    database: requireCanonicalWindowsPath(
+      "ROOST_COORDINATOR_DB",
+      win32.join(dataDir, "coordinator_v2.db"),
+    ),
+    authorizedKeys: requireCanonicalWindowsPath(
+      "ROOST_COORDINATOR_AUTHORIZED_KEYS",
+      win32.join(dataDir, "authorized_keys.roost"),
+    ),
+    key: requireCanonicalWindowsPath(
+      "ROOST_COORDINATOR_KEY_PATH",
+      win32.join(dataDir, "ssh_ed25519.key"),
+    ),
+    handoff: requireCanonicalWindowsPath(
+      "ROOST_COORDINATOR_HANDOFF_PATH",
+      win32.join(dataDir, "coord-handoff.json"),
+    ),
+  };
+}
+
+interface WindowsLegacyCoordinatorMigration {
+  schemaVersion: 1;
+  phase: "prepared" | "moved" | "hardened";
+  legacyPath: string;
+  canonicalPath: string;
+  journalPath: string;
+  helperPath: string;
+  security: WindowsFileSecurityTreeSnapshot;
+}
+
+async function persistLegacyCoordinatorMigration(
+  migration: WindowsLegacyCoordinatorMigration,
+): Promise<void> {
+  const temporary = `${migration.journalPath}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    await durableWriteFile(temporary, `${JSON.stringify(migration)}\n`, { platform: "win32" });
+    await windowsApplyArtifactDacl(temporary, "NT SERVICE\\RoostUpdaterV2", {
+      helperPath: migration.helperPath,
+    });
+    await durableReplace(temporary, migration.journalPath, { platform: "win32" });
+    await windowsApplyArtifactDacl(migration.journalPath, "NT SERVICE\\RoostUpdaterV2", {
+      helperPath: migration.helperPath,
+    });
+    await flushDurablePath(dirname(migration.journalPath), { platform: "win32" });
+  } finally {
+    await durableRemove(temporary, { platform: "win32" }).catch(() => undefined);
+  }
+}
+
+async function removeLegacyMigrationAdditions(
+  migration: WindowsLegacyCoordinatorMigration,
+): Promise<void> {
+  const current = await snapshotWindowsFileSecurityTree(migration.legacyPath, {
+    helperPath: migration.helperPath,
+  });
+  const original = new Set(migration.security.entries.map((entry) =>
+    entry.relativePath.replace(/\//g, "\\").toLocaleLowerCase("en-US")
+  ));
+  const additions = current.entries
+    .filter((entry) =>
+      entry.relativePath !== ""
+      && !original.has(entry.relativePath.replace(/\//g, "\\").toLocaleLowerCase("en-US"))
+    )
+    .sort((left, right) =>
+      right.relativePath.split(/[\\/]/).length - left.relativePath.split(/[\\/]/).length
+    );
+  for (const entry of additions) {
+    const path = win32.join(migration.legacyPath, entry.relativePath);
+    if (entry.kind === "file") unlinkSync(path);
+    else rmdirSync(path);
+  }
+}
+
+async function rollbackLegacyCoordinatorMigration(
+  migration: WindowsLegacyCoordinatorMigration,
+): Promise<void> {
+  if (existsSync(migration.canonicalPath)) {
+    if (existsSync(migration.legacyPath)) {
+      throw new Error("cannot roll back legacy coordinator state because both roots exist");
+    }
+    renameSync(migration.canonicalPath, migration.legacyPath);
+  }
+  if (!existsSync(migration.legacyPath)) {
+    throw new Error("cannot roll back legacy coordinator state because both roots are missing");
+  }
+  await removeLegacyMigrationAdditions(migration);
+  await restoreWindowsFileSecurityTree(
+    { ...migration.security, root: migration.legacyPath },
+    { helperPath: migration.helperPath },
+  );
+  await durableRemove(migration.journalPath, { platform: "win32" });
+  await flushDurablePath(dirname(migration.journalPath), { platform: "win32" });
+}
+
+async function prepareWindowsCoordinatorState(
+  paths: CoordinatorPaths,
+  account: string,
+  journalPath: string,
+): Promise<WindowsLegacyCoordinatorMigration | null> {
+  const legacyPath = requireCanonicalWindowsPath("ROOST_LEGACY_COORD_DATA_DIR");
+  if (existsSync(journalPath)) {
+    const journalInfo = lstatSync(journalPath);
+    if (!journalInfo.isFile() || journalInfo.isSymbolicLink()) {
+      throw new Error("legacy coordinator migration journal is not a regular non-reparse file");
+    }
+    throw new Error(
+      `incomplete legacy coordinator migration journal requires recovery before SCM mutation: ${journalPath}`,
+    );
+  }
+  const helperPath = requireCanonicalWindowsPath("ROOST_WIN_HELPER");
+  const interactiveSid = process.env.ROOST_INTERACTIVE_SID?.trim() ?? "";
+  if (!/^S-1-(?:\d+-)+\d+$/.test(interactiveSid)) {
+    throw new Error("ROOST_INTERACTIVE_SID is required for coordinator state migration");
+  }
+  if (legacyPath.toLocaleLowerCase("en-US") === paths.dataDir.toLocaleLowerCase("en-US")) {
+    throw new Error("legacy and canonical coordinator data roots must differ");
+  }
+  mkdirSync(dirname(paths.dataDir), { recursive: true });
+  if (!existsSync(legacyPath)) {
+    if (!existsSync(paths.dataDir)) {
+      mkdirSync(paths.dataDir, { recursive: false });
+    }
+    await protectWindowsRoleStateTree(paths.dataDir, "coordinator-state", {
+      account,
+      interactiveSid,
+      helperPath,
+    });
+    return null;
+  }
+  if (existsSync(paths.dataDir)) {
+    throw new Error("refusing to merge legacy and canonical coordinator data roots");
+  }
+  const security = await snapshotWindowsFileSecurityTree(legacyPath, { helperPath });
+  let migration: WindowsLegacyCoordinatorMigration = {
+    schemaVersion: 1,
+    phase: "prepared",
+    legacyPath,
+    canonicalPath: paths.dataDir,
+    journalPath,
+    helperPath,
+    security,
+  };
+  await persistLegacyCoordinatorMigration(migration);
+  try {
+    renameSync(legacyPath, paths.dataDir);
+    migration = { ...migration, phase: "moved" };
+    await persistLegacyCoordinatorMigration(migration);
+    await protectWindowsRoleStateTree(paths.dataDir, "coordinator-state", {
+      account,
+      interactiveSid,
+      helperPath,
+    });
+    migration = { ...migration, phase: "hardened" };
+    await persistLegacyCoordinatorMigration(migration);
+    return migration;
+  } catch (error) {
+    try {
+      await rollbackLegacyCoordinatorMigration(migration);
+    } catch (rollbackError) {
+      throw new Error(`${String(error)}; legacy coordinator migration rollback failed: ${String(rollbackError)}`);
+    }
+    throw error;
+  }
+}
+
+async function commitLegacyCoordinatorMigration(
+  migration: WindowsLegacyCoordinatorMigration | null,
+): Promise<void> {
+  if (!migration) return;
+  await durableRemove(migration.journalPath, { platform: "win32" });
+  await flushDurablePath(dirname(migration.journalPath), { platform: "win32" });
 }
 
 /** Run a command with inherited stdio (user sees live output). Returns exit. */
@@ -98,7 +363,7 @@ function mintBrowserToken(label: string): string {
   crypto.getRandomValues(rand);
   const token = "roost_bt_" + Array.from(rand).map((b) => b.toString(16).padStart(2, "0")).join("");
   const now = Date.now();
-  const db = new Database(COORD_DB);
+  const db = new Database(coordinatorPaths().database);
   try {
     db.query(
       `INSERT INTO bootstrap_tokens (token, kind, label, created_at_ms, expires_at_ms, used_at_ms, used_by_fp)
@@ -119,7 +384,7 @@ function mintWorkerToken(label: string): string {
   crypto.getRandomValues(rand);
   const token = "roost_bt_" + Array.from(rand).map((b) => b.toString(16).padStart(2, "0")).join("");
   const now = Date.now();
-  const db = new Database(COORD_DB);
+  const db = new Database(coordinatorPaths().database);
   try {
     db.query(
       `INSERT INTO bootstrap_tokens (token, kind, label, created_at_ms, expires_at_ms, used_at_ms, used_by_fp)
@@ -131,11 +396,25 @@ function mintWorkerToken(label: string): string {
   return token;
 }
 
+function trustedTailscaleExecutable(): string {
+  if (process.platform !== "win32") return "tailscale";
+  const executable = process.env.ROOST_TAILSCALE_EXE?.trim();
+  if (!executable || !win32.isAbsolute(executable) || /[\0\r\n]/.test(executable)) {
+    throw new Error("Windows quickstart requires the trusted absolute ROOST_TAILSCALE_EXE");
+  }
+  const info = lstatSync(executable);
+  if (!info.isFile() || info.isSymbolicLink()) {
+    throw new Error("ROOST_TAILSCALE_EXE must be a non-reparse regular file");
+  }
+  return executable;
+}
+
 /** Mint the tailnet TLS cert via `tailscale cert`. Skip if present unless force. */
 function mintCert(fqdn: string, force: boolean): void {
-  const certPath = join(COORD_TLS_DIR, `${fqdn}.crt`);
-  const keyPath = join(COORD_TLS_DIR, `${fqdn}.key`);
-  mkdirSync(COORD_TLS_DIR, { recursive: true });
+  const tlsDir = coordinatorPaths().tlsDir;
+  const certPath = join(tlsDir, `${fqdn}.crt`);
+  const keyPath = join(tlsDir, `${fqdn}.key`);
+  mkdirSync(tlsDir, { recursive: true });
   if (!force && existsSync(certPath) && existsSync(keyPath)) {
     logStep(`TLS cert present for ${fqdn} (skipping mint; --force to re-mint)`);
   } else {
@@ -155,7 +434,15 @@ function mintCert(fqdn: string, force: boolean): void {
       default:
         throw new Error(`unsupported quickstart platform: ${process.platform}`);
     }
-    const cert = runCapture(["tailscale", "cert", "--cert-file", certPath, "--key-file", keyPath, fqdn]);
+    const cert = runCapture([
+      trustedTailscaleExecutable(),
+      "cert",
+      "--cert-file",
+      certPath,
+      "--key-file",
+      keyPath,
+      fqdn,
+    ]);
     if (cert.exit !== 0 && !existsSync(certPath)) {
       const detail = cert.stderr.trim() || cert.stdout.trim();
       if (process.platform !== "linux") {
@@ -208,6 +495,69 @@ async function waitForCoordHealth(fqdn: string, timeoutMs = 15_000): Promise<boo
   return false;
 }
 
+interface WindowsInstallRollback {
+  lock: MachineTransactionLock;
+  manager: WindowsServiceManager;
+  snapshot: WindowsServiceSnapshotSet;
+  committed: boolean;
+  migration: WindowsLegacyCoordinatorMigration | null;
+}
+
+async function proveWindowsInstallHealth(
+  manager: WindowsServiceManager,
+  expectedAccount: string,
+  expectedCoordinatorUrl: string,
+): Promise<void> {
+  const snapshots = await manager.snapshot();
+  for (const role of ["keeper", "worker", "coordinator"] as const) {
+    const service = snapshots[role];
+    if (!service.installed || service.state !== "running") {
+      throw new Error(`${service.name} did not reach the required running state`);
+    }
+    if (service.account?.trim().toLowerCase() !== expectedAccount.trim().toLowerCase()) {
+      throw new Error(`${service.name} does not use the dedicated service account`);
+    }
+  }
+  const updater = snapshots.updater;
+  if (
+    !updater.installed
+    || updater.startMode !== "automatic"
+    || updater.account?.trim().toLowerCase() !== expectedAccount.trim().toLowerCase()
+  ) {
+    throw new Error("RoostUpdaterV2 automatic recovery/account proof failed");
+  }
+  await Promise.all([
+    probeServiceHealth("coordinator", {
+      expectedVersion: ROOST_VERSION,
+      expectedBuild: ROOST_BUILD_SHA,
+    }),
+    probeServiceHealth("worker", {
+      expectedVersion: ROOST_VERSION,
+      expectedBuild: ROOST_BUILD_SHA,
+      expectedCoordinatorUrl,
+    }),
+  ]);
+  const launcher = process.env.ROOST_STABLE_LAUNCHER?.trim();
+  if (!launcher || !win32.isAbsolute(launcher) || /[\0\r\n]/.test(launcher)) {
+    throw new Error("Windows stable launcher path was not provided by the signed installer");
+  }
+  const launcherInfo = lstatSync(launcher);
+  if (!launcherInfo.isFile() || launcherInfo.isSymbolicLink()) {
+    throw new Error("Windows stable launcher is not a non-reparse regular file");
+  }
+  const version = Bun.spawnSync([launcher, "version"]);
+  if (version.exitCode !== 0 || version.stdout.toString().trim() !== ROOST_VERSION) {
+    throw new Error("Windows stable launcher did not execute the selected Roost version");
+  }
+  const stableBin = dirname(launcher).replace(/[\\/]+$/, "").toLowerCase();
+  const pathSegments = (process.env.Path ?? process.env.PATH ?? "")
+    .split(";")
+    .map((segment) => segment.replace(/[\\/]+$/, "").toLowerCase());
+  if (!pathSegments.includes(stableBin)) {
+    throw new Error("Windows stable launcher directory is not present on PATH");
+  }
+}
+
 export async function quickstart(args: string[]): Promise<void> {
   const force = args.includes("--force");
   const dry = args.includes("--dry-run"); // generate service definitions only
@@ -232,7 +582,38 @@ export async function quickstart(args: string[]): Promise<void> {
         "run quickstart through the signed install-binary.ps1 front door",
       )
     : undefined;
+  let windowsInstall: WindowsInstallRollback | null = null;
+  let windowsPaths: CoordinatorPaths | null = null;
   try {
+  windowsPaths = process.platform === "win32" ? coordinatorPaths() : null;
+  if (process.platform === "win32" && binary && !dry && serviceCredentials && windowsPaths) {
+    const serviceDir = roostServiceDir(undefined, "win32");
+    const transactionJournalPath = join(serviceDir, "install-transaction.json");
+    const migrationJournalPath = join(serviceDir, "coordinator-migration.json");
+    const lock = await acquireMachineTransaction(
+      "install",
+      transactionJournalPath,
+      { platform: "win32" },
+    );
+    const manager = createWindowsServiceManager();
+    try {
+      windowsInstall = {
+        lock,
+        manager,
+        snapshot: await manager.snapshot({ includeSecurity: true }),
+        committed: false,
+        migration: null,
+      };
+    } catch (error) {
+      await lock.release();
+      throw error;
+    }
+    windowsInstall.migration = await prepareWindowsCoordinatorState(
+      windowsPaths,
+      serviceCredentials.account,
+      migrationJournalPath,
+    );
+  }
   // 1. Tailscale gate (interactive; skipped for --dry-run).
   let fqdn: string;
   if (dry) {
@@ -257,12 +638,20 @@ export async function quickstart(args: string[]): Promise<void> {
     console.log(`   tailnet: ${fqdn}`);
   }
   const coordUrl = `https://${fqdn}:4102`;
-  const windowsCoordinatorEnvironment = process.platform === "win32"
+  windowsPaths = process.platform === "win32" ? windowsPaths ?? coordinatorPaths() : null;
+  const windowsCoordinatorEnvironment = windowsPaths
     ? {
+      ROOST_COORD_DATA_DIR: windowsPaths.dataDir,
+      ROOST_COORD_LOG_DIR: windowsPaths.logDir,
+      ROOST_COORDINATOR_DB: windowsPaths.database,
+      ROOST_COORDINATOR_AUTHORIZED_KEYS: windowsPaths.authorizedKeys,
+      ROOST_COORDINATOR_KEY_PATH: windowsPaths.key,
+      ROOST_COORDINATOR_HANDOFF_PATH: windowsPaths.handoff,
+      ROOST_COORDINATOR_TLS_DIR: windowsPaths.tlsDir,
       ROOST_COORDINATOR_BIND: "0.0.0.0:4102",
       ROOST_COORDINATOR_PUBLIC_URL: coordUrl,
-      ROOST_TLS_CERT_PATH: join(COORD_TLS_DIR, `${fqdn}.crt`),
-      ROOST_TLS_KEY_PATH: join(COORD_TLS_DIR, `${fqdn}.key`),
+      ROOST_TLS_CERT_PATH: join(windowsPaths.tlsDir, `${fqdn}.crt`),
+      ROOST_TLS_KEY_PATH: join(windowsPaths.tlsDir, `${fqdn}.key`),
     }
     : undefined;
 
@@ -301,6 +690,13 @@ export async function quickstart(args: string[]): Promise<void> {
       coordinatorEnvironment: windowsCoordinatorEnvironment,
       credentials: serviceCredentials, log: logStep,
     });
+    if (windowsInstall && serviceCredentials) {
+      await proveWindowsInstallHealth(
+        windowsInstall.manager,
+        serviceCredentials.account,
+        coordUrl,
+      );
+    }
   } else {
     // From source: deps + build + the on-disk install scripts.
     console.log(`   bun: ${process.execPath}`);
@@ -334,7 +730,7 @@ export async function quickstart(args: string[]): Promise<void> {
     logStep("deploying local worker");
     process.env.ROOST_COORDINATOR_URL = coordUrl;
     process.env.ROOST_ALLOW_DIRTY = "1";
-    await deploy(["localhost"]);
+    await deploy(["localhost", "--allow-unpublished-local"]);
     logStep("waiting for coordinator health");
     if (!await waitForCoordHealth(fqdn)) {
       die(`coord did not become healthy at ${coordUrl}`, "check logs: roost logs coord");
@@ -343,8 +739,17 @@ export async function quickstart(args: string[]): Promise<void> {
   }
 
   // Status readout.
-  console.log();
-  printStatusReport(await statusReport());
+  const report = await statusReport();
+  printStatusReport(report);
+  if (
+    windowsInstall
+    && (!report.tailscale.running
+      || !report.coordAgentLoaded
+      || !report.workerAgentLoaded
+      || !report.coord.reachable)
+  ) {
+    throw new Error("Windows quickstart status proof did not confirm all required services");
+  }
 
   // Authorize this machine's browser with no token paste: mint a #pair token +
   // open it. The fragment never reaches the coordinator or an HTTP Referer.
@@ -376,7 +781,41 @@ export async function quickstart(args: string[]): Promise<void> {
   } else {
     console.log(`  Health anytime:  bun apps/roost-cli/src/main.ts status`);
   }
+  if (windowsInstall) {
+    await commitLegacyCoordinatorMigration(windowsInstall.migration);
+    windowsInstall.committed = true;
+  }
+  } catch (error) {
+    if (windowsInstall && !windowsInstall.committed) {
+      let rollbackError: unknown = null;
+      try {
+        if (windowsInstall.migration) {
+          await windowsInstall.manager.stop("coordinator");
+        }
+        await windowsInstall.manager.restore(windowsInstall.snapshot, {
+          restoreLifecycleRoles: windowsInstall.migration ? [] : WINDOWS_SERVICE_ROLES,
+          allowKeeperStop: true,
+        });
+        if (windowsInstall.migration) {
+          await rollbackLegacyCoordinatorMigration(windowsInstall.migration);
+          windowsInstall.migration = null;
+          await windowsInstall.manager.restore(windowsInstall.snapshot, {
+            restoreLifecycleRoles: WINDOWS_SERVICE_ROLES,
+            allowKeeperStop: true,
+          });
+        }
+      } catch (caught) {
+        rollbackError = caught;
+      }
+      if (rollbackError) {
+        throw new Error(
+          `${String(error)}; Windows install rollback failed: ${String(rollbackError)}`,
+        );
+      }
+    }
+    throw error;
   } finally {
+    await windowsInstall?.lock.release();
     if (serviceCredentials) serviceCredentials.password = undefined;
   }
 }

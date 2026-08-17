@@ -7,6 +7,7 @@
 import type { CoordClient } from "./coord-client.ts";
 import { assertNeverPlatform, supportedHostPlatform } from "@roost/shared/platform";
 import { log, signal } from "@roost/shared";
+import { ROOST_BUILD_SHA } from "@roost/shared/build-identity";
 import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
 import { KEEPER_BUILD_STAMP } from "./keeper/keeper-stamp.ts";
 import { resolveTailnetDnsName } from "./install.ts";
@@ -185,7 +186,7 @@ async function collectHostMetrics(): Promise<HostMetrics> {
 }
 
 function getGitSha(): string | undefined {
-	return process.env.GIT_SHA || undefined;
+	return ROOST_BUILD_SHA === "dev" ? undefined : ROOST_BUILD_SHA;
 }
 
 /** Start the 30s heartbeat loop. Resolves after the first successful beat. */

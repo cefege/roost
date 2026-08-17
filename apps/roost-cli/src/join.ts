@@ -1,31 +1,38 @@
 // `roost join` — install/register this host's worker from a one-shot
 // coordinator bootstrap token. POSIX keeps the existing source deploy flow;
 // the signed Windows release installs native SCM services without bash/SSH.
+import { resolve } from "node:path";
 import { _deployLocal } from "./deploy-local.ts";
+import { resolvePublishedGitShaOrDie } from "./deploy-exec.ts";
 import {
   installWorkerAgent,
   readWindowsServiceCredentials,
 } from "./install-binary-agents.ts";
 import { ROOST_VERSION } from "./version.ts";
+const REPO_ROOT = resolve(import.meta.dir, "..", "..", "..");
+
 
 export async function join(args: string[]): Promise<void> {
   const coordUrl = process.env.ROOST_COORDINATOR_URL;
   if (!coordUrl) {
     console.error("ERROR: ROOST_COORDINATOR_URL required — get the join command from");
-    console.error("  `roost add-mac` on your coordinator (or Settings → Machines → Add machine).");
+    console.error("  `roost add-machine --platform windows` on your coordinator (or Settings → Machines → Add machine).");
     process.exit(1);
   }
   const bootstrapToken = process.env.ROOST_BOOTSTRAP_TOKEN;
   if (!bootstrapToken) {
     console.error("ERROR: ROOST_BOOTSTRAP_TOKEN required — get the join command from");
-    console.error("  `roost add-mac` on your coordinator (or Settings → Machines → Add machine).");
+    console.error("  `roost add-machine --platform windows` on your coordinator (or Settings → Machines → Add machine).");
     process.exit(1);
   }
 
   switch (process.platform) {
     case "darwin":
     case "linux":
-      await _deployLocal("this machine");
+      await _deployLocal("this machine", {
+        sourceRoot: REPO_ROOT,
+        gitSha: resolvePublishedGitShaOrDie(REPO_ROOT),
+      });
       break;
     case "win32": {
       if (!Bun.which("tailscale.exe") && !Bun.which("tailscale")) {

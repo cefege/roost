@@ -95,6 +95,10 @@ printf '%s' "$status"
     ROOST_COORD_DATA_DIR: join(dir, "data"),
     ROOST_COORD_LOG_DIR: join(dir, "logs"),
     ROOST_COORD_LOGROTATE_CONF: join(dir, "logrotate.conf"),
+    ROOST_COORDINATOR_DB: join(dir, "state%blue", "coordinator.db"),
+    ROOST_COORD_MEMORY_HIGH: "3G",
+    ROOST_COORD_MEMORY_MAX: "5G",
+    ROOST_COORD_TASKS_MAX: "640",
     ROOST_FRONTED: "1",
     ROOST_PUBLIC_BIND: "127.0.0.1:4104",
     ROOST_WEB_PUBLIC_URL: "https://roost.example.com",
@@ -118,10 +122,24 @@ describe("public coordinator service install", () => {
     expect(result.exitCode, result.stderr?.toString()).toBe(0);
     expect(result.stdout?.toString()).toContain("Coord v2 ready");
     const service = readFileSync(unit, "utf8");
-    expect(service).toContain("Environment=ROOST_PUBLIC_BIND=127.0.0.1:4104");
-    expect(service).toContain("Environment=ROOST_CF_ACCESS_TEAM_DOMAIN=example.cloudflareaccess.com");
-    expect(service).toContain("Environment=ROOST_FRONTED=1");
-    expect(service).toContain("Environment=ROOST_COORD_LOOPBACK_PORT=4103");
+    expect(service).toContain('Environment="ROOST_PUBLIC_BIND=127.0.0.1:4104"');
+    expect(service).toContain('Environment="ROOST_CF_ACCESS_TEAM_DOMAIN=example.cloudflareaccess.com"');
+    expect(service).toContain('Environment="ROOST_FRONTED=1"');
+    expect(service).toContain('Environment="ROOST_COORD_LOOPBACK_PORT=4103"');
+    expect(service).toContain(`Environment="ROOST_COORDINATOR_DB=${join(env.HOME, "state%%blue", "coordinator.db")}"`);
+    expect(service).toContain('Environment="ROOST_COORD_MEMORY_HIGH=3G"');
+    expect(service).toContain('Environment="ROOST_COORD_MEMORY_MAX=5G"');
+    expect(service).toContain('Environment="ROOST_COORD_TASKS_MAX=640"');
+    expect(service).toContain(`Environment="ROOST_COORD_LOGROTATE_CONF=${env.ROOST_COORD_LOGROTATE_CONF}"`);
+  });
+
+  test("records explicit direct mode so a clean worktree cannot revert it", () => {
+    const { unit, env } = fixture();
+    const result = install({ ...env, ROOST_FRONTED: "0" });
+    expect(result.exitCode, result.stderr?.toString()).toBe(0);
+    const service = readFileSync(unit, "utf8");
+    expect(service).toContain('Environment="ROOST_FRONTED=0"');
+    expect(service).not.toContain('Environment="ROOST_TRUST_PROXY=1"');
   });
 
   test("wrong readiness, immediate exit, and tailscale failure restore an existing unit", () => {

@@ -59,6 +59,19 @@ export async function buildApiClient(): Promise<CoordClient> {
   return createCoordClient({ cfg, getJwt: () => mintJwt(key, "roost-coordinator") });
 }
 
+/** Build the CLI's normal client and authorize a fresh key once when allowed. */
+export async function buildSelfAuthorizedApiClient(): Promise<CoordClient> {
+  const client = await buildApiClient();
+  try {
+    await client.workersList({});
+  } catch (error) {
+    if (!/unauthenticated/i.test(String(error)) || !_authorizeSelf) throw error;
+    await _authorizeSelf(client);
+    await client.workersList({});
+  }
+  return client;
+}
+
 export async function buildAuthorizedApiClient(options: {
   coordinatorUrl: string;
   keyPath: string;
@@ -87,11 +100,26 @@ export async function buildAuthorizedApiClient(options: {
 }
 
 /** Mint a one-shot worker bootstrap token from the coord — the primitive
- *  behind `roost add-mac` / the web "Add machine" dialog. Reuses the same
+ *  behind `roost add-machine` / the web "Add machine" dialog. Reuses the same
  *  self-authorize-and-retry as api(): on a coord-only host the quickstart
  *  worker key is already authorized so the first attempt succeeds; a bare
  *  coord with only a fresh cli-key self-authorizes over loopback/tailnet. */
-export async function mintWorkerBootstrap(label: string): Promise<string> {
+export async function mintWorkerBootstrap(
+  label: string,
+  coordinatorUrl?: string,
+): Promise<string> {
+  if (coordinatorUrl) {
+    const cfg = loadWorkerConfig({ ROOST_COORDINATOR_URL: coordinatorUrl });
+    const keyPath = existsSync(cfg.workerKeyPath)
+      ? cfg.workerKeyPath
+      : join(homedir(), ".roost", "cli-key");
+    const c = await buildAuthorizedApiClient({
+      coordinatorUrl,
+      keyPath,
+      label: "roost-cli",
+    });
+    return (await c.authMintBootstrap({ kind: "worker", label })).token;
+  }
   const c = await buildApiClient();
   const attempt = () => c.authMintBootstrap({ kind: "worker", label });
   try { return (await attempt()).token; }

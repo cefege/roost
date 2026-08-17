@@ -77,6 +77,9 @@ jobs:
         run: |
           bun x tsgo -p tsconfig.base.json --noEmit
           bun test --isolate apps/shared/tests/ apps/coord/tests/ apps/web/tests/ apps/roost-cli/tests/ smoke/bun_smoke.test.ts
+      - name: Windows PowerShell 5.1 bootstrap compatibility
+        shell: powershell
+        run: .\scripts\windows\verify-powershell51-bootstrap.ps1
       - name: Native keeper and ConPTY
         run: >-
           bun test

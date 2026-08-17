@@ -5,7 +5,7 @@
 #     ROOST_COORDINATOR_URL="https://<coord>.<tailnet>.ts.net:4102" \
 #     ROOST_BOOTSTRAP_TOKEN="roost_bt_…" [ROOST_WORKER_LABEL="my-box"] bash
 #
-# Get that one-liner from `roost add-mac` on the coordinator (or the web
+# Get that one-liner from `roost add-machine` on the coordinator (or the web
 # Settings → Machines → Add machine dialog). What it does: gate on Tailscale
 # (required) → install Bun if missing → clone/update the repo → pin the
 # checkout to the coordinator's live commit (so the drift badge stays quiet) →
@@ -26,10 +26,10 @@ case "$(uname -s)" in
   *) die "Roost joins on macOS or Linux only (found $(uname -s))." ;;
 esac
 
-# 1. Required env — the join target + credential come from `roost add-mac`.
+# 1. Required env — the join target + credential come from `roost add-machine`.
 if [ -z "${ROOST_COORDINATOR_URL:-}" ] || [ -z "${ROOST_BOOTSTRAP_TOKEN:-}" ]; then
   die "ROOST_COORDINATOR_URL and ROOST_BOOTSTRAP_TOKEN are required." \
-      "Run \`roost add-mac\` on your coordinator (or Settings → Machines → Add machine)" \
+      "Run \`roost add-machine --platform macos\` or \`roost add-machine --platform linux\` on your coordinator" \
       "to get the full one-liner, then paste it here. It looks like:" \
       "  curl -fsSL https://raw.githubusercontent.com/cefege/roost/main/join.sh | \\" \
       "    ROOST_COORDINATOR_URL=\"https://<coord>.<tailnet>.ts.net:4102\" \\" \

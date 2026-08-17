@@ -6,7 +6,9 @@
 // Callers: main.ts.
 
 import { log, supportedHostPlatform } from "@roost/shared";
+import { workerServicePath } from "@roost/shared/paths";
 import { resolveTailnetDnsName } from "@roost/shared/tailnet";
+import { chmod, readFile, rename, writeFile } from "node:fs/promises";
 import type { CoordClient } from "./coord-client.ts";
 import type { WorkerConfig as WorkerConfigType } from "@roost/shared";
 import { loadWorkerKey } from "./jwt.ts";
@@ -22,6 +24,47 @@ export { resolveTailnetDnsName } from "@roost/shared/tailnet";
 // self-heal once coord is back.
 const BOOT_RPC_TIMEOUT_MS = 10_000;
 
+export async function scrubBootstrapTokenFromServiceDefinition(
+  path: string = process.env.ROOST_WORKER_SERVICE_PATH ?? workerServicePath(),
+  platform = supportedHostPlatform(),
+): Promise<boolean> {
+  if (platform === "win32") return false;
+  const raw = await readFile(path, "utf8");
+  const next = platform === "darwin"
+    ? raw.replace(
+        /\s*<key>ROOST_BOOTSTRAP_TOKEN<\/key>\s*<string>[^<]*<\/string>/,
+        "",
+      )
+    : raw.split("\n")
+        .filter((line) => !/^\s*Environment=(?:")?ROOST_BOOTSTRAP_TOKEN=/.test(line))
+        .join("\n");
+  if (next === raw) return false;
+  const temp = `${path}.${process.pid}.token-scrub`;
+  await writeFile(temp, next, { mode: 0o600 });
+  await rename(temp, path);
+  await chmod(path, 0o600);
+  if (platform === "linux") {
+    const reload = Bun.spawn(["systemctl", "--user", "daemon-reload"], {
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    await reload.exited;
+  }
+  return true;
+}
+
+async function retireBootstrapToken(): Promise<void> {
+  try {
+    if (await scrubBootstrapTokenFromServiceDefinition()) {
+      log.info("install", "bootstrap token scrubbed from service definition");
+    }
+  } catch (error) {
+    log.warn("install", "bootstrap token service scrub failed", { error: String(error) });
+  } finally {
+    delete process.env.ROOST_BOOTSTRAP_TOKEN;
+  }
+}
+
 
 interface InstallOptions {
   cfg: WorkerConfigType;
@@ -33,6 +76,7 @@ async function installWorker(opts: InstallOptions): Promise<string> {
   const key = await loadWorkerKey(cfg.workerKeyPath);
   const fingerprint = key.fingerprint;
   const os = supportedHostPlatform();
+  let authorized = false;
   // Redeem bootstrap token (one-shot).
   if (cfg.bootstrapToken) {
     try {
@@ -47,12 +91,11 @@ async function installWorker(opts: InstallOptions): Promise<string> {
       if (result.fingerprint !== fingerprint) {
         throw new Error(`bootstrap fingerprint mismatch: expected ${fingerprint}, received ${result.fingerprint}`);
       }
+      authorized = true;
       log.info("install", "bootstrap token redeemed", {
         fp: result.fingerprint,
         label: result.label,
       });
-      // Clear token from env so it's not accidentally reused.
-      delete process.env.ROOST_BOOTSTRAP_TOKEN;
     } catch (e) {
       log.warn("install", "bootstrap redeem failed (may be already used)", { error: String(e) });
     }
@@ -68,10 +111,12 @@ async function installWorker(opts: InstallOptions): Promise<string> {
       ...(git_sha ? { gitSha: git_sha } : {}),
       ...(reachable_addr ? { reachableAddr: reachable_addr } : {}),
     }, { timeoutMs: BOOT_RPC_TIMEOUT_MS });
+    authorized = true;
     log.info("install", "registered with coord", { fingerprint });
   } catch (error) {
     log.warn("install", "register failed (will retry on heartbeat)", { error: String(error) });
   }
+  if (cfg.bootstrapToken && authorized) await retireBootstrapToken();
 
   return fingerprint;
 }
@@ -142,7 +187,7 @@ export async function runStrictEnrollment(opts: InstallOptions): Promise<StrictE
     });
   }
 
-  delete process.env.ROOST_BOOTSTRAP_TOKEN;
+  await retireBootstrapToken();
   log.info("install", "strict enrollment authorized", { fingerprint, redeemed, registrationConfirmed });
   return { fingerprint, redeemed, registrationConfirmed };
 }

@@ -1,8 +1,15 @@
+import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import { dirname } from "node:path";
 import { durableRemove, durableWriteFile } from "@roost/shared/durability";
 import { log } from "@roost/shared/log";
-import { machineRelocationTransaction, type MachineRelocationTransaction } from "./coord-relocation-transaction.ts";
+import { WINDOWS_RELOCATION_SCHEMA_VERSION } from "@roost/shared/windows-relocation";
+import type {
+  WindowsRelocationBrokerCommand,
+  WindowsRelocationCommandAction,
+  WindowsRelocationResultFrame,
+  WindowsWorkerEndpointRelocationOperation,
+} from "@roost/shared/windows-relocation";
 import {
   createDefaultWindowsCoordRuntime,
   type WindowsCoordRuntime,
@@ -18,6 +25,7 @@ export interface CoordRelocationJournal {
   updated_at_ms: number;
   windows_service?: WindowsServiceSnapshot;
   windows_endpoint_mutation?: { url: string; started_at_ms: number };
+  windows_relocation?: WindowsWorkerEndpointRelocationOperation;
 }
 
 interface RelocationRequest {
@@ -29,16 +37,13 @@ interface RelocationRequest {
 /** Keeps the worker runtime and installed service endpoint coherent across a move. */
 export class WorkerCoordRelocation {
   readonly #windowsRuntime: WindowsCoordRuntime;
-  readonly #transaction: MachineRelocationTransaction;
 
   constructor(
     private readonly path: string,
     private readonly workerServicePath: string,
     windowsRuntime: WindowsCoordRuntime = createDefaultWindowsCoordRuntime(),
-    transaction: MachineRelocationTransaction = machineRelocationTransaction,
   ) {
     this.#windowsRuntime = windowsRuntime;
-    this.#transaction = transaction;
   }
 
   load(): CoordRelocationJournal | null {
@@ -96,16 +101,17 @@ export class WorkerCoordRelocation {
     }
   }
 
-  /** Reacquires the machine lock before network recovery/update handling starts. */
+  /** Reconciles a durable Windows admission before network recovery starts. */
   async recoverTransaction(): Promise<void> {
+    const current = this.load();
     switch (process.platform) {
       case "darwin":
       case "linux":
         return;
       case "win32": {
-        const current = this.load();
-        if (current && current.state !== "COMMITTED") {
-          await this.#transaction.acquire("win32", current.handoff_id, this.path, "worker-endpoint");
+        if (current) {
+          if (current.state === "COMMITTED") await this.#ensureWindowsAction(current, "COMMIT");
+          else await this.#ensureWindowsAction(current, "START");
         }
         return;
       }
@@ -121,10 +127,16 @@ export class WorkerCoordRelocation {
     const residual = unackedEventCount();
     if (residual > 0) throw new Error(`worker event drain timed out after 30000ms with ${residual} unacked events`);
     if (process.platform === "win32") {
-      await this.#transaction.acquire("win32", current.handoff_id, this.path, "worker-endpoint");
-      await this.#persistWindowsEndpoint(current, current.target_url);
-      await this.#writeWindows({ ...current, state: "COMMITTED", windows_endpoint_mutation: undefined, updated_at_ms: Date.now() });
-      await this.#transaction.release("win32", current.handoff_id, "worker-endpoint");
+      // RoostUpdaterV2 owns the machine transaction and every privileged mutation.
+      await this.#writeWindows({
+        ...current,
+        windows_endpoint_mutation: { url: current.target_url, started_at_ms: Date.now() },
+        updated_at_ms: Date.now(),
+      });
+      await this.#ensureWindowsAction(current, "APPLY");
+      const committed = { ...current, state: "COMMITTED" as const, windows_endpoint_mutation: undefined, updated_at_ms: Date.now() };
+      await this.#writeWindows(committed);
+      await this.#ensureWindowsAction(committed, "COMMIT");
     } else if (process.platform === "darwin" || process.platform === "linux") {
       await this.#persistPosixEndpoint(current.target_url);
       this.#writePosix({ ...current, state: "COMMITTED", updated_at_ms: Date.now() });
@@ -145,13 +157,8 @@ export class WorkerCoordRelocation {
         this.#fsyncParent();
         break;
       case "win32":
-        await this.#transaction.acquire("win32", current.handoff_id, this.path, "worker-endpoint");
-        if (!current.windows_service) throw new Error("Windows relocation journal has no worker service snapshot");
-        await this.#writeWindows({ ...current, windows_endpoint_mutation: { url: current.source_url, started_at_ms: Date.now() }, updated_at_ms: Date.now() });
-        await this.#windowsRuntime.configureService(current.windows_service);
-        await this.#assertWindowsService(current.windows_service);
+        await this.#ensureWindowsAction(current, "RESTORE");
         await durableRemove(this.path, { platform: "win32", privateDacl: true });
-        await this.#transaction.release("win32", current.handoff_id, "worker-endpoint");
         break;
       default:
         throw new Error(`unsupported worker relocation platform: ${process.platform}`);
@@ -160,33 +167,43 @@ export class WorkerCoordRelocation {
   }
 
   async #stageWindows(request: RelocationRequest): Promise<void> {
-    await this.#transaction.acquire("win32", request.handoff_id, this.path, "worker-endpoint");
-    try {
-      const service = await this.#windowsRuntime.queryService("worker");
-      if (!service.installed || service.state !== "running") throw new Error("RoostWorkerV2 must be installed and running for relocation");
-      await this.#writeWindows({ version: 1, ...request, state: "STAGED", updated_at_ms: Date.now(), windows_service: service });
-    } catch (error) {
-      await this.#transaction.release("win32", request.handoff_id, "worker-endpoint");
-      throw error;
+    const [service, expectedBefore] = await Promise.all([
+      this.#windowsRuntime.queryService("worker"),
+      this.#windowsRuntime.queryRelocationService("worker"),
+    ]);
+    if (!service.installed || service.state !== "running") {
+      throw new Error("RoostWorkerV2 must be installed and running for relocation");
     }
+    const operation: WindowsWorkerEndpointRelocationOperation = {
+      schemaVersion: WINDOWS_RELOCATION_SCHEMA_VERSION,
+      kind: "worker-endpoint",
+      relocationId: randomUUID(),
+      handoffId: request.handoff_id,
+      sourceUrl: request.source_url,
+      targetUrl: request.target_url,
+      expectedBefore,
+    };
+    const journal = {
+      version: 1 as const,
+      ...request,
+      state: "STAGED" as const,
+      updated_at_ms: Date.now(),
+      windows_service: service,
+      windows_relocation: operation,
+    };
+    await this.#writeWindows(journal);
+    await this.#ensureWindowsAction(journal, "START");
   }
 
   async #activateWindows(request: RelocationRequest, current: CoordRelocationJournal | null): Promise<void> {
-    await this.#transaction.acquire("win32", request.handoff_id, this.path, "worker-endpoint");
-    try {
-      const service = current?.windows_service ?? await this.#windowsRuntime.queryService("worker");
-      await this.#writeWindows({ version: 1, ...request, state: "ACTIVATED", updated_at_ms: Date.now(), windows_service: service });
-    } catch (error) {
-      await this.#transaction.release("win32", request.handoff_id, "worker-endpoint");
-      throw error;
+    if (!current?.windows_relocation || !current.windows_service) {
+      throw new Error("Windows relocation must be prepared before activation");
     }
+    await this.#writeWindows({ ...current, ...request, state: "ACTIVATED", updated_at_ms: Date.now() });
   }
 
-  async #discardWindows(current: CoordRelocationJournal | null): Promise<void> {
+  async #discardWindows(_current: CoordRelocationJournal | null): Promise<void> {
     await durableRemove(this.path, { platform: "win32", privateDacl: true });
-    if (current && current.state !== "COMMITTED") {
-      await this.#transaction.release("win32", current.handoff_id, "worker-endpoint");
-    }
   }
 
   #requireActivated(): CoordRelocationJournal {
@@ -195,34 +212,54 @@ export class WorkerCoordRelocation {
     return current;
   }
 
-  async #persistWindowsEndpoint(current: CoordRelocationJournal, url: string): Promise<void> {
-    if (!current.windows_service) throw new Error("Windows relocation journal has no worker service snapshot");
-    const before = await this.#windowsRuntime.queryService("worker");
-    const desired: WindowsServiceSnapshot = {
-      ...before,
-      environment: { ...before.environment, ROOST_COORDINATOR_URL: url },
-    };
-    await this.#writeWindows({ ...current, windows_endpoint_mutation: { url, started_at_ms: Date.now() }, updated_at_ms: Date.now() });
-    try {
-      await this.#windowsRuntime.configureService(desired);
-      await this.#assertWindowsService(desired);
-    } catch (error) {
-      await this.#windowsRuntime.configureService(current.windows_service).catch(() => {});
-      throw error;
+  async #ensureWindowsAction(
+    current: CoordRelocationJournal,
+    action: Exclude<WindowsRelocationCommandAction, "STATUS">,
+  ): Promise<void> {
+    const status = await this.#runWindowsCommand(current, "STATUS");
+    if (action === "START" && status.phase === "missing") {
+      await this.#runWindowsCommand(current, "START");
+      return;
     }
+    if (action === "START" && ["prepared", "applied", "committed"].includes(status.phase)) return;
+    if (action === "APPLY" && status.phase === "prepared") {
+      await this.#runWindowsCommand(current, "APPLY");
+      return;
+    }
+    if (action === "APPLY" && ["applied", "committed"].includes(status.phase)) return;
+    if (action === "COMMIT" && status.phase === "applied") {
+      await this.#runWindowsCommand(current, "COMMIT");
+      return;
+    }
+    if (action === "COMMIT" && status.phase === "committed") return;
+    if (action === "RESTORE" && ["prepared", "applied"].includes(status.phase)) {
+      await this.#runWindowsCommand(current, "RESTORE");
+      return;
+    }
+    if (action === "RESTORE" && status.phase === "rolled-back") return;
+    throw new Error(`Windows worker relocation ${action} refused in durable phase ${status.phase}: ${status.error}`);
   }
 
-  async #assertWindowsService(expected: WindowsServiceSnapshot): Promise<void> {
-    const actual = await this.#windowsRuntime.queryService("worker");
-    const projection = (service: WindowsServiceSnapshot): string => JSON.stringify({
-      ...service,
-      state: undefined,
-      dependencies: [...service.dependencies].sort(),
-      environment: Object.fromEntries(Object.entries(service.environment).sort(([left], [right]) => left.localeCompare(right))),
-    });
-    if (projection(actual) !== projection(expected) || actual.state !== expected.state) {
-      throw new Error("RoostWorkerV2 coordinator endpoint configuration did not round-trip through SCM");
+  async #runWindowsCommand(
+    current: CoordRelocationJournal,
+    action: WindowsRelocationCommandAction,
+  ): Promise<WindowsRelocationResultFrame> {
+    const operation = current.windows_relocation;
+    if (!operation) throw new Error("Windows relocation journal has no updater operation");
+    const command: WindowsRelocationBrokerCommand = {
+      schemaVersion: WINDOWS_RELOCATION_SCHEMA_VERSION,
+      requestId: randomUUID(),
+      relocationId: operation.relocationId,
+      handoffId: operation.handoffId,
+      operationKind: operation.kind,
+      action,
+      operation: action === "START" ? operation : undefined,
+    };
+    const result = await this.#windowsRuntime.runRelocationCommand(command, async () => {});
+    if (action !== "STATUS" && (!result.terminal || !result.success)) {
+      throw new Error(result.error || `Windows relocation ${action} has no successful terminal result`);
     }
+    return result;
   }
 
   async #persistPosixEndpoint(url: string): Promise<void> {
@@ -237,11 +274,19 @@ export class WorkerCoordRelocation {
     }
     if (process.platform !== "linux") throw new Error(`unsupported worker relocation platform: ${process.platform}`);
     const original = fs.readFileSync(this.workerServicePath, "utf8");
-    const line = `Environment=ROOST_COORDINATOR_URL=${url}`;
-    const rewritten = /^Environment=ROOST_COORDINATOR_URL=.*$/m.test(original)
-      ? original.replace(/^Environment=ROOST_COORDINATOR_URL=.*$/m, line)
-      : original.replace(/^\[Service\]$/m, `[Service]\n${line}`);
-    if (!rewritten.includes(line)) throw new Error("failed to update worker coordinator URL");
+    const escapedUrl = url
+      .replaceAll("\\", "\\\\")
+      .replaceAll("\"", "\\\"")
+      .replaceAll("\n", "\\n")
+      .replaceAll("\r", "\\r")
+      .replaceAll("\t", "\\t");
+    const line = `Environment="ROOST_COORDINATOR_URL=${escapedUrl}"`;
+    const priorEndpoint = /^Environment=(?:"ROOST_COORDINATOR_URL=(?:\\.|[^"])*"|ROOST_COORDINATOR_URL=.*)$/gm;
+    const withoutPriorEndpoint = original.replace(priorEndpoint, "");
+    const rewritten = withoutPriorEndpoint.replace(/^\[Service\]$/m, `[Service]\n${line}`);
+    if (rewritten === withoutPriorEndpoint || !rewritten.includes(line)) {
+      throw new Error("failed to update worker coordinator URL");
+    }
     const temporary = `${this.workerServicePath}.tmp-${process.pid}`;
     fs.writeFileSync(temporary, rewritten, { mode: 0o644 });
     fs.renameSync(temporary, this.workerServicePath);

@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { printStatusReport, resolveTlsMode, type StatusReport } from "../src/status.ts";
+import {
+  printStatusReport,
+  resolveCoordinatorDbPath,
+  resolveTlsMode,
+  type StatusReport,
+} from "../src/status.ts";
 
 describe("status TLS topology", () => {
   test("fronted Linux services require the configured Tailscale Serve mapping", () => {
@@ -51,5 +56,25 @@ describe("status TLS topology", () => {
     }
     expect(lines).toContain("  ✓ coord TLS: tailscale serve");
     expect(lines.join("\n")).not.toContain("mint: tailscale cert");
+  });
+});
+
+describe("status coordinator database discovery", () => {
+  test("uses the database path installed in the POSIX service", () => {
+    expect(resolveCoordinatorDbPath(
+      'Environment="ROOST_COORDINATOR_DB=/srv/roost/state%%blue/coordinator.db"',
+      "linux",
+      "/default/coordinator.db",
+    )).toBe("/srv/roost/state%blue/coordinator.db");
+    expect(resolveCoordinatorDbPath(
+      "<key>ROOST_COORDINATOR_DB</key><string>/Library/Application Support/Roost&amp;Blue/db.sqlite</string>",
+      "darwin",
+      "/default/coordinator.db",
+    )).toBe("/Library/Application Support/Roost&Blue/db.sqlite");
+  });
+
+  test("falls back only when no installed database path exists", () => {
+    expect(resolveCoordinatorDbPath("[Service]\n", "linux", "/default/coordinator.db"))
+      .toBe("/default/coordinator.db");
   });
 });

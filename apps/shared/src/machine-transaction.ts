@@ -1,12 +1,16 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { join, win32 } from "node:path";
-import { applyPrivateDacl, durableRemove, type DurabilityOptions } from "./durability.ts";
+import { Database } from "bun:sqlite";
+import { applyPrivateDacl, type DurabilityOptions } from "./durability.ts";
 import { roostServiceDir, type PathEnv } from "./paths.ts";
 import { supportedHostPlatform, type SupportedHostPlatform } from "./platform.ts";
-import { windowsProcessSnapshot } from "./windows-helper.ts";
+import {
+  windowsPrepareUpdaterArtifact,
+  windowsProtectUpdaterArtifact,
+} from "./windows-helper.ts";
 
-export type MachineTransactionKind = "update" | "relocation" | "keeper-refresh";
+export type MachineTransactionKind = "install" | "update" | "relocation" | "keeper-refresh" | "deploy";
 
 export interface MachineTransactionRecord {
   schemaVersion: 1;
@@ -38,45 +42,28 @@ export class MachineTransactionBusyError extends Error {
   }
 }
 
-function parseRecord(text: string): MachineTransactionRecord | null {
+function isSqliteBusy(error: unknown): boolean {
+  const candidate = error as { code?: string | number; message?: string };
+  return candidate.code === "SQLITE_BUSY"
+    || candidate.code === 5
+    || /\b(?:database is locked|SQLITE_BUSY)\b/i.test(candidate.message ?? String(error));
+}
+
+function closeQuietly(database: Database): void {
   try {
-    const value = JSON.parse(text) as Partial<MachineTransactionRecord>;
-    if (value.schemaVersion !== 1
-      || (value.kind !== "update" && value.kind !== "relocation" && value.kind !== "keeper-refresh")
-      || typeof value.journalPath !== "string"
-      || !Number.isInteger(value.ownerPid) || value.ownerPid! <= 0
-      || typeof value.processEpoch !== "string"
-      || typeof value.acquiredAt !== "string") return null;
-    return value as MachineTransactionRecord;
+    database.close();
   } catch {
-    return null;
+    // The acquisition error remains authoritative.
   }
 }
 
-async function ownerIsAlive(record: MachineTransactionRecord, options: AcquireMachineTransactionOptions): Promise<boolean> {
-  if (record.ownerPid === process.pid && record.processEpoch === options.processEpoch) return true;
-  const platform = options.platform ?? supportedHostPlatform();
-  if (platform === "win32") {
-    const records = await windowsProcessSnapshot(options.helper);
-    return records.some((candidate) => candidate.pid === record.ownerPid);
-  }
-  try {
-    process.kill(record.ownerPid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === "EPERM";
-  }
-}
-
-async function readExistingRecord(lockPath: string): Promise<MachineTransactionRecord | null> {
-  try {
-    return parseRecord(await readFile(lockPath, "utf8"));
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
-    throw error;
-  }
-}
-
+/**
+ * Hold one OS-backed SQLite write transaction for the complete machine
+ * mutation. SQLite's kernel file lock is atomic, releases automatically on
+ * process death, and cannot be confused by PID reuse or a partially written
+ * owner record. This is intentionally a lock database, not a durable journal;
+ * each caller's journalPath identifies the separate recovery record.
+ */
 export async function acquireMachineTransaction(
   kind: MachineTransactionKind,
   journalPath: string,
@@ -86,58 +73,118 @@ export async function acquireMachineTransaction(
   const env = options.env ?? process.env;
   const base = roostServiceDir(env, platform);
   const lockPath = options.lockPath ?? (platform === "win32"
-    ? win32.join(base, "machine-transaction.lock")
-    : join(base, "machine-transaction.lock"));
+    ? win32.join(base, "machine-transaction.sqlite")
+    : join(base, "machine-transaction.sqlite"));
   await mkdir(base, { recursive: true, mode: 0o700 });
-  const processEpoch = options.processEpoch ?? randomUUID();
+  // Windows mutation entry points are brokered by RoostUpdaterV2. Establish
+  // the updater-private lock inode before SQLite opens it; never create a
+  // base-account-writable database and repair it after parsing.
+  if (platform === "win32") {
+    await windowsPrepareUpdaterArtifact(lockPath, "private", options.helper);
+  }
+
   const record: MachineTransactionRecord = {
     schemaVersion: 1,
     kind,
     journalPath,
     ownerPid: process.pid,
-    processEpoch,
+    processEpoch: options.processEpoch ?? randomUUID(),
     acquiredAt: new Date().toISOString(),
   };
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      const handle = await open(lockPath, "wx", 0o600);
-      try {
-        await handle.writeFile(`${JSON.stringify(record)}\n`, "utf8");
-        await handle.sync();
-      } finally {
-        await handle.close();
-      }
+  const database = new Database(lockPath, { create: true, strict: true });
+  let transactionOpen = false;
+  try {
+    database.exec("PRAGMA busy_timeout = 0");
+    database.exec("PRAGMA journal_mode = DELETE");
+    database.exec("PRAGMA synchronous = FULL");
+    database.exec(`
+      CREATE TABLE IF NOT EXISTS active_machine_transaction (
+        singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+        record_json TEXT NOT NULL
+      )
+    `);
+    if (platform === "win32") {
+      await windowsProtectUpdaterArtifact(lockPath, "private", options.helper);
+    } else {
       await applyPrivateDacl(lockPath, { ...options, platform });
-      let released = false;
-      return {
-        ...record,
-        lockPath,
-        async release() {
-          if (released) return;
-          const current = await readExistingRecord(lockPath);
-          if (!current || current.processEpoch !== processEpoch) {
-            throw new Error("machine transaction ownership changed before release");
-          }
-          await durableRemove(lockPath, { ...options, platform });
-          released = true;
-        },
-      };
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      const active = await readExistingRecord(lockPath);
-      if (!active || await ownerIsAlive(active, { ...options, platform, processEpoch })) {
-        throw new MachineTransactionBusyError(lockPath, active);
-      }
-      const stalePath = `${lockPath}.stale-${randomUUID()}`;
+    }
+    database.exec("BEGIN EXCLUSIVE");
+    transactionOpen = true;
+    const deployLeaseTable = database.query(
+      "SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'deploy_lease'",
+    ).get();
+    if (deployLeaseTable) {
+      let leases: Array<{
+        singleton?: unknown;
+        owner?: unknown;
+        created_at?: unknown;
+        expires_at?: unknown;
+      }>;
       try {
-        await rename(lockPath, stalePath);
-        await rm(stalePath, { force: true });
-      } catch (reclaimError) {
-        if ((reclaimError as NodeJS.ErrnoException).code !== "ENOENT") {
-          throw new MachineTransactionBusyError(lockPath, active);
+        leases = database.query(
+          "SELECT singleton, owner, created_at, expires_at FROM deploy_lease",
+        ).all() as typeof leases;
+      } catch {
+        throw new MachineTransactionBusyError(lockPath, null);
+      }
+      if (leases.length > 1) {
+        throw new MachineTransactionBusyError(lockPath, null);
+      }
+      const lease = leases[0];
+      if (lease) {
+        const valid = lease.singleton === 1
+          && typeof lease.owner === "string"
+          && lease.owner.length > 0
+          && Number.isSafeInteger(lease.created_at)
+          && (lease.created_at as number) >= 0
+          && Number.isSafeInteger(lease.expires_at)
+          && (lease.expires_at as number) >= (lease.created_at as number);
+        if (!valid || (lease.expires_at as number) > Math.floor(Date.now() / 1000)) {
+          throw new MachineTransactionBusyError(lockPath, null);
         }
+        database.query("DELETE FROM deploy_lease WHERE singleton = 1").run();
       }
     }
+    database.query(
+      "INSERT OR REPLACE INTO active_machine_transaction (singleton, record_json) VALUES (1, ?)",
+    ).run(JSON.stringify(record));
+  } catch (error) {
+    if (transactionOpen) {
+      try {
+        database.exec("ROLLBACK");
+      } catch {
+        // Closing releases the kernel lock even if rollback itself failed.
+      }
+    }
+    closeQuietly(database);
+    if (isSqliteBusy(error)) throw new MachineTransactionBusyError(lockPath, null);
+    throw error;
   }
-  throw new MachineTransactionBusyError(lockPath, await readExistingRecord(lockPath));
+
+  let released = false;
+  return {
+    ...record,
+    lockPath,
+    async release() {
+      if (released) return;
+      try {
+        database.query("DELETE FROM active_machine_transaction WHERE singleton = 1").run();
+        database.exec("COMMIT");
+        transactionOpen = false;
+        released = true;
+      } catch (error) {
+        if (transactionOpen) {
+          try {
+            database.exec("ROLLBACK");
+          } catch {
+            // close() below still releases the OS file lock.
+          }
+          transactionOpen = false;
+        }
+        throw error;
+      } finally {
+        closeQuietly(database);
+      }
+    },
+  };
 }

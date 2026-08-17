@@ -17,7 +17,7 @@ import { quickstart } from "./quickstart.ts";
 import { doctor } from "./doctor.ts";
 import { api } from "./api.ts";
 import { join } from "./join.ts";
-import { addMac } from "./add-mac.ts";
+import { addMachine } from "./add-machine.ts";
 import { worker } from "./worker.ts";
 import { keeper } from "./keeper.ts";
 import { update } from "./update.ts";
@@ -41,12 +41,39 @@ const SUBCOMMANDS = {
     }
     // Platform-only modules depend on Windows native helpers and must not load
     // into POSIX command paths.
-    const [{ createWindowsServiceManager }, { runWindowsUpdateBroker }, { DurableWindowsUpdateJournalStore }, { createServiceHealthProver, createWindowsUpdateNative }] = await Promise.all([
+    const [
+      { createWindowsServiceManager },
+      { runWindowsUpdateBroker },
+      { DurableWindowsUpdateJournalStore },
+      { createServiceHealthProver, createWindowsUpdateNative },
+      { admitPendingWindowsUpdateRequest },
+      { createWindowsRelocationBrokerDeps, runWindowsRelocationBroker },
+      { admitPendingWindowsRelocationRequest },
+    ] = await Promise.all([
       import("./service-ctl.ts"),
       import("./windows-update-broker.ts"),
       import("./windows-update-journal.ts"),
       import("./windows-update-runtime.ts"),
+      import("./windows-update-control.ts"),
+      import("./windows-relocation-broker.ts"),
+      import("./windows-relocation-control.ts"),
     ]);
+    for (let admitted = 0; admitted < 16; admitted += 1) {
+      const journal = await admitPendingWindowsRelocationRequest();
+      if (!journal) break;
+      await runWindowsRelocationBroker(
+        createWindowsRelocationBrokerDeps(journal.operationKind),
+      );
+    }
+    let relocationHandled = false;
+    for (const kind of ["worker-endpoint", "coordinator-promotion"] as const) {
+      const relocation = await runWindowsRelocationBroker(
+        createWindowsRelocationBrokerDeps(kind),
+      );
+      relocationHandled ||= relocation.handled;
+    }
+    if (relocationHandled) return;
+    await admitPendingWindowsUpdateRequest();
     await runWindowsUpdateBroker({
       store: new DurableWindowsUpdateJournalStore(),
       services: createWindowsServiceManager(),
@@ -69,7 +96,7 @@ const SUBCOMMANDS = {
   doctor,
   api,
   join,
-  "add-mac": addMac,
+  "add-machine": addMachine,
 } as const;
 
 type Subcommand = keyof typeof SUBCOMMANDS;
@@ -93,7 +120,7 @@ function usage(): never {
   console.error("  status            health readout (tailscale, agents, coord, workers)");
   console.error("  doctor [--since]  daily anomaly digest from err logs (default 24h)");
   console.error("  api <verb>        headless introspect/drive (sessions|cells|input|rename|assign|attach|spawn|kill|workers|workspaces|ws-*|tasks|task-*|ui|ui-state|events)");
-  console.error("  add-mac [--label X]  print a copy-paste command to add another machine, Mac or Linux (run on the coordinator)");
+  console.error("  add-machine --platform <macos|linux|windows> [--label X] [--publisher-sha256 HEX]  print a one-shot enrollment command");
   console.error("  join                install + register this machine's worker (used by join.sh; needs ROOST_COORDINATOR_URL + ROOST_BOOTSTRAP_TOKEN)");
   console.error("  update            self-update the binary from the latest GitHub release");
   console.error("  version           print the roost version");
@@ -107,5 +134,7 @@ try {
   await SUBCOMMANDS[cmd as Subcommand](args);
 } catch (error) {
   console.error(JSON.stringify({ cmd, error: String(error) }));
-  process.exit(1);
+  const exitCode = error && typeof error === "object" && "exitCode" in error
+    && typeof error.exitCode === "number" ? error.exitCode : 1;
+  process.exit(exitCode);
 }

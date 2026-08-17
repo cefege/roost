@@ -41,6 +41,8 @@ if [[ "$OS" == "Linux" ]]; then
   # (floor 3G). Dial either down on a small box via env.
   WORKER_MEM_HIGH="${ROOST_WORKER_MEMORY_HIGH:-$(default_worker_mem_high)}"
   WORKER_TASKS_MAX="${ROOST_WORKER_TASKS_MAX:-4096}"
+  [[ "$WORKER_MEM_HIGH" =~ ^[0-9]+([.][0-9]+)?[KMGTP]?$ ]] || { echo "invalid ROOST_WORKER_MEMORY_HIGH" >&2; exit 1; }
+  [[ "$WORKER_TASKS_MAX" =~ ^[0-9]+$ ]] || { echo "invalid ROOST_WORKER_TASKS_MAX" >&2; exit 1; }
   LOGROTATE_CONF="${ROOST_WORKER_LOGROTATE_CONF:-${XDG_CONFIG_HOME:-$HOME/.config}/logrotate.d/roost-worker.conf}"
 else
   LABEL="${ROOST_WORKER_AGENT_LABEL:-com.roost.worker-v2}"
@@ -65,6 +67,39 @@ _find_bin() {
 }
 BUN_BIN="${BUN_BIN:-$(_find_bin bun /usr/local/bin/bun "$HOME/.bun/bin/bun")}"
 
+# LaunchAgent values are XML text, not shell text. Escape every dynamic value
+# before interpolation so paths, URLs, labels, and one-shot credentials cannot
+# corrupt the plist or inject new keys.
+xml_escape() {
+  local value="$1"
+  printf '%s' "$value" | sed \
+    -e 's/&/\&amp;/g' \
+    -e 's/</\&lt;/g' \
+    -e 's/>/\&gt;/g' \
+    -e 's/"/\&quot;/g' \
+    -e "s/'/\&apos;/g"
+}
+
+systemd_escape() {
+  local value="$1"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  value="${value//$'\n'/\\n}"
+  value="${value//$'\r'/\\r}"
+  value="${value//$'\t'/\\t}"
+  printf '%s' "$value"
+}
+
+systemd_quote() {
+  printf '"%s"' "$(systemd_escape "$1")"
+}
+
+systemd_env() {
+  local value="$2"
+  value="${value//%/%%}"
+  printf 'Environment="%s=%s"\n' "$1" "$(systemd_escape "$value")"
+}
+
 # Required env: ROOST_COORDINATOR_URL — http(s)://coord-host:4102
 # Optional env: ROOST_BOOTSTRAP_TOKEN (one-shot, cleared after redeem),
 #               ROOST_WORKER_LABEL, ROOST_REACHABLE_ADDR
@@ -80,13 +115,13 @@ BOOTSTRAP_TOKEN_PLIST=""
 LABEL_PLIST=""
 REACHABLE_ADDR_PLIST=""
 if [[ -n "${ROOST_BOOTSTRAP_TOKEN:-}" ]]; then
-  BOOTSTRAP_TOKEN_PLIST=$'\n    <key>ROOST_BOOTSTRAP_TOKEN</key>\n    <string>'"${ROOST_BOOTSTRAP_TOKEN}"$'</string>'
+  BOOTSTRAP_TOKEN_PLIST=$'\n    <key>ROOST_BOOTSTRAP_TOKEN</key>\n    <string>'"$(xml_escape "${ROOST_BOOTSTRAP_TOKEN}")"$'</string>'
 fi
 if [[ -n "${ROOST_WORKER_LABEL:-}" ]]; then
-  LABEL_PLIST=$'\n    <key>ROOST_WORKER_LABEL</key>\n    <string>'"${ROOST_WORKER_LABEL}"$'</string>'
+  LABEL_PLIST=$'\n    <key>ROOST_WORKER_LABEL</key>\n    <string>'"$(xml_escape "${ROOST_WORKER_LABEL}")"$'</string>'
 fi
 if [[ -n "${ROOST_REACHABLE_ADDR:-}" ]]; then
-  REACHABLE_ADDR_PLIST=$'\n    <key>ROOST_REACHABLE_ADDR</key>\n    <string>'"${ROOST_REACHABLE_ADDR}"$'</string>'
+  REACHABLE_ADDR_PLIST=$'\n    <key>ROOST_REACHABLE_ADDR</key>\n    <string>'"$(xml_escape "${ROOST_REACHABLE_ADDR}")"$'</string>'
 fi
 
 # Stamp the current repo HEAD into the LaunchAgent so the running worker
@@ -96,7 +131,7 @@ fi
 GIT_SHA_PLIST=""
 GIT_SHA_RESOLVED="${GIT_SHA:-$(cd "$REPO_ROOT" && git rev-parse HEAD 2>/dev/null || true)}"
 if [[ -n "$GIT_SHA_RESOLVED" ]]; then
-  GIT_SHA_PLIST=$'\n    <key>GIT_SHA</key>\n    <string>'"${GIT_SHA_RESOLVED}"$'</string>'
+  GIT_SHA_PLIST=$'\n    <key>GIT_SHA</key>\n    <string>'"$(xml_escape "${GIT_SHA_RESOLVED}")"$'</string>'
 fi
 # ROOST_EXEC_BIN / ROOST_WORKDIR must reach the RUNNING worker, not just the
 # installer: CoordTarget branches on ROOST_EXEC_BIN to decide whether it must
@@ -106,10 +141,10 @@ fi
 EXEC_BIN_PLIST=""
 WORKDIR_PLIST=""
 if [[ -n "${ROOST_EXEC_BIN:-}" ]]; then
-  EXEC_BIN_PLIST=$'\n    <key>ROOST_EXEC_BIN</key>\n    <string>'"${ROOST_EXEC_BIN}"$'</string>'
+  EXEC_BIN_PLIST=$'\n    <key>ROOST_EXEC_BIN</key>\n    <string>'"$(xml_escape "${ROOST_EXEC_BIN}")"$'</string>'
 fi
 if [[ -n "${ROOST_WORKDIR:-}" ]]; then
-  WORKDIR_PLIST=$'\n    <key>ROOST_WORKDIR</key>\n    <string>'"${ROOST_WORKDIR}"$'</string>'
+  WORKDIR_PLIST=$'\n    <key>ROOST_WORKDIR</key>\n    <string>'"$(xml_escape "${ROOST_WORKDIR}")"$'</string>'
 fi
 
 cmd="${1:-status}"
@@ -118,39 +153,51 @@ write_plist() {
   mkdir -p "$DATA_DIR" "$LOG_DIR"
   # ProgramArguments/workdir switch by mode: ROOST_EXEC_BIN set → compiled
   # binary (`roost worker`); unset → from-source (`bun …/main.ts`).
-  local prog_bin prog_arg2 workdir
+  local prog_bin prog_arg2 workdir label_xml prog_bin_xml prog_arg2_xml workdir_xml home_xml data_dir_xml coordinator_url_xml diag_xml log_dir_xml plist_xml
   if [[ -n "${ROOST_EXEC_BIN:-}" ]]; then
     prog_bin="${ROOST_EXEC_BIN}"; prog_arg2="worker"
   else
     prog_bin="${BUN_BIN}"; prog_arg2="${REPO_ROOT}/apps/worker/src/main.ts"
   fi
   workdir="${ROOST_WORKDIR:-$REPO_ROOT}"
+  label_xml="$(xml_escape "$LABEL")"
+  prog_bin_xml="$(xml_escape "$prog_bin")"
+  prog_arg2_xml="$(xml_escape "$prog_arg2")"
+  workdir_xml="$(xml_escape "$workdir")"
+  home_xml="$(xml_escape "$HOME")"
+  data_dir_xml="$(xml_escape "$DATA_DIR")"
+  coordinator_url_xml="$(xml_escape "$ROOST_COORDINATOR_URL")"
+  diag_xml="$(xml_escape "${ROOST_DIAG:-0}")"
+  log_dir_xml="$(xml_escape "$LOG_DIR")"
+  plist_xml="$(xml_escape "$PLIST")"
   cat > "$PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>${LABEL}</string>
+  <string>${label_xml}</string>
   <key>ProgramArguments</key>
   <array>
-    <string>${prog_bin}</string>
-    <string>${prog_arg2}</string>
+    <string>${prog_bin_xml}</string>
+    <string>${prog_arg2_xml}</string>
   </array>
   <key>WorkingDirectory</key>
-  <string>${workdir}</string>
+  <string>${workdir_xml}</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>HOME</key>
-    <string>${HOME}</string>
+    <string>${home_xml}</string>
     <key>PATH</key>
-    <string>${HOME}/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <string>${home_xml}/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
     <key>ROOST_WORKER_DATA_DIR</key>
-    <string>${DATA_DIR}</string>
+    <string>${data_dir_xml}</string>
     <key>ROOST_COORDINATOR_URL</key>
-    <string>${ROOST_COORDINATOR_URL}</string>
+    <string>${coordinator_url_xml}</string>
     <key>ROOST_DIAG</key>
-    <string>\${ROOST_DIAG:-0}</string>${BOOTSTRAP_TOKEN_PLIST}${LABEL_PLIST}${REACHABLE_ADDR_PLIST}${GIT_SHA_PLIST}${EXEC_BIN_PLIST}${WORKDIR_PLIST}
+    <string>${diag_xml}</string>
+    <key>ROOST_WORKER_SERVICE_PATH</key>
+    <string>${plist_xml}</string>${BOOTSTRAP_TOKEN_PLIST}${LABEL_PLIST}${REACHABLE_ADDR_PLIST}${GIT_SHA_PLIST}${EXEC_BIN_PLIST}${WORKDIR_PLIST}
   </dict>
   <key>RunAtLoad</key>
   <true/>
@@ -159,13 +206,13 @@ write_plist() {
   <key>ProcessType</key>
   <string>Interactive</string>
   <key>StandardOutPath</key>
-  <string>${LOG_DIR}/main.out.log</string>
+  <string>${log_dir_xml}/main.out.log</string>
   <key>StandardErrorPath</key>
-  <string>${LOG_DIR}/main.err.log</string>
+  <string>${log_dir_xml}/main.err.log</string>
 </dict>
 </plist>
 EOF
-  chmod 0644 "$PLIST"
+  chmod 0600 "$PLIST"
   echo "wrote $PLIST"
 }
 
@@ -195,13 +242,18 @@ bootstrap() {
 # pair (dropped in phase-25e; see apps/worker/src/config.ts).
 write_unit() {
   mkdir -p "$(dirname "$UNIT")" "$DATA_DIR" "$LOG_DIR"
-  local prog_bin prog_arg2 workdir
+  local prog_bin prog_arg2 workdir prog_bin_unit prog_arg2_unit workdir_unit stdout_unit stderr_unit
   if [[ -n "${ROOST_EXEC_BIN:-}" ]]; then
     prog_bin="${ROOST_EXEC_BIN}"; prog_arg2="worker"
   else
     prog_bin="${BUN_BIN}"; prog_arg2="${REPO_ROOT}/apps/worker/src/main.ts"
   fi
   workdir="${ROOST_WORKDIR:-$REPO_ROOT}"
+  prog_bin_unit="$(systemd_quote "$prog_bin")"
+  prog_arg2_unit="$(systemd_quote "$prog_arg2")"
+  workdir_unit="$(systemd_quote "$workdir")"
+  stdout_unit="$(systemd_quote "append:${LOG_DIR}/main.out.log")"
+  stderr_unit="$(systemd_quote "append:${LOG_DIR}/main.err.log")"
   {
     cat <<EOF
 [Unit]
@@ -210,21 +262,25 @@ After=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=${workdir}
-ExecStart=${prog_bin} ${prog_arg2}
-Environment=HOME=${HOME}
-Environment=PATH=${HOME}/.bun/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-Environment=ROOST_WORKER_DATA_DIR=${DATA_DIR}
-Environment=ROOST_WORKER_LOG_DIR=${LOG_DIR}
-Environment=ROOST_COORDINATOR_URL=${ROOST_COORDINATOR_URL}
-Environment=ROOST_DIAG=${ROOST_DIAG:-0}
+WorkingDirectory=${workdir_unit}
+ExecStart=${prog_bin_unit} ${prog_arg2_unit}
 EOF
-    [[ -n "${ROOST_BOOTSTRAP_TOKEN:-}" ]] && echo "Environment=ROOST_BOOTSTRAP_TOKEN=${ROOST_BOOTSTRAP_TOKEN}"
-    [[ -n "${ROOST_WORKER_LABEL:-}" ]]    && echo "Environment=ROOST_WORKER_LABEL=${ROOST_WORKER_LABEL}"
-    [[ -n "${ROOST_REACHABLE_ADDR:-}" ]]  && echo "Environment=ROOST_REACHABLE_ADDR=${ROOST_REACHABLE_ADDR}"
-    [[ -n "$GIT_SHA_RESOLVED" ]]          && echo "Environment=GIT_SHA=${GIT_SHA_RESOLVED}"
-    [[ -n "${ROOST_EXEC_BIN:-}" ]]        && echo "Environment=ROOST_EXEC_BIN=${ROOST_EXEC_BIN}"
-    [[ -n "${ROOST_WORKDIR:-}" ]]         && echo "Environment=ROOST_WORKDIR=${ROOST_WORKDIR}"
+    systemd_env "HOME" "$HOME"
+    systemd_env "PATH" "$HOME/.bun/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+    systemd_env "ROOST_WORKER_DATA_DIR" "$DATA_DIR"
+    systemd_env "ROOST_WORKER_LOG_DIR" "$LOG_DIR"
+    systemd_env "ROOST_COORDINATOR_URL" "$ROOST_COORDINATOR_URL"
+    systemd_env "ROOST_DIAG" "${ROOST_DIAG:-0}"
+    systemd_env "ROOST_WORKER_SERVICE_PATH" "$UNIT"
+    systemd_env "ROOST_WORKER_MEMORY_HIGH" "$WORKER_MEM_HIGH"
+    systemd_env "ROOST_WORKER_TASKS_MAX" "$WORKER_TASKS_MAX"
+    systemd_env "ROOST_WORKER_LOGROTATE_CONF" "$LOGROTATE_CONF"
+    [[ -n "${ROOST_BOOTSTRAP_TOKEN:-}" ]] && systemd_env "ROOST_BOOTSTRAP_TOKEN" "$ROOST_BOOTSTRAP_TOKEN"
+    [[ -n "${ROOST_WORKER_LABEL:-}" ]]    && systemd_env "ROOST_WORKER_LABEL" "$ROOST_WORKER_LABEL"
+    [[ -n "${ROOST_REACHABLE_ADDR:-}" ]]  && systemd_env "ROOST_REACHABLE_ADDR" "$ROOST_REACHABLE_ADDR"
+    [[ -n "$GIT_SHA_RESOLVED" ]]          && systemd_env "GIT_SHA" "$GIT_SHA_RESOLVED"
+    [[ -n "${ROOST_EXEC_BIN:-}" ]]        && systemd_env "ROOST_EXEC_BIN" "$ROOST_EXEC_BIN"
+    [[ -n "${ROOST_WORKDIR:-}" ]]         && systemd_env "ROOST_WORKDIR" "$ROOST_WORKDIR"
     # KillMode=process is load-bearing: the keeper is spawned detached but
     # lands in this unit's cgroup, and the default control-group kill would
     # take every PTY down on each worker restart — destroying the "keeper
@@ -243,8 +299,8 @@ TimeoutStopSec=10
 MemoryHigh=${WORKER_MEM_HIGH}
 OOMPolicy=continue
 TasksMax=${WORKER_TASKS_MAX}
-StandardOutput=append:${LOG_DIR}/main.out.log
-StandardError=append:${LOG_DIR}/main.err.log
+StandardOutput=${stdout_unit}
+StandardError=${stderr_unit}
 
 [Install]
 WantedBy=default.target
@@ -253,6 +309,7 @@ EOF
   chmod 0600 "$UNIT"
   echo "wrote $UNIT"
 }
+
 
 # systemd's StandardOutput=append: holds the fd open, so rotation MUST be
 # copytruncate — a rename-based rotate would leave the service writing to an
@@ -366,7 +423,9 @@ case "$cmd" in
       # upstream. Try to recover it from the installed service definition so
       # the user doesn't have to re-supply it just to scrub a dead env key.
       if $IS_LINUX; then
-        [[ -f "$UNIT" ]] && ROOST_COORDINATOR_URL=$(sed -n 's/^Environment=ROOST_COORDINATOR_URL=//p' "$UNIT" | tail -1)
+        [[ -f "$UNIT" ]] && ROOST_COORDINATOR_URL=$(sed -n \
+          -e 's/^Environment="ROOST_COORDINATOR_URL=\(.*\)"$/\1/p' \
+          -e 's/^Environment=ROOST_COORDINATOR_URL=//p' "$UNIT" | tail -1)
       elif [[ -f "$PLIST" ]]; then
         ROOST_COORDINATOR_URL=$(/usr/libexec/PlistBuddy -c "Print :EnvironmentVariables:ROOST_COORDINATOR_URL" "$PLIST" 2>/dev/null || true)
       fi

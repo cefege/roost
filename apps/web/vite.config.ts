@@ -11,8 +11,9 @@ import { execSync } from "node:child_process";
 // "reload" nudge on mismatch — correct because push builds the SPA to coord's
 // commit (roost-cli/push.ts). Full HEAD to match coord/git-sha.ts format.
 function resolveBuildSha(): string {
+  if (process.env.ROOST_GIT_SHA) return process.env.ROOST_GIT_SHA;
   try { return execSync("git rev-parse HEAD").toString().trim(); }
-  catch { return process.env.ROOST_GIT_SHA ?? "dev"; }
+  catch { return "dev"; }
 }
 const BUILD_SHA = resolveBuildSha();
 

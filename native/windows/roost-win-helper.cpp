@@ -6,9 +6,11 @@
 #include <aclapi.h>
 #include <bcrypt.h>
 #include <iphlpapi.h>
+#include <lm.h>
 #include <ntsecapi.h>
 #include <sddl.h>
 #include <shellapi.h>
+#include <shlobj.h>
 #include <softpub.h>
 #include <tlhelp32.h>
 #include <userenv.h>
@@ -236,6 +238,82 @@ std::wstring lower(const std::wstring& value) {
   return out;
 }
 
+std::vector<std::uint8_t> lookupAccountSid(const std::wstring& account) {
+  if (account.empty()) throw Error("account name must not be empty");
+  DWORD sidBytes = 0;
+  DWORD domainChars = 0;
+  SID_NAME_USE use{};
+  LookupAccountNameW(nullptr, account.c_str(), nullptr, &sidBytes, nullptr, &domainChars, &use);
+  if (GetLastError() != ERROR_INSUFFICIENT_BUFFER || !sidBytes) failWin("LookupAccountNameW");
+  std::vector<std::uint8_t> sid(sidBytes);
+  std::wstring domain(domainChars, L'\0');
+  if (!LookupAccountNameW(nullptr, account.c_str(), sid.data(), &sidBytes,
+      domain.data(), &domainChars, &use)) failWin("LookupAccountNameW");
+  sid.resize(sidBytes);
+  if (!IsValidSid(sid.data())) throw Error("account resolved to an invalid SID");
+  return sid;
+}
+
+bool equalOrdinalIgnoreCase(const std::wstring& left, const std::wstring& right) {
+  return CompareStringOrdinal(left.data(), static_cast<int>(left.size()),
+      right.data(), static_cast<int>(right.size()), TRUE) == CSTR_EQUAL;
+}
+
+std::wstring localComputerName() {
+  std::array<wchar_t, MAX_COMPUTERNAME_LENGTH + 1> buffer{};
+  DWORD length = static_cast<DWORD>(buffer.size());
+  if (!GetComputerNameW(buffer.data(), &length)) failWin("GetComputerNameW");
+  return std::wstring(buffer.data(), length);
+}
+
+std::wstring accountNameForSid(PSID sid) {
+  DWORD accountChars = 0;
+  DWORD domainChars = 0;
+  SID_NAME_USE use{};
+  LookupAccountSidW(nullptr, sid, nullptr, &accountChars, nullptr, &domainChars, &use);
+  if (GetLastError() != ERROR_INSUFFICIENT_BUFFER) failWin("LookupAccountSidW");
+  std::wstring account(accountChars, L'\0');
+  std::wstring domain(domainChars, L'\0');
+  if (!LookupAccountSidW(nullptr, sid, account.data(), &accountChars,
+      domain.data(), &domainChars, &use)) failWin("LookupAccountSidW");
+  account.resize(accountChars);
+  return account;
+}
+bool userIsAdministrator(const std::wstring& account) {
+  std::array<std::uint8_t, SECURITY_MAX_SID_SIZE> administratorSid{};
+  DWORD administratorSidBytes = static_cast<DWORD>(administratorSid.size());
+  if (!CreateWellKnownSid(WinBuiltinAdministratorsSid, nullptr,
+      administratorSid.data(), &administratorSidBytes)) failWin("CreateWellKnownSid");
+  const std::wstring administratorName = accountNameForSid(administratorSid.data());
+
+  LPBYTE rawGroups = nullptr;
+  DWORD entriesRead = 0;
+  DWORD totalEntries = 0;
+  const NET_API_STATUS status = NetUserGetLocalGroups(
+      nullptr, account.c_str(), 0, LG_INCLUDE_INDIRECT, &rawGroups,
+      MAX_PREFERRED_LENGTH, &entriesRead, &totalEntries);
+  if (status != NERR_Success) {
+    if (rawGroups) NetApiBufferFree(rawGroups);
+    throw Error("NetUserGetLocalGroups failed [netapi=" + std::to_string(status) + "]");
+  }
+  bool administrator = false;
+  try {
+    const auto* groups = reinterpret_cast<const LOCALGROUP_USERS_INFO_0*>(rawGroups);
+    for (DWORD index = 0; index < entriesRead; ++index) {
+      if (groups[index].lgrui0_name &&
+          equalOrdinalIgnoreCase(groups[index].lgrui0_name, administratorName)) {
+        administrator = true;
+        break;
+      }
+    }
+  } catch (...) {
+    if (rawGroups) NetApiBufferFree(rawGroups);
+    throw;
+  }
+  if (rawGroups) NetApiBufferFree(rawGroups);
+  return administrator;
+}
+
 std::vector<std::uint8_t> currentSid() {
   HANDLE raw = nullptr;
   if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &raw)) failWin("OpenProcessToken");
@@ -258,6 +336,567 @@ std::wstring sidText(PSID sid) {
   return value.get();
 }
 
+constexpr wchar_t kKeeperServiceName[] = L"RoostKeeperV2";
+constexpr wchar_t kWorkerServiceName[] = L"RoostWorkerV2";
+constexpr wchar_t kCoordinatorServiceName[] = L"RoostCoordinatorV2";
+constexpr wchar_t kUpdaterServiceName[] = L"RoostUpdaterV2";
+constexpr wchar_t kKeeperServiceAccount[] = L"NT SERVICE\\RoostKeeperV2";
+constexpr wchar_t kWorkerServiceAccount[] = L"NT SERVICE\\RoostWorkerV2";
+constexpr wchar_t kCoordinatorServiceAccount[] = L"NT SERVICE\\RoostCoordinatorV2";
+constexpr wchar_t kUpdaterServiceAccount[] = L"NT SERVICE\\RoostUpdaterV2";
+constexpr wchar_t kDirectoryModifyRights[] = L"0x1301bf";
+
+class BCryptAlgorithm final {
+ public:
+  explicit BCryptAlgorithm(BCRYPT_ALG_HANDLE value) : value_(value) {}
+  ~BCryptAlgorithm() {
+    if (value_) BCryptCloseAlgorithmProvider(value_, 0);
+  }
+  BCRYPT_ALG_HANDLE get() const { return value_; }
+ private:
+  BCRYPT_ALG_HANDLE value_;
+};
+
+class BCryptHash final {
+ public:
+  explicit BCryptHash(BCRYPT_HASH_HANDLE value) : value_(value) {}
+  ~BCryptHash() {
+    if (value_) BCryptDestroyHash(value_);
+  }
+  BCRYPT_HASH_HANDLE get() const { return value_; }
+ private:
+  BCRYPT_HASH_HANDLE value_;
+};
+
+std::vector<std::uint8_t> serviceSidForName(const std::wstring& service) {
+  if (service != kKeeperServiceName &&
+      service != kWorkerServiceName &&
+      service != kCoordinatorServiceName &&
+      service != kUpdaterServiceName) {
+    throw Error("service SID name is not allowlisted");
+  }
+  int uppercaseChars = LCMapStringEx(
+      LOCALE_NAME_INVARIANT,
+      LCMAP_UPPERCASE,
+      service.data(),
+      static_cast<int>(service.size()),
+      nullptr,
+      0,
+      nullptr,
+      nullptr,
+      0);
+  if (!uppercaseChars) failWin("LCMapStringEx(service SID)");
+  std::wstring uppercase(static_cast<std::size_t>(uppercaseChars), L'\0');
+  if (!LCMapStringEx(
+      LOCALE_NAME_INVARIANT,
+      LCMAP_UPPERCASE,
+      service.data(),
+      static_cast<int>(service.size()),
+      uppercase.data(),
+      uppercaseChars,
+      nullptr,
+      nullptr,
+      0)) {
+    failWin("LCMapStringEx(service SID)");
+  }
+
+  BCRYPT_ALG_HANDLE rawAlgorithm = nullptr;
+  if (BCryptOpenAlgorithmProvider(
+      &rawAlgorithm, BCRYPT_SHA1_ALGORITHM, nullptr, 0) < 0) {
+    throw Error("BCryptOpenAlgorithmProvider(service SID) failed");
+  }
+  BCryptAlgorithm algorithm(rawAlgorithm);
+  DWORD objectBytes = 0;
+  DWORD returned = 0;
+  if (BCryptGetProperty(
+      algorithm.get(),
+      BCRYPT_OBJECT_LENGTH,
+      reinterpret_cast<PUCHAR>(&objectBytes),
+      sizeof(objectBytes),
+      &returned,
+      0) < 0) {
+    throw Error("BCryptGetProperty(service SID) failed");
+  }
+  std::vector<std::uint8_t> object(objectBytes);
+  BCRYPT_HASH_HANDLE rawHash = nullptr;
+  if (BCryptCreateHash(
+      algorithm.get(),
+      &rawHash,
+      object.data(),
+      static_cast<ULONG>(object.size()),
+      nullptr,
+      0,
+      0) < 0) {
+    throw Error("BCryptCreateHash(service SID) failed");
+  }
+  BCryptHash hash(rawHash);
+  const std::size_t nameBytes = uppercase.size() * sizeof(wchar_t);
+  if (nameBytes > ULONG_MAX ||
+      BCryptHashData(
+          hash.get(),
+          reinterpret_cast<PUCHAR>(uppercase.data()),
+          static_cast<ULONG>(nameBytes),
+          0) < 0) {
+    throw Error("BCryptHashData(service SID) failed");
+  }
+  std::array<std::uint8_t, 20> digest{};
+  if (BCryptFinishHash(
+      hash.get(), digest.data(), static_cast<ULONG>(digest.size()), 0) < 0) {
+    throw Error("BCryptFinishHash(service SID) failed");
+  }
+
+  SID_IDENTIFIER_AUTHORITY authority = SECURITY_NT_AUTHORITY;
+  std::vector<std::uint8_t> sid(GetSidLengthRequired(6));
+  if (!InitializeSid(sid.data(), &authority, 6)) {
+    failWin("InitializeSid(service SID)");
+  }
+  *GetSidSubAuthority(sid.data(), 0) = SECURITY_SERVICE_ID_BASE_RID;
+  for (DWORD index = 0; index < 5; ++index) {
+    const std::size_t offset = static_cast<std::size_t>(index) * 4;
+    *GetSidSubAuthority(sid.data(), index + 1) =
+        static_cast<DWORD>(digest[offset]) |
+        (static_cast<DWORD>(digest[offset + 1]) << 8) |
+        (static_cast<DWORD>(digest[offset + 2]) << 16) |
+        (static_cast<DWORD>(digest[offset + 3]) << 24);
+  }
+  if (!IsValidSid(sid.data())) throw Error("derived service SID is invalid");
+  return sid;
+}
+
+std::vector<std::uint8_t> serviceSidForAccount(const std::wstring& account) {
+  if (equalOrdinalIgnoreCase(account, kKeeperServiceAccount)) {
+    return serviceSidForName(kKeeperServiceName);
+  }
+  if (equalOrdinalIgnoreCase(account, kWorkerServiceAccount)) {
+    return serviceSidForName(kWorkerServiceName);
+  }
+  if (equalOrdinalIgnoreCase(account, kCoordinatorServiceAccount)) {
+    return serviceSidForName(kCoordinatorServiceName);
+  }
+  if (equalOrdinalIgnoreCase(account, kUpdaterServiceAccount)) {
+    return serviceSidForName(kUpdaterServiceName);
+  }
+  throw Error("service virtual account is not allowlisted");
+}
+
+std::vector<std::uint8_t> sidFromText(const std::wstring& text, const char* label) {
+  if (text.empty()) throw Error(std::string(label) + " must not be empty");
+  PSID raw = nullptr;
+  if (!ConvertStringSidToSidW(text.c_str(), &raw)) failWin("ConvertStringSidToSidW");
+  Local<void> sid(raw);
+  if (!IsValidSid(sid.get())) throw Error(std::string("invalid ") + label);
+  std::vector<std::uint8_t> out(GetLengthSid(sid.get()));
+  if (!CopySid(static_cast<DWORD>(out.size()), out.data(), sid.get())) failWin("CopySid");
+  return out;
+}
+
+std::optional<std::wstring> processEnvironmentValue(const wchar_t* name) {
+  SetLastError(ERROR_SUCCESS);
+  DWORD needed = GetEnvironmentVariableW(name, nullptr, 0);
+  if (!needed) {
+    const DWORD code = GetLastError();
+    if (code == ERROR_ENVVAR_NOT_FOUND) return std::nullopt;
+    if (code == ERROR_SUCCESS) return std::wstring();
+    failWin("GetEnvironmentVariableW", code);
+  }
+  std::vector<wchar_t> buffer(needed);
+  const DWORD written = GetEnvironmentVariableW(
+      name, buffer.data(), static_cast<DWORD>(buffer.size()));
+  if (written + 1 != needed) failWin("GetEnvironmentVariableW");
+  return std::wstring(buffer.data(), written);
+}
+
+bool exactAcl(PACL expected, PACL actual) {
+  if (!expected || !actual || !IsValidAcl(expected) || !IsValidAcl(actual) ||
+      expected->AclRevision != actual->AclRevision ||
+      expected->AceCount != actual->AceCount) {
+    return false;
+  }
+  for (DWORD index = 0; index < expected->AceCount; ++index) {
+    void* expectedAce = nullptr;
+    void* actualAce = nullptr;
+    if (!GetAce(expected, index, &expectedAce) || !GetAce(actual, index, &actualAce)) {
+      failWin("GetAce");
+    }
+    const auto* expectedHeader = static_cast<const ACE_HEADER*>(expectedAce);
+    const auto* actualHeader = static_cast<const ACE_HEADER*>(actualAce);
+    if (expectedHeader->AceSize != actualHeader->AceSize ||
+        std::memcmp(expectedAce, actualAce, expectedHeader->AceSize) != 0) {
+      return false;
+    }
+  }
+  return true;
+}
+
+void setAndVerifyFileSecurity(HANDLE object, const std::wstring& sddl) {
+  PSECURITY_DESCRIPTOR rawExpected = nullptr;
+  if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(
+      sddl.c_str(), SDDL_REVISION_1, &rawExpected, nullptr)) {
+    failWin("ConvertStringSecurityDescriptorToSecurityDescriptorW");
+  }
+  Local<SECURITY_DESCRIPTOR> expected(static_cast<SECURITY_DESCRIPTOR*>(rawExpected));
+  PSID expectedOwner = nullptr;
+  BOOL ownerDefaulted = FALSE;
+  if (!GetSecurityDescriptorOwner(expected.get(), &expectedOwner, &ownerDefaulted) ||
+      !expectedOwner || !IsValidSid(expectedOwner)) {
+    throw Error("security template must contain a valid owner");
+  }
+  PACL expectedDacl = nullptr;
+  BOOL daclPresent = FALSE;
+  BOOL daclDefaulted = FALSE;
+  if (!GetSecurityDescriptorDacl(
+      expected.get(), &daclPresent, &expectedDacl, &daclDefaulted) ||
+      !daclPresent || !expectedDacl || !IsValidAcl(expectedDacl)) {
+    throw Error("security template must contain a valid DACL");
+  }
+  SECURITY_DESCRIPTOR_CONTROL expectedControl = 0;
+  DWORD expectedRevision = 0;
+  if (!GetSecurityDescriptorControl(
+          expected.get(), &expectedControl, &expectedRevision)) {
+    failWin("GetSecurityDescriptorControl(expected)");
+  }
+
+  const SECURITY_INFORMATION protection =
+      (expectedControl & SE_DACL_PROTECTED)
+      ? PROTECTED_DACL_SECURITY_INFORMATION
+      : UNPROTECTED_DACL_SECURITY_INFORMATION;
+  DWORD code = SetSecurityInfo(
+      object,
+      SE_FILE_OBJECT,
+      OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION | protection,
+      expectedOwner,
+      nullptr,
+      expectedDacl,
+      nullptr);
+  if (code != ERROR_SUCCESS) failWin("SetSecurityInfo", code);
+
+  PSECURITY_DESCRIPTOR rawActual = nullptr;
+  PSID actualOwner = nullptr;
+  PACL actualDacl = nullptr;
+  code = GetSecurityInfo(
+      object,
+      SE_FILE_OBJECT,
+      OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
+      &actualOwner,
+      nullptr,
+      &actualDacl,
+      nullptr,
+      &rawActual);
+  if (code != ERROR_SUCCESS) failWin("GetSecurityInfo", code);
+  Local<SECURITY_DESCRIPTOR> actual(static_cast<SECURITY_DESCRIPTOR*>(rawActual));
+  SECURITY_DESCRIPTOR_CONTROL control = 0;
+  DWORD revision = 0;
+  if (!GetSecurityDescriptorControl(actual.get(), &control, &revision)) {
+    failWin("GetSecurityDescriptorControl");
+  }
+  BOOL actualPresent = FALSE;
+  BOOL actualDefaulted = FALSE;
+  PACL descriptorDacl = nullptr;
+  if (!GetSecurityDescriptorDacl(
+      actual.get(), &actualPresent, &descriptorDacl, &actualDefaulted)) {
+    failWin("GetSecurityDescriptorDacl");
+  }
+  if (!actualOwner || !EqualSid(expectedOwner, actualOwner) ||
+      ((control & SE_DACL_PROTECTED) !=
+       (expectedControl & SE_DACL_PROTECTED)) ||
+      !actualPresent || descriptorDacl != actualDacl ||
+      !exactAcl(expectedDacl, actualDacl)) {
+    throw Error("security owner or DACL verification failed");
+  }
+}
+
+void appendDirectoryAllow(
+    std::wstring& sddl,
+    bool inherit,
+    const wchar_t* rights,
+    const std::wstring& sid) {
+  sddl += inherit ? L"(A;OICI;" : L"(A;;";
+  sddl += rights;
+  sddl += L";;;";
+  sddl += sid;
+  sddl += L")";
+}
+
+std::wstring directoryProtectionSddl(
+    const std::wstring& profile,
+    const std::wstring& baseAccount,
+    const std::wstring& interactiveSidText) {
+  if (profile != L"install-root" &&
+      profile != L"stable-bin-bootstrap" &&
+      profile != L"stable-bin" &&
+      profile != L"versions-bootstrap" &&
+      profile != L"versions-root" &&
+      profile != L"service-root" &&
+      profile != L"service-home" &&
+      profile != L"update-inbox" &&
+      profile != L"local-update-inbox" &&
+      profile != L"keeper-state" &&
+      profile != L"worker-state" &&
+      profile != L"coordinator-state" &&
+      profile != L"updater-state") {
+    throw Error("directory protection profile is not allowlisted");
+  }
+
+  const auto baseSid = lookupAccountSid(baseAccount);
+  const auto interactiveSid = sidFromText(interactiveSidText, "interactive SID");
+  const std::wstring base = sidText(const_cast<std::uint8_t*>(baseSid.data()));
+  const std::wstring interactive =
+      sidText(const_cast<std::uint8_t*>(interactiveSid.data()));
+  std::map<std::wstring, std::wstring> resolvedServices;
+  auto serviceSid = [&](const wchar_t* account) -> const std::wstring& {
+    auto found = resolvedServices.find(account);
+    if (found != resolvedServices.end()) return found->second;
+    const auto sid = serviceSidForAccount(account);
+    return resolvedServices.emplace(account, sidText(const_cast<std::uint8_t*>(sid.data())))
+        .first->second;
+  };
+
+  std::wstring sddl = L"O:BAD:P";
+  appendDirectoryAllow(sddl, true, L"FA", L"SY");
+  appendDirectoryAllow(sddl, true, L"FA", L"BA");
+  if (profile == L"install-root") {
+    appendDirectoryAllow(sddl, false, L"GRGX", base);
+    appendDirectoryAllow(sddl, false, L"GRGX", interactive);
+  } else if (profile == L"stable-bin-bootstrap") {
+    appendDirectoryAllow(sddl, true, L"GRGX", interactive);
+  } else if (profile == L"stable-bin") {
+    appendDirectoryAllow(sddl, true, L"GRGX", interactive);
+    appendDirectoryAllow(sddl, true, L"GRGX", serviceSid(kKeeperServiceAccount));
+    appendDirectoryAllow(sddl, true, L"GRGX", serviceSid(kWorkerServiceAccount));
+    appendDirectoryAllow(sddl, true, L"GRGX", serviceSid(kCoordinatorServiceAccount));
+    appendDirectoryAllow(
+        sddl, true, kDirectoryModifyRights, serviceSid(kUpdaterServiceAccount));
+  } else if (profile == L"versions-bootstrap") {
+    appendDirectoryAllow(sddl, true, L"RC", L"S-1-3-4");
+    appendDirectoryAllow(sddl, true, L"GRGX", base);
+    appendDirectoryAllow(sddl, true, L"GRGX", interactive);
+    appendDirectoryAllow(sddl, true, L"GRGX", serviceSid(kKeeperServiceAccount));
+    appendDirectoryAllow(sddl, true, L"GRGX", serviceSid(kWorkerServiceAccount));
+    appendDirectoryAllow(sddl, true, L"GRGX", serviceSid(kCoordinatorServiceAccount));
+    appendDirectoryAllow(sddl, true, L"GRGX", serviceSid(kUpdaterServiceAccount));
+  } else if (profile == L"versions-root") {
+    appendDirectoryAllow(sddl, true, L"RC", L"S-1-3-4");
+    appendDirectoryAllow(sddl, true, L"GRGX", base);
+    appendDirectoryAllow(sddl, true, L"GRGX", interactive);
+    appendDirectoryAllow(
+        sddl, true, kDirectoryModifyRights, serviceSid(kUpdaterServiceAccount));
+    appendDirectoryAllow(sddl, true, L"GRGX", serviceSid(kKeeperServiceAccount));
+    appendDirectoryAllow(sddl, true, L"GRGX", serviceSid(kWorkerServiceAccount));
+    appendDirectoryAllow(sddl, true, L"GRGX", serviceSid(kCoordinatorServiceAccount));
+  } else if (profile == L"service-root") {
+    appendDirectoryAllow(
+        sddl, true, kDirectoryModifyRights, serviceSid(kUpdaterServiceAccount));
+    appendDirectoryAllow(sddl, true, L"GRGX", serviceSid(kKeeperServiceAccount));
+    appendDirectoryAllow(sddl, true, L"GRGX", serviceSid(kWorkerServiceAccount));
+    appendDirectoryAllow(sddl, true, L"GRGX", serviceSid(kCoordinatorServiceAccount));
+    appendDirectoryAllow(sddl, false, L"GRGX", interactive);
+  } else if (profile == L"service-home") {
+    appendDirectoryAllow(
+        sddl, true, kDirectoryModifyRights, serviceSid(kKeeperServiceAccount));
+    appendDirectoryAllow(
+        sddl, true, kDirectoryModifyRights, serviceSid(kWorkerServiceAccount));
+    appendDirectoryAllow(
+        sddl, true, kDirectoryModifyRights, serviceSid(kCoordinatorServiceAccount));
+    appendDirectoryAllow(
+        sddl, true, kDirectoryModifyRights, serviceSid(kUpdaterServiceAccount));
+    appendDirectoryAllow(sddl, true, L"GRGX", interactive);
+  } else if (profile == L"update-inbox") {
+    appendDirectoryAllow(sddl, true, L"RC", L"S-1-3-4");
+    appendDirectoryAllow(
+        sddl, true, kDirectoryModifyRights, serviceSid(kUpdaterServiceAccount));
+    appendDirectoryAllow(
+        sddl, false, L"0x00100022", serviceSid(kWorkerServiceAccount));
+    appendDirectoryAllow(
+        sddl, false, L"0x00100022",
+        serviceSid(kCoordinatorServiceAccount));
+    appendDirectoryAllow(sddl, false, L"0x00100020", interactive);
+  } else if (profile == L"local-update-inbox") {
+    appendDirectoryAllow(sddl, true, L"RC", L"S-1-3-4");
+    appendDirectoryAllow(
+        sddl, true, kDirectoryModifyRights, serviceSid(kUpdaterServiceAccount));
+    appendDirectoryAllow(sddl, false, L"0x00100022", interactive);
+  } else if (profile == L"keeper-state") {
+    appendDirectoryAllow(sddl, true, L"RC", L"S-1-3-4");
+    appendDirectoryAllow(
+        sddl, true, kDirectoryModifyRights, serviceSid(kKeeperServiceAccount));
+    appendDirectoryAllow(sddl, true, L"GRGX", serviceSid(kWorkerServiceAccount));
+    appendDirectoryAllow(sddl, true, L"GRGX", serviceSid(kUpdaterServiceAccount));
+    appendDirectoryAllow(sddl, true, L"GRGX", interactive);
+  } else if (profile == L"worker-state") {
+    appendDirectoryAllow(sddl, true, L"RC", L"S-1-3-4");
+    appendDirectoryAllow(
+        sddl, true, kDirectoryModifyRights, serviceSid(kWorkerServiceAccount));
+    appendDirectoryAllow(sddl, false, L"0x001200a4", serviceSid(kUpdaterServiceAccount));
+  } else if (profile == L"coordinator-state") {
+    appendDirectoryAllow(sddl, true, L"RC", L"S-1-3-4");
+    appendDirectoryAllow(
+        sddl, true, kDirectoryModifyRights, serviceSid(kCoordinatorServiceAccount));
+    appendDirectoryAllow(sddl, false, L"0x001200e2", serviceSid(kUpdaterServiceAccount));
+    appendDirectoryAllow(sddl, true, L"GR", serviceSid(kUpdaterServiceAccount));
+  } else if (profile == L"updater-state") {
+    appendDirectoryAllow(sddl, true, L"RC", L"S-1-3-4");
+    appendDirectoryAllow(
+        sddl, true, kDirectoryModifyRights, serviceSid(kUpdaterServiceAccount));
+    appendDirectoryAllow(sddl, false, L"GX", serviceSid(kWorkerServiceAccount));
+    appendDirectoryAllow(sddl, false, L"GX", serviceSid(kCoordinatorServiceAccount));
+    appendDirectoryAllow(sddl, false, L"0x00100020", interactive);
+  } else {
+    throw Error("directory protection profile is not implemented");
+  }
+  return sddl;
+}
+
+void protectDirectory(const std::vector<std::wstring>& args) {
+  expect(args, 4, "protect-directory <path> <profile> <base-account> <interactive-sid>");
+  const std::wstring& profile = args[1];
+  const std::wstring sddl =
+      directoryProtectionSddl(profile, args[2], args[3]);
+
+  Handle directory(CreateFileW(
+      args[0].c_str(),
+      READ_CONTROL | WRITE_DAC | WRITE_OWNER,
+      FILE_SHARE_READ | FILE_SHARE_WRITE,
+      nullptr,
+      OPEN_EXISTING,
+      FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS,
+      nullptr));
+  if (!directory) failWin("CreateFileW(protected directory)");
+  FILE_ATTRIBUTE_TAG_INFO attributes{};
+  if (!GetFileInformationByHandleEx(
+      directory.get(), FileAttributeTagInfo, &attributes, sizeof(attributes))) {
+    failWin("GetFileInformationByHandleEx(protected directory)");
+  }
+  if (!(attributes.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) ||
+      (attributes.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) {
+    throw Error("protected path is not a non-reparse directory");
+  }
+  setAndVerifyFileSecurity(directory.get(), sddl);
+  emit("{\"protected\":true,\"profile\":" + json(profile) + "}");
+}
+
+bool setAndVerifyFileSecurityWithOptionalOwner(
+    HANDLE object,
+    const std::wstring& sddl) {
+  PSECURITY_DESCRIPTOR rawExpected = nullptr;
+  if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(
+      sddl.c_str(), SDDL_REVISION_1, &rawExpected, nullptr)) {
+    failWin("ConvertStringSecurityDescriptorToSecurityDescriptorW");
+  }
+  Local<SECURITY_DESCRIPTOR> expected(static_cast<SECURITY_DESCRIPTOR*>(rawExpected));
+  PSID expectedOwner = nullptr;
+  BOOL ownerDefaulted = FALSE;
+  PACL expectedDacl = nullptr;
+  BOOL daclPresent = FALSE;
+  BOOL daclDefaulted = FALSE;
+  if (!GetSecurityDescriptorOwner(expected.get(), &expectedOwner, &ownerDefaulted) ||
+      !expectedOwner || !IsValidSid(expectedOwner) ||
+      !GetSecurityDescriptorDacl(
+          expected.get(), &daclPresent, &expectedDacl, &daclDefaulted) ||
+      !daclPresent || !expectedDacl || !IsValidAcl(expectedDacl)) {
+    throw Error("health security template is invalid");
+  }
+  DWORD code = SetSecurityInfo(
+      object,
+      SE_FILE_OBJECT,
+      DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+      nullptr,
+      nullptr,
+      expectedDacl,
+      nullptr);
+  if (code != ERROR_SUCCESS) failWin("SetSecurityInfo(health DACL)", code);
+  const DWORD ownerCode = SetSecurityInfo(
+      object,
+      SE_FILE_OBJECT,
+      OWNER_SECURITY_INFORMATION,
+      expectedOwner,
+      nullptr,
+      nullptr,
+      nullptr);
+  if (ownerCode != ERROR_SUCCESS &&
+      ownerCode != ERROR_INVALID_OWNER &&
+      ownerCode != ERROR_ACCESS_DENIED &&
+      ownerCode != ERROR_PRIVILEGE_NOT_HELD) {
+    failWin("SetSecurityInfo(health owner)", ownerCode);
+  }
+
+  PSECURITY_DESCRIPTOR rawActual = nullptr;
+  PSID actualOwner = nullptr;
+  PACL actualDacl = nullptr;
+  code = GetSecurityInfo(
+      object,
+      SE_FILE_OBJECT,
+      OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
+      &actualOwner,
+      nullptr,
+      &actualDacl,
+      nullptr,
+      &rawActual);
+  if (code != ERROR_SUCCESS) failWin("GetSecurityInfo(health file)", code);
+  Local<SECURITY_DESCRIPTOR> actual(static_cast<SECURITY_DESCRIPTOR*>(rawActual));
+  SECURITY_DESCRIPTOR_CONTROL control = 0;
+  DWORD revision = 0;
+  if (!GetSecurityDescriptorControl(actual.get(), &control, &revision)) {
+    failWin("GetSecurityDescriptorControl(health file)");
+  }
+  if (!actualOwner || !IsValidSid(actualOwner) ||
+      !(control & SE_DACL_PROTECTED) ||
+      !exactAcl(expectedDacl, actualDacl)) {
+    throw Error("health file owner or protected DACL verification failed");
+  }
+  const bool assigned = EqualSid(expectedOwner, actualOwner) != FALSE;
+  if (ownerCode == ERROR_SUCCESS && !assigned) {
+    throw Error("health file owner assignment did not round-trip");
+  }
+  return assigned;
+}
+
+void protectServiceHealth(const std::vector<std::wstring>& args) {
+  expect(args, 2, "protect-service-health <path> <worker|coordinator>");
+  const wchar_t* roleAccount = nullptr;
+  if (args[1] == L"worker") {
+    roleAccount = kWorkerServiceAccount;
+  } else if (args[1] == L"coordinator") {
+    roleAccount = kCoordinatorServiceAccount;
+  } else {
+    throw Error("service health role is not allowlisted");
+  }
+  const auto roleSidBytes = serviceSidForAccount(roleAccount);
+  const auto updaterSidBytes = serviceSidForName(kUpdaterServiceName);
+  const std::wstring roleSid =
+      sidText(const_cast<std::uint8_t*>(roleSidBytes.data()));
+  const std::wstring updaterSid =
+      sidText(const_cast<std::uint8_t*>(updaterSidBytes.data()));
+  std::wstring sddl = L"O:" + roleSid + L"D:P";
+  appendDirectoryAllow(sddl, false, L"FA", L"SY");
+  appendDirectoryAllow(sddl, false, L"FA", L"BA");
+  appendDirectoryAllow(sddl, false, L"GR", roleSid);
+  appendDirectoryAllow(sddl, false, L"GR", updaterSid);
+  appendDirectoryAllow(sddl, false, L"GRGX", L"S-1-3-4");
+
+  Handle file(CreateFileW(
+      args[0].c_str(),
+      READ_CONTROL | WRITE_DAC | WRITE_OWNER,
+      FILE_SHARE_READ | FILE_SHARE_WRITE,
+      nullptr,
+      OPEN_EXISTING,
+      FILE_FLAG_OPEN_REPARSE_POINT,
+      nullptr));
+  if (!file) failWin("CreateFileW(service health)");
+  FILE_ATTRIBUTE_TAG_INFO attributes{};
+  if (!GetFileInformationByHandleEx(
+      file.get(), FileAttributeTagInfo, &attributes, sizeof(attributes))) {
+    failWin("GetFileInformationByHandleEx(service health)");
+  }
+  if (attributes.FileAttributes &
+      (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) {
+    throw Error("service health path is not a regular non-reparse file");
+  }
+  const bool ownerAssigned =
+      setAndVerifyFileSecurityWithOptionalOwner(file.get(), sddl);
+  emit(std::string("{\"protected\":true,\"ownerAssigned\":") +
+      (ownerAssigned ? "true}" : "false}"));
+}
+
 void applyPrivateDacl(const std::wstring& path) {
   auto sid = currentSid();
   std::wstring sddl = L"D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;" + sidText(sid.data()) + L")";
@@ -278,11 +917,128 @@ void applyPrivateDacl(const std::wstring& path) {
   if (code != ERROR_SUCCESS) failWin("SetNamedSecurityInfoW", code);
 }
 
+void applyAccountDacl(const std::wstring& path, const std::wstring& account) {
+  auto current = currentSid();
+  auto service = lookupAccountSid(account);
+  std::wstring sddl = L"D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;" +
+      sidText(current.data()) + L")(A;;FA;;;" + sidText(service.data()) + L")";
+  PSECURITY_DESCRIPTOR raw = nullptr;
+  if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(
+      sddl.c_str(), SDDL_REVISION_1, &raw, nullptr)) {
+    failWin("ConvertStringSecurityDescriptorToSecurityDescriptorW");
+  }
+  Local<SECURITY_DESCRIPTOR> descriptor(static_cast<SECURITY_DESCRIPTOR*>(raw));
+  BOOL present = FALSE;
+  BOOL defaulted = FALSE;
+  PACL dacl = nullptr;
+  if (!GetSecurityDescriptorDacl(descriptor.get(), &present, &dacl, &defaulted) || !present) {
+    failWin("GetSecurityDescriptorDacl");
+  }
+  DWORD code = SetNamedSecurityInfoW(
+      const_cast<wchar_t*>(path.c_str()),
+      SE_FILE_OBJECT,
+      DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+      nullptr,
+      nullptr,
+      dacl,
+      nullptr);
+  if (code != ERROR_SUCCESS) failWin("SetNamedSecurityInfoW", code);
+}
+
+void requireUpdaterOrElevatedInstallerContext(const char* operation);
+
+void applyArtifactDacl(
+    const std::wstring& path,
+    const std::wstring& writerAccount = L"") {
+  auto current = currentSid();
+  std::vector<std::uint8_t> writer;
+  const bool updaterWriter =
+      !writerAccount.empty() && equalOrdinalIgnoreCase(writerAccount, kUpdaterServiceAccount);
+  if (updaterWriter) {
+    requireUpdaterOrElevatedInstallerContext("apply-artifact-dacl");
+  }
+  if (!writerAccount.empty()) {
+    writer = updaterWriter
+        ? serviceSidForName(kUpdaterServiceName)
+        : lookupAccountSid(writerAccount);
+  }
+  const std::wstring writerSid = writer.empty() ? L"" : sidText(writer.data());
+  const wchar_t* currentRights = writerAccount.empty() ? L"FA" : L"GRGX";
+  std::wstring sddl = updaterWriter ? L"O:" + writerSid + L"D:P" : L"D:P";
+  sddl += L"(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;GRGX;;;S-1-3-4)(A;OICI;" +
+      std::wstring(currentRights) + L";;;" + sidText(current.data()) + L")";
+  if (!writer.empty()) {
+    sddl += L"(A;OICI;FA;;;" + writerSid + L")";
+  }
+  DWORD readerChars = GetEnvironmentVariableW(L"ROOST_INTERACTIVE_SID", nullptr, 0);
+  if (readerChars > 0) {
+    std::vector<wchar_t> readerText(readerChars);
+    if (GetEnvironmentVariableW(
+        L"ROOST_INTERACTIVE_SID", readerText.data(), readerChars) + 1 != readerChars) {
+      failWin("GetEnvironmentVariableW(ROOST_INTERACTIVE_SID)");
+    }
+    const auto reader = sidFromText(readerText.data(), "ROOST_INTERACTIVE_SID");
+    sddl += L"(A;OICI;GRGX;;;" +
+        sidText(const_cast<std::uint8_t*>(reader.data())) + L")";
+  } else if (GetLastError() != ERROR_ENVVAR_NOT_FOUND) {
+    failWin("GetEnvironmentVariableW(ROOST_INTERACTIVE_SID)");
+  }
+
+  if (updaterWriter) {
+    Handle object(CreateFileW(
+        path.c_str(),
+        READ_CONTROL | WRITE_DAC | WRITE_OWNER,
+        FILE_SHARE_READ | FILE_SHARE_WRITE,
+        nullptr,
+        OPEN_EXISTING,
+        FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS,
+        nullptr));
+    if (!object) failWin("CreateFileW(updater artifact)");
+    FILE_ATTRIBUTE_TAG_INFO attributes{};
+    if (!GetFileInformationByHandleEx(
+        object.get(), FileAttributeTagInfo, &attributes, sizeof(attributes))) {
+      failWin("GetFileInformationByHandleEx(updater artifact)");
+    }
+    if (attributes.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) {
+      throw Error("updater artifact is a reparse point");
+    }
+    setAndVerifyFileSecurity(object.get(), sddl);
+    return;
+  }
+
+  PSECURITY_DESCRIPTOR raw = nullptr;
+  if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(
+      sddl.c_str(), SDDL_REVISION_1, &raw, nullptr)) {
+    failWin("ConvertStringSecurityDescriptorToSecurityDescriptorW");
+  }
+  Local<SECURITY_DESCRIPTOR> descriptor(static_cast<SECURITY_DESCRIPTOR*>(raw));
+  BOOL present = FALSE;
+  BOOL defaulted = FALSE;
+  PACL dacl = nullptr;
+  if (!GetSecurityDescriptorDacl(descriptor.get(), &present, &dacl, &defaulted) || !present) {
+    failWin("GetSecurityDescriptorDacl");
+  }
+  DWORD code = SetNamedSecurityInfoW(
+      const_cast<wchar_t*>(path.c_str()),
+      SE_FILE_OBJECT,
+      DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+      nullptr,
+      nullptr,
+      dacl,
+      nullptr);
+  if (code != ERROR_SUCCESS) failWin("SetNamedSecurityInfoW", code);
+}
+
 void flushFile(const std::vector<std::wstring>& args) {
   expect(args, 1, "flush-file <path>");
+  DWORD attributes = GetFileAttributesW(args[0].c_str());
+  if (attributes == INVALID_FILE_ATTRIBUTES) failWin("GetFileAttributesW");
+  DWORD flags = (attributes & FILE_ATTRIBUTE_DIRECTORY)
+      ? FILE_FLAG_BACKUP_SEMANTICS
+      : FILE_ATTRIBUTE_NORMAL;
   Handle file(CreateFileW(args[0].c_str(), GENERIC_WRITE,
       FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
-      FILE_ATTRIBUTE_NORMAL, nullptr));
+      flags, nullptr));
   if (!file) failWin("CreateFileW");
   if (!FlushFileBuffers(file.get())) failWin("FlushFileBuffers");
   emit("{\"ok\":true}");
@@ -312,6 +1068,20 @@ void removeFile(const std::vector<std::wstring>& args) {
 void applyDacl(const std::vector<std::wstring>& args) {
   expect(args, 1, "apply-dacl <path>");
   applyPrivateDacl(args[0]);
+  emit("{\"ok\":true}");
+}
+
+void applyArtifactDaclCommand(const std::vector<std::wstring>& args) {
+  if (args.size() != 1 && args.size() != 2) {
+    throw Error("usage: apply-artifact-dacl <path> [writer-account]");
+  }
+  applyArtifactDacl(args[0], args.size() == 2 ? args[1] : L"");
+  emit("{\"ok\":true}");
+}
+
+void applyAccountDaclCommand(const std::vector<std::wstring>& args) {
+  expect(args, 2, "apply-account-dacl <path> <account>");
+  applyAccountDacl(args[0], args[1]);
   emit("{\"ok\":true}");
 }
 
@@ -453,6 +1223,7 @@ std::wstring commandLineFor(DWORD pid) {
   if (!line->Buffer || line->Length % sizeof(wchar_t)) return {};
   return std::wstring(line->Buffer, line->Length / sizeof(wchar_t));
 }
+
 
 void processSnapshot(const std::vector<std::wstring>& args) {
   expect(args, 0, "process-snapshot");
@@ -680,14 +1451,17 @@ void verifyDetachedCms(const std::vector<std::wstring>& args) {
       ",\"timestamped\":" + std::string(timestamped ? "true" : "false") + "}");
 }
 
-void verifyAuthenticode(const std::vector<std::wstring>& args) {
-  if (args.size() != 3 || args[1] != L"--publisher-sha256") {
-    throw Error("usage: verify-authenticode <asset> --publisher-sha256 <sha256>");
-  }
-  std::string expectedHash = checkedPublisher(args[2]);
+struct AuthenticodeProof {
+  std::string publisherSha256;
+  bool timestamped = false;
+};
+
+AuthenticodeProof inspectAuthenticode(
+    const std::wstring& path,
+    const std::string& expectedHash) {
   WINTRUST_FILE_INFO file{};
   file.cbStruct = sizeof(file);
-  file.pcwszFilePath = args[0].c_str();
+  file.pcwszFilePath = path.c_str();
   WINTRUST_DATA trust{};
   trust.cbStruct = sizeof(trust);
   trust.dwUIChoice = WTD_UI_NONE;
@@ -697,26 +1471,37 @@ void verifyAuthenticode(const std::vector<std::wstring>& args) {
   trust.dwStateAction = WTD_STATEACTION_VERIFY;
   trust.dwProvFlags = WTD_REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT;
   GUID action = WINTRUST_ACTION_GENERIC_VERIFY_V2;
-  LONG result = WinVerifyTrust(nullptr, &action, &trust);
+  const LONG result = WinVerifyTrust(nullptr, &action, &trust);
   bool valid = result == ERROR_SUCCESS;
-  std::string actual;
-  bool timestamped = false;
+  AuthenticodeProof proof;
   if (valid) {
     CRYPT_PROVIDER_DATA* data = WTHelperProvDataFromStateData(trust.hWVTStateData);
-    CRYPT_PROVIDER_SGNR* signer = data ? WTHelperGetProvSignerFromChain(data, 0, FALSE, 0) : nullptr;
+    CRYPT_PROVIDER_SGNR* signer =
+        data ? WTHelperGetProvSignerFromChain(data, 0, FALSE, 0) : nullptr;
     if (!signer || !signer->csCertChain || !signer->pasCertChain[0].pCert) {
       valid = false;
     } else {
-      actual = hexHash(certificateHash(signer->pasCertChain[0].pCert));
-      timestamped = signer->csCounterSigners > 0;
-      valid = actual == expectedHash;
+      proof.publisherSha256 = hexHash(certificateHash(signer->pasCertChain[0].pCert));
+      proof.timestamped = signer->csCounterSigners > 0;
+      valid = proof.publisherSha256 == expectedHash && proof.timestamped;
     }
   }
   trust.dwStateAction = WTD_STATEACTION_CLOSE;
   WinVerifyTrust(nullptr, &action, &trust);
-  if (!valid) throw Error("Authenticode verification failed or publisher did not match");
-  emit("{\"valid\":true,\"publisherSha256\":" + json(actual) +
-      ",\"timestamped\":" + std::string(timestamped ? "true" : "false") + "}");
+  if (!valid) {
+    throw Error("Authenticode verification, timestamp, or publisher pin failed");
+  }
+  return proof;
+}
+
+void verifyAuthenticode(const std::vector<std::wstring>& args) {
+  if (args.size() != 3 || args[1] != L"--publisher-sha256") {
+    throw Error("usage: verify-authenticode <asset> --publisher-sha256 <sha256>");
+  }
+  const std::string expectedHash = checkedPublisher(args[2]);
+  const AuthenticodeProof proof = inspectAuthenticode(args[0], expectedHash);
+  emit("{\"valid\":true,\"publisherSha256\":" + json(proof.publisherSha256) +
+      ",\"timestamped\":true}");
 }
 
 struct JsonValue {
@@ -1233,6 +2018,1441 @@ void ensureSafeParent(const std::wstring& parent) {
     position = slash + 1;
   }
 }
+class FindHandle final {
+ public:
+  explicit FindHandle(HANDLE value = INVALID_HANDLE_VALUE) : value_(value) {}
+  ~FindHandle() {
+    if (value_ != INVALID_HANDLE_VALUE) FindClose(value_);
+  }
+  FindHandle(const FindHandle&) = delete;
+  FindHandle& operator=(const FindHandle&) = delete;
+  HANDLE get() const { return value_; }
+  explicit operator bool() const { return value_ != INVALID_HANDLE_VALUE; }
+ private:
+  HANDLE value_;
+};
+std::wstring finalDosPath(HANDLE object, const char* label) {
+  DWORD needed = GetFinalPathNameByHandleW(
+      object, nullptr, 0, FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+  if (!needed) failWin(label);
+  std::wstring value(needed, L'\0');
+  const DWORD written = GetFinalPathNameByHandleW(
+      object,
+      value.data(),
+      static_cast<DWORD>(value.size()),
+      FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+  if (!written || written >= value.size()) failWin(label);
+  value.resize(written);
+  static const std::wstring localPrefix = L"\\\\?\\";
+  static const std::wstring uncPrefix = L"\\\\?\\UNC\\";
+  if (value.size() >= uncPrefix.size() &&
+      equalOrdinalIgnoreCase(value.substr(0, uncPrefix.size()), uncPrefix)) {
+    throw Error("trusted tree must remain on a local volume");
+  }
+  if (value.size() >= localPrefix.size() &&
+      equalOrdinalIgnoreCase(value.substr(0, localPrefix.size()), localPrefix)) {
+    value.erase(0, localPrefix.size());
+  }
+  return fullPath(value);
+}
+bool pathAtOrBelow(const std::wstring& root, const std::wstring& candidate);
+std::wstring objectSecuritySddl(HANDLE object) {
+  PSECURITY_DESCRIPTOR raw = nullptr;
+  PSID owner = nullptr;
+  PACL dacl = nullptr;
+  const DWORD code = GetSecurityInfo(
+      object, SE_FILE_OBJECT,
+      OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
+      &owner, nullptr, &dacl, nullptr, &raw);
+  if (code != ERROR_SUCCESS) failWin("GetSecurityInfo(file security)", code);
+  Local<SECURITY_DESCRIPTOR> descriptor(
+      static_cast<SECURITY_DESCRIPTOR*>(raw));
+  BOOL present = FALSE;
+  BOOL defaulted = FALSE;
+  PACL descriptorDacl = nullptr;
+  SECURITY_DESCRIPTOR_CONTROL control = 0;
+  DWORD revision = 0;
+  if (!owner || !IsValidSid(owner) ||
+      !GetSecurityDescriptorDacl(
+          descriptor.get(), &present, &descriptorDacl, &defaulted) ||
+      !present || !descriptorDacl || descriptorDacl != dacl ||
+      !IsValidAcl(dacl) ||
+      !GetSecurityDescriptorControl(descriptor.get(), &control, &revision)) {
+    throw Error("file security descriptor is incomplete or invalid");
+  }
+  wchar_t* rawText = nullptr;
+  if (!ConvertSecurityDescriptorToStringSecurityDescriptorW(
+          descriptor.get(), SDDL_REVISION_1,
+          OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
+          &rawText, nullptr)) {
+    failWin("ConvertSecurityDescriptorToStringSecurityDescriptorW(file)");
+  }
+  Local<wchar_t> text(rawText);
+  return text.get();
+}
+
+struct SecurityTreeEntry {
+  std::wstring path;
+  std::wstring relative;
+  std::wstring sddl;
+  bool directory = false;
+  DWORD linkCount = 0;
+  Handle handle;
+};
+
+std::vector<SecurityTreeEntry> openSecurityTree(
+    const std::wstring& inputRoot,
+    ACCESS_MASK access) {
+  const std::wstring root = fullPath(inputRoot);
+  ensureSafeParent(parentPath(root));
+  struct Pending {
+    std::wstring path;
+    std::wstring relative;
+  };
+  std::vector<Pending> pending{{root, L""}};
+  std::vector<SecurityTreeEntry> entries;
+  std::wstring trustedRoot;
+  DWORD trustedVolume = 0;
+  while (!pending.empty()) {
+    Pending next = std::move(pending.back());
+    pending.pop_back();
+    Handle object(CreateFileW(
+        next.path.c_str(), access, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+        FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS, nullptr));
+    if (!object) failWin("CreateFileW(file security tree)");
+    FILE_ATTRIBUTE_TAG_INFO attributes{};
+    BY_HANDLE_FILE_INFORMATION information{};
+    if (!GetFileInformationByHandleEx(
+            object.get(), FileAttributeTagInfo, &attributes, sizeof(attributes)) ||
+        !GetFileInformationByHandle(object.get(), &information)) {
+      failWin("GetFileInformationByHandle(file security tree)");
+    }
+    if (attributes.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) {
+      throw Error("file security tree contains a reparse point");
+    }
+    const bool directory =
+        (attributes.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+    if (!directory && information.nNumberOfLinks != 1) {
+      throw Error("file security tree contains a multiply-linked file");
+    }
+    const std::wstring resolved =
+        finalDosPath(object.get(), "GetFinalPathNameByHandleW(file security tree)");
+    if (entries.empty()) {
+      if (!directory) throw Error("file security tree root is not a directory");
+      trustedRoot = resolved;
+      trustedVolume = information.dwVolumeSerialNumber;
+    } else if (
+        information.dwVolumeSerialNumber != trustedVolume ||
+        !pathAtOrBelow(trustedRoot, resolved)) {
+      throw Error("file security tree object escaped its trusted root");
+    }
+    entries.push_back({
+        std::move(next.path), std::move(next.relative),
+        objectSecuritySddl(object.get()), directory,
+        information.nNumberOfLinks, std::move(object),
+    });
+    if (entries.size() > 8192) {
+      throw Error("file security tree contains too many objects");
+    }
+    if (!directory) continue;
+    WIN32_FIND_DATAW data{};
+    FindHandle search(
+        FindFirstFileW((entries.back().path + L"\\*").c_str(), &data));
+    if (!search) failWin("FindFirstFileW(file security tree)");
+    do {
+      if (!std::wcscmp(data.cFileName, L".") ||
+          !std::wcscmp(data.cFileName, L"..")) continue;
+      if (data.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) {
+        throw Error("file security tree contains a reparse point");
+      }
+      const std::wstring relative = entries.back().relative.empty()
+          ? std::wstring(data.cFileName)
+          : entries.back().relative + L"\\" + data.cFileName;
+      pending.push_back({
+          entries.back().path + L"\\" + data.cFileName, relative});
+    } while (FindNextFileW(search.get(), &data));
+    if (GetLastError() != ERROR_NO_MORE_FILES) {
+      failWin("FindNextFileW(file security tree)");
+    }
+  }
+  return entries;
+}
+
+void snapshotFileSecurityTree(const std::vector<std::wstring>& args) {
+  expect(args, 1, "snapshot-file-security-tree <root>");
+  std::vector<SecurityTreeEntry> entries =
+      openSecurityTree(args[0], READ_CONTROL);
+  std::string out = "{\"entries\":[";
+  for (std::size_t index = 0; index < entries.size(); ++index) {
+    if (index) out.push_back(',');
+    const SecurityTreeEntry& entry = entries[index];
+    out += "{\"relativePath\":" + json(entry.relative) +
+        ",\"kind\":" + json(entry.directory ? "directory" : "file") +
+        ",\"linkCount\":" + std::to_string(entry.linkCount) +
+        ",\"sddl\":" + json(entry.sddl) + "}";
+    if (out.size() > 3U * 1024U * 1024U) {
+      throw Error("file security tree snapshot is too large");
+    }
+  }
+  out += "]}";
+  emit(std::move(out));
+}
+
+void restoreFileSecurityTree(const std::vector<std::wstring>& args) {
+  expect(args, 1, "restore-file-security-tree <root>");
+  const std::vector<std::uint8_t> input = framedInput();
+  const JsonValue root = JsonParser(std::string_view(
+      reinterpret_cast<const char*>(input.data()), input.size())).parse();
+  if (root.type != JsonValue::Type::Object ||
+      root.object.size() != 1 || !root.object.contains("entries")) {
+    throw Error("file security tree snapshot must contain only entries");
+  }
+  const JsonValue& values = member(root, "entries", JsonValue::Type::Array);
+  if (values.array.empty() || values.array.size() > 8192) {
+    throw Error("file security tree snapshot entry count is invalid");
+  }
+  struct Expected {
+    std::wstring relative;
+    std::wstring canonical;
+    std::wstring sddl;
+    bool directory = false;
+    DWORD linkCount = 0;
+  };
+  std::vector<Expected> expected;
+  std::set<std::wstring> seen;
+  for (const JsonValue& value : values.array) {
+    if (value.type != JsonValue::Type::Object ||
+        value.object.size() != 4 ||
+        !value.object.contains("relativePath") ||
+        !value.object.contains("kind") ||
+        !value.object.contains("linkCount") ||
+        !value.object.contains("sddl")) {
+      throw Error("file security tree entry has unknown or missing fields");
+    }
+    const std::string& rawRelative =
+        member(value, "relativePath", JsonValue::Type::String).string;
+    std::wstring relative;
+    std::wstring canonical;
+    if (!rawRelative.empty()) {
+      const NormalPath normalized = normalizeArchivePath(rawRelative, true);
+      if (normalized.directory) {
+        throw Error("file security relativePath must not end in a slash");
+      }
+      relative = normalized.display;
+      canonical = normalized.canonical;
+    }
+    if (!seen.insert(canonical).second) {
+      throw Error("file security tree snapshot contains duplicate paths");
+    }
+    const std::string& kind =
+        member(value, "kind", JsonValue::Type::String).string;
+    if (kind != "file" && kind != "directory") {
+      throw Error("file security tree entry kind is invalid");
+    }
+    const std::uint64_t links =
+        member(value, "linkCount", JsonValue::Type::Number).number;
+    if (!links || links > std::numeric_limits<DWORD>::max()) {
+      throw Error("file security tree entry linkCount is invalid");
+    }
+    const std::wstring sddl = fromUtf8(
+        member(value, "sddl", JsonValue::Type::String).string);
+    if (sddl.empty() || sddl.size() > 32768) {
+      throw Error("file security tree entry SDDL is invalid");
+    }
+    expected.push_back({
+        std::move(relative), std::move(canonical), sddl,
+        kind == "directory", static_cast<DWORD>(links)});
+  }
+  const auto rootExpected = std::find_if(
+      expected.begin(), expected.end(),
+      [](const Expected& entry) { return entry.relative.empty(); });
+  if (rootExpected == expected.end() || !rootExpected->directory) {
+    throw Error("file security tree snapshot has no directory root");
+  }
+
+  std::vector<SecurityTreeEntry> actual = openSecurityTree(
+      args[0], READ_CONTROL | WRITE_DAC | WRITE_OWNER);
+  if (actual.size() != expected.size()) {
+    throw Error("file security tree changed since its snapshot");
+  }
+  std::map<std::wstring, std::size_t> actualByPath;
+  for (std::size_t index = 0; index < actual.size(); ++index) {
+    std::wstring canonical;
+    if (!actual[index].relative.empty()) {
+      canonical = normalizeArchivePath(
+          toUtf8(actual[index].relative), true).canonical;
+    }
+    if (!actualByPath.emplace(canonical, index).second) {
+      throw Error("file security tree contains duplicate canonical paths");
+    }
+  }
+  std::vector<std::pair<std::size_t, std::size_t>> order;
+  for (std::size_t index = 0; index < expected.size(); ++index) {
+    const auto found = actualByPath.find(expected[index].canonical);
+    if (found == actualByPath.end()) {
+      throw Error("file security tree path set changed since its snapshot");
+    }
+    const SecurityTreeEntry& entry = actual[found->second];
+    if (entry.directory != expected[index].directory ||
+        entry.linkCount != expected[index].linkCount) {
+      throw Error("file security tree metadata changed since its snapshot");
+    }
+    const std::size_t depth = static_cast<std::size_t>(std::count(
+        expected[index].relative.begin(),
+        expected[index].relative.end(), L'\\'));
+    order.emplace_back(depth, index);
+  }
+  std::stable_sort(order.begin(), order.end());
+  for (const auto& item : order) {
+    const std::size_t expectedIndex = item.second;
+    const std::size_t actualIndex =
+        actualByPath.at(expected[expectedIndex].canonical);
+    setAndVerifyFileSecurity(
+        actual[actualIndex].handle.get(), expected[expectedIndex].sddl);
+  }
+  emit("{\"restored\":true,\"entries\":" +
+      std::to_string(actual.size()) + "}");
+}
+
+
+bool pathAtOrBelow(const std::wstring& root, const std::wstring& candidate) {
+  if (equalOrdinalIgnoreCase(root, candidate)) return true;
+  std::wstring prefix = root;
+  if (prefix.empty() || (prefix.back() != L'\\' && prefix.back() != L'/')) {
+    prefix.push_back(L'\\');
+  }
+  return candidate.size() > prefix.size() &&
+      equalOrdinalIgnoreCase(candidate.substr(0, prefix.size()), prefix);
+}
+struct UpdaterArtifactRoots {
+  std::wstring service;
+  std::wstring updater;
+  std::wstring versions;
+  std::wstring bin;
+  std::wstring requests;
+  std::wstring localRequests;
+};
+std::wstring trustedUpdaterInstallRoot();
+std::optional<std::wstring> authorizedInstallerInstallRoot();
+bool updaterRequestName(const std::wstring& name);
+
+
+std::wstring requiredLocalEnvironmentPath(const wchar_t* name) {
+  const auto value = processEnvironmentValue(name);
+  if (!value || value->size() < 3 || !std::iswalpha((*value)[0]) ||
+      (*value)[1] != L':' ||
+      ((*value)[2] != L'\\' && (*value)[2] != L'/')) {
+    throw Error("required updater path environment is not absolute and local");
+  }
+  return fullPath(*value);
+}
+
+UpdaterArtifactRoots updaterArtifactRoots() {
+  const std::optional<std::wstring> installerRoot =
+      authorizedInstallerInstallRoot();
+  const std::wstring installRoot =
+      installerRoot ? *installerRoot : trustedUpdaterInstallRoot();
+  const std::wstring service = fullPath(installRoot + L"\\service");
+  const std::wstring versions = fullPath(installRoot + L"\\versions");
+  const auto serviceValue = processEnvironmentValue(L"ROOST_SERVICE_DIR");
+  if (serviceValue && !serviceValue->empty() &&
+      !equalOrdinalIgnoreCase(
+          requiredLocalEnvironmentPath(L"ROOST_SERVICE_DIR"), service)) {
+    throw Error("ROOST_SERVICE_DIR disagrees with the trusted install root");
+  }
+  const auto versionsValue = processEnvironmentValue(L"ROOST_VERSIONS_DIR");
+  if (versionsValue && !versionsValue->empty() &&
+      !equalOrdinalIgnoreCase(
+          requiredLocalEnvironmentPath(L"ROOST_VERSIONS_DIR"), versions)) {
+    throw Error("ROOST_VERSIONS_DIR disagrees with the trusted install root");
+  }
+  ensureSafeParent(service);
+  ensureSafeParent(versions);
+  const std::wstring updater = fullPath(service + L"\\data\\updater");
+  const std::wstring bin = fullPath(installRoot + L"\\bin");
+  const std::wstring requests = fullPath(service + L"\\requests");
+  const std::wstring localRequests =
+      fullPath(requests + L"\\interactive-update");
+  return {service, updater, versions, bin, requests, localRequests};
+}
+
+void requireUpdaterArtifactProfile(const std::wstring& profile) {
+  if (profile != L"private" && profile != L"control" &&
+      profile != L"status" && profile != L"current" &&
+      profile != L"release" && profile != L"stable-shawl" &&
+      profile != L"stable-launcher") {
+    throw Error("updater artifact profile is not allowlisted");
+  }
+}
+
+std::wstring updaterArtifactSddl(
+    const std::wstring& profile,
+    PSID owner,
+    bool directory) {
+  requireUpdaterArtifactProfile(profile);
+  if (!owner || !IsValidSid(owner)) {
+    throw Error("updater artifact owner is invalid");
+  }
+  const auto keeper = serviceSidForName(kKeeperServiceName);
+  const auto worker = serviceSidForName(kWorkerServiceName);
+  const auto coordinator = serviceSidForName(kCoordinatorServiceName);
+  const auto updater = serviceSidForName(kUpdaterServiceName);
+  std::wstring sddl = L"O:" + sidText(owner) + L"D:P";
+  appendDirectoryAllow(sddl, directory, L"FA", L"SY");
+  appendDirectoryAllow(sddl, directory, L"FA", L"BA");
+  appendDirectoryAllow(sddl, directory, L"RC", L"S-1-3-4");
+  appendDirectoryAllow(
+      sddl, directory, L"FA",
+      sidText(const_cast<std::uint8_t*>(updater.data())));
+  if (profile == L"control" || profile == L"status") {
+    appendDirectoryAllow(
+        sddl, directory, L"GR",
+        sidText(const_cast<std::uint8_t*>(worker.data())));
+    appendDirectoryAllow(
+        sddl, directory, L"GR",
+        sidText(const_cast<std::uint8_t*>(coordinator.data())));
+    if (profile == L"status") {
+      appendDirectoryAllow(sddl, directory, L"GR", L"BU");
+    }
+  } else if (profile == L"current" || profile == L"release" ||
+      profile == L"stable-shawl" || profile == L"stable-launcher") {
+    const wchar_t* rights = profile == L"current" ? L"GR" : L"GRGX";
+    appendDirectoryAllow(
+        sddl, directory, rights,
+        sidText(const_cast<std::uint8_t*>(keeper.data())));
+    appendDirectoryAllow(
+        sddl, directory, rights,
+        sidText(const_cast<std::uint8_t*>(worker.data())));
+    appendDirectoryAllow(
+        sddl, directory, rights,
+        sidText(const_cast<std::uint8_t*>(coordinator.data())));
+    const auto interactiveValue =
+        processEnvironmentValue(L"ROOST_INTERACTIVE_SID");
+    if (!interactiveValue || interactiveValue->empty()) {
+      throw Error("ROOST_INTERACTIVE_SID is required for shared updater artifacts");
+    }
+    const auto interactive =
+        sidFromText(*interactiveValue, "ROOST_INTERACTIVE_SID");
+    appendDirectoryAllow(
+        sddl, directory, rights,
+        sidText(const_cast<std::uint8_t*>(interactive.data())));
+  }
+  return sddl;
+}
+
+void requireExactFileSecurity(HANDLE object, const std::wstring& sddl) {
+  PSECURITY_DESCRIPTOR rawExpected = nullptr;
+  if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(
+          sddl.c_str(), SDDL_REVISION_1, &rawExpected, nullptr)) {
+    failWin("ConvertStringSecurityDescriptorToSecurityDescriptorW(expected)");
+  }
+  Local<SECURITY_DESCRIPTOR> expected(
+      static_cast<SECURITY_DESCRIPTOR*>(rawExpected));
+  PSID expectedOwner = nullptr;
+  PACL expectedDacl = nullptr;
+  BOOL present = FALSE;
+  BOOL defaulted = FALSE;
+  SECURITY_DESCRIPTOR_CONTROL expectedControl = 0;
+  DWORD revision = 0;
+  if (!GetSecurityDescriptorOwner(
+          expected.get(), &expectedOwner, &defaulted) ||
+      !expectedOwner ||
+      !GetSecurityDescriptorDacl(
+          expected.get(), &present, &expectedDacl, &defaulted) ||
+      !present || !expectedDacl ||
+      !GetSecurityDescriptorControl(
+          expected.get(), &expectedControl, &revision)) {
+    throw Error("expected file security descriptor is invalid");
+  }
+
+  PSECURITY_DESCRIPTOR rawActual = nullptr;
+  PSID actualOwner = nullptr;
+  PACL actualDacl = nullptr;
+  DWORD code = GetSecurityInfo(
+      object, SE_FILE_OBJECT,
+      OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
+      &actualOwner, nullptr, &actualDacl, nullptr, &rawActual);
+  if (code != ERROR_SUCCESS) failWin("GetSecurityInfo(exact file)", code);
+  Local<SECURITY_DESCRIPTOR> actual(
+      static_cast<SECURITY_DESCRIPTOR*>(rawActual));
+  SECURITY_DESCRIPTOR_CONTROL actualControl = 0;
+  if (!GetSecurityDescriptorControl(
+          actual.get(), &actualControl, &revision) ||
+      !actualOwner || !EqualSid(expectedOwner, actualOwner) ||
+      ((actualControl & SE_DACL_PROTECTED) !=
+       (expectedControl & SE_DACL_PROTECTED)) ||
+      !exactAcl(expectedDacl, actualDacl)) {
+    throw Error("updater artifact security descriptor is not exact");
+  }
+}
+bool fileSecurityMatchesExact(HANDLE object, const std::wstring& sddl) {
+  PSECURITY_DESCRIPTOR rawExpected = nullptr;
+  if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(
+          sddl.c_str(), SDDL_REVISION_1, &rawExpected, nullptr)) {
+    failWin(
+        "ConvertStringSecurityDescriptorToSecurityDescriptorW(comparison)");
+  }
+  Local<SECURITY_DESCRIPTOR> expected(
+      static_cast<SECURITY_DESCRIPTOR*>(rawExpected));
+  PSID expectedOwner = nullptr;
+  PACL expectedDacl = nullptr;
+  BOOL present = FALSE;
+  BOOL defaulted = FALSE;
+  SECURITY_DESCRIPTOR_CONTROL expectedControl = 0;
+  DWORD revision = 0;
+  if (!GetSecurityDescriptorOwner(
+          expected.get(), &expectedOwner, &defaulted) ||
+      !expectedOwner ||
+      !GetSecurityDescriptorDacl(
+          expected.get(), &present, &expectedDacl, &defaulted) ||
+      !present || !expectedDacl ||
+      !GetSecurityDescriptorControl(
+          expected.get(), &expectedControl, &revision)) {
+    throw Error("comparison file security descriptor is invalid");
+  }
+  PSECURITY_DESCRIPTOR rawActual = nullptr;
+  PSID actualOwner = nullptr;
+  PACL actualDacl = nullptr;
+  const DWORD code = GetSecurityInfo(
+      object, SE_FILE_OBJECT,
+      OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
+      &actualOwner, nullptr, &actualDacl, nullptr, &rawActual);
+  if (code != ERROR_SUCCESS) {
+    failWin("GetSecurityInfo(file comparison)", code);
+  }
+  Local<SECURITY_DESCRIPTOR> actual(
+      static_cast<SECURITY_DESCRIPTOR*>(rawActual));
+  SECURITY_DESCRIPTOR_CONTROL actualControl = 0;
+  if (!GetSecurityDescriptorControl(
+          actual.get(), &actualControl, &revision) ||
+      !actualOwner) {
+    throw Error("actual file security descriptor is invalid");
+  }
+  return EqualSid(expectedOwner, actualOwner) &&
+      ((actualControl & SE_DACL_PROTECTED) ==
+       (expectedControl & SE_DACL_PROTECTED)) &&
+      exactAcl(expectedDacl, actualDacl);
+}
+
+
+bool updaterStatusArtifact(
+    const std::wstring& path,
+    const UpdaterArtifactRoots& roots);
+
+void validateUpdaterArtifactPath(
+    const std::wstring& path,
+    const std::wstring& profile,
+    const UpdaterArtifactRoots& roots) {
+  requireUpdaterArtifactProfile(profile);
+  const std::wstring canonical = fullPath(path);
+  const bool allowed =
+      profile == L"current"
+      ? equalOrdinalIgnoreCase(
+            canonical, fullPath(roots.service + L"\\current.json"))
+      : profile == L"stable-shawl"
+      ? equalOrdinalIgnoreCase(
+            canonical, fullPath(roots.bin + L"\\shawl.exe"))
+      : profile == L"stable-launcher"
+      ? equalOrdinalIgnoreCase(
+            canonical, fullPath(roots.bin + L"\\roost.exe"))
+      : profile == L"status"
+      ? updaterStatusArtifact(canonical, roots)
+      : profile == L"control"
+      ? pathAtOrBelow(roots.updater, canonical) ||
+            equalOrdinalIgnoreCase(
+                canonical,
+                fullPath(roots.service + L"\\update-v2.json")) ||
+            equalOrdinalIgnoreCase(
+                canonical,
+                fullPath(roots.service + L"\\update-v1.json")) ||
+            equalOrdinalIgnoreCase(
+                canonical,
+                fullPath(roots.service + L"\\service-definitions.json"))
+      : profile == L"release"
+      ? pathAtOrBelow(roots.versions, canonical) ||
+            pathAtOrBelow(roots.bin, canonical)
+      : pathAtOrBelow(roots.service, canonical) ||
+            pathAtOrBelow(roots.versions, canonical) ||
+            pathAtOrBelow(roots.bin, canonical);
+  if (!allowed) throw Error("updater artifact escaped its trusted roots");
+  ensureSafeParent(parentPath(canonical));
+}
+
+struct OpenUpdaterArtifact {
+  Handle handle;
+  std::wstring sddl;
+  bool directory = false;
+};
+
+OpenUpdaterArtifact openUpdaterArtifact(
+    const std::wstring& path,
+    const std::wstring& profile,
+    ACCESS_MASK access,
+    DWORD share = FILE_SHARE_READ,
+    bool allowOwnerRepair = false) {
+  const UpdaterArtifactRoots roots = updaterArtifactRoots();
+  const std::wstring canonical = fullPath(path);
+  validateUpdaterArtifactPath(canonical, profile, roots);
+  Handle object(CreateFileW(
+      canonical.c_str(), access, share, nullptr, OPEN_EXISTING,
+      FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS, nullptr));
+  if (!object) failWin("CreateFileW(updater artifact)");
+  FILE_ATTRIBUTE_TAG_INFO attributes{};
+  BY_HANDLE_FILE_INFORMATION information{};
+  if (!GetFileInformationByHandleEx(
+          object.get(), FileAttributeTagInfo, &attributes, sizeof(attributes)) ||
+      !GetFileInformationByHandle(object.get(), &information)) {
+    failWin("GetFileInformationByHandle(updater artifact)");
+  }
+  if (attributes.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) {
+    throw Error("updater artifact is a reparse point");
+  }
+  const bool directory =
+      (attributes.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+  if (!directory && information.nNumberOfLinks != 1) {
+    throw Error("updater artifact is multiply linked");
+  }
+  const std::wstring finalPath =
+      finalDosPath(object.get(), "GetFinalPathNameByHandleW(updater artifact)");
+  if (!equalOrdinalIgnoreCase(finalPath, canonical)) {
+    throw Error("updater artifact resolved to a different final path");
+  }
+  validateUpdaterArtifactPath(finalPath, profile, roots);
+  PSECURITY_DESCRIPTOR raw = nullptr;
+  PSID owner = nullptr;
+  DWORD code = GetSecurityInfo(
+      object.get(), SE_FILE_OBJECT, OWNER_SECURITY_INFORMATION,
+      &owner, nullptr, nullptr, nullptr, &raw);
+  if (code != ERROR_SUCCESS) failWin("GetSecurityInfo(updater owner)", code);
+  Local<SECURITY_DESCRIPTOR> descriptor(
+      static_cast<SECURITY_DESCRIPTOR*>(raw));
+  const std::wstring requestParent = parentPath(finalPath);
+  const bool requestInboxException =
+      profile == L"private" &&
+      (equalOrdinalIgnoreCase(requestParent, roots.requests) ||
+       equalOrdinalIgnoreCase(requestParent, roots.localRequests)) &&
+      updaterRequestName(baseName(finalPath));
+  auto updaterOwner = serviceSidForAccount(kUpdaterServiceAccount);
+  PSID expectedOwner = requestInboxException
+      ? owner
+      : static_cast<PSID>(updaterOwner.data());
+  if (!owner || !IsValidSid(owner) ||
+      (!allowOwnerRepair && !EqualSid(owner, expectedOwner))) {
+    throw Error("updater artifact owner is not the dedicated updater account");
+  }
+  const std::wstring sddl =
+      updaterArtifactSddl(profile, expectedOwner, directory);
+  return {std::move(object), sddl, directory};
+}
+
+enum class UpdaterRequestCaller {
+  Worker,
+  Coordinator,
+  Interactive,
+};
+
+bool runningInUpdaterServiceContext();
+bool runningInServiceContext(const wchar_t* serviceName);
+bool elevatedAdministratorContext();
+void requireUpdaterOrElevatedInstallerContext(const char* operation);
+void requireUpdaterServiceContext(const char* operation);
+UpdaterRequestCaller requireUpdaterRequestServiceContext();
+std::wstring randomStage(const std::wstring& destination);
+
+Handle openExactUpdaterParent(
+    const std::wstring& path,
+    const UpdaterArtifactRoots& roots) {
+  const std::wstring parent = fullPath(parentPath(fullPath(path)));
+  Handle directory(CreateFileW(
+      parent.c_str(),
+      GENERIC_READ | GENERIC_WRITE | READ_CONTROL,
+      FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+      nullptr,
+      OPEN_EXISTING,
+      FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS,
+      nullptr));
+  if (!directory) failWin("CreateFileW(updater artifact parent)");
+  FILE_ATTRIBUTE_TAG_INFO attributes{};
+  if (!GetFileInformationByHandleEx(
+          directory.get(), FileAttributeTagInfo, &attributes,
+          sizeof(attributes)) ||
+      !(attributes.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) ||
+      (attributes.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) {
+    throw Error("updater artifact parent is not a non-reparse directory");
+  }
+  const std::wstring resolved = finalDosPath(
+      directory.get(),
+      "GetFinalPathNameByHandleW(updater artifact parent)");
+  if (!equalOrdinalIgnoreCase(resolved, parent)) {
+    throw Error("updater artifact parent resolved through an untrusted path");
+  }
+
+  PSECURITY_DESCRIPTOR raw = nullptr;
+  PSID owner = nullptr;
+  DWORD code = GetSecurityInfo(
+      directory.get(), SE_FILE_OBJECT, OWNER_SECURITY_INFORMATION,
+      &owner, nullptr, nullptr, nullptr, &raw);
+  if (code != ERROR_SUCCESS) failWin("GetSecurityInfo(updater parent)", code);
+  Local<SECURITY_DESCRIPTOR> descriptor(
+      static_cast<SECURITY_DESCRIPTOR*>(raw));
+  if (!owner || !IsValidSid(owner)) {
+    throw Error("updater artifact parent owner is invalid");
+  }
+  const auto interactiveValue =
+      processEnvironmentValue(L"ROOST_INTERACTIVE_SID");
+  const auto callerSid = currentSid();
+  const std::wstring interactive =
+      interactiveValue && !interactiveValue->empty()
+      ? *interactiveValue
+      : sidText(const_cast<std::uint8_t*>(callerSid.data()));
+  const std::wstring ownerAccount = accountNameForSid(owner);
+  const wchar_t* directoryProfile =
+      equalOrdinalIgnoreCase(parent, roots.service) ? L"service-root" :
+      equalOrdinalIgnoreCase(parent, roots.updater) ? L"updater-state" :
+      equalOrdinalIgnoreCase(parent, roots.requests) ? L"update-inbox" :
+      equalOrdinalIgnoreCase(parent, roots.bin) ? L"stable-bin" :
+      equalOrdinalIgnoreCase(parent, roots.versions) ? L"versions-root" :
+      nullptr;
+  if (directoryProfile) {
+    requireExactFileSecurity(
+        directory.get(),
+        directoryProtectionSddl(
+            directoryProfile, ownerAccount, interactive));
+    return directory;
+  }
+  auto updaterOwner = serviceSidForAccount(kUpdaterServiceAccount);
+  for (const wchar_t* profile :
+       {L"private", L"control", L"release"}) {
+    try {
+      requireExactFileSecurity(
+          directory.get(),
+          updaterArtifactSddl(profile, updaterOwner.data(), true));
+      return directory;
+    } catch (const Error&) {
+    }
+  }
+  throw Error("updater artifact parent does not have an exact trusted profile");
+}
+
+Handle openUpdaterRequestParent(
+    const std::wstring& path,
+    const UpdaterArtifactRoots& roots,
+    std::optional<UpdaterRequestCaller> caller = std::nullopt) {
+  const std::wstring parent = fullPath(parentPath(fullPath(path)));
+  const bool serviceInbox = equalOrdinalIgnoreCase(parent, roots.requests);
+  const bool localInbox = equalOrdinalIgnoreCase(parent, roots.localRequests);
+  const bool allowed = caller
+      ? (*caller == UpdaterRequestCaller::Interactive
+          ? localInbox
+          : serviceInbox)
+      : serviceInbox || localInbox;
+  if (!allowed) {
+    throw Error("updater request is not a direct authorized inbox child");
+  }
+  Handle directory(CreateFileW(
+      parent.c_str(),
+      FILE_ADD_FILE | FILE_TRAVERSE | SYNCHRONIZE,
+      FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+      nullptr,
+      OPEN_EXISTING,
+      FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS,
+      nullptr));
+  if (!directory) failWin("CreateFileW(updater request parent)");
+  FILE_ATTRIBUTE_TAG_INFO attributes{};
+  if (!GetFileInformationByHandleEx(
+          directory.get(), FileAttributeTagInfo, &attributes,
+          sizeof(attributes)) ||
+      !(attributes.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) ||
+      (attributes.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) ||
+      !equalOrdinalIgnoreCase(
+          finalDosPath(
+              directory.get(),
+              "GetFinalPathNameByHandleW(updater request parent)"),
+          parent)) {
+    throw Error("updater request parent is not its trusted inbox");
+  }
+  return directory;
+}
+
+void protectUpdaterArtifact(const std::vector<std::wstring>& args) {
+  expect(args, 2, "protect-updater-artifact <path> <profile>");
+  requireUpdaterOrElevatedInstallerContext("protect-updater-artifact");
+  OpenUpdaterArtifact object = openUpdaterArtifact(
+      args[0], args[1], READ_CONTROL | WRITE_DAC | WRITE_OWNER,
+      FILE_SHARE_READ, true);
+  setAndVerifyFileSecurity(object.handle.get(), object.sddl);
+  emit("{\"protected\":true}");
+}
+
+void prepareUpdaterArtifact(const std::vector<std::wstring>& args) {
+  expect(args, 2, "prepare-updater-artifact <path> <private|control>");
+  requireUpdaterOrElevatedInstallerContext("prepare-updater-artifact");
+  if (args[1] != L"private" && args[1] != L"control") {
+    throw Error("prepared updater artifact profile is not allowlisted");
+  }
+  const UpdaterArtifactRoots roots = updaterArtifactRoots();
+  const std::wstring path = fullPath(args[0]);
+  validateUpdaterArtifactPath(path, args[1], roots);
+  Handle parent = openExactUpdaterParent(path, roots);
+  auto owner = serviceSidForAccount(kUpdaterServiceAccount);
+  const std::wstring sddl =
+      updaterArtifactSddl(args[1], owner.data(), false);
+  PSECURITY_DESCRIPTOR raw = nullptr;
+  if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(
+          sddl.c_str(), SDDL_REVISION_1, &raw, nullptr)) {
+    failWin(
+        "ConvertStringSecurityDescriptorToSecurityDescriptorW(prepare)");
+  }
+  Local<SECURITY_DESCRIPTOR> descriptor(
+      static_cast<SECURITY_DESCRIPTOR*>(raw));
+  SECURITY_ATTRIBUTES security{};
+  security.nLength = sizeof(security);
+  security.lpSecurityDescriptor = descriptor.get();
+  Handle file(CreateFileW(
+      path.c_str(),
+      GENERIC_READ | GENERIC_WRITE | READ_CONTROL | WRITE_DAC | WRITE_OWNER,
+      FILE_SHARE_READ,
+      &security,
+      CREATE_NEW,
+      FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT |
+          FILE_FLAG_WRITE_THROUGH,
+      nullptr));
+  bool created = true;
+  if (!file) {
+    const DWORD code = GetLastError();
+    if (code != ERROR_FILE_EXISTS && code != ERROR_ALREADY_EXISTS) {
+      failWin("CreateFileW(prepare updater artifact)", code);
+    }
+    created = false;
+    OpenUpdaterArtifact existing = openUpdaterArtifact(
+        path, args[1], GENERIC_READ | READ_CONTROL);
+    if (existing.directory) {
+      throw Error("prepared updater artifact is a directory");
+    }
+    requireExactFileSecurity(existing.handle.get(), existing.sddl);
+  } else {
+    FILE_ATTRIBUTE_TAG_INFO attributes{};
+    BY_HANDLE_FILE_INFORMATION information{};
+    if (!GetFileInformationByHandleEx(
+            file.get(), FileAttributeTagInfo, &attributes,
+            sizeof(attributes)) ||
+        !GetFileInformationByHandle(file.get(), &information) ||
+        (attributes.FileAttributes &
+         (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) ||
+        information.nNumberOfLinks != 1) {
+      throw Error("prepared updater artifact is not a unique regular file");
+    }
+    const std::wstring finalPath = finalDosPath(
+        file.get(),
+        "GetFinalPathNameByHandleW(prepared updater artifact)");
+    if (!equalOrdinalIgnoreCase(finalPath, path)) {
+      throw Error("prepared updater artifact resolved to a different path");
+    }
+    validateUpdaterArtifactPath(finalPath, args[1], roots);
+    requireExactFileSecurity(file.get(), sddl);
+    if (!FlushFileBuffers(file.get())) {
+      failWin("FlushFileBuffers(prepared updater artifact)");
+    }
+  }
+  emit(std::string("{\"prepared\":true,\"created\":") +
+      (created ? "true}" : "false}"));
+}
+
+bool updaterRequestName(const std::wstring& name) {
+  static constexpr std::wstring_view update = L"update-";
+  static constexpr std::wstring_view relocation = L"relocation-";
+  static constexpr std::wstring_view suffix = L".json";
+  const std::size_t prefix =
+      name.rfind(update, 0) == 0 ? update.size() :
+      name.rfind(relocation, 0) == 0 ? relocation.size() : 0;
+  if (!prefix || name.size() != prefix + 64 + suffix.size() ||
+      name.compare(name.size() - suffix.size(), suffix.size(), suffix) != 0) {
+    return false;
+  }
+  for (std::size_t index = prefix; index < prefix + 64; ++index) {
+    const wchar_t ch = name[index];
+    if (!((ch >= L'0' && ch <= L'9') ||
+          (ch >= L'a' && ch <= L'f'))) {
+      return false;
+    }
+  }
+  return true;
+}
+
+void createUpdaterRequest(const std::vector<std::wstring>& args) {
+  expect(args, 1, "create-updater-request <path>");
+  const UpdaterRequestCaller caller = requireUpdaterRequestServiceContext();
+  const std::vector<std::uint8_t> contents = framedInput(32U * 1024U);
+  if (contents.empty()) throw Error("updater request must not be empty");
+  const UpdaterArtifactRoots roots = updaterArtifactRoots();
+  const std::wstring path = fullPath(args[0]);
+  const std::wstring requestName = baseName(path);
+  const bool callerMatchesName =
+      caller == UpdaterRequestCaller::Worker
+      ? requestName.rfind(L"update-", 0) == 0 ||
+          requestName.rfind(L"relocation-", 0) == 0
+      : caller == UpdaterRequestCaller::Coordinator
+      ? requestName.rfind(L"relocation-", 0) == 0
+      : requestName.rfind(L"update-", 0) == 0;
+  const std::wstring parentPathValue = parentPath(path);
+  const bool callerMatchesParent =
+      caller == UpdaterRequestCaller::Interactive
+      ? equalOrdinalIgnoreCase(parentPathValue, roots.localRequests)
+      : equalOrdinalIgnoreCase(parentPathValue, roots.requests);
+  if (!callerMatchesParent || !updaterRequestName(requestName) ||
+      !callerMatchesName) {
+    throw Error("updater request path does not match its service ancestry");
+  }
+  Handle parent = openUpdaterRequestParent(path, roots, caller);
+  auto owner = currentSid();
+  auto writer =
+      caller == UpdaterRequestCaller::Worker
+      ? serviceSidForName(kWorkerServiceName)
+      : caller == UpdaterRequestCaller::Coordinator
+      ? serviceSidForName(kCoordinatorServiceName)
+      : currentSid();
+  const auto updater = serviceSidForName(kUpdaterServiceName);
+  std::wstring initial = L"O:" + sidText(owner.data()) + L"D:P";
+  appendDirectoryAllow(initial, false, L"FA", L"SY");
+  appendDirectoryAllow(initial, false, L"FA", L"BA");
+  appendDirectoryAllow(initial, false, L"RC", L"S-1-3-4");
+  appendDirectoryAllow(
+      initial, false, L"FA",
+      sidText(const_cast<std::uint8_t*>(writer.data())));
+  appendDirectoryAllow(
+      initial, false, L"GR",
+      sidText(const_cast<std::uint8_t*>(updater.data())));
+  PSECURITY_DESCRIPTOR raw = nullptr;
+  if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(
+          initial.c_str(), SDDL_REVISION_1, &raw, nullptr)) {
+    failWin(
+        "ConvertStringSecurityDescriptorToSecurityDescriptorW(request)");
+  }
+  Local<SECURITY_DESCRIPTOR> descriptor(
+      static_cast<SECURITY_DESCRIPTOR*>(raw));
+  SECURITY_ATTRIBUTES security{};
+  security.nLength = sizeof(security);
+  security.lpSecurityDescriptor = descriptor.get();
+  Handle file(CreateFileW(
+      path.c_str(),
+      GENERIC_WRITE | READ_CONTROL | WRITE_DAC | WRITE_OWNER,
+      FILE_SHARE_READ,
+      &security,
+      CREATE_NEW,
+      FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT |
+          FILE_FLAG_WRITE_THROUGH,
+      nullptr));
+  if (!file) {
+    const DWORD code = GetLastError();
+    if (code != ERROR_FILE_EXISTS && code != ERROR_ALREADY_EXISTS) {
+      failWin("CreateFileW(updater request)", code);
+    }
+    OpenUpdaterArtifact existing =
+        openUpdaterArtifact(path, L"private", READ_CONTROL, FILE_SHARE_READ);
+    if (existing.directory) {
+      throw Error("existing updater request is not a file");
+    }
+    requireExactFileSecurity(existing.handle.get(), existing.sddl);
+    emit("{\"created\":false}");
+    return;
+  }
+  BY_HANDLE_FILE_INFORMATION information{};
+  FILE_ATTRIBUTE_TAG_INFO attributes{};
+  if (!GetFileInformationByHandle(file.get(), &information) ||
+      !GetFileInformationByHandleEx(
+          file.get(), FileAttributeTagInfo, &attributes,
+          sizeof(attributes)) ||
+      information.nNumberOfLinks != 1 ||
+      (attributes.FileAttributes &
+       (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) ||
+      !equalOrdinalIgnoreCase(
+          finalDosPath(
+              file.get(), "GetFinalPathNameByHandleW(updater request)"),
+          path)) {
+    throw Error("updater request path is not a unique trusted file");
+  }
+  writeAll(file.get(), contents.data(), contents.size());
+  if (!FlushFileBuffers(file.get())) {
+    failWin("FlushFileBuffers(updater request)");
+  }
+  setAndVerifyFileSecurity(
+      file.get(), updaterArtifactSddl(L"private", owner.data(), false));
+  if (!FlushFileBuffers(parent.get())) {
+    failWin("FlushFileBuffers(updater request parent)");
+  }
+  emit("{\"created\":true}");
+}
+void consumeUpdaterRequest(const std::vector<std::wstring>& args) {
+  expect(args, 1, "consume-updater-request <path>");
+  requireUpdaterServiceContext("consume-updater-request");
+  const UpdaterArtifactRoots roots = updaterArtifactRoots();
+  const std::wstring path = fullPath(args[0]);
+  const std::wstring requestParent = parentPath(path);
+  if ((!equalOrdinalIgnoreCase(requestParent, roots.requests) &&
+       !equalOrdinalIgnoreCase(requestParent, roots.localRequests)) ||
+      !updaterRequestName(baseName(path))) {
+    throw Error("consumed updater request path is not allowlisted");
+  }
+  Handle parent = openUpdaterRequestParent(path, roots);
+  OpenUpdaterArtifact request = openUpdaterArtifact(
+      path, L"private", DELETE | READ_CONTROL, 0);
+  if (request.directory) {
+    throw Error("consumed updater request is not a file");
+  }
+  requireExactFileSecurity(request.handle.get(), request.sddl);
+  FILE_DISPOSITION_INFO disposition{};
+  disposition.DeleteFile = TRUE;
+  if (!SetFileInformationByHandle(
+          request.handle.get(), FileDispositionInfo,
+          &disposition, sizeof(disposition))) {
+    failWin("SetFileInformationByHandle(updater request)");
+  }
+  request.handle.reset();
+  if (!FlushFileBuffers(parent.get())) {
+    failWin("FlushFileBuffers(consumed updater request parent)");
+  }
+  emit("{\"consumed\":true}");
+}
+
+
+std::string base64(const std::vector<std::uint8_t>& bytes) {
+  if (bytes.empty()) return {};
+  DWORD chars = 0;
+  if (!CryptBinaryToStringA(
+          bytes.data(), static_cast<DWORD>(bytes.size()),
+          CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, nullptr, &chars)) {
+    failWin("CryptBinaryToStringA(size)");
+  }
+  std::string value(chars, '\0');
+  if (!CryptBinaryToStringA(
+          bytes.data(), static_cast<DWORD>(bytes.size()),
+          CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF,
+          value.data(), &chars)) {
+    failWin("CryptBinaryToStringA");
+  }
+  value.resize(chars);
+  if (!value.empty() && value.back() == '\0') value.pop_back();
+  return value;
+}
+
+std::vector<std::uint8_t> readUpdaterArtifactContents(
+    HANDLE file,
+    std::uint32_t maximum) {
+  LARGE_INTEGER size{};
+  if (!GetFileSizeEx(file, &size) ||
+      size.QuadPart < 0 ||
+      static_cast<std::uint64_t>(size.QuadPart) > maximum) {
+    throw Error("updater artifact exceeds its read limit");
+  }
+  std::vector<std::uint8_t> contents(
+      static_cast<std::size_t>(size.QuadPart));
+  std::size_t offset = 0;
+  while (offset < contents.size()) {
+    DWORD read = 0;
+    const DWORD chunk = static_cast<DWORD>(
+        std::min<std::size_t>(contents.size() - offset, 1U << 20));
+    if (!ReadFile(
+            file, contents.data() + offset, chunk, &read, nullptr)) {
+      failWin("ReadFile(updater artifact)");
+    }
+    if (!read) throw Error("updater artifact read was truncated");
+    offset += read;
+  }
+  return contents;
+}
+bool updaterStatusArtifact(
+    const std::wstring& path,
+    const UpdaterArtifactRoots& roots) {
+  if (!equalOrdinalIgnoreCase(parentPath(path), roots.updater)) return false;
+  const std::wstring name = lower(baseName(path));
+  constexpr std::wstring_view prefix = L"status-";
+  constexpr std::wstring_view suffix = L".json";
+  if (name.size() != prefix.size() + 64 + suffix.size() ||
+      name.compare(0, prefix.size(), prefix) != 0 ||
+      name.compare(name.size() - suffix.size(), suffix.size(), suffix) != 0) {
+    return false;
+  }
+  return std::all_of(
+      name.begin() + static_cast<std::ptrdiff_t>(prefix.size()),
+      name.end() - static_cast<std::ptrdiff_t>(suffix.size()),
+      [](wchar_t ch) {
+        return (ch >= L'0' && ch <= L'9') ||
+            (ch >= L'a' && ch <= L'f');
+      });
+}
+
+void readUpdaterArtifact(const std::vector<std::wstring>& args) {
+  expect(args, 3, "read-updater-artifact <path> <profile> <max-bytes>");
+  const UpdaterArtifactRoots roots = updaterArtifactRoots();
+  const std::wstring path = fullPath(args[0]);
+  const std::wstring relocationDir =
+      fullPath(roots.updater + L"\\relocation");
+  const bool statusReadable =
+      args[1] == L"status" && updaterStatusArtifact(path, roots);
+  const bool workerReadable = args[1] == L"control" &&
+      (equalOrdinalIgnoreCase(path, fullPath(roots.updater + L"\\relocation-worker-v1.json")) ||
+       equalOrdinalIgnoreCase(path, fullPath(roots.updater + L"\\relocation-coordinator-v1.json")) ||
+       equalOrdinalIgnoreCase(path, fullPath(relocationDir + L"\\worker.json")));
+  const bool coordinatorReadable = args[1] == L"control" &&
+      equalOrdinalIgnoreCase(path, fullPath(relocationDir + L"\\coordinator.json"));
+  if (!(statusReadable ||
+        (workerReadable && runningInServiceContext(kWorkerServiceName)) ||
+        (coordinatorReadable && runningInServiceContext(kCoordinatorServiceName)))) {
+    requireUpdaterOrElevatedInstallerContext("read-updater-artifact");
+  }
+  const std::uint32_t maximum =
+      uint32Arg(args[2], "maximum artifact bytes");
+  if (maximum > kMaxFrame) {
+    throw Error("maximum artifact bytes is too large");
+  }
+  if (statusReadable &&
+      GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES) {
+    const DWORD code = GetLastError();
+    if (code == ERROR_FILE_NOT_FOUND || code == ERROR_PATH_NOT_FOUND) {
+      emit("{\"bytesBase64\":\"\"}");
+      return;
+    }
+    failWin("GetFileAttributesW(updater status)", code);
+  }
+  OpenUpdaterArtifact object = openUpdaterArtifact(
+      path, args[1], GENERIC_READ | READ_CONTROL);
+  if (object.directory) {
+    throw Error("updater artifact reader requires a file");
+  }
+  requireExactFileSecurity(object.handle.get(), object.sddl);
+  const std::vector<std::uint8_t> contents =
+      readUpdaterArtifactContents(object.handle.get(), maximum);
+  requireExactFileSecurity(object.handle.get(), object.sddl);
+  emit("{\"bytesBase64\":" + json(base64(contents)) + "}");
+}
+
+bool allowlistedUpdaterReplacement(
+    const std::wstring& path,
+    const std::wstring& profile,
+    const UpdaterArtifactRoots& roots) {
+  if (profile == L"current") {
+    return equalOrdinalIgnoreCase(
+        path, fullPath(roots.service + L"\\current.json"));
+  }
+  if (profile == L"stable-shawl") {
+    return equalOrdinalIgnoreCase(
+        path, fullPath(roots.bin + L"\\shawl.exe"));
+  }
+  if (profile == L"stable-launcher") {
+    return equalOrdinalIgnoreCase(
+        path, fullPath(roots.bin + L"\\roost.exe"));
+  }
+  if (profile == L"status") {
+    return updaterStatusArtifact(path, roots);
+  }
+  if (profile != L"control") return false;
+  if (equalOrdinalIgnoreCase(
+          path,
+          fullPath(roots.service + L"\\service-definitions.json")) ||
+      equalOrdinalIgnoreCase(
+          path,
+          fullPath(roots.service + L"\\update-v2.json")) ||
+      equalOrdinalIgnoreCase(
+          path,
+          fullPath(roots.service + L"\\update-v1.json"))) {
+    return true;
+  }
+  const std::wstring relocationDir =
+      fullPath(roots.updater + L"\\relocation");
+  if (equalOrdinalIgnoreCase(parentPath(path), relocationDir)) {
+    const std::wstring role = lower(baseName(path));
+    return role == L"worker.json" || role == L"coordinator.json";
+  }
+  if (!equalOrdinalIgnoreCase(parentPath(path), roots.updater)) {
+    return false;
+  }
+  const std::wstring name = lower(baseName(path));
+  return name == L"relocation-worker-v1.json" ||
+      name == L"relocation-coordinator-v1.json";
+}
+
+class UpdaterStageGuard final {
+ public:
+  explicit UpdaterStageGuard(std::wstring path) : path_(std::move(path)) {}
+  ~UpdaterStageGuard() {
+    if (active_) DeleteFileW(path_.c_str());
+  }
+  void release() { active_ = false; }
+ private:
+  std::wstring path_;
+  bool active_ = true;
+};
+
+void replaceUpdaterArtifact(const std::vector<std::wstring>& args) {
+  expect(args, 2, "replace-updater-artifact <path> <profile>");
+  requireUpdaterServiceContext("replace-updater-artifact");
+  const std::vector<std::uint8_t> contents = framedInput(kMaxFrame);
+  if (contents.empty()) {
+    throw Error("updater artifact replacement must not be empty");
+  }
+  const UpdaterArtifactRoots roots = updaterArtifactRoots();
+  const std::wstring destination = fullPath(args[0]);
+  validateUpdaterArtifactPath(destination, args[1], roots);
+  if (!allowlistedUpdaterReplacement(
+          destination, args[1], roots)) {
+    throw Error("updater artifact replacement destination is not allowlisted");
+  }
+  Handle parent = openExactUpdaterParent(destination, roots);
+
+  std::optional<OpenUpdaterArtifact> existing;
+  Handle probe(CreateFileW(
+      destination.c_str(),
+      GENERIC_READ | READ_CONTROL,
+      FILE_SHARE_READ | FILE_SHARE_DELETE,
+      nullptr,
+      OPEN_EXISTING,
+      FILE_FLAG_OPEN_REPARSE_POINT,
+      nullptr));
+  if (probe) {
+    probe.reset();
+    existing.emplace(openUpdaterArtifact(
+        destination,
+        args[1],
+        GENERIC_READ | READ_CONTROL,
+        FILE_SHARE_READ | FILE_SHARE_DELETE));
+    if (existing->directory) {
+      throw Error("updater artifact replacement destination is a directory");
+    }
+    requireExactFileSecurity(
+        existing->handle.get(), existing->sddl);
+  } else {
+    const DWORD code = GetLastError();
+    if (code != ERROR_FILE_NOT_FOUND && code != ERROR_PATH_NOT_FOUND) {
+      failWin("CreateFileW(updater replacement destination)", code);
+    }
+  }
+
+  const std::wstring stage = randomStage(destination);
+  UpdaterStageGuard stageGuard(stage);
+  auto owner = serviceSidForAccount(kUpdaterServiceAccount);
+  const std::wstring stageSddl =
+      updaterArtifactSddl(args[1], owner.data(), false);
+  PSECURITY_DESCRIPTOR raw = nullptr;
+  if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(
+          stageSddl.c_str(), SDDL_REVISION_1, &raw, nullptr)) {
+    failWin(
+        "ConvertStringSecurityDescriptorToSecurityDescriptorW(replacement)");
+  }
+  Local<SECURITY_DESCRIPTOR> descriptor(
+      static_cast<SECURITY_DESCRIPTOR*>(raw));
+  SECURITY_ATTRIBUTES security{};
+  security.nLength = sizeof(security);
+  security.lpSecurityDescriptor = descriptor.get();
+  Handle staged(CreateFileW(
+      stage.c_str(),
+      GENERIC_READ | GENERIC_WRITE | READ_CONTROL | WRITE_DAC |
+          WRITE_OWNER,
+      FILE_SHARE_READ | FILE_SHARE_DELETE,
+      &security,
+      CREATE_NEW,
+      FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT |
+          FILE_FLAG_WRITE_THROUGH,
+      nullptr));
+  if (!staged) failWin("CreateFileW(updater replacement stage)");
+  FILE_ATTRIBUTE_TAG_INFO attributes{};
+  BY_HANDLE_FILE_INFORMATION information{};
+  if (!GetFileInformationByHandleEx(
+          staged.get(), FileAttributeTagInfo, &attributes,
+          sizeof(attributes)) ||
+      !GetFileInformationByHandle(staged.get(), &information) ||
+      (attributes.FileAttributes &
+       (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) ||
+      information.nNumberOfLinks != 1 ||
+      !equalOrdinalIgnoreCase(
+          finalDosPath(
+              staged.get(),
+              "GetFinalPathNameByHandleW(updater replacement stage)"),
+          stage)) {
+    throw Error("updater replacement stage is not a unique trusted file");
+  }
+  writeAll(staged.get(), contents.data(), contents.size());
+  if (!FlushFileBuffers(staged.get())) {
+    failWin("FlushFileBuffers(updater replacement stage)");
+  }
+  requireExactFileSecurity(staged.get(), stageSddl);
+  LARGE_INTEGER beginning{};
+  if (!SetFilePointerEx(
+          staged.get(), beginning, nullptr, FILE_BEGIN)) {
+    failWin("SetFilePointerEx(updater replacement stage)");
+  }
+  if (readUpdaterArtifactContents(staged.get(), kMaxFrame) != contents) {
+    throw Error("updater replacement stage bytes did not verify");
+  }
+  requireExactFileSecurity(staged.get(), stageSddl);
+  staged.reset();
+
+  if (existing) {
+    if (!ReplaceFileW(
+            destination.c_str(), stage.c_str(), nullptr,
+            REPLACEFILE_WRITE_THROUGH, nullptr, nullptr)) {
+      failWin("ReplaceFileW(updater artifact)");
+    }
+  } else if (!MoveFileExW(
+                 stage.c_str(), destination.c_str(),
+                 MOVEFILE_WRITE_THROUGH)) {
+    failWin("MoveFileExW(updater artifact)");
+  }
+  stageGuard.release();
+  existing.reset();
+
+  OpenUpdaterArtifact replaced = openUpdaterArtifact(
+      destination, args[1], GENERIC_READ | READ_CONTROL);
+  if (replaced.directory) {
+    throw Error("replaced updater artifact is a directory");
+  }
+  requireExactFileSecurity(replaced.handle.get(), replaced.sddl);
+  if (readUpdaterArtifactContents(replaced.handle.get(), kMaxFrame) !=
+      contents) {
+    throw Error("replaced updater artifact bytes did not verify");
+  }
+  requireExactFileSecurity(replaced.handle.get(), replaced.sddl);
+  if (!FlushFileBuffers(parent.get())) {
+    failWin("FlushFileBuffers(updater replacement parent)");
+  }
+  emit("{\"replaced\":true,\"profile\":" + json(args[1]) +
+      ",\"bytes\":" + std::to_string(contents.size()) + "}");
+}
+
+void removeUpdaterArtifact(const std::vector<std::wstring>& args) {
+  expect(args, 2, "remove-updater-artifact <path> <profile>");
+  requireUpdaterServiceContext("remove-updater-artifact");
+  const UpdaterArtifactRoots roots = updaterArtifactRoots();
+  const std::wstring destination = fullPath(args[0]);
+  validateUpdaterArtifactPath(destination, args[1], roots);
+  if (!allowlistedUpdaterReplacement(destination, args[1], roots)) {
+    throw Error("updater artifact removal destination is not allowlisted");
+  }
+  Handle parent = openExactUpdaterParent(destination, roots);
+  try {
+    OpenUpdaterArtifact artifact = openUpdaterArtifact(
+        destination, args[1], DELETE | READ_CONTROL, 0);
+    if (artifact.directory) {
+      throw Error("updater artifact removal destination is a directory");
+    }
+    requireExactFileSecurity(artifact.handle.get(), artifact.sddl);
+    FILE_DISPOSITION_INFO disposition{};
+    disposition.DeleteFile = TRUE;
+    if (!SetFileInformationByHandle(
+            artifact.handle.get(), FileDispositionInfo,
+            &disposition, sizeof(disposition))) {
+      failWin("SetFileInformationByHandle(updater artifact)");
+    }
+    artifact.handle.reset();
+  } catch (const Error&) {
+    const DWORD attributes = GetFileAttributesW(destination.c_str());
+    if (attributes != INVALID_FILE_ATTRIBUTES) throw;
+    const DWORD code = GetLastError();
+    if (code != ERROR_FILE_NOT_FOUND && code != ERROR_PATH_NOT_FOUND) throw;
+  }
+  if (!FlushFileBuffers(parent.get())) {
+    failWin("FlushFileBuffers(updater removal parent)");
+  }
+  emit("{\"removed\":true,\"profile\":" + json(args[1]) + "}");
+}
+
+
+
+
+void protectDirectoryTree(const std::vector<std::wstring>& args) {
+  expect(
+      args,
+      4,
+      "protect-directory-tree <path> <profile> <base-account> <interactive-sid>");
+  const std::wstring& profile = args[1];
+  if (profile != L"service-home" &&
+      profile != L"keeper-state" &&
+      profile != L"worker-state" &&
+      profile != L"coordinator-state" &&
+      profile != L"updater-state") {
+    throw Error("recursive protection profile is not allowlisted");
+  }
+  const std::wstring root = fullPath(args[0]);
+  ensureSafeParent(parentPath(root));
+  const std::wstring sddl =
+      directoryProtectionSddl(profile, args[2], args[3]);
+  std::vector<std::wstring> pending{root};
+  std::size_t protectedObjects = 0;
+  std::size_t protectedDirectories = 0;
+  std::size_t protectedFiles = 0;
+  std::wstring trustedRoot;
+  DWORD trustedVolume = 0;
+  while (!pending.empty()) {
+    const std::wstring path = std::move(pending.back());
+    pending.pop_back();
+    Handle object(CreateFileW(
+        path.c_str(),
+        READ_CONTROL | WRITE_DAC | WRITE_OWNER,
+        FILE_SHARE_READ,
+        nullptr,
+        OPEN_EXISTING,
+        FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS,
+        nullptr));
+    if (!object) failWin("CreateFileW(role-state tree)");
+    FILE_ATTRIBUTE_TAG_INFO attributes{};
+    if (!GetFileInformationByHandleEx(
+            object.get(), FileAttributeTagInfo, &attributes, sizeof(attributes))) {
+      failWin("GetFileInformationByHandleEx(role-state tree)");
+    }
+    if (attributes.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) {
+      throw Error("role-state tree contains a reparse point");
+    }
+    const bool directory =
+        (attributes.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+    if (directory) ++protectedDirectories;
+    else ++protectedFiles;
+    BY_HANDLE_FILE_INFORMATION information{};
+    if (!GetFileInformationByHandle(object.get(), &information)) {
+      failWin("GetFileInformationByHandle(role-state tree)");
+    }
+    const std::wstring finalPath =
+        finalDosPath(object.get(), "GetFinalPathNameByHandleW(role-state tree)");
+    if (protectedObjects == 0) {
+      if (!directory) throw Error("role-state tree root is not a directory");
+      trustedRoot = finalPath;
+      trustedVolume = information.dwVolumeSerialNumber;
+    } else if (
+        information.dwVolumeSerialNumber != trustedVolume ||
+        !pathAtOrBelow(trustedRoot, finalPath)) {
+      throw Error("role-state tree object escaped its trusted root");
+    }
+    if (!directory && information.nNumberOfLinks != 1) {
+      throw Error("role-state tree contains a multiply-linked file");
+    }
+    setAndVerifyFileSecurity(object.get(), sddl);
+    if (!directory) object.reset();
+    if (++protectedObjects > kMaxZipEntries) {
+      throw Error("role-state tree contains too many objects");
+    }
+    if (!directory) continue;
+
+    WIN32_FIND_DATAW data{};
+    FindHandle search(FindFirstFileW((path + L"\\*").c_str(), &data));
+    if (!search) failWin("FindFirstFileW(role-state tree)");
+    do {
+      if (!std::wcscmp(data.cFileName, L".") ||
+          !std::wcscmp(data.cFileName, L"..")) {
+        continue;
+      }
+      if (data.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) {
+        throw Error("role-state tree contains a reparse point");
+      }
+      pending.push_back(path + L"\\" + data.cFileName);
+    } while (FindNextFileW(search.get(), &data));
+    if (GetLastError() != ERROR_NO_MORE_FILES) {
+      failWin("FindNextFileW(role-state tree)");
+    }
+    object.reset();
+  }
+  emit("{\"protected\":true,\"profile\":" + json(profile) +
+      ",\"objects\":" + std::to_string(protectedObjects) +
+      ",\"directories\":" + std::to_string(protectedDirectories) +
+      ",\"files\":" + std::to_string(protectedFiles) + "}");
+}
 
 std::wstring randomStage(const std::wstring& destination) {
   std::array<std::uint8_t, 16> random{};
@@ -1317,17 +3537,804 @@ class Sha256 final {
   std::vector<std::uint8_t> object_;
 };
 
-std::array<std::uint8_t, 32> hashAndFlush(const std::wstring& path, std::uint64_t expectedSize) {
-  Handle file(CreateFileW(path.c_str(), GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ,
-      nullptr, OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
-  if (!file) failWin("CreateFileW(extracted file)");
+enum class StableArtifactKind {
+  Shawl,
+  Launcher,
+};
+
+struct UpdaterArtifactIdentity {
+  std::array<std::uint8_t, 32> sha256{};
+  std::uint64_t size = 0;
+};
+
+struct UpdaterArtifactProof {
+  UpdaterArtifactIdentity identity;
+  std::wstring sddl;
+};
+
+std::wstring checkedUpdaterArtifactAbsolutePath(
+    const std::wstring& path,
+    const char* label) {
+  if (path.size() < 3 || !std::iswalpha(path[0]) || path[1] != L':' ||
+      (path[2] != L'\\' && path[2] != L'/')) {
+    throw Error(std::string(label) + " must be an absolute local Windows path");
+  }
+  return fullPath(path);
+}
+
+std::uint64_t updaterArtifactSizeArg(
+    const std::wstring& text,
+    const char* label) {
+  if (text.empty()) throw Error(std::string("invalid ") + label);
+  std::uint64_t value = 0;
+  for (wchar_t ch : text) {
+    if (ch < L'0' || ch > L'9') {
+      throw Error(std::string("invalid ") + label);
+    }
+    const std::uint64_t digit = static_cast<unsigned>(ch - L'0');
+    if (value > (std::numeric_limits<std::uint64_t>::max() - digit) / 10) {
+      throw Error(std::string("invalid ") + label);
+    }
+    value = value * 10 + digit;
+  }
+  if (!value || value > 9007199254740991ULL) {
+    throw Error(std::string("invalid ") + label);
+  }
+  return value;
+}
+
+std::optional<UpdaterArtifactIdentity> updaterArtifactExpected(
+    const std::vector<std::wstring>& args,
+    std::size_t first) {
+  if (args.size() == first) return std::nullopt;
+  if (args.size() != first + 2) {
+    throw Error("updater artifact identity requires SHA-256 and size");
+  }
+  return UpdaterArtifactIdentity{
+      parseSha256(toUtf8(args[first])),
+      updaterArtifactSizeArg(args[first + 1], "updater artifact size"),
+  };
+}
+
+bool lowerHex64(const std::wstring& value) {
+  if (value.size() != 64) return false;
+  return std::all_of(value.begin(), value.end(), [](wchar_t ch) {
+    return (ch >= L'0' && ch <= L'9') ||
+        (ch >= L'a' && ch <= L'f');
+  });
+}
+
+std::optional<StableArtifactKind> stableArtifactProfileKind(
+    const std::wstring& profile) {
+  if (profile == L"stable-shawl") return StableArtifactKind::Shawl;
+  if (profile == L"stable-launcher") return StableArtifactKind::Launcher;
+  return std::nullopt;
+}
+
+std::optional<StableArtifactKind> releaseStableArtifactKind(
+    const std::wstring& path,
+    const UpdaterArtifactRoots& roots) {
+  const std::wstring versionDir = parentPath(path);
+  if (!equalOrdinalIgnoreCase(parentPath(versionDir), roots.versions)) {
+    return std::nullopt;
+  }
+  const std::wstring version = baseName(versionDir);
+  if (version.empty() || version == L"." || version == L".." ||
+      !std::all_of(version.begin(), version.end(), [](wchar_t ch) {
+        return std::iswalnum(ch) || ch == L'.' || ch == L'-' ||
+            ch == L'_' || ch == L'+';
+      })) {
+    return std::nullopt;
+  }
+  const std::wstring name = lower(baseName(path));
+  if (name == L"shawl.exe") return StableArtifactKind::Shawl;
+  if (name == L"roost-win-helper.exe") {
+    return StableArtifactKind::Launcher;
+  }
+  return std::nullopt;
+}
+
+bool releaseInspectionArtifactPath(
+    const std::wstring& path,
+    const UpdaterArtifactRoots& roots) {
+  if (equalOrdinalIgnoreCase(
+          path, fullPath(roots.bin + L"\\install-root.txt")) ||
+      equalOrdinalIgnoreCase(
+          path, fullPath(roots.bin + L"\\publisher.sha256"))) {
+    return true;
+  }
+  std::wstring prefix = roots.versions;
+  if (prefix.empty() ||
+      (prefix.back() != L'\\' && prefix.back() != L'/')) {
+    prefix.push_back(L'\\');
+  }
+  if (path.size() <= prefix.size() ||
+      !equalOrdinalIgnoreCase(path.substr(0, prefix.size()), prefix)) {
+    return false;
+  }
+  const std::wstring relative = path.substr(prefix.size());
+  const std::size_t slash = relative.find_first_of(L"\\/");
+  if (slash == std::wstring::npos || slash == 0 ||
+      slash + 1 >= relative.size()) {
+    return false;
+  }
+  const std::wstring version = relative.substr(0, slash);
+  if (!std::all_of(version.begin(), version.end(), [](wchar_t ch) {
+        return std::iswalnum(ch) || ch == L'.' || ch == L'-' ||
+            ch == L'_' || ch == L'+';
+      })) {
+    return false;
+  }
+  const std::wstring versionDir = fullPath(prefix + version);
+  return pathAtOrBelow(versionDir, path);
+}
+
+std::optional<StableArtifactKind> privateStableBackupKind(
+    const std::wstring& path,
+    const UpdaterArtifactRoots& roots) {
+  const std::wstring stableArtifacts = parentPath(path);
+  const std::wstring transaction = parentPath(stableArtifacts);
+  const std::wstring updates = parentPath(transaction);
+  if (!equalOrdinalIgnoreCase(
+          updates, fullPath(roots.updater + L"\\updates")) ||
+      !equalOrdinalIgnoreCase(
+          baseName(stableArtifacts), L"stable-artifacts") ||
+      !lowerHex64(baseName(transaction))) {
+    return std::nullopt;
+  }
+  const std::wstring name = lower(baseName(path));
+  if (name == L"shawl.bak") return StableArtifactKind::Shawl;
+  if (name == L"launcher.bak") return StableArtifactKind::Launcher;
+  return std::nullopt;
+}
+
+void requireInspectUpdaterArtifactPath(
+    const std::wstring& path,
+    const std::wstring& profile,
+    const UpdaterArtifactRoots& roots) {
+  if (profile == L"current") {
+    if (!equalOrdinalIgnoreCase(
+            path, fullPath(roots.service + L"\\current.json"))) {
+      throw Error("current artifact inspection path is not allowlisted");
+    }
+  } else if (profile == L"release") {
+    if (!releaseInspectionArtifactPath(path, roots)) {
+      throw Error("release artifact inspection path is not allowlisted");
+    }
+  } else if (profile == L"private") {
+    if (!privateStableBackupKind(path, roots)) {
+      throw Error("private artifact inspection path is not allowlisted");
+    }
+  } else if (const auto kind = stableArtifactProfileKind(profile)) {
+    const std::wstring expected = *kind == StableArtifactKind::Shawl
+        ? fullPath(roots.bin + L"\\shawl.exe")
+        : fullPath(roots.bin + L"\\roost.exe");
+    if (!equalOrdinalIgnoreCase(path, expected)) {
+      throw Error("stable artifact inspection path is not allowlisted");
+    }
+  } else {
+    throw Error("artifact inspection profile is not allowlisted");
+  }
+  validateUpdaterArtifactPath(path, profile, roots);
+}
+
+UpdaterArtifactProof hashHeldUpdaterArtifact(
+    HANDLE file,
+    const std::wstring& expectedSddl,
+    const char* label) {
+  requireExactFileSecurity(file, expectedSddl);
+  const std::wstring before = objectSecuritySddl(file);
+  if (before.empty() || before.size() > 64U * 1024U) {
+    throw Error("updater artifact security proof is too large");
+  }
+  LARGE_INTEGER length{};
+  if (!GetFileSizeEx(file, &length) || length.QuadPart < 0 ||
+      static_cast<std::uint64_t>(length.QuadPart) > 9007199254740991ULL) {
+    throw Error(std::string(label) + " has an invalid proof size");
+  }
+  LARGE_INTEGER beginning{};
+  if (!SetFilePointerEx(file, beginning, nullptr, FILE_BEGIN)) {
+    failWin("SetFilePointerEx(updater artifact proof)");
+  }
+  Sha256 hash;
+  std::array<std::uint8_t, 64 * 1024> buffer{};
+  std::uint64_t total = 0;
+  for (;;) {
+    DWORD got = 0;
+    if (!ReadFile(
+            file, buffer.data(), static_cast<DWORD>(buffer.size()),
+            &got, nullptr)) {
+      failWin("ReadFile(updater artifact proof)");
+    }
+    if (!got) break;
+    if (total > static_cast<std::uint64_t>(length.QuadPart) - got) {
+      throw Error(std::string(label) + " grew while being proved");
+    }
+    total += got;
+    hash.update(buffer.data(), got);
+  }
+  if (total != static_cast<std::uint64_t>(length.QuadPart)) {
+    throw Error(std::string(label) + " changed size while being proved");
+  }
+  LARGE_INTEGER finalLength{};
+  if (!GetFileSizeEx(file, &finalLength) ||
+      finalLength.QuadPart != length.QuadPart) {
+    throw Error(std::string(label) + " changed while being proved");
+  }
+  requireExactFileSecurity(file, expectedSddl);
+  const std::wstring after = objectSecuritySddl(file);
+  if (after != before) {
+    throw Error(std::string(label) + " security changed while being proved");
+  }
+  return {{hash.finish(), total}, before};
+}
+
+void enforceUpdaterArtifactExpected(
+    const UpdaterArtifactProof& proof,
+    const std::optional<UpdaterArtifactIdentity>& expected) {
+  if (expected &&
+      (proof.identity.size != expected->size ||
+       proof.identity.sha256 != expected->sha256)) {
+    throw Error("updater artifact identity differs from the expected proof");
+  }
+}
+
+UpdaterArtifactIdentity streamHeldArtifactToAtomicDestination(
+    HANDLE source,
+    const std::wstring& destinationPath,
+    HANDLE destinationParent,
+    const std::wstring& destinationSddl,
+    const char* label,
+    bool allowReplace = true,
+    const std::optional<std::wstring>& alternateExistingSddl = std::nullopt,
+    const std::optional<std::wstring>& expectedSourceSddl = std::nullopt,
+    const std::optional<UpdaterArtifactIdentity>& expectedSourceIdentity =
+        std::nullopt) {
+  const std::wstring expectedParent =
+      fullPath(parentPath(destinationPath));
+  const auto requireHeldParentIdentity = [&] {
+    FILE_ATTRIBUTE_TAG_INFO attributes{};
+    if (!GetFileInformationByHandleEx(
+            destinationParent, FileAttributeTagInfo, &attributes,
+            sizeof(attributes)) ||
+        !(attributes.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) ||
+        (attributes.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) ||
+        !equalOrdinalIgnoreCase(
+            finalDosPath(
+                destinationParent,
+                "GetFinalPathNameByHandleW(held destination parent)"),
+            expectedParent)) {
+      throw Error(
+          std::string(label) +
+          " destination parent identity changed during mutation");
+    }
+    ensureSafeParent(expectedParent);
+  };
+  requireHeldParentIdentity();
+  LARGE_INTEGER sourceLength{};
+  if (!GetFileSizeEx(source, &sourceLength) ||
+      sourceLength.QuadPart < 0 ||
+      static_cast<std::uint64_t>(sourceLength.QuadPart) >
+          9007199254740991ULL) {
+    throw Error(std::string(label) + " source has an invalid size");
+  }
+  LARGE_INTEGER beginning{};
+  if (!SetFilePointerEx(source, beginning, nullptr, FILE_BEGIN)) {
+    failWin("SetFilePointerEx(held artifact source)");
+  }
+
+  const std::wstring stage = randomStage(destinationPath);
+  UpdaterStageGuard stageGuard(stage);
+  PSECURITY_DESCRIPTOR raw = nullptr;
+  if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(
+          destinationSddl.c_str(), SDDL_REVISION_1, &raw, nullptr)) {
+    failWin(
+        "ConvertStringSecurityDescriptorToSecurityDescriptorW(held stage)");
+  }
+  Local<SECURITY_DESCRIPTOR> descriptor(
+      static_cast<SECURITY_DESCRIPTOR*>(raw));
+  SECURITY_ATTRIBUTES security{};
+  security.nLength = sizeof(security);
+  security.lpSecurityDescriptor = descriptor.get();
+  requireHeldParentIdentity();
+  Handle staged(CreateFileW(
+      stage.c_str(),
+      GENERIC_READ | GENERIC_WRITE | READ_CONTROL | WRITE_DAC | WRITE_OWNER,
+      0,
+      &security,
+      CREATE_NEW,
+      FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT |
+          FILE_FLAG_SEQUENTIAL_SCAN | FILE_FLAG_WRITE_THROUGH,
+      nullptr));
+  if (!staged) failWin("CreateFileW(held artifact stage)");
+  FILE_ATTRIBUTE_TAG_INFO stageAttributes{};
+  BY_HANDLE_FILE_INFORMATION stageInformation{};
+  if (!GetFileInformationByHandleEx(
+          staged.get(), FileAttributeTagInfo, &stageAttributes,
+          sizeof(stageAttributes)) ||
+      !GetFileInformationByHandle(staged.get(), &stageInformation) ||
+      (stageAttributes.FileAttributes &
+       (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) ||
+      stageInformation.nNumberOfLinks != 1 ||
+      !equalOrdinalIgnoreCase(
+          finalDosPath(
+              staged.get(),
+              "GetFinalPathNameByHandleW(held artifact stage)"),
+          stage)) {
+    throw Error(std::string(label) + " stage is not a unique exact file");
+  }
+  requireExactFileSecurity(staged.get(), destinationSddl);
+  requireHeldParentIdentity();
+
+  Sha256 sourceHash;
+  std::array<std::uint8_t, 64 * 1024> buffer{};
+  std::uint64_t copied = 0;
+  for (;;) {
+    DWORD got = 0;
+    if (!ReadFile(
+            source, buffer.data(), static_cast<DWORD>(buffer.size()),
+            &got, nullptr)) {
+      failWin("ReadFile(held artifact source)");
+    }
+    if (!got) break;
+    if (copied > static_cast<std::uint64_t>(sourceLength.QuadPart) - got) {
+      throw Error(std::string(label) + " source grew while streaming");
+    }
+    copied += got;
+    sourceHash.update(buffer.data(), got);
+    writeAll(staged.get(), buffer.data(), got);
+  }
+  if (copied != static_cast<std::uint64_t>(sourceLength.QuadPart)) {
+    throw Error(std::string(label) + " source changed while streaming");
+  }
+  const UpdaterArtifactIdentity sourceIdentity{sourceHash.finish(), copied};
+  if (!FlushFileBuffers(staged.get())) {
+    failWin("FlushFileBuffers(held artifact stage)");
+  }
+  const UpdaterArtifactProof stagedProof = hashHeldUpdaterArtifact(
+      staged.get(), destinationSddl, "held artifact stage");
+  if (stagedProof.identity.size != sourceIdentity.size ||
+      stagedProof.identity.sha256 != sourceIdentity.sha256) {
+    throw Error(std::string(label) + " stage differs from its source");
+  }
+  if (expectedSourceIdentity &&
+      (sourceIdentity.size != expectedSourceIdentity->size ||
+       sourceIdentity.sha256 != expectedSourceIdentity->sha256)) {
+    throw Error(std::string(label) + " source differs from its prior proof");
+  }
+  if (expectedSourceSddl) {
+    requireExactFileSecurity(source, *expectedSourceSddl);
+    if (objectSecuritySddl(source) != *expectedSourceSddl) {
+      throw Error(std::string(label) + " source security changed before commit");
+    }
+  }
+  staged.reset();
+
+  requireHeldParentIdentity();
+  bool destinationExists = false;
+  Handle destinationProbe(CreateFileW(
+      destinationPath.c_str(),
+      GENERIC_READ | READ_CONTROL,
+      FILE_SHARE_READ | FILE_SHARE_DELETE,
+      nullptr,
+      OPEN_EXISTING,
+      FILE_FLAG_OPEN_REPARSE_POINT,
+      nullptr));
+  if (destinationProbe) {
+    FILE_ATTRIBUTE_TAG_INFO attributes{};
+    BY_HANDLE_FILE_INFORMATION information{};
+    if (!GetFileInformationByHandleEx(
+            destinationProbe.get(), FileAttributeTagInfo, &attributes,
+            sizeof(attributes)) ||
+        !GetFileInformationByHandle(destinationProbe.get(), &information) ||
+        (attributes.FileAttributes &
+         (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) ||
+        information.nNumberOfLinks != 1 ||
+        !equalOrdinalIgnoreCase(
+            finalDosPath(
+                destinationProbe.get(),
+                "GetFinalPathNameByHandleW(held artifact destination)"),
+            destinationPath)) {
+      throw Error(
+          std::string(label) +
+          " destination is not a unique exact regular file");
+    }
+    if (!fileSecurityMatchesExact(
+            destinationProbe.get(), destinationSddl) &&
+        (!alternateExistingSddl ||
+         !fileSecurityMatchesExact(
+             destinationProbe.get(), *alternateExistingSddl))) {
+      throw Error(
+          std::string(label) +
+          " destination security is not an admitted exact descriptor");
+    }
+    if (!allowReplace) {
+      throw Error(std::string(label) + " destination already exists");
+    }
+    destinationExists = true;
+    destinationProbe.reset();
+  } else {
+    const DWORD code = GetLastError();
+    if (code != ERROR_FILE_NOT_FOUND && code != ERROR_PATH_NOT_FOUND) {
+      failWin("CreateFileW(held artifact destination)", code);
+    }
+  }
+
+  requireHeldParentIdentity();
+  if (destinationExists) {
+    if (alternateExistingSddl) {
+      if (!MoveFileExW(
+              stage.c_str(), destinationPath.c_str(),
+              MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        failWin("MoveFileExW(held artifact ACL transition)");
+      }
+    } else if (!ReplaceFileW(
+                   destinationPath.c_str(), stage.c_str(), nullptr,
+                   REPLACEFILE_WRITE_THROUGH, nullptr, nullptr)) {
+      failWin("ReplaceFileW(held artifact)");
+    }
+  } else if (!MoveFileExW(
+                 stage.c_str(), destinationPath.c_str(),
+                 MOVEFILE_WRITE_THROUGH)) {
+    failWin("MoveFileExW(held artifact)");
+  }
+  requireHeldParentIdentity();
+  stageGuard.release();
+  if (!FlushFileBuffers(destinationParent)) {
+    failWin("FlushFileBuffers(held artifact parent)");
+  }
+
+  requireHeldParentIdentity();
+  Handle finalFile(CreateFileW(
+      destinationPath.c_str(),
+      GENERIC_READ | READ_CONTROL,
+      FILE_SHARE_READ,
+      nullptr,
+      OPEN_EXISTING,
+      FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_SEQUENTIAL_SCAN,
+      nullptr));
+  if (!finalFile) failWin("CreateFileW(final held artifact)");
+  FILE_ATTRIBUTE_TAG_INFO finalAttributes{};
+  BY_HANDLE_FILE_INFORMATION finalInformation{};
+  if (!GetFileInformationByHandleEx(
+          finalFile.get(), FileAttributeTagInfo, &finalAttributes,
+          sizeof(finalAttributes)) ||
+      !GetFileInformationByHandle(finalFile.get(), &finalInformation) ||
+      (finalAttributes.FileAttributes &
+       (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) ||
+      finalInformation.nNumberOfLinks != 1 ||
+      !equalOrdinalIgnoreCase(
+          finalDosPath(
+              finalFile.get(),
+              "GetFinalPathNameByHandleW(final held artifact)"),
+          destinationPath)) {
+    throw Error(std::string(label) + " final file is not a unique exact file");
+  }
+  requireHeldParentIdentity();
+  const UpdaterArtifactProof finalProof = hashHeldUpdaterArtifact(
+      finalFile.get(), destinationSddl, "final held artifact");
+  if (finalProof.identity.size != sourceIdentity.size ||
+      finalProof.identity.sha256 != sourceIdentity.sha256) {
+    throw Error(std::string(label) + " final file differs from its source");
+  }
+  return sourceIdentity;
+}
+
+class HeldUpdaterArtifactParents final {
+ public:
+  HANDLE get() const {
+    if (handles_.empty()) throw Error("updater artifact parent is not held");
+    return handles_.back().get();
+  }
+  void add(Handle handle) { handles_.emplace_back(std::move(handle)); }
+ private:
+  std::vector<Handle> handles_;
+};
+
+HeldUpdaterArtifactParents openOrCreatePrivateBackupParent(
+    const std::wstring& destination,
+    const UpdaterArtifactRoots& roots) {
+  if (!privateStableBackupKind(destination, roots)) {
+    throw Error("private backup destination path is not allowlisted");
+  }
+  HeldUpdaterArtifactParents held;
+  held.add(openExactUpdaterParent(
+      fullPath(roots.updater + L"\\.roost-parent-proof"), roots));
+
+  auto owner = serviceSidForAccount(kUpdaterServiceAccount);
+  const std::wstring directorySddl =
+      updaterArtifactSddl(L"private", owner.data(), true);
+  PSECURITY_DESCRIPTOR raw = nullptr;
+  if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(
+          directorySddl.c_str(), SDDL_REVISION_1, &raw, nullptr)) {
+    failWin(
+        "ConvertStringSecurityDescriptorToSecurityDescriptorW(backup parent)");
+  }
+  Local<SECURITY_DESCRIPTOR> descriptor(
+      static_cast<SECURITY_DESCRIPTOR*>(raw));
+  SECURITY_ATTRIBUTES security{};
+  security.nLength = sizeof(security);
+  security.lpSecurityDescriptor = descriptor.get();
+
+  const std::wstring destinationParent = parentPath(destination);
+  std::size_t cursor = roots.updater.size();
+  while (cursor < destinationParent.size()) {
+    if (destinationParent[cursor] != L'\\' &&
+        destinationParent[cursor] != L'/') {
+      throw Error("private backup parent escaped its updater root");
+    }
+    const std::size_t slash =
+        destinationParent.find_first_of(L"\\/", cursor + 1);
+    const std::wstring current = slash == std::wstring::npos
+        ? destinationParent
+        : destinationParent.substr(0, slash);
+    bool created = false;
+    if (CreateDirectoryW(current.c_str(), &security)) {
+      created = true;
+    } else {
+      const DWORD code = GetLastError();
+      if (code != ERROR_ALREADY_EXISTS) {
+        failWin("CreateDirectoryW(private backup parent)", code);
+      }
+    }
+    Handle directory(CreateFileW(
+        current.c_str(),
+        GENERIC_READ | GENERIC_WRITE | READ_CONTROL,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        nullptr,
+        OPEN_EXISTING,
+        FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS,
+        nullptr));
+    if (!directory) failWin("CreateFileW(private backup parent)");
+    FILE_ATTRIBUTE_TAG_INFO attributes{};
+    if (!GetFileInformationByHandleEx(
+            directory.get(), FileAttributeTagInfo, &attributes,
+            sizeof(attributes)) ||
+        !(attributes.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) ||
+        (attributes.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) ||
+        !equalOrdinalIgnoreCase(
+            finalDosPath(
+                directory.get(),
+                "GetFinalPathNameByHandleW(private backup parent)"),
+            current)) {
+      throw Error("private backup parent is not an exact non-reparse directory");
+    }
+    requireExactFileSecurity(directory.get(), directorySddl);
+    if (created && !FlushFileBuffers(held.get())) {
+      failWin("FlushFileBuffers(created backup parent)");
+    }
+    held.add(std::move(directory));
+    if (slash == std::wstring::npos) break;
+    cursor = slash;
+  }
+  validateUpdaterArtifactPath(destination, L"private", roots);
+  return held;
+}
+
+void inspectUpdaterArtifact(const std::vector<std::wstring>& args) {
+  if (args.size() != 2 && args.size() != 4) {
+    throw Error(
+        "usage: inspect-updater-artifact <path> <profile> "
+        "[<expected-sha256> <expected-size>]");
+  }
+  requireUpdaterOrElevatedInstallerContext("inspect-updater-artifact");
+  const std::optional<UpdaterArtifactIdentity> expected =
+      updaterArtifactExpected(args, 2);
+  const UpdaterArtifactRoots roots = updaterArtifactRoots();
+  const std::wstring path =
+      checkedUpdaterArtifactAbsolutePath(args[0], "artifact path");
+  requireInspectUpdaterArtifactPath(path, args[1], roots);
+  OpenUpdaterArtifact object = openUpdaterArtifact(
+      path, args[1], GENERIC_READ | READ_CONTROL);
+  if (object.directory) {
+    throw Error("inspected updater artifact is not a file");
+  }
+  const UpdaterArtifactProof proof = hashHeldUpdaterArtifact(
+      object.handle.get(), object.sddl, "inspected updater artifact");
+  enforceUpdaterArtifactExpected(proof, expected);
+  emit("{\"profile\":" + json(args[1]) +
+      ",\"sha256\":" + json(hexHash(proof.identity.sha256)) +
+      ",\"size\":" + std::to_string(proof.identity.size) +
+      ",\"sddl\":" + json(proof.sddl) + "}");
+}
+
+void copyUpdaterArtifact(const std::vector<std::wstring>& args) {
+  if (args.size() != 4 && args.size() != 6) {
+    throw Error(
+        "usage: copy-updater-artifact <source> <destination> "
+        "<source-profile> <destination-profile> "
+        "[<expected-sha256> <expected-size>]");
+  }
+  requireUpdaterOrElevatedInstallerContext("copy-updater-artifact");
+  const std::optional<UpdaterArtifactIdentity> expected =
+      updaterArtifactExpected(args, 4);
+  const UpdaterArtifactRoots roots = updaterArtifactRoots();
+  const std::wstring sourcePath =
+      checkedUpdaterArtifactAbsolutePath(args[0], "artifact source");
+  const std::wstring destinationPath =
+      checkedUpdaterArtifactAbsolutePath(args[1], "artifact destination");
+  const std::wstring& sourceProfile = args[2];
+  const std::wstring& destinationProfile = args[3];
+
+  const std::optional<StableArtifactKind> stableSource =
+      stableArtifactProfileKind(sourceProfile);
+  const std::optional<StableArtifactKind> stableDestination =
+      stableArtifactProfileKind(destinationProfile);
+  const std::optional<StableArtifactKind> releaseSource =
+      sourceProfile == L"release"
+      ? releaseStableArtifactKind(sourcePath, roots)
+      : std::nullopt;
+  const std::optional<StableArtifactKind> privateSource =
+      sourceProfile == L"private"
+      ? privateStableBackupKind(sourcePath, roots)
+      : std::nullopt;
+  const std::optional<StableArtifactKind> privateDestination =
+      destinationProfile == L"private"
+      ? privateStableBackupKind(destinationPath, roots)
+      : std::nullopt;
+  const bool snapshot =
+      stableSource && privateDestination &&
+      *stableSource == *privateDestination && !expected;
+  const bool promotion =
+      releaseSource && stableDestination &&
+      *releaseSource == *stableDestination && expected;
+  const bool rollback =
+      privateSource && stableDestination &&
+      *privateSource == *stableDestination && expected;
+  if (!snapshot && !promotion && !rollback) {
+    throw Error("updater artifact copy matrix is not allowlisted");
+  }
+  validateUpdaterArtifactPath(sourcePath, sourceProfile, roots);
+  if (destinationProfile != L"private") {
+    validateUpdaterArtifactPath(
+        destinationPath, destinationProfile, roots);
+  }
+
+  OpenUpdaterArtifact source = openUpdaterArtifact(
+      sourcePath, sourceProfile, GENERIC_READ | READ_CONTROL);
+  if (source.directory) {
+    throw Error("updater artifact copy source is not a file");
+  }
+  const UpdaterArtifactProof sourceProof = hashHeldUpdaterArtifact(
+      source.handle.get(), source.sddl, "updater artifact copy source");
+  enforceUpdaterArtifactExpected(sourceProof, expected);
+
+  HeldUpdaterArtifactParents parents;
+  if (destinationProfile == L"private") {
+    parents = openOrCreatePrivateBackupParent(destinationPath, roots);
+  } else {
+    parents.add(openExactUpdaterParent(destinationPath, roots));
+  }
+
+  std::optional<OpenUpdaterArtifact> existing;
+  Handle probe(CreateFileW(
+      destinationPath.c_str(), GENERIC_READ | READ_CONTROL,
+      FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+      FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+  if (probe) {
+    probe.reset();
+    existing.emplace(openUpdaterArtifact(
+        destinationPath, destinationProfile,
+        GENERIC_READ | READ_CONTROL,
+        FILE_SHARE_READ | FILE_SHARE_DELETE));
+    if (existing->directory) {
+      throw Error("updater artifact copy destination is a directory");
+    }
+    requireExactFileSecurity(existing->handle.get(), existing->sddl);
+  } else {
+    const DWORD code = GetLastError();
+    if (code != ERROR_FILE_NOT_FOUND && code != ERROR_PATH_NOT_FOUND) {
+      failWin("CreateFileW(updater artifact copy destination)", code);
+    }
+  }
+  if (snapshot && existing) {
+    const UpdaterArtifactProof backupProof = hashHeldUpdaterArtifact(
+        existing->handle.get(), existing->sddl,
+        "existing stable artifact backup");
+    if (backupProof.identity.size != sourceProof.identity.size ||
+        backupProof.identity.sha256 != sourceProof.identity.sha256) {
+      throw Error(
+          "existing stable artifact backup differs from the held source");
+    }
+    requireExactFileSecurity(source.handle.get(), source.sddl);
+    if (objectSecuritySddl(source.handle.get()) != sourceProof.sddl) {
+      throw Error("stable artifact source security changed before retry proof");
+    }
+    emit("{\"sourceProfile\":" + json(sourceProfile) +
+        ",\"destinationProfile\":" + json(destinationProfile) +
+        ",\"sha256\":" + json(hexHash(sourceProof.identity.sha256)) +
+        ",\"size\":" + std::to_string(sourceProof.identity.size) +
+        ",\"sddl\":" + json(sourceProof.sddl) + "}");
+    return;
+  }
+
+  auto owner = serviceSidForAccount(kUpdaterServiceAccount);
+  const std::wstring destinationSddl =
+      updaterArtifactSddl(destinationProfile, owner.data(), false);
+  const UpdaterArtifactIdentity streamed =
+      streamHeldArtifactToAtomicDestination(
+          source.handle.get(), destinationPath, parents.get(),
+          destinationSddl, "updater artifact copy", !snapshot, std::nullopt,
+          sourceProof.sddl, sourceProof.identity);
+  existing.reset();
+  if (streamed.size != sourceProof.identity.size ||
+      streamed.sha256 != sourceProof.identity.sha256) {
+    throw Error("streamed updater artifact differs from its source proof");
+  }
+
+  OpenUpdaterArtifact destination = openUpdaterArtifact(
+      destinationPath, destinationProfile,
+      GENERIC_READ | READ_CONTROL);
+  if (destination.directory) {
+    throw Error("copied updater artifact destination is not a file");
+  }
+  const UpdaterArtifactProof destinationProof = hashHeldUpdaterArtifact(
+      destination.handle.get(), destination.sddl,
+      "copied updater artifact destination");
+  if (destinationProof.identity.size != sourceProof.identity.size ||
+      destinationProof.identity.sha256 != sourceProof.identity.sha256) {
+    throw Error("copied updater artifact differs from its source");
+  }
+  requireExactFileSecurity(source.handle.get(), source.sddl);
+  if (objectSecuritySddl(source.handle.get()) != sourceProof.sddl) {
+    throw Error("updater artifact source security changed before proof");
+  }
+  emit("{\"sourceProfile\":" + json(sourceProfile) +
+      ",\"destinationProfile\":" + json(destinationProfile) +
+      ",\"sha256\":" + json(hexHash(sourceProof.identity.sha256)) +
+      ",\"size\":" + std::to_string(sourceProof.identity.size) +
+      ",\"sddl\":" + json(sourceProof.sddl) + "}");
+}
+
+
+struct ExtractionSecurity {
+  std::vector<std::uint8_t> owner;
+};
+
+std::wstring extractedObjectSddl(
+    bool directory,
+    const ExtractionSecurity& security) {
+  return updaterArtifactSddl(
+      L"release",
+      const_cast<std::uint8_t*>(security.owner.data()),
+      directory);
+}
+
+Handle protectExtractedObject(
+    const std::wstring& path,
+    bool directory,
+    const ExtractionSecurity& security,
+    DWORD additionalAccess = 0) {
+  Handle object(CreateFileW(
+      path.c_str(),
+      READ_CONTROL | WRITE_DAC | WRITE_OWNER | additionalAccess,
+      FILE_SHARE_READ,
+      nullptr,
+      OPEN_EXISTING,
+      FILE_FLAG_OPEN_REPARSE_POINT |
+          (directory ? FILE_FLAG_BACKUP_SEMANTICS : FILE_FLAG_SEQUENTIAL_SCAN),
+      nullptr));
+  if (!object) failWin("CreateFileW(extracted object)");
   FILE_ATTRIBUTE_TAG_INFO tag{};
-  if (!GetFileInformationByHandleEx(file.get(), FileAttributeTagInfo, &tag, sizeof(tag))) {
-    failWin("GetFileInformationByHandleEx");
+  if (!GetFileInformationByHandleEx(
+      object.get(), FileAttributeTagInfo, &tag, sizeof(tag))) {
+    failWin("GetFileInformationByHandleEx(extracted object)");
   }
-  if (tag.FileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) {
-    throw Error("extracted path is not a regular file");
+  const bool actualDirectory = (tag.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+  if ((tag.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) ||
+      actualDirectory != directory) {
+    throw Error("extracted object type changed during validation");
   }
+  setAndVerifyFileSecurity(object.get(), extractedObjectSddl(directory, security));
+  return object;
+}
+
+std::array<std::uint8_t, 32> hashAndFlush(
+    const std::wstring& path,
+    std::uint64_t expectedSize,
+    const ExtractionSecurity& security) {
+  Handle file = protectExtractedObject(
+      path, false, security, GENERIC_READ | GENERIC_WRITE);
   BY_HANDLE_FILE_INFORMATION info{};
   if (!GetFileInformationByHandle(file.get(), &info)) failWin("GetFileInformationByHandle");
   if (info.nNumberOfLinks != 1) throw Error("hard-linked extracted file is forbidden");
@@ -1336,7 +4343,9 @@ std::array<std::uint8_t, 32> hashAndFlush(const std::wstring& path, std::uint64_
   std::uint64_t total = 0;
   for (;;) {
     DWORD got = 0;
-    if (!ReadFile(file.get(), buffer.data(), static_cast<DWORD>(buffer.size()), &got, nullptr)) failWin("ReadFile(extracted)");
+    if (!ReadFile(file.get(), buffer.data(), static_cast<DWORD>(buffer.size()), &got, nullptr)) {
+      failWin("ReadFile(extracted)");
+    }
     if (!got) break;
     if (total > expectedSize - std::min<std::uint64_t>(expectedSize, got)) {
       throw Error("extracted file exceeds manifest size");
@@ -1351,7 +4360,8 @@ std::array<std::uint8_t, 32> hashAndFlush(const std::wstring& path, std::uint64_
 }
 
 void scanStage(const std::wstring& root, const std::wstring& relative, Manifest& manifest,
-    bool final, std::set<std::wstring>& actual, std::uint64_t& total) {
+    bool final, const ExtractionSecurity* security,
+    std::set<std::wstring>& actual, std::uint64_t& total) {
   std::wstring directory = relative.empty() ? root : root + L"\\" + relative;
   WIN32_FIND_DATAW data{};
   HANDLE raw = FindFirstFileW((directory + L"\\*").c_str(), &data);
@@ -1370,7 +4380,12 @@ void scanStage(const std::wstring& root, const std::wstring& relative, Manifest&
     }
     if (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
       if (!manifest.directories.contains(normalized.canonical)) throw Error("unexpected extracted directory");
-      scanStage(root, childRelative, manifest, final, actual, total);
+      if (final) {
+        if (!security) throw Error("final extraction scan is missing its security profile");
+        Handle protectedDirectory = protectExtractedObject(
+            root + L"\\" + childRelative, true, *security);
+      }
+      scanStage(root, childRelative, manifest, final, security, actual, total);
       continue;
     }
     auto found = manifest.byPath.find(normalized.canonical);
@@ -1384,9 +4399,10 @@ void scanStage(const std::wstring& root, const std::wstring& relative, Manifest&
     total += size;
     if (total > manifest.totalSize) throw Error("extracted data exceeds manifest total");
     if (final) {
+      if (!security) throw Error("final extraction scan is missing its security profile");
       if (size != expectedFile.size) throw Error("extracted file size differs from manifest");
       std::wstring path = root + L"\\" + childRelative;
-      if (hashAndFlush(path, expectedFile.size) != expectedFile.sha256) {
+      if (hashAndFlush(path, expectedFile.size, *security) != expectedFile.sha256) {
         throw Error("extracted file SHA-256 differs from manifest");
       }
       expectedFile.seen = true;
@@ -1414,6 +4430,366 @@ std::wstring quoteArg(const std::wstring& argument) {
   out.append(slashes * 2, L'\\');
   out.push_back(L'"');
   return out;
+}
+
+std::wstring moduleFilePath() {
+  std::wstring path(32768, L'\0');
+  const DWORD length = GetModuleFileNameW(
+      nullptr, path.data(), static_cast<DWORD>(path.size()));
+  if (!length || length >= path.size()) failWin("GetModuleFileNameW");
+  path.resize(length);
+  return path;
+}
+
+struct LockedRegularContents {
+  Handle handle;
+  std::vector<std::uint8_t> bytes;
+};
+
+LockedRegularContents readLockedRegularFile(
+    const std::wstring& path,
+    std::uint64_t maximum,
+    DWORD sharing) {
+  Handle file(CreateFileW(
+      path.c_str(),
+      GENERIC_READ,
+      sharing,
+      nullptr,
+      OPEN_EXISTING,
+      FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_SEQUENTIAL_SCAN,
+      nullptr));
+  if (!file) failWin("CreateFileW(launcher metadata)");
+  FILE_ATTRIBUTE_TAG_INFO attributes{};
+  if (!GetFileInformationByHandleEx(
+      file.get(), FileAttributeTagInfo, &attributes, sizeof(attributes))) {
+    failWin("GetFileInformationByHandleEx(launcher metadata)");
+  }
+  if (attributes.FileAttributes &
+      (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) {
+    throw Error("launcher metadata is not a regular non-reparse file");
+  }
+  LARGE_INTEGER length{};
+  if (!GetFileSizeEx(file.get(), &length)) failWin("GetFileSizeEx(launcher metadata)");
+  if (length.QuadPart < 0 || static_cast<std::uint64_t>(length.QuadPart) > maximum ||
+      static_cast<std::uint64_t>(length.QuadPart) >
+          static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())) {
+    throw Error("launcher metadata exceeds its size limit");
+  }
+  std::vector<std::uint8_t> bytes(static_cast<std::size_t>(length.QuadPart));
+  std::size_t offset = 0;
+  while (offset < bytes.size()) {
+    DWORD got = 0;
+    const DWORD want = static_cast<DWORD>(
+        std::min<std::size_t>(bytes.size() - offset, 1U << 20));
+    if (!ReadFile(file.get(), bytes.data() + offset, want, &got, nullptr)) {
+      failWin("ReadFile(launcher metadata)");
+    }
+    if (!got) throw Error("launcher metadata changed while being read");
+    offset += got;
+  }
+  return {std::move(file), std::move(bytes)};
+}
+
+std::string trimmedFileText(const std::vector<std::uint8_t>& bytes) {
+  if (std::find(bytes.begin(), bytes.end(), std::uint8_t{0}) != bytes.end()) {
+    throw Error("launcher metadata contains NUL");
+  }
+  std::string text(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+  while (!text.empty() &&
+      (text.back() == ' ' || text.back() == '\t' || text.back() == '\r' ||
+       text.back() == '\n')) {
+    text.pop_back();
+  }
+  std::size_t start = 0;
+  while (start < text.size() &&
+      (text[start] == ' ' || text[start] == '\t' || text[start] == '\r' ||
+       text[start] == '\n')) {
+    ++start;
+  }
+  text.erase(0, start);
+  if (text.empty()) throw Error("launcher metadata is empty");
+  return text;
+}
+
+std::wstring checkedLocalAbsolutePath(std::string_view utf8, const char* label) {
+  std::wstring path = fromUtf8(utf8);
+  if (path.find(L'\0') != std::wstring::npos ||
+      path.size() < 3 ||
+      !std::iswalpha(path[0]) ||
+      path[1] != L':' ||
+      (path[2] != L'\\' && path[2] != L'/')) {
+    throw Error(std::string(label) + " must be an absolute local Windows path");
+  }
+  return fullPath(path);
+}
+
+struct LockedActiveFile {
+  Handle handle;
+  std::uint64_t size;
+};
+
+LockedActiveFile lockActiveFile(const std::wstring& path) {
+  Handle file(CreateFileW(
+      path.c_str(),
+      GENERIC_READ,
+      FILE_SHARE_READ,
+      nullptr,
+      OPEN_EXISTING,
+      FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_SEQUENTIAL_SCAN,
+      nullptr));
+  if (!file) failWin("CreateFileW(active Roost file)");
+  FILE_ATTRIBUTE_TAG_INFO attributes{};
+  if (!GetFileInformationByHandleEx(
+      file.get(), FileAttributeTagInfo, &attributes, sizeof(attributes))) {
+    failWin("GetFileInformationByHandleEx(active Roost file)");
+  }
+  if (attributes.FileAttributes &
+      (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) {
+    throw Error("active Roost file is not a regular non-reparse file");
+  }
+  LARGE_INTEGER length{};
+  if (!GetFileSizeEx(file.get(), &length)) failWin("GetFileSizeEx(active Roost file)");
+  if (length.QuadPart < 0) throw Error("active Roost file has an invalid size");
+  return {std::move(file), static_cast<std::uint64_t>(length.QuadPart)};
+}
+
+std::array<std::uint8_t, 32> hashLockedFile(
+    LockedActiveFile& file,
+    std::uint64_t expectedSize) {
+  if (file.size != expectedSize) {
+    throw Error("active Roost file size differs from current manifest");
+  }
+  LARGE_INTEGER beginning{};
+  if (!SetFilePointerEx(file.handle.get(), beginning, nullptr, FILE_BEGIN)) {
+    failWin("SetFilePointerEx(active Roost file)");
+  }
+  Sha256 hash;
+  std::array<std::uint8_t, 64 * 1024> buffer{};
+  std::uint64_t total = 0;
+  for (;;) {
+    DWORD got = 0;
+    if (!ReadFile(
+        file.handle.get(), buffer.data(), static_cast<DWORD>(buffer.size()), &got, nullptr)) {
+      failWin("ReadFile(active Roost file)");
+    }
+    if (!got) break;
+    if (total > expectedSize - std::min<std::uint64_t>(expectedSize, got)) {
+      throw Error("active Roost file exceeds its current manifest size");
+    }
+    total += got;
+    if (total > expectedSize) {
+      throw Error("active Roost file exceeds its current manifest size");
+    }
+    hash.update(buffer.data(), got);
+  }
+  if (total != expectedSize) {
+    throw Error("active Roost file size differs from current manifest");
+  }
+  return hash.finish();
+}
+
+bool pathWithin(const std::wstring& parent, const std::wstring& child) {
+  std::wstring prefix = parent;
+  if (!prefix.empty() && prefix.back() != L'\\' && prefix.back() != L'/') prefix.push_back(L'\\');
+  return child.size() > prefix.size() &&
+      equalOrdinalIgnoreCase(prefix, child.substr(0, prefix.size()));
+}
+
+struct ExpectedActiveFile {
+  std::uint64_t size = 0;
+  std::array<std::uint8_t, 32> sha256{};
+  bool found = false;
+};
+
+struct VerifiedCurrentRoost {
+  LockedRegularContents current;
+  std::wstring versionDir;
+  std::wstring executablePath;
+  std::wstring helperPath;
+  LockedActiveFile executable;
+  LockedActiveFile helper;
+};
+
+VerifiedCurrentRoost verifyCurrentRoost(
+    const std::wstring& versionsRoot,
+    const std::wstring& serviceDir,
+    const std::string& publisher) {
+  LockedRegularContents currentFile = readLockedRegularFile(
+      serviceDir + L"\\current.json",
+      16ULL * 1024ULL * 1024ULL,
+      FILE_SHARE_READ | FILE_SHARE_DELETE);
+  const JsonValue current = JsonParser(std::string_view(
+      reinterpret_cast<const char*>(currentFile.bytes.data()),
+      currentFile.bytes.size())).parse();
+  if (current.type != JsonValue::Type::Object) {
+    throw Error("current manifest must be a JSON object");
+  }
+  const std::uint64_t schema =
+      member(current, "schemaVersion", JsonValue::Type::Number).number;
+  if (schema != 1 && schema != 2) {
+    throw Error("unsupported current manifest schema");
+  }
+  const JsonValue& version = member(current, "version", JsonValue::Type::String);
+  if (version.string.empty()) throw Error("current manifest version is empty");
+  const auto build = current.object.find("build");
+  if (schema == 2) {
+    if (build == current.object.end() ||
+        build->second.type != JsonValue::Type::String ||
+        build->second.string.empty()) {
+      throw Error("current manifest build is missing or invalid");
+    }
+  } else if (build != current.object.end() &&
+      (build->second.type != JsonValue::Type::String ||
+       build->second.string.empty())) {
+    throw Error("legacy current manifest build is invalid");
+  }
+  const JsonValue& manifestUrl =
+      member(current, "manifestUrl", JsonValue::Type::String);
+  if (manifestUrl.string.empty()) throw Error("current manifest URL is empty");
+  (void)parseSha256(
+      member(current, "manifestSha256", JsonValue::Type::String).string);
+  const std::string currentPublisher = checkedPublisher(fromUtf8(
+      member(current, "publisherSha256", JsonValue::Type::String).string));
+  if (currentPublisher != publisher) {
+    throw Error("current manifest publisher differs from the stable publisher pin");
+  }
+
+  const std::wstring versionDir = checkedLocalAbsolutePath(
+      member(current, "versionDir", JsonValue::Type::String).string,
+      "current versionDir");
+  if (!pathWithin(versionsRoot, versionDir)) {
+    throw Error("active Roost version escaped the configured versions directory");
+  }
+  ensureSafeParent(versionDir);
+
+  const JsonValue& files = member(current, "files", JsonValue::Type::Array);
+  if (files.array.empty() || files.array.size() > kMaxZipEntries) {
+    throw Error("current manifest file list is empty or too large");
+  }
+  std::set<std::wstring> seen;
+  ExpectedActiveFile expectedExecutable;
+  ExpectedActiveFile expectedHelper;
+  for (const JsonValue& item : files.array) {
+    if (item.type != JsonValue::Type::Object || item.object.size() != 3 ||
+        !item.object.contains("path") ||
+        !item.object.contains("size") ||
+        !item.object.contains("sha256")) {
+      throw Error("current manifest file must contain exactly path, size, and sha256");
+    }
+    NormalPath path = normalizeArchivePath(
+        member(item, "path", JsonValue::Type::String).string, false);
+    if (!seen.insert(path.canonical).second) {
+      throw Error("duplicate current manifest file path");
+    }
+    const std::uint64_t size =
+        member(item, "size", JsonValue::Type::Number).number;
+    if (size > kMaxZipBytes) throw Error("current manifest file is too large");
+    const auto sha256 =
+        parseSha256(member(item, "sha256", JsonValue::Type::String).string);
+    ExpectedActiveFile* expected = nullptr;
+    if (path.canonical == L"roost.exe") {
+      expected = &expectedExecutable;
+    } else if (path.canonical == L"roost-win-helper.exe") {
+      expected = &expectedHelper;
+    }
+    if (expected) {
+      expected->size = size;
+      expected->sha256 = sha256;
+      expected->found = true;
+    }
+  }
+  if (!expectedExecutable.found || !expectedHelper.found) {
+    throw Error("current manifest is missing an active Roost executable");
+  }
+
+  const std::wstring executablePath = fullPath(versionDir + L"\\roost.exe");
+  const std::wstring helperPath =
+      fullPath(versionDir + L"\\roost-win-helper.exe");
+  LockedActiveFile executable = lockActiveFile(executablePath);
+  LockedActiveFile helper = lockActiveFile(helperPath);
+  if (hashLockedFile(executable, expectedExecutable.size) !=
+          expectedExecutable.sha256 ||
+      hashLockedFile(helper, expectedHelper.size) != expectedHelper.sha256) {
+    throw Error("active Roost file SHA-256 differs from current manifest");
+  }
+  inspectAuthenticode(executablePath, publisher);
+  inspectAuthenticode(helperPath, publisher);
+  return {
+      std::move(currentFile),
+      versionDir,
+      executablePath,
+      helperPath,
+      std::move(executable),
+      std::move(helper),
+  };
+}
+
+int launchCurrentRoost(
+    const std::wstring& launcherPath,
+    const std::vector<std::wstring>& arguments) {
+  const std::wstring launcherDir = fullPath(parentPath(launcherPath));
+  ensureSafeParent(launcherDir);
+  LockedRegularContents installRootMetadata = readLockedRegularFile(
+      launcherDir + L"\\install-root.txt", 32768, FILE_SHARE_READ);
+  LockedRegularContents publisherMetadata = readLockedRegularFile(
+      launcherDir + L"\\publisher.sha256", 1024, FILE_SHARE_READ);
+  const std::wstring installRoot = checkedLocalAbsolutePath(
+      trimmedFileText(installRootMetadata.bytes), "stable install root");
+  const std::string publisher = checkedPublisher(fromUtf8(
+      trimmedFileText(publisherMetadata.bytes)));
+  if (!equalOrdinalIgnoreCase(lower(baseName(launcherDir)), L"bin") ||
+      !equalOrdinalIgnoreCase(fullPath(parentPath(launcherDir)), installRoot)) {
+    throw Error("stable launcher directory is not beneath its configured install root");
+  }
+  ensureSafeParent(installRoot);
+  const std::wstring versionsRoot = fullPath(installRoot + L"\\versions");
+  const std::wstring serviceDir = fullPath(installRoot + L"\\service");
+  ensureSafeParent(versionsRoot);
+  ensureSafeParent(serviceDir);
+  VerifiedCurrentRoost active =
+      verifyCurrentRoost(versionsRoot, serviceDir, publisher);
+
+  if (!SetEnvironmentVariableW(L"ROOST_SERVICE_DIR", serviceDir.c_str()) ||
+      !SetEnvironmentVariableW(L"ROOST_VERSIONS_DIR", versionsRoot.c_str()) ||
+      !SetEnvironmentVariableW(L"ROOST_WIN_HELPER", active.helperPath.c_str())) {
+    failWin("SetEnvironmentVariableW(Roost launcher)");
+  }
+
+  std::wstring command = quoteArg(active.executablePath);
+  for (const std::wstring& argument : arguments) {
+    command += L" " + quoteArg(argument);
+  }
+  std::vector<wchar_t> mutableCommand(command.begin(), command.end());
+  mutableCommand.push_back(L'\0');
+  STARTUPINFOW startup{};
+  startup.cb = sizeof(startup);
+  startup.dwFlags = STARTF_USESTDHANDLES;
+  startup.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+  startup.hStdOutput = GetStdHandle(STD_OUTPUT_HANDLE);
+  startup.hStdError = GetStdHandle(STD_ERROR_HANDLE);
+  PROCESS_INFORMATION process{};
+  if (!CreateProcessW(
+      active.executablePath.c_str(),
+      mutableCommand.data(),
+      nullptr,
+      nullptr,
+      TRUE,
+      0,
+      nullptr,
+      nullptr,
+      &startup,
+      &process)) {
+    failWin("CreateProcessW(active Roost)");
+  }
+  Handle child(process.hProcess);
+  Handle childThread(process.hThread);
+  const DWORD waited = WaitForSingleObject(child.get(), INFINITE);
+  if (waited != WAIT_OBJECT_0) failWin("WaitForSingleObject(active Roost)");
+  DWORD exitCode = 0;
+  if (!GetExitCodeProcess(child.get(), &exitCode)) {
+    failWin("GetExitCodeProcess(active Roost)");
+  }
+  return static_cast<int>(exitCode);
 }
 
 void runTar(const std::wstring& archive, const std::wstring& stage, Manifest& manifest) {
@@ -1459,7 +4835,7 @@ void runTar(const std::wstring& archive, const std::wstring& stage, Manifest& ma
     try {
       std::set<std::wstring> actual;
       std::uint64_t total = 0;
-      scanStage(stage, L"", manifest, false, actual, total);
+      scanStage(stage, L"", manifest, false, nullptr, actual, total);
     } catch (...) {
       TerminateJobObject(job.get(), ERROR_INVALID_DATA);
       WaitForSingleObject(processHandle.get(), INFINITE);
@@ -1478,6 +4854,7 @@ void runTar(const std::wstring& archive, const std::wstring& stage, Manifest& ma
 
 void extractZip(const std::vector<std::wstring>& args) {
   expect(args, 2, "extract-zip <zip> <destination>");
+  requireUpdaterOrElevatedInstallerContext("extract-zip");
   std::vector<std::uint8_t> input = framedInput();
   Manifest manifest = parseManifest(input);
   std::wstring archive = fullPath(args[0]);
@@ -1491,14 +4868,22 @@ void extractZip(const std::vector<std::wstring>& args) {
   }
   MappedFile zip(archive);
   (void)inspectZip(zip, manifest);
+  ExtractionSecurity security{
+      serviceSidForAccount(kUpdaterServiceAccount)};
+
   std::wstring stage = randomStage(destination);
   if (!CreateDirectoryW(stage.c_str(), nullptr)) failWin("CreateDirectoryW(staging)");
   StageGuard guard(stage);
-  applyPrivateDacl(stage);
+  {
+    Handle protectedStage = protectExtractedObject(stage, true, security);
+  }
   runTar(archive, stage, manifest);
+  {
+    Handle protectedStage = protectExtractedObject(stage, true, security);
+  }
   std::set<std::wstring> actual;
   std::uint64_t total = 0;
-  scanStage(stage, L"", manifest, true, actual, total);
+  scanStage(stage, L"", manifest, true, &security, actual, total);
   if (actual.size() != manifest.files.size() || total != manifest.totalSize) {
     throw Error("extracted file set differs from manifest");
   }
@@ -1515,12 +4900,27 @@ void extractZip(const std::vector<std::wstring>& args) {
 }
 
 bool allowedService(const std::wstring& name) {
-  return name == L"RoostKeeperV2" || name == L"RoostWorkerV2" ||
-      name == L"RoostCoordinatorV2" || name == L"RoostUpdaterV2";
+  return name == kKeeperServiceName || name == kWorkerServiceName ||
+      name == kCoordinatorServiceName || name == kUpdaterServiceName;
 }
 
 void requireService(const std::wstring& name) {
   if (!allowedService(name)) throw Error("service name is not in the Roost V2 allowlist");
+}
+
+const wchar_t* serviceAccountFor(const std::wstring& service) {
+  requireService(service);
+  if (service == kKeeperServiceName) return kKeeperServiceAccount;
+  if (service == kWorkerServiceName) return kWorkerServiceAccount;
+  if (service == kCoordinatorServiceName) return kCoordinatorServiceAccount;
+  return kUpdaterServiceAccount;
+}
+
+void resolveServiceSid(const std::vector<std::wstring>& args) {
+  expect(args, 1, "resolve-service-sid <service>");
+  const auto sid = serviceSidForName(args[0]);
+  emit("{\"sid\":" +
+      json(sidText(const_cast<std::uint8_t*>(sid.data()))) + "}");
 }
 
 ServiceHandle scm(DWORD access = SC_MANAGER_CONNECT) {
@@ -1550,8 +4950,13 @@ void resolveAccountSid(const std::vector<std::wstring>& args) {
       domain.data(), &domainChars, &use)) failWin("LookupAccountSidW");
   account.resize(accountChars);
   domain.resize(domainChars);
-  std::wstring canonical = domain.empty() ? account : domain + L"\\" + account;
-  emit("{\"sid\":" + json(sidText(sid.data())) + ",\"canonicalAccount\":" + json(canonical) + "}");
+  const std::wstring canonical = domain.empty() ? account : domain + L"\\" + account;
+  const bool localAccount = use == SidTypeUser && equalOrdinalIgnoreCase(domain, localComputerName());
+  const bool administrator = userIsAdministrator(canonical);
+  emit("{\"sid\":" + json(sidText(sid.data())) +
+      ",\"canonicalAccount\":" + json(canonical) +
+      ",\"localAccount\":" + std::string(localAccount ? "true" : "false") +
+      ",\"administrator\":" + std::string(administrator ? "true" : "false") + "}");
 }
 
 class LsaPolicy final {
@@ -1576,29 +4981,38 @@ void grantLogonAsService(const std::vector<std::wstring>& args) {
       POLICY_LOOKUP_NAMES | POLICY_CREATE_ACCOUNT, &policyRaw);
   if (status) failLsa("LsaOpenPolicy", status);
   LsaPolicy policy(policyRaw);
-  bool present = false;
+  const std::array<std::wstring, 3> requiredRights = {
+      L"SeServiceLogonRight",
+      L"SeDenyInteractiveLogonRight",
+      L"SeDenyRemoteInteractiveLogonRight",
+  };
+  std::set<std::wstring> present;
   PLSA_UNICODE_STRING rights = nullptr;
   ULONG count = 0;
   status = LsaEnumerateAccountRights(policy.get(), sid.get(), &rights, &count);
   if (status == 0) {
     for (ULONG i = 0; i < count; ++i) {
-      std::wstring right(rights[i].Buffer, rights[i].Length / sizeof(wchar_t));
-      if (right == L"SeServiceLogonRight") present = true;
+      present.emplace(rights[i].Buffer, rights[i].Length / sizeof(wchar_t));
     }
     LsaFreeMemory(rights);
   } else if (static_cast<ULONG>(status) != 0xC0000034UL) {
     failLsa("LsaEnumerateAccountRights", status);
   }
-  if (!present) {
-    std::wstring name = L"SeServiceLogonRight";
+  std::vector<LSA_UNICODE_STRING> missing;
+  for (const std::wstring& name : requiredRights) {
+    if (present.contains(name)) continue;
     LSA_UNICODE_STRING right{};
-    right.Buffer = name.data();
+    right.Buffer = const_cast<wchar_t*>(name.data());
     right.Length = static_cast<USHORT>(name.size() * sizeof(wchar_t));
     right.MaximumLength = right.Length + sizeof(wchar_t);
-    status = LsaAddAccountRights(policy.get(), sid.get(), &right, 1);
+    missing.push_back(right);
+  }
+  if (!missing.empty()) {
+    status = LsaAddAccountRights(
+        policy.get(), sid.get(), missing.data(), static_cast<ULONG>(missing.size()));
     if (status) failLsa("LsaAddAccountRights", status);
   }
-  emit(std::string("{\"changed\":") + (present ? "false}" : "true}"));
+  emit(std::string("{\"changed\":") + (missing.empty() ? "false}" : "true}"));
 }
 
 std::vector<std::uint8_t> serviceSecurity(SC_HANDLE service) {
@@ -1613,51 +5027,314 @@ std::vector<std::uint8_t> serviceSecurity(SC_HANDLE service) {
   return out;
 }
 
+struct ServiceAccessAce {
+  bool allow = false;
+  bool deny = false;
+  ACCESS_MASK mask = 0;
+  PSID sid = nullptr;
+};
+
+bool parseServiceAccessAce(const ACE_HEADER* header, ServiceAccessAce& out) {
+  const bool basic =
+      header->AceType == ACCESS_ALLOWED_ACE_TYPE ||
+      header->AceType == ACCESS_DENIED_ACE_TYPE ||
+      header->AceType == 0x09 ||
+      header->AceType == 0x0a;
+  const bool object =
+      header->AceType == ACCESS_ALLOWED_OBJECT_ACE_TYPE ||
+      header->AceType == ACCESS_DENIED_OBJECT_ACE_TYPE ||
+      header->AceType == 0x0b ||
+      header->AceType == 0x0c;
+  if (!basic && !object) return false;
+  const auto* bytes = reinterpret_cast<const std::uint8_t*>(header);
+  constexpr std::size_t maskOffset = sizeof(ACE_HEADER);
+  constexpr std::size_t baseSidOffset = sizeof(ACE_HEADER) + sizeof(ACCESS_MASK);
+  if (header->AceSize < baseSidOffset + 8) {
+    throw Error("service DACL contains a truncated access ACE");
+  }
+  std::memcpy(&out.mask, bytes + maskOffset, sizeof(out.mask));
+  std::size_t sidOffset = baseSidOffset;
+  if (object) {
+    if (header->AceSize < sidOffset + sizeof(DWORD) + 8) {
+      throw Error("service DACL contains a truncated object ACE");
+    }
+    DWORD flags = 0;
+    std::memcpy(&flags, bytes + sidOffset, sizeof(flags));
+    sidOffset += sizeof(flags);
+    if (flags & ACE_OBJECT_TYPE_PRESENT) sidOffset += sizeof(GUID);
+    if (flags & ACE_INHERITED_OBJECT_TYPE_PRESENT) sidOffset += sizeof(GUID);
+    if (sidOffset + 8 > header->AceSize) {
+      throw Error("service DACL object ACE has an invalid SID offset");
+    }
+  }
+  out.sid = const_cast<std::uint8_t*>(bytes + sidOffset);
+  if (!IsValidSid(out.sid) ||
+      GetLengthSid(out.sid) > header->AceSize - sidOffset) {
+    throw Error("service DACL contains an invalid access ACE SID");
+  }
+  out.allow =
+      header->AceType == ACCESS_ALLOWED_ACE_TYPE ||
+      header->AceType == ACCESS_ALLOWED_OBJECT_ACE_TYPE ||
+      header->AceType == 0x09 ||
+      header->AceType == 0x0b;
+  out.deny = !out.allow;
+  return true;
+}
+
+PACL serviceDacl(std::vector<std::uint8_t>& security) {
+  BOOL present = FALSE;
+  BOOL defaulted = FALSE;
+  PACL dacl = nullptr;
+  if (!GetSecurityDescriptorDacl(
+      reinterpret_cast<PSECURITY_DESCRIPTOR>(security.data()),
+      &present,
+      &dacl,
+      &defaulted) ||
+      !present || !dacl || !IsValidAcl(dacl)) {
+    throw Error("service has no valid DACL");
+  }
+  return dacl;
+}
+
+void setServiceDacl(SC_HANDLE service, PACL dacl) {
+  SECURITY_DESCRIPTOR descriptor{};
+  if (!InitializeSecurityDescriptor(&descriptor, SECURITY_DESCRIPTOR_REVISION) ||
+      !SetSecurityDescriptorDacl(&descriptor, TRUE, dacl, FALSE)) {
+    failWin("SetSecurityDescriptorDacl");
+  }
+  if (!SetServiceObjectSecurity(service, DACL_SECURITY_INFORMATION, &descriptor)) {
+    failWin("SetServiceObjectSecurity");
+  }
+}
+
+std::string serviceSecurityJson(const std::vector<std::uint8_t>& security) {
+  wchar_t* rawText = nullptr;
+  if (!ConvertSecurityDescriptorToStringSecurityDescriptorW(
+      reinterpret_cast<PSECURITY_DESCRIPTOR>(
+          const_cast<std::uint8_t*>(security.data())),
+      SDDL_REVISION_1,
+      DACL_SECURITY_INFORMATION,
+      &rawText,
+      nullptr)) {
+    failWin("ConvertSecurityDescriptorToStringSecurityDescriptorW");
+  }
+  Local<wchar_t> text(rawText);
+  return "{\"sddl\":" + json(std::wstring(text.get())) + "}";
+}
+
+constexpr ACCESS_MASK kForbiddenServiceDaclRights =
+    WRITE_DAC | WRITE_OWNER;
+
+void verifyAppliedServiceAce(
+    PACL dacl,
+    PSID sid,
+    ACCESS_MASK expectedMask) {
+  DWORD matchingAllows = 0;
+  for (DWORD index = 0; index < dacl->AceCount; ++index) {
+    void* rawAce = nullptr;
+    if (!GetAce(dacl, index, &rawAce)) failWin("GetAce(service DACL)");
+    const auto* header = static_cast<const ACE_HEADER*>(rawAce);
+    ServiceAccessAce access;
+    if (!parseServiceAccessAce(header, access) ||
+        (header->AceFlags & INHERITED_ACE) ||
+        !EqualSid(access.sid, sid)) {
+      continue;
+    }
+    if (access.deny) {
+      throw Error("service DACL retains an explicit deny ACE for the target SID");
+    }
+    if ((access.mask & kForbiddenServiceDaclRights) != 0 ||
+        access.mask != expectedMask ||
+        header->AceFlags != 0) {
+      throw Error("service DACL target ACE is broader than the approved rights");
+    }
+    ++matchingAllows;
+  }
+  if (matchingAllows != 1) {
+    throw Error("service DACL target SID was not installed as one exact ACE");
+  }
+}
+
 void applyServiceDacl(const std::vector<std::wstring>& args) {
   expect(args, 3, "apply-service-dacl <service> <sid> <rights>");
   requireService(args[0]);
-  if (args[2] != L"START,STOP,QUERY_STATUS,QUERY_CONFIG,CHANGE_CONFIG") {
+  ACCESS_MASK rights = 0;
+  if (args[2] == L"QUERY_STATUS,QUERY_CONFIG") {
+    rights = SERVICE_QUERY_STATUS | SERVICE_QUERY_CONFIG;
+  } else if (args[2] == L"START,QUERY_STATUS,QUERY_CONFIG") {
+    rights = SERVICE_START | SERVICE_QUERY_STATUS | SERVICE_QUERY_CONFIG;
+  } else if (args[2] == L"START,STOP,QUERY_STATUS,QUERY_CONFIG") {
+    rights = SERVICE_START | SERVICE_STOP |
+        SERVICE_QUERY_STATUS | SERVICE_QUERY_CONFIG;
+  } else if (
+      args[2] ==
+      L"CHANGE_CONFIG,START,STOP,QUERY_STATUS,QUERY_CONFIG") {
+    rights = SERVICE_CHANGE_CONFIG | SERVICE_START | SERVICE_STOP |
+        SERVICE_QUERY_STATUS | SERVICE_QUERY_CONFIG;
+  } else {
     throw Error("service DACL rights are not the approved allowlist");
   }
-  PSID rawSid = nullptr;
-  if (!ConvertStringSidToSidW(args[1].c_str(), &rawSid)) failWin("ConvertStringSidToSidW");
-  Local<void> sid(rawSid);
-  if (!IsValidSid(sid.get())) throw Error("invalid service DACL SID");
+  auto sid = sidFromText(args[1], "service DACL SID");
   ServiceHandle manager = scm();
-  ServiceHandle service(OpenServiceW(manager.get(), args[0].c_str(), READ_CONTROL | WRITE_DAC));
+  ServiceHandle service(OpenServiceW(
+      manager.get(), args[0].c_str(), READ_CONTROL | WRITE_DAC));
   if (!service) failWin("OpenServiceW");
   std::vector<std::uint8_t> security = serviceSecurity(service.get());
-  BOOL present = FALSE, defaulted = FALSE;
-  PACL existing = nullptr;
-  if (!GetSecurityDescriptorDacl(reinterpret_cast<PSECURITY_DESCRIPTOR>(security.data()),
-      &present, &existing, &defaulted) || !present) throw Error("service has no DACL");
+  PACL existing = serviceDacl(security);
   EXPLICIT_ACCESSW entry{};
-  entry.grfAccessPermissions = SERVICE_START | SERVICE_STOP | SERVICE_QUERY_STATUS |
-      SERVICE_QUERY_CONFIG | SERVICE_CHANGE_CONFIG;
-  entry.grfAccessMode = GRANT_ACCESS;
+  entry.grfAccessPermissions = rights;
+  entry.grfAccessMode = SET_ACCESS;
   entry.grfInheritance = NO_INHERITANCE;
   entry.Trustee.TrusteeForm = TRUSTEE_IS_SID;
-  entry.Trustee.TrusteeType = TRUSTEE_IS_USER;
-  entry.Trustee.ptstrName = static_cast<LPWSTR>(sid.get());
+  entry.Trustee.TrusteeType = TRUSTEE_IS_UNKNOWN;
+  entry.Trustee.ptstrName = reinterpret_cast<LPWSTR>(sid.data());
   PACL rawAcl = nullptr;
   DWORD code = SetEntriesInAclW(1, &entry, existing, &rawAcl);
   if (code != ERROR_SUCCESS) failWin("SetEntriesInAclW", code);
   Local<ACL> acl(rawAcl);
-  SECURITY_DESCRIPTOR descriptor{};
-  if (!InitializeSecurityDescriptor(&descriptor, SECURITY_DESCRIPTOR_REVISION) ||
-      !SetSecurityDescriptorDacl(&descriptor, TRUE, acl.get(), FALSE)) failWin("SetSecurityDescriptorDacl");
-  if (!SetServiceObjectSecurity(service.get(), DACL_SECURITY_INFORMATION, &descriptor)) {
-    failWin("SetServiceObjectSecurity");
-  }
+  setServiceDacl(service.get(), acl.get());
+
   security = serviceSecurity(service.get());
-  wchar_t* rawText = nullptr;
-  if (!ConvertSecurityDescriptorToStringSecurityDescriptorW(
-      reinterpret_cast<PSECURITY_DESCRIPTOR>(security.data()), SDDL_REVISION_1,
-      DACL_SECURITY_INFORMATION, &rawText, nullptr)) {
-    failWin("ConvertSecurityDescriptorToStringSecurityDescriptorW");
+  verifyAppliedServiceAce(serviceDacl(security), sid.data(), rights);
+  emit(serviceSecurityJson(security));
+}
+
+void verifyServiceSidRevoked(PACL dacl, PSID sid) {
+  for (DWORD index = 0; index < dacl->AceCount; ++index) {
+    void* rawAce = nullptr;
+    if (!GetAce(dacl, index, &rawAce)) failWin("GetAce(service DACL)");
+    const auto* header = static_cast<const ACE_HEADER*>(rawAce);
+    ServiceAccessAce access;
+    if (parseServiceAccessAce(header, access) &&
+        !(header->AceFlags & INHERITED_ACE) &&
+        EqualSid(access.sid, sid)) {
+      throw Error("service DACL still contains an explicit ACE for the revoked SID");
+    }
   }
-  Local<wchar_t> text(rawText);
-  emit("{\"sddl\":" + json(std::wstring(text.get())) + "}");
+}
+
+void revokeServiceDacl(const std::vector<std::wstring>& args) {
+  expect(args, 2, "revoke-service-dacl <service> <sid>");
+  requireService(args[0]);
+  auto sid = sidFromText(args[1], "revoked service DACL SID");
+  ServiceHandle manager = scm();
+  ServiceHandle service(OpenServiceW(
+      manager.get(), args[0].c_str(), READ_CONTROL | WRITE_DAC));
+  if (!service) failWin("OpenServiceW");
+  std::vector<std::uint8_t> security = serviceSecurity(service.get());
+  PACL existing = serviceDacl(security);
+  std::vector<std::uint8_t> replacement(existing->AclSize);
+  PACL replacementAcl = reinterpret_cast<PACL>(replacement.data());
+  if (!InitializeAcl(
+      replacementAcl,
+      static_cast<DWORD>(replacement.size()),
+      existing->AclRevision)) {
+    failWin("InitializeAcl(service DACL)");
+  }
+  bool changed = false;
+  for (DWORD index = 0; index < existing->AceCount; ++index) {
+    void* rawAce = nullptr;
+    if (!GetAce(existing, index, &rawAce)) failWin("GetAce(service DACL)");
+    const auto* header = static_cast<const ACE_HEADER*>(rawAce);
+    ServiceAccessAce access;
+    const bool remove =
+        parseServiceAccessAce(header, access) &&
+        !(header->AceFlags & INHERITED_ACE) &&
+        EqualSid(access.sid, sid.data());
+    if (remove) {
+      changed = true;
+      continue;
+    }
+    if (!AddAce(
+        replacementAcl,
+        existing->AclRevision,
+        MAXDWORD,
+        rawAce,
+        header->AceSize)) {
+      failWin("AddAce(service DACL)");
+    }
+  }
+  if (changed) setServiceDacl(service.get(), replacementAcl);
+  security = serviceSecurity(service.get());
+  verifyServiceSidRevoked(serviceDacl(security), sid.data());
+  std::string result = serviceSecurityJson(security);
+  result.pop_back();
+  result += std::string(",\"changed\":") + (changed ? "true}" : "false}");
+  emit(std::move(result));
+}
+
+DWORD queryServiceSidTypeValue(HANDLE service) {
+  DWORD needed = 0;
+  QueryServiceConfig2W(
+      service, SERVICE_CONFIG_SERVICE_SID_INFO, nullptr, 0, &needed);
+  if (GetLastError() != ERROR_INSUFFICIENT_BUFFER ||
+      needed < sizeof(SERVICE_SID_INFO)) {
+    failWin("QueryServiceConfig2W(SERVICE_CONFIG_SERVICE_SID_INFO)");
+  }
+  std::vector<std::uint8_t> buffer(needed);
+  if (!QueryServiceConfig2W(
+          service, SERVICE_CONFIG_SERVICE_SID_INFO, buffer.data(), needed,
+          &needed)) {
+    failWin("QueryServiceConfig2W(SERVICE_CONFIG_SERVICE_SID_INFO)");
+  }
+  return reinterpret_cast<const SERVICE_SID_INFO*>(buffer.data())
+      ->dwServiceSidType;
+}
+
+const char* serviceSidTypeName(DWORD value) {
+  switch (value) {
+    case SERVICE_SID_TYPE_NONE: return "none";
+    case SERVICE_SID_TYPE_RESTRICTED: return "restricted";
+    case SERVICE_SID_TYPE_UNRESTRICTED: return "unrestricted";
+    default: throw Error("SCM returned an unsupported service SID type");
+  }
+}
+
+void configureServiceSid(const std::vector<std::wstring>& args) {
+  expect(args, 2, "configure-service-sid <service> <none|restricted|unrestricted>");
+  requireService(args[0]);
+  const DWORD requested =
+      args[1] == L"none" ? SERVICE_SID_TYPE_NONE :
+      args[1] == L"restricted" ? SERVICE_SID_TYPE_RESTRICTED :
+      args[1] == L"unrestricted" ? SERVICE_SID_TYPE_UNRESTRICTED : MAXDWORD;
+  if (requested == MAXDWORD) {
+    throw Error("service SID type is not allowlisted");
+  }
+  ServiceHandle manager = scm();
+  ServiceHandle service(OpenServiceW(
+      manager.get(),
+      args[0].c_str(),
+      SERVICE_CHANGE_CONFIG | SERVICE_QUERY_CONFIG));
+  if (!service) failWin("OpenServiceW");
+  SERVICE_SID_INFO desired{};
+  desired.dwServiceSidType = requested;
+  if (!ChangeServiceConfig2W(
+      service.get(), SERVICE_CONFIG_SERVICE_SID_INFO, &desired)) {
+    failWin("ChangeServiceConfig2W(SERVICE_CONFIG_SERVICE_SID_INFO)");
+  }
+
+  DWORD needed = 0;
+  QueryServiceConfig2W(
+      service.get(), SERVICE_CONFIG_SERVICE_SID_INFO, nullptr, 0, &needed);
+  if (GetLastError() != ERROR_INSUFFICIENT_BUFFER ||
+      needed < sizeof(SERVICE_SID_INFO)) {
+    failWin("QueryServiceConfig2W(SERVICE_CONFIG_SERVICE_SID_INFO)");
+  }
+  std::vector<std::uint8_t> buffer(needed);
+  if (!QueryServiceConfig2W(
+      service.get(),
+      SERVICE_CONFIG_SERVICE_SID_INFO,
+      buffer.data(),
+      needed,
+      &needed)) {
+    failWin("QueryServiceConfig2W(SERVICE_CONFIG_SERVICE_SID_INFO)");
+  }
+  const auto* actual =
+      reinterpret_cast<const SERVICE_SID_INFO*>(buffer.data());
+  if (actual->dwServiceSidType != requested) {
+    throw Error("service SID type did not round-trip");
+  }
+  emit("{\"configured\":true,\"sidType\":" + json(args[1]) + "}");
 }
 
 void configureServiceAccount(const std::vector<std::wstring>& args) {
@@ -1814,11 +5491,15 @@ std::vector<std::wstring> splitCommandLine(const std::wstring& raw) {
 }
 
 void queryServiceCommand(const std::vector<std::wstring>& args) {
-  expect(args, 1, "service-query <service>");
+  if (args.size() != 1 && !(args.size() == 2 && args[1] == L"basic")) {
+    throw Error("usage: service-query <service> [basic]");
+  }
   requireService(args[0]);
+  const bool includeSecurity = args.size() == 1;
   ServiceHandle manager = scm();
-  ServiceHandle service(OpenServiceW(
-      manager.get(), args[0].c_str(), SERVICE_QUERY_CONFIG | SERVICE_QUERY_STATUS | READ_CONTROL));
+  const DWORD access = SERVICE_QUERY_CONFIG | SERVICE_QUERY_STATUS |
+      (includeSecurity ? READ_CONTROL : 0);
+  ServiceHandle service(OpenServiceW(manager.get(), args[0].c_str(), access));
   if (!service) failWin("OpenServiceW");
   ServiceConfigSnapshot config = queryConfig(service.get());
   SERVICE_STATUS_PROCESS status{};
@@ -1829,12 +5510,14 @@ void queryServiceCommand(const std::vector<std::wstring>& args) {
   std::vector<std::wstring> environment = serviceEnvironment(args[0]);
   const std::wstring description = queryServiceDescription(service.get());
   const ServiceRecoverySnapshot recovery = queryServiceRecovery(service.get());
-  const std::wstring securityDescriptor = queryServiceSddl(service.get());
+  const char* sidType = serviceSidTypeName(queryServiceSidTypeValue(service.get()));
+  const std::wstring securityDescriptor = includeSecurity ? queryServiceSddl(service.get()) : L"";
   const char* startType = config.startType == SERVICE_AUTO_START ? "automatic" :
       config.startType == SERVICE_DEMAND_START ? "manual" :
       config.startType == SERVICE_DISABLED ? "disabled" : nullptr;
   if (!startType) throw Error("unsupported service start type");
   std::string out = "{\"name\":" + json(args[0]) + ",\"state\":" + json(serviceState(status.dwCurrentState)) +
+      ",\"serviceSidType\":" + json(sidType) +
       ",\"pid\":" + std::to_string(status.dwProcessId) + ",\"startType\":" + json(startType) +
       ",\"imagePathRaw\":" + json(config.image) + ",\"binaryArgv\":[";
   for (std::size_t i = 0; i < argv.size(); ++i) { if (i) out.push_back(','); out += json(argv[i]); }
@@ -2189,6 +5872,426 @@ void assertServiceContext(const std::vector<std::wstring>& args) {
       ",\"isolatedFromWorkerCoordinatorJobs\":true}");
 }
 
+bool tokenContainsEnabledSid(PSID sid) {
+  BOOL member = FALSE;
+  if (!CheckTokenMembership(nullptr, sid, &member)) {
+    failWin("CheckTokenMembership");
+  }
+  return member != FALSE;
+}
+
+bool runningInServiceContext(const wchar_t* serviceName) {
+  const auto serviceSid = serviceSidForName(serviceName);
+  if (!tokenContainsEnabledSid(
+          const_cast<std::uint8_t*>(serviceSid.data()))) {
+    return false;
+  }
+  ServiceHandle manager = scm();
+  SC_HANDLE raw = OpenServiceW(
+      manager.get(), serviceName,
+      SERVICE_QUERY_CONFIG | SERVICE_QUERY_STATUS);
+  if (!raw) {
+    const DWORD code = GetLastError();
+    if (code == ERROR_SERVICE_DOES_NOT_EXIST) return false;
+    failWin("OpenServiceW(service context)", code);
+  }
+  ServiceHandle service(raw);
+  const ServiceConfigSnapshot config = queryConfig(service.get());
+  const std::vector<std::wstring> configuredArgv =
+      splitCommandLine(config.image);
+  if (configuredArgv.empty() ||
+      lower(baseName(configuredArgv[0])) != L"shawl.exe" ||
+      configuredArgv[0].size() < 3 ||
+      !std::iswalpha(configuredArgv[0][0]) ||
+      configuredArgv[0][1] != L':' ||
+      (configuredArgv[0][2] != L'\\' &&
+       configuredArgv[0][2] != L'/')) {
+    throw Error("service context is not SCM-configured through exact Shawl");
+  }
+  const SERVICE_STATUS_PROCESS status = queryStatus(service.get());
+  const std::wstring runningImage = status.dwProcessId
+      ? processImage(status.dwProcessId)
+      : std::wstring();
+  if (runningImage.empty() ||
+      !equalOrdinalIgnoreCase(
+          fullPath(runningImage), fullPath(configuredArgv[0]))) {
+    return false;
+  }
+
+  DWORD helperParent = 0;
+  const auto parents = parentMap(&helperParent);
+  if (!helperParent) return false;
+  std::array<DWORD, 4> servicePids{
+      servicePidIfRunning(manager.get(), kKeeperServiceName),
+      servicePidIfRunning(manager.get(), kWorkerServiceName),
+      servicePidIfRunning(manager.get(), kCoordinatorServiceName),
+      servicePidIfRunning(manager.get(), kUpdaterServiceName)};
+  bool reached = false;
+  std::set<DWORD> visited;
+  for (DWORD cursor = helperParent;
+       cursor && visited.insert(cursor).second;) {
+    if (cursor == status.dwProcessId) {
+      reached = true;
+      break;
+    }
+    for (DWORD servicePid : servicePids) {
+      if (servicePid && servicePid != status.dwProcessId &&
+          cursor == servicePid) {
+        return false;
+      }
+    }
+    const auto found = parents.find(cursor);
+    if (found == parents.end()) break;
+    cursor = found->second;
+  }
+  return reached;
+}
+
+bool runningInUpdaterServiceContext() {
+  return runningInServiceContext(kUpdaterServiceName);
+}
+
+std::wstring trustedUpdaterInstallRoot() {
+  const auto absoluteLocal = [](const std::wstring& path, const char* label) {
+    if (path.size() < 3 || !std::iswalpha(path[0]) || path[1] != L':' ||
+        (path[2] != L'\\' && path[2] != L'/')) {
+      throw Error(std::string(label) + " must be an absolute local path");
+    }
+    return fullPath(path);
+  };
+  const std::wstring helperPath =
+      absoluteLocal(moduleFilePath(), "active helper module");
+  if (!equalOrdinalIgnoreCase(baseName(helperPath), L"roost-win-helper.exe")) {
+    throw Error("updater artifact helper is not roost-win-helper.exe");
+  }
+  const std::wstring versionDir = fullPath(parentPath(helperPath));
+  const std::wstring versionsDir = fullPath(parentPath(versionDir));
+  if (!equalOrdinalIgnoreCase(baseName(versionsDir), L"versions") ||
+      equalOrdinalIgnoreCase(versionDir, versionsDir)) {
+    throw Error("active helper is not in one installed version directory");
+  }
+  const std::wstring installRoot = fullPath(parentPath(versionsDir));
+  const std::wstring serviceDir = fullPath(installRoot + L"\\service");
+  const std::wstring binDir = fullPath(installRoot + L"\\bin");
+  ensureSafeParent(parentPath(helperPath));
+  ensureSafeParent(serviceDir);
+  ensureSafeParent(binDir);
+
+  auto updaterOwner = serviceSidForAccount(kUpdaterServiceAccount);
+  const std::wstring releaseSddl =
+      updaterArtifactSddl(L"release", updaterOwner.data(), false);
+  const auto proveLockedFile = [&](
+      HANDLE file,
+      const std::wstring& expectedPath,
+      const std::wstring& expectedSddl) {
+    FILE_ATTRIBUTE_TAG_INFO attributes{};
+    BY_HANDLE_FILE_INFORMATION information{};
+    if (!GetFileInformationByHandleEx(
+            file, FileAttributeTagInfo, &attributes, sizeof(attributes)) ||
+        !GetFileInformationByHandle(file, &information) ||
+        (attributes.FileAttributes &
+         (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) ||
+        information.nNumberOfLinks != 1 ||
+        !equalOrdinalIgnoreCase(
+            finalDosPath(file, "GetFinalPathNameByHandleW(trusted install file)"),
+            expectedPath)) {
+      throw Error("trusted install file is not a unique exact regular file");
+    }
+    requireExactFileSecurity(file, expectedSddl);
+  };
+
+  Handle helper(CreateFileW(
+      helperPath.c_str(), GENERIC_READ | READ_CONTROL, FILE_SHARE_READ,
+      nullptr, OPEN_EXISTING,
+      FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_SEQUENTIAL_SCAN, nullptr));
+  if (!helper) failWin("CreateFileW(active helper module)");
+  proveLockedFile(helper.get(), helperPath, releaseSddl);
+
+  const std::wstring installRootPath =
+      fullPath(binDir + L"\\install-root.txt");
+  const std::wstring publisherPath =
+      fullPath(binDir + L"\\publisher.sha256");
+  LockedRegularContents installRootMetadata = readLockedRegularFile(
+      installRootPath, 32768, FILE_SHARE_READ);
+  LockedRegularContents publisherMetadata = readLockedRegularFile(
+      publisherPath, 1024, FILE_SHARE_READ);
+  proveLockedFile(
+      installRootMetadata.handle.get(), installRootPath, releaseSddl);
+  proveLockedFile(
+      publisherMetadata.handle.get(), publisherPath, releaseSddl);
+  const std::wstring metadataRoot = checkedLocalAbsolutePath(
+      trimmedFileText(installRootMetadata.bytes), "stable install root");
+  if (!equalOrdinalIgnoreCase(metadataRoot, installRoot)) {
+    throw Error("stable install metadata disagrees with the active helper root");
+  }
+  const std::string publisher = checkedPublisher(fromUtf8(
+      trimmedFileText(publisherMetadata.bytes)));
+
+  VerifiedCurrentRoost active =
+      verifyCurrentRoost(versionsDir, serviceDir, publisher);
+  if (!equalOrdinalIgnoreCase(active.helperPath, helperPath) ||
+      !equalOrdinalIgnoreCase(active.versionDir, versionDir)) {
+    throw Error("active helper is not the current manifest helper");
+  }
+  requireExactFileSecurity(
+      active.current.handle.get(),
+      updaterArtifactSddl(L"current", updaterOwner.data(), false));
+  requireExactFileSecurity(active.executable.handle.get(), releaseSddl);
+  requireExactFileSecurity(active.helper.handle.get(), releaseSddl);
+
+  ServiceHandle manager = scm();
+  ServiceHandle updater(OpenServiceW(
+      manager.get(), kUpdaterServiceName,
+      SERVICE_QUERY_CONFIG | SERVICE_QUERY_STATUS));
+  if (!updater) failWin("OpenServiceW(trusted updater topology)");
+  const ServiceConfigSnapshot config = queryConfig(updater.get());
+  const std::vector<std::wstring> configured = splitCommandLine(config.image);
+  const auto separator = std::find(configured.begin(), configured.end(), L"--");
+  const std::wstring updaterShawl =
+      fullPath(active.versionDir + L"\\shawl.exe");
+  const std::wstring updaterExecutable =
+      fullPath(active.versionDir + L"\\roost.exe");
+  if (configured.empty() ||
+      separator == configured.end() ||
+      static_cast<std::size_t>(configured.end() - separator) != 3 ||
+      !equalOrdinalIgnoreCase(
+          absoluteLocal(configured.front(), "updater Shawl path"),
+          updaterShawl) ||
+      !equalOrdinalIgnoreCase(
+          absoluteLocal(*(separator + 1), "updater executable path"),
+          updaterExecutable) ||
+      *(separator + 2) != L"__windows-updater-broker" ||
+      !processEnvironmentValue(L"ROOST_SERVICE_ACCOUNT").has_value() ||
+      !equalOrdinalIgnoreCase(
+          config.account,
+          *processEnvironmentValue(L"ROOST_SERVICE_ACCOUNT")) ||
+      config.startType != SERVICE_AUTO_START) {
+    throw Error("RoostUpdaterV2 SCM topology is not the exact stable topology");
+  }
+  return installRoot;
+}
+
+void enableInstallerRestorePrivilege() {
+  HANDLE raw = nullptr;
+  if (!OpenProcessToken(
+          GetCurrentProcess(), TOKEN_QUERY | TOKEN_ADJUST_PRIVILEGES, &raw)) {
+    failWin("OpenProcessToken(installer privilege)");
+  }
+  Handle token(raw);
+  TOKEN_PRIVILEGES privileges{};
+  privileges.PrivilegeCount = 1;
+  if (!LookupPrivilegeValueW(
+          nullptr, SE_RESTORE_NAME, &privileges.Privileges[0].Luid)) {
+    failWin("LookupPrivilegeValueW(SeRestorePrivilege)");
+  }
+  privileges.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+  SetLastError(ERROR_SUCCESS);
+  if (!AdjustTokenPrivileges(
+          token.get(), FALSE, &privileges, 0, nullptr, nullptr) ||
+      GetLastError() == ERROR_NOT_ALL_ASSIGNED) {
+    failWin("AdjustTokenPrivileges(SeRestorePrivilege)");
+  }
+}
+
+std::optional<std::wstring>& installerInstallRootStorage() {
+  static std::optional<std::wstring> root;
+  return root;
+}
+
+std::optional<std::wstring> authorizedInstallerInstallRoot() {
+  return installerInstallRootStorage();
+}
+
+void requirePinnedInstallerAncestry(const char* operation) {
+  if (!elevatedAdministratorContext()) {
+    throw Error(
+        std::string(operation) +
+        " requires RoostUpdaterV2 or a signed elevated installer");
+  }
+  std::array<wchar_t, MAX_PATH> programDataBuffer{};
+  const HRESULT commonAppData = SHGetFolderPathW(
+      nullptr, CSIDL_COMMON_APPDATA, nullptr, SHGFP_TYPE_CURRENT,
+      programDataBuffer.data());
+  if (FAILED(commonAppData) || !programDataBuffer[0]) {
+    throw Error("SHGetFolderPathW(CommonAppData) failed");
+  }
+  const std::wstring programData(programDataBuffer.data());
+  const std::wstring installRoot = fullPath(programData + L"\\Roost");
+
+  const std::wstring helperPath =
+      checkedUpdaterArtifactAbsolutePath(
+          moduleFilePath(), "installer helper module");
+  const std::wstring packageRoot = fullPath(parentPath(helperPath));
+  const std::wstring installerPath =
+      fullPath(packageRoot + L"\\roost.exe");
+  if (!equalOrdinalIgnoreCase(baseName(helperPath), L"roost-win-helper.exe") ||
+      !equalOrdinalIgnoreCase(baseName(installerPath), L"roost.exe") ||
+      !equalOrdinalIgnoreCase(parentPath(installerPath), packageRoot)) {
+    throw Error(
+        std::string(operation) +
+        " requires same-package roost.exe and roost-win-helper.exe");
+  }
+  ensureSafeParent(packageRoot);
+
+  const auto lockExecutable = [](const std::wstring& path, const char* label) {
+    Handle file(CreateFileW(
+        path.c_str(), GENERIC_READ | READ_CONTROL, FILE_SHARE_READ,
+        nullptr, OPEN_EXISTING,
+        FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_SEQUENTIAL_SCAN,
+        nullptr));
+    if (!file) failWin(label);
+    FILE_ATTRIBUTE_TAG_INFO attributes{};
+    BY_HANDLE_FILE_INFORMATION information{};
+    if (!GetFileInformationByHandleEx(
+            file.get(), FileAttributeTagInfo, &attributes,
+            sizeof(attributes)) ||
+        !GetFileInformationByHandle(file.get(), &information) ||
+        (attributes.FileAttributes &
+         (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) ||
+        information.nNumberOfLinks != 1 ||
+        !equalOrdinalIgnoreCase(
+            finalDosPath(
+                file.get(),
+                "GetFinalPathNameByHandleW(installer executable)"),
+            path)) {
+      throw Error("installer executable is not a unique exact regular file");
+    }
+    return file;
+  };
+  Handle helper = lockExecutable(
+      helperPath, "CreateFileW(installer helper module)");
+  Handle installer = lockExecutable(
+      installerPath, "CreateFileW(installer parent executable)");
+
+  const auto publisherValue =
+      processEnvironmentValue(L"ROOST_WINDOWS_PUBLISHER_SHA256");
+  if (!publisherValue || publisherValue->empty()) {
+    throw Error("signed installer publisher pin is missing");
+  }
+  const std::string publisher = checkedPublisher(*publisherValue);
+
+  const std::wstring installRootPath =
+      fullPath(installRoot + L"\\bin\\install-root.txt");
+  const std::wstring publisherPath =
+      fullPath(installRoot + L"\\bin\\publisher.sha256");
+  const DWORD rootAttributes = GetFileAttributesW(installRootPath.c_str());
+  const DWORD rootError = rootAttributes == INVALID_FILE_ATTRIBUTES
+      ? GetLastError() : ERROR_SUCCESS;
+  const DWORD publisherAttributes = GetFileAttributesW(publisherPath.c_str());
+  const DWORD publisherError = publisherAttributes == INVALID_FILE_ATTRIBUTES
+      ? GetLastError() : ERROR_SUCCESS;
+  const bool rootExists = rootAttributes != INVALID_FILE_ATTRIBUTES;
+  const bool publisherExists = publisherAttributes != INVALID_FILE_ATTRIBUTES;
+  if (!rootExists && rootError != ERROR_FILE_NOT_FOUND &&
+      rootError != ERROR_PATH_NOT_FOUND) {
+    failWin("GetFileAttributesW(installer root metadata)", rootError);
+  }
+  if (!publisherExists && publisherError != ERROR_FILE_NOT_FOUND &&
+      publisherError != ERROR_PATH_NOT_FOUND) {
+    failWin("GetFileAttributesW(installer publisher metadata)", publisherError);
+  }
+  if (rootExists) {
+    LockedRegularContents metadata = readLockedRegularFile(
+        installRootPath, 32768, FILE_SHARE_READ);
+    BY_HANDLE_FILE_INFORMATION information{};
+    if (!GetFileInformationByHandle(metadata.handle.get(), &information) ||
+        information.nNumberOfLinks != 1 ||
+        !equalOrdinalIgnoreCase(
+            finalDosPath(
+                metadata.handle.get(),
+                "GetFinalPathNameByHandleW(installer root metadata)"),
+            installRootPath) ||
+        !equalOrdinalIgnoreCase(
+            checkedLocalAbsolutePath(
+                trimmedFileText(metadata.bytes), "stable install root"),
+            installRoot)) {
+      throw Error("existing stable install-root metadata disagrees with bootstrap");
+    }
+  }
+  if (publisherExists) {
+    LockedRegularContents metadata = readLockedRegularFile(
+        publisherPath, 1024, FILE_SHARE_READ);
+    BY_HANDLE_FILE_INFORMATION information{};
+    if (!GetFileInformationByHandle(metadata.handle.get(), &information) ||
+        information.nNumberOfLinks != 1 ||
+        !equalOrdinalIgnoreCase(
+            finalDosPath(
+                metadata.handle.get(),
+                "GetFinalPathNameByHandleW(installer publisher metadata)"),
+            publisherPath) ||
+        checkedPublisher(fromUtf8(trimmedFileText(metadata.bytes))) != publisher) {
+      throw Error("existing stable publisher metadata disagrees with bootstrap");
+    }
+  }
+
+  inspectAuthenticode(helperPath, publisher);
+  inspectAuthenticode(installerPath, publisher);
+  enableInstallerRestorePrivilege();
+  installerInstallRootStorage() = installRoot;
+}
+
+bool elevatedAdministratorContext() {
+  HANDLE raw = nullptr;
+  if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &raw)) {
+    failWin("OpenProcessToken(elevation)");
+  }
+  Handle token(raw);
+  TOKEN_ELEVATION elevation{};
+  DWORD returned = 0;
+  if (!GetTokenInformation(
+          token.get(), TokenElevation, &elevation, sizeof(elevation),
+          &returned)) {
+    failWin("GetTokenInformation(TokenElevation)");
+  }
+  std::array<std::uint8_t, SECURITY_MAX_SID_SIZE> administrators{};
+  DWORD bytes = static_cast<DWORD>(administrators.size());
+  if (!CreateWellKnownSid(
+          WinBuiltinAdministratorsSid, nullptr,
+          administrators.data(), &bytes)) {
+    failWin("CreateWellKnownSid(Administrators)");
+  }
+  return elevation.TokenIsElevated != 0 &&
+      tokenContainsEnabledSid(administrators.data());
+}
+
+void requireUpdaterOrElevatedInstallerContext(const char* operation) {
+  if (runningInUpdaterServiceContext()) return;
+  if (runningInServiceContext(kKeeperServiceName) ||
+      runningInServiceContext(kWorkerServiceName) ||
+      runningInServiceContext(kCoordinatorServiceName)) {
+    throw Error(
+        std::string(operation) +
+        " is forbidden from this Roost service role");
+  }
+  requirePinnedInstallerAncestry(operation);
+}
+
+void requireUpdaterServiceContext(const char* operation) {
+  if (!runningInUpdaterServiceContext()) {
+    throw Error(
+        std::string(operation) +
+        " requires RoostUpdaterV2 service ancestry");
+  }
+}
+
+UpdaterRequestCaller requireUpdaterRequestServiceContext() {
+  const bool worker = runningInServiceContext(kWorkerServiceName);
+  const bool coordinator =
+      runningInServiceContext(kCoordinatorServiceName);
+  if (worker && coordinator) {
+    throw Error(
+        "create-updater-request has ambiguous Worker/Coordinator ancestry");
+  }
+  if (worker) return UpdaterRequestCaller::Worker;
+  if (coordinator) return UpdaterRequestCaller::Coordinator;
+  if (runningInServiceContext(kKeeperServiceName) ||
+      runningInUpdaterServiceContext()) {
+    throw Error(
+        "create-updater-request is not available to Keeper or Updater");
+  }
+  return UpdaterRequestCaller::Interactive;
+}
+
 std::vector<std::uint8_t> readFrame(HANDLE pipe, std::uint32_t maximum) {
   std::array<std::uint8_t, 4> prefix{};
   std::size_t offset = 0;
@@ -2224,6 +6327,167 @@ void sendFrame(HANDLE pipe, const std::vector<std::uint8_t>& payload) {
       static_cast<std::uint8_t>(payload.size() >> 24)};
   writeAll(pipe, prefix.data(), prefix.size());
   writeAll(pipe, payload.data(), payload.size());
+}
+
+std::wstring requiredEnvironmentPath(const wchar_t* name) {
+  DWORD needed = GetEnvironmentVariableW(name, nullptr, 0);
+  if (!needed) failWin("GetEnvironmentVariableW");
+  std::vector<wchar_t> buffer(needed);
+  const DWORD written =
+      GetEnvironmentVariableW(name, buffer.data(), needed);
+  if (!written || written + 1 != needed) failWin("GetEnvironmentVariableW");
+  std::wstring path(buffer.data(), written);
+  if (path.size() < 3 || !std::iswalpha(path[0]) || path[1] != L':' ||
+      (path[2] != L'\\' && path[2] != L'/')) {
+    throw Error("service directory environment path is not local and absolute");
+  }
+  return fullPath(path);
+}
+
+void requireHealthPipeClosedAfterFrame(HANDLE pipe) {
+  const auto deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(2);
+  for (;;) {
+    DWORD available = 0;
+    if (!PeekNamedPipe(pipe, nullptr, 0, nullptr, &available, nullptr)) {
+      const DWORD code = GetLastError();
+      if (code == ERROR_BROKEN_PIPE ||
+          code == ERROR_PIPE_NOT_CONNECTED ||
+          code == ERROR_NO_DATA) {
+        return;
+      }
+      failWin("PeekNamedPipe(service health)", code);
+    }
+    if (available) {
+      throw Error("service health connection contained multiple frames");
+    }
+    if (std::chrono::steady_clock::now() >= deadline) {
+      throw Error("service health pipe did not close after its response frame");
+    }
+    Sleep(10);
+  }
+}
+
+void probeServiceHealth(const std::vector<std::wstring>& args) {
+  expect(args, 2, "probe-service-health <service> <named-pipe>");
+  if (args[0] != kWorkerServiceName &&
+      args[0] != kCoordinatorServiceName) {
+    throw Error("service health probe service is not allowlisted");
+  }
+  static const std::wstring pipePrefix = L"\\\\.\\pipe\\";
+  if (args[1].size() <= pipePrefix.size() ||
+      !equalOrdinalIgnoreCase(
+          args[1].substr(0, pipePrefix.size()), pipePrefix)) {
+    throw Error("service health endpoint must be a local named pipe");
+  }
+  std::vector<std::uint8_t> request = framedInput(64U * 1024U - 4U);
+  const JsonValue requestJson = JsonParser(std::string_view(
+      reinterpret_cast<const char*>(request.data()), request.size())).parse();
+  if (requestJson.type != JsonValue::Type::Object) {
+    throw Error("service health request must be a JSON object");
+  }
+
+  const std::wstring serviceDir = requiredEnvironmentPath(L"ROOST_SERVICE_DIR");
+  if (!equalOrdinalIgnoreCase(baseName(serviceDir), L"service")) {
+    throw Error("ROOST_SERVICE_DIR does not name the install service directory");
+  }
+  const std::wstring installRoot = fullPath(parentPath(serviceDir));
+  const std::wstring versionsRoot = fullPath(installRoot + L"\\versions");
+  const std::wstring binDir = fullPath(installRoot + L"\\bin");
+  ensureSafeParent(serviceDir);
+  ensureSafeParent(versionsRoot);
+  ensureSafeParent(binDir);
+  LockedRegularContents installRootMetadata = readLockedRegularFile(
+      binDir + L"\\install-root.txt", 32768, FILE_SHARE_READ);
+  LockedRegularContents publisherMetadata = readLockedRegularFile(
+      binDir + L"\\publisher.sha256", 1024, FILE_SHARE_READ);
+  const std::wstring configuredRoot = checkedLocalAbsolutePath(
+      trimmedFileText(installRootMetadata.bytes), "stable install root");
+  if (!equalOrdinalIgnoreCase(configuredRoot, installRoot)) {
+    throw Error("ROOST_SERVICE_DIR disagrees with stable install-root metadata");
+  }
+  const std::string publisher = checkedPublisher(fromUtf8(
+      trimmedFileText(publisherMetadata.bytes)));
+  VerifiedCurrentRoost active =
+      verifyCurrentRoost(versionsRoot, serviceDir, publisher);
+
+  ServiceHandle manager = scm();
+  ServiceHandle service(OpenServiceW(
+      manager.get(),
+      args[0].c_str(),
+      SERVICE_QUERY_CONFIG | SERVICE_QUERY_STATUS));
+  if (!service) failWin("OpenServiceW(service health)");
+  const ServiceConfigSnapshot config = queryConfig(service.get());
+  const std::vector<std::wstring> configuredArgv =
+      splitCommandLine(config.image);
+  if (configuredArgv.empty() ||
+      lower(baseName(configuredArgv[0])) != L"shawl.exe") {
+    throw Error("health service is not SCM-configured through Shawl");
+  }
+  const SERVICE_STATUS_PROCESS status = queryStatus(service.get());
+  if (status.dwCurrentState != SERVICE_RUNNING ||
+      !status.dwProcessId ||
+      lower(baseName(processImage(status.dwProcessId))) != L"shawl.exe") {
+    throw Error("health service SCM Shawl process is not running");
+  }
+
+  if (!WaitNamedPipeW(args[1].c_str(), 2000)) {
+    failWin("WaitNamedPipeW(service health)");
+  }
+  Handle pipe(CreateFileW(
+      args[1].c_str(),
+      GENERIC_READ | GENERIC_WRITE,
+      0,
+      nullptr,
+      OPEN_EXISTING,
+      FILE_ATTRIBUTE_NORMAL,
+      nullptr));
+  if (!pipe) failWin("CreateFileW(service health pipe)");
+  ULONG serverPid = 0;
+  if (!GetNamedPipeServerProcessId(pipe.get(), &serverPid) ||
+      !serverPid) {
+    failWin("GetNamedPipeServerProcessId");
+  }
+  const auto parents = parentMap();
+  const auto parent = parents.find(serverPid);
+  if (parent == parents.end() ||
+      parent->second != status.dwProcessId) {
+    throw Error("health pipe server is not the direct child of its SCM Shawl process");
+  }
+  Handle serverProcess(OpenProcess(
+      PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE,
+      FALSE,
+      serverPid));
+  if (!serverProcess) failWin("OpenProcess(service health server)");
+  std::wstring serverImage(32768, L'\0');
+  DWORD serverImageLength = static_cast<DWORD>(serverImage.size());
+  if (!QueryFullProcessImageNameW(
+      serverProcess.get(),
+      0,
+      serverImage.data(),
+      &serverImageLength)) {
+    failWin("QueryFullProcessImageNameW(service health server)");
+  }
+  serverImage.resize(serverImageLength);
+  if (!equalOrdinalIgnoreCase(fullPath(serverImage), active.executablePath)) {
+    throw Error("health pipe server is not the immutable active roost.exe");
+  }
+
+  sendFrame(pipe.get(), request);
+  std::vector<std::uint8_t> response =
+      readFrame(pipe.get(), 64U * 1024U - 4U);
+  requireHealthPipeClosedAfterFrame(pipe.get());
+  const std::string payload(
+      reinterpret_cast<const char*>(response.data()), response.size());
+  (void)fromUtf8(payload);
+  const SERVICE_STATUS_PROCESS finalStatus = queryStatus(service.get());
+  if (finalStatus.dwCurrentState != SERVICE_RUNNING ||
+      finalStatus.dwProcessId != status.dwProcessId ||
+      WaitForSingleObject(serverProcess.get(), 0) != WAIT_TIMEOUT) {
+    throw Error("health service process identity changed during the probe");
+  }
+  emit("{\"serverPid\":" + std::to_string(serverPid) +
+      ",\"payloadUtf8\":" + json(payload) + "}");
 }
 
 class FrameCursor final {
@@ -2458,27 +6722,549 @@ void jobHost(const std::vector<std::wstring>& args) {
     FlushFileBuffers(pipe.get());
   }
 }
+bool relocationIdentifier(const std::wstring& value) {
+  if (value.size() != 36) return false;
+  for (std::size_t index = 0; index < value.size(); ++index) {
+    if (index == 8 || index == 13 || index == 18 || index == 23) {
+      if (value[index] != L'-') return false;
+    } else if (!std::iswxdigit(value[index])) return false;
+  }
+  return true;
+}
+
+bool regularRelocationFile(
+    const std::wstring& path,
+    const std::wstring& trustedRoot,
+    ACCESS_MASK access,
+    DWORD share,
+    Handle* opened = nullptr) {
+  Handle file(CreateFileW(
+      path.c_str(), access, share, nullptr, OPEN_EXISTING,
+      FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+  if (!file) {
+    const DWORD code = GetLastError();
+    if (code == ERROR_FILE_NOT_FOUND || code == ERROR_PATH_NOT_FOUND) return false;
+    failWin("CreateFileW(coordinator relocation file)", code);
+  }
+  FILE_ATTRIBUTE_TAG_INFO attributes{};
+  BY_HANDLE_FILE_INFORMATION information{};
+  if (!GetFileInformationByHandleEx(
+          file.get(), FileAttributeTagInfo, &attributes, sizeof(attributes)) ||
+      !GetFileInformationByHandle(file.get(), &information)) {
+    failWin("GetFileInformationByHandle(coordinator relocation file)");
+  }
+  if ((attributes.FileAttributes &
+       (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) ||
+      information.nNumberOfLinks != 1) {
+    throw Error("coordinator relocation path is not a unique regular file");
+  }
+  const std::wstring resolved = finalDosPath(
+      file.get(), "GetFinalPathNameByHandleW(coordinator relocation file)");
+  if (!pathAtOrBelow(trustedRoot, resolved) ||
+      !equalOrdinalIgnoreCase(resolved, fullPath(path))) {
+    throw Error("coordinator relocation file escaped its exact trusted path");
+  }
+  if (opened) *opened = std::move(file);
+  return true;
+}
+
+void ensurePrivateRelocationDirectory(const std::wstring& path) {
+  if (!CreateDirectoryW(path.c_str(), nullptr)) {
+    const DWORD code = GetLastError();
+    if (code != ERROR_ALREADY_EXISTS) {
+      failWin("CreateDirectoryW(coordinator relocation)", code);
+    }
+  }
+  Handle directory(CreateFileW(
+      path.c_str(), READ_CONTROL | WRITE_DAC | WRITE_OWNER,
+      FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+      nullptr, OPEN_EXISTING,
+      FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS,
+      nullptr));
+  if (!directory) {
+    failWin("CreateFileW(coordinator relocation directory)");
+  }
+  FILE_ATTRIBUTE_TAG_INFO attributes{};
+  if (!GetFileInformationByHandleEx(
+          directory.get(), FileAttributeTagInfo, &attributes,
+          sizeof(attributes)) ||
+      !(attributes.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) ||
+      (attributes.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) ||
+      !equalOrdinalIgnoreCase(
+          finalDosPath(
+              directory.get(),
+              "GetFinalPathNameByHandleW(coordinator relocation directory)"),
+          fullPath(path))) {
+    throw Error("coordinator relocation directory is not exact");
+  }
+  auto owner = serviceSidForAccount(kUpdaterServiceAccount);
+  setAndVerifyFileSecurity(
+      directory.get(), updaterArtifactSddl(L"private", owner.data(), true));
+}
+
+void writePrivateRelocationFile(
+    const std::wstring& path,
+    const std::vector<std::uint8_t>& contents) {
+  Handle file(CreateFileW(
+      path.c_str(), GENERIC_READ | GENERIC_WRITE | READ_CONTROL |
+          WRITE_DAC | WRITE_OWNER,
+      0, nullptr, CREATE_ALWAYS,
+      FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT |
+          FILE_FLAG_WRITE_THROUGH, nullptr));
+  if (!file) failWin("CreateFileW(coordinator relocation control)");
+  BY_HANDLE_FILE_INFORMATION information{};
+  if (!GetFileInformationByHandle(file.get(), &information) ||
+      information.nNumberOfLinks != 1 ||
+      !equalOrdinalIgnoreCase(
+          finalDosPath(file.get(), "GetFinalPathNameByHandleW(coordinator relocation control)"),
+          fullPath(path))) {
+    throw Error("coordinator relocation control file is not exact");
+  }
+  writeAll(file.get(), contents.data(), contents.size());
+  if (!FlushFileBuffers(file.get())) failWin("FlushFileBuffers(coordinator relocation control)");
+  auto owner = serviceSidForAccount(kUpdaterServiceAccount);
+  setAndVerifyFileSecurity(
+      file.get(), updaterArtifactSddl(L"private", owner.data(), false));
+}
+
+std::wstring readRelocationText(HANDLE file) {
+  const std::vector<std::uint8_t> bytes =
+      readUpdaterArtifactContents(file, 64U * 1024U);
+  return fromUtf8(std::string_view(
+      reinterpret_cast<const char*>(bytes.data()), bytes.size()));
+}
+
+std::wstring readRelocationText(const std::wstring& path) {
+  Handle file;
+  if (!regularRelocationFile(
+          path, parentPath(path), GENERIC_READ | READ_CONTROL,
+          FILE_SHARE_READ, &file)) {
+    throw Error("coordinator relocation control file is missing");
+  }
+  return readRelocationText(file.get());
+}
+
+std::wstring coordinatorRelocationFileSddl(bool rollback) {
+  auto owner = currentSid();
+  const auto coordinator = serviceSidForName(kCoordinatorServiceName);
+  const auto updater = serviceSidForName(kUpdaterServiceName);
+  std::wstring sddl = L"O:" + sidText(owner.data()) + L"D:P";
+  appendDirectoryAllow(sddl, false, L"FA", L"SY");
+  appendDirectoryAllow(sddl, false, L"FA", L"BA");
+  appendDirectoryAllow(
+      sddl, false, L"FA",
+      sidText(const_cast<std::uint8_t*>(coordinator.data())));
+  appendDirectoryAllow(
+      sddl, false, rollback ? L"0x0017019f" : L"GR",
+      sidText(const_cast<std::uint8_t*>(updater.data())));
+  return sddl;
+}
+Handle openExactRelocationDirectory(
+    const std::wstring& path,
+    ACCESS_MASK access,
+    DWORD* volume = nullptr) {
+  Handle directory(CreateFileW(
+      path.c_str(), access, FILE_SHARE_READ | FILE_SHARE_WRITE |
+          FILE_SHARE_DELETE,
+      nullptr, OPEN_EXISTING,
+      FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS, nullptr));
+  if (!directory) failWin("CreateFileW(exact relocation directory)");
+  FILE_ATTRIBUTE_TAG_INFO attributes{};
+  BY_HANDLE_FILE_INFORMATION information{};
+  if (!GetFileInformationByHandleEx(
+          directory.get(), FileAttributeTagInfo, &attributes,
+          sizeof(attributes)) ||
+      !GetFileInformationByHandle(directory.get(), &information) ||
+      !(attributes.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) ||
+      (attributes.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) ||
+      !equalOrdinalIgnoreCase(
+          finalDosPath(
+              directory.get(),
+              "GetFinalPathNameByHandleW(exact relocation directory)"),
+          fullPath(path))) {
+    throw Error("relocation directory identity is not exact");
+  }
+  ensureSafeParent(path);
+  if (volume) *volume = information.dwVolumeSerialNumber;
+  return directory;
+}
+
+std::wstring coordinatorStageSddl(bool admissionRoot) {
+  const auto worker = serviceSidForName(kWorkerServiceName);
+  const auto updater = serviceSidForName(kUpdaterServiceName);
+  auto owner = serviceSidForAccount(kUpdaterServiceAccount);
+  std::wstring sddl = L"O:" + sidText(owner.data()) + L"D:P";
+  appendDirectoryAllow(sddl, true, L"FA", L"SY");
+  appendDirectoryAllow(sddl, true, L"FA", L"BA");
+  appendDirectoryAllow(
+      sddl, true, kDirectoryModifyRights,
+      sidText(const_cast<std::uint8_t*>(worker.data())));
+  appendDirectoryAllow(
+      sddl, !admissionRoot, admissionRoot ? L"0x001200a4" : L"GR",
+      sidText(const_cast<std::uint8_t*>(updater.data())));
+  return sddl;
+}
+
+void ensureCoordinatorStageDirectory(
+    const std::wstring& path,
+    bool admissionRoot) {
+  const std::wstring sddl = coordinatorStageSddl(admissionRoot);
+  PSECURITY_DESCRIPTOR raw = nullptr;
+  if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(
+          sddl.c_str(), SDDL_REVISION_1, &raw, nullptr)) {
+    failWin(
+        "ConvertStringSecurityDescriptorToSecurityDescriptorW(coordinator stage)");
+  }
+  Local<SECURITY_DESCRIPTOR> descriptor(
+      static_cast<SECURITY_DESCRIPTOR*>(raw));
+  SECURITY_ATTRIBUTES security{};
+  security.nLength = sizeof(security);
+  security.lpSecurityDescriptor = descriptor.get();
+  if (!CreateDirectoryW(path.c_str(), &security)) {
+    const DWORD code = GetLastError();
+    if (code != ERROR_ALREADY_EXISTS) {
+      failWin("CreateDirectoryW(coordinator stage)", code);
+    }
+  }
+  Handle directory =
+      openExactRelocationDirectory(path, READ_CONTROL);
+  requireExactFileSecurity(directory.get(), sddl);
+}
+
+void removeIncompleteRelocationTree(const std::wstring& path) {
+  const DWORD attributes = GetFileAttributesW(path.c_str());
+  if (attributes == INVALID_FILE_ATTRIBUTES) {
+    const DWORD code = GetLastError();
+    if (code == ERROR_FILE_NOT_FOUND || code == ERROR_PATH_NOT_FOUND) return;
+    failWin("GetFileAttributesW(incomplete relocation tree)", code);
+  }
+  std::vector<SecurityTreeEntry> entries =
+      openSecurityTree(path, DELETE | READ_CONTROL);
+  std::stable_sort(
+      entries.begin(), entries.end(),
+      [](const SecurityTreeEntry& left, const SecurityTreeEntry& right) {
+        return left.relative.size() > right.relative.size();
+      });
+  for (auto& entry : entries) {
+    FILE_DISPOSITION_INFO disposition{};
+    disposition.DeleteFile = TRUE;
+    if (!SetFileInformationByHandle(
+            entry.handle.get(), FileDispositionInfo,
+            &disposition, sizeof(disposition))) {
+      failWin("SetFileInformationByHandle(incomplete relocation tree)");
+    }
+    entry.handle.reset();
+  }
+}
+
+void requireSameRelocationVolume(HANDLE file, DWORD volume) {
+  BY_HANDLE_FILE_INFORMATION information{};
+  if (!GetFileInformationByHandle(file, &information)) {
+    failWin("GetFileInformationByHandle(relocation volume)");
+  }
+  if (information.dwVolumeSerialNumber != volume) {
+    throw Error("coordinator relocation crossed a volume boundary");
+  }
+}
+
+
+void coordinatorRelocationState(const std::vector<std::wstring>& args) {
+  expect(args, 3, "coordinator-relocation-state <action> <relocation-id> <handoff-id>");
+  requireUpdaterServiceContext("coordinator-relocation-state");
+  if (!relocationIdentifier(args[1]) || !relocationIdentifier(args[2])) {
+    throw Error("coordinator relocation identity is not a UUID");
+  }
+  const UpdaterArtifactRoots roots = updaterArtifactRoots();
+  const std::wstring coordinator = fullPath(roots.service + L"\\data\\coordinator");
+  const std::wstring workerRelocation =
+      fullPath(roots.service + L"\\data\\worker\\relocation");
+  const std::wstring workerStage =
+      fullPath(workerRelocation + L"\\" + args[2]);
+  const std::wstring rollbackRoot =
+      fullPath(roots.updater + L"\\coordinator-relocation");
+  const std::wstring rollback = fullPath(rollbackRoot + L"\\" + args[1]);
+  const std::wstring building = rollback + L".building";
+  const std::wstring marker = rollback + L"\\prepared";
+  const std::array<std::pair<const wchar_t*, const wchar_t*>, 6> files{{
+      {L"coordinator_v2.snapshot", L"coordinator_v2.db"},
+      {L"ssh_ed25519.key", L"ssh_ed25519.key"},
+      {L"authorized_keys.roost", L"authorized_keys.roost"},
+      {L"target-handoff.json", L"coord-handoff.json"},
+      {nullptr, L"coordinator_v2.db-wal"},
+      {nullptr, L"coordinator_v2.db-shm"},
+  }};
+
+  if (args[0] == L"admit-stage") {
+    ensureCoordinatorStageDirectory(workerRelocation, true);
+    ensureCoordinatorStageDirectory(workerStage, false);
+    emit("{\"action\":\"admit-stage\",\"durable\":true}");
+    return;
+  }
+
+  if (args[0] == L"prepare") {
+    Handle existingMarker;
+    if (regularRelocationFile(
+            marker, rollback, GENERIC_READ | READ_CONTROL,
+            FILE_SHARE_READ, &existingMarker)) {
+      if (readRelocationText(existingMarker.get()) != args[2]) {
+        throw Error("coordinator relocation rollback identity changed");
+      }
+      emit("{\"action\":\"prepare\",\"durable\":true}");
+      return;
+    }
+    std::vector<SecurityTreeEntry> staged =
+        openSecurityTree(workerStage, GENERIC_READ | READ_CONTROL);
+    std::set<std::wstring> allowed{
+        L"", L"prepared.json", L"coordinator_v2.snapshot",
+        L"ssh_ed25519.key", L"authorized_keys.roost", L"target-handoff.json"};
+    for (const auto& entry : staged) {
+      if (!allowed.erase(lower(entry.relative))) {
+        throw Error("coordinator relocation staging tree is not exact");
+      }
+    }
+    if (allowed.contains(L"coordinator_v2.snapshot") ||
+        allowed.contains(L"ssh_ed25519.key") ||
+        allowed.contains(L"authorized_keys.roost") ||
+        allowed.contains(L"target-handoff.json")) {
+      throw Error("coordinator relocation staging tree is incomplete");
+    }
+    ensurePrivateRelocationDirectory(rollbackRoot);
+    removeIncompleteRelocationTree(rollback);
+    removeIncompleteRelocationTree(building);
+    ensurePrivateRelocationDirectory(building);
+    DWORD coordinatorVolume = 0;
+    Handle coordinatorParent = openExactRelocationDirectory(
+        coordinator, 0x001200e2, &coordinatorVolume);
+    Handle buildingParent = openExactRelocationDirectory(
+        building, GENERIC_WRITE | READ_CONTROL | SYNCHRONIZE);
+    auto privateOwner = serviceSidForAccount(kUpdaterServiceAccount);
+    const std::wstring privateSddl =
+        updaterArtifactSddl(L"private", privateOwner.data(), false);
+    for (std::size_t index = 0; index < files.size(); ++index) {
+      const auto& item = files[index];
+      const std::wstring destination =
+          fullPath(coordinator + L"\\" + item.second);
+      Handle prior;
+      if (regularRelocationFile(
+              destination, coordinator, GENERIC_READ | READ_CONTROL,
+              FILE_SHARE_READ, &prior)) {
+        requireSameRelocationVolume(prior.get(), coordinatorVolume);
+        streamHeldArtifactToAtomicDestination(
+            prior.get(), building + L"\\" + item.second + L".prior",
+            buildingParent.get(), privateSddl,
+            "coordinator relocation backup");
+        const std::string sddl = toUtf8(objectSecuritySddl(prior.get()));
+        writePrivateRelocationFile(
+            building + L"\\" + item.second + L".sddl",
+            std::vector<std::uint8_t>(sddl.begin(), sddl.end()));
+      } else {
+        writePrivateRelocationFile(
+            building + L"\\" + item.second + L".absent", {});
+      }
+      if (index < 4) {
+        Handle source;
+        if (!regularRelocationFile(
+                fullPath(workerStage + L"\\" + item.first),
+                workerStage, GENERIC_READ | READ_CONTROL,
+                FILE_SHARE_READ, &source)) {
+          throw Error("coordinator relocation staged source disappeared");
+        }
+        requireSameRelocationVolume(source.get(), coordinatorVolume);
+        streamHeldArtifactToAtomicDestination(
+            source.get(), building + L"\\admitted-" + item.second,
+            buildingParent.get(), privateSddl,
+            "coordinator relocation admitted source");
+      }
+    }
+    const std::string identity = toUtf8(args[2]);
+    writePrivateRelocationFile(
+        building + L"\\prepared",
+        std::vector<std::uint8_t>(identity.begin(), identity.end()));
+    if (!FlushFileBuffers(buildingParent.get())) {
+      failWin("FlushFileBuffers(coordinator relocation building)");
+    }
+    buildingParent.reset();
+    coordinatorParent.reset();
+    if (!MoveFileExW(
+            building.c_str(), rollback.c_str(),
+            MOVEFILE_WRITE_THROUGH)) {
+      failWin("MoveFileExW(coordinator rollback publish)");
+    }
+    Handle rollbackParent = openExactRelocationDirectory(
+        rollbackRoot, GENERIC_WRITE | READ_CONTROL | SYNCHRONIZE);
+    if (!FlushFileBuffers(rollbackParent.get())) {
+      failWin("FlushFileBuffers(coordinator rollback parent)");
+    }
+    if (readRelocationText(marker) != args[2]) {
+      throw Error("published coordinator rollback identity is not exact");
+    }
+    emit("{\"action\":\"prepare\",\"durable\":true}");
+    return;
+  }
+
+  if (readRelocationText(marker) != args[2]) {
+    throw Error("coordinator relocation rollback identity changed");
+  }
+  DWORD coordinatorVolume = 0;
+  Handle coordinatorParent = openExactRelocationDirectory(
+      coordinator, 0x001200e2, &coordinatorVolume);
+  if (args[0] == L"promote") {
+    for (std::size_t index = 0; index < 4; ++index) {
+      Handle source;
+      if (!regularRelocationFile(
+              rollback + L"\\admitted-" + files[index].second,
+              rollback, GENERIC_READ | READ_CONTROL,
+              FILE_SHARE_READ, &source)) {
+        throw Error("verified updater relocation source is missing");
+      }
+      requireSameRelocationVolume(source.get(), coordinatorVolume);
+      std::optional<std::wstring> priorSddl;
+      Handle priorDescriptor;
+      const std::wstring priorDescriptorPath =
+          rollback + L"\\" + files[index].second + L".sddl";
+      if (regularRelocationFile(
+              priorDescriptorPath, rollback, GENERIC_READ | READ_CONTROL,
+              FILE_SHARE_READ, &priorDescriptor)) {
+        priorSddl = readRelocationText(priorDescriptor.get());
+      }
+      streamHeldArtifactToAtomicDestination(
+          source.get(), fullPath(coordinator + L"\\" + files[index].second),
+          coordinatorParent.get(), coordinatorRelocationFileSddl(true),
+          "coordinator relocation promotion", true, priorSddl);
+    }
+    for (std::size_t index = 4; index < files.size(); ++index) {
+      Handle stale;
+      if (regularRelocationFile(
+              fullPath(coordinator + L"\\" + files[index].second),
+              coordinator, DELETE | READ_CONTROL, 0, &stale)) {
+        FILE_DISPOSITION_INFO disposition{};
+        disposition.DeleteFile = TRUE;
+        if (!SetFileInformationByHandle(
+                stale.get(), FileDispositionInfo,
+                &disposition, sizeof(disposition))) {
+          failWin("SetFileInformationByHandle(coordinator sidecar)");
+        }
+      }
+    }
+    if (!FlushFileBuffers(coordinatorParent.get())) {
+      failWin("FlushFileBuffers(coordinator relocation parent)");
+    }
+  } else if (args[0] == L"restore") {
+    for (const auto& item : files) {
+      const std::wstring destination =
+          fullPath(coordinator + L"\\" + item.second);
+      Handle prior;
+      if (regularRelocationFile(
+              rollback + L"\\" + item.second + L".prior",
+              rollback, GENERIC_READ | READ_CONTROL,
+              FILE_SHARE_READ, &prior)) {
+        requireSameRelocationVolume(prior.get(), coordinatorVolume);
+        Handle descriptor;
+        if (!regularRelocationFile(
+                rollback + L"\\" + item.second + L".sddl",
+                rollback, GENERIC_READ | READ_CONTROL,
+                FILE_SHARE_READ, &descriptor)) {
+          throw Error("coordinator relocation rollback descriptor is missing");
+        }
+        streamHeldArtifactToAtomicDestination(
+            prior.get(), destination, coordinatorParent.get(),
+            readRelocationText(descriptor.get()),
+            "coordinator relocation restore", true,
+            coordinatorRelocationFileSddl(true));
+      } else {
+        Handle created;
+        if (regularRelocationFile(
+                destination, coordinator, DELETE | READ_CONTROL,
+                0, &created)) {
+          FILE_DISPOSITION_INFO disposition{};
+          disposition.DeleteFile = TRUE;
+          if (!SetFileInformationByHandle(
+                  created.get(), FileDispositionInfo,
+                  &disposition, sizeof(disposition))) {
+            failWin("SetFileInformationByHandle(coordinator restore)");
+          }
+        }
+      }
+    }
+    if (!FlushFileBuffers(coordinatorParent.get())) {
+      failWin("FlushFileBuffers(coordinator relocation parent)");
+    }
+  } else if (args[0] == L"commit") {
+    const std::wstring committedSddl =
+        coordinatorRelocationFileSddl(false);
+    for (std::size_t index = 0; index < 4; ++index) {
+      const std::wstring path =
+          fullPath(coordinator + L"\\" + files[index].second);
+      Handle readable;
+      if (!regularRelocationFile(
+              path, coordinator, READ_CONTROL,
+              FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+              &readable)) {
+        throw Error("committed coordinator state is incomplete");
+      }
+      if (fileSecurityMatchesExact(readable.get(), committedSddl)) {
+        continue;
+      }
+      readable.reset();
+      Handle writable;
+      if (!regularRelocationFile(
+              path, coordinator, READ_CONTROL | WRITE_DAC | WRITE_OWNER,
+              FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+              &writable)) {
+        throw Error("committed coordinator state is incomplete");
+      }
+      setAndVerifyFileSecurity(writable.get(), committedSddl);
+    }
+  } else {
+    throw Error("coordinator relocation state action is not allowlisted");
+  }
+  emit("{\"action\":" + json(args[0]) + ",\"durable\":true}");
+}
+
 
 }  // namespace roost
 
 int wmain(int argc, wchar_t** argv) {
   SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
   try {
+    const std::wstring selfPath = roost::moduleFilePath();
+    if (roost::lower(roost::baseName(selfPath)) == L"roost.exe") {
+      const int firstForwarded =
+          argc > 1 && std::wstring(argv[1]) == L"launch-current" ? 2 : 1;
+      std::vector<std::wstring> forwarded;
+      forwarded.reserve(static_cast<std::size_t>(
+          std::max(argc - firstForwarded, 0)));
+      for (int index = firstForwarded; index < argc; ++index) {
+        forwarded.emplace_back(argv[index]);
+      }
+      return roost::launchCurrentRoost(selfPath, forwarded);
+    }
     if (argc < 2) throw roost::Error("usage: roost-win-helper <operation> [arguments]");
     const std::wstring operation = argv[1];
     std::vector<std::wstring> arguments;
     arguments.reserve(static_cast<std::size_t>(argc - 2));
     for (int index = 2; index < argc; ++index) arguments.emplace_back(argv[index]);
 
-    if (operation == L"version" || operation == L"--version") {
+    if (operation == L"launch-current") {
+      return roost::launchCurrentRoost(selfPath, arguments);
+    } else if (operation == L"version" || operation == L"--version") {
       roost::expect(arguments, 0, "version");
       roost::emit(
           "{\"protocol\":1,\"helper\":\"roost-win-helper\",\"arch\":\"x64\",\"commands\":["
-          "\"version\",\"flush-file\",\"replace-file\",\"remove-file\",\"apply-dacl\","
-          "\"get-dacl\",\"apply-sddl\",\"probe-exclusive-open\",\"current-user-sid\","
+          "\"version\",\"launch-current\",\"flush-file\",\"replace-file\",\"remove-file\",\"apply-dacl\","
+          "\"apply-account-dacl\",\"apply-artifact-dacl\",\"protect-updater-artifact\","
+          "\"prepare-updater-artifact\",\"create-updater-request\",\"consume-updater-request\","
+          "\"read-updater-artifact\",\"replace-updater-artifact\",\"remove-updater-artifact\","
+          "\"inspect-updater-artifact\",\"copy-updater-artifact\","
+          "\"coordinator-relocation-state\","
+          "\"snapshot-file-security-tree\","
+          "\"restore-file-security-tree\",\"protect-directory\",\"protect-directory-tree\","
+          "\"protect-service-health\",\"get-dacl\",\"apply-sddl\",\"probe-exclusive-open\","
+          "\"current-user-sid\","
           "\"host-sample\",\"process-snapshot\",\"listening-ports\",\"verify-cms-detached\","
-          "\"verify-authenticode\",\"extract-zip\",\"assert-service-context\","
-          "\"resolve-account-sid\",\"grant-logon-as-service\",\"apply-service-dacl\","
+          "\"verify-authenticode\",\"extract-zip\",\"assert-service-context\",\"probe-service-health\","
+          "\"resolve-account-sid\",\"resolve-service-sid\",\"grant-logon-as-service\","
+          "\"apply-service-dacl\",\"revoke-service-dacl\",\"configure-service-sid\","
           "\"configure-service-account\",\"service-query\",\"service-config\","
           "\"service-start\",\"service-stop\",\"job-host\"]}");
     } else if (operation == L"flush-file") {
@@ -2489,6 +7275,46 @@ int wmain(int argc, wchar_t** argv) {
       roost::removeFile(arguments);
     } else if (operation == L"apply-dacl") {
       roost::applyDacl(arguments);
+    } else if (operation == L"apply-account-dacl") {
+      roost::applyAccountDaclCommand(arguments);
+    } else if (operation == L"apply-artifact-dacl") {
+      roost::applyArtifactDaclCommand(arguments);
+    } else if (operation == L"protect-updater-artifact") {
+      roost::protectUpdaterArtifact(arguments);
+    } else if (operation == L"prepare-updater-artifact") {
+      roost::prepareUpdaterArtifact(arguments);
+    } else if (operation == L"create-updater-request") {
+      roost::createUpdaterRequest(arguments);
+    } else if (operation == L"consume-updater-request") {
+      roost::consumeUpdaterRequest(arguments);
+    } else if (operation == L"read-updater-artifact") {
+      roost::readUpdaterArtifact(arguments);
+    } else if (operation == L"replace-updater-artifact") {
+      roost::replaceUpdaterArtifact(arguments);
+    } else if (operation == L"remove-updater-artifact") {
+      roost::removeUpdaterArtifact(arguments);
+    } else if (operation == L"inspect-updater-artifact") {
+      roost::inspectUpdaterArtifact(arguments);
+    } else if (operation == L"copy-updater-artifact") {
+      roost::copyUpdaterArtifact(arguments);
+    } else if (operation == L"coordinator-relocation-state") {
+      roost::coordinatorRelocationState(arguments);
+    } else if (operation == L"snapshot-file-security-tree") {
+      roost::requireUpdaterOrElevatedInstallerContext(
+          "snapshot-file-security-tree");
+      roost::snapshotFileSecurityTree(arguments);
+    } else if (operation == L"restore-file-security-tree") {
+      roost::requireUpdaterOrElevatedInstallerContext(
+          "restore-file-security-tree");
+      roost::restoreFileSecurityTree(arguments);
+    } else if (operation == L"protect-directory") {
+      roost::protectDirectory(arguments);
+    } else if (operation == L"protect-directory-tree") {
+      roost::requireUpdaterOrElevatedInstallerContext(
+          "protect-directory-tree");
+      roost::protectDirectoryTree(arguments);
+    } else if (operation == L"protect-service-health") {
+      roost::protectServiceHealth(arguments);
     } else if (operation == L"get-dacl") {
       roost::getDacl(arguments);
     } else if (operation == L"apply-sddl") {
@@ -2511,10 +7337,16 @@ int wmain(int argc, wchar_t** argv) {
       roost::extractZip(arguments);
     } else if (operation == L"resolve-account-sid") {
       roost::resolveAccountSid(arguments);
+    } else if (operation == L"resolve-service-sid") {
+      roost::resolveServiceSid(arguments);
     } else if (operation == L"grant-logon-as-service") {
       roost::grantLogonAsService(arguments);
     } else if (operation == L"apply-service-dacl") {
       roost::applyServiceDacl(arguments);
+    } else if (operation == L"revoke-service-dacl") {
+      roost::revokeServiceDacl(arguments);
+    } else if (operation == L"configure-service-sid") {
+      roost::configureServiceSid(arguments);
     } else if (operation == L"configure-service-account") {
       roost::configureServiceAccount(arguments);
     } else if (operation == L"service-query") {
@@ -2527,6 +7359,8 @@ int wmain(int argc, wchar_t** argv) {
       roost::stopServiceCommand(arguments);
     } else if (operation == L"assert-service-context") {
       roost::assertServiceContext(arguments);
+    } else if (operation == L"probe-service-health") {
+      roost::probeServiceHealth(arguments);
     } else if (operation == L"job-host") {
       roost::jobHost(arguments);
     } else {

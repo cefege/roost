@@ -63,8 +63,9 @@ export const ClientControlFrame = z.discriminatedUnion("kind", [
   Base.extend({ kind: z.literal("cursor-pos"), session_id: SessionId, col: z.number().int().nonnegative(), row: z.number().int().nonnegative() }),
   // request the worker's $HOME directory — response is rpc-ok { home: string }
   Base.extend({ kind: z.literal("get-home"), request_id: z.string() }),
-  // Demand-driven history page from the immutable grid epoch named by the
-  // current authoritative frame. rpc-ok data:
+  // Demand-driven history page from a stable grid epoch. Browsers name the
+  // epoch of their authoritative frame; an empty headless/API epoch binds to
+  // the worker's current epoch, which is returned in rpc-ok:
   // { rows: CellRow[], cols, total, start_row, end_row, grid_epoch }.
   Base.extend({
     kind: z.literal("get-scrollback-cells"),

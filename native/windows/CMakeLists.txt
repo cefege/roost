@@ -29,6 +29,7 @@ target_link_libraries(roost-win-helper PRIVATE
   bcrypt
   crypt32
   iphlpapi
+  netapi32
   shell32
   userenv
   wintrust

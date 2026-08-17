@@ -27,6 +27,8 @@ import { workspaceBus } from "./buses.ts";
 import { asWorkspaceId } from "@roost/shared/wire";
 import { serveServiceHealth } from "@roost/shared/service-health";
 import { log } from "@roost/shared/log";
+import { ROOST_ARTIFACT_VERSION } from "@roost/shared/build-identity";
+import { coordDataDir } from "@roost/shared/paths";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
@@ -384,14 +386,14 @@ export async function runCoord() {
     case "win32": {
       const health = await serveServiceHealth("coordinator", () => ({
         role: "coordinator",
-        version: process.env.ROOST_VERSION ?? COORD_GIT_SHA,
+        version: ROOST_ARTIFACT_VERSION === "dev" ? COORD_GIT_SHA : ROOST_ARTIFACT_VERSION,
         build: COORD_GIT_SHA,
         processEpoch,
         ready: true,
         dbReady: true,
         listenerReady: true,
         advertisedUrl: cfg.publicUrl ?? `https://${host}:${server.port}`,
-      }));
+      }), { dataDir: coordDataDir() });
       closeServiceHealth = () => health.close();
       break;
     }

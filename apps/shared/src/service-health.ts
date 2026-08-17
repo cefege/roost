@@ -10,7 +10,8 @@ import {
   verifyLocalEndpointCapability,
   type LocalEndpoint,
 } from "./local-endpoint.ts";
-import { roostServiceDir } from "./paths.ts";
+import { runWindowsHelper } from "./windows-helper.ts";
+import { coordDataDir, workerDataDir } from "./paths.ts";
 import {
   SERVICE_HEALTH_PROTOCOL_VERSION,
   ServiceHealthFrameAccumulator,
@@ -87,7 +88,9 @@ function endpointFor(
 ): LocalEndpoint {
   return options.endpoint ?? resolveLocalEndpoint({
     name: `${role}-health`,
-    dataDir: options.dataDir ?? roostServiceDir(),
+    dataDir: options.dataDir ?? (
+      role === "coordinator" ? coordDataDir() : workerDataDir()
+    ),
   });
 }
 
@@ -125,6 +128,17 @@ function closeServer(server: Server, sockets: Set<Socket>): Promise<void> {
   return promise;
 }
 
+async function protectWindowsHealthCapability(
+  role: ServiceHealthRole,
+  endpoint: LocalEndpoint,
+): Promise<void> {
+  if (endpoint.platform !== "win32") return;
+  await runWindowsHelper<{ ok: true }>(
+    "protect-service-health",
+    [endpoint.capabilityPath, role],
+  );
+}
+
 export async function serveServiceHealth<R extends ServiceHealthRole>(
   role: R,
   getStatus: () => ServiceHealthStatusFor<R> | Promise<ServiceHealthStatusFor<R>>,
@@ -134,6 +148,7 @@ export async function serveServiceHealth<R extends ServiceHealthRole>(
   const timeoutMs = connectionTimeout(options.timeoutMs);
   const endpoint = endpointFor(role, options);
   await prepareLocalEndpoint(endpoint);
+  await protectWindowsHealthCapability(role, endpoint);
 
   let unauthenticatedConnections = 0;
   const sockets = new Set<Socket>();
@@ -215,7 +230,7 @@ export async function serveServiceHealth<R extends ServiceHealthRole>(
     server.on("error", () => {
       for (const socket of sockets) socket.destroy();
     });
-    await secureLocalEndpoint(endpoint);
+    if (endpoint.platform !== "win32") await secureLocalEndpoint(endpoint);
   } catch (error) {
     try {
       await closeServer(server, sockets);
@@ -294,6 +309,30 @@ function readProbeResponse(
   return promise;
 }
 
+async function readAttestedWindowsProbeResponse(
+  role: ServiceHealthRole,
+  endpoint: LocalEndpoint,
+  request: ServiceHealthProbeRequest,
+  timeoutMs: number,
+): Promise<Buffer> {
+  const service = role === "worker" ? "RoostWorkerV2" : "RoostCoordinatorV2";
+  const input = new TextEncoder().encode(JSON.stringify(request));
+  const result = await runWindowsHelper<{ serverPid: number; payloadUtf8: string }>(
+    "probe-service-health",
+    [service, endpoint.address],
+    { input, timeoutMs },
+  );
+  if (
+    !Number.isInteger(result.serverPid)
+    || result.serverPid <= 0
+    || typeof result.payloadUtf8 !== "string"
+    || Buffer.byteLength(result.payloadUtf8) > 64 * 1024
+  ) {
+    throw new Error("native Windows service health attestation returned invalid data");
+  }
+  return Buffer.from(result.payloadUtf8, "utf8");
+}
+
 function parsedProbeResponse<R extends ServiceHealthRole>(
   role: R,
   generation: string,
@@ -364,6 +403,8 @@ export async function probeServiceHealth<R extends ServiceHealthRole>(
     generation,
     capability: endpoint.capability,
   };
-  const payload = await readProbeResponse(endpoint, request, timeoutMs);
+  const payload = endpoint.platform === "win32"
+    ? await readAttestedWindowsProbeResponse(role, endpoint, request, timeoutMs)
+    : await readProbeResponse(endpoint, request, timeoutMs);
   return parsedProbeResponse(role, generation, payload, options);
 }

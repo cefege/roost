@@ -12,8 +12,27 @@ export type WindowsHelperOperation =
   | "replace-file"
   | "remove-file"
   | "apply-dacl"
+  | "apply-account-dacl"
+  | "apply-artifact-dacl"
+  | "protect-updater-artifact"
+  | "prepare-updater-artifact"
+  | "create-updater-request"
+  | "consume-updater-request"
+  | "read-updater-artifact"
+  | "replace-updater-artifact"
+  | "remove-updater-artifact"
+  | "inspect-updater-artifact"
+  | "copy-updater-artifact"
+  | "coordinator-relocation-state"
+  | "snapshot-file-security-tree"
+  | "restore-file-security-tree"
+  | "protect-directory"
+  | "protect-directory-tree"
+  | "protect-service-health"
   | "get-dacl"
   | "apply-sddl"
+  | "get-file-security"
+  | "apply-file-security"
   | "probe-exclusive-open"
   | "current-user-sid"
   | "host-sample"
@@ -23,14 +42,19 @@ export type WindowsHelperOperation =
   | "verify-authenticode"
   | "extract-zip"
   | "assert-service-context"
+  | "probe-service-health"
   | "resolve-account-sid"
   | "grant-logon-as-service"
+  | "resolve-service-sid"
   | "apply-service-dacl"
+  | "revoke-service-dacl"
+  | "configure-service-sid"
   | "configure-service-account"
   | "service-query"
   | "service-config"
   | "service-start"
   | "service-stop"
+  | "launch-current"
   | "job-host";
 
 export interface RunWindowsHelperOptions {
@@ -183,6 +207,336 @@ export async function windowsRemoveFile(path: string, options: RunWindowsHelperO
 export async function windowsApplyPrivateDacl(path: string, options: RunWindowsHelperOptions = {}): Promise<void> {
   await runWindowsHelper<{ ok: true }>("apply-dacl", [path], options);
 }
+
+export async function windowsApplyAccountDacl(
+  path: string,
+  account: string,
+  options: RunWindowsHelperOptions = {},
+): Promise<void> {
+  await runWindowsHelper<{ ok: true }>("apply-account-dacl", [path, account], options);
+}
+
+export async function windowsApplyArtifactDacl(
+  path: string,
+  writerAccount?: string,
+  options: RunWindowsHelperOptions = {},
+): Promise<void> {
+  await runWindowsHelper<{ ok: true }>(
+    "apply-artifact-dacl",
+    writerAccount ? [path, writerAccount] : [path],
+    options,
+  );
+}
+export type WindowsUpdaterArtifactProfile =
+  | "private"
+  | "control"
+  | "status"
+  | "current"
+  | "release"
+  | "stable-shawl"
+  | "stable-launcher";
+
+export async function windowsProtectUpdaterArtifact(
+  path: string,
+  profile: WindowsUpdaterArtifactProfile,
+  options: RunWindowsHelperOptions = {},
+): Promise<void> {
+  await runWindowsHelper<{ protected: true }>(
+    "protect-updater-artifact",
+    [path, profile],
+    options,
+  );
+}
+
+export async function windowsPrepareUpdaterArtifact(
+  path: string,
+  profile: Extract<WindowsUpdaterArtifactProfile, "private" | "control"> = "private",
+  options: RunWindowsHelperOptions = {},
+): Promise<{ created: boolean }> {
+  return await runWindowsHelper<{ prepared: true; created: boolean }>(
+    "prepare-updater-artifact",
+    [path, profile],
+    options,
+  );
+}
+
+export async function windowsCreateUpdaterRequest(
+  path: string,
+  contents: Uint8Array,
+  options: RunWindowsHelperOptions = {},
+): Promise<void> {
+  await runWindowsHelper<{ created: true }>(
+    "create-updater-request",
+    [path],
+    { ...options, input: contents },
+  );
+}
+export async function windowsConsumeUpdaterRequest(
+  path: string,
+  options: RunWindowsHelperOptions = {},
+): Promise<void> {
+  const result = await runWindowsHelper<{ consumed: true }>(
+    "consume-updater-request",
+    [path],
+    options,
+  );
+  if (result.consumed !== true) throw new Error("invalid updater request consumption proof");
+}
+
+
+export async function windowsReadUpdaterArtifact(
+  path: string,
+  profile: WindowsUpdaterArtifactProfile,
+  maxBytes: number,
+  options: RunWindowsHelperOptions = {},
+): Promise<Uint8Array> {
+  if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0 || maxBytes > 16 * 1024 * 1024) {
+    throw new RangeError("Windows updater artifact read limit is invalid");
+  }
+  const result = await runWindowsHelper<{ bytesBase64: string }>(
+    "read-updater-artifact",
+    [path, profile, String(maxBytes)],
+    options,
+  );
+  if (typeof result.bytesBase64 !== "string") {
+    throw new Error("invalid updater artifact bytes from roost-win-helper");
+  }
+  const bytes = Buffer.from(result.bytesBase64, "base64");
+  if (bytes.byteLength > maxBytes) {
+    throw new Error("updater artifact exceeded its read limit");
+  }
+  return bytes;
+}
+export async function windowsReplaceUpdaterArtifact(
+  path: string,
+  profile: WindowsUpdaterArtifactProfile,
+  contents: Uint8Array,
+  options: RunWindowsHelperOptions = {},
+): Promise<{ profile: WindowsUpdaterArtifactProfile; bytes: number }> {
+  if (contents.byteLength === 0 || contents.byteLength > 16 * 1024 * 1024) {
+    throw new RangeError("Windows updater artifact replacement payload is invalid");
+  }
+  const result = await runWindowsHelper<{
+    replaced: true;
+    profile: WindowsUpdaterArtifactProfile;
+    bytes: number;
+  }>(
+    "replace-updater-artifact",
+    [path, profile],
+    { ...options, input: contents },
+  );
+  if (
+    result.replaced !== true
+    || result.profile !== profile
+    || result.bytes !== contents.byteLength
+  ) {
+    throw new Error("invalid updater artifact replacement proof from roost-win-helper");
+  }
+  return { profile: result.profile, bytes: result.bytes };
+}
+export async function windowsRemoveUpdaterArtifact(
+  path: string,
+  profile: WindowsUpdaterArtifactProfile,
+  options: RunWindowsHelperOptions = {},
+): Promise<void> {
+  const result = await runWindowsHelper<{ removed: true; profile: WindowsUpdaterArtifactProfile }>(
+    "remove-updater-artifact",
+    [path, profile],
+    options,
+  );
+  if (result.removed !== true || result.profile !== profile) {
+    throw new Error("invalid updater artifact removal proof from roost-win-helper");
+  }
+}
+
+
+export interface WindowsUpdaterArtifactExpected {
+  sha256: string;
+  size: number;
+}
+
+export interface WindowsUpdaterArtifactInspection {
+  profile: WindowsUpdaterArtifactProfile;
+  sha256: string;
+  size: number;
+  sddl: string;
+}
+
+export interface WindowsUpdaterArtifactCopyProof {
+  sourceProfile: WindowsUpdaterArtifactProfile;
+  destinationProfile: WindowsUpdaterArtifactProfile;
+  sha256: string;
+  size: number;
+  sddl: string;
+}
+
+function checkedUpdaterArtifactPath(path: string, label: string): string {
+  if (typeof path !== "string" || path.includes("\0") || !/^[a-z]:[\\/]/i.test(path)) {
+    throw new TypeError(`${label} must be an absolute local Windows path`);
+  }
+  return path;
+}
+
+function checkedUpdaterArtifactExpected(
+  expected: WindowsUpdaterArtifactExpected | undefined,
+): WindowsUpdaterArtifactExpected | undefined {
+  if (expected === undefined) return undefined;
+  if (
+    !expected
+    || !/^[0-9a-f]{64}$/.test(expected.sha256)
+    || !Number.isSafeInteger(expected.size)
+    || expected.size <= 0
+  ) {
+    throw new TypeError("Windows updater artifact expected identity is invalid");
+  }
+  return expected;
+}
+
+function validUpdaterArtifactProof(
+  proof: { sha256: unknown; size: unknown; sddl: unknown },
+): proof is { sha256: string; size: number; sddl: string } {
+  return typeof proof.sha256 === "string"
+    && /^[0-9a-f]{64}$/.test(proof.sha256)
+    && Number.isSafeInteger(proof.size)
+    && (proof.size as number) > 0
+    && typeof proof.sddl === "string"
+    && proof.sddl.length > 0
+    && proof.sddl.length <= 64 * 1024
+    && proof.sddl.startsWith("O:")
+    && proof.sddl.includes("D:");
+}
+
+export async function windowsInspectUpdaterArtifact(
+  path: string,
+  profile: WindowsUpdaterArtifactProfile,
+  expected?: WindowsUpdaterArtifactExpected,
+): Promise<WindowsUpdaterArtifactInspection> {
+  const name = win32.basename(checkedUpdaterArtifactPath(path, "artifact path")).toLowerCase();
+  const profileAllowsName =
+    profile === "stable-shawl" ? name === "shawl.exe"
+    : profile === "stable-launcher" ? name === "roost.exe"
+    : profile === "release" ? name.length > 0 && name !== "." && name !== ".."
+    : profile === "current" ? name === "current.json"
+    : profile === "private" ? name === "shawl.bak" || name === "launcher.bak"
+    : false;
+  if (!profileAllowsName) {
+    throw new TypeError("Windows updater artifact inspection profile/path is not allowlisted");
+  }
+  const identity = checkedUpdaterArtifactExpected(expected);
+  const result = await runWindowsHelper<WindowsUpdaterArtifactInspection>(
+    "inspect-updater-artifact",
+    [path, profile, ...(identity ? [identity.sha256, String(identity.size)] : [])],
+    { timeoutMs: 120_000 },
+  );
+  if (result.profile !== profile || !validUpdaterArtifactProof(result)) {
+    throw new Error("invalid updater artifact inspection proof from roost-win-helper");
+  }
+  if (
+    identity
+    && (result.sha256 !== identity.sha256 || result.size !== identity.size)
+  ) {
+    throw new Error("updater artifact inspection proof differs from its expected identity");
+  }
+  return result;
+}
+
+export async function windowsCopyUpdaterArtifact(
+  sourcePath: string,
+  destinationPath: string,
+  sourceProfile: WindowsUpdaterArtifactProfile,
+  destinationProfile: WindowsUpdaterArtifactProfile,
+  expected?: WindowsUpdaterArtifactExpected,
+): Promise<WindowsUpdaterArtifactCopyProof> {
+  const sourceName = win32.basename(
+    checkedUpdaterArtifactPath(sourcePath, "artifact source path"),
+  ).toLowerCase();
+  const destinationName = win32.basename(
+    checkedUpdaterArtifactPath(destinationPath, "artifact destination path"),
+  ).toLowerCase();
+  const identity = checkedUpdaterArtifactExpected(expected);
+  const snapshot =
+    destinationProfile === "private"
+    && identity === undefined
+    && (
+      (sourceProfile === "stable-shawl"
+        && sourceName === "shawl.exe"
+        && destinationName === "shawl.bak")
+      || (sourceProfile === "stable-launcher"
+        && sourceName === "roost.exe"
+        && destinationName === "launcher.bak")
+    );
+  const stableDestination =
+    destinationProfile === "stable-shawl" ? "shawl"
+    : destinationProfile === "stable-launcher" ? "launcher"
+    : undefined;
+  const promotionOrRollback =
+    identity !== undefined
+    && stableDestination !== undefined
+    && (
+      (sourceProfile === "release"
+        && sourceName === (stableDestination === "shawl" ? "shawl.exe" : "roost-win-helper.exe"))
+      || (sourceProfile === "private"
+        && sourceName === (stableDestination === "shawl" ? "shawl.bak" : "launcher.bak"))
+    )
+    && destinationName === (stableDestination === "shawl" ? "shawl.exe" : "roost.exe");
+  if (!snapshot && !promotionOrRollback) {
+    throw new TypeError("Windows updater artifact copy matrix is not allowlisted");
+  }
+  const result = await runWindowsHelper<WindowsUpdaterArtifactCopyProof>(
+    "copy-updater-artifact",
+    [
+      sourcePath,
+      destinationPath,
+      sourceProfile,
+      destinationProfile,
+      ...(identity ? [identity.sha256, String(identity.size)] : []),
+    ],
+    { timeoutMs: 120_000 },
+  );
+  if (
+    result.sourceProfile !== sourceProfile
+    || result.destinationProfile !== destinationProfile
+    || !validUpdaterArtifactProof(result)
+  ) {
+    throw new Error("invalid updater artifact copy proof from roost-win-helper");
+  }
+  if (
+    identity
+    && (result.sha256 !== identity.sha256 || result.size !== identity.size)
+  ) {
+    throw new Error("updater artifact copy proof differs from its expected identity");
+  }
+  return result;
+}
+export type WindowsCoordinatorRelocationStateAction =
+  | "admit-stage"
+  | "prepare"
+  | "promote"
+  | "restore"
+  | "commit";
+
+export async function windowsCoordinatorRelocationState(
+  action: WindowsCoordinatorRelocationStateAction,
+  relocationId: string,
+  handoffId: string,
+  options: RunWindowsHelperOptions = {},
+): Promise<{ action: WindowsCoordinatorRelocationStateAction; durable: true }> {
+  const result = await runWindowsHelper<{
+    action: WindowsCoordinatorRelocationStateAction;
+    durable: true;
+  }>(
+    "coordinator-relocation-state",
+    [action, relocationId, handoffId],
+    options,
+  );
+  if (result.action !== action || result.durable !== true) {
+    throw new Error("invalid coordinator relocation state proof");
+  }
+  return result;
+}
+
+
+
 
 export async function windowsCurrentUserSid(options: RunWindowsHelperOptions = {}): Promise<string> {
   const result = await runWindowsHelper<{ sid: string }>("current-user-sid", [], options);
@@ -406,16 +760,54 @@ export async function windowsGrantLogonAsService(
   return runWindowsHelper<{ changed: boolean }>("grant-logon-as-service", [sid], options);
 }
 
-const ROOST_SERVICE_CONTROL_GRANT = "START,STOP,QUERY_STATUS,QUERY_CONFIG,CHANGE_CONFIG";
+export type WindowsServiceControlGrant =
+  | "QUERY_STATUS,QUERY_CONFIG"
+  | "START,QUERY_STATUS,QUERY_CONFIG"
+  | "START,STOP,QUERY_STATUS,QUERY_CONFIG"
+  | "CHANGE_CONFIG,START,STOP,QUERY_STATUS,QUERY_CONFIG";
 
-export async function windowsApplyServiceDacl(
+export async function windowsResolveServiceSid(
+  service: RoostWindowsServiceName,
+  options: RunWindowsHelperOptions = {},
+): Promise<{ sid: string }> {
+  const result = await runWindowsHelper<{ sid: string }>("resolve-service-sid", [service], options);
+  if (!/^S-1-(?:\d+-)+\d+$/.test(result.sid)) {
+    throw new Error("invalid service SID from roost-win-helper");
+  }
+  return result;
+}
+
+export type WindowsServiceSidType = "none" | "restricted" | "unrestricted";
+
+export async function windowsConfigureServiceSid(
+  service: RoostWindowsServiceName,
+  serviceSidType: WindowsServiceSidType = "unrestricted",
+  options: RunWindowsHelperOptions = {},
+): Promise<void> {
+  await runWindowsHelper<{ configured: true }>(
+    "configure-service-sid",
+    [service, serviceSidType],
+    options,
+  );
+}
+
+export async function windowsRevokeServiceDacl(
   service: RoostWindowsServiceName,
   sid: string,
   options: RunWindowsHelperOptions = {},
 ): Promise<{ sddl: string }> {
+  return runWindowsHelper<{ sddl: string }>("revoke-service-dacl", [service, sid], options);
+}
+
+export async function windowsApplyServiceDacl(
+  service: RoostWindowsServiceName,
+  sid: string,
+  rights: WindowsServiceControlGrant,
+  options: RunWindowsHelperOptions = {},
+): Promise<{ sddl: string }> {
   return runWindowsHelper<{ sddl: string }>(
     "apply-service-dacl",
-    [service, sid, ROOST_SERVICE_CONTROL_GRANT],
+    [service, sid, rights],
     options,
   );
 }
@@ -474,8 +866,13 @@ export interface WindowsServiceSnapshot {
   displayName: string;
   description: string;
   recoveryPolicy: WindowsServiceRecoveryPolicy;
+  serviceSidType: WindowsServiceSidType;
+  securityDescriptor: string | null;
+}
+export interface WindowsServiceSnapshotWithSecurity extends WindowsServiceSnapshot {
   securityDescriptor: string;
 }
+
 
 export interface WindowsServiceConfig {
   binaryArgv?: string[];
@@ -494,11 +891,55 @@ export interface WindowsServiceStateResult {
   pid: number;
 }
 
+export interface WindowsServiceQueryOptions extends RunWindowsHelperOptions {
+  /** Full SCM DACLs require READ_CONTROL; basic status/config queries do not. */
+  includeSecurity?: boolean;
+}
+
+export function windowsQueryService(
+  service: RoostWindowsServiceName,
+): Promise<WindowsServiceSnapshotWithSecurity>;
+export function windowsQueryService(
+  service: RoostWindowsServiceName,
+  options: WindowsServiceQueryOptions & { includeSecurity?: true },
+): Promise<WindowsServiceSnapshotWithSecurity>;
+export function windowsQueryService(
+  service: RoostWindowsServiceName,
+  options: WindowsServiceQueryOptions & { includeSecurity: false },
+): Promise<WindowsServiceSnapshot>;
+export function windowsQueryService(
+  service: RoostWindowsServiceName,
+  options: WindowsServiceQueryOptions,
+): Promise<WindowsServiceSnapshot>;
 export async function windowsQueryService(
   service: RoostWindowsServiceName,
-  options: RunWindowsHelperOptions = {},
+  options: WindowsServiceQueryOptions = {},
 ): Promise<WindowsServiceSnapshot> {
-  return runWindowsHelper<WindowsServiceSnapshot>("service-query", [service], options);
+  const { includeSecurity = true, ...helperOptions } = options;
+  const result = await runWindowsHelper<WindowsServiceSnapshot>(
+    "service-query",
+    includeSecurity ? [service] : [service, "basic"],
+    helperOptions,
+  );
+  if (
+    result.serviceSidType !== "none"
+    && result.serviceSidType !== "restricted"
+    && result.serviceSidType !== "unrestricted"
+  ) {
+    throw new Error("roost-win-helper returned an invalid service SID type");
+  }
+  if (
+    includeSecurity
+      ? typeof result.securityDescriptor !== "string" || result.securityDescriptor.trim() === ""
+      : result.securityDescriptor !== null && result.securityDescriptor !== ""
+  ) {
+    throw new Error(
+      includeSecurity
+        ? "roost-win-helper full service query omitted its security descriptor"
+        : "roost-win-helper basic service query unexpectedly returned a security descriptor",
+    );
+  }
+  return result;
 }
 
 export async function windowsConfigureService(

@@ -1,6 +1,15 @@
 import { sshExec } from "./deploy-exec.ts";
 import { WORKER_UNIT } from "./service-ctl.ts";
 
+function _unescapeXml(value: string): string {
+  return value
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">")
+    .replaceAll("&quot;", "\"")
+    .replaceAll("&apos;", "'")
+    .replaceAll("&amp;", "&");
+}
+
 /** Parse `ROOST_*` env keys out of an existing LaunchAgent plist. Used
  *  to reuse a prior install's coord URL on subsequent deploys so the
  *  user doesn't have to re-export ROOST_COORDINATOR_URL every time.
@@ -11,20 +20,57 @@ function _parsePlistEnv(plistText: string): Record<string, string> {
   const re = /<key>(ROOST_[A-Z_]+|GIT_SHA)<\/key>\s*<string>([^<]*)<\/string>/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(plistText)) !== null) {
-    out[m[1]] = m[2];
+    out[m[1]] = _unescapeXml(m[2]);
   }
   return out;
 }
 
-/** Same, for a systemd --user unit: `Environment=NAME=VALUE` lines. */
+function _unescapeSystemd(value: string): string {
+  return value.replaceAll("%%", "%").replace(/\\([\\\"nrt])/g, (_match, escaped: string) => {
+    switch (escaped) {
+      case "n": return "\n";
+      case "r": return "\r";
+      case "t": return "\t";
+      default: return escaped;
+    }
+  });
+}
+
+/** Parse both legacy unquoted and canonical quoted systemd environment lines. */
 function _parseUnitEnv(unitText: string): Record<string, string> {
   const out: Record<string, string> = {};
-  const re = /^Environment=(ROOST_[A-Z_]+|GIT_SHA)=(.*)$/gm;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(unitText)) !== null) {
-    out[m[1]] = m[2].trim();
+  const re = /^Environment=(?:"(ROOST_[A-Z_]+|GIT_SHA)=((?:\\.|[^"])*)"|(ROOST_[A-Z_]+|GIT_SHA)=([^\r\n]*))$/gm;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(unitText)) !== null) {
+    const quoted = match[1] !== undefined;
+    out[(quoted ? match[1] : match[3])!] = quoted
+      ? _unescapeSystemd(match[2]!)
+      : _unescapeSystemd(match[4]!.trim());
   }
   return out;
+}
+
+/** Read a single-line systemd directive from an installed unit. Resource
+ * directives are not Environment entries, but are part of the same installed
+ * service snapshot and must be carried into a clean staged worktree. */
+export function parseSystemdServiceDirective(
+  definition: string,
+  name: string,
+): string | undefined {
+  if (!/^[A-Za-z][A-Za-z0-9]*$/.test(name)) return undefined;
+  const re = new RegExp(`^${name}=([^\\r\\n]+)$`, "gm");
+  let value: string | undefined;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(definition)) !== null) value = match[1]?.trim();
+  if (!value) return undefined;
+  return value.startsWith("\"") && value.endsWith("\"") ? value.slice(1, -1) : value;
+}
+
+export function parsePosixServiceEnvironment(
+  definition: string,
+  platform: "darwin" | "linux",
+): Record<string, string> {
+  return platform === "linux" ? _parseUnitEnv(definition) : _parsePlistEnv(definition);
 }
 
 export interface HostEnvBackfill {
@@ -69,7 +115,7 @@ export async function _backfillEnvFromPlist(host: string | "self"): Promise<Host
   }
   if (!text) return { env: {}, filled: [] };
   const parsed = { ..._parseUnitEnv(text), ..._parsePlistEnv(text) };
-  const env: Record<string, string> = {};
+  const env: Record<string, string> = { ...parsed };
   const filled: string[] = [];
   for (const k of KEYS) {
     if (parsed[k]) {

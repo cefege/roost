@@ -154,7 +154,7 @@ function pickCopy(
   if (kind === "no-machines") {
     return {
       title: "No machines registered",
-      body: "Connect a Mac or Linux machine as a worker to start a terminal here.",
+      body: "Connect a macOS, Linux, or Windows machine as a worker to start a terminal here.",
     };
   }
   if (kind === "search-empty") {

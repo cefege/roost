@@ -47,6 +47,7 @@ $authenticodeNames = @(
     'install.ps1',
     'provision-service-account.ps1'
 )
+$bootstrapScriptNames = @('join.ps1', 'install-binary.ps1')
 
 function Normalize-Sha256([string] $Value, [string] $Name) {
     $normalized = ($Value -replace '[^0-9A-Fa-f]', '').ToLowerInvariant()
@@ -174,6 +175,14 @@ Assert-ExitCode 'roost.exe version'
 if ($roostVersion -ne $Version -and -not $roostVersion.StartsWith("$Version+", [StringComparison]::Ordinal)) {
     throw "roost.exe version '$roostVersion' does not match package version '$Version'."
 }
+$roostBuild = (& $RoostExe version --build | Out-String).Trim().ToLowerInvariant()
+Assert-ExitCode 'roost.exe version --build'
+if ($roostBuild -notmatch '^[0-9a-f]{40,64}$') {
+    throw "roost.exe returned an invalid immutable build identity '$roostBuild'."
+}
+if ($roostVersion -ne "$Version+$($roostBuild.Substring(0, 8))") {
+    throw "roost.exe artifact version '$roostVersion' does not match build identity '$roostBuild'."
+}
 $helperVersion = (& $HelperExe version | Out-String).Trim()
 Assert-ExitCode 'roost-win-helper.exe version'
 try { $null = $helperVersion | ConvertFrom-Json } catch { throw 'roost-win-helper.exe version did not emit protocol/build JSON.' }
@@ -218,6 +227,9 @@ try {
     [IO.File]::Copy('assets/windows/SHAWL-LICENSE', (Join-Path $stage 'SHAWL-LICENSE'), $false)
     [IO.File]::Copy($legalFiles[0].FullName, (Join-Path $stage 'SHAWL-THIRD-PARTY-LICENSES.txt'), $false)
     [IO.File]::Copy($provenancePath, (Join-Path $stage 'shawl-v1.9.0.provenance.json'), $false)
+    foreach ($name in $bootstrapScriptNames) {
+        [IO.File]::Copy($name, (Join-Path $output $name), $true)
+    }
 
     if (-not $Unsigned) {
         try {
@@ -266,6 +278,14 @@ try {
                 throw "Set-AuthenticodeSignature failed for $name ($($result.Status): $($result.StatusMessage))"
             }
         }
+        foreach ($name in $bootstrapScriptNames) {
+            $result = Set-AuthenticodeSignature -LiteralPath (Join-Path $output $name) -Certificate $certificate `
+                -HashAlgorithm SHA256 -TimestampServer $timestampUrl -IncludeChain All
+            if ($result.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
+                throw "Set-AuthenticodeSignature failed for $name ($($result.Status): $($result.StatusMessage))"
+            }
+            Assert-Authenticode (Join-Path $output $name) $expectedPublisher
+        }
         foreach ($name in $authenticodeNames) {
             Assert-Authenticode (Join-Path $stage $name) $expectedPublisher
         }
@@ -298,6 +318,7 @@ try {
     $manifest = [ordered]@{
         schemaVersion = 1
         version = $Version
+        build = $roostBuild
         platform = 'win32'
         arch = 'x64'
         publishedAt = $publishedTimestamp.ToString('yyyy-MM-ddTHH:mm:ssZ')
@@ -348,6 +369,9 @@ try {
             throw 'detached manifest CMS has an unexpected publisher.'
         }
         Write-Sha256File $manifestSignaturePath
+    }
+    foreach ($name in $bootstrapScriptNames) {
+        Write-Sha256File (Join-Path $output $name)
     }
 
     [ordered]@{

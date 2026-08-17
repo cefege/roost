@@ -5,10 +5,12 @@ import { resolveTailnetDnsName } from "@roost/shared/tailnet";
 import { Database } from "bun:sqlite";
 import { COORD_INSTALL_SH } from "@roost/shared/install-scripts";
 import { coordServiceLabel, roostServiceDir } from "@roost/shared/paths";
-import { applyPrivateDacl, durableRemove, durableWriteFile, flushDurablePath } from "@roost/shared/durability";
+import { durableRemove, durableWriteFile, flushDurablePath } from "@roost/shared/durability";
 import { log } from "@roost/shared/log";
+import { ROOST_BUILD_SHA } from "@roost/shared/build-identity";
+import type { WindowsCoordinatorPromotionRelocationOperation } from "@roost/shared/windows-relocation";
 import {
-  WindowsCoordinatorTargetTransaction,
+  WindowsCoordinatorTargetRelocation,
 } from "./coord-relocation-windows.ts";
 import {
   createDefaultWindowsCoordRuntime,
@@ -44,6 +46,7 @@ interface PreparedTarget {
   targetUrl: string;
   expectedCoordKid: string;
   expectedGitSha: string;
+  windowsRelocation?: WindowsCoordinatorPromotionRelocationOperation;
 }
 
 interface RollbackPresent {
@@ -82,7 +85,9 @@ async function defaultCoordHealthy(targetUrl: string): Promise<boolean> {
 
 const defaultRuntime: CoordTargetRuntime = {
   platform: process.platform,
-  gitSha: process.env.GIT_SHA ?? process.env.ROOST_GIT_SHA ?? "dev",
+  gitSha: ROOST_BUILD_SHA !== "dev"
+    ? ROOST_BUILD_SHA
+    : process.env.GIT_SHA ?? process.env.ROOST_GIT_SHA ?? "dev",
   tailnetDnsName: resolveTailnetDnsName,
   async isCoordServiceActive(label) {
     switch (process.platform) {
@@ -182,7 +187,7 @@ function assertWritableDirectory(path: string, mustExist = false): void {
 export class CoordTarget {
   #inflight: InflightSnapshot | null = null;
   #prepared: PreparedTarget | null = null;
-  readonly #windows: WindowsCoordinatorTargetTransaction | null;
+  readonly #windows: WindowsCoordinatorTargetRelocation | null;
 
   constructor(private readonly paths: CoordTargetPaths, private readonly runtime: CoordTargetRuntime = defaultRuntime) {
     switch (runtime.platform) {
@@ -191,8 +196,9 @@ export class CoordTarget {
         this.#windows = null;
         break;
       case "win32":
-        this.#windows = new WindowsCoordinatorTargetTransaction({
+        this.#windows = new WindowsCoordinatorTargetRelocation({
           ...paths,
+          servicePath: join(roostServiceDir(), "service-definitions.json"),
           currentManifestPath: join(roostServiceDir(), "current.json"),
         }, runtime.windows ?? createDefaultWindowsCoordRuntime());
         break;
@@ -240,33 +246,39 @@ export class CoordTarget {
     ) {
       throw new Error("target URL does not match this worker's Tailscale address");
     }
-    assertWritableDirectory(this.paths.dataDir);
-    assertWritableDirectory(dirname(this.paths.servicePath), true);
+    if (this.runtime.platform !== "win32") {
+      assertWritableDirectory(this.paths.dataDir);
+      assertWritableDirectory(dirname(this.paths.servicePath), true);
+    }
     const stat = fs.statfsSync(existingDirectory(this.paths.dataDir));
     const available = Number(stat.bavail) * Number(stat.bsize);
     const required = Number(request.estimated_db_size) * 2 + 256 * 1024 * 1024;
     if (available < required) throw new Error(`insufficient disk: required ${required}, available ${available}`);
-    const retiredCoordinator = await this.assertNoActiveCoordinator();
+    await this.assertNoActiveCoordinator();
     if (this.runtime.platform !== "win32") await this.assertCanFrontCoordinator();
 
     if (this.runtime.platform === "win32") {
       if (!this.#windows) throw new Error("Windows coordinator relocation runtime is unavailable");
-      if (request.action === "CHECK") {
-        await this.#windows.preflight(request.handoff_id, retiredCoordinator);
-        return;
-      }
+      const windowsRelocation = await this.#windows.createOperation(
+        request.handoff_id,
+        request.source_url,
+        request.target_url,
+        request.expected_git_sha,
+      );
+      if (request.action === "CHECK") return;
+      this.#discardInflight();
       this.#prepared = {
         handoffId: request.handoff_id,
         sourceUrl: request.source_url,
         targetUrl: request.target_url,
         expectedCoordKid: request.expected_coord_kid,
         expectedGitSha: request.expected_git_sha,
+        windowsRelocation,
       };
-      await this.#windows.prepare(request.handoff_id, request.target_url, retiredCoordinator);
-      this.#discardInflight();
-      const handoffDir = join(this.paths.dataDir, "handoffs", request.handoff_id);
+      await this.#windows.admit(windowsRelocation);
+      const handoffDir = join(roostServiceDir(), "data", "worker", "relocation", request.handoff_id);
       await durableWriteFile(join(handoffDir, "prepared.json"), JSON.stringify(this.#prepared), {
-        platform: "win32", mode: 0o600, privateDacl: true,
+        platform: "win32", mode: 0o600, privateDacl: false,
       });
       return;
     }
@@ -297,9 +309,10 @@ export class CoordTarget {
   #loadPrepared(handoffId: string): PreparedTarget | null {
     if (this.#prepared?.handoffId === handoffId) return this.#prepared;
     try {
-      const parsed = JSON.parse(
-        fs.readFileSync(join(this.paths.dataDir, "handoffs", handoffId, "prepared.json"), "utf8"),
-      ) as PreparedTarget;
+      const handoffDir = this.runtime.platform === "win32"
+        ? join(roostServiceDir(), "data", "worker", "relocation", handoffId)
+        : join(this.paths.dataDir, "handoffs", handoffId);
+      const parsed = JSON.parse(fs.readFileSync(join(handoffDir, "prepared.json"), "utf8")) as PreparedTarget;
       if (parsed.handoffId !== handoffId) return null;
       this.#prepared = parsed;
       return parsed;
@@ -363,9 +376,8 @@ export class CoordTarget {
 
   async #startWindowsSnapshot(request: Parameters<CoordTarget["startSnapshot"]>[0]): Promise<void> {
     if (!this.#windows) throw new Error("Windows coordinator relocation runtime is unavailable");
-    await this.#windows.ensurePrepared(request.handoff_id);
     const prepared = this.#loadPrepared(request.handoff_id);
-    if (!prepared) throw new Error("coordinator target was not prepared");
+    if (!prepared?.windowsRelocation) throw new Error("Windows coordinator target was not prepared");
     try {
       if (this.#inflight) {
         if (this.#inflight.handoffId !== request.handoff_id) {
@@ -375,39 +387,27 @@ export class CoordTarget {
         this.#inflight = null;
         try { fs.closeSync(previous.fd); } catch { /* already closed */ }
         if (fs.existsSync(previous.file)) {
-          await this.#windows.beforeFileMutation(request.handoff_id, "discard-incomplete-snapshot", previous.file);
           await durableRemove(previous.file, { platform: "win32", privateDacl: true });
         }
       }
-      const dir = join(this.paths.dataDir, "handoffs", request.handoff_id);
+      const dir = join(roostServiceDir(), "data", "worker", "relocation", request.handoff_id);
       const file = join(dir, "coordinator_v2.snapshot");
       if (fs.existsSync(file)) {
-        await this.#windows.beforeFileMutation(request.handoff_id, "discard-stale-snapshot", file);
         await durableRemove(file, { platform: "win32", privateDacl: true });
       }
       const key = join(dir, "ssh_ed25519.key");
       const authorizedKeys = join(dir, "authorized_keys.roost");
       const handoff = join(dir, "target-handoff.json");
-      await this.#windows.beforeFileMutation(request.handoff_id, "stage-key", key);
-      await durableWriteFile(key, request.coord_key_pem, { platform: "win32", mode: 0o600, privateDacl: true });
-      await this.#windows.beforeFileMutation(request.handoff_id, "stage-authorized-keys", authorizedKeys);
-      await durableWriteFile(authorizedKeys, request.authorized_keys, { platform: "win32", mode: 0o600, privateDacl: true });
-      await this.#windows.beforeFileMutation(request.handoff_id, "stage-target-handoff", handoff);
+      await durableWriteFile(key, request.coord_key_pem, { platform: "win32", mode: 0o600, privateDacl: false });
+      await durableWriteFile(authorizedKeys, request.authorized_keys, { platform: "win32", mode: 0o600, privateDacl: false });
       await durableWriteFile(handoff, JSON.stringify({
         version: 1, handoff_id: request.handoff_id, role: "TARGET", phase: "WAITING_FOR_WORKERS",
         source_url: prepared.sourceUrl, target_url: prepared.targetUrl, target_worker_fp: "target-pending",
         expected_worker_fps: request.expected_worker_fps, commit_acked_worker_fps: [],
         expected_coord_kid: prepared.expectedCoordKid, expected_git_sha: prepared.expectedGitSha,
         secret_sha256: request.secret_sha256, started_at_ms: Date.now(), updated_at_ms: Date.now(),
-      }), { platform: "win32", mode: 0o600, privateDacl: true });
-      await this.#windows.beforeFileMutation(request.handoff_id, "create-snapshot", file);
+      }), { platform: "win32", mode: 0o600, privateDacl: false });
       const fd = fs.openSync(file, "wx", 0o600);
-      try {
-        await applyPrivateDacl(file, { platform: "win32" });
-      } catch (error) {
-        fs.closeSync(fd);
-        throw error;
-      }
       this.#inflight = {
         handoffId: request.handoff_id, file, fd,
         expectedSize: Number(request.total_size), expectedSha256: request.sha256,
@@ -429,10 +429,6 @@ export class CoordTarget {
       if (chunk.seq < inflight.nextSeq) return;
       if (chunk.seq !== inflight.nextSeq) {
         throw new Error(`snapshot chunk out of order: expected ${inflight.nextSeq}, got ${chunk.seq}`);
-      }
-      if (this.runtime.platform === "win32") {
-        if (!this.#windows) throw new Error("Windows coordinator relocation runtime is unavailable");
-        await this.#windows.beforeFileMutation(chunk.handoff_id, `append-snapshot-chunk-${chunk.seq}`, inflight.file);
       }
       let offset = 0;
       while (offset < chunk.data.length) {
@@ -468,13 +464,10 @@ export class CoordTarget {
         throw new Error("coordinator key fingerprint does not match source");
       }
       if (this.runtime.platform === "win32") {
-        if (!this.#windows) throw new Error("Windows coordinator relocation runtime is unavailable");
-        await this.#windows.promote(inflight.handoffId, {
-          db: inflight.file,
-          key: join(dir, "ssh_ed25519.key"),
-          authorizedKeys: join(dir, "authorized_keys.roost"),
-          handoff: join(dir, "target-handoff.json"),
-        }, prepared.expectedGitSha);
+        if (!this.#windows || !prepared.windowsRelocation) {
+          throw new Error("Windows coordinator relocation admission is unavailable");
+        }
+        await this.#windows.apply(prepared.windowsRelocation);
         return;
       }
       if (this.runtime.platform !== "darwin" && this.runtime.platform !== "linux") {
@@ -513,18 +506,18 @@ export class CoordTarget {
     // destroy an unrelated in-flight receive.
     if (this.runtime.platform === "win32") {
       if (!this.#windows) throw new Error("Windows coordinator relocation runtime is unavailable");
+      const prepared = this.#loadPrepared(handoffId);
       if (this.#inflight?.handoffId === handoffId) {
         const inflight = this.#inflight;
         this.#inflight = null;
         try { fs.closeSync(inflight.fd); } catch { /* already closed */ }
         if (fs.existsSync(inflight.file)) {
-          await this.#windows.beforeFileMutation(handoffId, "abort-incomplete-snapshot", inflight.file);
           await durableRemove(inflight.file, { platform: "win32", privateDacl: true });
         }
       }
+      if (prepared?.windowsRelocation) await this.#windows.rollback(prepared.windowsRelocation);
       if (this.#prepared?.handoffId === handoffId) this.#prepared = null;
-      await this.#windows.rollback(handoffId);
-      fs.rmSync(join(this.paths.dataDir, "handoffs", handoffId), { recursive: true, force: true });
+      fs.rmSync(join(roostServiceDir(), "data", "worker", "relocation", handoffId), { recursive: true, force: true });
       return;
     }
     if (this.runtime.platform !== "darwin" && this.runtime.platform !== "linux") {
@@ -686,20 +679,21 @@ export class CoordTarget {
     );
   }
 
-  /** The rollback captured at PREPARE holds a full DB copy plus the coordinator
-   *  signing key. abort() removes it; the commit path never did, so every
-   *  completed move left one more copy on disk forever. Safe here: the source
-   *  has already retired by the time a COMMIT frame reaches this worker. */
+  /** Finalizes the updater transaction after the source has retired. */
   async finalizeCommit(handoffId: string): Promise<void> {
     switch (this.runtime.platform) {
       case "darwin":
       case "linux":
         fs.rmSync(join(this.paths.dataDir, "handoffs", handoffId), { recursive: true, force: true });
         return;
-      case "win32":
+      case "win32": {
         if (!this.#windows) throw new Error("Windows coordinator relocation runtime is unavailable");
-        await this.#windows.commit(handoffId);
+        const prepared = this.#loadPrepared(handoffId);
+        if (!prepared?.windowsRelocation) throw new Error("Windows coordinator relocation was not prepared");
+        await this.#windows.commit(prepared.windowsRelocation);
+        if (this.#prepared?.handoffId === handoffId) this.#prepared = null;
         return;
+      }
       default:
         throw new Error(`unsupported coordinator target platform: ${this.runtime.platform}`);
     }
@@ -714,19 +708,21 @@ export class CoordTarget {
    *  recreates it immediately. The process has to go first. */
   private async stopRetiredCoordinator(handoffId: string): Promise<void> {
     if (!await this.runtime.isCoordServiceActive(coordLabel())) return;
-    try {
-      await this.runInstaller("uninstall", handoffId);
-      log.info("coord-target", "retired_coordinator_stopped", { handoff_id: handoffId });
-    } catch (error) {
-      // Non-fatal: the promotion below also unlinks -wal/-shm, and the rollback
-      // captured above can reinstate the service definition.
-      log.warn("coord-target", "retired_coordinator_stop_failed", { handoff_id: handoffId, error: String(error) });
-    }
+    // A live retired coordinator can recreate WAL files after promotion and
+    // corrupt the database moved over the same path. Failure to stop it is a
+    // hard precondition failure, not something unlinking -wal can repair.
+    await this.runInstaller("uninstall", handoffId);
+    log.info("coord-target", "retired_coordinator_stopped", { handoff_id: handoffId });
   }
 
   private async buildSourceSpa(): Promise<void> {
     const webDir = join(process.cwd(), "apps", "web");
-    const child = Bun.spawn(["bun", "run", "build"], { cwd: webDir, stdout: "pipe", stderr: "pipe" });
+    const child = Bun.spawn(["bun", "run", "build"], {
+      cwd: webDir,
+      env: { ...process.env, ROOST_GIT_SHA: this.runtime.gitSha },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
     // Both pipes must be drained: vite is chatty on stdout and an unread pipe
     // buffer blocks the child, hanging PREPARE.
     const [out, err, code] = await Promise.all([

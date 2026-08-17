@@ -25,6 +25,12 @@ function windowsLocalAppData(env: PathEnv): string {
   return root;
 }
 
+function windowsProgramData(env: PathEnv): string {
+  const root = env.ProgramData ?? env.PROGRAMDATA;
+  if (!root) throw new Error("ProgramData is required on Windows");
+  return root;
+}
+
 export function workerDataDir(
   env: PathEnv = process.env as PathEnv,
   platform: SupportedHostPlatform = supportedHostPlatform(),
@@ -85,7 +91,7 @@ export function roostServiceDir(
   switch (platform) {
     case "darwin":
     case "linux": return join(workerDataDir(env, platform), "service");
-    case "win32": return win32.join(windowsLocalAppData(env), "Roost", "service");
+    case "win32": return win32.join(windowsProgramData(env), "Roost", "service");
     default: return assertNeverPlatform(platform);
   }
 }
@@ -98,7 +104,7 @@ export function roostVersionsDir(
   switch (platform) {
     case "darwin":
     case "linux": return join(workerDataDir(env, platform), "versions");
-    case "win32": return win32.join(windowsLocalAppData(env), "Roost", "versions");
+    case "win32": return win32.join(windowsProgramData(env), "Roost", "versions");
     default: return assertNeverPlatform(platform);
   }
 }

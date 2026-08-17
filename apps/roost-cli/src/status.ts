@@ -7,9 +7,10 @@
 // `statusReport()` is also called by quickstart.ts for its final readout.
 
 import { Database } from "bun:sqlite";
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, lstatSync, readFileSync } from "node:fs";
+import { join, win32 } from "node:path";
 import { log } from "@roost/shared/log";
+import { runWindowsHelperSync, type WindowsServiceSnapshot } from "@roost/shared/windows-helper";
 import { coordDataDir, coordServiceLabel, coordServicePath, workerServiceLabel } from "@roost/shared/paths";
 import {
   COORD_UNIT,
@@ -17,22 +18,39 @@ import {
   WORKER_UNIT,
   windowsServiceDefinitionsPath,
 } from "./service-ctl.ts";
+import { parsePosixServiceEnvironment } from "./deploy-plist-env.ts";
 
 const COORD_LABEL = coordServiceLabel();
 const WORKER_LABEL = workerServiceLabel();
-const COORD_DATA_DIR = coordDataDir();
-const COORD_DB = join(COORD_DATA_DIR, "coordinator_v2.db");
-// launchd plist, systemd user unit, or protected Windows definitions.
-const COORD_SERVICE_FILE = process.platform === "win32"
-  ? windowsServiceDefinitionsPath()
-  : coordServicePath();
 const WORKER_STALE_MS = 90_000;
-// Default of cfg.handoffPath (apps/shared/src/config.ts:71); the CLI does not
-// load the coord config, so honour the same env override by hand.
-const COORD_HANDOFF = process.env.ROOST_COORDINATOR_HANDOFF_PATH ?? join(COORD_DATA_DIR, "coord-handoff.json");
 
-interface WorkerStatus {
+
+function defaultCoordinatorDbPath(): string {
+  const dataDir = process.env.ROOST_COORD_DATA_DIR ?? coordDataDir();
+  return process.env.ROOST_COORDINATOR_DB
+    ?? join(dataDir, "coordinator_v2.db");
+}
+
+function coordinatorServiceFile(): string {
+  return process.platform === "win32"
+    ? windowsServiceDefinitionsPath()
+    : coordServicePath();
+}
+
+function coordinatorHandoffPath(): string {
+  const dataDir = process.env.ROOST_COORD_DATA_DIR ?? coordDataDir();
+  return process.env.ROOST_COORDINATOR_HANDOFF_PATH
+    ?? join(dataDir, "coord-handoff.json");
+}
+
+export interface WorkerStatus {
+  fingerprint: string;
   label: string;
+  os: string;
+  reachableAddr: string | null;
+  gitSha: string | null;
+  keeperState: "current" | "unknown" | "stale";
+  keeperBuild: string | null;
   lastSeenMs: number;
   ageMs: number;
   stale: boolean;
@@ -71,8 +89,21 @@ function runCapture(cmd: string[]): { exit: number; stdout: string } {
 /** Tailscale BackendState + own tailnet FQDN. state="NotInstalled" when the
  *  binary is missing. fqdn is the trailing-dot-stripped Self.DNSName.
  *  Exported — quickstart.ts uses it for the hard Tailscale gate. */
+function tailscaleExecutable(): string {
+  if (process.platform !== "win32") return "tailscale";
+  const executable = process.env.ROOST_TAILSCALE_EXE?.trim();
+  if (!executable || !win32.isAbsolute(executable) || /[\0\r\n]/.test(executable)) {
+    throw new Error("Windows status requires the trusted absolute ROOST_TAILSCALE_EXE");
+  }
+  const info = lstatSync(executable);
+  if (!info.isFile() || info.isSymbolicLink()) {
+    throw new Error("ROOST_TAILSCALE_EXE must be a non-reparse regular file");
+  }
+  return executable;
+}
+
 export function resolveTailscale(): { state: string; fqdn: string | null } {
-  const r = runCapture(["tailscale", "status", "--json"]);
+  const r = runCapture([tailscaleExecutable(), "status", "--json"]);
   if (r.exit === 127) return { state: "NotInstalled", fqdn: null };
   if (r.exit !== 0 || !r.stdout) return { state: "Stopped", fqdn: null };
   try {
@@ -178,12 +209,15 @@ function launchAgentLoaded(label: string): boolean {
       return runCapture(["launchctl", "print", `gui/${uid}/${label}`]).exit === 0;
     }
     case "win32": {
-      const result = runCapture([
-        "sc.exe",
-        "query",
-        worker ? WINDOWS_SERVICE_NAMES.worker : WINDOWS_SERVICE_NAMES.coordinator,
-      ]);
-      return result.exit === 0 && /STATE\s*:\s*4\b/i.test(result.stdout);
+      try {
+        const service = runWindowsHelperSync<WindowsServiceSnapshot>(
+          "service-query",
+          [worker ? WINDOWS_SERVICE_NAMES.worker : WINDOWS_SERVICE_NAMES.coordinator, "basic"],
+        );
+        return service.state === "running";
+      } catch {
+        return false;
+      }
     }
     default:
       throw new Error(`unsupported status platform: ${process.platform}`);
@@ -192,10 +226,13 @@ function launchAgentLoaded(label: string): boolean {
 
 /** POST the public MiscHealth Connect RPC (JSON protocol). Returns null on any
  *  network/TLS/HTTP failure so the caller renders ✗ rather than throwing. */
-async function coordHealth(fqdn: string | null): Promise<{ reachable: boolean; gitSha: string | null }> {
+async function coordHealth(
+  fqdn: string | null,
+  httpsPort: string,
+): Promise<{ reachable: boolean; gitSha: string | null }> {
   if (!fqdn) return { reachable: false, gitSha: null };
   try {
-    const res = await fetch(`https://${fqdn}:4102/roost.v1.CoordinatorService/MiscHealth`, {
+    const res = await fetch(`https://${fqdn}:${httpsPort}/roost.v1.CoordinatorService/MiscHealth`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: "{}",
@@ -210,19 +247,39 @@ async function coordHealth(fqdn: string | null): Promise<{ reachable: boolean; g
 }
 
 /** Read the coord DB read-only for the worker roster. Empty on missing DB. */
-function workerInventory(): WorkerStatus[] {
-  if (!existsSync(COORD_DB)) return [];
+export function workerInventory(databasePath: string = installedCoordinatorDbPath()): WorkerStatus[] {
+  if (!existsSync(databasePath)) return [];
   let db: Database | null = null;
   try {
-    db = new Database(COORD_DB, { readonly: true });
-    const rows = db.query("SELECT label, last_seen_ms FROM workers").all() as {
+    db = new Database(databasePath, { readonly: true });
+    const rows = db.query(
+      "SELECT fp, label, os, reachable_addr, git_sha, keeper_stale, last_seen_ms FROM workers",
+    ).all() as {
+      fp: string;
       label: string;
+      os: string;
+      reachable_addr: string | null;
+      git_sha: string | null;
+      keeper_stale: string | null;
       last_seen_ms: number;
     }[];
     const now = Date.now();
     return rows.map((r) => {
       const ageMs = now - r.last_seen_ms;
-      return { label: r.label, lastSeenMs: r.last_seen_ms, ageMs, stale: ageMs > WORKER_STALE_MS };
+      return {
+        fingerprint: r.fp,
+        label: r.label,
+        os: r.os,
+        reachableAddr: r.reachable_addr,
+        gitSha: r.git_sha,
+        keeperState: r.keeper_stale === null
+          ? "unknown"
+          : r.keeper_stale.length === 0 ? "current" : "stale",
+        keeperBuild: r.keeper_stale && r.keeper_stale.length > 0 ? r.keeper_stale : null,
+        lastSeenMs: r.last_seen_ms,
+        ageMs,
+        stale: ageMs > WORKER_STALE_MS,
+      };
     });
   } catch (error) {
     log.warn("status", "worker_inventory_failed", { error: String(error) });
@@ -239,11 +296,8 @@ function serviceEnvironmentValue(
 ): string | null {
   switch (platform) {
     case "darwin":
-      return new RegExp(`<key>${name}</key>\\s*<string>([^<]*)</string>`)
-        .exec(serviceDefinition)?.[1] ?? null;
     case "linux":
-      return new RegExp(`^Environment=\"?${name}=([^\"\\r\\n]+)\"?$`, "m")
-        .exec(serviceDefinition)?.[1] ?? null;
+      return parsePosixServiceEnvironment(serviceDefinition, platform)[name] ?? null;
     case "win32": {
       try {
         const stored = JSON.parse(serviceDefinition) as {
@@ -257,6 +311,30 @@ function serviceEnvironmentValue(
     }
     default:
       throw new Error(`unsupported TLS service platform: ${platform}`);
+  }
+}
+
+export function resolveCoordinatorDbPath(
+  serviceDefinition: string | null,
+  platform: NodeJS.Platform = process.platform,
+  fallback: string = defaultCoordinatorDbPath(),
+): string {
+  if (!serviceDefinition) return fallback;
+  const installed = serviceEnvironmentValue(serviceDefinition, "ROOST_COORDINATOR_DB", platform);
+  return installed ? installed : fallback;
+}
+
+function installedCoordinatorDbPath(): string {
+  const serviceFile = coordinatorServiceFile();
+  if (!existsSync(serviceFile)) return defaultCoordinatorDbPath();
+  try {
+    return resolveCoordinatorDbPath(
+      readFileSync(serviceFile, "utf8"),
+      process.platform,
+      defaultCoordinatorDbPath(),
+    );
+  } catch {
+    return defaultCoordinatorDbPath();
   }
 }
 
@@ -282,10 +360,11 @@ export function resolveTlsMode(
 }
 
 function currentTlsMode(): StatusReport["tlsMode"] {
-  if (!existsSync(COORD_SERVICE_FILE)) return "missing";
+  const serviceFile = coordinatorServiceFile();
+  if (!existsSync(serviceFile)) return "missing";
   try {
-    const serviceDefinition = readFileSync(COORD_SERVICE_FILE, "utf8");
-    const serve = runCapture(["tailscale", "serve", "status"]);
+    const serviceDefinition = readFileSync(serviceFile, "utf8");
+    const serve = runCapture([tailscaleExecutable(), "serve", "status"]);
     return resolveTlsMode(serviceDefinition, serve.exit === 0 ? serve.stdout : null);
   } catch {
     return "missing";
@@ -295,9 +374,10 @@ function currentTlsMode(): StatusReport["tlsMode"] {
 /** Read coord-handoff.json (snake_case on disk). null on missing, unreadable
  *  or half-written JSON — a broken handoff file must never fail `roost status`. */
 function readHandoff(): HandoffStatus | null {
-  if (!existsSync(COORD_HANDOFF)) return null;
+  const handoffPath = coordinatorHandoffPath();
+  if (!existsSync(handoffPath)) return null;
   try {
-    const j = JSON.parse(readFileSync(COORD_HANDOFF, "utf8")) as Record<string, unknown>;
+    const j = JSON.parse(readFileSync(handoffPath, "utf8")) as Record<string, unknown>;
     const { phase, handoff_id: handoffId, source_url: sourceUrl, target_url: targetUrl } = j;
     const role = j.role === "SOURCE" ? "SOURCE" : j.role === "TARGET" ? "TARGET" : null;
     if (!role) return null;
@@ -312,7 +392,15 @@ function readHandoff(): HandoffStatus | null {
 
 export async function statusReport(): Promise<StatusReport> {
   const ts = resolveTailscale();
-  const coord = await coordHealth(ts.fqdn);
+  let serviceDefinition: string | null = null;
+  const serviceFile = coordinatorServiceFile();
+  try {
+    if (existsSync(serviceFile)) serviceDefinition = readFileSync(serviceFile, "utf8");
+  } catch { /* status remains available with a damaged definition */ }
+  const httpsPort = serviceDefinition
+    ? serviceEnvironmentValue(serviceDefinition, "ROOST_TAILNET_HTTPS_PORT", process.platform) ?? "4102"
+    : "4102";
+  const coord = await coordHealth(ts.fqdn, httpsPort);
   return {
     tailscale: { state: ts.state, fqdn: ts.fqdn, running: ts.state === "Running" },
     coordAgentLoaded: launchAgentLoaded(COORD_LABEL),
@@ -320,7 +408,7 @@ export async function statusReport(): Promise<StatusReport> {
     coord,
     workers: workerInventory(),
     tlsMode: currentTlsMode(),
-    url: ts.fqdn ? `https://${ts.fqdn}:4102` : null,
+    url: ts.fqdn ? `https://${ts.fqdn}:${httpsPort}` : null,
     handoff: readHandoff(),
   };
 }

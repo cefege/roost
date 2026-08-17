@@ -29,6 +29,9 @@ if [[ "$OS" == "Linux" ]]; then
   COORD_MEM_HIGH="${ROOST_COORD_MEMORY_HIGH:-1G}"
   COORD_MEM_MAX="${ROOST_COORD_MEMORY_MAX:-2G}"
   COORD_TASKS_MAX="${ROOST_COORD_TASKS_MAX:-256}"
+  [[ "$COORD_MEM_HIGH" =~ ^[0-9]+([.][0-9]+)?[KMGTP]?$ ]] || { echo "invalid ROOST_COORD_MEMORY_HIGH" >&2; exit 1; }
+  [[ "$COORD_MEM_MAX" =~ ^[0-9]+([.][0-9]+)?[KMGTP]?$ ]] || { echo "invalid ROOST_COORD_MEMORY_MAX" >&2; exit 1; }
+  [[ "$COORD_TASKS_MAX" =~ ^[0-9]+$ ]] || { echo "invalid ROOST_COORD_TASKS_MAX" >&2; exit 1; }
   LOGROTATE_CONF="${ROOST_COORD_LOGROTATE_CONF:-${XDG_CONFIG_HOME:-$HOME/.config}/logrotate.d/roost-coord.conf}"
 else
   LABEL="${ROOST_COORD_LABEL:-com.roost.coordinator-v2}"
@@ -55,6 +58,39 @@ _find_bin() {
   echo "/opt/homebrew/bin/$name"
 }
 BUN_BIN="${BUN_BIN:-$(_find_bin bun /usr/local/bin/bun "$HOME/.bun/bin/bun")}"
+
+# Service definitions are data formats. Escape all dynamic values before
+# interpolation so operator-controlled URLs and paths cannot inject plist keys
+# or systemd directives.
+xml_escape() {
+  local value="$1"
+  printf '%s' "$value" | sed \
+    -e 's/&/\&amp;/g' \
+    -e 's/</\&lt;/g' \
+    -e 's/>/\&gt;/g' \
+    -e 's/"/\&quot;/g' \
+    -e "s/'/\&apos;/g"
+}
+
+systemd_escape() {
+  local value="$1"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  value="${value//$'\n'/\\n}"
+  value="${value//$'\r'/\\r}"
+  value="${value//$'\t'/\\t}"
+  printf '%s' "$value"
+}
+
+systemd_quote() {
+  printf '"%s"' "$(systemd_escape "$1")"
+}
+
+systemd_env() {
+  local value="$2"
+  value="${value//%/%%}"
+  printf 'Environment="%s=%s"\n' "$1" "$(systemd_escape "$value")"
+}
 
 # FRONTED mode (DEFAULT): coord serves PLAINTEXT on loopback behind
 # `tailscale serve`, which terminates TLS with the tailnet cert. This dodges
@@ -97,7 +133,7 @@ if [[ "$FRONTED" != "1" && -n "$TLS_CERT_PATH" && -n "$TLS_KEY_PATH" ]]; then
   # Expand leading tilde — plist values aren't shell-expanded at read time.
   TLS_CERT_PATH="${TLS_CERT_PATH/#\~/$HOME}"
   TLS_KEY_PATH="${TLS_KEY_PATH/#\~/$HOME}"
-  TLS_PLIST=$'\n    <key>ROOST_TLS_CERT_PATH</key>\n    <string>'"${TLS_CERT_PATH}"$'</string>\n    <key>ROOST_TLS_KEY_PATH</key>\n    <string>'"${TLS_KEY_PATH}"$'</string>'
+  TLS_PLIST=$'\n    <key>ROOST_TLS_CERT_PATH</key>\n    <string>'"$(xml_escape "${TLS_CERT_PATH}")"$'</string>\n    <key>ROOST_TLS_KEY_PATH</key>\n    <string>'"$(xml_escape "${TLS_KEY_PATH}")"$'</string>'
 fi
 
 # Stamp the current repo HEAD into coord's env so misc.health.git_sha
@@ -107,24 +143,24 @@ fi
 GIT_SHA_PLIST=""
 GIT_SHA_RESOLVED="${ROOST_GIT_SHA:-$(cd "$REPO_ROOT" && git rev-parse HEAD 2>/dev/null || true)}"
 if [[ -n "$GIT_SHA_RESOLVED" ]]; then
-  GIT_SHA_PLIST=$'\n    <key>ROOST_GIT_SHA</key>\n    <string>'"${GIT_SHA_RESOLVED}"$'</string>'
+  GIT_SHA_PLIST=$'\n    <key>ROOST_GIT_SHA</key>\n    <string>'"$(xml_escape "${GIT_SHA_RESOLVED}")"$'</string>'
 fi
 
 PUBLIC_PLIST=""
-[[ -n "${ROOST_PUBLIC_BIND:-}" ]] && PUBLIC_PLIST+=$'\n    <key>ROOST_PUBLIC_BIND</key>\n    <string>'"${ROOST_PUBLIC_BIND}"$'</string>'
-[[ -n "${ROOST_WEB_PUBLIC_URL:-}" ]] && PUBLIC_PLIST+=$'\n    <key>ROOST_WEB_PUBLIC_URL</key>\n    <string>'"${ROOST_WEB_PUBLIC_URL}"$'</string>'
-[[ -n "${ROOST_CF_ACCESS_TEAM_DOMAIN:-}" ]] && PUBLIC_PLIST+=$'\n    <key>ROOST_CF_ACCESS_TEAM_DOMAIN</key>\n    <string>'"${ROOST_CF_ACCESS_TEAM_DOMAIN}"$'</string>'
-[[ -n "${ROOST_CF_ACCESS_AUD:-}" ]] && PUBLIC_PLIST+=$'\n    <key>ROOST_CF_ACCESS_AUD</key>\n    <string>'"${ROOST_CF_ACCESS_AUD}"$'</string>'
+[[ -n "${ROOST_PUBLIC_BIND:-}" ]] && PUBLIC_PLIST+=$'\n    <key>ROOST_PUBLIC_BIND</key>\n    <string>'"$(xml_escape "${ROOST_PUBLIC_BIND}")"$'</string>'
+[[ -n "${ROOST_WEB_PUBLIC_URL:-}" ]] && PUBLIC_PLIST+=$'\n    <key>ROOST_WEB_PUBLIC_URL</key>\n    <string>'"$(xml_escape "${ROOST_WEB_PUBLIC_URL}")"$'</string>'
+[[ -n "${ROOST_CF_ACCESS_TEAM_DOMAIN:-}" ]] && PUBLIC_PLIST+=$'\n    <key>ROOST_CF_ACCESS_TEAM_DOMAIN</key>\n    <string>'"$(xml_escape "${ROOST_CF_ACCESS_TEAM_DOMAIN}")"$'</string>'
+[[ -n "${ROOST_CF_ACCESS_AUD:-}" ]] && PUBLIC_PLIST+=$'\n    <key>ROOST_CF_ACCESS_AUD</key>\n    <string>'"$(xml_escape "${ROOST_CF_ACCESS_AUD}")"$'</string>'
 
 # Bind + trust-proxy depend on FRONTED. Fronted: plaintext on loopback, trust
 # X-Forwarded-For from `tailscale serve` (verified un-spoofable: tailscale
 # OVERWRITES client XFF with the authenticated tailnet IP). Direct: 0.0.0.0 TLS.
 if [[ "$FRONTED" == "1" ]]; then
   BIND_VALUE="127.0.0.1:${COORD_LOOPBACK_PORT}"
-  TRUST_PROXY_PLIST=$'\n    <key>ROOST_TRUST_PROXY</key>\n    <string>1</string>\n    <key>ROOST_FRONTED</key>\n    <string>1</string>\n    <key>ROOST_COORD_LOOPBACK_PORT</key>\n    <string>'"${COORD_LOOPBACK_PORT}"$'</string>'
+  TRUST_PROXY_PLIST=$'\n    <key>ROOST_TRUST_PROXY</key>\n    <string>1</string>\n    <key>ROOST_FRONTED</key>\n    <string>1</string>\n    <key>ROOST_COORD_LOOPBACK_PORT</key>\n    <string>'"$(xml_escape "${COORD_LOOPBACK_PORT}")"$'</string>'
 else
   BIND_VALUE="0.0.0.0:${TAILNET_HTTPS_PORT}"
-  TRUST_PROXY_PLIST=""
+  TRUST_PROXY_PLIST=$'\n    <key>ROOST_FRONTED</key>\n    <string>0</string>\n    <key>ROOST_COORD_LOOPBACK_PORT</key>\n    <string>'"$(xml_escape "${COORD_LOOPBACK_PORT}")"$'</string>'
 fi
 
 cmd="${1:-status}"
@@ -135,7 +171,7 @@ write_plist() {
   # binary (`roost coord`); unset → from-source (`bun …/main.ts`). Only these
   # differ between modes; the safety-critical env below (BIND, TRUST_PROXY,
   # TLS) is computed identically for both.
-  local prog_bin prog_arg2 workdir web_dist
+  local prog_bin prog_arg2 workdir web_dist label_xml prog_bin_xml prog_arg2_xml workdir_xml home_xml bind_xml db_xml auth_xml key_xml handoff_xml public_url_xml web_dist_xml diag_xml log_dir_xml tailnet_port_xml
   if [[ -n "${ROOST_EXEC_BIN:-}" ]]; then
     prog_bin="${ROOST_EXEC_BIN}"; prog_arg2="coord"
   else
@@ -143,42 +179,59 @@ write_plist() {
   fi
   workdir="${ROOST_WORKDIR:-$REPO_ROOT}"
   web_dist="${ROOST_WEB_DIST_PATH:-$REPO_ROOT/apps/web/dist}"
+  label_xml="$(xml_escape "$LABEL")"
+  prog_bin_xml="$(xml_escape "$prog_bin")"
+  prog_arg2_xml="$(xml_escape "$prog_arg2")"
+  workdir_xml="$(xml_escape "$workdir")"
+  home_xml="$(xml_escape "$HOME")"
+  bind_xml="$(xml_escape "$BIND_VALUE")"
+  db_xml="$(xml_escape "$DB_PATH")"
+  auth_xml="$(xml_escape "$AUTH_KEYS")"
+  key_xml="$(xml_escape "$COORD_KEY")"
+  handoff_xml="$(xml_escape "$HANDOFF_PATH")"
+  public_url_xml="$(xml_escape "$PUBLIC_URL")"
+  web_dist_xml="$(xml_escape "$web_dist")"
+  diag_xml="$(xml_escape "${ROOST_DIAG:-0}")"
+  log_dir_xml="$(xml_escape "$LOG_DIR")"
+  tailnet_port_xml="$(xml_escape "$TAILNET_HTTPS_PORT")"
   cat > "$PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>${LABEL}</string>
+  <string>${label_xml}</string>
   <key>ProgramArguments</key>
   <array>
-    <string>${prog_bin}</string>
-    <string>${prog_arg2}</string>
+    <string>${prog_bin_xml}</string>
+    <string>${prog_arg2_xml}</string>
   </array>
   <key>WorkingDirectory</key>
-  <string>${workdir}</string>
+  <string>${workdir_xml}</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>HOME</key>
-    <string>${HOME}</string>
+    <string>${home_xml}</string>
     <key>PATH</key>
     <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
     <key>ROOST_COORDINATOR_BIND</key>
-    <string>${BIND_VALUE}</string>
+    <string>${bind_xml}</string>
     <key>ROOST_COORDINATOR_DB</key>
-    <string>${DB_PATH}</string>
+    <string>${db_xml}</string>
     <key>ROOST_COORDINATOR_AUTHORIZED_KEYS</key>
-    <string>${AUTH_KEYS}</string>
+    <string>${auth_xml}</string>
     <key>ROOST_COORDINATOR_KEY_PATH</key>
-    <string>${COORD_KEY}</string>
+    <string>${key_xml}</string>
     <key>ROOST_COORDINATOR_HANDOFF_PATH</key>
-    <string>${HANDOFF_PATH}</string>
+    <string>${handoff_xml}</string>
     <key>ROOST_COORDINATOR_PUBLIC_URL</key>
-    <string>${PUBLIC_URL}</string>
+    <string>${public_url_xml}</string>
+    <key>ROOST_TAILNET_HTTPS_PORT</key>
+    <string>${tailnet_port_xml}</string>
     <key>ROOST_WEB_DIST_PATH</key>
-    <string>${web_dist}</string>
+    <string>${web_dist_xml}</string>
     <key>ROOST_DIAG</key>
-    <string>\${ROOST_DIAG:-0}</string>${TLS_PLIST}${GIT_SHA_PLIST}${TRUST_PROXY_PLIST}${PUBLIC_PLIST}
+    <string>${diag_xml}</string>${TLS_PLIST}${GIT_SHA_PLIST}${TRUST_PROXY_PLIST}${PUBLIC_PLIST}
   </dict>
   <key>RunAtLoad</key>
   <true/>
@@ -192,23 +245,13 @@ write_plist() {
   <key>ProcessType</key>
   <string>Interactive</string>
   <key>StandardOutPath</key>
-  <string>${LOG_DIR}/main.out.log</string>
+  <string>${log_dir_xml}/main.out.log</string>
   <key>StandardErrorPath</key>
-  <string>${LOG_DIR}/main.err.log</string>
-  <!-- Log rotation: launchd does not support native log rotation with date
-       placeholders. Rotate via newsyslog.d:
-         sudo tee /etc/newsyslog.d/roost-coord.conf <<'CONF'
-         ${LOG_DIR}/main.out.log  ${USER}:staff  640  5  100000  *  GZ
-         ${LOG_DIR}/main.err.log  ${USER}:staff  640  5  100000  *  GZ
-         CONF
-       Then: sudo newsyslog -vf /etc/newsyslog.d/roost-coord.conf
-       Fields: path  owner:group  mode  keep  size(kB)  when  flags
-       size=100000 = 100 MB; keep=5 generations; GZ=compress.
-       Alternatively truncate in place: > "${LOG_DIR}/main.err.log" -->
+  <string>${log_dir_xml}/main.err.log</string>
 </dict>
 </plist>
 EOF
-  chmod 0644 "$PLIST"
+  chmod 0600 "$PLIST"
   echo "wrote $PLIST"
 }
 
@@ -243,7 +286,7 @@ bootstrap() {
 # where one fat PTY would take every live session down with the unit).
 write_unit() {
   mkdir -p "$(dirname "$UNIT")" "$DATA_DIR" "$LOG_DIR"
-  local prog_bin prog_arg2 workdir web_dist
+  local prog_bin prog_arg2 workdir web_dist prog_bin_unit prog_arg2_unit workdir_unit stdout_unit stderr_unit
   if [[ -n "${ROOST_EXEC_BIN:-}" ]]; then
     prog_bin="${ROOST_EXEC_BIN}"; prog_arg2="coord"
   else
@@ -251,6 +294,11 @@ write_unit() {
   fi
   workdir="${ROOST_WORKDIR:-$REPO_ROOT}"
   web_dist="${ROOST_WEB_DIST_PATH:-$REPO_ROOT/apps/web/dist}"
+  prog_bin_unit="$(systemd_quote "$prog_bin")"
+  prog_arg2_unit="$(systemd_quote "$prog_arg2")"
+  workdir_unit="$(systemd_quote "$workdir")"
+  stdout_unit="$(systemd_quote "append:${LOG_DIR}/main.out.log")"
+  stderr_unit="$(systemd_quote "append:${LOG_DIR}/main.err.log")"
   {
     cat <<EOF
 [Unit]
@@ -259,36 +307,41 @@ After=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=${workdir}
-ExecStart=${prog_bin} ${prog_arg2}
-Environment=HOME=${HOME}
-Environment=PATH=${HOME}/.bun/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-Environment=ROOST_COORDINATOR_BIND=${BIND_VALUE}
-Environment=ROOST_COORDINATOR_DB=${DB_PATH}
-Environment=ROOST_COORDINATOR_AUTHORIZED_KEYS=${AUTH_KEYS}
-Environment=ROOST_COORDINATOR_KEY_PATH=${COORD_KEY}
-Environment=ROOST_COORDINATOR_HANDOFF_PATH=${HANDOFF_PATH}
-Environment=ROOST_COORDINATOR_PUBLIC_URL=${PUBLIC_URL}
-Environment=ROOST_COORD_DATA_DIR=${DATA_DIR}
-Environment=ROOST_COORD_LOG_DIR=${LOG_DIR}
-Environment=ROOST_WEB_DIST_PATH=${web_dist}
-Environment=ROOST_DIAG=${ROOST_DIAG:-0}
+WorkingDirectory=${workdir_unit}
+ExecStart=${prog_bin_unit} ${prog_arg2_unit}
 EOF
+    systemd_env "HOME" "$HOME"
+    systemd_env "PATH" "$HOME/.bun/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+    systemd_env "ROOST_COORDINATOR_BIND" "$BIND_VALUE"
+    systemd_env "ROOST_COORDINATOR_DB" "$DB_PATH"
+    systemd_env "ROOST_COORDINATOR_AUTHORIZED_KEYS" "$AUTH_KEYS"
+    systemd_env "ROOST_COORDINATOR_KEY_PATH" "$COORD_KEY"
+    systemd_env "ROOST_COORDINATOR_HANDOFF_PATH" "$HANDOFF_PATH"
+    systemd_env "ROOST_COORDINATOR_PUBLIC_URL" "$PUBLIC_URL"
+    systemd_env "ROOST_COORD_DATA_DIR" "$DATA_DIR"
+    systemd_env "ROOST_COORD_LOG_DIR" "$LOG_DIR"
+    systemd_env "ROOST_WEB_DIST_PATH" "$web_dist"
+    systemd_env "ROOST_DIAG" "${ROOST_DIAG:-0}"
+    systemd_env "ROOST_TAILNET_HTTPS_PORT" "$TAILNET_HTTPS_PORT"
+    systemd_env "ROOST_COORD_MEMORY_HIGH" "$COORD_MEM_HIGH"
+    systemd_env "ROOST_COORD_MEMORY_MAX" "$COORD_MEM_MAX"
+    systemd_env "ROOST_COORD_TASKS_MAX" "$COORD_TASKS_MAX"
+    systemd_env "ROOST_COORD_LOGROTATE_CONF" "$LOGROTATE_CONF"
+    systemd_env "ROOST_FRONTED" "$FRONTED"
+    systemd_env "ROOST_COORD_LOOPBACK_PORT" "$COORD_LOOPBACK_PORT"
     if [[ "$FRONTED" != "1" && -n "$TLS_CERT_PATH" && -n "$TLS_KEY_PATH" ]]; then
-      echo "Environment=ROOST_TLS_CERT_PATH=${TLS_CERT_PATH}"
-      echo "Environment=ROOST_TLS_KEY_PATH=${TLS_KEY_PATH}"
+      systemd_env "ROOST_TLS_CERT_PATH" "$TLS_CERT_PATH"
+      systemd_env "ROOST_TLS_KEY_PATH" "$TLS_KEY_PATH"
     fi
-    [[ -n "$GIT_SHA_RESOLVED" ]]      && echo "Environment=ROOST_GIT_SHA=${GIT_SHA_RESOLVED}"
+    [[ -n "$GIT_SHA_RESOLVED" ]] && systemd_env "ROOST_GIT_SHA" "$GIT_SHA_RESOLVED"
     if [[ "$FRONTED" == "1" ]]; then
-      echo "Environment=ROOST_TRUST_PROXY=1"
-      echo "Environment=ROOST_FRONTED=1"
-      echo "Environment=ROOST_COORD_LOOPBACK_PORT=${COORD_LOOPBACK_PORT}"
+      systemd_env "ROOST_TRUST_PROXY" "1"
     fi
-    [[ -n "${ROOST_EXEC_BIN:-}" ]]    && echo "Environment=ROOST_EXEC_BIN=${ROOST_EXEC_BIN}"
-    [[ -n "${ROOST_PUBLIC_BIND:-}" ]]             && echo "Environment=ROOST_PUBLIC_BIND=${ROOST_PUBLIC_BIND}"
-    [[ -n "${ROOST_WEB_PUBLIC_URL:-}" ]]          && echo "Environment=ROOST_WEB_PUBLIC_URL=${ROOST_WEB_PUBLIC_URL}"
-    [[ -n "${ROOST_CF_ACCESS_TEAM_DOMAIN:-}" ]]   && echo "Environment=ROOST_CF_ACCESS_TEAM_DOMAIN=${ROOST_CF_ACCESS_TEAM_DOMAIN}"
-    [[ -n "${ROOST_CF_ACCESS_AUD:-}" ]]           && echo "Environment=ROOST_CF_ACCESS_AUD=${ROOST_CF_ACCESS_AUD}"
+    [[ -n "${ROOST_EXEC_BIN:-}" ]] && systemd_env "ROOST_EXEC_BIN" "$ROOST_EXEC_BIN"
+    [[ -n "${ROOST_PUBLIC_BIND:-}" ]] && systemd_env "ROOST_PUBLIC_BIND" "$ROOST_PUBLIC_BIND"
+    [[ -n "${ROOST_WEB_PUBLIC_URL:-}" ]] && systemd_env "ROOST_WEB_PUBLIC_URL" "$ROOST_WEB_PUBLIC_URL"
+    [[ -n "${ROOST_CF_ACCESS_TEAM_DOMAIN:-}" ]] && systemd_env "ROOST_CF_ACCESS_TEAM_DOMAIN" "$ROOST_CF_ACCESS_TEAM_DOMAIN"
+    [[ -n "${ROOST_CF_ACCESS_AUD:-}" ]] && systemd_env "ROOST_CF_ACCESS_AUD" "$ROOST_CF_ACCESS_AUD"
     # RestartSec=1 is the systemd analogue of the plist's ThrottleInterval 1:
     # a Bun crash must not freeze every browser's Sync stream for 10s.
     cat <<EOF
@@ -298,8 +351,8 @@ TimeoutStopSec=10
 MemoryHigh=${COORD_MEM_HIGH}
 MemoryMax=${COORD_MEM_MAX}
 TasksMax=${COORD_TASKS_MAX}
-StandardOutput=append:${LOG_DIR}/main.out.log
-StandardError=append:${LOG_DIR}/main.err.log
+StandardOutput=${stdout_unit}
+StandardError=${stderr_unit}
 
 [Install]
 WantedBy=default.target

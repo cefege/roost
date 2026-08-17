@@ -30,10 +30,8 @@ export const Worker = z.object({
   // surface — it dials coord). Nullable for workers registered before
   // the field was added.
   reachable_addr: z.string().nullable(),
-  // Non-null = this worker's keeper subprocess is running stale code (value =
-  // the running keeper's short build stamp); null = current. Drives the
-  // MachinesPane "keeper stale" badge + `roost keeper-refresh`. null for workers
-  // reporting before the field existed.
+  // Tri-state keeper build proof: null = unknown/unreported, "" = current,
+  // non-empty = stale running build stamp.
   keeper_stale: z.string().nullable(),
 });
 export type Worker = z.infer<typeof Worker>;

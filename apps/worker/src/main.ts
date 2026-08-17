@@ -11,7 +11,7 @@ import { runInstall } from "./install.ts";
 import { startHeartbeat } from "./heartbeat.ts";
 import { SessionManager } from "./session-manager.ts";
 import { emitSnapshot } from "./snapshot.ts";
-import { startCoordLink } from "./transport/CoordLink.ts";
+import { startCoordLink, type CoordLink } from "./transport/CoordLink.ts";
 import { handleAttachmentChunk } from "./attachment-upload.ts";
 import { handleBrowserCommand } from "./browser-command-handler.ts";
 import { handleKeeperSurvivor } from "./boot-keeper.ts";
@@ -27,6 +27,7 @@ import { startAgentReportServer, type AgentReportServer } from "./agent-status/r
 import { serveServiceHealth } from "@roost/shared/service-health";
 import { asWorkerFp } from "@roost/shared";
 import { log, diag, isDiagEnabled, signal, workerDataDir } from "@roost/shared";
+import { ROOST_ARTIFACT_VERSION, ROOST_BUILD_SHA } from "@roost/shared/build-identity";
 import { coordDataDir, coordServicePath, workerServicePath } from "@roost/shared/paths";
 import { prepareWtermCoreModule } from "@roost/shared/wterm-core-factory";
 import {
@@ -36,6 +37,30 @@ import {
 import { createHash, randomUUID } from "node:crypto";
 const _workerSha8 = (b: Uint8Array): string =>
 	createHash("sha256").update(b).digest("hex").slice(0, 8);
+
+async function replayDurableWindowsUpdateProgress(coordLink: CoordLink): Promise<void> {
+	if (process.platform !== "win32") return;
+	const {
+		DurableWindowsUpdateJournalStore,
+		readWindowsUpdateProgressFromJournal,
+	} = await import("../../roost-cli/src/windows-update-journal.ts");
+	const journal = await new DurableWindowsUpdateJournalStore().load();
+	if (!journal) return;
+	const requestId = randomUUID();
+	for (const entry of readWindowsUpdateProgressFromJournal(journal, 0)) {
+		coordLink.send({
+			kind: "update-progress",
+			request_id: requestId,
+			job_id: journal.jobId,
+			sequence: entry.sequence,
+			phase: entry.phase,
+			message: entry.message,
+			terminal: entry.terminal,
+			success: entry.success,
+			error: entry.error,
+		});
+	}
+}
 import { join } from "node:path";
 import { homedir } from "node:os";
 
@@ -88,8 +113,8 @@ export async function runWorker() {
 		coordinatorUrl: cfg.coordinatorUrl,
 		label: cfg.label,
 	});
-	const healthVersion = process.env.ROOST_VERSION ?? "dev";
-	const healthBuild = process.env.GIT_SHA ?? process.env.ROOST_GIT_SHA ?? healthVersion;
+	const healthVersion = ROOST_ARTIFACT_VERSION === "dev" ? ROOST_BUILD_SHA : ROOST_ARTIFACT_VERSION;
+	const healthBuild = ROOST_BUILD_SHA;
 	const processEpoch = randomUUID();
 	let workerReady = false;
 
@@ -162,6 +187,9 @@ export async function runWorker() {
 		},
 		onOpen: (reconnected) => {
 			if (reconnected) agentRegistryForReconnect?.resend();
+			void replayDurableWindowsUpdateProgress(coordLink).catch((error) => {
+				log.warn("windows-update", "progress_replay_failed", { error: String(error) });
+			});
 		},
 		onInputRequest: async (request) => {
 			const result = await sessionMgr.writeTerminalInput(
@@ -436,7 +464,7 @@ export async function runWorker() {
 			targetLinkReady,
 			coordinatorUrl: cfg.coordinatorUrl,
 		};
-	});
+	}, { dataDir: SUPPORT });
 
 
 	// Worker has NO inbound port. Browser commands arrive as

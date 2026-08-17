@@ -6,7 +6,6 @@ import { roostServiceDir } from "@roost/shared/paths";
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { _isSelfHost, sshExec } from "./deploy.ts";
-import { createWindowsServiceManager } from "./service-ctl.ts";
 
 const KEEPER_PROC_PATTERN = "multiplexed-main.ts";
 
@@ -23,13 +22,13 @@ export async function keeperRefresh(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  switch (process.platform) {
-    case "darwin":
-    case "linux":
-    case "win32":
-      break;
-    default:
-      throw new Error(`unsupported keeper-refresh platform: ${process.platform}`);
+  if (process.platform === "win32") {
+    throw new Error(
+      "Windows keeper-refresh is disabled outside RoostUpdaterV2; direct SCM mutation is not authorized",
+    );
+  }
+  if (process.platform !== "darwin" && process.platform !== "linux") {
+    throw new Error(`unsupported keeper-refresh platform: ${process.platform}`);
   }
 
   const journalPath = join(
@@ -41,19 +40,6 @@ export async function keeperRefresh(args: string[]): Promise<void> {
   const transaction = await acquireMachineTransaction("keeper-refresh", journalPath);
   try {
     const self = await _isSelfHost(host);
-    if (process.platform === "win32") {
-      if (!self) {
-        throw new Error("Windows keeper-refresh is native-local only; use the coordinator machine control for a remote host");
-      }
-      const manager = createWindowsServiceManager();
-      const keeper = await manager.query("keeper");
-      if (!keeper.installed) throw new Error("RoostKeeperV2 is not installed");
-      console.log(">> local keeper-refresh (graceful SCM stop RoostKeeperV2)");
-      await manager.stop("keeper", { timeoutMs: 30_000 });
-      await manager.start("keeper");
-      console.log(">> keeper restarted on current code");
-      return;
-    }
 
     const remoteCmd = `pkill -TERM -f ${KEEPER_PROC_PATTERN}`;
     if (self) {

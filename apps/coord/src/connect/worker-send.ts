@@ -12,7 +12,7 @@ import {
   DUpdateBrokerSchema,
 } from "@roost/shared/proto/worker_transport_pb";
 import { connectWorkers } from "./worker-registry.ts";
-import { createPendingRpc, rejectPendingRpc } from "../router/pending-rpcs.ts";
+import { createPendingRpc, rejectPendingRpc, rejectPendingRpcUnavailable } from "../router/pending-rpcs.ts";
 import { log } from "@roost/shared/log";
 
 /** Socket-shape shim: presents the worker-conn registry to call sites
@@ -264,9 +264,9 @@ export function sendWindowsUpdateBroker(workerFp: string, message: {
         publisherSha256: message.publisherSha256 ?? "",
       }) },
     }));
-    if (sent <= 0) throw new Error("worker update command was not queued");
+    if (sent === 0) throw new Error("worker update command was dropped");
   } catch (error) {
-    rejectPendingRpc(pending.request_id, (error as Error).message);
+    rejectPendingRpcUnavailable(pending.request_id, (error as Error).message);
   }
   return { requestId: pending.request_id, promise: pending.promise };
 }

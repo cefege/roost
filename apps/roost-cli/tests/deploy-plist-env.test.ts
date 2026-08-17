@@ -14,8 +14,12 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import fs from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { _backfillEnvFromPlist, _resolveDeployEnvValue } from "../src/deploy-plist-env.ts";
-import { _quoteRemoteShell, _remoteCertCommand, _selectMacCertificateFqdn } from "../src/deploy.ts";
+import {
+  _backfillEnvFromPlist,
+  _resolveDeployEnvValue,
+  parsePosixServiceEnvironment,
+} from "../src/deploy-plist-env.ts";
+import { _quoteRemoteShell } from "../src/deploy.ts";
 import { WORKER_UNIT } from "../src/service-ctl.ts";
 
 const KEYS = ["ROOST_COORDINATOR_URL", "ROOST_REACHABLE_ADDR", "ROOST_WORKER_LABEL", "HOME"] as const;
@@ -199,6 +203,16 @@ describe("_backfillEnvFromPlist — parsing", () => {
     const r = await backfillFrom(home);
     expect(r.env).toEqual({ ROOST_WORKER_LABEL: "mike-m5-air" });
   });
+
+  test("decodes systemd percent escapes in quoted and legacy environment lines", () => {
+    expect(parsePosixServiceEnvironment([
+      'Environment="ROOST_COORDINATOR_URL=https://coord/100%%ready"',
+      "Environment=ROOST_REACHABLE_ADDR=worker%%blue",
+    ].join("\n"), "linux")).toEqual({
+      ROOST_COORDINATOR_URL: "https://coord/100%ready",
+      ROOST_REACHABLE_ADDR: "worker%blue",
+    });
+  });
 });
 
 describe("_quoteRemoteShell", () => {
@@ -218,22 +232,6 @@ describe("_quoteRemoteShell", () => {
     expect(fs.existsSync(backtickSubstitution)).toBe(false);
   });
 
-  test("certificate command preserves the tailscale failure status", () => {
-    const bin = join(root, "bin");
-    const tailscale = join(bin, "tailscale");
-    fs.mkdirSync(bin, { recursive: true });
-    fs.writeFileSync(tailscale, "#!/usr/bin/env bash\nexit 23\n");
-    fs.chmodSync(tailscale, 0o700);
-
-    const proc = Bun.spawnSync(["bash", "-c", _remoteCertCommand("worker.example")], {
-      env: {
-        ...process.env,
-        HOME: join(root, "remote-home"),
-        PATH: `${bin}:${process.env.PATH ?? "/usr/bin:/bin"}`,
-      },
-    });
-    expect(proc.exitCode).toBe(23);
-  });
 });
 
 describe("worker installer environment precedence", () => {
@@ -267,22 +265,33 @@ describe("worker installer environment precedence", () => {
       HOME: home,
       PATH: `${bin}:${process.env.PATH ?? "/usr/bin:/bin"}`,
       BUN_BIN: "/bin/true",
-      ROOST_COORDINATOR_URL: "https://current.example:4102",
+      ROOST_COORDINATOR_URL: "https://current.example:4102/100%ready",
       ROOST_WORKER_LABEL: "current-worker",
       ROOST_REACHABLE_ADDR: "current.example",
       ROOST_WORKER_AGENT_LABEL: "test-worker",
       ROOST_WORKER_UNIT: unit,
       ROOST_WORKER_DATA_DIR: join(root, "data"),
       ROOST_WORKER_LOG_DIR: join(root, "logs"),
+      ROOST_WORKER_TASKS_MAX: "6144",
+      ROOST_WORKER_LOGROTATE_CONF: join(root, "rotate%worker.conf"),
     });
 
     const proc = Bun.spawnSync(["bash", installer, "write-plist"], { env });
     expect(proc.exitCode).toBe(0);
     const definition = fs.readFileSync(unit, "utf8");
-    expect(definition).toContain("Environment=ROOST_COORDINATOR_URL=https://current.example:4102");
-    expect(definition).toContain("Environment=ROOST_WORKER_LABEL=current-worker");
-    expect(definition).toContain("Environment=ROOST_REACHABLE_ADDR=current.example");
+    expect(definition).toContain('Environment="ROOST_COORDINATOR_URL=https://current.example:4102/100%%ready"');
+    expect(definition).toContain('Environment="ROOST_WORKER_LABEL=current-worker"');
+    expect(definition).toContain('Environment="ROOST_REACHABLE_ADDR=current.example"');
+    expect(definition).toContain('Environment="ROOST_WORKER_MEMORY_HIGH=4G"');
+    expect(definition).toContain('Environment="ROOST_WORKER_TASKS_MAX=6144"');
+    expect(definition).toContain(`Environment="ROOST_WORKER_LOGROTATE_CONF=${join(root, "rotate%%worker.conf")}"`);
     expect(definition).toContain("MemoryHigh=4G");
+    expect(parsePosixServiceEnvironment(definition, "linux")).toMatchObject({
+      ROOST_COORDINATOR_URL: "https://current.example:4102/100%ready",
+      ROOST_WORKER_MEMORY_HIGH: "4G",
+      ROOST_WORKER_TASKS_MAX: "6144",
+      ROOST_WORKER_LOGROTATE_CONF: join(root, "rotate%worker.conf"),
+    });
     expect(definition).not.toContain("stale");
   });
 
@@ -327,8 +336,10 @@ describe("worker installer environment precedence", () => {
         HOME: home,
         PATH: `${bin}:${process.env.PATH ?? "/usr/bin:/bin"}`,
         BUN_BIN: "/bin/true",
-        ROOST_COORDINATOR_URL: "https://current.example:4102",
+        ROOST_COORDINATOR_URL: "https://current.example:4102/?a=1&b=<worker>",
         ROOST_WORKER_AGENT_LABEL: "test-worker",
+        ROOST_WORKER_LABEL: "worker & <primary>",
+        ROOST_BOOTSTRAP_TOKEN: "one-shot<&secret>",
         ROOST_WORKER_DATA_DIR: join(root, "mac-data"),
         ROOST_WORKER_LOG_DIR: join(root, "mac-logs"),
         ROOST_TEST_ATTEMPTS: attempts,
@@ -337,6 +348,12 @@ describe("worker installer environment precedence", () => {
 
     expect(proc.exitCode).toBe(0);
     expect(fs.readFileSync(attempts, "utf8")).toBe("5");
+    const plist = fs.readFileSync(join(home, "Library/LaunchAgents/test-worker.plist"), "utf8");
+    expect(plist).toContain("https://current.example:4102/?a=1&amp;b=&lt;worker&gt;");
+    expect(plist).toContain("worker &amp; &lt;primary&gt;");
+    expect(plist).toContain("one-shot&lt;&amp;secret&gt;");
+    expect(plist).not.toContain("${ROOST_DIAG");
+    expect(fs.statSync(join(home, "Library/LaunchAgents/test-worker.plist")).mode & 0o777).toBe(0o600);
   });
 });
 
@@ -371,8 +388,6 @@ describe("_backfillEnvFromPlist — precedence and absence", () => {
     expect(resolvedCoordinatorUrl).toBe("https://enrolled-coord.tail1234.ts.net:4102");
     expect(resolvedWorkerLabel).toBe("mac-worker");
     expect(resolvedReachableAddr).toBe("mac-worker.tail1234.ts.net");
-    expect(_selectMacCertificateFqdn("mac-worker", resolvedReachableAddr, "wrong-tail.ts.net"))
-      .toBe(resolvedReachableAddr);
 
     expect(process.env.ROOST_COORDINATOR_URL).toBe("https://coord-host.tail1234.ts.net:4102");
     expect(process.env.ROOST_REACHABLE_ADDR).toBe("coord-host.tail1234.ts.net");
@@ -416,20 +431,8 @@ describe("_backfillEnvFromPlist — precedence and absence", () => {
     expect(_resolveDeployEnvValue("ROOST_REACHABLE_ADDR", r.env))
       .toBe("fresh-mac.tail1234.ts.net");
     expect(_resolveDeployEnvValue("ROOST_WORKER_LABEL", r.env)).toBe("fresh-mac");
-    const resolvedReachableAddr = _resolveDeployEnvValue("ROOST_REACHABLE_ADDR", r.env);
-    expect(_selectMacCertificateFqdn("fresh-mac", resolvedReachableAddr, "tail1234.ts.net"))
-      .toBe("fresh-mac.tail1234.ts.net");
   });
 
-  test("a fresh Mac derives its certificate FQDN when reachable address is absent", async () => {
-    process.env.ROOST_COORDINATOR_URL = "https://coord-host.tail1234.ts.net:4102";
-    const r = await backfillFrom(fakeHost("fresh-mac", {}));
-    const resolvedReachableAddr = _resolveDeployEnvValue("ROOST_REACHABLE_ADDR", r.env);
-
-    expect(resolvedReachableAddr).toBeUndefined();
-    expect(_selectMacCertificateFqdn("fresh-mac", resolvedReachableAddr, "tail1234.ts.net"))
-      .toBe("fresh-mac.tail1234.ts.net");
-  });
 
 
   test("missing service definition returns empty without throwing", async () => {

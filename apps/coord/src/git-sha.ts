@@ -17,8 +17,11 @@
 //      user notices something is off.
 //
 // Captured once at module load; coord restart picks up new commits.
+import { IS_COMPILED_ROOST_BUILD, ROOST_BUILD_SHA } from "@roost/shared/build-identity";
+
 
 function _resolve(): string {
+  if (IS_COMPILED_ROOST_BUILD) return ROOST_BUILD_SHA;
   try {
     const r = Bun.spawnSync(["git", "rev-parse", "HEAD"]);
     if (r.exitCode === 0) {

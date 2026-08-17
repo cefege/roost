@@ -9,7 +9,6 @@
 // only the host-native `dist/roost`; `--windows-only` builds the Windows PE
 // consumed by scripts/windows/package-windows.ps1.
 import { $ } from "bun";
-import { existsSync } from "node:fs";
 import { copyFile } from "node:fs/promises";
 
 const OUT = "dist/roost";
@@ -31,34 +30,41 @@ const unknownArgs = process.argv.slice(2).filter((arg) => !["--host-only", "--wi
 if (unknownArgs.length > 0) throw new Error(`unknown argument(s): ${unknownArgs.join(", ")}`);
 if (hostOnly && windowsOnly) throw new Error("--host-only and --windows-only are mutually exclusive");
 
-// Stamp the binary's version: package.json version + short git sha, baked via
-// --define so `roost version` / `roost update` know what they are.
+// Stamp semantic artifact version and the full immutable commit separately.
+// The version is human/release-facing; service health and fleet convergence
+// use the full SHA so binary replacement cannot inherit stale service env.
 const pkg = await Bun.file("package.json").json();
-const sha = (await $`git rev-parse --short HEAD`.nothrow().quiet().text()).trim();
-const VERSION = sha ? `${pkg.version}+${sha}` : `${pkg.version}`;
-
-if (!existsSync("apps/web/dist/index.html")) {
-  console.log(">> vite build (apps/web)");
-  await $`bun x vite build`.cwd("apps/web");
-} else {
-  console.log(">> vite build skipped (apps/web/dist present — delete to rebuild)");
+const gitSha = (await $`git rev-parse HEAD`.nothrow().quiet().text()).trim();
+if (!/^[0-9a-f]{40,64}$/i.test(gitSha)) {
+  throw new Error("cannot build release artifacts without a full immutable Git commit SHA");
 }
+const dirty = (await $`git status --porcelain`.nothrow().quiet().text()).trim();
+if (dirty) {
+  throw new Error("cannot build release artifacts from a dirty working tree");
+}
+const VERSION = gitSha ? `${pkg.version}+${gitSha.slice(0, 8)}` : `${pkg.version}`;
+
+console.log(">> vite build (apps/web)");
+await $`bun x vite build`.env({ ...process.env, ROOST_GIT_SHA: gitSha }).cwd("apps/web");
 
 try {
   console.log(">> gen-embed (baking SPA + migrations)");
   await $`bun scripts/gen-embed.ts`;
 
-  const define = `__ROOST_VERSION__=${JSON.stringify(VERSION)}`;
+  const defineArgs = [
+    "--define", `__ROOST_VERSION__=${JSON.stringify(VERSION)}`,
+    "--define", `__ROOST_GIT_SHA__=${JSON.stringify(gitSha)}`,
+  ];
   if (hostOnly) {
     console.log(`>> bun build --compile → ${OUT} (host, version ${VERSION})`);
-    await $`bun build --compile --define ${define} apps/roost-cli/src/main.ts --outfile ${OUT}`;
+    await $`bun build --compile ${defineArgs} apps/roost-cli/src/main.ts --outfile ${OUT}`;
   } else {
     const targets = windowsOnly
       ? TARGETS.filter((candidate) => candidate.out === WINDOWS_X64_OUT)
       : TARGETS;
     for (const t of targets) {
       console.log(`>> bun build --compile --target=${t.target} → ${t.out}`);
-      await $`bun build --compile --target=${t.target} --define ${define} apps/roost-cli/src/main.ts --outfile ${t.out}`;
+      await $`bun build --compile --target=${t.target} ${defineArgs} apps/roost-cli/src/main.ts --outfile ${t.out}`;
     }
     if (!windowsOnly) {
       console.log(`>> copy ${DARWIN_ARM64_OUT} → ${OUT}`);

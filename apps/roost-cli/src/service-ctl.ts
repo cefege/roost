@@ -4,14 +4,24 @@ import {
   COORD_LABEL_LINUX,
   WORKER_LABEL_DARWIN,
   WORKER_LABEL_LINUX,
-  coordDataDir,
-  coordLogDir,
   roostServiceDir,
-  workerDataDir,
-  workerLogDir,
 } from "@roost/shared/paths";
-import { runWindowsHelper } from "@roost/shared/windows-helper";
-import { join } from "node:path";
+import {
+  resolveWindowsHelperPath,
+  runWindowsHelper,
+  windowsApplyServiceDacl,
+  windowsConfigureServiceSid,
+  windowsResolveServiceSid,
+  windowsRevokeServiceDacl,
+  windowsReplaceUpdaterArtifact,
+  type WindowsServiceControlGrant,
+  windowsConfigureService,
+  type WindowsServiceConfig,
+  type WindowsServiceRecoveryPolicy,
+  type WindowsServiceSnapshot as NativeWindowsServiceSnapshot,
+  type WindowsServiceSidType,
+} from "@roost/shared/windows-helper";
+import { dirname, join, win32 } from "node:path";
 
 /** The command-string helpers below are retained for POSIX deploy callers. */
 export type PosixServiceOs = "darwin" | "linux";
@@ -133,9 +143,23 @@ export interface WindowsServiceSnapshot {
   imagePath: string | null;
   account: string | null;
   dependencies: readonly string[];
+  /** Exact SCM Environment registry values; null means the service is absent. */
+  environment?: Readonly<Record<string, string>> | null;
+  displayName: string | null;
+  description: string | null;
+  recoveryPolicy: WindowsServiceRecoveryPolicy | null;
+  /** Present only when queried with includeSecurity; null means the service is absent. */
+  securityDescriptor?: string | null;
+  /** Returned by both basic and full native service queries; null means the service is absent. */
+  serviceSidType?: WindowsServiceSidType | null;
 }
 
 export type WindowsServiceSnapshotSet = Readonly<Record<RoostServiceRole, WindowsServiceSnapshot>>;
+export interface WindowsServiceQueryOptions {
+  /** Include the full SCM security descriptor. This requires READ_CONTROL. */
+  includeSecurity?: boolean;
+}
+
 
 export interface WindowsServiceDefinition {
   role: RoostServiceRole;
@@ -147,6 +171,8 @@ export interface WindowsServiceDefinition {
   dependencies: readonly RoostServiceRole[];
   shawlPath: string;
   shawlArguments: readonly string[];
+  /** Admin-owned stable helper which resolves and verifies the active release. */
+  serviceLauncherPath: string;
   executablePath: string;
   arguments: readonly string[];
   cwd: string;
@@ -168,11 +194,16 @@ export interface WindowsServiceRestoreOptions {
    * Pass [] for a configuration-only restore.
    */
   restoreLifecycleRoles?: readonly RoostServiceRole[];
+  /** Elevated install rollback may stop/delete a keeper created by that transaction. */
+  allowKeeperStop?: boolean;
 }
 
 export interface WindowsServiceManager {
-  query(role: RoostServiceRole): Promise<WindowsServiceSnapshot>;
-  snapshot(): Promise<WindowsServiceSnapshotSet>;
+  query(
+    role: RoostServiceRole,
+    options?: WindowsServiceQueryOptions,
+  ): Promise<WindowsServiceSnapshot>;
+  snapshot(options?: WindowsServiceQueryOptions): Promise<WindowsServiceSnapshotSet>;
   install(
     definition: WindowsServiceDefinition,
     credentials?: WindowsServiceCredentials,
@@ -188,11 +219,14 @@ export interface WindowsServiceManager {
     options?: WindowsServiceRestoreOptions,
   ): Promise<WindowsServiceSnapshotSet>;
   provisionServiceLogon(account: string): Promise<void>;
+  /** Elevated-install only: configure service SIDs and exact cross-service control grants. */
+  provisionServiceSecurity(interactiveSid: string): Promise<void>;
 }
 
 export interface WindowsServiceDefinitionOptions {
   executablePath: string;
   shawlPath: string;
+  serviceLauncherPath: string;
   windowsHelperPath: string;
   account: string;
   coordinatorHost: boolean;
@@ -215,30 +249,25 @@ export type WindowsNativeCommandRunner = (
 
 export interface WindowsServiceManagerOptions {
   platform?: NodeJS.Platform;
+  /** Test seam; production receives `[Environment]::SystemDirectory` from the signed installer. */
+  systemDirectory?: string;
   run?: WindowsNativeCommandRunner;
   sleep?: (milliseconds: number) => Promise<void>;
   now?: () => number;
+  configureNative?: (
+    service: (typeof WINDOWS_SERVICE_NAMES)[RoostServiceRole],
+    config: WindowsServiceConfig,
+  ) => Promise<unknown>;
+  configureServiceSidNative?: (
+    service: (typeof WINDOWS_SERVICE_NAMES)[RoostServiceRole],
+    serviceSidType: WindowsServiceSidType,
+  ) => Promise<unknown>;
 }
 
 function assertNever(value: never): never {
   throw new Error(`unhandled service platform: ${String(value)}`);
 }
 
-const WINDOWS_STATE_BY_CODE: Readonly<Record<number, WindowsServiceState>> = {
-  1: "stopped",
-  2: "start-pending",
-  3: "stop-pending",
-  4: "running",
-  5: "continue-pending",
-  6: "pause-pending",
-  7: "paused",
-};
-
-const WINDOWS_START_MODE_BY_CODE: Readonly<Record<number, WindowsServiceStartMode>> = {
-  2: "automatic",
-  3: "manual",
-  4: "disabled",
-};
 
 const START_MODE_SC_VALUE: Readonly<Record<"automatic" | "manual" | "disabled", string>> = {
   automatic: "auto",
@@ -258,6 +287,18 @@ const DESCRIPTIONS: Readonly<Record<RoostServiceRole, string>> = {
   worker: "Connects this Windows host to the Roost coordinator.",
   coordinator: "Hosts the Roost coordinator and web application.",
   updater: "Applies a verified Roost release transaction on demand.",
+};
+
+const EXPECTED_RECOVERY_POLICY: WindowsServiceRecoveryPolicy = {
+  resetPeriodSeconds: 86_400,
+  rebootMessage: "",
+  command: "",
+  actions: [
+    { type: "restart", delayMs: 5_000 },
+    { type: "restart", delayMs: 30_000 },
+    { type: "restart", delayMs: 60_000 },
+  ],
+  actionsOnNonCrashFailures: true,
 };
 
 const ALLOWED_SC_MUTATIONS = new Set([
@@ -359,6 +400,7 @@ function makeWindowsDefinition(
   options: {
     executablePath: string;
     shawlPath: string;
+    serviceLauncherPath: string;
     account: string;
     startMode: "automatic" | "manual";
     dependencies: readonly RoostServiceRole[];
@@ -366,10 +408,14 @@ function makeWindowsDefinition(
     cwd: string;
     logDir: string;
     environment: Readonly<Record<string, string>>;
+    launchCurrent?: boolean;
   },
 ): WindowsServiceDefinition {
   const name = serviceName(role);
   const environment = checkedEnvironment(options.environment);
+  const targetArguments = options.launchCurrent === false
+    ? [options.executablePath, ...options.arguments]
+    : [options.serviceLauncherPath, "launch-current", ...options.arguments];
   const shawlArguments = [
     "run",
     "--name",
@@ -392,8 +438,7 @@ function makeWindowsDefinition(
     "2",
     ...Object.entries(environment).flatMap(([key, value]) => ["--env", `${key}=${value}`]),
     "--",
-    options.executablePath,
-    ...options.arguments,
+    ...targetArguments,
   ] as const;
   return Object.freeze({
     role,
@@ -405,6 +450,7 @@ function makeWindowsDefinition(
     dependencies: Object.freeze([...options.dependencies]),
     shawlPath: options.shawlPath,
     shawlArguments: Object.freeze([...shawlArguments]),
+    serviceLauncherPath: options.serviceLauncherPath,
     executablePath: options.executablePath,
     arguments: Object.freeze([...options.arguments]),
     cwd: options.cwd,
@@ -424,39 +470,50 @@ export function buildWindowsServiceDefinitions(
   assertWindowsOperatorAccount(options.account);
   assertNoCommandControl(options.executablePath, "Roost executable path");
   assertNoCommandControl(options.shawlPath, "Shawl executable path");
+  assertNoCommandControl(options.serviceLauncherPath, "stable Windows service launcher path");
   assertNoCommandControl(options.windowsHelperPath, "Windows helper path");
 
   const serviceDir = options.serviceDir ?? roostServiceDir(undefined, "win32");
-  const workerData = workerDataDir();
-  const workerLogs = workerLogDir();
-  const coordinatorData = coordDataDir();
-  const coordinatorLogs = coordLogDir();
+  // Every Windows service gets machine-owned state beneath the protected
+  // service root. Never derive daemon state from the installing user's profile.
+  const keeperData = join(serviceDir, "data", "keeper");
+  const keeperLogs = join(serviceDir, "logs", "keeper");
+  const workerData = join(serviceDir, "data", "worker");
+  const workerLogs = join(serviceDir, "logs", "worker");
+  const coordinatorData = join(serviceDir, "data", "coordinator");
+  const coordinatorLogs = join(serviceDir, "logs", "coordinator");
+  const updaterData = join(serviceDir, "data", "updater");
+  const updaterLogs = join(serviceDir, "logs", "updater");
   const common = options.commonEnvironment ?? {};
   const roleEnv = (role: RoostServiceRole, required: Record<string, string>) => ({
     ...common,
-    ...required,
     ...(options.roleEnvironment?.[role] ?? {}),
+    ...required,
     ROOST_LOG_ENCODING: "utf-8",
+    ROOST_SERVICE_ROLE: role,
   });
   const definitions: Record<RoostServiceRole, WindowsServiceDefinition> = {
     keeper: makeWindowsDefinition("keeper", {
       executablePath: options.executablePath,
       shawlPath: options.shawlPath,
+      serviceLauncherPath: options.serviceLauncherPath,
       account: options.account,
       startMode: "automatic",
       dependencies: [],
       arguments: options.keeperArguments ?? ["keeper", "--service"],
-      cwd: workerData,
-      logDir: join(workerLogs, "keeper"),
+      cwd: keeperData,
+      logDir: join(keeperLogs, "keeper"),
       environment: roleEnv("keeper", {
-        ROOST_WORKER_DATA_DIR: workerData,
-        ROOST_WORKER_LOG_DIR: workerLogs,
-        ROOST_WIN_HELPER: options.windowsHelperPath,
+        // Keeper still consumes the legacy Worker-named variables, but its
+        // identity and logs are isolated from the Worker service roots.
+        ROOST_WORKER_DATA_DIR: keeperData,
+        ROOST_WORKER_LOG_DIR: keeperLogs,
       }),
     }),
     worker: makeWindowsDefinition("worker", {
       executablePath: options.executablePath,
       shawlPath: options.shawlPath,
+      serviceLauncherPath: options.serviceLauncherPath,
       account: options.account,
       startMode: "automatic",
       dependencies: ["keeper"],
@@ -466,12 +523,12 @@ export function buildWindowsServiceDefinitions(
       environment: roleEnv("worker", {
         ROOST_WORKER_DATA_DIR: workerData,
         ROOST_WORKER_LOG_DIR: workerLogs,
-        ROOST_WIN_HELPER: options.windowsHelperPath,
       }),
     }),
     coordinator: makeWindowsDefinition("coordinator", {
       executablePath: options.executablePath,
       shawlPath: options.shawlPath,
+      serviceLauncherPath: options.serviceLauncherPath,
       account: options.account,
       startMode: options.coordinatorHost ? "automatic" : "manual",
       dependencies: [],
@@ -485,13 +542,21 @@ export function buildWindowsServiceDefinitions(
     }),
     updater: makeWindowsDefinition("updater", {
       executablePath: options.executablePath,
-      shawlPath: options.shawlPath,
+      // The updater must be able to replace the stable launchers used by the
+      // other three stopped roles. Run its one-shot broker from the immutable
+      // version directory instead of mapping either stable binary itself.
+      shawlPath: join(dirname(options.executablePath), "shawl.exe"),
       account: options.account,
-      startMode: "manual",
+      serviceLauncherPath: options.windowsHelperPath,
+      launchCurrent: false,
+      // Starts once per boot so an interrupted transaction resumes even when
+      // the worker/coordinator binaries or service definitions are unusable.
+      // With no pending journal the broker exits successfully immediately.
+      startMode: "automatic",
       dependencies: [],
       arguments: options.updaterArguments ?? ["__windows-updater-broker"],
-      cwd: serviceDir,
-      logDir: join(serviceDir, "logs", "updater"),
+      cwd: updaterData,
+      logDir: updaterLogs,
       environment: roleEnv("updater", {
         ROOST_SERVICE_DIR: serviceDir,
       }),
@@ -499,9 +564,33 @@ export function buildWindowsServiceDefinitions(
   };
   return Object.freeze(definitions);
 }
+export function retargetWindowsUpdaterDefinition(
+  current: WindowsServiceDefinition,
+  versionDir: string,
+): WindowsServiceDefinition {
+  if (current.role !== "updater") {
+    throw new Error("only the Windows updater service has an immutable version target");
+  }
+  return makeWindowsDefinition("updater", {
+    executablePath: join(versionDir, "roost.exe"),
+    shawlPath: join(versionDir, "shawl.exe"),
+    serviceLauncherPath: join(versionDir, "roost-win-helper.exe"),
+    account: current.account,
+    startMode: current.startMode,
+    dependencies: current.dependencies,
+    arguments: current.arguments,
+    cwd: current.cwd,
+    logDir: current.logDir,
+    environment: current.environment,
+    launchCurrent: false,
+  });
+}
 
-export function windowsServiceDefinitionsPath(): string {
-  return join(roostServiceDir(undefined, "win32"), "service-definitions.json");
+
+export function windowsServiceDefinitionsPath(
+  env: Record<string, string | undefined> = process.env,
+): string {
+  return join(env.ROOST_SERVICE_DIR ?? roostServiceDir(undefined, "win32"), "service-definitions.json");
 }
 
 export async function storeWindowsServiceDefinitions(
@@ -511,11 +600,16 @@ export async function storeWindowsServiceDefinitions(
     if (!definitions[role]) throw new Error(`missing Windows service definition: ${role}`);
     validateDefinition(definitions[role]);
   }
-  await durableWriteFile(
-    windowsServiceDefinitionsPath(),
-    `${JSON.stringify({ schemaVersion: 1, services: definitions }, null, 2)}\n`,
-    { platform: "win32", mode: 0o600, privateDacl: true },
-  );
+  const path = windowsServiceDefinitionsPath();
+  const contents = `${JSON.stringify({ schemaVersion: 2, services: definitions }, null, 2)}\n`;
+  if (process.platform === "win32") {
+    await windowsReplaceUpdaterArtifact(path, "control", Buffer.from(contents, "utf8"));
+    return;
+  }
+  await durableWriteFile(path, contents, {
+    mode: 0o600,
+    privateDacl: true,
+  });
 }
 
 export async function loadWindowsServiceDefinitions(): Promise<
@@ -526,8 +620,10 @@ export async function loadWindowsServiceDefinitions(): Promise<
     schemaVersion?: unknown;
     services?: Partial<Record<RoostServiceRole, WindowsServiceDefinition>>;
   };
-  if (parsed.schemaVersion !== 1 || !parsed.services) {
-    throw new Error("unsupported Windows service-definitions.json schema");
+  if (parsed.schemaVersion !== 2 || !parsed.services) {
+    throw new Error(
+      "legacy Windows service topology requires migration by the signed elevated Roost installer",
+    );
   }
   const definitions = parsed.services;
   const keys = Object.keys(definitions).sort();
@@ -558,7 +654,10 @@ async function defaultWindowsRunner(
   return { exitCode, stdout, stderr };
 }
 
-function missingSnapshot(role: RoostServiceRole): WindowsServiceSnapshot {
+function missingSnapshot(
+  role: RoostServiceRole,
+  includeSecurity: boolean,
+): WindowsServiceSnapshot {
   return {
     role,
     name: serviceName(role),
@@ -568,27 +667,15 @@ function missingSnapshot(role: RoostServiceRole): WindowsServiceSnapshot {
     imagePath: null,
     account: null,
     dependencies: [],
+    displayName: null,
+    description: null,
+    recoveryPolicy: null,
+    environment: null,
+    serviceSidType: null,
+    ...(includeSecurity ? { securityDescriptor: null } : {}),
   };
 }
 
-function scField(output: string, field: string): string | null {
-  const escaped = field.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`^\\s*${escaped}\\s*:\\s*(.*)$`, "mi").exec(output)?.[1]?.trim() ?? null;
-}
-
-function parseDependencies(output: string): readonly string[] {
-  const lines = output.split(/\r?\n/);
-  const index = lines.findIndex((line) => /^\s*DEPENDENCIES\s*:/i.test(line));
-  if (index < 0) return [];
-  const first = lines[index]!.replace(/^\s*DEPENDENCIES\s*:\s*/i, "").trim();
-  const dependencies = first ? [first] : [];
-  for (let i = index + 1; i < lines.length; i += 1) {
-    const continuation = /^\s*:\s*(\S.*)$/.exec(lines[i]!);
-    if (!continuation) break;
-    dependencies.push(continuation[1]!.trim());
-  }
-  return Object.freeze(dependencies);
-}
 
 function isMissingService(result: WindowsNativeCommandResult): boolean {
   const text = `${result.stdout}\n${result.stderr}`;
@@ -611,6 +698,41 @@ function sameSet(left: readonly string[], right: readonly string[]): boolean {
   return a.length === b.length && a.every((value, index) => value === b[index]);
 }
 
+function sameEnvironment(
+  left: Readonly<Record<string, string>> | null | undefined,
+  right: Readonly<Record<string, string>> | null | undefined,
+): boolean {
+  if (left === null || left === undefined || right === null || right === undefined) {
+    return left === right;
+  }
+  const byKey = ([leftKey]: readonly [string, string], [rightKey]: readonly [string, string]) =>
+    leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
+  const leftEntries = Object.entries(left).sort(byKey);
+  const rightEntries = Object.entries(right).sort(byKey);
+  return leftEntries.length === rightEntries.length
+    && leftEntries.every(([key, value], index) =>
+      key === rightEntries[index]?.[0] && value === rightEntries[index]?.[1]);
+}
+
+function isWindowsServiceSidType(value: unknown): value is WindowsServiceSidType {
+  return value === "none" || value === "restricted" || value === "unrestricted";
+}
+
+function sameRecoveryPolicy(
+  left: WindowsServiceRecoveryPolicy | null,
+  right: WindowsServiceRecoveryPolicy,
+): boolean {
+  return left !== null
+    && left.resetPeriodSeconds === right.resetPeriodSeconds
+    && left.rebootMessage === right.rebootMessage
+    && left.command === right.command
+    && left.actionsOnNonCrashFailures === right.actionsOnNonCrashFailures
+    && left.actions.length === right.actions.length
+    && left.actions.every((action, index) =>
+      action.type === right.actions[index]?.type
+      && action.delayMs === right.actions[index]?.delayMs);
+}
+
 function validateDefinition(definition: WindowsServiceDefinition): void {
   assertRole(definition.role);
   if (definition.name !== serviceName(definition.role)) {
@@ -621,6 +743,20 @@ function validateDefinition(definition: WindowsServiceDefinition): void {
   if (definition.imagePath !== expectedImagePath) {
     throw new Error(`service imagePath for ${definition.role} does not match its structured Shawl argv`);
   }
+  const separator = definition.shawlArguments.indexOf("--");
+  const child = separator < 0 ? [] : definition.shawlArguments.slice(separator + 1);
+  if (
+    separator < 1
+    || child[0] !== definition.serviceLauncherPath
+    || child[1] !== "launch-current"
+    || child.length !== definition.arguments.length + 2
+    || child.slice(2).some((argument, index) => argument !== definition.arguments[index])
+  ) {
+    throw new Error(`${definition.name} must launch through the stable signed helper`);
+  }
+  if (Object.keys(definition.environment).some((key) => key.toUpperCase() === "ROOST_WIN_HELPER")) {
+    throw new Error(`${definition.name} must let the stable launcher select ROOST_WIN_HELPER`);
+  }
   for (const dependency of definition.dependencies) assertRole(dependency);
   if (definition.role === "worker") {
     if (!sameSet(definition.dependencies.map(serviceName), [WINDOWS_SERVICE_NAMES.keeper])) {
@@ -629,8 +765,8 @@ function validateDefinition(definition: WindowsServiceDefinition): void {
   } else if (definition.dependencies.length !== 0) {
     throw new Error(`${definition.name} must remain independent`);
   }
-  if (definition.role === "updater" && definition.startMode !== "manual") {
-    throw new Error("RoostUpdaterV2 must be demand-start");
+  if (definition.role === "updater" && definition.startMode !== "automatic") {
+    throw new Error("RoostUpdaterV2 must start once per boot for transaction recovery");
   }
 }
 
@@ -685,6 +821,12 @@ function assertDefinitionApplied(
   if (!sameSet(snapshot.dependencies, expectedDependencies)) {
     throw new Error(`${definition.name} dependencies did not round-trip through SCM`);
   }
+  if (snapshot.displayName !== definition.displayName || snapshot.description !== definition.description) {
+    throw new Error(`${definition.name} display metadata did not round-trip through SCM`);
+  }
+  if (!sameRecoveryPolicy(snapshot.recoveryPolicy, EXPECTED_RECOVERY_POLICY)) {
+    throw new Error(`${definition.name} recovery policy did not round-trip through SCM`);
+  }
 }
 
 export function createWindowsServiceManager(
@@ -697,36 +839,87 @@ export function createWindowsServiceManager(
   const run = options.run ?? defaultWindowsRunner;
   const sleep = options.sleep ?? Bun.sleep;
   const now = options.now ?? Date.now;
+  const systemDirectory = options.systemDirectory ?? process.env.ROOST_SYSTEM32;
+  if (!systemDirectory || !win32.isAbsolute(systemDirectory) || /[\0\r\n]/.test(systemDirectory)) {
+    throw new Error("trusted absolute ROOST_SYSTEM32 is required for Windows SCM operations");
+  }
+  const scPath = win32.join(win32.resolve(systemDirectory), "sc.exe");
 
   const runChecked = async (argv: readonly string[]): Promise<WindowsNativeCommandResult> => {
     const result = await run(argv);
     if (result.exitCode !== 0) throw commandFailure(argv, result);
     return result;
   };
+  const configureNative = options.configureNative
+    ?? ((service: (typeof WINDOWS_SERVICE_NAMES)[RoostServiceRole], config: WindowsServiceConfig) =>
+      windowsConfigureService(service, config));
+  const configureServiceSidNative = options.configureServiceSidNative
+    ?? ((
+      service: (typeof WINDOWS_SERVICE_NAMES)[RoostServiceRole],
+      serviceSidType: WindowsServiceSidType,
+    ) => windowsConfigureServiceSid(service, serviceSidType));
 
-  const query = async (role: RoostServiceRole): Promise<WindowsServiceSnapshot> => {
+  const query = async (
+    role: RoostServiceRole,
+    queryOptions: WindowsServiceQueryOptions = {},
+  ): Promise<WindowsServiceSnapshot> => {
     const name = serviceName(role);
-    const stateResult = await run(["sc.exe", "query", name]);
-    if (isMissingService(stateResult)) return missingSnapshot(role);
-    if (stateResult.exitCode !== 0) throw commandFailure(["sc.exe", "query", name], stateResult);
-    const configResult = await runChecked(["sc.exe", "qc", name]);
-    const stateCode = Number(scField(stateResult.stdout, "STATE")?.match(/^\d+/)?.[0]);
-    const startCode = Number(scField(configResult.stdout, "START_TYPE")?.match(/^\d+/)?.[0]);
+    const includeSecurity = queryOptions.includeSecurity === true;
+    const argv = includeSecurity
+      ? [resolveWindowsHelperPath(), "service-query", name]
+      : [resolveWindowsHelperPath(), "service-query", name, "basic"];
+    const result = await run(argv);
+    if (isMissingService(result)) return missingSnapshot(role, includeSecurity);
+    if (result.exitCode !== 0) throw commandFailure(argv, result);
+    let native: NativeWindowsServiceSnapshot;
+    try {
+      native = JSON.parse(result.stdout) as NativeWindowsServiceSnapshot;
+    } catch (error) {
+      throw new Error(`${name} structured service query returned invalid JSON: ${String(error)}`);
+    }
+    if (native.name !== name) throw new Error(`${name} structured service query returned ${native.name}`);
+    if (!isWindowsServiceSidType(native.serviceSidType)) {
+      throw new Error(`${name} structured service query returned an invalid service SID type`);
+    }
+    if (
+      includeSecurity
+      && (typeof native.securityDescriptor !== "string" || native.securityDescriptor.trim() === "")
+    ) {
+      throw new Error(`${name} full service query omitted its security descriptor`);
+    }
+    if (
+      native.environment === null
+      || typeof native.environment !== "object"
+      || Object.values(native.environment).some((value) => typeof value !== "string")
+    ) {
+      throw new Error(`${name} structured service query returned an invalid environment`);
+    }
     return {
       role,
       name,
       installed: true,
-      state: WINDOWS_STATE_BY_CODE[stateCode] ?? "unknown",
-      startMode: WINDOWS_START_MODE_BY_CODE[startCode] ?? "unknown",
-      imagePath: scField(configResult.stdout, "BINARY_PATH_NAME"),
-      account: scField(configResult.stdout, "SERVICE_START_NAME"),
-      dependencies: parseDependencies(configResult.stdout),
+      state: native.state,
+      startMode: native.startType,
+      imagePath: native.imagePathRaw,
+      account: native.account,
+      dependencies: Object.freeze([...native.dependencies]),
+      environment: Object.freeze({ ...native.environment }),
+      displayName: native.displayName,
+      description: native.description,
+      recoveryPolicy: {
+        ...native.recoveryPolicy,
+        actions: native.recoveryPolicy.actions.map((action) => ({ ...action })),
+      },
+      serviceSidType: native.serviceSidType,
+      ...(includeSecurity ? { securityDescriptor: native.securityDescriptor } : {}),
     };
   };
 
-  const snapshot = async (): Promise<WindowsServiceSnapshotSet> => {
+  const snapshot = async (
+    queryOptions: WindowsServiceQueryOptions = {},
+  ): Promise<WindowsServiceSnapshotSet> => {
     const entries = await Promise.all(
-      WINDOWS_SERVICE_ROLES.map(async (role) => [role, await query(role)] as const),
+      WINDOWS_SERVICE_ROLES.map(async (role) => [role, await query(role, queryOptions)] as const),
     );
     return Object.freeze(Object.fromEntries(entries)) as WindowsServiceSnapshotSet;
   };
@@ -741,7 +934,7 @@ export function createWindowsServiceManager(
   ): Promise<WindowsServiceSnapshot> => {
     const name = serviceName(role);
     if (
-      argv[0] !== "sc.exe"
+      argv[0] !== scPath
       || !ALLOWED_SC_MUTATIONS.has(argv[1] ?? "")
       || argv[2] !== name
     ) {
@@ -755,7 +948,7 @@ export function createWindowsServiceManager(
   const configureRecovery = async (role: RoostServiceRole): Promise<void> => {
     const name = serviceName(role);
     await mutate(role, [
-      "sc.exe",
+      scPath,
       "failure",
       name,
       "reset=",
@@ -764,21 +957,29 @@ export function createWindowsServiceManager(
       "restart/5000/restart/30000/restart/60000",
     ]);
     // Recovery must also apply to clean Shawl exits that report a service error.
-    await mutate(role, ["sc.exe", "failureflag", name, "1"]);
+    await mutate(role, [scPath, "failureflag", name, "1"]);
   };
 
   const resolveServiceAccount = async (
     account: string,
-  ): Promise<{ sid: string; canonicalAccount: string }> => {
+  ): Promise<{ sid: string; canonicalAccount: string; localAccount: boolean; administrator: boolean }> => {
     assertWindowsOperatorAccount(account);
-    const resolved = await runWindowsHelper<{ sid: string; canonicalAccount: string }>(
-      "resolve-account-sid",
-      [account],
-    );
+    const resolved = await runWindowsHelper<{
+      sid: string;
+      canonicalAccount: string;
+      localAccount: boolean;
+      administrator: boolean;
+    }>("resolve-account-sid", [account]);
     if (!/^S-\d(?:-\d+)+$/.test(resolved.sid)) {
       throw new Error("Windows helper returned an invalid operator SID");
     }
     assertWindowsOperatorAccount(resolved.canonicalAccount);
+    if (typeof resolved.localAccount !== "boolean" || typeof resolved.administrator !== "boolean") {
+      throw new Error("Windows helper omitted service-account privilege metadata");
+    }
+    if (resolved.administrator) {
+      throw new Error("Roost Windows services require a non-administrator service account");
+    }
     return resolved;
   };
 
@@ -797,21 +998,86 @@ export function createWindowsServiceManager(
     await provisionAccount(account);
   };
 
+  const assertServiceDaclRoundTrip = async (
+    role: RoostServiceRole,
+    expectedSddl: string,
+  ): Promise<void> => {
+    const name = serviceName(role);
+    const queried = await runWindowsHelper<NativeWindowsServiceSnapshot>("service-query", [name]);
+    if (typeof queried.securityDescriptor !== "string") {
+      throw new Error(`${name} full service query omitted its security descriptor`);
+    }
+    const actual = queried.securityDescriptor.replace(/\s+/g, "").toUpperCase();
+    const expected = expectedSddl.replace(/\s+/g, "").toUpperCase();
+    if (!expected || actual !== expected) {
+      throw new Error(`${name} service DACL did not round-trip through SCM`);
+    }
+  };
+
   const applyServiceDacl = async (
     role: RoostServiceRole,
     sid: string,
+    rights: WindowsServiceControlGrant,
   ): Promise<void> => {
-    const name = serviceName(role);
     await query(role);
-    const applied = await runWindowsHelper<{ sddl: string }>(
-      "apply-service-dacl",
-      [name, sid, "START,STOP,QUERY_STATUS,QUERY_CONFIG,CHANGE_CONFIG"],
-    );
-    const queried = await runChecked(["sc.exe", "sdshow", name]);
-    if (!applied.sddl || !queried.stdout.replace(/\s+/g, "").includes(applied.sddl.replace(/\s+/g, ""))) {
-      throw new Error(`${name} operator DACL did not round-trip through SCM`);
+    const applied = await windowsApplyServiceDacl(serviceName(role), sid, rights);
+    await assertServiceDaclRoundTrip(role, applied.sddl);
+    await query(role);
+  };
+
+  const revokeServiceDacl = async (
+    role: RoostServiceRole,
+    sid: string,
+  ): Promise<void> => {
+    await query(role);
+    const applied = await windowsRevokeServiceDacl(serviceName(role), sid);
+    await assertServiceDaclRoundTrip(role, applied.sddl);
+    await query(role);
+  };
+
+  const provisionServiceSecurity = async (interactiveSid: string): Promise<void> => {
+    if (!/^S-1-(?:\d+-)+\d+$/.test(interactiveSid)) {
+      throw new Error("Windows interactive operator SID is invalid");
     }
-    await query(role);
+    const current = await snapshot();
+    const firstAccount = current.keeper.account;
+    if (
+      !firstAccount
+      || WINDOWS_SERVICE_ROLES.some((role) => !current[role].installed)
+      || WINDOWS_SERVICE_ROLES.some((role) => !sameAccount(current[role].account, firstAccount))
+    ) {
+      throw new Error("all four Roost services must be installed under one service account before SID hardening");
+    }
+    const base = await resolveServiceAccount(firstAccount);
+    for (const role of WINDOWS_SERVICE_ROLES) {
+      await configureServiceSidNative(serviceName(role), "unrestricted");
+    }
+    const sidEntries = await Promise.all(
+      WINDOWS_SERVICE_ROLES.map(async (role) =>
+        [role, (await windowsResolveServiceSid(serviceName(role))).sid] as const),
+    );
+    const serviceSids = Object.fromEntries(sidEntries) as Record<RoostServiceRole, string>;
+    // Install every replacement ACE before revoking the shared base identity,
+    // so a failed cutover never strands a service without its narrow control
+    // principals. Updater gets the exact SCM configuration/lifecycle rights
+    // needed for forward activation and rollback; WRITE_DAC/WRITE_OWNER remain
+    // forbidden.
+    const queryOnly = "QUERY_STATUS,QUERY_CONFIG" as const;
+    const startQuery = "START,QUERY_STATUS,QUERY_CONFIG" as const;
+    const updaterControl =
+      "CHANGE_CONFIG,START,STOP,QUERY_STATUS,QUERY_CONFIG" as const;
+    for (const role of WINDOWS_SERVICE_ROLES) {
+      await applyServiceDacl(role, serviceSids.updater, updaterControl);
+    }
+    const lifecycle = "START,STOP,QUERY_STATUS,QUERY_CONFIG" as const;
+    await applyServiceDacl("updater", serviceSids.worker, startQuery);
+    await applyServiceDacl("updater", serviceSids.coordinator, startQuery);
+    await applyServiceDacl("keeper", interactiveSid, lifecycle);
+    await applyServiceDacl("updater", interactiveSid, startQuery);
+    await applyServiceDacl("worker", interactiveSid, queryOnly);
+    await applyServiceDacl("coordinator", interactiveSid, queryOnly);
+
+    for (const role of WINDOWS_SERVICE_ROLES) await revokeServiceDacl(role, base.sid);
   };
 
   const configureServiceAccount = async (
@@ -844,30 +1110,32 @@ export function createWindowsServiceManager(
     if (!before.installed) {
       throw new Error(`${definition.name} is not installed`);
     }
-    const resolved = await provisionAccount(definition.account);
-    const accountChanged = !sameAccount(before.account, resolved.canonicalAccount);
+    const accountChanged = !sameAccount(before.account, definition.account);
+    let canonicalAccount = before.account;
     if (accountChanged || credentials !== undefined) {
       if (!credentials) {
-        throw new Error(`credential is required to assign ${definition.name} to ${resolved.canonicalAccount}`);
+        throw new Error(`credential is required to assign ${definition.name} to ${definition.account}`);
       }
-      await configureServiceAccount(definition, credentials, resolved.canonicalAccount);
+      const resolved = await provisionAccount(definition.account);
+      canonicalAccount = resolved.canonicalAccount;
+      await configureServiceAccount(definition, credentials, canonicalAccount);
     }
+    if (!canonicalAccount) throw new Error(`${definition.name} has no configured service account`);
     await mutate(definition.role, [
-      "sc.exe",
+      scPath,
       "config",
       definition.name,
       ...definitionConfigArgs(definition),
     ]);
     await mutate(definition.role, [
-      "sc.exe",
+      scPath,
       "description",
       definition.name,
       definition.description,
     ]);
     await configureRecovery(definition.role);
-    await applyServiceDacl(definition.role, resolved.sid);
     const after = await query(definition.role);
-    assertDefinitionApplied({ ...definition, account: resolved.canonicalAccount }, after);
+    assertDefinitionApplied({ ...definition, account: canonicalAccount }, after);
     return after;
   };
 
@@ -877,16 +1145,24 @@ export function createWindowsServiceManager(
   ): Promise<WindowsServiceSnapshot> => {
     validateDefinition(definition);
     const before = await query(definition.role);
-    if (before.installed) return configure(definition, credentials);
+    if (before.installed) {
+      if (!sameAccount(before.account, definition.account)) {
+        throw new Error(`${definition.name} account migration cannot be rolled back without its prior credential`);
+      }
+      const configured = await configure(definition, credentials);
+      await configureServiceSidNative(definition.name, "unrestricted");
+      return configured;
+    }
     if (!credentials) {
       throw new Error(`credential is required to install ${definition.name}`);
     }
     credentialPassword(definition, credentials, true);
+    await resolveServiceAccount(definition.account);
     const dependencies = definition.dependencies.map(serviceName);
     // New services are inert until the helper has assigned the operator
     // account. No password or other secret ever appears in argv or env.
     await mutate(definition.role, [
-      "sc.exe",
+      scPath,
       "create",
       definition.name,
       "binPath=",
@@ -898,7 +1174,9 @@ export function createWindowsServiceManager(
       "DisplayName=",
       definition.displayName,
     ]);
-    return configure(definition, credentials);
+    const configured = await configure(definition, credentials);
+    await configureServiceSidNative(definition.name, "unrestricted");
+    return configured;
   };
 
   const waitForState = async (
@@ -922,7 +1200,7 @@ export function createWindowsServiceManager(
     const before = await query(role);
     if (!before.installed) throw new Error(`${serviceName(role)} is not installed`);
     if (before.state === "running") return before;
-    await mutate(role, ["sc.exe", "start", serviceName(role)]);
+    await mutate(role, [scPath, "start", serviceName(role)]);
     return waitForState(role, "running", 30_000);
   };
 
@@ -934,7 +1212,7 @@ export function createWindowsServiceManager(
     if (!before.installed) throw new Error(`${serviceName(role)} is not installed`);
     if (before.state === "stopped") return before;
     if (before.state !== "stop-pending") {
-      await mutate(role, ["sc.exe", "stop", serviceName(role)]);
+      await mutate(role, [scPath, "stop", serviceName(role)]);
     }
     return waitForState(role, "stopped", stopOptions.timeoutMs ?? 30_000);
   };
@@ -942,31 +1220,64 @@ export function createWindowsServiceManager(
   const restoreConfig = async (
     role: RoostServiceRole,
     saved: WindowsServiceSnapshot,
+    allowKeeperStop: boolean,
   ): Promise<void> => {
     if (saved.role !== role || saved.name !== serviceName(role)) {
       throw new Error(`invalid saved SCM snapshot for ${role}`);
     }
+    const includeSecurity = saved.securityDescriptor !== undefined;
     const current = await query(role);
     if (!saved.installed) {
       if (!current.installed) return;
-      if (role === "keeper" && current.state !== "stopped") {
+      if (role === "keeper" && current.state !== "stopped" && !allowKeeperStop) {
         throw new Error("refusing to stop keeper while restoring an absent baseline");
       }
       if (current.state !== "stopped") await stop(role);
-      await mutate(role, ["sc.exe", "delete", serviceName(role)]);
+      await mutate(role, [scPath, "delete", serviceName(role)]);
       return;
     }
     if (!current.installed) {
       throw new Error(`cannot restore deleted ${saved.name} without its operator credentials`);
     }
-    if (saved.imagePath === null || saved.account === null || saved.startMode === "unknown") {
+    if (
+      saved.imagePath === null
+      || saved.account === null
+      || saved.startMode === "unknown"
+      || saved.displayName === null
+      || saved.description === null
+      || saved.recoveryPolicy === null
+    ) {
       throw new Error(`saved ${saved.name} configuration is incomplete`);
+    }
+    if (
+      saved.environment === null
+      || (includeSecurity && saved.environment === undefined)
+    ) {
+      throw new Error(`saved ${saved.name} environment is incomplete`);
+    }
+    if (
+      saved.serviceSidType === null
+      || (includeSecurity && saved.serviceSidType === undefined)
+    ) {
+      throw new Error(`saved ${saved.name} service SID type is incomplete`);
+    }
+    if (
+      saved.serviceSidType !== undefined
+      && !isWindowsServiceSidType(saved.serviceSidType)
+    ) {
+      throw new Error(`saved ${saved.name} service SID type is invalid`);
+    }
+    if (
+      includeSecurity
+      && (typeof saved.securityDescriptor !== "string" || saved.securityDescriptor.trim() === "")
+    ) {
+      throw new Error(`saved ${saved.name} security descriptor is incomplete`);
     }
     if (!sameAccount(current.account, saved.account)) {
       throw new Error(`cannot restore ${saved.name} account without explicit credentials`);
     }
     await mutate(role, [
-      "sc.exe",
+      scPath,
       "config",
       serviceName(role),
       "binPath=",
@@ -975,12 +1286,42 @@ export function createWindowsServiceManager(
       START_MODE_SC_VALUE[saved.startMode],
       "depend=",
       saved.dependencies.length > 0 ? saved.dependencies.join("/") : "/",
+      "DisplayName=",
+      saved.displayName,
     ]);
-    const after = await query(role);
+    if (saved.serviceSidType !== undefined && saved.serviceSidType !== null) {
+      await configureServiceSidNative(serviceName(role), saved.serviceSidType);
+    }
+    await configureNative(serviceName(role), {
+      description: saved.description,
+      recoveryPolicy: saved.recoveryPolicy,
+      ...(includeSecurity ? { securityDescriptor: saved.securityDescriptor! } : {}),
+      ...(saved.environment !== undefined
+        ? { environment: { ...saved.environment! } }
+        : {}),
+    });
+    const after = await query(role, { includeSecurity });
+    const securityRestored = !includeSecurity || (
+      typeof after.securityDescriptor === "string"
+      && after.securityDescriptor.replace(/\s+/g, "").toUpperCase()
+        === saved.securityDescriptor!.replace(/\s+/g, "").toUpperCase()
+    );
     if (
       after.imagePath !== saved.imagePath
       || after.startMode !== saved.startMode
       || !sameSet(after.dependencies, saved.dependencies)
+      || after.displayName !== saved.displayName
+      || after.description !== saved.description
+      || !sameRecoveryPolicy(after.recoveryPolicy, saved.recoveryPolicy)
+      || (
+        saved.environment !== undefined
+        && !sameEnvironment(after.environment, saved.environment)
+      )
+      || (
+        saved.serviceSidType !== undefined
+        && after.serviceSidType !== saved.serviceSidType
+      )
+      || !securityRestored
     ) {
       throw new Error(`${saved.name} configuration did not restore exactly`);
     }
@@ -990,25 +1331,31 @@ export function createWindowsServiceManager(
     saved: WindowsServiceSnapshotSet,
     restoreOptions: WindowsServiceRestoreOptions = {},
   ): Promise<WindowsServiceSnapshotSet> => {
-    for (const role of WINDOWS_SERVICE_ROLES) {
-      await restoreConfig(role, saved[role]);
+    const securitySnapshotCount = WINDOWS_SERVICE_ROLES.filter(
+      (role) => saved[role].securityDescriptor !== undefined,
+    ).length;
+    if (securitySnapshotCount !== 0 && securitySnapshotCount !== WINDOWS_SERVICE_ROLES.length) {
+      throw new Error("Windows SCM rollback requires either basic or full snapshots for all four services");
+    }
+    const includeSecurity = securitySnapshotCount === WINDOWS_SERVICE_ROLES.length;
+    for (const role of ["worker", "coordinator", "updater", "keeper"] as const) {
+      await restoreConfig(role, saved[role], restoreOptions.allowKeeperStop === true);
     }
     const lifecycleRoles = restoreOptions.restoreLifecycleRoles ?? ["worker", "coordinator"];
     for (const role of lifecycleRoles) {
-      assertRole(role);
       const wanted = saved[role];
       if (!wanted.installed) continue;
       const current = await query(role);
       if (wanted.state === "running" && current.state !== "running") {
         await start(role);
       } else if (wanted.state === "stopped" && current.state !== "stopped") {
-        if (role === "keeper") {
+        if (role === "keeper" && !restoreOptions.allowKeeperStop) {
           throw new Error("refusing to stop keeper during SCM rollback");
         }
         await stop(role);
       }
     }
-    return snapshot();
+    return snapshot({ includeSecurity });
   };
 
   return {
@@ -1020,5 +1367,6 @@ export function createWindowsServiceManager(
     stop,
     restore,
     provisionServiceLogon,
+    provisionServiceSecurity,
   };
 }

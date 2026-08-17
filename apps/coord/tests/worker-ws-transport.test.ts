@@ -14,13 +14,14 @@
 //      pending RPC — the exact spawn round-trip that hung under Connect-bidi.
 
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
-import type { HandlerContext } from "@connectrpc/connect";
+import { Code, ConnectError, type HandlerContext } from "@connectrpc/connect";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { create, toBinary, fromBinary } from "@bufbuild/protobuf";
 import {
-  CoordWorkerUpSchema, CoordWorkerDownSchema, WHelloSchema, WRpcOkSchema, WBinarySchema,
+  CoordWorkerUpSchema, CoordWorkerDownSchema, WHelloSchema, WRpcOkSchema, WRpcErrorSchema,
+  WBinarySchema,
 } from "@roost/shared/proto/worker_transport_pb";
 import type { CoordWorkerDown } from "@roost/shared/proto/worker_transport_pb";
 import { SessionsGetScrollbackCellsRequestSchema } from "@roost/shared/proto/coordinator_pb";
@@ -302,6 +303,57 @@ describe("worker↔coord raw-WS transport", () => {
 
     const response = await responsePromise;
     expect(response.gridEpoch).toBe("worker-grid:9");
+    w.close();
+  });
+
+  test("scrollback worker errors are preserved instead of mislabeled as timeouts", async () => {
+    const w = connectWorker(workerFp, workerJwt);
+    await w.opened;
+    w.sendUp(helloFrame(workerFp));
+    await w.waitFor((frame) => frame.frame.case === "helloAck");
+
+    const sessionId = "00000000-0000-4000-8000-000000000778";
+    await connectDeps.db.insertInto("sessions").values({
+      id: sessionId,
+      worker_fp: workerFp,
+      channel: 8,
+      kind: "shell",
+      cwd: "/tmp",
+      status: "open",
+      created_at: Date.now(),
+    }).onConflict((conflict) => conflict.column("id").doNothing()).execute();
+    const handlers = makeSessionScrollbackHandlers(connectDeps);
+    const authCtx = {
+      values: { get: () => ({ fingerprint: "browser-fp", label: "test" }) },
+    } as unknown as HandlerContext;
+    const responsePromise = handlers.sessionsGetScrollbackCells(
+      create(SessionsGetScrollbackCellsRequestSchema, {
+        sessionId,
+        endRow: 500n,
+        maxRows: 1000,
+        gridEpoch: "stale-grid",
+      }),
+      authCtx,
+    );
+
+    const command = await w.waitFor((frame) => frame.frame.case === "browserCommand");
+    const browserCommand = command.frame.value as { requestId: string };
+    w.sendUp(create(CoordWorkerUpSchema, {
+      frame: { case: "rpcError", value: create(WRpcErrorSchema, {
+        requestId: browserCommand.requestId,
+        message: "grid epoch changed",
+      }) },
+    }));
+
+    let caught: unknown;
+    try {
+      await responsePromise;
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(ConnectError);
+    expect((caught as ConnectError).code).toBe(Code.Internal);
+    expect((caught as ConnectError).rawMessage).toBe("grid epoch changed");
     w.close();
   });
 

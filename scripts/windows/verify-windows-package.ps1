@@ -25,6 +25,7 @@ $payloadNames = @(
     'SHA256SUMS'
 )
 $authenticodeNames = @('roost.exe', 'roost-win-helper.exe', 'shawl.exe', 'install.ps1', 'provision-service-account.ps1')
+$bootstrapScriptNames = @('join.ps1', 'install-binary.ps1')
 
 function Get-Sha256([string] $Path) {
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -63,6 +64,12 @@ foreach ($path in @($Package, $Manifest)) {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "missing release asset: $path" }
     Assert-Sha256Sidecar $path
 }
+$releaseDir = Split-Path -Parent ([IO.Path]::GetFullPath($Package))
+foreach ($name in $bootstrapScriptNames) {
+    $path = Join-Path $releaseDir $name
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "missing release bootstrap asset: $path" }
+    Assert-Sha256Sidecar $path
+}
 $expectedPublisher = if ($AllowUnsigned) { '' } else { Normalize-Sha256 $PublisherSha256 }
 if (-not $AllowUnsigned) {
     if ($expectedPublisher -notmatch '^[0-9a-f]{64}$') {
@@ -74,12 +81,13 @@ if (-not $AllowUnsigned) {
 
 $manifestObject = Get-Content -LiteralPath $Manifest -Raw | ConvertFrom-Json
 $topLevelKeys = @($manifestObject.PSObject.Properties.Name | Sort-Object)
-$expectedTopLevelKeys = @('arch', 'files', 'package', 'platform', 'publishedAt', 'schemaVersion', 'shawl', 'version') | Sort-Object
+$expectedTopLevelKeys = @('arch', 'build', 'files', 'package', 'platform', 'publishedAt', 'schemaVersion', 'shawl', 'version') | Sort-Object
 if (($topLevelKeys -join ',') -ne ($expectedTopLevelKeys -join ',')) { throw 'manifest has an unexpected top-level schema.' }
 if ($manifestObject.schemaVersion -ne 1 -or $manifestObject.platform -ne 'win32' -or $manifestObject.arch -ne 'x64') {
     throw 'manifest platform/schema invariants failed.'
 }
 if ($manifestObject.version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$') { throw 'manifest version is invalid.' }
+if ($manifestObject.build -notmatch '^[0-9a-f]{40,64}$') { throw 'manifest build identity is invalid.' }
 $null = [DateTimeOffset]::ParseExact(
     $manifestObject.publishedAt,
     'yyyy-MM-ddTHH:mm:ssZ',
@@ -167,12 +175,63 @@ try {
         throw 'coordinator service start policy is invalid.'
     }
     $updater = @($templates.services | Where-Object role -eq 'updater')[0]
-    if ($updater.startMode -ne 'demand') { throw 'updater service must be demand-start.' }
+    if ($updater.startMode -ne 'automatic') { throw 'updater service must start automatically for transaction recovery.' }
 
     if (-not $AllowUnsigned) {
         foreach ($name in $authenticodeNames) { Assert-Authenticode (Join-Path $temp $name) $expectedPublisher }
+        foreach ($name in $bootstrapScriptNames) {
+            Assert-Authenticode (Join-Path $releaseDir $name) $expectedPublisher
+        }
 
         Add-Type -AssemblyName System.Security.Cryptography.Pkcs
+        if (-not ('Roost.Windows.ReleaseTimestampVerifier' -as [type])) {
+            Add-Type -TypeDefinition @'
+using System;
+using System.Security.Cryptography;
+using System.Security.Cryptography.Pkcs;
+using System.Security.Cryptography.X509Certificates;
+
+namespace Roost.Windows {
+    public static class ReleaseTimestampVerifier {
+        private const string Rfc3161Oid = "1.3.6.1.4.1.311.3.3.1";
+
+        public static void Verify(SignerInfo signer) {
+            byte[] publisherSignature = signer.GetSignature();
+            foreach (CryptographicAttributeObject attribute in signer.UnsignedAttributes) {
+                if (attribute.Oid == null || attribute.Oid.Value != Rfc3161Oid) continue;
+                foreach (AsnEncodedData value in attribute.Values) {
+                    Rfc3161TimestampToken token;
+                    int consumed;
+                    byte[] encoded = value.RawData;
+                    if (!Rfc3161TimestampToken.TryDecode(
+                        new ReadOnlyMemory<byte>(encoded), out token, out consumed) ||
+                        consumed != encoded.Length) continue;
+                    X509Certificate2 timestampSigner;
+                    if (!token.VerifySignatureForData(publisherSignature, out timestampSigner) ||
+                        timestampSigner == null) continue;
+                    DateTime timestamp = token.TokenInfo.Timestamp.UtcDateTime;
+                    if (signer.Certificate == null ||
+                        timestamp < signer.Certificate.NotBefore.ToUniversalTime() ||
+                        timestamp > signer.Certificate.NotAfter.ToUniversalTime()) continue;
+                    using (X509Chain chain = new X509Chain()) {
+                        chain.ChainPolicy.ApplicationPolicy.Add(
+                            new Oid("1.3.6.1.5.5.7.3.8"));
+                        chain.ChainPolicy.VerificationTime = timestamp;
+                        chain.ChainPolicy.RevocationMode = X509RevocationMode.Online;
+                        chain.ChainPolicy.RevocationFlag = X509RevocationFlag.ExcludeRoot;
+                        chain.ChainPolicy.VerificationFlags = X509VerificationFlags.NoFlag;
+                        if (!chain.Build(timestampSigner)) continue;
+                    }
+                    return;
+                }
+            }
+            throw new CryptographicException(
+                "manifest CMS does not contain a valid, trusted RFC 3161 timestamp.");
+        }
+    }
+}
+'@
+        }
         $cms = [Security.Cryptography.Pkcs.SignedCms]::new(
             [Security.Cryptography.Pkcs.ContentInfo]::new([IO.File]::ReadAllBytes($Manifest)),
             $true
@@ -193,11 +252,7 @@ try {
             }
         }
         if (-not $hasCodeSigningEku) { throw 'manifest CMS signer lacks Code Signing EKU.' }
-        $hasTrustedTimestamp = $signer.CounterSignerInfos.Count -gt 0
-        foreach ($attribute in $signer.UnsignedAttributes) {
-            if ($attribute.Oid.Value -eq '1.3.6.1.4.1.311.3.3.1') { $hasTrustedTimestamp = $true }
-        }
-        if (-not $hasTrustedTimestamp) { throw 'manifest CMS is missing its RFC 3161 timestamp.' }
+        [Roost.Windows.ReleaseTimestampVerifier]::Verify($signer)
     }
 
     $roostVersion = (& (Join-Path $temp 'roost.exe') version | Out-String).Trim()
@@ -208,6 +263,27 @@ try {
     $helperVersion = (& (Join-Path $temp 'roost-win-helper.exe') version | Out-String).Trim()
     if ($LASTEXITCODE -ne 0) { throw 'packaged helper version failed.' }
     try { $null = $helperVersion | ConvertFrom-Json } catch { throw 'packaged helper version is not protocol/build JSON.' }
+    $daclProbe = Join-Path $temp 'account-dacl-probe.txt'
+    [IO.File]::WriteAllText($daclProbe, 'probe', [Text.UTF8Encoding]::new($false))
+    $currentAccount = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+    $daclResult = (& (Join-Path $temp 'roost-win-helper.exe') apply-account-dacl $daclProbe $currentAccount | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0) { throw 'packaged helper account DACL failed.' }
+    try {
+        $daclJson = $daclResult | ConvertFrom-Json
+        if ($daclJson.ok -ne $true) { throw 'account DACL did not return ok.' }
+    } catch {
+        throw "packaged helper account DACL is not valid protocol JSON: $daclResult"
+    }
+    $flushDirectory = Join-Path $temp 'flush-directory'
+    New-Item -ItemType Directory -Path $flushDirectory | Out-Null
+    $flushResult = (& (Join-Path $temp 'roost-win-helper.exe') flush-file $flushDirectory | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0) { throw 'packaged helper could not flush a directory.' }
+    try {
+        $flushJson = $flushResult | ConvertFrom-Json
+        if ($flushJson.ok -ne $true) { throw 'directory flush did not return ok.' }
+    } catch {
+        throw "packaged helper directory flush is not valid protocol JSON: $flushResult"
+    }
 } finally {
     if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp -Recurse -Force }
 }

@@ -7,14 +7,14 @@
 
 **One control panel for every machine you own.**
 
-Roost is a self-hosted, Bun-powered terminal control plane. One machine hosts the coordinator and works as a worker itself; add every other Mac or Linux box as a worker. Your main laptop, old MacBooks, and that Linux box in the corner become one terminal fleet you can control from a laptop, tablet, or phone.
+Roost is a self-hosted, Bun-powered terminal control plane. One machine hosts the coordinator and works as a worker itself; add every other macOS, Linux, or Windows x64 machine as a worker. Your main laptop and spare machines become one terminal fleet you can control from a laptop, tablet, or phone.
 
-**macOS or Linux is only a requirement for the machines that run Roost** — the coordinator and the workers. You reach them from a browser, so the device in your hand can be anything: Mac, Windows, Linux, iPhone, Android, iPad, Android tablet.
+**macOS, Linux, and Windows x64 can run Roost coordinators and workers.** You reach them from a browser, so the device in your hand can be anything: Mac, Windows, Linux, iPhone, Android, iPad, or Android tablet.
 
 _I built Roost for my own daily workflow: real infrastructure, not a demo._
 
 [![License](https://img.shields.io/badge/license-GPL--3.0--only-blue)](LICENSE)
-![Servers](https://img.shields.io/badge/coordinator%20%2B%20workers-macOS%20%7C%20Linux-lightgrey)
+![Servers](https://img.shields.io/badge/coordinator%20%2B%20workers-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey)
 ![Clients](https://img.shields.io/badge/clients-any%20browser%20%C2%B7%20iOS%20%7C%20Android%20%7C%20desktop-lightgrey)
 ![Runtime](https://img.shields.io/badge/runtime-Bun-14151a?logo=bun&logoColor=white)
 ![UI](https://img.shields.io/badge/ui-SolidJS-2c4f7c?logo=solid&logoColor=white)
@@ -24,7 +24,7 @@ _I built Roost for my own daily workflow: real infrastructure, not a demo._
 
 ## What it is
 
-One coordinator connects every machine you own into one fleet, and the coordinator machine can be a worker too. Add spare or older MacBooks, a Mac mini, or a Linux box, spread agent workloads across them, and manage every session from the same control panel. Pick a folder on any machine, open a workspace there, and the process runs on that machine while its native terminal stays available on every device you use — including devices that could never host a worker, like a phone or tablet.
+One coordinator connects every machine you own into one fleet, and the coordinator machine can be a worker too. Add spare or older MacBooks, a Mac mini, a Linux box, or a Windows workstation, spread agent workloads across them, and manage every session from the same control panel. Pick a folder on any machine, open a workspace there, and the process runs on that machine while its native terminal stays available on every device you use — including devices that could never host a worker, like a phone or tablet.
 
 Every session is a shell PTY rendered in the browser. Launch any agent CLI, shell, REPL, or TUI inside it and use that program's native terminal interface. Roost never spawns, supervises, or owns an agent session; the CLI remains an ordinary command in its shell PTY.
 
@@ -34,7 +34,7 @@ Once you have agents across several machines, spare hardware often sits unused w
 
 ## Three ways I use it
 
-**Leave the heavy work at home.** Have old MacBooks, a spare Mac mini, or a Linux box sitting around? Add them as workers, choose the project folder on each one, and put the heavy agent runs there. Their CPU and RAM carry the workload while your main laptop stays light enough to take with you. Roost keeps all of those sessions in the same control panel, so working from a different machine does not mean juggling a different workflow.
+**Leave the heavy work at home.** Have old MacBooks, a spare Mac mini, a Linux box, or a Windows workstation sitting around? Add them as workers, choose the project folder on each one, and put the heavy agent runs there. Their CPU and RAM carry the workload while your main laptop stays light enough to take with you. Roost keeps all of those sessions in the same control panel, so working from a different machine does not mean juggling a different workflow.
 
 **Take only a tablet.** Roost is a fully functional web app, not a cut-down remote viewer. Pair an iPad or Android tablet, add a keyboard, and you get the same terminal, pane layout, and shortcuts as the desktop surface. The work still runs on your workers at home; the tablet is simply another way into the same sessions.
 
@@ -44,7 +44,7 @@ Once you have agents across several machines, spare hardware often sits unused w
 
 **Run any terminal program.** Pick a server and folder, open a terminal, and launch `omp`, Claude Code, Codex, a shell, a REPL, or any other TUI. Roost keeps the PTY alive and renders the program's own terminal interface on every device.
 
-**Build a fleet from the machines you already own.** Connect every Mac and Linux box to one coordinator, then use each one as a worker, including the coordinator machine. Put an agent run on an older MacBook, a spare desktop, a Linux box, or your main laptop, based on where you have CPU and RAM available. Pick a project folder on that worker and open a workspace there. Workers dial outbound only, so they do not expose an inbound port. The sidebar groups every live session by the machine it runs on, so the entire fleet stays legible in one browser tab.
+**Build a fleet from the machines you already own.** Connect every macOS, Linux, and Windows x64 machine to one coordinator, then use each one as a worker, including the coordinator machine. Put an agent run where CPU and RAM are available, pick a project folder on that worker, and open a workspace there. Workers dial outbound only, so they do not expose an inbound port. The sidebar groups every live session by machine, so the entire fleet stays legible in one browser tab.
 
 
 **A full terminal on every device.** The same fully functional web app runs on any modern browser — macOS, Windows, and Linux desktops, iPhone, Android phones, iPads, and Android tablets. Nothing to install on the device you browse from. It renders the real persistent PTY with full ANSI, colors, and scrollback. Upload files into a session, download files from a worker to your browser, and use the terminal without caring which machine runs it. Tablets keep the desktop layout, panes, and shortcuts. Phones add touch selection, an on-screen key row, and gestures for real work. Add it to your home screen and it installs as a standalone PWA with its own icon and no browser chrome.
@@ -95,7 +95,7 @@ status is stored: restart anything and it re-derives itself.
    ┌─────────┼───────────────────┐
    ▼         ▼                   ▼
  Worker    Worker              Worker        (Bun, one per machine)
- Mac       Linux               Mac
+ macOS     Linux               Windows
    │  a keeper subprocess hosts every PTY and outlives worker restarts
 ```
 
@@ -110,21 +110,28 @@ Roost's supported automated production topology is [Tailscale](https://tailscale
 
 ## Install
 
-Roost's coordinator and workers run on macOS and Linux (launchd on macOS, `systemd --user` on Linux). Browsing devices need no install at all — any modern browser on any OS. The supported production install uses Tailscale. On the machine you want as the coordinator:
+Roost's coordinator and workers run on macOS, Linux, and Windows x64. POSIX hosts use launchd or `systemd --user`; Windows uses restricted SCM services. Browsing devices need only a modern browser. The supported production install uses Tailscale.
+
+On macOS or Linux:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/cefege/roost/main/install-binary.sh | bash
 "$HOME/.local/bin/roost" quickstart
 ```
 
-This installs the checksum-verified release binary, then `quickstart` configures the coordinator, local worker, and browser pairing. There are no tokens to copy.
+On Windows x64, install Tailscale first and use the signed PowerShell 5.1+
+bootstrap flow in [`GETTING_STARTED.md`](GETTING_STARTED.md#install--run). It
+requires the release-publisher certificate SHA-256 from an independent trusted
+channel, verifies the downloaded installer's Authenticode chain, trusted
+timestamp, and exact leaf-certificate pin before execution, then verifies the
+signed release manifest and every package file.
 
 For source development only, `curl -fsSL https://raw.githubusercontent.com/cefege/roost/main/install.sh | bash` installs Bun and a checkout that tracks `main`; it is not the pinned production release path.
 
 Two things make growing your fleet painless, with no SSH and no tokens to hand-copy:
 
 - **Add a phone or tablet by QR.** In **Settings → Pair a device**, scan the QR with your phone's camera. It opens Roost and signs itself in, with nothing to type.
-- **Add another machine with one line.** Run `roost add-mac` on the coordinator (or **Settings → Machines → Add machine**) and paste the one-liner it prints on the new Mac or Linux box. It self-installs and registers over the network, as a pull rather than a push.
+- **Add another machine.** On the coordinator, run `roost add-machine --platform macos`, `roost add-machine --platform linux`, or `roost add-machine --platform windows` (or use **Settings → Machines → Add machine**), then paste its one-shot enrollment command on the new host.
 
 The full walkthrough, covering pairing devices and adding machines, is in [`GETTING_STARTED.md`](GETTING_STARTED.md).
 
@@ -136,7 +143,7 @@ Claude on the web and on your phone is a control plane too, but it drives Anthro
 
 |   | Claude on the web / phone | Roost |
 |---|---|---|
-| **What it drives** | Anthropic-hosted cloud sandboxes, or one local Mac tethered via `claude rc` | Every machine you own, Mac or Linux, natively |
+| **What it drives** | Anthropic-hosted cloud sandboxes, or one local Mac tethered via `claude rc` | Every macOS, Linux, or Windows x64 machine you own, natively |
 | **Open a new terminal while away** | No; limited to sandboxes or sessions already running | Yes; open a fresh terminal in any folder on any machine, from your phone |
 | **What runs in it** | Claude Code only | Any agent, shell, REPL, or TUI |
 | **Where your code lives** | A cloud VM (or the one tethered Mac) | Your own hardware, your own network |
@@ -148,14 +155,13 @@ Your desktop browser stays perfectly usable for claude.ai. Roost isn't a replace
 ## Roadmap
 
 - **Headless-server polish.** Linux workers already install as a `systemd --user` unit with linger, so an always-on box keeps running after logout; the remaining work is the setup path for a box you only ever reach over SSH.
-- **Windows as a *worker*.** Browsing Roost from Windows already works — it's a browser. What's missing is running a coordinator or worker there; both are Bun and already run on macOS + Linux, and the cross-platform desktop shell is scoped (`FEATURES/PLAN-NEUT.md`).
 - **Multi-user.** The schema already models multiple operators; a UI for it is next.
 
 ## Status
 
 Early, and honest about it. I use Roost every day as my primary coding surface, so the paths I hit are solid. Paths I don't may be rough.
 
-- Coordinator and workers: macOS and Linux (launchd on macOS, `systemd --user` on Linux; no Windows worker yet)
+- Coordinator and workers: macOS, Linux, and Windows x64 (launchd, `systemd --user`, or Windows SCM services)
 - Browsing devices: any modern browser — macOS, Windows, Linux, iOS, iPadOS, Android — with nothing to install
 - Needs a shared network (Tailscale tested) and whatever terminal CLI tools you want to run
 - Single-user today; the schema is built for multiple operators but there's no UI for it yet

@@ -1,11 +1,22 @@
-import { probeServiceHealth } from "@roost/shared/service-health";
-import { runWindowsHelper } from "@roost/shared/windows-helper";
+import {
+  probeServiceHealth,
+  type ServiceHealthRole,
+  type ServiceHealthStatusFor,
+} from "@roost/shared/service-health";
+import {
+  runWindowsHelper,
+  windowsCopyUpdaterArtifact,
+  windowsInspectUpdaterArtifact,
+  windowsProbeExclusiveOpen,
+  windowsReadUpdaterArtifact,
+  windowsReplaceUpdaterArtifact,
+} from "@roost/shared/windows-helper";
 import { WINDOWS_SERVICE_NAMES } from "./service-ctl.ts";
 import type { ServiceHealthProver, WindowsUpdateNative } from "./windows-update-broker.ts";
-import type { WindowsUpdateJournalV1 } from "./windows-update-journal.ts";
+import type { WindowsUpdateJournalV1, WindowsUpdateJournalV2 } from "./windows-update-journal.ts";
 
-/** Narrow wrappers around the four updater operations implemented by the
- * pinned roost-win-helper. Arguments remain an argv vector end to end. */
+/** Narrow wrappers around the updater operations implemented by the pinned
+ * roost-win-helper. Arguments remain an argv vector end to end. */
 export function createWindowsUpdateNative(): WindowsUpdateNative {
   return {
     async assertUpdaterServiceContext(): Promise<void> {
@@ -27,63 +38,164 @@ export function createWindowsUpdateNative(): WindowsUpdateNative {
       }));
       await runWindowsHelper<void>("extract-zip", [packagePath, destination], { input: allowlist });
     },
+    async probeExclusiveOpen(path): Promise<boolean> {
+      assertWin32();
+      return await windowsProbeExclusiveOpen(path);
+    },
+    async protectArtifacts(path): Promise<void> {
+      assertWin32();
+      await runWindowsHelper<void>(
+        "apply-artifact-dacl",
+        [path, `NT SERVICE\\${WINDOWS_SERVICE_NAMES.updater}`],
+      );
+    },
+    async readArtifact(path, profile, maxBytes): Promise<Uint8Array> {
+      assertWin32();
+      return await windowsReadUpdaterArtifact(path, profile, maxBytes);
+    },
+    async replaceArtifact(path, profile, contents): Promise<void> {
+      assertWin32();
+      const bytes = typeof contents === "string" ? Buffer.from(contents, "utf8") : contents;
+      await windowsReplaceUpdaterArtifact(path, profile, bytes);
+    },
+    async copyArtifact(
+      sourcePath,
+      destinationPath,
+      sourceProfile,
+      destinationProfile,
+      expected,
+    ) {
+      assertWin32();
+      return await windowsCopyUpdaterArtifact(
+        sourcePath,
+        destinationPath,
+        sourceProfile,
+        destinationProfile,
+        expected,
+      );
+    },
+    async inspectArtifact(path, profile, expected) {
+      assertWin32();
+      return await windowsInspectUpdaterArtifact(path, profile, expected);
+    },
   };
 }
 
-export interface WindowsServiceHealthDescriptor {
-  version: string;
-  build: string;
-  processEpoch: string;
-  dbReady?: boolean;
-  listenerReady?: boolean;
-  targetLinkReady?: boolean;
-  coordinatorUrl?: string;
-}
+export type WindowsServiceHealthDescriptor<
+  R extends ServiceHealthRole = ServiceHealthRole,
+> = ServiceHealthStatusFor<R>;
 
 /** WindowsCore supplies a DACL-protected LocalEndpoint reader. Keeping that
  * dependency structural prevents the updater from inventing a second IPC or
  * capability-file implementation. */
 export interface WindowsLocalEndpointHealth {
-  read(role: "worker" | "coordinator"): Promise<WindowsServiceHealthDescriptor>;
+  read<R extends ServiceHealthRole>(role: R): Promise<WindowsServiceHealthDescriptor<R>>;
 }
 
-export function createServiceHealthProver(endpoint: WindowsLocalEndpointHealth = {
-  read: async (role) => await probeServiceHealth(role),
-}): ServiceHealthProver {
+export function createServiceHealthProver(
+  endpoint: WindowsLocalEndpointHealth = {
+    read: async <R extends ServiceHealthRole>(role: R) => await probeServiceHealth(role),
+  },
+  options: {
+    timeoutMs?: number;
+    retryMs?: number;
+    now?: () => number;
+    sleep?: (milliseconds: number) => Promise<void>;
+  } = {},
+): ServiceHealthProver {
+  const timeoutMs = options.timeoutMs ?? 30_000;
+  const retryMs = options.retryMs ?? 250;
+  const now = options.now ?? Date.now;
+  const sleep = options.sleep ?? Bun.sleep;
   return {
-    async prove(role: "worker" | "coordinator", journal: Readonly<WindowsUpdateJournalV1>, mode: "forward" | "rollback"): Promise<void> {
-      const health = await endpoint.read(role);
-      const prior = journal.healthBefore[role];
-      if (!prior) throw new Error(`${role} has no pre-update health checkpoint`);
-      const expectedVersion = mode === "forward" ? journal.targetVersion : prior.version;
-      if (normalizeVersion(health.version) !== normalizeVersion(expectedVersion) || !health.build || !health.processEpoch) {
-        throw new Error(`${role} endpoint does not prove the expected version/build/process epoch`);
-      }
-      if (mode === "forward" && health.processEpoch === prior.processEpoch) {
-        throw new Error(`${role} endpoint did not advance to a new process generation`);
-      }
-      if (mode === "rollback" && health.build !== prior.build) {
-        throw new Error(`${role} rollback endpoint does not match the prior build`);
-      }
-      if (mode === "rollback" && rollbackRestarted(journal) && health.processEpoch === prior.processEpoch) {
-        throw new Error(`${role} rollback endpoint did not advance to a restored process generation`);
-      }
-      if (role === "coordinator" && (!health.dbReady || !health.listenerReady)) {
-        throw new Error("coordinator endpoint is not database/listener ready");
-      }
-      if (role === "worker" && (!health.targetLinkReady || !health.coordinatorUrl || health.coordinatorUrl !== prior.coordinatorUrl)) {
-        throw new Error("worker endpoint has not reconnected to its prior coordinator target");
+    async read<R extends ServiceHealthRole>(
+      role: R,
+    ): Promise<WindowsServiceHealthDescriptor<R>> {
+      return await endpoint.read(role);
+    },
+    async prove(
+      role: ServiceHealthRole,
+      journal: Readonly<WindowsUpdateJournalV1 | WindowsUpdateJournalV2>,
+      mode: "forward" | "proof" | "rollback",
+    ): Promise<void> {
+      const deadline = now() + timeoutMs;
+      let lastError: unknown;
+      while (true) {
+        try {
+          assertExpectedHealth(role, await endpoint.read(role), journal, mode);
+          return;
+        } catch (error) {
+          lastError = error;
+          if (now() >= deadline) {
+            throw new Error(`${role} did not prove ${mode} health within ${timeoutMs}ms: ${String(lastError)}`);
+          }
+          await sleep(retryMs);
+        }
       }
     },
   };
+}
+
+function assertExpectedHealth(
+  role: ServiceHealthRole,
+  health: WindowsServiceHealthDescriptor,
+  journal: Readonly<WindowsUpdateJournalV1 | WindowsUpdateJournalV2>,
+  mode: "forward" | "proof" | "rollback",
+): void {
+  if (health.role !== role) throw new Error(`${role} endpoint returned mismatched role health`);
+  const prior = journal.healthBefore[role];
+  if (!prior) throw new Error(`${role} has no pre-update health checkpoint`);
+  const expectedVersion = mode === "rollback" ? prior.version : journal.targetVersion;
+  const expectedBuild = mode === "rollback" ? prior.build : journal.targetBuild;
+  if (!expectedBuild) throw new Error(`${role} journal has no immutable ${mode} build identity`);
+  if (
+    normalizeVersion(health.version) !== normalizeVersion(expectedVersion)
+    || health.build !== expectedBuild
+    || !health.processEpoch
+  ) {
+    throw new Error(`${role} endpoint does not prove the exact expected version/build/process epoch`);
+  }
+  if (mode === "forward" && health.processEpoch === prior.processEpoch) {
+    throw new Error(`${role} endpoint did not advance to a new process generation`);
+  }
+  if (mode === "proof" && health.processEpoch !== prior.processEpoch) {
+    throw new Error(`${role} same-release endpoint changed process generation`);
+  }
+
+  if (mode === "rollback" && rollbackRestarted(journal) && health.processEpoch === prior.processEpoch) {
+    throw new Error(`${role} rollback endpoint did not advance to a restored process generation`);
+  }
+  if (health.role === "coordinator" && (!health.dbReady || !health.listenerReady)) {
+    throw new Error("coordinator endpoint is not database/listener ready");
+  }
+  if (
+    health.role === "worker"
+    && (!health.targetLinkReady || !health.coordinatorUrl || health.coordinatorUrl !== prior.coordinatorUrl)
+  ) {
+    throw new Error("worker endpoint has not reconnected to its prior coordinator target");
+  }
 }
 
 function normalizeVersion(version: string): string {
   return version.replace(/^v/, "").split("+")[0];
 }
 
-function rollbackRestarted(journal: Readonly<WindowsUpdateJournalV1>): boolean {
-  const order = ["prepared", "broker-started", "assets-staged", "services-stopped", "service-configs-switched", "current-manifest-switched", "services-restored", "health-proven", "committed"];
+function rollbackRestarted(
+  journal: Readonly<WindowsUpdateJournalV1 | WindowsUpdateJournalV2>,
+): boolean {
+  const order = [
+    "prepared",
+    "broker-started",
+    "assets-staged",
+    "stable-artifacts-snapshotted",
+    "services-stopped",
+    "stable-artifacts-promoted",
+    "current-manifest-switched",
+    "services-restored",
+    "health-proven",
+    "committed",
+    "cleanup-complete",
+  ];
   return order.indexOf(journal.failure?.forwardPhase ?? "prepared") >= order.indexOf("services-stopped");
 }
 

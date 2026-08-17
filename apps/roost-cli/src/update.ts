@@ -16,7 +16,6 @@ const REPO = "cefege/roost";
 export const WINDOWS_RELEASE_ASSET = "roost-windows-x64.zip";
 export const WINDOWS_RELEASE_MANIFEST_ASSET = "roost-windows-x64.manifest.json";
 export const WINDOWS_RELEASE_SIGNATURE_ASSET = "roost-windows-x64.manifest.json.p7s";
-export const WINDOWS_RELEASE_REQUIRED_FILES = ["roost.exe", "roost-win-helper.exe", "shawl.exe"] as const;
 
 /** Release asset for a platform/arch pair. `roost` stays unsuffixed for
  *  darwin-arm64 so existing installs' `roost update` keeps resolving; every

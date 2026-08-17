@@ -128,6 +128,28 @@ jobs:
     name: publish GitHub Release
     needs: [native-smoke, windows-release]
     runs-on: ubuntu-24.04
+    env:
+      PUBLIC_RELEASE_ASSETS: |-
+        dist/roost
+        dist/roost.sha256
+        dist/roost-darwin-arm64
+        dist/roost-darwin-arm64.sha256
+        dist/roost-darwin-x64
+        dist/roost-darwin-x64.sha256
+        dist/roost-linux-x64
+        dist/roost-linux-x64.sha256
+        dist/roost-linux-arm64
+        dist/roost-linux-arm64.sha256
+        dist/roost-windows-x64.zip
+        dist/roost-windows-x64.zip.sha256
+        dist/roost-windows-x64.manifest.json
+        dist/roost-windows-x64.manifest.json.sha256
+        dist/roost-windows-x64.manifest.json.p7s
+        dist/roost-windows-x64.manifest.json.p7s.sha256
+        dist/join.ps1
+        dist/join.ps1.sha256
+        dist/install-binary.ps1
+        dist/install-binary.ps1.sha256
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -137,25 +159,20 @@ jobs:
         with:
           name: windows-release-candidates
           path: dist
-      - uses: softprops/action-gh-release@v2
+      - name: Require complete canonical public asset set
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$(mktemp)"
+          actual="$(mktemp)"
+          printf '%s\n' "$PUBLIC_RELEASE_ASSETS" | sed 's#^dist/##' | LC_ALL=C sort > "$expected"
+          test "$(wc -l < "$expected")" -eq 20
+          find dist -maxdepth 1 -type f -printf '%f\n' | LC_ALL=C sort > "$actual"
+          diff -u "$expected" "$actual"
+      - uses: softprops/action-gh-release@v3
         with:
-          files: |
-            dist/roost
-            dist/roost.sha256
-            dist/roost-darwin-arm64
-            dist/roost-darwin-arm64.sha256
-            dist/roost-darwin-x64
-            dist/roost-darwin-x64.sha256
-            dist/roost-linux-x64
-            dist/roost-linux-x64.sha256
-            dist/roost-linux-arm64
-            dist/roost-linux-arm64.sha256
-            dist/roost-windows-x64.zip
-            dist/roost-windows-x64.zip.sha256
-            dist/roost-windows-x64.manifest.json
-            dist/roost-windows-x64.manifest.json.sha256
-            dist/roost-windows-x64.manifest.json.p7s
-            dist/roost-windows-x64.manifest.json.p7s.sha256
+          fail_on_unmatched_files: true
+          files: ${{ env.PUBLIC_RELEASE_ASSETS }}
 
   windows-verify:
     name: verify Windows Server 2022
@@ -174,6 +191,9 @@ jobs:
         run: |
           bun x tsgo -p tsconfig.base.json --noEmit
           bun test --isolate apps/shared/tests/ apps/coord/tests/ apps/web/tests/ apps/roost-cli/tests/ smoke/bun_smoke.test.ts
+      - name: Stock Windows PowerShell 5.1 bootstrap gate
+        shell: powershell
+        run: .\scripts\windows\verify-powershell51-bootstrap.ps1
       - name: Native keeper and ConPTY gate
         run: >-
           bun test
@@ -286,3 +306,7 @@ jobs:
             dist/roost-windows-x64.manifest.json.sha256
             dist/roost-windows-x64.manifest.json.p7s
             dist/roost-windows-x64.manifest.json.p7s.sha256
+            dist/join.ps1
+            dist/join.ps1.sha256
+            dist/install-binary.ps1
+            dist/install-binary.ps1.sha256

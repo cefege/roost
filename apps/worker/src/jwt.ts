@@ -7,6 +7,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { log } from "@roost/shared";
 import { durableWriteFile } from "@roost/shared/durability";
+import { windowsApplyAccountDacl } from "@roost/shared/windows-helper";
 
 // PKCS8 DER prefix for a raw 32-byte Ed25519 seed. crypto.subtle.importKey
 // only accepts pkcs8/jwk/spki — prepend this to the seed to import it.
@@ -119,6 +120,9 @@ export async function loadWorkerKey(keyPath: string): Promise<LoadedKey> {
   }
   if (!parsed) {
     parsed = await generateAndWriteKey(keyPath);
+  }
+  if (process.platform === "win32" && process.env.ROOST_SERVICE_ACCOUNT) {
+    await windowsApplyAccountDacl(keyPath, process.env.ROOST_SERVICE_ACCOUNT);
   }
 
   const fingerprint = fingerprintFromPubKey(parsed.pubKey);

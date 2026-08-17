@@ -3,7 +3,6 @@ import * as fs from "node:fs";
 import { dirname, join } from "node:path";
 import { z } from "zod";
 import { durableWriteFile } from "@roost/shared/durability";
-import { acquireMachineTransaction } from "@roost/shared/machine-transaction";
 
 export const MOVE_PHASES = [
   "PREPARING_TARGET", "STAGING_WORKERS", "DRAINING_SOURCE", "COPYING_STATE",
@@ -137,7 +136,9 @@ export class HandoffStateStore {
       case "linux":
         return { release() {} };
       case "win32":
-        return acquireMachineTransaction("relocation", this.path, { platform: "win32" });
+        // Windows machine mutation is serialized exclusively inside
+        // RoostUpdaterV2. The Coordinator owns only this handoff state.
+        return { release() {} };
       default:
         throw new Error(`unsupported coordinator move platform: ${process.platform}`);
     }

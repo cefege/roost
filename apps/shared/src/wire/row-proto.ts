@@ -42,7 +42,7 @@ export function workerRowToWirePresence(row: {
     registered_at_ms: row.registered_at_ms,
     last_seen_ms: row.last_seen_ms,
     reachable_addr: row.reachable_addr ?? null,
-    keeper_stale: row.keeper_stale ?? null,
+    keeper_stale: row.keeper_stale,
   };
 }
 

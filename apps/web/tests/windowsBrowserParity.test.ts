@@ -6,7 +6,7 @@ import {
   remoteDesktopFile,
   windowsSharePath,
 } from "../src/lib/machineActions.ts";
-import { buildMachineJoinCommand } from "../src/lib/machineJoinCommand.ts";
+import { buildMachineJoinCommand } from "@roost/shared/machine-join-command";
 
 describe("Windows browser machine surfaces", () => {
   test("uses Windows icon and exposes only native RDP/share actions", () => {
@@ -26,14 +26,30 @@ describe("Windows browser machine surfaces", () => {
   });
 
   test("Windows join command downloads and verifies the signed release script", () => {
-    const command = buildMachineJoinCommand("win32", "https://coord.tail.example", "tok'en", "Build PC");
-    expect(command).toContain("releases/latest/download/join.ps1");
+    const command = buildMachineJoinCommand("win32", "https://coord.tail.example", "tok'en", "Build PC", "a".repeat(64));
+    expect(command).toContain("releases/download/$($r.tag_name)");
     expect(command).toContain("Get-AuthenticodeSignature");
     expect(command).toContain("-CoordinatorUrl 'https://coord.tail.example'");
-    expect(command).toContain("-BootstrapToken 'tok''en'");
+    expect(command).toContain("$t=ConvertTo-SecureString 'tok''en' -AsPlainText -Force");
+    expect(command).toContain("-BootstrapToken $t");
     expect(command).toContain("-WorkerLabel 'Build PC'");
-    expect(command).not.toContain("ExecutionPolicy");
+    expect(command).toContain("-ReleaseBaseUrl $b");
+    expect(command).toContain("$h='" + "a".repeat(64) + "'");
+    expect(command).toContain("$s.SignerCertificate.RawData");
+    expect(command).toContain("$null -eq $s.TimeStamperCertificate");
+    expect(command).toContain("if($a -cne $h)");
+    expect(command).toContain("-PublisherSha256 $h");
+    expect(command).toContain("Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned -Force");
     expect(command).not.toContain("iex");
+  });
+
+  test("Windows join command rejects a missing or malformed independent publisher pin", () => {
+    expect(() => buildMachineJoinCommand("win32", "https://coord", "token", "", "")).toThrow(
+      "trusted 64-hex release-publisher SHA-256",
+    );
+    expect(() => buildMachineJoinCommand("win32", "https://coord", "token", "", "g".repeat(64))).toThrow(
+      "trusted 64-hex release-publisher SHA-256",
+    );
   });
 
   test("POSIX join command remains byte-compatible", () => {
