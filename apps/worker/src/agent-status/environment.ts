@@ -96,7 +96,13 @@ export function withAgentStatusEnvironment(
   switch (platform) {
     case "darwin":
     case "linux":
-      return { ...base, ...overlay };
+      return {
+        ...base,
+        ...overlay,
+        // Keep the documented POSIX name available to shells and lightweight
+        // clients while ROOST_AGENT_ENDPOINT remains the cross-platform name.
+        ROOST_AGENT_SOCKET_PATH: endpoint.address,
+      };
     case "win32": {
       // Windows environment names are case-insensitive. Replace an existing
       // differently-cased key instead of emitting an ambiguous duplicate.

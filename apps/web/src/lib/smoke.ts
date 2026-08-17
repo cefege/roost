@@ -29,7 +29,10 @@ import { rootStore, setRootStore } from "../store/root.ts";
 import { workerPathBasename } from "./nativePath.ts";
 import { setForceHidden, setForceVisible } from "./pageVisible.ts";
 import { scrollbackBackfillRequestCount as scrollbackBackfillRequestCountImpl } from "./scrollbackBackfill.ts";
-import { sendTerminalInput } from "../ws/sync-outbound.ts";
+import {
+  sendTerminalInput,
+  setSmokeTerminalInputObserver,
+} from "../ws/sync-outbound.ts";
 import { phaseTimeline as phaseTimelineImpl } from "./diag.ts";
 import type { SpaPhaseTimeline } from "./diag.ts";
 import {
@@ -44,6 +47,16 @@ import type {
   TerminalTimingKind,
   TerminalTimingResult,
 } from "./smokeHarness.ts";
+
+export interface SmokeTerminalInputBatch {
+  sessionId: string;
+  data: number[];
+}
+
+export interface SmokeTerminalInputCapture {
+  batches: SmokeTerminalInputBatch[];
+  droppedBatches: number;
+}
 
 export type RetainedMarkerScan = {
   gridEpoch: string;
@@ -62,11 +75,15 @@ export type RetainedMarkerScan = {
 };
 
 export interface SmokeApi {
-  /** Send raw bytes via the coord RPC — BYPASSES the wterm textarea + focus
-   *  pipeline. Use for variant coverage only, NEVER as the "can input?" test:
-   *  it stays green when focus is dead (the cell-phase-3b input bug). For the real
-   *  input check use paneFocused() + real keystrokes (chrome_keyboard). */
+  /** Send raw bytes through the terminal transport — BYPASSES the textarea +
+   *  focus pipeline. Use for variant coverage only, NEVER as the "can input?"
+   *  test: it stays green when focus is dead. For the real input check use
+   *  paneFocused() + real keystrokes (chrome_keyboard). */
   input(sessionId: string, text: string): Promise<void>;
+  /** Exact accepted input batches in admission order. Smoke-only and bounded;
+   *  reset immediately before the UI action under observation. */
+  terminalInputCapture(): SmokeTerminalInputCapture;
+  resetTerminalInputCapture(): void;
   /** Real-input regression probe: is the active pane's textarea actually the
    *  document.activeElement? Returns false when focus never landed (= input is
    *  dead even though input() would still succeed). This is the assertion that
@@ -211,6 +228,8 @@ export interface SmokeApi {
 // workspaces into the shared test stack, where the extra live PTYs perturb
 // every later scroll/frame assertion. cleanupCreated is the only reader.
 const CREATED_KEY = "roostSmoke.created.v1";
+const TERMINAL_INPUT_CAPTURE_MAX_BATCHES = 512;
+const TERMINAL_INPUT_CAPTURE_MAX_BYTES = 1024 * 1024;
 
 export function maybeInstallSmokeBackdoor(): void {
   if (typeof window === "undefined") return;
@@ -235,6 +254,31 @@ export function maybeInstallSmokeBackdoor(): void {
       }));
     } catch { /* privacy mode */ }
   };
+  const terminalInputBatches: Array<{ sessionId: string; data: Uint8Array }> = [];
+  let terminalInputBytes = 0;
+  let droppedTerminalInputBatches = 0;
+  const clearTerminalInputCapture = () => {
+    terminalInputBatches.length = 0;
+    terminalInputBytes = 0;
+    droppedTerminalInputBatches = 0;
+  };
+  setSmokeTerminalInputObserver((sessionId, data) => {
+    if (data.byteLength > TERMINAL_INPUT_CAPTURE_MAX_BYTES) {
+      droppedTerminalInputBatches++;
+      return;
+    }
+    while (
+      terminalInputBatches.length >= TERMINAL_INPUT_CAPTURE_MAX_BATCHES
+      || terminalInputBytes + data.byteLength > TERMINAL_INPUT_CAPTURE_MAX_BYTES
+    ) {
+      const evicted = terminalInputBatches.shift();
+      if (!evicted) break;
+      terminalInputBytes -= evicted.data.byteLength;
+      droppedTerminalInputBatches++;
+    }
+    terminalInputBatches.push({ sessionId, data });
+    terminalInputBytes += data.byteLength;
+  });
   const api: SmokeApi = {
     async cleanupCreated() {
       const killedSessions: string[] = [];
@@ -391,6 +435,18 @@ export function maybeInstallSmokeBackdoor(): void {
       if (!admission.accepted) throw new Error(admission.reason);
       const outcome = await admission.result;
       if (outcome.status !== "accepted") throw new Error(outcome.reason);
+    },
+    terminalInputCapture() {
+      return {
+        batches: terminalInputBatches.map(({ sessionId, data }) => ({
+          sessionId,
+          data: Array.from(data),
+        })),
+        droppedBatches: droppedTerminalInputBatches,
+      };
+    },
+    resetTerminalInputCapture() {
+      clearTerminalInputCapture();
     },
     paneFocused(sessionId) {
       const slot = document.querySelector(`[data-testid="terminal-slot-${sessionId}"]`);

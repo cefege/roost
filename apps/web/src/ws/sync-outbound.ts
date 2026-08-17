@@ -29,6 +29,8 @@ export type InputAdmission =
   | { accepted: false; reason: string }
   | { accepted: true; inputSeq: bigint; result: Promise<InputOutcome> };
 
+export type SmokeTerminalInputObserver = (sessionId: string, bytes: Uint8Array) => void;
+
 export type ViewportOutcome =
   | {
       status: "accepted";
@@ -87,6 +89,21 @@ const inputLanes = new Map<string, InputLane>();
 const lastInputSendTs = new Map<string, number>();
 let observedSocketId: string | null = null;
 let nextInputSeq = 0n;
+let smokeTerminalInputObserver: SmokeTerminalInputObserver | null = null;
+
+/** Install the input-admission observer used by the lazy smoke backdoor.
+ * Registration is ignored outside a smoke-enabled document, and the observer
+ * receives its own byte copy so instrumentation cannot mutate the live batch. */
+export function setSmokeTerminalInputObserver(
+  observer: SmokeTerminalInputObserver | null,
+): void {
+  try {
+    if (typeof localStorage === "undefined" || localStorage.getItem("roostSmoke") !== "1") return;
+  } catch {
+    return;
+  }
+  smokeTerminalInputObserver = observer;
+}
 
 function safeSessionStorage(): Storage | null {
   try {
@@ -451,6 +468,11 @@ export function sendTerminalInput(sessionId: string, bytes: Uint8Array): InputAd
   lane.pending.push(pending);
   lane.bytes += owned.byteLength;
   lastInputSendTs.set(sessionId, performance.now());
+  try {
+    smokeTerminalInputObserver?.(sessionId, owned.slice());
+  } catch {
+    // Smoke instrumentation must never perturb terminal input delivery.
+  }
   trySendInput(pending, state);
   return { accepted: true, inputSeq, result: promise };
 }

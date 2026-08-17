@@ -59,6 +59,20 @@ function report(seq: number, patch: Record<string, unknown> = {}): string {
   })}\n`;
 }
 
+describe("agent report environment", () => {
+  test("exports the report endpoint under the documented POSIX socket name", () => {
+    const shellEnv = withAgentStatusEnvironment({}, sessionId);
+    expect(shellEnv.ROOST_SESSION_ID).toBe(sessionId);
+    if (process.platform === "win32") {
+      expect(shellEnv.ROOST_AGENT_ENDPOINT_KIND).toBe("named-pipe");
+      expect(shellEnv.ROOST_AGENT_SOCKET_PATH).toBeUndefined();
+    } else {
+      expect(shellEnv.ROOST_AGENT_ENDPOINT_KIND).toBe("uds");
+      expect(shellEnv.ROOST_AGENT_SOCKET_PATH).toBe(shellEnv.ROOST_AGENT_ENDPOINT);
+    }
+  });
+});
+
 describe("agent report server", () => {
   test("creates a 0600 socket and accepts owned pid reports", async () => {
     const dir = await mkdtemp(join(tmpdir(), "roost-agent-report-"));

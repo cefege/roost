@@ -81,9 +81,11 @@ function _regexRowMatches(text: string, re: RegExp): readonly RowMatch[] {
 	return out;
 }
 
-/** Demand-driven history from the immutable grid epoch named by the browser's
- * authoritative viewport frame. The epoch is checked before any cell walk and
- * after every event-loop yield, so a reframe can never splice re-numbered rows. */
+/** Demand-driven history from a stable grid epoch. Browser callers name the
+ * authoritative viewport frame they hold. An empty epoch is the headless-API
+ * form: bind this read to the worker's current epoch and return that identity.
+ * The epoch is checked after every yield in either form, so neither can splice
+ * rows across a reframe. */
 export async function handleGetScrollbackCells(
 	frame: Extract<ClientControlFrame, { kind: "get-scrollback-cells" }>,
 	request_id: string,
@@ -118,7 +120,10 @@ export async function handleGetScrollbackCells(
 		coordLink.send({ kind: "rpc-error", request_id, message: "session has no terminal" });
 		return;
 	}
-	if (frame.grid_epoch !== cellGridEpoch(rec.cell_emit)) {
+	const requestedEpoch = frame.grid_epoch;
+	const currentEpoch = cellGridEpoch(rec.cell_emit);
+	const expectedEpoch = requestedEpoch || currentEpoch;
+	if (requestedEpoch && requestedEpoch !== currentEpoch) {
 		coordLink.send({ kind: "rpc-error", request_id, message: "grid epoch changed" });
 		return;
 	}
@@ -147,7 +152,7 @@ export async function handleGetScrollbackCells(
 			if (slices > 0) {
 				await new Promise<void>((resolve) => { setImmediate(resolve); });
 				const liveRec = sessionMgr.getBySessionId(frame.session_id);
-				if (!liveRec || frame.grid_epoch !== cellGridEpoch(liveRec.cell_emit)) {
+				if (!liveRec || expectedEpoch !== cellGridEpoch(liveRec.cell_emit)) {
 					coordLink.send({ kind: "rpc-error", request_id, message: "grid epoch changed" });
 					return;
 				}
@@ -182,7 +187,7 @@ export async function handleGetScrollbackCells(
 			request_id,
 			data: {
 				rows, cols: core.getCols(), total, start_row: startRow, end_row: endRow,
-				grid_epoch: frame.grid_epoch,
+				grid_epoch: expectedEpoch,
 			},
 		});
 	} catch (err) {

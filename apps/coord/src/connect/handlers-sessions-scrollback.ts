@@ -51,11 +51,14 @@ export function makeSessionScrollbackHandlers(
         max_rows: req.maxRows,
       });
       let res;
-      try { res = await pending.promise; }
-      catch {
-        // THROW on the 8s pending-rpc timeout: the SPA's backfill controller
-        // retries/parks; an empty response would read as "no history".
-        throw new ConnectError("scrollback cells serve timed out", Code.Unavailable);
+      try {
+        res = await pending.promise;
+      } catch (error) {
+        if (error instanceof ConnectError) {
+          if (error.code !== Code.DeadlineExceeded) throw error;
+          throw new ConnectError("scrollback cells serve timed out", Code.Unavailable);
+        }
+        throw new ConnectError(`scrollback cells serve failed: ${String(error)}`, Code.Internal);
       }
       return create(SessionsGetScrollbackCellsResponseSchema, {
         rows: res.rows.map(cellRowToProto),

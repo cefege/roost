@@ -24,9 +24,12 @@ export interface CoordLinkDeps {
   // CoordLink-constants.ts).
   staleLinkTimeoutMs?: number;
   staleCheckIntervalMs?: number;
-  // Fired after native WebSocket backpressure clears and all earlier
-  // event/control writes have drained. Callers use it to retry authoritative
-  // cell repairs; it is edge-triggered only after a send reported "dropped".
+  // Test-only socket injection for deterministic outbox/backpressure coverage.
+  webSocketFactory?: (url: string) => WebSocket;
+  // Fired after native WebSocket backpressure clears and earlier durable events
+  // have drained. It runs before queued controls so an authoritative cell
+  // repair preserves opened → full → reply ordering.
+  // Edge-triggered only after a cell send reported "dropped".
   onWritable?: () => void;
   onHelloAck?: (msg: { coord_pubkey_b64: string; coord_pubkey_kid: string; reconnected: boolean }) => void;
   // Fires after hello + event/control drain on every successful socket open.

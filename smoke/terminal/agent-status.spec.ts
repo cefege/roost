@@ -22,7 +22,7 @@ function reportCommand(
     "import json,os,socket",
     "s=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM)",
     "s.connect(os.environ['ROOST_AGENT_SOCKET_PATH'])",
-    `p={"version":1,"method":"agent.report","params":{"session_id":os.environ["ROOST_SESSION_ID"],"pid":os.getpid(),"agent":"omp","state":"${state}","seq":${seq},"active":${active ? "True" : "False"}${messageField}}}`,
+    `p={"version":1,"method":"agent.report","capability":os.environ["ROOST_AGENT_CAPABILITY"],"params":{"session_id":os.environ["ROOST_SESSION_ID"],"pid":os.getpid(),"agent":"omp","state":"${state}","seq":${seq},"active":${active ? "True" : "False"}${messageField}}}`,
     "s.sendall((json.dumps(p)+'\\n').encode())",
     "r=s.recv(4096)",
     `print('STATUS_ACK_${seq}',r.decode().strip())`,

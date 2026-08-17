@@ -6,17 +6,74 @@ import { test, expect } from "./fixtures.ts";
 import type { Page } from "@playwright/test";
 import type { TerminalTestStack } from "./stack.ts";
 import { dirname, join } from "node:path";
-import {
-  FilesListDirRequestSchema,
-  SessionsInputRequestSchema,
-} from "../../apps/shared/src/gen/roost/v1/coordinator_pb.ts";
+import { FilesListDirRequestSchema } from "../../apps/shared/src/gen/roost/v1/coordinator_pb.ts";
 import { encodeFolderPath } from "../../apps/web/src/lib/terminalHref.ts";
+import {
+  detectBrowserPlatform,
+  matchesPlatformShortcut,
+  type BrowserPlatform,
+  type PlatformShortcutId,
+} from "../../apps/web/src/lib/browserPlatform.ts";
 
 const fixturePath = join(dirname(fileURLToPath(import.meta.url)), "resize-tui.ts");
+
+// Playwright's Desktop Chrome profile currently advertises a Windows browser
+// even when the test runner itself is hosted elsewhere. Resolve shortcuts from
+// the page's navigator and the product's authoritative matcher rather than
+// assuming the runner OS or hard-coding one platform's chord.
+const shortcutPlatformByPage = new WeakMap<Page, Promise<BrowserPlatform>>();
+
+function shortcutPlatform(page: Page): Promise<BrowserPlatform> {
+  let detected = shortcutPlatformByPage.get(page);
+  if (!detected) {
+    detected = page.evaluate(() => {
+      const nav = navigator as Navigator & { userAgentData?: { platform?: string } };
+      return {
+        userAgent: nav.userAgent,
+        platform: nav.platform,
+        userAgentData: { platform: nav.userAgentData?.platform },
+      };
+    }).then(detectBrowserPlatform);
+    shortcutPlatformByPage.set(page, detected);
+  }
+  return detected;
+}
+
+async function pressPlatformShortcut(
+  page: Page,
+  shortcut: PlatformShortcutId,
+  key: string,
+): Promise<void> {
+  const platform = await shortcutPlatform(page);
+  // Put the native primary modifier first so the first accepted combination is
+  // the same idiomatic chord exposed by the product (Meta outside Windows).
+  const modifierOrder = platform === "windows"
+    ? ["Alt", "Control", "Shift", "Meta"] as const
+    : ["Meta", "Control", "Alt", "Shift"] as const;
+  for (let mask = 0; mask < 1 << modifierOrder.length; mask += 1) {
+    const modifiers = modifierOrder.filter((_, index) => (mask & (1 << index)) !== 0);
+    if (!matchesPlatformShortcut({
+      key,
+      ctrlKey: modifiers.includes("Control"),
+      altKey: modifiers.includes("Alt"),
+      shiftKey: modifiers.includes("Shift"),
+      metaKey: modifiers.includes("Meta"),
+      getModifierState: () => false,
+    }, shortcut, platform)) continue;
+    await page.keyboard.press([...modifiers, key].join("+"));
+    return;
+  }
+  throw new Error(`No ${platform} keyboard chord matches ${shortcut} with key ${key}`);
+}
 
 interface RecoveryMarkerScan {
   total: number; unique: number; min: number; max: number;
   duplicated: number[]; missing: number; outOfOrder: number; firstInversion: number;
+}
+
+interface TerminalInputCapture {
+  batches: Array<{ sessionId: string; data: number[] }>;
+  droppedBatches: number;
 }
 
 interface SmokeSessionProjection {
@@ -32,6 +89,8 @@ interface RecoverySmokeApi {
   createWorkspace(workerFp: string, folder: string, sessionId: string): Promise<{ id: string; channel: number }>;
   navigate(href: string): void;
   input(sessionId: string, text: string): Promise<void>;
+  terminalInputCapture(): TerminalInputCapture;
+  resetTerminalInputCapture(): void;
   dropNextCellFrame(sessionId: string): void;
   droppedCellFrameCount(sessionId: string): number;
   cellFrameCount(sessionId: string): number;
@@ -134,6 +193,20 @@ async function inputSmokeTerminal(page: Page, sessionId: string, text: string): 
     const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
     await smokeWindow.__smoke.input(id, input);
   }, { id: sessionId, input: text });
+}
+
+async function resetTerminalInputCapture(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    smokeWindow.__smoke.resetTerminalInputCapture();
+  });
+}
+
+async function readTerminalInputCapture(page: Page): Promise<TerminalInputCapture> {
+  return page.evaluate(() => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return smokeWindow.__smoke.terminalInputCapture();
+  });
 }
 
 
@@ -630,7 +703,7 @@ test("desktop split panes each own and route their composer", async ({ smokePage
   const initialSessionId = (await spawnSmokeShell(smokePage, stack.workerFp)).session_id;
   await navigateToSmokeSession(smokePage, initialSessionId);
 
-  await smokePage.keyboard.press("Meta+D");
+  await pressPlatformShortcut(smokePage, "splitRight", "D");
 
   const paneSlots = smokePage.locator("[data-pane-slot]");
   await expect(paneSlots).toHaveCount(2);
@@ -704,8 +777,8 @@ test("desktop split panes each own and route their composer", async ({ smokePage
   expect(focusSlotBBox).not.toBeNull();
   const targetSlot = focusSlotABox!.x < focusSlotBBox!.x ? slotB : slotA;
   const walkKey = focusSlotABox!.x < focusSlotBBox!.x
-    ? "Meta+Alt+ArrowRight"
-    : "Meta+Alt+ArrowLeft";
+    ? "ArrowRight"
+    : "ArrowLeft";
 
   // Keyboard pane navigation overrides a composer focused in the pane being
   // left. The unsent draft stays there; subsequent native input belongs to the
@@ -713,7 +786,7 @@ test("desktop split panes each own and route their composer", async ({ smokePage
   const heldDraft = `held draft ${suffix}`;
   await inputA.click();
   await inputA.fill(heldDraft);
-  await smokePage.keyboard.press(walkKey);
+  await pressPlatformShortcut(smokePage, "paneFocus", walkKey);
   await expect(targetSlot).toHaveAttribute("data-focused", "true");
   const focusedMarker = `SPLIT_COMPOSER_FOCUS_${suffix}`;
   await smokePage.keyboard.type(`printf '%s\\n' ${focusedMarker}`);
@@ -727,7 +800,7 @@ test("desktop split panes each own and route their composer", async ({ smokePage
   // release again when focus remained in the hidden PTY textarea.
   await slotA.getByTestId("terminal-display").click();
   await sendA.click();
-  await smokePage.keyboard.press(walkKey);
+  await pressPlatformShortcut(smokePage, "paneFocus", walkKey);
   await expect(targetSlot).toHaveAttribute("data-focused", "true");
   const keyboardMarker = `SPLIT_COMPOSER_KEYBOARD_${suffix}`;
   await smokePage.keyboard.type(`printf '%s\\n' ${keyboardMarker}`);
@@ -817,7 +890,7 @@ test("desktop split panes each own and route their composer", async ({ smokePage
   await narrowInput.evaluate((input) => input.focus());
   await narrowInput.fill(parkedDraft);
   await expect(narrowSlot).toHaveAttribute("data-focused", "true");
-  await smokePage.keyboard.press("Meta+Alt+T");
+  await pressPlatformShortcut(smokePage, "newTerminal", "T");
   await expect.poll(() => paneSlots.evaluateAll((slots) => slots.map((slot) =>
     (slot.getAttribute("data-testid") ?? "").replace(/^terminal-slot-/, ""),
   ).filter(Boolean).length)).toBe(3);
@@ -866,22 +939,7 @@ test("desktop composer attaches exact files in order without submitting", async 
   expect(slotBefore).not.toBeNull();
   expect(dockBefore).not.toBeNull();
 
-  const inputBatches: Uint8Array[] = [];
-  const inputDecodeErrors: string[] = [];
-  smokePage.on("request", (request) => {
-    if (!new URL(request.url()).pathname.endsWith("/roost.v1.CoordinatorService/SessionsInput")) return;
-    const body = request.postDataBuffer();
-    if (!body) {
-      inputDecodeErrors.push("SessionsInput request had no body");
-      return;
-    }
-    try {
-      const decoded = fromBinary(SessionsInputRequestSchema, body);
-      if (decoded.sessionId === sessionId) inputBatches.push(decoded.data);
-    } catch (error) {
-      inputDecodeErrors.push(String(error));
-    }
-  });
+  await resetTerminalInputCapture(smokePage);
 
   const [chooser] = await Promise.all([
     smokePage.waitForEvent("filechooser"),
@@ -915,17 +973,17 @@ test("desktop composer attaches exact files in order without submitting", async 
   expect(storedSecond).toEqual(new Uint8Array(secondBytes));
 
   const expectedInput = `${firstEntry!.absPath} ${secondEntry!.absPath} `;
-  await expect.poll(() => inputBatches.reduce((total, batch) => total + batch.length, 0)).toBe(
-    new TextEncoder().encode(expectedInput).length,
-  );
-  expect(inputDecodeErrors).toEqual([]);
-  const injected = new Uint8Array(inputBatches.reduce((total, batch) => total + batch.length, 0));
-  let injectedOffset = 0;
-  for (const batch of inputBatches) {
-    injected.set(batch, injectedOffset);
-    injectedOffset += batch.length;
-  }
-  expect(new TextDecoder().decode(injected)).toBe(expectedInput);
+  const expectedBytes = Array.from(new TextEncoder().encode(expectedInput));
+  await expect.poll(async () => {
+    const capture = await readTerminalInputCapture(smokePage);
+    return capture.batches.reduce((total, batch) => total + batch.data.length, 0);
+  }).toBe(expectedBytes.length);
+  const inputCapture = await readTerminalInputCapture(smokePage);
+  expect(inputCapture.droppedBatches).toBe(0);
+  expect(inputCapture.batches.every((batch) => batch.sessionId === sessionId)).toBe(true);
+  const injected = inputCapture.batches.flatMap((batch) => batch.data);
+  expect(injected).toEqual(expectedBytes);
+  expect(new TextDecoder().decode(Uint8Array.from(injected))).toBe(expectedInput);
   expect(injected).not.toContain(13);
   expect(injected).not.toContain(10);
 
@@ -1414,22 +1472,7 @@ test("mobile composer is permanent field + attachment + mic + send", async ({ mo
   await expect(input).not.toBeFocused();
   await expect(input).toHaveValue(draft);
 
-  const capturedInputs: Array<{ sessionId: string; data: number[] }> = [];
-  const inputDecodeErrors: string[] = [];
-  mobileSmokePage.on("request", (request) => {
-    if (!new URL(request.url()).pathname.endsWith("/roost.v1.CoordinatorService/SessionsInput")) return;
-    const body = request.postDataBuffer();
-    if (!body) {
-      inputDecodeErrors.push("SessionsInput request had no body");
-      return;
-    }
-    try {
-      const decoded = fromBinary(SessionsInputRequestSchema, body);
-      capturedInputs.push({ sessionId: decoded.sessionId, data: Array.from(decoded.data) });
-    } catch (error) {
-      inputDecodeErrors.push(String(error));
-    }
-  });
+  await resetTerminalInputCapture(mobileSmokePage);
 
   const [chooser] = await Promise.all([
     mobileSmokePage.waitForEvent("filechooser"),
@@ -1450,9 +1493,12 @@ test("mobile composer is permanent field + attachment + mic + send", async ({ mo
   expect(entry!.sizeBytes).toBe(BigInt(fileBytes.length));
 
   const expectedInput = Array.from(new TextEncoder().encode(`${entry!.absPath} `));
-  await expect.poll(() => capturedInputs.flatMap((batch) => batch.data)).toEqual(expectedInput);
-  expect(inputDecodeErrors).toEqual([]);
-  expect(capturedInputs.every((batch) => batch.sessionId === sessionId)).toBe(true);
+  await expect.poll(async () =>
+    (await readTerminalInputCapture(mobileSmokePage)).batches.flatMap((batch) => batch.data)
+  ).toEqual(expectedInput);
+  const inputCapture = await readTerminalInputCapture(mobileSmokePage);
+  expect(inputCapture.droppedBatches).toBe(0);
+  expect(inputCapture.batches.every((batch) => batch.sessionId === sessionId)).toBe(true);
   expect(expectedInput).not.toContain(13);
   expect(expectedInput).not.toContain(10);
   await expect(input).toHaveValue(draft);
@@ -1667,22 +1713,7 @@ test("mobile terminal keyboard toggles and dispatches special keys", async ({ mo
   await expect(mobileSmokePage.getByTestId("nav-ctrl")).toBeVisible();
   await expect(mobileSmokePage.getByTestId("nav-mouse")).toBeVisible();
 
-  const capturedInputs: Array<{ sessionId: string; data: number[] }> = [];
-  const inputDecodeErrors: string[] = [];
-  mobileSmokePage.on("request", (request) => {
-    if (!new URL(request.url()).pathname.endsWith("/roost.v1.CoordinatorService/SessionsInput")) return;
-    const body = request.postDataBuffer();
-    if (!body) {
-      inputDecodeErrors.push("SessionsInput request had no body");
-      return;
-    }
-    try {
-      const decoded = fromBinary(SessionsInputRequestSchema, body);
-      capturedInputs.push({ sessionId: decoded.sessionId, data: Array.from(decoded.data) });
-    } catch (error) {
-      inputDecodeErrors.push(String(error));
-    }
-  });
+  await resetTerminalInputCapture(mobileSmokePage);
 
   await mobileSmokePage.evaluate(() => {
     document.body.tabIndex = -1;
@@ -1694,12 +1725,14 @@ test("mobile terminal keyboard toggles and dispatches special keys", async ({ mo
     await mobileSmokePage.getByTestId(testId).tap();
     expect(await paneFocused(), `${testId} must not focus the hidden terminal textarea`).toBe(false);
   }
-  await expect.poll(() =>
-    capturedInputs.reduce((total, inputBatch) => total + inputBatch.data.length, 0),
-  ).toBe(expectedDirectBytes.length);
-  expect(inputDecodeErrors).toEqual([]);
-  expect(capturedInputs.every((inputBatch) => inputBatch.sessionId === sessionId)).toBe(true);
-  expect(capturedInputs.flatMap((inputBatch) => inputBatch.data)).toEqual(expectedDirectBytes);
+  await expect.poll(async () => {
+    const capture = await readTerminalInputCapture(mobileSmokePage);
+    return capture.batches.reduce((total, inputBatch) => total + inputBatch.data.length, 0);
+  }).toBe(expectedDirectBytes.length);
+  const directInputCapture = await readTerminalInputCapture(mobileSmokePage);
+  expect(directInputCapture.droppedBatches).toBe(0);
+  expect(directInputCapture.batches.every((inputBatch) => inputBatch.sessionId === sessionId)).toBe(true);
+  expect(directInputCapture.batches.flatMap((inputBatch) => inputBatch.data)).toEqual(expectedDirectBytes);
 
   const mouse = mobileSmokePage.getByTestId("nav-mouse");
   await expect(mouse).toHaveAttribute("aria-pressed", "false");
@@ -1718,11 +1751,14 @@ test("mobile terminal keyboard toggles and dispatches special keys", async ({ mo
   await mobileSmokePage.mouse.click(8, Math.max(8, openPanelBox!.y / 2));
   await expect.poll(paneFocused).toBe(true);
   await mobileSmokePage.keyboard.type("c");
-  await expect.poll(() =>
-    capturedInputs.reduce((total, inputBatch) => total + inputBatch.data.length, 0),
-  ).toBe(expectedDirectBytes.length + 1);
-  expect(capturedInputs.every((inputBatch) => inputBatch.sessionId === sessionId)).toBe(true);
-  expect(capturedInputs.flatMap((inputBatch) => inputBatch.data).at(-1)).toBe(0x03);
+  await expect.poll(async () => {
+    const capture = await readTerminalInputCapture(mobileSmokePage);
+    return capture.batches.reduce((total, inputBatch) => total + inputBatch.data.length, 0);
+  }).toBe(expectedDirectBytes.length + 1);
+  const ctrlInputCapture = await readTerminalInputCapture(mobileSmokePage);
+  expect(ctrlInputCapture.droppedBatches).toBe(0);
+  expect(ctrlInputCapture.batches.every((inputBatch) => inputBatch.sessionId === sessionId)).toBe(true);
+  expect(ctrlInputCapture.batches.flatMap((inputBatch) => inputBatch.data).at(-1)).toBe(0x03);
   await expect(mobileSmokePage.getByTestId("nav-ctrl")).toHaveAttribute("aria-pressed", "false");
 
   const portrait = mobileSmokePage.viewportSize();
@@ -2368,7 +2404,7 @@ test("desktop dictation stops when its pane is parked and Enter cannot submit it
 
   // Spotlight keeps covered pane DOM mounted, so it must explicitly deactivate
   // that pane's recorder and expose the spotlit pane's mic.
-  await smokePage.keyboard.press("Meta+D");
+  await pressPlatformShortcut(smokePage, "splitRight", "D");
   await expect.poll(() => smokePage.locator("[data-pane-slot]").evaluateAll((slots) =>
     slots.filter((slot) => {
       const rect = slot.getBoundingClientRect();
@@ -2421,7 +2457,7 @@ test("desktop dictation stops when its pane is parked and Enter cannot submit it
   await expect(firstInput).toHaveValue("typed base still speaking");
   await expect(spotlightDock.getByTestId("voice-mic")).toHaveCount(0);
   await spotlightSlot.getByTestId("terminal-display").click();
-  await smokePage.keyboard.press("Meta+Enter");
+  await pressPlatformShortcut(smokePage, "spotlight", "Enter");
   await expect(spotlightSlot).toHaveAttribute("data-spotlit", "true");
   await expect(firstDock).toHaveAttribute("data-active", "false");
   await expect(firstDock).toHaveAttribute("aria-hidden", "true");
@@ -3787,6 +3823,12 @@ test("a /file round-trip keeps the deck warm and costs no snapshot", async ({ sm
     if (!deck?.parentElement) return null;
     return { canary: deck.__persistCanary ?? null, hostVis: getComputedStyle(deck.parentElement).visibility };
   })).toEqual({ canary: "alive", hostVis: "hidden" });
+
+  // The retained folder keeps viewport state warm, not keyboard ownership.
+  // A reserved deck chord while the file viewer owns the surface must not
+  // mutate the hidden layout.
+  await pressPlatformShortcut(smokePage, "spotlight", "Enter");
+  await expect(slot).not.toHaveAttribute("data-spotlit", "true");
 
   // And back: the SAME deck node, zero full frames, zero re-dials — the
   // return is a pure visibility flip, and the pane is still at the bottom.

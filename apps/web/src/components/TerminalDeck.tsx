@@ -118,8 +118,23 @@ export function TerminalDeck(props: {
   // Every open terminal belongs to the shared pane model.
   const openSessions = createMemo(() => Object.values(rootStore.sessions).filter((s) => s.status === "open"));
   const [warmSessionIds, setWarmSessionIds] = createSignal<ReadonlySet<string>>(new Set());
+  // Route overlays do not name a terminal, but the deck beneath them must keep
+  // the last terminal folder laid out. Otherwise folderKey collapses to null,
+  // every slot becomes parked, and the file/search round-trip withdraws then
+  // reclaims the viewport — forcing a redundant full snapshot.
+  const [retainedSessionId, setRetainedSessionId] = createSignal<string | null>(
+    props.activeSessionId,
+  );
+  createEffect(() => {
+    if (props.activeSessionId) setRetainedSessionId(props.activeSessionId);
+  });
+  const deckSessionId = createMemo(() =>
+    props.activeSessionId ?? (!props.surfaceVisible ? retainedSessionId() : null));
 
-  const activeSession = createMemo(() => (props.activeSessionId ? rootStore.sessions[props.activeSessionId] ?? null : null));
+  const activeSession = createMemo(() => {
+    const sessionId = deckSessionId();
+    return sessionId ? rootStore.sessions[sessionId] ?? null : null;
+  });
   const newTermFolder = createMemo(() => { const s = activeSession(); return s ? shortCwd(folderPathOf(s), s.worker_fp) : ""; });
   const folderKey = createMemo(() => { const s = activeSession(); return s ? folderKeyOf(s) : null; });
   // Sessions that belong in the layout for the active folder. EXCLUDE
@@ -158,7 +173,7 @@ export function TerminalDeck(props: {
   // In-deck clicks do not change either dependency, so their synchronous focus
   // commit cannot be clobbered by the URL's stale session.
   createEffect(on(
-    () => [props.activeSessionId, folderKey(), liveIds().join("\u0000")] as const,
+    () => [deckSessionId(), folderKey(), liveIds().join("\u0000")] as const,
     ([active, fk]) => {
       if (!active || !fk) return;
       const l = resolveLayout(fk, liveIds());
@@ -174,7 +189,7 @@ export function TerminalDeck(props: {
   // stale. Skip during settle: the commit's own doSelect→navigate changes
   // activeSessionId at the end of the 220ms settle, and clearing there would
   // yank the transform mid-snap. Settle self-clears via its setTimeout.
-  createEffect(on(() => props.activeSessionId, (active) => {
+  createEffect(on(deckSessionId, (active) => {
     if (!active) return;
     const sw = swipe();
     if (sw && sw.phase === "track" && active !== sw.currentId) setSwipe(null);
@@ -842,53 +857,59 @@ export function TerminalDeck(props: {
   // One browser-platform map owns every deck chord. macOS/Linux retain their
   // existing bindings; Windows uses shifted/Alt bindings so plain Ctrl letters
   // and Ctrl+Alt (AltGraph) always reach the pane-local terminal controller.
+  // Capture before that controller: reserved app chords must never be encoded
+  // as PTY input merely because the hidden terminal textarea owns focus.
   onMount(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented) return;
-      if (e.key === "Escape" && spotlightSessionId()) { e.preventDefault(); clearSpotlight(); return; }
-      if (!folderKey()) return;
+      const consume = (): void => {
+        e.preventDefault();
+        e.stopPropagation();
+      };
+      if (e.key === "Escape" && spotlightSessionId()) { consume(); clearSpotlight(); return; }
+      if (!props.surfaceVisible || !folderKey()) return;
 
       const platform = browserPlatform();
       const dir = ARROW_PANE_DIR[e.key];
       if (dir && matchesPlatformShortcut(e, "paneFocus", platform)) {
-        e.preventDefault();
+        consume();
         focusAdjacentPane(dir);
         return;
       }
       if (matchesPlatformShortcut(e, "newTerminal", platform)) {
-        e.preventDefault();
+        consume();
         void doNewTab(layout()?.focusedPaneId ?? "");
         return;
       }
       if (matchesPlatformShortcut(e, "terminalTab", platform)) {
-        e.preventDefault();
+        consume();
         activateTabAt(Number(e.key));
         return;
       }
       if (matchesPlatformShortcut(e, "splitRight", platform)) {
-        e.preventDefault();
+        consume();
         void doSplit("row");
         return;
       }
       if (matchesPlatformShortcut(e, "splitDown", platform)) {
-        e.preventDefault();
+        consume();
         void doSplit("col");
         return;
       }
       if (matchesPlatformShortcut(e, "spotlight", platform)) {
-        e.preventDefault();
+        consume();
         doSpotlight();
         return;
       }
       for (const [shortcut, preset] of ARRANGE_SHORTCUTS) {
         if (!matchesPlatformShortcut(e, shortcut, platform)) continue;
-        e.preventDefault();
+        consume();
         doArrange(preset);
         return;
       }
     };
-    document.addEventListener("keydown", onKey);
-    onCleanup(() => document.removeEventListener("keydown", onKey));
+    document.addEventListener("keydown", onKey, true);
+    onCleanup(() => document.removeEventListener("keydown", onKey, true));
   });
 
   // ── Deck-wide swipe detection (bar + terminal body) ────────────────────
@@ -1004,11 +1025,12 @@ export function TerminalDeck(props: {
                 inLayout={!!slot()}
                 focused={slot()?.focused ?? false}
                 spotlit={slot()?.spotlit ?? false}
-
+                // A route overlay hides only the host and body-portaled
+                // accessories. Keep laid-out terminals active so their
+                // renderer, cell stream, and viewport claim stay warm.
                 surfaceVisible={props.surfaceVisible}
                 surfaceActive={
-                  props.surfaceVisible
-                  && (spotlightPane() === null || slot()?.spotlit === true)
+                  spotlightPane() === null || slot()?.spotlit === true
                 }
               />
             </div>

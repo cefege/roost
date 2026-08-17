@@ -174,7 +174,11 @@ describe("api smoke (headless, live coord)", () => {
       });
 
       const ws2 = (
-        await c.workspacesCreate({ workerFp, name: "api-smoke-ws-2", folderPath: "/tmp" })
+        await c.workspacesCreate({
+          workerFp,
+          name: "api-smoke-ws-2",
+          folderPath: `/tmp/api-smoke-ws-2-${crypto.randomUUID().slice(0, 8)}`,
+        })
       ).workspace!;
       createdWorkspaces.add(ws2.id);
       await c.sessionsAssignWorkspace({ sessionId: sid, workspaceId: ws2.id });

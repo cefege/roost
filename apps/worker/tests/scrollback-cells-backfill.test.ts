@@ -152,6 +152,23 @@ describe("viewport-only frame and epoch-addressed history", () => {
     }
   });
 
+  test("an empty headless epoch binds the read to the current grid", async () => {
+    const manager = freshManager();
+    const record = await injectSession(manager);
+    const { coordLink, sent } = linkCapture();
+
+    await handleGetScrollbackCells(
+      request(record.wtermCore.getScrollbackCount(), 100, ""),
+      "req",
+      { coordLink, sessionMgr: manager },
+    );
+
+    const reply = sent[0] as RpcOk;
+    expect(reply.kind).toBe("rpc-ok");
+    expect(reply.data.grid_epoch).toBe(GRID_EPOCH);
+    expect(reply.data.rows.length).toBeGreaterThan(0);
+  });
+
   test("an epoch change during the 250-row yield aborts the page", async () => {
     const manager = freshManager();
     const record = await injectSession(manager);

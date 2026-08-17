@@ -271,7 +271,6 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
       notifyingWritable ||
       !linkReady ||
       unsentEventSeqs.size > 0 ||
-      controlPending.length > 0 ||
       !nativeHasCapacity(0)
     ) return;
     writableNotificationPending = false;
@@ -485,7 +484,7 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
     const url = `${wsBase}/ws/coord-worker/${deps.workerFp}?token=${encodeURIComponent(jwt)}`;
     let ws: WebSocket;
     try {
-      ws = new WebSocket(url);
+      ws = deps.webSocketFactory?.(url) ?? new WebSocket(url);
     } catch (err) {
       log.warn("coord-link", "ws_construct_failed", { error: (err as Error).message });
       signal("auth.jwt_sign_fail", { stage: "ws_construct", cooldownKey: "jwt" });
