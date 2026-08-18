@@ -8,7 +8,8 @@
     "build": "bun scripts/gen-og.ts && astro build",
     "preview": "astro preview",
     "typecheck": "astro check",
-    "serve": "bun serve.ts"
+    "serve": "bun serve.ts",
+    "publish": "bun run build && bun scripts/publish.ts"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9",

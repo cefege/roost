@@ -96,18 +96,54 @@ ROOST_SITE_HOST=0.0.0.0 bun run --cwd apps/site serve
 `ROOST_SITE_ORIGIN=http://ovh1-8c32g.tail67850e.ts.net:4180` so canonical and OG links
 match reality.
 
-## Public hosting (later)
+## Publish to roosttt.com
 
-No public domain is owned yet. `cloudflared` is already installed at
-`~/.local/bin/cloudflared`:
+Public hosting reuses this server's existing edge, exactly like the sibling static site
+at `/srv/verdeka/www`: the `caddy` container in `/srv/infra/edge` file_servers the build
+off disk, and the already-running `roost` Cloudflare tunnel carries the hostname to it.
 
 ```sh
-cloudflared tunnel --url http://127.0.0.1:4180   # temporary trycloudflare.com URL
+ROOST_SITE_ORIGIN=https://roosttt.com bun run --cwd apps/site publish
 ```
 
-Once a domain exists, replace the quick tunnel with a named tunnel routing that hostname
-to `http://127.0.0.1:4180`.
+`publish` = `build` + `rsync -a --delete dist/ /srv/roost-site/www/` (override the target
+with `ROOST_SITE_PUBLISH_ROOT`). No container restart: the mount is read-only and live.
+
+The three pieces of server config, already in place:
+
+| Piece | Where | What it does |
+|---|---|---|
+| Caddy site | `/srv/infra/edge/conf.d/roost.caddy` | `http://roosttt.com` serves `/srv/roost-site` with gzip/zstd, `try_files … /index.html`, `handle_errors` → `404.html`, immutable caching for `/_astro/*`, CSP/nosniff headers; `www` 301s to the apex |
+| Mount | `/srv/infra/edge/docker-compose.yml` | `/srv/roost-site/www:/srv/roost-site:ro` (a mount change needs `docker compose up -d`, and `admin off` means config edits need `docker restart caddy`) |
+| Tunnel ingress | `/etc/cloudflared/config.yml` | `roosttt.com` and `www.roosttt.com` → `http://127.0.0.1:80`. The unit has no `ExecReload` and cloudflared **exits** on `SIGHUP`, so apply changes with `sudo systemctl restart cloudflared` |
+
+Cloudflare terminates TLS, which is why the Caddy blocks are `http://`: the DNS records are
+tunnel CNAMEs, so ACME HTTP-01 against them would loop back through the tunnel.
+
+### DNS (the one step that needs zone credentials)
+
+`roosttt.com` needs a proxied CNAME to the tunnel:
+
+```
+roosttt.com      CNAME  70b39358-d6da-41bb-8608-87f0e6559803.cfargotunnel.com   (proxied)
+www.roosttt.com  CNAME  70b39358-d6da-41bb-8608-87f0e6559803.cfargotunnel.com   (proxied)
+```
+
+`cloudflared tunnel route dns roost roosttt.com` does **not** work here: `~/.cloudflared/cert.pem`
+is scoped to the `repuestosyservicios360.com` zone, so it silently creates
+`roosttt.com.repuestosyservicios360.com` instead. Create the records in the Cloudflare
+dashboard, or with a token that has `Zone:DNS:Edit` on `roosttt.com`, or re-run
+`cloudflared tunnel login` and select `roosttt.com` to re-scope `cert.pem`.
+
+Verify from anywhere once DNS resolves:
+
+```sh
+curl -sI https://roosttt.com/ | head -1
+curl -s https://roosttt.com/robots.txt
+curl -sI https://roosttt.com/alternatives/cmux-vs-roost/ | head -1
+```
 
 **Changing the public hostname means setting `ROOST_SITE_ORIGIN` to the new origin and
 rebuilding** — canonical URLs, OG image URLs, `robots.txt`, and the sitemap are all baked
 in at build time.
+
