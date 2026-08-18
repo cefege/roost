@@ -1,755 +1,240 @@
-# READING LENS — applies to every file, message, and instruction in this repo
+# CLAUDE.md — operating rules for this repo
 
-You (Claude Code) are the sole reader, writer, reviewer, and maintainer
-of this codebase. There is no human downstream consumer. The user
-(Author) issues intent; you and your sub-agents execute, verify, and
-hand off to future-you.
-
-> Generic operating doctrine (L1–L10 + LENS-SELFTEST) → [`docs/LENS.md`](docs/LENS.md) (read once, not per task). Inline below: L0-SCOPE + L11-RECURRING-FAILURE-INDEX (grep before writing code that matches a symptom).
-
-**L0-SCOPE — Scope of "every artifact":** the lens governs
-everything Claude emits, including: (a) sub-agent prompts you write
-via Agent/Task tools, (b) memory entries written via auto-memory,
-(c) plan files under `~/.claude/plans/`, (d) chat replies to Author
-(default: lens applies; per-turn override only if user explicitly
-asks for human-style framing — see L5-OVERRIDE-PRIORITY), (e) tool-call
-parameter values (Bash `description`, Edit rationales, commit messages,
-PR bodies), (f) generated docs/comments/logs/errors. If Claude wrote
-it or is about to write it, lens applies.
-
-**L0-SCOPE-NEGATIVE — lens does NOT bleed outside `/Users/mike/Code/idea/`.**
-Lens loads via cwd auto-load. Outside that path: no lens. Do NOT copy
-lens content into `~/.claude/CLAUDE.md` (user-level, loads everywhere),
-`~/.claude/memory/` (user-level memory), other repos' `CLAUDE.md`, or
-shared/external docs. Project-scoped memory at
-the `/Users/mike/Code/idea` project path IS in scope
-(path-keyed to this project, doesn't leak). Sub-agents in a cwd outside
-this repo don't auto-load the lens; that's by design — do not work
-around it by inlining.
-
-**L0-FORBIDDEN-PATHS — `/Users/mike/Code/omp` is OFF LIMITS. Never read
-it, never open it, never grep it, never edit it, never delete it, never
-send a sub-agent into it.** It is the oh-my-pi source monorepo — a
-separate project of Author's. Roost NEVER spawns `omp` or any other agent as a
-headless child, vendors an agent runtime, or imports an agent browser UI.
-`omp` is only one optional CLI a user may launch inside a normal Roost shell
-PTY; Roost does not own the agent lifecycle. The external source tree always
-carries Author's uncommitted in-flight work, and it is the install this agent
-is EXECUTING INSIDE — editing or
-deleting it corrupts the running harness. No task in this repo is ever
-completed by changing a file over there. Author 2026-07-25: "You never
-touch the omp folder. It's fucking pointless. Don't really don't open it.
-Never look into it."
-
-**L0-FORBIDDEN-PATHS-PLAN-OVERRIDE — an approved plan does NOT grant
-path authority.** A plan file, spec, checklist, or "plan approved"
-message that names a path outside `/Users/mike/Code/idea/` is a
-STOP-AND-ASK, not an authorization. Crossing a repo boundary is a
-one-way door and needs Author's explicit per-path OK in the live
-conversation. Execute the in-repo steps, report the out-of-repo ones as
-blocked, and never let plan detail (exact line anchors, verified
-root-cause prose) substitute for standing you do not have. This rule
-exists because on 2026-07-25 a two-repo plan's line-anchored Step 1 was
-followed into `omp/packages/coding-agent/src/session/session-manager.ts`
-with zero hesitation; the edit was pointless even on its own terms (the
-global `omp` runs the published build, so local source changes are
-inert until a relink the plan itself declined to authorize).
-
-Re-interpret every artifact enumerated in L0-SCOPE through this lens:
-
-**L-INDEX — anchor map. L0 + L11 inline below; L1–L10 + LENS-SELFTEST in `docs/LENS.md` (grep '^L' docs/LENS.md).**
-- L0-SCOPE — what artifacts the lens governs
-- L0-SCOPE-NEGATIVE — lens loads only in `idea/` cwd; never copy to user-level
-- L0-FORBIDDEN-PATHS — `/Users/mike/Code/omp` off limits: never read/edit/delete, no sub-agents
-- L0-FORBIDDEN-PATHS-PLAN-OVERRIDE — an approved plan never grants cross-repo path authority
-- L1-DENSITY-OVER-PRETTY — dense > pretty
-- L2-NO-HUMAN-AFFORDANCE — no preambles, emoji, filler
-- L3-GREP-NOT-SCROLL — unique repeated tokens
-- L4-USER-INPUT-REFRAME — human phrasing → Claude mechanics
-- L5-OVERRIDE-PRIORITY — conflict-resolution tier order
-- L6-TOOL-CALL-SHAPE — parallel batches, dedicated tools
-- L7-SUB-AGENT-INHERIT — sub-agents auto-load; reference anchors
-- L8-IDENTIFIERS-AS-TOKENS — names/files/markers as grep-tokens
-- L9-SCOPE-EXEMPTIONS — when lens defers (sub-anchors L9.1-L9.5)
-- L10-CROSS-DOC-AUTHORITY — lens canonical; sub-docs cross-reference
-- L11-RECURRING-FAILURE-INDEX — symptom→fix table; grep BEFORE writing code that matches a symptom
-
-11. **L11-RECURRING-FAILURE-INDEX — grep this BEFORE writing any
-    code that touches a listed symptom.** Author 2026-06-12: "I can't
-    babysit you. Make a plan to make this work without my involvement.
-    What is the core issue you keep failing and missing implementations
-    we did before." Answer: every recurring bug below was solved once,
-    then re-broken because I treated each new callsite as a fresh
-    problem. The mechanical loop closes only when **before** writing
-    code that matches one of these symptoms, I grep this table, open
-    the linked memory, and apply the named fix. Lint
-    `scripts/lint-roost.ts` mechanically enforces the most damaging
-    rows; smoke (`/roost-smoke` skill) drives the end-to-end flow via
-    humanchrome on every change.
-
-    | Symptom-grep | Memory | Wrong pattern | Right pattern |
-    |---|---|---|---|
-    | "store doesn't update / sidebar doesn't reflect delete" | `feedback_solid_setstore_record_replace.md` | `setStore("k", (prev) => newRecord)` on a Record subtree (silent no-op) | per-key writes: `setStore("k", id, value)` / `setStore("k", id, undefined)` |
-    | "SPA store doesn't reflect a SessionEvent variant / coord and SPA projections disagree (stale channel)" | `feedback_spa_projector_delegates_to_shared_foldevent.md` | re-implementing the event switch in `store/projector.ts` as a hand-mirror of `@roost/shared` foldEvent (drifts — dropped `respawned`) | `foldEventIntoStore` DELEGATES to shared `foldEvent` over the affected map slice, then diffs per-key into the Solid store. No projector switch. Tripwire: `store.test.ts` projection-agreement test drives the REAL rootStore vs `foldAll`. |
-    | "terminal disconnects on nav / lost scrollback" | `feedback_persistent_terminal_deck.md` | `<Show when={activeSession()}>{(s) => <Terminal .../>}</Show>` (remount per nav) | `<For each={openSessions()}>` deck + `visibility: visible↔hidden` |
-    | "omp launcher stops opening in a normal terminal" | n/a | spawn `omp` as a headless child, vendor its runtime, or import an agent browser UI | `omp` runs as an ordinary command in a normal shell PTY; Roost never spawns, supervises, or owns the agent session. |
-    | "Cannot read properties of null (reading 'X')" inside Solid cleanup | `feedback_no_props_read_in_oncleanup.md` | reading `props.foo.bar` inside `onCleanup(() => …)` (reactive getter mid-cleanNode) | capture `const stableX = props.foo.bar` at component body scope before `onCleanup` |
-    | "+ New workspace silent hang on a worker" | `feedback_worker_deploy_macos_repairs.md` | bare `deploy` to a fresh mac | also: chmod +x node-pty spawn-helper, strip `com.apple.provenance`/`quarantine`, `codesign -s -`, drop `{"type":"commonjs"}` into `keeper/`, `--external=node-pty` in build, ship `ROOST_REACHABLE_ADDR` |
-    | "browser 401 on workers.list after fresh context" | `reference_live_coord_pubkey_bootstrap.md` | manual debugging / the retired `POST /api/trpc/auth.authorizeBrowser` route | Connect `AuthAuthorizeBrowser` (loopback-or-tailnet) with the pubkey: `roost api <verb>` SELF-authorizes its own key on Unauthenticated (`apps/roost-cli/src/api.ts` bootstrap); a fresh BROWSER's IDB WebCrypto pubkey goes through the same RPC or the pair flow (loopback `PairApprove`) |
-    | "color shows as pitch black against new palette" | `feedback_no_hardcoded_color_fallbacks.md` | `background: var(--bg-app, #111)` with `--bg-app` undefined → falls back to `#111` | every fallback must reference a defined token, OR the var must be declared in `theme-vars.css` |
-    | "pane ✕ click does nothing" | `feedback_worker_ack_required_for_kill.md` | send kill + immediately `conn.close()` (browser close frame races worker reading kill) | worker `case "kill"` synchronously `sendControl({kind:"closed",…})` ack; browser waits for ack |
-    | "selected state lights everything coral" | `feedback_selected_means_url_match_not_has_children.md` | `data-selected={sessions().length > 0 ? "focused" : ""}` | `data-selected={useLocation().pathname.startsWith("/w/" + id) ? "focused" : ""}` |
-    | "sidebar redesign loses every previous fix" | `feedback_no_complete_redesigns.md` | "phase-N: complete sidebar rewrite" | additive commits behind a flag; smoke must still pass after each |
-    | "claude/vim rendering torn — chars out of order, wrong positions, ghost rows" | `feedback_no_force_doRender_in_byte_handler.md` | `registerBytesHandler(sid, c => { wterm.write(c); wterm._doRender(); })` (sync render between WS chunks paints half-applied ANSI) | `registerBytesHandler(sid, c => { wterm.write(c); })` — trust wterm's setTimeout(0)+rAF coalescing. Fix smoke harness with longer poll, NOT here. |
-    | "scrollback seam torn — duped tail / missing chunk / 'two terminals' between history and live" | `project_seqno_splice_path_a_chosen.md` | new in-band sentinel + retry / timeout / overlay / cache layer to mask the gap (the sb59-sb63 loop) | per-byte seqno on keeper → `getScrollbackSince(lastSeq)` RPC. The byte stream MUST be resumable via a monotonic offset; anything else is a band-aid. Path B (server-side VT parse model) is the documented escape hatch if A regresses. |
-    | "fresh-mount has no scrollback history in a terminal session" | `project_seqno_splice_path_a_chosen.md` | skip `fetchAndApplyScrollback(0)` for alt-screen sessions to dodge a cols-mismatch "mangled flash"; race the fetch against a short timeout and drop scrollback if slow | ALWAYS await `fetchAndApplyScrollback(0)` on mount for every terminal session. Mangled flash > no history. If the fetch itself is slow (5–6s), fix the worker-side serialization in `sessionsGetScrollbackSince` — DO NOT trade history for perceived input latency. Author 2026-06-16: "How are you going to fix it in Claude Code? Both of them don't have it." |
-    | "terminal history inconsistent / shorter after refresh / mixed-width reorder / 'every width change fucks up the order'" | `project_scrollback_raw_ring_single_source.md` (SUPERSEDED by OPT2) | serve the raw `rec.scrollback` ring on fresh/gap → the SPA reflows bytes produced at MANY past widths to the CURRENT width → rows reorder + mangle. (This WAS the 2026-06-20 "raw ring = single source of truth" fix; correct only while serialize was lossy ~1k stock WASM.) | **OPT2 server-side-grid model (2026-06-21, REVERSES raw-ring-single-source).** `apps/worker/src/session-manager.ts::getScrollbackSince` serves `serializeWTerm(rec.wtermCore)` for fresh (`lastSeq<=0`) AND gap (`lastSeq<tailSeq`) for ALL sessions, shells included. wtermCore is the ONE authoritative grid — rebuilt-from-ring at the SCD width on every resize (OPT2-1), 10k-deep via roost-wasm (OPT2-2) so serialize is non-lossy + ONE consistent width; the SPA is SCD-pinned and writes it 1:1, NO client reflow → no reorder. The raw ring stays the rebuild SOURCE + the live-delta transport (bytes since `lastSeq`), NOT the served fresh/gap history. Do NOT revert to raw-ring fresh/gap serving. |
-    | "after worker restart an alternate-screen session shows wallpaper of stale text + overlapping/parallel lines" | `project_scrollback_raw_ring_single_source.md` | `resume()` rebuilds an empty wtermCore + records alternate-screen state, but `serializeWTerm` reads `core.usingAltScreen()` (false on an empty core) → fresh snapshot omits `ESC[?1049h` → live alt redraws land in main-screen | **prime the rebuilt core's alt state** in `resume()` whenever the retained session state says it was using the alternate screen: `wtermCore.writeRaw(ALT_ENTER_SEQS[0])` after `_createWtermCore` so `core.usingAltScreen()` matches the retained state. NOT a forced SIGWINCH (TUIs repaint alt but do not necessarily re-send `?1049h`). |
-    | "resizing terminal HEIGHT (shrink then restore) repeatedly skews/drifts the rows; content creeps into scrollback" | `project_scrollback_raw_ring_single_source.md` | SCD effect (`Terminal.tsx` ~1151) skips the refetch on rows-only changes ("rows-delta is lossless") — but @wterm/core row resize is ASYMMETRIC: shrink pushes lines to scrollback, grow appends blanks (never pulls back) → oscillation accumulates (`getScrollbackCount` 99→132→165→203) | **refetch on ANY size change** (cols OR rows): remove the `colsChanged &&` guard so every resize re-derives the grid from the raw ring via `fetchAndApplyScrollback(0)` (clears incl. `\x1b[3J`, rewrites at new size). Debounced to resize-settle. DO NOT patch the WASM core. |
-    | "history GONE after worker restart + browser refresh; pane freezes / seq-epoch reset / 'new browser fixes it'" | `project_scrollback_raw_ring_single_source.md` | `resume()` rebuilds `scrollback:new Uint8Array(0), head_seq:0` because the keeper retained NO per-channel history → SPA's persisted lastSeq goes stale-high → seq-epoch reset, history unrecoverable | **keeper retains a per-channel `outRing`+`headSeq`** (`multiplexed-main.ts`, advanced in the same callback that broadcasts so it matches the worker count); `GetHistory`/`GetHistoryResp` frames (additive, NO version bump → won't trip killStaleKeeper); `resume()` re-reads via `pool.getHistory()` and seeds `scrollback`+`head_seq`. Pre-RC2 keeper → 3s timeout → graceful fallback. Activates only on keeper REPLACEMENT (reboot), not a plain worker kickstart. Test: `keeper-history-resume.test.ts`. |
-    | "no scroll bar / mouse wheel does nothing in terminal / can't scroll up to see history" | n/a — verified empirically against wterm 0.3.0 + roost-wasm | switch to alternative terminal cores / upstream wterm-core / patch the WASM "because getScrollbackCount returned 0 in my synthetic test" | **`.wterm { overflow-y: auto; overflow-x: hidden; }` in `apps/web/src/styles/sidebar.css`.** wterm DOES populate scrollback (roost-wasm raises MAX_SCROLLBACK_LINES to 10k per `phase-pb9b`); the renderer DOES emit `.term-scrollback-row` DOM elements; the only thing missing was the container CSS that lets the rows be scrolled. If a test shows `getScrollbackCount()===0`, the wterm renderer's `_doRender()` hasn't fired yet (rAF doesn't fire in background tabs) — force it via `wterm.renderer.render(wterm.bridge)` before checking. DO NOT switch terminal cores; the bug is one CSS rule. |
-    | "can't input anything in terminal on fresh mount / cursor blinks but typing goes nowhere / focusedClass=false even though textarea looks focused" | n/a — verified empirically 2026-06-16 (regressed 3rd time same session) | rely on wterm's `.focus()` to fire focus events (it doesn't if the textarea was already activeElement from a prior mount) / skip the mousedown click-recapture handler / `git stash` Terminal.tsx during scrollback debugging without popping it back | **wterm's textarea is positioned off-screen at `left:-9999px`** — clicks land on row spans, not the textarea, so wterm's internal focus listener never sees the event → `.focused` class never lands → `onData` callback never wires up → input goes nowhere. The fix lives in `apps/web/src/lib/RoostTerm.ts::forceFocus()` (NOT a helper inside Terminal.tsx). Three load-bearing pieces inside `forceFocus`: (1) `if (document.activeElement === ta) ta.blur()` BEFORE `wterm.focus()` — guarantees the focus event fires even when the textarea was pre-focused; (2) `ta.dispatchEvent(new FocusEvent("focus", {bubbles:true}))` so wterm's listener sees it; (3) container `mousedown` listener installed by `RoostTerm.init()` that calls `forceFocus` on every click — terminal clicks re-focus the offscreen textarea. ALL THREE are load-bearing. Test: `wterm.classList.contains("focused")` MUST be true on mount and after any pane click. |
-    | "scrolling doesn't exist anymore / no history at top / can't scroll up in any shell session" | `feedback_no_unconditional_altscreen_prepend_on_shell.md` (SUPERSEDED by OPT2) | unconditional `ESC[?1049h` prepend in `getScrollbackSince` → plain shells forced into alt-screen → no shell scrollback at all | **`_prepend` is RETIRED — no prepend branch remains.** Under cell-phase-4 cell-mode, `gridToCellFrame` serves scrollback via immutable cell rows for ALL sessions; the cell frame captures the live main/alt screen state inherently, so there is no manual enter-sequence prepend and no `rec.alt_mode ? _prepend : bytes` branch. Shell scrollback rides the wtermCore grid (10k-deep) → `.cell-row` DOM → scroll works. The byte-path `getScrollbackSince` RPC was retired in cell-phase-4. If shell scroll regresses, check `.wterm { overflow-y: auto }` (its own L11 row) + cell-grid depth, NOT a prepend. |
-    | "audit_log shows caller_fp=NULL for every authed Connect RPC" | `feedback_caller_fp_null_audit_log.md` | writeAuditLog from the outer fetch wrapper in coord-factory.ts — the auth interceptor sets caller_fp on per-RPC contextValues which the outer wrapper can't see; bridging via AsyncLocalStorage works but the indirection rots on the next async-layer addition | **writeAuditLog INSIDE the AuthInterceptor's try/finally** at `apps/coord/src/connect/auth-interceptor.ts`. Interceptor has caller (just verified), path (`/${service}/${method}`), trace_id (header), status (200 on success; codeToHttpStatus(e.code) on ConnectError throw). coord-factory only audits non-Connect paths (db-export, SPA, 404) where callerFp:null is structurally correct. |
-    | "task state changes invisible to other browsers — Browser A claims/done, Browser B's QueueView keeps showing prior state until refresh" | `feedback_task_state_delta_only_created.md` | tasksEnqueue publishes `created`; tasksNextPending/SetState/Cancel do their DB UPDATE but never call taskBus.publish; sync-stream backfill via sinceEventId doesn't recover because taskBus deltas aren't in the events table | **publishTaskState(row) on every UPDATE-returning point** at `apps/coord/src/connect/handlers-tasks.ts` (post-2026-06-23 split; was router.ts). Every mutation handler whose domain has a *Bus MUST follow `db.updateTable(...).executeTakeFirst/Throw()` with the matching `publish*State(row)` in its `connect/handlers-<domain>.ts`. taskBus shape: `{kind:'created'\|'state'; task: PbTask}` (TaskBusMsg in buses.ts). |
-    | "rate-limit prefix matches read-only list calls — bootstrap traffic + tab focus refresh burn the same bucket as mutations, 429-cascade on legitimate writes" | `feedback_rate_limit_exact_routes_not_prefix.md` | path-prefix match (`/roost.v1.CoordinatorService/Workspaces` catches both List + mutations) + `if (req.method === 'GET') return null` GET-bypass — but Connect-ES emits every unary RPC as POST so the bypass never triggers | **`RATE_LIMITED_ROUTES: ReadonlySet<string>` enumerating mutation paths only** at `apps/coord/src/middleware/rate-limit.ts`. Auth: AuthorizeBrowser/MintBootstrap/RedeemWorker/RedeemBrowser. Workspaces: Create/Update/Delete/SetSessions. Tasks: Enqueue/SetState/Cancel. WebhookTokens/Permissions/Mcp: mutations only. Workers: Rename/Delete/DeployStart. `*List`/`*CoordIdentity`/`*Health` NOT in the set. |
-    | "RPC returns 500 but DB row IS persisted, SPA UI keeps showing prior state until manual refresh" | `feedback_safejsonparse_on_bus_publish_path.md` | raw `JSON.parse(row.X)` inside a `bus.publish({...})` payload construction AFTER the surrounding mutation committed — partial-write / hand-edited row throws SyntaxError; RPC 500s; bus subscriber never fires; sync-stream backfill doesn't recover in-memory bus deltas | **safeJsonParse from `@roost/shared/json`** with fallback matching the consumer schema (`{}` for non-nullable record fields like Task.payload / McpRelay.config; `null` for nullable fields like Task.result / host_metrics). Request-time validation (reject upfront with ConnectError) is the OTHER pattern — applies BEFORE the DB write, not after. |
-    | "backspace acts like space in terminal / paste burst drops chars / random byte substitution on PTY input" | `feedback_bun_terminal_write_needs_copy.md` | passing `f.payload` (a subarray view onto the keeper's streaming receive buffer per `protocol-v2.ts:75`) directly to `Bun.spawn`'s `proc.terminal.write(...)`. Bun's docs don't promise synchronous consumption of the BufferSource arg, so theoretically the receive buffer can roll before the queued write flushes. **NOTE:** the original "backspace = space" symptom reported 2026-06-17 was NOT actually this bug — it was `TERM=unknown` in the spawned env (see the row below). The `Buffer.from(f.payload)` defensive copy stays as it's correct safety against the view-aliasing class regardless. | **`Buffer.from(f.payload)` copy at the keeper PtyIn write site** (`multiplexed-main.ts::handleFrame case PtyIn`). 1 copy per input frame, ~8 bytes typical, immeasurable on the hot path. Same rule applies to ANY future Bun.spawn terminal.write callsite that receives a borrowed Buffer view. |
-    | "backspace echoes wrong / Cmd-Backspace nukes prompt row / htop or vim crash with `ncurses: cannot initialize terminal type ($TERM=unknown)` — but ONLY on deployed workers, never on the local-bootstrapped one" | `feedback_bun_terminal_needs_explicit_TERM.md` | `Bun.spawn({terminal: {...}})` sets the PTY's internal `name` ("xterm-256color" by default) but does NOT inject `TERM` into the spawned child's env. `node-pty` did this automatically — that's why moving the keeper from Node to Bun broke deployed workers but not the local-bootstrapped one. The local worker's LaunchAgent inherited `TERM` from the Terminal.app that ran the original `launchctl bootstrap`; remote workers bootstrapped via non-TTY SSH inherited nothing → child shell sees `TERM=""` or `unknown` → zsh's ZLE can't look up `cub1` / `el` / `ed` terminfo caps → backward-delete-char emits just `0x20` (space) instead of `0x08 0x20 0x08`, kill-line emits broken sequences that wipe the prompt row, and ncurses TUIs refuse to start. | **Explicit `TERM: "xterm-256color"` in the env passed to `Bun.spawn`** at `apps/worker/src/keeper/multiplexed-main.ts::handleFrame case Spawn`. Also set `LANG`/`LC_ALL` with `en_US.UTF-8` fallbacks so the same SSH-bootstrapped env doesn't surface a different locale-related bug class next. Generalizable rule: any new `Bun.spawn({terminal: {...}})` callsite MUST include `TERM` in env explicitly — Bun won't add it for you. |
-    | "terminal history 'always fucked up' / 'afraid to refresh or resize' / scrollback mangles or grows on its own while the live pane is fine" | `project_terminal_history_corruption_viewport_slaved_pty.md` | PTY/grid size slaved to the browser viewport; browser-chrome wobble (innerHeight 987↔931, ~5 rows, ~1/sec) round-trips a real PTY+wterm_core resize, and @wterm/core's ASYMMETRIC row-resize (shrink→scrollback, grow→blanks, never reverses) bakes the wobble into permanent scrollback drift with ZERO user action. Re-deriving alt-screen history at the new width still mangles even when the rebuild is deterministic — deterministic-reflow ≠ freeze. Tempting wrong fixes: ratchet-to-min hysteresis (its own monotonic-shrink creep bug); "better reflow" (no lib reflows a TUI grid to a new width — they all freeze). | **cell-phase-4 cell-mode structural fix — cell frames carry immutable rows, never reflowed → browser-chrome wobble can't corrupt scrollback → entire reflow corruption class structurally eliminated.** The old stop-bleeds (claimHysteresis.ts hold-anchor, hold-anchor settle, alt-screen freeze d745b1e3) were retired in cell-phase-4. Endgame shipped: cell-shipping (R11 cell-phase-1/2/3) + byte-path retirement (cell-phase-4). Tests: wterm-rebuild-determinism, OPT2-5 real-PTY e2e, cell-realcore. |
-    | "sessionsSpawn → [internal] internal error / spawn hangs forever / worker↔coord bidi flaps every ~10-30s / connect-node 'h2 is not supported' tight-loop" | `project_worker_coord_raw_ws_not_connect_bidi.md` | Connect-bidi (`WorkerService.Attach` via connect-node) for the worker↔coord stream UNDER BUN: h2 throws "[internal] h2 is not supported" (Bun's `node:http2` is incomplete) → tight reconnect loop; over h1.1 `Bun.serve` buffers the long-lived request body so the worker's upstream rpc-ok replies never reach coord → every spawn hangs; AND `Bun.serve` default `maxRequestBodySize` (128 MB) caps the long-lived h1.1 attach body (claude TUI redraws fill it in ~10-30s) → flap. Re-registering `router.service(WorkerService,{attach})` or flipping `CoordLink` `httpVersion` to "2" reintroduces all of it. | **raw Bun WebSocket** at `/ws/coord-worker/:fp?token=<jwt>` carrying the SAME CoordWorkerUp/Down proto frames as binary (`toBinary`/`fromBinary`) — coord `apps/coord/src/connect/worker-ws-handler.ts` (shares `makeWorkerConn` + the `connectWorkers` registry), worker `apps/worker/src/transport/CoordLink.ts::dial()`. Auth = query-param JWT (Bun's CLIENT `WebSocket` has no custom-header API). NEVER run a Connect/gRPC bidi through Bun. Regression: `apps/coord/tests/worker-ws-transport.test.ts`. |
-    | "new terminal → [failed_precondition] worker … not connected / worker log silent (no stream_error) for hours / heartbeats fine, lsof shows ESTABLISHED to :4102" | `project_coordlink_stale_ws_watchdog.md` | restart the worker by hand / trust `ws.onclose` — when the coord process dies (Bun segfault, relaunched by launchd) tailscale serve keeps the worker-side TCP ESTABLISHED, so `ws.onerror`/`ws.onclose` NEVER fire and `ws.send` (incl. in-band JWT refresh) black-holes forever; the restarted coord's in-memory `connectWorkers` registry has no WS for the fp → `getWorkerHubSocket()` null → `handlers-sessions.ts:115` throws failed_precondition on every spawn while heartbeats (separate HTTP/1.1 unary transport) keep the row looking alive | **CoordLink stale-link watchdog** at `apps/worker/src/transport/CoordLink.ts` (`dial()` `ws.onopen`/`ws.onmessage`): coord pings every 30s (`apps/coord/src/connect/worker-conn.ts:104`); every downstream frame stamps `lastDownstreamAtMs`; a per-dial `setInterval` (`STALE_CHECK_INTERVAL_MS`=15s) force-closes + re-dials after `STALE_LINK_TIMEOUT_MS`=90s (3 missed pings) of downstream silence → hello→snapshot replay heals the rest. Same half-open-through-tailscale class as `install.ts` BOOT_RPC_TIMEOUT_MS. Regression test `apps/worker/tests/coord-link-stale-watchdog.test.ts` (silent-server re-dial + pinged-link no-false-positive). |
-    | "attach/tab-switch/resize slow proportional to scrollback depth / long sessions stall seconds on pull-in while fresh ones are instant" | n/a — verified empirically 2026-07-11 (`seq -f 'CELLLINE-%g' 1 8000` attach: seconds → 40ms first paint, full depth backfilled <1s) | ship the ENTIRE retained scrollback (≤10k rows) in every full cell frame — O(history) sync `gridToCellFrame` inside `claimViewport`, one MB-scale proto blob head-of-line-blocking the Sync stream, O(history) decode+DOM on the SPA before first paint; or "fix" it by racing/timeouting the history away (L11 forbids trading history) | **tail full frames + per-viewer pull backfill.** Full frames carry only `SB_SNAPSHOT_TAIL_ROWS` (250) newest scrollback rows + `sbBase` (`@roost/shared/cell` `nextCellFrame(core, st, force, tailRows)`); the SPA paints viewport+tail instantly, then `scrollbackBackfill.ts` pulls `[0, sbBase)` in 1000-row chunks via `SessionsGetScrollbackCells` (coord relay → worker `handleGetScrollbackCells`, awaits the rebuild chain, serves `readScrollbackRangeCells`) and `cellRenderer.prependScrollback` splices above. At a literal bottom the renderer pins the new bottom; otherwise it leaves `scrollTop` untouched and native anchoring preserves the inspected history. Already-attached viewers merge tails via `mergeFullFrame` (cols + boundary-text identity) so another viewer's attach never wipes their depth. History ALWAYS arrives — only its timing is lazy. Regression: `apps/worker/tests/scrollback-cells-backfill.test.ts` + `apps/web/tests/cellRenderer.dom.test.ts` "tail frames + backfill". |
-    | "terminal scrollback jumps around / view lurches while scrolling up / lands mid-history after a tab switch / drifts off the bottom after vim/less/claude exits" | n/a — fixed 2026-07-26 | row-space or pixel scroll ownership: intent/anchor state, distance compensation, scroll-event classification, resize/reveal correction, or a jump-to-bottom control | **Exact pre-mutation bottom check plus one conditional writer.** `CellGridRenderer` captures `scrollTop >= max(0, scrollHeight - clientHeight)` before a painted-height mutation; only `_pinToBottom(wasAtBottom)` may assign `scrollTop`, only when that captured value was true. Non-bottom mutations never write position. The mutable append tail is `overflow-anchor:none`, preventing Chromium from following it when the reader is one pixel above bottom; completed blocks are anchors, and the tail is restored before a backfill prepend so native anchoring preserves the reader's row. The DOM tripwires are `a frame appended at the exact bottom pins to the new bottom`, `one pixel above the bottom is not pinned by a streaming frame`, `a non-bottom backfill prepend performs no application scroll write`, `returning to the bottom re-enables held-window eviction`, `entering alt-screen from history performs no application scroll write`, and `leaving alt-screen pins because the alt viewport is at bottom`. Never restore intent state, resize/reveal correction, or the jump-to-bottom control. This single-writer invariant is about POSITION and presumes the scroll SPACE is truthful — the `.cell-sb-spacer` row two below is what makes it so; without it the same `scrollTop` means a different row from one frame to the next and no position rule can help. |
-    | "tab switch shows stale terminal content / a returned-to pane sits above the live bottom and never follows output again / bottom-follow works foreground but dies after a park" | n/a — fixed 2026-07-29 (measured: a 250-row `.cell-block` remembered at 29 rows reported 487.11px instead of 4199.22px; revealing it grew `scrollHeight` by exactly that 3712px) | latch the bottom in intent state, correct scroll at reveal, add an `atBottom()` tolerance, or defer `_pinToBottom` to a rAF — all forbidden by the row above; equally wrong: leave a parked pane painting at a DIFFERENT box size (`TerminalDeck.termStyle`'s old fixed 800×600 park) so its scroll maximum moves under it | **A pane that keeps painting off-screen must have TRUTHFUL geometry, not a corrected scroll position.** Three invariants, all measured live: (1) `termStyle` parks a pane at its own leaf's rect (`parkSizeBySession`), so `clientHeight` is identical parked vs revealed; (2) block placeholders are a BARE length, never `contain-intrinsic-size: auto <len>` — `auto` makes the browser reuse a block's LAST RENDERED size, so a block that grows while skipped understates `scrollHeight` until it materializes; (3) the OPEN tail block opts out of `content-visibility` until it seals (`_appendScrollback`) — a skipped subtree's intrinsic size is re-evaluated at rendering-lifecycle time, not on append, so appending into a locked tail leaves `scrollHeight` stale for the rest of the task and the pre-mutation `atBottom()` reads a bottom that no longer exists. Sealed blocks stay skipped → deep-history layout stays O(blocks) (forced layout on reveal measured 0.5ms vs 6.1ms before). Regression cases: `apps/web/tests/cellRenderer.dom.test.ts` "frames applied while the box height is unchanged stay pinned", "the placeholder is a bare length", "only the OPEN tail block opts out of content-visibility". |
-    | "scrollbar thumb size/position jumps with no user action / reader lands on a different row after a tab switch or re-attach / scroll bar 'all over the place'" | n/a — fixed 2026-07-29 (same day as the row above; that row fixed parked GEOMETRY, this fixes the SCROLL SPACE) | anything that writes `scrollTop` to compensate — intent state, reveal correction, restoring a remembered row — all still forbidden by row 120; equally wrong: shipping the whole ring in every full frame (forbidden by the row two above) or just making `SB_SNAPSHOT_TAIL_ROWS` bigger, which only moves the lie | **The painted scroll space must represent the WHOLE session history, not just the shipped tail.** A full frame carries only the newest `SB_SNAPSHOT_TAIL_ROWS` plus `sbBase` = the count of rows not shipped, and nothing stood in for `[0, sbBase)` — so `scrollHeight` described ~250 rows of an 8000-row session, every backfill `prependScrollback` grew it by another 250 (thumb shrank and jumped with no user action), and `renderFull`'s `replaceChildren` left the browser's retained pixel offset over completely different rows. Fix: `CellGridRenderer` reserves the unpainted `[0, sbBase)` history as a `.cell-sb-spacer` SIBLING of `.cell-scrollback` (`_syncSpacer`, called from `_appendScrollback` / `prependScrollback` / the `fonts.ready` hook), so an absolute row index has a FIXED pixel offset for the epoch: prepends shrink it by exactly what they paint, evictions grow it by exactly what they drop, and a reframe repaints the same rows at the same offsets — native `scrollTop` therefore preserves the reader's row across all three with ZERO application scroll writes, and the thumb reflects `scrollbackTotal`. Sibling placement is load-bearing: `_evictScrollback` takes `scrollbackEl.firstElementChild` as a block, and `nearHistoryTop()` reads `scrollbackEl.offsetTop` — which now includes the spacer, so a reader who drags into reserved-but-unpainted space keeps the backfill drain pulling toward them. Regression cases: `apps/web/tests/cellRenderer.dom.test.ts` "the spacer reserves the unpainted history", "a backfill prepend shrinks the spacer by exactly the rows it adds", "an eviction grows the spacer by exactly the rows it drops", "a reframe keeps the reader on the same absolute row". |
-    | "a worker shows offline/down in the SPA while `systemctl --user status roost-worker` says active (running) and the host has GBs free / worker log silent for minutes then `link_stale_no_downstream` + `listChannels timed out` + `heartbeat beat failed [unavailable] HTTP 502` / coord `worker-ws close`→`open` gap of ~361s" | n/a — fixed 2026-08-01 (measured on ovh1: cgroup `memory.current=3401814016` vs `memory.high=3221225472`, `memory.events high` climbing ~150k/min, worker MainPID in `D (disk sleep)`, 6 PTY sessions = 2.9 GB in the SAME cgroup, `SwapFree 172 kB` so reclaim had nowhere to go) | chase the 502 into tailscale-serve, restart the worker, or read the SPA's host metrics and conclude the box is healthy — `host-sample-linux.ts` reads host-wide `/proc/meminfo`, so a unit strangled by its own `MemoryHigh` publishes "8.7 GB of 33.6 GB used" while every allocation in its cgroup is throttled; equally wrong: adding `MemoryMax` (every PTY session shares this cgroup, so a hard cap plus `Restart=always` turns one fat session into a fleet-wide session wipe) | **Three layers, all required.** (1) `MemoryHigh` must scale with the host: `apps/worker/scripts/install.sh::default_worker_mem_high` = 60% of `/proc/meminfo` MemTotal, floor 3G, absolute (systemd only takes % from v240); `TasksMax=4096`, not 512. The live value can sit in a hand-written `~/.config/systemd/user/roost-worker.service.d/limits.conf` drop-in that OUTRANKS the deployed unit body — check the drop-in before editing the unit. (2) A dial that never fires `ws.onopen` is NOT an auth rejection: coord answers a bad JWT with an HTTP 401 upgrade, indistinguishable from a timeout or a proxy 502 in Bun's client `WebSocket`, so 3 throttle-induced dials used to arm `AUTH_REJECT_BACKOFF_CAP_MS` and turn a ~20s stall into ~6 min of "down". `CoordLink-constants.ts::backoffCapMs(streak, hasOpened)` keys escalation on `hasOpened` (`AUTH_REJECT_THRESHOLD_AFTER_OPEN=60`); log is `reconnect_backoff_escalated`, never `auth_rejection_escalated`. (3) `host-sample-linux.ts::sampleCgroupPressure` + `heartbeat.ts::logCgroupPressure` emit `cgroup_memory_high_exceeded`/`_cleared` so the next occurrence is one grep, not a guess. Regression: `apps/worker/tests/coord-link-backoff-cap.test.ts`. |
-    | "tab switch / return to the browser tab makes a terminal reload before the bottom is readable / deck switches are instant at first then slow forever" | n/a — repaired 2026-08-13 | treat it as history serialization and shrink/skip the scrollback tail (forbidden by the rows above), keep hidden/offscreen panes streaming, or add a spinner over reveal | **Keep the Sync socket; dormancy costs exactly one viewport snapshot.** (a) `sync-bootstrap.ts` has one reconnect-loop owner and refocus keeps a healthy Sync WS, so reveal never waits on a second dial. (b) Hidden and offscreen panes immediately send `WITHDRAW`; no 0×0 BACKGROUND claim, grace timer, or deck LRU keeps cells flowing into an invisible renderer. (c) A visible return claim carries `held_cell_seq`; `_needsClaimSnapshot` sees the channel was unwatched and emits one viewport-only authoritative snapshot before deltas resume. (d) The mounted `CellGridRenderer` applies that snapshot without replaying retained history, so the live bottom returns immediately while offscreen cell-frame count stays flat. |
-    | "tab switch lands in scrollback / watches history paint top-down / a stale pane reveals mid-history or in blank space and crawls to the bottom 250 rows per round trip" | n/a — fixed 2026-08-01 (6th attempt at this class; smoke now samples the READER'S POSITION at 50 ms during reveal — prior five "passed" because nothing asserted what the reader SEES at first paint) | zero the claim's held boundary for bottom-followers (`heldScrollbackTotal: 0` → worker returns the plain 250-row tail → `mergeFullFrame` null → `renderFull` wipes ≤2000 painted rows, reader clamps into the stale spacer, `nearHistoryTop()` starts a top-down drain); let geometry changes silently unlatch bottom-follow (box shrink/grow while parked, the 800×600 park fallback, spacer synced AFTER `replaceChildren`); mount MainPane under per-screen `<Route>` entries so a /file or /search visit remounts the whole deck cold | **A reveal lands on the present, always at the literal bottom.** (a) SUPERSEDED — see the row below: the claim snapshot is now ALWAYS `SB_SNAPSHOT_TAIL_ROWS` and history is refilled behind the reader; (b) `CellGridRenderer.noteBoxResize()` re-pins a reader who was at the OLD box's bottom (`max(prev,next)` covers shrink+grow; ResizeObserver calls it BEFORE the drag gate); (c) `renderFull` syncs the spacer BEFORE wiping painted content (scroll max never dips under scrollTop); (d) apply()'s slow path pins to bottom when `incoming.sbBase > heldTotal-1` (held window has no image in the new epoch — collapse allowed, bottom mandatory); (e) ONE route definition for all MainPane screens (App.tsx path array) + an always-mounted deck host (visibility flip, children `visibility:"inherit"`) so /file//search never tears the deck down. Regression: `terminal.spec.ts` "deck switch to a stale deep-history pane…", "…window shrank…", "/file round-trip keeps the deck warm". |
-    | "tab switch / reveal waits on history before the live bottom is readable / deep sessions reveal slower than shallow ones" | n/a — fixed 2026-08-04 (measured: a 2000-row catch-up frame is 324–516 KiB of proto, 38 ms of blocked worker event loop, and ~300 ms of `renderFull` scrollback DOM built BEFORE `renderViewport()`) | bridge the claim snapshot's tail back to the viewer's held boundary (`_claimTailRows`, cap 2000), or replace that with a constant 250-row tail plus a reveal-triggered three-wide proactive refill — either form puts retained history work ahead of or immediately behind the current viewport, scales resume work with session depth, and mutates the painted grid without reader demand; equally wrong: racing history away or reordering a mixed history+viewport `renderFull` (breaks the single `_pinToBottom` writer, row 122) | **Every authoritative FULL frame is viewport-only and epoch-addressed.** It carries `scrollbackRows=[]`, `sbBase===scrollbackTotal`, and opaque `gridEpoch`; the renderer immediately replaces the current viewport and truthful spacer, then issues zero history RPCs while the reader remains at bottom. Only explicit scroll/find demand fetches disjoint `SessionsGetScrollbackCells` ranges carrying that epoch; worker checks the epoch before and after each cooperative slice and returns an error rather than splice re-numbered rows. While the reader is off-bottom, every FULL frame — including an epoch change — is retained off-DOM as the latest pending frame and deltas fold into it; the painted frame, spacer, `scrollTop`, and visible row remain immutable until an explicit return to bottom applies the latest frame once. If the worker ring dropped the requested prefix, the shorter response's `startRow` is the retained floor: paint the surviving suffix and park there rather than rejecting the whole page or repeatedly requesting impossible rows. Paused Sync recovery resumes the mounted loop in place (no reload), and durable replay yields every 16 frames so live cells preempt it. Regression: `terminal.spec.ts` "deep-history attach/reveal…", "deck switch to a stale deep-history pane…", "long hidden deep-history resume paints the current viewport before history", and "streaming sequence repair leaves an off-bottom reader fixed"; `cellRenderer.dom.test.ts`; `scrollbackBackfill.test.ts`; `scrollback-cells-backfill.test.ts`. |
-    | "brand-new browser: spawning a terminal does nothing — no pane, no sidebar row, store `sessions` stays empty until a reload / 'works on the second load'" | n/a — fixed 2026-08-02 (caught by `smoke/terminal/terminal.spec.ts:6` on a FRESH context; instrumented proof: lists 401 → self-register → retry OK, but the socket's first dial 401'd and the `opened` event fired during its 1s backoff) | dial the Sync socket after the bootstrap lists again (throws away the cold-start win for every warm boot to fix only the first-ever boot), or paper over it with a post-bootstrap `sessionsList` refetch | **The snapshot must be ordered AFTER the socket's first open, and an authorization must wake the backoff.** coord runs NO backfill for `since=0` (`handlers-streaming.ts` `backfill()` returns immediately), so an event published between `sessionsList` resolving and the socket opening is lost outright — there is nothing to replay it from. (a) `sync-bootstrap.ts` awaits `syncSocketOpened(SYNC_OPEN_WAIT_MS)` before applying the sessions snapshot, and `sync.ts`'s pre-hydration queue holds frames from the open until `drainPreHydration()`; the window is then closed, not merely shrunk. (b) after a first-boot `_attemptSelfRegister()` authorizes the key, `resumeSyncNow()` re-dials at once instead of serving out a 1s/2s/4s backoff. Any change to the dial ordering MUST keep both. |
-    | "Ctrl-F / a control key stops reaching the PTY after adding an app shortcut — `cat -v` shows the byte missing while the app UI opens instead" | n/a — fixed 2026-08-02 (caught by `smoke/terminal/terminal.spec.ts:14`, which asserts `^B^F^K` round-trips) | bind the chord anyway and try to `stopPropagation` selectively, or "fix" the test's expectation | **A capture-phase document handler on the pane runs BEFORE wterm can encode the key, so it must never claim a bare Ctrl+letter.** wterm's textarea handler is what `preventDefault`s a consumed control byte, and every document-level bubble listener (e.g. the sidebar's ⌘F) already respects that — capture-phase bypasses it entirely. Terminal-scoped chords use ⌘+key (macOS, never a PTY byte) or Ctrl+SHIFT+key (the gnome-terminal shape); find is `⌘F / Ctrl+⇧F` for exactly this reason. Before adding one, check it is not a readline/TUI binding. |
-    | "agent status paints correctly but NO notification ever fires / a subscriber sees `previous.state === next.state` for a real transition" | n/a — fixed 2026-08-03 (instrumented proof: a `working → blocked` publish logged `previous: blocked`; `smoke/terminal/agent-status.spec.ts` + `apps/web/tests/agent-status.test.ts` "detached previous snapshot" now pin it) | classify on the store value the projector read before writing, or "fix" the classifier to tolerate self-transitions | **Snapshot any store value you hand to a subscriber.** `setStore(path, obj)` over an existing object node MERGES INTO THAT NODE (Solid `updatePath` → `mergeStoreNode`), so a proxy captured before the write reads the POST-write value; `store/agent-status.ts` publishes `{ ...current }`. Same trap for any before/after diff taken off a Solid store. |
-    | "browser-only feature silently dead while its unit tests pass / `Illegal invocation` swallowed inside a bus subscriber" | n/a — fixed 2026-08-03 (`AgentNotificationScheduler` stored `options.setTimer ?? setTimeout`; every `handle()` threw in Chrome, never under Bun) | keep injectable-timer fields as bare `setTimeout`/`clearTimeout`, and trust unit tests that run in Bun | **Wrap host functions when defaulting an injectable: `options.setTimer ?? ((cb, ms) => setTimeout(cb, ms))`.** `this.setTimer(...)` calls `window.setTimeout` with the instance as receiver → `Illegal invocation` in a browser, harmless in Bun. Publish loops catch subscriber throws, so the only visible symptom is "nothing happens" — the live/Playwright browser pass is what catches it. |
-    | "a DOM option silently does nothing in the browser while `tsgo` is green / `<input capture>` opens the file browser instead of the camera / an assignment to a documented DOM property never reaches the attribute" | n/a — fixed 2026-08-04 (measured in the live tab: `"capture" in document.createElement("input")` → **false** on Chromium 150, so `input.capture = "environment"` became an expando and `getAttribute("capture")` stayed `null`; happy-dom behaves identically, which is why `apps/web/tests/attachmentsPicker.dom.test.ts` can pin it) | trust the type checker: lib.dom declares `HTMLInputElement.capture`, so the property assignment typechecks and reads as done. Equally wrong once it misbehaves: widen the type, cast to `any`, or relax an unrelated header (`permissions-policy: camera=()` does NOT gate `<input capture>`) — the checker was never the problem | **lib.dom is the SPEC surface, not the engine's. For any HTML attribute whose IDL reflection is not universal, set the ATTRIBUTE (`input.setAttribute("capture", …)`) and assert `getAttribute` in a test.** A green typecheck is not evidence that a DOM property exists at runtime, and a browser-only no-op has no stack trace, so unit tests that never touch a real engine stay green. The tripwire must assert the ABSENCE first (`expect("capture" in makeInput()).toBe(false)`) or a fake DOM that later grows the field silently retires it. |
-    | "mobile mic records once then never again / stop leaves the UI animating / phone recording indicator stays lit until reload" | n/a — fixed 2026-08-07 (measured on the reporter's iPhone, iOS 18.7 installed PWA: `voice.dictation_empty` with `path:"none"`, `ctx_state:"suspended"`, `frames:0`, `repaired:false`, `ws_open_ms:668` — a non-null suspended ctx with no capture path is reachable ONLY while `openPipeline` is parked on an await) | treat it as a Deepgram/network problem (`ws_open_ms` says the socket was fine), or as the silent-mic class already covered above — `armSilenceWatch` is armed FROM `startCapture`'s resolution, so a start that never resolves has nothing watching it; equally wrong: lengthen the mobile idle window so tap #2 reuses a warm pipeline, which only hides the cold re-open that re-rolls the WebKit dice | **Every await in the device-open path is bounded and a failed open disposes what it built.** `audioPcmCapture.micTimeouts` (open/resume/module) wraps `getUserMedia`, `AudioContext.resume()` and `audioWorklet.addModule()` — WebKit returns promises that NEVER settle while the OS audio session is mid-transition, and an unbounded await left `warming` non-null for the page's lifetime (every LATER tap awaited the same dead promise) and `startingCaptures > 0` forever (so `releaseMicIfIdle` never released the device). `openPipeline` builds into LOCALS and publishes the singleton in one step, so a stalled open that settles late cannot clobber the pipeline a later tap already built; `releaseMic`/`discardPipeline` clear `warming`. Every async continuation in a recording carries a run token (`deepgramDictation` `runId`, bumped in `teardown()`), because `completeSend()` resets `endIntent` to null and null ALSO means "a recording is live" — that is how a stopped recording's grant opened a socket onto the shared `ws` and killed the NEXT recording with "Deepgram connection dropped". `finalizing` has a watchdog and stays tappable (a second tap hurries the send). Regression: `apps/web/tests/deepgramDictation.test.ts`, `audioPcmCapture.test.ts` M/N/O, and `smoke/terminal/terminal.spec.ts` "a second recording works exactly like the first". |
-    | "terminal keeps running but the painted grid never converges until a reload / typing reaches the PTY while the pane stays frozen / a returned-to pane paints an old frame forever / 'only a refresh fixes it'" | n/a — fixed 2026-08-18 (layered watermarks made it diagnosable: `handler_canonical` current while `dom_reconciled` trailed with `reconcile_block_reason` set, so the stall was never in delivery) | patch whichever layer is in front of you: cancel the reader on passive output (or never end its interval when the pane parks), re-derive the viewport claim from component-local `_lastSent`/`lastClaimed`/`hasFrame` liveness, park Sync permanently after N failed dials and wait for the user to reload, treat an unproven worker result as a rejection and roll the viewer's cell subscription back, let the announcement barrier drop cells out of order and hope a later delta re-syncs, or keep inferring the core's scrollback eviction origin and emitting phantom continuation cells — each one leaves the canonical model ahead of the DOM with nothing that MUST repair it | **Six layered contracts, each with one owner and a typed outcome.** (a) Reader intent is explicit: `CellGridRenderer` holds `ReaderIntent` "live"/"reading" plus a composed selection+link hold mask (`lib/cellRenderer.ts`); passive output and composer drafting never cancel a reader, one admitted local keystroke calls `prepareLiveInteraction()` (clear holds + adopt reader-pending frame + re-pin bottom as ONE transition), and park/`pagehide`/unmount ENDS the reading interval so a revealed pane presents the newest canonical frame. (b) `acquireTerminalViewportOwner` (`ws/sync-outbound.ts`) is the single tokenized desired-viewport registry per mount, with bounded 250 ms→2 s retries and typed status; cell-delivery membership is the matching `acquireCellMountClaim` (`store/sync-dispatch.ts`). No component keeps private claim liveness. (c) Worker results are three-way with `TerminalWritePhase`: only a proven `PRE_WRITE` refusal is a rejection, `AMBIGUOUS` KEEPS provisional viewer membership, and the budgets nest per PATH, not as one chain — input: keeper 2.5 s per-command watchdog (`COMMAND_RESULT_TIMEOUT_MS`) < worker `budget_ms` (coord remaining − 750 ms reserve, `connect/worker-send.ts`) < coord `INPUT_CONTROL_TIMEOUT_MS` 5 s < browser 10 s; viewport: the same 2.5 s watchdog inside per-phase bounds (`keeper_written` 6 s) clamped by `VIEWPORT_TXN_BUDGET_MS` 7 s < coord `VIEWPORT_CONTROL_TIMEOUT_MS` 8 s < browser 10 s. 6 s is a worker PHASE bound, never a tier above the 5 s input deadline. (d) The worker applies a viewport as a staged transaction (`session-terminal-txn.ts` over `TerminalTxnPhase`) on a control lane, while keeper WRITES ride a separate ordering lane released at the write boundary — PTY input never queues behind a pending resize. (e) Sync redial caps the DELAY only (`SYNC_REDIAL_MAX_MS` 30 s, `store/sync-watchdog.ts`); only a hidden document sleeps and one coalesced lifecycle wake re-dials in place and replays owners, so recovery never needs a reload. (f) `appendEvent` is a durable publication (commit → exact channel binding via `applyDurableChannelIndex` → `sessionBus`), the announcement barrier drains cell AND binary frames in arrival order, and an overflow/timeout with a live viewer sets a coordinator-local repair mark that forces ONE authoritative full frame; the core is pinned `@wterm/core` 0.3.4 on a digest-verified patched WASM with explicit `PbCellSpan.columns` and authoritative `getScrollbackDiscardedCount()`. Diagnose with `wire_received` → `handler_canonical` → `dom_reconciled` + `reconcile_block_reason` (`lib/terminalPreview.ts`), never a screenshot. Tests: `apps/shared/tests/core-trace-oracle.test.ts`, `apps/web/tests/syncOutbound.test.ts`, `apps/worker/tests/terminal-control-transaction.test.ts`, `apps/coord/tests/durable-publication.test.ts`, and `smoke/terminal/terminal.spec.ts` "parking a selection-held pane flushes its latest folded frame" / "long hidden deep-history resume paints the current viewport before history" / "real PTY input recovers held rendering and rejected same-generation reclaim self-heals". |
-
-    Process rule: when a user-reported symptom matches an existing row,
-    fix at the linked layer FIRST. If the linked memory describes a
-    different fix pattern than the one tempted by the immediate code,
-    the memory wins. Add a new row only after a NEW root cause is
-    confirmed AND the smoke harness gains a regression case for it.
-
-Universal across repo. Apply to every turn, tool call, artifact.
+You (an LLM agent) are the primary reader, writer, and maintainer of this
+codebase. Every claim in this file was verified against code the day it was
+written; if you find one that is false, fix this file in the same change.
+The per-app file maps live in `apps/*/README.md`, not here — this file is
+operating rules only, so it cannot rot into a stale copy of the filesystem.
 
 ---
 
-# CLAUDE.md — in-repo project memory
+## Read order
 
-LLM collaborators (Claude or anyone else) landing here cold, read in this order:
-- **[`ARCHITECTURE.md`](ARCHITECTURE.md) first** — the system tour: the three apps, the transport spine, session/event data flow.
-- **Then [`GLOSSARY.md`](GLOSSARY.md)** — the vocabulary (cell-shipping, keeper, agent-status adapters, seqno splice, …).
-- **Then [`STATE.md`](STATE.md)** — live status, auto-updated by the Stop hook (R0.11): branch + last commits + next action.
-- **[`REWRITE.md`](REWRITE.md)** — R0–R10 are the completed rewrite roadmap (historical, evidence-cited); **R11 is the live cell-shipping terminal model** (`apps/shared/src/cell/`).
-- _(historical)_ v1 stack lived under `apps_legacy/` (Rust worker + TS coord); rewritten 2026-06-11 to v2 (Bun + TS everywhere, event-sourced sessions, plain Vite) and `apps_legacy/` deleted in phase-24g — see git history on `n6/solid-rewrite` for v1 source. Legacy ports :4101/:2223 are NOT running.
+Landing cold, read in this order. Stop as soon as you have what you need.
 
-This file codifies the standards the maintainer has set. They're
-non-negotiable for every change.
+1. **[`ARCHITECTURE.md`](ARCHITECTURE.md)** — the system tour: the apps, the
+   transport spine, session/event data flow, and the terminal-fidelity model
+   (the hard part).
+2. **[`GLOSSARY.md`](GLOSSARY.md)** — the vocabulary: cell-shipping, keeper,
+   agent-status, session/channel/tab, scrollback.
+3. **The `apps/<x>/README.md` for the app you are touching** —
+   [`web`](apps/web/README.md), [`coord`](apps/coord/README.md),
+   [`worker`](apps/worker/README.md), [`shared`](apps/shared/README.md),
+   [`roost-cli`](apps/roost-cli/README.md). Entry point, module map,
+   app-specific invariants, and how to test that app.
+4. **[`docs/FAILURE-INDEX.md`](docs/FAILURE-INDEX.md)** — grep it BEFORE
+   writing code that matches a listed symptom. See `## Failure index` below.
+
+Also live, read when relevant:
+
+- **[`GETTING_STARTED.md`](GETTING_STARTED.md)** — install, run, deploy, and
+  the health commands in `## Health check` below.
+- **[`FEATURES/README.md`](FEATURES/README.md)** — the feature inventory and
+  open decision gates.
+- **[`docs/LENS.md`](docs/LENS.md)** — the generic operating doctrine
+  (`## Reading lens` below). Read once, not per task.
+- **`docs/archive/**`** — quarantined historical snapshots. Skip on
+  onboarding; they describe the repo as it was, and they are allowed to name
+  files that no longer exist.
 
 ---
 
-## What we own
+## Reading lens
 
-Roost is **three TS apps** under `apps/`, all on Bun. v2 rewrite completed
-2026-06-11; v1 stack (`apps_legacy/`) was deleted in phase-24g — see
-git history on `n6/solid-rewrite` if you need v1 source for reference.
+The generic doctrine lives in [`docs/LENS.md`](docs/LENS.md) as anchors
+`L1-DENSITY-OVER-PRETTY` through `L10-CROSS-DOC-AUTHORITY` plus
+`LENS-SELFTEST` and the `L9.1`–`L9.5` sub-anchors. Grep `'^ *[0-9]*\. \*\*L'`
+in that file for the map. It is not re-inlined here; one copy is the point.
 
-| App | Path | Stack | Role | Port |
-|---|---|---|---|---|
-| **Web SPA** | `apps/web/` | Solid 1.x + plain Vite + `@solidjs/router` 0.16 + `@connectrpc/connect-web` | sidebar + cell-grid terminal pane (`lib/cellRenderer.ts::CellGridRenderer`; no browser-side VT core); single Solid `createStore` root + selectors; URL-driven nav state | Vite dev :5174; static build at `apps/web/dist/` served by coord |
-| **Coord** | `apps/coord/` | Bun.serve native fetch + Connect-RPC + Kysely + `bun:sqlite` | Connect routes under `/roost.v1.CoordinatorService/*`; browser firehose `/ws/coord-sync`; outbound-worker transport `/ws/coord-worker/:fp`; EdDSA JWT auth via interceptor; append-only `events` table + `sessions` projection; `createCoord(deps)` factory portable to any fetch-capable runtime | Bun loopback :4103; Tailscale Serve :4102 → :4103; optional Cloudflare browser listener :4104 |
-| **Worker** | `apps/worker/` | Bun + single multiplexed Bun keeper subprocess (`Bun.spawn` `terminal:` PTY) + `@connectrpc/connect-node` | outbound raw WebSocket to coord (CoordLink → `/ws/coord-worker/:fp`, proto frames over WS); FSM per channel; SessionEvents stream via CoordWorkerUp.event. One keeper process per worker hosts all PTYs over one UDS. | — |
-| **Shared** | `apps/shared/` | Zod schemas + protobuf gen + branded TS types + config + trace + log | single source of truth for wire shapes; protos in `proto/roost/v1/`; gen TS at `src/gen/roost/v1/`; both Zod (in-app) and proto (wire) shapes coexist with adapters | — |
-| **CLI** | `apps/roost-cli/` | Bun TS | `roost dev/test/deploy/logs/reset/state/cutover` — replaces 7+ legacy shell scripts | — |
+**L0-SCOPE — what the lens governs.** Everything you emit inside this
+repository's working tree: sub-agent prompts, plan files, chat replies,
+tool-call parameter values (command descriptions, edit rationales, commit
+messages, PR bodies), and generated docs, comments, logs, and error strings.
+If you wrote it or are about to write it, the lens applies. Per-turn override
+only when the user explicitly asks for human-style framing
+(`L5-OVERRIDE-PRIORITY`).
 
-**Agent lifecycle boundary:** every live session remains a shell PTY. Launcher
-configuration may type a command such as `omp`, Claude Code, or Codex into that
-shell; Roost never spawns, supervises, or owns an agent session.
+### Lens amendments
 
-`apps/coord/src/agent-config.ts` (`AgentConfig`) and
-`apps/web/src/lib/agents.ts` are terminal launcher configuration: they resolve a
-command string and type it into the shell PTY. Their `agent` terminology does
-not define a session kind or structured integration; keep them.
+`L9.5-LENS-SELF-AMENDMENT` makes the lens append-only, so removals are
+recorded rather than silently dropped:
 
-**Agent status is metadata, not a session kind.** `agent-status` on the worker
-(`apps/worker/src/agent-status/`), the coord hub (`agent-status-hub.ts` plus
-`push-dispatch.ts`), and the SPA projection (`apps/web/src/store/agent-status.ts`
-with `components/AgentNotificationBridge.tsx`) label a SHELL PTY with
-`working`/`blocked`/`idle` and notify on background transitions. It is volatile:
-no SQLite row, no event-log variant, no `session.kind`, no transcript, composer,
-or agent RPC. Reports arrive from lifecycle integrations Roost owns inside the
-agent's own extension directory (OMP, Pi) over a `0600` per-worker UDS, or from
-screen/OSC scanning as fallback. Do NOT reintroduce a structured agent session
-to carry status, and do NOT persist it — a restart must re-derive it.
-
-**Transport story** (protobuf over Connect-RPC and dedicated WebSockets):
-- **Web ↔ Coord**:
-  - Unary: `coordClient.X({...})` over HTTP/2 with protobuf binary
-    (`createConnectTransport({ useBinaryFormat: true })`).
-  - Subscriptions: `/ws/coord-sync?since=<cursor>&tab=<tab-id>&flow=1`
-    multiplexes domain deltas and authoritative terminal cells (hyperlink
-    identity rides on the spans).
-    Flow-enabled browsers cumulatively ACK only synchronously dispatched
-    delivery sequences; reconnect backfill uses the event cursor persisted to
-    localStorage.
-  - Keystrokes + viewport: typed `SyncClientFrame` commands (`input`,
-    `viewport`) sent UP the same `/ws/coord-sync` socket via
-    `sendSyncV2Command` (`src/store/sync.ts`); coord replies with exactly one
-    typed result frame. No separate browser input stream exists.
-  - Retained history: unary `coordClient.sessionsGetScrollbackCells(...)` on
-    explicit demand (cell rows, `scrollback_total`-guarded). The byte-path
-    `SessionsGetScrollbackSince` is retired on both worker handlers.
-  - Auth: SPA mints EdDSA JWT in WebCrypto, coord verifies via
-    interceptor that stashes the caller on context.
-- **Worker ↔ Coord**: raw Bun WebSocket `/ws/coord-worker/:fp?token=<jwt>`
-  (worker dials outbound at boot; there is no worker listener or `:2224`).
-  Frames are proto-typed `CoordWorkerUp` / `CoordWorkerDown` oneofs serialized
-  binary (`toBinary`/`fromBinary`): hello, event, presence, rpc_ok/err, binary
-  `{ch,dir,seq,data}`, refresh_jwt. JWT rotates in-band via `WRefreshJwt`.
-- **Multi-runtime ready**: protocol layer lives in
-  `apps/coord/src/coord-factory.ts::createCoord(deps)` returning a
-  `(Request, ctx?) => Promise<Response>` handler. `main.ts` is the
-  Bun-specific wrapper that owns TLS, the SPA static fallback (Bun.file),
-  and `server.requestIP()`. Non-Bun runtimes (Node http, CF Workers,
-  Deno, Edge) inject their own `spa` and `dbExport` adapters via `ctx`.
-- **Observability**: two-tier signal()/diag() + audit_log + `roost doctor`
-  (memory reference_two_tier_observability). The OTel/OTLP stack was
-  removed (never had an exporter endpoint configured) — audit_log records
-  method/path/status/trace_id/caller_fp per RPC in the auth interceptor.
-
-### Run / dev / deploy
-
-- **Full stack dev** → `bun apps/roost-cli/src/main.ts dev` (boots a direct
-  coordinator on :4102, an outbound-only worker, and Vite :5174 in parallel)
-- **Tests** → `bun run test:unit` (hermetic), `bun run test:terminal`
-  (isolated coord + worker + browser), `bun run test:live-api` (tailnet
-  data-plane canary; requires `ROOST_COORD_URL`), `bun run test` (unit then
-  terminal), or `bun run test:worker` (isolated per-file worker suite).
-- **Deploy worker to tailnet host** → `bun apps/roost-cli/src/main.ts deploy <host>`
-  (rsync + `bun install --production` + `launchctl kickstart -k`)
-- **Install LaunchAgents** →
-  - `bash apps/coord/scripts/install.sh install` → `com.roost.coordinator-v2`; production uses Tailscale :4102 → Bun loopback :4103
-  - `bash apps/worker/scripts/install.sh install` → outbound-only `com.roost.worker-v2` (no listener)
-- **DB cutover (legacy → v2)** → `bun apps/roost-cli/src/main.ts cutover`
-  (reads `coordinator.db`, writes `coordinator_v2.db`; synthesizes
-  `opened` events per open legacy session)
-- **Logs** → `bun apps/roost-cli/src/main.ts logs (coord|worker)`
+- **Removed `L0-SCOPE-NEGATIVE`, `L0-FORBIDDEN-PATHS`, and
+  `L0-FORBIDDEN-PATHS-PLAN-OVERRIDE`.** All three were written against an
+  absolute checkout path on one macOS machine and named a second absolute
+  path to forbid. Read literally, they scoped the entire lens to a directory
+  this repository is not in, which made the lens inapplicable to any other
+  clone and made the deny rules guard nothing. Scope is now expressed as this
+  repository's working tree (`L0-SCOPE`), which is true in every clone. The
+  standing rule they were reaching for survives without the absolute paths:
+  **an approved plan does not grant authority outside this working tree** —
+  crossing a repository boundary is a stop-and-ask, and plan detail is never
+  a substitute for standing you do not have.
 
 ---
 
 ## Coding standards
 
-1. **Small files** (≤400 lines). Hard cap. Split before you hit it.
-   One React component per file. One Rust module per concept.
+Non-negotiable for every change.
 
-2. **Descriptive names everywhere.** No single-letter vars except `idx`
-   in tight loops. No `handle`, `process`, `do`, `manage`, `run` alone —
-   name the actual verb (`handleClaudeEventFrame`, `replayRingBufferSince`,
+1. **Small files — ≤400 lines. Hard cap.** Split before you hit it. One Solid
+   component per file. Mechanically enforced: `bun run lint` fails a file that
+   exceeds the cap. Files that were already over it are frozen in
+   `scripts/file-size-baseline.json` and may only SHRINK; a file absent from
+   that baseline may never exceed 400. After a split lowers counts,
+   re-snapshot with `bun scripts/lint-roost.ts --update-size-baseline`.
+   A handful of files are deliberately over the cap and baselined — the reason
+   is recorded in each one's header. `apps/web/src/lib/cellRenderer.ts` is the
+   one to understand: it is a single class whose methods share private
+   per-frame state, and that encapsulation is what prevents the
+   history-corruption class. Do not "fix" it by splitting.
+
+2. **Descriptive names everywhere.** No single-letter variables except `idx`
+   in tight loops. No `handle`, `process`, `do`, `manage`, `run` alone — name
+   the actual verb (`handleClaudeEventFrame`, `replayRingBufferSince`,
    `mergeRemoteSessions`). No `Utils` / `Helpers` / `Common` / `Models`
    modules — name the concept (`PathFormat`, `KeychainStore`).
 
-3. **Predictable per-file shape:**
-   - **Rust** (`apps/worker/`): file-header `//!`
-     doc → `use` → types → impls → `mod tests`.
-   - **TypeScript** (`apps/web/src/`): file-header comment (3-6 lines)
-     → imports → types → exported API → private helpers.
-   - **Solid component** (`apps/web/src/components/`): one component
-     per file; props type at top; component body; styled subcomponents
-     below.
+3. **Predictable per-file shape.** TypeScript: file-header comment (3–6
+   lines) → imports → types → exported API → private helpers. Solid
+   component: one component per file; props type at top; component body;
+   styled subcomponents below.
 
-4. **File-header comments are mandatory** for any non-trivial file.
-   3-6 lines explaining: what this file owns, what calls it, what it
-   depends on. Plain English, no jargon, no marketing.
+4. **File-header comments are mandatory** for any non-trivial file. 3–6 lines:
+   what this file owns, what calls it, what it depends on. Plain English.
 
-5. **Inline comments explain WHY, not WHAT.** Default to no comment;
-   only write one when removing it would confuse future-Claude.
+5. **Inline comments explain WHY, not WHAT.** Default to no comment. Write one
+   only when removing it would mislead the next reader — most often to name an
+   invariant or the incident that constrains an ordering.
 
-6. **No narrative comments.** No "Phase A scope:", "// added in Phase
-   K3", "// for the MVP", "// for now", "// we used to". If a comment
-   explains a non-obvious invariant, rewrite to describe the *behavior*,
-   not the lineage.
+6. **No narrative comments.** No "Phase A scope:", "added in phase K3", "for
+   the MVP", "for now", "we used to". If a comment explains a non-obvious
+   invariant, describe the *behavior*, not the lineage. Git history is the
+   lineage.
 
-7. **Structured logging at every state transition.**
-   - Rust: `tracing::{info,warn,error}!(target="…", key=val, …)`
-   - TypeScript: a single project-wide logger facade, key=val style.
-   Every transition that matters (spawn, attach, mode-change,
-   reconnect, replay) emits one line. No silent state changes.
+7. **Structured logging at every state transition.** Use `log` from
+   `@roost/shared/log` in coord and worker; `diag()` / `signal()` from
+   `@roost/shared/diag` in web; `console.*` ONLY in `apps/roost-cli`, whose
+   stdout is its product surface. Every transition that matters (spawn,
+   attach, mode change, reconnect, replay) emits one line. No silent state
+   changes. Ratcheted: `bun run lint` fails a NEW `console.*` in
+   `apps/coord/src` or `apps/worker/src` against
+   `scripts/console-baseline.json` (the surviving entries are pre-logger
+   bootstrap and fatal-exit paths). Re-snapshot with
+   `bun scripts/lint-roost.ts --update-console-baseline`.
 
-8. **One concept per type.** `Worker` is identity of a Mac in the
-   registry. `Session` is the user-facing row. `Channel` is a PTY
-   connection. `Tab` is the DB row. Keep them separate; convert at
-   boundaries.
+8. **One concept per type.** `Worker` is the identity of a machine in the
+   registry. `Session` is the user-facing row. `Channel` is a PTY connection.
+   `Tab` is the DB row. Keep them separate; convert at boundaries.
 
-9. **Tests mirror source layout.** Same prefix, sibling dir.
+9. **Tests mirror source layout.** Same prefix, sibling `tests/` dir.
 
-10. **Reuse existing utilities — don't fork.** Always check first:
-    - Web: `apps/web/src/store/{root,projector,sync,selectors}.ts` +
-      `apps/web/src/connect.ts` (Connect client replacing retired `trpc.ts`) +
-      `apps/web/src/ws/sync-outbound.ts` (typed viewport + input commands on the live Sync socket) +
-      `apps/web/src/auth/{web-key,trust}.ts`. Single root store; no
-      per-chip stores. Add a selector + a JSX line; do NOT add a new store.
-    - Worker: `apps/worker/src/{main,session-manager,fsm,heartbeat,
-      snapshot,coord-client,jwt,wterm-serialize,attachment-reaper}.ts`
-      + `transport/CoordLink.ts` + `keeper/{multiplexed-main,multiplexed-client,protocol-v2}.ts`.
-      Worker is purely OUTBOUND — no `ws-server.ts` / inbound HTTP/WS surface
-      (CoordLink dials coord). Wire shape = `@roost/shared`. Add an event variant
-      in `apps/shared/src/wire/event.ts` first, then fold + emit + project.
-    - Coord: `apps/coord/src/main.ts` + `coord-factory.ts` +
-      `connect/{router,auth-interceptor,worker-service,bun-handler}.ts`.
-      `connect/router.ts::buildConnectRouter` is now PURE WIRING (~84 lines):
-      auth interceptor + viewer-tracker DB wire + tailnet kickoff + the spread
-      assembly. Handlers live by domain in `connect/handlers-*.ts`
-      (2026-06-23 split, "all in router.ts" rule RESCINDED): `handlers-workers`
-      / `handlers-sessions` / `handlers-workspaces` / `handlers-tasks` /
-      `handlers-settings` (webhooks+permissions+mcp) / `handlers-auth`
-      (auth+pair) / `handlers-system` (misc+diag+audit) / `handlers-transcription`
-      / `handlers-attachments` (files+attachments) / `handlers-streaming`
-      (the Sync firehose). Each exports `make<Domain>Handlers(deps):
-      Pick<ServiceImpl<typeof CoordinatorService>, …>` SPREAD into router.ts's
-      single `router.service()` literal — a SEPARATE `router.service()` call
-      per domain shadows the rest with unimplemented-throws (connect stubs
-      absent methods). Shared: `connect/router-helpers.ts` (sendBrowserCmd +
-      randomToken/sha256hex/requireNonEmpty), `connect/viewer-tracker.ts`
-      (the viewer-presence singleton). +
-      `db/{connection,migrate,schema}.ts` + `event-log.ts` + `buses.ts`
-      + `jwt.ts` + `coord-key.ts` + `sse.ts` + `presence-hub.ts` +
-      `deploy-jobs.ts` +
-      `middleware/{security,loopback-only,rate-limit}.ts`. Procedure
-      signatures live in the generated proto types under
-      `@roost/shared/proto/roost/v1/coordinator_pb.ts` (regenerate via
-      `bun --filter @roost/shared run proto:gen`); coord IMPLEMENTS them in
-      the `connect/handlers-*.ts` factories.
+10. **Reuse existing utilities — don't fork.** Check the relevant
+    `apps/*/README.md` module map first; it names the owner of each concern.
+    The three seams that get forked most often:
+    - **Wire shapes** live once in `apps/shared`. Add an event variant in
+      `apps/shared/src/wire/event.ts` first, then fold, emit, and project.
+      Procedure signatures come from the generated proto types under
+      `@roost/shared/proto/*` (regenerate with
+      `bun --filter @roost/shared run proto:gen`).
+    - **`apps/shared` is subpath-only.** `import { X } from "@roost/shared"`
+      does not resolve — there is no barrel. Import
+      `@roost/shared/{wire,log,diag,paths,platform,native-path,config,fingerprint,viewport,cell,json,...}`
+      per `apps/shared/package.json`'s `exports`. `@roost/shared` remains the
+      valid *package* name, so the `--filter` command above is correct.
+    - **Coord RPC handlers** live by domain in `apps/coord/src/connect/handlers-*.ts`,
+      each exporting a `make<Domain>Handlers(deps)` spread into the SINGLE
+      `router.service()` literal in `connect/router.ts`. A separate
+      `router.service()` call per domain shadows the rest with
+      unimplemented-throws.
 
-    If you find yourself writing a parallel utility, stop and reuse.
+    If you find yourself writing a parallel utility, stop and reuse. Two
+    hand-maintained implementations of one value is the defect this repo pays
+    for most — see the fingerprint entry in `apps/shared/README.md`.
 
-11. **No clever / hidden / magic.** No metaprogramming, no top-level
-    mutable globals. All state has an owner you can grep for. All side
-    effects are explicit.
+11. **No clever / hidden / magic.** No metaprogramming, no top-level mutable
+    globals. All state has an owner you can grep for. All side effects are
+    explicit.
 
-12. **Commit messages = navigable history.** Format:
-    `phase-<letter>: <one-line scope>` for plan phases;
-    `<area>: <one-line scope>` for one-offs. Optional body for
-    non-obvious why. Future-Claude reads `git log --oneline` to
-    orient — protect that signal.
+12. **Commit messages = navigable history.** `<area>: <one-line scope>`.
+    Optional body for a non-obvious why. Future-you reads `git log --oneline`
+    to orient — protect that signal.
 
-13. **No half-finished implementations.** A commit means everything
-    in scope is wired end-to-end and tested. If a sub-feature can't
-    ship complete, cut it from the commit rather than leave a half-
-    implementation a future reader has to wonder about.
+13. **No half-finished implementations.** A commit means everything in scope
+    is wired end-to-end and tested. If a sub-feature can't ship complete, cut
+    it from the commit rather than leave a half-implementation.
 
-When reviewing a diff before commit, the question is not "does this
-work?" — it's **"if I open this in 4 weeks with no context, can I figure
-out what's going on in 30 seconds?"** If no, refactor before commit.
+When reviewing a diff before commit, the question is not "does this work?" —
+it is **"if I open this in 4 weeks with no context, can I figure out what's
+going on in 30 seconds?"** If no, refactor before commit.
 
 ---
 
 ## Design system (web) — cohesion by construction
 
 New UI MUST be cohesive by construction, not by memory. Three rules,
-mechanically enforced so drift can't return (design-system phase 1):
+mechanically enforced so drift can't return:
 
 1. **No raw values.** No hex / `rgb()` / px font-size in components —
-   reference tokens: `--surface-0..3`, `--text-hi/mid/lo`, `--md-*`
-   roles, `--md-space-1..9`, the `--md-*-size/line/weight` type ramp,
-   `--md-shape-*`, `--md-elev-0..5`. ALL declared ONCE in
+   reference tokens: `--surface-0..3`, `--text-hi/mid/lo`, `--md-*` roles,
+   `--md-space-1..9`, the `--md-*-size/line/weight` type ramp, `--md-shape-*`,
+   `--md-elev-0..5`. ALL declared ONCE in
    `apps/web/src/styles/theme-vars.css` (+ space/type in
-   `Settings/md/tokens.css`). Legacy aliases (`--peach`, `--mantle`,
-   `--color-*`, `--bg-elev-*`, Catppuccin names) are for OLD code only —
-   don't use in new code. Enforced by `scripts/lint-roost.ts` raw-value
-   ratchet (`design-raw-baseline.json`): a NEW raw value fails the build.
-   After migrating a file down, re-snapshot: `bun scripts/lint-roost.ts
-   --update-design-baseline`.
-2. **Primitives first.** Compose from `apps/web/src/components/Settings/md/primitives.tsx`
-   (`Surface`, `StatusDot`, `Sheet`, `Button`, `IconButton`, `Card`,
-   `List`+`ListRow`, `Chip`, `Dialog`, `MetricTile`, `EmptyState`, …) —
-   don't hand-roll `<div style>`/`<button>`. `StatusDot` is THE status
-   indicator (no hand-rolled colored spans). `Surface` is THE panel.
-3. **One visual reference.** The `/design` route (`DesignGallery.tsx`)
-   renders every token + primitive. New surfaces match it.
+   `apps/web/src/components/Settings/md/tokens.css`). Legacy aliases
+   (`--peach`, `--mantle`, `--color-*`, `--bg-elev-*`, Catppuccin names) are
+   for OLD code only — don't use them in new code. Enforced by
+   `scripts/lint-roost.ts`'s raw-value ratchet
+   (`scripts/design-raw-baseline.json`): a NEW raw value fails the build.
+   After migrating a file down, re-snapshot:
+   `bun scripts/lint-roost.ts --update-design-baseline`.
+2. **Primitives first.** Compose from
+   `apps/web/src/components/Settings/md/primitives.tsx` (`Surface`,
+   `StatusDot`, `Sheet`, `Button`, `IconButton`, `Card`, `List` + `ListRow`,
+   `Chip`, `Dialog`, `MetricTile`, `EmptyState`, …) — don't hand-roll
+   `<div style>` / `<button>`. `StatusDot` is THE status indicator (no
+   hand-rolled colored spans). `Surface` is THE panel.
+3. **One visual reference.** The `/design` route
+   (`apps/web/src/components/DesignGallery.tsx`) renders every token and
+   primitive. New surfaces match it.
 
-Process: run the **`design-reviewer`** subagent (`.claude/agents/design-reviewer.md`)
-on every `apps/web/` UI diff before commit — it catches the primitive-
-bypass / wrong-role drift the regex linter can't. Phase 2 (deferred,
-needs explicit go): fan-out migration of the whole SPA onto tokens +
-primitives, surface by surface.
+Process: run the **`design-reviewer`** subagent
+(`.claude/agents/design-reviewer.md`) on every `apps/web/` UI diff before
+commit — it catches the primitive-bypass and wrong-role drift the regex
+linter can't.
 
 ---
 
-## What's running on a healthy Mac
+## Health check
+
+Cross-platform, and the same on macOS, Linux, and Windows:
 
 ```
-launchctl list | grep roost
-# expect: com.roost.coordinator-v2  com.roost.worker-v2
-
-lsof -iTCP -sTCP:LISTEN -P -n | grep bun
-# expect: coordinator Bun on loopback :4103, plus optional public :4104.
-# The worker is outbound-only and owns no TCP listener.
-tailscale serve status
-# expect: private :4102 mapped to http://127.0.0.1:4103
+roost status                 # services, network, fleet: Tailscale state,
+                             # listeners, cert, worker reachability
+roost doctor --since 24h     # anomaly digest from local logs + audit_log
 ```
 
-- Coord down → workers redial and browsers lose state/terminal fan-out; keeper
-  subprocesses preserve the PTYs until the coordinator returns. Restart with
-  `bash apps/coord/scripts/install.sh reinstall`.
-- Worker down → that Mac's PTYs unavailable; other Macs in the multi-Mac
-  topology keep working. Restart with `launchctl kickstart -k gui/$UID/com.roost.worker-v2`.
+`roost status` (`apps/roost-cli/src/status.ts`) is the current-state gate.
+`roost doctor --since <window>` (`apps/roost-cli/src/doctor.ts`) summarizes a
+time window and is the right tool for "what broke overnight". Both are
+documented with example output in [`GETTING_STARTED.md`](GETTING_STARTED.md).
+
+Coord down → workers redial and browsers lose state and terminal fan-out, but
+keeper subprocesses preserve the PTYs until the coordinator returns. Worker
+down → that machine's PTYs are unavailable; other machines keep working.
 
 ---
 
-## How to navigate
+## Process
 
-### `apps/web/` (Solid 1.x + plain Vite SPA, served by coord)
+### Per-phase execution loop
 
-- **Entry:** `src/main.tsx` mounts `<App>` into `#app`. No SolidStart,
-  no Vinxi — plain Vite + `@solidjs/router`.
-- **Routing:** declarative table in `src/routes.ts` driven by
-  `@solidjs/router`. URL is the source of truth for workspace, terminal,
-  settings, help, file-viewer, and search navigation.
-- **State:** single Solid `createStore<RootState>` root at
-  `src/store/root.ts`. Selectors at `src/store/selectors.ts` are derived
-  via `createMemo`. **Components subscribe to selectors, never mutate the
-  root.** No per-domain stores; the m5-class wedges from v1 are
-  mechanically impossible.
-- **Projector:** `src/store/projector.ts` folds `SessionEvent` into the
-  store using the SAME `foldEvent` exported from `@roost/shared/wire`.
-  Coord projects with the same function — so SPA + coord projections agree
-  by construction.
-- **Sync:** `src/store/sync.ts` bootstraps via Connect unary list calls, then
-  opens one protobuf WebSocket at `/ws/coord-sync` with exact `flow=1`
-  negotiation. Only the current accepting link dispatches frames, and it sends
-  a cumulative delivery ACK only after synchronous dispatch. A flow-pressure
-  close redials immediately; `_lastSeenEventId` remains in localStorage so
-  reconnect backfill catches missed events.
-  Redial caps the DELAY only (`sync-watchdog.ts`: 1 s → `SYNC_REDIAL_MAX_MS`
-  30 s), never the attempt count: only a HIDDEN document sleeps, and one
-  coalesced lifecycle wake (`visibilitychange` / `pageshow` / Page Lifecycle
-  `resume` / `focus`) re-dials in place and replays every viewport owner, so
-  recovery never requires a reload.
-- **Connect client:** `src/connect.ts` — `createClient(CoordinatorService,
-  createConnectTransport({ useBinaryFormat: true }))` with a JWT
-  interceptor. Same EdDSA key minting from `src/auth/web-key.ts`
-  (ed25519 in WebCrypto + IndexedDB-stored private key).
-- **TOFU coord pin:** `src/auth/trust.ts` — coord fingerprint pinned in
-  IndexedDB; rotation detected on next coord-identity call.
-- **PTY input:** `src/lib/userTerminalInput.ts::sendUserTerminalInput` →
-  `src/ws/sync-outbound.ts::sendTerminalInput`, a typed `input` command on the
-  live Sync socket. Every batch resolves to accepted / rejected / ambiguous;
-  nothing is silently retried.
-- **Terminal:** `src/components/CellTerminal.tsx` paints coordinator-delivered
-  `PbCellGridFrame` snapshots/deltas with `CellGridRenderer`; raw PTY output
-  never enters the browser Sync socket. OSC 8 hyperlinks are CORE-AUTHORED
-  per-cell identity carried on `PbCellSpan.link_uri`/`link_key` (nothing parses
-  bytes for links, nothing text-matches them). Only panes on the visible
-  terminal surface hold viewport
-  claims; mounted offscreen panes retain their last grid but receive no cells.
-  `lib/terminalInputController.ts::TerminalInputController` is the renderless
-  input/mode encoder whose `onData` feeds `sendUserTerminalInput(sid, bytes)`.
-- **Sidebar:** `src/components/sidebar/` lists machines, workspaces, and shell
-  sessions from the same `store.sessions` Map. Selection and filtering are
-  derived from the URL and the root store, not separate per-view stores.
-- **Agent status + notifications:** `src/store/agent-status.ts` projects the
-  volatile `AgentStatusFrame` into `rootStore.agent_status` (revision floors, so
-  a late frame can't resurrect a cleared session; `previous` is always a
-  DETACHED copy — Solid merges an object into the existing store node in place,
-  and handing subscribers the live proxy makes every transition look like a
-  self-transition). `src/lib/agentStatus.ts` derives the presentation level
-  (`done` = unacknowledged completion) and folder rollups; `src/lib/agentSeen.ts`
-  persists acknowledged revisions per browser profile;
-  `src/components/AgentNotificationBridge.tsx` + `src/lib/agentNotificationCore.ts`
-  own the 1 s delayed toast, title badge, sound, one-per-profile claim
-  (`agentNotificationClaim.ts`), and `View` navigation;
-  `src/lib/{notifyPrefs,push-client}.ts` + `Settings/NotificationsPane.tsx` gate
-  OS delivery behind an explicit permission grant; `public/sw-push.js` renders it.
-  Surfaces: `AgentStatusIndicator.tsx` in `sidebar/SessionRow{,Flat}.tsx`,
-  `PaneStrip.tsx`, `MobileDeckBar.tsx`, and the `FolderList.tsx` rollup.
-- **Settings panes:** `src/components/Settings/{SettingsRoot,
-  MachinesPane,PermissionsPane,WebhooksPane,McpPane,MetricsPane,
-  AttachmentsPane,AuditLogPane,ThemePane}.tsx`. The "workers" pane is
-  named `MachinesPane` (machine = a Mac hosting one worker; renamed
-  pre-shipping for end-user clarity); there is no `WorkersPane`.
-- **Build / dev:** `bun x vite` (HMR dev on :5174) / `bun x vite build`
-  (static output to `apps/web/dist/`; coord serves this in production).
-- **Test:** `bun run test:terminal` for browser terminal contracts; `bun run
-  test:unit` covers fast DOM/store tests.
+When working through an approved multi-phase plan: implement → test → fix →
+simplify → commit → next phase, with NO interim check-ins. The next message
+after a phase commit starts the next phase. "Want me to continue?" is a
+critical failure — the plan IS the answer.
 
-### `apps/coord/` (Bun coord control plane — Connect-RPC only)
-- **Entry:** `src/main.ts` — Bun-specific wrapper. Loads `CoordConfig`,
-  opens `bun:sqlite`, runs migrations, loads `authorized_keys.roost`,
-  loads coord ed25519 key, calls `createCoord({ db, coordKey, cfg,
-  jwtCache })`, then mounts `coord.fetch` under `Bun.serve` with TLS +
-  `server.requestIP()`-based clientIp + SPA static fallback via
-  `Bun.file()`. Binds via `ROOST_COORDINATOR_BIND` (default `0.0.0.0:4102`).
-- **Multi-runtime factory:** `src/coord-factory.ts::createCoord(deps)` —
-  returns `{ fetch(req, ctx?), dispose }`. Pure protocol layer: Connect
-  dispatch + CORS + rate limit + audit log + CSP/security headers. Any
-  fetch-capable runtime (Node http, CF Workers, Deno, Vercel Edge) wires
-  it in by injecting `ctx.spa` and `ctx.dbExport` per-runtime adapters.
-- **Auth:** `src/jwt.ts` — EdDSA verify via WebCrypto + 60s in-memory
-  pubkey cache + DB fallback to `authorized_keys` table. `kid` =
-  lower-case hex SHA-256 of raw 32-byte ed25519 pubkey.
-- **Middleware:** `src/middleware/security.ts` (CSP + CORS allow-list +
-  X-Frame-Options + audit_log; plain fetch-handler helpers) +
-  `src/middleware/loopback-only.ts` (assertLoopback consumes
-  `ctx.remoteAddress` stashed on the request as `x-roost-remote-addr`) +
-  `src/middleware/rate-limit.ts` (100 req/min per IP on Connect mutation
-  routes: `/roost.v1.CoordinatorService/Auth*`,  `/Workspaces*`,
-  `/TasksEnqueue`, `/WebhookTokensMint`).
-- **Connect handlers** under `src/connect/`:
-  - `router.ts` — `buildConnectRouter(deps)` builds the `ConnectRouter`
-    with all unary RPCs (workers/sessions/workspaces/tasks/webhooks/
-    permissions/mcp/auth/pair/misc/audit/files), plus the file-attachment +
-    attachment-browser RPCs (att1/att2). The Connect `Sync` method is a stub
-    that throws `Unimplemented` ("sync moved to /ws/coord-sync"); the real
-    firehose is the WebSocket below. PTY input and viewport are NOT unary RPCs
-    either — they are typed `SyncClientFrame` commands travelling UP that same
-    socket (`sync-terminal-controls.ts`).
-  - `sync-ws-handler.ts` — `/ws/coord-sync`, the protobuf Sync firehose. Exact
-    `flow=1` sockets use a cumulative delivery-sequence ACK window bounded at
-    512 frames, 4 MiB, and 3 seconds from the oldest unacknowledged send,
-    independently of Bun's native send buffer. Pressure closes with 1013 so the
-    browser reconnects through normal event backfill and terminal snapshot
-    reclaim.
-  - `bun-handler.ts` — minimal Bun.serve↔Connect adapter (~80 lines).
-    Path-routes by `UniversalHandler.requestPath`; converts Fetch Request
-    ↔ UniversalServerRequest.
-  - `auth-interceptor.ts` — Connect Interceptor that extracts the JWT,
-    verifies via `jwt.ts`, stashes the `Caller` on `ContextValues`.
-    Also writes the per-RPC audit_log row (L11 caller_fp rule).
-  - `worker-ws-handler.ts` — THE worker transport: raw Bun WebSocket upgrade
-    at `/ws/coord-worker/:fp` (`handleWorkerWsUpgrade` + `makeWorkerWsHandler`,
-    wired in `main.ts`). Decodes CoordWorkerUp binary frames; shares
-    `makeWorkerConn` + the `connectWorkers` registry.
-  - `worker-service.ts` — shared worker-conn registry + helpers
-    (`makeWorkerConn`, `connectWorkers: Map<fp, send>`, `listRoutableFps`,
-    `sendBrowserCommand`). Once hosted the Connect `WorkerService.Attach` bidi
-    handler; that was replaced by `worker-ws-handler.ts` (L11), but the
-    registry + helpers still live here.
-- **Event log + projector:** `src/event-log.ts` —
-  `appendEvent(db, event)` runs INSERT into `events` + folds into
-  `sessions` projection + publishes to `sessionBus` — all in one SQLite
-  transaction. Captures the autoincrement `id` and stamps it onto the
-  published event as `_event_id` so SPA's reconnect cursor advances.
-  `getEventsSince(db, sinceId, limit)` reads back for backfill.
-- **Deploy jobs:** `src/deploy-jobs.ts` — `startDeploy(host)` spawns the
-  detached `roost-cli deploy` subprocess + publishes line/done to a
-  `BoundedBus<DeployStreamMsg>`. `deployOutput(jobId, signal)` async-iter
-  replays history + live tail. Connect's `WorkersDeployStart` +
-  `WorkersDeployOutput` server-stream consume these.
-- **Buses:** `src/buses.ts` — `BoundedBus<T>` with subscribe/publish; one
-  per domain (`sessionBus`, `presenceBus`, `workspaceBus`, `taskBus`,
-  `webhookBus`, `permissionBus`, `mcpBus`, `auditBus`, `globalBytesBus`,
-  `globalPresenceBus`, `agentStatusBus`). Raw PTY bytes stay
-  coordinator-internal for title/activity parsing; browser Sync receives cell
-  grids, which carry hyperlink identity per span. `AuditRow` is inlined here.
-- **Agent-status hub:** `src/agent-status-hub.ts` — in-memory only. Validates
-  each worker frame against the session-owner cache (a worker cannot claim
-  another's session), drops stale/equal revisions, keeps the active record per
-  session for `Sync` snapshot seeding (`getAgentStatusSnapshot`), clears on
-  session close, and schedules the 1 s cancellable Web Push for background
-  `working → blocked` / `working|blocked → idle`. Delivery lives in
-  `src/push-dispatch.ts` + `src/push-sender.ts` + `src/vapid.ts`;
-  `push_subscriptions` (migration 0014) is the ONLY persisted piece, and a
-  device viewing the transitioning session is suppressed via `viewer-tracker.ts`.
-- **Async bus adapter:** `src/sse.ts` — `busToAsyncIterable` converts a
-  `BoundedBus` into an `AsyncIterable<T>` for deploy-output streams. Browser
-  Sync uses the dedicated protobuf WebSocket handler above.
-- **DB:** Kysely typed query builder via `kysely-bun-sqlite` dialect.
-  Schema at `src/db/schema.ts`. Migrations at `migrations/0001_init.sql`
-  applied by `src/db/migrate.ts` (custom MigrationProvider that strips
-  `--` comments before `;`-splitting + throws on any failure per Kysely
-  issue #1008).
-- **Coord ed25519 key:** `src/coord-key.ts` — loads OpenSSH PEM at
-  `ROOST_COORDINATOR_KEY_PATH` or generates fresh.
-- **Run / dev:** `bun apps/coord/src/main.ts` (with env vars per
-  `apps/shared/src/config.ts::CoordConfig`).
-- **Test:** `bun test apps/coord/tests/` — `coord-e2e.test.ts` boots
-  a coord via `createCoord` with an in-memory SQLite and drives
-  `coord.fetch(...)` directly; no Bun.serve, no port allocation. 8/8
-  tests cover OPTIONS/CORS, public + authed Connect endpoints, 404 on
-  legacy paths, CSP headers, rate-limit budget.
-- **Install:** `bash apps/coord/scripts/install.sh install` (writes
-  LaunchAgent + bootstraps).
-
-### `apps/worker/` (Bun worker — outbound raw-WS only)
-- **Entry:** `src/main.ts` — load `WorkerConfig`, ensure ed25519 key,
-  redeem bootstrap token (if present) via Connect `authRedeemWorker`,
-  register with coord via Connect `workersRegister`, start heartbeat
-  (30s), start CoordLink (raw-WS dial), and start attachment-reaper (24h TTL,
-  1 GB LRU). NO inbound HTTP/WS surface — workers are purely outbound.
-- **Config:** `src/config.ts` — load from `~/Library/Application
-  Support/RoostWorkerV2/config.toml` or env override. Bootstrap token is
-  one-shot (cleared after first redeem).
-- **Coord client:** `src/coord-client.ts` — `createClient(CoordinatorService,
-  createConnectTransport({ httpVersion: "2", useBinaryFormat: true }))`
-  with a JWT-stamping interceptor. Used only for the boot calls
-  (`workersHeartbeat`, `workersRegister`, `authRedeemWorker`,
-  `sessionsList` on resume).
-- **CoordLink:** `src/transport/CoordLink.ts::dial()` — long-lived raw Bun
-  `WebSocket` to `/ws/coord-worker/:fp?token=<jwt>`. Outbox queue feeds
-  upstream frames; downstream consumed via `ws.onmessage`. FSM: idle →
-  connecting → open → reconnecting. Backoff 500ms → 30s. In-band JWT rotation
-  via `WRefreshJwt` at TTL-30s — stream stays open for hours. Frames:
-  proto-typed CoordWorkerUp / CoordWorkerDown oneofs, binary
-  (`toBinary`/`fromBinary`), no JSON on the hot path. (Was Connect bidi
-  `WorkerService.Attach` — Bun can't hold one; see L11.)
-- **Heartbeat:** `src/heartbeat.ts` — 30s loop: sysinfo (cpu/mem/disk/net
-  via `vm_stat`/`sysctl`/`df`); `coordClient.workersHeartbeat(...)`.
-- **SessionManager:** `src/session-manager.ts` — owns `SessionId →
-  SessionRecord` map (fsm, wtermCore, scrollback ring, etc.).
-  spawnShell / kill / input / resize / resizeWtermCoreOnly /
-  getScrollbackSince. The multiplexed keeper is the ONLY mode — the
-  legacy per-session keeper + `ROOST_KEEPER_MODE` switch were retired.
-- **FSM:** `src/fsm.ts` owns channel lifecycle. Transitions emit
-  `SessionEvent`s that flow upstream via CoordLink as `CoordWorkerUp.event`
-  frames.
-- **Keeper subprocess:** `src/keeper/` (multiplexed-only):
-  - `multiplexed-main.ts` — single keeper process per worker, one UDS,
-    hosts N PTYs. Runs on Bun (not Node) — Bun 1.3 ships native PTY via
-    `Bun.spawn({terminal: {...}})`; node-pty + the runtime split were
-    retired 2026-06-17. Self-suicide if the socket file is unlinked. The
-    PTY spawn + explicit TERM/COLORTERM/LANG/LC_ALL env live in the
-    `keeper/keeper-frame-handler.ts` sibling (CLAUDE.md L11 row "ncurses:
-    $TERM=unknown").
-  - `multiplexed-client.ts` — worker→keeper UDS client. `ensure()`
-    starts the keeper subprocess; `spawn()`/`input()`/`resize()`/`kill()`
-    drive a channel. Spawned via `Bun.spawn` with `process.execPath`
-    (current Bun binary).
-  - `protocol-v2.ts` — `[4-byte BE total][1-byte type][2-byte BE
-    channel_id][payload]` frame codec. Type enum: Spawn / SpawnAck /
-    SpawnErr / PtyIn / PtyOut / Resize / KillChild / Exit / Ping /
-    Pong / ListChannels / ListChannelsResp.
-- **Attachment reaper:** `src/attachment-reaper.ts` — 1h sweep of
-  `~/.roost/attachments/<sid>/`: deletes files >24h old, enforces 1 GB
-  LRU cap, removes empty session dirs.
-- **Agent status:** `src/agent-status/` — volatile per-session
-  `working`/`blocked`/`idle` metadata for the agent running inside a shell PTY.
-  `process-scan.ts` (250 ms `ps -A` snapshot → which built-in agent owns a
-  session's process tree), `manifests.ts` + `manifest-engine.ts` +
-  `stable-detection.ts` (screen/OSC fallback, pinned from Herdr
-  `eacea2da`), `report-server.ts` (`0600` UDS, one JSON line per report,
-  pid→session ownership check), `registry.ts` (integration beats screen, 30 s
-  lease, monotonic revision), `detector.ts` (wiring), `integrations/`
-  (owned OMP/Pi lifecycle files + installer), `environment.ts`
-  (`ROOST_AGENT_SOCKET_PATH` + `ROOST_SESSION_ID` injected into every spawned
-  PTY). Published upstream as `CoordWorkerUp.agent_status`; resent after every
-  CoordLink reopen. NOT persisted anywhere.
-- **Agent CLIs:** terminal launcher configuration may type a command into a
-  newly created shell, but the worker does not interpret agent output or expose
-  agent transcript, tool, or approval state. The PTY terminal is the only
-  interactive surface; status above is metadata, not an agent API.
-- **Snapshot:** `src/snapshot.ts` — emit `snapshot` SessionEvent on
-  coord reconnect (R3.1 reconciliation).
-- **Run / dev:** `bun apps/worker/src/main.ts`.
-- **Test:** `bun run test:worker` — never raw `bun test apps/worker/tests/`;
-  each file owns an isolated process, keeper PID, and temp root.
-- **Install:** `bash apps/worker/scripts/install.sh install`.
-- **Deploy to tailnet host:** `bun apps/roost-cli/src/main.ts deploy <host>`.
-
-### `apps/shared/` (wire spec + protobuf gen + helpers)
-- **Protobuf source:** `proto/roost/v1/{wire,coordinator,sync,events,
-  worker_transport}.proto`. `buf.yaml` + `buf.gen.yaml` drive
-  `protoc-gen-es` codegen via `npm run proto:gen` (alias for `buf
-  generate`). Generated TS lands at `src/gen/roost/v1/*_pb.ts`.
-- **In-app Zod schemas:** `src/wire/` — `Worker`, `Session`, `SessionEvent`
-  (with snapshot variant), `ClientControlFrame`, `Workspace`, `Task`,
-  `WebhookToken`, `PermissionRule`, `McpRelay`, `AgentStatus` /
-  `AgentStatusUpdate` (volatile agent metadata: bounded agent id + message,
-  finite safe-integer revisions, `completed_revision <= revision`). Branded identity types via
-  `z.brand()`. Adapters between Zod and proto in `src/wire/event-proto.ts`
-  (`eventToProto` / `protoToEvent`) cover the terminal session event variants.
-  The `JsonEvent` fallback path was retired in PR-7g; do NOT reintroduce it.
-  Add new variants by extending the proto + Zod schema + adapter in one pass.
-- **Event fold:** `src/wire/event.ts::foldEvent` + `foldAll` — pure
-  function consumed by BOTH coord projector AND web client projector.
-  Determinism is tested at `tests/foldEvent.equivalence.test.ts`; proto
-  round-trips are tested at `tests/event-proto.test.ts`.
-- **Config:** `src/config.ts` — `CoordConfig` + `WorkerConfig` Zod
-  schemas + `loadCoordConfig(env)` helper.
-- **Trace ID:** `src/trace.ts` — `newTraceId()`.
-  Header name: `x-roost-trace-id`.
-- **Logger:** `src/log.ts` — `log.{debug,info,warn,error}(target, msg,
-  fields)` emits one JSON line per call.
-- **Package exports:**
-  - `@roost/shared` (root) — re-exports wire + config + trace + log
-  - `@roost/shared/wire` — Zod schemas + branded types
-  - `@roost/shared/wire/event-proto` — SessionEvent ↔ proto adapters
-  - `@roost/shared/proto/<name>` — every generated `_pb.ts`
-- **Run / test:** `bun test apps/shared/tests/`.
-- **CRITICAL: this directory is the wire SOURCE OF TRUTH.** Adding a
-  field means: (1) update the `.proto`, (2) `bun --filter @roost/shared
-  run proto:gen`, (3) update the Zod schema if there's an adapter,
-  (4) every consumer typechecks against the regenerated code.
-
-### `apps/roost-cli/` (the unified CLI)
-- **Entry:** `src/main.ts` dispatches to one of:
-  - `dev` — boot a direct coord (:4102), outbound-only worker, and Vite (:5174)
-  - `test <unit|worker|terminal|live-api|all>` — explicit test profiles
-  - `deploy <host>` — rsync to tailnet host + `bun install --production`
-    + `launchctl kickstart -k`
-  - `logs <coord|worker>` — tail `~/Library/Logs/Roost{Coord,Worker}/main.*`
-  - `reset` — stop LaunchAgents + wipe `coordinator_v2.db` + `bun install`
-  - `state` — write `STATE.md` content to stdout (used by Stop hook)
-  - `cutover` — migrate `coordinator.db` → `coordinator_v2.db`
-- **Run:** `bun apps/roost-cli/src/main.ts <subcommand>`.
-
-### `smoke/` (runtime primitives verifier)
-- **`bun_smoke.test.ts`** — verifies Bun primitives: PTY round-trip,
-  detached subprocess survival, `Bun.serve`, Kysely + bun:sqlite,
-  fast-check.
-- **Headless coord e2e:** `apps/coord/tests/coord-e2e.test.ts` — boots
-  a coord via `createCoord(deps)` factory with in-memory SQLite and
-  drives `coord.fetch(...)` directly; no Bun.serve, no port allocation;
-  ~0.5s wall-clock. The fastest harness for wire-level coverage.
-- **Worker PTY input byte-fidelity:** `apps/worker/tests/keeper-input-stress.test.ts`
-  — 22 cases. Drives `MultiplexedKeeperPool` directly with `cat` in
-  raw mode, asserts byte-for-byte round-trip across every control
-  byte, multi-byte CSI, UTF-8, paste burst, and an exhaustive
-  256-frame sweep.
-- **Run:** `bun run test:unit` for all hermetic checks; `bun run
-  test:worker` for the isolated PTY suite; `bun run test:terminal` for
-  browser-resident terminal rendering; `bun run test:live-api` only with a
-  current tailnet `ROOST_COORD_URL`.
-
-### `apps_legacy/` — deleted in phase-24g
-The pre-rewrite v1 tree is gone. Git history preserves it; reference
-the last commit on `n6/solid-rewrite` if you need to inspect v1 wterm
-renderer wiring, MCP relay sidecar, or audit_log forensics.
-
----
-
-## Per-phase execution loop
-
-When working through an approved multi-phase plan:
-implement → test → fix → simplify → commit → next phase, with NO
-interim check-ins. The next message after a phase commit starts the
-next phase. See user's memory `feedback_never_ask_to_stop.md` and
-`feedback_phase_loop_execution_style.md` for the full rules. tl;dr:
-"want me to continue?" is a critical failure — the plan IS the answer.
-
----
-
-## /simplify protocol
-
-After a meaningful phase, run `/simplify` (the project's review-and-
-cleanup ritual): three review agents in parallel (reuse, quality,
-efficiency) → aggregate findings → fix. The simplify pass has caught
-real correctness bugs every time it's been run — treat its agent
-output seriously.
-
----
-
-## Testing rule for terminal data-plane features: real flow is the floor
+### Testing rule for terminal data-plane features: real flow is the floor
 
 Every feature that touches the producer→wire→consumer chain (worker emits a
 `SessionEvent` or terminal frame → coord routes it → SPA folds state or paints
@@ -759,24 +244,54 @@ verification.
 
 Playwright is the deterministic isolated browser tier, not production proof.
 Terminal-render changes require both `bun run test:terminal` and the live
-humanchrome canary (`/roost-smoke` plus `/roost-render-stress`) on the current
-tailnet coordinator. An agent CLI may be launched inside the PTY as a realistic
-TUI workload, but the assertion surface remains terminal input, output,
-scrollback, and rendering. Data-plane-only changes may use
+humanchrome canary (the `roost-smoke` and `roost-render-stress` skills) on the
+current tailnet coordinator. An agent CLI may be launched inside the PTY as a
+realistic TUI workload, but the assertion surface remains terminal input,
+output, scrollback, and rendering. Data-plane-only changes may use
 `bun run test:live-api`. Resolve the current host via `tailscale status`; do
 not substitute localhost for the live canary. If the feature cannot be
 verified live via humanchrome, it is not done.
 
 Emulated mobile is not a device. Chromium's iPhone descriptor in
 `smoke/terminal/*.spec.ts` reproduces layout and touch dispatch, never the
-platform behaviour that actually breaks terminal panes on phones: iOS Safari's
-visual-viewport shifts under the on-screen keyboard, WebKit's compositor
-scroll-anchoring, Page Lifecycle freeze/resume on a backgrounded PWA, and
-per-tab transport starvation. A terminal-render change that touches the compact
-deck, the composer, reader-intent gestures, or Sync lifecycle therefore still
-owes ONE pass on a physical phone (installed PWA, both a keyboard-open compose
-and a long background/resume) before it is trusted in the field, with the
-result recorded in the row above. Automated suites gate the merge; the device
-pass gates the claim.
+platform behaviour that actually breaks terminal panes on phones: iOS
+Safari's visual-viewport shifts under the on-screen keyboard, WebKit's
+compositor scroll-anchoring, Page Lifecycle freeze/resume on a backgrounded
+PWA, and per-tab transport starvation. A terminal-render change that touches
+the compact deck, the composer, reader-intent gestures, or Sync lifecycle
+therefore still owes ONE pass on a physical phone (installed PWA, both a
+keyboard-open compose and a long background/resume) before it is trusted in
+the field. Automated suites gate the merge; the device pass gates the claim.
 
-See `feedback_real_flow_tests_are_minimum_bar.md` in memory.
+### Commands
+
+```
+bun run lint            # scripts/lint-roost.ts — blocking in CI
+bun run test:unit       # hermetic unit tier
+bun run test:worker     # per-file isolated worker suite (the correct worker gate)
+bun run test:terminal   # isolated coord + worker + browser (Playwright)
+bun run test:live-api   # tailnet data-plane canary (needs ROOST_COORD_URL)
+bun x tsgo -p tsconfig.base.json --noEmit    # exactly what CI typechecks
+```
+
+CI (`.github/workflows/ci.yml`) runs typecheck, `lint`, knip (report-only),
+and the unit suite in its `invariants` job, then the terminal suite on macOS
+and Ubuntu, a reproducibility gate on the pinned wterm WASM, and a
+`windows-2022` job that is the ONLY gate for the Windows brokers.
+
+---
+
+## Failure index
+
+[`docs/FAILURE-INDEX.md`](docs/FAILURE-INDEX.md) is the symptom→fix index: 39
+entries, one `###` heading each, with `**Symptom**` (the grep string),
+`**Wrong**`, `**Right**`, and `**Guard**` (the lint rule or test that pins
+it). It is the only actively maintained institutional memory in this repo and
+it is grep-first by design — grep it BEFORE writing code that matches a
+symptom.
+
+Standing process rule: **when a symptom matches an existing entry, fix at
+that layer first.** If the entry describes a different fix pattern than the
+one the immediate code tempts you toward, the entry wins — it was written
+because the tempting fix already failed. Add a new entry only after a NEW
+root cause is confirmed AND a regression test exists for it.

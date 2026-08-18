@@ -4,8 +4,9 @@
 One place to nail down every overloaded term. When in doubt, the cited file
 wins.
 
-- **machine** — a Mac in the cluster. The user-facing word; the **Machines**
-  settings pane lists them. Maps 1:1 to a row in the `workers` table.
+- **machine** — a machine (macOS, Linux, or Windows) in the cluster. The
+  user-facing word; the **Machines** settings pane lists them. Maps 1:1 to a row
+  in the `workers` table.
 
 - **worker** — the Bun process running on a machine. Owns the PTYs (via the
   keeper) and the per-session state machines. Purely outbound: it dials the
@@ -26,7 +27,7 @@ wins.
 
 - **channel** — a single PTY inside the keeper. The keeper multiplexes every
   channel for a worker over one Unix-domain socket.
-  Source: `apps/worker/src/keeper/protocol-v2.ts`.
+  Source: `apps/worker/src/keeper/protocol.ts`.
 
 - **keeper** — one subprocess per worker that hosts every PTY (via Bun's native
   `terminal:` spawn option) over a single UDS. It survives the parent worker
@@ -62,10 +63,11 @@ wins.
   Source: coordinator `connect/handlers-streaming.ts`,
   `apps/web/src/store/sync.ts`.
 
-- **scrollback** — a session's history. Served on first open and after a gap;
-  **resumable** because every byte carries a sequence number, so a client can
-  ask for "everything since seq N".
-  Source: `apps/worker/src/session-manager.ts` (`getScrollbackSince`).
+- **scrollback** — a session's history. The live cell frame carries only the
+  visible grid; retained history is fetched separately, on explicit demand, by
+  absolute row range.
+  Source: `apps/worker/src/browser-command-terminal.ts`
+  (`handleGetScrollbackCells`).
 
 - **agent CLI** — an arbitrary terminal program, such as `omp`, Claude Code, or
   Codex, launched inside a normal shell PTY. Roost transports its terminal

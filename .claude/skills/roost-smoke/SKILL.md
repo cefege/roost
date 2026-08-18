@@ -1,6 +1,6 @@
 ---
 name: roost-smoke
-description: Drive the full Roost end-to-end user flow via humanchrome — workspace create, terminal opens, echo round-trip, pane close, workspace cascade-delete. Catches every recurring failure mode from CLAUDE.md L11.
+description: Drive the full Roost end-to-end user flow via humanchrome — workspace create, terminal opens, echo round-trip, pane close, workspace cascade-delete. Catches every recurring failure mode in docs/FAILURE-INDEX.md.
 ---
 
 # Roost smoke test (humanchrome, not Playwright)
@@ -9,10 +9,10 @@ This skill is the integration-test floor. Run it after **every** non-trivial cha
 
 ## When to invoke
 
-- After any change to `MainPane.tsx`, `Terminal.tsx`, `SessionRow.tsx`, `WorkspaceRow.tsx`, `MachineSection.tsx`, `event-log.ts`, `workspaces.ts` (coord), or any wire shape.
+- After any change to `MainPane.tsx`, `CellTerminal.tsx`, `SessionRow.tsx`, `WorkspaceRow.tsx`, `MachineSection.tsx`, `event-log.ts`, `workspaces.ts` (coord), or any wire shape.
 - After a worker deploy (`bun apps/roost-cli/src/main.ts deploy <host>`).
-- Pre-push verification (manual; pre-push hook only runs `lint-roost.ts`).
-- Any user-reported regression that matches a CLAUDE.md L11 row.
+- Pre-push verification (manual; CI's `invariants` job runs `bun run lint`).
+- Any user-reported regression that matches a `docs/FAILURE-INDEX.md` entry.
 
 ## API-first scope — when the browser pass is NOT required
 
@@ -96,7 +96,7 @@ an acknowledgement timeout.
 The live run is a production canary. Preserve the returned failing step and
 check the real terminal before editing. Do not patch the launcher: terminal
 contracts live in `apps/web/src/lib/smokeHarness.ts` and
-`smoke/terminal/terminal.spec.ts`.
+`smoke/terminal/terminal-smoke-api.ts`.
 
 ## Output
 

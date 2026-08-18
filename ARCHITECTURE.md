@@ -61,10 +61,10 @@ appends each to the `events` table and folds it into
 the `sessions` projection inside one SQLite transaction. The browser folds the
 same events into its Solid store.
 
-Both sides fold with the **same** `foldEvent` function from `@roost/shared`. So
-the server's projection and the browser's view agree by construction, not by
-careful hand-mirroring. A reconnecting browser sends the last event id it saw
-and gets exactly the events it missed.
+Both sides fold with the **same** `foldEvent` function from
+`@roost/shared/wire`. So the server's projection and the browser's view agree
+by construction, not by careful hand-mirroring. A reconnecting browser sends
+the last event id it saw and gets exactly the events it missed.
 
 ## The terminal data plane
 
@@ -105,17 +105,21 @@ watchdog inside the transaction's per-phase bounds (the largest,
 `VIEWPORT_CONTROL_TIMEOUT_MS` (8 s) < the browser's 10 s.
 
 **One desired viewport per mount.** `acquireTerminalViewportOwner(sessionId)`
-(`apps/web/src/ws/sync-outbound.ts`) is the only place a pane's desired
-geometry lives. The owner holds a token, so a stale mount's late claim cannot
-mutate a newer one; it exposes `claim`, `heartbeat`, `noteFullFrame`,
-`subscribeStatus`, and `dispose`, retries a rejected or lost claim on a bounded
-250 ms → 2 s ladder, and reports a typed status (`pending`, `retrying`,
-`repairing`, `ready`, `rejected`, `superseded`). Cell-delivery membership is a
-matching tokenized claim, `acquireCellMountClaim` (`store/sync-dispatch.ts`).
-Components keep no private "last sent" or "has a frame" liveness beside those.
+(`apps/web/src/ws/sync-outbound-viewport.ts`, re-exported from
+`apps/web/src/ws/sync-outbound.ts`) is the only place a pane's desired
+geometry lives; the backing per-session state is the one `viewportSessions`
+map in `apps/web/src/ws/sync-outbound-viewport-registry.ts`. The owner holds a
+token, so a stale mount's late claim cannot mutate a newer one; it exposes
+`claim`, `heartbeat`, `noteFullFrame`, `subscribeStatus`, and `dispose`,
+retries a rejected or lost claim on a bounded 250 ms → 2 s ladder, and reports
+a typed status (`pending`, `retrying`, `repairing`, `ready`, `rejected`,
+`superseded`). Cell-delivery membership is a matching tokenized claim,
+`acquireCellMountClaim` (`store/sync-dispatch.ts`). Components keep no private
+"last sent" or "has a frame" liveness beside those.
 
 **Canonical model vs painted DOM.** These are deliberately different clocks,
-and every terminal probe reports both (`apps/web/src/lib/terminalPreview.ts`):
+and every terminal probe reports both
+(`apps/web/src/lib/terminalDiagSnapshot.ts`):
 `wire_received` is what the socket decoded, `handler_canonical` is the grid
 epoch and seq the pane folded, `dom_reconciled` is what actually got painted,
 and `reconcile_block_reason` names why the last two differ. A pane that is
@@ -238,20 +242,63 @@ cancels a pending notification and acknowledges its revision.
 ## Terminal fidelity (the hard part)
 
 Streaming raw bytes to a browser terminal looks simple and corrupts in
-practice: every window resize re-reflows history at a new width, and reconnects
-duplicate or drop output. After a long fight with that corruption, Roost moved to
-the model server-side terminal multiplexers use:
+practice. The browser re-parses the byte stream at whatever width its own
+window happens to be, and **re-parse at a new width is the corruption**: a
+terminal core's row resize is asymmetric and lossy — shrinking pushes rows into
+scrollback, growing fills with blanks, and neither reverses. No terminal
+library reflows a TUI grid to a new width; they all freeze instead. Reconnects
+on top of that duplicate or drop output. The only structural fix is to stop
+reflowing on the client, so Roost uses the model server-side terminal
+multiplexers use:
 
 - The **worker** holds the one authoritative grid per session and rebuilds it at
   a single agreed width on resize.
-- The **browser** renders that grid as-is and never re-reflows it.
-- Delivery is **resumable by sequence**: every cell frame carries a monotonic
-  `seq`, a viewer's claim carries the `held_cell_seq` it has already applied,
-  and the worker answers a stale or unset sequence with one authoritative full
-  frame — so a splice never duplicates or drops. Retained history is fetched
-  separately, only on explicit demand (`SessionsGetScrollbackCells`, guarded by
-  `scrollback_total`). Per-byte sequence numbers survive one layer lower, in the
+- The **browser** paints that grid as-is. It parses no VT and never re-reflows;
+  surplus pane space is **letterboxed** — rows stay `cols` characters wide and
+  the container centres them instead of stretching
+  (`apps/web/src/lib/cellRenderer.ts`). The accepted tradeoff: plain shell
+  history no longer rewraps to a narrower device, it scrolls sideways.
+- The agreed width is the **SCD** (smallest common denominator) across live
+  viewers, so no viewer is ever clipped
+  (`apps/worker/src/session-viewport.ts`, `desiredViewportSize`). The withdraw
+  grace, claim TTL and freshness cutoff that worker and coordinator must agree
+  on live in `apps/shared/src/viewport.ts`. Momentary wobble is absorbed by
+  that policy plus the letterbox, not by resizing the PTY.
+- **Alt-screen owns the viewport and carries no scrollback**, so in that mode
+  there is nothing to corrupt. The frame states it (`CellGridFrame.altScreen`);
+  the renderer hides the history sheet and locks scrolling while it is set, and
+  restores both on leaving.
+- The cell payload has **one source of truth**, `apps/shared/src/cell/`:
+  `CellSpan` (a run of cells sharing one style, whose style fields mirror the
+  core's own `CellData`), `CellRow` (index plus right-trimmed spans), and
+  `CellGridFrame` (cols, rows, cursor, alt-screen, viewport rows, scrollback
+  append, totals, seq, epoch). The protos mirror that shape: `WCellGrid`
+  worker → coordinator (`worker_transport.proto`) and `PbCellGridFrame` as the
+  `FirehoseFrame.cell_grid` variant coordinator → browser (`sync.proto`).
+- Delivery is **resumable by sequence and addressed by epoch**: every cell frame
+  carries a monotonic `seq` and a `gridEpoch`, a viewer's claim carries the
+  `held_cell_seq` it has already applied, and the worker answers a stale or
+  unset sequence with one authoritative full frame — so a splice never
+  duplicates or drops. A full frame is **viewport-only**: it carries no
+  historical rows and reports `sbBase === scrollbackTotal`
+  (`SB_SNAPSHOT_HISTORY_ROWS = 0`), so attaching to a hundred-thousand-line
+  session costs one screen. A delta carries the changed viewport rows, the
+  newly appended scrollback rows and the cursor. The epoch advances only on a
+  *semantic* reframe — dimensions, alt-screen, a rewind, or the ring evicting
+  past what the client holds (`cell/emitter.ts::nextCellFrame`) — because those
+  are exactly the transitions after which an absolute row index stops naming
+  the same row. Per-byte sequence numbers survive one layer lower, in the
   keeper's per-channel ring, so a restarted worker re-adopts a live PTY.
+- Retained history is **demand-paged**: it is fetched only on explicit scroll or
+  find (`SessionsGetScrollbackCells`, guarded by `scrollback_total`). A cold
+  attach lands at the bottom having fetched none of it, scrolling inside the
+  held window issues no RPC, and crossing the seam fetches under the current
+  epoch. A resize while parked off-bottom keeps the reader's position and first
+  visible row, but de-materialises the rows behind the seam: the retired
+  epoch's held window is dropped and a spacer preserves `scrollHeight`. That is
+  reversible on the next demand fetch, which is why a render-stress run on the
+  main screen has to let the pane settle before it starts — `runRenderStress`
+  captures one marker baseline up front and flags any later change of range.
 - The **core** is `@wterm/core` 0.3.4, loaded through
   `apps/shared/src/wterm-core-factory.ts` from a locally patched WASM build
   committed at `apps/shared/wasm/wterm-roost.wasm`. Its sha256 sits beside it
@@ -305,7 +352,7 @@ failure modes and their fixes are catalogued in `CLAUDE.md`.
   `connect/announced-channel-barrier.ts` (terminal control + barrier) ·
   `buses.ts` · `db/` · `agent-status-hub.ts` + `push-dispatch.ts`
 - **Worker:** `apps/worker/src/main.ts` · `session-manager.ts` ·
-  `transport/CoordLink.ts` · `keeper/multiplexed-main.ts` · `fsm.ts` ·
+  `transport/coord-link.ts` · `keeper/multiplexed-main.ts` · `fsm.ts` ·
   `session-terminal-txn.ts` + `session-control-lanes.ts` (viewport
   transaction + lanes) ·
   `agent-status/` (scanner, manifests, report server, integrations)

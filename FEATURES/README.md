@@ -25,17 +25,10 @@ Status authoritative in this table; detail files linked per row.
 | **T1.2** | proto-ize SessionEvent + bus deltas | — | fdf6bc32 + 5e310a4b + 2a09ba37 (all 8 variants + JsonEvent fallback retired) |
 | **T1.3** | OTEL tracing on coord + worker + web | — | eae76379 + 0d3662be (W3C traceparent end-to-end) |
 | **T1.4** | reconnect backfill via since_event_id | — | d2471f6a |
-| **T2.1** | multiplexed keeper foundation + client + spawn flip | — | adef1fe4 + 550eb634 + be01248e (gated by `ROOST_KEEPER_MODE=multiplexed`) |
+| **T2.1** | multiplexed keeper foundation + client + spawn flip | — | adef1fe4 + 550eb634 + be01248e (mux pool is the only keeper mode; the legacy per-session keeper and its mode switch were retired 2026-06-15) |
 | **T2.2** | in-band JWT rotation on worker bidi | — | b766cff9 |
 | **T3.1** | createCoord(deps) multi-runtime factory + Node demo | — | 894a90d3 + f5ddbb1c |
 | **T3.2** | headless coord e2e test harness + bidi routing test | — | 4d55a51c + c17cb5ac |
-
-## Deferred / decision gates
-
-| Feature | Reason | Unblock |
-|---|---|---|
-| **T2.1 spawn default** | mux pool keeper foundation + spawn branch shipped, but ROOST_KEEPER_MODE default still legacy | smoke pass under mux mode + cross-process resume hook |
-| **PLAN-NEUT** (S0→S4) | Neutralino macOS → Win → Linux | ship macOS first before multi-platform push |
 
 ## Architecture decisions (reference)
 
@@ -48,6 +41,10 @@ Status authoritative in this table; detail files linked per row.
 - `../docs/archive/MIGRATION-STATUS.md` — superseded by this README's shipped table.
 - `att2-image-media-extensions.md` — never created; wterm has no image hooks (only `getCursor()`) and the original plan was based on nonexistent APIs (`onOscSequence`, `drawImage`, etc.).
 - `ROADMAP.md` — never created; its phase-24/25→Connect-RPC dependency graph was incorrect and the Connect-RPC migration shipped without that path.
+- Neutralino desktop shell (macOS → Windows → Linux rollout) — superseded by
+  shipped native service management: `roost service` installs a launchd agent,
+  a systemd --user unit, or a Windows service from one CLI
+  (`apps/roost-cli/src/service-ctl.ts`).
 
 ---
 

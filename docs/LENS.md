@@ -115,8 +115,8 @@ Operating doctrine for how Claude writes/parses artifacts in this repo. Extracte
    - **Exception:** if the sub-agent runs `isolation: "worktree"` or
      in a cwd outside this repo, it MAY not auto-load this CLAUDE.md.
      In that case, include the literal reference `READING LENS at
-     /Users/mike/Code/idea/CLAUDE.md — read and apply` and
-     ensure the sub-agent has Read access to that absolute path.
+     <repo-root>/CLAUDE.md — read and apply` and ensure the
+     sub-agent has Read access to this repository's working tree.
 
 8. **L8-IDENTIFIERS-AS-TOKENS — Identifiers, filenames, markers are first-class artifacts.**
    Function/variable/class/type names, file/dir names, schema/migration
@@ -172,7 +172,7 @@ Operating doctrine for how Claude writes/parses artifacts in this repo. Extracte
 10. **L10-CROSS-DOC-AUTHORITY — this lens is canonical for all
     meta-rules about artifact shape.** Sub-docs (rest of this
     CLAUDE.md, `apps/*/README.md`, `MIGRATION.md`, plan files,
-    project memory for `/Users/mike/Code/idea`)
+    project memory keyed to this repository's working tree)
     MUST NOT restate lens rules; they cross-reference by
     "lens rule N" + path-anchor. Sub-docs own only repo-specific
     facts: file-path tables, transport-topology details, per-app

@@ -1,30 +1,5 @@
 {
   "enabledPlugins": {
     "frontend-design@claude-plugins-official": true
-  },
-  "permissions": {
-    "deny": [
-      "Read(//Users/mike/Code/omp/**)",
-      "Edit(//Users/mike/Code/omp/**)",
-      "Write(//Users/mike/Code/omp/**)",
-      "Glob(//Users/mike/Code/omp/**)",
-      "Grep(//Users/mike/Code/omp/**)",
-      "Bash(cd /Users/mike/Code/omp:*)",
-      "Bash(rm:*/Code/omp*)",
-      "Bash(git -C /Users/mike/Code/omp:*)"
-    ]
-  },
-  "hooks": {
-    "Stop": [
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "cd \"$(git rev-parse --show-toplevel)\" && bun apps/roost-cli/src/main.ts state > STATE.md 2>/dev/null || true"
-          }
-        ]
-      }
-    ]
   }
 }

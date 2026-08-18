@@ -6,11 +6,11 @@ They describe work that has **shipped or been superseded** — they are NOT curr
 guidance and an LLM onboarding to the codebase should **skip this directory**.
 
 Live documentation lives at the repo root and in each app:
-- `ARCHITECTURE.md` — system tour · `GLOSSARY.md` — terms · `STATE.md` — live status
+- `ARCHITECTURE.md` — system tour, including the live cell-shipping terminal
+  model (`apps/shared/src/cell/`) · `GLOSSARY.md` — terms
 - `CLAUDE.md` — the L0–L11 reading lens + project memory
-- `REWRITE.md` — R0–R10 historical roadmap; **R11 (cell-shipping) is live**
 - `FEATURES/README.md` — shipped-feature inventory (the authoritative table)
-- `apps/*/README.md` + `apps/*/SKILL.md` — per-app entry points
+- `apps/*/README.md` — per-app entry points
 
 Internal cross-references inside these archived files point at the tree layout
 as it was when they were written; they are snapshots, not maintained links.
