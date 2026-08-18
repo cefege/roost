@@ -1,0 +1,20 @@
+{
+  "name": "@roost/site",
+  "private": true,
+  "type": "module",
+  "version": "2.0.0",
+  "scripts": {
+    "dev": "astro dev --port 4181",
+    "build": "bun scripts/gen-og.ts && astro build",
+    "preview": "astro preview",
+    "typecheck": "astro check",
+    "serve": "bun serve.ts"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9",
+    "@astrojs/sitemap": "^3",
+    "astro": "^5",
+    "sharp": "^0.35.3",
+    "typescript": "^5"
+  }
+}

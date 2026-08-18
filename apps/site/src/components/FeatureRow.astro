@@ -1,0 +1,90 @@
+---
+import type { ImageMetadata } from "astro";
+import Screenshot from "./Screenshot.astro";
+
+interface Props {
+  eyebrow?: string;
+  title: string;
+  media?: ImageMetadata;
+  alt?: string;
+  caption?: string;
+  reverse?: boolean;
+}
+
+const { eyebrow, title, media, alt, caption, reverse = false }: Props = Astro.props;
+---
+
+<section class:list={["row", { reverse, solo: !media }]}>
+  <div class="copy">
+    {eyebrow && <p class="eyebrow">{eyebrow}</p>}
+    <h2>{title}</h2>
+    <div class="prose body"><slot /></div>
+  </div>
+  {
+    media && (
+      <div class="media">
+        <Screenshot
+          src={media}
+          alt={alt ?? ""}
+          caption={caption}
+          maxWidth={620}
+          sizes="(max-width: 900px) 92vw, 520px"
+        />
+      </div>
+    )
+  }
+</section>
+
+<style>
+  .row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: var(--md-space-8);
+    align-items: center;
+  }
+
+  .row.solo {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .row.reverse .copy {
+    order: 2;
+  }
+
+  .copy,
+  .media {
+    min-width: 0;
+  }
+
+  h2 {
+    margin: 0 0 var(--md-space-4);
+    font-size: var(--md-headline-l-size);
+    line-height: var(--md-headline-l-line);
+    font-weight: 600;
+  }
+
+  .body {
+    max-width: 68ch;
+  }
+
+  .body :global(p:last-child) {
+    margin-bottom: 0;
+  }
+
+  @media (max-width: 900px) {
+    .row,
+    .row.reverse {
+      grid-template-columns: minmax(0, 1fr);
+      gap: var(--md-space-6);
+    }
+
+    .row.reverse .copy {
+      order: 0;
+    }
+
+    h2 {
+      font-size: 26px;
+      line-height: 34px;
+    }
+  }
+</style>

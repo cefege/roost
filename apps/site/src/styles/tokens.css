@@ -1,0 +1,81 @@
+/*
+ * tokens.css — the site's design tokens.
+ *
+ * Values are copied verbatim from apps/web/src/styles/theme-vars.css (the app's
+ * canonical Dark fallback) so the marketing site and the product read as one
+ * surface. Only the subset the site actually uses is copied; there is no theme
+ * engine here and no theme switcher — the site is dark-only.
+ *
+ * The one deliberate divergence: --md-font drops the app's "Anthropic Sans"
+ * first entry. The site loads no webfonts (no fonts CDN, no analytics), so it
+ * must start at the system stack.
+ */
+:root {
+  color-scheme: dark;
+
+  /* ── Surfaces + text ── */
+  --bg-base: #1a1719;
+  --surface-0: #141113;
+  --surface-1: #261f22;
+  --surface-2: #312b2d;
+  --surface-3: #3c3538;
+  --text-hi: #f1dfde;
+  --text-mid: #d7c1bf;
+  --text-lo: #a8908d;
+  --border-strong: #524345;
+  --border-subtle: rgba(255, 255, 255, 0.06);
+
+  /* Fixed Roost brand coral — theme-independent in the app, the site's single
+     accent here. */
+  --brand-coral: #db7556;
+
+  /* ── Status ── */
+  --status-ok: #4caf50;
+  --status-warn: #ff9800;
+  --status-err: #f44336;
+  --status-info: #2196f3;
+
+  /* ── Shape scale (M3): xs/sm/md/lg/xl/full ── */
+  --md-shape-xs: 4px;
+  --md-shape-sm: 8px;
+  --md-shape-md: 12px;
+  --md-shape-lg: 16px;
+  --md-shape-xl: 28px;
+  --md-shape-full: 9999px;
+
+  /* ── Spacing grid (M3) ── */
+  --md-space-1: 4px;
+  --md-space-2: 8px;
+  --md-space-3: 12px;
+  --md-space-4: 16px;
+  --md-space-5: 20px;
+  --md-space-6: 24px;
+  --md-space-7: 32px;
+  --md-space-8: 40px;
+  --md-space-9: 48px;
+
+  /* ── Type ramp (M3): size / line-height / weight triples ── */
+  --md-display-l-size: 57px;
+  --md-display-l-line: 64px;
+  --md-display-l-weight: 400;
+
+  --md-headline-l-size: 32px;
+  --md-headline-l-line: 40px;
+  --md-headline-l-weight: 400;
+
+  --md-title-l-size: 22px;
+  --md-title-l-line: 28px;
+  --md-title-l-weight: 500;
+
+  --md-body-m-size: 14px;
+  --md-body-m-line: 20px;
+  --md-body-m-weight: 400;
+
+  --md-label-m-size: 12px;
+  --md-label-m-line: 16px;
+  --md-label-m-weight: 500;
+
+  /* ── Font stacks ── */
+  --md-font: system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, "Cascadia Code", "Courier New", monospace;
+}

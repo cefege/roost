@@ -1,0 +1,170 @@
+---
+import { getCollection } from "astro:content";
+
+import BaseLayout from "../../layouts/BaseLayout.astro";
+
+const SECTIONS = [
+  {
+    name: "Start" as const,
+    blurb: "Get a coordinator, a worker, and your first browser session running.",
+  },
+  {
+    name: "Concepts" as const,
+    blurb: "How the fleet, the terminal, agents, and the mobile client actually work.",
+  },
+  {
+    name: "Reference" as const,
+    blurb: "Networking topologies, the full CLI surface, and the security model.",
+  },
+];
+
+const entries = (await getCollection("docs")).sort((a, b) => a.data.order - b.data.order);
+
+const groups = SECTIONS.map((section) => ({
+  ...section,
+  items: entries.filter((entry) => entry.data.section === section.name),
+})).filter((group) => group.items.length > 0);
+---
+
+<BaseLayout
+  title="Roost documentation"
+  description="Guides and reference for Roost: install, quickstart, fleet architecture, terminal fidelity, agent status, mobile, networking, the CLI, and security."
+>
+  <div class="docs-index">
+    <header class="head">
+      <p class="kicker">Documentation</p>
+      <h1>Roost documentation</h1>
+      <p class="intro">
+        Roost is a self-hosted terminal control plane: one coordinator, a worker on every machine you
+        own, and a browser client that reaches all of it. These pages cover installing the fleet, the
+        mechanics behind the terminal and agent status, and the reference material for networking,
+        the CLI, and the security model. If you only want the install one-liners, start at <a
+          href="/install/">Install</a
+        >.
+      </p>
+    </header>
+
+    {
+      groups.map((group) => (
+        <section class="group">
+          <div class="group-head">
+            <h2>{group.name}</h2>
+            <p>{group.blurb}</p>
+          </div>
+          <ul class="cards">
+            {group.items.map((entry) => (
+              <li>
+                <a href={`/docs/${entry.id}/`}>
+                  <span class="card-title">{entry.data.title}</span>
+                  <span class="card-desc">{entry.data.description}</span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))
+    }
+  </div>
+</BaseLayout>
+
+<style>
+  .docs-index {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: var(--md-space-9) var(--md-space-5);
+  }
+
+  .head {
+    max-width: 72ch;
+    margin-bottom: var(--md-space-9);
+  }
+
+  .kicker {
+    margin: 0 0 var(--md-space-2);
+    color: var(--brand-coral);
+    font-size: var(--md-label-m-size);
+    line-height: var(--md-label-m-line);
+    font-weight: var(--md-label-m-weight);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  h1 {
+    margin: 0 0 var(--md-space-5);
+    color: var(--text-hi);
+    font-size: var(--md-headline-l-size);
+    line-height: var(--md-headline-l-line);
+    font-weight: var(--md-headline-l-weight);
+  }
+
+  .intro {
+    margin: 0;
+    color: var(--text-mid);
+    font-size: 16px;
+    line-height: 26px;
+  }
+
+  .intro a {
+    color: var(--brand-coral);
+  }
+
+  .group + .group {
+    margin-top: var(--md-space-9);
+  }
+
+  .group-head h2 {
+    margin: 0 0 var(--md-space-2);
+    color: var(--text-hi);
+    font-size: var(--md-title-l-size);
+    line-height: var(--md-title-l-line);
+    font-weight: var(--md-title-l-weight);
+  }
+
+  .group-head p {
+    margin: 0 0 var(--md-space-5);
+    color: var(--text-lo);
+    font-size: var(--md-body-m-size);
+    line-height: var(--md-body-m-line);
+  }
+
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: var(--md-space-4);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .cards a {
+    display: flex;
+    flex-direction: column;
+    gap: var(--md-space-2);
+    height: 100%;
+    padding: var(--md-space-5);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--md-shape-md);
+    background: var(--surface-1);
+    color: inherit;
+    text-decoration: none;
+  }
+
+  .cards a:hover,
+  .cards a:focus-visible {
+    border-color: var(--border-strong);
+    background: var(--surface-2);
+  }
+
+  .card-title {
+    color: var(--text-hi);
+    font-size: 16px;
+    line-height: 24px;
+    font-weight: 500;
+  }
+
+  .card-desc {
+    color: var(--text-lo);
+    font-size: var(--md-body-m-size);
+    line-height: var(--md-body-m-line);
+  }
+</style>

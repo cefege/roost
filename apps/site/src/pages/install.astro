@@ -1,0 +1,244 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+import Hero from "../components/Hero.astro";
+import CtaBand from "../components/CtaBand.astro";
+import Callout from "../components/Callout.astro";
+
+/** macOS + Linux: install-binary.sh verifies the release asset against its
+ *  published .sha256 sidecar, then `quickstart` does the guided local setup. */
+const POSIX = `curl -fsSL https://raw.githubusercontent.com/cefege/roost/main/install-binary.sh | bash
+"$HOME/.local/bin/roost" quickstart`;
+
+const HOMEBREW = `brew install cefege/tap/roost`;
+
+/** Windows x64: the signed bootstrap from GETTING_STARTED.md, verbatim. Nothing
+ *  downloaded runs before its Authenticode chain, trusted timestamp, and exact
+ *  leaf-certificate pin match the publisher fingerprint supplied out of band. */
+const WINDOWS = `$publisher = "<trusted publisher certificate SHA-256>".ToLowerInvariant()
+if ($publisher -notmatch '^[0-9a-f]{64}$') { throw 'Invalid publisher SHA-256' }
+$release = Invoke-RestMethod 'https://api.github.com/repos/cefege/roost/releases/latest'
+$base = "https://github.com/cefege/roost/releases/download/$($release.tag_name)"
+$programData = [IO.Path]::GetFullPath($env:ProgramData)
+if (((Get-Item -LiteralPath $programData -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+  throw 'Unsafe ProgramData directory'
+}
+$owner = ([Security.Principal.NTAccount](Get-Acl -LiteralPath $programData).Owner).Translate([Security.Principal.SecurityIdentifier]).Value
+if ($owner -notin @('S-1-5-18', 'S-1-5-32-544')) { throw 'ProgramData owner is not trusted' }
+$staging = Join-Path $programData ('RoostBootstrap-' + [Guid]::NewGuid().ToString('N'))
+$security = [Security.AccessControl.DirectorySecurity]::new()
+$security.SetSecurityDescriptorSddlForm('O:BAG:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)')
+[IO.Directory]::CreateDirectory($staging, $security) | Out-Null
+& icacls.exe $staging '/setintegritylevel' '(OI)(CI)H' | Out-Null
+if ($LASTEXITCODE -ne 0) { throw 'Cannot apply high-integrity staging policy' }
+$installer = Join-Path $staging 'install-binary.ps1'
+try {
+  Invoke-WebRequest -UseBasicParsing "$base/install-binary.ps1" -OutFile $installer
+  $signature = Get-AuthenticodeSignature -LiteralPath $installer
+  if ($signature.Status -ne 'Valid' -or $null -eq $signature.SignerCertificate -or $null -eq $signature.TimeStamperCertificate) {
+    throw 'Roost installer has no valid Authenticode signature and trusted timestamp'
+  }
+  $sha256 = [Security.Cryptography.SHA256]::Create()
+  try { $actual = -join ($sha256.ComputeHash($signature.SignerCertificate.RawData) | ForEach-Object { $_.ToString('x2') }) }
+  finally { $sha256.Dispose() }
+  if ($actual -cne $publisher) { throw "Roost installer publisher mismatch: $actual" }
+  Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned -Force
+  & $installer -HostRole coordinator -PublisherSha256 $publisher -ReleaseBaseUrl $base
+} finally {
+  Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
+}`;
+
+const SOURCE = `curl -fsSL https://raw.githubusercontent.com/cefege/roost/main/install.sh | bash`;
+
+const ASSETS: { name: string; host: string }[] = [
+  { name: "roost", host: "macOS arm64 (compatibility name)" },
+  { name: "roost-darwin-arm64", host: "macOS arm64" },
+  { name: "roost-darwin-x64", host: "macOS x64" },
+  { name: "roost-linux-x64", host: "Linux x64" },
+  { name: "roost-linux-arm64", host: "Linux arm64" },
+  { name: "roost-windows-x64.zip", host: "Windows x64" },
+];
+---
+
+<BaseLayout
+  title="Install Roost — macOS, Linux, Windows"
+  description="Install Roost on macOS, Linux, or Windows x64: a checksum-verified binary installer, Homebrew, or a signed PowerShell bootstrap. Clients need a browser."
+>
+  <Hero
+    title="Install Roost"
+    sub="One verified binary per host. macOS and Linux install with a checksum-verified one-liner; Windows x64 uses a signed, certificate-pinned PowerShell bootstrap. The devices you browse from install nothing at all."
+    badges={["GPL-3.0-only", "Bun", "no account", "no telemetry"]}
+  >
+    <a class="btn btn-primary" href="/docs/install/">Full install guide</a>
+    <a class="btn" href="/docs/quickstart/">Quickstart</a>
+  </Hero>
+
+  <div class="wrap">
+    <section class="section">
+      <Callout tone="info" title="Install Tailscale first">
+        <p>
+          The supported production topology puts the coordinator and every worker
+          on a <a href="https://tailscale.com">Tailscale</a> tailnet — it is the
+          private transport, the trusted enrollment boundary, and the source of
+          TLS certificates. Machines you only browse from need nothing. Details,
+          including which other networks are manual and unexercised, are in
+          <a href="/docs/networking/">networking</a>.
+        </p>
+      </Callout>
+    </section>
+
+    <section class="section">
+      <p class="eyebrow">macOS and Linux</p>
+      <h2>The verified binary installer</h2>
+      <p class="lede">
+        The script resolves your OS and architecture to one release asset,
+        downloads it with its published <code>.sha256</code> sidecar, refuses to
+        install on a digest mismatch, and puts the binary in
+        <code>$HOME/.local/bin</code>. Then <code>quickstart</code> does the
+        guided local setup: coordinator, a worker on the same machine, and a
+        browser that pairs itself.
+      </p>
+      <CtaBand
+        command={POSIX}
+        note="Override the install directory with ROOST_BIN_DIR. quickstart stops early if Tailscale is missing."
+      />
+    </section>
+
+    <section class="section">
+      <p class="eyebrow">macOS</p>
+      <h2>Homebrew</h2>
+      <CtaBand
+        command={HOMEBREW}
+        note="macOS-only on purpose: the unsuffixed roost asset is the darwin-arm64 build and there is no tested Linuxbrew bottle. The formula pulls in the open-source tailscaled, which needs no network-extension approval."
+      />
+    </section>
+
+    <section class="section">
+      <p class="eyebrow">Windows x64</p>
+      <h2>Signed, pinned PowerShell bootstrap</h2>
+      <p class="lede">
+        Run this in an elevated PowerShell 5.1+ session, with the trusted
+        release-publisher certificate SHA-256 supplied through a channel
+        independent of the release manifest. Nothing that was downloaded executes
+        before its Authenticode chain, trusted timestamp, and exact
+        leaf-certificate pin have been checked against that fingerprint.
+      </p>
+      <CtaBand
+        command={WINDOWS}
+        note="The installer then verifies the detached manifest signature, ZIP digest, and every per-file digest before installing the coordinator, worker, keeper, and updater as Windows SCM services under a dedicated low-privilege roost-operator identity that is denied interactive logon."
+      />
+    </section>
+
+    <section class="section">
+      <p class="eyebrow">Release assets</p>
+      <h2>One binary per host, each with a checksum</h2>
+      <table class="assets">
+        <thead>
+          <tr><th scope="col">Asset</th><th scope="col">Host</th></tr>
+        </thead>
+        <tbody>
+          {
+            ASSETS.map((asset) => (
+              <tr>
+                <td><code>{asset.name}</code></td>
+                <td>{asset.host}</td>
+              </tr>
+            ))
+          }
+        </tbody>
+      </table>
+      <p class="note">
+        Every asset ships a <code>.sha256</code> sidecar, and <code>roost</code>
+        is byte-identical to <code>roost-darwin-arm64</code> so older release
+        links keep working. The Windows package additionally ships a signed
+        manifest, its checksum, and a detached <code>.p7s</code> signature. See
+        the <a href="https://github.com/cefege/roost/releases">releases</a>.
+      </p>
+    </section>
+
+    <section class="section">
+      <Callout tone="warn" title="The source script is not the release path">
+        <p>
+          <code>{SOURCE}</code> installs Bun and a checkout that tracks
+          <code>main</code>, on macOS or Linux. It is for working on Roost, not
+          for running it — use the verified binary installer above for anything
+          you intend to keep running.
+        </p>
+      </Callout>
+    </section>
+
+    <section class="section">
+      <h2>Next steps</h2>
+      <div class="next">
+        <a class="btn btn-primary" href="/docs/install/">Full install guide</a>
+        <a class="btn" href="/docs/quickstart/">Pair a phone, add a machine</a>
+        <a class="btn" href="/docs/networking/">Networking</a>
+        <a class="btn" href="/docs/security/">Security model</a>
+      </div>
+    </section>
+  </div>
+</BaseLayout>
+
+<style>
+  h2 {
+    margin: 0 0 var(--md-space-4);
+    font-size: var(--md-headline-l-size);
+    line-height: var(--md-headline-l-line);
+    font-weight: var(--md-headline-l-weight);
+    color: var(--text-hi);
+  }
+
+  .lede {
+    max-width: 72ch;
+  }
+
+  .assets {
+    width: 100%;
+    max-width: 640px;
+    border-collapse: collapse;
+    font-size: var(--md-body-m-size);
+    line-height: var(--md-body-m-line);
+  }
+
+  .assets th,
+  .assets td {
+    padding: var(--md-space-3) var(--md-space-4);
+    border-bottom: 1px solid var(--border-subtle);
+    text-align: left;
+    color: var(--text-mid);
+  }
+
+  .assets th {
+    color: var(--text-lo);
+    font-size: var(--md-label-m-size);
+    line-height: var(--md-label-m-line);
+    font-weight: var(--md-label-m-weight);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .assets code {
+    color: var(--text-hi);
+    font-family: var(--font-mono);
+    font-size: 13px;
+  }
+
+  .note {
+    max-width: 72ch;
+    margin-top: var(--md-space-5);
+    color: var(--text-lo);
+    font-size: var(--md-body-m-size);
+    line-height: var(--md-body-m-line);
+  }
+
+  .next {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--md-space-3);
+  }
+
+  code {
+    font-family: var(--font-mono);
+    font-size: 0.95em;
+    color: var(--text-hi);
+  }
+</style>

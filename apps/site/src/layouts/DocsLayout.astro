@@ -1,0 +1,199 @@
+---
+import { getCollection, type CollectionEntry } from "astro:content";
+import BaseLayout from "./BaseLayout.astro";
+
+interface Props {
+  /** Rendered verbatim into <title>; usually carries an SEO suffix. */
+  title: string;
+  description: string;
+  /** Visible H1. Defaults to `title` — pass it when `title` is suffixed. */
+  heading?: string;
+  /** Repo-relative path of the source file, e.g. "apps/site/src/content/docs/install.md". */
+  githubPath: string;
+}
+
+const { title, description, heading, githubPath }: Props = Astro.props;
+
+const SECTIONS = ["Start", "Concepts", "Reference"] as const;
+
+const docs: CollectionEntry<"docs">[] = await getCollection("docs");
+const groups = SECTIONS.map((section) => ({
+  section,
+  items: docs
+    .filter((doc) => doc.data.section === section)
+    .sort((a, b) => a.data.order - b.data.order),
+})).filter((group) => group.items.length > 0);
+
+/** Trailing-slash-insensitive compare — build format is "directory". */
+const here = Astro.url.pathname.replace(/\/+$/, "");
+const editUrl = `https://github.com/cefege/roost/blob/main/${githubPath}`;
+---
+
+<BaseLayout title={title} description={description}>
+  <div class="wrap docs">
+    <nav class="sidebar" aria-label="Documentation">
+      {
+        groups.map((group) => (
+          <div class="group">
+            <h2>{group.section}</h2>
+            <ul>
+              {group.items.map((doc) => (
+                <li>
+                  <a
+                    href={`/docs/${doc.id}/`}
+                    aria-current={here === `/docs/${doc.id}` ? "page" : undefined}
+                  >
+                    {doc.data.title}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))
+      }
+    </nav>
+
+    <article class="content">
+      <header class="head">
+        <h1>{heading ?? title}</h1>
+        <p class="lede">{description}</p>
+      </header>
+      <div class="prose">
+        <slot />
+      </div>
+      <footer class="edit">
+        <a href={editUrl} rel="noopener">Edit this page on GitHub</a>
+      </footer>
+    </article>
+  </div>
+</BaseLayout>
+
+<style>
+  .docs {
+    display: grid;
+    grid-template-columns: 232px minmax(0, 1fr);
+    gap: var(--md-space-8);
+    align-items: start;
+    padding-block: var(--md-space-8);
+  }
+
+  .sidebar {
+    position: sticky;
+    top: 84px;
+    max-height: calc(100vh - 104px);
+    overflow-y: auto;
+    padding-right: var(--md-space-3);
+    border-right: 1px solid var(--border-subtle);
+  }
+
+  .group + .group {
+    margin-top: var(--md-space-6);
+  }
+
+  .sidebar h2 {
+    margin: 0 0 var(--md-space-2);
+    color: var(--text-lo);
+    font-size: var(--md-label-m-size);
+    line-height: var(--md-label-m-line);
+    font-weight: var(--md-label-m-weight);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .sidebar ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .sidebar li + li {
+    margin-top: 2px;
+  }
+
+  .sidebar a {
+    display: block;
+    padding: var(--md-space-1) var(--md-space-3);
+    border-left: 2px solid transparent;
+    border-radius: 0 var(--md-shape-xs) var(--md-shape-xs) 0;
+    color: var(--text-mid);
+    font-size: 14.5px;
+    text-decoration: none;
+  }
+
+  .sidebar a:hover {
+    background: var(--surface-1);
+    color: var(--text-hi);
+  }
+
+  .sidebar a[aria-current="page"] {
+    border-left-color: var(--brand-coral);
+    background: var(--surface-1);
+    color: var(--text-hi);
+    font-weight: 600;
+  }
+
+  .content {
+    min-width: 0;
+  }
+
+  .head {
+    margin-bottom: var(--md-space-7);
+  }
+
+  .head h1 {
+    font-size: var(--md-headline-l-size);
+    line-height: var(--md-headline-l-line);
+    font-weight: 600;
+  }
+
+  .head .lede {
+    margin-top: var(--md-space-3);
+    max-width: 72ch;
+  }
+
+  .edit {
+    margin-top: var(--md-space-8);
+    padding-top: var(--md-space-4);
+    border-top: 1px solid var(--border-subtle);
+    font-size: var(--md-body-m-size);
+  }
+
+  /* Stack the nav above the prose; no JS disclosure widget, no overflow. */
+  @media (max-width: 900px) {
+    .docs {
+      grid-template-columns: minmax(0, 1fr);
+      gap: var(--md-space-6);
+    }
+
+    .sidebar {
+      position: static;
+      max-height: none;
+      overflow: visible;
+      padding: var(--md-space-4);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--md-shape-md);
+      background: var(--surface-0);
+    }
+
+    .sidebar ul {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--md-space-1) var(--md-space-2);
+    }
+
+    .sidebar li + li {
+      margin-top: 0;
+    }
+
+    .sidebar a {
+      border-left: 0;
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--md-shape-full);
+      padding: var(--md-space-1) var(--md-space-3);
+    }
+
+    .sidebar a[aria-current="page"] {
+      border-color: var(--brand-coral);
+    }
+  }
+</style>

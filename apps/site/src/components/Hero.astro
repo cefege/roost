@@ -1,0 +1,87 @@
+---
+interface Props {
+  title: string;
+  sub: string;
+  badges?: string[];
+}
+
+const { title, sub, badges = [] }: Props = Astro.props;
+const hasCta = Astro.slots.has("default");
+---
+
+<section class="hero">
+  <div class="wrap inner">
+    <h1>{title}</h1>
+    <p class="sub">{sub}</p>
+    {hasCta && <div class="cta"><slot /></div>}
+    {
+      badges.length > 0 && (
+        <ul class="badges">
+          {badges.map((badge) => (
+            <li>{badge}</li>
+          ))}
+        </ul>
+      )
+    }
+  </div>
+</section>
+
+<style>
+  .hero {
+    border-bottom: 1px solid var(--border-subtle);
+    background:
+      radial-gradient(
+        900px 420px at 12% -10%,
+        color-mix(in srgb, var(--brand-coral) 14%, transparent),
+        transparent 70%
+      ),
+      var(--bg-base);
+  }
+
+  .inner {
+    padding-block: var(--md-space-9) var(--md-space-8);
+  }
+
+  h1 {
+    max-width: 20ch;
+    font-size: clamp(34px, 6.4vw, var(--md-display-l-size));
+    line-height: 1.08;
+    font-weight: 600;
+    letter-spacing: -0.03em;
+  }
+
+  .sub {
+    margin-top: var(--md-space-5);
+    max-width: 66ch;
+    color: var(--text-mid);
+    font-size: clamp(16px, 2.2vw, 20px);
+    line-height: 1.6;
+  }
+
+  .cta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--md-space-3);
+    margin-top: var(--md-space-7);
+  }
+
+  .badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--md-space-2);
+    margin: var(--md-space-6) 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .badges li {
+    padding: var(--md-space-1) var(--md-space-3);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--md-shape-full);
+    background: var(--surface-1);
+    color: var(--text-lo);
+    font-size: var(--md-label-m-size);
+    line-height: var(--md-label-m-line);
+    font-weight: var(--md-label-m-weight);
+  }
+</style>

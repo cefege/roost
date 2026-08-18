@@ -1,0 +1,91 @@
+---
+interface Props {
+  command: string;
+  note?: string;
+}
+
+const { command, note }: Props = Astro.props;
+---
+
+<div class="band">
+  <div class="row">
+    <pre><code>{command}</code></pre>
+    <button class="btn copy" type="button" data-copy={command} aria-live="polite">Copy</button>
+  </div>
+  {note && <p class="note">{note}</p>}
+</div>
+
+{/* The only client-side JavaScript on this site. Delegated from the document
+    so repeated CtaBands (and any other [data-copy] button) share one listener,
+    and latched on <html> so N instances register it exactly once. */}
+<script is:inline>
+  if (!document.documentElement.dataset.copyWired) {
+    document.documentElement.dataset.copyWired = "1";
+    addEventListener("click", (e) => {
+      const b = e.target instanceof Element ? e.target.closest("[data-copy]") : null;
+      if (!(b instanceof HTMLElement)) return;
+      const done = (t) => { b.textContent = t; setTimeout(() => { b.textContent = "Copy"; }, 1200); };
+      navigator.clipboard.writeText(b.dataset.copy || "").then(() => done("Copied"), () => done("Copy failed"));
+    });
+  }
+</script>
+
+<style>
+  .band {
+    padding: var(--md-space-4);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--md-shape-md);
+    background: var(--surface-1);
+  }
+
+  /* flex-start, not center: `command` is often multi-line (the Windows
+     PowerShell bootstrap is ~30 lines) and a vertically centred button beside
+     a tall block looks broken. */
+  .row {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--md-space-3);
+    min-width: 0;
+  }
+
+  pre {
+    flex: 1 1 auto;
+    min-width: 0;
+    margin: 0;
+    padding: var(--md-space-3) var(--md-space-4);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--md-shape-sm);
+    background: var(--surface-0);
+    color: var(--text-hi);
+    font-family: var(--font-mono);
+    font-size: 13.5px;
+    line-height: 1.5;
+    tab-size: 2;
+    white-space: pre;
+    overflow-x: auto;
+  }
+
+  .copy {
+    flex: none;
+    padding: var(--md-space-3) var(--md-space-4);
+    border-radius: var(--md-shape-sm);
+    font-size: 14px;
+  }
+
+  .note {
+    margin: var(--md-space-3) 0 0;
+    color: var(--text-lo);
+    font-size: var(--md-body-m-size);
+    line-height: var(--md-body-m-line);
+  }
+
+  @media (max-width: 560px) {
+    .row {
+      flex-wrap: wrap;
+    }
+
+    pre {
+      flex-basis: 100%;
+    }
+  }
+</style>

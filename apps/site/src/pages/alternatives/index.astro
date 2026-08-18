@@ -1,0 +1,644 @@
+---
+import { getCollection } from "astro:content";
+
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import CompareMatrix from "../../components/CompareMatrix.astro";
+import { clampDescription } from "../../lib/seo";
+
+const sorted = (await getCollection("compare")).sort((a, b) => a.data.order - b.data.order);
+
+const title = "Roost vs the agent terminal landscape";
+const description = clampDescription(
+  "Four categories of agent terminal tooling, a feature matrix against eight of them, and an honest account of where Roost fits and where it does not.",
+);
+
+/** The four honest categories, defined once and reused as the landscape groupings. */
+interface CategoryNote {
+  name: string;
+  blurb: string;
+}
+
+const CATEGORIES: CategoryNote[] = [
+  {
+    name: "Agent-aware terminals and multiplexers",
+    blurb:
+      "Run your agents in real terminals on the machine in front of you, and add a model of what each one is doing — working, blocked, done — so you stop hunting for the session that stopped.",
+  },
+  {
+    name: "Browser and remote access to your own terminal",
+    blurb:
+      "Publish terminals from a machine you own to a browser somewhere else. The code stays on your hardware; the client is a URL.",
+  },
+  {
+    name: "Worktree and GUI orchestrators, single machine",
+    blurb:
+      "Give each agent an isolated git worktree or container on one computer, then own the review loop: diffs, checks, merges, pull requests.",
+  },
+  {
+    name: "Cloud agent platforms",
+    blurb:
+      "The vendor runs the agent on its own infrastructure. You get a task view, approvals, and a branch — not a shell.",
+  },
+];
+
+/** One row of the landscape list. `page` is set only where a detail page exists. */
+interface LandscapeItem {
+  name: string;
+  url: string;
+  note: string;
+  page?: string;
+}
+
+interface LandscapeGroup {
+  name: string;
+  items: LandscapeItem[];
+}
+
+const LANDSCAPE: LandscapeGroup[] = [
+  {
+    name: "Agent-aware terminals and multiplexers",
+    items: [
+      {
+        name: "cmux",
+        url: "https://cmux.com",
+        page: "/alternatives/cmux-vs-roost/",
+        note: "Native macOS terminal on libghostty's GPU renderer, with an embedded scriptable WebKit browser and git branch, pull request and listening ports annotated on every tab. macOS only, GPL-3.0.",
+      },
+      {
+        name: "herdr",
+        url: "https://herdr.dev",
+        page: "/alternatives/herdr-vs-roost/",
+        note: "One dependency-free Rust binary that runs inside the terminal you already use and marks every pane working, blocked or idle. Apache-2.0; Roost's OMP and Pi lifecycle integrations were adapted from it.",
+      },
+      {
+        name: "mato",
+        url: "https://mato.sh",
+        note: "Terminal multiplexer with an offices, desks and tabs hierarchy, a daemon that keeps sessions running after SSH drops, live activity spinners, and Esc as the only special key. Linux and macOS.",
+      },
+      {
+        name: "amux",
+        url: "https://amux.io",
+        page: "/alternatives/amux-vs-roost/",
+        note: "Rust binary driving tmux behind a local HTTPS dashboard, with a REST API, a SQLite kanban board, a self-healing watchdog, per-session cost tracking, a PWA and a native iOS app. MIT.",
+      },
+      {
+        name: "Termdock",
+        url: "https://termdock.com",
+        note: "Cross-platform Electron terminal for agents: per-session CPU and memory monitoring, basic health notifications, cost estimation, and a web session viewer. Proprietary with a free tier.",
+      },
+      {
+        name: "wmux",
+        url: "https://github.com/amirlehmam/wmux",
+        note: "A Windows terminal multiplexer for AI agents, described by its author as a port of cmux. MIT.",
+      },
+      {
+        name: "dmux",
+        url: "https://github.com/standardagents/dmux",
+        note: "Minimal CLI that fans one prompt out across N Claude Code agents, each in its own git worktree and tmux pane. No server, no config files. MIT.",
+      },
+      {
+        name: "workmux",
+        url: "https://github.com/raine/workmux",
+        note: "Shell tooling that pairs tmux with git worktrees and declares each agent's task in a YAML file rather than on the command line. MIT.",
+      },
+      {
+        name: "ittybitty",
+        url: "https://github.com/adamwulf/ittybitty",
+        note: "A single bash script that spawns, organises and cleans up parallel Claude Code agents in worktrees. Readable end to end in five minutes. MIT.",
+      },
+      {
+        name: "Superset",
+        url: "https://superset.sh",
+        note: "A GUI over parallel agent sessions with git worktree isolation, live output streaming and cost tracking, available as a local app or cloud-hosted. Proprietary with a free tier.",
+      },
+    ],
+  },
+  {
+    name: "Browser and remote access to your own terminal",
+    items: [
+      {
+        name: "VibeTunnel",
+        url: "https://vibetunnel.sh",
+        page: "/alternatives/vibetunnel-vs-roost/",
+        note: "Menu-bar app on Apple Silicon, or npm on Linux and headless hosts, that forwards a terminal into the browser when you prefix a command with `vt`. Asciinema recording, no Windows host. MIT.",
+      },
+      {
+        name: "sshx",
+        url: "https://sshx.io",
+        note: "Fast collaborative live terminal sharing over the web: one command publishes a session other people can join. MIT.",
+      },
+      {
+        name: "ttyd",
+        url: "https://github.com/tsl0922/ttyd",
+        note: "Small C daemon that shares one command's terminal over the web. The classic building block for do-it-yourself browser terminals. MIT.",
+      },
+      {
+        name: "Wetty",
+        url: "https://github.com/butlerx/wetty",
+        note: "Terminal in the browser over HTTP or HTTPS, usually placed in front of SSH. MIT.",
+      },
+      {
+        name: "Happy Coder",
+        url: "https://happy.engineering",
+        note: "Open-source remote control for Claude Code, Codex and other coding agents running on your own computers, driven from iOS, Android or the web.",
+      },
+    ],
+  },
+  {
+    name: "Worktree and GUI orchestrators, single machine",
+    items: [
+      {
+        name: "Conductor",
+        url: "https://conductor.build",
+        page: "/alternatives/conductor-vs-roost/",
+        note: "macOS app that runs Claude Code, Codex and Cursor, each in its own isolated git workspace, then drives diff review, checks, merge and pull requests.",
+      },
+      {
+        name: "Sculptor",
+        url: "https://imbue.com/sculptor/",
+        note: "By imbue. Takes the isolation idea further and gives each agent its own Docker container rather than a git worktree.",
+      },
+      {
+        name: "Vibe Kanban",
+        url: "https://www.vibekanban.com/",
+        note: "A CLI plus a web board over worktree-isolated agents. Its sunset was announced after Bloop shut down in April 2026, so it is listed for completeness rather than as a live option.",
+      },
+      {
+        name: "emdash",
+        url: "https://emdash.com",
+        note: "Open-source agentic development environment for running several coding agents in parallel against any provider. Apache-2.0.",
+      },
+    ],
+  },
+  {
+    name: "Cloud agent platforms",
+    items: [
+      {
+        name: "Claude Code on the web",
+        url: "https://claude.com/product/claude-code",
+        page: "/alternatives/claude-code-web-vs-roost/",
+        note: "Claude Code sessions in Anthropic-managed VMs behind an egress allowlist, with the GitHub token held in a separate proxy outside the sandbox. Enterprises may route sessions to their own infrastructure.",
+      },
+      {
+        name: "Cursor Cloud Agents",
+        url: "https://cursor.com/docs/cloud-agent",
+        note: "Cursor runs agents in its own isolated cloud VMs, each on a branch, and opens a pull request when they finish. Formerly called Background Agents; requires a paid plan.",
+      },
+      {
+        name: "Devin",
+        url: "https://devin.ai",
+        note: "Cognition's autonomous cloud engineer, with its own sandbox, shell, browser and editor. You hand it tickets and it hands back pull requests.",
+      },
+      {
+        name: "OpenHands",
+        url: "https://openhands.dev",
+        note: "Open-source agent platform that runs agents in sandboxed containers behind a web UI and an API, self-hostable. MIT.",
+      },
+      {
+        name: "Omnara",
+        url: "https://omnara.com",
+        page: "/alternatives/omnara-vs-roost/",
+        note: "Apache-2.0 managed-agent platform with web, iOS, Android and Slack surfaces, durable Postgres-backed runs, approvals, secrets and project RBAC. Cloud or self-hosted with Docker Compose.",
+      },
+      {
+        name: "Claude Code Agent Teams",
+        url: "https://code.claude.com/docs/en/agent-teams",
+        note: "Built into Claude Code itself: `claude --agent-teams` spawns parallel sub-agents in their own worktrees, coordinated and merged by a lead agent. Nothing extra to install.",
+      },
+    ],
+  },
+];
+---
+
+<BaseLayout title={title} description={description}>
+  <div class="hub">
+    <section class="section">
+      <div class="wrap">
+        <p class="eyebrow">Alternatives</p>
+        <h1>Roost vs the agent terminal landscape</h1>
+        <p class="lede">
+          A dozen tools now claim some version of &ldquo;run your coding agents in parallel&rdquo;. They are not
+          competing for the same job. Sorting them into four honest categories makes the choice much easier, and
+          makes clear where Roost is genuinely the wrong answer.
+        </p>
+
+        <dl class="cats">
+          {
+            CATEGORIES.map((category) => (
+              <div class="cat">
+                <dt>{category.name}</dt>
+                <dd>{category.blurb}</dd>
+              </div>
+            ))
+          }
+        </dl>
+
+        <p class="note">
+          Underneath all four sits the baseline: <a href="/alternatives/tmux-vs-roost/">tmux and Zellij</a>, which
+          give you persistent sessions and splits and deliberately know nothing about agents.
+        </p>
+
+        <div class="placement">
+          <h2>Where Roost sits</h2>
+          <p>
+            Roost is in the second category, with the agent-state model from the first. It is a self-hosted web
+            control plane over a fleet of macOS, Linux and Windows machines you already own, where every session
+            is a real PTY that any CLI runs inside natively &mdash; including Claude Code.
+          </p>
+          <p>
+            It is <strong>not</strong> a macOS terminal application, and it is <strong>not</strong> a tmux wrapper.
+            One coordinator holds the sessions; workers on every other machine dial outbound only and never expose
+            an inbound port; the client is any browser, on a laptop, a phone or a tablet, with nothing to install.
+            It is also not a cloud platform: there is no account, no tenant, no telemetry, and no third party
+            between you and your own hardware.
+          </p>
+          <p class="reads">
+            <a href="/docs/fleet/">How the fleet works</a>
+            <a href="/docs/terminal/">Why a browser can be a real terminal</a>
+            <a href="/docs/mobile/">The phone and tablet client</a>
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="wrap">
+        <h2>The matrix</h2>
+        <p class="sub">
+          Ten rows that decide most of these choices. Roost's column is pinned; every comparison page renders from
+          this same data, so the numbers here and there cannot drift apart.
+        </p>
+        <CompareMatrix entries={sorted} />
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="wrap">
+        <h2>Eight comparisons in detail</h2>
+        <p class="sub">
+          Each page states what the tool actually is, where the two differ, and one honest paragraph on when to
+          pick it over Roost.
+        </p>
+        <ul class="cards">
+          {
+            sorted.map((entry) => (
+              <li class="card">
+                <h3>
+                  <a href={`/alternatives/${entry.id}/`}>{entry.data.competitor} vs Roost</a>
+                </h3>
+                <p class="card-meta">
+                  <span>{entry.data.vendor}</span>
+                  <span aria-hidden="true">&middot;</span>
+                  <span>{entry.data.license}</span>
+                </p>
+                <p class="card-body">{entry.data.useInsteadIf}</p>
+              </li>
+            ))
+          }
+        </ul>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="wrap">
+        <h2>The wider landscape</h2>
+        <p class="sub">
+          Everything else worth knowing about, grouped the same way. These do not have dedicated pages; the
+          one-liners are factual summaries from each project's own material.
+        </p>
+        {
+          LANDSCAPE.map((group) => (
+            <div class="group">
+              <h3>{group.name}</h3>
+              <ul class="items">
+                {group.items.map((item) => (
+                  <li class="item">
+                    <p class="item-head">
+                      <a href={item.url} target="_blank" rel="noopener">
+                        {item.name}
+                      </a>
+                      {item.page ? (
+                        <a class="detail" href={item.page}>
+                          compare with Roost
+                        </a>
+                      ) : null}
+                    </p>
+                    <p class="item-note" set:html={item.note.replace(/`([^`]+)`/g, "<code>$1</code>")} />
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))
+        }
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="wrap">
+        <div class="wrong">
+          <h2>Roost is the wrong tool if&hellip;</h2>
+          <ul>
+            <li>
+              <strong>You only ever use one Mac and want a native desktop app.</strong> A local AppKit terminal will
+              feel better than any browser can, and everything Roost spends on a wire protocol and worker enrollment
+              is overhead you will never get value from. Roost has no desktop app.
+            </li>
+            <li>
+              <strong>You want managed cloud sandboxes with no machine of your own.</strong> Roost has nothing to
+              give an agent to run on. It reaches computers you already own and operate; if that set is empty, so is
+              Roost.
+            </li>
+            <li>
+              <strong>You need per-agent cost tracking or a kanban board today.</strong> Roost does not own the agent
+              process by design, so it will not restart a crashed run, compact its context, tell you what it spent,
+              or hand it the next ticket. If coordinating dozens of unattended runs is the actual problem, an
+              orchestration product solves it and Roost does not.
+            </li>
+          </ul>
+          <p class="reads">
+            <a href="/">What Roost is</a>
+            <a href="/docs/fleet/">Fleet architecture</a>
+            <a href="/install/">Install it</a>
+          </p>
+        </div>
+      </div>
+    </section>
+  </div>
+</BaseLayout>
+
+<style>
+  h1 {
+    margin: 0 0 var(--md-space-4);
+    max-width: 24ch;
+    color: var(--text-hi);
+    font-size: var(--md-headline-l-size);
+    line-height: var(--md-headline-l-line);
+    font-weight: var(--md-headline-l-weight);
+  }
+
+  h2 {
+    margin: 0 0 var(--md-space-3);
+    color: var(--text-hi);
+    font-size: var(--md-title-l-size);
+    line-height: var(--md-title-l-line);
+    font-weight: var(--md-title-l-weight);
+  }
+
+  .lede {
+    margin: 0;
+    max-width: 68ch;
+  }
+
+  .sub {
+    margin: 0 0 var(--md-space-6);
+    max-width: 68ch;
+    color: var(--text-lo);
+    font-size: 16px;
+    line-height: 26px;
+  }
+
+  /* ── The four categories ───────────────────────────────────────────────── */
+
+  .cats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: var(--md-space-4);
+    margin: var(--md-space-7) 0 0;
+  }
+
+  .cat {
+    padding: var(--md-space-5);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--md-shape-md);
+    background: var(--surface-0);
+  }
+
+  .cat dt {
+    color: var(--text-hi);
+    font-size: 16px;
+    line-height: 24px;
+    font-weight: 500;
+  }
+
+  .cat dd {
+    margin: var(--md-space-2) 0 0;
+    color: var(--text-mid);
+    font-size: var(--md-body-m-size);
+    line-height: 22px;
+  }
+
+  .note {
+    margin: var(--md-space-5) 0 0;
+    max-width: 68ch;
+    color: var(--text-lo);
+    font-size: 16px;
+    line-height: 26px;
+  }
+
+  .note a,
+  .reads a {
+    color: var(--brand-coral);
+  }
+
+  /* ── Where Roost sits ──────────────────────────────────────────────────── */
+
+  .placement {
+    margin-top: var(--md-space-8);
+    padding: var(--md-space-6);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--md-shape-lg);
+    background: var(--surface-1);
+  }
+
+  .placement p {
+    margin: 0 0 var(--md-space-4);
+    max-width: 68ch;
+    color: var(--text-mid);
+    font-size: 16px;
+    line-height: 26px;
+  }
+
+  .placement strong {
+    color: var(--text-hi);
+  }
+
+  .reads {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--md-space-2) var(--md-space-5);
+    margin: 0;
+    font-size: 16px;
+    line-height: 26px;
+  }
+
+  /* ── Detail-page cards ─────────────────────────────────────────────────── */
+
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: var(--md-space-4);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--md-space-2);
+    padding: var(--md-space-5);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--md-shape-md);
+    background: var(--surface-0);
+  }
+
+  .card h3 {
+    margin: 0;
+    font-size: 18px;
+    line-height: 26px;
+    font-weight: 500;
+  }
+
+  .card h3 a {
+    color: var(--text-hi);
+    text-decoration: none;
+  }
+
+  .card h3 a:hover {
+    color: var(--brand-coral);
+  }
+
+  .card-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--md-space-2);
+    margin: 0;
+    color: var(--text-lo);
+    font-size: var(--md-label-m-size);
+    line-height: var(--md-label-m-line);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .card-body {
+    margin: 0;
+    color: var(--text-mid);
+    font-size: var(--md-body-m-size);
+    line-height: 22px;
+  }
+
+  /* ── Landscape list ───────────────────────────────────────────────────── */
+
+  .group + .group {
+    margin-top: var(--md-space-8);
+  }
+
+  .group h3 {
+    margin: 0 0 var(--md-space-4);
+    padding-bottom: var(--md-space-2);
+    border-bottom: 1px solid var(--border-subtle);
+    color: var(--text-hi);
+    font-size: 16px;
+    line-height: 24px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+  }
+
+  .items {
+    display: grid;
+    gap: var(--md-space-5);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .item-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--md-space-2) var(--md-space-4);
+    margin: 0 0 var(--md-space-1);
+  }
+
+  .item-head > a:first-child {
+    color: var(--text-hi);
+    font-size: 16px;
+    line-height: 24px;
+    font-weight: 500;
+    text-decoration: none;
+    overflow-wrap: anywhere;
+  }
+
+  .item-head > a:first-child:hover {
+    color: var(--brand-coral);
+  }
+
+  .detail {
+    color: var(--brand-coral);
+    font-size: var(--md-label-m-size);
+    line-height: var(--md-label-m-line);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .item-note {
+    margin: 0;
+    max-width: 78ch;
+    color: var(--text-mid);
+    font-size: var(--md-body-m-size);
+    line-height: 22px;
+  }
+
+  .item-note :global(code) {
+    padding: 1px 4px;
+    border-radius: var(--md-shape-xs);
+    background: var(--surface-2);
+    color: var(--text-hi);
+    font-family: var(--font-mono);
+    font-size: 0.92em;
+    overflow-wrap: anywhere;
+  }
+
+  /* ── Closing caveats ──────────────────────────────────────────────────── */
+
+  .wrong {
+    padding: var(--md-space-6);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--md-shape-lg);
+    background: var(--surface-1);
+  }
+
+  .wrong ul {
+    display: grid;
+    gap: var(--md-space-4);
+    margin: 0 0 var(--md-space-6);
+    padding-left: var(--md-space-5);
+  }
+
+  .wrong li {
+    max-width: 74ch;
+    color: var(--text-mid);
+    font-size: 16px;
+    line-height: 26px;
+  }
+
+  .wrong li::marker {
+    color: var(--text-lo);
+  }
+
+  .wrong strong {
+    color: var(--text-hi);
+  }
+
+  @media (max-width: 600px) {
+    h1 {
+      font-size: 26px;
+      line-height: 34px;
+    }
+
+    .placement,
+    .wrong {
+      padding: var(--md-space-5) var(--md-space-4);
+    }
+  }
+</style>

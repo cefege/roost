@@ -1,0 +1,80 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+---
+
+<BaseLayout
+  title="Page not found — Roost"
+  description="That page does not exist on the Roost site. Jump to the docs, the alternatives hub, or the home page."
+  noindex={true}
+>
+  <div class="notfound">
+    <p class="code">404</p>
+    <h1>Page not found</h1>
+    <p class="lede">
+      That URL does not exist here. Nothing is broken on your machines — only this page is missing.
+    </p>
+    <ul class="links">
+      <li><a href="/">Home</a></li>
+      <li><a href="/docs/">Docs</a></li>
+      <li><a href="/alternatives/">Alternatives</a></li>
+    </ul>
+  </div>
+</BaseLayout>
+
+<style>
+  .notfound {
+    max-width: 60ch;
+    margin: 0 auto;
+    padding: var(--md-space-9) var(--md-space-5);
+  }
+
+  .code {
+    margin: 0;
+    font-family: var(--font-mono);
+    font-size: var(--md-label-m-size);
+    line-height: var(--md-label-m-line);
+    font-weight: var(--md-label-m-weight);
+    letter-spacing: 0.08em;
+    color: var(--brand-coral);
+  }
+
+  h1 {
+    margin: var(--md-space-2) 0 0;
+    font-size: var(--md-headline-l-size);
+    line-height: var(--md-headline-l-line);
+    font-weight: var(--md-headline-l-weight);
+    color: var(--text-hi);
+  }
+
+  .lede {
+    margin: var(--md-space-4) 0 0;
+    font-size: var(--md-body-m-size);
+    line-height: var(--md-body-m-line);
+    color: var(--text-mid);
+  }
+
+  .links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--md-space-5);
+    margin: var(--md-space-7) 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .links a {
+    display: inline-block;
+    padding: var(--md-space-2) var(--md-space-4);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--md-shape-full);
+    color: var(--text-hi);
+    font-size: var(--md-body-m-size);
+    line-height: var(--md-body-m-line);
+    text-decoration: none;
+  }
+
+  .links a:hover {
+    border-color: var(--brand-coral);
+    color: var(--brand-coral);
+  }
+</style>

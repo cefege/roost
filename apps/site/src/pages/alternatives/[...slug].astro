@@ -1,0 +1,254 @@
+---
+import { getCollection, render, type CollectionEntry } from "astro:content";
+
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import CompareMatrix from "../../components/CompareMatrix.astro";
+import { clampDescription } from "../../lib/seo";
+
+export async function getStaticPaths() {
+  const entries = await getCollection("compare");
+  return entries.map((entry) => ({ params: { slug: entry.id }, props: { entry } }));
+}
+
+type Props = { entry: CollectionEntry<"compare"> };
+type Category = CollectionEntry<"compare">["data"]["category"];
+
+/** The nine docs pages, with the label used in "Read more". */
+const DOC_LABELS = {
+  install: "Install Roost",
+  quickstart: "Quickstart",
+  fleet: "Fleet: coordinator, workers, keeper",
+  terminal: "Terminal fidelity",
+  agents: "Agents and status detection",
+  mobile: "Phone and tablet client",
+  networking: "Networking and remote access",
+  cli: "CLI reference",
+  security: "Security and pairing",
+} as const;
+
+type DocSlug = keyof typeof DOC_LABELS;
+
+/**
+ * Short differentiator appended to the `<title>`. Kept per-file so every title
+ * is unique; the category map is the fallback if a new comparison lands before
+ * this map is updated. Both are budgeted to keep `<title>` <= 60 characters.
+ */
+const DIFFERENTIATOR: Record<string, string> = {
+  "cmux-vs-roost": "native Mac app vs fleet",
+  "vibetunnel-vs-roost": "one host vs a whole fleet",
+  "herdr-vs-roost": "terminal TUI vs browser fleet",
+  "amux-vs-roost": "tmux board vs PTY fleet",
+  "omnara-vs-roost": "chat approvals vs real PTYs",
+  "tmux-vs-roost": "persistence plus any browser",
+  "conductor-vs-roost": "worktree GUI vs terminal fleet",
+  "claude-code-web-vs-roost": "your machines, not a VM",
+};
+
+const CATEGORY_DIFFERENTIATOR: Record<Category, string> = {
+  "agent-terminal": "one host vs a fleet",
+  "browser-terminal": "one host vs a fleet",
+  "worktree-gui": "worktree GUI vs fleet",
+  "cloud-agent": "your machines, not VMs",
+  "classic-multiplexer": "persistence plus a browser",
+};
+
+const DOC_LINKS: Record<string, readonly [DocSlug, DocSlug]> = {
+  "cmux-vs-roost": ["fleet", "terminal"],
+  "vibetunnel-vs-roost": ["terminal", "mobile"],
+  "herdr-vs-roost": ["agents", "terminal"],
+  "amux-vs-roost": ["agents", "fleet"],
+  "omnara-vs-roost": ["mobile", "agents"],
+  "tmux-vs-roost": ["terminal", "fleet"],
+  "conductor-vs-roost": ["agents", "fleet"],
+  "claude-code-web-vs-roost": ["security", "networking"],
+};
+
+const CATEGORY_DOC_LINKS: Record<Category, readonly [DocSlug, DocSlug]> = {
+  "agent-terminal": ["fleet", "terminal"],
+  "browser-terminal": ["terminal", "mobile"],
+  "worktree-gui": ["agents", "fleet"],
+  "cloud-agent": ["security", "networking"],
+  "classic-multiplexer": ["terminal", "fleet"],
+};
+
+const { entry } = Astro.props as Props;
+const { Content } = await render(entry);
+const { competitor, vendor, license, url, category } = entry.data;
+
+const headline = `${competitor} vs Roost`;
+const differentiator = DIFFERENTIATOR[entry.id] ?? CATEGORY_DIFFERENTIATOR[category];
+const candidate = `${headline} \u2014 ${differentiator}`;
+const title = candidate.length <= 60 ? candidate : headline;
+
+const description = clampDescription(
+  `${headline} side by side: host platforms, client devices, persistent sessions, mobile UX, and agent status.`,
+);
+
+const docLinks = DOC_LINKS[entry.id] ?? CATEGORY_DOC_LINKS[category];
+const host = new URL(url).host.replace(/^www\./, "");
+---
+
+<BaseLayout title={title} description={description}>
+  <article class="compare-page">
+    <p class="crumb"><a href="/alternatives/">Alternatives</a></p>
+    <h1>{headline}</h1>
+    <p class="meta">
+      <span>{vendor}</span>
+      <span aria-hidden="true">&middot;</span>
+      <span>{license}</span>
+      <span aria-hidden="true">&middot;</span>
+      <a href={url} target="_blank" rel="noopener">{host}</a>
+    </p>
+
+    <div class="prose">
+      <Content />
+    </div>
+
+    <section class="block">
+      <h2>Side by side</h2>
+      <CompareMatrix entries={[entry]} />
+    </section>
+
+    <section class="block">
+      <h2>Read more</h2>
+      <ul class="links">
+        <li><a href="/alternatives/">All alternatives, and the four categories</a></li>
+        {
+          docLinks.map((slug) => (
+            <li>
+              <a href={`/docs/${slug}/`}>{DOC_LABELS[slug]}</a>
+            </li>
+          ))
+        }
+      </ul>
+    </section>
+  </article>
+</BaseLayout>
+
+<style>
+  .compare-page {
+    max-width: 76ch;
+    margin: 0 auto;
+    padding: var(--md-space-8) var(--md-space-5) var(--md-space-9);
+  }
+
+  .crumb {
+    margin: 0 0 var(--md-space-4);
+    font-size: var(--md-label-m-size);
+    line-height: var(--md-label-m-line);
+    font-weight: var(--md-label-m-weight);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .crumb a {
+    color: var(--brand-coral);
+    text-decoration: none;
+  }
+
+  h1 {
+    margin: 0 0 var(--md-space-3);
+    color: var(--text-hi);
+    font-size: var(--md-headline-l-size);
+    line-height: var(--md-headline-l-line);
+    font-weight: var(--md-headline-l-weight);
+  }
+
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--md-space-2);
+    margin: 0 0 var(--md-space-7);
+    padding-bottom: var(--md-space-5);
+    border-bottom: 1px solid var(--border-subtle);
+    color: var(--text-lo);
+    font-size: var(--md-body-m-size);
+    line-height: var(--md-body-m-line);
+  }
+
+  .meta a {
+    color: var(--text-mid);
+  }
+
+  .prose :global(h2) {
+    margin: var(--md-space-8) 0 var(--md-space-4);
+    color: var(--text-hi);
+    font-size: var(--md-title-l-size);
+    line-height: var(--md-title-l-line);
+    font-weight: var(--md-title-l-weight);
+  }
+
+  .prose :global(h3) {
+    margin: var(--md-space-7) 0 var(--md-space-3);
+    color: var(--text-hi);
+    font-size: 16px;
+    line-height: 24px;
+    font-weight: 500;
+  }
+
+  .prose :global(p),
+  .prose :global(li) {
+    color: var(--text-mid);
+    font-size: 16px;
+    line-height: 26px;
+  }
+
+  .prose :global(ul),
+  .prose :global(ol) {
+    padding-left: var(--md-space-6);
+  }
+
+  .prose :global(li + li) {
+    margin-top: var(--md-space-2);
+  }
+
+  .prose :global(a) {
+    color: var(--brand-coral);
+  }
+
+  .prose :global(strong) {
+    color: var(--text-hi);
+  }
+
+  .prose :global(code) {
+    padding: 2px 5px;
+    border-radius: var(--md-shape-xs);
+    background: var(--surface-2);
+    color: var(--text-hi);
+    font-family: var(--font-mono);
+    font-size: 0.9em;
+  }
+
+  .prose :global(blockquote) {
+    margin: var(--md-space-5) 0;
+    padding-left: var(--md-space-5);
+    border-left: 2px solid var(--border-strong);
+    color: var(--text-lo);
+  }
+
+  .block {
+    margin-top: var(--md-space-9);
+  }
+
+  .block h2 {
+    margin: 0 0 var(--md-space-4);
+    color: var(--text-hi);
+    font-size: var(--md-title-l-size);
+    line-height: var(--md-title-l-line);
+    font-weight: var(--md-title-l-weight);
+  }
+
+  .links {
+    display: grid;
+    gap: var(--md-space-2);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .links a {
+    color: var(--brand-coral);
+    font-size: 16px;
+    line-height: 26px;
+  }
+</style>

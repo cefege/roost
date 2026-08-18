@@ -1,0 +1,279 @@
+---
+import type { CollectionEntry } from "astro:content";
+
+interface Props {
+  entries: CollectionEntry<"compare">[];
+}
+
+const { entries }: Props = Astro.props;
+
+type Verdict = "yes" | "partial" | "no";
+type YesNo = "yes" | "no";
+
+/** The 10 matrix keys defined in src/content.config.ts. */
+interface Matrix {
+  hostPlatforms: string;
+  clientDevices: string;
+  multiMachine: Verdict;
+  zeroInstallClient: YesNo;
+  persistentSessions: Verdict;
+  anyCli: Verdict;
+  mobileUx: string;
+  voiceInput: YesNo;
+  pushAgentState: string;
+  selfHostedNoAccount: Verdict;
+}
+
+/**
+ * Roost's own column is hardcoded here, once. The hub table and every
+ * two-column comparison page render from this same object, so they cannot
+ * drift apart the way two hand-written markdown tables would.
+ */
+const ROOST: Matrix = {
+  hostPlatforms: "macOS, Linux, Windows x64 (+ Linux arm64 builds)",
+  clientDevices: "any browser: desktop, iPhone, Android, iPad",
+  multiMachine: "yes",
+  zeroInstallClient: "yes",
+  persistentSessions: "yes",
+  anyCli: "yes",
+  mobileUx: "full app, touch selection, key row, swipe deck",
+  voiceInput: "yes",
+  pushAgentState: "Web Push + working/needs-input/done",
+  selfHostedNoAccount: "yes",
+};
+
+const ROWS: { key: keyof Matrix; label: string }[] = [
+  { key: "hostPlatforms", label: "Host platforms" },
+  { key: "clientDevices", label: "Client devices" },
+  { key: "multiMachine", label: "Multi-machine fleet" },
+  { key: "zeroInstallClient", label: "Zero-install client" },
+  { key: "persistentSessions", label: "Persistent sessions" },
+  { key: "anyCli", label: "Any CLI in a real PTY" },
+  { key: "mobileUx", label: "Mobile UX" },
+  { key: "voiceInput", label: "Voice input" },
+  { key: "pushAgentState", label: "Agent state + push" },
+  { key: "selfHostedNoAccount", label: "Self-hosted, no account" },
+];
+
+const VERDICT: Record<string, string | undefined> = {
+  yes: "Yes",
+  partial: "Partial",
+  no: "No",
+};
+
+interface Column {
+  name: string;
+  url: string;
+  meta: string;
+  roost: boolean;
+  matrix: Matrix;
+}
+
+const columns: Column[] = [
+  {
+    name: "Roost",
+    url: "https://github.com/cefege/roost",
+    meta: "cefege \u00b7 GPL-3.0-only",
+    roost: true,
+    matrix: ROOST,
+  },
+  ...entries
+    .slice()
+    .sort((a, b) => a.data.order - b.data.order)
+    .map((entry): Column => {
+      const matrix: Matrix = entry.data.matrix;
+      return {
+        name: entry.data.competitor,
+        url: entry.data.url,
+        meta: `${entry.data.vendor} \u00b7 ${entry.data.license}`,
+        roost: false,
+        matrix,
+      };
+    }),
+];
+---
+
+<div class="scroll" role="region" aria-label="Feature comparison" tabindex="0">
+  <table class="matrix">
+    <thead>
+      <tr>
+        <th scope="col" class="rowhead"><span class="visually-hidden">Feature</span></th>
+        {
+          columns.map((col) => (
+            <th scope="col" class:list={["colhead", { roost: col.roost }]}>
+              <a href={col.url} rel="noopener">
+                {col.name}
+              </a>
+              <span class="meta">{col.meta}</span>
+            </th>
+          ))
+        }
+      </tr>
+    </thead>
+    <tbody>
+      {
+        ROWS.map((row) => (
+          <tr>
+            <th scope="row" class="rowhead">
+              {row.label}
+            </th>
+            {columns.map((col) => (
+              <td class:list={{ roost: col.roost }}>
+                {VERDICT[col.matrix[row.key]] ? (
+                  <span class:list={["v", `v-${col.matrix[row.key]}`]}>
+                    {VERDICT[col.matrix[row.key]]}
+                  </span>
+                ) : (
+                  col.matrix[row.key]
+                )}
+              </td>
+            ))}
+          </tr>
+        ))
+      }
+    </tbody>
+  </table>
+</div>
+
+<style>
+  /* Horizontal scroll container: the table is never clipped, and on a 390px
+     phone the feature-name column stays pinned so a scrolled cell keeps its
+     label. `tabindex` makes the scroller keyboard-reachable. */
+  .scroll {
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--md-shape-md);
+    background: var(--surface-0);
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Auto layout with per-cell min-widths, deliberately NOT `width: max-content`:
+     max-content refuses to wrap, which pushes a single column past 380px and
+     turns a 390px phone into a one-column-at-a-time crawl. Wrapping inside
+     fixed minimums keeps the whole table scannable with far less travel. */
+  .matrix {
+    border-collapse: separate;
+    border-spacing: 0;
+    min-width: 100%;
+    font-size: 14px;
+    line-height: 1.45;
+  }
+
+  th,
+  td {
+    padding: var(--md-space-3) var(--md-space-4);
+    border-bottom: 1px solid var(--border-subtle);
+    text-align: left;
+    vertical-align: top;
+    color: var(--text-mid);
+  }
+
+  tbody tr:last-child th,
+  tbody tr:last-child td {
+    border-bottom: 0;
+  }
+
+  /* Pinned feature-name column. */
+  .rowhead {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    min-width: 150px;
+    background: var(--surface-1);
+    border-right: 1px solid var(--border-subtle);
+    color: var(--text-hi);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  thead .rowhead {
+    z-index: 2;
+  }
+
+  .colhead {
+    min-width: 180px;
+    max-width: 240px;
+    background: var(--surface-1);
+    vertical-align: bottom;
+  }
+
+  .colhead a {
+    display: block;
+    color: var(--text-hi);
+    font-size: 16px;
+    font-weight: 600;
+    text-decoration: none;
+  }
+
+  .colhead a:hover {
+    text-decoration: underline;
+  }
+
+  .colhead .meta {
+    display: block;
+    margin-top: 2px;
+    color: var(--text-lo);
+    font-size: var(--md-label-m-size);
+    line-height: var(--md-label-m-line);
+    font-weight: var(--md-label-m-weight);
+  }
+
+  /* The pinned Roost column. */
+  .colhead.roost {
+    background: color-mix(in srgb, var(--brand-coral) 16%, var(--surface-1));
+    border-top: 2px solid var(--brand-coral);
+  }
+
+  .colhead.roost a {
+    color: var(--brand-coral);
+  }
+
+  td.roost {
+    background: color-mix(in srgb, var(--brand-coral) 8%, transparent);
+    color: var(--text-hi);
+  }
+
+  .v {
+    font-weight: 600;
+  }
+
+  .v-yes {
+    color: var(--status-ok);
+  }
+
+  .v-partial {
+    color: var(--status-warn);
+  }
+
+  .v-no {
+    color: var(--text-lo);
+  }
+
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  @media (max-width: 700px) {
+    th,
+    td {
+      padding: var(--md-space-2) var(--md-space-3);
+    }
+
+    .rowhead {
+      min-width: 132px;
+      white-space: normal;
+    }
+
+    .colhead {
+      min-width: 168px;
+    }
+  }
+</style>

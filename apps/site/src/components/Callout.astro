@@ -1,0 +1,60 @@
+---
+interface Props {
+  tone?: "info" | "warn" | "ok";
+  title?: string;
+}
+
+const { tone = "info", title }: Props = Astro.props;
+---
+
+<aside class:list={["callout", tone]}>
+  {title && <p class="title">{title}</p>}
+  <div class="body"><slot /></div>
+</aside>
+
+<style>
+  .callout {
+    --callout-accent: var(--status-info);
+    margin: var(--md-space-5) 0;
+    padding: var(--md-space-4) var(--md-space-5);
+    border: 1px solid var(--border-subtle);
+    border-left: 3px solid var(--callout-accent);
+    border-radius: 0 var(--md-shape-md) var(--md-shape-md) 0;
+    background: color-mix(in srgb, var(--callout-accent) 8%, var(--surface-1));
+    color: var(--text-mid);
+    font-size: 15px;
+    line-height: 1.6;
+  }
+
+  .warn {
+    --callout-accent: var(--status-warn);
+  }
+
+  .ok {
+    --callout-accent: var(--status-ok);
+  }
+
+  .title {
+    margin: 0 0 var(--md-space-2);
+    color: var(--text-hi);
+    font-weight: 600;
+  }
+
+  .body :global(p) {
+    margin: 0 0 var(--md-space-3);
+  }
+
+  .body :global(p:last-child) {
+    margin-bottom: 0;
+  }
+
+  .body :global(code) {
+    padding: 0.12em 0.36em;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--md-shape-xs);
+    background: var(--surface-0);
+    color: var(--text-hi);
+    font-family: var(--font-mono);
+    font-size: 0.9em;
+  }
+</style>

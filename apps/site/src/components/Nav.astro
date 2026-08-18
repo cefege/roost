@@ -1,0 +1,112 @@
+---
+import BrandMark from "./BrandMark.astro";
+
+/**
+ * Sticky site header. Pure CSS: the link row simply wraps under the wordmark
+ * below ~430px, so a 390px phone gets two tidy lines and never a sideways
+ * scrollbar. No hamburger, no JS.
+ */
+const LINKS: { href: string; label: string; external?: boolean }[] = [
+  { href: "/docs/", label: "Docs" },
+  { href: "/alternatives/", label: "Alternatives" },
+  { href: "/install/", label: "Install" },
+  { href: "https://github.com/cefege/roost", label: "GitHub", external: true },
+];
+
+const path = Astro.url.pathname;
+const isCurrent = (href: string, external?: boolean): boolean =>
+  !external && (href === "/" ? path === "/" : path.startsWith(href));
+---
+
+<header class="nav">
+  <div class="wrap nav-inner">
+    <a class="brand" href="/">
+      <BrandMark size={28} />
+      <span>Roost</span>
+    </a>
+    <nav class="links" aria-label="Main">
+      {
+        LINKS.map((link) => (
+          <a
+            href={link.href}
+            aria-current={isCurrent(link.href, link.external) ? "page" : undefined}
+            rel={link.external ? "noopener" : undefined}
+          >
+            {link.label}
+          </a>
+        ))
+      }
+    </nav>
+  </div>
+</header>
+
+<style>
+  .nav {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background: color-mix(in srgb, var(--surface-0) 88%, transparent);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .nav-inner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--md-space-2) var(--md-space-5);
+    padding-block: var(--md-space-3);
+  }
+
+  .brand {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--md-space-2);
+    color: var(--text-hi);
+    font-size: var(--md-title-l-size);
+    line-height: var(--md-title-l-line);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    text-decoration: none;
+  }
+
+  .links {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--md-space-2) var(--md-space-5);
+  }
+
+  .links a {
+    padding: var(--md-space-1) 0;
+    color: var(--text-mid);
+    font-size: 15px;
+    font-weight: 500;
+    text-decoration: none;
+    border-bottom: 2px solid transparent;
+  }
+
+  .links a:hover {
+    color: var(--text-hi);
+  }
+
+  .links a[aria-current="page"] {
+    color: var(--text-hi);
+    border-bottom-color: var(--brand-coral);
+  }
+
+  @media (max-width: 430px) {
+    .nav-inner {
+      gap: var(--md-space-2) var(--md-space-4);
+    }
+    .links {
+      width: 100%;
+      gap: var(--md-space-4);
+      justify-content: flex-start;
+    }
+    .links a {
+      font-size: 14px;
+    }
+  }
+</style>

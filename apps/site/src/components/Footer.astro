@@ -1,0 +1,120 @@
+---
+import BrandMark from "./BrandMark.astro";
+
+const year = new Date().getFullYear();
+---
+
+<footer class="footer">
+  <div class="wrap footer-inner">
+    <div class="col">
+      <a class="brand" href="/">
+        <BrandMark size={22} />
+        <span>Roost</span>
+      </a>
+      <p class="tag">One control panel for every machine you own.</p>
+      <p class="fine">
+        GPL-3.0-only &middot; &copy; {year} Mihai Mateias
+      </p>
+    </div>
+
+    <nav class="col" aria-label="Site">
+      <h2>Site</h2>
+      <a href="/docs/">Docs</a>
+      <a href="/alternatives/">Alternatives</a>
+      <a href="/install/">Install</a>
+    </nav>
+
+    <nav class="col" aria-label="Project">
+      <h2>Project</h2>
+      <a href="https://github.com/cefege/roost" rel="noopener">github.com/cefege/roost</a>
+      <a href="https://github.com/cefege/roost/blob/main/LICENSE" rel="noopener">License (GPL-3.0-only)</a>
+      <a href="https://github.com/cefege/roost/issues" rel="noopener">Issues</a>
+    </nav>
+
+    <nav class="col" aria-label="Author">
+      <h2>Author</h2>
+      <a href="https://github.com/cefege" rel="noopener">github.com/cefege</a>
+      <a href="https://de.linkedin.com/in/mihai-mateias" rel="noopener">de.linkedin.com/in/mihai-mateias</a>
+      <p class="fine">No analytics on this site.</p>
+    </nav>
+  </div>
+</footer>
+
+<style>
+  .footer {
+    margin-top: var(--md-space-9);
+    border-top: 1px solid var(--border-subtle);
+    background: var(--surface-0);
+  }
+
+  .footer-inner {
+    display: grid;
+    grid-template-columns: 1.4fr repeat(3, 1fr);
+    gap: var(--md-space-7) var(--md-space-6);
+    padding-block: var(--md-space-8);
+  }
+
+  .col {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--md-space-2);
+    min-width: 0;
+  }
+
+  .col h2 {
+    margin: 0 0 var(--md-space-1);
+    color: var(--text-hi);
+    font-size: var(--md-label-m-size);
+    line-height: var(--md-label-m-line);
+    font-weight: var(--md-label-m-weight);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .col a {
+    color: var(--text-mid);
+    font-size: 14px;
+    text-decoration: none;
+    overflow-wrap: anywhere;
+  }
+
+  .col a:hover {
+    color: var(--brand-coral);
+  }
+
+  .brand {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--md-space-2);
+    color: var(--text-hi);
+    font-size: 18px;
+    font-weight: 600;
+  }
+
+  .tag,
+  .fine {
+    margin: 0;
+    color: var(--text-lo);
+    font-size: var(--md-body-m-size);
+    line-height: var(--md-body-m-line);
+  }
+
+  .fine {
+    font-size: var(--md-label-m-size);
+    line-height: var(--md-label-m-line);
+  }
+
+  @media (max-width: 900px) {
+    .footer-inner {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+
+  @media (max-width: 560px) {
+    .footer-inner {
+      grid-template-columns: 1fr;
+      gap: var(--md-space-6);
+    }
+  }
+</style>

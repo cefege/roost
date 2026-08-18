@@ -16,11 +16,12 @@ __pycache__/
 
 /.claude/worktrees/
 
-# Auto-regenerated per session — STATE.md by Stop hook (R0.11),
-# keeper/main.js by `bun run build:keeper`. Tracking either of these
+# Generated, never tracked — STATE.md by `roost state` (run by hand; the
+# per-session Stop hook that wrote it was removed), keeper/main.js by
+# `bun run build:keeper`. Tracking either of these
 # pollutes every `git status` and forces phase commits to either include
 # unrelated churn or run a pre-stage filter. Both are deterministically
-# rebuilt from in-tree sources (state.skill + worker/src/keeper/main.ts).
+# rebuilt from in-tree sources (roost-cli/src/state.ts + worker/src/keeper/main.ts).
 STATE.md
 apps/worker/src/keeper/main.js
 apps/coord/src/web-embed.generated-assets/
@@ -35,3 +36,6 @@ mockups/
 
 /playwright-report/
 /test-results/
+
+# Astro content-layer/type cache (apps/site).
+apps/site/.astro/
