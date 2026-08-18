@@ -21,10 +21,10 @@ describe("multi-viewer dynamic — withdraw / disconnect", () => {
     await injectSession(mgr, 80, 24);
     mgr.claimViewport(CID, FP_A, 200, 60);
     mgr.claimViewport(CID, FP_B, 80, 24);
-    expect(readApplied(mgr)).toEqual({ cols: 80, rows: 24 });
+    expect(await readApplied(mgr)).toEqual({ cols: 80, rows: 24 });
     mgr.withdrawViewport(CID, FP_B);
     await afterWithdraw();
-    expect(readApplied(mgr)).toEqual({ cols: 200, rows: 60 });
+    expect(await readApplied(mgr)).toEqual({ cols: 200, rows: 60 });
   });
 
   test("3B — withdrawing non-pinning viewer → SCD unchanged", async () => {
@@ -33,16 +33,16 @@ describe("multi-viewer dynamic — withdraw / disconnect", () => {
     mgr.claimViewport(CID, FP_A, 80, 24);
     mgr.claimViewport(CID, FP_B, 200, 60);
     mgr.withdrawViewport(CID, FP_B);
-    expect(readApplied(mgr)).toEqual({ cols: 80, rows: 24 });
+    expect(await readApplied(mgr)).toEqual({ cols: 80, rows: 24 });
   });
 
   test("3C — withdrawing last viewer keeps lastAppliedSize (no thrash)", async () => {
     const mgr = freshMgr();
     await injectSession(mgr, 80, 24);
     mgr.claimViewport(CID, FP_A, 100, 30);
-    expect(readApplied(mgr)).toEqual({ cols: 100, rows: 30 });
+    expect(await readApplied(mgr)).toEqual({ cols: 100, rows: 30 });
     mgr.withdrawViewport(CID, FP_A);
-    expect(readApplied(mgr)).toEqual({ cols: 100, rows: 30 });
+    expect(await readApplied(mgr)).toEqual({ cols: 100, rows: 30 });
   });
 
   test("3D — cols=0 (or rows=0) is treated as withdraw (deferred)", async () => {
@@ -52,7 +52,7 @@ describe("multi-viewer dynamic — withdraw / disconnect", () => {
     mgr.claimViewport(CID, FP_B, 100, 30);
     mgr.claimViewport(CID, FP_B, 0, 30);    // cols=0 = withdraw B
     await afterWithdraw();
-    expect(readApplied(mgr)).toEqual({ cols: 200, rows: 60 });
+    expect(await readApplied(mgr)).toEqual({ cols: 200, rows: 60 });
     mgr.claimViewport(CID, FP_A, 150, 0);   // rows=0 = withdraw A
     await afterWithdraw();
     const claims = (mgr as unknown as {
@@ -66,7 +66,7 @@ describe("multi-viewer dynamic — withdraw / disconnect", () => {
     await injectSession(mgr, 80, 24);
     mgr.claimViewport(CID, FP_A, 100, 30);
     expect(() => mgr.withdrawViewport(CID, FP_B)).not.toThrow();
-    expect(readApplied(mgr)).toEqual({ cols: 100, rows: 30 });
+    expect(await readApplied(mgr)).toEqual({ cols: 100, rows: 30 });
   });
 });
 
@@ -76,10 +76,10 @@ describe("multi-viewer dynamic — TTL reaper", () => {
     await injectSession(mgr, 80, 24);
     mgr.claimViewport(CID, FP_A, 200, 60);
     mgr.claimViewport(CID, FP_B, 60, 20);   // B was pinning
-    expect(readApplied(mgr)).toEqual({ cols: 60, rows: 20 });
+    expect(await readApplied(mgr)).toEqual({ cols: 60, rows: 20 });
     ageClaim(mgr, FP_B, 121_000);            // B goes quiet, exceeds TTL
     reapNow(mgr);
-    expect(readApplied(mgr)).toEqual({ cols: 200, rows: 60 });
+    expect(await readApplied(mgr)).toEqual({ cols: 200, rows: 60 });
   });
 
   test("6B — claim refreshed within TTL → reaper leaves it alone", async () => {
@@ -88,7 +88,7 @@ describe("multi-viewer dynamic — TTL reaper", () => {
     mgr.claimViewport(CID, FP_A, 200, 60);
     mgr.claimViewport(CID, FP_B, 100, 30);   // fresh
     reapNow(mgr);
-    expect(readApplied(mgr)).toEqual({ cols: 100, rows: 30 });
+    expect(await readApplied(mgr)).toEqual({ cols: 100, rows: 30 });
   });
 
   test("6C — claim aged 60s (half-TTL) is NOT dropped", async () => {
@@ -98,7 +98,7 @@ describe("multi-viewer dynamic — TTL reaper", () => {
     mgr.claimViewport(CID, FP_B, 100, 30);
     ageClaim(mgr, FP_B, 60_000);
     reapNow(mgr);
-    expect(readApplied(mgr)).toEqual({ cols: 100, rows: 30 });
+    expect(await readApplied(mgr)).toEqual({ cols: 100, rows: 30 });
   });
 
   test("6E — stale-seq re-claim does NOT overwrite dims (reorder guard)", async () => {
@@ -110,14 +110,14 @@ describe("multi-viewer dynamic — TTL reaper", () => {
     await injectSession(mgr, 80, 24);
     mgr.claimViewport(CID, FP_A, 200, 60, 1);
     mgr.claimViewport(CID, FP_B, 60, 20, 1);    // B pins the min → 60×20
-    expect(readApplied(mgr)).toEqual({ cols: 60, rows: 20 });
+    expect(await readApplied(mgr)).toEqual({ cols: 60, rows: 20 });
     // B re-sends with the SAME seq but bogus dims (stale heartbeat) →
     // dims ignored → SCD unchanged.
     mgr.claimViewport(CID, FP_B, 999, 999, 1);
-    expect(readApplied(mgr)).toEqual({ cols: 60, rows: 20 });
+    expect(await readApplied(mgr)).toEqual({ cols: 60, rows: 20 });
     // B genuinely resizes with an ADVANCED seq → dims update → recompute.
     mgr.claimViewport(CID, FP_B, 200, 60, 2);
-    expect(readApplied(mgr)).toEqual({ cols: 200, rows: 60 }); // min(200,200)
+    expect(await readApplied(mgr)).toEqual({ cols: 200, rows: 60 }); // min(200,200)
   });
 
   test("6F — #1 WAN reorder: late packet with stale seq is ignored for latest", async () => {
@@ -129,11 +129,11 @@ describe("multi-viewer dynamic — TTL reaper", () => {
     await injectSession(mgr, 80, 24);
     mgr.claimViewport(CID, FP_A, 200, 60, 5);   // intent seq=5
     mgr.claimViewport(CID, FP_A, 100, 30, 6);   // intent seq=6 — arrives second
-    expect(readApplied(mgr)).toEqual({ cols: 100, rows: 30 });
+    expect(await readApplied(mgr)).toEqual({ cols: 100, rows: 30 });
     // Reorder: late seq=5 packet arrives now. lastMs refreshes, but
     // seq has not advanced → no latest bump and dims stay at seq=6.
     mgr.claimViewport(CID, FP_A, 200, 60, 5);
-    expect(readApplied(mgr)).toEqual({ cols: 100, rows: 30 });
+    expect(await readApplied(mgr)).toEqual({ cols: 100, rows: 30 });
   });
 
   test("6D — withdraw recomputes SCD = min(remaining), order/recency-independent", async () => {
@@ -150,10 +150,10 @@ describe("multi-viewer dynamic — TTL reaper", () => {
     ageClaim(mgr, FP_C, 4_000);
     mgr.claimViewport(CID, FP_A, 200, 60);   // A refreshed last (freshest lastMs)
     mgr.claimViewport(CID, FP_B, 60, 20);    // B smallest → SCD 60×20
-    expect(readApplied(mgr)).toEqual({ cols: 60, rows: 20 });
+    expect(await readApplied(mgr)).toEqual({ cols: 60, rows: 20 });
     mgr.withdrawViewport(CID, FP_B);          // smallest leaves
     await afterWithdraw();
     // min(A=200×60, C=100×30) = 100×30 — NOT A despite its fresh lastMs.
-    expect(readApplied(mgr)).toEqual({ cols: 100, rows: 30 });
+    expect(await readApplied(mgr)).toEqual({ cols: 100, rows: 30 });
   });
 });

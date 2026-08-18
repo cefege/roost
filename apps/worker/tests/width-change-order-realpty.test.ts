@@ -31,8 +31,6 @@ function cellGridText(core: TerminalCore): string {
   return lines.join("\n");
 }
 type Internal = {
-  _wtermRebuildChain: Map<number, Promise<void>>;
-  _recomputeViewport: (ch: number) => void;
   sessions: Map<number, { scrollback: SbRing }>;
 };
 const asInternal = (m: SessionManager) => m as unknown as Internal;
@@ -48,10 +46,16 @@ async function waitForRing(m: SessionManager, ch: number, needle: string, timeou
   }
   return false;
 }
+// A claim is transactional: it queues an SCD reconcile on the per-channel
+// terminal-control lane, which owns the keeper resize AND the single core
+// rebuild. Draining that lane is the only correct "resize finished" signal.
 async function resizeTo(m: SessionManager, ch: number, cols: number, rows: number): Promise<void> {
   m.claimViewport(ch, FP, cols, rows);
-  asInternal(m)._recomputeViewport(ch);
-  await asInternal(m)._wtermRebuildChain.get(ch);
+  for (let i = 0; i < 50; i++) {
+    const lane = m.terminalControlChains.get(ch);
+    if (!lane) return;
+    await lane.tail;
+  }
 }
 async function servedHistory(m: SessionManager, ch: number): Promise<string> {
   const core = m.shellByChannel(ch)!.wtermCore;
@@ -86,6 +90,13 @@ describe("OPT2 deterministic-rebuild model: real shell width-change preserves or
 
     // The user's scenario: change the width (80 → 159) and read history.
     await resizeTo(m, ch, 159, 30);
+    // The REAL keeper acknowledged a sequenced resize and the transaction rebuilt
+    // at the size it proved — without this the rest of the test would also pass on
+    // a keeper that silently refused to resize.
+    const core = m.shellByChannel(ch)!.wtermCore;
+    expect([core.getCols(), core.getRows()]).toEqual([159, 30]);
+    expect(m.lastAppliedSize.get(ch)).toEqual({ cols: 159, rows: 30 });
+    expect(m.channelResizeSeq.get(ch)).toBeGreaterThan(0);
     const at159 = await servedHistory(m, ch);
     const seq159 = markerSequence(at159);
     expect(seq159.length).toBeGreaterThan(20);          // history actually present

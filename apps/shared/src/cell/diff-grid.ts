@@ -30,11 +30,17 @@ export function deltaViewportShift(base: CellGridFrame, delta: CellGridFrame): n
 		const b = appended.spans[i]!;
 		if (
 			a.text !== b.text
+			|| a.columns !== b.columns
 			|| a.fg !== b.fg
 			|| a.bg !== b.bg
 			|| a.flags !== b.flags
 			|| a.fgRgb !== b.fgRgb
 			|| a.bgRgb !== b.bgRgb
+			// A row keeps its cells' link indices when it scrolls out of the
+			// viewport, so a link mismatch means these are genuinely different
+			// rows and the shift is not reusable.
+			|| a.linkUri !== b.linkUri
+			|| a.linkKey !== b.linkKey
 		) return 0;
 	}
 	return shift;
@@ -97,6 +103,9 @@ export function applyDelta(base: CellGridFrame, delta: CellGridFrame): CellGridF
 	base.altScreen = delta.altScreen;
 	base.cursorKeysApp = delta.cursorKeysApp;
 	base.bracketedPaste = delta.bracketedPaste;
+	base.mouseTracking = delta.mouseTracking;
+	base.mouseSgr = delta.mouseSgr;
+	base.focusEvents = delta.focusEvents;
 	base.full = true;
 	base.scrollbackTotal = delta.scrollbackTotal;
 	base.seq = delta.seq;

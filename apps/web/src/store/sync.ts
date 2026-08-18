@@ -28,6 +28,7 @@ import { getTabId } from "../auth/tab-id.ts";
 import { _dispatchUiCommand } from "../lib/uiCommandDispatch.ts";
 import { relocateBrowserToCoordinator } from "../auth/coordinator-relocation.ts";
 import { markPhase } from "../lib/diag.ts";
+import { isPageVisible } from "../lib/pageVisible.ts";
 import {
   _workspaceProtoToWire, _taskProtoToWire, _webhookProtoToWire,
   _permProtoToWire, _mcpProtoToWire, _presenceProtoToWire,
@@ -39,10 +40,19 @@ import type { Worker } from "@roost/shared/wire";
 import { signal, diag } from "@roost/shared/diag";
 import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
 import {
-  _dispatchCell, _dispatchPresence, _dispatchTerminalLink,
+  _dispatchCell, _dispatchPresence,
   resetCellMountBuffers,
 } from "./sync-dispatch.ts";
-import { startStaleWatchdog, type StaleWatchdog } from "./sync-watchdog.ts";
+import {
+  nextRedialDelayMs,
+  shouldCloseStaleLinkOnResume,
+  shouldParkRedial,
+  startStaleWatchdog,
+  SYNC_HIDDEN_PARK_FAILURES,
+  SYNC_REDIAL_BASE_MS,
+  type StaleWatchdog,
+  type SyncLinkLiveness,
+} from "./sync-watchdog.ts";
 import {
   canAcceptSyncLink,
   canOpenSyncLink,
@@ -60,10 +70,11 @@ import { setRoutableFps } from "./sync-routable.ts";
 export { workerOnline } from "./sync-routable.ts";
 // Per-session cell/presence fan-out lives in sync-dispatch.ts (leaf module).
 export {
-  registerCellHandler, registerPresenceHandler, setCellMountClaimActive,
+  registerCellHandler, registerPresenceHandler, acquireCellMountClaim,
   cellFrameCount, cellFullFrameCount, lastFullFrameSbRows, cellGridEpoch,
   cellMountBufferStats,
 } from "./sync-dispatch.ts";
+export type { CellMountClaim } from "./sync-dispatch.ts";
 // Per-domain delta handlers + keeper-death detector + delta-sub registries
 // live in sync-handlers.ts; the firehose calls them and iterates the sub Sets.
 import {
@@ -148,6 +159,7 @@ export type SyncV2Control = Extract<
     case:
       | "viewportAccepted"
       | "viewportRejected"
+      | "viewportAmbiguous"
       | "inputAccepted"
       | "inputRejected"
       | "inputAmbiguous";
@@ -461,11 +473,19 @@ export function waitForSyncSubscribed(timeoutMs: number): Promise<SyncSubscribed
 }
 
 /** Milliseconds since the current OPEN Sync socket received any frame. */
-export function syncLinkIdleMs(): number {
+function _syncLinkIdleMs(): number {
   const link = _liveLink;
   return link && link.ws.readyState === WebSocket.OPEN && link.watchdog
     ? link.watchdog.idleMs()
     : Number.POSITIVE_INFINITY;
+}
+
+/** Is a Sync socket live, dialing, or absent? A dial in flight is already the
+ *  redial, so the resume path must never close it. */
+function _syncLinkLiveness(): SyncLinkLiveness {
+  const link = _liveLink;
+  if (!link) return "none";
+  return link.accepting && link.ws.readyState === WebSocket.OPEN ? "open" : "dialing";
 }
 
 /** How many Sync sockets this tab has dialed. */
@@ -518,25 +538,37 @@ function _closeFailedLink(link: LiveSyncLink): void {
   _armCloseEscape(link);
 }
 
-export function _abortSyncForVisibility(): void {
-  _initiateWsClose("visibility");
+// Redial state. A visible document is never left with no live socket AND no
+// scheduled redial: the DELAY is capped (sync-watchdog::nextRedialDelayMs), the
+// attempt count never is. Only a hidden document parks, and every page-lifecycle
+// resume wakes it in place, preserving the mounted terminal deck and its last
+// painted grid — the retired eight-failure park could only be cleared by a
+// reload.
+let _syncFailures = 0;
+let _redialDelayMs = SYNC_REDIAL_BASE_MS;
+let _hiddenParked = false;
+let _wakeHiddenPark: (() => void) | null = null;
+
+export interface SyncRedialStatus {
+  /** Consecutive failed dials since this tab last received a Sync frame. */
+  readonly failures: number;
+  /** Delay the pending redial waits — capped, never unbounded. */
+  readonly nextDelayMs: number;
+  /** True only while a HIDDEN document sleeps instead of redialing. */
+  readonly hiddenParked: boolean;
+  /** Whether this tab currently has an open socket, a dial in flight, or none. */
+  readonly liveness: SyncLinkLiveness;
 }
 
-
-// Bounded reconnect protects the tab from a failed transport hot-loop. After
-// SYNC_MAX_FAILURES the single owning loop parks in place until resumeSyncNow()
-// wakes it, preserving the mounted terminal deck and its last painted grid.
-const SYNC_MAX_FAILURES = 8;          // ~60 s with the exponential backoff below
-let _syncFailures = 0;
-let _syncPaused = false;
-let _wakePausedSync: (() => void) | null = null;
-/** Read-only view of the sync-paused flag for sync-bootstrap's refocus handler
- *  (a `let` can't be reassigned across a module boundary, but a getter reads
- *  the live value). */
-export function isSyncPaused(): boolean { return _syncPaused; }
-// Signal published on window for ConnectionBanner / other consumers.
-function _writeSyncPaused(paused: boolean): void {
-  (window as Window & { __roostSyncPaused?: boolean }).__roostSyncPaused = paused;
+/** Redial status for diagnostics and the smoke seam. `hiddenParked: false` with
+ *  no live link means a redial is scheduled, never that the loop stopped. */
+export function syncRedialStatus(): SyncRedialStatus {
+  return {
+    failures: _syncFailures,
+    nextDelayMs: _redialDelayMs,
+    hiddenParked: _hiddenParked,
+    liveness: _syncLinkLiveness(),
+  };
 }
 
 /** Manually recover the existing Sync loop and replace any live stale socket
@@ -561,19 +593,65 @@ export async function syncSocketOpened(timeoutMs: number): Promise<void> {
 let _resumeRequested = false;
 let _wakeBackoff: (() => void) | null = null;
 
-/** Re-dial NOW after authorization, refocus, or an explicit reconnect. Wakes
- * both exhaustion parking and an ordinary reconnect backoff. */
+/** Re-dial NOW after authorization, a page-lifecycle resume, or an explicit
+ * reconnect. Wakes both a hidden park and an ordinary redial backoff. */
 export function resumeSyncNow(): void {
-  _syncPaused = false;
-  _writeSyncPaused(false);
+  _hiddenParked = false;
   _syncFailures = 0;
+  _redialDelayMs = SYNC_REDIAL_BASE_MS;
   _resumeRequested = true;
-  const wakePaused = _wakePausedSync;
-  _wakePausedSync = null;
-  wakePaused?.();
+  const wakePark = _wakeHiddenPark;
+  _wakeHiddenPark = null;
+  wakePark?.();
   const wakeBackoff = _wakeBackoff;
   _wakeBackoff = null;
   wakeBackoff?.();
+}
+
+// Page-lifecycle resume. A frozen, backgrounded, or back/forward-cached tab
+// comes back WITHOUT re-running module init: the socket it left behind may be
+// half-open and the redial loop may be parked, which is how a tab used to
+// "come back dead" until a manual reload. Every resume edge wakes the transport
+// in place: visibilitychange→visible, pageshow (bfcache restore included),
+// Page Lifecycle resume, and window focus. One restore fires several of those,
+// so a monotonic window collapses the burst into ONE wake — a second wake would
+// pay for another JWT sign, handshake and backfill, and could race two socket
+// generations onto the same tab. Replay is not a second path: the one new
+// generation the loop dials notifies registerSyncV2GenerationHandler, which is
+// where mounted terminal owners reconcile.
+const RESUME_COALESCE_MS = 500;
+let _lastResumeAt = Number.NEGATIVE_INFINITY;
+
+export function installSyncLifecycleWake(onResume: () => void): () => void {
+  if (typeof document === "undefined" || typeof window === "undefined") {
+    return () => { /* non-DOM host: nothing to resume */ };
+  }
+  const wake = (): void => {
+    // A hidden pageshow/focus has nothing to wake, and must not consume the
+    // coalesce window the following visibilitychange needs.
+    if (!isPageVisible()) return;
+    const now = performance.now();
+    if (now - _lastResumeAt < RESUME_COALESCE_MS) return;
+    _lastResumeAt = now;
+    onResume();
+    resumeSyncNow();
+    // Keep a live socket across a tab switch: re-dialing costs a JWT sign, a
+    // TLS handshake and the since= event backfill, all ahead of the terminal's
+    // reveal snapshot. Close only a socket that has actually gone silent.
+    if (shouldCloseStaleLinkOnResume(_syncLinkLiveness(), _syncLinkIdleMs())) {
+      _initiateWsClose("visibility");
+    }
+  };
+  document.addEventListener("visibilitychange", wake);
+  document.addEventListener("resume", wake);
+  window.addEventListener("pageshow", wake);
+  window.addEventListener("focus", wake);
+  return () => {
+    document.removeEventListener("visibilitychange", wake);
+    document.removeEventListener("resume", wake);
+    window.removeEventListener("pageshow", wake);
+    window.removeEventListener("focus", wake);
+  };
 }
 
 // Per-frame firehose dispatch — SHARED verbatim by the WebSocket transport
@@ -675,11 +753,6 @@ function _dispatchSyncFrame(frame: FirehoseFrame): boolean {
           case "coordinatorRelocation": {
             const relocation = v as { handoffId: string; targetUrl: string };
             void relocateBrowserToCoordinator(relocation.handoffId, relocation.targetUrl);
-            break;
-          }
-          case "terminalLink": {
-            const link = v as { sessionId: string; text: string; uri: string };
-            _dispatchTerminalLink(link.sessionId, link.text, link.uri);
             break;
           }
           case "cellGrid": {
@@ -939,6 +1012,7 @@ function _handleV2Control(link: LiveSyncLink, frame: FirehoseFrame): boolean {
       return true;
     case "viewportAccepted":
     case "viewportRejected":
+    case "viewportAmbiguous":
     case "inputAccepted":
     case "inputRejected":
     case "inputAmbiguous": {
@@ -1001,24 +1075,27 @@ function _consumeSyncFrame(link: LiveSyncLink, frame: FirehoseFrame): void {
 // RequestContext.onAbort. Frames are byte-identical FirehoseFrame protos —
 // only the tube changed; _dispatchSyncFrame above is shared verbatim.
 export async function _runConnectSync(): Promise<void> {
-  let backoff = 1000;
   while (true) {
+    if (_hiddenParked) {
+      // Hidden document, unreachable coordinator: sleeping beats dialing on a
+      // throttled timer. Parked HERE rather than where the flag is set so a
+      // resume landing in between is never lost — any page-lifecycle wake or
+      // resumeSyncNow() clears it and re-dials at once.
+      console.warn("[sync.connect] hidden and unreachable — sleeping until resume");
+      const { promise: resumed, resolve } = Promise.withResolvers<void>();
+      _wakeHiddenPark = resolve;
+      await resumed;
+      if (_wakeHiddenPark === resolve) _wakeHiddenPark = null;
+    }
     if (_smokeTransportPaused) {
       const { promise: resumed, resolve } = Promise.withResolvers<void>();
       _resumeSmokeTransport = resolve;
       await resumed;
       if (_resumeSmokeTransport === resolve) _resumeSmokeTransport = null;
     }
-    if (_syncPaused) {
-      console.warn("[sync.connect] paused — waiting for in-place resume");
-      const { promise: resumed, resolve } = Promise.withResolvers<void>();
-      _wakePausedSync = resolve;
-      await resumed;
-      if (_wakePausedSync === resolve) _wakePausedSync = null;
-    }
     if (_resumeRequested) {
       _resumeRequested = false;
-      backoff = 1000;
+      _redialDelayMs = SYNC_REDIAL_BASE_MS;
     }
     let dialLink: LiveSyncLink | null = null;
     let abortReason: SyncAbortReason = null;
@@ -1085,7 +1162,7 @@ export async function _runConnectSync(): Promise<void> {
         _consumeSyncFrame(link, frame);
         if (link.v2) {
           _syncFailures = 0;
-          backoff = 1000;
+          _redialDelayMs = SYNC_REDIAL_BASE_MS;
         }
       };
       ws.onerror = (e) => { console.debug("[sync.connect] ws error", e); };
@@ -1117,42 +1194,48 @@ export async function _runConnectSync(): Promise<void> {
     }
     // Intentional lifecycle closes and server flow recovery redial immediately.
     if (isImmediateSyncRedial(abortReason)) {
-      backoff = 1000;
+      _redialDelayMs = SYNC_REDIAL_BASE_MS;
       continue;
     }
     _syncFailures += 1;
-    if (_syncFailures >= SYNC_MAX_FAILURES) {
-      console.warn(`[sync.connect] ${SYNC_MAX_FAILURES} consecutive failures — parking Sync loop.`);
-      signal("reconnect.give_up", { failures: _syncFailures, action: "pause" });
-      _syncPaused = true;
-      _writeSyncPaused(true);
-      continue;
+    _redialDelayMs = nextRedialDelayMs(_syncFailures);
+    const parking = shouldParkRedial(_syncFailures);
+    if (_syncFailures === SYNC_HIDDEN_PARK_FAILURES) {
+      // Status, not a stopped loop: the digest still sees a tab that cannot
+      // reach its coordinator while the capped redial keeps running.
+      console.warn(`[sync.connect] ${_syncFailures} consecutive failures`, { parking });
+      signal("reconnect.give_up", {
+        failures: _syncFailures,
+        action: parking ? "hidden_park" : "keep_retrying",
+        cooldownKey: "sync",
+      });
     }
+    if (parking) { _hiddenParked = true; continue; }
     // resumeSyncNow may land before the sleep starts or while it is parked;
     // both are checked so neither ordering loses the wake.
-    if (_resumeRequested) { _resumeRequested = false; backoff = 1000; continue; }
+    if (_resumeRequested) { _resumeRequested = false; _redialDelayMs = SYNC_REDIAL_BASE_MS; continue; }
     const { promise: slept, resolve: wake } = Promise.withResolvers<void>();
     _wakeBackoff = wake;
-    const sleepTimer = setTimeout(wake, backoff);
+    const sleepTimer = setTimeout(wake, _redialDelayMs);
     await slept;
     clearTimeout(sleepTimer);
     _wakeBackoff = null;
-    if (_resumeRequested) { _resumeRequested = false; backoff = 1000; continue; }
-    backoff = Math.min(backoff * 2, 30_000);
+    if (_resumeRequested) { _resumeRequested = false; _redialDelayMs = SYNC_REDIAL_BASE_MS; }
   }
 }
 /** Test-only: force-close the live firehose WS so the reconnect loop re-dials. */
 export function forceSyncReconnect(): void { _initiateWsClose("manual"); }
 
-/** Smoke-only: put the owning Sync loop into its real retry-exhausted parked
- * state, then close the current tube so the loop reaches that park. Recovery
- * remains exclusively resumeSyncNow()/the refocus path under test. */
-export function forceSyncRetryExhausted(): void {
+/** Smoke-only: drop the tube exactly as a network failure does, with the failure
+ * count pre-armed to the floor production can still reach — saturated capped
+ * backoff, plus the sleep while hidden. Recovery uses no backdoor: a visible
+ * document must heal on its own capped redial, a hidden one on its next resume. */
+export function forceSyncMaxBackoff(): void {
   if (typeof localStorage === "undefined" || localStorage.getItem("roostSmoke") !== "1") return;
-  _syncFailures = SYNC_MAX_FAILURES;
-  _syncPaused = true;
-  _writeSyncPaused(true);
-  _initiateWsClose("manual");
+  _syncFailures = SYNC_HIDDEN_PARK_FAILURES - 1;
+  _redialDelayMs = nextRedialDelayMs(SYNC_HIDDEN_PARK_FAILURES);
+  const link = _liveLink;
+  if (link) _closeFailedLink(link);
 }
 
 /** Smoke-only partition gate. Close the current tube and hold re-dial until the

@@ -442,6 +442,7 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 							type="button"
 							class="voice-fab voice-fab--discard"
 							data-testid="voice-discard"
+							onMouseDown={(event) => event.preventDefault()}
 							onClick={() => discard()}
 							aria-label="Discard recording"
 						>
@@ -455,6 +456,7 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 						data-testid="voice-mic"
 						data-recording={voiceState() === "listening" ? "true" : "false"}
 						data-finalizing={voiceState() === "finalizing" ? "true" : "false"}
+						onMouseDown={(event) => event.preventDefault()}
 						onPointerDown={() => {
 							// Open the device and fetch the key on press, not on release:
 							// the cold getUserMedia is what used to eat the first words.

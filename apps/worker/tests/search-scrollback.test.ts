@@ -14,10 +14,17 @@
 //   S4 — the slice yield really yields: work scheduled after the search starts
 //        runs before the search resolves, so other sessions' PTY output keeps
 //        flowing during a full-depth scan (CLAUDE.md L11).
+//   S5 — a live viewport match indexes above scrollbackTotal.
+//   S6 — wide glyphs are reported in grid columns.
+//   S7 — the epoch fence: a request naming a numbering the session no longer
+//        serves is REFUSED, not answered from the rebuilt core, and the reply
+//        stamps the epoch it did serve.
+//   S8 — a reframe landing mid-scan stops the walk instead of mixing two
+//        numberings into one result set.
 //
-// Everything is derived from the core at run time: the factory falls back to
-// the stock 1k-line wasm when the patched 10k build is unreadable, and this
-// suite must pin the same contract on either. The scan order is scrollback
+// Everything is derived from the core at run time rather than hardcoding the
+// patched build's 10k depth, so the contract holds for whatever capacity the
+// loaded core reports. The scan order is scrollback
 // (newest retained line first) and then the live viewport, so a truncated
 // result never contains viewport rows.
 
@@ -29,7 +36,9 @@ import type { SessionShellRecord } from "../src/session-record.ts";
 import type { FsmChannel } from "../src/fsm.ts";
 import { asSessionId, asChannelId, asWorkerFp } from "@roost/shared";
 import type { ClientControlFrame } from "@roost/shared/wire";
-import { initCellEmitState, readScrollbackRangeCells, type CellRow } from "@roost/shared/cell";
+import {
+  cellGridEpoch, initCellEmitState, readScrollbackRangeCells, type CellRow,
+} from "@roost/shared/cell";
 import { createWtermCore } from "@roost/shared/wterm-core-factory";
 import { createSbRing } from "../src/session-scrollback-ring.ts";
 import { initAgentOscState } from "../src/terminal-stream-scan.ts";
@@ -51,7 +60,10 @@ interface SearchMatch { row: number; col: number; len: number; preview: string }
 interface RpcOk {
   kind: "rpc-ok";
   request_id: string;
-  data: { matches: SearchMatch[]; truncated: boolean; total: number; cols: number };
+  data: {
+    matches: SearchMatch[]; truncated: boolean; total: number; cols: number;
+    grid_epoch: string;
+  };
 }
 interface RpcErr { kind: "rpc-error"; request_id: string; message: string }
 
@@ -77,11 +89,13 @@ async function injectSession(mgr: SessionManager): Promise<SessionShellRecord> {
     alt_mode: false,
     mode_carry: new Uint8Array(0),
     osc7_carry: new Uint8Array(0),
+    query_carry: new Uint8Array(0),
     ...initAgentOscState(),
     wtermCore,
     session_trace_id: "sbfind00",
     cell_emit: initCellEmitState("test-grid"),
     lastPtyOutMs: 0,
+    sb_origin_pin: null,
     spawnedAtMs: Date.now(),
   };
   mgr.sessions.set(CID, record);
@@ -98,12 +112,17 @@ function makeLinkCapture(): { coordLink: CoordLink; sent: Array<RpcOk | RpcErr> 
 
 function searchFrame(
   query: string,
-  opts: { caseSensitive?: boolean; regex?: boolean; maxMatches?: number } = {},
+  opts: {
+    caseSensitive?: boolean; regex?: boolean; maxMatches?: number; gridEpoch?: string;
+  } = {},
 ): Extract<ClientControlFrame, { kind: "search-scrollback" }> {
   return {
     kind: "search-scrollback",
     request_id: "req",
     session_id: SID,
+    // "" binds to the worker's current epoch — the headless/API path. Tests that
+    // care about the fence name an epoch explicitly.
+    grid_epoch: opts.gridEpoch ?? "",
     query,
     case_sensitive: opts.caseSensitive ?? false,
     regex: opts.regex ?? false,
@@ -271,5 +290,130 @@ describe("search-scrollback", () => {
     expect(hit.row).toBe(monoTotal + viewportRow);
     expect(hit.row).toBeGreaterThanOrEqual(ok.data.total);
     expect(hit.preview).toContain(newest);
+  });
+
+  test("S6 — matches on a row with wide glyphs are reported in GRID columns", async () => {
+    const mgr = freshMgr();
+    const rec = await injectSession(mgr);
+    const { coordLink, sent } = makeLinkCapture();
+    // Grid columns of this row: 开=0-1 始=2-3 ' '=4 中=5-6 文=7-8 ' '=9 e=10 n=11 d=12.
+    rec.wtermCore.writeRaw(new TextEncoder().encode("开始 中文 end\r\n"));
+
+    await handleSearchScrollback(searchFrame("中文"), "req", { coordLink, sessionMgr: mgr });
+    const ok = sent[0] as RpcOk;
+    expect(ok.kind).toBe("rpc-ok");
+    expect(ok.data.matches.length).toBe(1);
+    const hit = ok.data.matches[0]!;
+    // Text offset 3, but grid column 5 — and two characters occupying FOUR
+    // columns. The SPA highlights `len` columns from `col`, so reporting the
+    // text offsets here would mark "始 中" instead.
+    expect(hit.col).toBe(5);
+    expect(hit.len).toBe(4);
+
+    // Tripwire for the continuation-as-space regression: if a wide glyph's
+    // width-0 cell were read as a blank column again, the row's text would be
+    // "开始  中 文  end" and THIS is what would match instead.
+    const phantom = makeLinkCapture();
+    await handleSearchScrollback(
+      searchFrame("中 文"), "req", { coordLink: phantom.coordLink, sessionMgr: mgr },
+    );
+    expect((phantom.sent[0] as RpcOk).data.matches.length).toBe(0);
+
+    // A match that starts on a narrow cell and ends inside a wide one still
+    // names whole columns: "始 中" is offsets 1..4 → columns 2 through 7.
+    const spanning = makeLinkCapture();
+    await handleSearchScrollback(
+      searchFrame("始 中"), "req", { coordLink: spanning.coordLink, sessionMgr: mgr },
+    );
+    const spanHit = (spanning.sent[0] as RpcOk).data.matches[0]!;
+    expect([spanHit.col, spanHit.len]).toEqual([2, 5]);
+  });
+
+  test("S7 — a stale epoch is refused, not answered from the rebuilt core", async () => {
+    const mgr = freshMgr();
+    const rec = await injectSession(mgr);
+    const heldEpoch = cellGridEpoch(rec.cell_emit);
+
+    // The hit a client holds, found under the numbering it displays.
+    const midIndex = rec.cell_emit.sbDropped + Math.floor(rec.wtermCore.getScrollbackCount() / 2);
+    const marker = readRowText(rec, midIndex);
+    const held = makeLinkCapture();
+    await handleSearchScrollback(
+      searchFrame(marker, { gridEpoch: heldEpoch }), "req",
+      { coordLink: held.coordLink, sessionMgr: mgr },
+    );
+    const first = held.sent[0] as RpcOk;
+    expect(first.kind).toBe("rpc-ok");
+    expect(first.data.grid_epoch).toBe(heldEpoch);
+    expect(first.data.matches[0]!.row).toBe(midIndex);
+
+    // A resize rebuild: fresh core, fresh epoch base, origin pinned at 0 — what
+    // session-resize-capture.ts produces. Different content, same index space.
+    const rebuilt = await createWtermCore(COLS, ROWS);
+    rebuilt.writeRaw(new TextEncoder().encode(
+      Array.from({ length: LINE_COUNT }, (_, i) => `REBUILT-${i}`).join("\r\n") + "\r\n",
+    ));
+    rec.wtermCore = rebuilt;
+    rec.cell_emit = initCellEmitState("rebuilt-grid");
+    const freshEpoch = cellGridEpoch(rec.cell_emit);
+    expect(freshEpoch).not.toBe(heldEpoch);
+
+    // The row the client holds is INSIDE the rebuilt core's valid range, naming
+    // unrelated content — the precondition for the silent wrong-row jump.
+    const rebuiltIndex = rec.cell_emit.sbDropped + Math.floor(rebuilt.getScrollbackCount() / 2);
+    expect(midIndex).toBeLessThan(rec.cell_emit.sbDropped + rebuilt.getScrollbackCount());
+    const rebuiltMarker = readRowText(rec, rebuiltIndex);
+    expect(rebuiltMarker).not.toBe(marker);
+
+    // The exact query the rebuilt core WOULD answer, carrying the stale epoch.
+    const stale = makeLinkCapture();
+    await handleSearchScrollback(
+      searchFrame(rebuiltMarker, { gridEpoch: heldEpoch }), "req",
+      { coordLink: stale.coordLink, sessionMgr: mgr },
+    );
+    expect(stale.sent.length).toBe(1);
+    expect(stale.sent[0]!.kind).toBe("rpc-error");
+    expect((stale.sent[0] as RpcErr).message).toBe("grid epoch changed");
+
+    // Not a blanket refusal: the numbering now being served answers normally.
+    const current = makeLinkCapture();
+    await handleSearchScrollback(
+      searchFrame(rebuiltMarker, { gridEpoch: freshEpoch }), "req",
+      { coordLink: current.coordLink, sessionMgr: mgr },
+    );
+    const ok = current.sent[0] as RpcOk;
+    expect(ok.kind).toBe("rpc-ok");
+    expect(ok.data.grid_epoch).toBe(freshEpoch);
+    expect(ok.data.matches.length).toBe(1);
+    expect(ok.data.matches[0]!.row).toBe(rebuiltIndex);
+  });
+
+  test("S8 — a reframe mid-scan stops the walk instead of mixing numberings", async () => {
+    const mgr = freshMgr();
+    const rec = await injectSession(mgr);
+    const { coordLink, sent } = makeLinkCapture();
+    const servingEpoch = cellGridEpoch(rec.cell_emit);
+
+    // A full-depth scan for a marker that does not exist crosses several
+    // SEARCH_SLICE_ROWS boundaries and, undisturbed, reports truncated:false (S4).
+    const search = handleSearchScrollback(
+      searchFrame("NO-SUCH-MARKER", { gridEpoch: servingEpoch }), "req",
+      { coordLink, sessionMgr: mgr },
+    );
+    // Land a semantic reframe on a slice boundary: revision bump, SAME core, so
+    // only the epoch comparison can catch it.
+    await new Promise<void>((resolve) => { setImmediate(resolve); });
+    rec.cell_emit = {
+      ...rec.cell_emit,
+      gridEpochRevision: rec.cell_emit.gridEpochRevision + 1,
+    };
+    await search;
+
+    const ok = sent[0] as RpcOk;
+    expect(ok.kind).toBe("rpc-ok");
+    expect(ok.data.truncated).toBe(true);
+    // Whatever it scanned belongs to the epoch it names, never the new one.
+    expect(ok.data.grid_epoch).toBe(servingEpoch);
+    expect(cellGridEpoch(rec.cell_emit)).not.toBe(servingEpoch);
   });
 });

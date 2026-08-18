@@ -28,6 +28,27 @@ jobs:
       - name: unit
         run: bun run test:unit
 
+  wterm-wasm:
+    name: patched wterm wasm is reproducible
+    # ubuntu only: the artifact digest is toolchain-exact and this is the host
+    # the pinned build was verified on. The checksum half of the gate (committed
+    # artifact vs committed .sha256) also runs in `unit`, on every OS, through
+    # apps/shared/tests/wterm-core-load.test.ts — this job adds the half that
+    # needs a Zig toolchain: that the bytes really are upstream + our one patch.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: install zig 0.16.0
+        run: |
+          set -euo pipefail
+          curl -fsSLO https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz
+          echo "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00  zig-x86_64-linux-0.16.0.tar.xz" | sha256sum -c -
+          tar xf zig-x86_64-linux-0.16.0.tar.xz
+          echo "$PWD/zig-x86_64-linux-0.16.0" >> "$GITHUB_PATH"
+      - name: rebuild and compare
+        run: scripts/rebuild-wterm-wasm.sh --verify
+
   terminal:
     strategy:
       fail-fast: false

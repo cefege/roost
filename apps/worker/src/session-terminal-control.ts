@@ -1,12 +1,30 @@
-import { asChannelId } from "@roost/shared";
-import type { SessionManager } from "./session-manager.ts";
-import type { ViewportClaim } from "./session-record.ts";
-import { desiredViewportSize, needsClaimSnapshot } from "./session-viewport.ts";
-import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
+// Typed terminal-control entry points: acknowledged PTY input and the viewport
+// transaction. Both take the per-channel keeper-admission lane AT RECEIPT, which
+// is what preserves the keeper's receive order — the coordinator guarantees a
+// preceding viewport frame is written to the worker socket before a later input
+// frame, and this lane carries that order through to the keeper writes.
+//
+// Input waits for that ordering boundary ONLY. It never waits for a resize ACK,
+// a browser result, a core rebuild, or a cell repair: input blocked behind a
+// pending control is the stall this file exists to prevent.
 
-const BACKGROUND_CAUSE = 5;
-const SNAPSHOT_CAUSES = new Set([1, 3, 6]);
-const RETRY_DELAY_MS = 25;
+import type { SessionManager } from "./session-manager.ts";
+import type { TerminalRequestBudget } from "./transport/CoordLink-types.ts";
+import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
+import {
+  acquireKeeperAdmission,
+  enqueueTerminalControl,
+  type KeeperAdmissionTicket,
+} from "./session-control-lanes.ts";
+import { applyViewportNow, reconcileViewportNow } from "./session-terminal-txn.ts";
+
+/** Outer report bound. Above the transaction ceiling (7 s) so a transaction that
+ *  finished inside its own phase budgets always reports its truthful result, and
+ *  under the coordinator's 8 s viewport-result timeout so the coordinator hears
+ *  the worker rather than its own clock. A transaction still queued behind an
+ *  earlier one is what this actually catches. */
+const VIEWPORT_APPLICATION_RESULT_BUDGET_MS = 7_500;
+const VIEWPORT_APPLICATION_DEADLINE_REASON = "viewport application result deadline exceeded";
 
 export type WorkerInputResult =
   | { status: "accepted"; writtenBytes: number }
@@ -15,7 +33,8 @@ export type WorkerInputResult =
 
 export type WorkerViewportResult =
   | { status: "committed"; channelResizeSeq: number; cols: number; rows: number; resized: boolean }
-  | { status: "rejected"; reason: string };
+  | { status: "rejected"; reason: string }
+  | { status: "ambiguous"; reason: string };
 
 export interface WorkerViewportIntent {
   sessionId: string;
@@ -25,10 +44,9 @@ export interface WorkerViewportIntent {
   rows: number;
   cause: number;
   heldCellSeq: bigint;
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  /** Hop-local monotonic budget from the delivering transport. Absent for the
+   *  in-process browser-command path, which has no coordinator waiter. */
+  budget?: TerminalRequestBudget;
 }
 
 export async function writeTerminalInput(
@@ -36,6 +54,7 @@ export async function writeTerminalInput(
   sessionId: string,
   inputSeq: bigint,
   bytes: Uint8Array,
+  budget?: TerminalRequestBudget,
 ): Promise<WorkerInputResult> {
   const rec = this.getBySessionId(sessionId);
   if (!rec) return { status: "rejected", writtenBytes: 0, reason: "session is not live" };
@@ -43,19 +62,51 @@ export async function writeTerminalInput(
   if (inputSeq <= 0n || inputSeq > BigInt(Number.MAX_SAFE_INTEGER)) {
     return { status: "rejected", writtenBytes: 0, reason: "input sequence exceeds keeper protocol range" };
   }
-  const pool = getMultiplexedPool();
-  if (!pool.socket) return { status: "rejected", writtenBytes: 0, reason: "keeper is disconnected" };
+  const channelId = rec.channelId;
+  const ticket = acquireKeeperAdmission(this, channelId, "terminal_input");
   const owned = bytes.slice();
-  (this as SessionManager & { markInputSensitive?: (channelId: number) => void })
-    .markInputSensitive?.(rec.channelId);
+  let command;
   try {
-    const result = await pool.requestInput(rec.channelId, Number(inputSeq), owned);
+    await ticket.granted;
+    // Re-check immediately before the write, never from a value snapshotted at
+    // entry: queue time is exactly what these guards are for. All three are
+    // pre-write, so their failures are DEFINITE rejections.
+    if (!this.sessions.has(channelId)) {
+      return { status: "rejected", writtenBytes: 0, reason: "session closed before the keeper write" };
+    }
+    if (budget && !budget.isCurrentConnection()) {
+      return { status: "rejected", writtenBytes: 0, reason: "worker connection superseded before the keeper write" };
+    }
+    if (budget && budget.remainingMs() <= 0) {
+      return { status: "rejected", writtenBytes: 0, reason: "input budget expired before the keeper write" };
+    }
+    this.markInputSensitive(channelId);
+    command = getMultiplexedPool().beginInput(channelId, Number(inputSeq), owned);
+    if (!command.admission.written) {
+      return { status: "rejected", writtenBytes: 0, reason: `keeper did not accept the input: ${command.admission.reason}` };
+    }
+  } catch (error) {
+    // A throw before/at the write cannot prove the bytes reached the keeper.
+    return {
+      status: "ambiguous",
+      writtenBytes: 0,
+      reason: error instanceof Error ? error.message : String(error),
+    };
+  } finally {
+    // The lane orders WRITES. Holding it for the ACK would put every later input
+    // behind this one's round trip.
+    ticket.release();
+  }
+
+  try {
+    const result = await command.result;
     if (result.kind === "ack") {
       return result.writtenBytes === owned.byteLength
         ? { status: "accepted", writtenBytes: result.writtenBytes }
         : { status: "ambiguous", writtenBytes: result.writtenBytes, reason: "keeper acknowledged an incomplete input batch" };
     }
     if (result.kind === "reject") {
+      // The keeper proves nothing reached the PTY.
       return { status: "rejected", writtenBytes: 0, reason: result.reason };
     }
     return { status: "ambiguous", writtenBytes: result.writtenBytes ?? 0, reason: result.reason };
@@ -64,134 +115,29 @@ export async function writeTerminalInput(
   }
 }
 
-function restoreViewerClaim(
-  mgr: SessionManager,
-  channelId: number,
-  viewerId: string,
-  installed: ViewportClaim | null,
-  prior: ViewportClaim | undefined,
-): void {
-  const claims = mgr.viewportClaims.get(channelId);
-  if (!claims) return;
-  if (installed === null) {
-    if (claims.has(viewerId)) return;
-  } else if (claims.get(viewerId) !== installed) return;
-  if (prior) claims.set(viewerId, prior);
-  else claims.delete(viewerId);
-}
-
-function drainPostResizeOutput(mgr: SessionManager, channelId: number): void {
-  const queued = mgr.postResizeOutput.get(channelId);
-  mgr.postResizeOutput.delete(channelId);
-  if (!queued) return;
-  for (const chunk of queued) mgr.emitUpstreamChunk(channelId, chunk);
-}
-
-async function nextResizeSequence(mgr: SessionManager, channelId: number): Promise<number> {
-  const known = mgr.channelResizeSeq.get(channelId);
-  if (known !== undefined) return known + 1;
-  const history = await getMultiplexedPool().getHistoryRecords(channelId);
-  let latest = 0;
-  for (const record of history.records) {
-    if (record.kind === "resize") latest = Math.max(latest, record.seq);
-  }
-  mgr.channelResizeSeq.set(channelId, latest);
-  return latest + 1;
-}
-
-async function commitResize(
-  mgr: SessionManager,
-  channelId: number,
-  resizeSeq: number,
-  cols: number,
-  rows: number,
-): Promise<{ seq: number; cols: number; rows: number }> {
-  const pool = getMultiplexedPool();
-  let result = await pool.requestResize(channelId, resizeSeq, cols, rows);
-  while (result.kind === "unknown") {
-    if (!mgr.sessions.has(channelId)) throw new Error("session closed while resize was unresolved");
-    result = await pool.queryResizeStatus(channelId, resizeSeq);
-    if (result.kind === "ack" && result.seq < resizeSeq) {
-      await delay(RETRY_DELAY_MS);
-      result = await pool.requestResize(channelId, resizeSeq, cols, rows);
-    }
-  }
-  if (result.kind === "reject") throw new Error(result.reason);
-  if (result.seq !== resizeSeq || result.cols !== cols || result.rows !== rows) {
-    throw new Error("keeper returned a conflicting resize status");
-  }
-  return result;
-}
-
-async function applyViewportNow(
-  mgr: SessionManager,
-  channelId: number,
-  intent: WorkerViewportIntent,
+function reportViewportResultWithinBudget(
+  operation: Promise<WorkerViewportResult>,
 ): Promise<WorkerViewportResult> {
-  const rec = mgr.sessions.get(channelId);
-  if (!rec || rec.sessionId !== intent.sessionId) return { status: "rejected", reason: "session is not live" };
-  let claims = mgr.viewportClaims.get(channelId);
-  if (!claims) {
-    claims = new Map();
-    mgr.viewportClaims.set(channelId, claims);
-  }
-  const prior = claims.get(intent.viewerId);
-  const priorSeq = prior?.clientSeq ?? -1n;
-  const isBackground = intent.cause === BACKGROUND_CAUSE;
-  const withdraw = !isBackground && (intent.cols <= 0 || intent.rows <= 0);
-  if (intent.clientSeq < priorSeq) return { status: "rejected", reason: "stale viewport sequence" };
-  if (intent.clientSeq === priorSeq) {
-    const equivalent = withdraw ? prior === undefined : prior?.cols === intent.cols && prior.rows === intent.rows;
-    if (!equivalent) return { status: "rejected", reason: "conflicting viewport sequence" };
-    if (prior) prior.lastMs = Date.now();
-    if (SNAPSHOT_CAUSES.has(intent.cause)
-      && needsClaimSnapshot(mgr, channelId, Number(intent.heldCellSeq), claims.size > 0)) {
-      mgr.emitCellSnapshot(asChannelId(channelId));
-    }
-    const size = mgr.lastAppliedSize.get(channelId) ?? { cols: rec.wtermCore.getCols(), rows: rec.wtermCore.getRows() };
-    return { status: "committed", channelResizeSeq: mgr.channelResizeSeq.get(channelId) ?? 0, cols: size.cols, rows: size.rows, resized: false };
-  }
-
-  const wasStreaming = claims.size > 0;
-  const shouldSnapshot = !withdraw && needsClaimSnapshot(mgr, channelId, Number(intent.heldCellSeq), wasStreaming);
-  const installed: ViewportClaim | null = withdraw ? null : {
-    cols: intent.cols,
-    rows: intent.rows,
-    lastMs: Date.now(),
-    clientSeq: intent.clientSeq,
+  const { promise, resolve } = Promise.withResolvers<WorkerViewportResult>();
+  let reported = false;
+  const finish = (result: WorkerViewportResult): void => {
+    if (reported) return;
+    reported = true;
+    clearTimeout(timer);
+    resolve(result);
   };
-  mgr._cancelPendingWithdraw(channelId, intent.viewerId);
-  if (installed) claims.set(intent.viewerId, installed);
-  else claims.delete(intent.viewerId);
-
-  const desired = desiredViewportSize.call(mgr, channelId);
-  const current = mgr.lastAppliedSize.get(channelId) ?? { cols: rec.wtermCore.getCols(), rows: rec.wtermCore.getRows() };
-  if (!desired || (desired.cols === current.cols && desired.rows === current.rows)) {
-    if (shouldSnapshot) mgr.emitCellSnapshot(asChannelId(channelId));
-    return { status: "committed", channelResizeSeq: mgr.channelResizeSeq.get(channelId) ?? 0, cols: current.cols, rows: current.rows, resized: false };
-  }
-
-  const resizeSeq = await nextResizeSequence(mgr, channelId);
-  mgr.cellEmissionGates.add(channelId);
-  try {
-    const result = await commitResize(mgr, channelId, resizeSeq, desired.cols, desired.rows);
-    // Keeper dispatch yields before post-ACK PtyOut. Buffer synchronously at the
-    // continuation, rebuild at the boundary, then parse bytes at new geometry.
-    mgr.postResizeOutput.set(channelId, []);
-    await mgr._rebuildWtermCore(channelId, result.cols, result.rows);
-    mgr.lastAppliedSize.set(channelId, { cols: result.cols, rows: result.rows });
-    mgr.channelResizeSeq.set(channelId, result.seq);
-    drainPostResizeOutput(mgr, channelId);
-    mgr.cellEmissionGates.delete(channelId);
-    mgr.emitCellSnapshot(asChannelId(channelId));
-    return { status: "committed", channelResizeSeq: result.seq, cols: result.cols, rows: result.rows, resized: true };
-  } catch (error) {
-    restoreViewerClaim(mgr, channelId, intent.viewerId, installed, prior);
-    mgr.postResizeOutput.delete(channelId);
-    mgr.cellEmissionGates.delete(channelId);
-    if (mgr.sessions.has(channelId)) mgr.emitCellSnapshot(asChannelId(channelId));
-    return { status: "rejected", reason: error instanceof Error ? error.message : String(error) };
-  }
+  const timer = setTimeout(
+    () => finish({ status: "ambiguous", reason: VIEWPORT_APPLICATION_DEADLINE_REASON }),
+    VIEWPORT_APPLICATION_RESULT_BUDGET_MS,
+  );
+  void operation.then(
+    finish,
+    (error) => finish({
+      status: "ambiguous",
+      reason: error instanceof Error ? error.message : String(error),
+    }),
+  );
+  return promise;
 }
 
 export function applyTerminalViewport(
@@ -201,12 +147,27 @@ export function applyTerminalViewport(
   const rec = this.getBySessionId(intent.sessionId);
   if (!rec) return Promise.resolve({ status: "rejected", reason: "session is not live" });
   const channelId = rec.channelId;
-  const prior = this.terminalControlChains.get(channelId) ?? Promise.resolve();
-  const result = prior.catch(() => undefined).then(() => applyViewportNow(this, channelId, intent));
-  const tail = result.then(() => undefined, () => undefined);
-  this.terminalControlChains.set(channelId, tail);
-  void tail.finally(() => {
-    if (this.terminalControlChains.get(channelId) === tail) this.terminalControlChains.delete(channelId);
-  });
-  return result;
+  // Receipt order, not run order: the ticket is taken before the control lane so
+  // an input received after this viewport can never reach the keeper first.
+  const ticket = acquireKeeperAdmission(this, channelId, "viewport_resize");
+  const operation = enqueueTerminalControl(
+    this,
+    channelId,
+    "viewport_claim",
+    () => applyViewportNow(this, channelId, intent, ticket),
+  ).finally(() => ticket.release());
+  return reportViewportResultWithinBudget(operation);
+}
+
+/** Deferred withdrawal, freshness reaping, and SCD recompute. Same control lane
+ *  and same capture as a typed claim, so a reap and a claim can never build two
+ *  cores for one channel. Fire-and-forget: no caller is waiting on a result. */
+export function reconcileTerminalViewport(this: SessionManager, channelId: number): void {
+  const ticket: KeeperAdmissionTicket = acquireKeeperAdmission(this, channelId, "viewport_resize");
+  void enqueueTerminalControl(
+    this,
+    channelId,
+    "viewport_reconcile",
+    () => reconcileViewportNow(this, channelId, ticket),
+  ).catch(() => undefined).finally(() => ticket.release());
 }

@@ -9,7 +9,7 @@
 // the upstream diag() never invokes our sink.
 //
 // Owners: apps/web/src/main.tsx (installer), CellTerminal.tsx + sync.ts +
-// input-channel.ts (callers via the global `diag` export).
+// ws/sync-outbound.ts (callers via the global `diag` export).
 
 import { setDiagSink, setSignalSink, isDiagEnabled, signal } from "@roost/shared/diag";
 import { coordClient } from "../connect.ts";
@@ -35,7 +35,8 @@ export type SpaPhaseName =
   | "viewport_accept"
   | "first_cell_receive"
   | "first_cell_apply"
-  | "marker_presented";
+  | "marker_presented"
+  | "cursor_presented";
 
 export type SpaPhaseValue = string | number | boolean | bigint | null | undefined;
 
@@ -215,9 +216,11 @@ function _printEchoRtt(): void {
 
 // Lag-lens (Phase 1). Per-hop echo round-trip breakdown. recordCellLag reads
 // the 4 down-leg frame stamps off the raw PbCellGridFrame; `post` (client POST
-// duration) + `paint` (renderer.apply) arrive via pushRecord. `paint_screen` =
-// frame-arrival→pixels (double-rAF, ~1-frame floor). window.__roostLag() prints
-// p50/p95/max per segment + the dominant hop. All wall-clock ms; valid
+// duration) + `renderer_apply` (fold plus any synchronous DOM reconciliation)
+// arrive via pushRecord. `dom_reconcile_opportunity` is frame arrival through
+// two rAFs after the apply; it is a presentation opportunity, never raster
+// paint proof. window.__roostLag() prints p50/p95/max per segment + the
+// dominant hop. All wall-clock ms; valid
 const LAG_CAP = 500;
 // Felt-lag alarm floor for the always-on cell.paint_lag signal. The worker's own
 // coalesce budget is 16 ms and the documented first-paint budget is 40 ms
@@ -233,7 +236,8 @@ const PAINT_LAG_SIGNAL_MS = 750;
 // direction to fail.
 const _lagFloor = new Map<string, number>();
 const _lag: Record<string, number[]> = {
-  queue_wait: [], post: [], worker_prep: [], w2c_wire: [], coord_internal: [], c2client_wire: [], paint: [], paint_screen: [],
+  queue_wait: [], post: [], worker_prep: [], w2c_wire: [], coord_internal: [],
+  c2client_wire: [], renderer_apply: [], dom_reconcile_opportunity: [],
 };
 function _pushLag(seg: string, ms: number): void {
   const buf = _lag[seg];
@@ -292,7 +296,7 @@ function _pct(arr: number[], p: number): number {
   return s[Math.min(s.length - 1, Math.floor(p * s.length))] ?? 0;
 }
 function _printLag(): void {
-  const segs = ["queue_wait", "post", "worker_prep", "w2c_wire", "coord_internal", "c2client_wire", "paint", "paint_screen"];
+  const segs = ["queue_wait", "post", "worker_prep", "w2c_wire", "coord_internal", "c2client_wire", "renderer_apply", "dom_reconcile_opportunity"];
   const p50s: Record<string, number> = {};
   for (const seg of segs) {
     const arr = _lag[seg] ?? [];
@@ -399,10 +403,10 @@ function pushRecord(record: Record<string, unknown>, isSignal: boolean): void {
     if (d > 0) _pushLag("queue_wait", d);
   } else if (evt === "cell.apply_dur") {
     const d = Number(record.dur_ms ?? 0);
-    if (d > 0) _pushLag("paint", d);
-  } else if (evt === "cell.paint_screen") {
+    if (d > 0) _pushLag("renderer_apply", d);
+  } else if (evt === "cell.dom_reconcile_opportunity") {
     const d = Number(record.dur_ms ?? 0);
-    if (d > 0) _pushLag("paint_screen", d);
+    if (d > 0) _pushLag("dom_reconcile_opportunity", d);
   }
 
   if (_buf.length >= FLUSH_MAX_ENTRIES) {

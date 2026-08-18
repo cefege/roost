@@ -100,6 +100,7 @@ export type SyncV2ResultControl = Extract<
     case:
       | "viewportAccepted"
       | "viewportRejected"
+      | "viewportAmbiguous"
       | "inputAccepted"
       | "inputRejected"
       | "inputAmbiguous";

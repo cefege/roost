@@ -24,7 +24,10 @@ import {
   WBinarySchema,
 } from "@roost/shared/proto/worker_transport_pb";
 import type { CoordWorkerDown } from "@roost/shared/proto/worker_transport_pb";
-import { SessionsGetScrollbackCellsRequestSchema } from "@roost/shared/proto/coordinator_pb";
+import {
+  ScrollbackHistoryFloor,
+  SessionsGetScrollbackCellsRequestSchema,
+} from "@roost/shared/proto/coordinator_pb";
 import { openDb } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
 import { loadOrCreateCoordKey } from "../src/coord-key.ts";
@@ -36,11 +39,11 @@ import {
   verifyJwt,
 } from "../src/jwt.ts";
 import {
+  createAnnouncedChannelBarrier,
   handleWorkerWsUpgrade,
   makeWorkerWsHandler,
   type WorkerWsData,
 } from "../src/connect/worker-ws-handler.ts";
-import { AnnouncedChannelBarrier } from "../src/connect/announced-channel-barrier.ts";
 import { getWorkerHubSocket, type WorkerServiceDeps } from "../src/connect/worker-service.ts";
 import { makeSessionScrollbackHandlers } from "../src/connect/handlers-sessions-scrollback.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";
@@ -297,12 +300,16 @@ describe("worker↔coord raw-WS transport", () => {
           start_row: 0,
           end_row: 500,
           grid_epoch: "worker-grid:9",
+          history_floor: "resize_replay",
         }),
       }) },
     }));
 
     const response = await responsePromise;
     expect(response.gridEpoch).toBe("worker-grid:9");
+    // The floor REASON has to survive the coord hop too, or the browser is told
+    // history is missing with no way to say whether it is recoverable.
+    expect(response.historyFloor).toBe(ScrollbackHistoryFloor.RESIZE_REPLAY);
     w.close();
   });
 
@@ -371,8 +378,19 @@ describe("worker↔coord raw-WS transport", () => {
         seen.push(new Uint8Array(f.frame.value.data));
       },
       close() { /* noop */ },
+      // message() fences superseded generations before decoding; this stub
+      // stands in for the fingerprint's current handle.
+      isCurrentGeneration: () => true,
     };
-    const fakeWs = { data: { caller: { fingerprint: workerFp }, fp: workerFp, conn: fakeConn, tail: Promise.resolve() } };
+    const fakeWs = {
+      data: {
+        caller: { fingerprint: workerFp }, fp: workerFp, conn: fakeConn,
+        tail: Promise.resolve(),
+        // The channel is never announced, so both fast-path lanes fall straight
+        // through to handleUpstream.
+        announcedChannels: createAnnouncedChannelBarrier(workerFp),
+      },
+    };
     const payload = new Uint8Array([0x1b, 0x5b, 0x41, 0x99]); // ESC [ A + high byte
     const frame = create(CoordWorkerUpSchema, {
       frame: { case: "binary", value: create(WBinarySchema, { channelId: 3, direction: 1, seq: 42n, data: payload }) },
@@ -398,7 +416,7 @@ describe("worker↔coord raw-WS transport", () => {
       fp: workerFp,
       conn: null,
       tail: Promise.resolve(),
-      announcedChannels: new AnnouncedChannelBarrier(),
+      announcedChannels: createAnnouncedChannelBarrier(workerFp),
     };
     invalidateJwtKey(deps.jwtCache, workerFp);
     let closed: [number, string] | undefined;

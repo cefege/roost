@@ -14,6 +14,8 @@ type SmokeWindow = Window & {
   readonly __smoke: SmokeApi;
   __roostDriverBeforeNavigationEpochMs?: number;
   __stallCanary?: string;
+  __fixtureCursorRows?: Element[];
+  __fixtureCursorText?: string[];
 };
 
 // Playwright serializes callbacks without module closures. This erased binding
@@ -116,6 +118,223 @@ async function navigateAndProve(page: Page, sessionId: string, marker: string): 
     return smoke.waitForPaintedMarker(id, expected, 60_000);
   }, { id: sessionId, expected: marker });
 }
+
+test("real PTY fixture preserves framing and deterministic armed operations", async ({
+  smokePage,
+  stack,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium-desktop", "desktop real-PTY fixture contract");
+  test.setTimeout(120_000);
+
+  const fixtureWorker = await stack.startPtyFixtureWorker();
+  const sessionId = await spawnFixtureSession(smokePage, fixtureWorker);
+  await navigateAndProve(smokePage, sessionId, PTY_FIXTURE_READY);
+  const suffix = crypto.randomUUID().replaceAll("-", "").slice(0, 12);
+
+  const unicodeMarker = `UNICODE-${suffix}-café-λ`;
+  const adjacentMarker = `ADJACENT-${suffix}`;
+  const adjacentFrames = encodePtyFixtureCommand({ op: "EMIT", text: unicodeMarker })
+    + encodePtyFixtureCommand({ op: "EMIT", text: adjacentMarker });
+  await smokePage.evaluate(async ({ id, frames, unicode, adjacent }) => {
+    const smoke = window.__smoke;
+    await smoke.input(id, frames);
+    await Promise.all([
+      smoke.waitForPaintedMarker(id, unicode),
+      smoke.waitForPaintedMarker(id, adjacent),
+    ]);
+  }, {
+    id: sessionId,
+    frames: adjacentFrames,
+    unicode: unicodeMarker,
+    adjacent: adjacentMarker,
+  });
+  const framedText = await smokePage.evaluate((id) => {
+    const slot = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
+    return Array.from(slot?.querySelectorAll(".cell-viewport > .cell-row") ?? [])
+      .map((row) => row.textContent ?? "")
+      .join("\n");
+  }, sessionId);
+  expect(framedText.indexOf(unicodeMarker)).toBeGreaterThanOrEqual(0);
+  expect(framedText.indexOf(adjacentMarker)).toBeGreaterThan(framedText.indexOf(unicodeMarker));
+
+  const cursorNonce = `cursor-${suffix}`;
+  const cursorReady = `ARMED:CURSOR_MOVE:${cursorNonce}`;
+  await smokePage.evaluate(async ({ id, frame, marker }) => {
+    const smoke = window.__smoke;
+    await smoke.input(id, frame);
+    await smoke.waitForPaintedMarker(id, marker);
+  }, {
+    id: sessionId,
+    frame: encodePtyFixtureCommand({ op: "ARM_CURSOR_MOVE", nonce: cursorNonce }),
+    marker: cursorReady,
+  });
+  const cursorFrameMarker = `CURSOR-ARMED-FRAME-${suffix}`;
+  await smokePage.evaluate(async ({ id, frame, marker }) => {
+    const smoke = window.__smoke;
+    await smoke.input(id, frame);
+    await smoke.waitForPaintedMarker(id, marker);
+  }, {
+    id: sessionId,
+    frame: encodePtyFixtureCommand({ op: "EMIT", text: cursorFrameMarker }),
+    marker: cursorFrameMarker,
+  });
+  await smokePage.getByTestId(`terminal-slot-${sessionId}`).click();
+  await expect.poll(() => smokePage.evaluate((id) => {
+    return window.__smoke.paneFocused(id).focused;
+  }, sessionId)).toBe(true);
+  const cursorBefore = await smokePage.evaluate((id) => {
+    const smoke = window.__smoke;
+    const slot = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
+    const viewport = slot?.querySelector(".cell-viewport");
+    const cursor = viewport?.querySelector<HTMLElement>(".cell-cursor");
+    if (!viewport || !cursor) throw new Error("cell cursor is unavailable");
+    const rows = Array.from(viewport.children).filter((child) => child.classList.contains("cell-row"));
+    window.__fixtureCursorRows = rows;
+    window.__fixtureCursorText = rows.map((row) => row.textContent ?? "");
+    return {
+      frames: smoke.cellFrameCount(id),
+      left: cursor.style.left,
+      pixelLeft: cursor.getBoundingClientRect().left,
+    };
+  }, sessionId);
+  expect(cursorBefore.left).toBe("0ch");
+  await smokePage.keyboard.press("x");
+  await expect.poll(() => smokePage.evaluate(({ id, frames, pixelLeft }) => {
+    const smoke = window.__smoke;
+    const slot = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
+    const viewport = slot?.querySelector(".cell-viewport");
+    const cursor = viewport?.querySelector<HTMLElement>(".cell-cursor");
+    const rows = viewport
+      ? Array.from(viewport.children).filter((child) => child.classList.contains("cell-row"))
+      : [];
+    const savedRows = window.__fixtureCursorRows;
+    const savedText = window.__fixtureCursorText;
+    return {
+      frameAdvanced: smoke.cellFrameCount(id) > frames,
+      left: cursor?.style.left ?? "",
+      pixelMoved: cursor !== null
+        && cursor !== undefined
+        && cursor.getBoundingClientRect().left > pixelLeft,
+      nodesStable: savedRows !== undefined
+        && savedRows.length === rows.length
+        && rows.every((row, index) => row === savedRows[index]),
+      textStable: savedText !== undefined
+        && savedText.length === rows.length
+        && rows.every((row, index) => (row.textContent ?? "") === savedText[index]),
+    };
+  }, {
+    id: sessionId,
+    frames: cursorBefore.frames,
+    pixelLeft: cursorBefore.pixelLeft,
+  }), {
+    timeout: 30_000,
+    intervals: [50],
+  }).toEqual({
+    frameAdvanced: true,
+    left: "1ch",
+    pixelMoved: true,
+    nodesStable: true,
+    textStable: true,
+  });
+  await smokePage.evaluate(() => {
+    delete window.__fixtureCursorRows;
+    delete window.__fixtureCursorText;
+  });
+
+  const overwriteNonceOne = `overwrite-a-${suffix}`;
+  const overwriteNonceTwo = `overwrite-b-${suffix}`;
+  const overwriteReadyOne = `ARMED:LINE_OVERWRITE:${overwriteNonceOne}`;
+  const overwriteReadyTwo = `ARMED:LINE_OVERWRITE:${overwriteNonceTwo}`;
+  const overwriteOne = `OVERWRITE:${overwriteNonceOne}:1`;
+  const overwriteTwo = `OVERWRITE:${overwriteNonceTwo}:2`;
+  await smokePage.evaluate(async ({ id, frame, marker }) => {
+    const smoke = window.__smoke;
+    await smoke.input(id, frame);
+    await smoke.waitForPaintedMarker(id, marker);
+  }, {
+    id: sessionId,
+    frame: encodePtyFixtureCommand({ op: "ARM_LINE_OVERWRITE", nonce: overwriteNonceOne }),
+    marker: overwriteReadyOne,
+  });
+  await smokePage.evaluate(async ({ id, input, overwritten, armed }) => {
+    const smoke = window.__smoke;
+    await smoke.input(id, input);
+    await Promise.all([
+      smoke.waitForPaintedMarker(id, overwritten),
+      smoke.waitForPaintedMarker(id, armed),
+    ]);
+  }, {
+    id: sessionId,
+    input: `first-${suffix}-café\r\n${encodePtyFixtureCommand({
+      op: "ARM_LINE_OVERWRITE",
+      nonce: overwriteNonceTwo,
+    })}`,
+    overwritten: overwriteOne,
+    armed: overwriteReadyTwo,
+  });
+  await smokePage.evaluate(async ({ id, input, marker }) => {
+    const smoke = window.__smoke;
+    await smoke.input(id, input);
+    await smoke.waitForPaintedMarker(id, marker);
+  }, { id: sessionId, input: `second-${suffix}\n`, marker: overwriteTwo });
+
+  const altKeyNonce = `alt-key-${suffix}`;
+  const altLineNonce = `alt-line-${suffix}`;
+  const altKeyReady = `ARMED:ALT_REDRAW:${altKeyNonce}:key`;
+  const altLineReady = `ARMED:ALT_REDRAW:${altLineNonce}:line`;
+  const altMarker = `ALT_REDRAW:${altKeyNonce}:1:alt`;
+  const mainMarker = `ALT_REDRAW:${altLineNonce}:2:main`;
+  await smokePage.evaluate(async ({ id, frame, marker }) => {
+    const smoke = window.__smoke;
+    await smoke.input(id, frame);
+    await smoke.waitForPaintedMarker(id, marker);
+  }, {
+    id: sessionId,
+    frame: encodePtyFixtureCommand({ op: "ARM_ALT_REDRAW", nonce: altKeyNonce, trigger: "key" }),
+    marker: altKeyReady,
+  });
+  await smokePage.keyboard.press("k");
+  await smokePage.evaluate(({ id, marker }) => {
+    return window.__smoke.waitForPaintedMarker(id, marker);
+  }, { id: sessionId, marker: altMarker });
+  await smokePage.evaluate(async ({ id, frame, marker }) => {
+    const smoke = window.__smoke;
+    await smoke.input(id, frame);
+    await smoke.waitForPaintedMarker(id, marker);
+  }, {
+    id: sessionId,
+    frame: encodePtyFixtureCommand({
+      op: "ARM_ALT_REDRAW",
+      nonce: altLineNonce,
+      trigger: "line",
+    }),
+    marker: altLineReady,
+  });
+  const altText = await smokePage.evaluate((id) => {
+    const slot = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
+    return Array.from(slot?.querySelectorAll(".cell-viewport > .cell-row") ?? [])
+      .map((row) => row.textContent ?? "")
+      .join("\n");
+  }, sessionId);
+  expect(altText).toContain(altMarker);
+  expect(altText).toContain(altLineReady);
+  expect(altText).not.toContain(unicodeMarker);
+
+  await smokePage.evaluate(async ({ id, input, marker }) => {
+    const smoke = window.__smoke;
+    await smoke.input(id, input);
+    await smoke.waitForPaintedMarker(id, marker);
+  }, { id: sessionId, input: `toggle-${suffix}\r\n`, marker: mainMarker });
+  const mainText = await smokePage.evaluate((id) => {
+    const slot = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
+    return Array.from(slot?.querySelectorAll(".cell-viewport > .cell-row") ?? [])
+      .map((row) => row.textContent ?? "")
+      .join("\n");
+  }, sessionId);
+  expect(mainText).toContain(mainMarker);
+  expect(mainText).not.toContain(altMarker);
+  expect(mainText).not.toContain(altLineReady);
+});
 
 test("terminal perf: navigation-origin paint and retained 20k flood", async ({ coldSmokePage, browser, stack }, testInfo) => {
   test.skip(testInfo.project.name !== "chromium-desktop", "desktop perf budget");

@@ -14,10 +14,12 @@ import {
   encodeResizeStatusQuery,
 } from "./protocol-v2.ts";
 import { muxLocalEndpoint } from "./keeper-pool-config.ts";
+import { monoNowMs } from "../util/mono.ts";
 import type { MultiplexedKeeperPool } from "./multiplexed-client.ts";
 import type {
   KeeperInputResult,
   KeeperResizeResult,
+  KeeperTerminalState,
 } from "./protocol-v2.ts";
 
 const DROP_LOG_INTERVAL_MS = 1000;
@@ -106,71 +108,88 @@ export function settlePendingInput(
   return true;
 }
 
-export function channelInputRequest(
+/** Reasons a keeper command provably never reached the socket. All four are
+ *  shared by `PtyInFailureReason` and `ResizeRejectReason`, so an admission
+ *  failure maps to a definite typed result without inventing a wire reason. */
+export type KeeperWriteRejection =
+  | "disconnected"
+  | "unsupported"
+  | "invalid_request"
+  | "queue_full";
+
+export type KeeperWriteAdmission =
+  | { written: true }
+  | { written: false; reason: KeeperWriteRejection };
+
+/** Two-phase keeper command. `admission` is decided synchronously: the request
+ *  frame either reached the current socket or provably never will, which is the
+ *  only phase a caller may treat as definite. `result` settles later — a lost
+ *  result after a successful write is ambiguous, never a rejection. */
+export interface KeeperCommand<T> {
+  admission: KeeperWriteAdmission;
+  result: Promise<T>;
+}
+
+function unwritten<T>(reason: KeeperWriteRejection, result: T): KeeperCommand<T> {
+  return { admission: { written: false, reason }, result: Promise.resolve(result) };
+}
+
+export function channelInputCommand(
   pool: MultiplexedKeeperPool,
   channelId: number,
   inputSeq: number,
   bytes: Uint8Array,
-): Promise<KeeperInputResult> {
-  if (!pool.socket || pool.socket.destroyed) {
-    return Promise.resolve({ kind: "reject", inputSeq, writtenBytes: 0, reason: "disconnected" });
-  }
-  if (!pool.supportsKeeperFeature(KeeperFeature.AcknowledgedInput)) {
-    return Promise.resolve({ kind: "reject", inputSeq, writtenBytes: 0, reason: "unsupported" });
-  }
+): KeeperCommand<KeeperInputResult> {
+  const definite = (reason: KeeperWriteRejection): KeeperCommand<KeeperInputResult> =>
+    unwritten(reason, { kind: "reject", inputSeq, writtenBytes: 0, reason });
+  if (!pool.socket || pool.socket.destroyed) return definite("disconnected");
+  if (!pool.supportsKeeperFeature(KeeperFeature.AcknowledgedInput)) return definite("unsupported");
   let frame: Buffer;
   try {
     frame = encodePtyInRequestFrame(channelId, { inputSeq, bytes });
   } catch {
-    return Promise.resolve({ kind: "reject", inputSeq, writtenBytes: 0, reason: "invalid_request" });
+    return definite("invalid_request");
   }
   const key = commandKey(channelId, inputSeq);
   const usage = pool._pendingInputUsage.get(channelId) ?? { commands: 0, bytes: 0 };
   if (pool.pendingInputs.has(key)
       || usage.commands >= MAX_PENDING_INPUT_COMMANDS
       || usage.bytes + bytes.byteLength > MAX_PENDING_INPUT_BYTES) {
-    return Promise.resolve({ kind: "reject", inputSeq, writtenBytes: 0, reason: "queue_full" });
+    return definite("queue_full");
   }
 
-  return new Promise<KeeperInputResult>((resolve) => {
-    const pending = {
-      channelId,
-      inputSeq,
-      expectedBytes: bytes.byteLength,
-      timer: setTimeout(() => {
-        settlePendingInput(pool, channelId, inputSeq, {
-          kind: "ambiguous",
-          inputSeq,
-          writtenBytes: null,
-          reason: "timeout",
-        });
-      }, COMMAND_RESULT_TIMEOUT_MS),
-      resolve,
-    };
-    pool.pendingInputs.set(key, pending);
-    usage.commands++;
-    usage.bytes += bytes.byteLength;
-    pool._pendingInputUsage.set(channelId, usage);
-    try {
-      pool.socket!.write(frame);
-    } catch {
+  let admission: KeeperWriteAdmission = { written: true };
+  const { promise, resolve } = Promise.withResolvers<KeeperInputResult>();
+  pool.pendingInputs.set(key, {
+    channelId,
+    inputSeq,
+    expectedBytes: bytes.byteLength,
+    startedMonoMs: monoNowMs(),
+    timer: setTimeout(() => {
       settlePendingInput(pool, channelId, inputSeq, {
-        kind: "reject",
+        kind: "ambiguous",
         inputSeq,
-        writtenBytes: 0,
-        reason: "disconnected",
+        writtenBytes: null,
+        reason: "timeout",
       });
-    }
+    }, COMMAND_RESULT_TIMEOUT_MS),
+    resolve,
   });
-}
-
-export function channelResize(pool: MultiplexedKeeperPool, channelId: number, cols: number, rows: number): void {
-  writeFrame(
-    pool,
-    encodeMuxFrame(MuxFrameType.Resize, channelId, JSON.stringify({ cols, rows })),
-    "mux-pool.resize",
-    { channelId, cols, rows },
-  );
+  usage.commands++;
+  usage.bytes += bytes.byteLength;
+  pool._pendingInputUsage.set(channelId, usage);
+  try {
+    pool.socket.write(frame);
+  } catch {
+    admission = { written: false, reason: "disconnected" };
+    settlePendingInput(pool, channelId, inputSeq, {
+      kind: "reject",
+      inputSeq,
+      writtenBytes: 0,
+      reason: "disconnected",
+    });
+  }
+  return { admission, result: promise };
 }
 
 export function settlePendingResize(
@@ -178,87 +197,142 @@ export function settlePendingResize(
   channelId: number,
   seq: number,
   result: KeeperResizeResult,
+  source: "frame" | "local" = "local",
 ): boolean {
   const key = commandKey(channelId, seq);
   const pending = pool.pendingResizes.get(key);
   if (!pending) return false;
   pool.pendingResizes.delete(key);
   clearTimeout(pending.timer);
+  // The geometry boundary is a property of the keeper's ORDERED stream, not of
+  // promise scheduling: a result frame and later PtyOut can share one socket
+  // read, and awaiting the result promise costs at least one microtask. The
+  // owner therefore marks its boundary here, synchronously, before any byte
+  // that the keeper produced after the resize can be dispatched.
+  if (source === "frame") pending.onResultFrame?.(result);
   pending.resolve(result);
   return true;
 }
 
-function sendResizeCommand(
+function resizeCommand(
   pool: MultiplexedKeeperPool,
   channelId: number,
   seq: number,
   frameType: MuxFrameType.ResizeRequest | MuxFrameType.ResizeStatus,
   payload: Buffer,
-): Promise<KeeperResizeResult> {
+  onResultFrame?: (result: KeeperResizeResult) => void,
+): KeeperCommand<KeeperResizeResult> {
   if (!pool.socket || pool.socket.destroyed) {
-    return Promise.resolve({ kind: "reject", seq, reason: "disconnected" });
+    return unwritten("disconnected", { kind: "reject", seq, reason: "disconnected" });
   }
   if (!pool.supportsKeeperFeature(KeeperFeature.AcknowledgedResize)) {
-    return Promise.resolve({ kind: "reject", seq, reason: "unsupported" });
+    return unwritten("unsupported", { kind: "reject", seq, reason: "unsupported" });
   }
   const key = commandKey(channelId, seq);
   if (pool.pendingResizes.has(key)) {
-    return Promise.resolve({ kind: "unknown", seq, reason: "protocol_error" });
+    // Another owner already wrote this exact sequence. This caller wrote
+    // nothing, but the sequence's fate is not proven — stay unknown.
+    return unwritten("queue_full", { kind: "unknown", seq, reason: "protocol_error" });
   }
-  return new Promise<KeeperResizeResult>((resolve) => {
-    const pending = {
-      channelId,
-      seq,
-      timer: setTimeout(() => {
-        settlePendingResize(pool, channelId, seq, { kind: "unknown", seq, reason: "timeout" });
-      }, COMMAND_RESULT_TIMEOUT_MS),
-      resolve,
-    };
-    pool.pendingResizes.set(key, pending);
-    try {
-      pool.socket!.write(encodeMuxFrame(frameType, channelId, payload));
-    } catch {
-      settlePendingResize(pool, channelId, seq, { kind: "reject", seq, reason: "disconnected" });
-    }
+  let admission: KeeperWriteAdmission = { written: true };
+  const { promise, resolve } = Promise.withResolvers<KeeperResizeResult>();
+  pool.pendingResizes.set(key, {
+    channelId,
+    seq,
+    startedMonoMs: monoNowMs(),
+    timer: setTimeout(() => {
+      settlePendingResize(pool, channelId, seq, { kind: "unknown", seq, reason: "timeout" });
+    }, COMMAND_RESULT_TIMEOUT_MS),
+    resolve,
+    onResultFrame,
   });
+  try {
+    pool.socket.write(encodeMuxFrame(frameType, channelId, payload));
+  } catch {
+    admission = { written: false, reason: "disconnected" };
+    settlePendingResize(pool, channelId, seq, { kind: "reject", seq, reason: "disconnected" });
+  }
+  return { admission, result: promise };
 }
 
-export function channelResizeRequest(
+/** Apply a logical resize sequence at most once. Admission proves the keeper
+ *  received the request; only the result proves the PTY geometry. */
+export function channelResizeCommand(
   pool: MultiplexedKeeperPool,
   channelId: number,
   seq: number,
   cols: number,
   rows: number,
-): Promise<KeeperResizeResult> {
+  onResultFrame?: (result: KeeperResizeResult) => void,
+): KeeperCommand<KeeperResizeResult> {
+  let payload: Buffer;
   try {
-    return sendResizeCommand(
-      pool,
-      channelId,
-      seq,
-      MuxFrameType.ResizeRequest,
-      encodeResizeRequest({ seq, cols, rows }),
-    );
+    payload = encodeResizeRequest({ seq, cols, rows });
   } catch {
-    return Promise.resolve({ kind: "reject", seq, reason: "invalid_request" });
+    return unwritten("invalid_request", { kind: "reject", seq, reason: "invalid_request" });
   }
+  return resizeCommand(pool, channelId, seq, MuxFrameType.ResizeRequest, payload, onResultFrame);
 }
 
-export function channelResizeStatus(
+/** Query the keeper's cached result without reapplying terminal.resize. This
+ *  command never applies geometry, so writing it can never satisfy a resize
+ *  admission on its own. */
+export function channelResizeStatusCommand(
   pool: MultiplexedKeeperPool,
   channelId: number,
   seq: number,
-): Promise<KeeperResizeResult> {
+  onResultFrame?: (result: KeeperResizeResult) => void,
+): KeeperCommand<KeeperResizeResult> {
+  let payload: Buffer;
   try {
-    return sendResizeCommand(
-      pool,
-      channelId,
-      seq,
-      MuxFrameType.ResizeStatus,
-      encodeResizeStatusQuery({ seq }),
-    );
+    payload = encodeResizeStatusQuery({ seq });
   } catch {
-    return Promise.resolve({ kind: "reject", seq, reason: "invalid_request" });
+    return unwritten("invalid_request", { kind: "reject", seq, reason: "invalid_request" });
   }
+  return resizeCommand(pool, channelId, seq, MuxFrameType.ResizeStatus, payload, onResultFrame);
+}
+
+/** Authoritative resize sequence + current geometry straight from the keeper's
+ *  live channel. `null` = unreachable or unsupported; the caller must then keep
+ *  its own last proven size and leave its sequence floor invalid. */
+export function channelTerminalState(
+  pool: MultiplexedKeeperPool,
+  channelId: number,
+): Promise<KeeperTerminalState | null> {
+  if (!pool.socket || pool.socket.destroyed) return Promise.resolve(null);
+  if (!pool.supportsKeeperFeature(KeeperFeature.TerminalState)) return Promise.resolve(null);
+  const { promise, resolve } = Promise.withResolvers<KeeperTerminalState | null>();
+  const waiters = pool.pendingTerminalStates.get(channelId) ?? [];
+  const waiter = {
+    resolve,
+    timer: setTimeout(() => {
+      settlePendingTerminalState(pool, channelId, null);
+    }, COMMAND_RESULT_TIMEOUT_MS),
+  };
+  waiters.push(waiter);
+  pool.pendingTerminalStates.set(channelId, waiters);
+  try {
+    pool.socket.write(encodeMuxFrame(MuxFrameType.GetTerminalState, channelId, new Uint8Array(0)));
+  } catch {
+    settlePendingTerminalState(pool, channelId, null);
+  }
+  return promise;
+}
+
+/** Resolve the head waiter for a channel — the keeper answers in arrival
+ *  order, so FIFO keeps request/response 1:1 across concurrent recoveries. */
+export function settlePendingTerminalState(
+  pool: MultiplexedKeeperPool,
+  channelId: number,
+  state: KeeperTerminalState | null,
+): boolean {
+  const waiters = pool.pendingTerminalStates.get(channelId);
+  const waiter = waiters?.shift();
+  if (waiters?.length === 0) pool.pendingTerminalStates.delete(channelId);
+  if (!waiter) return false;
+  clearTimeout(waiter.timer);
+  waiter.resolve(state);
+  return true;
 }
 
 export function settlePendingKeeperCommandsOnDisconnect(pool: MultiplexedKeeperPool): void {
@@ -276,6 +350,9 @@ export function settlePendingKeeperCommandsOnDisconnect(pool: MultiplexedKeeperP
       seq: pending.seq,
       reason: "disconnected",
     });
+  }
+  for (const channelId of [...pool.pendingTerminalStates.keys()]) {
+    while (settlePendingTerminalState(pool, channelId, null)) { /* drain FIFO */ }
   }
   pool.keeperFeatures.clear();
 }

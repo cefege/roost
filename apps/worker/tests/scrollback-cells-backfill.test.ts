@@ -55,11 +55,13 @@ async function injectSession(manager: SessionManager): Promise<SessionShellRecor
     alt_mode: false,
     mode_carry: new Uint8Array(0),
     osc7_carry: new Uint8Array(0),
+    query_carry: new Uint8Array(0),
     ...initAgentOscState(),
     wtermCore,
     session_trace_id: "sbcell00",
     cell_emit: initCellEmitState("test-grid"),
     lastPtyOutMs: 0,
+    sb_origin_pin: null,
     spawnedAtMs: Date.now(),
   };
   manager.sessions.set(CID, record);

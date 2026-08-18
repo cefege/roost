@@ -4,10 +4,14 @@
 
 import type { ClientControlFrame } from "@roost/shared/wire";
 import { diag } from "@roost/shared";
-import { cellGridEpoch, readScrollbackRangeCells, type CellRow } from "@roost/shared/cell";
+import {
+	cellGridEpoch, readScrollbackRangeCells, scrollbackOffsetSpans, scrollbackOrigin,
+	spansText, textRangeToColumns, viewportRowSpans, type CellRow, type CellSpan,
+} from "@roost/shared/cell";
 import type { CoordLink } from "./transport/CoordLink.ts";
 import type { SessionManager } from "./session-manager.ts";
-import type { TerminalCore } from "@wterm/core";
+import { terminalControlSettled } from "./session-control-lanes.ts";
+import { historyFloorReason } from "./session-scrollback.ts";
 
 // Server-side ceiling on rows per get-scrollback-cells response — bounds the
 // per-cell WASM walk (and the rpc-ok JSON) for one RPC. The SPA chunks at 1000
@@ -31,27 +35,11 @@ const SEARCH_SLICE_ROWS = 500;
 // Enough for a result-list entry; the SPA jumps to the row for the rest.
 const SEARCH_PREVIEW_CHARS = 200;
 
-interface RowMatch { col: number; len: number }
+/** A match inside one row's TEXT, in UTF-16 code units. Not columns: a wide
+ *  glyph is one character across two columns, so collectRow converts these with
+ *  textRangeToColumns before they leave the worker. */
+interface RowMatch { offset: number; length: number }
 const NO_MATCHES: readonly RowMatch[] = [];
-
-function _charOf(codepoint: number): string {
-	// wterm leaves NUL in a never-touched cell; it paints as a space.
-	if (codepoint === 0) return " ";
-	try { return String.fromCodePoint(codepoint); } catch { return " "; }
-}
-
-function _viewportRowText(core: TerminalCore, row: number, cols: number): string {
-	let text = "";
-	for (let col = 0; col < cols; col++) text += _charOf(core.getCell(row, col).char);
-	return text;
-}
-
-function _scrollbackRowText(core: TerminalCore, offset: number): string {
-	const len = core.getScrollbackLineLen(offset);
-	let text = "";
-	for (let col = 0; col < len; col++) text += _charOf(core.getScrollbackCell(offset, col).char);
-	return text;
-}
 
 /** `needle` must already be lowercased when the search is case-insensitive. */
 function _plainRowMatches(text: string, needle: string, caseSensitive: boolean): readonly RowMatch[] {
@@ -60,7 +48,7 @@ function _plainRowMatches(text: string, needle: string, caseSensitive: boolean):
 	if (at < 0) return NO_MATCHES;
 	const out: RowMatch[] = [];
 	while (at >= 0) {
-		out.push({ col: at, len: needle.length });
+		out.push({ offset: at, length: needle.length });
 		at = haystack.indexOf(needle, at + needle.length);
 	}
 	return out;
@@ -72,7 +60,7 @@ function _regexRowMatches(text: string, re: RegExp): readonly RowMatch[] {
 	if (hit === null) return NO_MATCHES;
 	const out: RowMatch[] = [];
 	while (hit !== null) {
-		out.push({ col: hit.index, len: hit[0].length });
+		out.push({ offset: hit.index, length: hit[0].length });
 		// A zero-width pattern (`x*`) leaves lastIndex where it was — without
 		// this nudge exec() returns the same empty match forever.
 		if (hit[0].length === 0) re.lastIndex++;
@@ -97,16 +85,12 @@ export async function handleGetScrollbackCells(
 		coordLink.send({ kind: "rpc-error", request_id, message: "unknown session" });
 		return;
 	}
-	// A dims-change attach queues a full-ring replay into a fresh core; serving
-	// mid-rebuild would hand out rows the imminent reframe invalidates. A failed
-	// rebuild must not fail the read (the chain swallows its own logging).
-	const pendingRebuild = sessionMgr._wtermRebuildChain.get(rec.channelId);
-	if (pendingRebuild) {
-		try {
-			await pendingRebuild;
-		} catch {
-			// rebuild chain logs its own failures; serve from the current core
-		}
+	// A dims-change claim rebuilds a fresh core inside its terminal-control
+	// transaction; serving mid-rebuild would hand out rows the imminent reframe
+	// invalidates. The lane tail never rejects — a failed transaction reports
+	// itself and leaves the current core serveable.
+	if (sessionMgr.terminalControlChains.has(rec.channelId)) {
+		await terminalControlSettled(sessionMgr, rec.channelId);
 		rec = sessionMgr.getBySessionId(frame.session_id);
 		if (!rec) {
 			coordLink.send({ kind: "rpc-error", request_id, message: "session closed" });
@@ -130,14 +114,23 @@ export async function handleGetScrollbackCells(
 	try {
 		// Monotonic index space (grid-to-cells.ts): the SPA's row indices are
 		// sbDropped-based, so clamp the request into [sbDropped, sbDropped+count].
-		// A request reaching below sbDropped names rows the ring genuinely
-		// dropped. A short page names the surviving suffix and exposes its first
-		// absolute index as the retained floor; the SPA paints that suffix and
-		// stops paging once it reaches the floor.
-		const sbDropped = rec.cell_emit.sbDropped;
+		// A request below sbDropped names rows the core no longer holds. A short page
+		// names the surviving suffix and exposes its first absolute index as the
+		// retained floor; `history_floor` says WHY the rest is gone — genuine
+		// eviction, or a resize-forced replay bounded by the byte ring that a
+		// never-resized session would have survived — so the SPA stops paging AND can
+		// name the floor it shows instead of a bare blank gap.
+		//
+		// Read the origin from the CORE, not the last emitted frame: the ring keeps
+		// evicting between emits, and a stale origin shifts every offset these
+		// absolute indices resolve through — real rows under the wrong indices,
+		// which is worse than the short page.
+		const sbDropped = scrollbackOrigin(core, rec.cell_emit);
 		const total = sbDropped + core.getScrollbackCount();
 		const endRow = Math.min(frame.end_row, total);
-		const startRow = Math.max(sbDropped, endRow - Math.min(frame.max_rows, SCROLLBACK_CELLS_MAX_ROWS));
+		const wantStart = endRow - Math.min(frame.max_rows, SCROLLBACK_CELLS_MAX_ROWS);
+		const startRow = Math.max(sbDropped, wantStart);
+		const historyFloor = historyFloorReason(rec, wantStart, sbDropped);
 		// Sliced walk: 999 rows × cols is ~120k WASM cell reads on an 80-col
 		// grid, and step-3's wave lands three of these back to back. Yield
 		// between slices, then re-validate the grid identity — a reframe or an
@@ -161,7 +154,7 @@ export async function handleGetScrollbackCells(
 					coordLink.send({ kind: "rpc-error", request_id, message: "grid reframed mid-read" });
 					return;
 				}
-				liveDropped = rec.cell_emit.sbDropped;
+				liveDropped = scrollbackOrigin(core, rec.cell_emit);
 				if (liveDropped > startRow) {
 					coordLink.send({ kind: "rpc-error", request_id, message: "scrollback evicted mid-read" });
 					return;
@@ -175,10 +168,8 @@ export async function handleGetScrollbackCells(
 			sid: rec.sessionId,
 			channel_id: rec.channelId,
 			session_trace_id: rec.session_trace_id,
-			start_row: startRow,
-			end_row: endRow,
-			total,
-			sb_dropped: sbDropped,
+			start_row: startRow, end_row: endRow, want_start: wantStart,
+			total, sb_dropped: sbDropped, history_floor: historyFloor,
 			rows: rows.length,
 			slices,
 		});
@@ -187,7 +178,7 @@ export async function handleGetScrollbackCells(
 			request_id,
 			data: {
 				rows, cols: core.getCols(), total, start_row: startRow, end_row: endRow,
-				grid_epoch: expectedEpoch,
+				grid_epoch: expectedEpoch, history_floor: historyFloor,
 			},
 		});
 	} catch (err) {
@@ -216,6 +207,15 @@ export async function handleGetScrollbackCells(
  *  straight to `row`. The mapping is grid-to-cells.ts::_scrollbackRow inverted:
  *  offset = count - 1 - (index - sbDropped).
  *
+ *  Those indices only mean something inside ONE grid numbering lifetime, so the
+ *  request is epoch-fenced exactly like handleGetScrollbackCells: a caller-named
+ *  epoch that is no longer current is REFUSED (a rebuild re-pins the scrollback
+ *  origin, so answering would hand back rows the caller then jumps to under the
+ *  wrong numbering), an empty headless/API epoch binds to the current one, and
+ *  the serving epoch is stamped on the reply so the caller can fence every hit
+ *  it keeps. A reframe that lands mid-scan stops the walk and reports truncated
+ *  rather than mixing two numberings into one result set.
+ *
  *  The scan yields the event loop every SEARCH_SLICE_ROWS rows — a full-depth
  *  walk is ~800k WASM reads, and holding the loop for it stalls every OTHER
  *  session's PTY on this worker. THIS session can print across those yields,
@@ -232,15 +232,10 @@ export async function handleSearchScrollback(
 		coordLink.send({ kind: "rpc-error", request_id, message: "unknown session" });
 		return;
 	}
-	// Same rebuild interlock as handleGetScrollbackCells: searching mid-replay
-	// would name rows the imminent reframe invalidates.
-	const pendingRebuild = sessionMgr._wtermRebuildChain.get(rec.channelId);
-	if (pendingRebuild) {
-		try {
-			await pendingRebuild;
-		} catch {
-			// rebuild chain logs its own failures; search the current core
-		}
+	// Same interlock as handleGetScrollbackCells: searching mid-transaction would
+	// name rows the imminent reframe invalidates.
+	if (sessionMgr.terminalControlChains.has(rec.channelId)) {
+		await terminalControlSettled(sessionMgr, rec.channelId);
 		rec = sessionMgr.getBySessionId(frame.session_id);
 		if (!rec) {
 			coordLink.send({ kind: "rpc-error", request_id, message: "session closed" });
@@ -251,6 +246,12 @@ export async function handleSearchScrollback(
 	const core = session.wtermCore;
 	if (!core) {
 		coordLink.send({ kind: "rpc-error", request_id, message: "session has no terminal" });
+		return;
+	}
+	const requestedEpoch = frame.grid_epoch;
+	const servingEpoch = requestedEpoch || cellGridEpoch(session.cell_emit);
+	if (requestedEpoch && requestedEpoch !== cellGridEpoch(session.cell_emit)) {
+		coordLink.send({ kind: "rpc-error", request_id, message: "grid epoch changed" });
 		return;
 	}
 
@@ -272,7 +273,7 @@ export async function handleSearchScrollback(
 	const cap = Math.min(frame.max_matches, SEARCH_MAX_MATCHES);
 	const needle = frame.case_sensitive ? frame.query : frame.query.toLowerCase();
 	const cols = core.getCols();
-	let sbDropped = session.cell_emit.sbDropped;
+	let sbDropped = scrollbackOrigin(core, session.cell_emit);
 	let sbCount = core.getScrollbackCount();
 	const monoTotal = sbDropped + sbCount;
 	const matches: Array<{ row: number; col: number; len: number; preview: string }> = [];
@@ -280,7 +281,8 @@ export async function handleSearchScrollback(
 	let scanned = 0;
 	const deadline = Date.now() + SEARCH_DEADLINE_MS;
 
-	const collectRow = (absIndex: number, text: string): void => {
+	const collectRow = (absIndex: number, spans: readonly CellSpan[]): void => {
+		const text = spansText(spans);
 		const hits = re !== null
 			? _regexRowMatches(text, re)
 			: _plainRowMatches(text, needle, frame.case_sensitive);
@@ -291,21 +293,26 @@ export async function handleSearchScrollback(
 				truncated = true;
 				return;
 			}
-			matches.push({ row: absIndex, col: hit.col, len: hit.len, preview });
+			// Text offsets → grid columns, so the SPA highlights the columns the
+			// cell frame actually painted.
+			const range = textRangeToColumns(spans, hit.offset, hit.length);
+			matches.push({ row: absIndex, col: range.col, len: range.columns, preview });
 		}
 	};
 
-	/** Slice boundary. False = stop scanning (deadline, or the core was swapped
-	 *  under us and its offsets no longer mean what our indices say). */
+	/** Slice boundary. False = stop scanning (deadline, or the grid was
+	 *  re-numbered under us — a swapped core or a bumped epoch — so its offsets
+	 *  no longer mean what our indices say). Stopping keeps every hit already
+	 *  collected inside `servingEpoch`, which the reply names. */
 	const yieldSlice = async (): Promise<boolean> => {
 		if (Date.now() >= deadline) {
 			truncated = true;
 			return false;
 		}
 		await new Promise<void>((resolve) => { setImmediate(resolve); });
-		sbDropped = session.cell_emit.sbDropped;
+		sbDropped = scrollbackOrigin(core, session.cell_emit);
 		sbCount = core.getScrollbackCount();
-		if (session.wtermCore !== core) {
+		if (session.wtermCore !== core || cellGridEpoch(session.cell_emit) !== servingEpoch) {
 			truncated = true;
 			return false;
 		}
@@ -320,7 +327,7 @@ export async function handleSearchScrollback(
 				const offset = sbCount - 1 - (absIndex - sbDropped);
 				// Evicted across a yield; everything older is gone too.
 				if (offset < 0 || offset >= sbCount) break;
-				collectRow(absIndex, _scrollbackRowText(core, offset));
+				collectRow(absIndex, scrollbackOffsetSpans(core, offset));
 				scanned++;
 				if (truncated) break;
 				if (scanned % SEARCH_SLICE_ROWS === 0 && !(await yieldSlice())) break;
@@ -331,7 +338,7 @@ export async function handleSearchScrollback(
 				const viewportBase = sbDropped + sbCount;
 				const viewportRows = core.getRows();
 				for (let row = 0; row < viewportRows; row++) {
-					collectRow(viewportBase + row, _viewportRowText(core, row, cols));
+					collectRow(viewportBase + row, viewportRowSpans(core, row, cols));
 					scanned++;
 					if (truncated) break;
 					if (scanned % SEARCH_SLICE_ROWS === 0 && !(await yieldSlice())) break;
@@ -349,11 +356,12 @@ export async function handleSearchScrollback(
 			matches: matches.length,
 			truncated,
 			rows_scanned: scanned,
+			grid_epoch: servingEpoch,
 		});
 		coordLink.send({
 			kind: "rpc-ok",
 			request_id,
-			data: { matches, truncated, total: monoTotal, cols },
+			data: { matches, truncated, total: monoTotal, cols, grid_epoch: servingEpoch },
 		});
 	} catch (err) {
 		coordLink.send({

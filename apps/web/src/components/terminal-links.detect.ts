@@ -62,8 +62,10 @@ const FILE_RE_SOURCE =
   // E) distinctive bare archive filename.
   `|${PATH_PART}${ARCHIVE_EXT_SOURCE}\\b`;
 
-/** Cheap \"could this logical line contain ANY supported pattern?\" test, run
- * before the regex battery in _findMatches. Backslash covers Windows paths. */
+/** Cheap "could this logical line contain ANY supported pattern?" test, run
+ * before the regex battery in _findMatches. Backslash covers Windows paths.
+ * A painted producer link needs no exception: with no hint character no regex
+ * below can match, so nothing could contest an already-painted anchor. */
 export const ROW_LINK_HINT = /[:/.#\\]|[0-9a-f]{7}/;
 
 /** Resolve a raw file path (+ optional 1-based line) from terminal output into
@@ -78,22 +80,49 @@ function _splitPathLine(raw: string): { path: string; line: number | null } {
   return m ? { path: m[1], line: parseInt(m[2], 10) } : { path: raw, line: null };
 }
 
+/** One PAINTED producer link — an OSC 8 hyperlink the renderer already wrapped
+ *  in an anchor at the exact cells the core says carry it (cellRow.ts). Offsets
+ *  are CODE UNITS: row-local into `RowLinkInput.text` on the way in, absolute
+ *  within the joined logical line once _findMatches sees them. `key` is the
+ *  core's run identity — two halves of one soft-wrapped link share it. */
+export interface PaintedLink { start: number; end: number; uri: string; key: string }
+
+/** One visual row's input to detection. */
+export interface RowLinkInput {
+  /** The row's rendered text. */
+  text: string;
+  /** The row's GRID OCCUPANCY in columns — never `text.length`, which counts
+   *  UTF-16 code units (a CJK ideograph is 2 columns / 1 unit, a ZWJ emoji
+   *  cluster 2 columns / 11 units). The soft-wrap test below is "did this row
+   *  fill the grid?", so a code-unit count silently drops wrapped links after
+   *  wide glyphs and fuses unrelated rows after clusters. cellRow.ts stamps the
+   *  true value on the element; terminal-links.ts reads it back. */
+  columns: number;
+  /** Producer links already painted on this row, ascending by `start`. */
+  links?: readonly PaintedLink[];
+}
+
 // One link segment to apply to a single visual row (row-local offsets).
 // kind/hint are set ONLY for file links (internal nav + a friendly hover
 // label); url links omit them so they stay `{row,start,end,url}` (test shape).
 export interface RowLinkSegment { row: number; start: number; end: number; url: string; kind?: "file"; hint?: string }
 
-interface Match { start: number; end: number; url: string; kind: "url" | "file"; hint?: string }
+interface Match {
+  start: number; end: number; url: string; kind: "url" | "file"; hint?: string;
+  /** Already in the DOM as a painted anchor — seeded for precedence, never
+   *  returned as a segment to wrap. */
+  painted?: true;
+}
 
-// Build the URL/OSC8 match list for a joined logical line. Offsets absolute
-// within `text`.
-//   1. OSC 8 hyperlink fragments (e.g. claude / git / ls --hyperlink emit
-//      `Foo.txt` with a hidden file:/// URI — regex-invisible).
+// Build the URL match list for a joined logical line. Offsets absolute within
+// `text`.
+//   1. PAINTED producer links (OSC 8) at their exact cells — seeded so the
+//      passes below see them, because an explicit producer URI beats inference.
 //   2. Regex URL matches (the scheme list above), only filling gaps not
-//      covered by OSC 8 (the explicit producer URI beats inference).
+//      already covered.
 function _findMatches(
   text: string,
-  osc8: ReadonlyArray<readonly [string, string]>,
+  painted: readonly PaintedLink[],
   resolveFile?: ResolveFile,
   githubOwnerRepo?: string,
 ): Match[] {
@@ -107,16 +136,10 @@ function _findMatches(
         matches.splice(k, 1);
     }
   };
-  // 1. OSC 8 producer links — the explicit URI beats any inference.
-  for (const [linkText, uri] of osc8) {
-    if (linkText.length < 2) continue;
-    let from = 0;
-    for (;;) {
-      const idx = text.indexOf(linkText, from);
-      if (idx === -1) break;
-      matches.push({ start: idx, end: idx + linkText.length, url: uri, kind: "url", hint: uri });
-      from = idx + linkText.length;
-    }
+  // 1. Producer links, at the columns the core authored them on. No text
+  //    matching and no cache: the painted anchor's own extent IS the match.
+  for (const p of painted) {
+    matches.push({ start: p.start, end: p.end, url: p.uri, kind: "url", painted: true });
   }
   // 2. Scheme URLs (the regex above) + scheme-less localhost:PORT dev URLs.
   if (text.indexOf(":") !== -1) {
@@ -169,7 +192,7 @@ function _findMatches(
     let m: RegExpExecArray | null;
     while ((m = fre.exec(text)) !== null) {
       const raw = m[0], start = m.index, end = m.index + raw.length;
-      // Evict ONLY OSC-8 file:/// hyperlinks that overlap — these come from
+      // Evict ONLY file:/// hyperlinks that overlap — these come from
       // `ls --hyperlink` and are useless in a browser (file:// is blocked).
       // Scheme URLs (https://, etc.) are preserved — they're valid links.
       for (let i = matches.length - 1; i >= 0; i--) {
@@ -180,7 +203,7 @@ function _findMatches(
         }
       }
       // Still skip if a non-file:// URL or another match overlaps (scheme URLs
-      // and OSC-8 links from other sources stay intact).
+      // and producer links to other targets stay intact).
       if (matches.some(x => !(x.end <= start || x.start >= end))) continue;
       const { path, line } = _splitPathLine(raw);
       const href = resolveFile(path, line);
@@ -188,7 +211,11 @@ function _findMatches(
     }
   }
   matches.sort((a, b) => a.start - b.start);
-  return matches;
+  // Painted links are already anchors in the DOM, so only what the DOM still
+  // needs is returned. A painted match that is MISSING here lost to a regex
+  // match above; the applier sees a returned segment overlapping a painted
+  // anchor and dissolves that anchor before wrapping the winner.
+  return matches.filter((m) => m.painted === undefined);
 }
 
 // PURE wrapped-URL algorithm (DOM-free, unit-tested in terminal-links.test.ts).
@@ -203,29 +230,29 @@ function _findMatches(
 // wrapped row is stripped at row boundaries before joining so it doesn't
 // fragment the URL; a row with no URL chars is kept verbatim as a separator.
 //
-// Wrap test: a row whose text length >= cols filled the grid and continues on
-// the next row. cols<=0 (legacy byte renderer, no --cell-cols) → never join →
-// per-row detection (prior behavior, no regression).
+// Wrap test: a row whose COLUMN occupancy >= cols filled the grid and continues
+// on the next row (RowLinkInput.columns — never a code-unit count).
+// cols<=0 (no --cell-cols yet) → never join → per-row detection.
 export function computeRowLinks(
-  rowTexts: string[],
+  rows: readonly RowLinkInput[],
   cols: number,
-  osc8: ReadonlyArray<readonly [string, string]> = [],
   resolveFile?: ResolveFile,
   githubOwnerRepo?: string,
 ): RowLinkSegment[] {
   const out: RowLinkSegment[] = [];
   let i = 0;
-  while (i < rowTexts.length) {
-    // Extend the group while the current last row is full-width (wraps into
-    // the next); the first non-full row terminates the line and is included.
+  while (i < rows.length) {
+    // Extend the group while the current last row FILLS the grid (so it wraps
+    // into the next); the first non-full row terminates the line and is
+    // included. The test is in COLUMNS — see RowLinkInput.columns.
     let j = i;
-    while (cols > 0 && rowTexts[j].length >= cols && j + 1 < rowTexts.length) j++;
+    while (cols > 0 && rows[j].columns >= cols && j + 1 < rows.length) j++;
     let joined = "";
     const bases: number[] = [];
     const leadSkip: number[] = [];
     const rowLens: number[] = [];
     for (let k = i; k <= j; k++) {
-      const text = rowTexts[k];
+      const text = rows[k].text;
       // Strip non-URL border decoration (e.g. │ from a TUI's boxed output) at
       // the soft-wrap boundary: wrapping rows (k<j) lose their trailing border,
       // continuation rows (k>i) lose their leading border. The first row's
@@ -246,12 +273,32 @@ export function computeRowLinks(
       bases.push(joined.length);
       joined += useText;
     }
+    // Painted links, lifted from row-local into joined-line offsets. Two halves
+    // of one soft-wrapped link are adjacent here and share the core's run key,
+    // so they fuse into ONE match: an overlapping regex match then decides
+    // against the whole link instead of against one visual half.
+    const painted: PaintedLink[] = [];
+    for (let k = i; k <= j; k++) {
+      const links = rows[k].links;
+      if (links === undefined) continue;
+      const g = k - i;
+      const base = bases[g], off = leadSkip[g], len = rowLens[g];
+      for (const p of links) {
+        const s = Math.max(0, p.start - off);
+        const e = Math.min(len, p.end - off);
+        if (s >= e) continue;
+        const last = painted[painted.length - 1];
+        if (last !== undefined && last.key === p.key && last.end === base + s) last.end = base + e;
+        else painted.push({ start: base + s, end: base + e, uri: p.uri, key: p.key });
+      }
+    }
     // Prefilter AFTER grouping so soft-wrap joining is unaffected: a logical
     // line with no hint character cannot match any pattern, and skipping it
-    // takes the whole regex battery off the ordinary output row. OSC 8 link
-    // text is arbitrary, so any tracked hyperlink disables the shortcut.
-    if (joined.length > 0 && (osc8.length > 0 || ROW_LINK_HINT.test(joined))) {
-      for (const m of _findMatches(joined, osc8, resolveFile, githubOwnerRepo)) {
+    // takes the whole regex battery off the ordinary output row. Skipping also
+    // leaves painted anchors exactly as they are, which is correct — with no
+    // possible regex match there is nothing that could supersede one.
+    if (joined.length > 0 && ROW_LINK_HINT.test(joined)) {
+      for (const m of _findMatches(joined, painted, resolveFile, githubOwnerRepo)) {
         for (let k = i; k <= j; k++) {
           const base = bases[k - i];
           const rowEnd = base + rowLens[k - i];

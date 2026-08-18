@@ -57,3 +57,16 @@ export const UNACKED_CAP = 8192;
 // BOOT_RPC_TIMEOUT_MS.
 export const STALE_LINK_TIMEOUT_MS = 90_000;
 export const STALE_CHECK_INTERVAL_MS = 15_000;
+
+// Downstream terminal-control admission. Input and viewport hold independent
+// budgets so a viewport RPC parked on a keeper resize can never consume the
+// slots PTY input needs; a viewport flood cannot starve typing and vice versa.
+// Over-cap admission fails closed with a provable pre-write rejection rather
+// than a silent drop, so the coordinator learns immediately instead of waiting
+// out its deadline and calling a definite refusal "unknown".
+export const INPUT_REQUEST_INFLIGHT_CAP = 256;
+export const VIEWPORT_REQUEST_INFLIGHT_CAP = 64;
+// Ceiling on the coordinator-supplied relative budget, and the budget used
+// when a peer supplies none, so one downstream request can never park an
+// admission slot indefinitely.
+export const TERMINAL_REQUEST_BUDGET_CAP_MS = 30_000;

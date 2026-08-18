@@ -52,6 +52,7 @@ async function injectSession(
     alt_mode: false,
     mode_carry: new Uint8Array(0),
     osc7_carry: new Uint8Array(0),
+    query_carry: new Uint8Array(0),
     ...initAgentOscState(),
     wtermCore,
     cell_emit: initCellEmitState("test-grid"),

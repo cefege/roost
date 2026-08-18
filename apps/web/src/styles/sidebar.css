@@ -1054,7 +1054,8 @@ aside[data-testid="sidebar-drawer"]::-webkit-scrollbar-thumb:hover,
    One textarea belongs to each pane so focus, selection and composition state
    can never leak across parked tabs. */
 .terminal-input {
-  position: absolute;
+  /* Keep browser focus-reveal outside the terminal's scroll coordinate space. */
+  position: fixed;
   left: -9999px;
   top: 0;
   width: 1px;

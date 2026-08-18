@@ -9,8 +9,8 @@
 import { describe, test, expect, beforeEach, afterEach, vi } from "bun:test";
 import { asWorkerFp, asChannelId, asSessionId } from "@roost/shared";
 import type { SessionEvent } from "@roost/shared/wire";
-import { publishBytes, primeChannelMap, installByteHubBusHook } from "../src/byte-hub.ts";
-import { globalBytesBus, sessionBus } from "../src/buses.ts";
+import { publishBytes, primeChannelMap, applyDurableChannelIndex } from "../src/byte-hub.ts";
+import { globalBytesBus } from "../src/buses.ts";
 
 const WF = asWorkerFp("bc".repeat(32));
 const COALESCE_MS = 16;
@@ -88,7 +88,6 @@ describe("byte-hub PTY coalescer", () => {
 
   test("a closed event drops the pending buffer and leaves no live timer", () => {
     const sid = "00000000-0000-4000-8000-0000000000bc";
-    installByteHubBusHook();
     bindChannel(sid, 14);
     const c = collect(sid);
 
@@ -103,7 +102,7 @@ describe("byte-hub PTY coalescer", () => {
       exit_code: 0,
       ts: 1_780_000_000_000,
     };
-    sessionBus.publish(closed);
+    applyDurableChannelIndex(closed, null);
 
     // The buffered tail is discarded and no re-armed timer survives to flush it.
     vi.advanceTimersByTime(COALESCE_MS * 4);

@@ -20,7 +20,7 @@ import type { JwtCache } from "../jwt.ts";
 import type { CoordinatorMoveService } from "../coord-move/orchestrator.ts";
 import { verifyJwt } from "../jwt.ts";
 import { appendEvent } from "../event-log.ts";
-import { publishBytes, publishCellGrid, primeChannelMap } from "../byte-hub.ts";
+import { publishBytes, publishCellGrid, primeChannelMap, resetWorkerChannelIndexReconcile } from "../byte-hub.ts";
 import { resolvePendingRpc, rejectPendingRpc, rejectPendingRpcsForWorker } from "../router/pending-rpcs.ts";
 import { protoToEvent } from "@roost/shared/wire/event-proto";
 import { asWorkerFp, asChannelId, asSessionId, SessionKind } from "@roost/shared/wire";
@@ -62,6 +62,13 @@ export interface WorkerServiceDeps {
 export interface WorkerConn {
   handleUpstream(f: CoordWorkerUp): Promise<void>;
   close(): void;
+  /** False once a NEWER authenticated connection for this fingerprint took over
+   *  the registry entry. A superseded socket is fenced: it may not append
+   *  authoritative events, announce channels, or publish cells/bytes, so a late
+   *  exact snapshot from the old generation cannot overwrite its replacement's
+   *  channel index. True before hello, when this connection owns no identity
+   *  yet and must still be able to deliver it. */
+  isCurrentGeneration(): boolean;
 }
 
 export function makeWorkerConn(
@@ -88,6 +95,16 @@ export function makeWorkerConn(
   const trySend = (what: string, frame: CoordWorkerDown): void => {
     try { send(frame); }
     catch (e) { log.warn("worker-service", "send_failed", { what, worker_fp: workerFp ?? caller.fingerprint, error: String(e) }); }
+  };
+  // A worker's inbound frames are authoritative only while this connection is
+  // the registry's current handle for the fingerprint. Pre-hello frames pass:
+  // the hello itself has to get through to claim the identity.
+  const _isCurrentGeneration = (): boolean =>
+    workerFp === null || connectWorkers.get(workerFp) === myHandle;
+  const _fenced = (what: string): boolean => {
+    if (_isCurrentGeneration()) return false;
+    diag("worker.frame_dropped", { reason: "superseded_generation", what, worker_fp: workerFp });
+    return true;
   };
   const _deleteIfStillMine = (fp: string): void => {
     if (connectWorkers.get(fp) === myHandle) {
@@ -125,10 +142,25 @@ export function makeWorkerConn(
           requestClose();
           return;
         }
+        // Generation change: the fingerprint's prior connection is superseded
+        // the moment this authenticated hello lands. Close its socket instead of
+        // leaving two live links whose events, snapshots, and cells interleave —
+        // a late exact snapshot from the old socket would otherwise replace the
+        // channel index this generation is about to install.
+        const superseded = connectWorkers.get(fp);
         workerFp = fp;
         myHandle.workerFp = fp;
         connectWorkers.set(fp, myHandle);
+        if (superseded && superseded !== myHandle) {
+          log.info("worker-service", "superseded_prior_connection", { worker_fp: fp });
+          diag("worker.superseded_connection", { worker_fp: fp });
+          try { superseded.close?.(); } catch { /* already gone */ }
+        }
         _publishRoutable(); // worker became routable → live-update the SPA
+        // This connection reopens the pre-reconcile window: the index is primed
+        // from the DB below and stays DB-backed until this worker's own snapshot
+        // declares its exact live set.
+        resetWorkerChannelIndexReconcile(fp);
         // Keepalive: coord pings the worker every 30s so the socket never
         // goes idle (worker pongs). Lets the transport survive the quiet
         // gaps between 270s JWT refreshes.
@@ -186,6 +218,9 @@ export function makeWorkerConn(
           requestClose();
           return;
         }
+        // Superseded generations may not append authoritative events: the newer
+        // connection owns this fingerprint's projection and channel index.
+        if (_fenced("event")) return;
         const wevt = f.frame.value as { event?: unknown; clientSeq?: bigint };
         const clientSeq = wevt.clientSeq !== undefined ? Number(wevt.clientSeq) : 0;
         let ev;
@@ -242,14 +277,14 @@ export function makeWorkerConn(
       }
       case "binary": {
         const b = f.frame.value;
-        if (workerFp) {
+        if (workerFp && !_fenced("binary")) {
           publishBytes(asWorkerFp(workerFp), asChannelId(b.channelId), b.data);
         }
         return;
       }
       case "cellGrid": {
         const cg = f.frame.value;
-        if (workerFp && cg.frame) {
+        if (workerFp && cg.frame && !_fenced("cell_grid")) {
           publishCellGrid(asWorkerFp(workerFp), asChannelId(cg.channelId), cg.frame);
         }
         return;
@@ -263,6 +298,7 @@ export function makeWorkerConn(
           requestClose();
           return;
         }
+        if (_fenced("agent_status")) return;
         const status = f.frame.value;
         handleWorkerAgentStatus(workerFp, {
           session_id: status.sessionId,
@@ -277,11 +313,19 @@ export function makeWorkerConn(
         return;
       }
       case "viewportResult": {
-        resolvePendingRpc(f.frame.value.requestId, f.frame.value);
+        resolvePendingRpc(
+          f.frame.value.requestId,
+          f.frame.value,
+          workerFp ?? caller.fingerprint,
+        );
         return;
       }
       case "inputResult": {
-        resolvePendingRpc(f.frame.value.requestId, f.frame.value);
+        resolvePendingRpc(
+          f.frame.value.requestId,
+          f.frame.value,
+          workerFp ?? caller.fingerprint,
+        );
         return;
       }
       case "updateProgress": {
@@ -309,12 +353,21 @@ export function makeWorkerConn(
         return;
       }
       case "rpcOk": {
-        try { resolvePendingRpc(f.frame.value.requestId, JSON.parse(f.frame.value.dataJson)); }
-        catch { /* ignore malformed */ }
+        try {
+          resolvePendingRpc(
+            f.frame.value.requestId,
+            JSON.parse(f.frame.value.dataJson),
+            workerFp ?? caller.fingerprint,
+          );
+        } catch { /* ignore malformed */ }
         return;
       }
       case "rpcError": {
-        rejectPendingRpc(f.frame.value.requestId, f.frame.value.message);
+        rejectPendingRpc(
+          f.frame.value.requestId,
+          f.frame.value.message,
+          workerFp ?? caller.fingerprint,
+        );
         return;
       }
       case "refreshJwt": {
@@ -350,7 +403,7 @@ export function makeWorkerConn(
     }
   }
 
-  return { handleUpstream, close };
+  return { handleUpstream, close, isCurrentGeneration: _isCurrentGeneration };
 }
 
 // ─── respawn-if-missing ──────────────────────────────────────────────

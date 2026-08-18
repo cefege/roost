@@ -51,6 +51,15 @@ export type SyncTerminalResultControl =
       };
     }
   | {
+      case: "viewportAmbiguous";
+      value: {
+        sessionId: string;
+        clientSeq: bigint;
+        domainGeneration: bigint;
+        reason: string;
+      };
+    }
+  | {
       case: "inputAccepted";
       value: {
         sessionId: string;
@@ -129,9 +138,19 @@ export function makeSyncTerminalControlHooks(deps: ConnectDeps): SyncTerminalCon
                 channelResizeSeq: result.channelResizeSeq,
               },
             });
-          } else {
+          } else if (result.status === "rejected") {
             context.reply({
               case: "viewportRejected",
+              value: {
+                sessionId: result.sessionId,
+                clientSeq: result.clientSeq,
+                domainGeneration: command.domainGeneration,
+                reason: result.reason,
+              },
+            });
+          } else {
+            context.reply({
+              case: "viewportAmbiguous",
               value: {
                 sessionId: result.sessionId,
                 clientSeq: result.clientSeq,

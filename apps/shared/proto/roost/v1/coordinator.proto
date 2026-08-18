@@ -32,6 +32,7 @@ message WorkersRegisterResponse { Worker worker = 1; }
 
 message WorkersHeartbeatRequest {
   optional HostMetrics host_metrics = 1;
+  optional string git_sha = 2;
   // Tri-state keeper build proof: absent = unknown/unreported, empty = current,
   // non-empty = stale running build stamp. Applied via `roost keeper-refresh`.
   optional string keeper_stale = 3;
@@ -238,6 +239,20 @@ message SessionsGetScrollbackCellsRequest {
   uint32 max_rows = 3;
   string grid_epoch = 4;
 }
+// Why history is missing when a page comes back short of the requested range.
+// Rows below the served start_row are unreachable either way; this names WHICH
+// floor the caller hit, so a client can stop paging AND say which floor it is.
+enum ScrollbackHistoryFloor {
+  // The full requested range was served — the caller hit no floor at all.
+  SCROLLBACK_HISTORY_FLOOR_UNSPECIFIED = 0;
+  // Gone forever: the core's own line ring rolled past these rows as newer
+  // output arrived. Nothing anywhere can recover them.
+  SCROLLBACK_HISTORY_FLOOR_EVICTED = 1;
+  // Lost to the replay bound: a resize rebuilt the grid from the worker's fixed
+  // byte ring, and that ring could not reach as far back as the core it
+  // replaced. A session that was never resized would still hold these rows.
+  SCROLLBACK_HISTORY_FLOOR_RESIZE_REPLAY = 2;
+}
 message SessionsGetScrollbackCellsResponse {
   repeated PbCellRow rows = 1;  // oldest→newest, absolute index set
   uint32 cols = 2;
@@ -245,6 +260,7 @@ message SessionsGetScrollbackCellsResponse {
   uint64 start_row = 4;
   uint64 end_row = 5;
   string grid_epoch = 6;
+  ScrollbackHistoryFloor history_floor = 7;
 }
 
 
@@ -252,15 +268,26 @@ message SessionsGetScrollbackCellsResponse {
 // client's held window: the SPA keeps at most MAX_HELD_SCROLLBACK_ROWS of the
 // worker's 10k retained rows, so a client-only find would silently miss most of
 // a long session. Rows evicted past the worker's ring are genuinely unsearchable.
+//
+// Epoch-fenced exactly like the cells RPC above, and for the same reason: `row`
+// is only meaningful inside ONE grid numbering lifetime. A core rebuild re-pins
+// the scrollback origin, so a row index from the previous epoch can land inside
+// the new epoch's valid range while naming unrelated content — a match a client
+// would then jump straight to. Browser callers name the epoch of the frame they
+// hold and the worker refuses to answer from any other one; an empty
+// headless/API epoch binds to whatever epoch the worker is serving. Either way
+// the serving epoch comes back on the response, so a result set is always
+// self-describing about which numbering its rows belong to.
 message SessionsSearchScrollbackRequest {
   string session_id = 1;
   string query = 2;
   bool case_sensitive = 3;
   bool regex = 4;
   uint32 max_matches = 5;         // clamped server-side to SEARCH_MAX_MATCHES
+  string grid_epoch = 6;          // required of browsers; "" = bind to the worker's current epoch
 }
 message SessionsSearchScrollbackMatch {
-  uint64 row = 1;                 // MONOTONIC absolute index — same space as PbCellRow.index and sb_base
+  uint64 row = 1;                 // MONOTONIC absolute index — same space as PbCellRow.index and sb_base, in the response's grid_epoch
   uint32 col = 2;                 // start column in the row's plain text
   uint32 len = 3;                 // match length in columns
   string preview = 4;             // row plain text, first 200 chars, for the result list
@@ -268,8 +295,9 @@ message SessionsSearchScrollbackMatch {
 message SessionsSearchScrollbackResponse {
   repeated SessionsSearchScrollbackMatch matches = 1;  // newest row first
   bool truncated = 2;             // hit SEARCH_MAX_MATCHES or the deadline
-  uint64 scrollback_total = 3;    // epoch guard, same role as in the cells RPC
+  uint64 scrollback_total = 3;    // monotonic total at scan time; a match at or above it is a LIVE VIEWPORT row
   uint32 cols = 4;
+  string grid_epoch = 5;          // epoch every `row` above is numbered in — one per response, never per match
 }
 
 

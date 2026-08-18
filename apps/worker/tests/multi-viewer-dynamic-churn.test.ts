@@ -21,7 +21,7 @@ describe("multi-viewer dynamic — N-viewer churn", () => {
     mgr.claimViewport(CID, FP_B, 120, 40);
     mgr.claimViewport(CID, FP_C, 90, 28);
     mgr.withdrawViewport(CID, FP_B);
-    expect(readApplied(mgr)).toEqual({ cols: 90, rows: 28 });
+    expect(await readApplied(mgr)).toEqual({ cols: 90, rows: 28 });
   });
 
   test("7B — three viewers, smallest leaves → SCD grows to next-min", async () => {
@@ -32,7 +32,7 @@ describe("multi-viewer dynamic — N-viewer churn", () => {
     mgr.claimViewport(CID, FP_C, 90, 28);
     mgr.withdrawViewport(CID, FP_C);
     await afterWithdraw();
-    expect(readApplied(mgr)).toEqual({ cols: 120, rows: 40 });
+    expect(await readApplied(mgr)).toEqual({ cols: 120, rows: 40 });
   });
 
   test("7C — all viewers leave one-by-one → SCD freezes at last pinning value", async () => {
@@ -40,11 +40,11 @@ describe("multi-viewer dynamic — N-viewer churn", () => {
     await injectSession(mgr, 80, 24);
     mgr.claimViewport(CID, FP_A, 200, 60);
     mgr.claimViewport(CID, FP_B, 90, 28);
-    expect(readApplied(mgr)).toEqual({ cols: 90, rows: 28 });
+    expect(await readApplied(mgr)).toEqual({ cols: 90, rows: 28 });
     mgr.withdrawViewport(CID, FP_A);
-    expect(readApplied(mgr)).toEqual({ cols: 90, rows: 28 });
+    expect(await readApplied(mgr)).toEqual({ cols: 90, rows: 28 });
     mgr.withdrawViewport(CID, FP_B);
-    expect(readApplied(mgr)).toEqual({ cols: 90, rows: 28 });
+    expect(await readApplied(mgr)).toEqual({ cols: 90, rows: 28 });
   });
 
   test("7D — orphaned claims (session gone) are cleaned on next withdraw or reap", async () => {
@@ -63,7 +63,7 @@ describe("multi-viewer dynamic — N-viewer churn", () => {
       viewportClaims: Map<number, unknown>;
     }).viewportClaims.get(CID);
     expect(claims).toBeUndefined();
-    expect(readApplied(mgr)).toBeUndefined();
+    expect(await readApplied(mgr)).toBeUndefined();
   });
 
   test("7E — 10-viewer stress: SCD = min across all; each withdraw recomputes correctly", async () => {
@@ -76,11 +76,11 @@ describe("multi-viewer dynamic — N-viewer churn", () => {
       fps.push(fp);
       mgr.claimViewport(CID, fp, 200 - i * 10, 60 - i * 2);
     }
-    expect(readApplied(mgr)).toEqual({ cols: 110, rows: 42 });
+    expect(await readApplied(mgr)).toEqual({ cols: 110, rows: 42 });
     // Withdraw the smallest claim → SCD grows to the second-smallest.
     mgr.withdrawViewport(CID, fps[9]!);
     await afterWithdraw();
-    expect(readApplied(mgr)).toEqual({ cols: 120, rows: 44 });
+    expect(await readApplied(mgr)).toEqual({ cols: 120, rows: 44 });
     // Withdraw remaining except viewers[8], ensure SCD is always min(live).
     const remaining = fps.slice(0, 9);
     for (let i = 0; i < remaining.length - 1; i++) {
@@ -88,7 +88,7 @@ describe("multi-viewer dynamic — N-viewer churn", () => {
     }
     await afterWithdraw();
     // Only viewers[8] left → SCD = (200-80, 60-16) = (120, 44).
-    expect(readApplied(mgr)).toEqual({ cols: 120, rows: 44 });
+    expect(await readApplied(mgr)).toEqual({ cols: 120, rows: 44 });
   });
 });
 
@@ -105,7 +105,7 @@ describe("multi-viewer dynamic — race / interleave", () => {
     ];
     for (const c of claims) mgr.claimViewport(CID, c.fp, c.cols, c.rows);
     // Final live claims: A=80x24, B=100x30, C=60x20 → SCD = (60, 20).
-    expect(readApplied(mgr)).toEqual({ cols: 60, rows: 20 });
+    expect(await readApplied(mgr)).toEqual({ cols: 60, rows: 20 });
   });
 
   test("R3 — concurrent withdraws from two distinct fps are commutative", async () => {
@@ -125,6 +125,6 @@ describe("multi-viewer dynamic — race / interleave", () => {
     order2.withdrawViewport(CID, FP_B);
     order2.withdrawViewport(CID, FP_A);
 
-    expect(readApplied(order1)).toEqual(readApplied(order2));
+    expect(await readApplied(order1)).toEqual(await readApplied(order2));
   });
 });

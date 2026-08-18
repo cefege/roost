@@ -133,6 +133,7 @@ Re-interpret every artifact enumerated in L0-SCOPE through this lens:
     | "browser-only feature silently dead while its unit tests pass / `Illegal invocation` swallowed inside a bus subscriber" | n/a — fixed 2026-08-03 (`AgentNotificationScheduler` stored `options.setTimer ?? setTimeout`; every `handle()` threw in Chrome, never under Bun) | keep injectable-timer fields as bare `setTimeout`/`clearTimeout`, and trust unit tests that run in Bun | **Wrap host functions when defaulting an injectable: `options.setTimer ?? ((cb, ms) => setTimeout(cb, ms))`.** `this.setTimer(...)` calls `window.setTimeout` with the instance as receiver → `Illegal invocation` in a browser, harmless in Bun. Publish loops catch subscriber throws, so the only visible symptom is "nothing happens" — the live/Playwright browser pass is what catches it. |
     | "a DOM option silently does nothing in the browser while `tsgo` is green / `<input capture>` opens the file browser instead of the camera / an assignment to a documented DOM property never reaches the attribute" | n/a — fixed 2026-08-04 (measured in the live tab: `"capture" in document.createElement("input")` → **false** on Chromium 150, so `input.capture = "environment"` became an expando and `getAttribute("capture")` stayed `null`; happy-dom behaves identically, which is why `apps/web/tests/attachmentsPicker.dom.test.ts` can pin it) | trust the type checker: lib.dom declares `HTMLInputElement.capture`, so the property assignment typechecks and reads as done. Equally wrong once it misbehaves: widen the type, cast to `any`, or relax an unrelated header (`permissions-policy: camera=()` does NOT gate `<input capture>`) — the checker was never the problem | **lib.dom is the SPEC surface, not the engine's. For any HTML attribute whose IDL reflection is not universal, set the ATTRIBUTE (`input.setAttribute("capture", …)`) and assert `getAttribute` in a test.** A green typecheck is not evidence that a DOM property exists at runtime, and a browser-only no-op has no stack trace, so unit tests that never touch a real engine stay green. The tripwire must assert the ABSENCE first (`expect("capture" in makeInput()).toBe(false)`) or a fake DOM that later grows the field silently retires it. |
     | "mobile mic records once then never again / stop leaves the UI animating / phone recording indicator stays lit until reload" | n/a — fixed 2026-08-07 (measured on the reporter's iPhone, iOS 18.7 installed PWA: `voice.dictation_empty` with `path:"none"`, `ctx_state:"suspended"`, `frames:0`, `repaired:false`, `ws_open_ms:668` — a non-null suspended ctx with no capture path is reachable ONLY while `openPipeline` is parked on an await) | treat it as a Deepgram/network problem (`ws_open_ms` says the socket was fine), or as the silent-mic class already covered above — `armSilenceWatch` is armed FROM `startCapture`'s resolution, so a start that never resolves has nothing watching it; equally wrong: lengthen the mobile idle window so tap #2 reuses a warm pipeline, which only hides the cold re-open that re-rolls the WebKit dice | **Every await in the device-open path is bounded and a failed open disposes what it built.** `audioPcmCapture.micTimeouts` (open/resume/module) wraps `getUserMedia`, `AudioContext.resume()` and `audioWorklet.addModule()` — WebKit returns promises that NEVER settle while the OS audio session is mid-transition, and an unbounded await left `warming` non-null for the page's lifetime (every LATER tap awaited the same dead promise) and `startingCaptures > 0` forever (so `releaseMicIfIdle` never released the device). `openPipeline` builds into LOCALS and publishes the singleton in one step, so a stalled open that settles late cannot clobber the pipeline a later tap already built; `releaseMic`/`discardPipeline` clear `warming`. Every async continuation in a recording carries a run token (`deepgramDictation` `runId`, bumped in `teardown()`), because `completeSend()` resets `endIntent` to null and null ALSO means "a recording is live" — that is how a stopped recording's grant opened a socket onto the shared `ws` and killed the NEXT recording with "Deepgram connection dropped". `finalizing` has a watchdog and stays tappable (a second tap hurries the send). Regression: `apps/web/tests/deepgramDictation.test.ts`, `audioPcmCapture.test.ts` M/N/O, and `smoke/terminal/terminal.spec.ts` "a second recording works exactly like the first". |
+    | "terminal keeps running but the painted grid never converges until a reload / typing reaches the PTY while the pane stays frozen / a returned-to pane paints an old frame forever / 'only a refresh fixes it'" | n/a — fixed 2026-08-18 (layered watermarks made it diagnosable: `handler_canonical` current while `dom_reconciled` trailed with `reconcile_block_reason` set, so the stall was never in delivery) | patch whichever layer is in front of you: cancel the reader on passive output (or never end its interval when the pane parks), re-derive the viewport claim from component-local `_lastSent`/`lastClaimed`/`hasFrame` liveness, park Sync permanently after N failed dials and wait for the user to reload, treat an unproven worker result as a rejection and roll the viewer's cell subscription back, let the announcement barrier drop cells out of order and hope a later delta re-syncs, or keep inferring the core's scrollback eviction origin and emitting phantom continuation cells — each one leaves the canonical model ahead of the DOM with nothing that MUST repair it | **Six layered contracts, each with one owner and a typed outcome.** (a) Reader intent is explicit: `CellGridRenderer` holds `ReaderIntent` "live"/"reading" plus a composed selection+link hold mask (`lib/cellRenderer.ts`); passive output and composer drafting never cancel a reader, one admitted local keystroke calls `prepareLiveInteraction()` (clear holds + adopt reader-pending frame + re-pin bottom as ONE transition), and park/`pagehide`/unmount ENDS the reading interval so a revealed pane presents the newest canonical frame. (b) `acquireTerminalViewportOwner` (`ws/sync-outbound.ts`) is the single tokenized desired-viewport registry per mount, with bounded 250 ms→2 s retries and typed status; cell-delivery membership is the matching `acquireCellMountClaim` (`store/sync-dispatch.ts`). No component keeps private claim liveness. (c) Worker results are three-way with `TerminalWritePhase`: only a proven `PRE_WRITE` refusal is a rejection, `AMBIGUOUS` KEEPS provisional viewer membership, and the budgets nest per PATH, not as one chain — input: keeper 2.5 s per-command watchdog (`COMMAND_RESULT_TIMEOUT_MS`) < worker `budget_ms` (coord remaining − 750 ms reserve, `connect/worker-send.ts`) < coord `INPUT_CONTROL_TIMEOUT_MS` 5 s < browser 10 s; viewport: the same 2.5 s watchdog inside per-phase bounds (`keeper_written` 6 s) clamped by `VIEWPORT_TXN_BUDGET_MS` 7 s < coord `VIEWPORT_CONTROL_TIMEOUT_MS` 8 s < browser 10 s. 6 s is a worker PHASE bound, never a tier above the 5 s input deadline. (d) The worker applies a viewport as a staged transaction (`session-terminal-txn.ts` over `TerminalTxnPhase`) on a control lane, while keeper WRITES ride a separate ordering lane released at the write boundary — PTY input never queues behind a pending resize. (e) Sync redial caps the DELAY only (`SYNC_REDIAL_MAX_MS` 30 s, `store/sync-watchdog.ts`); only a hidden document sleeps and one coalesced lifecycle wake re-dials in place and replays owners, so recovery never needs a reload. (f) `appendEvent` is a durable publication (commit → exact channel binding via `applyDurableChannelIndex` → `sessionBus`), the announcement barrier drains cell AND binary frames in arrival order, and an overflow/timeout with a live viewer sets a coordinator-local repair mark that forces ONE authoritative full frame; the core is pinned `@wterm/core` 0.3.4 on a digest-verified patched WASM with explicit `PbCellSpan.columns` and authoritative `getScrollbackDiscardedCount()`. Diagnose with `wire_received` → `handler_canonical` → `dom_reconciled` + `reconcile_block_reason` (`lib/terminalPreview.ts`), never a screenshot. Tests: `apps/shared/tests/core-trace-oracle.test.ts`, `apps/web/tests/syncOutbound.test.ts`, `apps/worker/tests/terminal-control-transaction.test.ts`, `apps/coord/tests/durable-publication.test.ts`, and `smoke/terminal/terminal.spec.ts` "parking a selection-held pane flushes its latest folded frame" / "long hidden deep-history resume paints the current viewport before history" / "real PTY input recovers held rendering and rejected same-generation reclaim self-heals". |
 
     Process rule: when a user-reported symptom matches an existing row,
     fix at the linked layer FIRST. If the linked memory describes a
@@ -166,7 +167,7 @@ git history on `n6/solid-rewrite` if you need v1 source for reference.
 
 | App | Path | Stack | Role | Port |
 |---|---|---|---|---|
-| **Web SPA** | `apps/web/` | Solid 1.x + plain Vite + `@solidjs/router` 0.16 + `@wterm/dom` + `@connectrpc/connect-web` | sidebar + wterm-rendered terminal pane; single Solid `createStore` root + selectors; URL-driven nav state | Vite dev :5174; static build at `apps/web/dist/` served by coord |
+| **Web SPA** | `apps/web/` | Solid 1.x + plain Vite + `@solidjs/router` 0.16 + `@connectrpc/connect-web` | sidebar + cell-grid terminal pane (`lib/cellRenderer.ts::CellGridRenderer`; no browser-side VT core); single Solid `createStore` root + selectors; URL-driven nav state | Vite dev :5174; static build at `apps/web/dist/` served by coord |
 | **Coord** | `apps/coord/` | Bun.serve native fetch + Connect-RPC + Kysely + `bun:sqlite` | Connect routes under `/roost.v1.CoordinatorService/*`; browser firehose `/ws/coord-sync`; outbound-worker transport `/ws/coord-worker/:fp`; EdDSA JWT auth via interceptor; append-only `events` table + `sessions` projection; `createCoord(deps)` factory portable to any fetch-capable runtime | Bun loopback :4103; Tailscale Serve :4102 → :4103; optional Cloudflare browser listener :4104 |
 | **Worker** | `apps/worker/` | Bun + single multiplexed Bun keeper subprocess (`Bun.spawn` `terminal:` PTY) + `@connectrpc/connect-node` | outbound raw WebSocket to coord (CoordLink → `/ws/coord-worker/:fp`, proto frames over WS); FSM per channel; SessionEvents stream via CoordWorkerUp.event. One keeper process per worker hosts all PTYs over one UDS. | — |
 | **Shared** | `apps/shared/` | Zod schemas + protobuf gen + branded TS types + config + trace + log | single source of truth for wire shapes; protos in `proto/roost/v1/`; gen TS at `src/gen/roost/v1/`; both Zod (in-app) and proto (wire) shapes coexist with adapters | — |
@@ -197,15 +198,18 @@ to carry status, and do NOT persist it — a restart must re-derive it.
   - Unary: `coordClient.X({...})` over HTTP/2 with protobuf binary
     (`createConnectTransport({ useBinaryFormat: true })`).
   - Subscriptions: `/ws/coord-sync?since=<cursor>&tab=<tab-id>&flow=1`
-    multiplexes domain deltas, authoritative terminal cells, and compact
-    terminal-link mappings.
+    multiplexes domain deltas and authoritative terminal cells (hyperlink
+    identity rides on the spans).
     Flow-enabled browsers cumulatively ACK only synchronously dispatched
     delivery sequences; reconnect backfill uses the event cursor persisted to
     localStorage.
-  - Keystrokes: `coordClient.inputStream(asyncIter)` client-streaming
-    (replaces the retired `/ws/browser-input` raw WSS).
-  - Scrollback: `coordClient.scrollback({ session_id, last_seq })`
-    server-streaming (replaces the retired `/api/scrollback/:sid`).
+  - Keystrokes + viewport: typed `SyncClientFrame` commands (`input`,
+    `viewport`) sent UP the same `/ws/coord-sync` socket via
+    `sendSyncV2Command` (`src/store/sync.ts`); coord replies with exactly one
+    typed result frame. No separate browser input stream exists.
+  - Retained history: unary `coordClient.sessionsGetScrollbackCells(...)` on
+    explicit demand (cell rows, `scrollback_total`-guarded). The byte-path
+    `SessionsGetScrollbackSince` is retired on both worker handlers.
   - Auth: SPA mints EdDSA JWT in WebCrypto, coord verifies via
     interceptor that stashes the caller on context.
 - **Worker ↔ Coord**: raw Bun WebSocket `/ws/coord-worker/:fp?token=<jwt>`
@@ -292,7 +296,7 @@ to carry status, and do NOT persist it — a restart must re-derive it.
 10. **Reuse existing utilities — don't fork.** Always check first:
     - Web: `apps/web/src/store/{root,projector,sync,selectors}.ts` +
       `apps/web/src/connect.ts` (Connect client replacing retired `trpc.ts`) +
-      `apps/web/src/ws/input-channel.ts` (persistent client-streaming `InputStream` PTY channel) +
+      `apps/web/src/ws/sync-outbound.ts` (typed viewport + input commands on the live Sync socket) +
       `apps/web/src/auth/{web-key,trust}.ts`. Single root store; no
       per-chip stores. Add a selector + a JSX line; do NOT add a new store.
     - Worker: `apps/worker/src/{main,session-manager,fsm,heartbeat,
@@ -427,23 +431,30 @@ tailscale serve status
   a cumulative delivery ACK only after synchronous dispatch. A flow-pressure
   close redials immediately; `_lastSeenEventId` remains in localStorage so
   reconnect backfill catches missed events.
+  Redial caps the DELAY only (`sync-watchdog.ts`: 1 s → `SYNC_REDIAL_MAX_MS`
+  30 s), never the attempt count: only a HIDDEN document sleeps, and one
+  coalesced lifecycle wake (`visibilitychange` / `pageshow` / Page Lifecycle
+  `resume` / `focus`) re-dials in place and replays every viewport owner, so
+  recovery never requires a reload.
 - **Connect client:** `src/connect.ts` — `createClient(CoordinatorService,
   createConnectTransport({ useBinaryFormat: true }))` with a JWT
   interceptor. Same EdDSA key minting from `src/auth/web-key.ts`
   (ed25519 in WebCrypto + IndexedDB-stored private key).
 - **TOFU coord pin:** `src/auth/trust.ts` — coord fingerprint pinned in
   IndexedDB; rotation detected on next coord-identity call.
-- **PTY input:** `src/ws/input-channel.ts` — persistent client-streaming
-  RPC `coordClient.inputStream(asyncIter)`. Replaces the retired
-  `/ws/browser-input` raw WSS; reconnect-with-backoff + frame buffer.
+- **PTY input:** `src/lib/userTerminalInput.ts::sendUserTerminalInput` →
+  `src/ws/sync-outbound.ts::sendTerminalInput`, a typed `input` command on the
+  live Sync socket. Every batch resolves to accepted / rejected / ambiguous;
+  nothing is silently retried.
 - **Terminal:** `src/components/CellTerminal.tsx` paints coordinator-delivered
   `PbCellGridFrame` snapshots/deltas with `CellGridRenderer`; raw PTY output
-  never enters the browser Sync socket. The coordinator parses OSC 8 once and
-  Sync forwards only compact `TerminalLinkFrame` text→URI mappings for DOM
-  linkification. Only panes on the visible terminal surface hold viewport
+  never enters the browser Sync socket. OSC 8 hyperlinks are CORE-AUTHORED
+  per-cell identity carried on `PbCellSpan.link_uri`/`link_key` (nothing parses
+  bytes for links, nothing text-matches them). Only panes on the visible
+  terminal surface hold viewport
   claims; mounted offscreen panes retain their last grid but receive no cells.
-  `RoostTerm` remains a renderless input/mode encoder whose `onData` feeds
-  `inputChannel.sendInput(sid, bytes)`.
+  `lib/terminalInputController.ts::TerminalInputController` is the renderless
+  input/mode encoder whose `onData` feeds `sendUserTerminalInput(sid, bytes)`.
 - **Sidebar:** `src/components/sidebar/` lists machines, workspaces, and shell
   sessions from the same `store.sessions` Map. Selection and filtering are
   derived from the URL and the root store, not separate per-view stores.
@@ -497,9 +508,12 @@ tailscale serve status
 - **Connect handlers** under `src/connect/`:
   - `router.ts` — `buildConnectRouter(deps)` builds the `ConnectRouter`
     with all unary RPCs (workers/sessions/workspaces/tasks/webhooks/
-    permissions/mcp/auth/pair/misc/audit/files), the client-streaming
-    `InputStream` for PTY input, the server-streaming `Scrollback` for PTY
-    history, plus the file-attachment + attachment-browser RPCs (att1/att2).
+    permissions/mcp/auth/pair/misc/audit/files), plus the file-attachment +
+    attachment-browser RPCs (att1/att2). The Connect `Sync` method is a stub
+    that throws `Unimplemented` ("sync moved to /ws/coord-sync"); the real
+    firehose is the WebSocket below. PTY input and viewport are NOT unary RPCs
+    either — they are typed `SyncClientFrame` commands travelling UP that same
+    socket (`sync-terminal-controls.ts`).
   - `sync-ws-handler.ts` — `/ws/coord-sync`, the protobuf Sync firehose. Exact
     `flow=1` sockets use a cumulative delivery-sequence ACK window bounded at
     512 frames, 4 MiB, and 3 seconds from the oldest unacknowledged send,
@@ -535,9 +549,9 @@ tailscale serve status
 - **Buses:** `src/buses.ts` — `BoundedBus<T>` with subscribe/publish; one
   per domain (`sessionBus`, `presenceBus`, `workspaceBus`, `taskBus`,
   `webhookBus`, `permissionBus`, `mcpBus`, `auditBus`, `globalBytesBus`,
-  `terminalLinkBus`, `globalPresenceBus`, `agentStatusBus`). Raw PTY bytes stay
-  coordinator-internal for title/activity/OSC parsing; browser Sync receives
-  cell grids plus compact terminal-link metadata. `AuditRow` is inlined here.
+  `globalPresenceBus`, `agentStatusBus`). Raw PTY bytes stay
+  coordinator-internal for title/activity parsing; browser Sync receives cell
+  grids, which carry hyperlink identity per span. `AuditRow` is inlined here.
 - **Agent-status hub:** `src/agent-status-hub.ts` — in-memory only. Validates
   each worker frame against the session-owner cache (a worker cannot claim
   another's session), drops stale/equal revisions, keeps the active record per
@@ -752,5 +766,17 @@ scrollback, and rendering. Data-plane-only changes may use
 `bun run test:live-api`. Resolve the current host via `tailscale status`; do
 not substitute localhost for the live canary. If the feature cannot be
 verified live via humanchrome, it is not done.
+
+Emulated mobile is not a device. Chromium's iPhone descriptor in
+`smoke/terminal/*.spec.ts` reproduces layout and touch dispatch, never the
+platform behaviour that actually breaks terminal panes on phones: iOS Safari's
+visual-viewport shifts under the on-screen keyboard, WebKit's compositor
+scroll-anchoring, Page Lifecycle freeze/resume on a backgrounded PWA, and
+per-tab transport starvation. A terminal-render change that touches the compact
+deck, the composer, reader-intent gestures, or Sync lifecycle therefore still
+owes ONE pass on a physical phone (installed PWA, both a keyboard-open compose
+and a long background/resume) before it is trusted in the field, with the
+result recorded in the row above. Automated suites gate the merge; the device
+pass gates the claim.
 
 See `feedback_real_flow_tests_are_minimum_bar.md` in memory.

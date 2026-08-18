@@ -1,12 +1,20 @@
-// appendEvent: inserts into events table + folds into sessions projection +
-// publishes to sessionBus. All in one Kysely transaction.
-// Snapshot variant: reconciles ghost sessions (synthetic closes for any
-// DB-open session from this worker not in the snapshot). R0.3, R3.1.
+// appendEvent: one Kysely transaction inserts into the events table and folds
+// the sessions projection. DURABLE PUBLICATION then happens strictly AFTER
+// commit, in order: the byte-hub channel index (applyDurableChannelIndex),
+// then sessionBus for browser Sync. So no browser can observe
+// `opened`/`respawned`/`snapshot` before that event's exact authenticated
+// worker/channel binding is installed — publishing from inside the
+// transaction used to race Sync fan-out ahead of the binding, and the first
+// claim/keystroke after a respawn was routed into a channel no keeper owned.
+// Snapshot variant: upserts the announced set exactly, keeps absent sessions as
+// offline breadcrumb rows, and reaps force-closed orphans after commit. The
+// channel index is replaced exactly for the announcing worker. R0.3, R3.1.
 
 import type { KyselyDB } from "./db/connection.ts";
 import { sessionBus, workspaceBus } from "./buses.ts";
+import { applyDurableChannelIndex } from "./byte-hub.ts";
 import { foldEvent, asWorkspaceId } from "@roost/shared/wire";
-import type { SessionEvent, Session } from "@roost/shared/wire";
+import type { SessionEvent, Session, WorkerFp } from "@roost/shared/wire";
 import type { SessionsTable } from "./db/schema.ts";
 import { log } from "@roost/shared/log";
 import { safeJsonParse } from "@roost/shared/json";
@@ -178,6 +186,11 @@ export async function appendEvent(
   // Snapshot reap: session ids force-closed while their worker was offline but
   // re-announced live by the returning worker. Sent a kill AFTER commit.
   let reapOrphanIds: string[] = [];
+  // Publication decision, taken inside the transaction: a dedupe hit or a
+  // fold that produced no row must not reach the channel index or the bus.
+  let publishable = false;
+  // Workspaces orphaned by a `closed` cascade; their deltas publish after commit.
+  let cascadeOrphans: string[] = [];
   await db.transaction().execute(async (trx) => {
     // 1. Append to event log. If (worker_fp, client_seq) is present and
     //    already exists, the partial unique index makes this a conflict
@@ -237,25 +250,24 @@ export async function appendEvent(
       // in agreement. Only the ANNOUNCED sessions are upserted below.
       for (const s of event.sessions) {
         if (tombstonedIds.has(s.id)) continue; // force-closed orphan — don't resurrect
+        const row = sessionToRow(s);
+        // The conflict path mirrors foldEvent's snapshot case exactly: every
+        // WORKER-owned column takes the announced value — `channel` above all,
+        // because a reconcile can hand a session a new keeper channel, and a DB
+        // row left on the old one re-primes the dead route on the next coord
+        // restart (and lies to resolveSessionRoute's pre-reconcile fallback).
+        // Only the three coord/DB-owned columns are preserved: the worker
+        // announces them null in every snapshot, so writing them would drop a
+        // rename, collapse sidebar grouping, or lose the original spawn cwd.
+        const { id: _id, workspace_id: _ws, custom_title: _ct, spawn_cwd: _sc, ...workerOwned } = row;
         await trx
           .insertInto("sessions")
-          .values(sessionToRow(s))
-          .onConflict((oc) => oc.column("id").doUpdateSet({
-            cwd: s.cwd,
-            status: s.status,
-            closed_at: s.closed_at ?? null,
-            git_branch: s.git_branch ?? null,
-            git_remote: s.git_remote ?? null,
-            pr_number: s.pr_number ?? null,
-            pr_state: s.pr_state ?? null,
-            pr_checks: s.pr_checks ?? null,
-            pr_url: s.pr_url ?? null,
-            ports_json: s.ports && s.ports.length > 0 ? JSON.stringify(s.ports) : null,
-          }))
+          .values(row)
+          .onConflict((oc) => oc.column("id").doUpdateSet(workerOwned))
           .execute();
       }
 
-      sessionBus.publish(event);
+      publishable = true;
       return;
     }
 
@@ -279,10 +291,7 @@ export async function appendEvent(
         .deleteFrom("sessions")
         .where("id", "=", event.session_id)
         .execute();
-      const orphans = await _cascadeClosedSession(trx as unknown as KyselyDB, event.session_id);
-      if (orphans.length > 0) {
-        (event as SessionEvent & { _cascadeOrphans?: string[] })._cascadeOrphans = orphans;
-      }
+      cascadeOrphans = await _cascadeClosedSession(trx as unknown as KyselyDB, event.session_id);
     } else if ("session_id" in event) {
       const existing = await loadSession(trx as unknown as KyselyDB, event.session_id);
       if (!existing) {
@@ -321,18 +330,24 @@ export async function appendEvent(
       }
     }
 
-    // 4. Broadcast (stamp the row id so SPA can track for reconnect backfill).
-    if (insertedId !== undefined) {
-      (event as SessionEvent & { _event_id?: number })._event_id = insertedId;
-    }
-    sessionBus.publish(event);
-    const cascade = (event as SessionEvent & { _cascadeOrphans?: string[] })._cascadeOrphans;
-    if (cascade && cascade.length > 0) {
-      for (const id of cascade) {
-        workspaceBus.publish({ kind: "deleted", id: asWorkspaceId(id) });
-      }
-    }
+    publishable = true;
   });
+
+  if (publishable) {
+    // Durable publication, in order. The fingerprint is the one that
+    // authenticated the worker socket (JWT-verified 64-hex upstream), so it
+    // needs no re-parse here: this step runs post-commit and must never throw.
+    const authenticatedFp = opts.worker_fp as WorkerFp | null;
+    applyDurableChannelIndex(event, authenticatedFp);
+    // Stamp the row id so the SPA can track it for reconnect backfill; the Sync
+    // feed reads it back off the payload (handlers-streaming.ts).
+    const stamped = event as SessionEvent & { _event_id?: number };
+    if (insertedId !== undefined) stamped._event_id = insertedId;
+    sessionBus.publish(event);
+    for (const id of cascadeOrphans) {
+      workspaceBus.publish({ kind: "deleted", id: asWorkspaceId(id) });
+    }
+  }
 
   // Post-commit: reap force-closed orphans on the now-online worker. Dynamic
   // import dodges the worker-service↔event-log static cycle. Fire-and-forget;

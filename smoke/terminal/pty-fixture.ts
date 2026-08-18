@@ -11,14 +11,29 @@ import type { PtyFixtureCommand } from "./pty-fixture-protocol.ts";
 
 const MAX_FRAME_BYTES = 1024 * 1024;
 const MAX_FLOOD_LINES = 100_000;
+const MAX_ARMED_LINE_BYTES = 64 * 1024;
+const MAX_BUFFERED_INPUT_BYTES = MAX_FRAME_BYTES + 64 * 1024;
+const MAX_PENDING_WORK = 32;
 const protocolBytes = Buffer.from(PTY_FIXTURE_PROTOCOL, "ascii");
 const newlineByte = 0x0a;
 const treeChildren: Array<{ pid: number; kill(signal?: number | NodeJS.Signals): void }> = [];
 let restored = false;
-let armedNonce: string | null = null;
+type ArmedInput =
+  | { kind: "legacy-key"; nonce: string }
+  | { kind: "cursor-move"; nonce: string }
+  | { kind: "line-overwrite"; nonce: string; bytes: number }
+  | { kind: "alt-redraw"; nonce: string; trigger: "key" | "line"; bytes: number };
+
+let armedInput: ArmedInput | null = null;
+let discardNextLineFeed = false;
+let lineOverwriteCounter = 0;
+let altRedrawCounter = 0;
+let altScreenActive = false;
 let bufferedInput = Buffer.alloc(0);
 let payloadBytes = -1;
 let commandLane = Promise.resolve();
+let pendingWork = 0;
+let inputFailed = false;
 
 function restoreInput(): void {
   if (restored) return;
@@ -74,6 +89,65 @@ if (treeChildArg >= 0) {
     return value as number;
   };
 
+  const armedInputForCommand = (raw: unknown): ArmedInput | null => {
+    if (!raw || typeof raw !== "object" || !("op" in raw) || typeof raw.op !== "string") return null;
+    const nonce = "nonce" in raw ? raw.nonce : undefined;
+    switch (raw.op) {
+      case "ARM_KEY":
+        return { kind: "legacy-key", nonce: requiredString(nonce, "nonce") };
+      case "ARM_CURSOR_MOVE":
+        return { kind: "cursor-move", nonce: requiredString(nonce, "nonce") };
+      case "ARM_LINE_OVERWRITE":
+        return { kind: "line-overwrite", nonce: requiredString(nonce, "nonce"), bytes: 0 };
+      case "ARM_ALT_REDRAW": {
+        const trigger = "trigger" in raw ? raw.trigger : undefined;
+        if (trigger !== "key" && trigger !== "line") {
+          throw new Error("trigger must be key or line");
+        }
+        return {
+          kind: "alt-redraw",
+          nonce: requiredString(nonce, "nonce"),
+          trigger,
+          bytes: 0,
+        };
+      }
+      default:
+        return null;
+    }
+  };
+
+  const nextCounter = (current: number, name: string): number => {
+    if (current >= Number.MAX_SAFE_INTEGER) throw new Error(`${name} counter exhausted`);
+    return current + 1;
+  };
+
+  const handleArmedTrigger = async (armed: ArmedInput): Promise<void> => {
+    switch (armed.kind) {
+      case "legacy-key":
+        await writeOutput(`ACK:${armed.nonce}\r\n`);
+        return;
+      case "cursor-move":
+        await writeOutput("\x1b[1C");
+        return;
+      case "line-overwrite":
+        lineOverwriteCounter = nextCounter(lineOverwriteCounter, "line overwrite");
+        await writeOutput(
+          `\x1b[1A\r\x1b[2KOVERWRITE:${armed.nonce}:${lineOverwriteCounter}\x1b[1B\r`,
+        );
+        return;
+      case "alt-redraw": {
+        altRedrawCounter = nextCounter(altRedrawCounter, "alternate redraw");
+        altScreenActive = !altScreenActive;
+        const screen = altScreenActive ? "alt" : "main";
+        const selectScreen = altScreenActive ? "\x1b[?1049h" : "\x1b[?1049l";
+        await writeOutput(
+          `${selectScreen}\x1b[H\x1b[2JALT_REDRAW:${armed.nonce}:${altRedrawCounter}:${screen}\r\n`,
+        );
+        return;
+      }
+    }
+  };
+
   const handleCommand = async (raw: unknown): Promise<void> => {
     if (!raw || typeof raw !== "object" || !("op" in raw) || typeof raw.op !== "string") {
       throw new Error("command must contain an op string");
@@ -81,8 +155,26 @@ if (treeChildArg >= 0) {
     const command = raw as PtyFixtureCommand;
     switch (command.op) {
       case "ARM_KEY": {
-        armedNonce = requiredString(command.nonce, "nonce");
-        await writeOutput(`ARMED:${armedNonce}\r\n`);
+        const nonce = requiredString(command.nonce, "nonce");
+        await writeOutput(`ARMED:${nonce}\r\n`);
+        return;
+      }
+      case "ARM_CURSOR_MOVE": {
+        const nonce = requiredString(command.nonce, "nonce");
+        await writeOutput(`ARMED:CURSOR_MOVE:${nonce}\r\n`);
+        return;
+      }
+      case "ARM_LINE_OVERWRITE": {
+        const nonce = requiredString(command.nonce, "nonce");
+        await writeOutput(`ARMED:LINE_OVERWRITE:${nonce}\r\n`);
+        return;
+      }
+      case "ARM_ALT_REDRAW": {
+        const nonce = requiredString(command.nonce, "nonce");
+        if (command.trigger !== "key" && command.trigger !== "line") {
+          throw new Error("trigger must be key or line");
+        }
+        await writeOutput(`ARMED:ALT_REDRAW:${nonce}:${command.trigger}\r\n`);
         return;
       }
       case "EMIT": {
@@ -123,6 +215,8 @@ if (treeChildArg >= 0) {
       }
       case "ALT_SCREEN": {
         const nonce = command.nonce === undefined ? "ready" : requiredString(command.nonce, "nonce");
+        if (typeof command.active !== "boolean") throw new Error("active must be a boolean");
+        altScreenActive = command.active;
         if (!command.active) {
           await writeOutput(`\x1b[?1049lALT_EXIT:${nonce}\r\n`);
           return;
@@ -149,23 +243,92 @@ if (treeChildArg >= 0) {
     }
   };
 
-  const queueCommand = (raw: unknown): void => {
+  const queueWork = (work: () => Promise<void>): void => {
+    pendingWork += 1;
     commandLane = commandLane
-      .then(() => handleCommand(raw))
+      .then(work)
       .catch(async (error) => {
         const message = error instanceof Error ? error.message : String(error);
         await writeOutput(`FIXTURE_ERROR:${message.replace(/[\r\n]/g, " ").slice(0, 240)}\r\n`);
+      })
+      .finally(() => {
+        pendingWork -= 1;
+        if (inputFailed) return;
+        consumeInput();
+        if (pendingWork < MAX_PENDING_WORK && bufferedInput.length < MAX_BUFFERED_INPUT_BYTES) {
+          process.stdin.resume();
+        }
       });
   };
 
-  const consumeInput = (): void => {
-    for (;;) {
-      if (armedNonce !== null && bufferedInput.length > 0) {
-        const nonce = armedNonce;
-        armedNonce = null;
+  const queueFixtureError = (error: unknown): void => {
+    queueWork(() => Promise.reject(error));
+  };
+
+  const failInput = (message: string): void => {
+    if (inputFailed) return;
+    inputFailed = true;
+    armedInput = null;
+    discardNextLineFeed = false;
+    bufferedInput = Buffer.alloc(0);
+    payloadBytes = -1;
+    process.stdin.pause();
+    queueWork(async () => {
+      await writeOutput(`FIXTURE_ERROR:${message}\r\n`);
+      restoreInput();
+      process.exit(1);
+    });
+  };
+
+  const consumeRawInputByte = (): void => {
+    const byte = bufferedInput[0]!;
+    if (discardNextLineFeed) {
+      discardNextLineFeed = false;
+      if (byte === newlineByte) {
         bufferedInput = bufferedInput.subarray(1);
-        queueCommand({ op: "EMIT", text: `ACK:${nonce}` });
-        continue;
+        return;
+      }
+    }
+
+    const armed = armedInput;
+    if (armed === null) {
+      bufferedInput = bufferedInput.subarray(1);
+      return;
+    }
+    const waitsForLine = armed.kind === "line-overwrite"
+      || (armed.kind === "alt-redraw" && armed.trigger === "line");
+    if (!waitsForLine) {
+      armedInput = null;
+      bufferedInput = bufferedInput.subarray(1);
+      queueWork(() => handleArmedTrigger(armed));
+      return;
+    }
+
+    if (byte === 0x0d || byte === newlineByte) {
+      armedInput = null;
+      if (byte === 0x0d && bufferedInput[1] === newlineByte) {
+        bufferedInput = bufferedInput.subarray(2);
+      } else {
+        bufferedInput = bufferedInput.subarray(1);
+        discardNextLineFeed = byte === 0x0d;
+      }
+      queueWork(() => handleArmedTrigger(armed));
+      return;
+    }
+
+    bufferedInput = bufferedInput.subarray(1);
+    armed.bytes += 1;
+    if (armed.bytes > MAX_ARMED_LINE_BYTES) {
+      armedInput = null;
+      queueFixtureError(new Error(`armed line exceeds ${MAX_ARMED_LINE_BYTES} bytes`));
+    }
+  };
+
+  function consumeInput(): void {
+    for (;;) {
+      if (pendingWork >= MAX_PENDING_WORK) {
+        process.stdin.pause();
+        return;
       }
       if (payloadBytes >= 0) {
         if (bufferedInput.length < payloadBytes) return;
@@ -173,48 +336,72 @@ if (treeChildArg >= 0) {
         bufferedInput = bufferedInput.subarray(payloadBytes);
         payloadBytes = -1;
         try {
-          queueCommand(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(payload)));
+          // Arming must take effect while this input chunk is being parsed: the
+          // trigger byte may immediately follow the frame. Output remains ordered
+          // on commandLane, so the ready marker is still written before its effect.
+          const raw = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(payload));
+          const nextArmedInput = armedInputForCommand(raw);
+          if (nextArmedInput !== null) armedInput = nextArmedInput;
+          queueWork(() => handleCommand(raw));
         } catch (error) {
-          queueCommand({
-            op: "EMIT",
-            text: `FIXTURE_ERROR:${String(error).replace(/[\r\n]/g, " ").slice(0, 240)}`,
-          });
+          queueFixtureError(error);
         }
         continue;
       }
       if (bufferedInput.length === 0) return;
       if (bufferedInput.length < protocolBytes.length) {
         if (protocolBytes.subarray(0, bufferedInput.length).equals(bufferedInput)) return;
-        bufferedInput = bufferedInput.subarray(1);
+        consumeRawInputByte();
         continue;
       }
       if (!bufferedInput.subarray(0, protocolBytes.length).equals(protocolBytes)) {
-        bufferedInput = bufferedInput.subarray(1);
+        consumeRawInputByte();
         continue;
       }
       const newline = bufferedInput.indexOf(newlineByte, protocolBytes.length);
       if (newline < 0) {
-        if (bufferedInput.length > protocolBytes.length + 16) bufferedInput = bufferedInput.subarray(1);
-        return;
+        if (bufferedInput.length <= protocolBytes.length + 16) return;
+        consumeRawInputByte();
+        continue;
       }
       const lengthText = bufferedInput.subarray(protocolBytes.length, newline).toString("ascii");
       const length = Number.parseInt(lengthText, 10);
       bufferedInput = bufferedInput.subarray(newline + 1);
       if (!/^\d+$/.test(lengthText) || !Number.isSafeInteger(length) || length < 2 || length > MAX_FRAME_BYTES) {
-        queueCommand({ op: "EMIT", text: "FIXTURE_ERROR:invalid frame length" });
+        queueFixtureError(new Error("invalid frame length"));
         continue;
       }
       payloadBytes = length;
     }
+  }
+
+  const ingestInput = (incoming: Buffer | Uint8Array): void => {
+    let offset = 0;
+    while (offset < incoming.length && !inputFailed) {
+      const capacity = MAX_BUFFERED_INPUT_BYTES - bufferedInput.length;
+      if (capacity === 0) {
+        const retainedBytes = bufferedInput.length;
+        consumeInput();
+        if (bufferedInput.length >= retainedBytes) {
+          failInput(`input buffer exceeds ${MAX_BUFFERED_INPUT_BYTES} bytes`);
+          return;
+        }
+        continue;
+      }
+      const take = Math.min(capacity, incoming.length - offset);
+      const portion = incoming.subarray(offset, offset + take);
+      bufferedInput = bufferedInput.length === 0
+        ? Buffer.from(portion)
+        : Buffer.concat([bufferedInput, portion], bufferedInput.length + take);
+      offset += take;
+      consumeInput();
+    }
+    if (pendingWork >= MAX_PENDING_WORK || bufferedInput.length >= MAX_BUFFERED_INPUT_BYTES) {
+      process.stdin.pause();
+    }
   };
 
-  process.stdin.on("data", (chunk: Buffer | Uint8Array) => {
-    const incoming = Buffer.from(chunk);
-    bufferedInput = bufferedInput.length === 0
-      ? incoming
-      : Buffer.concat([bufferedInput, incoming], bufferedInput.length + incoming.length);
-    consumeInput();
-  });
+  process.stdin.on("data", ingestInput);
   process.stdin.on("end", () => process.exit(0));
   process.on("SIGINT", () => process.exit(0));
   process.on("SIGTERM", () => process.exit(0));

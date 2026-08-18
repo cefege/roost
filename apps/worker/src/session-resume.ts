@@ -16,6 +16,7 @@ import {
 } from "./keeper/multiplexed-client.ts";
 import { ALT_ENTER_SEQS, _scanAltModeTransitions } from "./terminal-stream-scan.ts";
 import { _createWtermCore } from "./session-constants.ts";
+import { drainCoreReplies } from "./terminal-query-reply.ts";
 import { appendToRing, createSbRing, readRing } from "./session-scrollback-ring.ts";
 import { withAgentStatusEnvironment } from "./agent-status/environment.ts";
 import { initAgentOscState } from "./terminal-stream-scan.ts";
@@ -118,7 +119,7 @@ export async function resume(this: SessionManager, opts: {
 		// be injected into live stdin.
 		if (resumedAlt && !wtermCore.usingAltScreen())
 			wtermCore.writeRaw(ALT_ENTER_SEQS[0]);
-		wtermCore.getResponse();
+		drainCoreReplies(wtermCore);
 		const record: SessionRecord = {
 			sessionId: opts.sessionId,
 			channelId: opts.channelId,
@@ -132,11 +133,13 @@ export async function resume(this: SessionManager, opts: {
 			alt_mode: resumedAlt,
 			mode_carry: new Uint8Array(0),
 			osc7_carry: new Uint8Array(0),
+			query_carry: new Uint8Array(0),
 			...initAgentOscState(),
 			wtermCore,
 			session_trace_id: newTraceId(),
 			cell_emit: initCellEmitState(newTraceId()),
 			lastPtyOutMs: 0,
+			sb_origin_pin: null,
 			spawnedAtMs: Date.now(),
 			// Re-capture the child pid from listChannels so ports survive a worker
 			// restart (reconcile adopts the keeper's live PTY, no re-spawn → the
@@ -233,11 +236,13 @@ export async function respawn(this: SessionManager, opts: {
 		alt_mode: false,
 		mode_carry: new Uint8Array(0),
 		osc7_carry: new Uint8Array(0),
+		query_carry: new Uint8Array(0),
 		...initAgentOscState(),
 		wtermCore,
 		session_trace_id: newTraceId(),
 		cell_emit: initCellEmitState(newTraceId()),
 		lastPtyOutMs: 0,
+		sb_origin_pin: null,
 		spawnedAtMs: Date.now(),
 	};
 	this.sessions.set(channelId, record);

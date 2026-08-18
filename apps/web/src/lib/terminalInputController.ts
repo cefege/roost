@@ -10,6 +10,9 @@ import {
 
 export interface TerminalInputControllerOptions {
 	cursorKeysApplication: () => boolean;
+	/** DECSET 1004 as the worker reports it. When the application asked for focus
+	 *  reporting, real textarea focus/blur is a PTY event, not just styling. */
+	focusEventsEnabled: () => boolean;
 	onData: (data: string) => void;
 	/** Clipboard admission belongs to the pane so multiline confirmation,
 	 * attachment extraction, bracketed framing, and queue limits share one path. */
@@ -24,6 +27,14 @@ export class TerminalInputController {
 	private compositionToken = 0;
 	private destroyed = false;
 	private readonly doc: Document;
+	/** Focus as the APPLICATION last saw it. CSI I / CSI O report a transition, so
+	 *  a repeated focus event (forceFocus dispatches one explicitly) reports once. */
+	private reportedFocus = false;
+	/** Set across forceFocus's blur-then-focus dance: that blur is an
+	 *  implementation detail of re-firing focus, not the pane losing the keyboard,
+	 *  and reporting it would tell the application to run its FocusLost handling
+	 *  every time the focus effect re-ran. */
+	private refocusing = false;
 
 	private readonly onKeyDown = (event: KeyboardEvent): void => {
 		if (this.composing || event.isComposing || event.key === "Dead"
@@ -101,12 +112,23 @@ export class TerminalInputController {
 		if (value) this.options.onData(value);
 	};
 
+	// Focus reporting rides the REAL textarea transition, not the pane-level focus
+	// orchestration: the application asked which surface owns the keyboard now,
+	// and only these two events answer that.
+	private readonly reportFocus = (focused: boolean): void => {
+		if (this.refocusing || this.reportedFocus === focused) return;
+		this.reportedFocus = focused;
+		if (this.options.focusEventsEnabled()) this.options.onData(focused ? "\x1b[I" : "\x1b[O");
+	};
+
 	private readonly onFocus = (): void => {
 		this.root.classList.add("focused");
+		this.reportFocus(true);
 	};
 
 	private readonly onBlur = (): void => {
 		this.root.classList.remove("focused");
+		this.reportFocus(false);
 	};
 
 	constructor(
@@ -140,7 +162,11 @@ export class TerminalInputController {
 	forceFocus(): void {
 		if (this.destroyed) return;
 		try {
-			if (this.doc.activeElement === this.textarea) this.textarea.blur();
+			if (this.doc.activeElement === this.textarea) {
+				this.refocusing = true;
+				this.textarea.blur();
+				this.refocusing = false;
+			}
 			this.textarea.focus({ preventScroll: true });
 			if (this.doc.activeElement === this.textarea) {
 				const FocusEventCtor = this.doc.defaultView?.FocusEvent
@@ -150,7 +176,9 @@ export class TerminalInputController {
 				}
 			}
 		} catch {
-			// A detached pane can race cleanup; the focus diagnostics below captures it.
+			// A detached pane can race cleanup: never leave the dance's report guard
+			// latched, or focus reporting dies silently for this pane's lifetime.
+			this.refocusing = false;
 		}
 		diag("focus.force", {
 			landed: this.doc.activeElement === this.textarea,

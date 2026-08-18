@@ -33,6 +33,7 @@ import { prepareWtermCoreModule } from "@roost/shared/wterm-core-factory";
 import {
 	TerminalInputStatus,
 	TerminalViewportStatus,
+	TerminalWritePhase,
 } from "@roost/shared/proto/worker_transport_pb";
 import { createHash, randomUUID } from "node:crypto";
 const _workerSha8 = (b: Uint8Array): string =>
@@ -191,11 +192,18 @@ export async function runWorker() {
 				log.warn("windows-update", "progress_replay_failed", { error: String(error) });
 			});
 		},
-		onInputRequest: async (request) => {
+		// The wire `phase` is derived from the session manager's status under a
+		// single invariant: "rejected" is returned only from a stage that
+		// provably never wrote (validation, queue refusal, pre-write expiry),
+		// and every post-write or post-claim uncertainty is "ambiguous". The
+		// coordinator unwinds provisional state only on PRE_WRITE, so a status
+		// that overstates certainty can never license a duplicate write.
+		onInputRequest: async (request, budget) => {
 			const result = await sessionMgr.writeTerminalInput(
 				request.sessionId,
 				request.inputSeq,
 				request.data,
+				budget,
 			);
 			coordLink.send({
 				kind: "input-result",
@@ -208,10 +216,15 @@ export async function runWorker() {
 						? TerminalInputStatus.REJECTED
 						: TerminalInputStatus.AMBIGUOUS,
 				written_bytes: result.writtenBytes,
+				phase: result.status === "accepted"
+					? TerminalWritePhase.WRITTEN
+					: result.status === "rejected"
+						? TerminalWritePhase.PRE_WRITE
+						: TerminalWritePhase.UNKNOWN,
 				reason: result.status === "accepted" ? undefined : result.reason,
 			});
 		},
-		onViewportRequest: async (request) => {
+		onViewportRequest: async (request, budget) => {
 			const result = await sessionMgr.applyTerminalViewport({
 				sessionId: request.sessionId,
 				viewerId: request.viewerId,
@@ -220,29 +233,54 @@ export async function runWorker() {
 				rows: request.rows,
 				cause: request.cause,
 				heldCellSeq: request.heldCellSeq,
+				budget,
 			});
-			coordLink.send(result.status === "committed" ? {
-				kind: "viewport-result",
-				request_id: request.requestId,
-				session_id: request.sessionId,
-				client_seq: request.clientSeq,
-				status: TerminalViewportStatus.COMMITTED,
-				channel_resize_seq: BigInt(result.channelResizeSeq),
-				cols: result.cols,
-				rows: result.rows,
-				resized: result.resized,
-			} : {
-				kind: "viewport-result",
-				request_id: request.requestId,
-				session_id: request.sessionId,
-				client_seq: request.clientSeq,
-				status: TerminalViewportStatus.REJECTED,
-				channel_resize_seq: 0n,
-				cols: 0,
-				rows: 0,
-				resized: false,
-				reason: result.reason,
-			});
+			switch (result.status) {
+				case "committed":
+					coordLink.send({
+						kind: "viewport-result",
+						request_id: request.requestId,
+						session_id: request.sessionId,
+						client_seq: request.clientSeq,
+						status: TerminalViewportStatus.COMMITTED,
+						channel_resize_seq: BigInt(result.channelResizeSeq),
+						cols: result.cols,
+						rows: result.rows,
+						resized: result.resized,
+						phase: TerminalWritePhase.WRITTEN,
+					});
+					return;
+				case "rejected":
+					coordLink.send({
+						kind: "viewport-result",
+						request_id: request.requestId,
+						session_id: request.sessionId,
+						client_seq: request.clientSeq,
+						status: TerminalViewportStatus.REJECTED,
+						channel_resize_seq: 0n,
+						cols: 0,
+						rows: 0,
+						resized: false,
+						phase: TerminalWritePhase.PRE_WRITE,
+						reason: result.reason,
+					});
+					return;
+				case "ambiguous":
+					coordLink.send({
+						kind: "viewport-result",
+						request_id: request.requestId,
+						session_id: request.sessionId,
+						client_seq: request.clientSeq,
+						status: TerminalViewportStatus.AMBIGUOUS,
+						channel_resize_seq: 0n,
+						cols: 0,
+						rows: 0,
+						resized: false,
+						phase: TerminalWritePhase.UNKNOWN,
+						reason: result.reason,
+					});
+					return;
+			}
 		},
 		// phase-24c-1: PTY input routed via sessions.input mutation arrives
 		// here as a downstream binary frame. Demux by channel_id, only

@@ -9,7 +9,8 @@ import { DEFAULT_COLOR, CELL_BOLD, CELL_DIM, CELL_ITALIC, CELL_UNDERLINE, CELL_R
 import type { CellSpan, CellRow } from "@roost/shared/cell";
 
 function span(over: Partial<CellSpan>): CellSpan {
-  return { text: "x", fg: DEFAULT_COLOR, bg: DEFAULT_COLOR, flags: 0, fgRgb: undefined, bgRgb: undefined, ...over };
+  const text = over.text ?? "x";
+  return { fg: DEFAULT_COLOR, bg: DEFAULT_COLOR, flags: 0, fgRgb: undefined, bgRgb: undefined, ...over, text, columns: over.columns ?? text.length };
 }
 
 describe("ansi256ToCss", () => {

@@ -6,6 +6,19 @@
 import { z } from "zod";
 import { ChannelId, SessionId, TraceId } from "./brand.ts";
 
+/** Why a get-scrollback-cells page came back short of the requested range —
+ *  which history floor the caller hit. Mirrors roost.v1.ScrollbackHistoryFloor
+ *  and is the wire form the worker stamps on its rpc-ok data.
+ *
+ *  "none"          the full requested range was served; no floor was hit.
+ *  "evicted"       gone forever: the core's own line ring rolled past those
+ *                  rows as newer output arrived.
+ *  "resize_replay" lost to the replay bound: a resize rebuilt the grid from the
+ *                  fixed byte ring, which could not reach as far back as the
+ *                  core it replaced. A never-resized session would still hold
+ *                  those rows — the loss is resize-induced, not genuine. */
+export type ScrollbackHistoryFloor = "none" | "evicted" | "resize_replay";
+
 const Base = z.object({ trace_id: TraceId.optional() });
 // ─── client → worker ───────────────────────────────────────────────────
 
@@ -66,7 +79,10 @@ export const ClientControlFrame = z.discriminatedUnion("kind", [
   // Demand-driven history page from a stable grid epoch. Browsers name the
   // epoch of their authoritative frame; an empty headless/API epoch binds to
   // the worker's current epoch, which is returned in rpc-ok:
-  // { rows: CellRow[], cols, total, start_row, end_row, grid_epoch }.
+  // { rows: CellRow[], cols, total, start_row, end_row, grid_epoch, history_floor }.
+  // A page clamped at the retained floor comes back SHORT, and `history_floor`
+  // (ScrollbackHistoryFloor above) says which floor that was, so the caller can
+  // stop paging and name the cause instead of retrying forever.
   Base.extend({
     kind: z.literal("get-scrollback-cells"),
     request_id: z.string(),
@@ -78,13 +94,18 @@ export const ClientControlFrame = z.discriminatedUnion("kind", [
   // Find-in-scrollback (G): the SPA holds at most MAX_HELD_SCROLLBACK_ROWS of
   // the worker's retained history, so the search runs against the worker's
   // authoritative grid instead. rpc-ok data:
-  // { matches: [{ row, col, len, preview }], truncated, total, cols } — `row`
-  // is the MONOTONIC absolute index (same space as PbCellRow.index / sbBase),
-  // newest row first. Invalid `query` under regex → rpc-error "invalid regex: …".
+  // { matches: [{ row, col, len, preview }], truncated, total, cols, grid_epoch }
+  // — `row` is the MONOTONIC absolute index (same space as PbCellRow.index /
+  // sbBase) IN `grid_epoch`, newest row first. Epoch-fenced like
+  // get-scrollback-cells: a named epoch that is no longer current rejects with
+  // "grid epoch changed" rather than answering from a re-numbered grid; an empty
+  // headless/API epoch binds to the worker's current one. Invalid `query` under
+  // regex → rpc-error "invalid regex: …".
   Base.extend({
     kind: z.literal("search-scrollback"),
     request_id: z.string(),
     session_id: SessionId,
+    grid_epoch: z.string(),
     query: z.string(),
     case_sensitive: z.boolean(),
     regex: z.boolean(),

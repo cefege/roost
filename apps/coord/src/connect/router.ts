@@ -69,8 +69,7 @@ export function buildConnectRouter(deps: ConnectDeps): ConnectRouter {
     // connect/handlers-*.ts files (400-line cap). Each factory returns a
     // Pick<ServiceImpl<…>> spread into THIS one object literal — a SEPARATE
     // router.service() call per domain shadows the rest with unimplemented-
-    // throws (connect stubs every absent method). The Sync / InputStream /
-    // Scrollback streams below stay inline (bus-coupled).
+    // throws (connect stubs every absent method).
     ...makeWorkerHandlers(deps),
     ...makeSessionHandlers(deps),
     ...makeWorkspaceHandlers(deps),

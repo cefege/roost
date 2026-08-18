@@ -51,7 +51,12 @@ export interface Channel {
   outputBoundaryBuffer: KeeperOutputBoundaryBuffer | null;
   // Idempotence/status-query cache for logical resize sequences.
   resizeStatuses: Map<number, ResizeWireResult>;
+  // Every sequence the keeper consumed, applied or rejected. A worker that lost
+  // its ACK must allocate above this even when the marker was evicted.
   highestResizeSeq: number;
+  // Highest sequence whose cached result is an ACK; currentCols/currentRows are
+  // the geometry it installed.
+  appliedResizeSeq: number;
   // One per-channel FIFO: the head is repeatedly short-written to completion
   // before a later batch may call terminal.write.
   inputQueue: KeeperInputBatch[];

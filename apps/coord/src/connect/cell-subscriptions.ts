@@ -26,11 +26,13 @@ interface CellSubscription {
 	readonly lastMs: number;
 }
 
-/** An accepted mutation. Its object identity makes rollback conditional: an
- * older failed send can restore its exact predecessor only while no newer
- * mutation has replaced the installed entry. */
+/** An accepted provisional mutation. Its object identity makes rollback
+ * conditional: an older failed send can restore its exact predecessor only
+ * while no newer mutation has replaced the installed entry. Ambiguous admitted
+ * requests deliberately keep this TTL-backed state. */
 export interface CellSubscriptionMutation {
 	readonly effectiveClientSeq: bigint;
+	isCurrent(): boolean;
 	rollback(): boolean;
 }
 
@@ -79,6 +81,9 @@ export function mutateCellSubscription(
 
 	return {
 		effectiveClientSeq,
+		isCurrent(): boolean {
+			return _sessionsByViewer.get(viewerKey)?.get(sessionId) === applied;
+		},
 		rollback(): boolean {
 			const current = _sessionsByViewer.get(viewerKey);
 			if (!current || current.get(sessionId) !== applied) return false;
@@ -100,6 +105,15 @@ export function subscribeCells(
 	refreshEqual = false,
 ): boolean {
 	return mutateCellSubscription(viewerKey, sessionId, true, clientSeq, refreshEqual) !== null;
+}
+
+/** The watermark installed for one viewer/session, or null when that tab holds
+ *  no live subscription. Barrier repair replays a refresh at exactly this
+ *  sequence, so a coordinator-issued full-frame request can never be mistaken
+ *  for a new browser intent. */
+export function subscribedCellSeq(viewerKey: string, sessionId: string): bigint | null {
+	const entry = _sessionsByViewer.get(viewerKey)?.get(sessionId);
+	return entry?.subscribed === true ? entry.clientSeq : null;
 }
 
 export function unsubscribeCells(
@@ -129,6 +143,35 @@ export function _cellSubscriptionSnapshot(): Record<string, string[]> {
 			.filter(([, entry]) => entry.subscribed)
 			.map(([sessionId]) => sessionId);
 		if (subscribed.length > 0) out[viewerKey] = subscribed;
+	}
+	return out;
+}
+
+export interface CellSubscriptionDiagnostic {
+	readonly subscribed: boolean;
+	readonly client_seq: string;
+	readonly last_ms: number;
+	readonly age_ms: number;
+}
+
+/** Full ordered membership, including withdraw tombstones. Unlike the compact
+ * active-only summary above, this is collected only for an explicit diagnostic
+ * request so it can explain which client sequence suppressed an older claim. */
+export function _cellSubscriptionStateSnapshot(
+	now = Date.now(),
+): Record<string, Record<string, CellSubscriptionDiagnostic>> {
+	const out: Record<string, Record<string, CellSubscriptionDiagnostic>> = {};
+	for (const [viewerKey, sessions] of _sessionsByViewer) {
+		const bySession: Record<string, CellSubscriptionDiagnostic> = {};
+		for (const [sessionId, entry] of sessions) {
+			bySession[sessionId] = {
+				subscribed: entry.subscribed,
+				client_seq: entry.clientSeq.toString(),
+				last_ms: entry.lastMs,
+				age_ms: Math.max(0, now - entry.lastMs),
+			};
+		}
+		out[viewerKey] = bySession;
 	}
 	return out;
 }

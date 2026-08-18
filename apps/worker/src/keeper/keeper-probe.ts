@@ -5,6 +5,7 @@ import type { LocalEndpoint } from "@roost/shared";
 import {
   MuxFrameType,
   KEEPER_PROTOCOL_VERSION,
+  REQUIRED_KEEPER_FEATURES,
   SUPPORTED_KEEPER_FEATURES,
   decodeKeeperHelloResponse,
   decodeMuxFrames,
@@ -47,7 +48,9 @@ export type KeeperConnectionAttempt = AuthenticatedKeeperConnection | FailedKeep
 
 function hasRequiredFeatures(features: readonly string[]): boolean {
   const available = new Set(features);
-  return SUPPORTED_KEEPER_FEATURES.every(feature => available.has(feature));
+  // REQUIRED, not SUPPORTED: an incompatible keeper is killed along with every
+  // PTY it hosts, so only features the worker cannot degrade without belong here.
+  return REQUIRED_KEEPER_FEATURES.every(feature => available.has(feature));
 }
 
 /** Connect and perform the capability-bearing Hello as the first frame.

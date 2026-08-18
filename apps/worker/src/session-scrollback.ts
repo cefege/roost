@@ -1,14 +1,14 @@
-// Scrollback ring append/replay + terminal query-reply. Split out of
-// session-manager.ts (400-line cap); bodies byte-for-byte unchanged. Each
-// function is called with a SessionManager `this` (see the delegating
-// wrappers in session-manager.ts).
+// Scrollback ring append/replay + the ordered terminal query-reply lane. Split
+// out of session-manager.ts (400-line cap); the ring functions are called with
+// a SessionManager `this` (see the delegating wrappers in session-manager.ts).
 
 import type { SessionManager } from "./session-manager.ts";
-import type { TerminalCore } from "@wterm/core";
-import { diag, isDiagEnabled, signal } from "@roost/shared";
+import type { SessionRecord } from "./session-record.ts";
+import type { ScrollbackHistoryFloor } from "@roost/shared/wire";
+import { answerQueries, QUERY_CARRY_MAX } from "./terminal-query-reply.ts";
+import { diag, isDiagEnabled } from "@roost/shared";
 import { supportedHostPlatform } from "@roost/shared/platform";
 import * as byteCapture from "./diag/byte-capture.ts";
-import { synthQueryReplies } from "./terminal-query-reply.ts";
 import { _scanAgentOsc, _scanAltModeTransitions, _scanOsc7 } from "./terminal-stream-scan.ts";
 import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
 import { _sha8, MODE_CARRY_MAX } from "./session-constants.ts";
@@ -16,6 +16,8 @@ import { appendToRing } from "./session-scrollback-ring.ts";
 import { canonicalExistingWorkerPath } from "./util/path.ts";
 
 const HOST_PLATFORM = supportedHostPlatform();
+/** Probe replies are short and rare; the encoder is not, so build it once. */
+const REPLY_ENCODER = new TextEncoder();
 
 /** Append a chunk to the per-session scrollback ring, evicting oldest
  *  bytes if the cap is exceeded. Called from attachOutputClient's
@@ -31,6 +33,41 @@ export function appendScrollback(this: SessionManager, channelId: number, chunk:
 	if (!rec) return -1;
 	const core = rec.wtermCore;
 	if (!core) return -1;
+	const bytes = retainRaw(rec, channelId, chunk);
+	// Mirror to the core AND answer the capability probes this chunk carried in
+	// ONE ordered pass: the core is fed in segments cut at each probe Roost
+	// synthesizes, so a native CPR and a synthesized DA reach the pty in the
+	// order the application asked. The reply goes BACK into the pty (stdin).
+	// Live chunk ONLY — replay/rebuild sites discard it.
+	answerTerminalQueries(rec, channelId, bytes);
+	scanStreamState.call(this, rec, chunk, bytes);
+	return rec.head_seq;
+}
+
+/** Capture-lane ingest. A geometry-uncertain transaction freezes the canonical
+ *  core, so a captured chunk does everything the live path does EXCEPT touch the
+ *  core or answer its probes: it advances head_seq, enters the fixed raw ring,
+ *  and runs the metadata/carry scans. The frozen core would otherwise parse
+ *  bytes at a width the worker cannot prove; the deferred probes are answered
+ *  once, FIFO, by the post-boundary tail replay (session-resize-capture.ts). */
+export function appendCapturedScrollback(this: SessionManager, channelId: number, chunk: Buffer): number {
+	const rec = this.sessions.get(channelId);
+	if (!rec?.wtermCore) return -1;
+	const bytes = retainRaw(rec, channelId, chunk);
+	// The frozen core never parses these bytes, but the stream still advanced:
+	// carry the tokenizer across them so a partial probe cannot be glued onto
+	// the first post-rebuild chunk. Their own probes are answered once, FIFO, by
+	// the post-boundary tail replay.
+	noteDroppedCarry(rec, channelId, answerQueries(rec, null, bytes).droppedCarry);
+	scanStreamState.call(this, rec, chunk, bytes);
+	return rec.head_seq;
+}
+
+/** Retain one chunk in the ring, advance head_seq, feed the always-on byte
+ *  capture. Shared by the live and capture lanes so the retained window is
+ *  identical either way — the ring is the single source of truth for the
+ *  rebuild, and a captured byte that skipped it would be lost history. */
+function retainRaw(rec: SessionRecord, channelId: number, chunk: Buffer): Uint8Array {
 	const bytes = new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength);
 	appendToRing(rec.scrollback, chunk);
 	rec.head_seq += chunk.length;
@@ -54,25 +91,52 @@ export function appendScrollback(this: SessionManager, channelId: number, chunk:
 			alt_mode: rec.alt_mode,
 		});
 	}
-	// Mirror to headless xterm. The serialize addon snapshots whatever
-	// we've fed it — its job here is solely to support clean fresh-mount
-	// replay at the headless cols/rows. Live deltas still ride the raw
-	// ring above.
-	core.writeRaw(bytes);
-	// Answer terminal capability probes so the app that asked hears back. Two
-	// sources: (1) DSR (ESC[6n cursor pos) the core DOES answer → getResponse();
-	// (2) Primary DA (ESC[c) + XTVERSION (ESC[>0q) the core does NOT answer →
-	// synthesized. The reply goes BACK into the PTY (stdin). Live chunk ONLY —
-	// replay/rebuild sites discard it.
-	this._answerTerminalQueries(
-		core,
-		channelId,
-		bytes,
-	);
+	return bytes;
+}
+
+/** WHICH history floor a scrollback read hit — the difference between "gone
+ *  forever" and "lost to the replay bound", which the floor's numeric value
+ *  alone cannot tell apart.
+ *
+ *  `requestedStart` is the oldest absolute row the caller asked for and `floor`
+ *  the LIVE monotonic floor (scrollbackOrigin) the read resolved through:
+ *
+ *   - "none": the caller never reached below the floor, so no history is missing.
+ *   - "evicted": the core's own line ring rolled past those rows as newer output
+ *     arrived. Gone forever — no ring, no replay, nothing recovers them.
+ *   - "resize_replay": the floor is still exactly where a rebuild's replay left
+ *     it, and that replay was bounded by the fixed byte ring rather than by the
+ *     core's line ring. A session that was never resized would STILL hold those
+ *     rows, so the loss is resize-induced, not genuine.
+ *
+ *  The floor only ever rises, so one comparison against the pin's watermark
+ *  decides: still equal ⇒ the replay owns this floor; higher ⇒ ordinary eviction
+ *  has since carried the floor past whatever the replay left behind, and what a
+ *  caller hits now is an eviction floor. O(1), and no per-read state. */
+export function historyFloorReason(
+	rec: SessionRecord,
+	requestedStart: number,
+	floor: number,
+): ScrollbackHistoryFloor {
+	if (floor <= 0 || requestedStart >= floor) return "none";
+	// replay_floor is 0 until a replay actually loses rows, so it doubles as the
+	// "no replay has ever bounded this session's history" sentinel.
+	const replayFloor = rec.sb_origin_pin?.replay_floor ?? 0;
+	if (replayFloor > 0 && floor === replayFloor) return "resize_replay";
+	return "evicted";
+}
+
+/** Alt-screen mode, agent OSC, and OSC 7 cwd tracking. Stream state, not grid
+ *  state, so it stays truthful while the core is frozen. */
+function scanStreamState(
+	this: SessionManager,
+	rec: SessionRecord,
+	chunk: Buffer,
+	bytes: Uint8Array,
+): void {
 	// phase-ssb-altmode: scan for DEC private mode 1049/47/1047
-	// transitions so getScrollbackSince can prepend the right enter
-	// sequence when the session is currently in alt-screen. mode_carry
-	// bridges the last MODE_CARRY_MAX bytes across chunk boundaries.
+	// transitions. mode_carry bridges the last MODE_CARRY_MAX bytes across
+	// chunk boundaries.
 	const combined = new Uint8Array(rec.mode_carry.length + chunk.length);
 	combined.set(rec.mode_carry, 0);
 	combined.set(bytes, rec.mode_carry.length);
@@ -119,7 +183,6 @@ export function appendScrollback(this: SessionManager, channelId: number, chunk:
 		this._startGitBranch(rec);
 		this._startPorts(rec);
 	}
-	return rec.head_seq;
 }
 
 // cell-phase-4: getScrollbackForViewer / getScrollbackSince retired — cell frames
@@ -127,25 +190,32 @@ export function appendScrollback(this: SessionManager, channelId: number, chunk:
 // getScrollbackCells (cell rows) via handleGetScrollbackCells.
 // serializeWTerm stays as a test utility in wterm-serialize.ts.
 
-/** Answer terminal capability probes in a LIVE chunk, writing replies BACK
- *  into the PTY (stdin). Two sources: DSR (ESC[6n) the wterm core answers via
- *  getResponse(); Primary DA (ESC[c) + XTVERSION (ESC[>0q) the core leaves
- *  silent → synthQueryReplies. getResponse() drains-and-clears; the synth scan
- *  is per-chunk (exactly-once). No-op when the chunk held no probe. */
-export function _answerTerminalQueries(
-	this: SessionManager,
-	core: TerminalCore,
-	channelId: number,
-	chunk: Uint8Array,
-): void {
-	const dsr = core.getResponse();
-	const synth = synthQueryReplies(chunk);
-	const reply = (dsr ?? "") + synth;
-	if (reply.length === 0) return;
-	getMultiplexedPool().input(channelId, new TextEncoder().encode(reply));
+/** Answer the capability probes a LIVE chunk carried, writing the replies BACK
+ *  into the pty (stdin) as one batch. `answerQueries` owns the core write: it
+ *  feeds the chunk in segments cut at each synthesized probe and drains the
+ *  core's own queued replies between them, so natives and synthesized replies
+ *  reach the application in the order it asked for them. No-op when the chunk
+ *  held no probe and the core had nothing queued. */
+function answerTerminalQueries(rec: SessionRecord, channelId: number, chunk: Uint8Array): void {
+	const reply = answerQueries(rec, rec.wtermCore, chunk);
+	noteDroppedCarry(rec, channelId, reply.droppedCarry);
+	if (reply.bytes.length === 0) return;
+	getMultiplexedPool().input(channelId, REPLY_ENCODER.encode(reply.bytes));
 	diag("terminal.query_reply", {
 		channel_id: channelId,
-		dsr_len: dsr?.length ?? 0,
-		synth_len: synth.length,
+		native_len: reply.native.length,
+		synth_len: reply.synth.length,
+	});
+}
+
+/** A CSI that outgrew the bounded carry without ever reaching its final byte:
+ *  the partial is abandoned rather than allowed to pin memory, so say so. */
+function noteDroppedCarry(rec: SessionRecord, channelId: number, dropped: number): void {
+	if (dropped === 0) return;
+	diag("terminal.query_carry_dropped", {
+		sid: rec.sessionId,
+		channel_id: channelId,
+		bytes: dropped,
+		cap: QUERY_CARRY_MAX,
 	});
 }

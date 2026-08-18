@@ -101,15 +101,6 @@ export const titleBus = new BoundedBus<{ session_id: string; title: string }>(25
 // after. Drives the sidebar "Last activity" filter aging out idle OPEN sessions.
 export const lastActivityBus = new BoundedBus<{ session_id: string; ts_ms: number }>(256);
 
-// Completed OSC 8 text-to-URI mappings, parsed once from coordinator-internal
-// PTY bytes. Compact and volatile: Sync forwards every live mapping without
-// subscription filtering, while browser registries retain what they receive.
-export const terminalLinkBus = new BoundedBus<{
-  session_id: string;
-  text: string;
-  uri: string;
-}>(1024);
-
 // Worker routability = coord's live raw-WS membership (connectWorkers). The
 // AUTHORITATIVE "server is reachable right now" signal — distinct from
 // last_seen_ms heartbeat freshness. Published as the FULL current set on

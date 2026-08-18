@@ -1,16 +1,16 @@
 // Per-tab cell and cursor-presence fanout. Cell grids are subscription-filtered;
-// compact terminal-link mappings are intentionally delivered to every Sync
-// browser so its registry can retain mappings for offscreen panes.
+// compact per-session terminal metadata (titles) is intentionally delivered to
+// every Sync browser so an offscreen pane still has it on revisit.
 //
 // Integration: real Bun.serve + real JWT auth + the real startSyncFeed wiring,
-// driving globalCellBus, coordinator-internal globalBytesBus, terminalLinkBus,
+// driving globalCellBus, coordinator-internal globalBytesBus, titleBus,
 // and globalPresenceBus. Raw PTY bytes must never cross Sync.
 //
 // Frames are collected up to a BARRIER frame on an unfiltered bus rather than a
 // sleep: one socket delivers in order, so once the barrier lands every frame
 // published before it has either arrived or been filtered out.
 
-import { test, expect, beforeAll, afterAll, setSystemTime } from "bun:test";
+import { test, expect, beforeAll, afterAll, setSystemTime, vi } from "bun:test";
 import type { Server } from "bun";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -30,11 +30,18 @@ import {
   unsubscribeCells,
   isSubscribed,
 } from "../src/connect/cell-subscriptions.ts";
-import { globalCellBus, globalBytesBus, globalPresenceBus, terminalLinkBus, workerRoutableBus } from "../src/buses.ts";
+import {
+  _viewersBySession,
+  mutateViewer,
+} from "../src/connect/viewer-tracker.ts";
+import { globalCellBus, globalBytesBus, globalPresenceBus, titleBus, workerRoutableBus } from "../src/buses.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";
 import type { SyncWsData } from "../src/connect/sync-ws-handler.ts";
 import type { CoordConfig } from "@roost/shared/config";
-import { VIEWER_CLAIM_TTL_MS } from "@roost/shared/viewport";
+import {
+  VIEWER_CLAIM_TTL_MS,
+  VIEWER_WITHDRAW_GRACE_MS,
+} from "@roost/shared/viewport";
 
 const TAB_ID = "tab-alpha";
 const WATCHED = "11111111-1111-1111-1111-111111111111";
@@ -105,7 +112,7 @@ beforeAll(async () => {
 
 afterAll(() => cleanup?.());
 
-/** Open a socket, publish per-session cell/link frames plus coordinator-internal
+/** Open a socket, publish per-session cell/title frames plus coordinator-internal
  * raw bytes, and return the frame ids that cross Sync. */
 async function fanoutFor(query: string): Promise<string[]> {
   const ws = new WebSocket(
@@ -118,7 +125,7 @@ async function fanoutFor(query: string): Promise<string[]> {
   ws.onmessage = (ev) => {
     const frame = fromBinary(FirehoseFrameSchema, new Uint8Array(ev.data as ArrayBuffer));
     if (frame.frame.case === "cellGrid") seen.push(`cell:${frame.frame.value.sessionId}`);
-    else if (frame.frame.case === "terminalLink") seen.push(`link:${frame.frame.value.sessionId}`);
+    else if (frame.frame.case === "terminalTitle") seen.push(`title:${frame.frame.value.sessionId}`);
     else if (frame.frame.case === "workerRoutable" && frame.frame.value.fps.includes(BARRIER_FP)) sawBarrier();
   };
   const { promise: open, resolve: opened } = Promise.withResolvers<void>();
@@ -128,8 +135,8 @@ async function fanoutFor(query: string): Promise<string[]> {
   globalCellBus.publish(create(PbCellGridFrameSchema, { sessionId: OTHER, seq: 1n }));
   globalBytesBus.publish({ session_id: WATCHED, bytes: new Uint8Array([1]) });
   globalBytesBus.publish({ session_id: OTHER, bytes: new Uint8Array([2]) });
-  terminalLinkBus.publish({ session_id: WATCHED, text: "watched", uri: "https://example.test/watched" });
-  terminalLinkBus.publish({ session_id: OTHER, text: "other", uri: "https://example.test/other" });
+  titleBus.publish({ session_id: WATCHED, title: "watched" });
+  titleBus.publish({ session_id: OTHER, title: "other" });
   workerRoutableBus.publish({ fps: [BARRIER_FP] });
   await barrierSeen;
   try { ws.close(); } catch { /* ignore */ }
@@ -187,22 +194,22 @@ async function presenceFanoutFor(query: string): Promise<TestPresencePayload[]> 
   return seen;
 }
 
-test("a tab filters cells but retains links for every session", async () => {
+test("a tab filters cells but retains unfiltered session metadata for every session", async () => {
   subscribeCells(`${fingerprint}:${TAB_ID}`, WATCHED);
   expect(await fanoutFor(`?tab=${TAB_ID}`)).toEqual([
-    `cell:${WATCHED}`, `link:${WATCHED}`, `link:${OTHER}`,
+    `cell:${WATCHED}`, `title:${WATCHED}`, `title:${OTHER}`,
   ]);
 });
 
 test("a withdrawn session stops arriving", async () => {
   unsubscribeCells(`${fingerprint}:${TAB_ID}`, WATCHED);
   expect(isSubscribed(`${fingerprint}:${TAB_ID}`, WATCHED)).toBe(false);
-  expect(await fanoutFor(`?tab=${TAB_ID}`)).toEqual([`link:${WATCHED}`, `link:${OTHER}`]);
+  expect(await fanoutFor(`?tab=${TAB_ID}`)).toEqual([`title:${WATCHED}`, `title:${OTHER}`]);
 });
 
 test("a client that sends no tab= still receives every session (fail open)", async () => {
   expect(await fanoutFor("")).toEqual([
-    `cell:${WATCHED}`, `cell:${OTHER}`, `link:${WATCHED}`, `link:${OTHER}`,
+    `cell:${WATCHED}`, `cell:${OTHER}`, `title:${WATCHED}`, `title:${OTHER}`,
   ]);
 });
 
@@ -283,6 +290,26 @@ test("only an accepted equal heartbeat refreshes claim TTL", () => {
   }
 });
 
+test("an admitted provisional claim remains subscribed until the shared TTL", () => {
+  const viewer = "provisional-viewer:ambiguous";
+  const sessionId = "provisional-session-ambiguous";
+  const start = new Date("2030-06-01T00:00:00.000Z");
+
+  setSystemTime(start);
+  try {
+    const provisional = mutateCellSubscription(viewer, sessionId, true, 30n);
+    expect(provisional?.effectiveClientSeq).toBe(30n);
+    expect(isSubscribed(viewer, sessionId)).toBe(true);
+
+    _reapCellSubscriptions(start.getTime() + VIEWER_CLAIM_TTL_MS);
+    expect(isSubscribed(viewer, sessionId)).toBe(true);
+    _reapCellSubscriptions(start.getTime() + VIEWER_CLAIM_TTL_MS + 1);
+    expect(isSubscribed(viewer, sessionId)).toBe(false);
+  } finally {
+    setSystemTime();
+  }
+});
+
 test("an exact rollback restores the prior membership and watermark", () => {
   const viewer = "rollback-viewer:prior";
   const sessionId = "rollback-session-prior";
@@ -335,11 +362,85 @@ test("an older rollback token cannot undo a newer mutation", () => {
   expect(older).not.toBeNull();
   expect(newer).not.toBeNull();
   expect(isSubscribed(viewer, sessionId)).toBe(false);
+  expect(older?.isCurrent()).toBe(false);
+  expect(newer?.isCurrent()).toBe(true);
 
   expect(older?.rollback()).toBe(false);
   expect(isSubscribed(viewer, sessionId)).toBe(false);
   // Equality remains rejected, proving the newer watermark also survived.
   expect(mutateCellSubscription(viewer, sessionId, true, 61n)).toBeNull();
+});
+
+test("an older viewer rollback token cannot overwrite a newer projection", () => {
+  const viewer = "viewer-rollback:newer";
+  const sessionId = "viewer-rollback-session-newer";
+
+  const older = mutateViewer(
+    sessionId,
+    viewer,
+    true,
+    80,
+    24,
+    80n,
+  );
+  const newer = mutateViewer(
+    sessionId,
+    viewer,
+    true,
+    120,
+    40,
+    81n,
+  );
+  expect(older).not.toBeNull();
+  expect(newer).not.toBeNull();
+  expect(_viewersBySession.get(sessionId)?.get(viewer)).toMatchObject({
+    cols: 120,
+    rows: 40,
+  });
+  expect(older?.isCurrent()).toBe(false);
+  expect(newer?.isCurrent()).toBe(true);
+
+  expect(older?.rollback()).toBe(false);
+  expect(_viewersBySession.get(sessionId)?.get(viewer)).toMatchObject({
+    cols: 120,
+    rows: 40,
+  });
+});
+
+test("viewer rollback restores presence after provisional withdraw grace fires", () => {
+  const viewer = "viewer-rollback:withdraw";
+  const sessionId = "viewer-rollback-session-withdraw";
+
+  vi.useFakeTimers();
+  try {
+    expect(mutateViewer(
+      sessionId,
+      viewer,
+      true,
+      88,
+      29,
+      90n,
+    )).not.toBeNull();
+    const withdrawal = mutateViewer(
+      sessionId,
+      viewer,
+      false,
+      0,
+      0,
+      91n,
+    );
+    expect(withdrawal).not.toBeNull();
+
+    vi.advanceTimersByTime(VIEWER_WITHDRAW_GRACE_MS);
+    expect(_viewersBySession.get(sessionId)?.has(viewer) ?? false).toBe(false);
+    expect(withdrawal?.rollback()).toBe(true);
+    expect(_viewersBySession.get(sessionId)?.get(viewer)).toMatchObject({
+      cols: 88,
+      rows: 29,
+    });
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 test("legacy claims advance while legacy withdraw preserves the effective sequence", () => {

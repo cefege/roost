@@ -24,7 +24,15 @@ export function handleDiagSnapshot(
 	deps: { coordLink: CoordLink; sessionMgr: SessionManager },
 ): void {
 	const { coordLink, sessionMgr } = deps;
-	const data = sessionMgr.diagSnapshot();
-	coordLink.send({ kind: "rpc-ok", request_id, data });
+	try {
+		const data = sessionMgr.diagSnapshot();
+		coordLink.send({ kind: "rpc-ok", request_id, data });
+	} catch (error) {
+		coordLink.send({
+			kind: "rpc-error",
+			request_id,
+			message: (error instanceof Error ? error.message : String(error)).slice(0, 200),
+		});
+	}
 	return;
 }

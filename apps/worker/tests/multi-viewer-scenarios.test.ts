@@ -20,6 +20,8 @@ import type { TerminalCore } from "@wterm/core";
 import { initCellEmitState } from "@roost/shared/cell";
 import { createSbRing } from "../src/session-scrollback-ring.ts";
 import { initAgentOscState } from "../src/terminal-stream-scan.ts";
+import { installAutoKeeper } from "./keeper-fake-pool.ts";
+import { settleTerminalControl } from "./terminal-control-settle.ts";
 
 // withdrawViewport defers removal by VIEWER_WITHDRAW_GRACE_MS; wait past it
 // before asserting the post-withdraw claim count / recomputed SCD.
@@ -34,7 +36,10 @@ const M3 = "m3".padEnd(64, "0");  // computer 3
 const M1_TABA = `${M1}:tabA`;
 const M1_TABB = `${M1}:tabB`;
 
-function freshMgr(): SessionManager {
+function freshMgr(cols = 80, rows = 24): SessionManager {
+  // A resize is APPLIED only once the keeper acknowledges it; these scenarios
+  // assert the applied size, so they need a keeper that answers.
+  installAutoKeeper({ cols, rows });
   return new SessionManager({
     workerFp: asWorkerFp("00".repeat(32)),
     sink: { emit: () => {} },
@@ -57,10 +62,14 @@ async function injectSession(mgr: SessionManager, cols: number, rows: number): P
     alt_mode: false,
     mode_carry: new Uint8Array(0),
     osc7_carry: new Uint8Array(0),
+    query_carry: new Uint8Array(0),
     ...initAgentOscState(),
     wtermCore,
     cell_emit: initCellEmitState("test-grid"),
   });
+  // spawnShell records the geometry the keeper created the PTY at; an injected
+  // session must too, or the first claim at that size looks like a resize.
+  mgr.lastAppliedSize.set(CID, { cols, rows });
 }
 
 function cellGridText(core: TerminalCore): string {
@@ -74,8 +83,11 @@ function getCore(mgr: SessionManager): TerminalCore {
   return mgr.shellByChannel(CID)!.wtermCore;
 }
 
-function applied(mgr: SessionManager): { cols: number; rows: number } | undefined {
-  return (mgr as unknown as { lastAppliedSize: Map<number, { cols: number; rows: number }> }).lastAppliedSize.get(CID);
+// The SCD size the worker PROVED with the keeper. A claim queues its resize on
+// the terminal-control lane, so this must drain that lane first.
+async function applied(mgr: SessionManager): Promise<{ cols: number; rows: number } | undefined> {
+  await settleTerminalControl(mgr, CID);
+  return mgr.lastAppliedSize.get(CID);
 }
 
 function liveWrite(mgr: SessionManager, chunk: string): void {
@@ -92,7 +104,7 @@ describe("scenario S1 — computer-to-computer handoff", () => {
 
     // M1 connects at 200×60.
     mgr.claimViewport(CID, M1, 200, 60);
-    expect(applied(mgr)).toEqual({ cols: 200, rows: 60 });
+    expect(await applied(mgr)).toEqual({ cols: 200, rows: 60 });
 
     // M1 types and shell echoes 3 lines.
     liveWrite(mgr, "step1\r\nstep2\r\nstep3\r\n");
@@ -103,7 +115,7 @@ describe("scenario S1 — computer-to-computer handoff", () => {
     // M2 joins at 100×30 (smaller laptop). SCD shrinks. Worker resizes
     // wtermCore. Future content lays out at SCD.
     mgr.claimViewport(CID, M2, 100, 30);
-    expect(applied(mgr)).toEqual({ cols: 100, rows: 30 });
+    expect(await applied(mgr)).toEqual({ cols: 100, rows: 30 });
 
     // More live content arrives — it lands on the SCD grid.
     liveWrite(mgr, "after-m2-joined\r\n");
@@ -114,7 +126,7 @@ describe("scenario S1 — computer-to-computer handoff", () => {
 
     // M1 leaves. SCD stays at last applied (M2 still pinning at 100×30).
     mgr.withdrawViewport(CID, M1);
-    expect(applied(mgr)).toEqual({ cols: 100, rows: 30 });
+    expect(await applied(mgr)).toEqual({ cols: 100, rows: 30 });
 
     // M2 alone now. More content arrives.
     liveWrite(mgr, "alone-now\r\n");
@@ -131,7 +143,7 @@ describe("scenario S2 — two-tab on the same browser (composite key disambiguat
     mgr.claimViewport(CID, M1_TABA, 200, 60);
     mgr.claimViewport(CID, M1_TABB, 100, 30);
     // Composite keys keep both alive simultaneously.
-    expect(applied(mgr)).toEqual({ cols: 100, rows: 30 });
+    expect(await applied(mgr)).toEqual({ cols: 100, rows: 30 });
     const claims = (mgr as unknown as {
       viewportClaims: Map<number, Map<string, unknown>>;
     }).viewportClaims.get(CID)!;
@@ -140,7 +152,7 @@ describe("scenario S2 — two-tab on the same browser (composite key disambiguat
     // Tab A pagehide → withdraw (deferred). Tab B keeps pinning.
     mgr.withdrawViewport(CID, M1_TABA);
     await afterWithdraw();
-    expect(applied(mgr)).toEqual({ cols: 100, rows: 30 });
+    expect(await applied(mgr)).toEqual({ cols: 100, rows: 30 });
     expect(claims.size).toBe(1);
   });
 });
@@ -152,12 +164,12 @@ describe("scenario S3 — three-computer cascade", () => {
     mgr.claimViewport(CID, M1, 200, 60);
     mgr.claimViewport(CID, M2, 120, 40);   // mid-sized
     mgr.claimViewport(CID, M3, 90, 28);
-    expect(applied(mgr)).toEqual({ cols: 90, rows: 28 });
+    expect(await applied(mgr)).toEqual({ cols: 90, rows: 28 });
 
     liveWrite(mgr, "before-cascade\r\n");
     mgr.withdrawViewport(CID, M2);
     // SCD recomputes to min(M1, M3) = min(200, 90), min(60, 28) = (90, 28)
-    expect(applied(mgr)).toEqual({ cols: 90, rows: 28 });
+    expect(await applied(mgr)).toEqual({ cols: 90, rows: 28 });
 
     liveWrite(mgr, "after-cascade\r\n");
     const snap = cellGridText(getCore(mgr));
@@ -179,7 +191,7 @@ describe("scenario S4 — dynamic resize during live byte stream", () => {
     for (let w = 60; w <= 100; w += 10) mgr.claimViewport(CID, M2, w, 30);
     liveWrite(mgr, "postA\r\n");
     // Final SCD = min(M1=100×30, M2=100×30) = (100, 30).
-    expect(applied(mgr)).toEqual({ cols: 100, rows: 30 });
+    expect(await applied(mgr)).toEqual({ cols: 100, rows: 30 });
     const snap1 = cellGridText(getCore(mgr));
     const snap2 = cellGridText(getCore(mgr));
     expect(snap1).toBe(snap2);
@@ -194,7 +206,7 @@ describe("scenario S5 — laptop closes lid (silent disconnect via reaper)", () 
     await injectSession(mgr, 80, 24);
     mgr.claimViewport(CID, M1, 60, 20);    // small laptop pins the SCD min
     mgr.claimViewport(CID, M2, 150, 50);
-    expect(applied(mgr)).toEqual({ cols: 60, rows: 20 }); // SCD = min, M1 pins
+    expect(await applied(mgr)).toEqual({ cols: 60, rows: 20 }); // SCD = min, M1 pins
 
     // Lid closes — heartbeat stops. Age M1's claim past TTL; the reaper
     // (synchronous, not the deferred-withdraw path) drops it.
@@ -205,7 +217,7 @@ describe("scenario S5 — laptop closes lid (silent disconnect via reaper)", () 
     (mgr as unknown as { _reapViewportClaims(): void })._reapViewportClaims();
 
     // M1 reaped → M2 alone → SCD grows to M2's own dims.
-    expect(applied(mgr)).toEqual({ cols: 150, rows: 50 });
+    expect(await applied(mgr)).toEqual({ cols: 150, rows: 50 });
   });
 
   test("S5b — stale-but-unreaped claim (past FRESH, before TTL) releases the min on the reaper tick", async () => {
@@ -213,7 +225,7 @@ describe("scenario S5 — laptop closes lid (silent disconnect via reaper)", () 
     await injectSession(mgr, 80, 24);
     mgr.claimViewport(CID, M1, 60, 20);    // small laptop pins the SCD min
     mgr.claimViewport(CID, M2, 150, 50);
-    expect(applied(mgr)).toEqual({ cols: 60, rows: 20 });
+    expect(await applied(mgr)).toEqual({ cols: 60, rows: 20 });
 
     // M1 dies silently. Age its claim past VIEWER_CLAIM_FRESH_MS (70s) but
     // NOT past the 120s TTL. M2's heartbeats are same-seq (no recompute), so
@@ -225,12 +237,12 @@ describe("scenario S5 — laptop closes lid (silent disconnect via reaper)", () 
     (mgr as unknown as { _reapViewportClaims(): void })._reapViewportClaims();
 
     // M1 excluded from the min (not yet dropped) → SCD grows to M2's dims.
-    expect(applied(mgr)).toEqual({ cols: 150, rows: 50 });
+    expect(await applied(mgr)).toEqual({ cols: 150, rows: 50 });
 
     // M1's tab comes back (e.g. laptop reopens within the TTL) with an
     // advancing seq — it re-enters the min and shrinks the SCD again.
     mgr.claimViewport(CID, M1, 60, 20, 99);
-    expect(applied(mgr)).toEqual({ cols: 60, rows: 20 });
+    expect(await applied(mgr)).toEqual({ cols: 60, rows: 20 });
   });
 });
 
@@ -244,7 +256,7 @@ describe("scenario S6 — full alt-screen TUI under multi-viewer", () => {
 
     // M2 joins at 80×24. SCD shrinks; wtermCore reflows.
     mgr.claimViewport(CID, M2, 80, 24);
-    expect(applied(mgr)).toEqual({ cols: 80, rows: 24 });
+    expect(await applied(mgr)).toEqual({ cols: 80, rows: 24 });
 
     const snap1 = cellGridText(getCore(mgr));
     const snap2 = cellGridText(getCore(mgr));
@@ -270,7 +282,7 @@ describe("scenario S7 — big content + tiny new viewer (the 'minimize' case)", 
 
     // Tiny laptop joins (the "minimize" case from user spec).
     mgr.claimViewport(CID, M2, 40, 12);
-    expect(applied(mgr)).toEqual({ cols: 40, rows: 12 });
+    expect(await applied(mgr)).toEqual({ cols: 40, rows: 12 });
 
     const text = cellGridText(getCore(mgr));
     // Content should be recognizable. Per H3 wart, wterm-wasm shrink IS
@@ -299,7 +311,7 @@ describe("scenario S9 — fast tab-switch (Author 2026-06-17: 'switching between
       liveWrite(mgr, `tick-${i}\r\n`);
     }
     // SCD must still be SCD; no drift.
-    expect(applied(mgr)).toEqual({ cols: 80, rows: 24 });
+    expect(await applied(mgr)).toEqual({ cols: 80, rows: 24 });
     // Latest content present.
     const snap = cellGridText(getCore(mgr));
     expect(snap).toContain("tick-49");
@@ -325,7 +337,7 @@ describe("scenario S9 — fast tab-switch (Author 2026-06-17: 'switching between
     expect(claims === undefined || claims.size === 0).toBe(true);
     // Final claim establishes new SCD.
     mgr.claimViewport(CID, M2, 60, 20);
-    expect(applied(mgr)).toEqual({ cols: 60, rows: 20 });
+    expect(await applied(mgr)).toEqual({ cols: 60, rows: 20 });
   });
 
   test("S9c — alt-tab while typing: byte stream + rapid claim toggles, no torn snapshot", async () => {
@@ -360,7 +372,7 @@ describe("scenario S8 — round-trip: M1 leaves entirely, M2 picks up everything
     liveWrite(mgr, "from-m1-pre\r\n");
     mgr.withdrawViewport(CID, M1);
     // SCD stays at (100, 30) — no thrash even though no viewer.
-    expect(applied(mgr)).toEqual({ cols: 100, rows: 30 });
+    expect(await applied(mgr)).toEqual({ cols: 100, rows: 30 });
 
     // M2 connects fresh.
     mgr.claimViewport(CID, M2, 100, 30);

@@ -28,12 +28,21 @@ import {
 import type { CoordWorkerDown } from "@roost/shared/proto/worker_transport_pb";
 import { jwtKeyGeneration, verifyJwt } from "../jwt.ts";
 import { log } from "@roost/shared/log";
-import { signal } from "@roost/shared/diag";
+import { diag, signal } from "@roost/shared/diag";
 import { makeWorkerConn, type WorkerConn, type WorkerServiceDeps } from "./worker-service.ts";
 import { protoToEvent } from "@roost/shared/wire/event-proto";
 import { asChannelId, asWorkerFp } from "@roost/shared/wire";
-import { lookupSessionId } from "../byte-hub.ts";
-import { AnnouncedChannelBarrier } from "./announced-channel-barrier.ts";
+import {
+  clearBarrierRepairForWorker,
+  lookupSessionId,
+  noteBarrierChannelLoss,
+  noteBarrierRepairFullFrames,
+} from "../byte-hub.ts";
+import { requestBarrierRepairFullFrame } from "./session-control.ts";
+import {
+  AnnouncedChannelBarrier,
+  type AnnouncedDrop,
+} from "./announced-channel-barrier.ts";
 
 const WS_PATH_RE = /^\/ws\/coord-worker\/([a-f0-9]{64})$/;
 
@@ -46,9 +55,47 @@ export interface WorkerWsData {
   // not await our async handler between them, so chain handleUpstream calls
   // here to keep event appends ordered (the seqno-splice invariant).
   tail: Promise<void>;
-  // Cells may overtake the async durable opened append, but only after this
-  // socket synchronously decoded that exact worker/channel announcement.
+  // Cell grids and PTY chunks may overtake the async durable opened/respawned
+  // append, but only after this socket synchronously decoded that exact
+  // worker/channel announcement.
   announcedChannels: AnnouncedChannelBarrier;
+}
+
+/** The barrier abandoned a channel's buffer. Cells lost here return only as a
+ *  full frame, so mark the exact route — the browser cannot know its held
+ *  sequence went stale — and, when a viewer is actually watching, replay one
+ *  refresh claim now instead of waiting for an unrelated delta or a reload. */
+function handleAnnouncedDrop(workerFp: string, drop: AnnouncedDrop): void {
+  const marked = noteBarrierChannelLoss({
+    workerFp,
+    sessionId: drop.sessionId,
+    channelId: drop.channelId,
+    reason: drop.reason,
+    phase: drop.phase,
+    cellFrames: drop.cellFrames,
+    binaryFrames: drop.binaryFrames,
+    binaryBytes: drop.binaryBytes,
+  });
+  if (!marked) return;
+  const replay = requestBarrierRepairFullFrame({
+    workerFp,
+    sessionId: drop.sessionId,
+    channelId: drop.channelId,
+  });
+  noteBarrierRepairFullFrames(
+    workerFp,
+    drop.sessionId,
+    drop.channelId,
+    replay.enqueued,
+  );
+}
+
+/** Every socket's barrier must report its drops into the coordinator-local
+ *  repair state, so construction is centralized here: a bare
+ *  `new AnnouncedChannelBarrier()` would silently lose the marks that force a
+ *  dropped route's next full frame. */
+export function createAnnouncedChannelBarrier(workerFp: string): AnnouncedChannelBarrier {
+  return new AnnouncedChannelBarrier((drop) => handleAnnouncedDrop(workerFp, drop));
 }
 
 /** Bun fetch-handler hook. Returns:
@@ -96,7 +143,7 @@ export async function handleWorkerWsUpgrade(
     fp,
     conn: null,
     tail: Promise.resolve(),
-    announcedChannels: new AnnouncedChannelBarrier(),
+    announcedChannels: createAnnouncedChannelBarrier(fp),
   };
   const ok = server.upgrade(req, { data });
   if (ok) return undefined; // hijacked
@@ -130,6 +177,14 @@ export function makeWorkerWsHandler(deps: WorkerServiceDeps) {
     message(ws: ServerWebSocket<WorkerWsData>, message: string | Buffer): void {
       const conn = ws.data.conn;
       if (!conn) return;
+      // Superseded generation: a newer authenticated hello for this fingerprint
+      // already took over the registry handle, so this socket is closing and its
+      // remaining frames — including a late exact snapshot — must not touch
+      // coordinator state or its replacement's channel index.
+      if (!conn.isCurrentGeneration()) {
+        diag("worker-ws.superseded_frame", { worker_fp: ws.data.fp });
+        return;
+      }
       let frame;
       try {
         // COPY off Bun's ServerWebSocket message buffer — it is pooled and
@@ -152,20 +207,34 @@ export function makeWorkerWsHandler(deps: WorkerServiceDeps) {
         return;
       }
       const fcase = frame.frame.case;
-      let opened: { sessionId: string; channelId: number } | null = null;
+      // `opened` AND `respawned` both bind a NEW (worker, channel) route whose
+      // durable append is still queued. Recognizing them synchronously here is
+      // what lets their first cell/binary frames wait for that binding instead
+      // of racing it — a respawn's first binary frame can carry the only copy of
+      // the new PTY's title/OSC mapping.
+      let announced: { sessionId: string; channelId: number } | null = null;
       if (fcase === "event") {
         try {
           const event = protoToEvent(frame.frame.value.event as never);
           if (event?.kind === "opened" && event.worker_fp === ws.data.fp) {
-            opened = {
+            announced = {
               sessionId: event.session_id,
               channelId: Number(event.channel),
             };
-            // Synchronous recognition happens before this event joins the async
-            // append tail, closing the opened→cell fast-path race.
+          } else if (event?.kind === "respawned") {
+            // `respawned` carries no worker_fp of its own. This socket is the
+            // current authenticated handle for its fingerprint (guarded above),
+            // and the commit below refuses to deliver unless the durable index
+            // really bound (fp, new_channel) → session.
+            announced = {
+              sessionId: event.session_id,
+              channelId: Number(event.new_channel),
+            };
+          }
+          if (announced) {
             ws.data.announcedChannels.announce(
-              opened.channelId,
-              opened.sessionId,
+              announced.channelId,
+              announced.sessionId,
             );
           }
         } catch {
@@ -173,22 +242,22 @@ export function makeWorkerWsHandler(deps: WorkerServiceDeps) {
         }
       }
       // Fast path: in-memory terminal bus publishes — no DB write or ordering
-      // constraint. A cell for a synchronously announced channel waits behind
-      // only that channel's durable opened append.
-      if (fcase === "cellGrid") {
+      // constraint. A cell grid or PTY chunk for a synchronously announced
+      // channel waits behind only that channel's durable append, and both lanes
+      // share one buffer so their original arrival order survives the barrier.
+      if (fcase === "cellGrid" || fcase === "binary") {
         const channelId = frame.frame.value.channelId;
-        const queued = ws.data.announcedChannels.enqueue(
-          channelId,
-          frame,
-          toBinary(CoordWorkerUpSchema, frame).byteLength,
-        );
-        if (queued !== "not-announced") return;
-        void conn.handleUpstream(frame).catch((e) => {
-          log.warn("worker-ws", "handle_failed", { worker_fp: ws.data.fp, error: String(e) });
-        });
-        return;
-      }
-      if (fcase === "binary") {
+        // Measuring a frame means encoding it, so only an actually announced
+        // channel pays that: the steady-state PTY/cell lanes must not
+        // re-serialize every chunk on the coordinator's single thread.
+        if (ws.data.announcedChannels.isAnnounced(channelId)) {
+          const queued = ws.data.announcedChannels.enqueue(
+            channelId,
+            frame,
+            toBinary(CoordWorkerUpSchema, frame).byteLength,
+          );
+          if (queued !== "not-announced") return;
+        }
         void conn.handleUpstream(frame).catch((e) => {
           log.warn("worker-ws", "handle_failed", { worker_fp: ws.data.fp, error: String(e) });
         });
@@ -198,19 +267,22 @@ export function makeWorkerWsHandler(deps: WorkerServiceDeps) {
       ws.data.tail = ws.data.tail
         .then(async () => {
           await conn.handleUpstream(frame);
-          if (!opened) return;
-          ws.data.announcedChannels.commit(
-            opened.channelId,
-            opened.sessionId,
+          if (!announced) return;
+          // Drain on this same socket lane, awaiting each buffered frame in
+          // order: arrivals during the drain join the tail, so no later
+          // fast-path frame can overtake the channel's first frames.
+          await ws.data.announcedChannels.commit(
+            announced.channelId,
+            announced.sessionId,
             () => lookupSessionId(
               asWorkerFp(ws.data.fp),
-              asChannelId(opened!.channelId),
-            ) === opened!.sessionId,
-            (buffered) => { void conn.handleUpstream(buffered); },
+              asChannelId(announced!.channelId),
+            ) === announced!.sessionId,
+            (buffered) => conn.handleUpstream(buffered),
           );
         })
         .catch((e) => {
-          if (opened) ws.data.announcedChannels.fail(opened.channelId);
+          if (announced) ws.data.announcedChannels.fail(announced.channelId);
           // A throw = fatal (DB durability fault); tear down so the worker
           // reconnects + replays unacked.
           log.warn("worker-ws", "handle_failed", { worker_fp: ws.data.fp, error: String(e) });
@@ -221,6 +293,10 @@ export function makeWorkerWsHandler(deps: WorkerServiceDeps) {
     close(ws: ServerWebSocket<WorkerWsData>): void {
       sockets.delete(ws);
       ws.data.announcedChannels.clear();
+      // A dead connection's repair marks would only strand overrides on routes
+      // no keeper is producing; the returning worker's reconcile snapshot forces
+      // a fresh full frame for every active owner instead.
+      clearBarrierRepairForWorker(ws.data.fp);
       ws.data.conn?.close();
       ws.data.conn = null;
       log.info("worker-ws", "close", { worker_fp: ws.data.fp });

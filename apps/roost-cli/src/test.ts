@@ -29,10 +29,18 @@ async function runUnit(): Promise<void> {
   // mock.module cannot be reliably undone in-process (a re-mock with the real
   // namespace leaves the mocked keys in place, measured on bun 1.3.14), so
   // isolation is the fix rather than per-file cleanup.
+  // --timeout: Bun's 5 s default is a logic budget, but this profile runs 160
+  // files whose slowest cases are I/O-bound (sqlite WAL backups, real archive
+  // copies, ~10 `bash -lc` login shells per deploy-lock case). Under that
+  // contention they overran the default and failed as timeouts while asserting
+  // nothing about the contract they defend. 30 s is still short enough that a
+  // genuine hang fails the run rather than parking CI.
   await run("unit", [
     process.execPath,
     "test",
     "--isolate",
+    "--timeout",
+    "30000",
     "apps/shared/tests/",
     "apps/coord/tests/",
     "apps/web/tests/",

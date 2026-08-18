@@ -77,7 +77,10 @@ async function runTestFile(testPath: string): Promise<number> {
   const tempRoot = mkdtempSync(join(tmpdir(), "roost-worker-test-"));
   const relativePath = relative(REPOSITORY_ROOT, testPath);
   const proc = Bun.spawn({
-    cmd: [process.execPath, "test", relativePath],
+    // Same budget as the unit profile: these files spawn real keepers, PTYs and
+    // sqlite work, so Bun's 5 s default fails them as timeouts under contention
+    // while proving nothing. CHILD_TIMEOUT_MS below is still the hang backstop.
+    cmd: [process.execPath, "test", "--timeout", "30000", relativePath],
     cwd: REPOSITORY_ROOT,
     env: isolatedEnvironment(tempRoot),
     stdio: ["inherit", "inherit", "inherit"],

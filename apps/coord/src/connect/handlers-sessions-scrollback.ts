@@ -10,12 +10,13 @@ import { Code, ConnectError } from "@connectrpc/connect";
 import { create } from "@bufbuild/protobuf";
 import {
   CoordinatorService,
+  ScrollbackHistoryFloor as PbScrollbackHistoryFloor,
   SessionsGetScrollbackCellsResponseSchema,
   SessionsSearchScrollbackResponseSchema, SessionsSearchScrollbackMatchSchema,
 } from "@roost/shared/proto/coordinator_pb";
 import { cellRowToProto } from "@roost/shared/cell/cell-proto";
 import type { CellRow } from "@roost/shared/cell";
-import { asSessionId } from "@roost/shared/wire";
+import { asSessionId, type ScrollbackHistoryFloor } from "@roost/shared/wire";
 import { requireAuth } from "./auth-interceptor.ts";
 import { getWorkerHubSocket } from "./worker-service.ts";
 import { createPendingRpc } from "../router/pending-rpcs.ts";
@@ -23,6 +24,14 @@ import { sendBrowserCmd } from "./router-helpers.ts";
 import type { ConnectDeps } from "./router.ts";
 
 type ScrollbackMethods = "sessionsGetScrollbackCells" | "sessionsSearchScrollback";
+
+/** The worker names the floor it hit in the wire vocabulary; this RPC speaks the
+ *  proto enum. One total map so a new reason cannot be silently dropped. */
+const HISTORY_FLOOR_PROTO: Record<ScrollbackHistoryFloor, PbScrollbackHistoryFloor> = {
+  none: PbScrollbackHistoryFloor.UNSPECIFIED,
+  evicted: PbScrollbackHistoryFloor.EVICTED,
+  resize_replay: PbScrollbackHistoryFloor.RESIZE_REPLAY,
+};
 
 export function makeSessionScrollbackHandlers(
   deps: ConnectDeps,
@@ -41,6 +50,7 @@ export function makeSessionScrollbackHandlers(
         start_row: number;
         end_row: number;
         grid_epoch: string;
+        history_floor: ScrollbackHistoryFloor;
       }>(8_000, row.worker_fp);
       sendBrowserCmd(sock, caller, pending.request_id, {
         kind: "get-scrollback-cells" as const,
@@ -67,6 +77,9 @@ export function makeSessionScrollbackHandlers(
         startRow: BigInt(res.start_row),
         endRow: BigInt(res.end_row),
         gridEpoch: res.grid_epoch,
+        // A worker older than the field reports nothing, which is exactly
+        // UNSPECIFIED: no floor claim, rather than a guessed one.
+        historyFloor: HISTORY_FLOOR_PROTO[res.history_floor] ?? PbScrollbackHistoryFloor.UNSPECIFIED,
       });
     },
 
@@ -76,11 +89,18 @@ export function makeSessionScrollbackHandlers(
       if (!row) throw new ConnectError("unknown session", Code.NotFound);
       const sock = getWorkerHubSocket(row.worker_fp);
       if (!sock) throw new ConnectError("worker not connected", Code.Unavailable);
-      const pending = createPendingRpc<{ matches: Array<{ row: number; col: number; len: number; preview: string }>; truncated: boolean; total: number; cols: number }>(8_000, row.worker_fp);
+      const pending = createPendingRpc<{
+        matches: Array<{ row: number; col: number; len: number; preview: string }>;
+        truncated: boolean;
+        total: number;
+        cols: number;
+        grid_epoch: string;
+      }>(8_000, row.worker_fp);
       sendBrowserCmd(sock, caller, pending.request_id, {
         kind: "search-scrollback" as const,
         request_id: pending.request_id,
         session_id: asSessionId(req.sessionId),
+        grid_epoch: req.gridEpoch,
         query: req.query,
         case_sensitive: req.caseSensitive,
         regex: req.regex,
@@ -112,6 +132,7 @@ export function makeSessionScrollbackHandlers(
         truncated: res.truncated,
         scrollbackTotal: BigInt(res.total),
         cols: res.cols,
+        gridEpoch: res.grid_epoch,
       });
     },
   };

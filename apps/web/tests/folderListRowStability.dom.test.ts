@@ -60,7 +60,9 @@ describe("session store row stability (projector reconcile)", () => {
     getSessionTraceId(SID_A);
     const traceBefore = sessionTraceSize();
 
-    foldEventIntoStore({ kind: "closed", session_id: SID_A, ts: 4000 } as SessionEvent);
+    // exit_code is required (nullable) on `closed`: the projector validates the
+    // event at its boundary, and an under-specified payload is rejected whole.
+    foldEventIntoStore({ kind: "closed", session_id: SID_A, exit_code: null, ts: 4000 } as SessionEvent);
 
     expect(rootStore.sessions[SID_A]).toBeUndefined();
     expect(sessionTraceSize()).toBe(traceBefore - 1);

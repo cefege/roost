@@ -5,7 +5,10 @@ import type { SessionManager } from "./session-manager.ts";
 import type { ChannelId } from "@roost/shared";
 import { log, diag, isDiagEnabled, signal, asChannelId } from "@roost/shared";
 import { DIR_FROM_PTY } from "@roost/shared/wire";
-import { nextCellFrame, SB_SNAPSHOT_HISTORY_ROWS } from "@roost/shared/cell";
+import type { TerminalCore } from "@wterm/core";
+import {
+	nextCellFrame, scrollbackOrigin, SB_SNAPSHOT_HISTORY_ROWS, type CellEmitState,
+} from "@roost/shared/cell";
 import { cellFrameToProto } from "@roost/shared/cell/cell-proto";
 import type { MuxChannelCallbacks } from "./keeper/multiplexed-client.ts";
 import type { TransportSendResult } from "./transport/CoordLink-types.ts";
@@ -17,7 +20,16 @@ import {
 	RAW_METADATA_COALESCE_MS,
 	RAW_METADATA_CHANNEL_CAP_BYTES,
 	RAW_METADATA_AGGREGATE_CAP_BYTES,
+	SYNC_OUTPUT_MAX_MS,
+	SYNC_OUTPUT_MAX_PENDING_ROWS,
 } from "./session-constants.ts";
+import { monoNowMs } from "./util/mono.ts";
+import {
+	CELL_GATE_BUDGET_MS,
+	captureUpstreamChunk,
+	noteGateOverBudget,
+} from "./session-resize-capture.ts";
+import { noteUnhandledSequences } from "./session-unhandled-seq.ts";
 
 
 // Leading-edge sentinel shared by the cell and raw-metadata governors.
@@ -30,15 +42,15 @@ const LEADING_SENTINEL = -1 as unknown as NodeJS.Timeout;
 
 /** Ingest one PTY chunk. All scrollback/grid consumers run synchronously
  * before the pooled keeper buffer can be reused. Raw metadata gets one
- * deliberate defensive copy because its send is deferred. */
+ * deliberate defensive copy because its send is deferred.
+ *
+ * While a resize capture is installed the chunk takes the capture lane: it still
+ * advances head_seq, still enters the fixed raw ring, still feeds the bounded
+ * coordinator raw-metadata lane — it just never reaches the frozen core, whose
+ * geometry is not yet proven. Cells are gated for the same reason, and the gate
+ * counts what it suppressed. */
 export function emitUpstreamChunk(this: SessionManager, channelId: number, chunk: Buffer): void {
-	const postResize = this.postResizeOutput.get(channelId);
-	if (postResize) {
-		// Keeper/socket buffers are pooled; own bytes retained across the async
-		// core rebuild and preserve post-boundary order.
-		postResize.push(Buffer.from(chunk));
-		return;
-	}
+	const capture = this.resizeCaptures.get(channelId);
 	const rec = this.sessions.get(channelId);
 	if (rec && rec.lastPtyOutMs === 0) rec.lastPtyOutMs = Date.now();
 	diag("cell.recv", { sid: String(rec?.sessionId ?? ""), channel_id: channelId, len: chunk.length });
@@ -49,7 +61,9 @@ export function emitUpstreamChunk(this: SessionManager, channelId: number, chunk
 		});
 		return;
 	}
-	const endSeq = this.appendScrollback(channelId, chunk);
+	const endSeq = capture
+		? captureUpstreamChunk(this, channelId, capture, chunk)
+		: this.appendScrollback(channelId, chunk);
 	if (endSeq < 0) {
 		const closedAt = this.recentlyClosed.get(channelId);
 		if (
@@ -214,6 +228,222 @@ export function flushPendingCellRepairs(this: SessionManager): void {
 	}
 }
 
+/** Which gate is withholding cell frames for a channel, since when (monotonic),
+ *  and how many frames it has suppressed. A stalled emitter is then attributable
+ *  from the diagnostic snapshot alone instead of by correlating logs. */
+export interface CellGateSuppression {
+	gate: "resize_capture" | "pending_repair" | "sync_output";
+	sinceMonoMs: number;
+	frames: number;
+	/** The gate outlived its own ceiling: a resize/repair gate past the keeper
+	 *  command budget (corruption), or a synchronized-output hold past its cap
+	 *  (the withheld frame shipped and the stuck generation is bypassed). */
+	overBudget: boolean;
+	/** The ceiling `overBudget` is measured against. Per gate, because the
+	 *  synchronized-output hold answers to its own cap, not the keeper's. */
+	budgetMs: number;
+}
+
+function noteCellGateSuppression(
+	mgr: SessionManager,
+	channelId: number,
+	gate: CellGateSuppression["gate"],
+): void {
+	const now = monoNowMs();
+	const budgetMs = gate === "sync_output" ? SYNC_OUTPUT_MAX_MS : CELL_GATE_BUDGET_MS;
+	let state = mgr.cellGateSuppression.get(channelId);
+	if (!state || state.gate !== gate) {
+		state = { gate, sinceMonoMs: now, frames: 0, overBudget: false, budgetMs };
+		mgr.cellGateSuppression.set(channelId, state);
+	}
+	state.frames++;
+	const ageMs = now - state.sinceMonoMs;
+	// Past the keeper's own per-command budget the gate is no longer explainable
+	// by one in-flight command; that is corruption, not latency. A
+	// synchronized-output hold trips on its armed timer instead — firing IS the
+	// expiry, so it never depends on a chunk arriving to re-read the clock.
+	if (gate === "sync_output" || state.overBudget || ageMs <= state.budgetMs) return;
+	state.overBudget = true;
+	noteGateOverBudget(mgr, channelId, ageMs);
+}
+
+/** One DEC 2026 synchronized-output frame whose intermediate cell sends the
+ *  emitter is withholding. Bounded by a wall ceiling (the armed timer) and a
+ *  pending-row ceiling; whichever trips first emits the withheld frame and
+ *  stops this generation suppressing anything further. */
+export interface SyncOutputHold {
+	/** The core's synchronized-output generation this hold belongs to. */
+	generation: number;
+	/** Monotonic scrollback total when the hold opened; the work ceiling is
+	 *  measured against it. */
+	sbTotalAtOpen: number;
+	/** Fires exactly at the wall ceiling. A producer that goes SILENT inside an
+	 *  unterminated frame is the case only this timer can recover. */
+	timer: NodeJS.Timeout | undefined;
+	tripped: boolean;
+}
+
+/** What the streaming path must do with this chunk's frame. */
+type SyncOutputAction =
+	/** No synchronized frame is withholding anything: use the rate governor. */
+	| "pass"
+	/** Inside a synchronized frame with both ceilings intact: withhold. */
+	| "hold"
+	/** A boundary the browser is owed the withheld frame at: the application
+	 *  closed a frame we withheld, or a ceiling just tripped. */
+	| "flush";
+
+function syncOutputAction(mgr: SessionManager, channelId: number): SyncOutputAction {
+	const rec = mgr.sessions.get(channelId);
+	const core = rec?.wtermCore;
+	if (!rec || !core) return "pass";
+	const hold = mgr.syncOutputHolds.get(channelId);
+	if (!(core.synchronizedOutput?.() ?? false)) {
+		if (hold === undefined) return "pass";
+		// The application closed its frame. A hold that actually withheld output
+		// owes the browser one authoritative frame at the boundary the
+		// application itself declared; a tripped one already got one.
+		const owed = !hold.tripped;
+		releaseSyncOutputHold(mgr, channelId);
+		return owed ? "flush" : "pass";
+	}
+	const generation = core.synchronizedOutputGeneration?.() ?? 0;
+	if (hold !== undefined && hold.generation === generation) {
+		if (hold.tripped) return "pass";
+		if (syncPendingRows(core, rec.cell_emit, hold) < SYNC_OUTPUT_MAX_PENDING_ROWS) return "hold";
+		tripSyncOutputHold(mgr, channelId, hold, "pending_rows");
+		return "flush";
+	}
+	if (hold !== undefined && !hold.tripped) {
+		// Closed and immediately reopened inside one chunk, with nothing emitted
+		// in between: the browser has been continuously dark, so the new
+		// generation INHERITS the running ceilings. Restarting them here is what
+		// would let a `2026l 2026h` loop suppress forever one reset at a time.
+		hold.generation = generation;
+		return "hold";
+	}
+	if (hold !== undefined) releaseSyncOutputHold(mgr, channelId);
+	mgr.syncOutputHolds.set(
+		channelId,
+		openSyncOutputHold(mgr, channelId, generation, monoScrollbackTotal(core, rec.cell_emit)),
+	);
+	return "hold";
+}
+
+/** Roost's monotonic scrollback total: the authoritative eviction origin plus
+ *  everything the ring still holds. The origin is what keeps this monotonic at
+ *  saturation, where getScrollbackCount() alone pins and stops moving. */
+function monoScrollbackTotal(core: TerminalCore, emit: CellEmitState): number {
+	return scrollbackOrigin(core, emit) + core.getScrollbackCount();
+}
+
+/** Watch the core's fixed OSC 8 link table for the one transition that is
+ *  otherwise invisible. At saturation the terminal keeps painting perfectly and
+ *  every NEW distinct hyperlink silently degrades to plain text — no error, no
+ *  missing output, just links that stop appearing. Edge-triggered off a
+ *  per-channel flag so one flip is one signal; a core rebuild empties the table
+ *  and the next frame clears the flag, re-arming the next real flip. */
+function noteHyperlinkSaturation(mgr: SessionManager, channelId: number, core: TerminalCore, sid: string): void {
+	const links = core.getResourceState?.().hyperlinks;
+	if (links === undefined) return;
+	const had = mgr.hyperlinkSaturated.has(channelId);
+	if (!links.saturated) {
+		if (had) mgr.hyperlinkSaturated.delete(channelId);
+		return;
+	}
+	if (had) return;
+	mgr.hyperlinkSaturated.add(channelId);
+	signal("terminal.hyperlink_saturated", {
+		sid,
+		channel_id: channelId,
+		capacity: links.capacity,
+		used: links.used,
+		rejected: links.rejected,
+		cooldownKey: sid,
+	});
+}
+
+/** Rows the browser is missing inside this frame: history appended since the
+ *  hold opened, plus the viewport rows currently dirty. Costs one WASM read per
+ *  viewport row, and only on the suppressed path. */
+function syncPendingRows(core: TerminalCore, emit: CellEmitState, hold: SyncOutputHold): number {
+	const rows = core.getRows();
+	let dirty = 0;
+	for (let row = 0; row < rows; row++) if (core.isDirtyRow(row)) dirty++;
+	return Math.max(0, monoScrollbackTotal(core, emit) - hold.sbTotalAtOpen) + dirty;
+}
+
+function openSyncOutputHold(
+	mgr: SessionManager,
+	channelId: number,
+	generation: number,
+	sbTotalAtOpen: number,
+): SyncOutputHold {
+	const hold: SyncOutputHold = { generation, sbTotalAtOpen, timer: undefined, tripped: false };
+	// Armed for exactly the ceiling, so FIRING is the expiry: the decision never
+	// re-reads a clock, and a host clock step can neither forge nor hide it.
+	hold.timer = setTimeout(() => {
+		hold.timer = undefined;
+		if (mgr.syncOutputHolds.get(channelId) !== hold) return;
+		// The trip itself is what unblocks the emit below (it clears
+		// `tripped === false`), so this ships UNFORCED and lets nextCellFrame
+		// choose delta-vs-full. Nothing cleared the withheld rows' dirty bits and
+		// nothing advanced rec.cell_emit, so a delta still carries every row and
+		// every scrolled-off line the suppression accumulated.
+		tripSyncOutputHold(mgr, channelId, hold, "elapsed_ms");
+		mgr.emitCellFrame(asChannelId(channelId), false);
+	}, SYNC_OUTPUT_MAX_MS);
+	return hold;
+}
+
+/** Stop withholding for this generation and leave the trip legible in the
+ *  diagnostic snapshot: gate, age and suppressed-frame count stay put until the
+ *  application finally closes its frame, because a terminal stuck inside an
+ *  unterminated synchronized frame is exactly what an operator needs to see. */
+function tripSyncOutputHold(
+	mgr: SessionManager,
+	channelId: number,
+	hold: SyncOutputHold,
+	cap: "elapsed_ms" | "pending_rows",
+): void {
+	hold.tripped = true;
+	clearTimeout(hold.timer);
+	hold.timer = undefined;
+	const state = mgr.cellGateSuppression.get(channelId);
+	if (state?.gate === "sync_output") state.overBudget = true;
+	signal("terminal.sync_output_cap", {
+		sid: String(mgr.sessions.get(channelId)?.sessionId ?? ""),
+		channel_id: channelId,
+		cap,
+		generation: hold.generation,
+		age_ms: state ? Math.round(monoNowMs() - state.sinceMonoMs) : 0,
+		suppressed_frames: state?.frames ?? 0,
+		cap_ms: SYNC_OUTPUT_MAX_MS,
+		cap_rows: SYNC_OUTPUT_MAX_PENDING_ROWS,
+		cooldownKey: String(channelId),
+	});
+}
+
+/** Stop withholding and forget the generation entirely. Exported because the
+ *  resize transaction has to retire a hold from OUTSIDE the streaming path: a
+ *  hold's `generation` and `sbTotalAtOpen` are expressed in ONE core instance's
+ *  terms, so both points where that instance stops being what the emitter reads
+ *  — the capture that freezes it, and the swap that replaces it — must retire
+ *  it. Left armed across either, its wall timer fires an emit into the resize
+ *  gate, which emitCellFrame checks BEFORE the force bypass and therefore
+ *  discards: the 1 s recovery ceiling is spent invisibly inside the transaction,
+ *  and the next chunk then either inherits a dead core's generation or opens a
+ *  fresh 1 s ceiling stacked on top of the resize's own budget. */
+export function releaseSyncOutputHold(mgr: SessionManager, channelId: number): void {
+	const hold = mgr.syncOutputHolds.get(channelId);
+	if (hold === undefined) return;
+	clearTimeout(hold.timer);
+	mgr.syncOutputHolds.delete(channelId);
+	if (mgr.cellGateSuppression.get(channelId)?.gate === "sync_output") {
+		mgr.cellGateSuppression.delete(channelId);
+	}
+}
+
 export function _disposeOutputState(this: SessionManager, channelId: number): void {
 	const rawTimer = this.rawMetadataTimers.get(channelId);
 	if (rawTimer !== undefined && rawTimer !== LEADING_SENTINEL) clearTimeout(rawTimer);
@@ -224,6 +454,8 @@ export function _disposeOutputState(this: SessionManager, channelId: number): vo
 	this.inputSensitiveChannels.delete(channelId);
 	this.pendingCellRepairs.delete(channelId);
 	this.cellDirty.delete(channelId);
+	this.cellGateSuppression.delete(channelId);
+	releaseSyncOutputHold(this, channelId);
 }
 
 
@@ -253,11 +485,43 @@ export function _scheduleCellEmit(
 ): void {
 	if (this.cellEmissionGates.has(channelId)) {
 		this.cellDirty.add(channelId);
+		noteCellGateSuppression(this, channelId, "resize_capture");
 		return;
 	}
 	if (this.pendingCellRepairs.has(channelId)) {
 		this.cellDirty.add(channelId);
+		noteCellGateSuppression(this, channelId, "pending_repair");
 		return;
+	}
+	switch (syncOutputAction(this, channelId)) {
+		case "hold": {
+			this.cellDirty.add(channelId);
+			noteCellGateSuppression(this, channelId, "sync_output");
+			// A trailing coalesce timer armed BEFORE the frame opened would
+			// otherwise keep firing straight through it, re-arming each time —
+			// suppression that leaks one frame per 16 ms is not suppression. The
+			// hold's own ceiling is the only timer allowed to produce a frame now.
+			const armed = this.cellEmitTimers.get(channelId);
+			if (armed !== undefined && armed !== LEADING_SENTINEL) {
+				clearTimeout(armed);
+				this.cellEmitTimers.delete(channelId);
+			}
+			return;
+		}
+		case "flush":
+			// The application closed the frame it opened, or a ceiling refused to
+			// stay dark any longer. Either way the browser gets the withheld state
+			// at that boundary, now, outside the coalesce governor — the next chunk
+			// starts a fresh leading edge. UNFORCED: suppression never touched
+			// rec.cell_emit, so the emitter's own reframe test still describes
+			// exactly the frame the browser is holding, and a delta both costs a
+			// fraction of a full-viewport read and carries the history that
+			// scrolled off mid-burst INLINE — a full frame carries no history at
+			// all, so those lines would come back as a separate backfill trip.
+			this.emitCellFrame(channelId, false);
+			return;
+		case "pass":
+			break;
 	}
 	const pending = this.cellEmitTimers.get(channelId);
 	if (pending !== undefined) {
@@ -301,6 +565,19 @@ export function _scheduleCellEmit(
 export function emitCellFrame(this: SessionManager, channelId: number, force: boolean): void {
 	if (this.cellEmissionGates.has(channelId)) {
 		this.cellDirty.add(channelId);
+		noteCellGateSuppression(this, channelId, "resize_capture");
+		return;
+	}
+	// Streaming frames only. A leading microtask queued before the frame opened
+	// lands here too, and it cannot be cancelled — so this, not the scheduler, is
+	// the one place that holds every deferred path. Forced frames are never
+	// withheld: an attach snapshot, a dropped-send repair and the post-rebuild
+	// authoritative frame all have to reach the browser regardless of what the
+	// application declared. A ceiling trip needs no force — tripping the hold is
+	// itself what opens this gate for the rest of that generation.
+	if (!force && this.syncOutputHolds.get(channelId)?.tripped === false) {
+		this.cellDirty.add(channelId);
+		noteCellGateSuppression(this, channelId, "sync_output");
 		return;
 	}
 	const send = this.sendCellGridUpstream;
@@ -323,6 +600,16 @@ export function emitCellFrame(this: SessionManager, channelId: number, force: bo
 		force || repair,
 		SB_SNAPSHOT_HISTORY_ROWS,
 	);
+	// Read alongside the frame: these spans are exactly the ones a saturated link
+	// table would have stripped hyperlinks from.
+	noteHyperlinkSaturation(this, channelId, core, String(rec.sessionId));
+	// Same read window: whatever this frame paints, these are the sequences the
+	// core threw away while producing it. Honest limits — the core logs unhandled
+	// CSI finals only. Every OSC other than title (0/2) and hyperlink (8), and
+	// every DECSET/DECRST mode number it does not implement, is dropped WITHOUT
+	// being logged, so an empty list is not proof the core understood everything
+	// the application sent.
+	noteUnhandledSequences(rec, core);
 	// session_id left empty: coord stamps it from the channel→session map.
 	const pb = cellFrameToProto(frame, "");
 	pb.ptyOutMs = BigInt(rec.lastPtyOutMs || Date.now());
@@ -353,6 +640,12 @@ export function emitCellFrame(this: SessionManager, channelId: number, force: bo
 	core.clearDirty();
 	this.cellDirty.delete(channelId);
 	this.pendingCellRepairs.delete(channelId);
+	// A synchronized-output hold that is still OPEN keeps its record: the emitter
+	// stopped withholding (this frame just shipped), but a terminal sitting
+	// inside an unterminated synchronized frame is precisely what the diagnostic
+	// snapshot has to keep saying. releaseSyncOutputHold clears both together
+	// when the application finally closes it.
+	if (!this.syncOutputHolds.has(channelId)) this.cellGateSuppression.delete(channelId);
 	rec.lastPtyOutMs = 0;
 	if (isDiagEnabled()) {
 		diag("cell.emit", {

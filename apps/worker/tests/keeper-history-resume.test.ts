@@ -102,3 +102,41 @@ describe("RC2 — keeper retains per-channel ring for cross-restart resume", () 
     expect(hist.bytes.length).toBe(0);
   });
 });
+
+// The authoritative-state frame exists because retained resize MARKERS can be
+// evicted: after a lost ACK the worker must still learn which sequence the keeper
+// consumed and at what geometry, or it re-issues a conflicting N.
+describe("keeper reports authoritative resize state for lost-ACK recovery", () => {
+  test("getTerminalState returns the consumed sequence and the geometry it applied", async () => {
+    const ch = await spawnRawCat();
+    const before = await pool.getTerminalState(ch.channelId);
+    expect(before).toMatchObject({ cols: 200, rows: 50, highestResizeSeq: 0, appliedResizeSeq: 0 });
+
+    const applied = pool.beginResize(ch.channelId, 4, 111, 37);
+    expect(applied.admission.written).toBe(true);
+    expect(await applied.result).toMatchObject({ kind: "ack", seq: 4, cols: 111, rows: 37 });
+
+    const after = await pool.getTerminalState(ch.channelId);
+    expect(after).toMatchObject({
+      cols: 111,
+      rows: 37,
+      highestResizeSeq: 4,
+      appliedResizeSeq: 4,
+    });
+
+    // A rejected sequence is still CONSUMED: the floor must move past it, or the
+    // next allocation reuses a sequence the keeper permanently cached.
+    const stale = pool.beginResize(ch.channelId, 4, 90, 20);
+    expect(await stale.result).toMatchObject({ kind: "ack", seq: 4, cols: 111, rows: 37 });
+    const rejected = pool.beginResize(ch.channelId, 3, 90, 20);
+    expect(await rejected.result).toMatchObject({ kind: "reject", seq: 3, reason: "unknown_sequence" });
+    const unchanged = await pool.getTerminalState(ch.channelId);
+    expect(unchanged).toMatchObject({ cols: 111, rows: 37, appliedResizeSeq: 4 });
+    expect(unchanged!.highestResizeSeq).toBeGreaterThanOrEqual(4);
+  });
+
+  test("an unknown channel answers with nothing proven instead of failing", async () => {
+    const state = await pool.getTerminalState(60001);
+    expect(state).toMatchObject({ highestResizeSeq: 0, appliedResizeSeq: 0 });
+  });
+});

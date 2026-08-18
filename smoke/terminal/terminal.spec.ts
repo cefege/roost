@@ -4,7 +4,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { fromBinary } from "@bufbuild/protobuf";
 import { test, expect } from "./fixtures.ts";
 import type { Page } from "@playwright/test";
-import type { TerminalTestStack } from "./stack.ts";
+import type { TerminalTestStack, TerminalTestWorker } from "./stack.ts";
 import { dirname, join } from "node:path";
 import { FilesListDirRequestSchema } from "../../apps/shared/src/gen/roost/v1/coordinator_pb.ts";
 import { encodeFolderPath } from "../../apps/web/src/lib/terminalHref.ts";
@@ -14,6 +14,9 @@ import {
   type BrowserPlatform,
   type PlatformShortcutId,
 } from "../../apps/web/src/lib/browserPlatform.ts";
+import type { TerminalStreamProbe } from "../../apps/web/src/lib/smoke.ts";
+import type { PaintedCursorProof, PaintedMarkerProof } from "../../apps/web/src/lib/smokeHarness.ts";
+import { encodePtyFixtureCommand, PTY_FIXTURE_READY } from "./pty-fixture-protocol.ts";
 
 const fixturePath = join(dirname(fileURLToPath(import.meta.url)), "resize-tui.ts");
 
@@ -85,10 +88,14 @@ interface SmokeSessionProjection {
 
 interface RecoverySmokeApi {
   spawnShell(workerFp: string, folder: string, sessionId?: string): Promise<{ session_id: string; channel_id: number }>;
-  state(): { sessions: Record<string, SmokeSessionProjection> };
+  state(): {
+    sessions: Record<string, SmokeSessionProjection>;
+    workers: Record<string, unknown>;
+  };
   createWorkspace(workerFp: string, folder: string, sessionId: string): Promise<{ id: string; channel: number }>;
   navigate(href: string): void;
   input(sessionId: string, text: string): Promise<void>;
+  paneFocused(sessionId: string): { hasSlot: boolean; hasTextarea: boolean; focused: boolean };
   terminalInputCapture(): TerminalInputCapture;
   resetTerminalInputCapture(): void;
   dropNextCellFrame(sessionId: string): void;
@@ -97,13 +104,36 @@ interface RecoverySmokeApi {
   cellFullFrameCount(sessionId: string): number;
   cellGridEpoch(sessionId: string): string;
   lastFullFrameSbRows(sessionId: string): number;
+  scrollbackBackfillRequestCount(sessionId: string): number;
   syncWsGeneration(): number;
   pauseSyncTransport(): void;
   resumeSyncTransport(): void;
-  forceSyncRetryExhausted(): void;
+  forceSyncMaxBackoff(): void;
+  syncRedialStatus(): {
+    failures: number;
+    nextDelayMs: number;
+    hiddenParked: boolean;
+    liveness: "none" | "dialing" | "open";
+  };
+  forceHidden(on: boolean): void;
+  forceVisible(on: boolean): void;
   viewportText(sessionId: string): string;
   markerScan(sessionId: string, prefix: string): RecoveryMarkerScan;
   renderProbe(sessionId: string): { atBottom: boolean };
+  terminalStreamProbe(sessionId: string): Promise<TerminalStreamProbe>;
+  waitForPaintedMarker(sessionId: string, marker: string, timeoutMs?: number): Promise<PaintedMarkerProof>;
+  waitForPaintedCursor(
+    sessionId: string,
+    expected?: { row?: number; column?: number },
+    timeoutMs?: number,
+  ): Promise<PaintedCursorProof>;
+  rejectNextViewportClaim(sessionId: string): void;
+  rejectedViewportClaimCount(sessionId: string): number;
+}
+
+interface TerminalIdentityProbeWindow {
+  __smoke: RecoverySmokeApi;
+  __terminalIdentityProbe: { slot: Element; grid: Element; textarea: Element };
 }
 
 interface RecoveryProbeResult {
@@ -111,6 +141,378 @@ interface RecoveryProbeResult {
   scan: RecoveryMarkerScan;
   atBottom: boolean;
 }
+
+type PaintAttempt<T> =
+  | { proof: T; error: null }
+  | { proof: null; error: string };
+
+interface ImmediateTerminalPaintSample {
+  eventType: string;
+  trusted: boolean;
+  selectionCollapsed: boolean;
+  cursorRow: number | null;
+  cursorColumn: number | null;
+  cursorRect: { left: number; top: number; right: number; bottom: number } | null;
+  markerRowRect: { left: number; top: number; right: number; bottom: number } | null;
+  composerHeight: number | null;
+  cursorRowIdentity: boolean | null;
+}
+
+function fixtureWorkerFolder(worker: TerminalTestWorker): string {
+  return process.platform === "win32" ? worker.home.replaceAll("\\", "/") : worker.home;
+}
+
+async function spawnPtyFixtureSession(page: Page, worker: TerminalTestWorker): Promise<string> {
+  await page.waitForFunction((workerFp) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return !!smokeWindow.__smoke.state().workers[workerFp];
+  }, worker.workerFp);
+  return page.evaluate(async ({ workerFp, folder }) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return (await smokeWindow.__smoke.spawnShell(workerFp, folder)).session_id;
+  }, { workerFp: worker.workerFp, folder: fixtureWorkerFolder(worker) });
+}
+
+async function readTerminalStreamProbe(page: Page, sessionId: string): Promise<TerminalStreamProbe> {
+  return page.evaluate((id) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return smokeWindow.__smoke.terminalStreamProbe(id);
+  }, sessionId);
+}
+
+async function waitForCanonicalAdvance(
+  page: Page,
+  sessionId: string,
+  before: TerminalStreamProbe,
+): Promise<TerminalStreamProbe> {
+  const floor = Math.max(
+    before.browser.wire_received.seq ?? -1,
+    before.browser.handler_canonical.seq ?? -1,
+  );
+  await expect.poll(async () => {
+    const probe = await readTerminalStreamProbe(page, sessionId);
+    return Math.min(
+      probe.browser.wire_received.seq ?? -1,
+      probe.browser.handler_canonical.seq ?? -1,
+    );
+  }, { timeout: 10_000, intervals: [50] }).toBeGreaterThan(floor);
+  return readTerminalStreamProbe(page, sessionId);
+}
+
+async function holdNativeTerminalSelection(page: Page, sessionId: string): Promise<boolean> {
+  return page.evaluate((id) => {
+    const slot = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
+    const terminal = slot?.querySelector(".wterm");
+    if (!(terminal instanceof HTMLElement)) return false;
+    const clip = terminal.getBoundingClientRect();
+    const rows = Array.from(slot?.querySelectorAll(".cell-row") ?? []);
+    const row = rows.find((candidate) => {
+      if (!(candidate instanceof HTMLElement) || (candidate.textContent ?? "").length === 0) return false;
+      const rect = candidate.getBoundingClientRect();
+      return rect.height > 0 && rect.width > 0 && rect.bottom > clip.top && rect.top < clip.bottom;
+    });
+    if (!row) return false;
+    const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
+    let text = walker.nextNode();
+    while (text && !text.textContent) text = walker.nextNode();
+    if (!text?.textContent) return false;
+    const range = document.createRange();
+    range.setStart(text, 0);
+    range.setEnd(text, 1);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    document.dispatchEvent(new Event("selectionchange"));
+    return !!selection && !selection.isCollapsed;
+  }, sessionId);
+}
+
+async function attemptPaintedMarker(
+  page: Page,
+  sessionId: string,
+  marker: string,
+  timeoutMs = 750,
+): Promise<PaintAttempt<PaintedMarkerProof>> {
+  return page.evaluate(async ({ id, expected, timeout }) => {
+    try {
+      const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+      const proof = await smokeWindow.__smoke.waitForPaintedMarker(id, expected, timeout);
+      return { proof, error: null };
+    } catch (error) {
+      return { proof: null, error: error instanceof Error ? error.message : String(error) };
+    }
+  }, { id: sessionId, expected: marker, timeout: timeoutMs });
+}
+
+async function attemptPaintedCursor(
+  page: Page,
+  sessionId: string,
+  expected: { row?: number; column?: number },
+  timeoutMs = 750,
+): Promise<PaintAttempt<PaintedCursorProof>> {
+  return page.evaluate(async ({ id, target, timeout }) => {
+    try {
+      const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+      const proof = await smokeWindow.__smoke.waitForPaintedCursor(id, target, timeout);
+      return { proof, error: null };
+    } catch (error) {
+      return { proof: null, error: error instanceof Error ? error.message : String(error) };
+    }
+  }, { id: sessionId, target: expected, timeout: timeoutMs });
+}
+
+async function armImmediateTerminalPaintSample(
+  page: Page,
+  sessionId: string,
+  eventType: "click" | "input" | "keydown" | "paste" | "wheel",
+  expected: { marker?: string; cursorRow?: number; targetTestId?: string },
+): Promise<void> {
+  await page.evaluate(({ id, observedEvent, marker, cursorRow, targetTestId }) => {
+    interface ImmediatePaintRuntime {
+      sample: ImmediateTerminalPaintSample | null;
+      cleanup: (() => void) | null;
+    }
+    const runtimeWindow = window as unknown as Window & {
+      __immediateTerminalPaint?: ImmediatePaintRuntime;
+    };
+    runtimeWindow.__immediateTerminalPaint?.cleanup?.();
+    const slot = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
+    const terminal = slot?.querySelector(".cell-grid");
+    const viewport = terminal?.querySelector(".cell-viewport");
+    if (
+      !(slot instanceof HTMLElement)
+      || !(terminal instanceof HTMLElement)
+      || !(viewport instanceof HTMLElement)
+    ) throw new Error("terminal paint sample could not resolve the live cell surface");
+
+    const originalCursorRow = cursorRow === undefined
+      ? null
+      : viewport.querySelectorAll(".cell-row").item(cursorRow);
+    const rect = (value: DOMRect) => ({
+      left: value.left,
+      top: value.top,
+      right: value.right,
+      bottom: value.bottom,
+    });
+    const visiblyInside = (element: HTMLElement): boolean => {
+      const value = element.getBoundingClientRect();
+      const clip = terminal.getBoundingClientRect();
+      const viewportLeft = window.visualViewport?.offsetLeft ?? 0;
+      const viewportTop = window.visualViewport?.offsetTop ?? 0;
+      const viewportRight = viewportLeft + (window.visualViewport?.width ?? window.innerWidth);
+      const viewportBottom = viewportTop + (window.visualViewport?.height ?? window.innerHeight);
+      return value.width > 0
+        && value.height > 0
+        && value.right > Math.max(clip.left, viewportLeft)
+        && value.left < Math.min(clip.right, viewportRight)
+        && value.bottom > Math.max(clip.top, viewportTop)
+        && value.top < Math.min(clip.bottom, viewportBottom);
+    };
+    const runtime: ImmediatePaintRuntime = { sample: null, cleanup: null };
+    const onEvent = (event: Event) => {
+      if (!(event.target instanceof Node)) return;
+      const outsideTarget = event.target instanceof Element && targetTestId !== undefined
+        ? event.target.closest(`[data-testid="${CSS.escape(targetTestId)}"]`)
+        : null;
+      if (!slot.contains(event.target) && !outsideTarget) return;
+      document.removeEventListener(observedEvent, onEvent);
+      runtime.cleanup = null;
+      const cursor = viewport.querySelector(".cell-cursor");
+      const markerRow = marker === undefined
+        ? null
+        : Array.from(terminal.querySelectorAll(".cell-row")).find((row) =>
+          (row.textContent ?? "").includes(marker));
+      runtime.sample = {
+        eventType: event.type,
+        trusted: event.isTrusted,
+        selectionCollapsed: window.getSelection()?.isCollapsed ?? true,
+        cursorRow: cursor instanceof HTMLElement && Number.isSafeInteger(Number(cursor.dataset.row))
+          ? Number(cursor.dataset.row)
+          : null,
+        cursorColumn: cursor instanceof HTMLElement && Number.isSafeInteger(Number(cursor.dataset.column))
+          ? Number(cursor.dataset.column)
+          : null,
+        cursorRect: cursor instanceof HTMLElement && visiblyInside(cursor)
+          ? rect(cursor.getBoundingClientRect())
+          : null,
+        markerRowRect: markerRow instanceof HTMLElement && visiblyInside(markerRow)
+          ? rect(markerRow.getBoundingClientRect())
+          : null,
+        composerHeight: (() => {
+          const composer = slot.querySelector('[data-testid="mobile-chat-input"]');
+          return composer instanceof HTMLElement ? composer.getBoundingClientRect().height : null;
+        })(),
+        cursorRowIdentity: cursorRow === undefined
+          ? null
+          : originalCursorRow !== null
+            && viewport.querySelectorAll(".cell-row").item(cursorRow) === originalCursorRow,
+      };
+    };
+    runtime.cleanup = () => document.removeEventListener(observedEvent, onEvent);
+    runtimeWindow.__immediateTerminalPaint = runtime;
+    document.addEventListener(observedEvent, onEvent);
+  }, {
+    id: sessionId,
+    observedEvent: eventType,
+    marker: expected.marker,
+    cursorRow: expected.cursorRow,
+    targetTestId: expected.targetTestId,
+  });
+}
+
+/** Chromium delivers a dispatched input event to JS asynchronously: the
+ *  `mouse.wheel`/`keyboard` call resolves on the CDP ack, not on the listener
+ *  having run. Reading the armed sample straight after the gesture therefore
+ *  races it and observes null under load. Wait for the sample the arm exposes,
+ *  then read it — still null after the budget means the gesture genuinely never
+ *  reached the pane. */
+async function readImmediateTerminalPaintSample(page: Page): Promise<ImmediateTerminalPaintSample | null> {
+  await page.waitForFunction(() => {
+    const runtimeWindow = window as unknown as Window & {
+      __immediateTerminalPaint?: { sample: ImmediateTerminalPaintSample | null };
+    };
+    return runtimeWindow.__immediateTerminalPaint?.sample != null;
+  }, undefined, { timeout: 5_000 }).catch(() => undefined);
+  return page.evaluate(() => {
+    const runtimeWindow = window as unknown as Window & {
+      __immediateTerminalPaint?: { sample: ImmediateTerminalPaintSample | null };
+    };
+    return runtimeWindow.__immediateTerminalPaint?.sample ?? null;
+  });
+}
+
+function expectCanonicalAdvanceHeld(
+  before: TerminalStreamProbe,
+  pending: TerminalStreamProbe,
+  options: {
+    epoch?: "same" | "changed";
+    readerReason?: "find" | "selection" | "touch" | "wheel";
+    selectionHold?: boolean;
+  } = {},
+): void {
+  const beforeWire = before.browser.wire_received;
+  const beforeCanonical = before.browser.handler_canonical;
+  const beforeReconciled = before.browser.dom_reconciled;
+  const wire = pending.browser.wire_received;
+  const canonical = pending.browser.handler_canonical;
+  const reconciled = pending.browser.dom_reconciled;
+  if (beforeWire.seq === null || beforeCanonical.seq === null || beforeReconciled.seq === null
+    || wire.seq === null || canonical.seq === null || reconciled.seq === null) {
+    throw new Error("terminal stream probe omitted an epoch sequence");
+  }
+  if (options.epoch === "changed") {
+    expect(wire.grid_epoch).not.toBe(beforeWire.grid_epoch);
+    expect(canonical.grid_epoch).not.toBe(beforeCanonical.grid_epoch);
+  } else {
+    expect(wire.grid_epoch).toBe(beforeWire.grid_epoch);
+    expect(canonical.grid_epoch).toBe(beforeCanonical.grid_epoch);
+  }
+  expect(wire.seq).toBeGreaterThan(beforeWire.seq);
+  expect(canonical.seq).toBeGreaterThan(beforeCanonical.seq);
+  expect(canonical.seq).toBeLessThanOrEqual(wire.seq);
+  expect(reconciled).toEqual(beforeReconciled);
+  expect(pending.browser.presentation?.canonical).toEqual(canonical);
+  expect(pending.browser.presentation?.reconciled).toEqual(reconciled);
+  expect(pending.browser.presentation?.reader_intent).toBe("reading");
+  if (options.readerReason) {
+    expect(pending.browser.presentation?.reader_reason).toBe(options.readerReason);
+  }
+  expect(pending.browser.presentation?.hold_mask).toEqual({
+    selection: options.selectionHold ?? true,
+    link: false,
+  });
+  expect(pending.browser.reconcile_block_reason).toBe("reader_pending_frame");
+  const beforeRawHead = workerRawHeadSequence(before);
+  const rawHead = workerRawHeadSequence(pending);
+  const beforeWorkerCell = workerCellSequence(before);
+  const workerCell = workerCellSequence(pending);
+  const beforeCoordCell = coordCellSequence(before);
+  const coordCell = coordCellSequence(pending);
+  if (beforeRawHead === null || rawHead === null
+    || beforeWorkerCell === null || workerCell === null
+    || beforeCoordCell === null || coordCell === null) {
+    throw new Error("terminal stream probe omitted a worker/coordinator sequence");
+  }
+  expect(rawHead > beforeRawHead).toBe(true);
+  expect(workerCell > beforeWorkerCell).toBe(true);
+  expect(coordCell > beforeCoordCell).toBe(true);
+}
+
+function expectRecoveredLive(
+  pending: TerminalStreamProbe,
+  recovered: TerminalStreamProbe,
+  options: { predictiveCursor?: boolean } = {},
+): void {
+  const pendingCanonical = pending.browser.handler_canonical;
+  const canonical = recovered.browser.handler_canonical;
+  if (pendingCanonical.seq === null || canonical.seq === null) {
+    throw new Error("terminal stream recovery omitted a canonical sequence");
+  }
+  expect(canonical.seq).toBeGreaterThanOrEqual(pendingCanonical.seq);
+  expect(recovered.browser.dom_reconciled).toEqual(canonical);
+  expect(recovered.browser.presentation?.canonical).toEqual(canonical);
+  expect(recovered.browser.presentation?.reconciled).toEqual(canonical);
+  expect(recovered.browser.presentation?.reader_intent).toBe("live");
+  expect(recovered.browser.presentation?.reader_reason).toBeNull();
+  expect(recovered.browser.presentation?.hold_mask).toEqual({
+    selection: false,
+    link: false,
+  });
+  expect(recovered.browser.presentation?.at_bottom).toBe(true);
+  if (options.predictiveCursor) {
+    expect([null, "predicted_cursor"]).toContain(recovered.browser.reconcile_block_reason);
+  } else {
+    expect(recovered.browser.reconcile_block_reason).toBeNull();
+  }
+}
+
+function unknownRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function diagnosticSequence(value: unknown): bigint | null {
+  if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) return BigInt(value);
+  if (typeof value === "string" && /^\d+$/.test(value)) return BigInt(value);
+  return null;
+}
+
+function workerRawHeadSequence(probe: TerminalStreamProbe): bigint | null {
+  const raw = unknownRecord(unknownRecord(probe.worker.session)?.raw);
+  return diagnosticSequence(raw?.head_seq);
+}
+
+function workerCellSequence(probe: TerminalStreamProbe): bigint | null {
+  const cell = unknownRecord(unknownRecord(probe.worker.session)?.cell);
+  return diagnosticSequence(cell?.seq);
+}
+
+function coordCellSequence(probe: TerminalStreamProbe): bigint | null {
+  const lastCell = unknownRecord(unknownRecord(probe.coord?.session)?.last_cell);
+  return diagnosticSequence(lastCell?.seq);
+}
+
+function activeCoordSubscriptionCount(probe: TerminalStreamProbe): number {
+  const session = unknownRecord(probe.coord?.session);
+  const subscriptions = unknownRecord(session?.subscriptions);
+  if (!subscriptions) return 0;
+  return Object.values(subscriptions).filter((value) =>
+    unknownRecord(value)?.subscribed === true
+  ).length;
+}
+
+function coordViewerCount(probe: TerminalStreamProbe): number {
+  const viewers = unknownRecord(unknownRecord(probe.coord?.session)?.viewers);
+  return viewers ? Object.keys(viewers).length : 0;
+}
+
+function workerViewerClaimCount(probe: TerminalStreamProbe): number {
+  const session = unknownRecord(probe.worker.session);
+  const claims = unknownRecord(session?.claims);
+  return claims ? Object.keys(claims).length : 0;
+}
+
 
 async function spawnSmokeShell(page: Page, workerFp: string, sessionId?: string) {
   return page.evaluate(async ({ workerFp: fp, sessionId: sid }) => {
@@ -255,11 +657,21 @@ function expectCleanRecovery(
   });
   expect(result.atBottom).toBe(true);
 }
-test("browser smoke flow creates and cleans its resources", async ({ smokePage }) => {
-  const result = await smokePage.evaluate(async () => {
-    const smoke = (window as unknown as Window & { __smoke: { runFlow(): Promise<{ steps: Array<{ pass: boolean }>; summary: string }> } }).__smoke;
-    return smoke.runFlow();
-  });
+test("browser smoke flow creates and cleans its resources", async ({ smokePage, stack }) => {
+  // Pin the shell worker: the shared stack also runs a PTY-FIXTURE worker whose
+  // "shell" speaks the fixture protocol, and picking it by recency makes the
+  // flow wait out its paint deadline on a session that can never echo.
+  const result = await smokePage.evaluate(async (workerFp) => {
+    const smoke = (window as unknown as Window & {
+      __smoke: {
+        runFlow(options?: { workerFp?: string }): Promise<{
+          steps: Array<{ name: string; pass: boolean; detail: unknown }>;
+          summary: string;
+        }>;
+      };
+    }).__smoke;
+    return smoke.runFlow({ workerFp });
+  }, stack.workerFp);
   expect(result.steps.filter((step) => !step.pass)).toEqual([]);
 });
 
@@ -517,23 +929,7 @@ test("parking a selection-held pane flushes its latest folded frame", async ({ s
   )).toBeGreaterThan(0);
   const canary = `selection-hold-${sessionId}`;
   await setRecoveryCanary(smokePage, canary);
-  const selected = await smokePage.evaluate((id) => {
-    const slot = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
-    const row = Array.from(slot?.querySelectorAll(".cell-row") ?? [])
-      .find((candidate) => (candidate.textContent ?? "").length > 0);
-    if (!row) return false;
-    const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
-    const text = walker.nextNode();
-    if (!text || !text.textContent) return false;
-    const range = document.createRange();
-    range.setStart(text, 0);
-    range.setEnd(text, 1);
-    const selection = window.getSelection();
-    selection?.removeAllRanges();
-    selection?.addRange(range);
-    document.dispatchEvent(new Event("selectionchange"));
-    return !!selection && !selection.isCollapsed;
-  }, sessionId);
+  const selected = await holdNativeTerminalSelection(smokePage, sessionId);
   expect(selected).toBe(true);
   const beforeFrames = await smokePage.evaluate(
     (id) => (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.cellFrameCount(id),
@@ -553,12 +949,621 @@ test("parking a selection-held pane flushes its latest folded frame", async ({ s
   const otherSessionId = (await spawnSmokeShell(smokePage, stack.workerFp)).session_id;
   await switchToSmokeSession(smokePage, otherSessionId);
   await switchToSmokeSession(smokePage, sessionId);
-  await expect.poll(() => smokePage.evaluate(
-    (id) => (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.viewportText(id),
-    sessionId,
-  )).toContain("HOLD-RECOVER-001");
+  // Report the layer that stalled instead of just "text missing": wire vs
+  // canonical vs DOM plus the reason the renderer refused to reconcile.
+  await expect.poll(async () => {
+    const text = await smokePage.evaluate(
+      (id) => (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.viewportText(id),
+      sessionId,
+    );
+    if (text.includes("HOLD-RECOVER-001")) return "painted";
+    const probe = await readTerminalStreamProbe(smokePage, sessionId);
+    return {
+      text,
+      wire: probe.browser.wire_received,
+      canonical: probe.browser.handler_canonical,
+      dom: probe.browser.dom_reconciled,
+      blocked: probe.browser.reconcile_block_reason,
+    };
+  }, { timeout: 10_000 }).toBe("painted");
   expect(await smokePage.evaluate(() => window.getSelection()?.isCollapsed ?? true)).toBe(true);
   expectCleanRecovery(await recoveryProbe(smokePage, sessionId, "HOLD-RECOVER-"), canary, 1, 1);
+});
+
+test("same session metadata updates preserve the mounted terminal DOM", async ({
+  smokePage,
+  stack,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium-desktop", "desktop terminal identity contract");
+  const sessionId = (await spawnSmokeShell(smokePage, stack.workerFp)).session_id;
+  await navigateToSmokeSession(smokePage, sessionId);
+  await expect.poll(() => smokePage.evaluate((id) => {
+    const smokeWindow = window as unknown as TerminalIdentityProbeWindow;
+    return smokeWindow.__smoke.cellFullFrameCount(id);
+  }, sessionId)).toBeGreaterThan(0);
+
+  await smokePage.evaluate((id) => {
+    const slot = document.querySelector(`[data-testid="terminal-slot-${CSS.escape(id)}"]`);
+    const grid = slot?.querySelector(".cell-grid");
+    const textarea = slot?.querySelector("textarea");
+    if (!slot || !grid || !textarea) throw new Error("terminal DOM identity probe could not be installed");
+    const smokeWindow = window as unknown as TerminalIdentityProbeWindow;
+    smokeWindow.__terminalIdentityProbe = { slot, grid, textarea };
+  }, sessionId);
+
+  // Folder rows collapse sessions by cwd; search switches the sidebar to the
+  // per-session rows that carry the rename menu (same surface agent-status uses).
+  await smokePage.getByTestId("brand-row-search").click();
+  await smokePage.getByTestId("sidebar-search").fill("/tmp");
+  const sessionRow = smokePage.locator(
+    `[data-testid="sidebar-session-row"][data-session-id="${sessionId}"]`,
+  );
+  await sessionRow.click({ button: "right" });
+  await smokePage.getByTestId(`session-ctx-rename-${sessionId}`).click();
+  const renameInput = smokePage.getByTestId("rename-input");
+  const customTitle = `identity-${sessionId.slice(0, 8)}`;
+  await renameInput.evaluate((element, title) => {
+    const field = element as HTMLElement & { value: string };
+    field.value = title;
+    field.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+  }, customTitle);
+  await smokePage.getByTestId("rename-confirm").click();
+  await expect(sessionRow).toContainText(customTitle);
+
+  expect(await smokePage.evaluate((id) => {
+    const smokeWindow = window as unknown as TerminalIdentityProbeWindow;
+    const prior = smokeWindow.__terminalIdentityProbe;
+    const slot = document.querySelector(`[data-testid="terminal-slot-${CSS.escape(id)}"]`);
+    return {
+      slot: slot === prior.slot,
+      grid: slot?.querySelector(".cell-grid") === prior.grid,
+      textarea: slot?.querySelector("textarea") === prior.textarea,
+      connected: prior.slot.isConnected && prior.grid.isConnected && prior.textarea.isConnected,
+    };
+  }, sessionId)).toEqual({
+    slot: true,
+    grid: true,
+    textarea: true,
+    connected: true,
+  });
+
+  const marker = `IDENTITY-SURVIVED-${sessionId}`;
+  await smokePage.evaluate(async ({ id, command }) => {
+    const smokeWindow = window as unknown as TerminalIdentityProbeWindow;
+    await smokeWindow.__smoke.input(id, command);
+  }, { id: sessionId, command: `printf '${marker}\\n'\r` });
+  await expect.poll(() => smokePage.getByTestId(`terminal-slot-${sessionId}`).textContent())
+    .toContain(marker);
+});
+
+test("real PTY input recovers held rendering and rejected same-generation reclaim self-heals", async ({
+  smokePage,
+  stack,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium-desktop", "desktop terminal recovery and reclaim reproduction");
+  test.setTimeout(180_000);
+
+  const fixtureWorker = await stack.startPtyFixtureWorker();
+  const sessionId = await spawnPtyFixtureSession(smokePage, fixtureWorker);
+  await navigateToSmokeSession(smokePage, sessionId);
+  await smokePage.evaluate(({ id, marker }) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return smokeWindow.__smoke.waitForPaintedMarker(id, marker, 30_000);
+  }, { id: sessionId, marker: PTY_FIXTURE_READY });
+  const slot = smokePage.getByTestId(`terminal-slot-${sessionId}`);
+  const grid = slot.locator(".cell-grid");
+  await grid.click();
+  await expect.poll(() => smokePage.evaluate((id) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return smokeWindow.__smoke.paneFocused(id).focused;
+  }, sessionId)).toBe(true);
+
+  const suffix = crypto.randomUUID().replaceAll("-", "").slice(0, 12);
+  const historyPrefix = `RECOVERY-HISTORY-${suffix}-`;
+  await inputSmokeTerminal(
+    smokePage,
+    sessionId,
+    encodePtyFixtureCommand({ op: "FLOOD", prefix: historyPrefix, count: 96 }),
+  );
+  await smokePage.evaluate(({ id, marker }) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return smokeWindow.__smoke.waitForPaintedMarker(id, marker, 10_000);
+  }, { id: sessionId, marker: `${historyPrefix}96` });
+
+  // A smoke-backdoor byte is deliberately passive. The fixture answers it with
+  // CSI 1 C (cursor-forward/right), advancing the canonical cursor while the
+  // selected reader remains on the old geometry. The next admitted trusted key
+  // must adopt that exact pending frame inside keydown, preserve every clean row
+  // node, clear only this pane's Selection, and pin.
+  const cursorNonce = `cursor-${suffix}`;
+  const cursorReady = `ARMED:CURSOR_MOVE:${cursorNonce}`;
+  await inputSmokeTerminal(
+    smokePage,
+    sessionId,
+    encodePtyFixtureCommand({ op: "ARM_CURSOR_MOVE", nonce: cursorNonce }),
+  );
+  await smokePage.evaluate(({ id, marker }) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return smokeWindow.__smoke.waitForPaintedMarker(id, marker, 10_000);
+  }, { id: sessionId, marker: cursorReady });
+  await waitForStableCellFrames(smokePage, sessionId);
+  const baselineCursor = await smokePage.evaluate((id) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return smokeWindow.__smoke.waitForPaintedCursor(id, undefined, 10_000);
+  }, sessionId);
+  const beforeCursor = await readTerminalStreamProbe(smokePage, sessionId);
+  expect(beforeCursor.browser.handler_canonical).toEqual(beforeCursor.browser.dom_reconciled);
+  expect(await holdNativeTerminalSelection(smokePage, sessionId)).toBe(true);
+  await inputSmokeTerminal(smokePage, sessionId, "x");
+  const cursorPending = await waitForCanonicalAdvance(smokePage, sessionId, beforeCursor);
+  expectCanonicalAdvanceHeld(beforeCursor, cursorPending, {
+    readerReason: "selection",
+    selectionHold: true,
+  });
+  const canonicalCursor = cursorPending.browser.presentation?.cursor.canonical;
+  if (!canonicalCursor?.visible) throw new Error("cursor-only fixture did not leave a canonical cursor");
+  expect(canonicalCursor.row).toBe(baselineCursor.row);
+  expect(canonicalCursor.column).toBe(baselineCursor.column + 1);
+  expect(cursorPending.browser.presentation?.cursor.dom).toMatchObject({
+    visible: true,
+    row: baselineCursor.row,
+    column: baselineCursor.column,
+    connected: true,
+  });
+  const staleCursorGeometry = await attemptPaintedCursor(smokePage, sessionId, {
+    row: baselineCursor.row,
+    column: baselineCursor.column,
+  });
+  if (!staleCursorGeometry.proof) {
+    throw new Error(`baseline cursor lost clipped geometry: ${staleCursorGeometry.error}`);
+  }
+  expect(staleCursorGeometry.proof.rect).toEqual(baselineCursor.rect);
+  expect(staleCursorGeometry.proof.terminalClip).toEqual(baselineCursor.terminalClip);
+  expect(staleCursorGeometry.proof.visualViewport).toEqual(baselineCursor.visualViewport);
+  const hiddenCanonicalCursor = await attemptPaintedCursor(smokePage, sessionId, {
+    row: canonicalCursor.row,
+    column: canonicalCursor.column,
+  });
+  expect(hiddenCanonicalCursor.proof).toBeNull();
+  expect(hiddenCanonicalCursor.error).toContain("cursor presentation geometry was not proven");
+
+  // Escape is admitted PTY data without adding a cursor prediction or browser
+  // scrolling default; CSI 1 C remains the sole cursor transition.
+  await resetTerminalInputCapture(smokePage);
+  await armImmediateTerminalPaintSample(smokePage, sessionId, "keydown", {
+    cursorRow: canonicalCursor.row,
+  });
+  await smokePage.keyboard.press("Escape");
+  const immediateKeyPaint = await readImmediateTerminalPaintSample(smokePage);
+  if (!immediateKeyPaint?.cursorRect) throw new Error("trusted key did not reconcile cursor geometry synchronously");
+  expect(immediateKeyPaint).toMatchObject({
+    eventType: "keydown",
+    trusted: true,
+    selectionCollapsed: true,
+    cursorRow: canonicalCursor.row,
+    cursorColumn: canonicalCursor.column,
+    cursorRowIdentity: true,
+  });
+  await expect.poll(async () => {
+    const capture = await readTerminalInputCapture(smokePage);
+    return {
+      data: capture.batches.flatMap((batch) => batch.data),
+      sessions: capture.batches.map((batch) => batch.sessionId),
+      droppedBatches: capture.droppedBatches,
+    };
+  }).toEqual({
+    data: [0x1b],
+    sessions: [sessionId],
+    droppedBatches: 0,
+  });
+  const afterTrustedKey = await readTerminalStreamProbe(smokePage, sessionId);
+  expect(afterTrustedKey.browser.presentation?.cursor.canonical).toEqual(canonicalCursor);
+  expect(afterTrustedKey.browser.presentation?.cursor.dom).toMatchObject({
+    ...canonicalCursor,
+    connected: true,
+  });
+  expectRecoveredLive(cursorPending, afterTrustedKey);
+  const recoveredCursor = await smokePage.evaluate(({ id, row, column }) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return smokeWindow.__smoke.waitForPaintedCursor(id, { row, column }, 10_000);
+  }, { id: sessionId, row: canonicalCursor.row, column: canonicalCursor.column });
+  expect(recoveredCursor).toMatchObject({
+    row: canonicalCursor.row,
+    column: canonicalCursor.column,
+    frames: 2,
+  });
+  expect(recoveredCursor.terminalClip).toEqual(baselineCursor.terminalClip);
+  expect(recoveredCursor.visualViewport).toEqual(baselineCursor.visualViewport);
+  for (const key of ["left", "top", "right", "bottom"] as const) {
+    expect(
+      Math.abs(immediateKeyPaint.cursorRect[key] - recoveredCursor.rect[key]),
+      `synchronous cursor ${key}`,
+    ).toBeLessThanOrEqual(1);
+  }
+
+  const liveAfterKey = `LIVE-AFTER-KEY:${suffix}`;
+  await inputSmokeTerminal(
+    smokePage,
+    sessionId,
+    encodePtyFixtureCommand({ op: "EMIT", text: liveAfterKey }),
+  );
+  const liveAfterKeyProof = await smokePage.evaluate(({ id, marker }) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return smokeWindow.__smoke.waitForPaintedMarker(id, marker, 10_000);
+  }, { id: sessionId, marker: liveAfterKey });
+  expect(liveAfterKeyProof).toMatchObject({ marker: liveAfterKey, frames: 2 });
+  expect((await readTerminalStreamProbe(smokePage, sessionId)).browser.presentation?.reader_intent)
+    .toBe("live");
+
+  // Native wheel is explicit reading. Its next frame remains canonical-only;
+  // committed IME input resumes live in the input event that admits its bytes.
+  const gridBox = await grid.boundingBox();
+  if (!gridBox) throw new Error("terminal grid geometry disappeared");
+  await smokePage.mouse.move(gridBox.x + gridBox.width / 2, gridBox.y + gridBox.height / 2);
+  await smokePage.mouse.wheel(0, -1200);
+  await expect.poll(async () => {
+    const probe = await readTerminalStreamProbe(smokePage, sessionId);
+    return {
+      intent: probe.browser.presentation?.reader_intent,
+      reason: probe.browser.presentation?.reader_reason,
+      atBottom: probe.browser.presentation?.at_bottom,
+    };
+  }).toEqual({ intent: "reading", reason: "wheel", atBottom: false });
+  const beforeWheelPending = await readTerminalStreamProbe(smokePage, sessionId);
+  const wheelPendingMarker = `WHEEL-PENDING:${suffix}`;
+  await inputSmokeTerminal(
+    smokePage,
+    sessionId,
+    encodePtyFixtureCommand({ op: "EMIT", text: wheelPendingMarker }),
+  );
+  const wheelPending = await waitForCanonicalAdvance(smokePage, sessionId, beforeWheelPending);
+  expectCanonicalAdvanceHeld(beforeWheelPending, wheelPending, {
+    readerReason: "wheel",
+    selectionHold: false,
+  });
+  const hiddenWheelMarker = await attemptPaintedMarker(smokePage, sessionId, wheelPendingMarker);
+  expect(hiddenWheelMarker.proof).toBeNull();
+  expect(hiddenWheelMarker.error).toContain("not visibly painted");
+  await armImmediateTerminalPaintSample(smokePage, sessionId, "input", {
+    marker: wheelPendingMarker,
+  });
+  await smokePage.keyboard.insertText("中");
+  const immediateImePaint = await readImmediateTerminalPaintSample(smokePage);
+  expect(immediateImePaint).toMatchObject({
+    eventType: "input",
+    trusted: true,
+    selectionCollapsed: true,
+  });
+  expect(immediateImePaint?.markerRowRect).not.toBeNull();
+  const imeRecoveredProof = await smokePage.evaluate(({ id, marker }) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return smokeWindow.__smoke.waitForPaintedMarker(id, marker, 10_000);
+  }, { id: sessionId, marker: wheelPendingMarker });
+  expect(imeRecoveredProof).toMatchObject({ marker: wheelPendingMarker, frames: 2 });
+  expectRecoveredLive(
+    wheelPending,
+    await readTerminalStreamProbe(smokePage, sessionId),
+    { predictiveCursor: true },
+  );
+
+  // Find is another explicit reader action. Closing the bar is passive; a real
+  // one-line clipboard paste is the admitted interaction that adopts its pending
+  // frame and returns to live.
+  await pressPlatformShortcut(smokePage, "terminalFind", "F");
+  const findInput = smokePage.getByTestId("terminal-find-input");
+  await expect(findInput).toBeVisible();
+  const findMarker = `${historyPrefix}20`;
+  await findInput.fill(findMarker);
+  await expect(smokePage.getByTestId("terminal-find-count")).toHaveText("1/1", { timeout: 10_000 });
+  const findProof = await smokePage.evaluate(({ id, marker }) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return smokeWindow.__smoke.waitForPaintedMarker(id, marker, 10_000);
+  }, { id: sessionId, marker: findMarker });
+  expect(findProof).toMatchObject({ marker: findMarker, frames: 2 });
+  await expect.poll(async () => {
+    const presentation = (await readTerminalStreamProbe(smokePage, sessionId)).browser.presentation;
+    return { intent: presentation?.reader_intent, reason: presentation?.reader_reason };
+  }).toEqual({ intent: "reading", reason: "find" });
+  const findOpenRows = (await readTerminalStreamProbe(smokePage, sessionId))
+    .browser.presentation?.rows.dom;
+  if (findOpenRows === undefined) throw new Error("find presentation omitted DOM rows");
+  await findInput.press("Escape");
+  await expect(findInput).toHaveCount(0);
+  await expect.poll(async () => {
+    const browser = (await readTerminalStreamProbe(smokePage, sessionId)).browser;
+    const presentation = browser.presentation;
+    const domRows = presentation?.rows.dom ?? null;
+    const canonicalRows = presentation?.rows.canonical ?? null;
+    const desiredRows = browser.claim.desired?.rows ?? null;
+    const confirmedRows = browser.claim.confirmed?.effective_rows ?? null;
+    return {
+      resizedBehindReader: canonicalRows !== null
+        && canonicalRows > findOpenRows
+        && desiredRows === canonicalRows
+        && confirmedRows === canonicalRows,
+      domRows,
+      intent: presentation?.reader_intent,
+      reason: presentation?.reader_reason,
+      blocked: browser.reconcile_block_reason,
+    };
+  }).toEqual({
+    resizedBehindReader: true,
+    domRows: findOpenRows,
+    intent: "reading",
+    reason: "find",
+    blocked: "reader_pending_frame",
+  });
+
+  const beforeFindPending = await readTerminalStreamProbe(smokePage, sessionId);
+  const findPendingMarker = `FIND-PENDING:${suffix}`;
+  await inputSmokeTerminal(
+    smokePage,
+    sessionId,
+    encodePtyFixtureCommand({ op: "EMIT", text: findPendingMarker }),
+  );
+  const findPending = await waitForCanonicalAdvance(smokePage, sessionId, beforeFindPending);
+  expectCanonicalAdvanceHeld(beforeFindPending, findPending, {
+    readerReason: "find",
+    selectionHold: false,
+  });
+  const hiddenFindMarker = await attemptPaintedMarker(smokePage, sessionId, findPendingMarker);
+  expect(hiddenFindMarker.proof).toBeNull();
+  const origin = new URL(smokePage.url()).origin;
+  await smokePage.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin });
+  const pasteText = `pasted-${suffix}`;
+  await smokePage.evaluate((text) => navigator.clipboard.writeText(text), pasteText);
+  await resetTerminalInputCapture(smokePage);
+  await armImmediateTerminalPaintSample(smokePage, sessionId, "paste", {
+    marker: findPendingMarker,
+  });
+  await smokePage.keyboard.press((await shortcutPlatform(smokePage)) === "macos" ? "Meta+V" : "Control+V");
+  const immediatePastePaint = await readImmediateTerminalPaintSample(smokePage);
+  expect(immediatePastePaint).toMatchObject({
+    eventType: "paste",
+    trusted: true,
+    selectionCollapsed: true,
+  });
+  expect(immediatePastePaint?.markerRowRect).not.toBeNull();
+  const pasteRecoveredProof = await smokePage.evaluate(({ id, marker }) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return smokeWindow.__smoke.waitForPaintedMarker(id, marker, 10_000);
+  }, { id: sessionId, marker: findPendingMarker });
+  expect(pasteRecoveredProof).toMatchObject({ marker: findPendingMarker, frames: 2 });
+  await expect.poll(async () =>
+    (await readTerminalInputCapture(smokePage)).batches.flatMap((batch) => batch.data)
+  ).toEqual(Array.from(new TextEncoder().encode(pasteText)));
+  expectRecoveredLive(
+    findPending,
+    await readTerminalStreamProbe(smokePage, sessionId),
+    { predictiveCursor: true },
+  );
+
+  // Grow the desktop composer and let its debounced viewport transaction settle
+  // before creating the changed-epoch frame. The core's resize snapshot is an
+  // independent canonical frame; the interaction contract below starts from the
+  // newest stable geometry and proves Send adopts the later held alt-screen.
+  const composerDock = slot.getByTestId("mobile-chat-input");
+  const composerInput = composerDock.getByTestId("chat-input");
+  const composerSend = composerDock.getByTestId("chat-send");
+  const restingComposer = await composerDock.boundingBox();
+  if (!restingComposer) throw new Error("desktop composer geometry disappeared");
+  const pendingSubmitDraft = [
+    "accepted submit adopts the changed epoch",
+    "before its composer can shrink",
+    "without waiting for another output frame",
+    "and leaves the pane persistently live",
+  ].join("\n");
+  await composerInput.fill(pendingSubmitDraft);
+  await expect.poll(async () => (await composerDock.boundingBox())?.height ?? 0)
+    .toBeGreaterThan(restingComposer.height + 1);
+  const grownBeforePendingSubmit = await composerDock.boundingBox();
+  if (!grownBeforePendingSubmit) throw new Error("grown desktop composer geometry disappeared");
+  await waitForStableCellFrames(smokePage, sessionId);
+
+  // A changed-epoch alternate-screen response is now pending before Send. The
+  // admitted callback must paint it inside the click dispatch while the tall
+  // composer is still at its pre-shrink geometry.
+  const altNonce = `alt-${suffix}`;
+  const altReady = `ARMED:ALT_REDRAW:${altNonce}:line`;
+  const altMarker = `ALT_REDRAW:${altNonce}:1:alt`;
+  await inputSmokeTerminal(
+    smokePage,
+    sessionId,
+    encodePtyFixtureCommand({ op: "ARM_ALT_REDRAW", nonce: altNonce, trigger: "line" }),
+  );
+  await smokePage.evaluate(({ id, marker }) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return smokeWindow.__smoke.waitForPaintedMarker(id, marker, 10_000);
+  }, { id: sessionId, marker: altReady });
+  await waitForStableCellFrames(smokePage, sessionId);
+  const beforeAlt = await readTerminalStreamProbe(smokePage, sessionId);
+  expect(await holdNativeTerminalSelection(smokePage, sessionId)).toBe(true);
+  await inputSmokeTerminal(smokePage, sessionId, "passive changed epoch\r");
+  const altPending = await waitForCanonicalAdvance(smokePage, sessionId, beforeAlt);
+  expectCanonicalAdvanceHeld(beforeAlt, altPending, {
+    epoch: "changed",
+    readerReason: "selection",
+    selectionHold: true,
+  });
+  expect(altPending.browser.presentation?.mode.canonical?.alt_screen).toBe(true);
+  expect(altPending.browser.presentation?.mode.reconciled?.alt_screen).toBe(false);
+  const hiddenAltMarker = await attemptPaintedMarker(smokePage, sessionId, altMarker);
+  expect(hiddenAltMarker.proof).toBeNull();
+  expect(await smokePage.evaluate(() => window.getSelection()?.isCollapsed ?? true)).toBe(false);
+  expect((await readTerminalStreamProbe(smokePage, sessionId)).browser.presentation)
+    .toMatchObject({
+      reader_intent: "reading",
+      reader_reason: "selection",
+      hold_mask: { selection: true, link: false },
+    });
+  await armImmediateTerminalPaintSample(smokePage, sessionId, "click", { marker: altMarker });
+  await composerSend.click();
+  const immediateSubmitPaint = await readImmediateTerminalPaintSample(smokePage);
+  expect(immediateSubmitPaint).toMatchObject({
+    eventType: "click",
+    trusted: true,
+    selectionCollapsed: true,
+  });
+  expect(immediateSubmitPaint?.markerRowRect).not.toBeNull();
+  expect(immediateSubmitPaint?.composerHeight).toBeGreaterThanOrEqual(grownBeforePendingSubmit.height - 1);
+  const altRecoveredProof = await smokePage.evaluate(({ id, marker }) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return smokeWindow.__smoke.waitForPaintedMarker(id, marker, 10_000);
+  }, { id: sessionId, marker: altMarker });
+  expect(altRecoveredProof).toMatchObject({ marker: altMarker, frames: 2 });
+  await expect(composerInput).toHaveValue("");
+  await expect.poll(async () => (await composerDock.boundingBox())?.height ?? Number.POSITIVE_INFINITY)
+    .toBeLessThanOrEqual(restingComposer.height + 1);
+  expectRecoveredLive(altPending, await readTerminalStreamProbe(smokePage, sessionId));
+
+  // Reverse the ordering: hold fixture output behind a deterministic delay so
+  // accepted admission clears and shrinks the composer before the response.
+  // The later marker must still paint immediately because live intent persists.
+  const overwriteNonce = `overwrite-${suffix}`;
+  const overwriteReady = `ARMED:LINE_OVERWRITE:${overwriteNonce}`;
+  const overwriteMarker = `OVERWRITE:${overwriteNonce}:1`;
+  await inputSmokeTerminal(
+    smokePage,
+    sessionId,
+    encodePtyFixtureCommand({ op: "ARM_LINE_OVERWRITE", nonce: overwriteNonce }),
+  );
+  await smokePage.evaluate(({ id, marker }) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return smokeWindow.__smoke.waitForPaintedMarker(id, marker, 10_000);
+  }, { id: sessionId, marker: overwriteReady });
+  const delayedDraft = `delayed-response-${suffix}-` + "payload ".repeat(80);
+  await composerInput.fill(delayedDraft);
+  await expect.poll(async () => (await composerDock.boundingBox())?.height ?? 0)
+    .toBeGreaterThan(restingComposer.height + 1);
+  await inputSmokeTerminal(
+    smokePage,
+    sessionId,
+    encodePtyFixtureCommand({
+      op: "EMIT",
+      text: `DELAY-BARRIER:${suffix}`,
+      delayMs: 2_500,
+    }),
+  );
+  await composerSend.click();
+  await expect(composerInput).toHaveValue("");
+  await expect.poll(async () => (await composerDock.boundingBox())?.height ?? Number.POSITIVE_INFINITY)
+    .toBeLessThanOrEqual(restingComposer.height + 1);
+  const beforeDelayedResponse = await attemptPaintedMarker(smokePage, sessionId, overwriteMarker, 250);
+  expect(beforeDelayedResponse.proof).toBeNull();
+  const overwritePainted = await smokePage.evaluate(({ id, marker }) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return smokeWindow.__smoke.waitForPaintedMarker(id, marker, 10_000);
+  }, { id: sessionId, marker: overwriteMarker });
+  expect(overwritePainted).toMatchObject({ marker: overwriteMarker, frames: 2 });
+  await expect.poll(async () => {
+    const probe = await readTerminalStreamProbe(smokePage, sessionId);
+    const desired = probe.browser.claim.desired;
+    const confirmed = probe.browser.claim.confirmed;
+    return desired !== null
+      && confirmed?.client_seq === desired.client_seq
+      && activeCoordSubscriptionCount(probe) > 0
+      && coordViewerCount(probe) > 0
+      && workerViewerClaimCount(probe) > 0;
+  }, { timeout: 10_000, intervals: [100] }).toBe(true);
+  const presented = await readTerminalStreamProbe(smokePage, sessionId);
+  expect(presented.browser.handler_canonical).toEqual(presented.browser.dom_reconciled);
+  expect(presented.browser.presentation).toMatchObject({
+    reader_intent: "live",
+    reader_reason: null,
+    hold_mask: { selection: false, link: false },
+  });
+  expect(presented.browser.last_geometry_proof).toMatchObject({
+    proof_kind: "marker",
+    marker: overwriteMarker,
+    frames: 2,
+  });
+  expect(presented.session_id).toBe(sessionId);
+  expect(presented.browser.build).toHaveProperty("git_sha");
+  expect(presented.coord?.build).toHaveProperty("git_sha");
+  expect(presented.worker.worker_fp).toBe(fixtureWorker.workerFp);
+  expect(presented.worker.build).toHaveProperty("git_sha");
+
+  // Preserve the painted pane, commit its ordinary withdrawal, advance the
+  // hidden PTY, then reject exactly its next positive reclaim. No socket,
+  // visibility, resize, input, or reload edge follows the injected result:
+  // the viewport owner must retry monotonically on this same healthy Sync
+  // generation and the repair snapshot must reveal the hidden output.
+  const otherSessionId = (await spawnSmokeShell(smokePage, stack.workerFp)).session_id;
+  await switchToSmokeSession(smokePage, otherSessionId);
+  await expect.poll(async () => {
+    const probe = await readTerminalStreamProbe(smokePage, sessionId);
+    return {
+      coordSubscriptions: activeCoordSubscriptionCount(probe),
+      coordViewers: coordViewerCount(probe),
+      workerClaims: workerViewerClaimCount(probe),
+    };
+  }, { timeout: 10_000, intervals: [100] }).toEqual({
+    coordSubscriptions: 0,
+    coordViewers: 0,
+    workerClaims: 0,
+  });
+  const retryRepairMarker = `RECLAIM-REPAIR:${suffix}`;
+  await inputSmokeTerminal(
+    smokePage,
+    sessionId,
+    encodePtyFixtureCommand({ op: "EMIT", text: retryRepairMarker }),
+  );
+  expect((await attemptPaintedMarker(smokePage, sessionId, retryRepairMarker, 250)).proof)
+    .toBeNull();
+  expect(await smokePage.evaluate((id) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return smokeWindow.__smoke.rejectedViewportClaimCount(id);
+  }, sessionId)).toBe(0);
+  await smokePage.evaluate((id) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    smokeWindow.__smoke.rejectNextViewportClaim(id);
+  }, sessionId);
+  await switchToSmokeSession(smokePage, sessionId);
+  await expect.poll(() => smokePage.evaluate((id) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return smokeWindow.__smoke.rejectedViewportClaimCount(id);
+  }, sessionId), { timeout: 10_000, intervals: [50] }).toBe(1);
+  const persistedPaint = await smokePage.evaluate(({ id, marker }) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return smokeWindow.__smoke.waitForPaintedMarker(id, marker, 10_000);
+  }, { id: sessionId, marker: overwriteMarker });
+  expect(persistedPaint).toMatchObject({ marker: overwriteMarker, frames: 2 });
+
+  const firstRejected = await readTerminalStreamProbe(smokePage, sessionId);
+  const presentedDesired = presented.browser.claim.desired;
+  const rejectedDesired = firstRejected.browser.claim.desired;
+  if (!presentedDesired || !rejectedDesired) {
+    throw new Error("reclaim sequence missing from terminal stream probe");
+  }
+  expect(BigInt(rejectedDesired.client_seq) > BigInt(presentedDesired.client_seq)).toBe(true);
+  const repairedPaint = await smokePage.evaluate(({ id, marker }) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return smokeWindow.__smoke.waitForPaintedMarker(id, marker, 15_000);
+  }, { id: sessionId, marker: retryRepairMarker });
+  expect(repairedPaint).toMatchObject({ marker: retryRepairMarker, frames: 2 });
+  await expect.poll(async () => {
+    const probe = await readTerminalStreamProbe(smokePage, sessionId);
+    const desired = probe.browser.claim.desired;
+    const confirmed = probe.browser.claim.confirmed;
+    return {
+      retried: desired !== null
+        && BigInt(desired.client_seq) > BigInt(rejectedDesired.client_seq),
+      converged: desired !== null && confirmed?.client_seq === desired.client_seq,
+      coordSubscriptions: activeCoordSubscriptionCount(probe),
+      coordViewers: coordViewerCount(probe),
+      workerClaims: workerViewerClaimCount(probe),
+    };
+  }, { timeout: 15_000, intervals: [50, 100, 250] }).toEqual({
+    retried: true,
+    converged: true,
+    coordSubscriptions: 1,
+    coordViewers: 1,
+    workerClaims: 1,
+  });
+  expect(await smokePage.evaluate((id) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return smokeWindow.__smoke.rejectedViewportClaimCount(id);
+  }, sessionId)).toBe(1);
 });
 
 test("terminal replay and Ctrl keys stay owned by the PTY", async ({ smokePage, stack }, testInfo) => {
@@ -1032,6 +2037,7 @@ test("desktop composer submits Enter and grows above a stable terminal deck", as
     return {
       deckClientHeight: deckEl.clientHeight,
       slotHeight: slotRect.height,
+      terminalHeight: terminalRect.height,
       terminalBottom: terminalRect.bottom,
       composerTop: composerRect.top,
       composerHeight: composerRect.height,
@@ -1045,6 +2051,12 @@ test("desktop composer submits Enter and grows above a stable terminal deck", as
   expect(baseline.deckClientHeight).toBeGreaterThan(0);
   expect(baseline.slotHeight).toBeGreaterThan(0);
   expect(baseline.composerHeight).toBeGreaterThan(0);
+  await expect.poll(async () => {
+    const claim = (await readTerminalStreamProbe(smokePage, sessionId)).browser.claim;
+    return claim.desired !== null && claim.confirmed?.client_seq === claim.desired.client_seq;
+  }, { timeout: 10_000, intervals: [50] }).toBe(true);
+  const baselineClaim = (await readTerminalStreamProbe(smokePage, sessionId)).browser.claim.desired;
+  if (!baselineClaim) throw new Error("desktop terminal omitted its baseline viewport claim");
 
   const growthDraft = [
     "first composer row",
@@ -1078,6 +2090,37 @@ test("desktop composer submits Enter and grows above a stable terminal deck", as
   expect(grown.terminalBottom, "terminal visual bottom must stay at or above the composer").toBeLessThanOrEqual(
     grown.composerTop,
   );
+  expect(
+    baseline.terminalHeight - grown.terminalHeight,
+    "desktop composer autogrow must resize terminal-display",
+  ).toBeGreaterThan(1);
+  await expect.poll(async () => {
+    const claim = (await readTerminalStreamProbe(smokePage, sessionId)).browser.claim;
+    return claim.desired !== null
+      && claim.confirmed?.client_seq === claim.desired.client_seq
+      && BigInt(claim.desired.client_seq) > BigInt(baselineClaim.client_seq)
+      && claim.desired.cols === baselineClaim.cols
+      && claim.desired.rows < baselineClaim.rows;
+  }, {
+    message: "desktop terminal-display resize must produce one debounced adopted claim",
+    timeout: 10_000,
+    intervals: [50],
+  }).toBe(true);
+  const grownClaim = (await readTerminalStreamProbe(smokePage, sessionId)).browser.claim.desired;
+  if (!grownClaim) throw new Error("desktop terminal omitted its grown viewport claim");
+  expect(BigInt(grownClaim.client_seq) > BigInt(baselineClaim.client_seq)).toBe(true);
+  expect(grownClaim.rows).toBeLessThan(baselineClaim.rows);
+
+  const growthOutputMarker = `DESKTOP_GROWTH_LIVE_${crypto.randomUUID().replaceAll("-", "").slice(0, 8)}`;
+  await inputSmokeTerminal(smokePage, sessionId, `printf '%s\\n' ${growthOutputMarker}\r`);
+  const growthOutputProof = await smokePage.evaluate(({ id, marker }) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return smokeWindow.__smoke.waitForPaintedMarker(id, marker, 10_000);
+  }, { id: sessionId, marker: growthOutputMarker });
+  expect(growthOutputProof).toMatchObject({ marker: growthOutputMarker, frames: 2 });
+  const afterGrowthOutput = await readTerminalStreamProbe(smokePage, sessionId);
+  expect(afterGrowthOutput.browser.handler_canonical).toEqual(afterGrowthOutput.browser.dom_reconciled);
+  expect(afterGrowthOutput.browser.presentation?.reader_intent).toBe("live");
 
   const shiftMarker = `DESKTOP_SHIFT_${crypto.randomUUID().replace(/-/g, "").slice(0, 8)}`;
   const shiftCommand = `printf '%s\\n' ${shiftMarker}`;
@@ -1089,14 +2132,22 @@ test("desktop composer submits Enter and grows above a stable terminal deck", as
   // it is visible, a mistakenly submitted Shift+Enter command would be visible too.
   const barrier = `DESKTOP_SHIFT_BARRIER_${crypto.randomUUID().replace(/-/g, "").slice(0, 8)}`;
   await inputSmokeTerminal(smokePage, sessionId, `printf '%s\\n' ${barrier}\n`);
-  await expect.poll(() => slot.textContent()).toContain(barrier);
-  expect((await slot.textContent()) ?? "").not.toContain(shiftMarker);
+  const barrierProof = await smokePage.evaluate(({ id, marker }) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return smokeWindow.__smoke.waitForPaintedMarker(id, marker, 10_000);
+  }, { id: sessionId, marker: barrier });
+  expect(barrierProof).toMatchObject({ marker: barrier, frames: 2 });
+  expect((await attemptPaintedMarker(smokePage, sessionId, shiftMarker, 300)).proof).toBeNull();
 
   const enterMarker = `DESKTOP_ENTER_${crypto.randomUUID().replace(/-/g, "").slice(0, 8)}`;
   await input.fill(`printf '%s\\n' ${enterMarker}`);
   await expect(input).toBeFocused();
   await input.press("Enter");
-  await expect.poll(() => slot.textContent()).toContain(enterMarker);
+  const enterProof = await smokePage.evaluate(({ id, marker }) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return smokeWindow.__smoke.waitForPaintedMarker(id, marker, 10_000);
+  }, { id: sessionId, marker: enterMarker });
+  expect(enterProof).toMatchObject({ marker: enterMarker, frames: 2 });
   await expect(input).toHaveValue("");
   await expect(input).toBeFocused();
   await expect(dock).toBeVisible();
@@ -1218,18 +2269,24 @@ test("mobile composer gives multiline drafts the full message width", async ({ m
   const box = mobileSmokePage.getByTestId("chat-box");
   const input = mobileSmokePage.getByTestId("chat-input");
 
-  const readComposerGeometry = () => mobileSmokePage.evaluate(() => {
+  const readComposerGeometry = () => mobileSmokePage.evaluate((id) => {
     const dockEl = document.querySelector('[data-testid="mobile-chat-input"]');
     const boxEl = document.querySelector('[data-testid="chat-box"]');
     const inputEl = document.querySelector('[data-testid="chat-input"]');
     const micEl = document.querySelector('[data-testid="voice-mic"]');
     const sendEl = document.querySelector('[data-testid="chat-send"]');
+    const deckEl = document.querySelector('[data-testid="terminal-deck"]');
+    const terminalEl = document.querySelector(
+      `[data-testid="terminal-slot-${id}"] [data-testid="terminal-display"]`,
+    );
     if (
       !(dockEl instanceof HTMLElement)
       || !(boxEl instanceof HTMLElement)
       || !(inputEl instanceof HTMLTextAreaElement)
       || !(micEl instanceof HTMLElement)
       || !(sendEl instanceof HTMLElement)
+      || !(deckEl instanceof HTMLElement)
+      || !(terminalEl instanceof HTMLElement)
     ) return null;
 
     const rect = (el: HTMLElement) => {
@@ -1276,6 +2333,11 @@ test("mobile composer gives multiline drafts the full message width", async ({ m
       input: rect(inputEl),
       mic: rect(micEl),
       send: rect(sendEl),
+      deck: rect(deckEl),
+      deckOffsetHeight: deckEl.offsetHeight,
+      deckTransform: getComputedStyle(deckEl).transform,
+      terminal: rect(terminalEl),
+      terminalClientHeight: terminalEl.clientHeight,
       innerLeft: boxRect.left + paddingLeft,
       innerRight: boxRect.right - paddingRight,
       paddingTop: px(boxStyle.paddingTop),
@@ -1289,7 +2351,7 @@ test("mobile composer gives multiline drafts the full message width", async ({ m
       maxHeight: resolveMaxHeight(inputStyle.maxHeight),
       contractMaxHeight: resolveMaxHeight("min(192px, 30dvh)"),
     };
-  });
+  }, sessionId);
 
   const geometry = async () => {
     const value = await readComposerGeometry();
@@ -1306,6 +2368,12 @@ test("mobile composer gives multiline drafts the full message width", async ({ m
   });
   await input.fill("short");
   const baseline = await geometry();
+  await expect.poll(async () => {
+    const claim = (await readTerminalStreamProbe(mobileSmokePage, sessionId)).browser.claim;
+    return claim.desired !== null && claim.confirmed?.client_seq === claim.desired.client_seq;
+  }, { timeout: 10_000, intervals: [50] }).toBe(true);
+  const baselineClaim = (await readTerminalStreamProbe(mobileSmokePage, sessionId)).browser.claim.desired;
+  if (!baselineClaim) throw new Error("compact terminal omitted its baseline viewport claim");
 
   const expectFullWidthRows = (
     current: typeof baseline,
@@ -1420,11 +2488,65 @@ test("mobile composer gives multiline drafts the full message width", async ({ m
   expect(capped.dock.top, "capped dock grows upward").toBeLessThan(multiline.dock.top - 1);
   near(capped.dock.bottom, baseline.dock.bottom, 1, "long wrapping draft: stable dock bottom");
 
+  await expect.poll(async () => {
+    const current = await readComposerGeometry();
+    return current ? baseline.deck.top - current.deck.top : 0;
+  }, {
+    message: "compact composer growth must translate the deck without changing its layout box",
+  }).toBeGreaterThan(1);
+  const transformed = await geometry();
+  near(transformed.deckOffsetHeight, baseline.deckOffsetHeight, 1, "compact deck layout height");
+  near(transformed.deck.height, baseline.deck.height, 1, "compact deck painted height");
+  near(transformed.terminalClientHeight, baseline.terminalClientHeight, 1, "compact terminal layout height");
+  near(transformed.terminal.height, baseline.terminal.height, 1, "compact terminal painted height");
+  expect(transformed.deck.top, "compact deck paint translates upward").toBeLessThan(baseline.deck.top - 1);
+  near(
+    baseline.terminal.top - transformed.terminal.top,
+    baseline.deck.top - transformed.deck.top,
+    1,
+    "terminal and deck share the same compact paint transform",
+  );
+  expect(transformed.deckTransform).not.toBe(baseline.deckTransform);
+
+  // Wait past the desktop ResizeObserver debounce. Compact growth is transform
+  // only, so it must not enqueue a viewport claim even while output stays live.
+  await mobileSmokePage.waitForTimeout(250);
+  const compactClaim = (await readTerminalStreamProbe(mobileSmokePage, sessionId)).browser.claim;
+  expect(compactClaim.desired).toMatchObject({
+    client_seq: baselineClaim.client_seq,
+    cols: baselineClaim.cols,
+    rows: baselineClaim.rows,
+  });
+  expect(compactClaim.confirmed?.client_seq).toBe(baselineClaim.client_seq);
+  const compactGrowthMarker = `COMPACT_GROWTH_LIVE_${crypto.randomUUID().replaceAll("-", "").slice(0, 8)}`;
+  await inputSmokeTerminal(mobileSmokePage, sessionId, `printf '%s\\n' ${compactGrowthMarker}\r`);
+  const compactGrowthProof = await mobileSmokePage.evaluate(({ id, marker }) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return smokeWindow.__smoke.waitForPaintedMarker(id, marker, 10_000);
+  }, { id: sessionId, marker: compactGrowthMarker });
+  expect(compactGrowthProof).toMatchObject({ marker: compactGrowthMarker, frames: 2 });
+  const afterCompactGrowth = await readTerminalStreamProbe(mobileSmokePage, sessionId);
+  expect(afterCompactGrowth.browser.handler_canonical).toEqual(afterCompactGrowth.browser.dom_reconciled);
+  expect(afterCompactGrowth.browser.presentation?.reader_intent).toBe("live");
+  await expect(input).toHaveValue(wrappingDraft);
+
   await input.fill("short");
+  await expect.poll(async () => Math.abs((await geometry()).deck.top - baseline.deck.top))
+    .toBeLessThanOrEqual(1);
   const restored = await geometry();
   expectFullWidthRows(restored, "shortened draft");
   for (const surface of ["dock", "box", "input", "mic", "send"] as const) {
     for (const dimension of ["x", "y", "width", "height"] as const) {
+      near(
+        restored[surface][dimension],
+        baseline[surface][dimension],
+        1,
+        `shortened draft restores ${surface}.${dimension}`,
+      );
+    }
+  }
+  for (const surface of ["deck", "terminal"] as const) {
+    for (const dimension of ["top", "height"] as const) {
       near(
         restored[surface][dimension],
         baseline[surface][dimension],
@@ -1539,10 +2661,16 @@ test("inline composer controls share one compact M3 anatomy", async ({ mobileSmo
 });
 
 test("mobile terminal keyboard toggles and dispatches special keys", async ({ mobileSmokePage, stack }) => {
-  const sessionId = (await spawnSmokeShell(mobileSmokePage, stack.workerFp)).session_id;
+  const fixtureWorker = await stack.startPtyFixtureWorker();
+  const sessionId = await spawnPtyFixtureSession(mobileSmokePage, fixtureWorker);
   await navigateToSmokeSession(mobileSmokePage, sessionId);
+  await mobileSmokePage.evaluate(({ id, marker }) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return smokeWindow.__smoke.waitForPaintedMarker(id, marker, 30_000);
+  }, { id: sessionId, marker: PTY_FIXTURE_READY });
   await expectSmokeComposer(mobileSmokePage);
 
+  const terminalSlot = mobileSmokePage.getByTestId(`terminal-slot-${sessionId}`);
   const dock = mobileSmokePage.getByTestId("mobile-chat-input");
   const box = mobileSmokePage.getByTestId("chat-box");
   const input = mobileSmokePage.getByTestId("chat-input");
@@ -1713,6 +2841,44 @@ test("mobile terminal keyboard toggles and dispatches special keys", async ({ mo
   await expect(mobileSmokePage.getByTestId("nav-ctrl")).toBeVisible();
   await expect(mobileSmokePage.getByTestId("nav-mouse")).toBeVisible();
 
+  // The key sheet is portaled outside the pane, but its accepted navigation
+  // bytes still belong to this renderer. Passive fixture output stays pending
+  // under the selection until nav-up synchronously resumes the pane.
+  const navRecoveryMarker = `NAV-RECOVERY:${crypto.randomUUID().replaceAll("-", "").slice(0, 10)}`;
+  const beforeNavPending = await readTerminalStreamProbe(mobileSmokePage, sessionId);
+  expect(await holdNativeTerminalSelection(mobileSmokePage, sessionId)).toBe(true);
+  await inputSmokeTerminal(
+    mobileSmokePage,
+    sessionId,
+    encodePtyFixtureCommand({ op: "EMIT", text: navRecoveryMarker }),
+  );
+  const navPending = await waitForCanonicalAdvance(mobileSmokePage, sessionId, beforeNavPending);
+  expectCanonicalAdvanceHeld(beforeNavPending, navPending, {
+    readerReason: "selection",
+    selectionHold: true,
+  });
+  const hiddenNavMarker = await attemptPaintedMarker(mobileSmokePage, sessionId, navRecoveryMarker);
+  expect(hiddenNavMarker.proof).toBeNull();
+  await armImmediateTerminalPaintSample(mobileSmokePage, sessionId, "click", {
+    marker: navRecoveryMarker,
+    targetTestId: "nav-up",
+  });
+  await mobileSmokePage.getByTestId("nav-up").tap();
+  const immediateNavPaint = await readImmediateTerminalPaintSample(mobileSmokePage);
+  expect(immediateNavPaint).toMatchObject({
+    eventType: "click",
+    trusted: true,
+    selectionCollapsed: true,
+  });
+  expect(immediateNavPaint?.markerRowRect).not.toBeNull();
+  const navRecoveredProof = await mobileSmokePage.evaluate(({ id, marker }) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return smokeWindow.__smoke.waitForPaintedMarker(id, marker, 10_000);
+  }, { id: sessionId, marker: navRecoveryMarker });
+  expect(navRecoveredProof).toMatchObject({ marker: navRecoveryMarker, frames: 2 });
+  expectRecoveredLive(navPending, await readTerminalStreamProbe(mobileSmokePage, sessionId));
+  await expect(input).toHaveValue(draft);
+
   await resetTerminalInputCapture(mobileSmokePage);
 
   await mobileSmokePage.evaluate(() => {
@@ -1734,13 +2900,17 @@ test("mobile terminal keyboard toggles and dispatches special keys", async ({ mo
   expect(directInputCapture.batches.every((inputBatch) => inputBatch.sessionId === sessionId)).toBe(true);
   expect(directInputCapture.batches.flatMap((inputBatch) => inputBatch.data)).toEqual(expectedDirectBytes);
 
+  // Forwarding defaults ON now that the gate is the application's own DECSET
+  // request: an app that never asked for the mouse never receives events either
+  // way, so an opt-in only cost mouse-aware TUIs their mouse. The toggle survives
+  // as the reverse escape hatch and is left ON for the forwarding cases below.
   const mouse = mobileSmokePage.getByTestId("nav-mouse");
-  await expect(mouse).toHaveAttribute("aria-pressed", "false");
-  await mouse.tap();
   await expect(mouse).toHaveAttribute("aria-pressed", "true");
+  await mouse.tap();
+  await expect(mouse).toHaveAttribute("aria-pressed", "false");
   expect(await paneFocused()).toBe(false);
   await mouse.tap();
-  await expect(mouse).toHaveAttribute("aria-pressed", "false");
+  await expect(mouse).toHaveAttribute("aria-pressed", "true");
   expect(await paneFocused()).toBe(false);
 
   const ctrl = mobileSmokePage.getByTestId("nav-ctrl");
@@ -1760,6 +2930,147 @@ test("mobile terminal keyboard toggles and dispatches special keys", async ({ mo
   expect(ctrlInputCapture.batches.every((inputBatch) => inputBatch.sessionId === sessionId)).toBe(true);
   expect(ctrlInputCapture.batches.flatMap((inputBatch) => inputBatch.data).at(-1)).toBe(0x03);
   await expect(mobileSmokePage.getByTestId("nav-ctrl")).toHaveAttribute("aria-pressed", "false");
+
+  // Alt-screen occupancy is NOT a mouse request. This fixture app enters the alt
+  // screen and never sets DECSET 1000/1002 — exactly like less, man and plain vim
+  // — so with the toggle ON its wheel must stay NATIVE: reading intent, not one
+  // byte to the PTY. Only once the app arms real tracking does the identical
+  // gesture forward, and then it must recover the pending frame synchronously.
+  const forwardAltNonce = `forward-${crypto.randomUUID().replaceAll("-", "").slice(0, 10)}`;
+  await inputSmokeTerminal(
+    mobileSmokePage,
+    sessionId,
+    encodePtyFixtureCommand({
+      op: "ALT_SCREEN",
+      active: true,
+      prefix: `FORWARD-ALT-${forwardAltNonce}-`,
+      count: 8,
+      nonce: forwardAltNonce,
+    }),
+  );
+  await mobileSmokePage.evaluate(({ id, marker }) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return smokeWindow.__smoke.waitForPaintedMarker(id, marker, 10_000);
+  }, { id: sessionId, marker: `ALT_READY:${forwardAltNonce}` });
+  await expect(mouse).toHaveAttribute("aria-pressed", "true");
+  const measureWheelTarget = () => terminalSlot.locator(".cell-grid").evaluate((element) => {
+    if (!(element instanceof HTMLElement)) throw new Error("mobile terminal grid disappeared");
+    const viewport = element.querySelector(".cell-viewport");
+    const row = viewport?.querySelector(".cell-row");
+    if (!(viewport instanceof HTMLElement) || !(row instanceof HTMLElement)) {
+      throw new Error("mobile terminal cell geometry disappeared");
+    }
+    const gridRect = element.getBoundingClientRect();
+    const cols = Number.parseInt(element.style.getPropertyValue("--cell-cols"), 10);
+    const cellWidth = viewport.getBoundingClientRect().width / cols;
+    const cellHeight = row.getBoundingClientRect().height;
+    if (!Number.isFinite(cellWidth) || cellWidth <= 0 || cellHeight <= 0) {
+      throw new Error("mobile terminal cell geometry is invalid");
+    }
+    // The detached key sheet covers the grid center. Aim the trusted wheel at
+    // the unobscured top-left cell instead of accidentally scrolling the sheet.
+    const x = gridRect.left + cellWidth / 2;
+    const y = gridRect.top + cellHeight / 2;
+    const hit = document.elementFromPoint(x, y);
+    if (!hit || !element.contains(hit)) {
+      throw new Error("mobile terminal forwarded-wheel target is occluded");
+    }
+    return {
+      x,
+      y,
+      col: Math.max(1, 1 + Math.floor((x - gridRect.left) / cellWidth)),
+      row: Math.max(1, 1 + Math.floor((y - gridRect.top) / cellHeight)),
+    };
+  });
+
+  // NEGATIVE: mouse-indifferent app, toggle ON, trusted wheel — nothing forwards.
+  const nativeWheelTarget = await measureWheelTarget();
+  expect(nativeWheelTarget).toMatchObject({ col: 1, row: 1 });
+  await resetTerminalInputCapture(mobileSmokePage);
+  await armImmediateTerminalPaintSample(mobileSmokePage, sessionId, "wheel", {});
+  await mobileSmokePage.mouse.move(nativeWheelTarget.x, nativeWheelTarget.y);
+  await mobileSmokePage.mouse.wheel(0, 120);
+  expect(await readImmediateTerminalPaintSample(mobileSmokePage)).toMatchObject({
+    eventType: "wheel",
+    trusted: true,
+  });
+  const nativeWheelCapture = await readTerminalInputCapture(mobileSmokePage);
+  expect(nativeWheelCapture.droppedBatches).toBe(0);
+  expect(nativeWheelCapture.batches).toEqual([]);
+  // Native reading, not a black hole: forwarding is admitted input and would have
+  // kept the pane live, so the reading hold is the positive proof it never ran.
+  await expect.poll(async () => {
+    const presentation = (await readTerminalStreamProbe(mobileSmokePage, sessionId))
+      .browser.presentation;
+    return { intent: presentation?.reader_intent, reason: presentation?.reader_reason };
+  }).toEqual({ intent: "reading", reason: "wheel" });
+
+  // The app now asks for drag tracking + SGR-1006, the way a mouse-aware TUI does.
+  // The mode rides the same frame as the marker the wheel hold keeps pending.
+  const beforeForwardPending = await readTerminalStreamProbe(mobileSmokePage, sessionId);
+  const forwardPendingMarker = `FORWARD-PENDING:${forwardAltNonce}`;
+  await inputSmokeTerminal(
+    mobileSmokePage,
+    sessionId,
+    encodePtyFixtureCommand({
+      op: "EMIT",
+      text: `\x1b[?1002h\x1b[?1006h${forwardPendingMarker}`,
+    }),
+  );
+  const forwardPending = await waitForCanonicalAdvance(
+    mobileSmokePage,
+    sessionId,
+    beforeForwardPending,
+  );
+  expectCanonicalAdvanceHeld(beforeForwardPending, forwardPending, {
+    readerReason: "wheel",
+    selectionHold: false,
+  });
+  const hiddenForwardMarker = await attemptPaintedMarker(
+    mobileSmokePage,
+    sessionId,
+    forwardPendingMarker,
+  );
+  expect(hiddenForwardMarker.proof).toBeNull();
+  // POSITIVE: identical gesture on the identical cell, now that the app asked.
+  await resetTerminalInputCapture(mobileSmokePage);
+  await armImmediateTerminalPaintSample(mobileSmokePage, sessionId, "wheel", {
+    marker: forwardPendingMarker,
+  });
+  const forwardWheelTarget = await measureWheelTarget();
+  expect(forwardWheelTarget).toMatchObject({ col: 1, row: 1 });
+  await mobileSmokePage.mouse.move(forwardWheelTarget.x, forwardWheelTarget.y);
+  await mobileSmokePage.mouse.wheel(0, 120);
+  const immediateForwardPaint = await readImmediateTerminalPaintSample(mobileSmokePage);
+  expect(immediateForwardPaint).toMatchObject({
+    eventType: "wheel",
+    trusted: true,
+    selectionCollapsed: true,
+  });
+  expect(immediateForwardPaint?.markerRowRect).not.toBeNull();
+  const forwardInputCapture = await readTerminalInputCapture(mobileSmokePage);
+  expect(forwardInputCapture.droppedBatches).toBe(0);
+  expect(forwardInputCapture.batches).toEqual([{
+    sessionId,
+    data: Array.from(new TextEncoder().encode("\x1b[<65;1;1M")),
+  }]);
+  const forwardRecoveredProof = await mobileSmokePage.evaluate(({ id, marker }) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return smokeWindow.__smoke.waitForPaintedMarker(id, marker, 10_000);
+  }, { id: sessionId, marker: forwardPendingMarker });
+  expect(forwardRecoveredProof).toMatchObject({ marker: forwardPendingMarker, frames: 2 });
+  expectRecoveredLive(forwardPending, await readTerminalStreamProbe(mobileSmokePage, sessionId));
+  await mouse.tap();
+  await expect(mouse).toHaveAttribute("aria-pressed", "false");
+  await inputSmokeTerminal(
+    mobileSmokePage,
+    sessionId,
+    encodePtyFixtureCommand({ op: "ALT_SCREEN", active: false, nonce: forwardAltNonce }),
+  );
+  await mobileSmokePage.evaluate(({ id, marker }) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return smokeWindow.__smoke.waitForPaintedMarker(id, marker, 10_000);
+  }, { id: sessionId, marker: `ALT_EXIT:${forwardAltNonce}` });
 
   const portrait = mobileSmokePage.viewportSize();
   expect(portrait).not.toBeNull();
@@ -2324,9 +3635,17 @@ test("Web Speech second recording starts from an empty sent draft", async ({ mob
   await expect(input).toHaveValue("hello from web speech");
 });
 
-test("desktop dictation stops when its pane is parked and Enter cannot submit it", async ({ smokePage, stack }) => {
+test("desktop passive drafting and dictation preserve a selected reader until pane park", async ({
+  smokePage,
+  stack,
+  browserName,
+}) => {
+  const interimSpeech = "still speaking\npassive dictated line\nanother dictated line";
+  const finalSpeech = "finished speech\nfinal dictated line\nlast finalized line";
+  const interimDraft = `typed base ${interimSpeech}`;
+  const committedDraft = `typed base ${finalSpeech}`;
   await stack.client.transcriptionSetConfig({ deepgramKey: "", deepgramLanguage: "en" });
-  await smokePage.addInitScript(() => {
+  await smokePage.addInitScript(({ interimSpeech, finalSpeech }) => {
     interface FakeResult extends Array<{ transcript: string }> {
       isFinal: boolean;
     }
@@ -2344,12 +3663,12 @@ test("desktop dictation stops when its pane is parked and Enter cannot submit it
       onerror: ((event: { error: string }) => void) | null = null;
       start() {
         speechStarts += 1;
-        const result = [{ transcript: "still speaking" }] as FakeResult;
+        const result = [{ transcript: interimSpeech }] as FakeResult;
         result.isFinal = false;
         queueMicrotask(() => this.onresult?.({ resultIndex: 0, results: [result] }));
       }
       stop() {
-        const result = [{ transcript: "finished speech" }] as FakeResult;
+        const result = [{ transcript: finalSpeech }] as FakeResult;
         result.isFinal = true;
         this.onresult?.({ resultIndex: 0, results: [result] });
         queueMicrotask(() => this.onend?.());
@@ -2366,7 +3685,7 @@ test("desktop dictation stops when its pane is parked and Enter cannot submit it
     speechWindow.SpeechRecognition = FakeSpeechRecognition;
     speechWindow.webkitSpeechRecognition = FakeSpeechRecognition;
     speechWindow.__speechStarts = () => speechStarts;
-  });
+  }, { interimSpeech, finalSpeech });
   await smokePage.reload({ waitUntil: "domcontentloaded" });
   await smokePage.waitForFunction(
     () => typeof (window as unknown as Window & { __smoke?: unknown }).__smoke === "object",
@@ -2379,14 +3698,176 @@ test("desktop dictation stops when its pane is parked and Enter cannot submit it
   const firstVoice = firstDock.getByTestId("mobile-voice-input");
   const firstInput = firstDock.getByTestId("chat-input");
   await expect(firstVoice).toHaveAttribute("data-engine", "web-speech");
+  await firstDock.getByTestId("chat-box").evaluate(async (element) => {
+    await Promise.all(element.getAnimations().map((animation) => animation.finished));
+  });
+
+  const readerSuffix = crypto.randomUUID().replaceAll("-", "").slice(0, 10);
+  const readerPrefix = `DICTATION-READER-${readerSuffix}-`;
+  await inputSmokeTerminal(
+    smokePage,
+    firstId,
+    `for i in $(seq 1 120); do printf '${readerPrefix}%03d\\n' "$i"; done\r`,
+  );
+  await smokePage.evaluate(({ id, marker }) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return smokeWindow.__smoke.waitForPaintedMarker(id, marker, 20_000);
+  }, { id: firstId, marker: `${readerPrefix}120` });
+  const readerGridBox = await firstSlot.locator(".cell-grid").boundingBox();
+  if (!readerGridBox) throw new Error("dictation reader grid geometry disappeared");
+  await smokePage.mouse.move(
+    readerGridBox.x + readerGridBox.width / 2,
+    readerGridBox.y + readerGridBox.height / 2,
+  );
+  await smokePage.mouse.wheel(0, -1200);
+  await expect.poll(async () =>
+    (await readTerminalStreamProbe(smokePage, firstId)).browser.presentation?.at_bottom
+  ).toBe(false);
+  expect(await holdNativeTerminalSelection(smokePage, firstId)).toBe(true);
+  const beforePassiveOutput = await readTerminalStreamProbe(smokePage, firstId);
+  const passiveMarker = `DICTATION-PENDING-${readerSuffix}`;
+  await inputSmokeTerminal(smokePage, firstId, `printf '%s\\n' ${passiveMarker}\r`);
+  const passivePending = await waitForCanonicalAdvance(smokePage, firstId, beforePassiveOutput);
+  expectCanonicalAdvanceHeld(beforePassiveOutput, passivePending, {
+    readerReason: "selection",
+    selectionHold: true,
+  });
+  expect((await attemptPaintedMarker(smokePage, firstId, passiveMarker)).proof).toBeNull();
+
+  const readReaderGeometry = (rememberRow = false) => smokePage.evaluate(({ id, remember }) => {
+    const probeWindow = window as Window & { __roostPassiveReaderRow?: HTMLElement };
+    const slot = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
+    const terminal = slot?.querySelector(".wterm");
+    const selection = window.getSelection();
+    const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+    const endpoint = selection?.anchorNode instanceof Element
+      ? selection.anchorNode
+      : selection?.anchorNode?.parentElement;
+    const row = endpoint?.closest(".cell-row");
+    if (
+      !(terminal instanceof HTMLElement)
+      || !(row instanceof HTMLElement)
+      || !range
+      || !selection
+      || selection.isCollapsed
+    ) return null;
+    if (remember) probeWindow.__roostPassiveReaderRow = row;
+    const rowRect = row.getBoundingClientRect();
+    const rangeRect = range.getBoundingClientRect();
+    return {
+      rangeConnected:
+        row.isConnected
+        && range.startContainer.isConnected
+        && range.endContainer.isConnected,
+      rangeOnRow:
+        row.contains(range.startContainer)
+        && row.contains(range.endContainer),
+      sameRow: probeWindow.__roostPassiveReaderRow === row,
+      scrollTop: terminal.scrollTop,
+      selected: selection.toString(),
+      rowText: row.textContent ?? "",
+      rowRect: {
+        left: rowRect.left, top: rowRect.top, right: rowRect.right, bottom: rowRect.bottom,
+      },
+      rangeRect: {
+        left: rangeRect.left, top: rangeRect.top, right: rangeRect.right, bottom: rangeRect.bottom,
+      },
+    };
+  }, { id: firstId, remember: rememberRow });
+  const readerBaseline = await readReaderGeometry(true);
+  if (!readerBaseline) throw new Error("selected reader geometry was unavailable");
+  expect(readerBaseline.rangeConnected).toBe(true);
+  expect(readerBaseline.rangeOnRow).toBe(true);
+  expect(readerBaseline.sameRow).toBe(true);
+  expect(readerBaseline.rowText).toContain(readerPrefix);
+  expect(readerBaseline.rangeRect.bottom).toBeGreaterThan(readerBaseline.rangeRect.top);
+  const expectReaderPreserved = async (label: string) => {
+    const current = await readReaderGeometry();
+    expect(current, `${label}: selected reader geometry`).not.toBeNull();
+    expect(current!.rangeConnected, `${label}: connected native range`).toBe(true);
+    expect(current!.rangeOnRow, `${label}: native range endpoints`).toBe(true);
+    expect(current!.sameRow, `${label}: selected row identity`).toBe(true);
+    expect(current!.selected, `${label}: selected text`).toBe(readerBaseline.selected);
+    expect(current!.rowText, `${label}: selected history row`).toBe(readerBaseline.rowText);
+    expect(Math.abs(current!.scrollTop - readerBaseline.scrollTop), `${label}: scrollTop`).toBeLessThanOrEqual(1);
+    for (const surface of ["rowRect", "rangeRect"] as const) {
+      for (const edge of ["left", "top", "right", "bottom"] as const) {
+        expect(
+          Math.abs(current![surface][edge] - readerBaseline[surface][edge]),
+          `${label}: ${surface}.${edge}`,
+        ).toBeLessThanOrEqual(1);
+      }
+    }
+    const presentation = (await readTerminalStreamProbe(smokePage, firstId)).browser.presentation;
+    expect(presentation).toMatchObject({
+      reader_intent: "reading",
+      reader_reason: "selection",
+      hold_mask: { selection: true, link: false },
+      reconciled: passivePending.browser.dom_reconciled,
+    });
+  };
+
+  await firstInput.click();
+  await expectReaderPreserved("composer focus");
+  await firstInput.press("x");
+  await expect(firstInput).toHaveValue("x");
+  await expectReaderPreserved("composer trusted key edit");
+  await firstInput.press("y");
+  await expect(firstInput).toHaveValue("xy");
+  await expectReaderPreserved("composer repeated trusted key edit");
+  await firstInput.fill("typed base");
+  await expectReaderPreserved("composer edit");
+  const singleLineComposerHeight = await firstInput.evaluate((element) =>
+    element.getBoundingClientRect().height);
+  await firstInput.fill("typed base\npassive autogrow line\nanother passive line");
+  await expect.poll(() => firstInput.evaluate((element) =>
+    element.getBoundingClientRect().height)).toBeGreaterThan(singleLineComposerHeight + 1);
+  await expectReaderPreserved("composer autogrow");
+  await firstInput.fill("typed base");
+  await expectReaderPreserved("composer autogrow shrink");
+  await firstInput.press("Space");
+  if (browserName === "chromium") {
+    const imeSession = await smokePage.context().newCDPSession(smokePage);
+    try {
+      await imeSession.send("Input.imeSetComposition", {
+        text: "中",
+        selectionStart: 1,
+        selectionEnd: 1,
+      });
+      await imeSession.send("Input.insertText", { text: "中" });
+    } finally {
+      await imeSession.detach();
+    }
+  } else {
+    // Non-Chromium engines have no CDP IME endpoint. Keep their branch native
+    // and trusted rather than synthesizing DOM events; Chromium above owns the
+    // required composition contract regardless of the Playwright project name.
+    await smokePage.keyboard.insertText("中");
+  }
+  await expect(firstInput).toHaveValue("typed base 中");
+  await expectReaderPreserved("composer IME");
   await firstInput.fill("typed base");
   await firstDock.getByTestId("voice-mic").click();
   await expect(firstVoice).toHaveAttribute("data-state", "listening");
-  await expect(firstInput).toHaveValue("typed base still speaking");
+  await expect(firstInput).toHaveValue(interimDraft);
+  await expect.poll(() => firstInput.evaluate((element) =>
+    element.getBoundingClientRect().height)).toBeGreaterThan(singleLineComposerHeight + 1);
+  await expectReaderPreserved("dictation interim");
 
   await firstInput.press("Enter");
   await expect(firstVoice).toHaveAttribute("data-state", "listening");
-  await expect(firstInput).toHaveValue("typed base still speaking");
+  await expect(firstInput).toHaveValue(interimDraft);
+  await expectReaderPreserved("dictation Enter");
+
+  await firstDock.getByTestId("voice-mic").click();
+  await expect(firstVoice).toHaveAttribute("data-state", "idle");
+  await expect(firstInput).toHaveValue(committedDraft);
+  await expectReaderPreserved("dictation final");
+
+  await firstDock.getByTestId("chat-send").click();
+  await expect(firstInput).toHaveValue("");
+  await expect.poll(readReaderGeometry).toBeNull();
+  await firstInput.fill("typed base");
 
   const secondId = (await spawnSmokeShell(smokePage, stack.workerFp)).session_id;
   await switchToSmokeSession(smokePage, secondId);
@@ -2454,7 +3935,7 @@ test("desktop dictation stops when its pane is parked and Enter cannot submit it
   await firstInput.click();
   await firstDock.getByTestId("voice-mic").click();
   await expect(firstVoice).toHaveAttribute("data-state", "listening");
-  await expect(firstInput).toHaveValue("typed base still speaking");
+  await expect(firstInput).toHaveValue(`typed base ${interimSpeech}`);
   await expect(spotlightDock.getByTestId("voice-mic")).toHaveCount(0);
   await spotlightSlot.getByTestId("terminal-display").click();
   await pressPlatformShortcut(smokePage, "spotlight", "Enter");
@@ -3056,6 +4537,148 @@ test("deep-history attach/reveal paints the live tail until history is requested
   expect(demanded).toMatchObject({ duplicated: [], missing: 0, outOfOrder: 0 });
 });
 
+// OSC 8 hyperlinks are CORE-AUTHORED per cell — never derived from the byte
+// stream, never matched by TEXT. This is the scenario the old text→URI matcher
+// could not express: two links with IDENTICAL visible text and DIFFERENT URIs on
+// one row. A text→URI map holds one entry per text, so the second link either
+// overwrote the first or was dropped, and BOTH anchors then pointed at the same
+// place (and the same text appearing anywhere else became a link too). Per-cell
+// identity keeps them apart. The run then has to survive a scrollback backfill
+// round-trip, which serves history rows from the live core's own scrollback —
+// a second, independent path to the same per-cell link data.
+test("identical link text with different URIs keeps both, through a backfill round-trip", async ({ smokePage, stack }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium-desktop", "desktop cell paint contract");
+  test.setTimeout(120_000);
+  const fixtureWorker = await stack.startPtyFixtureWorker();
+  const sessionId = await spawnPtyFixtureSession(smokePage, fixtureWorker);
+  await navigateToSmokeSession(smokePage, sessionId);
+  await smokePage.evaluate(({ id, marker }) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return smokeWindow.__smoke.waitForPaintedMarker(id, marker, 30_000);
+  }, { id: sessionId, marker: PTY_FIXTURE_READY });
+
+  // Every VISIBLE token is kept short on purpose: the whole emit is ONE row, and
+  // a row that reaches the pane's grid width soft-wraps — which would split
+  // `linkMarker` across two rows, and findPaintedMarker matches per row. 55
+  // columns fits any plausible desktop pane.
+  // Leading 'z' also on purpose: a pure-hex suffix is a valid bare commit SHA,
+  // which the INFERRED GitHub-ref pass would linkify on its own and muddy the
+  // count (the leading word character defeats that regex's lookbehind).
+  const suffix = `z${crypto.randomUUID().replaceAll("-", "").slice(0, 7)}`;
+  const linkText = `r-${suffix}`;
+  const firstUri = `https://osc8.test/${suffix}/one`;
+  const secondUri = `https://osc8.test/${suffix}/two`;
+  const hyperlink = (uri: string): string => `\u001b]8;;${uri}\u0007${linkText}\u001b]8;;\u0007`;
+  const linkMarker = `O8-${suffix}`;
+  // A plain URL and a resolvable file path on the SAME row. Producer links are
+  // painted by the renderer while these two are found by the inferred scan, and
+  // the authorities must coexist: the scan's "already handled" mark is a MARK,
+  // not "this row has an anchor", or a painted link would suppress every regex
+  // and file link sharing its row.
+  const inferredUrl = `https://i.test/${suffix}`;
+  const filePath = "s/f.ts:9";
+  await inputSmokeTerminal(
+    smokePage,
+    sessionId,
+    encodePtyFixtureCommand({
+      op: "EMIT",
+      text: `${hyperlink(firstUri)} ${hyperlink(secondUri)} ${inferredUrl} ${filePath} ${linkMarker}`,
+    }),
+  );
+  await smokePage.evaluate(({ id, marker }) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return smokeWindow.__smoke.waitForPaintedMarker(id, marker, 30_000);
+  }, { id: sessionId, marker: linkMarker });
+
+  const paintedLinks = (): Promise<Array<{ href: string | null; key: string | null }>> =>
+    smokePage.evaluate(({ id, text }) => {
+      const slot = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
+      return Array.from(slot?.querySelectorAll("a.wterm-link[data-link-key]") ?? [])
+        .filter((anchor) => (anchor.textContent ?? "") === text)
+        .map((anchor) => ({
+          href: anchor.getAttribute("href"),
+          key: anchor.getAttribute("data-link-key"),
+        }));
+    }, { id: sessionId, text: linkText });
+  const inferredUrls = (): Promise<string[]> =>
+    smokePage.evaluate((id) => {
+      const slot = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
+      const selector = 'a.wterm-link:not([data-link-key]):not([data-kind="file"])';
+      return Array.from(slot?.querySelectorAll(selector) ?? [])
+        .map((anchor) => anchor.getAttribute("href") ?? "");
+    }, sessionId);
+  const fileLinks = (): Promise<Array<{ href: string; text: string }>> =>
+    smokePage.evaluate((id) => {
+      const slot = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
+      return Array.from(slot?.querySelectorAll('a.wterm-link[data-kind="file"]') ?? [])
+        .map((anchor) => ({
+          href: anchor.getAttribute("href") ?? "",
+          text: anchor.textContent ?? "",
+        }));
+    }, sessionId);
+
+  const live = await paintedLinks();
+  expect(live.map((link) => link.href)).toEqual([firstUri, secondUri]);
+  // Distinct run identity is what keeps two identically-styled, identically-
+  // texted links from coalescing into one span and losing a URI.
+  expect(new Set(live.map((link) => link.key)).size).toBe(2);
+  // The inferred scan is asynchronous (idle/rAF), unlike the painted anchors,
+  // which exist the instant the row paints.
+  await expect.poll(inferredUrls, { timeout: 15_000, intervals: [100] }).toEqual([inferredUrl]);
+  const liveFiles = await fileLinks();
+  expect(liveFiles.map((link) => link.text)).toEqual([filePath]);
+  // The internal file route, not a browser navigation — Roost opens it itself.
+  expect(liveFiles[0].href.startsWith("/file/")).toBe(true);
+
+  // Push the link row deep into retained history, then reload: the authoritative
+  // snapshot paints only the live tail plus a spacer, so the anchors leave the
+  // DOM entirely and can only come back through a history page.
+  await inputSmokeTerminal(
+    smokePage,
+    sessionId,
+    encodePtyFixtureCommand({ op: "FLOOD", prefix: `OSC8-FILL-${suffix}-`, count: 200 }),
+  );
+  await smokePage.evaluate(({ id, marker }) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return smokeWindow.__smoke.waitForPaintedMarker(id, marker, 30_000);
+  }, { id: sessionId, marker: `OSC8-FILL-${suffix}-200` });
+
+  await smokePage.reload({ waitUntil: "domcontentloaded" });
+  await smokePage.waitForFunction(() =>
+    typeof (window as unknown as Window & { __smoke?: unknown }).__smoke === "object");
+  await smokePage.waitForFunction((id) => {
+    const pane = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
+    return !!pane?.querySelector(".cell-sb-spacer") && !!pane.querySelector(".cell-row");
+  }, sessionId);
+  expect(await paintedLinks()).toEqual([]);
+  expect(await inferredUrls()).toEqual([]);
+  expect(await fileLinks()).toEqual([]);
+
+  const beforeHistory = await smokePage.evaluate((id) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return smokeWindow.__smoke.scrollbackBackfillRequestCount(id);
+  }, sessionId);
+  await smokePage.evaluate((id) => {
+    const pane = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
+    const container = pane?.querySelector(".wterm");
+    if (!(container instanceof HTMLElement)) throw new Error("terminal has no scroll container");
+    container.scrollTop = 0;
+    container.dispatchEvent(new Event("scroll"));
+  }, sessionId);
+  await smokePage.waitForFunction(({ id, previous }) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return smokeWindow.__smoke.scrollbackBackfillRequestCount(id) > previous;
+  }, { id: sessionId, previous: beforeHistory });
+
+  await expect.poll(
+    async () => (await paintedLinks()).map((link) => link.href),
+    { timeout: 30_000, intervals: [100] },
+  ).toEqual([firstUri, secondUri]);
+  expect(new Set((await paintedLinks()).map((link) => link.key)).size).toBe(2);
+  await expect.poll(inferredUrls, { timeout: 15_000, intervals: [100] }).toEqual([inferredUrl]);
+  expect((await fileLinks()).map((link) => link.text)).toEqual([filePath]);
+});
+
 // Returning to an already-open pane keeps the Sync socket but reclaims an
 // authoritative snapshot. Hidden and offscreen panes must receive no cells.
 test("returning to a dormant pane reclaims once without a Sync re-dial", async ({ smokePage, stack }, testInfo) => {
@@ -3350,14 +4973,43 @@ test("long hidden deep-history resume paints the current viewport before history
     }, sessionId);
     expect(before.atBottom).toBe(true);
 
+    // A VISIBLE page must heal from the capped-backoff floor with no resume
+    // event and no reload. Drive the control viewer there now so the dormancy
+    // window below doubles as its recovery budget (the cap is 30 s), and so the
+    // divergent marker further down is delivered by a self-healed tube.
+    const controlParked = await control.evaluate(() => {
+      const smoke = (window as unknown as Window & { __smoke: RecoverySmokeApi }).__smoke;
+      const generation = smoke.syncWsGeneration();
+      smoke.forceSyncMaxBackoff();
+      return { generation, status: smoke.syncRedialStatus() };
+    });
+    expect(controlParked.status.hiddenParked).toBe(false);
+    expect(controlParked.status.nextDelayMs).toBe(30_000);
+
     // Stay dormant beyond the retired 60 s hidden-stream grace. No cell frames
     // may reach this withdrawn viewer during the entire interval.
     await smokePage.waitForTimeout(62_000);
     const currentMarker = `CURRENT_${crypto.randomUUID().replaceAll("-", "")}`;
     await smokePage.evaluate(() => {
       const smoke = (window as unknown as Window & { __smoke: RecoverySmokeApi }).__smoke;
-      smoke.forceSyncRetryExhausted();
+      smoke.forceSyncMaxBackoff();
     });
+    // Hidden document at the same floor: it sleeps instead of dialing, which is
+    // the only park production still has, and only until its next resume.
+    await expect.poll(() => smokePage.evaluate(
+      () => (window as unknown as Window & { __smoke: RecoverySmokeApi }).__smoke
+        .syncRedialStatus().hiddenParked,
+    ), { timeout: 15_000, intervals: [100] }).toBe(true);
+    expect(await smokePage.evaluate(
+      () => (window as unknown as Window & { __smoke: RecoverySmokeApi }).__smoke.syncRedialStatus(),
+    )).toMatchObject({ nextDelayMs: 30_000, liveness: "none" });
+    // The visible control viewer already healed itself during the dormancy.
+    await expect.poll(() => control.evaluate(
+      () => (window as unknown as Window & { __smoke: RecoverySmokeApi }).__smoke.syncWsGeneration(),
+    ), { timeout: 35_000, intervals: [250] }).toBeGreaterThan(controlParked.generation);
+    expect(await control.evaluate(
+      () => (window as unknown as Window & { __smoke: RecoverySmokeApi }).__smoke.syncRedialStatus(),
+    )).toMatchObject({ hiddenParked: false, liveness: "open" });
     await control.evaluate(async ({ id, marker }) => {
       const smoke = (window as unknown as Window & {
         __smoke: { input(sessionId: string, text: string): Promise<void> };
@@ -3475,20 +5127,40 @@ test("long hidden deep-history resume paints the current viewport before history
       sample.rowCount === authoritative.rowCount
       && sample.historyRequests === before.requests
     )).toBe(true);
-    expect(await smokePage.evaluate(() => {
-      const smoke = (window as unknown as Window & {
-        __smoke: { syncWsGeneration(): number };
-      }).__smoke;
-      return smoke.syncWsGeneration();
-    })).toBeGreaterThan(before.generation);
+    // The resume itself re-dialed: the park is gone, the generation advanced, and
+    // nothing reloaded (the document sentinel above survived).
+    const resumed = await smokePage.evaluate(() => {
+      const smoke = (window as unknown as Window & { __smoke: RecoverySmokeApi }).__smoke;
+      return { generation: smoke.syncWsGeneration(), status: smoke.syncRedialStatus() };
+    });
+    expect(resumed.generation).toBeGreaterThan(before.generation);
+    expect(resumed.status.hiddenParked).toBe(false);
 
-    await smokePage.evaluate((id) => {
-      const pane = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
-      const container = pane?.querySelector(".wterm") as HTMLElement | null;
-      if (!container) return;
-      container.scrollTop = 0;
-      container.dispatchEvent(new Event("scroll"));
-    }, sessionId);
+    // Backfill demand below is only meaningful on a pane the resume actually
+    // brought back: a still-parked slot would swallow the scroll and time out
+    // with no cause.
+    const resumedProbe = await readTerminalStreamProbe(smokePage, sessionId);
+    expect(resumedProbe.browser.slot).toMatchObject({
+      registered: true,
+      connected: true,
+      in_layout: true,
+      surface_active: true,
+      css_visible: true,
+    });
+    // Demand is a genuine reader gesture, not a synthetic scroll event: the
+    // renderer keeps its bottom pin for programmatic scrolls, so only a trusted
+    // wheel expresses "I am reading history" and unlocks the backfill.
+    const resumedBox = await smokePage.getByTestId(`terminal-slot-${sessionId}`).boundingBox();
+    if (!resumedBox) throw new Error("resumed pane has no box to scroll");
+    await smokePage.mouse.move(
+      resumedBox.x + resumedBox.width / 2,
+      resumedBox.y + resumedBox.height / 2,
+    );
+    await smokePage.mouse.wheel(0, -6000);
+    await expect.poll(() => smokePage.evaluate((id) => {
+      const smoke = (window as unknown as Window & { __smoke: RecoverySmokeApi }).__smoke;
+      return smoke.renderProbe(id).atBottom;
+    }, sessionId)).toBe(false);
     await smokePage.waitForFunction(({ id, previous }) => {
       const smoke = (window as unknown as Window & {
         __smoke: { scrollbackBackfillRequestCount(sessionId: string): number };
@@ -3659,13 +5331,15 @@ test("deck switch to a stale deep-history pane lands at the live bottom instantl
     historyRequests: reveal.priorRequests,
   }));
 
-  await smokePage.evaluate((id) => {
-    const pane = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
-    const container = pane?.querySelector(".wterm") as HTMLElement | null;
-    if (!container) return;
-    container.scrollTop = 0;
-    container.dispatchEvent(new Event("scroll"));
-  }, sessionId);
+  // Reader demand is a trusted gesture: a programmatic scrollTop write keeps the
+  // renderer's bottom pin, so only a real wheel expresses "show me history".
+  const revealedBox = await smokePage.getByTestId(`terminal-slot-${sessionId}`).boundingBox();
+  if (!revealedBox) throw new Error("revealed pane has no box to scroll");
+  await smokePage.mouse.move(
+    revealedBox.x + revealedBox.width / 2,
+    revealedBox.y + revealedBox.height / 2,
+  );
+  await smokePage.mouse.wheel(0, -6000);
   await smokePage.waitForFunction(({ id, previous }) => {
     const smoke = (window as unknown as Window & {
       __smoke: { scrollbackBackfillRequestCount(sessionId: string): number };

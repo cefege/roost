@@ -40,6 +40,7 @@ async function injectSession(mgr: SessionManager, channelId: number, bytes: stri
     alt_mode: altMode,
     mode_carry: new Uint8Array(0),
     osc7_carry: new Uint8Array(0),
+    query_carry: new Uint8Array(0),
     ...initAgentOscState(),
     wtermCore,
     cell_emit: initCellEmitState("test-grid"),
@@ -55,9 +56,7 @@ function callAppend(mgr: SessionManager, channelId: number, chunkStr: string): n
 const ALT_ENTER_1049 = "\x1b[?1049h";
 const ALT_EXIT_1049  = "\x1b[?1049l";
 const ALT_ENTER_47   = "\x1b[?47h";
-const ALT_EXIT_47    = "\x1b[?47l";
 const ALT_ENTER_1047 = "\x1b[?1047h";
-const ALT_EXIT_1047  = "\x1b[?1047l";
 
 describe("alt-mode scanner — single-chunk transitions", () => {
   test("ESC[?1049h flips alt_mode true", async () => {

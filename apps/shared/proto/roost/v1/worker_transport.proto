@@ -69,6 +69,21 @@ message WUpdateProgress {
 }
 
 
+// Where a terminal-control request stopped relative to the keeper/PTY write.
+// `status` says what happened; the phase is what makes it provable. Only a
+// phase strictly before the write can promise no mutation occurred, so it is
+// the sole basis on which the coordinator rolls provisional state back and the
+// browser retries a request without risking a duplicate write.
+enum TerminalWritePhase {
+  TERMINAL_WRITE_PHASE_UNSPECIFIED = 0;
+  // Refused before anything was written, resized, or claimed.
+  TERMINAL_WRITE_PHASE_PRE_WRITE = 1;
+  // The keeper/PTY write was issued; its effect may already be visible.
+  TERMINAL_WRITE_PHASE_WRITTEN = 2;
+  // The worker cannot prove which side of the write it stopped on.
+  TERMINAL_WRITE_PHASE_UNKNOWN = 3;
+}
+
 // Truthful terminal-control outcomes. These frames are correlated with the
 // downstream request_id; unlike the legacy browser-command/binary paths, an
 // accepted result proves the keeper completed the PTY operation.
@@ -85,12 +100,14 @@ message WInputResult {
   TerminalInputStatus status = 4;
   uint32 written_bytes = 5;
   string reason = 6;
+  TerminalWritePhase phase = 7;
 }
 
 enum TerminalViewportStatus {
   TERMINAL_VIEWPORT_STATUS_UNSPECIFIED = 0;
   TERMINAL_VIEWPORT_STATUS_COMMITTED = 1;
   TERMINAL_VIEWPORT_STATUS_REJECTED = 2;
+  TERMINAL_VIEWPORT_STATUS_AMBIGUOUS = 3;
 }
 message WViewportResult {
   string request_id = 1;
@@ -102,6 +119,7 @@ message WViewportResult {
   uint32 rows = 7;
   bool resized = 8;
   string reason = 9;
+  TerminalWritePhase phase = 10;
 }
 
 
@@ -141,11 +159,19 @@ message DEventAck { uint64 client_seq = 1; }
 // Dedicated terminal-control requests. SPA Sync v2 and the compatibility
 // unary handlers both use these typed frames so transport admission is never
 // mistaken for a completed PTY write/resize.
+//
+// `budget_ms` is the RELATIVE time the coordinator will still wait when it
+// writes the frame, never an absolute instant: the two hosts' wall clocks may
+// drift arbitrarily, so each side measures its own monotonic elapsed time from
+// a local origin. The worker's budget is strictly shorter than the
+// coordinator's remaining deadline, so a worker expiry can never outlive its
+// waiter and expiring before the keeper write is provably no-mutation.
 message DInputRequest {
   string request_id = 1;
   string session_id = 2;
   uint64 input_seq = 3;
   bytes data = 4;
+  uint32 budget_ms = 5;
 }
 
 message DViewportRequest {
@@ -157,6 +183,7 @@ message DViewportRequest {
   uint32 rows = 6;
   uint32 cause = 7;
   uint64 held_cell_seq = 8;
+  uint32 budget_ms = 9;
 }
 
 message DAttachmentChunk {

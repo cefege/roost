@@ -82,11 +82,13 @@ export async function spawnShell(
 		alt_mode: false,
 		mode_carry: new Uint8Array(0),
 		osc7_carry: new Uint8Array(0),
+		query_carry: new Uint8Array(0),
 		...initAgentOscState(),
 		wtermCore,
 		session_trace_id: newTraceId(),
 		cell_emit: initCellEmitState(newTraceId()),
 		lastPtyOutMs: 0,
+		sb_origin_pin: null,
 		spawnedAtMs: Date.now(),
 	};
 	this.sessions.set(channelId, record);
@@ -113,6 +115,11 @@ export async function spawnShell(
 		this._dropChannelState(channelId);
 		throw e;
 	}
+	// The keeper created the PTY at exactly this size, so it is PROVEN applied
+	// geometry — not a guess. Recording it here is what lets the first claim at the
+	// same size take the locally-proven no-resize path instead of installing a
+	// capture and reconciling a resize that changes nothing.
+	this.lastAppliedSize.set(channelId, { cols: cols ?? 80, rows: rows ?? 24 });
 
 	// The PTY/core already started at this exact size. Install the authenticated
 	// viewer directly instead of routing through claimViewport, which would

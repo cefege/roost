@@ -3,6 +3,9 @@ export const PTY_FIXTURE_READY = "ROOST_PTY_READY/1";
 
 export type PtyFixtureCommand =
   | { op: "ARM_KEY"; nonce: string }
+  | { op: "ARM_CURSOR_MOVE"; nonce: string }
+  | { op: "ARM_LINE_OVERWRITE"; nonce: string }
+  | { op: "ARM_ALT_REDRAW"; nonce: string; trigger: "key" | "line" }
   | { op: "EMIT"; text: string; newline?: boolean; delayMs?: number }
   | { op: "FLOOD"; prefix: string; count: number; start?: number }
   | { op: "REPORT_SIZE"; nonce: string }

@@ -222,4 +222,41 @@ describe("agent OSC scanner", () => {
     const second = _scanAgentOsc(first.carry + "ild\x07\x1b]9;4;1;-1\x1b\\");
     expect(second).toMatchObject({ title: "π ⠋ build", progress: "4;1;-1", carry: "" });
   });
+
+  test("truncates an oversized title without splitting a surrogate pair", () => {
+    const rocket = "\u{1F680}"; // astral emoji, 2 UTF-16 code units
+    const body = "x".repeat(255) + rocket + "y".repeat(10);
+    const scan = _scanAgentOsc(`\x1b]0;${body}\x07`);
+    expect(scan.title).not.toBeNull();
+    const title = scan.title!;
+    expect(title.length).toBeLessThanOrEqual(256);
+    // No lone surrogate anywhere in the result.
+    for (let i = 0; i < title.length; i++) {
+      const code = title.charCodeAt(i);
+      const isHighSurrogate = code >= 0xd800 && code <= 0xdbff;
+      const isLowSurrogate = code >= 0xdc00 && code <= 0xdfff;
+      if (isHighSurrogate) expect(title.charCodeAt(i + 1)).toBeGreaterThanOrEqual(0xdc00);
+      if (isLowSurrogate) expect(title.charCodeAt(i - 1)).toBeGreaterThanOrEqual(0xd800);
+    }
+    // The astral emoji sits exactly at the 255/256 boundary — a naive
+    // `.slice(0, 256)` would cut it in half; the codepoint-safe truncation
+    // must drop it whole instead of emitting a lone surrogate.
+    expect(title).toBe("x".repeat(255));
+  });
+
+  test("truncates an oversized progress payload without splitting a surrogate pair", () => {
+    const rocket = "\u{1F680}";
+    const body = "4;" + "1".repeat(61) + rocket + "9";
+    const scan = _scanAgentOsc(`\x1b]9;${body}\x07`);
+    expect(scan.progress).not.toBeNull();
+    const progress = scan.progress!;
+    expect(progress.length).toBeLessThanOrEqual(64);
+    expect(progress).toBe("4;" + "1".repeat(61));
+  });
+
+  test("short title/progress pass through unchanged", () => {
+    const scan = _scanAgentOsc("\x1b]0;hi\x07\x1b]9;4;50;-1\x07");
+    expect(scan.title).toBe("hi");
+    expect(scan.progress).toBe("4;50;-1");
+  });
 });

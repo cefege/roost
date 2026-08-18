@@ -12,7 +12,7 @@ import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import {
   FirehoseFrameSchema,
   SyncClientFrameSchema,
-  TerminalLinkFrameSchema,
+  TerminalTitleFrameSchema,
   UiReportStateRequestSchema,
 } from "@roost/shared/proto/sync_pb";
 import { openDb } from "../src/db/connection.ts";
@@ -27,7 +27,7 @@ import {
 } from "../src/connect/sync-ws-handler.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";
 import type { CoordConfig } from "@roost/shared/config";
-import { terminalLinkBus } from "../src/buses.ts";
+import { titleBus } from "../src/buses.ts";
 import { _uiStatesByTab } from "../src/connect/handlers-ui.ts";
 
 let workdir: string;
@@ -370,12 +370,11 @@ function sendAck(
   );
 }
 
-function publishTerminalLink(label: string, text = label): void {
-  terminalLinkBus.publish({
-    session_id: "flow-session",
-    text,
-    uri: `https://example.test/${label}`,
-  });
+/** Generic traffic generator: one unfiltered per-session Sync frame whose
+ *  payload size is caller-controlled. Nothing here is title-specific — these
+ *  tests are about delivery-queue, ACK, backpressure and keepalive mechanics. */
+function publishSessionTitle(label: string, title = label): void {
+  titleBus.publish({ session_id: "flow-session", title });
 }
 
 async function openFlowSocket(flowControl = true) {
@@ -453,7 +452,7 @@ test("ACK-paced retained seed crosses 512 frames and a stalled seed exits at 3 s
     healthy.onSend = (frameKind) => {
       if (!publishedDuringSeed && frameKind === "workerRoutable") {
         publishedDuringSeed = true;
-        publishTerminalLink("live-during-retained-seed");
+        publishSessionTitle("live-during-retained-seed");
       }
       queueMicrotask(() => {
         if (
@@ -472,7 +471,7 @@ test("ACK-paced retained seed crosses 512 frames and a stalled seed exits at 3 s
 
     expect(healthy.sendCount).toBeGreaterThan(512);
     expect(healthy.frameKinds.filter((kind) => kind === "uiState")).toHaveLength(520);
-    expect(healthy.frameKinds.at(-1)).toBe("terminalLink");
+    expect(healthy.frameKinds.at(-1)).toBe("terminalTitle");
     expect(healthy.closes).toEqual([]);
     expect(healthy.data.deliveryQueue).toEqual([]);
     expect(healthy.data.deliveryWaiters.size).toBe(0);
@@ -502,15 +501,14 @@ test("ACK-paced retained seed crosses 512 frames and a stalled seed exits at 3 s
   }
 });
 
-function encodedTerminalLinkBytes(textLength: number, deliverySeq: bigint): number {
+function encodedTitleFrameBytes(textLength: number, deliverySeq: bigint): number {
   return toBinary(FirehoseFrameSchema, create(FirehoseFrameSchema, {
     deliverySeq,
     frame: {
-      case: "terminalLink",
-      value: create(TerminalLinkFrameSchema, {
+      case: "terminalTitle",
+      value: create(TerminalTitleFrameSchema, {
         sessionId: "flow-session",
-        text: "x".repeat(textLength),
-        uri: "https://example.test/large",
+        title: "x".repeat(textLength),
       }),
     },
   })).byteLength;
@@ -518,7 +516,7 @@ function encodedTerminalLinkBytes(textLength: number, deliverySeq: bigint): numb
 
 test("application window accepts 512 frames and rejects the guarded relocation candidate", async () => {
   const harness = await openFlowSocket();
-  for (let i = 0; i < 512; i += 1) publishTerminalLink(`frame-${i}`);
+  for (let i = 0; i < 512; i += 1) publishSessionTitle(`frame-${i}`);
 
   expect(harness.socket.closes).toEqual([]);
   expect(harness.socket.data.deliveryQueue).toHaveLength(512);
@@ -541,17 +539,17 @@ test("application byte preflight accepts through 4 MiB and rejects the next cand
   let hi = limit;
   while (lo < hi) {
     const mid = Math.ceil((lo + hi) / 2);
-    if (encodedTerminalLinkBytes(mid, seq) <= limit) lo = mid;
+    if (encodedTitleFrameBytes(mid, seq) <= limit) lo = mid;
     else hi = mid - 1;
   }
-  const acceptedBytes = encodedTerminalLinkBytes(lo, seq);
+  const acceptedBytes = encodedTitleFrameBytes(lo, seq);
   expect(acceptedBytes).toBeLessThanOrEqual(limit);
-  expect(encodedTerminalLinkBytes(lo + 1, seq)).toBeGreaterThan(limit);
+  expect(encodedTitleFrameBytes(lo + 1, seq)).toBeGreaterThan(limit);
 
-  publishTerminalLink("large", "x".repeat(lo));
+  publishSessionTitle("large", "x".repeat(lo));
   expect(harness.socket.closes).toEqual([]);
   expect(harness.socket.data.unackedEncodedBytes).toBe(acceptedBytes);
-  publishTerminalLink("overflow");
+  publishSessionTitle("overflow");
 
   expect(harness.socket.closes).toEqual([[1013, "sync backpressure"]]);
   expect(harness.socket.data.deliveryQueue).toEqual([]);
@@ -561,9 +559,9 @@ test("application byte preflight accepts through 4 MiB and rejects the next cand
 
 test("oldest unacknowledged send closes at its original 3000 ms deadline", async () => {
   const harness = await openFlowSocket();
-  publishTerminalLink("oldest");
+  publishSessionTitle("oldest");
   harness.clock.advance(1_000);
-  publishTerminalLink("later");
+  publishSessionTitle("later");
 
   harness.clock.advance(1_999);
   expect(harness.socket.closes).toEqual([]);
@@ -574,13 +572,13 @@ test("oldest unacknowledged send closes at its original 3000 ms deadline", async
 
 test("cumulative ACK releases records and re-arms from the next original send time", async () => {
   const harness = await openFlowSocket();
-  publishTerminalLink("first");
+  publishSessionTitle("first");
   const firstSeq = harness.socket.data.lastSentDeliverySeq;
   harness.clock.advance(1_000);
-  publishTerminalLink("second");
+  publishSessionTitle("second");
   const secondSeq = harness.socket.data.lastSentDeliverySeq;
   harness.clock.advance(1_000);
-  publishTerminalLink("third");
+  publishSessionTitle("third");
   const thirdSeq = harness.socket.data.lastSentDeliverySeq;
   const thirdBytes = harness.socket.data.deliveryQueue[2]!.encodedBytes;
 
@@ -603,9 +601,9 @@ test("cumulative ACK releases records and re-arms from the next original send ti
 
 test("equal and stale cumulative ACKs are idempotent", async () => {
   const harness = await openFlowSocket();
-  publishTerminalLink("one");
+  publishSessionTitle("one");
   const staleSeq = harness.socket.data.lastSentDeliverySeq;
-  publishTerminalLink("two");
+  publishSessionTitle("two");
   const ackSeq = harness.socket.data.lastSentDeliverySeq;
 
   sendAck(harness.handler, harness.serverSocket, ackSeq);
@@ -623,7 +621,7 @@ test("equal and stale cumulative ACKs are idempotent", async () => {
 
 test("future and malformed ACKs close 1008 and clear accounting", async () => {
   const future = await openFlowSocket();
-  publishTerminalLink("future");
+  publishSessionTitle("future");
   sendAck(
     future.handler,
     future.serverSocket,
@@ -644,7 +642,7 @@ test("future and malformed ACKs close 1008 and clear accounting", async () => {
   ];
   for (const [label, payload] of malformedPayloads) {
     const malformed = await openFlowSocket();
-    publishTerminalLink(`malformed-${label}`);
+    publishSessionTitle(`malformed-${label}`);
     malformed.handler.message(
       malformed.serverSocket,
       payload as unknown as Buffer,
@@ -660,7 +658,7 @@ test("native drain leaves application records and oldest-age timer intact", asyn
   const harness = await openFlowSocket();
   harness.socket.dataSendResult = -1;
   harness.socket.dataBufferedBytes = 25;
-  publishTerminalLink("native-queued");
+  publishSessionTitle("native-queued");
 
   expect(harness.socket.data.pressureTimer).not.toBeNull();
   expect(harness.socket.data.deliveryTimer).not.toBeNull();
@@ -678,7 +676,7 @@ test("native drain leaves application records and oldest-age timer intact", asyn
 test("normal close idempotently clears native and application state", async () => {
   const harness = await openFlowSocket();
   harness.socket.dataSendResult = -1;
-  publishTerminalLink("cleanup");
+  publishSessionTitle("cleanup");
   expect(harness.clock.timers.size).toBe(2);
 
   harness.handler.close(harness.serverSocket);
@@ -695,7 +693,7 @@ test("normal close idempotently clears native and application state", async () =
 
 test("legacy sockets remain unsequenced and unenforced", async () => {
   const harness = await openFlowSocket(false);
-  for (let i = 0; i < 513; i += 1) publishTerminalLink(`legacy-${i}`);
+  for (let i = 0; i < 513; i += 1) publishSessionTitle(`legacy-${i}`);
   harness.clock.advance(3_000);
 
   expect(harness.socket.closes).toEqual([]);

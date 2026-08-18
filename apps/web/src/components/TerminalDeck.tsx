@@ -318,10 +318,15 @@ export function TerminalDeck(props: {
   });
 
 
-  const mountedSessions = createMemo(() => {
+  // <For> keys by item identity. Feed it primitive session IDs rather than
+  // Session objects so a root snapshot that replaces a same-ID object cannot
+  // tear down the warm terminal's slot, textarea, or renderer DOM.
+  const mountedSessionIds = createMemo(() => {
     const warmIds = warmSessionIds();
     const selectedIds = slotBySession();
-    return openSessions().filter((session) => warmIds.has(session.id) || selectedIds.has(session.id));
+    return openSessions()
+      .filter((session) => warmIds.has(session.id) || selectedIds.has(session.id))
+      .map((session) => session.id);
   });
 
   // Ref-stable pane list for the strips <For>: reuse the prior PaneView object
@@ -1014,26 +1019,32 @@ export function TerminalDeck(props: {
       </Show>
 
       {/* Cold sessions stay unmounted; selected and previously visible sessions
-           retain stable slots for this deck lifetime. */}
-      <For each={mountedSessions()}>
-        {(s) => {
-          const slot = createMemo(() => slotBySession().get(s.id) ?? null, undefined, { equals: sameSlot });
+           retain stable slots for this deck lifetime. IDs, not replaceable
+           Session objects, own these keyed children. */}
+      <For each={mountedSessionIds()}>
+        {(sessionId) => {
+          const session = createMemo(() => rootStore.sessions[sessionId]);
+          const slot = createMemo(() => slotBySession().get(sessionId) ?? null, undefined, { equals: sameSlot });
           return (
-            <div data-testid={`terminal-slot-${s.id}`} data-pane-slot data-pane data-pane-id={slot()?.paneId ?? ""} data-focused={slot()?.focused ? "true" : "false"} data-spotlit={slot()?.spotlit ? "true" : undefined} style={{ ...termStyle(slot(), parkSizeBySession().get(s.id)), ...swipeStyleFor(s.id) }}>
-              <CellTerminal
-                session={s}
-                inLayout={!!slot()}
-                focused={slot()?.focused ?? false}
-                spotlit={slot()?.spotlit ?? false}
-                // A route overlay hides only the host and body-portaled
-                // accessories. Keep laid-out terminals active so their
-                // renderer, cell stream, and viewport claim stay warm.
-                surfaceVisible={props.surfaceVisible}
-                surfaceActive={
-                  spotlightPane() === null || slot()?.spotlit === true
-                }
-              />
-            </div>
+            <Show when={session()}>
+              {(currentSession) => (
+                <div data-testid={`terminal-slot-${sessionId}`} data-pane-slot data-pane data-pane-id={slot()?.paneId ?? ""} data-focused={slot()?.focused ? "true" : "false"} data-spotlit={slot()?.spotlit ? "true" : undefined} style={{ ...termStyle(slot(), parkSizeBySession().get(sessionId)), ...swipeStyleFor(sessionId) }}>
+                  <CellTerminal
+                    session={currentSession()}
+                    inLayout={!!slot()}
+                    focused={slot()?.focused ?? false}
+                    spotlit={slot()?.spotlit ?? false}
+                    // A route overlay hides only the host and body-portaled
+                    // accessories. Keep laid-out terminals active so their
+                    // renderer, cell stream, and viewport claim stay warm.
+                    surfaceVisible={props.surfaceVisible}
+                    surfaceActive={
+                      spotlightPane() === null || slot()?.spotlit === true
+                    }
+                  />
+                </div>
+              )}
+            </Show>
           );
         }}
       </For>

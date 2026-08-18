@@ -9,7 +9,7 @@
 import { createResource, createSignal, For, Show, onCleanup } from "solid-js";
 import { coordClient } from "../../connect.ts";
 import { rootStore } from "../../store/root.ts";
-import { sendTerminalInput } from "../../ws/sync-outbound.ts";
+import { sendUserTerminalInput } from "../../lib/userTerminalInput.ts";
 import { getShortPathPref, setShortPathPref } from "../../lib/attachments.ts";
 import { Card, Button, EmptyState, List, ListRow, Icon, Switch, Select } from "./md/primitives.tsx";
 import { formatBytes } from "../../lib/format.ts";
@@ -89,7 +89,7 @@ export function AttachmentsPane() {
   );
 
   async function injectPath(sid: string, absPath: string): Promise<void> {
-    const admission = sendTerminalInput(sid, new TextEncoder().encode(absPath + " "));
+    const admission = sendUserTerminalInput(sid, new TextEncoder().encode(absPath + " "));
     if (!admission.accepted) {
       setStatusMsg(`Inject failed: ${admission.reason}`);
       return;

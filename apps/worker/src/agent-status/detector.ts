@@ -1,4 +1,5 @@
 import { log } from "@roost/shared";
+import { spansText, viewportRowSpans } from "@roost/shared/cell";
 import type { TerminalCore } from "@wterm/core";
 import type { SessionManager } from "../session-manager.ts";
 import { evaluateManifest } from "./manifest-engine.ts";
@@ -13,21 +14,16 @@ import { StableScreenDetector } from "./stable-detection.ts";
 const PROCESS_SCAN_INTERVAL_MS = 250;
 const OUTPUT_SCAN_COALESCE_MS = 40;
 
+/** The visible grid as text for manifest matching. Rows come from the cell
+ *  encoder, not a private per-column read: a wide glyph's width-0 continuation
+ *  cell must contribute NOTHING, or every pattern that spans one sees a phantom
+ *  space ("中 文") and stops matching. */
 export function readVisibleScreen(core: TerminalCore): string {
   const cols = core.getCols();
   const rows = core.getRows();
   const lines = new Array<string>(rows);
   for (let row = 0; row < rows; row++) {
-    let line = "";
-    for (let col = 0; col < cols; col++) {
-      const char = core.getCell(row, col).char;
-      if (char === 0) line += " ";
-      else {
-        try { line += String.fromCodePoint(char); }
-        catch { line += " "; }
-      }
-    }
-    lines[row] = line.trimEnd();
+    lines[row] = spansText(viewportRowSpans(core, row, cols)).trimEnd();
   }
   return lines.join("\n");
 }

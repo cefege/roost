@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { CellRow } from "@roost/shared/cell";
+import { ScrollbackHistoryFloor } from "@roost/shared/proto/coordinator_pb";
 import type { CellGridRenderer } from "../src/lib/cellRenderer.ts";
 
 type ScrollRequest = {
@@ -14,9 +15,10 @@ type ScrollResponse = {
   startRow: bigint;
   endRow: bigint;
   gridEpoch: string;
+  historyFloor: ScrollbackHistoryFloor;
   rows: Array<{
     index: number;
-    spans: Array<{ text: string; fg: number; bg: number; flags: number }>;
+    spans: Array<{ text: string; columns: number; fg: number; bg: number; flags: number }>;
   }>;
 };
 
@@ -32,26 +34,52 @@ mock.module("../src/connect.ts", () => ({
   },
 }));
 
-// The Connect client must be mocked before the controller module is evaluated.
-const { createScrollbackBackfill } = await import("../src/lib/scrollbackBackfill.ts");
+// `diag` is a no-op unless ROOST_DIAG was set BEFORE @roost/shared/diag first
+// evaluated, and bun shares one module registry across test files — so any file
+// that loads diag earlier in the profile bakes the disabled emitter in. Mock the
+// emitter instead of racing that gate: order-independent, and the always-on
+// signal channel plus the sink setters stay real for every other module.
+const diagEvents: Array<Record<string, unknown>> = [];
+const realDiag = await import("@roost/shared/diag");
+mock.module("@roost/shared/diag", () => ({
+  ...realDiag,
+  diag(evt: string, kv: Record<string, unknown>) { diagEvents.push({ evt, ...kv }); },
+}));
+
+// The Connect client and the diag emitter must both be mocked before the
+// controller module is evaluated.
+const {
+  createScrollbackBackfill,
+  scrollbackHistoryFloor,
+} = await import("../src/lib/scrollbackBackfill.ts");
 
 const GRID_EPOCH = "test-grid:0";
 
-function response(startRow: number, endRow: number, total = 1000): ScrollResponse {
+function response(
+  startRow: number,
+  endRow: number,
+  total = 1000,
+  historyFloor = ScrollbackHistoryFloor.UNSPECIFIED,
+): ScrollResponse {
   return {
     cols: 80,
     scrollbackTotal: BigInt(total),
     startRow: BigInt(startRow),
     endRow: BigInt(endRow),
     gridEpoch: GRID_EPOCH,
-    rows: Array.from({ length: endRow - startRow }, (_, offset) => ({
-      index: startRow + offset,
-      spans: [{ text: `row-${startRow + offset}`, fg: 256, bg: 256, flags: 0 }],
-    })),
+    historyFloor,
+    rows: Array.from({ length: endRow - startRow }, (_, offset) => {
+      const text = `row-${startRow + offset}`;
+      return { index: startRow + offset, spans: [{ text, columns: text.length, fg: 256, bg: 256, flags: 0 }] };
+    }),
   };
 }
 
-function harness(bottom: boolean) {
+/** `stopAt` is the sbBase the paint is expected to settle on: 0 for a wave that
+ *  reaches the beginning, the retained floor for one that is clamped short. */
+function harness(bottom: boolean, opts?: { sessionId?: string; stopAt?: number }) {
+  const sessionId = opts?.sessionId ?? "session-1";
+  const stopAt = opts?.stopAt ?? 0;
   const anchor = { sbBase: 1000, cols: 80, total: 1000, gridEpoch: GRID_EPOCH };
   const prepends: CellRow[][] = [];
   let painted: CellRow[] = [];
@@ -66,11 +94,11 @@ function harness(bottom: boolean) {
       prepends.push(copy);
       painted = copy.concat(painted);
       anchor.sbBase -= copy.length;
-      if (anchor.sbBase === 0) paintComplete.resolve();
+      if (anchor.sbBase === stopAt) paintComplete.resolve();
     },
   } as unknown as CellGridRenderer;
   const controller = createScrollbackBackfill({
-    sessionId: "session-1",
+    sessionId,
     renderer: () => renderer,
     active: () => active,
   });
@@ -110,6 +138,7 @@ afterAll(() => {
 
 beforeEach(() => {
   rpcCalls.length = 0;
+  diagEvents.length = 0;
   rpcImpl = async () => response(0, 1000);
 });
 
@@ -201,6 +230,89 @@ describe("ScrollbackBackfill demand and cancellation", () => {
     expect(rpcCalls).toHaveLength(2);
     expect(h.anchor.sbBase).toBe(0);
     expect(h.painted()).toHaveLength(1000);
+    h.controller.dispose();
+  });
+
+  // A rejected page and "this session has no more history" look identical from
+  // outside: history simply stops loading as the reader scrolls up. The reason
+  // must be recoverable after the fact, or a rebuild racing a backfill wave is
+  // undiagnosable.
+  test("a page from another epoch paints nothing and names the guard it failed", async () => {
+    rpcImpl = async () => ({ ...response(0, 1000), gridEpoch: "other-grid:0" });
+    const h = harness(false);
+
+    h.controller.onUserScrollUp();
+    await flushWork();
+
+    // Fail-closed behaviour is unchanged: nothing painted, the wave stops.
+    expect(h.prepends).toHaveLength(0);
+    expect(h.anchor.sbBase).toBe(1000);
+    expect(rpcCalls).toHaveLength(1);
+
+    const rejected = diagEvents.filter((e) => e.evt === "scrollback.backfill_rejected");
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0]).toMatchObject({
+      sid: "session-1",
+      guard: "epoch",
+      requested_end: 1000,
+      anchor_epoch: GRID_EPOCH,
+      response_epoch: "other-grid:0",
+    });
+    h.controller.dispose();
+  });
+
+  // A blank region at the top of history is the SAME observation whether those
+  // rows are gone forever or were merely unreachable by a resize-forced replay.
+  // The reason has to survive the page that proved the floor, or the top of
+  // history is permanently unattributable.
+  test("a page clamped at the retained floor records the floor AND why it is there", async () => {
+    rpcImpl = async () => response(400, 1000, 1000, ScrollbackHistoryFloor.RESIZE_REPLAY);
+    const h = harness(false, { sessionId: "session-replay-floor", stopAt: 400 });
+
+    h.controller.onUserScrollUp();
+    await h.complete;
+    await flushWork();
+
+    // Paging stops at the floor instead of re-asking for rows the worker just
+    // said it does not have.
+    expect(h.anchor.sbBase).toBe(400);
+    expect(rpcCalls).toHaveLength(1);
+    expect(scrollbackHistoryFloor("session-replay-floor")).toEqual({
+      row: 400,
+      reason: "resize_replay",
+    });
+    h.controller.dispose();
+  });
+
+  test("genuine eviction reads differently at the same floor row, and a new epoch clears it", async () => {
+    rpcImpl = async () => response(400, 1000, 1000, ScrollbackHistoryFloor.EVICTED);
+    const h = harness(false, { sessionId: "session-evicted-floor", stopAt: 400 });
+
+    h.controller.onUserScrollUp();
+    await h.complete;
+    await flushWork();
+
+    expect(scrollbackHistoryFloor("session-evicted-floor")).toEqual({
+      row: 400,
+      reason: "evicted",
+    });
+
+    // A rebuild renumbers history, so the previous epoch's floor says nothing
+    // about the new one until a page comes back short in it.
+    h.anchor.total = 2000;
+    h.controller.onFullFrame();
+    expect(scrollbackHistoryFloor("session-evicted-floor")).toBeNull();
+    h.controller.dispose();
+  });
+
+  test("a page served in full claims no floor at all", async () => {
+    const h = harness(false, { sessionId: "session-no-floor" });
+
+    h.controller.onUserScrollUp();
+    await h.complete;
+
+    expect(h.anchor.sbBase).toBe(0);
+    expect(scrollbackHistoryFloor("session-no-floor")).toBeNull();
     h.controller.dispose();
   });
 });

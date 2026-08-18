@@ -14,6 +14,7 @@ import {
 import {
   MuxFrameType,
   decodeKeeperHistoryRecords,
+  decodeKeeperTerminalState,
   decodeMuxFrames,
   decodePtyInResult,
   decodeResizeResult,
@@ -27,6 +28,7 @@ import {
   settlePendingInput,
   settlePendingKeeperCommandsOnDisconnect,
   settlePendingResize,
+  settlePendingTerminalState,
 } from "./keeper-pool-io.ts";
 import {
   KEEPER_HISTORY_LIVE_BUFFER_MAX_BYTES,
@@ -331,16 +333,17 @@ function handleFrameData(pool: MultiplexedKeeperPool, chunk: Buffer): void {
           });
           break;
         }
-        if (!settlePendingResize(pool, f.channelId, result.seq, result)) {
+        // The owner's boundary hook runs INSIDE this settle, synchronously,
+        // before the loop can dispatch a PtyOut frame that shared this socket
+        // read. Deferring the boundary to the promise continuation (one
+        // microtask) is what let post-resize bytes reach the old-geometry core.
+        if (!settlePendingResize(pool, f.channelId, result.seq, result, "frame")) {
           diag("keeper.resize_result_no_waiter", {
             channel_id: f.channelId,
             resize_seq: result.seq,
             result: result.kind,
           });
         }
-        // Promise continuations queued by resolve() must apply/rollback the
-        // geometry boundary before coalesced post-result PtyOut is dispatched.
-        pauseAfterFrame = true;
         break;
       }
       case MuxFrameType.GetHistoryRecordsResp: {
@@ -367,6 +370,21 @@ function handleFrameData(pool: MultiplexedKeeperPool, chunk: Buffer): void {
         // Apply the retained snapshot before any coalesced live output that
         // follows its exact keeper-stream boundary.
         pauseAfterFrame = true;
+        break;
+      }
+      case MuxFrameType.GetTerminalStateResp: {
+        const state = decodeKeeperTerminalState(f.payload);
+        if (!state) {
+          signal("worker.protocol_violation", {
+            reason: "keeper_terminal_state_invalid",
+            cooldownKey: "keeper",
+          });
+        }
+        // A malformed payload still settles the head waiter: the recovery path
+        // treats null as "authority unreachable" and keeps its floor invalid.
+        if (!settlePendingTerminalState(pool, f.channelId, state)) {
+          diag("keeper.terminal_state_no_waiter", { channel_id: f.channelId });
+        }
         break;
       }
       default:

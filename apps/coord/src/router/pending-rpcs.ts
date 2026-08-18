@@ -92,18 +92,31 @@ export function rejectPendingRpcsForWorker(workerFp: string, message: string): n
   return n;
 }
 
-export function resolvePendingRpc(request_id: string, data: unknown): boolean {
+export function resolvePendingRpc(
+  request_id: string,
+  data: unknown,
+  workerFp?: string,
+): boolean {
   const entry = _pending.get(request_id);
   if (!entry) return false;
+  // A correlated id is not enough: only the authenticated worker that owns
+  // the pending entry may settle it. Untagged legacy entries remain permissive.
+  if (workerFp !== undefined && entry.workerFp !== null && entry.workerFp !== workerFp) return false;
   clearTimeout(entry.timer);
   _pending.delete(request_id);
   entry.resolve(data);
   return true;
 }
 
-export function rejectPendingRpc(request_id: string, message: string): boolean {
+export function rejectPendingRpc(
+  request_id: string,
+  message: string,
+  workerFp?: string,
+): boolean {
   const entry = _pending.get(request_id);
   if (!entry) return false;
+  // Mirror the success-path identity fence for worker rpc-error frames.
+  if (workerFp !== undefined && entry.workerFp !== null && entry.workerFp !== workerFp) return false;
   clearTimeout(entry.timer);
   _pending.delete(request_id);
   // The worker's rpc-error `message` carries the REAL failure (e.g. "keeper

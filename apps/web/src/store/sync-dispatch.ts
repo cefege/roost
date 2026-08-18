@@ -12,7 +12,6 @@ import {
   type PbCellGridFrame,
 } from "@roost/shared/proto/cell_pb";
 import { recordCellLag } from "../lib/diag.ts";
-import { recordOsc8Link } from "../lib/terminalOsc8.ts";
 import { rootStore } from "./root.ts";
 type PresenceHandler = (msg: unknown) => void;
 // R11 cell-grid cell-shipping. CellTerminal (cell mode) registers a per-session
@@ -30,6 +29,8 @@ const _cellFullFrameSbRows = new Map<string, number>();
 const _cellGridEpochs = new Map<string, string>();
 const _dropNextCellFrames = new Set<string>();
 const _droppedCellFrameCounts = new Map<string, number>();
+const _cellWireGridEpochs = new Map<string, string>();
+const _cellWireSeqs = new Map<string, number>();
 
 // Opened can enter the reactive store one turn before TerminalDeck mounts its
 // CellTerminal. Only store-known sessions with a live browser claim may bridge
@@ -42,7 +43,10 @@ interface CellMountBuffer {
   bytes: number;
   timer: ReturnType<typeof setTimeout>;
 }
-const _cellMountClaimed = new Set<string>();
+interface CellMountClaimState {
+  active: boolean;
+}
+const _cellMountClaims = new Map<string, CellMountClaimState>();
 const _cellMountBuffers = new Map<string, CellMountBuffer>();
 const _cellMountRepairPending = new Set<string>();
 
@@ -55,24 +59,58 @@ function clearCellMountBuffer(sessionId: string, requestRepair: boolean): void {
   if (requestRepair) _cellMountRepairPending.add(sessionId);
 }
 
-/** Mirrors the outbound viewport registry's current membership. It is separate
- * from handler presence: a preclaimed optimistic session is active before its
- * opened event triggers the final reactive mount turn. */
-export function setCellMountClaimActive(sessionId: string, active: boolean): void {
-  if (active) {
-    _cellMountClaimed.add(sessionId);
-    return;
-  }
-  _cellMountClaimed.delete(sessionId);
+function forceClearCellMountClaim(sessionId: string): void {
+  _cellMountClaims.delete(sessionId);
   clearCellMountBuffer(sessionId, false);
   _cellMountRepairPending.delete(sessionId);
+}
+
+/** A tokenized claim for the short gap between viewport ownership and mount. */
+export interface CellMountClaim {
+  /** Admit mount-gap buffering once this owner has published its viewport. */
+  activate(): void;
+  /** Stop buffering while keeping this owner reusable for a later reveal. */
+  deactivate(): void;
+  /** Permanently release this owner. Stale and repeated releases are inert. */
+  release(): void;
+}
+
+/** Acquire the latest mount-gap owner for a session.
+ *
+ * Acquisition supersedes any older handle without disturbing buffered state:
+ * the successor inherits the same mount gap. Only the current handle may
+ * activate, deactivate, or clear that state.
+ */
+export function acquireCellMountClaim(sessionId: string): CellMountClaim {
+  const state: CellMountClaimState = { active: false };
+  _cellMountClaims.set(sessionId, state);
+  let released = false;
+  return {
+    activate(): void {
+      if (!released && _cellMountClaims.get(sessionId) === state) {
+        state.active = true;
+      }
+    },
+    deactivate(): void {
+      if (released || _cellMountClaims.get(sessionId) !== state) return;
+      state.active = false;
+      clearCellMountBuffer(sessionId, false);
+      _cellMountRepairPending.delete(sessionId);
+    },
+    release(): void {
+      if (released) return;
+      released = true;
+      if (_cellMountClaims.get(sessionId) !== state) return;
+      forceClearCellMountClaim(sessionId);
+    },
+  };
 }
 
 function bufferCellForMount(pb: PbCellGridFrame): void {
   const sessionId = pb.sessionId;
   // Unknown and inactive sessions deliberately remain live-drop. A Sync seed
   // cannot make an unclaimed terminal start retaining fleet-wide cell traffic.
-  if (!rootStore.sessions[sessionId] || !_cellMountClaimed.has(sessionId)) return;
+  if (!rootStore.sessions[sessionId] || !_cellMountClaims.get(sessionId)?.active) return;
 
   let pending = _cellMountBuffers.get(sessionId);
   if (pb.full) {
@@ -160,6 +198,11 @@ export function _dispatchCell(pb: PbCellGridFrame): void {
     sequence: pb.seq,
     full: pb.full,
   });
+  // Wire receipt is distinct from smoke drops, mount buffering, handler
+  // admission, and renderer reconciliation. Keep only one scalar watermark
+  // per live session; no frame history or per-frame diagnostic allocation.
+  _cellWireGridEpochs.set(pb.sessionId, pb.gridEpoch);
+  _cellWireSeqs.set(pb.sessionId, Number(pb.seq));
   const persistedDrop = _smokeEnabled
     && localStorage.getItem(smokeDropKey(pb.sessionId)) === "1";
   if (persistedDrop) localStorage.removeItem(smokeDropKey(pb.sessionId));
@@ -208,6 +251,19 @@ export function cellGridEpoch(sessionId: string): string {
   return _cellGridEpochs.get(sessionId) ?? "";
 }
 
+export interface CellWireEpochSeq {
+  grid_epoch: string | null;
+  seq: number | null;
+}
+
+/** Latest cell frame decoded from Sync, before any browser-local drop/handler. */
+export function cellWireEpochSeq(sessionId: string): CellWireEpochSeq {
+  return {
+    grid_epoch: _cellWireGridEpochs.get(sessionId) ?? null,
+    seq: _cellWireSeqs.get(sessionId) ?? null,
+  };
+}
+
 /** Reap a closed session's frame-count entry — keyed by session id with no
  *  other reaper, so it leaks one entry per session ever for the tab's life.
  *  Called from the sessions-delta `closed` handler. */
@@ -216,10 +272,12 @@ export function pruneCellFrameCount(sessionId: string): void {
   _cellFullFrameCounts.delete(sessionId);
   _cellFullFrameSbRows.delete(sessionId);
   _cellGridEpochs.delete(sessionId);
+  _cellWireGridEpochs.delete(sessionId);
+  _cellWireSeqs.delete(sessionId);
   _dropNextCellFrames.delete(sessionId);
   if (typeof localStorage !== "undefined") localStorage.removeItem(smokeDropKey(sessionId));
   _droppedCellFrameCounts.delete(sessionId);
-  setCellMountClaimActive(sessionId, false);
+  forceClearCellMountClaim(sessionId);
 }
 
 /** Live size of the per-session frame-count map — a leak-watch accumulator. */
@@ -251,19 +309,13 @@ export function cellMountBufferStats(): CellMountBufferStats {
 }
 
 /** Sync generation reset: buffered frames belong to the old socket and can
- * never cross into the next generation. Replayed current claims request repair. */
+ * never cross into the next generation. Keep each latest owner token but make
+ * it inactive; its next positive viewport publication reactivates it. */
 export function resetCellMountBuffers(): void {
   for (const pending of _cellMountBuffers.values()) clearTimeout(pending.timer);
+  for (const claim of _cellMountClaims.values()) claim.active = false;
   _cellMountBuffers.clear();
   _cellMountRepairPending.clear();
-}
-
-export function _dispatchTerminalLink(
-  sessionId: string,
-  text: string,
-  uri: string,
-): void {
-  recordOsc8Link(sessionId, text, uri);
 }
 
 export function _dispatchPresence(sessionId: string, data: unknown): void {

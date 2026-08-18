@@ -121,7 +121,6 @@ export type SignalKind =
   | "auth.pin_mismatch"
   | "input.drop_burst"
   | "reconnect.give_up"
-  | "session.seq_epoch_reset"   // worker/keeper seq rewind → forced terminal resync (CLAUDE.md L11)
   | "keeper.died"               // keeper subprocess exited → all PTYs lost; worker respawns + reconciles sessions
   | "keeper.degraded"           // keeper alive but births dead PTYs (spawn ok, no I/O) — emit_no_session burst; fix = fresh keeper
   | "keeper.degraded_unrecoverable" // restart budget exhausted (≥N restarts/window) — restarting again just re-SIGTERMs live PTYs; STOP + alert
@@ -129,7 +128,11 @@ export type SignalKind =
   | "keeper.restart_degraded"   // worker force-restarted a degraded survivor keeper (self-heal; grace-gated to avoid loops)
   | "spawn.no_ack"              // keeper never acked a Spawn frame within timeout → session hangs (degraded/wedged keeper)
   | "scrollback.gap"            // ring rolled past lastSeq → silent history hole on resume (observability, NOT a band-aid trigger)
-  | "scrollback.replay_storm"   // OPT2-3 coalescing replay hit MAX_COALESCED_REPLAYS → resizes never settled (storm past viewport hysteresis)
+  | "scrollback.replay_bound"   // a core rebuild could not reproduce the history the core it replaced still held, and/or its monotonic origin pin CLAMPED — the "history shrank / mis-spliced after a resize" class. A rebuild replays a FIXED byte ring, so once that ring no longer reaches as far back as the old core's line ring the history floor silently JUMPS; kv names the pin's before/after values, how many rows the replay could not reach, and whether the clamp fired. The one moment sbOrigin's correctness is in doubt, so it reports even though the rebuild itself succeeded
+  | "terminal.gate_over_budget"  // worker cell-emission gate outlived the keeper command budget: a resize transaction (or repair) is stalling frames, so kv names the gate, its monotonic age, the transaction phase, and the captured byte count
+  | "terminal.sync_output_cap"   // an application opened a DEC 2026 synchronized-output frame and did not close it inside either ceiling, so the worker force-emitted the withheld cell frame and stopped suppressing that generation; kv names which cap tripped, the generation, the hold's monotonic age and how many frames it withheld
+  | "terminal.hyperlink_saturated" // the core's fixed OSC 8 link table filled up, so every NEW distinct hyperlink this session emits silently renders as PLAIN TEXT (no error, no missing output — links just stop appearing); kv names capacity/used/rejected. Fires once per false→true flip, and the table resets on a core rebuild
+  | "terminal.unhandled_sequence" // the terminal core's dispatcher IGNORED an escape sequence the application sent — the "renders wrong in Roost, fine in iTerm" class (e.g. DA1 `CSI c`, DECSCUSR `CSI Ps SP q`); kv names final/private/param_count/params plus ring_full+dropped. ONE line per distinct sequence per core instance (a rebuild reports afresh), per-channel cooldown. Partial detector: the core never logs unhandled OSC (other than 0/2/8) or unimplemented DECSET/DECRST modes
   | "voice.ws_failed"
   | "voice.mic_failed"          // mic capture never started (getUserMedia denied/busy/absent, or the pipeline was torn down mid-start) — the failure class the Deepgram WS signal is blind to
   | "voice.dictation_empty"     // a recording ended with an EMPTY transcript and no error anywhere; kv names the stage that went quiet (frames=0 dead audio graph / peak=0 device silence / chunks>0 results=0 Deepgram never answered / results>0 chars=0 it heard nothing) plus build+ua, because "the mic does nothing" is otherwise unfalsifiable after the tab closes
@@ -137,6 +140,8 @@ export type SignalKind =
   | "perf.longtask_stall"       // SPA main-thread task ≥ freeze threshold; kv carries the leak-watch accumulator snapshot (per-session map sizes, dom_nodes, heap_mb, uptime) at stall time → names days-long-uptime bloat vs a transient
   // ─── Coverage-sweep additions (coord Tier-1, worker transport/lifecycle, deploy) ───
   | "bytes.drop_unmapped"       // coord byte-hub dropped PTY output/cell/status for a channel with no session mapping (burst = real output/history loss, not the open-race)
+  | "cell.announce_barrier_drop" // coord's announced-channel barrier abandoned a channel's buffered cell/PTY frames (kv.reason = overflow/timeout/out_of_order/...); a marked route forces the next viewport claim to fetch a full frame
+  | "bytes.metadata_loss"       // coord dropped announced binary PTY frames: a later cell snapshot recreates the grid (hyperlinks included — they ride the cells) but NOT that channel's one-time OSC 0/2 title
   | "sync.backfill_failed"      // coord reconnect backfill query threw; live stream continued → SPA split-brain
   | "sync.backfill_truncated"   // coord backfill hit the getEventsSince row cap → events silently skipped
   | "sync.queue_overflow"       // coord Sync per-stream queue crossed high-water → slow subscriber / runaway producer
@@ -144,7 +149,6 @@ export type SignalKind =
   | "sync.ws_frame_dropped"     // coord's ws.send returned 0 = the frame was DROPPED, not merely backpressured. A cell frame lost here is what the SPA's cell.seq_gap then recovers from; without this the coord side of that story is invisible
   | "cell.seq_gap"              // SPA saw a cell-frame seq discontinuity (frame lost in transit) → forced a catch-up claim. A BURST means the socket is losing frames, not that recovery is broken
   | "cell.paint_lag"            // PTY→browser-arrival latency for a cell frame exceeded the per-session felt-lag floor by PAINT_LAG_SIGNAL_MS (skew-corrected); kv's per-hop values name the hop that owns the delay
-  | "sync.prehydration_overflow" // SPA held more than the pre-hydration cap of Sync frames before the bootstrap snapshot landed → queue dropped and the socket re-dialed to backfill from the persisted cursor
   | "event.append_failed"       // coord appendEvent DB tx failed (event-log durability)
   | "audit.write_failed"        // coord audit_log insert failed (audit/compliance trail hole)
   | "audit.input_queue_backpressure" // coord terminal-input audit queue reached its bounded capacity; producers are waiting for durable audit writes
@@ -154,7 +158,7 @@ export type SignalKind =
   | "auth.rpc_rejected"         // a Connect RPC returned 401/Unauthenticated (jwt verify fail or no caller); kv.reason,path
   | "worker.uncaught"           // worker uncaughtException/unhandledRejection (mirror of spa.uncaught); kv.kind=error|rejection
   | "transport.event_drop"      // SessionEvent evicted from the unacked outbox on overflow (at-least-once broken = data loss)
-  | "transport.raw_metadata_drop" // bounded worker/CoordLink metadata lane rejected bytes; cells remain authoritative but title/activity/link scanners saw a gap
+  | "transport.raw_metadata_drop" // bounded worker/CoordLink metadata lane rejected bytes; cells remain authoritative but the title/activity scanners saw a gap
   | "heartbeat.stalled"         // N consecutive heartbeat failures to coord (worker invisible to fleet)
   | "scrollback.history_lost"   // resume fell back to an empty ring after getHistory failed (full scrollback wipe)
   | "worker.coord_relocate_failed" // worker STAGE/ACTIVATE/COMMIT/ABORT of a coordinator move threw; kv.action,handoff_id

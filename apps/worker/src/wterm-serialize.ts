@@ -12,6 +12,8 @@
 // SerializeAddon.ts:
 // - Iterate scrollback rows first, then visible buffer rows.
 // - Track lastStyle (fg, bg, flags); emit SGR delta only on change.
+// - Track the open OSC 8 hyperlink the same way; emit an OSC 8 delta only at a
+//   link boundary (a re-open supersedes, so A→B costs one sequence).
 // - Right-trim trailing default cells per row to keep output small.
 // - Emit \r\n at row end (we don't track isWrapped — wterm-core
 //   doesn't expose it; an extra \r\n at a wrap point reflows, but
@@ -20,10 +22,12 @@
 // - Wrap in ESC[?1049h … if usingAltScreen().
 //
 // Cell shape (verified vercel-labs/wterm:src/cell.zig):
-//   { char: u32, fg: u16, bg: u16, flags: u8 }
+//   { char: u32, fg: u16, bg: u16, flags: u8, width: u8, link: u16 }
 //   fg/bg: 0..15 ANSI; 16..255 256-palette; 256 = default
 //   flags: bold=0x01 dim=0x02 italic=0x04 underline=0x08
 //          blink=0x10 reverse=0x20 invisible=0x40 strike=0x80
+//   link: index into the core's OSC 8 table, surfaced as
+//         CellData.linkUri/linkId/linkKey
 // (The exported CellData interface also has fgRgb?/bgRgb? for
 // alternative cores — we emit them as true-color SGR
 // when present.)
@@ -84,6 +88,39 @@ function _isDefaultStyle(s: Style): boolean {
   return s.flags === 0
     && s.fg === DEFAULT_COLOR && s.bg === DEFAULT_COLOR
     && s.fgRgb === undefined && s.bgRgb === undefined;
+}
+
+// ── OSC 8 hyperlinks ───────────────────────────────────────────────────────
+// Link identity is per-cell state exactly like style, so it needs the same
+// delta treatment: close the open link and open the new one at each boundary.
+// `linkKey` deliberately does NOT round-trip for an id-less link — the replayed
+// core allocates a fresh table slot, and the key is documented as meaningful
+// only inside one core instance. What must survive is the URI, the explicit
+// `id=` when the producer sent one, and the RUN BOUNDARIES: two adjacent links
+// sharing a URI stay two links because a close/open pair separates them.
+
+type Link = { key: string; uri: string; id: string | undefined };
+
+/** The link a cell carries, or null. A URI holding a C0 control byte could not
+ *  have survived the core's own OSC parse; refusing it here means a corrupt
+ *  cell can never emit a malformed escape that swallows the rest of the row. */
+function _linkOf(cell: CellData): Link | null {
+  const uri = cell.linkUri;
+  const key = cell.linkKey;
+  if (uri === undefined || key === undefined || uri.length === 0) return null;
+  if (/[\x00-\x1f\x7f]/.test(uri)) return null;
+  const id = cell.linkId;
+  return { key, uri, id: id !== undefined && /^[^;:\x00-\x1f\x7f]+$/.test(id) ? id : undefined };
+}
+
+const LINK_CLOSE = "\x1b]8;;\x1b\\";
+
+/** ANSI moving link state `prev` → `next`. "" when nothing changes. */
+function _emitLinkDelta(prev: Link | null, next: Link | null): string {
+  if (prev === null && next === null) return "";
+  if (prev !== null && next !== null && prev.key === next.key) return "";
+  if (next === null) return LINK_CLOSE;
+  return `\x1b]8;${next.id === undefined ? "" : `id=${next.id}`};${next.uri}\x1b\\`;
 }
 
 function _emitSgrDelta(prev: Style, next: Style): string {
@@ -160,35 +197,71 @@ function _codepointToChar(cp: number): string {
   return String.fromCodePoint(cp);
 }
 
+/** Display width of a cell: 1 narrow, 2 wide LEAD, 0 wide CONTINUATION.
+ *  Cores without the field only have narrow cells. */
+function _width(cell: CellData): number {
+  return cell.width ?? 1;
+}
+
+/** One row → ANSI. A wide glyph is a width-2 LEAD plus a width-0 CONTINUATION
+ *  cell; re-emitting the continuation as its own space widened every wide glyph
+ *  by a column on replay ("中文" came back as "中 文", and every column right of
+ *  it shifted), so a continuation backed by a real lead emits nothing. An ORPHAN
+ *  continuation (no lead — a truncated row edge) still emits its blank column so
+ *  the row keeps its width. Grapheme clusters emit whole.
+ *
+ *  Style and OSC 8 link state both carry ACROSS rows, so both are threaded in
+ *  and back out rather than reset per row. */
 function _serializeRow(
   cells: CellData[],
   outStyle: Style,
-): { text: string; style: Style } {
-  // Right-trim: find the rightmost cell that isn't (space + default style).
+  outLink: Link | null,
+): { text: string; style: Style; link: Link | null } {
+  // Right-trim: find the rightmost cell that isn't (space + default style). A
+  // continuation column is padding only when no wide lead owns it, and a LINKED
+  // cell is never padding — its columns are clickable.
   let endCol = cells.length;
   while (endCol > 0) {
     const c = cells[endCol - 1];
     const isBlank = (c.char === 0 || c.char === 0x20)
       && c.flags === 0
       && c.fg === DEFAULT_COLOR && c.bg === DEFAULT_COLOR
-      && c.fgRgb === undefined && c.bgRgb === undefined;
+      && c.fgRgb === undefined && c.bgRgb === undefined
+      && c.linkUri === undefined;
     if (!isBlank) break;
+    if (_width(c) === 0) {
+      let lead = endCol - 2;
+      while (lead >= 0 && _width(cells[lead]) === 0) lead--;
+      if (lead >= 0 && _width(cells[lead]) >= 2) break;
+    }
     endCol--;
   }
 
   let out = "";
   let style = outStyle;
+  let link = outLink;
   for (let col = 0; col < endCol; col++) {
     const cell = cells[col];
+    if (_width(cell) === 0) {
+      let lead = col - 1;
+      while (lead >= 0 && _width(cells[lead]) === 0) lead--;
+      if (lead >= 0 && _width(cells[lead]) >= 2) continue;
+    }
     const cellStyle = _styleOf(cell);
     const sgr = _emitSgrDelta(style, cellStyle);
     if (sgr) {
       out += sgr;
       style = cellStyle;
     }
-    out += _codepointToChar(cell.char);
+    const cellLink = _linkOf(cell);
+    const osc8 = _emitLinkDelta(link, cellLink);
+    if (osc8) {
+      out += osc8;
+      link = cellLink;
+    }
+    out += cell.chars ?? _codepointToChar(cell.char);
   }
-  return { text: out, style };
+  return { text: out, style, link };
 }
 
 /** Serialize the full grid state to ANSI. Writing the returned string
@@ -201,16 +274,17 @@ export function serializeWTerm(core: TerminalCore): string {
   const altScreen = core.usingAltScreen();
 
   let out = "";
-  // Hard-reset SGR + clear screen + force DECAWM (autowrap) ON so a
-  // residual SGR/mode state on the browser-side wterm doesn't bleed
-  // into the replayed content. ESC[?7h matters because scrollback may
-  // legitimately contain a literal `ESC[?7l` byte (TUI captures, vim
+  // Hard-reset SGR + close any open OSC 8 link + clear screen + force DECAWM
+  // (autowrap) ON so residual SGR/link/mode state on the destination wterm
+  // doesn't bleed into the replayed content. ESC[?7h matters because scrollback
+  // may legitimately contain a literal `ESC[?7l` byte (TUI captures, vim
   // recordings cat-ed into the terminal) and serializing those rows
   // before any wider-than-cols line would otherwise silently clip
   // subsequent rows at the SPA's cols.
-  out += "\x1b[0m\x1b[?7h\x1b[2J\x1b[H";
+  out += `\x1b[0m${LINK_CLOSE}\x1b[?7h\x1b[2J\x1b[H`;
 
   let style = { ...DEFAULT_STYLE };
+  let link: Link | null = null;
 
   // Scrollback FIRST, into main-screen. wterm's main-screen scrollback
   // is what the user expects to scroll up into. We must emit these rows
@@ -242,9 +316,10 @@ export function serializeWTerm(core: TerminalCore): string {
     // but never shorter than the stored content.
     const padTo = Math.max(cols, lineLen);
     while (cells.length < padTo) cells.push(BLANK_CELL);
-    const r = _serializeRow(cells, style);
+    const r = _serializeRow(cells, style, link);
     out += r.text;
     style = r.style;
+    link = r.link;
     out += "\r\n";
   }
 
@@ -260,15 +335,18 @@ export function serializeWTerm(core: TerminalCore): string {
   for (let row = 0; row < rows; row++) {
     const cells: CellData[] = new Array(cols);
     for (let col = 0; col < cols; col++) cells[col] = core.getCell(row, col);
-    const r = _serializeRow(cells, style);
+    const r = _serializeRow(cells, style, link);
     out += r.text;
     style = r.style;
+    link = r.link;
     if (row < rows - 1) out += "\r\n";
   }
 
-  // Reset SGR before cursor placement so the cursor is parked under
-  // default attrs.
+  // Reset SGR and close any open hyperlink before cursor placement, so the
+  // cursor is parked under default attrs with no link still open — otherwise
+  // the next live PTY byte would inherit the last cell's URI.
   if (!_isDefaultStyle(style)) out += "\x1b[0m";
+  if (link !== null) out += LINK_CLOSE;
 
   // Park cursor at its captured viewport position (1-based CUP).
   const cur = core.getCursor();

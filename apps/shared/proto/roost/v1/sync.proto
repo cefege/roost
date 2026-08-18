@@ -28,14 +28,9 @@ message JsonEvent {
   string payload_json = 1;
 }
 
-// Completed OSC 8 mapping, parsed and sanitized centrally by the coordinator.
-// Volatile and compact: browsers retain mappings they receive, but reconnects
-// do not replay coordinator parser state.
-message TerminalLinkFrame {
-  string session_id = 1;
-  string text = 2;
-  string uri = 3;
-}
+// Field 30 (terminal_link / TerminalLinkFrame) is RETIRED, not moved: OSC 8
+// hyperlinks are core-authored per-cell identity on PbCellSpan.link_uri /
+// link_key now, so no coordinator-derived text->URI mapping exists to ship.
 
 message SessionPresence {
   string session_id = 1;
@@ -169,6 +164,13 @@ message ViewportRejected {
   string reason = 4;
 }
 
+message ViewportAmbiguous {
+  string session_id = 1;
+  uint64 client_seq = 2;
+  uint64 domain_generation = 3;
+  string reason = 4;
+}
+
 message InputCommand {
   string session_id = 1;
   uint64 input_seq = 2;
@@ -200,7 +202,7 @@ message InputAmbiguous {
 
 
 message FirehoseFrame {
-  reserved 7, 28;  // retired fields
+  reserved 7, 28, 30;  // retired fields
   // Per-socket application-delivery sequence. Zero means legacy/unenforced or
   // an unsequenced v2 control frame.
   uint64 delivery_seq = 31;
@@ -209,7 +211,6 @@ message FirehoseFrame {
   SyncDomain domain = 33;
   oneof frame {
     JsonEvent sessions = 1;       // legacy fallback: any kind not yet in session_event_proto
-    TerminalLinkFrame terminal_link = 30;
     SessionPresence session_presence = 8;
     AuditRow audit_row = 10;
     SessionEventProto session_event = 11;
@@ -243,6 +244,7 @@ message FirehoseFrame {
     InputAccepted input_accepted = 44;
     InputRejected input_rejected = 45;
     InputAmbiguous input_ambiguous = 46;
+    ViewportAmbiguous viewport_ambiguous = 47;
   }
 }
 

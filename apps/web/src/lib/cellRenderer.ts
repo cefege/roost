@@ -16,10 +16,11 @@
 import {
   applyDelta as foldCellDelta,
   deltaViewportShift,
+  spansText,
   type CellGridFrame,
   type CellRow,
 } from "@roost/shared/cell";
-import { renderRow, rowText, rowHash, type FindHit } from "./cellRow.ts";
+import { renderRow, rowHash, type FindHit } from "./cellRow.ts";
 
 const SB_BLOCK = 250; // scrollback rows per content-visibility block. sizeBlock() writes each block's EXACT pixel placeholder, so this is perf tuning only — any positive value renders identically.
 
@@ -80,25 +81,98 @@ export interface BackfillAnchor {
   gridEpoch: string;
 }
 
+export interface RendererEpochSeq {
+  grid_epoch: string | null;
+  seq: number | null;
+}
+
+export type ReaderIntent = "live" | "reading";
+export type ReaderIntentReason =
+  | "native_scroll"
+  | "wheel"
+  | "touch"
+  | "selection"
+  | "find";
+
+export const RENDERER_HOLD_SELECTION = 1;
+export const RENDERER_HOLD_LINK = 2;
+
+export interface LiveInteractionResult {
+  reconciled: boolean;
+  anchorChanged: boolean;
+}
+
+const NO_LIVE_INTERACTION_RESULT: LiveInteractionResult =
+  Object.freeze({ reconciled: false, anchorChanged: false });
+
+export type ReconcileBlockReason =
+  | "reader_pending_frame"
+  | "selection_hold"
+  | "link_hold"
+  | "selection_and_link_hold"
+  | "predicted_cursor"
+  | "pending_render"
+  | "not_reconciled"
+  | null;
+
+export interface RendererTerminalModeSnapshot {
+  alt_screen: boolean;
+  cursor_keys_app: boolean;
+  bracketed_paste: boolean;
+}
+
+export interface RendererPresentationSnapshot {
+  captured_at_ms: number;
+  canonical: RendererEpochSeq;
+  reconciled: RendererEpochSeq;
+  reader_intent: ReaderIntent;
+  reader_reason: ReaderIntentReason | null;
+  hold_mask: { selection: boolean; link: boolean };
+  rows: { canonical: number | null; dom: number };
+  mode: {
+    canonical: RendererTerminalModeSnapshot | null;
+    reconciled: RendererTerminalModeSnapshot | null;
+  };
+  cursor: {
+    canonical: { visible: boolean; row: number; column: number } | null;
+    dom: {
+      visible: boolean | null;
+      row: number | null;
+      column: number | null;
+      connected: boolean;
+    };
+  };
+  cols: { canonical: number | null; dom: number | null };
+  at_bottom: boolean;
+}
+
 
 
 export class CellGridRenderer {
   private frame: CellGridFrame | null = null;
-  // A repair can arrive while the reader is inspecting history. Keep the
-  // painted frame immutable until they deliberately return to its bottom;
-  // live frames continue folding here so claim seqs stay current.
+  // Canonical frames continue advancing while explicit reading keeps the DOM
+  // immutable. readerIntent, never incidental scroll geometry, decides which
+  // side receives an accepted frame.
   private readerPendingFrame: CellGridFrame | null = null;
-  // While the user has text selected over this pane, repainting the viewport
-  // (replaceChildren) would destroy the selection — the reason selection was
-  // unusable in a live alt-screen TUI. selectionHold freezes DOM writes;
-  // pendingRender remembers that frames arrived so release can reconcile.
-  // armedHold is the SAME freeze for a different interaction: Cmd-hovering a
-  // terminal file link (see terminal-links onArmedHoverChange) so the wrapped
-  // <a> isn't rebuilt out from under the cursor. Either hold freezes.
-  private selectionHold = false;
-  private armedHold = false;
+  private _readerIntent: ReaderIntent = "live";
+  private _readerReason: ReaderIntentReason | null = null;
+  // Selection and armed-link interactions are independent bits. Keeping them
+  // composed lets prepareLiveInteraction clear both atomically and guarantees
+  // that one admitted input causes at most one repair.
+  private _holdMask = 0;
   private pendingRender = false;
-  private pendingPinToBottom = false;
+  // Browser scroll events are asynchronous and renderer writes may coalesce.
+  // A nonzero epoch exists only after an assignment actually changes scrollTop;
+  // later no-op/clamped pins may retarget that same pending epoch to the final
+  // browser value, but can never manufacture ownership on their own.
+  private _nextOwnedScrollEpoch = 0;
+  private _ownedScrollEpoch = 0;
+  private _ownedScrollTop = 0;
+  // Clearing a retained document Selection while the terminal textarea owns
+  // focus can make Chromium reveal the editing surface at scrollTop=0 after
+  // animation callbacks. The source owner brackets that scroll until it arrives
+  // or a later admitted input / explicit reader gesture supersedes it.
+  private _liveSelectionReleasePending = false;
   // Scrollback rows are packed into content-visibility "blocks" of SB_BLOCK rows.
   // Off-screen blocks skip layout/paint, so scrollHeight reads and reveal reflow
   // stay O(history / SB_BLOCK), not O(history) — the fix for the pane-switch
@@ -137,10 +211,22 @@ export class CellGridRenderer {
   private _paintedCursorRow = -1;
   private _paintedCursorCol = -1;
   private _paintedSpacerHeight = "";
+  // Absolute history range represented by scrollbackEl. Canonical state may
+  // advance under a hold, so it cannot be derived from this.frame then.
+  private _paintedSbBase = 0;
+  private _paintedScrollbackTotal = 0;
   // Reused duplicate/tail-validation stamps. Sized only on a full repair, so a
   // sparse delta allocates nothing regardless of pane count.
   private _dirtyMarks = new Uint32Array(0);
   private _dirtyMarkGeneration = 0;
+  // Canonical frame acceptance and DOM reconciliation are deliberately
+  // separate watermarks. Holds may advance the former while leaving the
+  // latter unchanged; scalar storage keeps the frame hot path allocation-free.
+  private _reconciledGridEpoch: string | null = null;
+  private _reconciledSeq: number | null = null;
+  private _reconciledAltScreen: boolean | null = null;
+  private _reconciledCursorKeysApp: boolean | null = null;
+  private _reconciledBracketedPaste: boolean | null = null;
 
   constructor(private readonly container: HTMLElement) {
     this.doc = container.ownerDocument;
@@ -223,26 +309,20 @@ export class CellGridRenderer {
       this._dirtyMarkGeneration = 0;
     }
 
-    const wasAtBottom = this.atBottom();
-    if (this.readerPendingFrame) {
+    if (this._readerIntent === "reading" || this.readerPendingFrame) {
       this.readerPendingFrame = incoming;
-      return true;
-    }
-    const current = this.frame;
-    const epochChanged = current !== null && current.gridEpoch !== incoming.gridEpoch;
-    const freezeReader = current !== null && !wasAtBottom;
-    if (freezeReader) {
-      this.readerPendingFrame = incoming;
+      if (this._readerIntent === "live") this.pendingRender = true;
       return true;
     }
     this.frame = incoming;
-    const pinToBottom = wasAtBottom || epochChanged;
     if (this.holding) {
       this.pendingRender = true;
-      this.pendingPinToBottom ||= pinToBottom;
       return true;
     }
-    this.renderFull(pinToBottom);
+    // Live intent is persistent. A resize may have moved the literal maximum
+    // between layout and this frame; geometry alone must never turn output into
+    // a reader freeze.
+    this.renderFull(true);
     return true;
   }
 
@@ -250,7 +330,7 @@ export class CellGridRenderer {
    * rows outside that list are never visited on the normal frame hot path. */
   applyDeltaFrame(incoming: CellGridFrame): boolean {
     if (incoming.full) return false;
-    const base = this.readerPendingFrame ?? this.frame;
+    let base = this.readerPendingFrame ?? this.frame;
     if (!base
       || incoming.gridEpoch !== base.gridEpoch
       || incoming.cols !== base.cols
@@ -279,16 +359,24 @@ export class CellGridRenderer {
     for (let i = base.rows - scrolled; i < base.rows; i++) {
       if (this._dirtyMarks[i] !== generation) return false;
     }
-    if (!this.readerPendingFrame && !this.holding && this._rowEls.length !== base.rows) {
-      return false;
-    }
+    if (
+      this._readerIntent === "live"
+      && !this.holding
+      && this._rowEls.length !== base.rows
+    ) return false;
 
-    const wasAtBottom = this.atBottom();
     const appended = incoming.scrollbackAppend;
+    // applyDelta owns and mutates its base. On the first delta of a reading
+    // interval, copy the frame shell/row coordinates so the model backing the
+    // frozen DOM stays immutable. Span arrays remain shared and immutable.
+    if (this._readerIntent === "reading" && !this.readerPendingFrame) {
+      base = this._copyFrameForReader(base);
+    }
     const folded = foldCellDelta(base, incoming);
     if (!folded) return false;
-    if (this.readerPendingFrame) {
+    if (this._readerIntent === "reading" || this.readerPendingFrame) {
       this.readerPendingFrame = folded;
+      if (this._readerIntent === "live") this.pendingRender = true;
       return true;
     }
     this.frame = folded;
@@ -296,11 +384,13 @@ export class CellGridRenderer {
       this.pendingRender = true;
       return true;
     }
-    if (appended.length > 0) this._appendScrollback(appended, wasAtBottom);
+    if (appended.length > 0) this._appendScrollback(appended, true);
     this.renderDelta(dirty, scrolled);
     this.setGridWidth();
     this._syncAltScreen();
-    this._pinToBottom(wasAtBottom);
+    this._pinToBottom(true);
+    this._recordPaintedHistory();
+    this._markReconciledIfCurrent();
     return true;
   }
 
@@ -317,46 +407,193 @@ export class CellGridRenderer {
     this.container.classList.toggle("alt-active", active);
   }
 
-  /** True while ANY hold is active — freezes viewport/scrollback repaints. */
+  /** True while ANY interaction hold freezes viewport/scrollback repaints. */
   private get holding(): boolean {
-    return this.selectionHold || this.armedHold;
+    return this._holdMask !== 0;
   }
 
-  /** Freeze/thaw DOM repaints. Held while the user has text selected over this
-   *  pane (see CellTerminal's selectionchange wiring). true means releasing
-   *  this hold also reconciled a pending off-bottom reader frame. */
-  setSelectionHold(active: boolean): boolean {
-    if (this.selectionHold === active) return false;
-    this.selectionHold = active;
+  get readerIntent(): ReaderIntent {
+    return this._readerIntent;
+  }
+
+  get readerReason(): ReaderIntentReason | null {
+    return this._readerReason;
+  }
+
+  /** Public composed mask for owner diagnostics and atomic interaction cleanup. */
+  get holdMask(): number {
+    return this._holdMask;
+  }
+
+  /** Begin an explicit reading interval before a gesture can race a frame. */
+  enterReading(reason: ReaderIntentReason): void {
+    // Explicit intent always wins a still-pending lifecycle classification.
+    this._liveSelectionReleasePending = false;
+    this._readerIntent = "reading";
+    this._readerReason = reason;
+  }
+
+  /** Freeze/thaw DOM repaints while selection owns either endpoint in this pane. */
+  setSelectionHold(active: boolean): LiveInteractionResult {
+    const held = (this._holdMask & RENDERER_HOLD_SELECTION) !== 0;
+    if (held === active) return NO_LIVE_INTERACTION_RESULT;
+    if (active) {
+      this._holdMask |= RENDERER_HOLD_SELECTION;
+      this.enterReading("selection");
+      return NO_LIVE_INTERACTION_RESULT;
+    }
+    this._holdMask &= ~RENDERER_HOLD_SELECTION;
     return this._flushIfReleased();
   }
 
-  /** Freeze/thaw DOM repaints while the user Cmd-hovers a terminal file link
-   *  (terminal-links onArmedHoverChange). Same freeze as selection; keeps the
-   *  wrapped <a> from being rebuilt out from under the cursor. */
-  setArmedHold(active: boolean): boolean {
-    if (this.armedHold === active) return false;
-    this.armedHold = active;
+  /** Freeze/thaw DOM repaints while Cmd-hover keeps a terminal link stable. */
+  setArmedHold(active: boolean): LiveInteractionResult {
+    const held = (this._holdMask & RENDERER_HOLD_LINK) !== 0;
+    if (held === active) return NO_LIVE_INTERACTION_RESULT;
+    if (active) {
+      this._holdMask |= RENDERER_HOLD_LINK;
+      return NO_LIVE_INTERACTION_RESULT;
+    }
+    this._holdMask &= ~RENDERER_HOLD_LINK;
     return this._flushIfReleased();
   }
 
-  /** Flush the latest held frame after every interaction hold clears. */
-  private _flushIfReleased(): boolean {
-    if (this.holding) return false;
-    if (this.readerPendingFrame) return this.releaseReaderFreezeAtBottom();
-    if (!this.pendingRender) return false;
-    const pinToBottom = this.pendingPinToBottom || this.atBottom();
-    this.pendingRender = false;
-    this.pendingPinToBottom = false;
-    this.renderFull(pinToBottom);
-    return false;
+  /** Flush the latest canonical frame after every hold clears, but never cancel
+   * a persistent explicit reading interval. */
+  private _flushIfReleased(): LiveInteractionResult {
+    if (this.holding || this._readerIntent === "reading") {
+      return NO_LIVE_INTERACTION_RESULT;
+    }
+    return this._resumeLive(false);
   }
 
-  /** Rebuild the whole grid from this.frame — fresh mount / width change / reset
-   *  / hold-release, where the painted DOM can't be reused. Cheap even for deep
-   *  history: scrollback packs into content-visibility blocks (_appendScrollback),
-   *  so the browser's layout stays O(blocks). */
-  private renderFull(wasAtBottom: boolean): void {
+  private _copyFrameForReader(frame: CellGridFrame): CellGridFrame {
+    return {
+      ...frame,
+      viewportRows: frame.viewportRows.map((row) => ({
+        index: row.index,
+        spans: row.spans,
+      })),
+      scrollbackRows: frame.scrollbackRows.slice(),
+      scrollbackAppend: [],
+    };
+  }
+
+  private _resumeLive(clearHolds: boolean): LiveInteractionResult {
+    const before = this.backfillAnchor();
+    this._readerIntent = "live";
+    this._readerReason = null;
+    if (clearHolds) this._holdMask = 0;
+    if (this.holding) return NO_LIVE_INTERACTION_RESULT;
+
+    if (this.readerPendingFrame) {
+      this.frame = this.readerPendingFrame;
+      this.readerPendingFrame = null;
+      this.pendingRender = true;
+    }
+
+    let reconciled = false;
+    const frame = this.frame;
+    if (
+      frame
+      && (
+        this.pendingRender
+        || this._reconciledGridEpoch !== frame.gridEpoch
+        || this._reconciledSeq !== frame.seq
+      )
+    ) {
+      this.pendingRender = false;
+      this._reconcileCanonical(true);
+      reconciled = true;
+    } else {
+      this._pinToBottom(true);
+    }
+
+    const after = this.backfillAnchor();
+    const anchorChanged = before?.gridEpoch !== after?.gridEpoch
+      || before?.cols !== after?.cols
+      || before?.total !== after?.total
+      || before?.sbBase !== after?.sbBase;
+    if (!reconciled && !anchorChanged) return NO_LIVE_INTERACTION_RESULT;
+    return { reconciled, anchorChanged };
+  }
+
+  /** Reconcile a stale canonical frame without throwing away clean viewport
+   * rows. The explicit-reading/hold path is cold, so it may inspect all rows;
+   * normal deltas retain their sparse O(dirty) path. */
+  private _reconcileCanonical(pinToBottom: boolean): void {
+    const frame = this.frame;
+    if (!frame) return;
+    const sameEpoch = this._reconciledGridEpoch === frame.gridEpoch;
+    let canExtendHistory = sameEpoch
+      && this._paintedSbBase === frame.sbBase
+      && this._paintedScrollbackTotal <= frame.scrollbackTotal;
+    const appendOffset = this._paintedScrollbackTotal - frame.sbBase;
+    if (
+      canExtendHistory
+      && (appendOffset < 0 || appendOffset > frame.scrollbackRows.length)
+    ) canExtendHistory = false;
+    if (canExtendHistory) {
+      for (let i = appendOffset; i < frame.scrollbackRows.length; i++) {
+        if (frame.scrollbackRows[i]!.index !== frame.sbBase + i) {
+          canExtendHistory = false;
+          break;
+        }
+      }
+    }
+
+    if (canExtendHistory) {
+      if (appendOffset < frame.scrollbackRows.length) {
+        this._appendScrollback(frame.scrollbackRows.slice(appendOffset), pinToBottom);
+      } else {
+        this._syncSpacer();
+      }
+    } else {
+      // Grow the spacer to the incoming reserve before wiping history so the
+      // browser cannot clamp a reader into a transiently collapsed scroll box.
+      this._syncSpacer();
+      this.scrollbackEl.replaceChildren();
+      this._curBlock = null;
+      this._curBlockRows = 0;
+      this._appendScrollback(frame.scrollbackRows, pinToBottom);
+    }
+
+    if (!sameEpoch) {
+      this.viewportEl.replaceChildren();
+      this._rowEls = [];
+      this._rowHashes = [];
+    }
+    this.renderViewportRepair();
+    this.setGridWidth();
+    this._syncAltScreen();
+    this._pinToBottom(pinToBottom);
+    this._recordPaintedHistory();
+    this._markReconciledIfCurrent();
+  }
+
+  /** Atomically return an admitted local PTY interaction to persistent live
+   * rendering. Both interaction holds clear before the single stale check. */
+  prepareLiveInteraction(): LiveInteractionResult {
+    this._liveSelectionReleasePending = false;
+    return this._resumeLive(true);
+  }
+
+  /** Bracket the native scroll Chromium emits when an admitted interaction
+   * clears this pane's retained Selection while its terminal textarea is
+   * focused. The matching scroll consumes it; every later admitted input or
+   * explicit reader interaction clears an unused bracket first. */
+  beginLiveSelectionRelease(): void {
+    this._liveSelectionReleasePending = this._readerIntent === "live";
+  }
+
+  finishLiveSelectionRelease(): void {
+    this._liveSelectionReleasePending = false;
+  }
+
+  /** Rebuild the whole grid from this.frame for a fresh mount or authoritative
+   * reset. Held/reader reconciliation uses _reconcileCanonical to retain every
+   * clean row identity. Scrollback blocks keep deep-history layout bounded. */
+  private renderFull(followTail: boolean): void {
     if (!this.frame) return;
     // Reserve the incoming frame's [0, sbBase) hole BEFORE wiping painted
     // content: the scroll maximum must never transiently collapse below
@@ -371,11 +608,13 @@ export class CellGridRenderer {
     this.viewportEl.replaceChildren();
     this._rowEls = [];
     this._rowHashes = [];
-    this._appendScrollback(this.frame.scrollbackRows, wasAtBottom);
+    this._appendScrollback(this.frame.scrollbackRows, followTail);
     this.renderViewportRepair();
     this.setGridWidth();
     this._syncAltScreen();
-    this._pinToBottom(wasAtBottom);
+    this._pinToBottom(followTail);
+    this._recordPaintedHistory();
+    this._markReconciledIfCurrent();
   }
 
   /** Append rows to the scrollback, packing them into content-visibility "blocks"
@@ -389,15 +628,13 @@ export class CellGridRenderer {
    *  The OPEN tail block also opts OUT of content-visibility until it seals: a
    *  skipped subtree contributes its last-evaluated intrinsic size, and that is
    *  re-evaluated at rendering-lifecycle time, not when we append. Appending into
-   *  a locked tail therefore leaves scrollHeight stale for the rest of the task —
-   *  so apply()'s pre-mutation atBottom() and _pinToBottom() both read a bottom
-   *  that no longer exists and bottom-follow silently latches off (reproduced on
-   *  a parked deck pane: scrollTop froze at the park-time maximum while rows kept
-   *  arriving). Only the tail can grow; every sealed block's placeholder is exact,
-   *  so this costs at most SB_BLOCK rows of real layout per pane and leaves the
+   *  a locked tail therefore leaves scrollHeight stale for the rest of the task,
+   *  so even an explicit live pin can target a bottom that no longer exists.
+   *  Only the tail can grow; every sealed block's placeholder is exact, so this
+   *  costs at most SB_BLOCK rows of real layout per pane and leaves the
    *  deep-history win intact. Sealing is a no-op reflow precisely because the
    *  placeholder equals the block's real height. */
-  private _appendScrollback(rows: readonly CellRow[], wasAtBottom: boolean): void {
+  private _appendScrollback(rows: readonly CellRow[], followTail: boolean): void {
     this._curBlock?.style.setProperty("overflow-anchor", "none");
     for (const r of rows) {
       if (!this._curBlock || this._curBlockRows >= SB_BLOCK) {
@@ -418,15 +655,15 @@ export class CellGridRenderer {
       this._curBlockRows++;
     }
     if (this._curBlock) sizeBlock(this._curBlock, this._curBlockRows, this.rowHeight());
-    this._evictScrollback(wasAtBottom);
+    this._evictScrollback(followTail);
     this._syncSpacer();
   }
 
   /** Evict oldest whole content-visibility blocks once the held scrollback
-   *  window exceeds MAX_HELD_SCROLLBACK_ROWS. Runs only when the render began
-   *  at the literal bottom; readers inspecting history retain every held row.
-   *  Evicted rows stay fully recoverable: bumping sbBase keeps the held-window
-   *  invariant (scrollbackRows.length === scrollbackTotal - sbBase) honest, so
+   *  window exceeds MAX_HELD_SCROLLBACK_ROWS. Runs only while rendering follows
+   *  the live tail; explicit readers retain every held row. Evicted rows stay
+   *  fully recoverable: bumping sbBase keeps the held-window invariant
+   *  (scrollbackRows.length === scrollbackTotal - sbBase) honest, so
    *  scrollbackBackfill's onUserScrollUp re-pulls exactly the evicted range.
    *
    *  dropped = the leading block's ACTUAL child count, not a hardcoded
@@ -435,8 +672,8 @@ export class CellGridRenderer {
    *  via rows.slice(0,-1)), so a partial block at the head is the norm after
    *  any backfill cycle, not just the final chunk. Slicing by the real count
    *  keeps scrollbackRows aligned with the painted DOM regardless of size. */
-  private _evictScrollback(wasAtBottom: boolean): void {
-    if (!wasAtBottom) return;
+  private _evictScrollback(followTail: boolean): void {
+    if (!followTail) return;
     while (this.frame && this.frame.scrollbackRows.length > MAX_HELD_SCROLLBACK_ROWS) {
       // Leading child is a .cell-block (possibly partial from backfill); the
       // open tail block _curBlock is always last, so firstElementChild is never it.
@@ -451,6 +688,16 @@ export class CellGridRenderer {
       this.frame.sbBase += dropped;
     }
     // The final pin belongs to apply/renderFull. This method only trims rows.
+  }
+
+  private _recordPaintedHistory(): void {
+    if (!this.frame) {
+      this._paintedSbBase = 0;
+      this._paintedScrollbackTotal = 0;
+      return;
+    }
+    this._paintedSbBase = this.frame.sbBase;
+    this._paintedScrollbackTotal = this.frame.scrollbackTotal;
   }
 
   /** Insert an explicitly fetched contiguous history page above the painted
@@ -489,6 +736,7 @@ export class CellGridRenderer {
     };
     this._syncSpacer();
     this._pinToBottom(wasAtBottom);
+    this._recordPaintedHistory();
   }
 
   /** Reserve the unpainted [0, sbBase) history as truthful pixel space. A page
@@ -516,6 +764,140 @@ export class CellGridRenderer {
   /** Seq of the last applied frame (applyDelta carries the delta's seq through),
    *  reported on viewport claims so the worker can skip a redundant snapshot. */
   heldFrameSeq(): number { return this.readerPendingFrame?.seq ?? this.frame?.seq ?? 0; }
+
+  /** Latest accepted canonical model watermark. A reader-pending repair is
+   * canonical even though it has not changed the DOM. */
+  canonicalEpochSeq(): RendererEpochSeq {
+    const frame = this._canonicalFrame();
+    return {
+      grid_epoch: frame?.gridEpoch ?? null,
+      seq: frame?.seq ?? null,
+    };
+  }
+
+  /** Latest frame whose rows, mode, width, and authoritative cursor completed
+   * DOM reconciliation. This is not a raster-paint claim. */
+  reconciledEpochSeq(): RendererEpochSeq {
+    return {
+      grid_epoch: this._reconciledGridEpoch,
+      seq: this._reconciledSeq,
+    };
+  }
+
+  /** Why the canonical model is currently prevented from reconciling to DOM. */
+  reconcileBlockReason(): ReconcileBlockReason {
+    if (this.readerPendingFrame) return "reader_pending_frame";
+    const selection = (this._holdMask & RENDERER_HOLD_SELECTION) !== 0;
+    const link = (this._holdMask & RENDERER_HOLD_LINK) !== 0;
+    if (selection && link) return "selection_and_link_hold";
+    if (selection) return "selection_hold";
+    if (link) return "link_hold";
+    const frame = this.frame;
+    if (frame && this.predictedCol !== null && this.predictedCol !== frame.cursorCol) {
+      return "predicted_cursor";
+    }
+    if (this.pendingRender) return "pending_render";
+    const canonical = this.canonicalEpochSeq();
+    if (
+      canonical.grid_epoch !== this._reconciledGridEpoch
+      || canonical.seq !== this._reconciledSeq
+    ) return "not_reconciled";
+    return null;
+  }
+
+  /** Bounded scalar snapshot of canonical model versus reconciled DOM state. */
+  presentationSnapshot(): RendererPresentationSnapshot {
+    const canonical = this._canonicalFrame();
+    const reconciledMode = this._reconciledAltScreen === null
+      || this._reconciledCursorKeysApp === null
+      || this._reconciledBracketedPaste === null
+      ? null
+      : {
+        alt_screen: this._reconciledAltScreen,
+        cursor_keys_app: this._reconciledCursorKeysApp,
+        bracketed_paste: this._reconciledBracketedPaste,
+      };
+    return {
+      captured_at_ms: Date.now(),
+      canonical: this.canonicalEpochSeq(),
+      reconciled: this.reconciledEpochSeq(),
+      reader_intent: this._readerIntent,
+      reader_reason: this._readerReason,
+      hold_mask: {
+        selection: (this._holdMask & RENDERER_HOLD_SELECTION) !== 0,
+        link: (this._holdMask & RENDERER_HOLD_LINK) !== 0,
+      },
+      rows: {
+        canonical: canonical?.rows ?? null,
+        dom: this._rowEls.length,
+      },
+      mode: {
+        canonical: canonical ? {
+          alt_screen: canonical.altScreen,
+          cursor_keys_app: canonical.cursorKeysApp,
+          bracketed_paste: canonical.bracketedPaste,
+        } : null,
+        reconciled: reconciledMode,
+      },
+      cursor: {
+        canonical: canonical ? {
+          visible: canonical.cursorVisible,
+          row: canonical.cursorRow,
+          column: canonical.cursorCol,
+        } : null,
+        dom: {
+          visible: this._paintedCursorVisible,
+          row: this._paintedCursorVisible === true && this._paintedCursorRow >= 0
+            ? this._paintedCursorRow
+            : null,
+          column: this._paintedCursorVisible === true && this._paintedCursorCol >= 0
+            ? this._paintedCursorCol
+            : null,
+          connected: this.cursorEl.parentElement === this.viewportEl
+            && this.container.isConnected !== false,
+        },
+      },
+      cols: {
+        canonical: canonical?.cols ?? null,
+        dom: this._paintedCols,
+      },
+      at_bottom: this.atBottom(),
+    };
+  }
+
+  private _canonicalFrame(): CellGridFrame | null {
+    return this.readerPendingFrame ?? this.frame;
+  }
+
+  /** Commit the DOM watermark only from a completed reconciliation path.
+   * Row correctness is established procedurally by renderViewportRepair or
+   * renderDelta; the scalar checks cover the remaining mode/cursor surface. */
+  private _markReconciledIfCurrent(): void {
+    const frame = this.frame;
+    if (
+      !frame
+      || this.readerPendingFrame
+      || this.holding
+      || this.pendingRender
+      || this._rowEls.length !== frame.rows
+      || this._paintedCols !== frame.cols
+      || this._paintedAltScreen !== frame.altScreen
+      || this._paintedCursorVisible !== frame.cursorVisible
+      || (
+        frame.cursorVisible
+        && (
+          (this.predictedCol !== null && this.predictedCol !== frame.cursorCol)
+          || this._paintedCursorRow !== frame.cursorRow
+          || this._paintedCursorCol !== frame.cursorCol
+        )
+      )
+    ) return;
+    this._reconciledGridEpoch = frame.gridEpoch;
+    this._reconciledSeq = frame.seq;
+    this._reconciledAltScreen = frame.altScreen;
+    this._reconciledCursorKeysApp = frame.cursorKeysApp;
+    this._reconciledBracketedPaste = frame.bracketedPaste;
+  }
 
   /** Full viewport reconciliation is reserved for authoritative repairs, hold
    * release, and explicit find-highlight changes. Normal deltas never call it. */
@@ -603,6 +985,7 @@ export class CellGridRenderer {
     if (this.predictedCol === col) return;
     this.predictedCol = col;
     this.updateCursor();
+    this._markReconciledIfCurrent();
   }
 
   // Block cursor overlay at the worker's reported (row,col) — or the predicted
@@ -615,16 +998,19 @@ export class CellGridRenderer {
     const visible = this.frame.cursorVisible;
     if (visible !== this._paintedCursorVisible) {
       this._paintedCursorVisible = visible;
+      c.dataset.visible = String(visible);
       c.style.display = visible ? "block" : "none";
     }
     if (!visible) return;
     if (this.frame.cursorRow !== this._paintedCursorRow) {
       this._paintedCursorRow = this.frame.cursorRow;
+      c.dataset.row = String(this.frame.cursorRow);
       c.style.top = `${this.frame.cursorRow}lh`;
     }
     const col = this.predictedCol ?? this.frame.cursorCol;
     if (col !== this._paintedCursorCol) {
       this._paintedCursorCol = col;
+      c.dataset.column = String(col);
       c.style.left = `${col}ch`;
     }
   }
@@ -637,18 +1023,20 @@ export class CellGridRenderer {
     this.container.style.setProperty("--cell-cols", String(this.frame.cols));
   }
 
-  /** Visible viewport as text (one row per line) — exactly what's painted on
-   *  screen now. Source for keyterm extraction (keytermContext.ts), weight 1.0:
-   *  what you're looking at while you speak. */
+  /** Canonical/model viewport text (one row per line). This can advance while
+   *  reader/selection/link holds leave the reconciled DOM stale; it is never
+   *  presentation or paint proof. */
   gridText(): string {
-    if (!this.frame) return "";
-    return this.frame.viewportRows
-      .map((r) => rowText(r))
+    const frame = this._canonicalFrame();
+    if (!frame) return "";
+    return frame.viewportRows
+      .map((r) => spansText(r.spans))
       .join("\n");
   }
 
-  /** The latest applied CellGridFrame, or null before the first frame.
-   *  Source for terminal preview thumbnails (terminalPreview.ts). */
+  /** Accepted model frame, or null before the first frame. A readerPendingFrame
+   * may be newer, while a live interaction hold may leave this model ahead of
+   * DOM; use canonicalEpochSeq and presentationSnapshot for explicit truth. */
   get currentFrame(): CellGridFrame | null { return this.frame; }
 
   /** Last `maxRows` scrollback lines as text (oldest→newest), capped so a 10k
@@ -658,7 +1046,7 @@ export class CellGridRenderer {
     const rows = this.frame.scrollbackRows;
     return rows
       .slice(Math.max(0, rows.length - maxRows))
-      .map((r) => rowText(r))
+      .map((r) => spansText(r.spans))
       .join("\n");
   }
 
@@ -738,20 +1126,15 @@ export class CellGridRenderer {
     }
   }
 
-  /** The SECOND and LAST scrollTop writer, and the ONLY one besides
-   *  _pinToBottom. It runs exclusively from an explicit user gesture (find
-   *  next/prev, clicking a result) — NEVER from apply(), a resize, a reveal, a
-   *  hold release, or any frame path. That distinction is exactly what keeps the
-   *  L11 scroll-lurch class closed. Exact because _syncSpacer reserves
-   *  [0, sbBase) in pixels, so an absolute scrollback index maps to a fixed
-   *  content offset for the life of the epoch. One assignment, no smooth-scroll,
-   *  no scrollIntoView (which would also scroll ancestors), no correction pass. */
+  /** Explicit find navigation is a reader action. Enter reading before the one
+   * owned write so its asynchronous scroll event cannot immediately cancel it. */
   scrollToScrollbackRow(absIndex: number): void {
     const rowH = this.rowHeight();
     if (rowH <= 0) return;
+    this.enterReading("find");
     const top = this.spacerEl.offsetTop + absIndex * rowH;
     const max = Math.max(0, this.container.scrollHeight - this.container.clientHeight);
-    this.container.scrollTop = Math.max(0, Math.min(top - this.container.clientHeight / 3, max));
+    this._writeScrollTop(Math.max(0, Math.min(top - this.container.clientHeight / 3, max)));
   }
 
   /** Name the region for assistive tech. The owner sets it from the session's
@@ -761,13 +1144,27 @@ export class CellGridRenderer {
     this.container.setAttribute("aria-label", label);
   }
 
-  /** The sole production scrollTop writer. Native scrolling and browser
-   *  anchoring own every non-bottom position; a render only follows output when
-   *  it began at the literal maximum. */
-  private _pinToBottom(wasAtBottom: boolean): void {
-    if (!wasAtBottom) return;
+  private _writeScrollTop(value: number): void {
+    const before = this.container.scrollTop;
+    if (before !== value) this.container.scrollTop = value;
+    const after = this.container.scrollTop;
+    if (after !== before) {
+      if (this._ownedScrollEpoch === 0) {
+        this._nextOwnedScrollEpoch += 1;
+        this._ownedScrollEpoch = this._nextOwnedScrollEpoch;
+      }
+      this._ownedScrollTop = after;
+    } else if (this._ownedScrollEpoch !== 0) {
+      // Layout may clamp between two pins before their one coalesced event.
+      this._ownedScrollTop = after;
+    }
+  }
+
+  /** Pin only when requested and only when the live anchor actually moved. */
+  private _pinToBottom(shouldPin: boolean): void {
+    if (!shouldPin) return;
     const bottom = Math.max(0, this.container.scrollHeight - this.container.clientHeight);
-    if (this.container.scrollTop !== bottom) this.container.scrollTop = bottom;
+    this._writeScrollTop(bottom);
   }
 
   /** Is the viewport at the literal maximum scroll offset? */
@@ -776,32 +1173,52 @@ export class CellGridRenderer {
     return el.scrollTop >= Math.max(0, el.scrollHeight - el.clientHeight);
   }
 
-  /** Reconcile a frozen off-bottom reader only after they reach the bottom of
-   * the grid they were actually reading. Until then no streaming frame mutates
-   * its DOM or scroll geometry. */
-  releaseReaderFreezeAtBottom(): boolean {
-    if (!this.readerPendingFrame || this.holding || !this.atBottom()) return false;
-    this.frame = this.readerPendingFrame;
-    this.readerPendingFrame = null;
-    this.pendingRender = false;
-    this.pendingPinToBottom = false;
-    this.renderFull(true);
-    return true;
+  /** Classify one active-surface scroll event. A matching renderer epoch is
+   * consumed at its final coalesced position. Any mismatch clears ownership
+   * before native intent is classified, so the next genuine scroll cannot be
+   * swallowed by a stale pin. Clearing a retained Selection can first reveal
+   * the focused off-screen textarea at scrollTop=0; that bracketed lifecycle
+   * event re-pins and its resulting owned event is consumed normally. A genuine
+   * return to literal bottom adopts pending canonical state synchronously. */
+  handleScroll(): LiveInteractionResult {
+    if (this._ownedScrollEpoch !== 0) {
+      const owned = this.container.scrollTop === this._ownedScrollTop;
+      this._ownedScrollEpoch = 0;
+      if (owned) return NO_LIVE_INTERACTION_RESULT;
+    }
+    if (this._liveSelectionReleasePending && !this.atBottom()) {
+      this._liveSelectionReleasePending = false;
+      return this._resumeLive(false);
+    }
+    if (this.atBottom()) return this._resumeLive(false);
+    // wheel/touch/selection/find listeners identify stronger explicit intent
+    // before their native scroll event; do not degrade that reason to fallback.
+    if (this._readerIntent === "live") this.enterReading("native_scroll");
+    return NO_LIVE_INTERACTION_RESULT;
   }
 
   /** Container box changed (deck restyle, window resize, divider drag, keyboard
-   *  inset). A reader at the OLD box's literal bottom follows to the new bottom;
-   *  anyone else is untouched. max(prev, next) covers both directions: a shrink
-   *  leaves scrollTop below the new larger maximum, a grow clamps scrollTop onto
-   *  the new bottom — both read as at-bottom against the larger of the two. */
-  noteBoxResize(): void {
+   * inset). Detect the OLD literal bottom from the previous box height. A frame
+   * can arrive after layout but before ResizeObserver; resuming and reconciling
+   * here closes that interleave without depending on a scroll event. */
+  noteBoxResize(): LiveInteractionResult {
     const el = this.container;
     const h = el.clientHeight;
     const prev = this._lastBoxH;
     if (h > 0) this._lastBoxH = h;
-    if (prev <= 0 || h <= 0 || h === prev) return;
-    const wasAtBottom = el.scrollTop >= Math.max(0, el.scrollHeight - Math.max(prev, h));
-    this._pinToBottom(wasAtBottom);
+    if (prev <= 0 || h <= 0 || h === prev) {
+      return NO_LIVE_INTERACTION_RESULT;
+    }
+    const wasAtOldBottom =
+      el.scrollTop >= Math.max(0, el.scrollHeight - Math.max(prev, h));
+    if (!wasAtOldBottom) return NO_LIVE_INTERACTION_RESULT;
+    // A pre-scroll wheel/touch, selection, or find interval is explicit and must
+    // survive geometry. native_scroll may instead be the resize's own event.
+    if (
+      this._readerIntent === "reading"
+      && this._readerReason !== "native_scroll"
+    ) return NO_LIVE_INTERACTION_RESULT;
+    return this._resumeLive(false);
   }
 
   /** Within one viewport of the top of the painted scrollback — the backfill
@@ -821,7 +1238,20 @@ export class CellGridRenderer {
     this.viewportEl.remove();
     this.frame = null;
     this.readerPendingFrame = null;
-    this.pendingPinToBottom = false;
+    this._reconciledGridEpoch = null;
+    this._reconciledSeq = null;
+    this._reconciledAltScreen = null;
+    this._reconciledCursorKeysApp = null;
+    this._reconciledBracketedPaste = null;
+    this._readerIntent = "live";
+    this._readerReason = null;
+    this._holdMask = 0;
+    this._ownedScrollEpoch = 0;
+    this._ownedScrollTop = 0;
+    this._liveSelectionReleasePending = false;
+    this.pendingRender = false;
+    this._paintedSbBase = 0;
+    this._paintedScrollbackTotal = 0;
     this._rowEls = [];
     this._rowHashes = [];
   }

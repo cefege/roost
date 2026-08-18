@@ -12,9 +12,15 @@
 // exactly what CellGridRenderer touches — node identity is all we assert.
 
 import { describe, test, expect } from "bun:test";
-import { CellGridRenderer, blockPlaceholder, MAX_HELD_SCROLLBACK_ROWS } from "../src/lib/cellRenderer.ts";
-import { rowText } from "../src/lib/cellRow.ts";
-import { DEFAULT_COLOR, type CellGridFrame, type CellRow } from "@roost/shared/cell";
+import {
+  CellGridRenderer,
+  blockPlaceholder,
+  MAX_HELD_SCROLLBACK_ROWS,
+  RENDERER_HOLD_LINK,
+  RENDERER_HOLD_SELECTION,
+} from "../src/lib/cellRenderer.ts";
+import { registerRenderer, terminalBrowserStreamSnapshot } from "../src/lib/terminalPreview.ts";
+import { DEFAULT_COLOR, spansText, type CellGridFrame, type CellRow } from "@roost/shared/cell";
 
 // ── minimal fake DOM ──────────────────────────────────────────────────────
 class FakeStyle {
@@ -72,9 +78,14 @@ class FakeEl {
     return n;
   }
   private _scrollTop = 0;
+  nextScrollTopWriteResult: number | null = null;
   scrollTopWrites = 0;
   get scrollTop(): number { return this._scrollTop; }
-  set scrollTop(value: number) { this._scrollTop = value; this.scrollTopWrites++; }
+  set scrollTop(value: number) {
+    this._scrollTop = this.nextScrollTopWriteResult ?? value;
+    this.nextScrollTopWriteResult = null;
+    this.scrollTopWrites++;
+  }
   resetScrollTopWrites(): void { this.scrollTopWrites = 0; }
   clientHeight = 500;
   // scrollbackEl's offset inside .wterm (its offset parent). A preceding
@@ -132,12 +143,13 @@ function makeContainer(): FakeEl {
 
 // ── frame builders ────────────────────────────────────────────────────────
 function row(index: number, text: string): CellRow {
-  return { index, spans: text ? [{ text, fg: DEFAULT_COLOR, bg: DEFAULT_COLOR, flags: 0 }] : [] };
+  return { index, spans: text ? [{ text, columns: text.length, fg: DEFAULT_COLOR, bg: DEFAULT_COLOR, flags: 0 }] : [] };
 }
 const BASE = {
   gridEpoch: "test-grid:0",
   cursorRow: 0, cursorCol: 0, cursorVisible: true, altScreen: false,
   cursorKeysApp: false, bracketedPaste: false,
+  mouseTracking: 0, mouseSgr: false, focusEvents: false,
 } as const;
 function fullFrame(cols: number, viewport: CellRow[], scrollbackTotal = 0): CellGridFrame {
   return { ...BASE, cols, rows: viewport.length, full: true,
@@ -266,68 +278,95 @@ describe("CellGridRenderer DOM — append-only scrollback, no reflow", () => {
     expect((c.style as any)["--cell-cols"]).toBe("80");
   });
 
-  test("selection hold freezes viewport DOM, then flushes the latest frame on release", () => {
+  test("selection enters reading; release stays frozen until admitted input resumes live", () => {
     const c = makeContainer();
-    const r = new CellGridRenderer(c as any);
-    const viewportEl = vpEl(c); // ctor appends scrollback then viewport
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    const viewportEl = vpEl(c);
     const scrollbackEl = sbEl(c);
 
     expect(seedHeldHistory(r, 80, [row(0, "v0")], [row(0, "h0")])).toBe(true);
-    const heldRow = viewportEl.children[0]; // the painted viewport row node
-
-    // Selection active → frames fold into state but the DOM must NOT change,
-    // or the browser would drop the user's in-progress selection.
-    r.setSelectionHold(true);
-    expect(r.apply(deltaFrame(80, 1, [row(0, "v0-changed")], [row(1, "h1")], 2))).toBe(true);
-    expect(r.apply(deltaFrame(80, 1, [row(0, "v0-again")], [], 3))).toBe(true);
-    expect(viewportEl.children[0]).toBe(heldRow);   // viewport frozen
-    expect(sbRows(scrollbackEl).length).toBe(1);    // scrollback append deferred
-
-    // Release → reconcile to the LATEST folded frame (v0-again + h1 appended).
-    r.setSelectionHold(false);
-    expect(viewportEl.children[0]).not.toBe(heldRow); // repainted
-    expect(sbRows(scrollbackEl).length).toBe(2);      // deferred append applied
-  });
-
-  test("armed hold (Cmd-hover a link) freezes viewport, then flushes on release", () => {
-    const c = makeContainer();
-    const r = new CellGridRenderer(c as any);
-    const viewportEl = vpEl(c);
-
-    seedHeldHistory(r, 80, [row(0, "v0")], []);
+    const beforeHold = r.reconciledEpochSeq();
     const heldRow = viewportEl.children[0];
 
-    // Cmd-held over the pane → the linkifier holds repaints so the wrapped <a>
-    // isn't rebuilt out from under the cursor (the pointer↔text flicker).
-    r.setArmedHold(true);
-    r.apply(deltaFrame(80, 1, [row(0, "v0-changed")], [], 2));
-    expect(viewportEl.children[0]).toBe(heldRow); // frozen — anchor survives
-
-    r.setArmedHold(false);
-    expect(viewportEl.children[0]).not.toBe(heldRow); // repainted to latest
-  });
-
-  test("holds compose: releasing one while the other is active stays frozen", () => {
-    const c = makeContainer();
-    const r = new CellGridRenderer(c as any);
-    const viewportEl = vpEl(c);
-
-    seedHeldHistory(r, 80, [row(0, "v0")], []);
-    const heldRow = viewportEl.children[0];
-
-    r.setSelectionHold(true);
-    r.setArmedHold(true);
-    r.apply(deltaFrame(80, 1, [row(0, "v0-changed")], [], 2));
+    expect(r.setSelectionHold(true)).toEqual({ reconciled: false, anchorChanged: false });
+    expect(r.readerIntent).toBe("reading");
+    expect(r.holdMask).toBe(RENDERER_HOLD_SELECTION);
+    expect(r.apply({
+      ...deltaFrame(80, 1, [row(0, "v0-changed")], [row(1, "h1")], 3),
+      scrollbackTotal: 2,
+    })).toBe(true);
+    expect(r.apply({
+      ...deltaFrame(80, 1, [row(0, "v0-again")], [], 4),
+      scrollbackTotal: 2,
+    })).toBe(true);
     expect(viewportEl.children[0]).toBe(heldRow);
+    expect(sbRows(scrollbackEl).length).toBe(1);
+    expect(r.canonicalEpochSeq()).toEqual({ grid_epoch: "test-grid:0", seq: 4 });
+    expect(r.reconciledEpochSeq()).toEqual(beforeHold);
+    expect(r.reconcileBlockReason()).toBe("reader_pending_frame");
+    expect(r.presentationSnapshot().hold_mask).toEqual({ selection: true, link: false });
+    expect(r.gridText()).toBe("v0-again");
 
-    // Release selection — armed still holds → must stay frozen (a premature flush
-    // here would re-churn the link anchor the user is about to click).
-    r.setSelectionHold(false);
+    expect(r.setSelectionHold(false)).toEqual({ reconciled: false, anchorChanged: false });
     expect(viewportEl.children[0]).toBe(heldRow);
-
-    // Release the last hold → flush to latest.
-    r.setArmedHold(false);
+    expect(r.prepareLiveInteraction()).toEqual({ reconciled: true, anchorChanged: true });
     expect(viewportEl.children[0]).not.toBe(heldRow);
+    expect(sbRows(scrollbackEl).length).toBe(2);
+    expect(r.reconciledEpochSeq()).toEqual({ grid_epoch: "test-grid:0", seq: 4 });
+    expect(r.readerIntent).toBe("live");
+    expect(r.reconcileBlockReason()).toBeNull();
+  });
+
+  test("armed link hold freezes viewport and flushes on release without entering reading", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    const viewportEl = vpEl(c);
+
+    seedHeldHistory(r, 80, [row(0, "v0")], []);
+    const heldRow = viewportEl.children[0];
+
+    r.setArmedHold(true);
+    expect(r.readerIntent).toBe("live");
+    expect(r.holdMask).toBe(RENDERER_HOLD_LINK);
+    r.apply(deltaFrame(80, 1, [row(0, "v0-changed")], [], 2));
+    expect(viewportEl.children[0]).toBe(heldRow);
+    expect(r.canonicalEpochSeq()).toEqual({ grid_epoch: "test-grid:0", seq: 2 });
+    expect(r.reconciledEpochSeq()).toEqual({ grid_epoch: "test-grid:0", seq: 1 });
+    expect(r.reconcileBlockReason()).toBe("link_hold");
+
+    expect(r.setArmedHold(false)).toEqual({ reconciled: true, anchorChanged: false });
+    expect(viewportEl.children[0]).not.toBe(heldRow);
+    expect(r.reconciledEpochSeq()).toEqual({ grid_epoch: "test-grid:0", seq: 2 });
+    expect(r.reconcileBlockReason()).toBeNull();
+  });
+
+  test("selection and link holds clear atomically with at most one epoch repair", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    const viewportEl = vpEl(c);
+
+    seedHeldHistory(r, 80, [row(0, "v0")], []);
+    r.setSelectionHold(true);
+    r.setArmedHold(true);
+    expect(r.holdMask).toBe(RENDERER_HOLD_SELECTION | RENDERER_HOLD_LINK);
+    expect(r.presentationSnapshot().hold_mask).toEqual({ selection: true, link: true });
+    expect(r.apply({
+      ...altFullFrame(80, [row(0, "TUI")], []),
+      seq: 2,
+    })).toBe(true);
+
+    const originalReplace = viewportEl.replaceChildren.bind(viewportEl);
+    let repairWrites = 0;
+    viewportEl.replaceChildren = (...children: unknown[]) => {
+      repairWrites++;
+      originalReplace(...children);
+    };
+    expect(r.prepareLiveInteraction()).toEqual({ reconciled: true, anchorChanged: true });
+    expect(repairWrites).toBe(1);
+    expect(r.holdMask).toBe(0);
+    expect(r.readerIntent).toBe("live");
+    expect(c.classList.contains("alt-active")).toBe(true);
+    expect(r.reconcileBlockReason()).toBeNull();
   });
 
   test("a delta before any full frame is rejected and the next full is accepted", () => {
@@ -354,6 +393,18 @@ describe("CellGridRenderer DOM — append-only scrollback, no reflow", () => {
     // A fullscreen terminal app enters altScreen:true → alt-active latches (CSS hides
     // scrollback + locks scroll: no historic junk on top, no scroll-up).
     r.apply(altFullFrame(80, [row(0, "TUI")], [row(0, "stale-h0")]));
+    expect(r.presentationSnapshot().mode).toEqual({
+      canonical: {
+        alt_screen: true,
+        cursor_keys_app: false,
+        bracketed_paste: false,
+      },
+      reconciled: {
+        alt_screen: true,
+        cursor_keys_app: false,
+        bracketed_paste: false,
+      },
+    });
     expect(c.classList.contains("alt-active")).toBe(true);
 
     // A delta while still in alt keeps it on.
@@ -370,16 +421,78 @@ describe("CellGridRenderer DOM — append-only scrollback, no reflow", () => {
 // A regression to full reconstruction/re-hashing either changes untouched
 // node identity or trips the poisoned-row accessor below.
 describe("CellGridRenderer DOM — viewport diff", () => {
-  test("a content-identical delta touches NO viewport row nodes", () => {
+  test("a content-identical delta advances reconciliation without replacing rows", () => {
     const c = makeContainer();
-    const r = new CellGridRenderer(c as unknown as HTMLElement); // FakeEl covers the renderer's DOM surface
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
     const viewportEl = vpEl(c);
     seedHeldHistory(r, 80, [row(0, "v0"), row(1, "v1")], []);
     const n0 = viewportEl.children[0];
     const n1 = viewportEl.children[1];
-    r.apply(deltaFrame(80, 2, [row(0, "v0"), row(1, "v1")], [], 2)); // cursor-only style delta
+    expect(r.reconciledEpochSeq()).toEqual({ grid_epoch: "test-grid:0", seq: 1 });
+
+    // Same row hashes, mode, and cursor: reconciliation is proven by the
+    // completed diff/cursor/mode path even though it performs zero row writes.
+    r.apply(deltaFrame(80, 2, [row(0, "v0"), row(1, "v1")], [], 2));
     expect(viewportEl.children[0]).toBe(n0);
     expect(viewportEl.children[1]).toBe(n1);
+    expect(r.canonicalEpochSeq()).toEqual({ grid_epoch: "test-grid:0", seq: 2 });
+    expect(r.reconciledEpochSeq()).toEqual({ grid_epoch: "test-grid:0", seq: 2 });
+    expect(r.reconcileBlockReason()).toBeNull();
+  });
+
+  test("an empty-row cursor-only delta moves the cursor and preserves every row node", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    const viewportEl = vpEl(c);
+    seedHeldHistory(r, 80, [row(0, "v0"), row(1, "v1")], []);
+    const n0 = viewportEl.children[0];
+    const n1 = viewportEl.children[1];
+    const cursor = viewportEl.children.find((child: FakeEl) => child.className === "cell-cursor") as FakeEl;
+
+    expect(r.applyDeltaFrame({
+      ...deltaFrame(80, 2, [], [], 2),
+      cursorRow: 1,
+      cursorCol: 3,
+    })).toBe(true);
+
+    expect(viewportEl.children[0]).toBe(n0);
+    expect(viewportEl.children[1]).toBe(n1);
+    expect(cursor.style.top).toBe("1lh");
+    expect(cursor.style.left).toBe("3ch");
+    expect(cursor.dataset).toMatchObject({ row: "1", column: "3", visible: "true" });
+    expect(r.presentationSnapshot().cursor).toEqual({
+      canonical: { visible: true, row: 1, column: 3 },
+      dom: { visible: true, row: 1, column: 3, connected: true },
+    });
+    expect(r.reconciledEpochSeq()).toEqual({ grid_epoch: "test-grid:0", seq: 2 });
+  });
+
+  test("cursor-only pending state resumes cleanly without replacing row nodes", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    const viewportEl = vpEl(c);
+    seedHeldHistory(r, 80, [row(0, "v0"), row(1, "v1")], []);
+    const n0 = viewportEl.children[0];
+    const n1 = viewportEl.children[1];
+
+    r.enterReading("wheel");
+    expect(r.applyDeltaFrame({
+      ...deltaFrame(80, 2, [], [], 2),
+      cursorRow: 1,
+      cursorCol: 4,
+    })).toBe(true);
+    expect(r.presentationSnapshot().cursor).toEqual({
+      canonical: { visible: true, row: 1, column: 4 },
+      dom: { visible: true, row: 0, column: 0, connected: true },
+    });
+
+    expect(r.prepareLiveInteraction()).toEqual({ reconciled: true, anchorChanged: false });
+    expect(viewportEl.children[0]).toBe(n0);
+    expect(viewportEl.children[1]).toBe(n1);
+    expect(r.presentationSnapshot().cursor).toEqual({
+      canonical: { visible: true, row: 1, column: 4 },
+      dom: { visible: true, row: 1, column: 4, connected: true },
+    });
   });
 
   test("a one-row delta replaces ONLY that row's node, positionally", () => {
@@ -523,7 +636,7 @@ describe("CellGridRenderer DOM — held-window eviction", () => {
     for (let i = 0; i < batches; i++) {
       const append = seq(BLOCK).map((k) => row(idx + k, `s${idx + k}`));
       idx += BLOCK; total += BLOCK;
-      r.apply(appDelta(append, total, i + 2));
+      r.apply(appDelta(append, total, i + 3));
     }
     return { total, idx };
   };
@@ -542,24 +655,26 @@ describe("CellGridRenderer DOM — held-window eviction", () => {
     // Block count bounded (≤ ceil(MAX_HELD / BLOCK) + 1 open tail block).
     expect(scrollbackEl.children.length).toBeLessThanOrEqual(Math.ceil(MAX_HELD_SCROLLBACK_ROWS / BLOCK) + 1);
     // Tail row survived eviction unchanged.
-    expect(rowText(f.scrollbackRows[f.scrollbackRows.length - 1]!)).toBe(`s${idx - 1}`);
+    expect(spansText((f.scrollbackRows[f.scrollbackRows.length - 1]!).spans)).toBe(`s${idx - 1}`);
     expect(total).toBe(idx); // sanity: total tracks the last appended index
   });
 
-  test("returning to the bottom re-enables held-window eviction", () => {
+  test("returning to the bottom reconciles pending history and re-enables eviction", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
     seedHeldHistory(r, 80, [row(0, "v")], seq(100).map((i) => row(i, `h${i}`)));
     c.scrollTop = c.scrollHeight - c.clientHeight - ROW_PX;
+    expect(r.handleScroll()).toEqual({ reconciled: false, anchorChanged: false });
     c.resetScrollTopWrites();
-    const { idx } = grow(r, 100, 8);
-    expect(r.currentFrame!.scrollbackRows.length).toBe(100 + 8 * BLOCK);
-    expect(r.currentFrame!.scrollbackRows.length).toBeGreaterThan(MAX_HELD_SCROLLBACK_ROWS);
+    grow(r, 100, 8);
+    expect(r.readerIntent).toBe("reading");
+    expect(r.currentFrame!.scrollbackRows.length).toBe(100);
+    expect(r.heldFrameSeq()).toBe(10);
     expect(c.scrollTopWrites).toBe(0);
 
     c.scrollTop = Math.max(0, c.scrollHeight - c.clientHeight);
     c.resetScrollTopWrites();
-    r.apply(appDelta([row(idx, `s${idx}`)], idx + 1, 99));
+    expect(r.handleScroll()).toEqual({ reconciled: true, anchorChanged: true });
     const f = r.currentFrame!;
     expect(f.scrollbackRows.length).toBeLessThanOrEqual(MAX_HELD_SCROLLBACK_ROWS);
     expect(f.scrollbackTotal - f.sbBase).toBe(f.scrollbackRows.length);
@@ -612,19 +727,21 @@ describe("CellGridRenderer DOM — held-window eviction", () => {
     expect((scrollbackEl.children[2] as FakeEl).style["overflow-anchor"]).toBe("none");
   });
 
-  test("eviction leaves an inspected viewport untouched", () => {
+  test("explicit reading leaves the inspected viewport and painted history untouched", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
     c.clientHeight = 500;
     seedHeldHistory(r, 80, [row(0, "v")], seq(2000).map((i) => row(i, `h${i}`)));
     c.scrollTop = PAD_TOP + 800 * ROW_PX;
+    r.handleScroll();
     const held = c.scrollTop;
     const baseBefore = r.currentFrame!.sbBase;
     const append = seq(BLOCK).map((k) => row(2000 + k, `s${2000 + k}`));
     c.resetScrollTopWrites();
     r.apply(appDelta(append, 2000 + BLOCK, 99));
     expect(r.currentFrame!.sbBase).toBe(baseBefore);
-    expect(r.currentFrame!.scrollbackRows.length).toBe(2000 + BLOCK);
+    expect(r.currentFrame!.scrollbackRows.length).toBe(2000);
+    expect(r.heldFrameSeq()).toBe(99);
     expect(c.scrollTop).toBe(held);
     expect(c.scrollTopWrites).toBe(0);
   });
@@ -696,44 +813,242 @@ describe("CellGridRenderer DOM — content-visibility placeholder exactness", ()
   });
 });
 
-// ── bottom-only scrolling ─────────────────────────────────────────────────
-// The renderer samples literal-bottom geometry before a mutation. It writes the
-// new maximum only for that one case; native browser scrolling and anchoring own
-// every other position.
-describe("CellGridRenderer DOM — bottom-only scrolling", () => {
+// ── explicit reader intent + persistent live tail ─────────────────────────
+// Geometry is an effect, not intent. Live panes follow every accepted frame;
+// only explicit native/find/selection actions freeze canonical state from DOM.
+describe("CellGridRenderer DOM — reader intent and live tail", () => {
   const nRows = (n: number, from = 0) =>
     Array.from({ length: n }, (_, i) => row(from + i, `s${from + i}`));
   const appDelta = (append: CellRow[], total: number, seq: number): CellGridFrame =>
     ({ ...deltaFrame(80, 1, [row(0, "v")], append, seq), scrollbackTotal: total });
 
-  test("a frame appended at the exact bottom pins to the new bottom", () => {
+  test("live output follows the tail and its owned scroll event stays live", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
     seedHeldHistory(r, 80, [row(0, "v")], nRows(400));
     c.scrollTop = Math.max(0, c.scrollHeight - c.clientHeight);
     c.resetScrollTopWrites();
 
-    r.apply(appDelta([row(400, "new")], 401, 2));
+    r.apply(appDelta([row(400, "new")], 401, 3));
 
     expect(c.scrollTop).toBe(c.scrollHeight - c.clientHeight);
     expect(c.scrollTopWrites).toBe(1);
-    expect(r.atBottom()).toBe(true);
+    expect(r.readerIntent).toBe("live");
+    expect(r.handleScroll()).toEqual({ reconciled: false, anchorChanged: false });
+    expect(r.readerIntent).toBe("live");
   });
 
+  test("a coalesced pin retargets once, then the next native scroll reads", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    seedHeldHistory(r, 80, [row(0, "v")], nRows(400));
+    const bottom = Math.max(0, c.scrollHeight - c.clientHeight);
+    c.scrollTop = bottom;
+    r.handleScroll(); // observe the seed render before starting this epoch
 
-  test("one pixel above the bottom is not pinned by a streaming frame", () => {
+    r.setSelectionHold(true);
+    c.scrollTop = bottom - 1;
+    expect(r.apply({ ...appDelta([], 400, 3), cursorCol: 1 })).toBe(true);
+    c.resetScrollTopWrites();
+    expect(r.prepareLiveInteraction()).toEqual({ reconciled: true, anchorChanged: false });
+    expect(c.scrollTopWrites).toBe(1);
+
+    // Before the event is delivered, layout clamps the scroll position and a
+    // second live pin is already unchanged at that final coalesced value.
+    c.clientHeight += ROW_PX;
+    const finalOwnedTop = c.scrollHeight - c.clientHeight;
+    c.scrollTop = finalOwnedTop;
+    c.resetScrollTopWrites();
+    expect(r.prepareLiveInteraction()).toEqual({ reconciled: false, anchorChanged: false });
+    expect(c.scrollTopWrites).toBe(0);
+    expect(r.canonicalEpochSeq()).toEqual(r.reconciledEpochSeq());
+    expect(r.readerIntent).toBe("live");
+
+    c.clientHeight -= 1; // the one delivered event now observes off-bottom geometry
+    expect(r.atBottom()).toBe(false);
+    expect(r.handleScroll()).toEqual({ reconciled: false, anchorChanged: false });
+    expect(r.readerIntent).toBe("live");
+
+    c.scrollTop = finalOwnedTop - ROW_PX;
+    expect(r.handleScroll()).toEqual({ reconciled: false, anchorChanged: false });
+    expect(r.readerIntent).toBe("reading");
+    expect(r.readerReason).toBe("native_scroll");
+  });
+
+  test("selection release re-pins before its owned event, then the next wheel reads", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    seedHeldHistory(r, 80, [row(0, "v")], nRows(400));
+    const bottom = Math.max(0, c.scrollHeight - c.clientHeight);
+    c.scrollTop = bottom;
+    r.handleScroll(); // consume the seed render's owned event
+
+    // Actual Chromium order for an admitted key with a retained native range:
+    // prepare/reconcile → Selection.removeAllRanges → scrollTop=0 scroll →
+    // selectionchange → live re-pin scroll.
+    r.setSelectionHold(true);
+    expect(r.apply({ ...appDelta([], 400, 3), cursorCol: 1 })).toBe(true);
+    expect(r.prepareLiveInteraction()).toEqual({ reconciled: true, anchorChanged: false });
+    r.beginLiveSelectionRelease();
+    c.scrollTop = 0;
+    c.resetScrollTopWrites();
+
+    expect(r.handleScroll()).toEqual({ reconciled: false, anchorChanged: false });
+    expect(c.scrollTop).toBe(bottom);
+    expect(c.scrollTopWrites).toBe(1);
+    expect(r.readerIntent).toBe("live");
+    expect(r.readerReason).toBeNull();
+    expect(r.holdMask).toBe(0);
+    expect(r.canonicalEpochSeq()).toEqual(r.reconciledEpochSeq());
+
+    r.finishLiveSelectionRelease(); // asynchronous selectionchange
+    c.resetScrollTopWrites();
+    expect(r.handleScroll()).toEqual({ reconciled: false, anchorChanged: false });
+    expect(c.scrollTopWrites).toBe(0);
+    expect(r.readerIntent).toBe("live");
+
+    // The lifecycle bracket and its repin ownership are both gone. The very
+    // next genuine gesture must be visible and keep its explicit reason.
+    r.enterReading("wheel");
+    c.scrollTop = bottom - ROW_PX;
+    expect(r.handleScroll()).toEqual({ reconciled: false, anchorChanged: false });
+    expect(r.readerIntent).toBe("reading");
+    expect(r.readerReason).toBe("wheel");
+  });
+
+  test("unchanged and fully clamped pins leave no stale scroll ownership", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    seedHeldHistory(r, 80, [row(0, "v")], nRows(400));
+    const bottom = Math.max(0, c.scrollHeight - c.clientHeight);
+    c.scrollTop = bottom;
+    r.handleScroll();
+    c.scrollTop = bottom - ROW_PX;
+    r.handleScroll(); // mismatching native position ends the seed write's epoch
+
+    const clampedTop = c.scrollTop;
+    c.nextScrollTopWriteResult = clampedTop;
+    expect(r.prepareLiveInteraction()).toEqual({ reconciled: false, anchorChanged: false });
+    expect(r.readerIntent).toBe("live");
+    expect(r.atBottom()).toBe(false);
+    r.handleScroll();
+    expect(r.readerIntent).toBe("reading");
+    expect(r.readerReason).toBe("native_scroll");
+
+    c.scrollTop = bottom;
+    r.handleScroll();
+    expect(r.readerIntent).toBe("live");
+    c.clientHeight -= 1;
+    expect(r.atBottom()).toBe(false);
+    r.handleScroll();
+    expect(r.readerIntent).toBe("reading");
+    expect(r.readerReason).toBe("native_scroll");
+  });
+
+  test("transient off-bottom geometry does not freeze a live frame", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
     seedHeldHistory(r, 80, [row(0, "v")], nRows(400));
     c.scrollTop = c.scrollHeight - c.clientHeight - 1;
-    const before = c.scrollTop;
     c.resetScrollTopWrites();
 
-    r.apply(appDelta([row(400, "new")], 401, 2));
+    r.apply(appDelta([row(400, "new")], 401, 3));
 
-    expect(c.scrollTop).toBe(before);
+    expect(c.scrollTop).toBe(c.scrollHeight - c.clientHeight);
+    expect(c.scrollTopWrites).toBe(1);
+    expect(r.readerIntent).toBe("live");
+  });
+
+  test("passive full and delta output freeze behind explicit native reading", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    const viewportEl = vpEl(c);
+    seedHeldHistory(r, 80, [row(0, "old-v")], nRows(400));
+    c.scrollTop = PAD_TOP + 50 * ROW_PX;
+    expect(r.handleScroll()).toEqual({ reconciled: false, anchorChanged: false });
+    const heldRow = viewportEl.children[0];
+    const heldHeight = c.scrollHeight;
+    c.resetScrollTopWrites();
+
+    expect(r.apply({
+      ...altFullFrame(80, [row(0, "TUI")], []),
+      cursorKeysApp: true,
+      bracketedPaste: true,
+      scrollbackTotal: 410,
+      sbBase: 410,
+      seq: 3,
+    })).toBe(true);
+    expect(r.apply({
+      ...altDeltaFrame(80, 1, [row(0, "latest")], 4),
+      cursorKeysApp: true,
+      bracketedPaste: true,
+      scrollbackAppend: [row(410, "live-410")],
+      scrollbackTotal: 411,
+    })).toBe(true);
+
+    expect(r.readerIntent).toBe("reading");
+    expect(r.readerReason).toBe("native_scroll");
+    expect(r.currentFrame!.gridEpoch).toBe("test-grid:0");
+    expect(r.heldFrameSeq()).toBe(4);
+    expect(viewportEl.children[0]).toBe(heldRow);
+    expect(c.scrollHeight).toBe(heldHeight);
     expect(c.scrollTopWrites).toBe(0);
-    expect(r.atBottom()).toBe(false);
+    expect(r.presentationSnapshot().mode).toEqual({
+      canonical: {
+        alt_screen: true,
+        cursor_keys_app: true,
+        bracketed_paste: true,
+      },
+      reconciled: {
+        alt_screen: false,
+        cursor_keys_app: false,
+        bracketed_paste: false,
+      },
+    });
+  });
+
+  test("a genuine return to literal bottom reconciles pending canonical state", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    seedHeldHistory(r, 80, [row(0, "old-v")], nRows(400));
+    c.scrollTop = PAD_TOP + 50 * ROW_PX;
+    r.handleScroll();
+    r.apply({
+      ...appDelta([row(400, "new")], 401, 3),
+      viewportRows: [row(0, "latest-v")],
+    });
+    expect(r.currentFrame!.seq).toBe(2);
+
+    c.scrollTop = c.scrollHeight - c.clientHeight;
+    c.resetScrollTopWrites();
+    expect(r.handleScroll()).toEqual({ reconciled: true, anchorChanged: true });
+    expect(r.currentFrame!.seq).toBe(3);
+    expect(spansText((r.currentFrame!.viewportRows[0]!).spans)).toBe("latest-v");
+    expect(r.readerIntent).toBe("live");
+    expect(c.scrollTop).toBe(c.scrollHeight - c.clientHeight);
+    expect(c.scrollTopWrites).toBe(1);
+  });
+
+  test("find and native reader actions stay frozen until explicit live preparation", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    seedHeldHistory(r, 80, [row(0, "v")], nRows(400));
+
+    r.scrollToScrollbackRow(50);
+    expect(r.readerIntent).toBe("reading");
+    expect(r.readerReason).toBe("find");
+    r.handleScroll(); // consumes the find-owned write
+    expect(r.readerReason).toBe("find");
+    r.apply(appDelta([row(400, "new")], 401, 3));
+    expect(r.prepareLiveInteraction()).toEqual({ reconciled: true, anchorChanged: true });
+    expect(r.readerIntent).toBe("live");
+
+    c.scrollTop = c.scrollHeight - c.clientHeight - ROW_PX;
+    r.handleScroll();
+    expect(r.readerReason).toBe("native_scroll");
+    expect(r.prepareLiveInteraction()).toEqual({ reconciled: false, anchorChanged: false });
+    expect(r.readerIntent).toBe("live");
+    expect(r.atBottom()).toBe(true);
   });
 
   test("a non-bottom backfill prepend performs no application scroll write", () => {
@@ -754,79 +1069,22 @@ describe("CellGridRenderer DOM — bottom-only scrolling", () => {
     expect(r.currentFrame!.scrollbackRows.length).toBe(held + 100);
   });
 
-  test("entering alt-screen freezes inspected history until the reader returns", () => {
-    const c = makeContainer();
-    const r = new CellGridRenderer(c as unknown as HTMLElement);
-    seedHeldHistory(r, 80, [row(0, "v")], nRows(400));
-    c.scrollTop = PAD_TOP + 50 * ROW_PX;
-    c.resetScrollTopWrites();
-
-    r.apply(altFullFrame(80, [row(0, "TUI")], []));
-
-    expect(c.classList.contains("alt-active")).toBe(false);
-    expect(c.scrollTopWrites).toBe(0);
-    c.scrollTop = c.scrollHeight - c.clientHeight;
-    c.resetScrollTopWrites();
-    expect(r.releaseReaderFreezeAtBottom()).toBe(true);
-    expect(c.classList.contains("alt-active")).toBe(true);
-    expect(c.scrollTopWrites).toBe(1);
-  });
-
-  test("leaving alt-screen reconciles an already-bottom reader", () => {
-    const c = makeContainer();
-    const r = new CellGridRenderer(c as unknown as HTMLElement);
-    seedHeldHistory(r, 80, [row(0, "v")], nRows(400));
-    c.scrollTop = PAD_TOP + 50 * ROW_PX;
-    r.apply(altFullFrame(80, [row(0, "TUI")], []));
-    // Model the browser's alt-screen clamp as a literal-bottom position.
-    c.scrollTop = c.scrollHeight - c.clientHeight;
-    c.resetScrollTopWrites();
-
-    seedHeldHistory(r, 80, [row(0, "back")], nRows(400));
-
-    expect(c.classList.contains("alt-active")).toBe(false);
-    expect(c.scrollTop).toBe(c.scrollHeight - c.clientHeight);
-    expect(c.scrollTopWrites).toBe(0);
-    expect(r.atBottom()).toBe(true);
-  });
-
-  // Why parking a deck pane at its own leaf's rect (TerminalDeck termStyle) is
-  // the fix for "switching tabs loses the live bottom": the renderer is correct
-  // in BOTH cases below. It keeps following the bottom exactly as long as the
-  // scroll box's height doesn't change under it — a parked pane that keeps
-  // applying frames at a DIFFERENT height moves its own scroll maximum away from
-  // scrollTop, atBottom() latches false, and _pinToBottom (plus
-  // _evictScrollback) is dead for that pane until the user scrolls to the end.
-  test("frames applied while the box height is unchanged stay pinned to the live bottom", () => {
+  test("live intent persists through box changes before ResizeObserver runs", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
     seedHeldHistory(r, 80, [row(0, "v")], nRows(400));
     c.scrollTop = Math.max(0, c.scrollHeight - c.clientHeight);
     c.resetScrollTopWrites();
-
-    for (let k = 0; k < 3; k++)
-      r.apply(appDelta(nRows(50, 400 + 50 * k), 450 + 50 * k, 2 + k));
-
-    expect(c.scrollTop).toBe(c.scrollHeight - c.clientHeight);
-    expect(r.atBottom()).toBe(true);
-    expect(c.scrollTopWrites).toBe(3); // one pin per frame — single-writer contract
-  });
-
-  test("frames applied after the box height changed are not pinned", () => {
-    const c = makeContainer();
-    const r = new CellGridRenderer(c as unknown as HTMLElement);
-    seedHeldHistory(r, 80, [row(0, "v")], nRows(400));
-    c.scrollTop = Math.max(0, c.scrollHeight - c.clientHeight);
-    c.resetScrollTopWrites();
-    // Shrinking the box (the 800×600 park under a taller pane) raises the scroll
-    // maximum above the held scrollTop → the pre-mutation atBottom() reads false.
     c.clientHeight = 400;
 
-    for (let k = 0; k < 3; k++)
-      r.apply(appDelta(nRows(50, 400 + 50 * k), 450 + 50 * k, 2 + k));
+    for (let k = 0; k < 3; k++) {
+      r.apply(appDelta(nRows(50, 400 + 50 * k), 450 + 50 * k, 3 + k));
+    }
 
-    expect(c.scrollTopWrites).toBe(0);
-    expect(r.atBottom()).toBe(false);
+    expect(c.scrollTop).toBe(c.scrollHeight - c.clientHeight);
+    expect(r.atBottom()).toBe(true);
+    expect(r.readerIntent).toBe("live");
+    expect(c.scrollTopWrites).toBe(3);
   });
 });
 
@@ -906,11 +1164,13 @@ describe("CellGridRenderer DOM — truthful scroll space", () => {
   });
 
 
-  test("a same-epoch streaming repair freezes an off-bottom reader until bottom", () => {
+  test("a same-epoch streaming repair freezes explicit reading until atomic resume", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
     seedHeldHistory(r, 80, [row(0, "old-v")], nRows(250, 500), 750);
+    const reconciledBefore = r.reconciledEpochSeq();
     c.scrollTop = PAD_TOP + 600 * ROW_PX;
+    r.handleScroll();
     const readerBefore = rowAtReader(c);
     const heightBefore = c.scrollHeight;
     c.resetScrollTopWrites();
@@ -922,24 +1182,27 @@ describe("CellGridRenderer DOM — truthful scroll space", () => {
     });
 
     expect(r.currentFrame!.scrollbackTotal).toBe(750);
-    expect(r.currentFrame!.viewportRows[0]!.spans[0]!.text).toBe("old-v");
+    expect(spansText((r.currentFrame!.viewportRows[0]!).spans)).toBe("old-v");
     expect(r.heldFrameSeq()).toBe(4);
+    expect(r.canonicalEpochSeq()).toEqual({ grid_epoch: "test-grid:0", seq: 4 });
+    expect(r.reconciledEpochSeq()).toEqual(reconciledBefore);
+    expect(r.reconcileBlockReason()).toBe("reader_pending_frame");
     expect(c.scrollHeight).toBe(heightBefore);
     expect(c.scrollTopWrites).toBe(0);
     expect(rowAtReader(c)).toBe(readerBefore);
 
-    c.scrollTop = c.scrollHeight - c.clientHeight;
-    c.resetScrollTopWrites();
-    expect(r.releaseReaderFreezeAtBottom()).toBe(true);
+    expect(r.prepareLiveInteraction()).toEqual({ reconciled: true, anchorChanged: true });
     expect(r.currentFrame!.scrollbackTotal).toBe(761);
     expect(r.currentFrame!.sbBase).toBe(760);
     expect(r.currentFrame!.scrollbackRows[0]!.index).toBe(760);
-    expect(r.currentFrame!.viewportRows[0]!.spans[0]!.text).toBe("latest-v");
+    expect(spansText((r.currentFrame!.viewportRows[0]!).spans)).toBe("latest-v");
     expect(c.scrollTopWrites).toBe(1);
     expect(r.atBottom()).toBe(true);
+    expect(r.reconciledEpochSeq()).toEqual({ grid_epoch: "test-grid:0", seq: 4 });
+    expect(r.reconcileBlockReason()).toBeNull();
   });
 
-  test("releasing a hold reconciles a pending reader already at bottom", () => {
+  test("releasing selection alone preserves reading and pending canonical state", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
     seedHeldHistory(r, 80, [row(0, "old-v")], nRows(250, 500), 750);
@@ -947,35 +1210,29 @@ describe("CellGridRenderer DOM — truthful scroll space", () => {
     r.setSelectionHold(true);
     r.apply({ ...fullFrame(80, [row(0, "latest-v")], 760), seq: 3 });
 
-    c.scrollTop = c.scrollHeight - c.clientHeight;
+    expect(r.setSelectionHold(false)).toEqual({ reconciled: false, anchorChanged: false });
+    expect(r.currentFrame!.seq).toBe(2);
+    expect(r.readerIntent).toBe("reading");
     c.resetScrollTopWrites();
-    expect(r.releaseReaderFreezeAtBottom()).toBe(false);
-    expect(r.setSelectionHold(false)).toBe(true);
-
+    expect(r.prepareLiveInteraction()).toEqual({ reconciled: true, anchorChanged: true });
     expect(r.currentFrame!.seq).toBe(3);
-    expect(r.currentFrame!.viewportRows[0]!.spans[0]!.text).toBe("latest-v");
+    expect(spansText((r.currentFrame!.viewportRows[0]!).spans)).toBe("latest-v");
     expect(c.scrollTop).toBe(c.scrollHeight - c.clientHeight);
     expect(c.scrollTopWrites).toBe(1);
   });
 });
 
-// ── box geometry + epoch collapse: a reveal lands on the present ──────────
-// Bottom-follow used to latch off on ANY box-height change (window resize,
-// divider drag, park-size mismatch) with no recovery path, and a full frame
-// whose tail starts beyond everything the viewer held left the browser's
-// preserved pixel offset pointing into blank reserved space — the reader then
-// watched history paint top-down. noteBoxResize() re-latches a reader who was
-// at the OLD box's literal bottom; apply()'s slow path pins when the held
-// window has no image in the new epoch. The covered-overlap reframe onto an
-// off-bottom reader (zero writes) is locked by "a reframe keeps the reader on
-// the same absolute row" above and must stay green alongside these.
+// ── synchronous box reconciliation ───────────────────────────────────────
+// ResizeObserver can run after layout and after another cell frame. The old
+// literal-bottom sample repairs that interleave immediately, while explicit
+// off-bottom reading remains untouched.
 describe("CellGridRenderer DOM — box resize + unreachable window", () => {
   const spPx = (c: FakeEl): number =>
     parseFloat(String((c.children.find((x: FakeEl) => x.className === "cell-sb-spacer") as FakeEl).style.height));
   const nRows = (n: number, from = 0) =>
     Array.from({ length: n }, (_, i) => row(from + i, `b${from + i}`));
 
-  test("at-bottom reader follows a box shrink to the new bottom — exactly one pin", () => {
+  test("a live old-bottom anchor follows a box shrink with exactly one pin", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
     seedHeldHistory(r, 80, [row(0, "v")], nRows(400));
@@ -990,6 +1247,33 @@ describe("CellGridRenderer DOM — box resize + unreachable window", () => {
     expect(r.atBottom()).toBe(true);
 
     r.noteBoxResize(); // same height again — observer re-tick is a no-op
+    expect(c.scrollTopWrites).toBe(1);
+  });
+
+  test("old-bottom resize reconciles a frame that arrived after layout without scroll", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    seedHeldHistory(r, 80, [row(0, "old")], nRows(400));
+    c.scrollTop = Math.max(0, c.scrollHeight - c.clientHeight);
+    r.handleScroll(); // consume the seed pin's owned event
+
+    c.clientHeight = 400; // layout happens before ResizeObserver
+    r.handleScroll(); // model the geometry event that briefly looks native
+    expect(r.readerIntent).toBe("reading");
+    expect(r.apply({
+      ...fullFrame(80, [row(0, "after-layout")], 410),
+      scrollbackTotal: 410,
+      sbBase: 410,
+      seq: 3,
+    })).toBe(true);
+    expect(r.currentFrame!.seq).toBe(2);
+    c.resetScrollTopWrites();
+
+    expect(r.noteBoxResize()).toEqual({ reconciled: true, anchorChanged: true });
+    expect(r.currentFrame!.seq).toBe(3);
+    expect(spansText((r.currentFrame!.viewportRows[0]!).spans)).toBe("after-layout");
+    expect(r.readerIntent).toBe("live");
+    expect(c.scrollTop).toBe(c.scrollHeight - c.clientHeight);
     expect(c.scrollTopWrites).toBe(1);
   });
 
@@ -1027,11 +1311,12 @@ describe("CellGridRenderer DOM — box resize + unreachable window", () => {
     expect(r.atBottom()).toBe(true);
   });
 
-  test("an epoch-changing full frame also freezes an off-bottom reader", () => {
+  test("an epoch-changing full frame resumes atomically from explicit reading", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
     seedHeldHistory(r, 80, [row(0, "v")], nRows(250, 500), 750);
     c.scrollTop = PAD_TOP + 600 * ROW_PX;
+    r.handleScroll();
     const before = c.scrollTop;
     c.resetScrollTopWrites();
 
@@ -1047,10 +1332,7 @@ describe("CellGridRenderer DOM — box resize + unreachable window", () => {
     expect(c.scrollTopWrites).toBe(0);
     expect(r.currentFrame!.gridEpoch).toBe("test-grid:0");
     expect(r.heldFrameSeq()).toBe(3);
-
-    c.scrollTop = c.scrollHeight - c.clientHeight;
-    c.resetScrollTopWrites();
-    expect(r.releaseReaderFreezeAtBottom()).toBe(true);
+    expect(r.prepareLiveInteraction()).toEqual({ reconciled: true, anchorChanged: true });
     expect(r.currentFrame!.gridEpoch).toBe("test-grid:1");
     expect(c.scrollTop).toBe(c.scrollHeight - c.clientHeight);
     expect(c.scrollTopWrites).toBe(1);
@@ -1082,5 +1364,56 @@ describe("CellGridRenderer DOM — box resize + unreachable window", () => {
 
     expect(spacerAtWipe).toBe(6000 * ROW_PX);
     expect(heightAtWipe).toBeGreaterThanOrEqual(preScrollTop);
+  });
+});
+
+// ── the browser half of the layered history snapshot ──────────────────────
+// The worker's diagnostic snapshot reports the CORE's live range and the RING's
+// byte bounds; neither says what the browser actually holds, so "the browser is
+// missing history" and "the worker never had it" were the same observation. The
+// probe carries the held range in the SAME payload as the worker's two, read off
+// the very anchor the paging controller addresses history with.
+describe("terminalBrowserStreamSnapshot — the range this document holds", () => {
+  const nRows = (n: number, from = 0) =>
+    Array.from({ length: n }, (_, i) => row(from + i, `r${from + i}`));
+
+  test("reports the held range, not the frame's total, and follows a prepend", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    // 250 painted rows of a 750-row history: the shape a full frame always has.
+    seedHeldHistory(r, 80, [row(0, "v")], nRows(250, 500), 750);
+    const release = registerRenderer("probe-session", r);
+
+    const held = terminalBrowserStreamSnapshot("probe-session").history;
+    expect(held).toEqual({
+      grid_epoch: "test-grid:0",
+      sb_base: 500,
+      total: 750,
+      cols: 80,
+      rows_held: 250,
+      floor: null,
+    });
+
+    // A backfill page moves the held range down; the probe must move with it or a
+    // stale sb_base reads as history the browser does not actually have.
+    r.prependScrollback(nRows(100, 400));
+    const after = terminalBrowserStreamSnapshot("probe-session").history;
+    expect(after.sb_base).toBe(400);
+    expect(after.rows_held).toBe(350);
+    expect(after.total).toBe(750);
+    release();
+  });
+
+  test("an unregistered session reports explicit nulls rather than zeros", () => {
+    // A pane that never mounted holds NO range. Zeros would read as "holds all of
+    // history from row 0", which is the opposite of the truth.
+    expect(terminalBrowserStreamSnapshot("never-mounted").history).toEqual({
+      grid_epoch: null,
+      sb_base: null,
+      total: null,
+      cols: null,
+      rows_held: 0,
+      floor: null,
+    });
   });
 });

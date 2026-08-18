@@ -14,10 +14,9 @@ raw WebSockets for long-lived browser sync and outbound worker transport.
   Browser  (Solid SPA, any device on your tailnet)
      │
      │  Connect-RPC over HTTP/2 + protobuf Sync WebSocket
-     │    · unary            list calls, mutations
-     │    · Sync WebSocket   live deltas, cells, compact terminal links
-     │    · inputStream      keystrokes (client-streaming RPC)
-     │    · scrollback       history, resumable from a byte offset
+     │    · unary            list calls, mutations, scrollback-cell fetches
+     │    · Sync WebSocket   down: session events, cell grids, terminal links
+     │                       up:   typed viewport + input control frames
      ▼
  ┌────────────────────────────────────────────┐
  │ Coordinator  (Bun loopback · :4103)        │
@@ -40,9 +39,10 @@ raw WebSockets for long-lived browser sync and outbound worker transport.
 
 - **Web** (`apps/web/`) — a [Solid](https://www.solidjs.com) SPA on plain
   Vite. One `createStore` root; components read derived selectors and never
-  mutate the store directly. URL is the source of truth for navigation. The
-  terminal is `@wterm/dom`, a WASM VT core. Served as static files by the
-  coordinator in production.
+  mutate the store directly. URL is the source of truth for navigation. A
+  terminal pane is `CellGridRenderer` (`lib/cellRenderer.ts`) painting
+  worker-authored cell grids; the browser holds no VT core of its own. Served
+  as static files by the coordinator in production.
 - **Coordinator** (`apps/coord/`) — `Bun.serve` with Connect-RPC, Kysely over
   `bun:sqlite`. It is control-plane only: auth, the append-only event log, the
   `sessions` projection, and fan-out to browsers. It never holds PTY state of
@@ -68,15 +68,121 @@ and gets exactly the events it missed.
 
 ## The terminal data plane
 
-**Terminal input and output.** The browser streams keystrokes up a single
-long-lived `inputStream` RPC. The coordinator forwards them over the worker's
-WebSocket; the worker writes them into the keeper, which writes the PTY. Raw
-output returns only as far as the coordinator. The worker sends authoritative
-cell-grid snapshots and deltas, while the coordinator derives compact OSC 8
-text-to-URI mappings; those cells and links, never raw PTY bytes, cross the
-browser `Sync` WebSocket. Only visible panes claim cell delivery. Mounted
-offscreen panes keep their last grid without receiving cells, then reclaim an
-authoritative snapshot when revealed.
+**One browser control socket.** Everything a pane sends upstream rides the same
+Sync WebSocket, as a typed `SyncClientFrame` command — `viewport` or `input`
+(`apps/shared/proto/roost/v1/sync.proto`). There is no second browser stream
+for keystrokes. The coordinator admits a command only from the socket id it
+issued (`connect/sync-ws-handler.ts`), forwards it to the session's worker, and
+answers with exactly one typed result frame: `viewportAccepted` /
+`viewportRejected` / `viewportAmbiguous`, `inputAccepted` / `inputRejected` /
+`inputAmbiguous`. The worker writes keystrokes into the keeper, which writes
+the PTY. Raw output returns only as far as the coordinator: the worker sends
+authoritative cell-grid snapshots and deltas whose spans carry the core's own
+per-cell OSC 8 link identity (`PbCellSpan.link_uri`/`link_key`), and those
+cells — never raw PTY bytes — cross the Sync socket downward. Nothing derives
+hyperlinks from the byte stream and nothing matches link text.
+Only visible panes claim cell delivery; a
+mounted offscreen pane keeps its last grid without receiving cells, then
+reclaims an authoritative snapshot when revealed.
+
+**Proven outcomes, nested budgets.** A worker result carries a
+`TerminalWritePhase` (`PRE_WRITE`, `WRITTEN`, `UNKNOWN`) beside its status, so
+"rejected" means *proven* untouched and anything unproven is reported as
+ambiguous rather than guessed either way; on ambiguity the coordinator keeps
+the viewer's provisional cell subscription instead of rolling it back. Every
+command frame carries a *relative* `budget_ms` — the coordinator's remaining
+wait minus a 750 ms return-trip reserve (`connect/worker-send.ts`) — which the
+worker measures on its own monotonic clock from frame receipt, so the two hosts
+never compare wall clocks. Each hop is strictly inside the one outside it, so an
+inner expiry always reports back while its outer waiter is still listening, but
+the two paths have different chains. **Input:** the keeper's 2.5 s per-command
+watchdog (`COMMAND_RESULT_TIMEOUT_MS`, `keeper/keeper-pool-io.ts`) < the
+worker's `budget_ms` slice < the coordinator's `INPUT_CONTROL_TIMEOUT_MS` (5 s)
+< the browser's 10 s result timeout. **Viewport:** the same 2.5 s keeper
+watchdog inside the transaction's per-phase bounds (the largest,
+`keeper_written`, is 6 s), all clamped by both `budget_ms` and the
+`VIEWPORT_TXN_BUDGET_MS` 7 s whole-transaction ceiling < the coordinator's
+`VIEWPORT_CONTROL_TIMEOUT_MS` (8 s) < the browser's 10 s.
+
+**One desired viewport per mount.** `acquireTerminalViewportOwner(sessionId)`
+(`apps/web/src/ws/sync-outbound.ts`) is the only place a pane's desired
+geometry lives. The owner holds a token, so a stale mount's late claim cannot
+mutate a newer one; it exposes `claim`, `heartbeat`, `noteFullFrame`,
+`subscribeStatus`, and `dispose`, retries a rejected or lost claim on a bounded
+250 ms → 2 s ladder, and reports a typed status (`pending`, `retrying`,
+`repairing`, `ready`, `rejected`, `superseded`). Cell-delivery membership is a
+matching tokenized claim, `acquireCellMountClaim` (`store/sync-dispatch.ts`).
+Components keep no private "last sent" or "has a frame" liveness beside those.
+
+**Canonical model vs painted DOM.** These are deliberately different clocks,
+and every terminal probe reports both (`apps/web/src/lib/terminalPreview.ts`):
+`wire_received` is what the socket decoded, `handler_canonical` is the grid
+epoch and seq the pane folded, `dom_reconciled` is what actually got painted,
+and `reconcile_block_reason` names why the last two differ. A pane that is
+canonically current but intentionally frozen for a reader is a healthy state,
+not a stall — and a pane whose DOM watermark trails with no reason is a bug.
+
+**Live vs reading.** `CellGridRenderer` carries an explicit `ReaderIntent` —
+`"live"` or `"reading"` — plus a composed hold mask for an active selection and
+an armed link (`apps/web/src/lib/cellRenderer.ts`). Passive output and composer
+drafting never cancel a reader. One admitted local keystroke does:
+`prepareLiveInteraction()` clears both holds, adopts the reader-pending frame,
+and re-pins the bottom as a single transition, so an admitted input causes at
+most one repair. Leaving the visible surface — park, `pagehide`, unmount —
+ends the reading interval, so a pane you return to presents the newest
+canonical frame rather than the one its reader froze.
+
+**The application decides what happens to the mouse.** Every cell frame carries
+the modes the core read out of the PTY stream — `mouse_tracking` (DECSET
+1000/1002), `mouse_sgr` (1006) and `focus_events` (1004) — beside the older
+`cursor_keys_app`/`bracketed_paste` bits. The browser forwards a pointer gesture
+only when the app actually asked (`mouseForwardEnabled() && mouseTracking() !== 0`;
+the user preference survives as the override, defaulting on) and encodes it the
+way the app asked: SGR-1006, or legacy X10 with coordinates clamped at 223
+(`apps/web/src/lib/terminalMouse.ts`, a pure function so the decision is
+unit-testable). Mode 1000 reports press and release only; 1002 adds motion while
+a button is held. With `focus_events` armed the pane reports `ESC [ I` / `ESC [ O`
+on real focus and blur. Alt-screen occupancy is NOT the question and no longer
+gates anything: `vim`, `less` and `man` occupy it without requesting the mouse,
+and forwarding to them swallowed the click with no native fallback.
+
+**Support-grade terminal telemetry.** Three things the core knows and nothing
+else can reconstruct are sampled per session: escape sequences it reported as
+unhandled (`terminal.unhandled_sequence`, the "renders wrong in Roost, fine in
+iTerm" lane — deduplicated per session and reset when a rebuild mints a fresh
+core), OSC 8 hyperlink-table saturation (`terminal.hyperlink_saturated`, after
+which new distinct links silently degrade to plain text), and why history is
+missing — genuine eviction versus a resize-forced replay bounded by the raw ring
+(`ScrollbackHistoryFloor` on the scrollback-cells response). The core logs only
+unhandled CSI finals, so an empty list is not proof of full support.
+
+**Worker: a viewport change is a transaction.** `session-terminal-txn.ts` walks
+the phases named in `session-resize-capture.ts::TerminalTxnPhase` — validating
+→ admitted → keeper_written → pty_resized → grid_rebuilt → settled — each with
+its own bounded deadline under the transaction's ceiling. Only `validating` may
+fail as a definite rejection; past that a failure is ambiguous unless the
+keeper proves the PTY was never resized. Authoritative size and resize sequence
+are recovered from the keeper (`GetTerminalState`) rather than remembered, and
+the core is rebuilt exactly once per committed resize. Two lanes keep that off
+the typing path (`session-control-lanes.ts`): `terminalControlChains` gives
+whole transactions mutual exclusion per channel, while `keeperAdmissionLane`
+only preserves receive order for keeper writes and is released at the
+write-ordering boundary instead of the ACK, so PTY input never queues behind a
+pending resize result.
+
+**Coordinator: publication is durable and ordered.** `appendEvent`
+(`apps/coord/src/event-log.ts`) commits the `events` insert and the `sessions`
+fold in one SQLite transaction, then — strictly after commit — installs that
+event's exact authenticated worker/channel binding (`applyDurableChannelIndex`
+in `byte-hub.ts`) and only then publishes on `sessionBus`. No tab can observe
+`opened`, `respawned`, or `snapshot` before the route its first claim or
+keystroke needs exists, and superseded worker generations are fenced. Frames
+for a just-announced channel queue on the announcement barrier
+(`connect/announced-channel-barrier.ts`), which drains cell and binary frames
+in arrival order; if it overflows or times out while a viewer is watching, the
+coordinator marks that exact route for repair (`byte-hub.ts`) and replays a
+heartbeat-shaped claim with `held_cell_seq = 0`, which the worker answers with
+one authoritative full frame.
 
 **Guarded browser delivery.** A browser opts into application flow control with
 exact `flow=1` negotiation and cumulatively acknowledges delivery sequence
@@ -139,9 +245,27 @@ the model server-side terminal multiplexers use:
 - The **worker** holds the one authoritative grid per session and rebuilds it at
   a single agreed width on resize.
 - The **browser** renders that grid as-is and never re-reflows it.
-- History is **resumable**: every byte carries a monotonic sequence number, so a
-  client asks for "everything since seq N" and the stream splices back with no
-  gap and no duplication.
+- Delivery is **resumable by sequence**: every cell frame carries a monotonic
+  `seq`, a viewer's claim carries the `held_cell_seq` it has already applied,
+  and the worker answers a stale or unset sequence with one authoritative full
+  frame — so a splice never duplicates or drops. Retained history is fetched
+  separately, only on explicit demand (`SessionsGetScrollbackCells`, guarded by
+  `scrollback_total`). Per-byte sequence numbers survive one layer lower, in the
+  keeper's per-channel ring, so a restarted worker re-adopts a live PTY.
+- The **core** is `@wterm/core` 0.3.4, loaded through
+  `apps/shared/src/wterm-core-factory.ts` from a locally patched WASM build
+  committed at `apps/shared/wasm/wterm-roost.wasm`. Its sha256 sits beside it
+  in `wterm-roost.wasm.sha256`, and `scripts/rebuild-wterm-wasm.sh` reproduces
+  the build. Loading is fail-fast: `verifyRoostWasm` rehashes the bytes against
+  that digest and checks every 0.3.4 bridge export by name, throwing instead of
+  returning a degraded core.
+- Column occupancy is **explicit on the wire**: `PbCellSpan.columns` states how
+  many terminal columns a span owns, so a double-width glyph is one atomic
+  two-column span and no phantom continuation cell is ever emitted.
+- The scrollback origin is **authoritative, never inferred**:
+  `cell/emitter.ts::scrollbackOrigin` reads the core's
+  `getScrollbackDiscardedCount()` and throws if a core cannot supply it, so
+  absolute history indices can never re-alias.
 
 This is the part of the codebase with the most scar tissue; the recurring
 failure modes and their fixes are catalogued in `CLAUDE.md`.
@@ -154,9 +278,14 @@ failure modes and their fixes are catalogued in `CLAUDE.md`.
 - **Worker process crashes** — the keeper is a separate process, so PTYs
   survive; the restarted worker reattaches over the UDS and re-adopts open
   sessions.
-- **Browser disconnects** — the `Sync` WebSocket reconnects and backfills
-  missed events from the last event id; visible terminal panes reclaim the
-  current authoritative grid while history remains demand-paged.
+- **Browser disconnects** — the `Sync` WebSocket redials on capped monotonic
+  backoff (1 s → `SYNC_REDIAL_MAX_MS` 30 s, `store/sync-watchdog.ts`) and
+  backfills missed events from the last event id. The delay is capped, the
+  attempt count never is: only a hidden document sleeps, and one coalesced
+  lifecycle wake (`visibilitychange`, `pageshow`, Page Lifecycle `resume`,
+  `focus`) re-dials in place and replays every viewport owner, so recovery
+  never needs a reload. Visible terminal panes reclaim the current
+  authoritative grid while history remains demand-paged.
 - **Coordinator restarts** — workers redial, browsers reconnect, and every
   session is re-projected from the event log. No state is lost because the log
   is the source of truth.
@@ -165,15 +294,21 @@ failure modes and their fixes are catalogued in `CLAUDE.md`.
 
 - **Web:** `apps/web/src/main.tsx` (mount) · `routes.ts` ·
   `store/{root,projector,sync,selectors}.ts` · `connect.ts` (RPC client) ·
-  `components/CellTerminal.tsx` · `ws/input-channel.ts` ·
+  `components/CellTerminal.tsx` + `lib/cellRenderer.ts` ·
+  `ws/sync-outbound.ts` + `store/sync-dispatch.ts` (terminal control) ·
   `store/agent-status.ts` + `components/AgentNotificationBridge.tsx` (status +
   notifications)
 - **Coordinator:** `apps/coord/src/main.ts` (Bun wrapper) ·
   `coord-factory.ts` (`createCoord`) · `connect/router.ts` +
   `connect/handlers-*.ts` · `connect/auth-interceptor.ts` · `event-log.ts` ·
+  `byte-hub.ts` · `connect/session-control.ts` +
+  `connect/announced-channel-barrier.ts` (terminal control + barrier) ·
   `buses.ts` · `db/` · `agent-status-hub.ts` + `push-dispatch.ts`
 - **Worker:** `apps/worker/src/main.ts` · `session-manager.ts` ·
   `transport/CoordLink.ts` · `keeper/multiplexed-main.ts` · `fsm.ts` ·
+  `session-terminal-txn.ts` + `session-control-lanes.ts` (viewport
+  transaction + lanes) ·
   `agent-status/` (scanner, manifests, report server, integrations)
 - **Shared:** `apps/shared/proto/roost/v1/*.proto` · `src/wire/event.ts`
-  (`foldEvent`) · `src/wire/agent-status.ts`
+  (`foldEvent`) · `src/wire/agent-status.ts` · `src/cell/` (cell wire +
+  emitter) · `src/wterm-core-factory.ts` (pinned core + WASM verification)

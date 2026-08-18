@@ -8,10 +8,9 @@
 // (2) + (3) live outside this harness (Bun.serve WSS + Bun.Terminal); the
 // smoke under /roost-smoke covers the full flow against the deployed worker.
 // This file proves auth-gated unary setup plus the canonical Sync v2 terminal
-// control hook: downstream typed-frame composition, acknowledged outcomes, and
-// rollback when the worker leg is unavailable. Together with the shared proto
-// round-trip tests and coord-e2e.test.ts, the wire shape is covered without a
-// real PTY in these unit tests.
+// control hook: typed-frame composition, three-way acknowledged outcomes, and
+// transactional provisional membership. Shared proto round trips and
+// coord-e2e.test.ts cover the remaining wire shape without a real PTY here.
 
 import { create } from "@bufbuild/protobuf";
 import { describe, test, expect, beforeAll, afterAll, vi } from "bun:test";
@@ -21,6 +20,7 @@ import { join } from "node:path";
 import { ResizeCause } from "@roost/shared/proto/coordinator_pb";
 import {
   TerminalViewportStatus,
+  TerminalWritePhase,
   WViewportResultSchema,
   type CoordWorkerDown,
   type DViewportRequest,
@@ -203,6 +203,20 @@ async function rejectSyncViewport(
   return result.value;
 }
 
+async function ambiguateSyncViewport(
+  tabId: string,
+  command: ViewportCommand,
+  remoteAddress?: string,
+): Promise<Extract<SyncTerminalResultControl, { case: "viewportAmbiguous" }>["value"]> {
+  const result = await dispatchSyncViewport(tabId, command, remoteAddress);
+  expect(result.case).toBe("viewportAmbiguous");
+  if (result.case !== "viewportAmbiguous") {
+    throw new Error(`expected viewport ambiguity, received ${result.case}`);
+  }
+  expect(result.value.domainGeneration).toBe(TERMINAL_DOMAIN_GENERATION);
+  return result.value;
+}
+
 describe("coord-bidi spawn → Sync input → kill routing", () => {
   test("SessionsSpawn with no worker attached → FAILED_PRECONDITION", async () => {
     const resp = await authedFetch("/roost.v1.CoordinatorService/SessionsSpawn", {
@@ -269,10 +283,10 @@ describe("coord-bidi spawn → Sync input → kill routing", () => {
 });
 
 // Sync v2 owns browser viewport claims. Its socket identity supplies the
-// `${fp}:${tabId}` viewer key, and the command hook does not acknowledge an
-// intent until the worker returns a typed COMMITTED result. Without the
-// composite key, two tabs from the same browser would collapse into one entry,
-// and one tab's withdraw would drop the other tab's claim.
+// `${fp}:${tabId}` viewer key. Cell/viewer membership is provisional once the
+// worker transport admits a command: typed commit accepts, typed rejection
+// rolls back, and unknown completion remains TTL-backed for monotonic repair.
+// The composite key also keeps one tab's withdraw isolated from sibling tabs.
 describe("per-tab viewer identity — resize and cursor presence", () => {
   const FAKE_WORKER_FP = "deadbeef".repeat(8); // 64 hex chars
   let workerSends: CoordWorkerDown[] = [];
@@ -420,6 +434,248 @@ describe("per-tab viewer identity — resize and cursor presence", () => {
     expect(_viewersBySession.get(sid)?.has(viewerKey)).toBe(true);
   });
 
+  test("matching typed worker rejection rolls provisional membership back", async () => {
+    const sid = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    const tabId = "tab-TYPED-REJECT";
+    const viewerKey = syncViewerKey(tabId);
+    await seedSession(sid);
+    workerSends = [];
+    attachAcknowledgingWorker((frame) => {
+      workerSends.push(frame);
+      if (frame.frame.case === "viewportRequest") {
+        const request = frame.frame.value;
+        // Both coordinator projections are provisional before transport
+        // completion, then the matching typed rejection must undo both.
+        expect(isSubscribed(viewerKey, sid)).toBe(true);
+        expect(_viewersBySession.get(sid)?.has(viewerKey)).toBe(true);
+        resolvePendingRpc(request.requestId, create(WViewportResultSchema, {
+          requestId: request.requestId,
+          sessionId: request.sessionId,
+          clientSeq: request.clientSeq,
+          status: TerminalViewportStatus.REJECTED,
+          phase: TerminalWritePhase.PRE_WRITE,
+          reason: "keeper declined viewport",
+        }));
+      }
+      return 1;
+    });
+
+    try {
+      const rejected = await rejectSyncViewport(tabId, {
+        sessionId: sid, cols: 80, rows: 24,
+        clientSeq: 41n, cause: ResizeCause.INITIAL,
+      });
+      expect(rejected.reason).toBe("keeper declined viewport");
+      expect(isSubscribed(viewerKey, sid)).toBe(false);
+      expect(_viewersBySession.get(sid)?.has(viewerKey) ?? false).toBe(false);
+    } finally {
+      attachAcknowledgingWorker();
+    }
+  });
+
+  test("typed worker ambiguity retains TTL-backed provisional membership", async () => {
+    const sid = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+    const tabId = "tab-TYPED-AMBIGUOUS";
+    const viewerKey = syncViewerKey(tabId);
+    await seedSession(sid);
+    workerSends = [];
+    attachAcknowledgingWorker((frame) => {
+      workerSends.push(frame);
+      if (frame.frame.case === "viewportRequest") {
+        const request = frame.frame.value;
+        resolvePendingRpc(request.requestId, create(WViewportResultSchema, {
+          requestId: request.requestId,
+          sessionId: request.sessionId,
+          clientSeq: request.clientSeq,
+          status: TerminalViewportStatus.AMBIGUOUS,
+          reason: "keeper completion unknown",
+        }));
+      }
+      return 1;
+    });
+
+    try {
+      const ambiguous = await ambiguateSyncViewport(tabId, {
+        sessionId: sid, cols: 91, rows: 27,
+        clientSeq: 51n, cause: ResizeCause.INITIAL,
+      });
+      expect(ambiguous.reason).toBe("keeper completion unknown");
+      expect(isSubscribed(viewerKey, sid)).toBe(true);
+      expect(_viewersBySession.get(sid)?.get(viewerKey)).toMatchObject({
+        cols: 91,
+        rows: 27,
+      });
+    } finally {
+      attachAcknowledgingWorker();
+    }
+  });
+
+  test("a mismatched typed rejection is ambiguous and cannot roll membership back", async () => {
+    const sid = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+    const tabId = "tab-MISMATCHED-RESULT";
+    const viewerKey = syncViewerKey(tabId);
+    await seedSession(sid);
+    workerSends = [];
+    attachAcknowledgingWorker((frame) => {
+      workerSends.push(frame);
+      if (frame.frame.case === "viewportRequest") {
+        const request = frame.frame.value;
+        resolvePendingRpc(request.requestId, create(WViewportResultSchema, {
+          requestId: request.requestId,
+          sessionId: request.sessionId,
+          clientSeq: request.clientSeq + 1n,
+          status: TerminalViewportStatus.REJECTED,
+          phase: TerminalWritePhase.PRE_WRITE,
+          reason: "belongs to another attempt",
+        }));
+      }
+      return 1;
+    });
+
+    try {
+      const ambiguous = await ambiguateSyncViewport(tabId, {
+        sessionId: sid, cols: 96, rows: 32,
+        clientSeq: 56n, cause: ResizeCause.INITIAL,
+      });
+      expect(ambiguous.reason).toBe("mismatched worker viewport result");
+      expect(isSubscribed(viewerKey, sid)).toBe(true);
+      expect(_viewersBySession.get(sid)?.get(viewerKey)).toMatchObject({
+        cols: 96,
+        rows: 32,
+      });
+    } finally {
+      attachAcknowledgingWorker();
+    }
+  });
+
+  test("a newer zero-sequence ambiguity invalidates an older committed replay", async () => {
+    const sid = "ffffffff-ffff-4fff-8fff-ffffffffffff";
+    const tabId = "tab-CACHE-FENCE";
+    const viewerKey = syncViewerKey(tabId);
+    await seedSession(sid);
+    await acceptSyncViewport(tabId, {
+      sessionId: sid, cols: 84, rows: 26,
+      clientSeq: 70n, cause: ResizeCause.INITIAL,
+    });
+
+    workerSends = [];
+    attachAcknowledgingWorker((frame) => {
+      workerSends.push(frame);
+      if (frame.frame.case === "viewportRequest") {
+        const request = frame.frame.value;
+        resolvePendingRpc(request.requestId, create(WViewportResultSchema, {
+          requestId: request.requestId,
+          sessionId: request.sessionId,
+          clientSeq: request.clientSeq,
+          status: TerminalViewportStatus.AMBIGUOUS,
+          reason: "withdraw completion unknown",
+        }));
+      }
+      return 1;
+    });
+
+    try {
+      await ambiguateSyncViewport(tabId, {
+        sessionId: sid, cols: 0, rows: 0,
+        clientSeq: 0n, cause: ResizeCause.WITHDRAW,
+      });
+      expect(isSubscribed(viewerKey, sid)).toBe(false);
+      expect(viewportRequests()).toHaveLength(1);
+
+      attachAcknowledgingWorker();
+      const staleReplay = await rejectSyncViewport(tabId, {
+        sessionId: sid, cols: 84, rows: 26,
+        clientSeq: 70n, cause: ResizeCause.INITIAL,
+      });
+      expect(staleReplay.reason).toMatch(/stale|conflicting/);
+      expect(viewportRequests()).toHaveLength(1);
+      expect(isSubscribed(viewerKey, sid)).toBe(false);
+    } finally {
+      attachAcknowledgingWorker();
+    }
+  });
+
+  test("lost admitted result keeps membership and a late old rejection cannot undo its successor", async () => {
+    const sid = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+    const tabId = "tab-LOST-RESULT";
+    const viewerKey = syncViewerKey(tabId);
+    await seedSession(sid);
+    workerSends = [];
+    const firstSent = Promise.withResolvers<DViewportRequest>();
+    let viewportAttempt = 0;
+    attachAcknowledgingWorker((frame) => {
+      workerSends.push(frame);
+      if (frame.frame.case !== "viewportRequest") return 1;
+      const request = frame.frame.value;
+      viewportAttempt += 1;
+      if (viewportAttempt === 1) {
+        firstSent.resolve(request);
+        return 1;
+      }
+      nextChannelResizeSeq += 1n;
+      resolvePendingRpc(request.requestId, create(WViewportResultSchema, {
+        requestId: request.requestId,
+        sessionId: request.sessionId,
+        clientSeq: request.clientSeq,
+        status: TerminalViewportStatus.COMMITTED,
+        channelResizeSeq: nextChannelResizeSeq,
+        cols: request.cols,
+        rows: request.rows,
+        resized: true,
+      }));
+      return 1;
+    });
+
+    vi.useFakeTimers();
+    try {
+      const firstResult = dispatchSyncViewport(tabId, {
+        sessionId: sid, cols: 80, rows: 24,
+        clientSeq: 61n, cause: ResizeCause.INITIAL,
+      });
+      const oldRequest = await firstSent.promise;
+      expect(isSubscribed(viewerKey, sid)).toBe(true);
+      expect(_viewersBySession.get(sid)?.has(viewerKey)).toBe(true);
+
+      vi.advanceTimersByTime(8_000);
+      const ambiguous = await firstResult;
+      expect(ambiguous.case).toBe("viewportAmbiguous");
+      if (ambiguous.case !== "viewportAmbiguous") {
+        throw new Error(`expected viewport ambiguity, received ${ambiguous.case}`);
+      }
+      expect(ambiguous.value.reason).toMatch(/did not reply within \d+ms/);
+      expect(isSubscribed(viewerKey, sid)).toBe(true);
+      expect(_viewersBySession.get(sid)?.has(viewerKey)).toBe(true);
+
+      await acceptSyncViewport(tabId, {
+        sessionId: sid, cols: 104, rows: 38,
+        clientSeq: 62n, cause: ResizeCause.VIEWPORT,
+      });
+      expect(_viewersBySession.get(sid)?.get(viewerKey)).toMatchObject({
+        cols: 104,
+        rows: 38,
+      });
+
+      // The first correlation was retired by its deadline. Its late typed
+      // rejection settles nothing and therefore cannot trigger old rollback.
+      expect(resolvePendingRpc(oldRequest.requestId, create(WViewportResultSchema, {
+        requestId: oldRequest.requestId,
+        sessionId: oldRequest.sessionId,
+        clientSeq: oldRequest.clientSeq,
+        status: TerminalViewportStatus.REJECTED,
+        phase: TerminalWritePhase.PRE_WRITE,
+        reason: "late old rejection",
+      }))).toBe(false);
+      expect(isSubscribed(viewerKey, sid)).toBe(true);
+      expect(_viewersBySession.get(sid)?.get(viewerKey)).toMatchObject({
+        cols: 104,
+        rows: 38,
+      });
+    } finally {
+      vi.useRealTimers();
+      attachAcknowledgingWorker();
+    }
+  });
+
   test("worker receives composite viewer_id in the typed viewport request", async () => {
     const sid = "55555555-5555-5555-5555-555555555555";
     await seedSession(sid);
@@ -517,7 +773,7 @@ describe("per-tab viewer identity — resize and cursor presence", () => {
     expect(isSubscribed(viewerKey, sid)).toBe(true);
   });
 
-  test("failed first ordered claim rolls back and same-sequence retry reaches worker", async () => {
+  test("definite send failure rolls back and permits a same-sequence retry", async () => {
     const sid = "99999999-9999-4999-8999-999999999999";
     const tabId = "tab-RETRY";
     const viewerKey = syncViewerKey(tabId);
@@ -538,11 +794,13 @@ describe("per-tab viewer identity — resize and cursor presence", () => {
       const failed = await rejectSyncViewport(tabId, command);
       expect(failed.reason).toMatch(/worker unavailable/);
       expect(isSubscribed(viewerKey, sid)).toBe(false);
+      expect(_viewersBySession.get(sid)?.has(viewerKey) ?? false).toBe(false);
 
       await acceptSyncViewport(tabId, command);
       expect(sendAttempts).toBe(2);
       expect(viewportRequests()).toHaveLength(1);
       expect(isSubscribed(viewerKey, sid)).toBe(true);
+      expect(_viewersBySession.get(sid)?.has(viewerKey)).toBe(true);
       expect(viewportRequests()[0]!.clientSeq).toBe(30n);
     } finally {
       attachAcknowledgingWorker();

@@ -2,7 +2,7 @@
 // (MAX_SCROLLBACK_LINES 1k→10k) so a serialized alt-screen snapshot carries
 // the full depth, matching the SPA. Proven by contrast: the patched core
 // retains >1k scrollback lines after 5000 lines of output; stock @wterm/core
-// 0.3.0 (the inline base64) caps well below that.
+// 0.3.4 (the inline base64) caps well below that.
 
 import { test, expect } from "bun:test";
 import { WasmBridge } from "@wterm/core";

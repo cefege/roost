@@ -34,6 +34,34 @@ export const RAW_METADATA_COALESCE_MS = CELL_EMIT_COALESCE_MS;
 export const RAW_METADATA_CHANNEL_CAP_BYTES = 256 * 1024;
 export const RAW_METADATA_AGGREGATE_CAP_BYTES = 2 * 1024 * 1024;
 
+// DEC private mode 2026 (synchronized output). An application that opens a
+// synchronized frame is telling the renderer not to paint a half-drawn grid, so
+// the emitter withholds streaming cell frames until the frame closes. A stream
+// that opens one and never closes it — a TUI killed mid-repaint, a truncated
+// recording, a `printf` that emitted only the opener — would otherwise withhold
+// FOREVER: the browser goes dark while the core keeps parsing. Two independent
+// ceilings, because the two stuck shapes are different.
+//
+// Wall ceiling: a stuck block that goes SILENT produces no further chunks, so
+// nothing re-evaluates it; only an armed timer can recover that one. One second
+// is the plan's upstream recovery ceiling — long enough that a legitimate
+// multi-chunk repaint completes inside it, short enough that a user reads it as
+// a hitch rather than a hang.
+//
+// It bounds the EMITTER's own withholding and nothing else: a resize
+// transaction installs its own cell-emission gate, whose bound is the
+// transaction's phase budget, and it retires any open hold on the way in
+// (session-resize-capture.ts::installResizeCapture) precisely so the two
+// ceilings never compose into a hang neither one admits to.
+export const SYNC_OUTPUT_MAX_MS = 1_000;
+// Work ceiling: rows the browser may fall behind inside ONE synchronized frame,
+// counted as scrollback lines appended since the hold opened plus the currently
+// dirty viewport rows. A stuck block that keeps FLOODING is caught here, well
+// before the wall ceiling. 2,000 rows is ~83 full 80x24 repaints, more than one
+// second of 60fps full-screen redraw, so a real synchronized frame never
+// approaches it.
+export const SYNC_OUTPUT_MAX_PENDING_ROWS = 2_000;
+
 
 
 // Multi-viewer PTY size: SCD (smallest-common-denominator) policy. PTY

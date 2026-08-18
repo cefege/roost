@@ -20,7 +20,7 @@
 // authoritative CellGridFrame. The display preference is an injected typed
 // accessor, so this hot path performs no storage reads.
 
-import type { CellGridFrame } from "@roost/shared/cell";
+import { columnText, type CellGridFrame } from "@roost/shared/cell";
 import { diag } from "@roost/shared/diag";
 import type { PredictMode } from "./predictPref.ts";
 // SRTT/2 thresholds. send_interval = SRTT/2. Lowered so local echo engages on a
@@ -43,22 +43,17 @@ interface Pred {
   bornSeq: number;      // frame seq when predicted — confirm only against a LATER frame
 }
 
-/** Char at viewport (row,col) in a frame's run-length spans, or "" if blank/oob.
- *  Looks the row up by its `.index`, NOT array position: a DELTA frame's
- *  viewportRows holds only the CHANGED rows (types.ts:58-61), so array position
- *  ≠ grid row — indexing by position would read the wrong cell for any cursor
- *  off row 0 (the common bottom-prompt case) and block confirmation entirely.
- *  For full frames index === position, so this matches the old behavior. */
+/** Text painted at viewport (row,col) in a frame's run-length spans, or "" if
+ *  blank/oob. Looks the row up by its `.index`, NOT array position: a DELTA
+ *  frame's viewportRows holds only the CHANGED rows, so array position ≠ grid
+ *  row — indexing by position would read the wrong cell for any cursor off row 0
+ *  (the common bottom-prompt case) and block confirmation entirely. For full
+ *  frames index === position, so this matches the old behavior. Column lookup
+ *  goes through columnText because a span's text length is not its width. */
 function cellCharAt(frame: CellGridFrame, row: number, col: number): string {
   const r = frame.viewportRows.find((rr) => rr.index === row);
   if (!r) return "";
-  let c = 0;
-  for (const s of r.spans) {
-    const len = s.text.length;
-    if (col < c + len) return s.text[col - c] ?? "";
-    c += len;
-  }
-  return "";
+  return columnText(r.spans, col);
 }
 
 export class PredictiveEcho {

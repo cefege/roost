@@ -1,19 +1,22 @@
-// Persisted toggle: forward pointer + touch gestures to the running TUI as
-// SGR-1006 mouse-tracking (claude fullscreen click / drag / scroll) instead
-// of letting the browser handle them. OFF (default) = native browser
-// selection + DOM scroll; ON = claude gets the mouse, so a finger-swipe
-// scrolls claude and a click hits its UI. Toggled from Settings → Terminal.
-// Module-level signal so every deck-mounted pane shares one state; localStorage
-// makes the choice sticky across reloads.
+// Persisted escape hatch for mouse + touch forwarding. Forwarding itself is
+// gated on what the foreground application asked for (CellGridFrame.mouseTracking,
+// DECSET 1000/1002 read off the core), so this toggle is not the detector — it is
+// the user's override for the case the mode cannot express: keeping native
+// browser selection and scroll inside an app that DOES request the mouse (mouse-
+// selecting text out of htop). Module-level signal so every deck-mounted pane
+// shares one state; localStorage makes the choice sticky across reloads.
 //
-// Consumed by CellTerminal's pointer/touch handlers (only forward when this
-// is on AND the session is in alt-screen — a plain shell keeps native scroll).
+// Default ON, because the gate is precise: an app that never requested tracking
+// never receives events either way, so an opt-in only cost mouse-aware TUIs
+// their mouse. Toggled from Settings → Terminal and the mobile nav-mouse key;
+// consumed by CellTerminal's pointer/touch handlers, which forward only when this
+// is on AND the frame reports a nonzero tracking mode.
 
 import { createSignal } from "solid-js";
 
 const KEY = "roostMouseForward";
 const read = (): boolean => {
-  try { return localStorage.getItem(KEY) === "1"; } catch { return false; }
+  try { return localStorage.getItem(KEY) !== "0"; } catch { return true; }
 };
 
 const [mouseForwardEnabled, _set] = createSignal(read());

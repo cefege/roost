@@ -62,6 +62,12 @@ export const enum MuxFrameType {
   GetHistoryRecords = 0xE6, // request: no payload (per channel)
   GetHistoryRecordsResp = 0xE7, // ordered Output/Resize record payload
 
+  // Authoritative geometry recovery. A lost ResizeAck leaves the worker unable
+  // to prove which sequence the keeper consumed; retained history markers can
+  // be evicted, so the keeper answers from its live channel state instead.
+  GetTerminalState     = 0xEA, // client → keeper: no payload (per channel)
+  GetTerminalStateResp = 0xEB, // keeper → client: authoritative resize state
+
   // Authenticated administrative shutdown. The endpoint layer authenticates
   // Hello before either frame can be dispatched.
   Shutdown          = 0xE8, // client → keeper: empty payload (channel=0)
@@ -193,11 +199,24 @@ export const KeeperFeature = {
   OrderedHistory: "ordered_history_v1",
   AcknowledgedInput: "acknowledged_input_v1",
   AcknowledgedResize: "acknowledged_resize_v1",
+  TerminalState: "terminal_state_v1",
 } as const;
 
 export type KeeperFeature = typeof KeeperFeature[keyof typeof KeeperFeature];
 
 export const SUPPORTED_KEEPER_FEATURES: readonly KeeperFeature[] = [
+  KeeperFeature.OrderedHistory,
+  KeeperFeature.AcknowledgedInput,
+  KeeperFeature.AcknowledgedResize,
+  KeeperFeature.TerminalState,
+];
+
+/** Features whose ABSENCE makes a surviving keeper unusable. Deliberately NOT
+ *  the same list as above: an incompatible keeper is KILLED, taking every live
+ *  PTY with it, so a feature the worker can degrade gracefully must never appear
+ *  here. `TerminalState` is absent because the resize owner falls back to a
+ *  status probe of the last written sequence when the keeper predates it. */
+export const REQUIRED_KEEPER_FEATURES: readonly KeeperFeature[] = [
   KeeperFeature.OrderedHistory,
   KeeperFeature.AcknowledgedInput,
   KeeperFeature.AcknowledgedResize,
@@ -301,18 +320,6 @@ function readSequence(payload: Uint8Array, offset: number): number | null {
 export interface PtyInRequest {
   inputSeq: number;
   bytes: Uint8Array;
-}
-
-export function encodePtyInRequest(request: PtyInRequest): Buffer {
-  if (!isSafeSequence(request.inputSeq)
-      || request.bytes.byteLength === 0
-      || request.bytes.byteLength > KEEPER_MAX_INPUT_BYTES) {
-    throw new RangeError("invalid keeper input request");
-  }
-  const out = Buffer.allocUnsafe(8 + request.bytes.byteLength);
-  writeSequence(out, request.inputSeq, 0);
-  out.set(request.bytes, 8);
-  return out;
 }
 
 /** Hot-path input encoder: request header and defensive byte copy land
@@ -589,6 +596,69 @@ export function decodeResizeResult(
   if (seq === null) return null;
   const reason = decodeResizeReason(payload[8]!);
   return reason ? { kind: "reject", seq, reason } : null;
+}
+
+/** Authoritative per-channel resize state, read straight from the keeper's live
+ *  channel rather than from its bounded retained markers. `highestResizeSeq`
+ *  counts every sequence the keeper CONSUMED (applied or rejected), so the
+ *  worker's next allocation must exceed it even when the marker that recorded
+ *  it has already been evicted. */
+export interface KeeperTerminalState {
+  headSeq: number;
+  cols: number;
+  rows: number;
+  highestResizeSeq: number;
+  /** Highest sequence whose cached result is an ACK; 0 when none applied. */
+  appliedResizeSeq: number;
+}
+
+const TERMINAL_STATE_FORMAT_VERSION = 1;
+const TERMINAL_STATE_BYTES = 33;
+
+/** These three fields are COUNTERS, not sequences: zero is the truthful value
+ *  for a channel that has produced no output or consumed no resize. The shared
+ *  sequence codec rejects zero (a real command sequence starts at 1), so the
+ *  terminal state carries its own reader rather than encoding "nothing yet" as a
+ *  decode failure. */
+function readCounter(view: Buffer, offset: number): number | null {
+  const value = view.readBigUInt64BE(offset);
+  return value > BigInt(Number.MAX_SAFE_INTEGER) ? null : Number(value);
+}
+
+function isCounter(value: number): boolean {
+  return Number.isSafeInteger(value) && value >= 0;
+}
+
+export function encodeKeeperTerminalState(state: KeeperTerminalState): Buffer {
+  if (!isCounter(state.headSeq) || !isCounter(state.highestResizeSeq)
+      || !isCounter(state.appliedResizeSeq)
+      || !isDimension(state.cols) || !isDimension(state.rows)
+      || state.appliedResizeSeq > state.highestResizeSeq) {
+    throw new RangeError("invalid keeper terminal state");
+  }
+  const out = Buffer.allocUnsafe(TERMINAL_STATE_BYTES);
+  out[0] = TERMINAL_STATE_FORMAT_VERSION;
+  out.writeBigUInt64BE(BigInt(state.headSeq), 1);
+  out.writeBigUInt64BE(BigInt(state.highestResizeSeq), 9);
+  out.writeBigUInt64BE(BigInt(state.appliedResizeSeq), 17);
+  out.writeUInt32BE(state.cols, 25);
+  out.writeUInt32BE(state.rows, 29);
+  return out;
+}
+
+export function decodeKeeperTerminalState(payload: Uint8Array): KeeperTerminalState | null {
+  if (payload.byteLength !== TERMINAL_STATE_BYTES) return null;
+  const view = Buffer.from(payload.buffer, payload.byteOffset, payload.byteLength);
+  if (view[0] !== TERMINAL_STATE_FORMAT_VERSION) return null;
+  const headSeq = readCounter(view, 1);
+  const highestResizeSeq = readCounter(view, 9);
+  const appliedResizeSeq = readCounter(view, 17);
+  if (headSeq === null || highestResizeSeq === null || appliedResizeSeq === null) return null;
+  if (appliedResizeSeq > highestResizeSeq) return null;
+  const cols = view.readUInt32BE(25);
+  const rows = view.readUInt32BE(29);
+  if (!isDimension(cols) || !isDimension(rows)) return null;
+  return { headSeq, cols, rows, highestResizeSeq, appliedResizeSeq };
 }
 
 export type KeeperHistoryRecord =

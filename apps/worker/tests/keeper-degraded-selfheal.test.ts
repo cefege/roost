@@ -52,7 +52,7 @@ describe("keeper degradation self-heal", () => {
     (h.mgr as unknown as { sessions: Map<number, unknown> }).sessions.set(7, {
       sessionId: "00000000-0000-0000-0000-000000000000", channelId: 7, socketPath: "/dev/null",
       kind: "shell", cwd: "/", fsm: {}, bridge: null, scrollback: createSbRing(),
-      head_seq: 0, alt_mode: false, mode_carry: new Uint8Array(0), osc7_carry: new Uint8Array(0),
+      head_seq: 0, alt_mode: false, mode_carry: new Uint8Array(0), osc7_carry: new Uint8Array(0), query_carry: new Uint8Array(0),
       ...initAgentOscState(),
       wtermCore: core, cell_emit: initCellEmitState("test-grid"),
     });

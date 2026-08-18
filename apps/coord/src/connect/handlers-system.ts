@@ -18,10 +18,26 @@ import { AuditRowSchema } from "@roost/shared/proto/wire_pb";
 import { callerOrigin, requireAuth } from "./auth-interceptor.ts";
 import { assertOnHost } from "../middleware/caller-origin.ts";
 import { COORD_GIT_SHA } from "../git-sha.ts";
+import { ROOST_ARTIFACT_VERSION } from "@roost/shared/build-identity";
 import { getMetricsSnapshot } from "../telemetry.ts";
 import { _viewersBySession } from "./viewer-tracker.ts";
-import { _cellSubscriptionSnapshot } from "./cell-subscriptions.ts";
+import {
+  _cellSubscriptionSnapshot,
+  _cellSubscriptionStateSnapshot,
+  type CellSubscriptionDiagnostic,
+} from "./cell-subscriptions.ts";
+import {
+  _announcedBarrierSnapshot,
+  _barrierRepairSnapshot,
+  _lastCellSnapshot,
+  _sessionRouteSnapshot,
+  type CoordinatorBarrierRepairDiagnostic,
+  type CoordinatorLastCellDiagnostic,
+} from "../byte-hub.ts";
 import { getAgentStatusDiagnostics } from "../agent-status-hub.ts";
+import { connectWorkers } from "./worker-registry.ts";
+import { collectWorkerDiagSnapshots } from "./worker-send.ts";
+import { _pendingRpcStats } from "../router/pending-rpcs.ts";
 import type { ConnectDeps } from "./router.ts";
 
 // Coord process boot time — captured at module load (coord startup). Used
@@ -115,36 +131,129 @@ export function makeSystemHandlers(
       return create(DiagDebugLogBatchResponseSchema, { accepted });
     },
 
-    // On-demand state dump. Coord serializes its own viewer maps,
-    // fans out diag-snapshot to every connected worker, merges in the
-    // SPA's caller-supplied snapshot, then emits ONE diag.snapshot
-    // event so it's greppable by `evt":"diag.snapshot"`.
+    // On-demand state dump. The coordinator captures its bounded local state,
+    // requests one correlated snapshot from every known worker that is live,
+    // and waits only through the worker-RPC deadline before returning.
     async diagSnapshot(req, ctx) {
       requireAuth(ctx.values);
+      const capturedAtMs = Date.now();
+      const connectedWorkerFps = new Set(connectWorkers.keys());
+      const routeState = _sessionRouteSnapshot();
+      const lastCellState = _lastCellSnapshot();
+      const barrierRepairState = _barrierRepairSnapshot(capturedAtMs);
+      const subscriptionState = _cellSubscriptionStateSnapshot(capturedAtMs);
+      const activeSubscriptions = _cellSubscriptionSnapshot();
+      const openSessions = await deps.db.selectFrom("sessions")
+        .select(["id", "worker_fp", "channel"])
+        .where("status", "=", "open")
+        .execute();
+      const registeredWorkers = await deps.db.selectFrom("workers")
+        .select("fp")
+        .execute();
+
+      type CoordSessionDiagnostic = {
+        route: {
+          worker_fp: string;
+          channel_id: number;
+          connected: boolean;
+          source: "live_cache" | "database";
+        } | null;
+        last_cell: CoordinatorLastCellDiagnostic | null;
+        /** Routes whose announced cell frames were dropped: while a mark stands,
+         *  the coordinator forces that route's next claim to fetch a full frame. */
+        barrier_repair: CoordinatorBarrierRepairDiagnostic[];
+        viewers: Record<string, {
+          cols: number;
+          rows: number;
+          last_ms: number;
+          age_ms: number;
+          client_seq: number;
+        }>;
+        subscriptions: Record<string, CellSubscriptionDiagnostic>;
+      };
+      const sessions: Record<string, CoordSessionDiagnostic> = {};
+      const ensureSession = (sessionId: string): CoordSessionDiagnostic => {
+        let state = sessions[sessionId];
+        if (!state) {
+          const route = routeState[sessionId];
+          state = {
+            route: route ? {
+              ...route,
+              connected: connectedWorkerFps.has(route.worker_fp),
+              source: "live_cache",
+            } : null,
+            last_cell: lastCellState[sessionId] ?? null,
+            barrier_repair: barrierRepairState[sessionId] ?? [],
+            viewers: {},
+            subscriptions: {},
+          };
+          sessions[sessionId] = state;
+        }
+        return state;
+      };
+
+      for (const row of openSessions) {
+        const state = ensureSession(row.id);
+        if (!state.route) {
+          state.route = {
+            worker_fp: row.worker_fp,
+            channel_id: row.channel,
+            connected: connectedWorkerFps.has(row.worker_fp),
+            source: "database",
+          };
+        }
+      }
+      for (const [sessionId, viewers] of _viewersBySession) {
+        const state = ensureSession(sessionId);
+        for (const [viewerId, viewer] of viewers) {
+          state.viewers[viewerId] = {
+            cols: viewer.cols,
+            rows: viewer.rows,
+            last_ms: viewer.lastMs,
+            age_ms: Math.max(0, capturedAtMs - viewer.lastMs),
+            client_seq: viewer.clientSeq,
+          };
+        }
+      }
+      for (const [viewerId, bySession] of Object.entries(subscriptionState)) {
+        for (const [sessionId, subscription] of Object.entries(bySession)) {
+          ensureSession(sessionId).subscriptions[viewerId] = subscription;
+        }
+      }
+      for (const sessionId of Object.keys(lastCellState)) ensureSession(sessionId);
+      for (const sessionId of Object.keys(barrierRepairState)) ensureSession(sessionId);
+
+      const workerFps = new Set(registeredWorkers.map((worker) => worker.fp));
+      for (const workerFp of connectedWorkerFps) workerFps.add(workerFp);
+      const workers = await collectWorkerDiagSnapshots(workerFps);
       const coordState: Record<string, unknown> = {
-        viewers_by_session: Object.fromEntries(
-          Array.from(_viewersBySession.entries()).map(([sid, m]) => [
-            sid,
-            Object.fromEntries(Array.from(m.entries()).map(([k, v]) => [k, v])),
-          ]),
-        ),
-        cell_subscriptions: _cellSubscriptionSnapshot(),
+        build: {
+          git_sha: COORD_GIT_SHA,
+          artifact_version: ROOST_ARTIFACT_VERSION,
+        },
+        sessions,
+        cell_subscriptions: activeSubscriptions,
         agent_status: getAgentStatusDiagnostics(),
+        announced_barrier: _announcedBarrierSnapshot(),
+        terminal_control: {
+          pending_rpcs: _pendingRpcStats().pending,
+        },
       };
 
       let spaPayload: unknown = null;
       if (req.spaStateJson) {
-        try { spaPayload = JSON.parse(req.spaStateJson); } catch { /* ignore */ }
+        try { spaPayload = JSON.parse(req.spaStateJson); } catch { /* explicit null below */ }
       }
 
       const snapshot = {
-        ts_ms: Date.now(),
+        captured_at_ms: capturedAtMs,
         coord: coordState,
-        workers: {},
+        workers,
         spa: spaPayload,
       };
-      log.info("diag", "diag.snapshot", { src: "coord", snapshot_size: JSON.stringify(snapshot).length });
-      return create(DiagSnapshotResponseSchema, { snapshotJson: JSON.stringify(snapshot) });
+      const snapshotJson = JSON.stringify(snapshot);
+      log.info("diag", "diag.snapshot", { src: "coord", snapshot_size: snapshotJson.length });
+      return create(DiagSnapshotResponseSchema, { snapshotJson });
     },
 
     // ─── audit ────────────────────────────────────────────────────────

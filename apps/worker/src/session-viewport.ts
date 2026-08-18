@@ -1,21 +1,17 @@
-// Multi-viewer SCD viewport claims + deterministic wtermCore rebuild-on-resize.
-// Split out of session-manager.ts (400-line cap); bodies byte-for-byte
-// unchanged, called with a SessionManager `this`.
+// Multi-viewer SCD viewport claims. The claim map is the browser-facing intent;
+// every SIZE decision it implies is executed by the one terminal-control owner
+// (session-terminal-control.ts::reconcileTerminalViewport → the transaction in
+// session-terminal-txn.ts), which also owns the keeper resize, the resize
+// capture, and the single core rebuild. Nothing here writes to the keeper.
 
 import type { SessionManager } from "./session-manager.ts";
 import type { ChannelId } from "@roost/shared";
-import { log, diag } from "@roost/shared";
-import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
-import { ALT_ENTER_SEQS } from "./terminal-stream-scan.ts";
-import { _createWtermCore } from "./session-constants.ts";
-import { readRing } from "./session-scrollback-ring.ts";
+import { diag } from "@roost/shared";
 import {
 	VIEWER_WITHDRAW_GRACE_MS as VIEWPORT_WITHDRAW_GRACE_MS,
 	VIEWER_CLAIM_TTL_MS as VIEWPORT_CLAIM_TTL_MS,
 	VIEWER_CLAIM_FRESH_MS,
 } from "@roost/shared/viewport";
-import { initCellEmitState } from "@roost/shared/cell";
-import { newTraceId } from "@roost/shared/trace";
 
 /** Does this claim have to carry a full frame, or is the claimant provably
  *  holding the current grid? Two conditions must both hold to skip it:
@@ -60,7 +56,8 @@ export function desiredViewportSize(
  *  browsers at different window sizes → PTY shrinks to the smaller,
  *  preventing the "scrambled redraw on the smaller viewer" symptom.
  *  cols=0 OR rows=0 → withdraw this viewer's claim.
- *  See _recomputeViewport for the SCD math + SIGWINCH gating. */
+ *  The SCD math lives in desiredViewportSize; the resize it implies is executed
+ *  by reconcileTerminalViewport on the terminal-control lane. */
 export function claimViewport(
 	this: SessionManager,
 	channelId: number,
@@ -159,7 +156,7 @@ export function claimViewport(
 		seq_advanced: true,
 		cause: cause ?? 0,
 	});
-	this._recomputeViewport(channelId);
+	this.reconcileTerminalViewport(channelId);
 	// R11 — a claim is the worker's "viewer attached/resized" signal. It emits a
 	// full cell frame only when the claimant is not provably current: a fresh or
 	// fallen-behind viewer paints the whole grid immediately (live deltas follow
@@ -195,7 +192,7 @@ export function withdrawViewport(this: SessionManager, channelId: number, viewer
 		this.pendingWithdraws.delete(key);
 		const live = this.viewportClaims.get(channelId);
 		if (!live || !live.delete(viewerFp)) return;
-		this._recomputeViewport(channelId);
+		this.reconcileTerminalViewport(channelId);
 	}, VIEWPORT_WITHDRAW_GRACE_MS);
 	this.pendingWithdraws.set(key, timer);
 }
@@ -234,170 +231,6 @@ export function _reapViewportClaims(this: SessionManager): void {
 				anyStale = true;
 			}
 		}
-		if (dropped || anyStale) this._recomputeViewport(channelId);
+		if (dropped || anyStale) this.reconcileTerminalViewport(channelId);
 	}
-}
-
-/** Recompute PTY size = SCD min(cols)×min(rows) across live claims.
- *  SIGWINCH only if changed from the last applied size. wtermCore
- *  tracks the same size so server-side scrollback serialization
- *  reflows to the current PTY width. */
-export function _recomputeViewport(this: SessionManager, channelId: number): void {
-	const rec = this.sessions.get(channelId);
-	if (!rec) {
-		// Session gone — drop any leftover claims so the maps don't grow
-		// unbounded across spawn/kill churn.
-		this.viewportClaims.delete(channelId);
-		this.lastAppliedSize.delete(channelId);
-		return;
-	}
-	const claims = this.viewportClaims.get(channelId)!;
-	const desired = desiredViewportSize.call(this, channelId);
-	if (!desired) {
-		// No fresh sizing viewer is claiming. Leave the PTY at its last size.
-		return;
-	}
-	const { cols, rows } = desired;
-	const chosen_key =
-		claims.size === 1 ? (claims.keys().next().value as string) : "scd_min";
-	const chose_via: "only" | "scd_min" =
-		claims.size === 1 ? "only" : "scd_min";
-	const last = this.lastAppliedSize.get(channelId);
-	const will_signal = !(last && last.cols === cols && last.rows === rows);
-	diag("viewport.recompute", {
-		sid: rec.sessionId,
-		channel_id: channelId,
-		session_trace_id: rec.session_trace_id,
-		chosen_key,
-		claims_size: claims.size,
-		chose_via,
-		cols,
-		rows,
-		signaled: will_signal,
-		prev_cols: last?.cols ?? null,
-		prev_rows: last?.rows ?? null,
-	});
-	if (!will_signal) return;
-	getMultiplexedPool().resize(channelId, cols, rows);
-	diag("resize.pty_signal", {
-		sid: rec.sessionId,
-		channel_id: channelId,
-		session_trace_id: rec.session_trace_id,
-		cols,
-		rows,
-	});
-	// OPT2-1: deterministic rebuild from the raw ring instead of the
-	// path-dependent in-place wtermCore.resize (see _wtermRebuildChain).
-	this._scheduleWtermRebuild(channelId, cols, rows);
-	this.lastAppliedSize.set(channelId, { cols, rows });
-	log.info("session-manager", "viewport_scd_resize", {
-		channelId,
-		cols,
-		rows,
-		claimCount: claims.size,
-	});
-}
-
-/** OPT2-1: chain a deterministic wtermCore rebuild so concurrent resizes
- *  don't overlap (each would `await _createWtermCore` and race the swap).
- *  The chain is per-channel; a failed rebuild doesn't poison the next. */
-export function _scheduleWtermRebuild(
-	this: SessionManager,
-	channelId: number,
-	cols: number,
-	rows: number,
-): void {
-	const prior = this._wtermRebuildChain.get(channelId) ?? Promise.resolve();
-	const next = prior
-		.catch(() => {})
-		.then(() => this._rebuildWtermCore(channelId, cols, rows));
-	this._wtermRebuildChain.set(channelId, next);
-}
-
-/** Build a fresh wtermCore at cols×rows and replay the raw ring into it,
- *  then swap it in. The raw ring (rec.scrollback) is the single source of
- *  truth, so the rebuilt grid is a pure function of (ring, cols, rows) —
- *  no path-dependence, no asymmetric-resize drift. The swap tail is sync
- *  (no await between reading rec.scrollback and assigning rec.wtermCore),
- *  so a PTY chunk arriving mid-rebuild is either already in the ring we
- *  replay or lands on the new core via the next appendScrollback — never
- *  lost or duplicated.
- *  ponytail: replays the full ring (≤8 MB) on every deliberate resize.
- *  Resizes are rare (viewport hysteresis), so this is cheap in practice;
- *  if a deep-ring replay ever shows up on the resize hot path, switch to
- *  replay-from-last-applied-seqno or reuse the bridge via init(). */
-export async function _rebuildWtermCore(
-	this: SessionManager,
-	channelId: number,
-	cols: number,
-	rows: number,
-): Promise<void> {
-	const rec0 = this.shellByChannel(channelId);
-	// The chain is timer-driven: teardown can remove the terminal core before
-	// this queued rebuild executes.
-	if (!rec0?.wtermCore) return;
-	// Skip rebuild if the wtermCore is already at the target size — no reflow
-	// needed, and the claim path (emitCellSnapshot) already sent a full frame.
-	// Avoids a redundant full-frame emit that the leading-edge cell emit exposes
-	// (the old 16ms timer masked it by clearing before the rebuild fired).
-	if (rec0.wtermCore.getCols() === cols && rec0.wtermCore.getRows() === rows) return;
-	const fresh = await _createWtermCore(cols, rows);
-	const rec = this.shellByChannel(channelId);
-	if (!rec) return;
-	// Alt-screen: do NOT replay the raw ring into the new-width core. The ring
-	// holds absolute cursor moves and line clears painted for the old width;
-	// replaying it at a new width duplicates and mangles rows. Start an empty,
-	// alt-primed core instead. The TUI repaints at the new size after SIGWINCH.
-	// Main-screen sessions replay their ring because text reflows cleanly. This
-	// is stream-driven: any alt-screen TUI takes the empty-core branch.
-	const isAltScreen = rec.alt_mode;
-	const ringBytes = readRing(rec.scrollback);
-	if (!isAltScreen && ringBytes.length > 0)
-		fresh.writeRaw(ringBytes);
-	// Prime alt-screen state so the rebuilt core's usingAltScreen() matches
-	// rec.alt_mode (L11 "stale text wallpaper after worker restart").
-	if (rec.alt_mode && !fresh.usingAltScreen()) {
-		fresh.writeRaw(ALT_ENTER_SEQS[0]);
-	}
-	// Discard historical capability replies from the ring replay. The live
-	// chunk handler owns the actual reply route back into the PTY.
-	fresh.getResponse();
-	rec.wtermCore = fresh;
-	// Fresh core, fresh ring: the retained-index origin restarts at 0, so the
-	// monotonic origin must absorb the whole difference or every index the SPA
-	// holds re-aliases and scrollbackTotal REWINDS (which parks the backfill
-	// controller — validateChunk discards a response whose total went backwards).
-	// The replay reproduces the same raw ring, so the NEWEST line is the same
-	// line in both cores — pin that:
-	// sbDropped = prevMonoTotal - freshCount. Reflow at the new width shifts
-	// older rows by the reflow delta, which no bookkeeping can avoid; the newest
-	// row, the one the reader is measured from, stays exact. Alt-screen rebuilds
-	// replay nothing (freshCount 0) and correctly report their whole history as
-	// dropped. seq is kept so the SPA's gap detector doesn't see a rewind; the
-	// zeroed cols/rows/sentFull force the next emit to be a full frame.
-	rec.cell_emit = {
-		...initCellEmitState(newTraceId()),
-		seq: rec.cell_emit.seq,
-		sbDropped: Math.max(0, rec.cell_emit.lastSbTotal - fresh.getScrollbackCount()),
-	};
-	// R11 — the core is a brand-new instance; emit a forced full cell frame
-	// now so viewers reflect the resize without waiting for the next PTY
-	// chunk. A delta is meaningless here — dirty bits + cursor on the fresh
-	// core don't describe a change from the OLD core the client holds.
-	// _scheduleWtermRebuild defers onto a promise chain, so this viewport-only
-	// frame lands after claimViewport's frame and identifies the replacement
-	// core with a fresh epoch base.
-	this.emitCellSnapshot(channelId as ChannelId);
-	// Report the actual branch: alt-screen rebuilds start empty and alt-primed;
-	// main-screen rebuilds replay the retained ring.
-	diag("resize.wterm_core", {
-		sid: rec.sessionId,
-		channel_id: channelId,
-		session_trace_id: rec.session_trace_id,
-		cols,
-		rows,
-		mode: isAltScreen ? "empty_alt_primed" : "rebuild_from_ring",
-		replayed_ring: !isAltScreen,
-		ring_bytes: ringBytes.length,
-	});
 }

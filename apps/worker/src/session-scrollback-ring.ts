@@ -83,3 +83,19 @@ export function readRing(ring: SbRing): Uint8Array {
 export function ringLength(ring: SbRing): number {
 	return ring.filled;
 }
+
+/** O(1) byte bounds for the diagnostic surface. The ring is the ONLY thing that
+ *  bounds a resize replay, so a human comparing "what the browser holds" against
+ *  "what the core holds" needs to see how close this ring is to the cap that
+ *  will truncate the next rebuild. `cap_bytes` is the CONFIGURED capacity, not
+ *  `buf.length`: allocation is deferred to the first append, so an untouched
+ *  ring must still report the bound it will enforce. `evicting` is the fact that
+ *  matters — once true, every further append drops history the next rebuild
+ *  could otherwise have replayed. */
+export function ringBounds(ring: SbRing): {
+	retained_bytes: number;
+	cap_bytes: number;
+	evicting: boolean;
+} {
+	return { retained_bytes: ring.filled, cap_bytes: ring.cap, evicting: ring.filled >= ring.cap };
+}

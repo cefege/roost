@@ -76,7 +76,7 @@ Object.defineProperty(globalThis, "document", {
 const sendInput = mock((_sessionId: string, _bytes: Uint8Array) => ({
   accepted: true as const,
   inputSeq: 1n,
-  outcome: Promise.resolve({ status: "accepted" as const, inputSeq: 1n, writtenBytes: _bytes.byteLength }),
+  result: Promise.resolve({ status: "accepted" as const, inputSeq: 1n, writtenBytes: _bytes.byteLength }),
 }));
 const attachmentProbe = mock(async (_request: {
   sessionId: string;
@@ -96,7 +96,7 @@ const attachFileChunk = mock(async (request: {
 }) => ({ absPath: request.last ? `/tmp/${request.filename}` : "" }));
 
 mock.module("../src/connect.ts", () => ({ coordClient: { attachmentProbe, attachFileChunk } }));
-mock.module("../src/ws/sync-outbound.ts", () => ({ sendTerminalInput: sendInput }));
+mock.module("../src/lib/userTerminalInput.ts", () => ({ sendUserTerminalInput: sendInput }));
 mock.module("../src/store/transfers.ts", () => ({
   addTransfer: mock(() => {}),
   markTransferState: mock(() => {}),

@@ -6,12 +6,23 @@
 // watchdog test (apps/worker/tests/coord-link-stale-watchdog.test.ts).
 //
 // Real-clock integration tests: the behavior under test is real-clock silence
-// detection (setInterval + Date.now) driving a real WebSocket I/O loop, which
-// fake timers cannot advance coherently — the ts-no-test-timers exception
+// detection (setInterval + performance.now) driving a real WebSocket I/O loop,
+// which fake timers cannot advance coherently — the ts-no-test-timers exception
 // (real platform-clock timer behavior) applies.
 
 import { test, expect } from "bun:test";
-import { startStaleWatchdog, shouldRedialOnRefocus, SYNC_REFOCUS_STALE_MS, type StaleWatchdog } from "../src/store/sync-watchdog.ts";
+import {
+  nextRedialDelayMs,
+  shouldCloseStaleLinkOnResume,
+  shouldParkRedial,
+  shouldRedialOnRefocus,
+  startStaleWatchdog,
+  SYNC_HIDDEN_PARK_FAILURES,
+  SYNC_REDIAL_BASE_MS,
+  SYNC_REDIAL_MAX_MS,
+  SYNC_REFOCUS_STALE_MS,
+  type StaleWatchdog,
+} from "../src/store/sync-watchdog.ts";
 
 // ─── Test 1: silent server → watchdog force-closes ──────────────────────
 
@@ -189,6 +200,42 @@ test("shouldRedialOnRefocus: keeps a live link, re-dials a silent one", () => {
   expect(shouldRedialOnRefocus(SYNC_REFOCUS_STALE_MS - 1)).toBe(false);
   expect(shouldRedialOnRefocus(SYNC_REFOCUS_STALE_MS)).toBe(false);
   expect(shouldRedialOnRefocus(SYNC_REFOCUS_STALE_MS + 1)).toBe(true);
-  // No socket OPEN → syncLinkIdleMs() reports Infinity → always re-dial.
+  // No socket OPEN → the link's idle read reports Infinity → always re-dial.
   expect(shouldRedialOnRefocus(Number.POSITIVE_INFINITY)).toBe(true);
+});
+
+// ─── Test 5: redial policy ───────────────────────────────────────────────
+// The retired policy stopped dialing after eight failures, so a visible page
+// could end up with no socket and nothing scheduled — recoverable only by a
+// reload. The delay is capped; the attempt count never is.
+
+test("nextRedialDelayMs: capped exponential, never zero, never unbounded", () => {
+  expect(nextRedialDelayMs(0)).toBe(SYNC_REDIAL_BASE_MS);
+  expect(nextRedialDelayMs(1)).toBe(SYNC_REDIAL_BASE_MS);
+  expect(nextRedialDelayMs(2)).toBe(2 * SYNC_REDIAL_BASE_MS);
+  expect(nextRedialDelayMs(3)).toBe(4 * SYNC_REDIAL_BASE_MS);
+  expect(nextRedialDelayMs(4)).toBe(8 * SYNC_REDIAL_BASE_MS);
+  expect(nextRedialDelayMs(5)).toBe(16 * SYNC_REDIAL_BASE_MS);
+  expect(nextRedialDelayMs(6)).toBe(SYNC_REDIAL_MAX_MS);
+  // Every further failure keeps a finite, capped delay: the loop still dials.
+  for (const failures of [SYNC_HIDDEN_PARK_FAILURES, 40, 1_000, 1e6]) {
+    expect(nextRedialDelayMs(failures)).toBe(SYNC_REDIAL_MAX_MS);
+  }
+});
+
+test("shouldParkRedial: only a hidden document sleeps", () => {
+  expect(shouldParkRedial(SYNC_HIDDEN_PARK_FAILURES, true)).toBe(false);
+  expect(shouldParkRedial(1e6, true)).toBe(false);
+  expect(shouldParkRedial(SYNC_HIDDEN_PARK_FAILURES - 1, false)).toBe(false);
+  expect(shouldParkRedial(SYNC_HIDDEN_PARK_FAILURES, false)).toBe(true);
+});
+
+test("shouldCloseStaleLinkOnResume: replaces only a silent OPEN socket", () => {
+  expect(shouldCloseStaleLinkOnResume("open", SYNC_REFOCUS_STALE_MS + 1)).toBe(true);
+  expect(shouldCloseStaleLinkOnResume("open", 0)).toBe(false);
+  // A dial in flight already IS the redial, and nothing to close means the loop
+  // is dialing or sleeping: either way a resume must not manufacture a second
+  // generation out of the Infinity idle reading.
+  expect(shouldCloseStaleLinkOnResume("dialing", Number.POSITIVE_INFINITY)).toBe(false);
+  expect(shouldCloseStaleLinkOnResume("none", Number.POSITIVE_INFINITY)).toBe(false);
 });

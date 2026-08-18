@@ -1,7 +1,10 @@
-// Clickable links overlay for wterm. wterm 0.3.0 has no link API
-// (no registerLinkProvider, no OSC 8 tracking). We attach a
-// MutationObserver to the rendered row container, scan visible
-// rows on every paint, and wrap URL matches in <a> elements.
+// Clickable links overlay for the cell renderer. OSC 8 producer hyperlinks are
+// NOT discovered here: the core authors them per cell and cellRow.ts paints them
+// as anchors at exactly those cells. This module owns the two INFERRED
+// categories — regex URLs and file paths — and the arm / hover / click behaviour
+// every anchor shares, painted or wrapped. It attaches a MutationObserver to
+// the rendered row container, scans the rows the renderer replaced, and wraps
+// inferred matches in <a> elements.
 //
 // URL regex is adapted verbatim from a terminal emulator's default regex
 // (Oniguruma → ECMAScript).
@@ -17,19 +20,28 @@
 // come for free.
 
 import { computeRowLinks } from "./terminal-links.detect.ts";
-import type { ResolveFile, RowLinkSegment } from "./terminal-links.detect.ts";
+import type {
+  PaintedLink, ResolveFile, RowLinkInput, RowLinkSegment,
+} from "./terminal-links.detect.ts";
+import {
+  LINK_KEY_ATTR, ROW_COLUMNS_ATTR, ROW_HAS_LINKS_ATTR,
+  TERMINAL_LINK_CLASS as LINK_CLASS,
+} from "../lib/cellRow.ts";
 import { isPageVisible } from "../lib/pageVisible.ts";
 import { terminalLinkModifierKey } from "../lib/browserPlatform.ts";
 
 // Re-exported so the public import path (CellTerminal, terminal-links.test.ts)
 // resolves unchanged after the pure detection moved to ./terminal-links.detect.ts.
 export { computeRowLinks };
-export type { ResolveFile };
+export type { PaintedLink, ResolveFile, RowLinkInput, RowLinkSegment };
 
 // The canonical cell renderer emits one .cell-row per terminal row.
 const ROW_SELECTOR = ".cell-row";
 
-const LINK_CLASS = "wterm-link";
+// Marks a row whose inferred-link scan has already run. NOT "this row has an
+// anchor": rows arrive from the renderer already carrying painted OSC 8 anchors,
+// and those must not suppress the row's regex / file-path scan.
+const SCANNED_ATTR = "data-linkified";
 
 // CSS rule lives in apps/web/src/styles/sidebar.css alongside the
 // .wterm container styles; we inject it lazily on first attach so
@@ -80,16 +92,59 @@ function _injectCssOnce(): void {
   document.head.appendChild(style);
 }
 
-import type { Osc8Tracker } from "../lib/terminalOsc8.ts";
+/** A painted anchor plus the element itself, so a loser can be dissolved. */
+type PaintedAnchor = PaintedLink & { el: HTMLElement };
 
-// DOM applier: run the pure algorithm over the rows' text, then wrap each
-// row-local segment in an <a>. Text spans crossing wterm's per-cell <span>s
-// collapse into one <a>; <a> uses `color: inherit` so cells keep their colors
-// via the inner spans.
-function _linkifyRows(rows: HTMLElement[], tracker: Osc8Tracker | null, cols: number, resolveFile?: ResolveFile, githubOwnerRepo?: string): void {
-  const rowTexts = rows.map(r => r.textContent ?? "");
-  const osc8 = tracker ? Array.from(tracker.entries()) : [];
-  const segments = computeRowLinks(rowTexts, cols, osc8, resolveFile, githubOwnerRepo);
+// Painted anchors are DIRECT children of the row (cellRow.ts appends them to the
+// row element), so summing child text lengths in order yields their exact
+// row-local code-unit offsets with no tree walk. The ROW_HAS_LINKS_ATTR gate
+// keeps ordinary rows — the overwhelming majority, and every row of a full
+// scan — on one O(1) attribute read.
+function _paintedLinks(row: HTMLElement): PaintedAnchor[] | undefined {
+  if (!row.hasAttribute(ROW_HAS_LINKS_ATTR)) return undefined;
+  const out: PaintedAnchor[] = [];
+  let offset = 0;
+  for (const child of row.childNodes) {
+    const len = (child.textContent ?? "").length;
+    if (child instanceof HTMLElement && child.hasAttribute(LINK_KEY_ATTR)) {
+      out.push({
+        el: child,
+        start: offset,
+        end: offset + len,
+        uri: child.getAttribute("href") ?? "",
+        key: child.getAttribute(LINK_KEY_ATTR) ?? "",
+      });
+    }
+    offset += len;
+  }
+  return out;
+}
+
+/** The row's painted GRID OCCUPANCY, or -1 when it cannot be read. -1 never
+ *  equals `cols`, so an unstamped row simply never soft-wrap-joins — the
+ *  conservative answer, because a bogus join fabricates links across unrelated
+ *  rows. NEVER textContent.length: that counts UTF-16 code units, and one
+ *  column is neither (2 columns per CJK ideograph, 2 per ZWJ emoji cluster). */
+function _rowColumns(row: HTMLElement): number {
+  const stamped = row.getAttribute(ROW_COLUMNS_ATTR);
+  if (stamped === null) return -1;
+  const columns = Number.parseInt(stamped, 10);
+  return Number.isInteger(columns) ? columns : -1;
+}
+
+// DOM applier: run the pure algorithm over the rows' text, painted links and
+// column occupancy, then wrap each row-local segment in an <a>. Text spans
+// crossing the renderer's per-cell <span>s collapse into one <a>; <a> uses
+// `color: inherit` so cells keep their colors via the inner spans.
+function _linkifyRows(rows: HTMLElement[], cols: number, resolveFile?: ResolveFile, githubOwnerRepo?: string): void {
+  const painted: Array<PaintedAnchor[] | undefined> = [];
+  const inputs: RowLinkInput[] = [];
+  for (const row of rows) {
+    const links = _paintedLinks(row);
+    painted.push(links);
+    inputs.push({ text: row.textContent ?? "", columns: _rowColumns(row), links });
+  }
+  const segments = computeRowLinks(inputs, cols, resolveFile, githubOwnerRepo);
   if (segments.length === 0) return;
   // Group segments by row so each row's nodes are walked once.
   const byRow = new Map<number, RowLinkSegment[]>();
@@ -99,11 +154,21 @@ function _linkifyRows(rows: HTMLElement[], tracker: Osc8Tracker | null, cols: nu
   }
   for (const [rowIdx, segs] of byRow) {
     const row = rows[rowIdx];
-    // Idempotency guard. Our own surroundContents mutates row DOM which
+    // Idempotency guard. Our own extractContents mutates row DOM which
     // re-fires the MutationObserver on the next rAF; without this we'd nest
-    // <a> in <a> every frame. wterm replaces row contents on real updates, so
-    // a row already carrying our anchor class is already-linkified + unchanged.
-    if (row.querySelector("." + LINK_CLASS)) continue;
+    // <a> in <a> every frame. The renderer replaces a row element outright on
+    // any real update, so a row still carrying this mark is already scanned and
+    // unchanged since.
+    if (row.hasAttribute(SCANNED_ATTR)) continue;
+    // A painted producer link that LOST to an overlapping inferred match (the
+    // `ls --hyperlink` file:/// → resolvable /file/… case) is absent from
+    // `segments`, so the winner's range still contains its anchor and
+    // _wrapRange would nest <a> in <a>. Dissolve it first; its Text nodes
+    // survive the unwrap in place, so the offsets computed below stay exact.
+    for (const link of painted[rowIdx] ?? []) {
+      if (!segs.some((s) => s.start < link.end && link.start < s.end)) continue;
+      link.el.replaceWith(...Array.from(link.el.childNodes));
+    }
     const nodes: Array<{ node: Text; start: number; end: number }> = [];
     let offset = 0;
     const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
@@ -117,6 +182,7 @@ function _linkifyRows(rows: HTMLElement[], tracker: Osc8Tracker | null, cols: nu
     for (let i = segs.length - 1; i >= 0; i--) {
       _wrapRange(row, nodes, segs[i].start, segs[i].end, segs[i].url, segs[i].kind, segs[i].hint);
     }
+    row.setAttribute(SCANNED_ATTR, "1");
   }
 }
 
@@ -186,8 +252,6 @@ function _wrapRange(
 /** Attachment controls for a terminal linkifier instance. */
 export interface TerminalLinkAttachment {
   releaseInteraction(): void;
-  /** Re-link existing rows after a newly received producer mapping. */
-  refresh(): void;
   dispose(): void;
 }
 
@@ -210,7 +274,6 @@ export interface TerminalLinkOpts {
 
 export function attachTerminalLinks(
   container: HTMLElement,
-  tracker: Osc8Tracker | null = null,
   opts: TerminalLinkOpts = {},
 ): TerminalLinkAttachment {
   _injectCssOnce();
@@ -384,7 +447,6 @@ export function attachTerminalLinks(
     const first = scope?.firstElementChild;
     return first?.matches(ROW_SELECTOR) ? (first as HTMLElement) : null;
   };
-  const _rowLen = (r: HTMLElement): number => (r.textContent ?? "").length;
   /** The only rows a live stream can have touched: the viewport, plus the
    *  newest scrollback block the append tail writes into. Document order is
    *  preserved (scrollback before viewport) so soft-wrap grouping still works
@@ -424,7 +486,7 @@ export function attachTerminalLinks(
         ? hot
         : Array.from(container.querySelectorAll<HTMLElement>(ROW_SELECTOR));
       fullScanNeeded = hot.length > 0;
-      _linkifyRows(rows, tracker, cols, opts.resolveFile, ownerRepo);
+      _linkifyRows(rows, cols, opts.resolveFile, ownerRepo);
       return;
     }
     if (dirtyRows.size === 0) return;
@@ -437,7 +499,7 @@ export function attachTerminalLinks(
       let first = seed;
       while (cols > 0) {
         const p = _prevRow(first);
-        if (!p || visited.has(p) || _rowLen(p) !== cols) break;
+        if (!p || visited.has(p) || _rowColumns(p) !== cols) break;
         first = p;
       }
       const group: HTMLElement[] = [];
@@ -445,11 +507,11 @@ export function attachTerminalLinks(
       while (cur) {
         group.push(cur);
         visited.add(cur);
-        if (cols <= 0 || _rowLen(cur) !== cols) break; // row doesn't wrap on
+        if (cols <= 0 || _rowColumns(cur) !== cols) break; // row doesn't wrap on
         cur = _nextRow(cur);
         if (!cur || visited.has(cur)) break;
       }
-      _linkifyRows(group, tracker, cols, opts.resolveFile, ownerRepo);
+      _linkifyRows(group, cols, opts.resolveFile, ownerRepo);
     }
   };
   const scheduleScan = (): void => {
@@ -483,23 +545,13 @@ export function attachTerminalLinks(
   // Initial pass for whatever's already rendered.
   scheduleScan();
 
-  const refresh = (): void => {
-    _cancelScan();
-    scanScheduled = false;
-    for (const anchor of container.querySelectorAll<HTMLAnchorElement>(`a.${LINK_CLASS}`)) {
-      anchor.replaceWith(...Array.from(anchor.childNodes));
-    }
-    dirtyRows.clear();
-    fullScanNeeded = true;
-    scheduleScan();
-  };
   // Visibility recovery. A rAF queued while the tab is hidden can be DROPPED by
   // the browser (not merely deferred) after a long-backgrounded / throttled /
   // slept tab — leaving scanScheduled===true with no pending callback. Every
   // later scheduleScan() then no-ops, so the cell renderer's per-frame row
   // rebuilds (renderViewport replaceWith) destroy <a> anchors with no
-  // re-linkify → Cmd arms but there's nothing to click → links "dead" until a
-  // refresh. The claim/sync/health paths already re-evaluate on visibilitychange
+  // re-linkify → Cmd arms but there is no inferred link to click. The
+  // claim/sync/health paths already re-evaluate on visibilitychange
   // (pageVisible.ts); the linkifier was the only one that didn't. On becoming
   // visible: cancel any stale/deferred frame, reset the latch, force a full scan.
   const onVisChange = (): void => {
@@ -527,5 +579,5 @@ export function attachTerminalLinks(
     hintEl?.remove();
     hintEl = null;
   };
-  return { releaseInteraction, refresh, dispose };
+  return { releaseInteraction, dispose };
 }

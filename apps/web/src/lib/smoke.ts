@@ -10,8 +10,8 @@
 
 import { coordClient } from "../connect.ts";
 import {
-  forceSyncReconnect as forceSyncReconnectImpl,
-  forceSyncRetryExhausted as forceSyncRetryExhaustedImpl,
+  forceSyncMaxBackoff as forceSyncMaxBackoffImpl,
+  syncRedialStatus as syncRedialStatusImpl,
   pauseSyncTransport as pauseSyncTransportImpl,
   resumeSyncTransport as resumeSyncTransportImpl,
   cellFrameCount as cellFrameCountImpl,
@@ -20,6 +20,7 @@ import {
   cellGridEpoch as cellGridEpochImpl,
   syncWsGeneration as syncWsGenerationImpl,
 } from "../store/sync.ts";
+import type { SyncRedialStatus } from "../store/sync.ts";
 import {
   dropNextCellFrame as dropNextCellFrameImpl,
   droppedCellFrameCount as droppedCellFrameCountImpl,
@@ -28,10 +29,16 @@ import { perfCounters, leakSample, resetPerfCounters as resetPerfCountersImpl } 
 import { rootStore, setRootStore } from "../store/root.ts";
 import { workerPathBasename } from "./nativePath.ts";
 import { setForceHidden, setForceVisible } from "./pageVisible.ts";
-import { scrollbackBackfillRequestCount as scrollbackBackfillRequestCountImpl } from "./scrollbackBackfill.ts";
+import {
+  SCROLLBACK_FLOOR_REASON,
+  scrollbackBackfillRequestCount as scrollbackBackfillRequestCountImpl,
+} from "./scrollbackBackfill.ts";
+import type { ScrollbackHistoryFloor } from "@roost/shared/wire";
 import {
   sendTerminalInput,
   setSmokeTerminalInputObserver,
+  rejectNextViewportClaim as rejectNextViewportClaimImpl,
+  rejectedViewportClaimCount as rejectedViewportClaimCountImpl,
 } from "../ws/sync-outbound.ts";
 import { phaseTimeline as phaseTimelineImpl } from "./diag.ts";
 import type { SpaPhaseTimeline } from "./diag.ts";
@@ -40,13 +47,22 @@ import {
   finishTerminalTiming as finishTerminalTimingImpl,
   runFlow as runFlowImpl,
   runRenderStress as runRenderStressImpl,
+  waitForPaintedCursor as waitForPaintedCursorImpl,
   waitForPaintedMarker as waitForPaintedMarkerImpl,
 } from "./smokeHarness.ts";
 import type {
+  PaintedCursorExpected,
+  PaintedCursorProof,
   PaintedMarkerProof,
   TerminalTimingKind,
   TerminalTimingResult,
 } from "./smokeHarness.ts";
+import {
+  terminalBrowserStreamSnapshot,
+  type TerminalBrowserStreamSnapshot,
+} from "./terminalPreview.ts";
+
+export type { PaintedCursorProof } from "./smokeHarness.ts";
 
 export interface SmokeTerminalInputBatch {
   sessionId: string;
@@ -64,6 +80,11 @@ export type RetainedMarkerScan = {
   scrollbackTotal: number;
   retainedFloor: number;
   retainedCap: number;
+  /** WHY the scan stopped at retainedFloor, as the worker reported it: "none" =
+   *  it reached absolute row 0 and nothing is missing, "evicted" = the core's line
+   *  ring rolled past those rows, "resize_replay" = a resize rebuilt the grid from
+   *  the bounded byte ring and it could not reach them. */
+  retainedFloorReason: ScrollbackHistoryFloor;
   rowIndices: number[];
   rowGapCount: number;
   markerIds: number[];
@@ -73,6 +94,25 @@ export type RetainedMarkerScan = {
   markerDuplicated: number[];
   markerOutOfOrder: number;
 };
+
+export interface TerminalStreamProbe {
+  captured_at_ms: number;
+  session_id: string;
+  browser: TerminalBrowserStreamSnapshot;
+  coord: {
+    build: { git_sha: string | null; artifact_version: string | null };
+    session: Record<string, unknown> | null;
+    terminal_control: Record<string, unknown> | null;
+  } | null;
+  worker: {
+    worker_fp: string | null;
+    status: "ok" | "error" | "missing";
+    response_ms: number | null;
+    build: { git_sha: string | null; artifact_version: string | null } | null;
+    session: Record<string, unknown> | null;
+    error: { code: string | null; message: string | null } | null;
+  };
+}
 
 export interface SmokeApi {
   /** Send raw bytes through the terminal transport — BYPASSES the textarea +
@@ -116,6 +156,16 @@ export interface SmokeApi {
   /** Exact-marker paint proof: non-zero Range geometry inside the terminal and
    * visual viewport, visible computed style, and the same proof after 2×rAF. */
   waitForPaintedMarker(sessionId: string, marker: string, timeoutMs?: number): Promise<PaintedMarkerProof>;
+  /** Cursor presentation proof: connected, stable grid-aligned geometry clipped
+   * by terminal + visual viewport across 2×rAF. Blink opacity is tolerated. */
+  waitForPaintedCursor(
+    sessionId: string,
+    expected?: PaintedCursorExpected,
+    timeoutMs?: number,
+  ): Promise<PaintedCursorProof>;
+  /** One on-demand, bounded per-session snapshot spanning browser, coordinator,
+   * and the routed worker. Missing layer fields remain explicit null/missing. */
+  terminalStreamProbe(sessionId: string): Promise<TerminalStreamProbe>;
   /** Begin/finish the trusted-key, reveal, resize, and optimistic paint clocks.
    * trusted_key starts on the real `isTrusted` keydown, not this method call. */
   beginTerminalTiming(kind: TerminalTimingKind, sessionId?: string): Promise<string>;
@@ -131,8 +181,6 @@ export interface SmokeApi {
   phaseTimeline(): SpaPhaseTimeline;
   /** Page the server-retained cell range into a non-DOM marker accumulator. */
   retainedMarkerScan(sessionId: string, prefix: string, pageRows?: number): Promise<RetainedMarkerScan>;
-  /** Scroll a pane to an edge so the harness can assert history is reachable. */
-  scrollToEdge(sessionId: string, edge: "top" | "bottom"): void;
   /** Snapshot of current SPA store state. */
   state(): {
     sessions: Record<string, unknown>;
@@ -149,10 +197,15 @@ export interface SmokeApi {
   forceVisible(on: boolean): void;
   /** Pin app-level visibility to background; false releases the pin. */
   forceHidden(on: boolean): void;
-  /** Force a firehose WebSocket reconnect (closes the live WS). */
-  forceSyncReconnect(): void;
-  /** Park the existing Sync loop in its retry-exhausted state without recovering it. */
-  forceSyncRetryExhausted(): void;
+  /** Drop the Sync tube the way a network failure does, with the redial loop
+   *  pre-armed to the floor production can still reach: saturated capped
+   *  backoff, plus the hidden-document sleep. Recovery uses no backdoor — a
+   *  visible page must heal on its own redial, a hidden one on its next
+   *  resume. */
+  forceSyncMaxBackoff(): void;
+  /** Redial status: consecutive failures, the capped pending delay, and whether
+   *  a HIDDEN document is parked. A visible document is never parked. */
+  syncRedialStatus(): SyncRedialStatus;
   /** Close and pause the Sync tube; paired resume starts a fresh generation. */
   pauseSyncTransport(): void;
   resumeSyncTransport(): void;
@@ -171,6 +224,11 @@ export interface SmokeApi {
   /** Drop exactly the next cell frame before counters and pane dispatch. */
   dropNextCellFrame(sessionId: string): void;
   droppedCellFrameCount(sessionId: string): number;
+  /** Reject exactly the next positive viewport claim for this session before
+   * wire send. Smoke-only, one-shot, and scoped to the current document. */
+  rejectNextViewportClaim(sessionId: string): void;
+  /** Number of one-shot viewport rejections consumed for this session. */
+  rejectedViewportClaimCount(sessionId: string): number;
   /** Sync WebSocket dial count. Unchanged across a refocus = the socket was
    *  kept (no JWT sign + TLS handshake + since= backfill ahead of the reveal). */
   syncWsGeneration(): number;
@@ -186,7 +244,9 @@ export interface SmokeApi {
   trackCreatedSession(sessionId: string): void;
   /** Test resources created by this tab, cleaned without touching live state. */
   cleanupCreated(): Promise<{ killedSessions: string[]; deletedWorkspaces: string[]; errors: string[] }>;
-  runFlow(): Promise<{ steps: Array<{ name: string; pass: boolean; detail: unknown }>; summary: string }>;
+  /** `workerFp` pins the spawn target; omit it to use the most recently seen
+   *  worker (the live-canary launcher's behaviour). */
+  runFlow(options?: { workerFp?: string }): Promise<{ steps: Array<{ name: string; pass: boolean; detail: unknown }>; summary: string }>;
   runRenderStress(options: {
     sessionId: string;
     prefix: string;
@@ -230,6 +290,85 @@ export interface SmokeApi {
 const CREATED_KEY = "roostSmoke.created.v1";
 const TERMINAL_INPUT_CAPTURE_MAX_BATCHES = 512;
 const TERMINAL_INPUT_CAPTURE_MAX_BYTES = 1024 * 1024;
+
+function diagnosticRecord(value: unknown): Record<string, unknown> | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function diagnosticBuild(
+  value: unknown,
+): { git_sha: string | null; artifact_version: string | null } | null {
+  const record = diagnosticRecord(value);
+  if (!record) return null;
+  return {
+    git_sha: typeof record.git_sha === "string" ? record.git_sha : null,
+    artifact_version: typeof record.artifact_version === "string"
+      ? record.artifact_version
+      : null,
+  };
+}
+
+function normalizeTerminalStreamProbe(
+  sessionId: string,
+  browser: TerminalBrowserStreamSnapshot,
+  rawSnapshot: unknown,
+): TerminalStreamProbe {
+  const root = diagnosticRecord(rawSnapshot);
+  if (!root) throw new Error("coordinator diagnostic snapshot was not an object");
+  const coordRecord = diagnosticRecord(root.coord);
+  const coordSessions = diagnosticRecord(coordRecord?.sessions);
+  const coordSession = diagnosticRecord(coordSessions?.[sessionId]);
+  const route = diagnosticRecord(coordSession?.route);
+  const workerFp = typeof route?.worker_fp === "string"
+    ? route.worker_fp
+    : null;
+
+  const workers = diagnosticRecord(root.workers);
+  const workerEnvelope = workerFp ? diagnosticRecord(workers?.[workerFp]) : null;
+  const workerStatus = workerEnvelope?.status;
+  const responseMs = typeof workerEnvelope?.response_ms === "number"
+    && Number.isFinite(workerEnvelope.response_ms)
+    ? workerEnvelope.response_ms
+    : null;
+  const workerSnapshot = workerStatus === "ok"
+    ? diagnosticRecord(workerEnvelope?.snapshot)
+    : null;
+  const workerSessions = diagnosticRecord(workerSnapshot?.sessions);
+  const workerSession = diagnosticRecord(workerSessions?.[sessionId]);
+  const workerError = diagnosticRecord(workerEnvelope?.error);
+  const capturedAtMs = typeof root.captured_at_ms === "number"
+    && Number.isFinite(root.captured_at_ms)
+    ? root.captured_at_ms
+    : browser.captured_at_ms;
+
+  return {
+    captured_at_ms: capturedAtMs,
+    session_id: sessionId,
+    browser,
+    coord: coordRecord ? {
+      build: diagnosticBuild(coordRecord.build) ?? {
+        git_sha: null,
+        artifact_version: null,
+      },
+      session: coordSession,
+      terminal_control: diagnosticRecord(coordRecord.terminal_control),
+    } : null,
+    worker: {
+      worker_fp: workerFp,
+      status: workerStatus === "ok" || workerStatus === "error"
+        ? workerStatus
+        : "missing",
+      response_ms: responseMs,
+      build: diagnosticBuild(workerSnapshot?.build),
+      session: workerSession,
+      error: workerStatus === "error" ? {
+        code: typeof workerError?.code === "string" ? workerError.code : null,
+        message: typeof workerError?.message === "string" ? workerError.message : null,
+      } : null,
+    },
+  };
+}
 
 export function maybeInstallSmokeBackdoor(): void {
   if (typeof window === "undefined") return;
@@ -311,14 +450,30 @@ export function maybeInstallSmokeBackdoor(): void {
       persistCreated();
       return { killedSessions, deletedWorkspaces, errors };
     },
-    async runFlow() {
-      return runFlowImpl(api);
+    async runFlow(options) {
+      return runFlowImpl(api, options);
     },
     async runRenderStress(options) {
       return runRenderStressImpl(api, options);
     },
     async waitForPaintedMarker(sessionId, marker, timeoutMs) {
       return waitForPaintedMarkerImpl(sessionId, marker, timeoutMs);
+    },
+    async waitForPaintedCursor(sessionId, expected, timeoutMs) {
+      return waitForPaintedCursorImpl(sessionId, expected, timeoutMs);
+    },
+    async terminalStreamProbe(sessionId) {
+      const browser = terminalBrowserStreamSnapshot(sessionId);
+      const response = await coordClient.diagSnapshot({
+        spaStateJson: JSON.stringify(browser),
+      });
+      let decoded: unknown;
+      try {
+        decoded = JSON.parse(response.snapshotJson);
+      } catch (error) {
+        throw new Error(`coordinator diagnostic snapshot was invalid JSON: ${String(error)}`);
+      }
+      return normalizeTerminalStreamProbe(sessionId, browser, decoded);
     },
     async beginTerminalTiming(kind, sessionId) {
       return beginTerminalTimingImpl(kind, sessionId);
@@ -341,6 +496,9 @@ export function maybeInstallSmokeBackdoor(): void {
       let endRow = Number.MAX_SAFE_INTEGER;
       let scrollbackTotal: number | undefined;
       let retainedFloor = 0;
+      // Every page carries the floor its own clamp hit; the LAST one is the page
+      // that established the floor this scan reports.
+      let retainedFloorReason: ScrollbackHistoryFloor = "none";
       let pages = 0;
       for (;;) {
         if (pages >= 128) throw new Error(`retained marker pagination exceeded 128 pages for ${sessionId}`);
@@ -365,6 +523,7 @@ export function maybeInstallSmokeBackdoor(): void {
         ) {
           throw new Error(`invalid retained marker page for ${sessionId}`);
         }
+        retainedFloorReason = SCROLLBACK_FLOOR_REASON[response.historyFloor] ?? "none";
         if (scrollbackTotal === undefined) scrollbackTotal = responseTotal;
         else if (scrollbackTotal !== responseTotal) {
           throw new Error(`scrollback changed during retained marker scan for ${sessionId}`);
@@ -420,6 +579,7 @@ export function maybeInstallSmokeBackdoor(): void {
         scrollbackTotal: total,
         retainedFloor,
         retainedCap: total - retainedFloor,
+        retainedFloorReason,
         rowIndices,
         rowGapCount,
         markerIds,
@@ -532,12 +692,6 @@ export function maybeInstallSmokeBackdoor(): void {
         : 0;
       return { cols: Number.isSafeInteger(cols) ? cols : 0, rows };
     },
-    scrollToEdge(sessionId, edge) {
-      const slot = document.querySelector(`[data-testid="terminal-slot-${sessionId}"]`);
-      const c = slot?.querySelector(".wterm") as HTMLElement | null;
-      if (!c) return;
-      c.scrollTop = edge === "top" ? 0 : c.scrollHeight;
-    },
     state() {
       return {
         sessions: { ...rootStore.sessions },
@@ -546,11 +700,11 @@ export function maybeInstallSmokeBackdoor(): void {
         pair_requests: { ...rootStore.pair_requests },
       };
     },
-    forceSyncReconnect() {
-      forceSyncReconnectImpl();
+    forceSyncMaxBackoff() {
+      forceSyncMaxBackoffImpl();
     },
-    forceSyncRetryExhausted() {
-      forceSyncRetryExhaustedImpl();
+    syncRedialStatus() {
+      return syncRedialStatusImpl();
     },
     pauseSyncTransport() {
       pauseSyncTransportImpl();
@@ -578,6 +732,12 @@ export function maybeInstallSmokeBackdoor(): void {
     },
     droppedCellFrameCount(sessionId) {
       return droppedCellFrameCountImpl(sessionId);
+    },
+    rejectNextViewportClaim(sessionId) {
+      rejectNextViewportClaimImpl(sessionId);
+    },
+    rejectedViewportClaimCount(sessionId) {
+      return rejectedViewportClaimCountImpl(sessionId);
     },
     perfProbe(sessionId) {
       const counters = perfCounters();

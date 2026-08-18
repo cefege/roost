@@ -13,6 +13,32 @@ message PbCellSpan {
   uint32 flags = 4;         // CELL_* bitfield (bold/dim/italic/underline/...)
   optional uint32 fg_rgb = 5;  // 0xRRGGBB when true-color; absent = palette
   optional uint32 bg_rgb = 6;
+  // REQUIRED terminal columns this span occupies (>=1). NOT text.length: a
+  // wide (double-width) glyph is one atomic span of 2 columns whose
+  // continuation column is never emitted as its own space-bearing cell, and an
+  // astral codepoint or grapheme cluster is one atomic span whose text is
+  // longer than its column count. Only plain one-code-unit narrow cells
+  // coalesce, and for those columns == text.length. Validated on decode
+  // (cell-proto.ts): >=1 per span, and Σ columns <= cols for a VIEWPORT row (a
+  // retained scrollback line keeps its write-time width). See cell/types.ts.
+  uint32 columns = 7;
+  // Core-authored OSC 8 hyperlink identity, read straight off the cell's link
+  // index (@wterm/core CellData.linkUri/linkKey). This is the ONLY hyperlink
+  // source: nothing re-derives links from the byte stream, and nothing
+  // text-matches them. Absent = the cell carries no OSC 8 link.
+  //
+  // link_key is the RUN identity, not the URI: two separate OSC 8 emissions may
+  // share one URI and must still be two independently clickable spans, so
+  // coalescing breaks on a link_key change (grid-to-cells.ts) and the key is
+  // what a renderer groups soft-wrapped halves by. It is opaque and scoped to
+  // ONE core instance — never persist it or compare it across a rebuild.
+  //
+  // A URI over MAX_LINK_URI_BYTES (2048) is dropped at the producer: the span
+  // ships its TEXT with no link rather than a truncated URI pointing somewhere
+  // else. Validated on decode (cell-proto.ts): link_uri present => non-empty,
+  // within the cap, and link_key present; link_key alone is invalid.
+  optional string link_uri = 8;
+  optional string link_key = 9;
 }
 
 message PbCellRow {
@@ -47,4 +73,14 @@ message PbCellGridFrame {
   uint64 coord_recv_ms = 19;   // coord: byte-hub publishCellGrid
   uint64 coord_fanout_ms = 20; // coord: streaming fanout to browser
   string grid_epoch = 21;    // opaque worker-side grid numbering identity
+  // Mouse reporting the FOREGROUND APPLICATION asked for (DECSET), read off the
+  // core — never inferred from alt-screen occupancy. 0 = never requested (the
+  // browser keeps native selection/scroll), 1000 = press/release only, 1002 =
+  // press/release plus motion while a button is held. Raw wire-meaningful
+  // integer, like PbCellSpan.fg/bg; the core folds modes 9 and 1003 to 0.
+  // Advisory like cursor_keys_app: rides every frame, full or delta, and never
+  // forces a reframe. See apps/web/src/lib/terminalMouse.ts.
+  uint32 mouse_tracking = 22;
+  bool mouse_sgr = 23;         // DECSET 1006: SGR-1006 encoding; else legacy X10
+  bool focus_events = 24;      // DECSET 1004: SPA emits CSI I / CSI O on real focus/blur
 }

@@ -2,10 +2,17 @@
 // visible spawned rows, and agreement with the SPA projector.
 
 import { expect, test, describe } from "bun:test";
-import { foldEvent, foldAll, asWorkerFp, asSessionId, asChannelId, asWorkspaceId } from "@roost/shared/wire";
+import { foldEvent, foldAll, asWorkerFp, asSessionId, asChannelId, asWorkspaceId, SessionEvent as SessionEventSchema } from "@roost/shared/wire";
 import type { SessionEvent, Session } from "@roost/shared/wire";
-import { foldEventIntoStore } from "../src/store/projector.ts";
+import { eventToProto, protoToEvent } from "@roost/shared/wire/event-proto";
+import { applySessionsSnapshot, foldEventIntoStore } from "../src/store/projector.ts";
+import { beginOptimisticSpawn, endOptimisticSpawn } from "../src/store/optimisticSpawn.ts";
 import { rootStore, setRootStore } from "../src/store/root.ts";
+import {
+  _resetTerminalOutboundForTest,
+  acquireTerminalViewportOwner,
+  terminalOutboundSnapshot,
+} from "../src/ws/sync-outbound.ts";
 
 // ──────────────────────────────────────────────────────────────────────
 // Helpers to build canonical test events. Use as* constructors for branded types.
@@ -218,5 +225,234 @@ describe("projection agreement — foldEventIntoStore === shared foldAll", () =>
     };
     foldEventIntoStore({ kind: "snapshot", worker_fp: FP, sessions: [snap], ts: 2000 });
     expect(rootStore.sessions[SESSION_ID]?.workspace_id).toBe(WS_ID); // preserved
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// SNAPSHOT RECONCILIATION — a full session set (bootstrap hydrate, and the
+// re-hydration every reconnect's fresh domain generation triggers) must UPDATE
+// the per-session record in place. A whole-record `setRootStore("sessions",
+// rec)` is a key-by-key Solid merge: it replaced every session object on every
+// reconnect (invalidating every subscriber, remounting anything keyed by object
+// identity) and pruned nothing, so closed sessions lingered until a reload.
+// ──────────────────────────────────────────────────────────────────────
+
+const OTHER_ID = asSessionId("00000000-0000-0000-0000-000000000007");
+
+function makeSession(id: string, overrides: Partial<Session> = {}): Session {
+  return {
+    id: asSessionId(id),
+    worker_fp: FP,
+    channel: asChannelId(1),
+    kind: "shell",
+    cwd: "/home/user/project",
+    workspace_id: null,
+    status: "open",
+    created_at: 1000,
+    closed_at: null,
+    custom_title: null,
+    ...overrides,
+  };
+}
+
+describe("full session snapshots reconcile per id", () => {
+  test("unchanged ids keep their store object; only changed leaves move", () => {
+    resetSessions();
+    applySessionsSnapshot({
+      [SESSION_ID]: makeSession(SESSION_ID),
+      [OTHER_ID]: makeSession(OTHER_ID, { channel: asChannelId(7) }),
+    });
+    const mounted = rootStore.sessions[SESSION_ID]!;
+    const untouched = rootStore.sessions[OTHER_ID]!;
+
+    // Reconnect re-hydration: same ids, complete objects, one changed field.
+    applySessionsSnapshot({
+      [SESSION_ID]: makeSession(SESSION_ID, { cwd: "/moved" }),
+      [OTHER_ID]: makeSession(OTHER_ID, { channel: asChannelId(7) }),
+    });
+    expect(rootStore.sessions[SESSION_ID]).toBe(mounted);
+    expect(rootStore.sessions[OTHER_ID]).toBe(untouched);
+    expect(rootStore.sessions[SESSION_ID]!.cwd).toBe("/moved");
+    expect(rootStore.sessions[OTHER_ID]!.channel).toBe(asChannelId(7));
+  });
+
+  test("absent ids are pruned with their volatile slices", () => {
+    resetSessions();
+    applySessionsSnapshot({
+      [SESSION_ID]: makeSession(SESSION_ID),
+      [OTHER_ID]: makeSession(OTHER_ID),
+    });
+    const kept = rootStore.sessions[SESSION_ID]!;
+    setRootStore("terminal_title", OTHER_ID, "vim");
+    setRootStore("last_activity", OTHER_ID, 42);
+
+    applySessionsSnapshot({ [SESSION_ID]: makeSession(SESSION_ID) });
+    expect(rootStore.sessions[OTHER_ID]).toBeUndefined();
+    expect(rootStore.terminal_title[OTHER_ID]).toBeUndefined();
+    expect(rootStore.last_activity[OTHER_ID]).toBeUndefined();
+    expect(rootStore.sessions[SESSION_ID]).toBe(kept);
+  });
+
+  test("an in-flight optimistic spawn survives a snapshot that omits it", () => {
+    resetSessions();
+    applySessionsSnapshot({ [SESSION_ID]: makeSession(SESSION_ID) });
+    const pending = beginOptimisticSpawn(rootStore.sessions[SESSION_ID]! as Session);
+
+    // The re-hydration predates the spawn: its id is not real yet.
+    applySessionsSnapshot({ [SESSION_ID]: makeSession(SESSION_ID) });
+    expect(rootStore.sessions[pending]).toBeDefined();
+
+    // Once the spawn settles, the same absent id is a real deletion.
+    endOptimisticSpawn(pending);
+    applySessionsSnapshot({ [SESSION_ID]: makeSession(SESSION_ID) });
+    expect(rootStore.sessions[pending]).toBeUndefined();
+  });
+
+  test("the event fold shares the convention: metadata updates in place", () => {
+    resetSessions();
+    foldEventIntoStore(makeOpenedEvent());
+    const mounted = rootStore.sessions[SESSION_ID]!;
+    foldEventIntoStore({ kind: "cwd", session_id: SESSION_ID, cwd: "/folded", ts: 1500 });
+    expect(rootStore.sessions[SESSION_ID]).toBe(mounted);
+    expect(rootStore.sessions[SESSION_ID]!.cwd).toBe("/folded");
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// FOLD SAFETY + PRODUCER GENERATION — the Sync stream hands the projector
+// decoded but unverified events. A rejected or reordered one must never unwind
+// a LIVE session (that is a blank pane no event asked for), while a respawn or a
+// worker reconcile snapshot must replay the tab's positive viewport owner so the
+// new keeper core produces a full frame without a remount.
+// ──────────────────────────────────────────────────────────────────────
+
+describe("fold safety and producer-generation replay", () => {
+  test("every wire-decoded event kind passes the boundary gate", () => {
+    resetSessions();
+    // protoToEvent casts rather than validates, so this gate is the FIRST check a
+    // live event meets. If any real kind failed it, the SPA would silently stop
+    // projecting — assert the whole vocabulary survives the wire round trip.
+    const events: SessionEvent[] = [
+      makeOpenedEvent(),
+      { kind: "closed", session_id: SESSION_ID, exit_code: 0, ts: 1010 },
+      { kind: "attached", session_id: SESSION_ID, ts: 1020 },
+      { kind: "detached", session_id: SESSION_ID, ts: 1030 },
+      { kind: "cwd", session_id: SESSION_ID, cwd: "/wire", ts: 1040 },
+      { kind: "workspace_assigned", session_id: SESSION_ID, workspace_id: WS_ID, ts: 1050 },
+      { kind: "snapshot", worker_fp: FP, sessions: [makeSession(SESSION_ID)], ts: 1060 },
+      { kind: "respawned", session_id: SESSION_ID, new_channel: asChannelId(8), ts: 1070 },
+      { kind: "renamed", session_id: SESSION_ID, custom_title: "build", ts: 1080 },
+      { kind: "git", session_id: SESSION_ID, branch: "main", remote: "o/r", ts: 1090 },
+      { kind: "pr", session_id: SESSION_ID, number: 7, state: "open", checks: "passing", url: "u", ts: 1100 },
+      { kind: "ports", session_id: SESSION_ID, ports: [5173], ts: 1110 },
+    ];
+    for (const event of events) {
+      const decoded = protoToEvent(eventToProto(event, 1));
+      expect(decoded).not.toBeNull();
+      expect(SessionEventSchema.safeParse(decoded).success).toBe(true);
+    }
+
+    // And the projector really applies a wire-decoded event.
+    const opened = protoToEvent(eventToProto(makeOpenedEvent(), 2))!;
+    foldEventIntoStore(opened);
+    expect(rootStore.sessions[SESSION_ID]).toBeDefined();
+  });
+
+  test("a Zod-rejected event leaves the live session and its volatile slices intact", () => {
+    resetSessions();
+    foldEventIntoStore(makeOpenedEvent());
+    setRootStore("terminal_title", SESSION_ID, "vim");
+    setRootStore("last_activity", SESSION_ID, 42);
+
+    // Wrong `exit_code` type: the fold's `closed` branch needs only session_id,
+    // so without boundary validation this would delete a live session.
+    const malformedClosed = {
+      kind: "closed",
+      session_id: SESSION_ID,
+      exit_code: "boom",
+      ts: 4000,
+    } as unknown as SessionEvent;
+    foldEventIntoStore(malformedClosed);
+
+    expect(rootStore.sessions[SESSION_ID]).toBeDefined();
+    expect(rootStore.terminal_title[SESSION_ID]).toBe("vim");
+    expect(rootStore.last_activity[SESSION_ID]).toBe(42);
+
+    // A malformed respawn cannot move the session onto a bogus channel either.
+    const malformedRespawn = {
+      kind: "respawned",
+      session_id: SESSION_ID,
+      new_channel: "not-a-channel",
+      ts: 4100,
+    } as unknown as SessionEvent;
+    foldEventIntoStore(malformedRespawn);
+    expect(rootStore.sessions[SESSION_ID]!.channel).toBe(asChannelId(1));
+  });
+
+  test("a valid close still deletes the session with its volatile slices", () => {
+    resetSessions();
+    foldEventIntoStore(makeOpenedEvent());
+    setRootStore("terminal_title", SESSION_ID, "vim");
+    setRootStore("last_activity", SESSION_ID, 42);
+
+    foldEventIntoStore({ kind: "closed", session_id: SESSION_ID, exit_code: 0, ts: 4200 });
+
+    expect(rootStore.sessions[SESSION_ID]).toBeUndefined();
+    expect(rootStore.terminal_title[SESSION_ID]).toBeUndefined();
+    expect(rootStore.last_activity[SESSION_ID]).toBeUndefined();
+  });
+
+  test("a snapshot that omits a live session keeps it and its slices", () => {
+    resetSessions();
+    const ghostId = asSessionId("00000000-0000-0000-0000-000000000008");
+    foldEventIntoStore(makeOpenedEvent({ session_id: ghostId }));
+    foldEventIntoStore(makeOpenedEvent({ session_id: SESSION_ID }));
+    setRootStore("terminal_title", ghostId, "htop");
+
+    foldEventIntoStore({
+      kind: "snapshot",
+      worker_fp: FP,
+      sessions: [makeSession(SESSION_ID, { channel: asChannelId(3) })],
+      ts: 4300,
+    });
+
+    expect(rootStore.sessions[ghostId]).toBeDefined();
+    expect(rootStore.terminal_title[ghostId]).toBe("htop");
+    expect(rootStore.sessions[SESSION_ID]!.channel).toBe(asChannelId(3));
+  });
+
+  test("respawn and reconcile snapshot replay a positive viewport owner at held zero", () => {
+    resetSessions();
+    _resetTerminalOutboundForTest();
+    foldEventIntoStore(makeOpenedEvent());
+    const owner = acquireTerminalViewportOwner(SESSION_ID);
+    owner.claim({ cols: 120, rows: 40, cause: 1, heldCellSeq: 31n });
+    expect(terminalOutboundSnapshot(SESSION_ID).claim.desired?.held_cell_seq).toBe("31");
+
+    foldEventIntoStore({ kind: "respawned", session_id: SESSION_ID, new_channel: asChannelId(44), ts: 4400 });
+    expect(terminalOutboundSnapshot(SESSION_ID).claim.desired?.held_cell_seq).toBe("0");
+
+    // A later heartbeat re-states the tab's own watermark; the announcing
+    // worker's reconcile snapshot forces zero again.
+    owner.heartbeat(77n);
+    expect(terminalOutboundSnapshot(SESSION_ID).claim.desired?.held_cell_seq).toBe("77");
+    foldEventIntoStore({
+      kind: "snapshot",
+      worker_fp: FP,
+      sessions: [makeSession(SESSION_ID, { channel: asChannelId(44) })],
+      ts: 4500,
+    });
+    expect(terminalOutboundSnapshot(SESSION_ID).claim.desired?.held_cell_seq).toBe("0");
+    owner.dispose();
+    _resetTerminalOutboundForTest();
+  });
+
+  test("a tab with no viewport owner is untouched by a producer generation change", () => {
+    resetSessions();
+    _resetTerminalOutboundForTest();
+    foldEventIntoStore(makeOpenedEvent());
+    foldEventIntoStore({ kind: "respawned", session_id: SESSION_ID, new_channel: asChannelId(45), ts: 4600 });
+    expect(terminalOutboundSnapshot(SESSION_ID).claim.desired).toBeNull();
+    expect(rootStore.sessions[SESSION_ID]!.channel).toBe(asChannelId(45));
   });
 });

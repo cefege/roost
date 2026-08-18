@@ -97,7 +97,7 @@ function key(keyValue: string, init: Partial<FakeKeyEvent> = {}): FakeKeyEvent {
 	return Object.assign(event, init);
 }
 
-function setup(application = false): {
+function setup(application = false, focusEvents = false): {
 	controller: TerminalInputController;
 	root: FakeElement;
 	data: string[];
@@ -110,6 +110,7 @@ function setup(application = false): {
 	const pastes: string[] = [];
 	const controller = new TerminalInputController(root as unknown as HTMLElement, {
 		cursorKeysApplication: () => application,
+		focusEventsEnabled: () => focusEvents,
 		onData: (value) => data.push(value),
 		onPaste: (value) => pastes.push(value),
 	});
@@ -188,5 +189,37 @@ describe("TerminalInputController", () => {
 		expect(pane.root.classList.contains("focused")).toBe(false);
 		emit(pane.controller, key("x"));
 		expect(pane.data).toEqual([]);
+	});
+
+	// DECSET 1004. The application asked which surface owns the keyboard, so only
+	// a REAL textarea transition answers it — and only a transition: forceFocus
+	// blurs and re-focuses an already-focused textarea, plus dispatches its own
+	// focus event, and reporting that as lost-then-gained focus made every pane
+	// switch run the app's FocusLost handling.
+	test("reports real focus and blur as CSI I / CSI O when the app asked for 1004", () => {
+		const pane = setup(false, true);
+		const textarea = pane.controller.textarea as unknown as FakeElement;
+
+		pane.controller.forceFocus();
+		expect(pane.data).toEqual(["\x1b[I"]);
+		pane.controller.forceFocus();
+		expect(pane.data).toEqual(["\x1b[I"]);
+
+		textarea.blur();
+		expect(pane.data).toEqual(["\x1b[I", "\x1b[O"]);
+		textarea.blur();
+		expect(pane.data).toEqual(["\x1b[I", "\x1b[O"]);
+		textarea.focus();
+		expect(pane.data).toEqual(["\x1b[I", "\x1b[O", "\x1b[I"]);
+	});
+
+	test("stays silent on focus transitions when the app never asked for 1004", () => {
+		const pane = setup();
+		const textarea = pane.controller.textarea as unknown as FakeElement;
+		pane.controller.forceFocus();
+		textarea.blur();
+		textarea.focus();
+		expect(pane.data).toEqual([]);
+		expect(pane.root.classList.contains("focused")).toBe(true);
 	});
 });

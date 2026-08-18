@@ -11,10 +11,14 @@ import * as resumeFns from "./session-resume.ts";
 import type { InitialViewportPreclaim } from "./session-spawn.ts";
 import * as lifecycle from "./session-lifecycle.ts";
 import * as terminalControl from "./session-terminal-control.ts";
+import type { TerminalControlLane, KeeperAdmissionLane } from "./session-control-lanes.ts";
+import type { ResizeCapture } from "./session-resize-capture.ts";
+import { rebuildTerminalCore } from "./session-resize-capture.ts";
+import type { CellGateSuppression, SyncOutputHold } from "./session-emit.ts";
+import type { TerminalRequestBudget } from "./transport/CoordLink-types.ts";
 
 import { getMultiplexedPool, type MuxChannelCallbacks } from "./keeper/multiplexed-client.ts";
 import { log, asChannelId } from "@roost/shared";
-import type { TerminalCore } from "@wterm/core";
 import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
 import type { TransportSendResult } from "./transport/CoordLink-types.ts";
 import type { SessionEventSink } from "./event-sink.ts";
@@ -85,22 +89,46 @@ export class SessionManager {
 	strayReaperTimer: ReturnType<typeof setInterval> | null = null;
 	// channelId -> consecutive sweeps seen as a stray (see STRAY_REAP_STRIKES).
 	strayStrikes = new Map<number, number>();
-	// OPT2-1: per-channel serializer for deterministic wtermCore rebuilds on
-	// resize. @wterm/core's in-place resize is asymmetric (shrink pushes rows
-	// to scrollback, grow appends blanks, never reverses) and PATH-DEPENDENT:
-	// the same final cols×rows yields a different grid depending on the resize
-	// history → the "phone rotation sometimes mangles" coin-flip. We instead
-	// rebuild a fresh core at the target size and replay the raw ring, which
-	// is the single source of truth: same ring + same size = same grid, every
-	// time. Chained so rapid resizes don't overlap; the last replay wins.
-	_wtermRebuildChain = new Map<number, Promise<void>>();
-	// Typed terminal controls serialize per channel. Cell emission gates while a
-	// correlated resize is unresolved; post-ACK bytes buffer until the canonical
-	// core has crossed the ordered resize boundary.
-	terminalControlChains = new Map<number, Promise<void>>();
+	// OPT2-1: rebuilding a fresh core and replaying the raw ring is the ONLY
+	// resize path. @wterm/core's in-place resize is asymmetric (shrink pushes rows
+	// to scrollback, grow appends blanks, never reverses) and PATH-DEPENDENT: the
+	// same final cols×rows yields a different grid depending on the resize history
+	// → the "phone rotation sometimes mangles" coin-flip. Same ring + same size =
+	// same grid, every time. The rebuild now runs INSIDE the owning terminal
+	// control transaction (see terminalControlChains) instead of on its own
+	// uncorrelated chain, so one decision can never build two cores.
+	// Per-channel count of actual core swaps. Bounded (one number per live
+	// channel) and monotonic — the once-only rebuild is observable, not assumed.
+	coreRebuilds = new Map<number, number>();
+	// Mutual exclusion for whole terminal-control transactions; see
+	// session-control-lanes.ts for why this is separate from the write lane.
+	terminalControlChains = new Map<number, TerminalControlLane>();
+	// Receive-order lane for keeper WRITES (resize request, status query, input,
+	// query reply). Held only across a write, never across an ACK.
+	keeperAdmissionLane = new Map<number, KeeperAdmissionLane>();
+	// Highest resize sequence this worker has WRITTEN for the channel (reserved at
+	// write time, not at ACK time).
 	channelResizeSeq = new Map<number, number>();
+	// Channels whose sequence floor is not trustworthy: an ambiguous resize means
+	// the keeper may have consumed a sequence we cannot prove. The next allocation
+	// recovers authoritative keeper state first.
+	resizeFloorInvalid = new Set<number>();
 	cellEmissionGates = new Set<number>();
-	postResizeOutput = new Map<number, Buffer[]>();
+	// Installed atomically with the gate for a geometry-uncertain transaction: the
+	// canonical core is frozen while captured bytes still reach the raw ring and
+	// the coordinator metadata lane. Replaces the unbounded postResizeOutput.
+	resizeCaptures = new Map<number, ResizeCapture>();
+	// Which gate is withholding cell frames, since when, and how many frames it
+	// has suppressed — so a stalled emitter is attributable from the snapshot.
+	cellGateSuppression = new Map<number, CellGateSuppression>();
+	// Open DEC 2026 synchronized-output frames, one per channel. Bounded by an
+	// armed wall ceiling and a pending-row ceiling so an application that opens a
+	// synchronized frame and never closes it cannot withhold cell frames forever.
+	syncOutputHolds = new Map<number, SyncOutputHold>();
+	// Channels whose core reported a SATURATED OSC 8 link table on the last cell
+	// emit. Edge state only, so the Tier-1 signal fires once per flip instead of
+	// once per frame; a core rebuild empties the table and clears the flag.
+	hyperlinkSaturated = new Set<number>();
 	// Structured raw-metadata sink. Passing fields directly avoids constructing
 	// and immediately reparsing the old private 11-byte header.
 	readonly sendBinaryUpstream:
@@ -226,8 +254,13 @@ export class SessionManager {
 	markInputSensitive(channelId: number): void {
 		if (this.sessions.has(channelId)) this.inputSensitiveChannels.add(channelId);
 	}
-	writeTerminalInput(sessionId: string, inputSeq: bigint, bytes: Uint8Array): Promise<terminalControl.WorkerInputResult> {
-		return terminalControl.writeTerminalInput.call(this, sessionId, inputSeq, bytes);
+	writeTerminalInput(
+		sessionId: string,
+		inputSeq: bigint,
+		bytes: Uint8Array,
+		budget?: TerminalRequestBudget,
+	): Promise<terminalControl.WorkerInputResult> {
+		return terminalControl.writeTerminalInput.call(this, sessionId, inputSeq, bytes, budget);
 	}
 
 	applyTerminalViewport(intent: terminalControl.WorkerViewportIntent): Promise<terminalControl.WorkerViewportResult> {
@@ -254,9 +287,9 @@ export class SessionManager {
 		return scrollback.appendScrollback.call(this, channelId, chunk);
 	}
 
-
-	_answerTerminalQueries(core: TerminalCore, channelId: number, chunk: Uint8Array): void {
-		return scrollback._answerTerminalQueries.call(this, core, channelId, chunk);
+	/** Capture-lane ingest: retain + scan, never the frozen core. */
+	appendCapturedScrollback(channelId: number, chunk: Buffer): number {
+		return scrollback.appendCapturedScrollback.call(this, channelId, chunk);
 	}
 
 	emitUpstreamChunk(channelId: number, chunk: Buffer): void {
@@ -282,6 +315,13 @@ export class SessionManager {
 
 	_disposeOutputState(channelId: number): void {
 		return emit._disposeOutputState.call(this, channelId);
+	}
+
+	/** Retire an open synchronized-output hold. The only importer of
+	 *  session-emit's values is this class, so the resize transaction reaches it
+	 *  through here rather than through an import cycle. */
+	_releaseSyncOutputHold(channelId: number): void {
+		return emit.releaseSyncOutputHold(this, channelId);
 	}
 
 	emitCellFrame(channelId: number, force: boolean): void {
@@ -330,16 +370,17 @@ export class SessionManager {
 		return viewport._reapViewportClaims.call(this);
 	}
 
-	_recomputeViewport(channelId: number): void {
-		return viewport._recomputeViewport.call(this, channelId);
+	/** Single owner of an SCD size decision: claim, deferred withdraw, and the
+	 *  freshness reaper all queue here. */
+	reconcileTerminalViewport(channelId: number): void {
+		return terminalControl.reconcileTerminalViewport.call(this, channelId);
 	}
 
-	_scheduleWtermRebuild(channelId: number, cols: number, rows: number): void {
-		return viewport._scheduleWtermRebuild.call(this, channelId, cols, rows);
-	}
-
-	_rebuildWtermCore(channelId: number, cols: number, rows: number): Promise<void> {
-		return viewport._rebuildWtermCore.call(this, channelId, cols, rows);
+	/** Rebuild the core at an exact size from the retained ring, with no capture
+	 *  to split at. Production always rebuilds through a capture (inside the
+	 *  owning transaction); this is the determinism reference. */
+	_rebuildWtermCore(channelId: number, cols: number, rows: number): Promise<boolean> {
+		return rebuildTerminalCore(this, channelId, cols, rows, null);
 	}
 
 	spawnShell(

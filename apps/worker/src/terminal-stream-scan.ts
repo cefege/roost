@@ -135,6 +135,24 @@ const AGENT_OSC_CARRY_MAX = 1024;
 // eslint-disable-next-line no-control-regex
 const OSC_CONTROL_RE = /[\x00-\x1f\x7f]/g;
 
+// OSC 0/2 title and OSC 9 progress bodies are user-visible text (surfaced
+// verbatim in sessionTitle.ts), so a plain `.slice(0, N)` on this UTF-16
+// string can cut a surrogate pair in half and leave a lone surrogate that
+// renders as U+FFFD downstream. Codepoint iteration (not full grapheme
+// segmentation — this is a raw capture buffer, not a render path; the web
+// side re-truncates with cluster awareness for display) is enough to avoid
+// that, and only ever appends whole codepoints, so the result never exceeds
+// `max` UTF-16 code units, the unit the cap protects.
+function _truncateCodepoints(str: string, max: number): string {
+  if (str.length <= max) return str;
+  let result = "";
+  for (const ch of str) {
+    if (result.length + ch.length > max) break;
+    result += ch;
+  }
+  return result;
+}
+
 export interface AgentOscScan {
   title: string | null;
   progress: string | null;
@@ -189,9 +207,9 @@ export function _scanAgentOsc(combined: string): AgentOscScan {
     const code = separator < 0 ? "" : payload.slice(0, separator);
     const body = separator < 0 ? "" : payload.slice(separator + 1);
     if (code === "0" || code === "2") {
-      title = body.replace(OSC_CONTROL_RE, "").slice(0, 256);
+      title = _truncateCodepoints(body.replace(OSC_CONTROL_RE, ""), 256);
     } else if (code === "9" && body.startsWith("4;")) {
-      progress = body.replace(OSC_CONTROL_RE, "").slice(0, 64);
+      progress = _truncateCodepoints(body.replace(OSC_CONTROL_RE, ""), 64);
     }
     cursor = end + termLength;
   }

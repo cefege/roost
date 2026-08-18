@@ -1,5 +1,12 @@
 import { markPhase } from "./diag.ts";
 import type { SmokeApi } from "./smoke.ts";
+import {
+  recordTerminalGeometryProof,
+  terminalBrowserStreamSnapshot,
+  type CursorPresentationProof,
+  type MarkerPresentationProof,
+  type TerminalRectSnapshot,
+} from "./terminalPreview.ts";
 
 type Step = { name: string; pass: boolean; detail: unknown };
 
@@ -21,16 +28,14 @@ async function waitFor(check: () => boolean, frameLimit: number): Promise<boolea
   return check();
 }
 
-export type PaintedMarkerProof = {
-  sessionId: string;
-  marker: string;
-  monotonicMs: number;
-  epochMs: number;
-  rowText: string;
-  markerRect: RectSnapshot;
-  terminalRect: RectSnapshot;
-  visualViewportRect: RectSnapshot;
-};
+export type PaintedMarkerProof = MarkerPresentationProof;
+
+export type PaintedCursorProof = CursorPresentationProof;
+
+export interface PaintedCursorExpected {
+  row?: number;
+  column?: number;
+}
 
 export type TerminalTimingKind = "trusted_key" | "reveal" | "resize" | "optimistic";
 
@@ -43,20 +48,24 @@ export type TerminalTimingResult = PaintedMarkerProof & {
   trustedKey: boolean;
 };
 
-type RectSnapshot = {
-  left: number;
-  top: number;
-  right: number;
-  bottom: number;
-  width: number;
-  height: number;
-};
+type RectSnapshot = TerminalRectSnapshot;
 
 type MarkerGeometry = {
   rowText: string;
   markerRect: RectSnapshot;
   terminalRect: RectSnapshot;
   visualViewportRect: RectSnapshot;
+  rowNode: Element;
+};
+
+type CursorGeometry = {
+  row: number;
+  column: number;
+  rawRect: RectSnapshot;
+  rect: RectSnapshot;
+  terminalClip: RectSnapshot;
+  visualViewport: RectSnapshot;
+  cursorNode: HTMLElement;
 };
 
 type PendingTiming = {
@@ -180,9 +189,195 @@ function findPaintedMarker(sessionId: string, marker: string): MarkerGeometry | 
       markerRect,
       terminalRect,
       visualViewportRect: viewportRect,
+      rowNode: row,
     };
   }
   return null;
+}
+
+function clippedRect(left: RectSnapshot, right: RectSnapshot): RectSnapshot | null {
+  const clippedLeft = Math.max(left.left, right.left);
+  const clippedTop = Math.max(left.top, right.top);
+  const clippedRight = Math.min(left.right, right.right);
+  const clippedBottom = Math.min(left.bottom, right.bottom);
+  const width = clippedRight - clippedLeft;
+  const height = clippedBottom - clippedTop;
+  if (width <= 0 || height <= 0) return null;
+  return {
+    left: clippedLeft,
+    top: clippedTop,
+    right: clippedRight,
+    bottom: clippedBottom,
+    width,
+    height,
+  };
+}
+
+function cursorStyleIsPaintable(cursor: HTMLElement, terminal: HTMLElement): boolean {
+  for (let current: HTMLElement | null = cursor; current; current = current.parentElement) {
+    const style = getComputedStyle(current);
+    if (
+      style.display === "none"
+      || style.visibility === "hidden"
+      || style.visibility === "collapse"
+      || style.contentVisibility === "hidden"
+      // Cursor blink deliberately animates opacity to zero. Ancestor opacity
+      // still clips presentation; the cursor's own blink phase does not.
+      || (current !== cursor && Number.parseFloat(style.opacity) === 0)
+    ) return false;
+    if (current === cursor) {
+      const background = style.backgroundColor.replace(/\s+/g, "").toLowerCase();
+      if (
+        background === "transparent"
+        || /^rgba\([^)]*,0(?:\.0+)?\)$/.test(background)
+        || /\/0(?:\.0+)?\)$/.test(background)
+      ) return false;
+    }
+    if (current === terminal) return true;
+  }
+  return false;
+}
+
+function findPaintedCursor(
+  sessionId: string,
+  expected: PaintedCursorExpected | undefined,
+): CursorGeometry | null {
+  const slot = document.querySelector(`[data-testid="terminal-slot-${CSS.escape(sessionId)}"]`);
+  const terminal = slot?.querySelector(".cell-grid");
+  const viewport = terminal?.querySelector(".cell-viewport");
+  const cursor = viewport?.querySelector(".cell-cursor");
+  if (
+    !(slot instanceof HTMLElement)
+    || !(terminal instanceof HTMLElement)
+    || !(viewport instanceof HTMLElement)
+    || !(cursor instanceof HTMLElement)
+    || !slot.isConnected
+    || !terminal.isConnected
+    || !viewport.isConnected
+    || !cursor.isConnected
+    || cursor.parentElement !== viewport
+    || !cursorStyleIsPaintable(cursor, terminal)
+  ) return null;
+
+  const row = Number(cursor.dataset.row);
+  const column = Number(cursor.dataset.column);
+  if (
+    !Number.isSafeInteger(row)
+    || row < 0
+    || !Number.isSafeInteger(column)
+    || column < 0
+    || (expected?.row !== undefined && row !== expected.row)
+    || (expected?.column !== undefined && column !== expected.column)
+  ) return null;
+
+  const terminalRect = rectSnapshot(terminal.getBoundingClientRect());
+  const visualViewport = visualViewportRect();
+  const terminalClip = clippedRect(terminalRect, visualViewport);
+  if (!terminalClip) return null;
+  const cursorRect = rectSnapshot(cursor.getBoundingClientRect());
+  const cursorClip = clippedRect(cursorRect, terminalClip);
+  if (!cursorClip) return null;
+
+  const rowElements = viewport.querySelectorAll(".cell-row");
+  const rowElement = rowElements.item(row);
+  if (!(rowElement instanceof HTMLElement) || !hasVisibleComputedStyle(rowElement)) return null;
+  const rowRect = rectSnapshot(rowElement.getBoundingClientRect());
+  if (rowRect.width <= 0 || rowRect.height <= 0) return null;
+  const rowTolerance = Math.max(0.75, cursorRect.height * 0.08);
+  if (
+    Math.abs(cursorRect.top - rowRect.top) > rowTolerance
+    || cursorRect.bottom > rowRect.bottom + rowTolerance
+  ) return null;
+  const columnTolerance = Math.max(0.75, cursorRect.width * 0.08);
+  const expectedLeft = rowRect.left + column * cursorRect.width;
+  if (Math.abs(cursorRect.left - expectedLeft) > columnTolerance) return null;
+
+  return {
+    row,
+    column,
+    rawRect: cursorRect,
+    rect: cursorClip,
+    terminalClip,
+    visualViewport,
+    cursorNode: cursor,
+  };
+}
+
+function stableRect(left: RectSnapshot, right: RectSnapshot): boolean {
+  const tolerance = 0.75;
+  return Math.abs(left.left - right.left) <= tolerance
+    && Math.abs(left.top - right.top) <= tolerance
+    && Math.abs(left.right - right.right) <= tolerance
+    && Math.abs(left.bottom - right.bottom) <= tolerance
+    && Math.abs(left.width - right.width) <= tolerance
+    && Math.abs(left.height - right.height) <= tolerance;
+}
+
+/**
+ * Cursor presentation proof: a connected cursor directly under
+ * `.cell-viewport` owns stable, grid-aligned geometry clipped by both terminal
+ * and visual viewport across two animation frames. This is intentionally not
+ * a raster-pixel claim: the cursor must have a paintable background, while its
+ * nondeterministic blink opacity is tolerated by contract.
+ */
+export async function waitForPaintedCursor(
+  sessionId: string,
+  expected?: PaintedCursorExpected,
+  timeoutMs = 30_000,
+): Promise<PaintedCursorProof> {
+  if (
+    (expected?.row !== undefined && (!Number.isSafeInteger(expected.row) || expected.row < 0))
+    || (
+      expected?.column !== undefined
+      && (!Number.isSafeInteger(expected.column) || expected.column < 0)
+    )
+  ) throw new Error(`invalid expected cursor coordinates: ${JSON.stringify(expected)}`);
+
+  const deadline = performance.now() + timeoutMs;
+  while (performance.now() <= deadline) {
+    const first = findPaintedCursor(sessionId, expected);
+    if (first) {
+      await frames(2);
+      const confirmed = findPaintedCursor(sessionId, expected);
+      if (
+        confirmed
+        && confirmed.cursorNode === first.cursorNode
+        && confirmed.row === first.row
+        && confirmed.column === first.column
+        && stableRect(confirmed.rect, first.rect)
+        && stableRect(confirmed.rawRect, first.rawRect)
+        && stableRect(confirmed.terminalClip, first.terminalClip)
+        && stableRect(confirmed.visualViewport, first.visualViewport)
+      ) {
+        const monotonicMs = performance.now();
+        const proof: PaintedCursorProof = {
+          proof_kind: "cursor",
+          sessionId,
+          row: confirmed.row,
+          column: confirmed.column,
+          monotonicMs,
+          epochMs: performance.timeOrigin + monotonicMs,
+          rect: confirmed.rect,
+          terminalClip: confirmed.terminalClip,
+          visualViewport: confirmed.visualViewport,
+          frames: 2,
+        };
+        markPhase("cursor_presented", {
+          sessionId,
+          row: proof.row,
+          column: proof.column,
+          cursorWidth: proof.rect.width,
+          cursorHeight: proof.rect.height,
+        });
+        recordTerminalGeometryProof(sessionId, proof);
+        return proof;
+      }
+    }
+    await nextFrame();
+  }
+  throw new Error(
+    `cursor presentation geometry was not proven within ${timeoutMs}ms: ${sessionId} ${JSON.stringify(expected ?? {})}`,
+  );
 }
 
 /**
@@ -197,17 +392,29 @@ export async function waitForPaintedMarker(
 ): Promise<PaintedMarkerProof> {
   const deadline = performance.now() + timeoutMs;
   while (performance.now() <= deadline) {
-    if (findPaintedMarker(sessionId, marker)) {
+    const first = findPaintedMarker(sessionId, marker);
+    if (first) {
       await frames(2);
       const confirmed = findPaintedMarker(sessionId, marker);
-      if (confirmed) {
+      if (
+        confirmed
+        && confirmed.rowNode === first.rowNode
+        && stableRect(confirmed.markerRect, first.markerRect)
+        && stableRect(confirmed.terminalRect, first.terminalRect)
+        && stableRect(confirmed.visualViewportRect, first.visualViewportRect)
+      ) {
         const monotonicMs = performance.now();
-        const proof = {
+        const proof: PaintedMarkerProof = {
+          proof_kind: "marker",
           sessionId,
           marker,
           monotonicMs,
           epochMs: performance.timeOrigin + monotonicMs,
-          ...confirmed,
+          rowText: confirmed.rowText,
+          markerRect: confirmed.markerRect,
+          terminalRect: confirmed.terminalRect,
+          visualViewportRect: confirmed.visualViewportRect,
+          frames: 2,
         };
         markPhase("marker_presented", {
           sessionId,
@@ -215,12 +422,27 @@ export async function waitForPaintedMarker(
           markerWidth: confirmed.markerRect.width,
           markerHeight: confirmed.markerRect.height,
         });
+        recordTerminalGeometryProof(sessionId, proof);
         return proof;
       }
     }
     await nextFrame();
   }
-  throw new Error(`marker was not visibly painted within ${timeoutMs}ms: ${sessionId} ${JSON.stringify(marker)}`);
+  // A bare timeout names no layer. Report which watermark stalled (wire →
+  // canonical → DOM), why the renderer refused to reconcile, and whether the
+  // marker text reached the DOM at all but failed the visibility proof.
+  const stream = terminalBrowserStreamSnapshot(sessionId);
+  const slot = document.querySelector(`[data-testid="terminal-slot-${CSS.escape(sessionId)}"]`);
+  throw new Error(`marker was not visibly painted within ${timeoutMs}ms: ${sessionId} ${JSON.stringify(marker)} ${JSON.stringify({
+    in_dom: (slot?.textContent ?? "").includes(marker),
+    rows: slot?.querySelectorAll(".cell-row").length ?? 0,
+    wire: stream.wire_received,
+    canonical: stream.handler_canonical,
+    dom: stream.dom_reconciled,
+    blocked: stream.reconcile_block_reason,
+    slot: stream.slot,
+    visibility: stream.visibility,
+  })}`);
 }
 
 function evictOldestTiming(): void {
@@ -299,18 +521,27 @@ export async function finishTerminalTiming(
   }
 }
 
-export async function runFlow(api: SmokeApi): Promise<{ steps: Step[]; summary: string }> {
+/** `workerFp` pins the machine the flow spawns on. Without it the flow picks the
+ *  most recently seen worker, which in a multi-worker harness can be a PTY
+ *  FIXTURE worker whose "shell" speaks a test protocol and never runs `printf`
+ *  — the flow then waits out its paint deadline on a session that can never echo. */
+export async function runFlow(
+  api: SmokeApi,
+  options: { workerFp?: string } = {},
+): Promise<{ steps: Step[]; summary: string }> {
   const steps: Step[] = [];
   const record = (name: string, pass: boolean, detail: unknown) => steps.push({ name, pass, detail });
+  let sessionId: string | null = null;
 
   try {
     const workers = Object.entries(api.state().workers) as Array<[string, { last_seen_ms?: number }]>;
     workers.sort(([, left], [, right]) => (right.last_seen_ms ?? 0) - (left.last_seen_ms ?? 0));
-    const workerFp = workers[0]?.[0];
-    record("worker_available", !!workerFp, { workerFp });
+    const workerFp = options.workerFp ?? workers[0]?.[0];
+    record("worker_available", !!workerFp && !!api.state().workers[workerFp], { workerFp });
     if (!workerFp) return { steps, summary: "0/1 passed" };
 
     const shell = await api.spawnShell(workerFp, "/tmp");
+    sessionId = shell.session_id;
     history.pushState({}, "", `/s/${shell.session_id}`);
     window.dispatchEvent(new PopStateEvent("popstate"));
     const shellSlot = await waitFor(() => api.renderProbe(shell.session_id).found, 300);
@@ -325,7 +556,15 @@ export async function runFlow(api: SmokeApi): Promise<{ steps: Step[]; summary: 
     const painted = await api.waitForPaintedMarker(shell.session_id, marker);
     record("shell_round_trip", true, painted);
   } catch (error) {
-    record("flow_exception", false, String(error));
+    // The browser half of the failure is already in the message. Attach the
+    // coordinator and worker halves too, so a stall is attributed to a layer
+    // instead of re-run until it reproduces under a debugger.
+    const layers = sessionId
+      ? await api.terminalStreamProbe(sessionId).catch((probeError: unknown) => ({
+        probe_failed: String(probeError),
+      }))
+      : null;
+    record("flow_exception", false, { error: String(error), layers });
   } finally {
     const cleanup = await api.cleanupCreated();
     record("cleanup", cleanup.errors.length === 0, cleanup);

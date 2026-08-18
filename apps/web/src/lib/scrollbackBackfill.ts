@@ -3,7 +3,11 @@
 // epoch-addressed rows and prepends them at the exact absolute seam.
 
 import { coordClient } from "../connect.ts";
-import type { SessionsGetScrollbackCellsResponse } from "@roost/shared/proto/coordinator_pb";
+import {
+  ScrollbackHistoryFloor as PbScrollbackHistoryFloor,
+  type SessionsGetScrollbackCellsResponse,
+} from "@roost/shared/proto/coordinator_pb";
+import type { ScrollbackHistoryFloor } from "@roost/shared/wire";
 import { diag } from "@roost/shared/diag";
 import { cellRowFromProto } from "@roost/shared/cell/cell-proto";
 import type { CellRow } from "@roost/shared/cell";
@@ -24,13 +28,56 @@ const BACKFILL_RETRY_MS = 2000;
 // Concurrent disjoint pages per demand wave.
 const BACKFILL_CONCURRENCY = 3;
 
-const _requestCounts = new Map<string, number>();
+/** Per-session observability the diagnostic surfaces read without holding a
+ *  controller. One entry per session this document has backfilled — the same
+ *  bound as the plain request counter it replaces; the value simply carries the
+ *  proven floor alongside the count instead of adding a second map. */
+interface BackfillState {
+  requests: number;
+  /** Earliest absolute row the worker proved it still retains. 0 = never hit. */
+  floor: number;
+  /** Why that floor is there, straight off the response that established it. */
+  floorReason: ScrollbackHistoryFloor;
+}
+const _state = new Map<string, BackfillState>();
+
+function stateOf(sessionId: string): BackfillState {
+  let state = _state.get(sessionId);
+  if (state === undefined) {
+    state = { requests: 0, floor: 0, floorReason: "none" };
+    _state.set(sessionId, state);
+  }
+  return state;
+}
 
 /** Smoke observability: issued epoch-addressed history RPCs per session. */
 export function scrollbackBackfillRequestCount(sessionId: string): number {
-  const count = _requestCounts.get(sessionId);
-  return count ?? 0;
+  return _state.get(sessionId)?.requests ?? 0;
 }
+
+/** The history floor this document has proven for a session and WHY it is there:
+ *  "evicted" = gone forever, "resize_replay" = a resize rebuilt the grid from the
+ *  worker's bounded byte ring and that ring could not reach as far back as the
+ *  core it replaced. null until a page actually comes back short, so a blank
+ *  top-of-history is attributable instead of merely visible. */
+export function scrollbackHistoryFloor(
+  sessionId: string,
+): { row: number; reason: ScrollbackHistoryFloor } | null {
+  const state = _state.get(sessionId);
+  if (state === undefined || state.floorReason === "none") return null;
+  return { row: state.floor, reason: state.floorReason };
+}
+
+/** The get-scrollback-cells response's proto enum in the vocabulary the rest of
+ *  Roost speaks. Total over the enum, so a reason added to the proto cannot
+ *  silently read as "none"; the `??` at each use covers only a number no version
+ *  of the enum defines. Shared with the smoke retained-history pager, the other
+ *  client of this RPC, so the decode exists once. */
+export const SCROLLBACK_FLOOR_REASON: Record<PbScrollbackHistoryFloor, ScrollbackHistoryFloor> = {
+  [PbScrollbackHistoryFloor.UNSPECIFIED]: "none",
+  [PbScrollbackHistoryFloor.EVICTED]: "evicted",
+  [PbScrollbackHistoryFloor.RESIZE_REPLAY]: "resize_replay",
+};
 
 
 export interface ScrollbackBackfill {
@@ -47,7 +94,17 @@ interface ValidatedChunk {
   rows: CellRow[];
   /** Earliest absolute row the worker still retains, when this page hit it. */
   retainedFloor: number | null;
+  /** Which floor that was — "none" while the page was served in full. */
+  floorReason: ScrollbackHistoryFloor;
 }
+
+/** Which fail-closed guard rejected a page, as reported on the diag channel.
+ *  `epoch` is the one a core rebuild trips; the rest name a worker that answered
+ *  a different question than the one asked. */
+type ChunkGuard =
+  | "epoch" | "cols" | "total"
+  | "start_row" | "row_order" | "end_row"
+  | "row_count" | "row_index";
 
 export function createScrollbackBackfill(opts: {
   sessionId: string;
@@ -114,6 +171,12 @@ export function createScrollbackBackfill(opts: {
   }
 
 
+  /** Fail-closed page validation. Every rejection ALSO names its guard on the
+   *  diag channel: a rejected page and "this session has no more history" are
+   *  otherwise the same observation from outside — history just stops loading as
+   *  the reader scrolls up, with nothing recorded anywhere. Bounded by
+   *  construction: a rejection ends its wave, so there is at most one of these
+   *  per issued RPC, and the payload is a fixed key set (no row content). */
   function validateChunk(
     resp: SessionsGetScrollbackCellsResponse,
     anchor: BackfillAnchor,
@@ -123,22 +186,38 @@ export function createScrollbackBackfill(opts: {
     const responseEnd = Number(resp.endRow);
     const total = Number(resp.scrollbackTotal);
     const expectedStart = Math.max(0, endRow - BACKFILL_FETCH_ROWS);
-    if (
-      resp.gridEpoch !== anchor.gridEpoch
-      || resp.cols !== anchor.cols
-      || total !== anchor.total
-      || startRow < expectedStart
-      || startRow > responseEnd
-      || responseEnd !== endRow
-    ) return null;
+    const reject = (guard: ChunkGuard): null => {
+      diag("scrollback.backfill_rejected", {
+        sid: opts.sessionId,
+        guard,
+        requested_end: endRow,
+        anchor_epoch: anchor.gridEpoch,
+        response_epoch: resp.gridEpoch,
+        anchor_cols: anchor.cols,
+        response_cols: resp.cols,
+        anchor_total: anchor.total,
+        response_total: total,
+        start_row: startRow,
+        end_row: responseEnd,
+        rows: resp.rows.length,
+      });
+      return null;
+    };
+    if (resp.gridEpoch !== anchor.gridEpoch) return reject("epoch");
+    if (resp.cols !== anchor.cols) return reject("cols");
+    if (total !== anchor.total) return reject("total");
+    if (startRow < expectedStart) return reject("start_row");
+    if (startRow > responseEnd) return reject("row_order");
+    if (responseEnd !== endRow) return reject("end_row");
     const rows = resp.rows.map(cellRowFromProto);
-    if (rows.length !== responseEnd - startRow) return null;
+    if (rows.length !== responseEnd - startRow) return reject("row_count");
     for (let i = 0; i < rows.length; i++) {
-      if (rows[i]!.index !== startRow + i) return null;
+      if (rows[i]!.index !== startRow + i) return reject("row_index");
     }
     return {
       rows,
       retainedFloor: startRow > expectedStart ? startRow : null,
+      floorReason: SCROLLBACK_FLOOR_REASON[resp.historyFloor] ?? "none",
     };
   }
 
@@ -147,7 +226,7 @@ export function createScrollbackBackfill(opts: {
     anchor: BackfillAnchor,
     endRow: number,
   ): Promise<ValidatedChunk | null> {
-    _requestCounts.set(opts.sessionId, (_requestCounts.get(opts.sessionId) ?? 0) + 1);
+    stateOf(opts.sessionId).requests++;
     const resp = await coordClient.sessionsGetScrollbackCells({
       sessionId: opts.sessionId,
       endRow: BigInt(endRow),
@@ -156,6 +235,19 @@ export function createScrollbackBackfill(opts: {
     });
     if (!valid(myEpoch)) return null;
     return validateChunk(resp, anchor, endRow);
+  }
+
+  /** One writer for the proven floor: this controller's paging bound AND the
+   *  document-level record the layered terminal probe reads. Monotonic within an
+   *  epoch — the floor only rises — and the reason belongs to the page that
+   *  raised it, so "history stopped loading here" is always attributable to
+   *  either genuine eviction or a resize-bounded replay. */
+  function noteFloor(chunk: ValidatedChunk): void {
+    if (chunk.retainedFloor === null) return;
+    retainedFloor = Math.max(retainedFloor, chunk.retainedFloor);
+    const state = stateOf(opts.sessionId);
+    state.floor = retainedFloor;
+    state.floorReason = chunk.floorReason;
   }
 
   async function loop(myEpoch: number): Promise<void> {
@@ -190,7 +282,7 @@ export function createScrollbackBackfill(opts: {
         if (ends.length === 0) return;
 
         const pending = ends.map((end) => {
-          _requestCounts.set(opts.sessionId, (_requestCounts.get(opts.sessionId) ?? 0) + 1);
+          stateOf(opts.sessionId).requests++;
           return coordClient.sessionsGetScrollbackCells({
             sessionId: opts.sessionId,
             endRow: BigInt(end),
@@ -211,9 +303,7 @@ export function createScrollbackBackfill(opts: {
           }
           const chunk = validateChunk(response, anchor, ends[k]!);
           if (!chunk) return;
-          if (chunk.retainedFloor !== null) {
-            retainedFloor = Math.max(retainedFloor, chunk.retainedFloor);
-          }
+          noteFloor(chunk);
           const rows = chunk.rows;
           if (rows.length === 0) return;
           diag("scrollback.backfill", {
@@ -263,6 +353,11 @@ export function createScrollbackBackfill(opts: {
         fullCols = anchor?.cols ?? 0;
         fullTotal = anchor?.total ?? -1;
         retainedFloor = 0;
+        // A new epoch's floor is unproven until a page comes back short in it, so
+        // the probe must not keep showing the previous numbering's floor.
+        const state = stateOf(opts.sessionId);
+        state.floor = 0;
+        state.floorReason = "none";
       }
       if (!renderer || !opts.active() || renderer.atBottom()) return;
       maybeStart();
@@ -287,9 +382,7 @@ export function createScrollbackBackfill(opts: {
           return false;
         }
         if (!valid(myEpoch) || !chunk) return false;
-        if (chunk.retainedFloor !== null) {
-          retainedFloor = Math.max(retainedFloor, chunk.retainedFloor);
-        }
+        noteFloor(chunk);
         if (chunk.rows.length === 0 || absIndex < retainedFloor) return false;
         if (!(await spliceBatch(chunk.rows, myEpoch, anchor.gridEpoch))) return false;
         if (!valid(myEpoch)) return false;

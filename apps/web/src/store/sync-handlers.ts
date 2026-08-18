@@ -8,7 +8,6 @@
 
 import { setRootStore } from "./root.ts";
 import { foldEventIntoStore } from "./projector.ts";
-import { pruneOsc8Tracker } from "../lib/terminalOsc8.ts";
 import type { Worker, Workspace, Task, PermissionRule, McpRelay } from "@roost/shared/wire";
 
 // Keeper-death awareness toast. A burst of `respawned` events while the SPA
@@ -49,11 +48,9 @@ function _maybeToastKeeperDeath(): void {
 export function _handleSessionsEvent(event: unknown): void {
   type SessionEventLike = Parameters<typeof foldEventIntoStore>[0];
   foldEventIntoStore(event as SessionEventLike);
-  const evk = (event as { kind?: string }).kind;
-  if (evk === "respawned") _maybeToastKeeperDeath();
-  // Drop the session's OSC 8 hyperlink tracker when it closes.
-  const ev = event as { kind?: string; session_id?: string };
-  if (ev.kind === "closed" && ev.session_id) pruneOsc8Tracker(ev.session_id);
+  if (event && typeof event === "object" && "kind" in event && event.kind === "respawned") {
+    _maybeToastKeeperDeath();
+  }
 }
 export function _handlePresenceEvent(event: unknown): void {
   const ev = event as

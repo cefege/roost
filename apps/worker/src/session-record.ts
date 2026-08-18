@@ -13,6 +13,42 @@ import type { SbRing } from "./session-scrollback-ring.ts";
 import type { AgentOscState } from "./terminal-stream-scan.ts";
 import type { ShellSpec } from "./shell-spec.ts";
 
+/** One distinct escape sequence the core's dispatcher did not recognise, as
+ *  first seen on the CURRENT core instance. */
+export interface UnhandledSequenceEntry {
+	/** CSI final byte, e.g. "q" for DECSCUSR. */
+	final: string;
+	/** Private-parameter prefix ("?", ">", "<", "="), or "" when absent. */
+	private: string;
+	/** Parameters the core parsed; it only records the first four into `params`,
+	 *  so this can exceed `params.length`. */
+	paramCount: number;
+	params: number[];
+	/** Monotonic ms (util/mono.ts) at which this core first produced it. */
+	firstSeenMonoMs: number;
+}
+
+/** Roost's view of ONE core instance's unhandled-sequence ring. The ring is
+ *  never cleared, so `consumed` — the ring's own logged total as of the last
+ *  sample — is the high-water mark that keeps a stale entry from being reported
+ *  twice, and `keys` dedupes repeats of the same sequence. Bounded at the ring's
+ *  capacity; session-unhandled-seq.ts owns every mutation of this shape. */
+export interface UnhandledSequenceLog {
+	/** Sequences the core had logged in total when last sampled, duplicates
+	 *  included. Nothing at or below this index is ever reported again. */
+	consumed: number;
+	/** Distinct sequences observed, capped at UNHANDLED_SEQ_MAX. */
+	entries: UnhandledSequenceEntry[];
+	/** `sequenceKey` of every recorded entry. */
+	keys: Set<string>;
+	/** Entries the core's ring overwrote between two samples while this
+	 *  accumulator was still recording, so Roost never saw them: only their
+	 *  existence is knowable, not what they were. */
+	ringDropped: number;
+	/** `entries` reached the cap; later distinct sequences are not recorded. */
+	capped: boolean;
+}
+
 interface SessionRecordCommon {
 	sessionId: SessionId;
 	channelId: ChannelId;
@@ -49,6 +85,55 @@ interface SessionRecordCommon {
 	spawnedAtMs: number;
 }
 
+/** The last core-rebuild origin pin, and the history floor that pin established.
+ *
+ *  A rebuild is the one moment Roost's monotonic numbering is re-derived rather
+ *  than merely advanced: the fresh core's own discarded counter restarts at 0, so
+ *  `sbOrigin` must absorb the whole difference or every absolute row index a
+ *  browser holds re-aliases. It is also the only moment history can vanish for a
+ *  reason OTHER than eviction — the replay reads a FIXED byte ring, so a ring that
+ *  no longer reaches as far back as the core it replaces rebuilds a SHALLOWER
+ *  history and the floor jumps.
+ *
+ *  One fixed record per session, overwritten in place by its single writer
+ *  (rebuildTerminalCore), so sampling it is O(1) and it retains no history. */
+export interface SbOriginPin {
+	/** Monotonic ms at the pin. Age, never a wall clock, so a host clock step
+	 *  cannot forge or hide how long ago the floor moved. */
+	at_mono_ms: number;
+	cols: number;
+	rows: number;
+	/** false = alt-primed: an alt-screen boundary replays NOTHING and starts the
+	 *  fresh core empty, so the whole retained history is left behind by design. */
+	replayed_ring: boolean;
+	/** The capture's recorded boundary had already fallen out of the ring. */
+	ring_evicted: boolean;
+	/** OLD core, read live at the pin: the floor and monotonic total the pin has
+	 *  to reproduce. */
+	prev_dropped: number;
+	prev_total: number;
+	/** FRESH core after the replay: what the ring was actually able to rebuild. */
+	fresh_discarded: number;
+	fresh_count: number;
+	/** The pin's outputs — the additive origin and the floor it establishes. */
+	sb_origin: number;
+	sb_dropped: number;
+	/** `prev_total - fresh_discarded - fresh_count` went NEGATIVE and Math.max(0,…)
+	 *  clamped it: the replay rebuilt MORE lines than the old core reported, so
+	 *  numbering continuity was discarded instead of preserved. */
+	clamped: boolean;
+	/** Rows that existed under the old core's numbering and do not exist under the
+	 *  fresh one: `max(0, sb_dropped - prev_dropped)`. History lost to the REPLAY
+	 *  BOUND, not to eviction — a session never resized would still hold them. 0
+	 *  when the rebuild preserved (or, with a deeper core, recovered) everything. */
+	replay_lost_rows: number;
+	/** Highest floor a replay bound has ever established here, carried across
+	 *  pins. The floor only rises, so one comparison classifies the CURRENT floor:
+	 *  still equal ⇒ the floor a caller just hit is this replay's; higher ⇒
+	 *  ordinary eviction has since carried it past. */
+	replay_floor: number;
+}
+
 export interface SessionShellRecord extends SessionRecordCommon, AgentOscState {
 	kind: "shell";
 	// Per-session sliding scrollback window (fixed-capacity byte ring). Appended
@@ -60,32 +145,28 @@ export interface SessionShellRecord extends SessionRecordCommon, AgentOscState {
 	// First byte ever appended has logical seq 1; head_seq = total bytes
 	// appended over session lifetime (NOT total bytes retained — ring may
 	// have evicted). tail_seq = head_seq - scrollback.length, i.e. the
-	// logical seq of the byte BEFORE scrollback[0]. getScrollbackSince
-	// serves [lastSeq+1, head_seq] iff lastSeq >= tail_seq; otherwise
-	// returns gap=true signalling the SPA that the ring has rolled past
-	// its lastSeq and the session history is unrecoverable. Replaces the
-	// sb59-sb63 splice-mark + 5s-timeout band-aid per
-	// project_seqno_splice_path_a_chosen.md + CLAUDE.md L11.
+	// logical seq of the byte BEFORE scrollback[0].
 	head_seq: number;
 	// Alt-screen tracking. TUIs such as vim and less use DEC private mode
-	// 1049 (or 47/1047) to swap to an off-scrollback buffer. A fresh SPA mount
-	// must replay the retained stream in the same mode or redraws land on the
-	// wrong rows. `mode_carry` preserves a transition split across chunks.
+	// 1049 (or 47/1047) to swap to an off-scrollback buffer. The rebuilt core
+	// must re-enter the same mode or redraws land on the wrong rows.
+	// `mode_carry` preserves a transition split across chunks.
 	alt_mode: boolean;
 	mode_carry: Uint8Array;
 	// OSC 7 cwd tracking. Shells emit
 	// `ESC ] 7 ; file://host/percent-encoded-path BEL` when their directory
 	// changes. `osc7_carry` holds the tail of a split sequence.
 	osc7_carry: Uint8Array;
+	// Capability-probe tokenizer carry (terminal-query-reply.ts). Holds the
+	// unterminated CSI prefix a chunk ended on so a probe split across pty chunk
+	// boundaries is recognised exactly once. Advanced by the capture lane too:
+	// the frozen core never parses those bytes, but the stream did move, and a
+	// partial glued onto a post-rebuild chunk would answer a probe nobody sent.
+	query_carry: Uint8Array;
 	// Agent-state fallback reads OSC title/progress directly from this same PTY
 	// stream; see AgentOscState / initAgentOscState in terminal-stream-scan.ts.
-	// @wterm/core WASM bridge that mirrors every PTY byte. Used for
-	// getScrollbackSince(0) fresh-mount + gap replay: serializeWTerm()
-	// walks the captured grid and emits ANSI that recreates the visible
-	// viewport + scrollback at headless cols/rows. The SPA's wterm
-	// writes that ANSI into the SAME parser code path — one VT engine
-	// end-to-end, no cross-parser edge cases. Live deltas (lastSeq>0)
-	// still slice the raw byte ring above (byte-exact, no parser cost).
+	// @wterm/core WASM bridge that mirrors every PTY byte. Authoritative grid
+	// the cell emitter reads and the resize rebuild replays the ring into.
 	wtermCore: TerminalCore;
 	// R11 cell-grid cell-shipping emitter state. Full/delta decision + seq live in
 	// @roost/shared/cell::nextCellFrame.
@@ -95,6 +176,16 @@ export interface SessionShellRecord extends SessionRecordCommon, AgentOscState {
 	// resets it, so __roostLag()'s worker_prep segment measures the real
 	// keeper→coalesce→grid-read leg instead of collapsing to zero.
 	lastPtyOutMs: number;
+	// History-truth record of the last core rebuild (session-resize-capture.ts),
+	// null until the first one. Read by the diagnostic snapshot and by the
+	// get-scrollback-cells floor reason; NEVER by the emit path.
+	sb_origin_pin: SbOriginPin | null;
+	// Escape sequences THIS core instance reported as unhandled, plus the
+	// high-water mark that stops the core's never-cleared ring from re-reporting
+	// them. undefined = this core has logged nothing, the healthy case, in which
+	// nothing is allocated at all. Reset by resetUnhandledSequences() wherever
+	// wtermCore is replaced. See session-unhandled-seq.ts.
+	unhandled?: UnhandledSequenceLog;
 
 }
 

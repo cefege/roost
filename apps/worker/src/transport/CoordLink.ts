@@ -18,6 +18,7 @@ import { create, toBinary, fromBinary } from "@bufbuild/protobuf";
 import {
   CoordWorkerUpSchema, CoordWorkerDownSchema, WHelloSchema,
   WRefreshJwtSchema, WSessionEventSchema, WCellGridSchema, WAgentStatusSchema,
+  TerminalInputStatus, TerminalViewportStatus, TerminalWritePhase,
 } from "@roost/shared/proto/worker_transport_pb";
 import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
 import { ClientSeq } from "./client-seq.ts";
@@ -39,9 +40,16 @@ import {
   STALE_LINK_TIMEOUT_MS, STALE_CHECK_INTERVAL_MS,
   AUTH_REJECT_THRESHOLD, AUTH_REJECT_BACKOFF_CAP_MS,
   AUTH_REJECT_THRESHOLD_AFTER_OPEN, backoffCapMs,
+  INPUT_REQUEST_INFLIGHT_CAP, VIEWPORT_REQUEST_INFLIGHT_CAP,
+  TERMINAL_REQUEST_BUDGET_CAP_MS,
 } from "./CoordLink-constants.ts";
-import type { CoordLinkDeps, CoordLink, UpstreamFrame, CoordLinkState, TransportSendResult } from "./CoordLink-types.ts";
-export type { CoordLinkDeps, CoordLink, TransportSendResult } from "./CoordLink-types.ts";
+import type {
+  CoordLinkDeps, CoordLink, UpstreamFrame, CoordLinkState,
+  TransportSendResult, TerminalRequestBudget,
+} from "./CoordLink-types.ts";
+export type {
+  CoordLinkDeps, CoordLink, TransportSendResult, TerminalRequestBudget,
+} from "./CoordLink-types.ts";
 
 // ─── implementation ──────────────────────────────────────────────────
 
@@ -95,6 +103,11 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
   const rawPending: EncodedPending[] = [];
   let writableNotificationPending = false;
   let notifyingWritable = false;
+  // Downstream terminal-control admission, counted per kind. A viewport RPC
+  // parked on a keeper resize therefore cannot spend the slots PTY input
+  // needs, and neither lane can starve the other.
+  let inputRequestsInFlight = 0;
+  let viewportRequestsInFlight = 0;
   // D-4b at-least-once WITHIN A WORKER PROCESS.
   // clientSeq is fsynced (client-seq.ts) and survives restart so coord's
   // dedup key stays stable across reboots. `unacked` is in-memory only:
@@ -627,14 +640,30 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
         log.warn("coord-link", "downstream_decode_failed", { error: (err as Error).message });
         return;
       }
-      handleDownstream(frame, dialReconnected);
+      handleDownstream(frame, dialReconnected, ws);
     };
 
     ws.onerror = () => { log.warn("coord-link", "stream_error", { error: "ws error" }); cleanup(); };
     ws.onclose = () => { cleanup(); };
   }
 
-  function handleDownstream(frame: CoordWorkerDown, reconnected: boolean): void {
+  /** Bound one downstream terminal request to a monotonic budget derived from
+   * the coordinator's RELATIVE `budget_ms`. Frame receipt is the origin, so
+   * time spent queueing inside the worker is charged against the same budget
+   * the coordinator is still waiting on, and neither host's wall clock — nor
+   * any skew between them — participates in the decision. */
+  function terminalBudget(socket: WebSocket, budgetMs: number): TerminalRequestBudget {
+    const receivedAtMono = performance.now();
+    const allowedMs = budgetMs > 0
+      ? Math.min(budgetMs, TERMINAL_REQUEST_BUDGET_CAP_MS)
+      : TERMINAL_REQUEST_BUDGET_CAP_MS;
+    return {
+      remainingMs: () => allowedMs - (performance.now() - receivedAtMono),
+      isCurrentConnection: () => activeWs === socket,
+    };
+  }
+
+  function handleDownstream(frame: CoordWorkerDown, reconnected: boolean, socket: WebSocket): void {
     const k = frame.frame?.case;
     if (!k) return;
     const v = frame.frame.value;
@@ -675,25 +704,101 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
         return;
       }
       case "inputRequest": {
-        void Promise.resolve(deps.onInputRequest?.(v as DInputRequest))
-          .catch((error) => {
-            const request = v as { requestId: string };
+        const request = v as DInputRequest;
+        if (inputRequestsInFlight >= INPUT_REQUEST_INFLIGHT_CAP) {
+          // Fail closed with proof rather than dropping: nothing was handed to
+          // the session manager, so the coordinator may reject definitely and
+          // the browser may retry without risking a duplicate write.
+          diag("transport.terminal_admission_full", {
+            kind: "input",
+            in_flight: inputRequestsInFlight,
+          });
+          send({
+            kind: "input-result",
+            request_id: request.requestId,
+            session_id: request.sessionId,
+            input_seq: request.inputSeq,
+            status: TerminalInputStatus.REJECTED,
+            written_bytes: 0,
+            phase: TerminalWritePhase.PRE_WRITE,
+            reason: "worker input admission is full",
+          });
+          return;
+        }
+        inputRequestsInFlight += 1;
+        // The async IIFE keeps the handler call synchronous — receive order
+        // into the keeper-admission lane is preserved — while turning a
+        // synchronous throw into a rejection this catch can answer, rather
+        // than letting it escape through ws.onmessage and strand the request.
+        void (async () => deps.onInputRequest?.(request, terminalBudget(socket, request.budgetMs)))()
+          .catch((error: unknown) => {
+            // A thrown handler cannot say which side of the keeper write it
+            // died on, so the batch is reported unknown, never "unsent" —
+            // presenting it as unsent is what would license a duplicate.
+            const message = error instanceof Error ? error.message : String(error);
             log.warn("coord-link", "input_request_failed", {
               request_id: request.requestId,
-              error: error instanceof Error ? error.message : String(error),
+              error: message,
             });
-          });
+            send({
+              kind: "input-result",
+              request_id: request.requestId,
+              session_id: request.sessionId,
+              input_seq: request.inputSeq,
+              status: TerminalInputStatus.AMBIGUOUS,
+              written_bytes: 0,
+              phase: TerminalWritePhase.UNKNOWN,
+              reason: message,
+            });
+          })
+          .finally(() => { inputRequestsInFlight -= 1; });
         return;
       }
       case "viewportRequest": {
-        void Promise.resolve(deps.onViewportRequest?.(v as DViewportRequest))
-          .catch((error) => {
-            const request = v as { requestId: string };
+        const request = v as DViewportRequest;
+        if (viewportRequestsInFlight >= VIEWPORT_REQUEST_INFLIGHT_CAP) {
+          diag("transport.terminal_admission_full", {
+            kind: "viewport",
+            in_flight: viewportRequestsInFlight,
+          });
+          send({
+            kind: "viewport-result",
+            request_id: request.requestId,
+            session_id: request.sessionId,
+            client_seq: request.clientSeq,
+            status: TerminalViewportStatus.REJECTED,
+            channel_resize_seq: 0n,
+            cols: 0,
+            rows: 0,
+            resized: false,
+            phase: TerminalWritePhase.PRE_WRITE,
+            reason: "worker viewport admission is full",
+          });
+          return;
+        }
+        viewportRequestsInFlight += 1;
+        void (async () => deps.onViewportRequest?.(request, terminalBudget(socket, request.budgetMs)))()
+          .catch((error: unknown) => {
+            const message = error instanceof Error ? error.message : String(error);
             log.warn("coord-link", "viewport_request_failed", {
               request_id: request.requestId,
-              error: error instanceof Error ? error.message : String(error),
+              error: message,
             });
-          });
+            send({
+              kind: "viewport-result",
+              request_id: request.requestId,
+              session_id: request.sessionId,
+              client_seq: request.clientSeq,
+              status: TerminalViewportStatus.AMBIGUOUS,
+              channel_resize_seq: 0n,
+              cols: 0,
+              rows: 0,
+              resized: false,
+              phase: TerminalWritePhase.UNKNOWN,
+              reason: message,
+            });
+          })
+          .finally(() => { viewportRequestsInFlight -= 1; });
         return;
       }
       case "attachmentChunk": {

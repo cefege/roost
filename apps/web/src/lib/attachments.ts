@@ -15,7 +15,7 @@
 
 import { coordClient } from "../connect.ts";
 import { log } from "@roost/shared/log";
-import { sendTerminalInput } from "../ws/sync-outbound.ts";
+import { sendUserTerminalInput } from "./userTerminalInput.ts";
 import { addTransfer, markTransferState, setTransferProgress } from "../store/transfers.ts";
 import type { Session } from "@roost/shared/wire";
 
@@ -144,7 +144,7 @@ export async function enqueueAttachmentTo(session: Session, file: File, sink: (a
 
 /** Type an uploaded file's absolute path into the session PTY (trailing space). */
 export function injectPath(session: Session, absPath: string): void {
-  sendTerminalInput(session.id, new TextEncoder().encode(`${absPath} `));
+  sendUserTerminalInput(session.id, new TextEncoder().encode(`${absPath} `));
 }
 
 /** Upload + inject the abs_path into the PTY (trailing space). Shared by

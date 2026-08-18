@@ -10,7 +10,7 @@ import { MobileTopBar } from "./MobileTopBar.tsx";
 import { uiStore, closeSidebar, toggleSidebarCollapsed, setSidebarWidth } from "../../store/uiStore.ts";
 import { isCompact } from "../../lib/windowSizeClass.ts";
 import { keyboardResize } from "../../lib/keyboardResizePref.ts";
-import { beginResizeDrag, endResizeDrag } from "../../lib/resizeDrag.ts";
+import { beginPointerResizeDrag, resetResizeDrags } from "../../lib/resizeDrag.ts";
 import { EDGE_PX, lockAxis, openOffsetPx, shouldOpen, closeOffsetPx, shouldClose } from "../../lib/edgeSwipeDrawer.ts";
 import { registerDrawer, dragDrawer, settleDrawerOpen, settleDrawerClose } from "../../lib/drawerDrag.ts";
 import { attachElasticOverscroll } from "../../lib/overscroll.ts";
@@ -66,46 +66,38 @@ function desktopSidebarStyle() {
 // pointer-up releases + persists. Double-click resets to the default
 // 300px. localStorage persistence handled inside setSidebarWidth.
 function SidebarResizer() {
-  let startX = 0;
-  let startW = 0;
-  let dragging = false;
+  let disposeGesture: (() => void) | undefined;
+
+  onCleanup(() => disposeGesture?.());
+
   function onPointerDown(e: PointerEvent) {
-    if (e.button !== 0) return;
-    dragging = true;
-    beginResizeDrag();
-    startX = e.clientX;
-    startW = uiStore.sidebarWidth;
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    if (e.button !== 0 || disposeGesture) return;
+
+    const target = e.currentTarget as HTMLElement;
+    const startX = e.clientX;
+    const startW = uiStore.sidebarWidth;
+
     document.body.style.cursor = "col-resize";
     document.body.style.userSelect = "none";
-  }
-  function onPointerMove(e: PointerEvent) {
-    if (!dragging) return;
-    setSidebarWidth(startW + (e.clientX - startX));
-  }
-  function onPointerUp(e: PointerEvent) {
-    if (!dragging) return;
-    dragging = false;
-    endResizeDrag();
-    (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-    document.body.style.cursor = "";
-    document.body.style.userSelect = "";
-  }
-  function onPointerCancel() {
-    if (!dragging) return;
-    dragging = false;
-    document.body.style.cursor = "";
-    document.body.style.userSelect = "";
-    endResizeDrag();
+    disposeGesture = beginPointerResizeDrag({
+      target,
+      pointerId: e.pointerId,
+      initialGeometry: startW,
+      geometryFor: (ev) => startW + (ev.clientX - startX),
+      onMove: setSidebarWidth,
+      onCommit: setSidebarWidth,
+      onRelease: () => {
+        disposeGesture = undefined;
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+      },
+    });
   }
   function onDoubleClick() { setSidebarWidth(300); }
   return (
     <div
       data-testid="sidebar-resizer"
       onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onPointerCancel={onPointerCancel}
       onDblClick={onDoubleClick}
       style={{
         width: "4px",
@@ -287,8 +279,11 @@ export function AppShell(props: ParentProps) {
     _samples = [];
     _mode = null;
   }
+  const onPageShow = () => resetResizeDrags();
+
   onMount(() => {
     window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("pageshow", onPageShow);
     window.addEventListener("touchstart", onTouchStart, { capture: true, passive: true });
     window.addEventListener("touchmove", onTouchMove, { capture: true, passive: false });
     window.addEventListener("touchend", onTouchEnd, { capture: true, passive: true });
@@ -296,6 +291,7 @@ export function AppShell(props: ParentProps) {
   });
   onCleanup(() => {
     window.removeEventListener("keydown", onKeyDown);
+    window.removeEventListener("pageshow", onPageShow);
     window.removeEventListener("touchstart", onTouchStart, { capture: true });
     window.removeEventListener("touchmove", onTouchMove, { capture: true });
     window.removeEventListener("touchend", onTouchEnd, { capture: true });

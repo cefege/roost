@@ -150,7 +150,7 @@ describe("attachTerminalLinks — visibility recovery", () => {
 
 	test("initial rAF fires → scan runs (happy path, no regression)", () => {
 		h = makeHarness();
-		const attachment = attachTerminalLinks(asEl(h.container), null, {});
+		const attachment = attachTerminalLinks(asEl(h.container), {});
 		expect(h.rafQueue.length).toBe(1);
 		let scans = 0;
 		h.container.querySelectorAll = () => { scans++; return []; };
@@ -161,7 +161,7 @@ describe("attachTerminalLinks — visibility recovery", () => {
 
 	test("dropped rAF (stuck latch) → visibilitychange recovers and re-linkifies", () => {
 		h = makeHarness();
-		const attachment = attachTerminalLinks(asEl(h.container), null, {});
+		const attachment = attachTerminalLinks(asEl(h.container), {});
 		expect(h.rafQueue.length).toBe(1);
 		const staleHandle = h.rafQueue[0]!.handle;
 
@@ -189,7 +189,7 @@ describe("attachTerminalLinks — visibility recovery", () => {
 
 	test("deferred rAF → visibilitychange cancels the stale frame (no double-scan)", () => {
 		h = makeHarness();
-		const attachment = attachTerminalLinks(asEl(h.container), null, {});
+		const attachment = attachTerminalLinks(asEl(h.container), {});
 		expect(h.rafQueue.length).toBe(1);
 		const staleHandle = h.rafQueue[0]!.handle;
 
@@ -211,33 +211,9 @@ describe("attachTerminalLinks — visibility recovery", () => {
 		attachment.dispose();
 	});
 
-	test("late mapping refresh unwraps stale anchors and resets a dropped scan latch", () => {
-		h = makeHarness();
-		const attachment = attachTerminalLinks(asEl(h.container), null, {});
-		const anchor = new FakeEl("a", h.doc);
-		const child = new FakeEl("span", h.doc);
-		anchor.childNodes = [child];
-		let rowScans = 0;
-		h.container.querySelectorAll = (selector) => {
-			if (selector === "a.wterm-link") return [anchor];
-			rowScans += 1;
-			return [];
-		};
-
-		// Model a browser-dropped initial callback with scanScheduled still true.
-		h.rafQueue.length = 0;
-		attachment.refresh();
-
-		expect(anchor.replacedWith).toEqual([child]);
-		expect(h.rafQueue.length).toBe(1);
-		h.fireNextRaf();
-		expect(rowScans).toBe(1);
-		attachment.dispose();
-	});
-
 	test("teardown removes the visibilitychange listener (no leak)", () => {
 		h = makeHarness();
-		const attachment = attachTerminalLinks(asEl(h.container), null, {});
+		const attachment = attachTerminalLinks(asEl(h.container), {});
 		attachment.dispose();
 		// After teardown, a visibility flip must not schedule any scan.
 		h.doc.visibilityState = "visible";
@@ -248,7 +224,7 @@ describe("attachTerminalLinks — visibility recovery", () => {
 	test("releaseInteraction clears modifier and pointer state and releases a hold once", () => {
 		h = makeHarness();
 		const changes: boolean[] = [];
-		const attachment = attachTerminalLinks(asEl(h.container), null, {
+		const attachment = attachTerminalLinks(asEl(h.container), {
 			onArmedHoverChange: (active) => changes.push(active),
 		});
 		h.container.dispatchEvent({ type: "mouseenter" });

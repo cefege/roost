@@ -9,7 +9,6 @@ import { importAuthorizedKeys } from "./authorized-keys.ts";
 import { newJwtCache } from "./jwt.ts";
 import { runBackup, scheduleBackups } from "./backup.ts";
 import { scheduleAuditRetention } from "./audit-retention.ts";
-import { installByteHubBusHook } from "./byte-hub.ts";
 import { createCoord } from "./coord-factory.ts";
 import { handleWorkerWsUpgrade, makeWorkerWsHandler, type WorkerWsData } from "./connect/worker-ws-handler.ts";
 import { handleSyncWsUpgrade, makeSyncWsHandler, type SyncWsData } from "./connect/sync-ws-handler.ts";
@@ -272,13 +271,6 @@ export async function runCoord() {
       }, 60_000);
     }
   }
-
-  // Install BEFORE Bun.serve accepts requests: a worker reconnecting
-  // via the worker WS immediately at boot would otherwise emit
-  // its first `opened` events with no byte-hub subscriber listening,
-  // dropping bytes for those sessions as drop_unmapped_chunk until
-  // the next snapshot.
-  installByteHubBusHook();
 
   const server = Bun.serve({
     hostname: host, port, tls,

@@ -7,7 +7,7 @@ import { create } from "@bufbuild/protobuf";
 import { randomUUID } from "node:crypto";
 import { CoordinatorService } from "@roost/shared/proto/coordinator_pb";
 import {
-  FirehoseFrameSchema, type FirehoseFrame, TerminalLinkFrameSchema, SessionPresenceSchema,
+  FirehoseFrameSchema, type FirehoseFrame, SessionPresenceSchema,
   WorkerRoutableFrameSchema, TerminalTitleFrameSchema, LastActivityFrameSchema,
   UiStateFrameSchema, UiCommandFrameSchema, AgentStatusFrameSchema, SyncDomain,
 } from "@roost/shared/proto/sync_pb";
@@ -30,7 +30,7 @@ import {
 } from "@roost/shared/proto/wire_pb";
 import {
   sessionBus, presenceBus, workspaceBus, taskBus, webhookBus,
-  permissionBus, mcpBus, terminalLinkBus, globalPresenceBus, auditBus,
+  permissionBus, mcpBus, globalPresenceBus, auditBus,
   titleBus, lastActivityBus, workerRoutableBus, globalCellBus, agentStatusBus,
   pairBus, uiBus, type TaskBusMsg, type PairRequestDelta, type AuditRow,
 } from "../buses.ts";
@@ -156,7 +156,6 @@ function frameMeta(frame: FirehoseFrame): SyncFeedFrameMeta {
         : undefined;
       return { domain: SyncDomain.TERMINAL, lane: "session", sessionId };
     }
-    case "terminalLink":
     case "sessionPresence":
     case "terminalTitle":
     case "lastActivity":
@@ -191,6 +190,7 @@ function frameMeta(frame: FirehoseFrame): SyncFeedFrameMeta {
     case "domainReset":
     case "viewportAccepted":
     case "viewportRejected":
+    case "viewportAmbiguous":
     case "inputAccepted":
     case "inputRejected":
     case "inputAmbiguous":
@@ -468,15 +468,6 @@ export function startSyncFeed(
     webhookBus.subscribe(e => { const f = webhookFrame(e); if (f) push(f); }),
     auditBus.subscribe(e => push(auditFrame(e))),
     pairBus.subscribe(e => push(pairFrame(e))),
-    // Compact mappings are deliberately unfiltered: a pane may be offscreen
-    // when its link arrives, and the browser registry retains it until revisit.
-    terminalLinkBus.subscribe(({ session_id, text, uri }) => {
-      push(create(FirehoseFrameSchema, {
-        frame: { case: "terminalLink", value: create(TerminalLinkFrameSchema, {
-          sessionId: session_id, text, uri,
-        })},
-      }));
-    }),
     globalPresenceBus.subscribe(({ session_id, data }) => {
       if (viewerKey !== null && typeof data === "object" && data !== null) {
         const payload = data as { kind?: unknown; viewer_id?: unknown };

@@ -12,6 +12,7 @@ import {
   decodeResizeRequest,
   decodeResizeStatusQuery,
   encodeKeeperHistoryRecords,
+  encodeKeeperTerminalState,
   encodeMuxFrame,
   encodePtyInResult,
   encodeResizeResult,
@@ -285,6 +286,7 @@ function cacheResizeResult(ch: Channel, result: ResizeWireResult): void {
   }
   ch.resizeStatuses.set(result.seq, result);
   ch.highestResizeSeq = Math.max(ch.highestResizeSeq, result.seq);
+  if (result.kind === "ack") ch.appliedResizeSeq = Math.max(ch.appliedResizeSeq, result.seq);
 }
 
 export interface FrameHandlerCtx {
@@ -385,6 +387,7 @@ export function handleFrame(ctx: FrameHandlerCtx, client: ClientState, f: { type
             outputBoundaryBuffer: null,
             resizeStatuses: new Map(),
             highestResizeSeq: 0,
+            appliedResizeSeq: 0,
             inputQueue: [],
             inputQueueBytes: 0,
             inputWriting: false,
@@ -695,6 +698,33 @@ export function handleFrame(ctx: FrameHandlerCtx, client: ClientState, f: { type
         MuxFrameType.GetHistoryRecordsResp,
         f.channelId,
         encodeKeeperHistoryRecords(history),
+      ));
+      return;
+    }
+    case MuxFrameType.GetTerminalState: {
+      if (!isEmptyKeeperPayload(f.payload)) {
+        _log("warn", "multiplexed-keeper", "terminal_state_payload_not_empty", {
+          channelId: f.channelId,
+          payload_len: f.payload.byteLength,
+        });
+        return;
+      }
+      const ch = channels.get(f.channelId);
+      // An unknown channel answers with a zeroed sequence pair at the protocol's
+      // default geometry: the worker treats a zero applied sequence as "nothing
+      // proven" and keeps its own last proven size.
+      client.socket.write(encodeMuxFrame(
+        MuxFrameType.GetTerminalStateResp,
+        f.channelId,
+        encodeKeeperTerminalState(ch
+          ? {
+            headSeq: ch.headSeq,
+            cols: ch.currentCols,
+            rows: ch.currentRows,
+            highestResizeSeq: ch.highestResizeSeq,
+            appliedResizeSeq: ch.appliedResizeSeq,
+          }
+          : { headSeq: 0, cols: 80, rows: 24, highestResizeSeq: 0, appliedResizeSeq: 0 }),
       ));
       return;
     }

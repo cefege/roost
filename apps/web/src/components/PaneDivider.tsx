@@ -1,7 +1,7 @@
 import type { Accessor } from "solid-js";
-import { createSignal } from "solid-js";
+import { createSignal, onCleanup } from "solid-js";
 import type { DividerRect } from "../store/paneLayout.ts";
-import { beginResizeDrag, endResizeDrag } from "../lib/resizeDrag.ts";
+import { beginPointerResizeDrag } from "../lib/resizeDrag.ts";
 
 // Draggable split divider on the seam between two panes. Under <Index> the
 // node is STABLE across drag frames (only its position updates reactively),
@@ -17,12 +17,17 @@ export function PaneDivider(props: {
   onCommit: (splitId: string, ratio: number) => void;
 }) {
   const [dragging, setDragging] = createSignal(false);
+  let disposeGesture: (() => void) | undefined;
+
+  onCleanup(() => disposeGesture?.());
+
   function onPointerDown(e: PointerEvent) {
     if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation(); // don't let the deck treat this as a focus-pane click
-    beginResizeDrag();
-    setDragging(true);
+    if (disposeGesture) return;
+
+    const target = e.currentTarget as HTMLElement;
     // Snapshot: regionStart/regionLen/dir/splitId are fixed for the whole drag.
     const d = props.divider();
     const onDrag = props.onDrag;
@@ -30,31 +35,24 @@ export function PaneDivider(props: {
     const rect = props.deckEl()?.getBoundingClientRect();
     const originX = rect?.left ?? 0;
     const originY = rect?.top ?? 0;
-    let last = d.ratio;
-    let rafId = 0;
-    const ratioFor = (ev: PointerEvent): number => {
-      const pos = d.dir === "row" ? ev.clientX - originX : ev.clientY - originY;
-      const raw = d.regionLen > 0 ? (pos - d.regionStart) / d.regionLen : 0.5;
-      return Math.max(0.1, Math.min(0.9, raw));
-    };
-    // Coalesce pointermove → one layout update per frame; latest ratio wins.
-    const flush = () => { rafId = 0; onDrag(d.splitId, last); };
-    const onMove = (ev: PointerEvent) => {
-      last = ratioFor(ev);
-      if (!rafId) rafId = requestAnimationFrame(flush);
-    };
-    const onUp = () => {
-      if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
-      setDragging(false);
-      endResizeDrag();
-      onCommit(d.splitId, last);
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-      window.removeEventListener("pointercancel", onUp);
-    };
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-    window.addEventListener("pointercancel", onUp);
+
+    setDragging(true);
+    disposeGesture = beginPointerResizeDrag({
+      target,
+      pointerId: e.pointerId,
+      initialGeometry: d.ratio,
+      geometryFor: (ev) => {
+        const pos = d.dir === "row" ? ev.clientX - originX : ev.clientY - originY;
+        const raw = d.regionLen > 0 ? (pos - d.regionStart) / d.regionLen : 0.5;
+        return Math.max(0.1, Math.min(0.9, raw));
+      },
+      onMove: (ratio) => onDrag(d.splitId, ratio),
+      onCommit: (ratio) => onCommit(d.splitId, ratio),
+      onRelease: () => {
+        disposeGesture = undefined;
+        setDragging(false);
+      },
+    });
   }
 
   return (

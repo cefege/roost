@@ -55,7 +55,7 @@ function generate(): void {
   if (process.argv.includes("--stub")) {
     writeFileSync(WEB_OUT, `${HDR}// Empty stub: from-source runs serve the SPA from disk (cfg.webDistPath).\nexport const WEB_ASSETS: Map<string, { raw: string; gzip?: string }> = new Map();\n`);
     writeFileSync(MIGR_OUT, `${HDR}// Empty stub: from-source runs read apps/coord/migrations/*.sql.\nexport const MIGRATIONS: { name: string; sql: string }[] = [];\n`);
-    writeFileSync(WASM_OUT, `${HDR}// Empty stub: from-source loads the wasm from disk (import.meta.url).\nexport const WTERM_WASM_EMBED: string | null = null;\n`);
+    writeFileSync(WASM_OUT, `${HDR}// Empty stub: from-source loads the wasm and its digest sidecar from disk (import.meta.url).\nexport const WTERM_WASM_EMBED: string | null = null;\nexport const WTERM_WASM_SHA256_EMBED: string | null = null;\n`);
     writeFileSync(AGENT_INTEGRATIONS_OUT, `${HDR}// Empty stub: from-source worker reads integration assets from disk.\nexport const OMP_AGENT_INTEGRATION = "";\nexport const PI_AGENT_INTEGRATION = "";\n`);
     console.log("gen-embed: wrote empty stubs");
     return;
@@ -97,7 +97,9 @@ function generate(): void {
   writeFileSync(MIGR_OUT, migrLines.join("\n"));
 
   // ── wterm wasm: single file, type "file" → loaded via Bun.file server-side.
-  writeFileSync(WASM_OUT, `${HDR}import wasm from "../wasm/wterm-roost.wasm" with { type: "file" };\nexport const WTERM_WASM_EMBED: string | null = wasm;\n`);
+  // Its sha256sum sidecar rides along as text so the compiled binary verifies
+  // the embedded bytes against the same recorded digest a from-source run does.
+  writeFileSync(WASM_OUT, `${HDR}import wasm from "../wasm/wterm-roost.wasm" with { type: "file" };\nimport wasmSha256 from "../wasm/wterm-roost.wasm.sha256" with { type: "text" };\nexport const WTERM_WASM_EMBED: string | null = wasm;\nexport const WTERM_WASM_SHA256_EMBED: string | null = wasmSha256;\n`);
 
   // ── LaunchAgent install scripts: type "text" → run in binary-mode quickstart.
   writeFileSync(SCRIPTS_OUT, `${HDR}import coord from "../../coord/scripts/install.sh" with { type: "text" };\nimport worker from "../../worker/scripts/install.sh" with { type: "text" };\nexport const COORD_INSTALL_SH = coord;\nexport const WORKER_INSTALL_SH = worker;\n`);

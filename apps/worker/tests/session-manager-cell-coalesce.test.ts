@@ -11,6 +11,7 @@ import { asSessionId, asChannelId, asWorkerFp } from "@roost/shared";
 import {
   initCellEmitState,
   SB_SNAPSHOT_HISTORY_ROWS,
+  scrollbackOrigin,
   type CellGridFrame,
 } from "@roost/shared/cell";
 import { protoToCellFrame } from "@roost/shared/cell/cell-proto";
@@ -46,6 +47,7 @@ async function injectCellSession(mgr: SessionManager, channelId: number): Promis
     alt_mode: false,
     mode_carry: new Uint8Array(0),
     osc7_carry: new Uint8Array(0),
+    query_carry: new Uint8Array(0),
     ...initAgentOscState(),
     wtermCore,
     cell_emit: initCellEmitState("test-grid"),
@@ -205,13 +207,20 @@ describe("claim snapshots never bundle retained history", () => {
     core.writeRaw(new TextEncoder().encode(
       Array.from({ length: 1200 }, (_, i) => `catchup-${i}`).join("\r\n") + "\r\n",
     ));
-    const total = core.getScrollbackCount();
-    expect(total).toBeGreaterThanOrEqual(1000);
+    const retained = core.getScrollbackCount();
+    const discarded = scrollbackOrigin(core, initCellEmitState("probe"));
+    // The stock 1k ring pins at capacity here, which is exactly why the depth
+    // the frame reports cannot be the retained count: 1,200 lines were pushed
+    // and ~177 have already rolled off. scrollbackTotal is the MONOTONIC total,
+    // so the SPA's absolute indices keep naming the same lines and its backfill
+    // pages down from a floor that matches the ring.
+    expect(retained).toBeGreaterThanOrEqual(1_000);
+    expect(discarded).toBeGreaterThan(0);
 
     mgr.claimViewport(1, "v", 80, 24, 1, 1);
     expect(frames.length).toBe(1);
     const snapshot = expectViewportOnlySnapshot(frames[0]);
-    expect(snapshot.scrollbackTotal).toBe(total);
+    expect(snapshot.scrollbackTotal).toBe(discarded + retained);
   });
 });
 

@@ -23,26 +23,30 @@ import {
 } from "./keeper-pool-channels.ts";
 import {
   channelInput,
-  channelInputRequest,
-  channelResize,
-  channelResizeRequest,
-  channelResizeStatus,
+  channelInputCommand,
+  channelResizeCommand,
+  channelResizeStatusCommand,
+  channelTerminalState,
   channelKill,
   disposePool,
 } from "./keeper-pool-io.ts";
+import type { KeeperCommand } from "./keeper-pool-io.ts";
 import type {
   KeeperHistoryRecords,
   KeeperInputResult,
   KeeperResizeResult,
+  KeeperTerminalState,
 } from "./protocol-v2.ts";
 import type { ShellSpec } from "../shell-spec.ts";
 
 export { probeKeeperCompatible, shutdownKeeperAuthenticated } from "./keeper-probe.ts";
+export type { KeeperCommand, KeeperWriteAdmission, KeeperWriteRejection } from "./keeper-pool-io.ts";
 export type {
   KeeperHistoryRecord,
   KeeperHistoryRecords,
   KeeperInputResult,
   KeeperResizeResult,
+  KeeperTerminalState,
 } from "./protocol-v2.ts";
 
 export type MuxChannelCallbacks = {
@@ -81,19 +85,29 @@ export class MultiplexedKeeperPool {
     reject: (error: Error) => void;
   }>>();
   pendingHistoryOutput = new Map<number, { chunks: Buffer[]; bytes: number }>();
+  // startedMonoMs is the admission instant. Command ages feed the diagnostic
+  // snapshot, so they must be monotonic durations, never wall-clock deltas.
   pendingInputs = new Map<string, {
     channelId: number;
     inputSeq: number;
     expectedBytes: number;
+    startedMonoMs: number;
     timer: ReturnType<typeof setTimeout>;
     resolve: (result: KeeperInputResult) => void;
   }>();
   pendingResizes = new Map<string, {
     channelId: number;
     seq: number;
+    startedMonoMs: number;
     timer: ReturnType<typeof setTimeout>;
     resolve: (result: KeeperResizeResult) => void;
+    // Runs synchronously on the result FRAME, before later PtyOut dispatch.
+    onResultFrame?: (result: KeeperResizeResult) => void;
   }>();
+  pendingTerminalStates = new Map<number, Array<{
+    resolve: (state: KeeperTerminalState | null) => void;
+    timer: ReturnType<typeof setTimeout>;
+  }>>();
   _pendingInputUsage = new Map<number, { commands: number; bytes: number }>();
   connectPromise: Promise<void> | null = null;
   // Invoked once per worker→keeper socket close (= keeper died). main.ts
@@ -211,23 +225,39 @@ export class MultiplexedKeeperPool {
     channelInput(this, channelId, bytes);
   }
 
-  /** Acknowledged logical input. Full ACK is the only accepted result. */
-  requestInput(channelId: number, inputSeq: number, bytes: Uint8Array): Promise<KeeperInputResult> {
-    return channelInputRequest(this, channelId, inputSeq, bytes);
+  /** Acknowledged logical input as a two-phase command: `admission` proves the
+   *  request frame reached this socket, `result` carries the keeper's truthful
+   *  accepted/rejected/ambiguous outcome. Full ACK is the only acceptance. */
+  beginInput(channelId: number, inputSeq: number, bytes: Uint8Array): KeeperCommand<KeeperInputResult> {
+    return channelInputCommand(this, channelId, inputSeq, bytes);
   }
 
-  resize(channelId: number, cols: number, rows: number): void {
-    channelResize(this, channelId, cols, rows);
-  }
-
-  /** Apply a logical resize sequence at most once. */
-  requestResize(channelId: number, seq: number, cols: number, rows: number): Promise<KeeperResizeResult> {
-    return channelResizeRequest(this, channelId, seq, cols, rows);
+  /** Apply a logical resize sequence at most once. `onResultFrame` runs
+   *  synchronously on the result frame, before any PtyOut the keeper produced
+   *  after the resize can be dispatched. */
+  beginResize(
+    channelId: number,
+    seq: number,
+    cols: number,
+    rows: number,
+    onResultFrame?: (result: KeeperResizeResult) => void,
+  ): KeeperCommand<KeeperResizeResult> {
+    return channelResizeCommand(this, channelId, seq, cols, rows, onResultFrame);
   }
 
   /** Query the keeper's cached result without reapplying terminal.resize. */
-  queryResizeStatus(channelId: number, seq: number): Promise<KeeperResizeResult> {
-    return channelResizeStatus(this, channelId, seq);
+  beginResizeStatus(
+    channelId: number,
+    seq: number,
+    onResultFrame?: (result: KeeperResizeResult) => void,
+  ): KeeperCommand<KeeperResizeResult> {
+    return channelResizeStatusCommand(this, channelId, seq, onResultFrame);
+  }
+
+  /** Authoritative resize sequence + geometry for a channel; null when the
+   *  keeper is unreachable or predates the terminal-state feature. */
+  getTerminalState(channelId: number): Promise<KeeperTerminalState | null> {
+    return channelTerminalState(this, channelId);
   }
 
   kill(channelId: number): void {

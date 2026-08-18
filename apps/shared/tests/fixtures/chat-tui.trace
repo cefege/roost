@@ -1,0 +1,132 @@
+# chat-tui.trace — the deterministic replay program for the pinned-core trace
+# oracle (apps/shared/tests/trace-oracle.ts, plan section 7 step 1).
+#
+# Every `w` line is ONE pty chunk and its boundary is part of the fixture: the
+# recorded cuts land mid-escape-sequence, mid-utf-8 and mid-query on purpose,
+# because that is what a real pty read loop hands the worker. `wrep A B <p>`
+# emits A chunks of B payloads; `{i}` expands to the next global ordinal, so
+# every append-only line in this file carries a unique, strictly increasing
+# `#<n>` marker near column 0 — the ground truth the scrollback and document
+# lanes check the emitter against. Keep markers out of cursor-addressed draws
+# and keep `#` out of every other payload.
+#
+# Escapes: \e \r \n \t \a \s \0 \\ \xNN. Anything else is written as utf-8.
+
+init 80 24
+
+# --- shell startup: primary da, xtversion, osc title, bracketed paste, cpr ----
+w \e[c
+w \e[>0q
+w \e]0;roost \xe2\x80\x94 bash\a
+w \e[?2004h
+w \e[1;32mroost\e[0m:\e[1;34m~/repos/roost\e[0m$\s
+w \e[6n
+doc on
+w \r\n
+
+# --- streaming chat, with the pty cutting sequences in half ------------------
+w #{i} user: why does the terminal stall after a resize?\r\n
+w #{i} \e[38;5;208massistant\e[0m: reading apps/worker/src/session-emit.ts\r\n
+w #{i} \e[3
+w 8;5;45msplit sgr sequence rejoined across the chunk boundary\e[0m\r\n
+w #{i} bullet \xe2\x80
+w \xa2 split utf-8 rejoined across the chunk boundary\r\n
+w #{i} probe \e[
+w c primary da split across the chunk boundary\r\n
+w #{i} two probes in one chunk \e[6nmiddle\e[6ntail\r\n
+w #{i} mixed probes in stream order \e[c then \e[6n done\r\n
+w #{i} \e[1mbold\e[0m \e[2mdim\e[0m \e[3mitalic\e[0m \e[4munder\e[0m \e[7mreverse\e[0m \e[9mstrike\e[0m\r\n
+attach
+
+# --- wide, astral and combining cells ----------------------------------------
+w #{i} \e[1;36m┌──────────────────┬────────────────┐\e[0m\r\n
+w #{i} \e[1;36m│\e[0m 日本語のテキスト \e[1;36m│\e[0m 👍 astral ok  \e[1;36m│\e[0m\r\n
+w #{i} \e[1;36m└──────────────────┴────────────────┘\e[0m\r\n
+w #{i} combining e\xcc\x81 a\xcc\x8a o\xcc\x88 stays on its own cell\r\n
+w #{i} \e[38;2;120;200;80mtruecolor fg\e[0m and \e[48;5;236mpalette bg\e[0m\r\n
+
+# --- synchronized output around append-only body -----------------------------
+w \e[?2026h
+w #{i} sync body first line\r\n
+w #{i} sync body second line\r\n
+w \e[?2026l
+w \e[?2026h#{i} sync body in one chunk\r\n\e[?2026l
+
+# --- alt-screen tui: cursor addressing, so the document invariant is off ------
+doc off
+w \e[?1049h
+w \e[?1h
+w \e[H\e[2J\e[1;44;97m ROOST TUI \e[0m
+w \e[3;3Hstatus: streaming
+w \e[?25l
+w \e[?2026h\e[5;3Hprogress [████      ]\e[6;3Heta 12s\e[?2026l
+w \e[8;3H\e[38;5;33mgraph\e[0m \e[32m▁▂▃▅▇\e[0m
+w \e[10;3H日本語 inside the alt screen
+w \e[6n
+w \e[?25h
+w \e[?1l
+w \e[?1049l
+doc on
+attach
+
+# --- horizontal resizes -------------------------------------------------------
+w #{i} last line before the horizontal resize\r\n
+resize 100 24
+w #{i} after growing the grid to one hundred columns\r\n
+resize 60 24
+w #{i} after shrinking the grid to sixty columns\r\n
+resize 80 24
+w #{i} back at eighty columns\r\n
+sweep after-horizontal-resize
+
+# --- vertical resizes ---------------------------------------------------------
+w #{i} filling the grid so a vertical shrink has rows to discard\r\n
+w #{i} second filler row before the vertical shrink\r\n
+w #{i} third filler row before the vertical shrink\r\n
+resize 80 12
+w #{i} after the vertical shrink\r\n
+resize 80 30
+w #{i} after the vertical grow\r\n
+resize 80 24
+w #{i} back at twenty four rows\r\n
+sweep after-vertical-resize
+
+# --- scrollback rollover: bulk fill, then single lines across the ring cap ----
+wrep 150 64 #{i} scrollback fill line for the ring rollover phase\r\n
+wrep 420 1 #{i} single line chunk stepping across the ring cap\r\n
+wrep 12 64 #{i} bulk fill past the cap forcing multi row discard\r\n
+sweep after-rollover
+attach
+w #{i} first line after the post-rollover reattach\r\n
+w #{i} second line after the post-rollover reattach\r\n
+# The trace's original end point. The eviction origin here is the number the
+# retired tail-signature inference produced, so it pins the cutover: the core's
+# authoritative counter has to land on exactly the same line.
+sweep after-rollover-tail
+
+# --- vertical shrink and grow WHILE the ring is at capacity -------------------
+# The vertical resizes above ran on a ring that had never evicted, so the
+# pop-rows-back-out-of-history path was never exercised against a saturated
+# eviction origin — the one place a resize can silently re-alias every absolute
+# index the browser holds.
+w #{i} last line before the saturated vertical shrink\r\n
+resize 80 12
+w #{i} after the saturated vertical shrink\r\n
+resize 80 30
+w #{i} after the saturated vertical grow\r\n
+resize 80 24
+w #{i} back at twenty four rows with the ring still full\r\n
+sweep after-saturated-resize
+
+# --- a synchronized-output frame that spans a resize --------------------------
+# SIGWINCH does not wait for an application to close its mode-2026 frame, so the
+# grid, the dirty rows and the eviction origin all have to survive a resize
+# landing mid-frame. Append-only, so the document invariant stays armed.
+w \e[?2026h#{i} first line inside the frame that spans a resize\r\n
+w #{i} second line inside the frame that spans a resize\r\n
+resize 90 24
+w #{i} written after the resize and still inside the frame\r\n
+w #{i} last line inside the frame\r\n\e[?2026l
+resize 80 24
+sweep after-synchronized-resize
+sweep final

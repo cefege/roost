@@ -15,7 +15,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file roost/v1/cell.proto.
  */
 export const file_roost_v1_cell: GenFile = /*@__PURE__*/
-  fileDesc("ChNyb29zdC92MS9jZWxsLnByb3RvEghyb29zdC52MSKBAQoKUGJDZWxsU3BhbhIMCgR0ZXh0GAEgASgJEgoKAmZnGAIgASgNEgoKAmJnGAMgASgNEg0KBWZsYWdzGAQgASgNEhMKBmZnX3JnYhgFIAEoDUgAiAEBEhMKBmJnX3JnYhgGIAEoDUgBiAEBQgkKB19mZ19yZ2JCCQoHX2JnX3JnYiI/CglQYkNlbGxSb3cSDQoFaW5kZXgYASABKA0SIwoFc3BhbnMYAiADKAsyFC5yb29zdC52MS5QYkNlbGxTcGFuIocECg9QYkNlbGxHcmlkRnJhbWUSEgoKc2Vzc2lvbl9pZBgBIAEoCRIMCgRjb2xzGAIgASgNEgwKBHJvd3MYAyABKA0SEgoKY3Vyc29yX3JvdxgEIAEoDRISCgpjdXJzb3JfY29sGAUgASgNEhYKDmN1cnNvcl92aXNpYmxlGAYgASgIEhIKCmFsdF9zY3JlZW4YByABKAgSDAoEZnVsbBgIIAEoCBIqCg12aWV3cG9ydF9yb3dzGAkgAygLMhMucm9vc3QudjEuUGJDZWxsUm93EiwKD3Njcm9sbGJhY2tfcm93cxgKIAMoCzITLnJvb3N0LnYxLlBiQ2VsbFJvdxIuChFzY3JvbGxiYWNrX2FwcGVuZBgLIAMoCzITLnJvb3N0LnYxLlBiQ2VsbFJvdxIYChBzY3JvbGxiYWNrX3RvdGFsGAwgASgEEgsKA3NlcRgNIAEoBBIPCgdzYl9iYXNlGA4gASgEEhcKD2N1cnNvcl9rZXlzX2FwcBgPIAEoCBIXCg9icmFja2V0ZWRfcGFzdGUYECABKAgSEgoKcHR5X291dF9tcxgRIAEoBBIWCg53b3JrZXJfZW1pdF9tcxgSIAEoBBIVCg1jb29yZF9yZWN2X21zGBMgASgEEhcKD2Nvb3JkX2Zhbm91dF9tcxgUIAEoBBISCgpncmlkX2Vwb2NoGBUgASgJYgZwcm90bzM");
+  fileDesc("ChNyb29zdC92MS9jZWxsLnByb3RvEghyb29zdC52MSLaAQoKUGJDZWxsU3BhbhIMCgR0ZXh0GAEgASgJEgoKAmZnGAIgASgNEgoKAmJnGAMgASgNEg0KBWZsYWdzGAQgASgNEhMKBmZnX3JnYhgFIAEoDUgAiAEBEhMKBmJnX3JnYhgGIAEoDUgBiAEBEg8KB2NvbHVtbnMYByABKA0SFQoIbGlua191cmkYCCABKAlIAogBARIVCghsaW5rX2tleRgJIAEoCUgDiAEBQgkKB19mZ19yZ2JCCQoHX2JnX3JnYkILCglfbGlua191cmlCCwoJX2xpbmtfa2V5Ij8KCVBiQ2VsbFJvdxINCgVpbmRleBgBIAEoDRIjCgVzcGFucxgCIAMoCzIULnJvb3N0LnYxLlBiQ2VsbFNwYW4iyAQKD1BiQ2VsbEdyaWRGcmFtZRISCgpzZXNzaW9uX2lkGAEgASgJEgwKBGNvbHMYAiABKA0SDAoEcm93cxgDIAEoDRISCgpjdXJzb3Jfcm93GAQgASgNEhIKCmN1cnNvcl9jb2wYBSABKA0SFgoOY3Vyc29yX3Zpc2libGUYBiABKAgSEgoKYWx0X3NjcmVlbhgHIAEoCBIMCgRmdWxsGAggASgIEioKDXZpZXdwb3J0X3Jvd3MYCSADKAsyEy5yb29zdC52MS5QYkNlbGxSb3cSLAoPc2Nyb2xsYmFja19yb3dzGAogAygLMhMucm9vc3QudjEuUGJDZWxsUm93Ei4KEXNjcm9sbGJhY2tfYXBwZW5kGAsgAygLMhMucm9vc3QudjEuUGJDZWxsUm93EhgKEHNjcm9sbGJhY2tfdG90YWwYDCABKAQSCwoDc2VxGA0gASgEEg8KB3NiX2Jhc2UYDiABKAQSFwoPY3Vyc29yX2tleXNfYXBwGA8gASgIEhcKD2JyYWNrZXRlZF9wYXN0ZRgQIAEoCBISCgpwdHlfb3V0X21zGBEgASgEEhYKDndvcmtlcl9lbWl0X21zGBIgASgEEhUKDWNvb3JkX3JlY3ZfbXMYEyABKAQSFwoPY29vcmRfZmFub3V0X21zGBQgASgEEhIKCmdyaWRfZXBvY2gYFSABKAkSFgoObW91c2VfdHJhY2tpbmcYFiABKA0SEQoJbW91c2Vfc2dyGBcgASgIEhQKDGZvY3VzX2V2ZW50cxgYIAEoCGIGcHJvdG8z");
 
 /**
  * @generated from message roost.v1.PbCellSpan
@@ -56,6 +56,46 @@ export type PbCellSpan = Message<"roost.v1.PbCellSpan"> & {
    * @generated from field: optional uint32 bg_rgb = 6;
    */
   bgRgb?: number | undefined;
+
+  /**
+   * REQUIRED terminal columns this span occupies (>=1). NOT text.length: a
+   * wide (double-width) glyph is one atomic span of 2 columns whose
+   * continuation column is never emitted as its own space-bearing cell, and an
+   * astral codepoint or grapheme cluster is one atomic span whose text is
+   * longer than its column count. Only plain one-code-unit narrow cells
+   * coalesce, and for those columns == text.length. Validated on decode
+   * (cell-proto.ts): >=1 per span, and Σ columns <= cols for a VIEWPORT row (a
+   * retained scrollback line keeps its write-time width). See cell/types.ts.
+   *
+   * @generated from field: uint32 columns = 7;
+   */
+  columns: number;
+
+  /**
+   * Core-authored OSC 8 hyperlink identity, read straight off the cell's link
+   * index (@wterm/core CellData.linkUri/linkKey). This is the ONLY hyperlink
+   * source: nothing re-derives links from the byte stream, and nothing
+   * text-matches them. Absent = the cell carries no OSC 8 link.
+   *
+   * link_key is the RUN identity, not the URI: two separate OSC 8 emissions may
+   * share one URI and must still be two independently clickable spans, so
+   * coalescing breaks on a link_key change (grid-to-cells.ts) and the key is
+   * what a renderer groups soft-wrapped halves by. It is opaque and scoped to
+   * ONE core instance — never persist it or compare it across a rebuild.
+   *
+   * A URI over MAX_LINK_URI_BYTES (2048) is dropped at the producer: the span
+   * ships its TEXT with no link rather than a truncated URI pointing somewhere
+   * else. Validated on decode (cell-proto.ts): link_uri present => non-empty,
+   * within the cap, and link_key present; link_key alone is invalid.
+   *
+   * @generated from field: optional string link_uri = 8;
+   */
+  linkUri?: string | undefined;
+
+  /**
+   * @generated from field: optional string link_key = 9;
+   */
+  linkKey?: string | undefined;
 };
 
 /**
@@ -228,6 +268,33 @@ export type PbCellGridFrame = Message<"roost.v1.PbCellGridFrame"> & {
    * @generated from field: string grid_epoch = 21;
    */
   gridEpoch: string;
+
+  /**
+   * Mouse reporting the FOREGROUND APPLICATION asked for (DECSET), read off the
+   * core — never inferred from alt-screen occupancy. 0 = never requested (the
+   * browser keeps native selection/scroll), 1000 = press/release only, 1002 =
+   * press/release plus motion while a button is held. Raw wire-meaningful
+   * integer, like PbCellSpan.fg/bg; the core folds modes 9 and 1003 to 0.
+   * Advisory like cursor_keys_app: rides every frame, full or delta, and never
+   * forces a reframe. See apps/web/src/lib/terminalMouse.ts.
+   *
+   * @generated from field: uint32 mouse_tracking = 22;
+   */
+  mouseTracking: number;
+
+  /**
+   * DECSET 1006: SGR-1006 encoding; else legacy X10
+   *
+   * @generated from field: bool mouse_sgr = 23;
+   */
+  mouseSgr: boolean;
+
+  /**
+   * DECSET 1004: SPA emits CSI I / CSI O on real focus/blur
+   *
+   * @generated from field: bool focus_events = 24;
+   */
+  focusEvents: boolean;
 };
 
 /**

@@ -1,6 +1,6 @@
 // Bootstrap + auth/pair + worker refresh — the "before the live stream opens"
 // half of sync. Split out of store/sync.ts (400-line cap). One-directional:
-// imports the firehose entry points (_runConnectSync, _abortSyncForVisibility)
+// imports the firehose entry points (_runConnectSync, installSyncLifecycleWake)
 // from sync.ts; sync.ts imports nothing back. Consumers (App.tsx,
 // DeployConsoleModal) import bootstrapSync / refreshCoordAndWorkers from here.
 
@@ -18,19 +18,16 @@ import { setRoutableFps } from "./sync-routable.ts";
 import { _startCoordHealthPoller } from "./sync-health.ts";
 import {
   _runConnectSync,
-  _abortSyncForVisibility,
   forceSyncReconnect,
-  isSyncPaused,
+  installSyncLifecycleWake,
   registerSyncDomainHydrator,
   resumeSyncNow,
-  syncLinkIdleMs,
   waitForSyncSubscribed,
 } from "./sync.ts";
-import { shouldRedialOnRefocus } from "./sync-watchdog.ts";
 import { createSingleSyncLoopStarter } from "./sync-flow.ts";
+import { applySessionsSnapshot } from "./projector.ts";
 import { _dispatchFragmentCredential } from "./sync-bootstrap.pair.ts";
 import { relocateRetiredBrowser } from "../auth/coordinator-relocation.ts";
-import { isPageVisible } from "../lib/pageVisible.ts";
 import { setSessionsHydrated } from "./sync-hydrated.ts";
 import { markPhase } from "../lib/diag.ts";
 
@@ -91,24 +88,12 @@ export function bootstrapSync(): void {
   synced = true;
   _startCoordHealthPoller();
   void _bootstrap();
-  // Re-fetch coord_identity + workers on tab focus. Coord can be
-  // restarted while the tab sits idle; without this, the SPA carries
-  // a stale coord_identity.git_sha and the drift badge silently
-  // mis-reports until the next full reload.
-  if (typeof document !== "undefined") {
-    document.addEventListener("visibilitychange", () => {
-      if (!isPageVisible()) return;
-      void refreshCoordAndWorkers();
-      // A bounded-retry exhaustion parks the one owning Sync loop. Wake it in
-      // place so the persistent terminal deck and its painted grid survive.
-      if (isSyncPaused()) { resumeSyncNow(); return; }
-      // Keep a live socket across a tab switch: re-dialing costs a JWT sign, a
-      // TLS handshake and the since= event backfill, all ahead of the
-      // terminal's reveal snapshot. Re-dial only when the link has actually
-      // gone silent (a suspended or half-open socket).
-      if (shouldRedialOnRefocus(syncLinkIdleMs())) _abortSyncForVisibility();
-    });
-  }
+  // Page-lifecycle resume is owned by store/sync.ts: one coalesced wake edge for
+  // the one redial loop. Coord can be restarted while the tab sits idle, so the
+  // same edge re-fetches coord_identity + workers — without it the SPA carries a
+  // stale coord_identity.git_sha and the drift badge silently mis-reports until
+  // the next full reload.
+  installSyncLifecycleWake(() => { void refreshCoordAndWorkers(); });
 }
 
 /** Re-fetch coord identity + worker list and overwrite the relevant
@@ -326,7 +311,10 @@ async function _bootstrap(): Promise<void> {
       return {
         snapshotToken: response.syncSnapshotToken,
         apply: () => {
-          setRootStore("sessions", sessions);
+          // Per-id reconcile, not a whole-record write: every re-hydration (each
+          // reconnect raises a fresh domain generation) must leave the existing
+          // session proxies — and the terminals mounted against them — in place.
+          applySessionsSnapshot(sessions);
           setSessionsHydrated(true);
           setBrowserUnauthorized(false);
           markPhase("sessions_list_publish", {

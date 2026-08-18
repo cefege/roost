@@ -54,6 +54,14 @@ Over every rendered row, marker IDs must be unique and monotonic
 - Live coord on the tailnet URL; never localhost.
 - A worker with a healthy keeper. A degraded keeper produces dead PTYs and
   stalled input; that is a product finding, not a harness failure.
+- EXCEPTION, undeployed working tree: the tailnet coord runs the DEPLOYED
+  build, so it cannot prove a change that is still local. Run the same harness
+  against a real stack built from the tree instead —
+  `bun run --cwd apps/web build` then `bun smoke/terminal/live-stack.ts`, which
+  prints `READY <url> worker=<fp>` and holds a real coord + worker + keeper +
+  PTYs open until SIGINT. Real processes, real PTY, real keeper: the only thing
+  that changes is which build is under test. Say which stack you used when you
+  report the verdict.
 
 ## Run procedure
 

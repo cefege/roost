@@ -121,9 +121,8 @@ export type Worker = Message<"roost.v1.Worker"> & {
   reachableAddr?: string | undefined;
 
   /**
-   * Non-empty = this worker's keeper is running stale code (the value is the
-   * running keeper's short build stamp); empty/absent = current. Drives the
-   * MachinesPane "keeper stale" badge.
+   * Tri-state keeper build proof: absent = unknown/unreported, empty = current,
+   * non-empty = stale running build stamp.
    *
    * @generated from field: optional string keeper_stale = 9;
    */

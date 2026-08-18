@@ -21,6 +21,8 @@ import { WasmBridge } from "@wterm/core";
 import { initCellEmitState } from "@roost/shared/cell";
 import { createSbRing } from "../src/session-scrollback-ring.ts";
 import { initAgentOscState } from "../src/terminal-stream-scan.ts";
+import { installAutoKeeper } from "./keeper-fake-pool.ts";
+import { settleTerminalControl } from "./terminal-control-settle.ts";
 
 // withdrawViewport defers removal by VIEWER_WITHDRAW_GRACE_MS (hysteresis,
 // so a refresh's re-claim cancels it). Tests that withdraw then assert the
@@ -37,7 +39,12 @@ export const CID = 1;
 export const FP_A = "a".repeat(64);
 export const FP_B = "b".repeat(64);
 export const FP_C = "c".repeat(64);
-export function freshMgr(): SessionManager {
+// A resize is only APPLIED once the keeper acknowledges it, so these fixtures
+// need a keeper that answers: without one every resize is a truthful pre-write
+// rejection and lastAppliedSize would never advance. installAutoKeeper models the
+// real keeper's sequence idempotence; the caller restores the pool in dispose.
+export function freshMgr(initCols = 80, initRows = 24): SessionManager {
+  installAutoKeeper({ cols: initCols, rows: initRows });
   return new SessionManager({
     workerFp: asWorkerFp("00".repeat(32)),
     sink: { emit: () => {} },
@@ -60,35 +67,36 @@ export async function injectSession(mgr: SessionManager, initCols: number, initR
     alt_mode: false,
     mode_carry: new Uint8Array(0),
     osc7_carry: new Uint8Array(0),
+    query_carry: new Uint8Array(0),
     ...initAgentOscState(),
     wtermCore,
     cell_emit: initCellEmitState("test-grid"),
   };
   (mgr as unknown as { sessions: Map<number, unknown> }).sessions.set(CID, record);
+  // spawnShell records the size the keeper created the PTY at; an injected
+  // session must too, or the first claim at that same size looks like a resize.
+  mgr.lastAppliedSize.set(CID, { cols: initCols, rows: initRows });
 }
 
-// Read the SIGWINCH-cached size. Surface is private; tests use the same
-// reflection trick as session-manager-seqno.test.ts.
-export function readApplied(mgr: SessionManager): { cols: number; rows: number } | undefined {
-  return (mgr as unknown as {
-    lastAppliedSize: Map<number, { cols: number; rows: number }>;
-  }).lastAppliedSize.get(CID);
+// Read the SCD size the worker PROVED with the keeper. Claims are transactional
+// now (claim → terminal-control lane → keeper resize → proven size), so a read
+// must drain that lane; a synchronous read would observe the size from before the
+// claim. The helper owns the drain so no test can forget it.
+export async function readApplied(mgr: SessionManager): Promise<{ cols: number; rows: number } | undefined> {
+  await settleTerminalControl(mgr, CID);
+  return mgr.lastAppliedSize.get(CID);
 }
 
-// Read the wtermCore size — second source of truth that
-// _recomputeViewport keeps in sync with the PTY.
-export function readWtermSize(mgr: SessionManager): { cols: number; rows: number } {
-  const rec = (mgr as unknown as { sessions: Map<number, { wtermCore: { getCols(): number; getRows(): number } }> }).sessions.get(CID)!;
-  return { cols: rec.wtermCore.getCols(), rows: rec.wtermCore.getRows() };
+// The wtermCore size — second source of truth, kept in sync by the same
+// transaction that proved the PTY size.
+export async function readWtermSize(mgr: SessionManager): Promise<{ cols: number; rows: number }> {
+  await settleTerminalControl(mgr, CID);
+  const core = mgr.sessions.get(CID)!.wtermCore;
+  return { cols: core.getCols(), rows: core.getRows() };
 }
 
-// OPT2-1: _recomputeViewport now applies the SCD to the wtermCore via an
-// async rebuild-from-ring (the PTY SIGWINCH is still synchronous). Await the
-// per-channel rebuild chain before reading wtermCore dims.
-export async function flushRebuild(mgr: SessionManager): Promise<void> {
-  await (mgr as unknown as { _wtermRebuildChain: Map<number, Promise<void>> })
-    ._wtermRebuildChain.get(CID);
-}
+// Re-exported so the sibling scenario files share one drain implementation.
+export { settleTerminalControl } from "./terminal-control-settle.ts";
 
 // Age an existing claim's lastMs in place. Models a real browser that
 // claimed live once but then went quiet (lost connectivity, OS sleep).
@@ -96,25 +104,21 @@ export async function flushRebuild(mgr: SessionManager): Promise<void> {
 // the claim from scratch) preserves the lastAppliedSize side-effect
 // that the reaper relies on to detect "claim was the pinning one".
 export function ageClaim(mgr: SessionManager, fp: string, ageMs: number): void {
-  const claim = (mgr as unknown as {
-    viewportClaims: Map<number, Map<string, { lastMs: number }>>;
-  }).viewportClaims.get(CID)?.get(fp);
+  const claim = mgr.viewportClaims.get(CID)?.get(fp);
   if (!claim) throw new Error(`ageClaim: no live claim for ${fp}`);
   claim.lastMs = Date.now() - ageMs;
 }
 
 export function reapNow(mgr: SessionManager): void {
-  (mgr as unknown as { _reapViewportClaims(): void })._reapViewportClaims();
+  mgr._reapViewportClaims();
 }
 
 export function recomputeNow(mgr: SessionManager): void {
-  (mgr as unknown as { _recomputeViewport(c: number): void })._recomputeViewport(CID);
+  mgr.reconcileTerminalViewport(CID);
 }
 
 export function claimExists(mgr: SessionManager, fp: string): boolean {
-  return !!(mgr as unknown as {
-    viewportClaims: Map<number, Map<string, unknown>>;
-  }).viewportClaims.get(CID)?.has(fp);
+  return !!mgr.viewportClaims.get(CID)?.has(fp);
 }
 
 export const ready = (async () => { await WasmBridge.load(); })();
