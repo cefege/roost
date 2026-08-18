@@ -272,7 +272,8 @@ describe("worker deployment verification", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
-  test("Linux target proof rejects the pre-activation process epoch", async () => {
+  // skipIf linux: the proof reads /proc/<pid>/environ (procfs), honest only on the platform it ships to — systemd worker targets, covered by CI's ubuntu-latest job; elsewhere the generated bash exits 1 on a missing /proc.
+  test.skipIf(process.platform !== "linux")("Linux target proof rejects pre-activation epoch", async () => {
     const home = mkdtempSync(join(tmpdir(), "roost-linux-proof-"));
     const target = join(home, ".local", "share", "roost", "releases", "worker", "target");
     const tools = join(home, "tools");
@@ -323,7 +324,6 @@ describe("worker deployment verification", () => {
       rmSync(home, { recursive: true, force: true });
     }
   });
-
   test("staged Linux workers carry effective resource and logrotate settings", () => {
     const definition = [
       "[Service]",
