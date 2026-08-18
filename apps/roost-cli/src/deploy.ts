@@ -508,9 +508,15 @@ function disabledOverride() {
   const overrideLine = result.stdout.split(/\r?\n/)
     .find((line) => line.includes('"' + label + '"'));
   if (!overrideLine) return false;
-  const match = overrideLine.match(/=>\s*(true|false)\s*$/);
-  if (!match) reject("launchd disabled override is malformed");
-  return match[1] === "true";
+  // launchctl prints this override in two shapes depending on the OS version:
+  // the older boolean (=> true / => false) and the current word form
+  // (=> disabled / => enabled, measured on macOS 15 / mihai-m5-air). Accepting
+  // only the boolean made every current-macOS deploy abort as "malformed"
+  // before it touched the host. Both mean the same thing: the first of each
+  // pair is "this service is disabled".
+  const match = overrideLine.match(/=>\s*(true|false|disabled|enabled)\s*$/);
+  if (!match) reject("launchd disabled override is malformed: " + overrideLine.trim());
+  return match[1] === "true" || match[1] === "disabled";
 }
 
 function exactPriorDefinition(journal) {
@@ -753,7 +759,9 @@ const MACOS_PRIOR_LIFECYCLE_PROOF_COMMAND =
   `disabled_output=$(launchctl print-disabled gui/$uid 2>&1); disabled_status=$?; ` +
   `printf '%s\\n' "$disabled_output"; test "$disabled_status" -eq 0 || exit "$disabled_status"; ` +
   `if printf '%s\\n' "$disabled_output" | ` +
-  `grep -Eq '"com[.]roost[.]worker-v2"[[:space:]]*=>[[:space:]]*true'; ` +
+  // Both launchctl shapes mean disabled: the legacy boolean and the current
+  // word form (macOS 15 prints "com.roost.worker-v2" => enabled|disabled).
+  `grep -Eq '"com[.]roost[.]worker-v2"[[:space:]]*=>[[:space:]]*(true|disabled)'; ` +
   `then echo RoostLaunchdDisabled=yes; else echo RoostLaunchdDisabled=no; fi`;
 
 function createMacosDeployJournalController(
