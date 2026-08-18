@@ -71,6 +71,28 @@ async function pollUntil<T>(
   }
 }
 
+/** The transfer canary measures the DATA PLANE (chunk loop, dedup, cap-free
+ *  download), not the operator's uplink. `routableFps[0]` is whichever worker
+ *  heartbeated most recently, so a freshly deployed laptop puts 60 MB across a
+ *  residential link and the fixed budget expires with nothing broken — measured:
+ *  2.2 MiB/s to a remote Mac versus 5.4 s end to end for the same bytes on a
+ *  worker beside the coordinator. Prefer a worker on the coordinator's own host;
+ *  fall back to the recency order when the coord runs alone. */
+function transferWorkerFp(
+  workers: ReadonlyArray<{ fp: string; reachableAddr?: string }>,
+  routableFps: readonly string[],
+  coordUrl: string,
+): string | undefined {
+  const coordHost = (() => {
+    try { return new URL(coordUrl).hostname; } catch { return ""; }
+  })();
+  const routable = new Set(routableFps);
+  const local = coordHost === ""
+    ? undefined
+    : workers.find((w) => routable.has(w.fp) && w.reachableAddr === coordHost);
+  return local?.fp ?? routableFps[0];
+}
+
 describe("api smoke (headless, live coord)", () => {
   test("spawn → echo → rename → workspace lifecycle → sync stream → kill", async () => {
     const t0 = performance.now();
@@ -279,8 +301,8 @@ describe("api smoke (headless, live coord)", () => {
     const c = await buildAuthorizedApiClient({ coordinatorUrl, keyPath, label: "api-smoke" });
     const spawnedSessions = new Set<string>();
     try {
-      const { routableFps } = await c.workersList({});
-      const workerFp = routableFps[0];
+      const { workers, routableFps } = await c.workersList({});
+      const workerFp = transferWorkerFp(workers, routableFps, coordinatorUrl);
       if (!workerFp) throw new Error("api smoke: no routable worker online on this coord");
       const spawn = await c.sessionsSpawn({ workerFp, kind: "shell", folder: "/tmp" });
       const sid = spawn.sessionId;
