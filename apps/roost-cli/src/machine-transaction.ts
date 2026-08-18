@@ -2,13 +2,13 @@ import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { join, win32 } from "node:path";
 import { Database } from "bun:sqlite";
-import { applyPrivateDacl, type DurabilityOptions } from "./durability.ts";
-import { roostServiceDir, type PathEnv } from "./paths.ts";
-import { supportedHostPlatform, type SupportedHostPlatform } from "./platform.ts";
+import { applyPrivateDacl, type DurabilityOptions } from "@roost/shared/durability";
+import { roostServiceDir, type PathEnv } from "@roost/shared/paths";
+import { supportedHostPlatform, type SupportedHostPlatform } from "@roost/shared/platform";
 import {
   windowsPrepareUpdaterArtifact,
   windowsProtectUpdaterArtifact,
-} from "./windows-helper.ts";
+} from "@roost/shared/windows-helper";
 
 export type MachineTransactionKind = "install" | "update" | "relocation" | "keeper-refresh" | "deploy";
 

@@ -1,6 +1,7 @@
 // Transcription (voice-dictation) RPC handlers — Deepgram config + token grant.
-// Registered into the CoordinatorService via its own router.service() call in
-// router.ts::buildConnectRouter. Closes over ConnectDeps only (deps.db); no
+// Spread into router.ts's SINGLE router.service() literal — never registered
+// with a router.service() call of its own, which would shadow every other
+// domain with unimplemented-throws. Closes over ConnectDeps only (deps.db); no
 // shared router-local state. Split out of router.ts (400-line cap; the
 // "all handlers in one router.ts" rule was rescinded 2026-06-23).
 

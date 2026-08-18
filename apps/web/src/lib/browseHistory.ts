@@ -1,6 +1,6 @@
 // Pure browser-style navigation history for /browse file manager.
 // Entries are canonical directory paths WITHOUT trailing slash:
-// "~" (home), "/Users/mike/Code", "/". Never "".
+// "~" (home), "/Users/dev/Code", "/". Never "".
 // No Solid imports — pure + immutable, mirroring folderPalette.ts pattern.
 //
 // Called by: BrowsePage.tsx

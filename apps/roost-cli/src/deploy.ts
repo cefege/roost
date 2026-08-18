@@ -25,7 +25,7 @@ import { _isSelfHost } from "./deploy-self-host.ts";
 import { _backfillEnvFromPlist, _resolveDeployEnvValue } from "./deploy-plist-env.ts";
 import { _deployLocal } from "./deploy-local.ts";
 import { deployLinux } from "./deploy-linux.ts";
-import { loadWindowsServiceDefinitions, verifyWorkerCmd } from "./service-ctl.ts";
+import { launchdBootstrapWithRetryCmd, loadWindowsServiceDefinitions, verifyWorkerCmd } from "./service-ctl.ts";
 import { buildAuthorizedApiClient, buildSelfAuthorizedApiClient } from "./api.ts";
 import { loadWorkerConfig } from "../../worker/src/config.ts";
 import type { CoordClient } from "../../worker/src/coord-client.ts";
@@ -855,10 +855,9 @@ function createMacosDeployJournalController(
     async bootstrap() {
       await checked(
         "bootstrap prior macOS worker",
-        `uid=$(id -u); plist="$HOME/${MACOS_WORKER_PLIST_RELATIVE}"; ` +
-          `for i in 1 2 3 4 5 6 7 8 9 10; do ` +
-          `if launchctl bootstrap gui/$uid "$plist" 2>/dev/null; then exit 0; fi; ` +
-          `sleep 1; done; echo 'prior launchd bootstrap failed after 10 retries' >&2; exit 1`,
+        launchdBootstrapWithRetryCmd(MACOS_WORKER_LABEL, MACOS_WORKER_PLIST_RELATIVE, {
+          role: "prior launchd", reload: false, homeRelative: true,
+        }),
       );
     },
     async kickstart() {

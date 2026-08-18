@@ -6,21 +6,21 @@ import {
   durableReplace,
   flushDurablePath,
 } from "@roost/shared/durability";
-import { acquireMachineTransaction } from "@roost/shared/machine-transaction";
+import { acquireMachineTransaction } from "../machine-transaction.ts";
 import { roostServiceDir, roostVersionsDir } from "@roost/shared/paths";
 import type { ServiceHealthRole, ServiceHealthStatusFor } from "@roost/shared/service-health";
 import {
   WINDOWS_SERVICE_NAMES,
   quoteWindowsArg,
   retargetWindowsUpdaterDefinition,
-} from "./service-ctl.ts";
+} from "../service-ctl.ts";
 import type {
   RoostServiceRole,
   WindowsServiceDefinition,
   WindowsServiceManager,
   WindowsServiceSnapshot,
   WindowsServiceSnapshotSet,
-} from "./service-ctl.ts";
+} from "../service-ctl.ts";
 import {
   appendWindowsUpdateProgress,
   assertWindowsUpdateJournal,

@@ -1,7 +1,6 @@
 // Branded identity types via Zod's native .brand(). The Zod brand IS
 // the nominal type — no parallel hand-rolled marker needed.
 // Mixing brands = compile-time error. Zero runtime cost.
-// REWRITE.md R0.16.
 
 import { z } from "zod";
 

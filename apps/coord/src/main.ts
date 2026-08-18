@@ -19,7 +19,7 @@ import { createBunCoordinatorMoveRuntime } from "./coord-move/bun-runtime.ts";
 import { handleInternalHandoffRequest } from "./coord-move/internal-http.ts";
 import { COORD_GIT_SHA } from "./git-sha.ts";
 import { connectWorkers } from "./connect/worker-registry.ts";
-import { handleWorkerUpdateProgress, resumeWindowsUpdateDeploysForWorker } from "./deploy-jobs.ts";
+import { handleWorkerUpdateProgress, resumeWindowsUpdateDeploysForWorker } from "./windows-update-deploy-jobs.ts";
 import type { WorkerServiceDeps } from "./connect/worker-service.ts";
 import type { Server, ServerWebSocket } from "bun";
 import { workspaceBus } from "./buses.ts";
@@ -168,7 +168,7 @@ export async function runCoord() {
   };
   const workerWs = makeWorkerWsHandler(wsDeps);
   // Sync firehose raw-WS (/ws/coord-sync) also needs SQLite for Connect deps;
-  // its feed is shared with the former Connect sync via handlers-streaming.ts.
+  // its feed is shared with the former Connect sync via sync-feed.ts.
   const syncDeps = { db, sqlite, coordKey, jwtCache, cfg, move };
   const syncWs = makeSyncWsHandler(
     syncDeps,

@@ -22,7 +22,7 @@ export function _log(level: "info" | "warn" | "error", target: string, msg: stri
 // /dev/fd/<n> entry per open fd of the CALLING process, so readdir length
 // is the live fd count. Attached to dead-birth / spawn_failed logs ONLY
 // (never the hot path) to settle the unproven "degraded keeper = FD/pty
-// exhaustion" question (CLAUDE.md L11 / project_keeper_degradation_dead_birth_selfheal):
+// exhaustion" question (docs/FAILURE-INDEX.md / project_keeper_degradation_dead_birth_selfheal):
 // if open_fds climbs toward the soft limit (256 on a default LaunchAgent)
 // across dead-births, exhaustion is the mechanism. -1 = couldn't read.
 export function _keeperOpenFdCount(): number {

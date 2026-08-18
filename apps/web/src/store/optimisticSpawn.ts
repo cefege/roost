@@ -6,7 +6,7 @@ import { createSignal } from "solid-js";
 import { asSessionId, asChannelId } from "@roost/shared/wire";
 import type { Session } from "@roost/shared/wire";
 import { rootStore, setRootStore } from "./root.ts";
-import { addToast } from "../lib/toastStore.ts";
+import { addToast } from "./toastStore.ts";
 
 // Reactive so CellTerminal's `pending` memo re-runs when a placeholder resolves.
 // `aborted` needs no reactivity — it is read imperatively in doNewTab's resolve.

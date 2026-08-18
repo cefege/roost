@@ -82,8 +82,8 @@ const WRITE_METHODS: Record<string, true | undefined> = {
   WorkersRegister: true, WorkersHeartbeat: true, WorkersRename: true, WorkersDelete: true, WorkersDeployStart: true,
   SessionsSpawn: true, SessionsAttach: true, SessionsKill: true, SessionsRename: true,
   // SessionsResize/Input acquire their lease only after entering the shared
-  // per-viewer/session FIFO (session-control.ts). Taking one here would let a
-  // queued command hold the move drain open before it has begun.
+  // per-viewer/session FIFO (terminal-control-lane.ts). Taking one here would
+  // let a queued command hold the move drain open before it has begun.
   SessionsCursorPos: true, SessionsAssignWorkspace: true,
   TasksEnqueue: true, TasksNextPending: true, TasksSetState: true, TasksCancel: true,
   WorkspacesCreate: true, WorkspacesUpdate: true, WorkspacesDelete: true, WorkspacesSetSessions: true,

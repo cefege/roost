@@ -4,7 +4,7 @@
 // Every session owns terminal state: scrollback ring, wterm core, and cell
 // emitter.
 
-import type { SessionId, ChannelId } from "@roost/shared";
+import type { SessionId, ChannelId } from "@roost/shared/wire";
 import type { FsmChannel } from "./fsm.ts";
 import type { TerminalCore } from "@wterm/core";
 import type { CellEmitState } from "@roost/shared/cell";

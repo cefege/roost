@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { roostServiceDir } from "@roost/shared/paths";
 import { windowsConsumeUpdaterRequest, windowsCreateUpdaterRequest, windowsReadUpdaterArtifact } from "@roost/shared/windows-helper";
 import type { WindowsRelocationBrokerCommand, WindowsRelocationOperationKind, WindowsRelocationResultFrame } from "@roost/shared/windows-relocation";
-import { createWindowsServiceManager, type WindowsServiceManager } from "./service-ctl.ts";
+import { createWindowsServiceManager, type WindowsServiceManager } from "../service-ctl.ts";
 import { createWindowsRelocationBrokerDeps, prepareWindowsRelocationJournal, rejectedWindowsRelocationJournal, validateWindowsRelocationCommand, type WindowsRelocationBrokerDeps } from "./windows-relocation-broker.ts";
 import type { WindowsRelocationJournalStore, WindowsRelocationJournalV1 } from "./windows-relocation-journal.ts";
 import { DurableWindowsUpdateJournalStore, type WindowsUpdateJournalStore } from "./windows-update-journal.ts";

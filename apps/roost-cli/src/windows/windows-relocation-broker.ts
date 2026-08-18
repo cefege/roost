@@ -1,6 +1,6 @@
 import { lstat } from "node:fs/promises";
 import { win32 } from "node:path";
-import { acquireMachineTransaction } from "@roost/shared/machine-transaction";
+import { acquireMachineTransaction } from "../machine-transaction.ts";
 import { roostServiceDir, roostVersionsDir } from "@roost/shared/paths";
 import {
   windowsCoordinatorRelocationState,
@@ -30,7 +30,7 @@ import {
   windowsServiceDefinitionsPath,
   type RoostServiceRole,
   type WindowsServiceDefinition,
-} from "./service-ctl.ts";
+} from "../service-ctl.ts";
 import {
   DurableWindowsRelocationJournalStore,
   windowsRelocationJournalPath,

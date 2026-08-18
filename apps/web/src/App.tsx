@@ -27,7 +27,7 @@ import { TransferDialogHost } from "./components/TransferDialog.tsx";
 import { RenameDialogHost } from "./components/RenameDialog.tsx";
 import { getLastTerminalPath } from "./lib/lastVisited.ts";
 import { shouldBootRestore, consumeBootRestore } from "./lib/bootRestore.ts";
-import { UiBridge } from "./lib/uiBridge.tsx";
+import { UiBridge } from "./components/UiBridge.tsx";
 import { AgentNotificationBridge } from "./components/AgentNotificationBridge.tsx";
 
 // Code-split boundaries (ts-no-dynamic-import exception): solid `lazy` is the

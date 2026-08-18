@@ -14,9 +14,9 @@ import { dirname, join } from "node:path";
 import { log } from "@roost/shared/log";
 import type { Database } from "bun:sqlite";
 import { createSqliteSnapshot } from "./db/snapshot.ts";
+import { DAY_MS } from "./audit-retention.ts";
 
 const MAX_BACKUPS = 14;
-const BACKUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 
 function listBackups(dir: string): string[] {
@@ -83,7 +83,7 @@ function backupStale(dbPath: string): boolean {
   const all = listBackups(dir);
   if (all.length === 0) return true;
   try {
-    return Date.now() - statSync(all.at(-1)!).mtimeMs > BACKUP_INTERVAL_MS;
+    return Date.now() - statSync(all.at(-1)!).mtimeMs > DAY_MS;
   } catch {
     return true;
   }
@@ -101,5 +101,5 @@ export function scheduleBackups(sqlite: Database, dbPath: string): void {
     return;
   }
   if (backupStale(dbPath)) runScheduledBackup(sqlite, dbPath);
-  setInterval(() => runScheduledBackup(sqlite, dbPath), BACKUP_INTERVAL_MS).unref();
+  setInterval(() => runScheduledBackup(sqlite, dbPath), DAY_MS).unref();
 }

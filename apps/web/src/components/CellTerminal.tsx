@@ -19,10 +19,7 @@ import {
 	on,
 } from "solid-js";
 import { TerminalInputController } from "../lib/terminalInputController.ts";
-import {
-	CellGridRenderer,
-	type LiveInteractionResult,
-} from "../lib/cellRenderer.ts";
+import { CellGridRenderer } from "../lib/cellRenderer.ts";
 import { createScrollbackBackfill } from "../lib/scrollbackBackfill.ts";
 import { PredictiveEcho } from "../lib/predictiveEcho.ts";
 import { TerminalContextMenu } from "./TerminalContextMenu.tsx";
@@ -31,16 +28,10 @@ import type { TerminalContext } from "../lib/keytermContext.ts";
 import {
 	TerminalComposeButton,
 	activeComposeSessionId,
-	type TerminalSelectionGuard,
 } from "./TerminalComposeButton.tsx";
 import { TerminalNavButtons } from "./TerminalNavButtons.tsx";
 import { IconButton } from "./Settings/md/IconButton.tsx";
-import { mouseForwardEnabled } from "../lib/mouseForwardPref.ts";
-import {
-	cellFromPoint,
-	terminalMouseReport,
-	type MouseGesture,
-} from "../lib/terminalMouse.ts";
+import { attachTerminalMouseForwarding } from "../lib/terminalMouseForwarding.ts";
 import type { MouseTracking } from "@roost/shared/cell";
 import { isCompact, isTouchDevice } from "../lib/windowSizeClass.ts";
 import { uiStore } from "../store/uiStore.ts";
@@ -71,7 +62,14 @@ import {
 	getInputText,
 	clearInput,
 } from "../lib/terminalInputHistory.ts";
-import { buildPtyPayload, CR_BYTES } from "../lib/ptyPaste.ts";
+import {
+	buildPtyPayload,
+	countLineBreaks,
+	CR_BYTES,
+	MULTILINE_PASTE_MIN_NEWLINES,
+} from "../lib/ptyPaste.ts";
+import { registerCursorPoll } from "../lib/cursorPollTicker.ts";
+import { createTerminalSelectionGuard } from "../lib/terminalSelectionGuard.ts";
 import { applyCtrlModifier, isAltGraphKey } from "../lib/terminalInput.ts";
 
 
@@ -124,18 +122,6 @@ interface CellTerminalProps {
 	// Kept separate from surfaceVisible because the composer DOM stays mounted.
 	surfaceActive: boolean;
 }
-interface CapturedPaneSelection {
-	epoch: number;
-	display: HTMLDivElement;
-	doc: Document;
-	range: Range;
-	selectedText: string;
-	anchorNode: Node;
-	anchorOffset: number;
-	focusNode: Node;
-	focusOffset: number;
-	ownedRows: Array<{ row: HTMLElement; text: string }>;
-}
 
 
 const CLAIM_DEBOUNCE_MS = 150;
@@ -149,32 +135,6 @@ const CLAIM_DEBOUNCE_MS = 150;
 // every 30s" the worker's reaper comment already assumes.
 const CLAIM_HEARTBEAT_MS = 30_000;
 
-
-
-
-
-// Shared 500ms cursor-poll ticker — one interval for ALL mounted panes (was one
-// per open session; the deck keeps every open session mounted). The ticker
-// starts on first register and stops when the last pane unregisters.
-// Per-instance gating (inLayout/visible/changed) stays in each callback.
-const CURSOR_POLL_MS = 500;
-const _cursorPollCbs = new Set<() => void>();
-let _cursorPollHandle: number | null = null;
-function _registerCursorPoll(cb: () => void): () => void {
-	_cursorPollCbs.add(cb);
-	if (_cursorPollHandle === null) {
-		_cursorPollHandle = window.setInterval(() => {
-			for (const f of _cursorPollCbs) f();
-		}, CURSOR_POLL_MS);
-	}
-	return () => {
-		_cursorPollCbs.delete(cb);
-		if (_cursorPollCbs.size === 0 && _cursorPollHandle !== null) {
-			clearInterval(_cursorPollHandle);
-			_cursorPollHandle = null;
-		}
-	};
-}
 
 // Grace before a viewed-but-frameless pane is declared "not responding" (a dead
 // breadcrumb: open session, no live PTY). Applied PER ATTEMPT: on expiry the
@@ -211,245 +171,21 @@ export function CellTerminal(props: CellTerminalProps) {
 	// interaction transitions need the mounted instance without owning its lifetime.
 	let backfillRef: ScrollbackBackfill | null = null;
 	let unregisterUserInput: (() => void) | null = null;
-	let selectionGuardEpoch = 0;
-	let activeSelectionGuard: TerminalSelectionGuard | null = null;
-	let selectionGuardSuspended = false;
-	const paneOwnsSelectionEndpoint = (selection: Selection): boolean =>
-		(!!selection.anchorNode && !!displayRef?.contains(selection.anchorNode))
-		|| (!!selection.focusNode && !!displayRef?.contains(selection.focusNode));
-	const notifyBackfill = (result: LiveInteractionResult | undefined): void => {
-		if (result?.anchorChanged) backfillRef?.onFullFrame();
-	};
-	const syncNativeSelectionHold = (): void => {
-		const selection = displayRef?.ownerDocument.getSelection();
-		const held =
-			selectionGuardSuspended
-			|| (
-				!!selection
-				&& !selection.isCollapsed
-				&& selection.rangeCount > 0
-				&& paneOwnsSelectionEndpoint(selection)
-			);
-		if (held) renderer?.enterReading("selection");
-		notifyBackfill(renderer?.setSelectionHold(held));
-	};
-	const discardActiveSelectionGuardForTransition = (): void => {
-		const guard = activeSelectionGuard;
-		activeSelectionGuard = null;
-		selectionGuardSuspended = false;
-		guard?.release();
-	};
-	const captureTerminalSelection = (): TerminalSelectionGuard | undefined => {
-		const display = displayRef;
-		const doc = display?.ownerDocument;
-		const selection = doc?.getSelection();
-		if (
-			!display
-			|| !doc
-			|| !selection
-			|| selection.isCollapsed
-			|| selection.rangeCount === 0
-			|| !paneOwnsSelectionEndpoint(selection)
-		) return;
-
-		const anchorNode = selection.anchorNode;
-		const focusNode = selection.focusNode;
-		if (!anchorNode || !focusNode) return;
-		const range = selection.getRangeAt(0).cloneRange();
-		const selectedText = selection.toString();
-		if (!selectedText) return;
-
-		// Row identity is the safety boundary. A canonical repair may retain the
-		// same text while replacing its nodes; never resurrect that detached range.
-		const anchorElement = anchorNode instanceof Element ? anchorNode : anchorNode.parentElement;
-		const focusElement = focusNode instanceof Element ? focusNode : focusNode.parentElement;
-		const anchorCandidate = anchorElement?.closest(".cell-row");
-		const focusCandidate = focusElement?.closest(".cell-row");
-		const anchorRow = anchorCandidate instanceof HTMLElement ? anchorCandidate : null;
-		const focusRow = focusCandidate instanceof HTMLElement ? focusCandidate : null;
-		const ownedRows: Array<{ row: HTMLElement; text: string }> = [];
-		if (anchorRow && display.contains(anchorRow)) {
-			ownedRows.push({ row: anchorRow, text: anchorRow.textContent ?? "" });
-		}
-		if (focusRow && focusRow !== anchorRow && display.contains(focusRow)) {
-			ownedRows.push({ row: focusRow, text: focusRow.textContent ?? "" });
-		}
-		if (ownedRows.length === 0) return;
-
-		let captured: CapturedPaneSelection | null = {
-			epoch: selectionGuardEpoch,
-			display,
-			doc,
-			range,
-			selectedText,
-			anchorNode,
-			anchorOffset: selection.anchorOffset,
-			focusNode,
-			focusOffset: selection.focusOffset,
-			ownedRows,
-		};
-		const validCapture = (): CapturedPaneSelection | null => {
-			const saved = captured;
-			if (!saved) return null;
-			const anchorValue = saved.anchorNode.nodeValue;
-			const focusValue = saved.focusNode.nodeValue;
-			const anchorLength = anchorValue === null
-				? saved.anchorNode.childNodes.length
-				: anchorValue.length;
-			const focusLength = focusValue === null
-				? saved.focusNode.childNodes.length
-				: focusValue.length;
-			if (
-				saved.epoch !== selectionGuardEpoch
-				|| displayRef !== saved.display
-				|| !saved.display.isConnected
-				|| !saved.anchorNode.isConnected
-				|| !saved.focusNode.isConnected
-				|| saved.anchorNode.getRootNode() !== saved.doc
-				|| saved.focusNode.getRootNode() !== saved.doc
-				|| (
-					!saved.display.contains(saved.anchorNode)
-					&& !saved.display.contains(saved.focusNode)
-				)
-				|| saved.anchorOffset > anchorLength
-				|| saved.focusOffset > focusLength
-				|| !saved.range.startContainer.isConnected
-				|| !saved.range.endContainer.isConnected
-				|| saved.range.toString() !== saved.selectedText
-			) {
-				captured = null;
-				return null;
-			}
-			for (const owned of saved.ownedRows) {
-				if (
-					!owned.row.isConnected
-					|| !saved.display.contains(owned.row)
-					|| owned.row.textContent !== owned.text
-				) {
-					captured = null;
-					return null;
-				}
-			}
-			return saved;
-		};
-		const selectionMatchesCapture = (
-			current: Selection,
-			saved: CapturedPaneSelection,
-		): boolean =>
-			current.anchorNode === saved.anchorNode
-			&& current.anchorOffset === saved.anchorOffset
-			&& current.focusNode === saved.focusNode
-			&& current.focusOffset === saved.focusOffset;
-		const currentSelection = (saved: CapturedPaneSelection): Selection | null => {
-			const current = saved.doc.getSelection();
-			if (!current) {
-				captured = null;
-				return null;
-			}
-			// Never clear or overwrite a new native range established by another
-			// owner. A collapsed range is the browser's editable-focus artifact.
-			if (!current.isCollapsed && !selectionMatchesCapture(current, saved)) {
-				captured = null;
-				return null;
-			}
-			return current;
-		};
-		const guard: TerminalSelectionGuard = {
-			suspend(): boolean {
-				const saved = validCapture();
-				if (!saved) return false;
-				const current = currentSelection(saved);
-				if (!current) return false;
-				// A focused textarea cannot begin its native editing command while
-				// this document range remains active. Yield only the exact retained
-				// pane range while its explicit suspended state keeps the renderer's
-				// selection hold live across asynchronous selectionchange delivery.
-				const restored = selectionMatchesCapture(current, saved);
-				if (restored && current.rangeCount !== 1) {
-					captured = null;
-					return false;
-				}
-				selectionGuardSuspended = true;
-				if (restored) {
-					// Chromium resets the native editing target only through the
-					// Selection-wide clear; rangeCount === 1 makes that clear exact.
-					current.removeAllRanges();
-				}
-				return true;
-			},
-			restore(): boolean {
-				const saved = validCapture();
-				if (!saved) return false;
-				const current = currentSelection(saved);
-				if (!current) return false;
-				if (!selectionMatchesCapture(current, saved)) {
-					try {
-						current.setBaseAndExtent(
-							saved.anchorNode,
-							saved.anchorOffset,
-							saved.focusNode,
-							saved.focusOffset,
-						);
-					} catch {
-						captured = null;
-						return false;
-					}
-				}
-				if (current.isCollapsed || current.toString() !== saved.selectedText) {
-					captured = null;
-					return false;
-				}
-				selectionGuardSuspended = false;
-				syncNativeSelectionHold();
-				return true;
-			},
-			release(): void {
-				captured = null;
-				if (activeSelectionGuard === guard) {
-					activeSelectionGuard = null;
-					selectionGuardSuspended = false;
-					syncNativeSelectionHold();
-				}
-			},
-		};
-		activeSelectionGuard?.release();
-		activeSelectionGuard = guard;
-		return guard;
-	};
-	const prepareLiveInteraction = (): void => {
-		selectionGuardEpoch += 1;
-		discardActiveSelectionGuardForTransition();
-		const selection = displayRef?.ownerDocument.getSelection();
-		const ownedSelection = !!selection && paneOwnsSelectionEndpoint(selection);
-		// Renderer state moves first: intent, both composed holds, canonical frame,
-		// and bottom anchor change as one transition before DOM callbacks can fire.
-		const result = renderer?.prepareLiveInteraction();
-		// Ownership was captured before reconciliation could detach the old row.
-		// Chromium can dispatch the reveal scroll after animation callbacks. Keep
-		// the bracket until that scroll arrives; every later admitted input or
-		// explicit reader interaction clears it before changing scroll geometry.
-		if (ownedSelection) {
-			renderer?.beginLiveSelectionRelease();
-			selection?.removeAllRanges();
-		}
-		linkAttachment?.releaseInteraction();
-		notifyBackfill(result);
-	};
-	// Leaving the visible surface ends every reader interval: the selection this
-	// pane owned is dropped here, so no reader survives the park. Keeping the
-	// interval would freeze the pane on the frame that was current when it left
-	// and present that stale grid on its next reveal (the DOM watermark stays
-	// behind the canonical one with reconcile_block_reason "reader_pending_frame").
-	const releasePaintHolds = (): void => {
-		selectionGuardEpoch += 1;
-		discardActiveSelectionGuardForTransition();
-		const selection = displayRef?.ownerDocument.getSelection();
-		const ownedSelection = !!selection && paneOwnsSelectionEndpoint(selection);
-		const result = renderer?.prepareLiveInteraction();
-		if (ownedSelection) selection?.removeAllRanges();
-		linkAttachment?.releaseInteraction();
-		notifyBackfill(result);
-	};
+	// Native selection retention across renderer DOM replacement, plus the
+	// live-interaction transitions that end a reader interval. Every ordering
+	// constraint inside it is load-bearing — see lib/terminalSelectionGuard.ts.
+	const {
+		notifyBackfill,
+		syncNativeSelectionHold,
+		captureTerminalSelection,
+		prepareLiveInteraction,
+		releasePaintHolds,
+	} = createTerminalSelectionGuard({
+		getDisplay: () => displayRef,
+		getRenderer: () => renderer,
+		getBackfill: () => backfillRef,
+		getLinkAttachment: () => linkAttachment,
+	});
 	let predictor: PredictiveEcho | null = null;
 	let inputController: TerminalInputController | null = null;
 	// These modes advance with every accepted canonical frame even when reader
@@ -507,13 +243,6 @@ export function CellTerminal(props: CellTerminalProps) {
 		return admission;
 	};
 
-	// A paste of ≥2 newlines into a shell WITHOUT bracketed paste executes every
-	// line as it arrives — the classic "pasted a script into bash and it ran half
-	// of it" foot-gun. With bracketed paste on, the shell buffers it safely, so
-	// there is nothing to warn about and no prompt.
-	const MULTILINE_PASTE_MIN_NEWLINES = 2;
-	const countLineBreaks = (text: string): number =>
-		text.match(/\r\n|\r|\n/g)?.length ?? 0;
 	const [pendingPaste, setPendingPaste] = createSignal<string | null>(null);
 	const pendingPasteLines = () => {
 		const text = pendingPaste();
@@ -1063,7 +792,7 @@ export function CellTerminal(props: CellTerminalProps) {
 		// active (a hidden deck pane has no one watching). 500ms, only on change.
 		let lastSentRow = -1,
 			lastSentCol = -1;
-		const releaseCursorPoll = _registerCursorPoll(() => {
+		const releaseCursorPoll = registerCursorPoll(() => {
 			if (props.inLayout !== true || !props.surfaceActive || !isPageVisible()) return;
 			if (lastCurRow === lastSentRow && lastCurCol === lastSentCol) return;
 			lastSentRow = lastCurRow;
@@ -1175,171 +904,19 @@ export function CellTerminal(props: CellTerminalProps) {
 		};
 
 		// ── mouse / touch forwarding ─────────────────────────────────────────
-		// Forward pointer and touch gestures ONLY to an application that asked for
-		// mouse reporting (frame.mouseTracking, DECSET 1000/1002 read off the core).
-		// Alt-screen occupancy is not that question: vim/less/man occupy it without
-		// requesting the mouse, and forwarding to them swallowed the click with no
-		// native fallback. The user toggle survives as the override for the opposite
-		// case — native selection inside an app that DOES want the mouse.
-		// Shift or Alt bypasses forwarding for one gesture (see terminalMouse.ts).
-		const forwardActive = () => mouseForwardEnabled() && mouseTracking() !== 0;
-		const report = (gesture: MouseGesture): boolean => {
-			const bytes = terminalMouseReport(
-				{ tracking: mouseTracking(), sgr: frameMouseSgr },
-				gesture,
-			);
-			if (bytes === null) return false;
-			sendUserTerminalInput(props.session.id, bytes);
-			return true;
-		};
-		// Hit-test against the PAINTED grid (renderer.viewportCellGeometry), never
-		// the scroll container: the history spacer and the scrollback sheet sit
-		// above .cell-viewport inside it, so a container-relative row was off by
-		// (painted history − scrollTop) — the reported "click above the target"
-		// offset. The fallback only covers the pre-first-frame window (no frame,
-		// no measurable row box); it still takes its origin from the viewport
-		// element when the renderer exists, and clamps nothing because there is no
-		// known grid to clamp to yet.
-		const cellOf = (
-			clientX: number,
-			clientY: number,
-		): { col: number; row: number } => {
-			const geometry = renderer?.viewportCellGeometry();
-			if (geometry) return cellFromPoint(geometry, clientX, clientY);
-			if ((cellW === 0 || cellH === 0) && !measureCell())
-				return { col: 1, row: 1 };
-			// predictionHost IS .cell-viewport — row 0's box, unlike displayRef.
-			const origin = (renderer?.predictionHost ?? displayRef!).getBoundingClientRect();
-			return {
-				col: Math.max(1, 1 + Math.floor((clientX - origin.left) / cellW)),
-				row: Math.max(1, 1 + Math.floor((clientY - origin.top) / cellH)),
-			};
-		};
-
-		let pressedButton: number | null = null;
-		let lastMotionCell: { col: number; row: number } | null = null;
-
-		const onWheelForward = (ev: WheelEvent) => {
-			if (ev.defaultPrevented || ev.deltaY === 0) return;
-			if (!forwardActive()) {
-				renderer?.enterReading("wheel");
-				return;
-			}
-			const { col, row } = cellOf(ev.clientX, ev.clientY);
-			const forwarded = report({
-				kind: ev.deltaY < 0 ? "wheelUp" : "wheelDown",
-				col, row,
-				shift: ev.shiftKey, alt: ev.altKey, ctrl: ev.ctrlKey, meta: ev.metaKey,
-			});
-			if (!forwarded) {
-				renderer?.enterReading("wheel");
-				return;
-			}
-			ev.preventDefault();
-		};
-		const onMouseDownFwd = (ev: MouseEvent) => {
-			if (ev.defaultPrevented) return;
-			if (!forwardActive()) return;
-			// Modified link clicks open locally through the native anchor; never
-			// forward them to the worker PTY.
-			if ((ev.target as HTMLElement | null)?.closest("a")) return;
-			// Middle button is reserved for the deck's bring-to-front toggle
-			// (TerminalDeck onDeckPointerDown) — never forwarded as a press.
-			if (ev.button === 1) return;
-			const { col, row } = cellOf(ev.clientX, ev.clientY);
-			if (!report({
-				kind: "press", button: ev.button, col, row,
-				shift: ev.shiftKey, alt: ev.altKey, ctrl: ev.ctrlKey, meta: ev.metaKey,
-			})) return;
-			ev.preventDefault();
-			pressedButton = ev.button;
-			lastMotionCell = { col, row };
-		};
-		const onMouseMoveFwd = (ev: MouseEvent) => {
-			if (ev.defaultPrevented) return;
-			if (pressedButton === null || !forwardActive()) return;
-			// The application owns this drag — it received the press — so the browser
-			// must not start a native selection under it even in mode 1000, which
-			// reports no motion.
-			ev.preventDefault();
-			const { col, row } = cellOf(ev.clientX, ev.clientY);
-			if (
-				lastMotionCell &&
-				lastMotionCell.col === col &&
-				lastMotionCell.row === row
-			)
-				return;
-			lastMotionCell = { col, row };
-			report({
-				kind: "motion", button: pressedButton, held: true, col, row,
-				ctrl: ev.ctrlKey, meta: ev.metaKey,
-			});
-		};
-		const onMouseUpFwd = (ev: MouseEvent) => {
-			if (ev.defaultPrevented) {
-				pressedButton = null;
-				lastMotionCell = null;
-				return;
-			}
-			if (pressedButton === null) return;
-			const button = pressedButton;
-			pressedButton = null;
-			lastMotionCell = null;
-			if (!forwardActive()) return;
-			ev.preventDefault();
-			const { col, row } = cellOf(ev.clientX, ev.clientY);
-			report({
-				kind: "release", button, col, row,
-				ctrl: ev.ctrlKey, meta: ev.metaKey,
-			});
-		};
-
-		// A touch becomes intent only after one cell-height of vertical travel.
-		// Below that shared native/forwarding threshold a tap changes no state.
-		let touchY: number | null = null;
-		let touchForwarding = false;
-		let touchCol = 1,
-			touchRow = 1;
-		const onTouchStart = (ev: TouchEvent) => {
-			touchY = null;
-			touchForwarding = false;
-			if (ev.defaultPrevented || ev.touches.length !== 1) return;
-			const touch = ev.touches[0]!;
-			touchY = touch.clientY;
-			touchForwarding = forwardActive();
-			if (!touchForwarding) return;
-			const cell = cellOf(touch.clientX, touch.clientY);
-			touchCol = cell.col;
-			touchRow = cell.row;
-		};
-		const onTouchMove = (ev: TouchEvent) => {
-			if (ev.defaultPrevented || touchY === null || ev.touches.length !== 1) return;
-			const y = ev.touches[0]!.clientY;
-			const step = cellH || 18;
-			let dy = y - touchY;
-			if (Math.abs(dy) < step) return;
-			if (!touchForwarding || !forwardActive()) {
-				touchY = y;
-				renderer?.enterReading("touch");
-				return;
-			}
-			while (Math.abs(dy) >= step) {
-				const up = dy > 0; // finger moved down → scroll up (history)
-				report({ kind: up ? "wheelUp" : "wheelDown", col: touchCol, row: touchRow });
-				dy -= up ? step : -step;
-			}
-			touchY = y - dy; // carry sub-notch remainder
-			ev.preventDefault(); // suppress native scroll only after forwarding
-		};
-		const onTouchEnd = () => {
-			touchY = null;
-			touchForwarding = false;
-		};
-
-		displayRef!.addEventListener("mousedown", onMouseDownFwd);
-		displayRef!.addEventListener("touchstart", onTouchStart, { passive: true });
-		displayRef!.addEventListener("touchend", onTouchEnd, { passive: true });
-		displayRef!.addEventListener("touchcancel", onTouchEnd, { passive: true });
+		// Pane-local press/touch listeners attach here; the drag continuation and
+		// the wheel/touchmove passivity swap are wired below, each on its own
+		// lifetime. See lib/terminalMouseForwarding.ts.
+		const mouseForwarding = attachTerminalMouseForwarding({
+			display: displayRef!,
+			mouseTracking,
+			sendBytes: (bytes) => sendUserTerminalInput(props.session.id, bytes),
+			getRenderer: () => renderer,
+			getMouseSgr: () => frameMouseSgr,
+			getCellW: () => cellW,
+			getCellH: () => cellH,
+			measureCell,
+		});
 
 		// att1d — file drop/paste → upload → inject abs_path into the PTY.
 		// Lost in the byte-mode cut (e8f450b9); restored here. Logic lives in
@@ -1398,8 +975,8 @@ export function CellTerminal(props: CellTerminalProps) {
 				document.addEventListener("selectionchange", onSelectionChange);
 				window.addEventListener("pointerup", onSelectionSettled);
 				window.addEventListener("keyup", onSelectionSettled);
-				window.addEventListener("mousemove", onMouseMoveFwd);
-				window.addEventListener("mouseup", onMouseUpFwd);
+				window.addEventListener("mousemove", mouseForwarding.onWindowMouseMove);
+				window.addEventListener("mouseup", mouseForwarding.onWindowMouseUp);
 				document.addEventListener("dragenter", onDragOver);
 				document.addEventListener("dragover", onDragOver);
 				document.addEventListener("drop", onDrop);
@@ -1407,8 +984,8 @@ export function CellTerminal(props: CellTerminalProps) {
 					document.removeEventListener("selectionchange", onSelectionChange);
 					window.removeEventListener("pointerup", onSelectionSettled);
 					window.removeEventListener("keyup", onSelectionSettled);
-					window.removeEventListener("mousemove", onMouseMoveFwd);
-					window.removeEventListener("mouseup", onMouseUpFwd);
+					window.removeEventListener("mousemove", mouseForwarding.onWindowMouseMove);
+					window.removeEventListener("mouseup", mouseForwarding.onWindowMouseUp);
 					document.removeEventListener("dragenter", onDragOver);
 					document.removeEventListener("dragover", onDragOver);
 					document.removeEventListener("drop", onDrop);
@@ -1416,25 +993,10 @@ export function CellTerminal(props: CellTerminalProps) {
 			}),
 		);
 
-		// Wheel/touchmove passivity: preventDefault (mouse forwarding) only ever
-		// fires for an app that REQUESTED mouse reporting — outside that the
-		// always-non-passive listeners disabled compositor fast-scroll on every
-		// terminal, including every alt-screen pager that never asked for a mouse.
-		// Swap on tracking-mode flips. Remove-then-add matters: `passive` isn't part
-		// of listener identity, so re-adding the same fn without removing first is
-		// silently ignored as a duplicate (the effect's onCleanup runs before each
-		// re-run).
-		runWithOwner(cellOwner, () =>
-			createEffect(() => {
-				const passive = mouseTracking() === 0;
-				displayRef!.addEventListener("wheel", onWheelForward, { passive });
-				displayRef!.addEventListener("touchmove", onTouchMove, { passive });
-				onCleanup(() => {
-					displayRef?.removeEventListener("wheel", onWheelForward);
-					displayRef?.removeEventListener("touchmove", onTouchMove);
-				});
-			}),
-		);
+		// Wheel/touchmove passivity swaps on every tracking-mode flip. Why
+		// remove-then-add matters lives with the listeners in
+		// lib/terminalMouseForwarding.ts.
+		runWithOwner(cellOwner, () => mouseForwarding.bindWheelAndTouchMove());
 
 		// Name the grid's log region for assistive tech, and keep it current as the
 		// session is renamed or its running program changes.
@@ -1485,7 +1047,7 @@ export function CellTerminal(props: CellTerminalProps) {
 		// re-measure, drop the renderer's cached row height (block placeholders and
 		// the spacer derive from it), then re-claim. Cols or rows WILL change for a
 		// fixed pane, and any size change already takes the full refetch path that
-		// CLAUDE.md L11 requires; CLAIM_DEBOUNCE_MS coalesces a key-repeat burst.
+		// docs/FAILURE-INDEX.md requires; CLAIM_DEBOUNCE_MS coalesces a key-repeat burst.
 		createEffect(() => {
 			const px = termFontSize();
 			if (px === lastZoomPx) return;
@@ -1701,10 +1263,7 @@ export function CellTerminal(props: CellTerminalProps) {
 				displayRef?.removeEventListener("scroll", onScroll);
 				displayRef?.removeEventListener("mousedown", onDisplayDown);
 				displayRef?.removeEventListener("click", onDisplayClick);
-				displayRef?.removeEventListener("mousedown", onMouseDownFwd);
-				displayRef?.removeEventListener("touchstart", onTouchStart);
-				displayRef?.removeEventListener("touchend", onTouchEnd);
-				displayRef?.removeEventListener("touchcancel", onTouchEnd);
+				mouseForwarding.dispose();
 				clearTimeout(claimTimer ?? undefined);
 				if (measurementRaf !== 0) cancelAnimationFrame(measurementRaf);
 
@@ -1769,7 +1328,7 @@ export function CellTerminal(props: CellTerminalProps) {
 		>
 			{/* Above the display and inside the pane: the bar consumes real rows, so
           the ResizeObserver re-claims the smaller viewport. Faking or
-          compensating that geometry is what CLAUDE.md L11 forbids. */}
+          compensating that geometry is what docs/FAILURE-INDEX.md forbids. */}
 			<Show when={find.open()}>
 				<TerminalFindBar
 					find={find}

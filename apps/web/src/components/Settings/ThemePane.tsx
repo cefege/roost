@@ -10,7 +10,7 @@ import { For, createMemo } from "solid-js";
 import type { Theme, ThemeGroup } from "../../lib/themeTokens.ts";
 import { THEMES, THEMES_BY_ID } from "../../lib/themes.ts";
 import { setTheme, currentThemeChoice, resolveThemeId } from "../../lib/theme.ts";
-import { addToast } from "../../lib/toastStore.ts";
+import { addToast } from "../../store/toastStore.ts";
 import { Icon } from "./md/primitives.tsx";
 
 interface Entry {

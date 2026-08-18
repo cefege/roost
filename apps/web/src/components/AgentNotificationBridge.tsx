@@ -16,7 +16,7 @@ import {
 } from "../lib/agentSeen.ts";
 import { pageVisible, isPageVisible } from "../lib/pageVisible.ts";
 import { notifyPrefs } from "../lib/notifyPrefs.ts";
-import { addToast } from "../lib/toastStore.ts";
+import { addToast } from "../store/toastStore.ts";
 import { ensurePushSubscription } from "../lib/push-client.ts";
 import { sessionTitle } from "../lib/sessionTitle.ts";
 import { terminalHref } from "../lib/terminalHref.ts";

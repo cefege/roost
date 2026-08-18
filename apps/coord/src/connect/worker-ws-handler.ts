@@ -34,10 +34,10 @@ import { protoToEvent } from "@roost/shared/wire/event-proto";
 import { asChannelId, asWorkerFp } from "@roost/shared/wire";
 import {
   clearBarrierRepairForWorker,
-  lookupSessionId,
   noteBarrierChannelLoss,
   noteBarrierRepairFullFrames,
-} from "../byte-hub.ts";
+} from "../byte-hub-barrier-repair.ts";
+import { lookupSessionId } from "../byte-hub.ts";
 import { requestBarrierRepairFullFrame } from "./session-control.ts";
 import {
   AnnouncedChannelBarrier,

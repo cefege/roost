@@ -8,7 +8,7 @@ import type { Navigator } from "@solidjs/router";
 import { rootStore } from "../store/root.ts";
 import { allSessions } from "../store/selectors.ts";
 import { workerOnline } from "../store/sync.ts";
-import { queueTaskDialogStore } from "./QueueTaskDialog.tsx";
+import { queueTaskDialogStore } from "../store/queueTaskDialog.ts";
 import type { ItemKind } from "./CommandPalettePieces.tsx";
 import { workerPathBasename } from "../lib/nativePath.ts";
 import { platformShortcutLabel } from "../lib/browserPlatform.ts";

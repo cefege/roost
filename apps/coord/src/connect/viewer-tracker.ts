@@ -6,15 +6,19 @@
 // PTY claims and the coordinator's presence projection converge together.
 //
 // Module-level singleton state starts the TTL reaper and session-close
-// subscription. session-control owns transactional mutation; router wiring and
-// diagnostics read the projection, while auth/pair handlers invalidate labels.
+// subscription. viewport-control.ts owns transactional mutation; router wiring
+// and diagnostics read the projection, while auth/pair handlers invalidate
+// labels.
 
 import type { KyselyDB } from "../db/connection.ts";
 import { globalPresenceBus, sessionBus } from "../buses.ts";
 import { resolveHostname } from "../tailnet-resolver.ts";
-import { VIEWER_WITHDRAW_GRACE_MS, VIEWER_CLAIM_TTL_MS as VIEWER_TTL_MS } from "@roost/shared/viewport";
+import {
+  VIEWER_WITHDRAW_GRACE_MS,
+  VIEWER_REAP_INTERVAL_MS,
+  VIEWER_CLAIM_TTL_MS as VIEWER_TTL_MS,
+} from "@roost/shared/viewport";
 
-const VIEWER_REAP_INTERVAL_MS = 10_000;
 const MAX_DIAGNOSTIC_CLIENT_SEQ = BigInt(Number.MAX_SAFE_INTEGER);
 
 interface ViewerEntry {

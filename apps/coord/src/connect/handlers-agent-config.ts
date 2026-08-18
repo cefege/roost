@@ -1,6 +1,7 @@
 // Default-agent (launch-button command) RPC handlers — app_settings-backed,
-// universal across devices. Registered into the CoordinatorService via its own
-// router.service() spread in router.ts::buildConnectRouter. Closes over
+// universal across devices. Spread into router.ts's SINGLE router.service()
+// literal — never registered with a router.service() call of its own, which
+// would shadow every other domain with unimplemented-throws. Closes over
 // ConnectDeps only (deps.db); no shared router-local state.
 
 import type { ServiceImpl } from "@connectrpc/connect";

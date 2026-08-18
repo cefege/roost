@@ -26,7 +26,8 @@ import {
   type ServiceHealthProver,
   type WindowsUpdateBrokerDeps,
   type WindowsUpdateNative,
-} from "../src/windows-update-broker.ts";
+} from "../src/windows/windows-update-broker.ts";
+import { fixtureHealthTable, readHealthByRole, stubFetch } from "./test-helpers.ts";
 import {
   handleUpdateBrokerCommand,
   compareWindowsReleaseIdentity,
@@ -34,7 +35,7 @@ import {
   type WindowsUpdateControlDeps,
   readPublishedWindowsUpdateProgress,
   windowsUpdateRequestDirectory,
-} from "../src/windows-update-control.ts";
+} from "../src/windows/windows-update-control.ts";
 import {
   DurableWindowsUpdateJournalStore,
   appendWindowsUpdateProgress,
@@ -49,7 +50,7 @@ import {
   type WindowsUpdateJournalStore,
   type WindowsUpdateJournalV1,
   type WindowsUpdateJournalV2,
-} from "../src/windows-update-journal.ts";
+} from "../src/windows/windows-update-journal.ts";
 
 const ROLES = ["keeper", "worker", "coordinator", "updater"] as const satisfies readonly RoostServiceRole[];
 const PUBLISHER_SHA256 = "a".repeat(64);
@@ -133,6 +134,11 @@ class StatefulServiceManager implements WindowsServiceManager {
 
   async provisionServiceLogon(_account: string): Promise<void> {}
 
+  /** Elevated-install only, so no update-broker path may reach it. */
+  async provisionServiceSecurity(_interactiveSid: string): Promise<void> {
+    throw new Error("the update broker must not provision service security");
+  }
+
   stateVector(): Readonly<Record<RoostServiceRole, WindowsServiceState>> {
     return clone(this.states);
   }
@@ -184,16 +190,7 @@ class FixtureHealthProver implements ServiceHealthProver {
     private readonly nextDefinitions: ServiceDefinitions,
     private readonly failForward: boolean,
   ) {}
-  async read(role: "worker" | "coordinator") {
-    return {
-      role,
-      version: "1.0.0",
-      build: "1".repeat(40),
-      processEpoch: `${role}-epoch-1`,
-      ...(role === "worker" ? { coordinatorUrl: "https://coordinator.example.test" } : {}),
-    };
-  }
-
+  read = readHealthByRole(fixtureHealthTable());
 
   async prove(
     role: "worker" | "coordinator",
@@ -430,7 +427,9 @@ describe("Windows update schema migration", () => {
 
     expect(existsSync(fixture.store.path)).toBe(false);
     expect(readFileSync(legacyPath, "utf8")).toBe(before);
-    expect(existsSync(fixture.journal.releasePackage.path)).toBe(true);
+    const { releasePackage } = fixture.journal;
+    if (releasePackage === null) throw new Error("fixture release package is missing");
+    expect(existsSync(releasePackage.path)).toBe(true);
     expect(fixture.manager.stateVector()).toEqual(servicesBefore);
   });
 });
@@ -775,9 +774,6 @@ async function createBrokerFixture(
     versionsDir,
     currentManifestPath,
     acquireTransaction,
-    storeServiceDefinitions: async (definitions) => {
-      atomicWrite(serviceDefinitionsPath, `${JSON.stringify(definitions)}\n`);
-    },
     writeCurrentManifest: async (path, contents) => {
       if (contents === null) rmSync(path, { force: true });
       else atomicWrite(path, contents);
@@ -884,12 +880,9 @@ function transactionFixture(
 }
 
 function controlDeps(fixture: BrokerFixture): WindowsUpdateControlDeps {
-  const unusedFetch: typeof fetch = Object.assign(
-    async (..._args: Parameters<typeof fetch>): Promise<Response> => {
-      throw new Error("same-job replay must not download");
-    },
-    { preconnect: fetch.preconnect },
-  );
+  const unusedFetch = stubFetch(() => {
+    throw new Error("same-job replay must not download");
+  });
   const requestDir = join(fixture.serviceDir, "requests");
   return {
     store: fixture.store,
@@ -985,8 +978,15 @@ function legacyJournalFromV2(
     });
   }
   const { targetBuild: _targetBuild, ...journalWithoutTargetBuild } = clone(journal);
+  const { path: manifestPath, signaturePath } = journalWithoutTargetBuild.signedManifest;
+  const { releasePackage } = journalWithoutTargetBuild;
+  if (manifestPath === null || signaturePath === null || releasePackage === null) {
+    throw new Error("fixture v2 journal has no staged signed manifest or release package");
+  }
   const legacy: WindowsUpdateJournalV1 = {
     ...journalWithoutTargetBuild,
+    signedManifest: { ...journalWithoutTargetBuild.signedManifest, path: manifestPath, signaturePath },
+    releasePackage,
     schemaVersion: 1,
     phase,
     currentManifest: {

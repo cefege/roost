@@ -1,6 +1,6 @@
 import { CoordinatorMovePhase } from "@roost/shared/proto/coordinator_pb";
 import type { CoordRelocationJournal, WorkerCoordRelocation } from "./coord-relocation.ts";
-import type { CoordLink } from "./transport/CoordLink-types.ts";
+import type { CoordLink } from "./transport/coord-link-types.ts";
 
 
 const TARGET_OWNED_PHASES = new Set<CoordinatorMovePhase>([

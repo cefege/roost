@@ -13,7 +13,7 @@
 //        to Code.InvalidArgument; a valid one still answers.
 //   S4 — the slice yield really yields: work scheduled after the search starts
 //        runs before the search resolves, so other sessions' PTY output keeps
-//        flowing during a full-depth scan (CLAUDE.md L11).
+//        flowing during a full-depth scan (docs/FAILURE-INDEX.md).
 //   S5 — a live viewport match indexes above scrollbackTotal.
 //   S6 — wide glyphs are reported in grid columns.
 //   S7 — the epoch fence: a request naming a numbering the session no longer
@@ -31,10 +31,10 @@
 import { describe, test, expect } from "bun:test";
 import { SessionManager } from "../src/session-manager.ts";
 import { handleSearchScrollback } from "../src/browser-command-terminal.ts";
-import type { CoordLink } from "../src/transport/CoordLink.ts";
+import type { CoordLink } from "../src/transport/coord-link.ts";
 import type { SessionShellRecord } from "../src/session-record.ts";
 import type { FsmChannel } from "../src/fsm.ts";
-import { asSessionId, asChannelId, asWorkerFp } from "@roost/shared";
+import { asSessionId, asChannelId, asWorkerFp } from "@roost/shared/wire";
 import type { ClientControlFrame } from "@roost/shared/wire";
 import {
   cellGridEpoch, initCellEmitState, readScrollbackRangeCells, type CellRow,

@@ -3,7 +3,8 @@ import {
   migrateWindowsCurrentManifestV1,
   parseWindowsCurrentManifest,
   parseWindowsReleaseManifest,
-} from "../src/windows-update-journal.ts";
+  type WindowsCurrentManifestV1,
+} from "../src/windows/windows-update-journal.ts";
 
 const ARCHIVE_SHA = "a".repeat(64);
 const PACKAGE_SHA = "b".repeat(64);
@@ -36,7 +37,7 @@ describe("Windows release manifest", () => {
 });
 
 describe("Windows current manifest schemas", () => {
-  const legacyCurrent = {
+  const legacyCurrent: WindowsCurrentManifestV1 = {
     schemaVersion: 1,
     version: "0.3.0",
     versionDir: "/var/lib/roost/versions/0.3.0",
@@ -44,7 +45,7 @@ describe("Windows current manifest schemas", () => {
     manifestUrl: "https://updates.example.test/0.3.0/roost-windows-x64.manifest.json",
     manifestSha256: PACKAGE_SHA,
     publisherSha256: ARCHIVE_SHA,
-  } as const;
+  };
 
   test("parses a buildless schema 1 current manifest into a typed legacy form and migrates to v2", () => {
     const parsed = parseWindowsCurrentManifest(JSON.stringify(legacyCurrent));

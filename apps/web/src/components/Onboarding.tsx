@@ -13,7 +13,7 @@ import { getPublicKeyB64, isResetWebKeyEligible, resetWebKey } from "../auth/web
 import { redeemPairToken } from "../auth/redeemPairToken.ts";
 import { rootStore } from "../store/root.ts";
 import { deletePairRequest } from "../store/mutations.ts";
-import { addToast } from "../lib/toastStore.ts";
+import { addToast } from "../store/toastStore.ts";
 import { browserSelfLabel } from "../lib/browserSelfLabel.ts";
 import { Button } from "./Settings/md/primitives.tsx";
 import { animateOverlayPanel } from "../lib/overlayMotion.ts";

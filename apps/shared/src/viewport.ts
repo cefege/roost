@@ -14,6 +14,13 @@ export const VIEWER_WITHDRAW_GRACE_MS = 800;
 // missed beats.
 export const VIEWER_CLAIM_TTL_MS = 120_000;
 
+// How often each side sweeps for claims past VIEWER_CLAIM_TTL_MS above. The
+// coordinator runs TWO reapers — connect/viewer-tracker.ts for presence and
+// connect/cell-subscriptions.ts for the cell fanout — and their own comments
+// require them to stay in lockstep: one dropping a claim the other still holds
+// is exactly the desync this module exists to prevent.
+export const VIEWER_REAP_INTERVAL_MS = 10_000;
+
 // Liveness threshold for SCD-min weighting (A3). A claim not refreshed
 // within ~2× the 30s SPA heartbeat is almost certainly a dead viewer and
 // MUST NOT constrain the shared PTY size — otherwise a dead phone's tiny

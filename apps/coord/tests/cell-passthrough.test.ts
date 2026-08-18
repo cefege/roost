@@ -6,7 +6,7 @@
 import { describe, test, expect } from "bun:test";
 import { create } from "@bufbuild/protobuf";
 import { PbCellGridFrameSchema } from "@roost/shared/proto/cell_pb";
-import { asWorkerFp, asChannelId } from "@roost/shared";
+import { asWorkerFp, asChannelId } from "@roost/shared/wire";
 import { publishCellGrid, primeChannelMap } from "../src/byte-hub.ts";
 import { globalCellBus } from "../src/buses.ts";
 

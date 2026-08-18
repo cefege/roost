@@ -1,9 +1,24 @@
 import { describe, expect, test } from "bun:test";
 import { resolve } from "node:path";
 import { buildWindowsServiceDefinitions } from "../src/service-ctl.ts";
-import { runWindowsUpdateBroker } from "../src/windows-update-broker.ts";
-import { createServiceHealthProver } from "../src/windows-update-runtime.ts";
-import type { WindowsUpdateJournalV1 } from "../src/windows-update-journal.ts";
+import { runWindowsUpdateBroker } from "../src/windows/windows-update-broker.ts";
+import {
+  createServiceHealthProver,
+  type WindowsLocalEndpointHealth,
+} from "../src/windows/windows-update-runtime.ts";
+import type { WindowsUpdateJournalV1 } from "../src/windows/windows-update-journal.ts";
+import type { WorkerServiceHealth } from "@roost/shared/service-health";
+import { readHealthByRole } from "./test-helpers.ts";
+
+/** Serves the worker descriptor and fails loudly if a test probes the coordinator. */
+function workerHealthEndpoint(worker: WorkerServiceHealth): WindowsLocalEndpointHealth {
+  return {
+    read: readHealthByRole({
+      worker: () => worker,
+      coordinator: () => { throw new Error("coordinator health was not expected"); },
+    }),
+  };
+}
 
 describe("Windows service recovery topology", () => {
   test("persists install roots in every service and starts the updater at boot", () => {
@@ -124,9 +139,10 @@ describe("Windows service recovery topology", () => {
   });
 
   test("forward health requires the exact signed build identity", async () => {
+    const targetBuild = "a".repeat(40);
     const journal = {
       targetVersion: "2.0.0",
-      targetBuild: "a".repeat(40),
+      targetBuild,
       healthBefore: {
         worker: {
           version: "1.0.0",
@@ -137,25 +153,26 @@ describe("Windows service recovery topology", () => {
       },
       stoppedRoles: ["worker"],
     } as unknown as WindowsUpdateJournalV1;
-    const descriptor = {
-      role: "worker" as const,
+    const descriptor: WorkerServiceHealth = {
+      role: "worker",
       version: "2.0.0",
       build: "c".repeat(40),
       processEpoch: "next",
+      ready: true,
       targetLinkReady: true,
       coordinatorUrl: "https://coord.example.test",
     };
     let clock = 0;
     const mismatch = createServiceHealthProver(
-      { read: async () => descriptor },
+      workerHealthEndpoint(descriptor),
       { timeoutMs: 1, now: () => clock++, sleep: async () => undefined },
     );
     await expect(mismatch.prove("worker", journal, "forward"))
       .rejects.toThrow("exact expected version/build/process epoch");
 
-    const exact = createServiceHealthProver({
-      read: async () => ({ ...descriptor, build: journal.targetBuild }),
-    });
+    const exact = createServiceHealthProver(
+      workerHealthEndpoint({ ...descriptor, build: targetBuild }),
+    );
     await exact.prove("worker", journal, "forward");
   });
 });

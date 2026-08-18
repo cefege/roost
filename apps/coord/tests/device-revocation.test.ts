@@ -18,7 +18,8 @@ import type { ConnectDeps } from "../src/connect/router.ts";
 import { makeWorkerHandlers } from "../src/connect/handlers-workers.ts";
 import { openDb, type KyselyDB } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
-import { fingerprintOf, newJwtCache } from "../src/jwt.ts";
+import { fingerprintOf } from "@roost/shared/fingerprint";
+import { newJwtCache } from "../src/jwt.ts";
 
 interface Harness {
   db: KyselyDB;

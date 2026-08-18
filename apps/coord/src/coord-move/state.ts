@@ -10,7 +10,6 @@ export const MOVE_PHASES = [
   "ROLLED_BACK", "FAILED",
 ] as const;
 export type MovePhase = (typeof MOVE_PHASES)[number];
-export type HandoffRole = "SOURCE" | "TARGET";
 
 const handoffSchema = z.object({
   version: z.literal(1),

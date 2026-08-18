@@ -31,8 +31,8 @@ import {
 import { openDb } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
 import { loadOrCreateCoordKey } from "../src/coord-key.ts";
+import { fingerprintOf } from "@roost/shared/fingerprint";
 import {
-  fingerprintOf,
   invalidateJwtKey,
   newJwtCache,
   signJwt,

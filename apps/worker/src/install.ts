@@ -5,12 +5,13 @@
 // the key exists. Don't duplicate the encoder.
 // Callers: main.ts.
 
-import { log, supportedHostPlatform } from "@roost/shared";
+import { log } from "@roost/shared/log";
+import { supportedHostPlatform } from "@roost/shared/platform";
 import { workerServicePath } from "@roost/shared/paths";
 import { resolveTailnetDnsName } from "@roost/shared/tailnet";
 import { chmod, readFile, rename, writeFile } from "node:fs/promises";
 import type { CoordClient } from "./coord-client.ts";
-import type { WorkerConfig as WorkerConfigType } from "@roost/shared";
+import type { WorkerConfig as WorkerConfigType } from "./config.ts";
 import { loadWorkerKey } from "./jwt.ts";
 export { resolveTailnetDnsName } from "@roost/shared/tailnet";
 

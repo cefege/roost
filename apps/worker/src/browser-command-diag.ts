@@ -2,7 +2,7 @@
 // diag-snapshot). Extracted from browser-command-handler.ts (CLAUDE.md 400-line cap).
 
 import type { ClientControlFrame } from "@roost/shared/wire";
-import type { CoordLink } from "./transport/CoordLink.ts";
+import type { CoordLink } from "./transport/coord-link.ts";
 import type { SessionManager } from "./session-manager.ts";
 
 export function handleDiagDumpBytecap(

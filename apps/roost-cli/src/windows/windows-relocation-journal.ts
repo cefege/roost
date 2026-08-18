@@ -12,7 +12,6 @@ import {
   type WindowsRelocationRoleOverride,
 } from "@roost/shared/windows-relocation";
 
-export const WINDOWS_RELOCATION_JOURNAL_FILE = "relocation-v1.json";
 const MAX_RELOCATION_JOURNAL_BYTES = 128 * 1024;
 
 export type WindowsRelocationPhase =

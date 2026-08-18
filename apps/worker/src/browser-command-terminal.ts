@@ -3,12 +3,12 @@
 // browser-command-handler.ts (CLAUDE.md 400-line cap).
 
 import type { ClientControlFrame } from "@roost/shared/wire";
-import { diag } from "@roost/shared";
+import { diag } from "@roost/shared/diag";
 import {
 	cellGridEpoch, readScrollbackRangeCells, scrollbackOffsetSpans, scrollbackOrigin,
 	spansText, textRangeToColumns, viewportRowSpans, type CellRow, type CellSpan,
 } from "@roost/shared/cell";
-import type { CoordLink } from "./transport/CoordLink.ts";
+import type { CoordLink } from "./transport/coord-link.ts";
 import type { SessionManager } from "./session-manager.ts";
 import { terminalControlSettled } from "./session-control-lanes.ts";
 import { historyFloorReason } from "./session-scrollback.ts";

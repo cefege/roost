@@ -183,16 +183,6 @@ export async function ensureTailscale(
   }
 }
 
-/** Tailnet DNS suffix (e.g. "tailXXXXXX.ts.net") for building peer FQDNs.
- *  ROOST_TAILNET_SUFFIX ?? first-label-stripped tailscale Self.DNSName ?? null.
- *  null → caller must fail loud; never fall back to a personal literal.
- *  Consumers: deploy.ts (reachable_addr), push.ts is targets not suffix. */
-export function tailnetSuffix(): string | null {
-  if (process.env.ROOST_TAILNET_SUFFIX) return process.env.ROOST_TAILNET_SUFFIX;
-  const fqdn = resolveTailscale().fqdn;
-  return fqdn ? fqdn.split(".").slice(1).join(".").replace(/\.$/, "") || null : null;
-}
-
 /** Worker/coord service running under the native platform manager? */
 function launchAgentLoaded(label: string): boolean {
   const worker = label === WORKER_LABEL;

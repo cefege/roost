@@ -13,7 +13,7 @@ import { coordClient } from "../connect.ts";
 import { sessionTitle } from "./sessionTitle.ts";
 import { folderDisplayName, folderKeyOf } from "./folderKey.ts";
 import { shortServerLabel } from "./sidebarFormat.ts";
-import { addToast } from "./toastStore.ts";
+import { addToast } from "../store/toastStore.ts";
 import { log } from "@roost/shared/log";
 
 /** The three snackbar labels for a closing session — byte-identical to the

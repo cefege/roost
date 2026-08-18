@@ -3,7 +3,7 @@ import net from "node:net";
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AgentStatusUpdate } from "@roost/shared";
+import type { AgentStatusUpdate } from "@roost/shared/wire";
 import { startAgentReportServer, type AgentReportServer } from "../src/agent-status/report-server.ts";
 import { AgentStatusRegistry } from "../src/agent-status/registry.ts";
 import { withAgentStatusEnvironment } from "../src/agent-status/environment.ts";

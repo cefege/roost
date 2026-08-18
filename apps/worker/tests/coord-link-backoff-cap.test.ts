@@ -24,8 +24,8 @@ import {
   AUTH_REJECT_THRESHOLD,
   BACKOFF_MAX_MS,
   backoffCapMs,
-} from "../src/transport/CoordLink-constants.ts";
-import { startCoordLink } from "../src/transport/CoordLink.ts";
+} from "../src/transport/coord-link-constants.ts";
+import { startCoordLink } from "../src/transport/coord-link.ts";
 import type { WorkerFp } from "@roost/shared/wire";
 
 // This is the regression proper: it fails on the pre-fix code, which read every

@@ -11,7 +11,7 @@ import type { TerminalCore } from "@wterm/core";
 import { describe, test, expect } from "bun:test";
 import { tmpdir } from "node:os";
 import { SessionManager } from "../src/session-manager.ts";
-import { asWorkerFp } from "@roost/shared";
+import { asWorkerFp } from "@roost/shared/wire";
 import { readRing, type SbRing } from "../src/session-scrollback-ring.ts";
 
 const FP = "ab".repeat(32);

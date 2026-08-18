@@ -60,7 +60,7 @@ import type {
 import {
   terminalBrowserStreamSnapshot,
   type TerminalBrowserStreamSnapshot,
-} from "./terminalPreview.ts";
+} from "./terminalDiagSnapshot.ts";
 
 export type { PaintedCursorProof } from "./smokeHarness.ts";
 

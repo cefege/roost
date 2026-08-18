@@ -7,7 +7,8 @@ import type { CoordConfig } from "@roost/shared/config";
 import { openDb, type KyselyDB } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
 import { loadOrCreateCoordKey } from "../src/coord-key.ts";
-import { fingerprintOf, newJwtCache, signJwt } from "../src/jwt.ts";
+import { fingerprintOf } from "@roost/shared/fingerprint";
+import { newJwtCache, signJwt } from "../src/jwt.ts";
 import { createCoord, type CoordHandle } from "../src/coord-factory.ts";
 import { getVapidKeys, resetVapidKeysForTest } from "../src/vapid.ts";
 import {

@@ -134,7 +134,7 @@ export function createDefaultWindowsCoordRuntime(): WindowsCoordRuntime {
     },
     async runRelocationCommand(command, beforeUpdaterStart) {
       const { executeWindowsRelocationBrokerCommand } = await import(
-        "../../roost-cli/src/windows-relocation-control.ts"
+        "../../roost-cli/src/windows/windows-relocation-control.ts"
       );
       return await executeWindowsRelocationBrokerCommand(command, { beforeUpdaterStart });
     },

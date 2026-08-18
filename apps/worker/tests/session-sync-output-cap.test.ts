@@ -18,7 +18,7 @@
 
 import { describe, test, expect, jest } from "bun:test";
 import { WasmBridge } from "@wterm/core";
-import { asChannelId, asSessionId, asWorkerFp } from "@roost/shared";
+import { asChannelId, asSessionId, asWorkerFp } from "@roost/shared/wire";
 import { initCellEmitState, scrollbackOrigin, type CellGridFrame, type CellRow } from "@roost/shared/cell";
 import { protoToCellFrame } from "@roost/shared/cell/cell-proto";
 import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";

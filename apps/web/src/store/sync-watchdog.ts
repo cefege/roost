@@ -1,6 +1,7 @@
 // Browser-side liveness policy for the Sync WebSocket: the stale-link watchdog
 // plus the redial/park decisions the reconnect loop asks for. Mirrors the
-// worker↔coord watchdog (CoordLink.ts:248-265, CoordLink-constants.ts). When
+// worker↔coord watchdog (`apps/worker/src/transport/coord-link.ts`'s
+// stale-link watchdog in `dial()`, tuned by `coord-link-constants.ts`). When
 // the coord process dies behind tailscale-serve the browser-side TCP stays
 // ESTABLISHED and ws.onclose/onerror never fire — the reconnect loop sits
 // `await closed` forever, no auto-reload, terminal frozen until a manual page

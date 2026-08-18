@@ -6,7 +6,8 @@
 
 import type { CoordClient } from "./coord-client.ts";
 import { assertNeverPlatform, supportedHostPlatform } from "@roost/shared/platform";
-import { log, signal } from "@roost/shared";
+import { signal } from "@roost/shared/diag";
+import { log } from "@roost/shared/log";
 import { ROOST_BUILD_SHA } from "@roost/shared/build-identity";
 import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
 import { KEEPER_BUILD_STAMP } from "./keeper/keeper-stamp.ts";

@@ -1,7 +1,7 @@
 // Authenticated worker-side Hello probe for the multiplexed keeper.
 
 import { Socket } from "node:net";
-import type { LocalEndpoint } from "@roost/shared";
+import type { LocalEndpoint } from "@roost/shared/local-endpoint";
 import {
   MuxFrameType,
   KEEPER_PROTOCOL_VERSION,
@@ -14,7 +14,7 @@ import {
   isEmptyKeeperPayload,
   type KeeperFeature,
   type MuxFrame,
-} from "./protocol-v2.ts";
+} from "./protocol.ts";
 
 export interface KeeperProbeResult {
   /** The endpoint accepted a transport connection. */

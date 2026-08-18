@@ -25,7 +25,8 @@ import { makeAuthHandlers } from "../src/connect/handlers-auth.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";
 import { pairBus, type PairRequestDelta } from "../src/buses.ts";
 import { onHostKey, remoteAddressKey } from "../src/connect/auth-interceptor.ts";
-import { fingerprintOf, newJwtCache } from "../src/jwt.ts";
+import { fingerprintOf } from "@roost/shared/fingerprint";
+import { newJwtCache } from "../src/jwt.ts";
 
 // The generated ServiceImpl types handler returns as MessageInitShape | Promise<…>
 // (sync-or-async, partial-field). These handlers are all `async` and return

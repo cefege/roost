@@ -2,12 +2,12 @@
 // update the coordinator's actual source checkout, and prove every process
 // reports that commit before returning success.
 
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { coordServiceLabel, coordServicePath, roostServiceDir, workerServicePath } from "@roost/shared/paths";
 import { durableRemove, durableWriteFile, flushDurablePath } from "@roost/shared/durability";
-import { acquireMachineTransaction } from "@roost/shared/machine-transaction";
+import { acquireMachineTransaction } from "./machine-transaction.ts";
 import {
   parsePosixServiceEnvironment,
   parseSystemdServiceDirective,
@@ -28,7 +28,9 @@ import {
   type StatusReport,
   type WorkerStatus,
 } from "./status.ts";
-import { parseWindowsReleaseManifest } from "./windows-update-journal.ts";
+import { parseWindowsReleaseManifest } from "./windows/windows-update-journal.ts";
+import { launchdBootstrapWithRetryCmd } from "./service-ctl.ts";
+import { fetchAndVerifyReleaseAsset, WINDOWS_RELEASE_MANIFEST_ASSET } from "./update.ts";
 
 const REPO_ROOT = resolve(import.meta.dir, "..", "..", "..");
 const VERIFY_TIMEOUT_MS = 60_000;
@@ -109,20 +111,6 @@ export function coordinatorRepoFromService(
   return null;
 }
 
-export function workerMatchesTarget(
-  worker: Pick<WorkerStatus, "fingerprint" | "label" | "reachableAddr">,
-  target: string,
-): boolean {
-  const normalizedTarget = normalizedHost(target);
-  const values = [worker.fingerprint, worker.label, worker.reachableAddr]
-    .filter((value): value is string => Boolean(value));
-  return values.some((value) => {
-    const normalizedValue = normalizedHost(value);
-    return normalizedValue === normalizedTarget
-      || (value !== worker.fingerprint && hostLabel(normalizedValue) === hostLabel(normalizedTarget));
-  });
-}
-
 function resolveWorkerTarget(
   workers: readonly WorkerStatus[],
   target: string,
@@ -158,37 +146,21 @@ export async function preflightWindowsFleetRelease(
   expectedSha: string,
   fetchImpl: typeof fetch = fetch,
 ): Promise<{ manifestSha256: string }> {
-  const releaseBase = process.env.ROOST_RELEASE_BASE_URL
-    ?? "https://github.com/cefege/roost/releases/latest/download";
-  const manifestUrl = `${releaseBase}/roost-windows-x64.manifest.json`;
-  const [manifestResponse, checksumResponse] = await Promise.all([
-    fetchImpl(manifestUrl, { signal: AbortSignal.timeout(30_000) }),
-    fetchImpl(`${manifestUrl}.sha256`, { signal: AbortSignal.timeout(30_000) }),
-  ]);
-  if (!manifestResponse.ok) {
-    throw new DeployFailure(8, `Windows fleet manifest download failed: HTTP ${manifestResponse.status}`);
-  }
-  if (!checksumResponse.ok) {
-    throw new DeployFailure(
-      8,
-      `Windows fleet manifest checksum download failed: HTTP ${checksumResponse.status}`,
-    );
-  }
-  const manifestBytes = new Uint8Array(await manifestResponse.arrayBuffer());
-  const manifestSha256 = createHash("sha256").update(manifestBytes).digest("hex");
-  const checksum = /^([a-f0-9]{64})(?:\s.*)?$/i.exec((await checksumResponse.text()).trim())?.[1]
-    ?.toLowerCase();
-  if (checksum !== manifestSha256) {
-    throw new DeployFailure(8, "Windows fleet manifest checksum does not match the release manifest");
-  }
-  const manifest = parseWindowsReleaseManifest(manifestBytes);
+  const release = await fetchAndVerifyReleaseAsset(WINDOWS_RELEASE_MANIFEST_ASSET, {
+    fetchImpl,
+    subject: "Windows fleet manifest",
+    timeoutMs: 30_000,
+    checksumTimeoutMs: 30_000,
+    fail: (message) => new DeployFailure(8, message),
+  });
+  const manifest = parseWindowsReleaseManifest(release.bytes);
   if (manifest.build !== expectedSha) {
     throw new DeployFailure(
       8,
       `Windows release manifest reports ${manifest.build}, expected source commit ${expectedSha}`,
     );
   }
-  return { manifestSha256 };
+  return { manifestSha256: release.sha256 };
 }
 
 export function ambiguousPushTargets(
@@ -636,19 +608,13 @@ export function coordinatorRestartCommand(
   platform: NodeJS.Platform = process.platform,
   label: string = coordServiceLabel(),
 ): string {
-  const quotedLabel = `'${label.replaceAll("'", `'\"'\"'`)}'`;
   if (platform === "linux") {
     const unit = label.endsWith(".service") ? label : `${label}.service`;
     return `export XDG_RUNTIME_DIR="\${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"; ` +
       `systemctl --user daemon-reload && systemctl --user restart '${unit.replaceAll("'", `'\"'\"'`)}'`;
   }
   if (platform !== "darwin") throw new Error(`unsupported POSIX coordinator platform ${platform}`);
-  return `set -e; uid=$(id -u); launchctl bootout gui/$uid/${quotedLabel} 2>/dev/null || true; ` +
-    `for i in 1 2 3 4 5 6 7 8 9 10; do sleep 1; ` +
-    `launchctl bootstrap gui/$uid '${servicePath.replaceAll("'", `'\"'\"'`)}' 2>/dev/null && break; ` +
-    `if test "$i" = 10; then echo "coordinator rollback bootstrap failed after 10 retries" >&2; exit 1; fi; done; ` +
-    `launchctl enable gui/$uid/${quotedLabel}; ` +
-    `launchctl kickstart -k gui/$uid/${quotedLabel} 2>/dev/null || true`;
+  return launchdBootstrapWithRetryCmd(label, servicePath, { role: "coordinator rollback" });
 }
 
 async function coordinatorStartupPolicyIsEnabled(
@@ -1125,33 +1091,28 @@ export async function tryCoordinatorWindowsDeploy(
   const started = options.start
     ? await options.start(expectedSha)
     : await (async () => {
-      const releaseBase = process.env.ROOST_RELEASE_BASE_URL
-        ?? "https://github.com/cefege/roost/releases/latest/download";
-      const manifestUrl = `${releaseBase}/roost-windows-x64.manifest.json`;
-      const signatureUrl = `${manifestUrl}.p7s`;
-      const response = await fetch(manifestUrl, { signal: AbortSignal.timeout(30_000) });
-      if (!response.ok) {
-        throw new DeployFailure(8, `Windows coordinator manifest download failed: HTTP ${response.status}`);
-      }
-      const manifestBytes = new Uint8Array(await response.arrayBuffer());
-      const { parseWindowsReleaseManifest } = await import("./windows-update-journal.ts");
-      const manifest = parseWindowsReleaseManifest(manifestBytes);
+      const release = await fetchAndVerifyReleaseAsset(WINDOWS_RELEASE_MANIFEST_ASSET, {
+        subject: "Windows coordinator manifest",
+        timeoutMs: 30_000,
+        checksumTimeoutMs: 30_000,
+        fail: (message) => new DeployFailure(8, message),
+      });
+      const manifest = parseWindowsReleaseManifest(release.bytes);
       if (manifest.build !== expectedSha) {
         throw new DeployFailure(
           8,
           `signed Windows release reports ${manifest.build}, expected source commit ${expectedSha}`,
         );
       }
-      const manifestSha256 = createHash("sha256").update(manifestBytes).digest("hex");
-      const { handleUpdateBrokerCommand } = await import("./windows-update-control.ts");
+      const { handleUpdateBrokerCommand } = await import("./windows/windows-update-control.ts");
       const jobId = randomUUID();
       const command = {
         requestId: randomUUID(),
         jobId,
         action: "START" as const,
-        manifestUrl,
-        signatureUrl,
-        manifestSha256,
+        manifestUrl: release.url,
+        signatureUrl: `${release.url}.p7s`,
+        manifestSha256: release.sha256,
         publisherSha256: "",
       };
       const frames = await handleUpdateBrokerCommand(command);

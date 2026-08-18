@@ -1,7 +1,7 @@
 // Adapted from Herdr process-backed agent detection at commit
 // eacea2daf0b72973173b728936b27478374f2cd2 (Apache-2.0).
 
-import { log } from "@roost/shared";
+import { log } from "@roost/shared/log";
 import {
   assertNeverPlatform,
   supportedHostPlatform,

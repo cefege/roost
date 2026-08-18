@@ -1,9 +1,9 @@
-// One Zod config schema loaded by coord + worker at boot. Fails at
-// boot if invalid (not at first-use). R0.12.
+// The coord Zod config schema, loaded at boot. Fails at boot if invalid (not at
+// first-use). R0.12. The worker's schema + loader live in apps/worker/src/config.ts.
 
 import { z } from "zod";
 import { resolveTailnetDnsName } from "./tailnet.ts";
-import { coordDataDir, coordLogDir, workerLogDir } from "./paths.ts";
+import { coordDataDir, coordLogDir } from "./paths.ts";
 import { join } from "node:path";
 
 function normalizeHttpsOrigin(raw: string | undefined, envName: string): string | undefined {
@@ -140,15 +140,3 @@ export function loadCoordConfig(env: Record<string, string | undefined> = proces
   }
   return parsed;
 }
-
-// ─── worker config ─────────────────────────────────────────────────────
-
-export const WorkerConfig = z.object({
-  coordinatorUrl: z.string().url(),
-  bootstrapToken: z.string().optional(),      // one-shot first-boot
-  label: z.string().min(1),
-  logDir: z.string().default(workerLogDir()),
-  // path to coordinator_ed25519.key (the worker's own JWT-signing key)
-  workerKeyPath: z.string(),
-});
-export type WorkerConfig = z.infer<typeof WorkerConfig>;

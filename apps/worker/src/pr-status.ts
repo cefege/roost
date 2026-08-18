@@ -9,7 +9,7 @@
 
 // gh lives in /opt/homebrew/bin (Apple Silicon) or /usr/local/bin (Intel),
 // neither on the worker LaunchAgent's minimal PATH — a bare `gh` spawn ENOENTs
-// and the PR badge silently never resolves. Augment PATH. (CLAUDE.md L11
+// and the PR badge silently never resolves. Augment PATH. (docs/FAILURE-INDEX.md
 // LaunchAgent-env class; see listening-ports.ts for the same fix.)
 const GH_PATH = `/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:${process.env.PATH ?? ""}`;
 

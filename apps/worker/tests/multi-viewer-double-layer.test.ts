@@ -9,12 +9,12 @@
 //
 // What this DOESN'T cover: the DOM renderer + CSS layer (@wterm/dom
 // row spans, .term-scrollback-row CSS, the .wterm overflow rule from
-// CLAUDE.md L11 row "no scroll bar"). Humanchrome two-tab smoke is
+// docs/FAILURE-INDEX.md row "no scroll bar"). Humanchrome two-tab smoke is
 // the right harness for that — added next.
 
 import { describe, test, expect } from "bun:test";
 import { SessionManager } from "../src/session-manager.ts";
-import { asSessionId, asChannelId, asWorkerFp } from "@roost/shared";
+import { asSessionId, asChannelId, asWorkerFp } from "@roost/shared/wire";
 import { WasmBridge } from "@wterm/core";
 import { gridToCellFrame } from "@roost/shared/cell";
 import type { TerminalCore } from "@wterm/core";

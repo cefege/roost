@@ -2,7 +2,7 @@
 //
 // The keeper is spawned detached and OUTLIVES a worker deploy, so a
 // behavior-only change ships dormant until the keeper process is replaced.
-// KEEPER_PROTOCOL_VERSION (protocol-v2.ts) only catches WIRE changes; this
+// KEEPER_PROTOCOL_VERSION (protocol.ts) only catches WIRE changes; this
 // stamp catches CODE changes so a stale keeper can be surfaced + refreshed.
 //
 // It is a content hash of the keeper's OWN runtime source files — NOT the repo
@@ -21,7 +21,12 @@ import { join } from "node:path";
 // worker-side (not loaded by the keeper) and is deliberately excluded — a
 // client-only change must not flag every keeper stale.
 const KEEPER_SOURCE_FILES = [
-  "multiplexed-main.ts", "protocol-v2.ts", "histfile.ts",
+  "multiplexed-main.ts", "protocol.ts", "histfile.ts",
+  // The keeper protocol module was renamed and split by message family
+  // 2026-08-18; protocol.ts is now only the version record + re-exports, so the
+  // family modules holding the actual keeper-side codec must be listed too or a
+  // wire-codec change stops moving the stamp.
+  "protocol-envelope.ts", "protocol-io.ts", "protocol-terminal.ts",
   // multiplexed-main.ts was split 2026-07-10; these siblings hold keeper
   // runtime code (log/types/reaping/frame-dispatch) that must stay covered
   // so a keeper behavior change in any of them still moves the stamp.

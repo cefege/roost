@@ -63,11 +63,6 @@ function pathForCodec(platform: SupportedHostPlatform, path: string): string {
   return platform === "win32" ? path.replace(/\\/g, "/") : path;
 }
 
-export function normalizeWorkerPath(workerFp: string, path: string): string {
-  const platform = workerPathPlatform(workerFp, path);
-  return normalizeNativePath(platform, pathForCodec(platform, path));
-}
-
 export function workerPathBasename(workerFp: string, path: string): string {
   const platform = workerPathPlatform(workerFp, path);
   return nativePathBasename(platform, pathForCodec(platform, path));

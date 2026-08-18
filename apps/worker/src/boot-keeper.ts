@@ -2,11 +2,8 @@
 // survivors are adopted; stale keepers are retired without treating a Windows
 // named pipe as a filesystem entry.
 
-import {
-	cleanupLocalEndpoint,
-	log,
-	type LocalEndpoint,
-} from "@roost/shared";
+import { cleanupLocalEndpoint, type LocalEndpoint } from "@roost/shared/local-endpoint";
+import { log } from "@roost/shared/log";
 import {
 	getMultiplexedPool,
 	probeKeeperCompatible,

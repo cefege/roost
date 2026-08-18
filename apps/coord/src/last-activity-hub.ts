@@ -12,7 +12,7 @@
 //
 // Depends on: buses (globalBytesBus in, lastActivityBus out, sessionBus reap).
 
-import { diag } from "@roost/shared";
+import { diag } from "@roost/shared/diag";
 import { globalBytesBus, sessionBus, lastActivityBus } from "./buses.ts";
 
 // Don't fan a frame on every byte — coalesce to at most one publish per session

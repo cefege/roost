@@ -8,7 +8,7 @@ import { rootStore } from "../store/root.ts";
 import { allSessions } from "../store/selectors.ts";
 import { workerOnline } from "../store/sync.ts";
 import { spawnShell, waitForSession, forceLaunchAgent } from "./spawnSession.ts";
-import { addToast } from "./toastStore.ts";
+import { addToast } from "../store/toastStore.ts";
 
 export const CHAT_ROOT = "~/.roost/chats";
 export const CHAT_FOLDER_SEGMENT = "/.roost/chats/";

@@ -3,46 +3,27 @@
 // Phase 3: coord-health poller → window.__roostCoordHealth (read by ConnectionBanner).
 // Called once from App.tsx on mount. R4.3 sync deliverable.
 
-import { batch } from "solid-js";
 import { create, toBinary } from "@bufbuild/protobuf";
-import { reconcile } from "solid-js/store";
-import { setRootStore, rootStore } from "./root.ts";
-import type { PairRequest } from "./root.ts";
-import type { PairRequestDeltaProto } from "@roost/shared/proto/events_pb";
 import {
   SyncClientFrameSchema,
   SyncDomainReadyCommandSchema,
   SyncDomainSubscriptionCommandSchema,
   SyncDomain,
   type SyncClientFrame,
-  type UiCommandFrame,
   type SyncSubscribedFrame,
   type SyncDomainResetFrame,
   type WorkerRoutableFrame,
   type FirehoseFrame,
-  type AgentStatusFrame,
 } from "@roost/shared/proto/sync_pb";
-import { protoToEvent } from "@roost/shared/wire/event-proto";
 import { signCoordinatorJwt } from "../auth/web-key.ts";
 import { getTabId } from "../auth/tab-id.ts";
-import { _dispatchUiCommand } from "../lib/uiCommandDispatch.ts";
-import { relocateBrowserToCoordinator } from "../auth/coordinator-relocation.ts";
 import { markPhase } from "../lib/diag.ts";
 import { isPageVisible } from "../lib/pageVisible.ts";
-import {
-  _workspaceProtoToWire, _taskProtoToWire, _webhookProtoToWire,
-  _permProtoToWire, _mcpProtoToWire, _presenceProtoToWire,
-} from "./sync-proto-adapters.ts";
 // tRPC client retired — queries/RPCs route through coordClient (Connect).
 // The event firehose is _runConnectSync: a raw WebSocket to coord's
 // /ws/coord-sync carrying state, cell grids, and compact terminal metadata.
-import type { Worker } from "@roost/shared/wire";
 import { signal, diag } from "@roost/shared/diag";
-import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
-import {
-  _dispatchCell, _dispatchPresence,
-  resetCellMountBuffers,
-} from "./sync-dispatch.ts";
+import { resetCellMountBuffers } from "./sync-dispatch.ts";
 import {
   nextRedialDelayMs,
   shouldCloseStaleLinkOnResume,
@@ -61,7 +42,6 @@ import {
   isImmediateSyncRedial,
   isSyncBackpressureClose,
 } from "./sync-flow.ts";
-import { applyAgentStatusFrame } from "./agent-status.ts";
 // Worker-routability signal lives in sync-routable.ts (leaf): _runConnectSync
 // writes it; the UI reads workerOnline (re-exported here so consumers keep
 // importing it from store/sync.ts).
@@ -76,36 +56,21 @@ export {
 } from "./sync-dispatch.ts";
 export type { CellMountClaim } from "./sync-dispatch.ts";
 // Per-domain delta handlers + keeper-death detector + delta-sub registries
-// live in sync-handlers.ts; the firehose calls them and iterates the sub Sets.
-import {
-  _noteSyncConnect,
-  _handleSessionsEvent, _handlePresenceEvent, _handleWorkspacesDelta,
-  _handleTasksDelta, _handlePermissionsDelta, _handleMcpEvent,
-  _webhookDeltaSubs, _auditDeltaSubs,
-} from "./sync-handlers.ts";
+// live in sync-handlers.ts; the per-frame switch calls them and iterates the
+// sub Sets.
+import { _noteSyncConnect } from "./sync-handlers.ts";
 export { registerWebhookDelta, registerAuditDelta } from "./sync-handlers.ts";
-
-
-
-
-// T1.4 — last-seen event id (persisted to IndexedDB on a debounce). On
-// reconnect, we send sinceEventId so coord backfills the gap. 0 = first
-// connect ever or persisted state lost.
-let _lastSeenEventId = 0;
-const LAST_SEEN_DB_KEY = "roost.syncLastEventId";
-try {
-  const raw = typeof localStorage !== "undefined" ? localStorage.getItem(LAST_SEEN_DB_KEY) : null;
-  if (raw) _lastSeenEventId = parseInt(raw, 10) || 0;
-} catch { /* private mode */ }
-let _persistTimer: ReturnType<typeof setTimeout> | null = null;
-function _scheduleLastSeenPersist(): void {
-  if (_persistTimer) return;
-  _persistTimer = setTimeout(() => {
-    _persistTimer = null;
-    try { localStorage.setItem(LAST_SEEN_DB_KEY, String(_lastSeenEventId)); }
-    catch { /* private mode */ }
-  }, 1000);
-}
+// The per-frame switch over every wire-frame kind, and the last-seen event id
+// the reconnect backfill resumes from, live in sync-frame.ts.
+import { _dispatchSyncFrame, lastSeenSyncEventId } from "./sync-frame.ts";
+// Smoke + manual-recovery backdoors live in sync-smoke.ts, re-exported here so
+// lib/smoke.ts, sync-bootstrap.ts and the redial tests keep one import site.
+export {
+  forceSyncMaxBackoff,
+  forceSyncReconnect,
+  pauseSyncTransport,
+  resumeSyncTransport,
+} from "./sync-smoke.ts";
 
 type SyncAbortReason = "visibility" | "manual" | "stale" | "flow" | null;
 
@@ -172,6 +137,16 @@ let _liveLink: LiveSyncLink | null = null;
 let _wsGen = 0;
 let _smokeTransportPaused = false;
 let _resumeSmokeTransport: (() => void) | null = null;
+
+/** Smoke-only transport gate, driven from store/sync-smoke.ts. Setting it holds
+ * the next dial at _runConnectSync's park; clearing it wakes whatever resolver
+ * the loop parked on. */
+export function _setSmokeTransportPaused(paused: boolean): void {
+  _smokeTransportPaused = paused;
+  if (paused) return;
+  _resumeSmokeTransport?.();
+  _resumeSmokeTransport = null;
+}
 
 export interface SyncSubscribedState {
   readonly socketGeneration: number;
@@ -530,6 +505,12 @@ function _initiateWsClose(reason: Exclude<SyncAbortReason, null>): void {
   _armCloseEscape(link);
 }
 
+/** Close the live tube as an intentional lifecycle close, so the redial loop
+ * dials again at once. The smoke seam reaches _initiateWsClose only through this. */
+export function _requestSyncRedial(): void {
+  _initiateWsClose("manual");
+}
+
 function _closeFailedLink(link: LiveSyncLink): void {
   link.accepting = false;
   _deactivateV2Link(link);
@@ -548,6 +529,16 @@ let _syncFailures = 0;
 let _redialDelayMs = SYNC_REDIAL_BASE_MS;
 let _hiddenParked = false;
 let _wakeHiddenPark: (() => void) | null = null;
+
+/** Smoke-only: pre-arm the redial ladder at the highest floor production can
+ * still reach, then drop the tube as a failure. Declared here beside the redial
+ * state it mutates; the roostSmoke gate is in store/sync-smoke.ts. */
+export function _armSyncRedialFloor(): void {
+  _syncFailures = SYNC_HIDDEN_PARK_FAILURES - 1;
+  _redialDelayMs = nextRedialDelayMs(SYNC_HIDDEN_PARK_FAILURES);
+  const link = _liveLink;
+  if (link) _closeFailedLink(link);
+}
 
 export interface SyncRedialStatus {
   /** Consecutive failed dials since this tab last received a Sync frame. */
@@ -654,226 +645,6 @@ export function installSyncLifecycleWake(onResume: () => void): () => void {
   };
 }
 
-// Per-frame firehose dispatch — SHARED verbatim by the WebSocket transport
-// below. Every case preserved exactly, including the _lastSeenEventId bump +
-// _scheduleLastSeenPersist() in the sessions/sessionEvent cases.
-function _dispatchSyncFrame(frame: FirehoseFrame): boolean {
-  const k = frame.frame?.case as (typeof frame.frame.case) | "keepalive";
-  if (!k) return false;
-  const v = frame.frame.value;
-  let consumed = true;
-  // ONE reactive flush per frame: multi-write handlers (snapshot
-  // fold, viewers list, session deletion) otherwise trigger a
-  // downstream recompute per setRootStore call.
-  batch(() => {
-        switch (k) {
-          case "sessions": {
-            try {
-              const src = v as { payloadJson: string }; // proto oneof value, case-narrowed
-              const ev = JSON.parse(src.payloadJson) as { _event_id?: number };
-              if (typeof ev._event_id === "number" && ev._event_id > _lastSeenEventId) {
-                _lastSeenEventId = ev._event_id;
-                _scheduleLastSeenPersist();
-              }
-              _handleSessionsEvent(ev);
-            } catch (e) {
-              signal("diag.corruption_signal", { kind: "sync_json_parse", frame: "sessions", msg: String(e), cooldownKey: "sync" });
-              throw e;
-            }
-            break;
-          }
-          case "sessionEvent": {
-            // T1.2 — proto-typed SessionEvent variant. Decode to the
-            // legacy wire shape and feed the existing projector.
-            const decoded = protoToEvent(v as never);
-            if (!decoded) { consumed = false; break; }
-            if (decoded._event_id > _lastSeenEventId) {
-              _lastSeenEventId = decoded._event_id;
-              _scheduleLastSeenPersist();
-            }
-            _handleSessionsEvent(decoded);
-            break;
-          }
-          case "workerPresence": {
-            const wire = _presenceProtoToWire(v as any);
-            if (wire) _handlePresenceEvent(wire);
-            else consumed = false;
-            break;
-          }
-          case "workspaceDelta": {
-            const wire = _workspaceProtoToWire(v as any);
-            if (wire) _handleWorkspacesDelta(wire);
-            else consumed = false;
-            break;
-          }
-          case "taskDelta": {
-            const wire = _taskProtoToWire(v as any);
-            if (wire) _handleTasksDelta(wire);
-            else consumed = false;
-            break;
-          }
-          case "permissionDelta": {
-            const wire = _permProtoToWire(v as any);
-            if (wire) _handlePermissionsDelta(wire);
-            else consumed = false;
-            break;
-          }
-          case "mcpMsg": {
-            const wire = _mcpProtoToWire(v as any);
-            if (wire) _handleMcpEvent(wire);
-            else consumed = false;
-            break;
-          }
-          case "webhookTokenDelta": {
-            const wire = _webhookProtoToWire(v as any);
-            if (wire) {
-              for (const sub of _webhookDeltaSubs) {
-                try { sub(wire); } catch (e) { diag("sync.delta_sub_failed", { frame: "webhookToken", error: String(e) }); }
-              }
-            } else consumed = false;
-            break;
-          }
-          case "auditRow": {
-            // typed proto AuditRow → legacy wire shape for AuditLogPane.
-            const r = v as { id: bigint; ts: bigint; callerFp?: string;
-              callerLabel?: string; method: string; path: string;
-              status: number; traceId?: string };
-            const wire = {
-              id: Number(r.id), ts: Number(r.ts),
-              caller_fp: r.callerFp ?? null,
-              caller_label: r.callerLabel ?? null,
-              method: r.method, path: r.path, status: r.status,
-              trace_id: r.traceId ?? null,
-            };
-            for (const sub of _auditDeltaSubs) {
-              try { sub(wire); } catch (e) { diag("sync.delta_sub_failed", { frame: "audit", error: String(e) }); }
-            }
-            break;
-          }
-          case "coordinatorRelocation": {
-            const relocation = v as { handoffId: string; targetUrl: string };
-            void relocateBrowserToCoordinator(relocation.handoffId, relocation.targetUrl);
-            break;
-          }
-          case "cellGrid": {
-            // R11 — pre-rendered cell frame. CellGridRenderer (cell
-            // mode) consumes it; no-op for byte-mode viewers (no handler).
-            diag("cell.recv", { sid: (v as PbCellGridFrame).sessionId || "", seq: Number((v as PbCellGridFrame).seq || 0) });
-            _dispatchCell(v as PbCellGridFrame);
-            break;
-          }
-          case "sessionPresence": {
-            try {
-              const p = v as { sessionId: string; payloadJson: string };
-              const payload = JSON.parse(p.payloadJson) as { kind?: string; fps?: string[] };
-              // kind="viewers" = the per-session presence list driven by
-              // sessionsResize claims (coord/connect/router.ts viewer
-              // tracker). Folded into rootStore.session_viewers; sidebar
-              // SessionRow renders one dot per fp.
-              if (payload && payload.kind === "viewers") {
-                type Entry = { fp: string; cols: number; rows: number; lastMs?: number; label?: string; viewerKey?: string };
-                const raw = payload as { entries?: Entry[]; fps?: string[] };
-                const entries: Entry[] = Array.isArray(raw.entries)
-                  ? raw.entries.map((e) => ({ ...e, viewerKey: e.viewerKey ?? e.fp }))
-                  : Array.isArray(raw.fps)
-                    ? raw.fps.map((fp) => ({ fp, viewerKey: fp, cols: 0, rows: 0 }))
-                    : [];
-                // SCD projection reads only session_viewers (min over entries);
-                // the old latest_key tiebreak is gone, so a single write.
-                // reconcile keyed by fp: stable entry identity → ViewersChip's
-                // <For> keeps avatar DOM when the list content is unchanged.
-                setRootStore("session_viewers", p.sessionId, reconcile(entries, { key: "fp" }));
-              } else {
-                _dispatchPresence(p.sessionId, payload);
-              }
-            } catch (e) {
-              signal("diag.corruption_signal", { kind: "sync_json_parse", frame: "sessionPresence", msg: String(e), cooldownKey: "sync" });
-              throw e;
-            }
-            break;
-          }
-          case "terminalTitle": {
-            // Coord-authoritative OSC terminal title (terminal-title-hub).
-            // Single source of truth — replaces the dead per-browser onTitle
-            // path. sessionTitle()/SessionRow read rootStore.terminal_title[sid].
-            const t = v as { sessionId: string; title: string };
-            setRootStore("terminal_title", t.sessionId, t.title);
-            break;
-          }
-          case "lastActivity": {
-            // Coord-stamped last-activity ms (last-activity-hub). The sidebar
-            // "Last activity" filter reads rootStore.last_activity[sid] to age
-            // out idle OPEN sessions.
-            const a = v as { sessionId: string; tsMs: number };
-            setRootStore("last_activity", a.sessionId, a.tsMs);
-            break;
-          }
-          case "agentStatus": {
-            applyAgentStatusFrame(v as AgentStatusFrame);
-            break;
-          }
-          case "workerRoutable": {
-            // Live worker routability = coord's WS membership. Replaces the
-            // stale workersList snapshot so an active server stops showing
-            // red. workerOnline() reads this set; full-set replace semantics.
-            const wr = v as { fps: string[] };
-            setRoutableFps(new Set(wr.fps));
-            break;
-          }
-          case "pairRequestDelta": {
-            // Pair-request delta (perf sweep C2.4 — replaces the 5 s pairList
-            // poller). `pending` upserts, `removedId` drops (approve/deny),
-            // `snapshot` (seeded per Sync connect) REPLACES the whole set so
-            // removals missed while disconnected can't linger.
-            // Cast to the generated frame type: protobuf-es already decoded
-            // the payload; the oneof case above pins the variant.
-            const d = v as PairRequestDeltaProto;
-            const fold = (p: { ephemeralId: string; label: string; createdAtMs: bigint }) =>
-              setRootStore("pair_requests", p.ephemeralId, {
-                ephemeral_id: p.ephemeralId, label: p.label, created_at_ms: Number(p.createdAtMs),
-              });
-            if (d.kind.case === "pending") fold(d.kind.value);
-            else if (d.kind.case === "removedId") {
-              setRootStore("pair_requests", d.kind.value, undefined as unknown as PairRequest);
-            } else if (d.kind.case === "snapshot") {
-              const keep = new Set<string>();
-              for (const p of d.kind.value.pending) { keep.add(p.ephemeralId); fold(p); }
-              // Kysely-style per-key delete: Solid setStore drops a key via an
-              // undefined write (same idiom as the retired poller).
-              for (const id of Object.keys(rootStore.pair_requests)) {
-                if (!keep.has(id)) setRootStore("pair_requests", id, undefined as unknown as PairRequest);
-              }
-            }
-            else consumed = false;
-            break;
-          }
-          case "uiState": {
-            // Browser tabs deliberately do not project peer UI state. Routing
-            // and discarding this agent-facing frame is its full consumption.
-            break;
-          }
-          case "uiCommand": {
-            // ui-cc — agent-driven UI command (coord UiDispatch → ui_command
-            // frame). Forwarded to the handler UiBridge registered with router
-            // navigate bound; no bridge mounted → the command is deliberately
-            // consumed as a no-op (the agent reads UiDispatch's `delivered`
-            // count instead).
-            _dispatchUiCommand(v as UiCommandFrame);
-            break;
-          }
-          case "keepalive": {
-            // Liveness heartbeat from coord. The watchdog's addEventListener
-            // ("message") listener already reset lastMsgAt — no state change.
-            break;
-          }
-          default: {
-            consumed = false;
-            break;
-          }
-        }
-        });
-  return consumed;
-}
 
 const SYNC_V2_DOMAINS = [
   SyncDomain.TERMINAL,
@@ -1073,7 +844,7 @@ function _consumeSyncFrame(link: LiveSyncLink, frame: FirehoseFrame): void {
 // coordinator whenever the browser aborted the long-lived streaming response.
 // A WS close routes teardown through Bun's websocket.close callback, never
 // RequestContext.onAbort. Frames are byte-identical FirehoseFrame protos —
-// only the tube changed; _dispatchSyncFrame above is shared verbatim.
+// only the tube changed; sync-frame.ts's _dispatchSyncFrame is shared verbatim.
 export async function _runConnectSync(): Promise<void> {
   while (true) {
     if (_hiddenParked) {
@@ -1100,7 +871,7 @@ export async function _runConnectSync(): Promise<void> {
     let dialLink: LiveSyncLink | null = null;
     let abortReason: SyncAbortReason = null;
     try {
-      console.debug("[sync.connect] starting Sync stream", { sinceEventId: _lastSeenEventId, attempt: _syncFailures + 1 });
+      console.debug("[sync.connect] starting Sync stream", { sinceEventId: lastSeenSyncEventId(), attempt: _syncFailures + 1 });
       // Coord base: localStorage override (multi-coord testing) else same-origin.
       // http→ws / https→wss. The device JWT travels as a WebSocket
       // subprotocol so proxies never log it in the URL.
@@ -1110,7 +881,7 @@ export async function _runConnectSync(): Promise<void> {
       // flow=1 preserves cumulative application ACKs; exact sync_v=2 opts this
       // build into subscribed/domain controls without exposing them to cached
       // flow=1 clients.
-      const url = `${wsBase}/ws/coord-sync?since=${_lastSeenEventId}&tab=${encodeURIComponent(getTabId())}&flow=1&sync_v=2`;
+      const url = `${wsBase}/ws/coord-sync?since=${lastSeenSyncEventId()}&tab=${encodeURIComponent(getTabId())}&flow=1&sync_v=2`;
       const ws = new WebSocket(url, ["roost-auth", jwt]);
       ws.binaryType = "arraybuffer";
       const gen = ++_wsGen;
@@ -1223,34 +994,3 @@ export async function _runConnectSync(): Promise<void> {
     if (_resumeRequested) { _resumeRequested = false; _redialDelayMs = SYNC_REDIAL_BASE_MS; }
   }
 }
-/** Test-only: force-close the live firehose WS so the reconnect loop re-dials. */
-export function forceSyncReconnect(): void { _initiateWsClose("manual"); }
-
-/** Smoke-only: drop the tube exactly as a network failure does, with the failure
- * count pre-armed to the floor production can still reach — saturated capped
- * backoff, plus the sleep while hidden. Recovery uses no backdoor: a visible
- * document must heal on its own capped redial, a hidden one on its next resume. */
-export function forceSyncMaxBackoff(): void {
-  if (typeof localStorage === "undefined" || localStorage.getItem("roostSmoke") !== "1") return;
-  _syncFailures = SYNC_HIDDEN_PARK_FAILURES - 1;
-  _redialDelayMs = nextRedialDelayMs(SYNC_HIDDEN_PARK_FAILURES);
-  const link = _liveLink;
-  if (link) _closeFailedLink(link);
-}
-
-/** Smoke-only partition gate. Close the current tube and hold re-dial until the
- * paired resume, allowing the real PTY to diverge from the browser consumer. */
-export function pauseSyncTransport(): void {
-  if (typeof localStorage === "undefined" || localStorage.getItem("roostSmoke") !== "1") return;
-  _smokeTransportPaused = true;
-  _initiateWsClose("manual");
-}
-
-export function resumeSyncTransport(): void {
-  if (typeof localStorage === "undefined" || localStorage.getItem("roostSmoke") !== "1") return;
-  _smokeTransportPaused = false;
-  _resumeSmokeTransport?.();
-  _resumeSmokeTransport = null;
-  resumeSyncNow();
-}
-

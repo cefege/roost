@@ -23,7 +23,7 @@ process.env.ROOST_KEEPER_QUIET = "1";
 import { expect, test } from "bun:test";
 import { create, toBinary } from "@bufbuild/protobuf";
 import { CoordWorkerDownSchema, DHelloAckSchema, DPingSchema } from "@roost/shared/proto/worker_transport_pb";
-import { startCoordLink } from "../src/transport/CoordLink.ts";
+import { startCoordLink } from "../src/transport/coord-link.ts";
 import type { WorkerFp } from "@roost/shared/wire";
 
 function pingBytes(): Uint8Array {

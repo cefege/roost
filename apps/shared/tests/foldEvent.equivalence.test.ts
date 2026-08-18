@@ -5,7 +5,7 @@
 // SPA store projector (apps/web/src/store/projector.ts), worker
 // snapshot reconciliation. If any caller drifts (caches a stale ref,
 // imports a forked copy, reimplements the logic), projections diverge
-// silently → L11 row `feedback_solid_setstore_record_replace.md` class
+// silently → docs/FAILURE-INDEX.md entry class
 // of bug.
 //
 // Two properties verified via fast-check on random SessionEvent[]:

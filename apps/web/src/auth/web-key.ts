@@ -3,6 +3,7 @@
 // coordinator's commit state is unambiguous.
 
 import { diag, signal } from "@roost/shared/diag";
+import { fingerprintOf } from "@roost/shared/fingerprint";
 
 const DB_NAME = "roost-auth";
 const STORE_NAME = "keys";
@@ -173,11 +174,7 @@ async function generateKeyPair(): Promise<CryptoKeyPair> {
 }
 
 async function fingerprintFor(pair: CryptoKeyPair): Promise<string> {
-  const raw = await crypto.subtle.exportKey("raw", pair.publicKey);
-  const digest = await crypto.subtle.digest("SHA-256", raw);
-  return Array.from(new Uint8Array(digest))
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
+  return fingerprintOf(new Uint8Array(await crypto.subtle.exportKey("raw", pair.publicKey)));
 }
 
 async function publicKeyB64For(pair: CryptoKeyPair): Promise<string> {

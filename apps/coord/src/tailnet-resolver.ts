@@ -5,7 +5,7 @@
 // binary is missing or tailscaled is down: resolveHostname returns null
 // and callers fall back to authorized_keys.label.
 
-import { log } from "@roost/shared";
+import { log } from "@roost/shared/log";
 import { existsSync } from "node:fs";
 
 const REFRESH_INTERVAL_MS = 60_000;

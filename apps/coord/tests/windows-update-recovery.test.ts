@@ -11,11 +11,13 @@ import { join } from "node:path";
 import {
   __clearDeployJobsForTest,
   deployOutput,
+} from "../src/deploy-jobs.ts";
+import {
   handleWorkerUpdateProgress,
   resumePersistedWindowsUpdateDeploysForWorker,
   startWindowsUpdateDeploy,
-  windowsUpdateDeployRecordPath,
-} from "../src/deploy-jobs.ts";
+} from "../src/windows-update-deploy-jobs.ts";
+import { windowsUpdateDeployRecordPath } from "../src/windows-update-deploy-record.ts";
 import { __setConnectWorkerForTest } from "../src/connect/worker-registry.ts";
 import { rejectPendingRpcsForWorker } from "../src/router/pending-rpcs.ts";
 import type { CoordWorkerDown } from "@roost/shared/proto/worker_transport_pb";

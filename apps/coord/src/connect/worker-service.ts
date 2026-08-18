@@ -10,7 +10,7 @@
 // WebSocket at /ws/coord-worker/:fp?token=<jwt> (worker-ws-handler.ts);
 // CoordWorkerUp/Down proto frames ride it as binary. NEVER re-wire this
 // as a Connect/gRPC bidi under Bun — it h2-tight-loops / h1.1-stalls /
-// flaps. See CLAUDE.md L11 + project_worker_coord_raw_ws_not_connect_bidi.
+// flaps. See docs/FAILURE-INDEX.md + project_worker_coord_raw_ws_not_connect_bidi.
 //
 // Auth: query-param JWT verified at WS upgrade (Bun's client WebSocket
 // has no custom-header API), via verifyJwt (see worker-conn.ts).

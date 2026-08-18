@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { asChannelId, asSessionId, asWorkerFp } from "@roost/shared";
+import { asChannelId, asSessionId, asWorkerFp } from "@roost/shared/wire";
 import { initCellEmitState } from "@roost/shared/cell";
 import { SessionManager } from "../src/session-manager.ts";
 import { getMultiplexedPool } from "../src/keeper/multiplexed-client.ts";

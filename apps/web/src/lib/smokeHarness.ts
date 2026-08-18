@@ -6,7 +6,7 @@ import {
   type CursorPresentationProof,
   type MarkerPresentationProof,
   type TerminalRectSnapshot,
-} from "./terminalPreview.ts";
+} from "./terminalDiagSnapshot.ts";
 
 type Step = { name: string; pass: boolean; detail: unknown };
 

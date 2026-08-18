@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # install / uninstall the v2 worker service. macOS → launchd LaunchAgent;
 # Linux → systemd --user unit. Runs `bun apps/worker/src/main.ts`.
-# REWRITE.md R0.13.
 
 set -euo pipefail
 

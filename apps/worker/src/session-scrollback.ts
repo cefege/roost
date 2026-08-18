@@ -6,7 +6,7 @@ import type { SessionManager } from "./session-manager.ts";
 import type { SessionRecord } from "./session-record.ts";
 import type { ScrollbackHistoryFloor } from "@roost/shared/wire";
 import { answerQueries, QUERY_CARRY_MAX } from "./terminal-query-reply.ts";
-import { diag, isDiagEnabled } from "@roost/shared";
+import { diag, isDiagEnabled } from "@roost/shared/diag";
 import { supportedHostPlatform } from "@roost/shared/platform";
 import * as byteCapture from "./diag/byte-capture.ts";
 import { _scanAgentOsc, _scanAltModeTransitions, _scanOsc7 } from "./terminal-stream-scan.ts";

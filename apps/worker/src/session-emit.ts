@@ -2,16 +2,17 @@
 // (see wrappers in session-manager.ts).
 
 import type { SessionManager } from "./session-manager.ts";
-import type { ChannelId } from "@roost/shared";
-import { log, diag, isDiagEnabled, signal, asChannelId } from "@roost/shared";
-import { DIR_FROM_PTY } from "@roost/shared/wire";
+import type { ChannelId } from "@roost/shared/wire";
+import { diag, isDiagEnabled, signal } from "@roost/shared/diag";
+import { log } from "@roost/shared/log";
+import { asChannelId, DIR_FROM_PTY } from "@roost/shared/wire";
 import type { TerminalCore } from "@wterm/core";
 import {
 	nextCellFrame, scrollbackOrigin, SB_SNAPSHOT_HISTORY_ROWS, type CellEmitState,
 } from "@roost/shared/cell";
 import { cellFrameToProto } from "@roost/shared/cell/cell-proto";
 import type { MuxChannelCallbacks } from "./keeper/multiplexed-client.ts";
-import type { TransportSendResult } from "./transport/CoordLink-types.ts";
+import type { TransportSendResult } from "./transport/coord-link-types.ts";
 import {
 	RECENTLY_CLOSED_TTL_MS,
 	KEEPER_DEGRADED_WINDOW_MS,
@@ -37,7 +38,7 @@ const LEADING_SENTINEL = -1 as unknown as NodeJS.Timeout;
 
 // phase-ssb7: emitScrollbackMark + DIR_SCROLLBACK_MARK deleted.
 // Splice ordering is now per-byte end_seq on each FROM_PTY frame
-// (attachOutputClient.onOutput below). See CLAUDE.md L11 "scrollback
+// (attachOutputClient.onOutput below). See docs/FAILURE-INDEX.md "scrollback
 // seam torn" row.
 
 /** Ingest one PTY chunk. All scrollback/grid consumers run synchronously

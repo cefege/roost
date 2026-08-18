@@ -3,7 +3,6 @@
   "compilerOptions": {
     "jsxImportSource": "solid-js",
     "paths": {
-      "@roost/shared": ["../shared/src/index.ts"],
       "@roost/shared/*": ["../shared/src/*.ts"]
     }
   },

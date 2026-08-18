@@ -10,8 +10,8 @@
 import { createSignal, createEffect, Show } from "solid-js";
 import { coordClient } from "../connect.ts";
 import { Dialog, Button, TextField } from "./Settings/md/primitives.tsx";
-import { activeRenameDialog, closeRenameDialog } from "../lib/renameDialog.ts";
-import { addToast } from "../lib/toastStore.ts";
+import { activeRenameDialog, closeRenameDialog } from "../store/renameDialog.ts";
+import { addToast } from "../store/toastStore.ts";
 
 export function RenameDialogHost() {
   const [name, setName] = createSignal("");

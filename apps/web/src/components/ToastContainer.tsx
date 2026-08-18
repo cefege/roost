@@ -1,12 +1,12 @@
 // ToastContainer — portal-mounted at bottom-right; renders the toast stack.
-// Reads toasts signal from lib/toastStore. Auto-dismissal handled by the
+// Reads toasts signal from store/toastStore. Auto-dismissal handled by the
 // store. Text inside each toast is selectable (user-select: text +
 // pointer-events: auto on the card) so the user can copy error output.
 // Error toasts persist until manually dismissed; ok/warn auto-dismiss.
 
 import { For, Show, createSignal, onMount, onCleanup } from "solid-js";
 import { Portal } from "solid-js/web";
-import { toasts, dismissToast, type ToastKind } from "../lib/toastStore.ts";
+import { toasts, dismissToast, type ToastKind } from "../store/toastStore.ts";
 
 const KIND_ACCENT: Record<ToastKind, string> = {
   ok: "var(--color-ok)",

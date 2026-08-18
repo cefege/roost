@@ -10,7 +10,7 @@ import { Portal } from "solid-js/web";
 import { rootStore, type PairRequest } from "../store/root.ts";
 import { deletePairRequest } from "../store/mutations.ts";
 import { coordClient } from "../connect.ts";
-import { addToast } from "../lib/toastStore.ts";
+import { addToast } from "../store/toastStore.ts";
 import { Button } from "./Settings/md/Button.tsx";
 
 const isAuthorized = () => !rootStore.browser_unauthorized;

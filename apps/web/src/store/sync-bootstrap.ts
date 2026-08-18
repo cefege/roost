@@ -1,8 +1,8 @@
 // Bootstrap + auth/pair + worker refresh — the "before the live stream opens"
 // half of sync. Split out of store/sync.ts (400-line cap). One-directional:
 // imports the firehose entry points (_runConnectSync, installSyncLifecycleWake)
-// from sync.ts; sync.ts imports nothing back. Consumers (App.tsx,
-// DeployConsoleModal) import bootstrapSync / refreshCoordAndWorkers from here.
+// from sync.ts; sync.ts imports nothing back. Consumers import bootstrapSync /
+// refreshCoordAndWorkers from here (App.tsx is the entry point).
 
 import { batch, createSignal } from "solid-js";
 import { reconcile } from "solid-js/store";

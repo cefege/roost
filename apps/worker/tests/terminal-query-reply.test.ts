@@ -15,7 +15,7 @@
 
 import { describe, test, expect, afterEach } from "bun:test";
 import { WasmBridge } from "@wterm/core";
-import { asSessionId, asChannelId, asWorkerFp } from "@roost/shared";
+import { asSessionId, asChannelId, asWorkerFp } from "@roost/shared/wire";
 import { initCellEmitState } from "@roost/shared/cell";
 import { SessionManager } from "../src/session-manager.ts";
 import type { SessionRecord } from "../src/session-record.ts";
@@ -26,7 +26,7 @@ import {
   markResizeBoundary,
   rebuildTerminalCore,
 } from "../src/session-resize-capture.ts";
-import { MuxFrameType } from "../src/keeper/protocol-v2.ts";
+import { MuxFrameType } from "../src/keeper/protocol.ts";
 import { installFakeKeeper, type FakeKeeper } from "./keeper-fake-pool.ts";
 import {
   answerQueries,

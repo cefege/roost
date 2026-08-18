@@ -5,8 +5,8 @@
 // capture, and the single core rebuild. Nothing here writes to the keeper.
 
 import type { SessionManager } from "./session-manager.ts";
-import type { ChannelId } from "@roost/shared";
-import { diag } from "@roost/shared";
+import type { ChannelId } from "@roost/shared/wire";
+import { diag } from "@roost/shared/diag";
 import {
 	VIEWER_WITHDRAW_GRACE_MS as VIEWPORT_WITHDRAW_GRACE_MS,
 	VIEWER_CLAIM_TTL_MS as VIEWPORT_CLAIM_TTL_MS,

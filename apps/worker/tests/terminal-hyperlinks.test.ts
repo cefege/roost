@@ -12,7 +12,7 @@
 import { describe, test, expect, afterEach, setSystemTime } from "bun:test";
 import { WasmBridge } from "@wterm/core";
 import { setSignalSink } from "@roost/shared/diag";
-import { asSessionId, asChannelId, asWorkerFp } from "@roost/shared";
+import { asSessionId, asChannelId, asWorkerFp } from "@roost/shared/wire";
 import { initCellEmitState } from "@roost/shared/cell";
 import { SessionManager } from "../src/session-manager.ts";
 import { serializeWTerm } from "../src/wterm-serialize.ts";

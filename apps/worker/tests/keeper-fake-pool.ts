@@ -14,8 +14,8 @@ import {
   decodePtyInRequest,
   decodeResizeRequest,
   decodeResizeStatusQuery,
-} from "../src/keeper/protocol-v2.ts";
-import type { KeeperResizeResult, KeeperTerminalState } from "../src/keeper/protocol-v2.ts";
+} from "../src/keeper/protocol.ts";
+import type { KeeperResizeResult, KeeperTerminalState } from "../src/keeper/protocol.ts";
 import {
   settlePendingInput,
   settlePendingResize,

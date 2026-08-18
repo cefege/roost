@@ -1,7 +1,6 @@
 // `roost state` — generate STATE.md content. Called by Claude Code's
 // Stop hook (.claude/settings.json) to auto-update STATE.md after
 // each session. Writes to stdout; hook redirects to STATE.md.
-// REWRITE.md R0.11.
 
 import { spawn } from "bun";
 
@@ -45,7 +44,7 @@ export async function state(_args: string[]): Promise<void> {
     "## next action",
     "Past R4.5 cutover; `apps_legacy/` deleted (phase-24g). No queued spine-phase.",
     "Active work tracked per-commit (`phase-<slug>:`). See `git log --oneline` for current arc.",
-    "Reopen REWRITE.md with a new R-anchor (R11+) before the next architectural shift.",
+    "Record the next architectural shift in ARCHITECTURE.md before starting it.",
     "",
   ].join("\n");
   console.log(md);

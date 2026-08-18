@@ -6,7 +6,7 @@
 // twice per chunk, so appending one byte of keystroke echo to a saturated
 // session copied the whole 1 MiB window. Here an append costs O(chunk) and the
 // footprint is a single fixed allocation, which is what the memory-tight-host
-// failure mode (CLAUDE.md L11 cgroup-OOM row) actually needs.
+// failure mode (docs/FAILURE-INDEX.md cgroup-OOM row) actually needs.
 
 // 8 MB sliding scrollback window kept on the worker per session.
 // Matches the keeper's ring (sb30) so getScrollback can serve a fresh

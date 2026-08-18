@@ -78,20 +78,50 @@ export function restartCoordCmd(os: ServiceOs): string {
   );
 }
 
-export function verifyCoordCmd(os: ServiceOs): string {
-  return posixServiceCommand(
-    os,
-    () => `${XDG} systemctl --user is-active ${COORD_UNIT}`,
-    () => `launchctl print gui/$(id -u)/${COORD_AGENT} 2>&1 | grep -E '^\\s*(state|pid|active count)' | head -5`,
-  );
-}
-
 export function stopServicesCmd(os: ServiceOs): string {
   return posixServiceCommand(
     os,
     () => `${XDG} systemctl --user stop ${COORD_UNIT} ${WORKER_UNIT}`,
     () => `launchctl bootout gui/$(id -u)/${COORD_AGENT} 2>/dev/null; launchctl bootout gui/$(id -u)/${WORKER_AGENT} 2>/dev/null; true`,
   );
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", `'\"'\"'`)}'`;
+}
+
+export interface LaunchdBootstrapOptions {
+  /** Names the caller in the failure line, e.g. `worker rollback`. */
+  role: string;
+  /** Bracket the retry with `bootout` before and `enable` + `kickstart` after,
+   *  for `label`. Default true. The macOS deploy recovery machine passes false:
+   *  its bootout runs its own settle poll and its enable/disable state is
+   *  journal-driven, so it drives those steps as separate remote commands. */
+  reload?: boolean;
+  /** `plistPath` is relative to the *target's* `$HOME`, expanded by the remote
+   *  shell instead of being quoted as a literal local path. */
+  homeRelative?: boolean;
+}
+
+/** launchd refuses `bootstrap` while the prior job is still unloading, so every
+ *  reload path retries for ten seconds with a settle sleep before each attempt.
+ *  Keep this byte-for-byte stable for the same reason as XDG above: these
+ *  strings are handed to bash locally and over ssh. */
+export function launchdBootstrapWithRetryCmd(
+  label: string,
+  plistPath: string,
+  options: LaunchdBootstrapOptions,
+): string {
+  const plist = options.homeRelative ? `"$HOME/${plistPath}"` : shellQuote(plistPath);
+  const retry = `for i in 1 2 3 4 5 6 7 8 9 10; do sleep 1; `
+    + `launchctl bootstrap gui/$uid ${plist} 2>/dev/null && break; `
+    + `if test "$i" = 10; then echo "${options.role} bootstrap failed after 10 retries" >&2; exit 1; fi; done`;
+  if (options.reload === false) return `uid=$(id -u); ${retry}`;
+  const job = `gui/$uid/${shellQuote(label)}`;
+  return `set -e; uid=$(id -u); launchctl bootout ${job} 2>/dev/null || true; `
+    + `${retry}; `
+    + `launchctl enable ${job}; `
+    + `launchctl kickstart -k ${job} 2>/dev/null || true`;
 }
 
 export function currentServiceOs(): ServiceOs {

@@ -16,7 +16,7 @@ import type {
   RoostServiceRole,
   WindowsServiceDefinition,
   WindowsServiceSnapshotSet,
-} from "./service-ctl.ts";
+} from "../service-ctl.ts";
 
 const WINDOWS_UPDATE_JOURNAL_SCHEMA_VERSION = 2 as const;
 const WINDOWS_CURRENT_MANIFEST_SCHEMA_VERSION = 2 as const;
@@ -253,10 +253,6 @@ export interface WindowsUpdateJournalStore {
 
 export function windowsUpdateJournalPath(serviceDir: string = roostServiceDir()): string {
   return join(serviceDir, WINDOWS_UPDATE_JOURNAL_FILE);
-}
-
-export function windowsLegacyUpdateJournalPath(serviceDir: string = roostServiceDir()): string {
-  return join(serviceDir, WINDOWS_LEGACY_UPDATE_JOURNAL_FILE);
 }
 
 export function windowsCurrentManifestPath(serviceDir: string = roostServiceDir()): string {

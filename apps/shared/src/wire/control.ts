@@ -1,7 +1,6 @@
 // ControlFrame = raw browser↔worker WSS protocol. Tagged union.
 // PTY bytes use a separate binary frame to avoid base64 overhead;
 // this Zod schema validates only the JSON control plane.
-// REWRITE.md R0.2.
 
 import { z } from "zod";
 import { ChannelId, SessionId, TraceId } from "./brand.ts";

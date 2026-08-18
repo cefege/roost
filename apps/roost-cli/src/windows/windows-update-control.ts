@@ -18,13 +18,13 @@ import {
   createWindowsServiceManager,
   loadWindowsServiceDefinitions,
   retargetWindowsUpdaterDefinition,
-} from "./service-ctl.ts";
+} from "../service-ctl.ts";
 import type {
   RoostServiceRole,
   WindowsServiceDefinition,
   WindowsServiceManager,
   WindowsServiceSnapshotSet,
-} from "./service-ctl.ts";
+} from "../service-ctl.ts";
 import { assertStableWindowsUpdateTopology, type WindowsUpdateNative } from "./windows-update-broker.ts";
 import { createWindowsUpdateNative } from "./windows-update-runtime.ts";
 import {

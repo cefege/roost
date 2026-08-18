@@ -10,14 +10,14 @@
 
 import { describe, test, expect, afterEach } from "bun:test";
 import { SessionManager } from "../src/session-manager.ts";
-import { asSessionId, asChannelId, asWorkerFp } from "@roost/shared";
+import { asSessionId, asChannelId, asWorkerFp } from "@roost/shared/wire";
 import { gridToCellFrame, initCellEmitState } from "@roost/shared/cell";
 import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
 import { WasmBridge } from "@wterm/core";
 import { createSbRing, readRing } from "../src/session-scrollback-ring.ts";
 import { initAgentOscState } from "../src/terminal-stream-scan.ts";
-import { MuxFrameType } from "../src/keeper/protocol-v2.ts";
-import { KeeperFeature } from "../src/keeper/protocol-v2.ts";
+import { MuxFrameType } from "../src/keeper/protocol.ts";
+import { KeeperFeature } from "../src/keeper/protocol.ts";
 import { installFakeKeeper, type FakeKeeper } from "./keeper-fake-pool.ts";
 import type { WorkerViewportIntent } from "../src/session-terminal-control.ts";
 

@@ -5,7 +5,8 @@
 
 import { existsSync, mkdirSync, writeFileSync, readFileSync, chmodSync } from "node:fs";
 import { dirname } from "node:path";
-import { fingerprintOf, importEd25519PrivkeyPkcs8, signJwt, type SignClaims } from "./jwt.ts";
+import { fingerprintOf } from "@roost/shared/fingerprint";
+import { importEd25519PrivkeyPkcs8, signJwt, type SignClaims } from "./jwt.ts";
 import { log } from "@roost/shared/log";
 
 export interface CoordKey {

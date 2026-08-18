@@ -11,8 +11,8 @@ test("initHistory seeds cursor 0", () => {
 
 test("pushHistory appends and advances", () => {
   let s = initHistory("~");
-  s = pushHistory(s, "/Users/mike/Code");
-  expect(s.entries).toEqual(["~", "/Users/mike/Code"]);
+  s = pushHistory(s, "/Users/dev/Code");
+  expect(s.entries).toEqual(["~", "/Users/dev/Code"]);
   expect(s.cursor).toBe(1);
 });
 
@@ -85,22 +85,22 @@ test("canGoBack / canGoForward bounds", () => {
 
 test("regression: empty-start home never becomes root", () => {
   let s = initHistory("~");
-  s = pushHistory(s, "/Users/mike/Code");
-  s = pushHistory(s, "/Users/mike/Docs");
+  s = pushHistory(s, "/Users/dev/Code");
+  s = pushHistory(s, "/Users/dev/Docs");
   // back twice to home
   s = goBack(s);
-  expect(s.entries[s.cursor]).toBe("/Users/mike/Code");
+  expect(s.entries[s.cursor]).toBe("/Users/dev/Code");
   s = goBack(s);
   expect(s.entries[s.cursor]).toBe("~"); // home, NOT "/" or ""
   // forward through all
   s = goForward(s);
-  expect(s.entries[s.cursor]).toBe("/Users/mike/Code");
+  expect(s.entries[s.cursor]).toBe("/Users/dev/Code");
   s = goForward(s);
-  expect(s.entries[s.cursor]).toBe("/Users/mike/Docs");
+  expect(s.entries[s.cursor]).toBe("/Users/dev/Docs");
   // back one, then push new — forward branch discarded
-  s = goBack(s); // /Users/mike/Code
-  s = pushHistory(s, "/Users/mike/Code/Sub");
-  expect(s.entries).toEqual(["~", "/Users/mike/Code", "/Users/mike/Code/Sub"]);
+  s = goBack(s); // /Users/dev/Code
+  s = pushHistory(s, "/Users/dev/Code/Sub");
+  expect(s.entries).toEqual(["~", "/Users/dev/Code", "/Users/dev/Code/Sub"]);
   expect(s.cursor).toBe(2);
   expect(canGoForward(s)).toBe(false);
 });

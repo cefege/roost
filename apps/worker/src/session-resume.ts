@@ -4,8 +4,9 @@
 
 import type { SessionManager } from "./session-manager.ts";
 import type { SessionRecord } from "./session-record.ts";
-import type { SessionId, ChannelId } from "@roost/shared";
-import { log, diag, signal } from "@roost/shared";
+import type { SessionId, ChannelId } from "@roost/shared/wire";
+import { diag, signal } from "@roost/shared/diag";
+import { log } from "@roost/shared/log";
 import { newTraceId } from "@roost/shared/trace";
 import { initCellEmitState } from "@roost/shared/cell";
 import { FsmChannel } from "./fsm.ts";
@@ -24,7 +25,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { resolveShellSpec } from "./shell-spec.ts";
 import type { ShellSpec } from "./shell-spec.ts";
-import { KeeperFeature } from "./keeper/protocol-v2.ts";
+import { KeeperFeature } from "./keeper/protocol.ts";
 
 /** Rebuild SessionRecord for a session whose keeper survived this
  * worker restart. Probes the mux pool; if the channel is alive in the

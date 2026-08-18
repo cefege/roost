@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { CoordinatorMovePhase } from "@roost/shared/proto/coordinator_pb";
 import { createCoordRelocationRecovery } from "../src/coord-relocation-recovery.ts";
 import type { WorkerCoordRelocation } from "../src/coord-relocation.ts";
-import type { CoordLink } from "../src/transport/CoordLink-types.ts";
+import type { CoordLink } from "../src/transport/coord-link-types.ts";
 
 const journal = {
   version: 1 as const,

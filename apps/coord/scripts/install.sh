@@ -3,7 +3,6 @@
 # Linux → systemd --user unit. Binds :4102 (new port; legacy stays at :4101
 # until R4.5 cutover). Runs `bun apps/coord/src/main.ts` directly — no bundle
 # step required (Bun runs .ts natively).
-# REWRITE.md R0.13.
 
 set -euo pipefail
 

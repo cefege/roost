@@ -11,7 +11,7 @@
 // Callers: session-manager.ts when MUX mode is on.
 
 import { type Socket } from "node:net";
-import { signal } from "@roost/shared";
+import { signal } from "@roost/shared/diag";
 import { ensureConnection } from "./keeper-pool-lifecycle.ts";
 import {
   spawnChannel,
@@ -36,7 +36,7 @@ import type {
   KeeperInputResult,
   KeeperResizeResult,
   KeeperTerminalState,
-} from "./protocol-v2.ts";
+} from "./protocol.ts";
 import type { ShellSpec } from "../shell-spec.ts";
 
 export { probeKeeperCompatible, shutdownKeeperAuthenticated } from "./keeper-probe.ts";
@@ -47,7 +47,7 @@ export type {
   KeeperInputResult,
   KeeperResizeResult,
   KeeperTerminalState,
-} from "./protocol-v2.ts";
+} from "./protocol.ts";
 
 export type MuxChannelCallbacks = {
   onOutput: (chunk: Buffer) => void;

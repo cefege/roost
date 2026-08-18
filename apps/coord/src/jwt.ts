@@ -234,15 +234,3 @@ export async function signJwt(claims: SignClaims, key: CryptoKey, kid: string): 
   const sig = b64urlEncode(new Uint8Array(sigBuf));
   return `${header}.${payload}.${sig}`;
 }
-
-// ─── fingerprint helper ────────────────────────────────────────────────
-
-export async function fingerprintOf(raw: Uint8Array): Promise<string> {
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength) as ArrayBuffer,
-  );
-  return Array.from(new Uint8Array(digest))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}

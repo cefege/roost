@@ -8,7 +8,7 @@ import {
   rotateCurrentWebKey,
 } from "../../auth/web-key.ts";
 import { browserSelfLabel } from "../../lib/browserSelfLabel.ts";
-import { addToast } from "../../lib/toastStore.ts";
+import { addToast } from "../../store/toastStore.ts";
 import { Card, Button } from "./md/primitives.tsx";
 import { PairDevicePane } from "./PairDevicePane.tsx";
 import { Onboarding } from "../Onboarding.tsx";

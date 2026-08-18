@@ -14,12 +14,12 @@ import { useNavigate } from "@solidjs/router";
 import type { Session } from "@roost/shared/wire";
 import { rootStore } from "../../store/root.ts";
 import { workerOnline } from "../../store/sync.ts";
-import { openRenameDialog } from "../../lib/renameDialog.ts";
+import { openRenameDialog } from "../../store/renameDialog.ts";
 import { folderHeadline } from "../../lib/sessionTitle.ts";
 import { supportedWorkerPlatform } from "../../lib/nativePath.ts";
 import { invokeMachineAction, machineActionsForWorker } from "../../lib/machineActions.ts";
 import type { MachineActionDefinition } from "../../lib/machineActions.ts";
-import { addToast } from "../../lib/toastStore.ts";
+import { addToast } from "../../store/toastStore.ts";
 import {
 	ctxMenuSurfaceStyle,
 	CtxMenuItem,
@@ -54,7 +54,7 @@ export function SessionRowContextMenu(props: SessionRowContextMenuProps) {
 	// workspace position.
 	async function handleRestart() {
 		props.onClose();
-		const { addToast } = await import("../../lib/toastStore.ts");
+		const { addToast } = await import("../../store/toastStore.ts");
 		try {
 			const { coordClient } = await import("../../connect.ts");
 			const s = session();
@@ -91,7 +91,7 @@ export function SessionRowContextMenu(props: SessionRowContextMenuProps) {
 	// same folder.
 	async function handleDuplicate() {
 		props.onClose();
-		const { addToast } = await import("../../lib/toastStore.ts");
+		const { addToast } = await import("../../store/toastStore.ts");
 		try {
 			const { coordClient } = await import("../../connect.ts");
 			const s = session();
@@ -119,7 +119,7 @@ export function SessionRowContextMenu(props: SessionRowContextMenuProps) {
 
 	async function handleForceRemove() {
 		props.onClose();
-		const { addToast } = await import("../../lib/toastStore.ts");
+		const { addToast } = await import("../../store/toastStore.ts");
 		try {
 			const { coordClient } = await import("../../connect.ts");
 			const res = await coordClient.sessionsKill({

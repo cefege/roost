@@ -9,7 +9,7 @@
 //
 // Depends on: buses (globalBytesBus in, titleBus out, sessionBus reap).
 
-import { diag } from "@roost/shared";
+import { diag } from "@roost/shared/diag";
 import { globalBytesBus, sessionBus, titleBus } from "./buses.ts";
 
 // OSC 0 (icon+title) / 2 (window title); body is everything up to the

@@ -29,7 +29,6 @@ const LEVEL_ORDER: Record<LogLevel, number> = {
   error: 3,
 };
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const _proc = (globalThis as any).process;
 const _envLevel = _proc?.env?.ROOST_LOG_LEVEL as string | undefined;
 const MIN_LEVEL: LogLevel =

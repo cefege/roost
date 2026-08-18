@@ -5,7 +5,7 @@
 // there's now only one option: CoordLink.
 
 import type { SessionEvent } from "@roost/shared/wire";
-import type { CoordLink } from "./transport/CoordLink.ts";
+import type { CoordLink } from "./transport/coord-link.ts";
 
 export interface SessionEventSink {
   emit(event: SessionEvent): void;

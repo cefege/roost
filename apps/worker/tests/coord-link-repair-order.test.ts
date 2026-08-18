@@ -23,11 +23,11 @@ import {
   startCoordLink,
   type CoordLink,
   type TransportSendResult,
-} from "../src/transport/CoordLink.ts";
+} from "../src/transport/coord-link.ts";
 import {
   WS_BUFFERED_HIGH_WATER_BYTES,
   WS_DRAIN_RETRY_MS,
-} from "../src/transport/CoordLink-constants.ts";
+} from "../src/transport/coord-link-constants.ts";
 
 function helloAckBytes(): Uint8Array {
   return toBinary(

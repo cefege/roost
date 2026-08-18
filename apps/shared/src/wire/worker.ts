@@ -1,5 +1,4 @@
 // Worker registry shape. Coord persists; SPA reads via tRPC.
-// REWRITE.md R3 data model.
 
 import { z } from "zod";
 import { WorkerFp } from "./brand.ts";

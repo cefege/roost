@@ -1,4 +1,4 @@
-import { log } from "@roost/shared";
+import { log } from "@roost/shared/log";
 import { spansText, viewportRowSpans } from "@roost/shared/cell";
 import type { TerminalCore } from "@wterm/core";
 import type { SessionManager } from "../session-manager.ts";

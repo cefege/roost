@@ -422,7 +422,7 @@ export async function sendCoordinatorMovePrepare(workerFp: string, message: {
   expectedGitSha: string; estimatedDbSize: bigint; action: "CHECK" | "PREPARE";
 }, timeoutMs = 180_000): Promise<unknown> {
   const worker = connectWorkers.get(workerFp);
-  if (!worker) throw new Error("worker offline");
+  if (!worker) throw new ConnectError("worker offline", Code.Unavailable);
   const pending = createPendingRpc(timeoutMs, workerFp);
   worker.send(create(CoordWorkerDownSchema, { frame: { case: "coordMovePrepare", value: create(DCoordMovePrepareSchema, {
     requestId: pending.request_id, ...message,
@@ -434,7 +434,7 @@ export async function sendCoordinatorRelocate(workerFp: string, message: {
   handoffId: string; sourceUrl: string; targetUrl: string; action: "STAGE" | "ACTIVATE" | "COMMIT" | "ABORT";
 }, timeoutMs = 30_000): Promise<unknown> {
   const worker = connectWorkers.get(workerFp);
-  if (!worker) throw new Error("worker offline");
+  if (!worker) throw new ConnectError("worker offline", Code.Unavailable);
   const pending = createPendingRpc(timeoutMs, workerFp);
   worker.send(create(CoordWorkerDownSchema, { frame: { case: "coordRelocate", value: create(DCoordRelocateSchema, {
     requestId: pending.request_id, ...message,
@@ -447,7 +447,7 @@ export function sendCoordinatorSnapshotStart(workerFp: string, message: {
   authorizedKeys: Uint8Array; secretSha256: string; expectedWorkerFps: string[];
 }, timeoutMs = 120_000): { requestId: string; promise: Promise<unknown> } {
   const worker = connectWorkers.get(workerFp);
-  if (!worker) throw new Error("worker offline");
+  if (!worker) throw new ConnectError("worker offline", Code.Unavailable);
   const pending = createPendingRpc(timeoutMs, workerFp);
   worker.send(create(CoordWorkerDownSchema, { frame: { case: "coordMoveSnapshotStart", value: create(DCoordMoveSnapshotStartSchema, {
     requestId: pending.request_id, ...message,
@@ -458,7 +458,7 @@ export function sendCoordinatorSnapshotChunk(workerFp: string, message: {
   handoffId: string; seq: number; data: Uint8Array; last: boolean;
 }): number {
   const worker = connectWorkers.get(workerFp);
-  if (!worker) throw new Error("worker offline");
+  if (!worker) throw new ConnectError("worker offline", Code.Unavailable);
   return worker.send(create(CoordWorkerDownSchema, { frame: { case: "coordMoveSnapshotChunk", value: create(DCoordMoveSnapshotChunkSchema, message) } }));
 }
 
@@ -471,7 +471,7 @@ export function sendWindowsUpdateBroker(workerFp: string, message: {
   publisherSha256?: string;
 }, timeoutMs = 30_000): { requestId: string; promise: Promise<unknown> } {
   const worker = connectWorkers.get(workerFp);
-  if (!worker) throw new Error("worker offline");
+  if (!worker) throw new ConnectError("worker offline", Code.Unavailable);
   const pending = createPendingRpc(timeoutMs, workerFp);
   try {
     const sent = worker.send(create(CoordWorkerDownSchema, {

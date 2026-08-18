@@ -5,8 +5,9 @@
 
 import type { SessionManager } from "./session-manager.ts";
 import type { SessionRecord } from "./session-record.ts";
-import type { SessionId, ChannelId } from "@roost/shared";
-import { log, diag, signal } from "@roost/shared";
+import type { SessionId, ChannelId } from "@roost/shared/wire";
+import { diag, signal } from "@roost/shared/diag";
+import { log } from "@roost/shared/log";
 import type { ChannelState, FsmEvent } from "./fsm.ts";
 import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
 import * as byteCapture from "./diag/byte-capture.ts";

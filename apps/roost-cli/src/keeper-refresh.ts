@@ -1,7 +1,7 @@
 // `roost keeper-refresh <host> --yes` is the only workflow authorized to
 // stop a keeper. It is destructive, explicitly confirmed, and serialized
 // with update/coordinator-relocation through the machine transaction lock.
-import { acquireMachineTransaction } from "@roost/shared/machine-transaction";
+import { acquireMachineTransaction } from "./machine-transaction.ts";
 import { roostServiceDir } from "@roost/shared/paths";
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";

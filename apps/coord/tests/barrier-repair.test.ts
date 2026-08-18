@@ -25,6 +25,8 @@ import {
   isBarrierRepairMarked,
   noteBarrierChannelLoss,
   noteBarrierRepairFullFrames,
+} from "../src/byte-hub-barrier-repair.ts";
+import {
   primeChannelMap,
   publishCellGrid,
 } from "../src/byte-hub.ts";

@@ -1,10 +1,9 @@
 // Mounts TransferConsoleModal exactly once at App-shell level so it
-// survives sidebar rekeying from worker presence updates. Mirrors
-// DeployConsoleHost.
+// survives sidebar rekeying from worker presence updates.
 
 import { Show } from "solid-js";
 import { TransferConsoleModal } from "./TransferConsoleModal.tsx";
-import { activeTransfer, closeTransferConsole } from "../lib/transferConsole.ts";
+import { activeTransfer, closeTransferConsole } from "../store/transferConsole.ts";
 
 export function TransferConsoleHost() {
   return (

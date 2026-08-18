@@ -14,7 +14,7 @@ import { SyncDomain } from "@roost/shared/proto/sync_pb";
 import type { WebhookToken, WebhookTokenMint, WebhookTokenDelta } from "@roost/shared/wire";
 import { asWebhookTokenId } from "@roost/shared/wire";
 import { WebhookTokenMintDialog } from "../WebhookTokenMintDialog.tsx";
-import { addToast } from "../../lib/toastStore.ts";
+import { addToast } from "../../store/toastStore.ts";
 import { Card, Button, EmptyState, List, ListRow, Icon } from "./md/primitives.tsx";
 
 function relativeTime(tsMs: number): string {

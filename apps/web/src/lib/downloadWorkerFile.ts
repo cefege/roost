@@ -7,7 +7,7 @@
 // (CellTerminal): Cmd/Ctrl-click a path in the terminal → the file downloads.
 
 import { coordClient } from "../connect.ts";
-import { addToast } from "./toastStore.ts";
+import { addToast } from "../store/toastStore.ts";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
 import { addTransfer, markTransferState, setTransferProgress } from "../store/transfers.ts";

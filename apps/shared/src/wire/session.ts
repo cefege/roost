@@ -1,5 +1,4 @@
 // Session = atomic unit. Everything in the sidebar derives from this.
-// REWRITE.md R3.
 
 import { z } from "zod";
 import { ChannelId, SessionId, WorkerFp, WorkspaceId } from "./brand.ts";

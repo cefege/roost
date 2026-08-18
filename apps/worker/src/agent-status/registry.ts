@@ -2,7 +2,7 @@ import {
   AgentStatusUpdate,
   type AgentRuntimeState,
   type AgentStatusUpdate as AgentStatusUpdateType,
-} from "@roost/shared";
+} from "@roost/shared/wire";
 import type { BuiltinAgentId } from "./process-scan.ts";
 
 export const INTEGRATION_LEASE_MS = 30_000;

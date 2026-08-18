@@ -21,7 +21,8 @@ import { PbCellGridFrameSchema } from "@roost/shared/proto/cell_pb";
 import { openDb } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
 import { loadOrCreateCoordKey } from "../src/coord-key.ts";
-import { newJwtCache, signJwt, fingerprintOf } from "../src/jwt.ts";
+import { fingerprintOf } from "@roost/shared/fingerprint";
+import { newJwtCache, signJwt } from "../src/jwt.ts";
 import { handleSyncWsUpgrade, makeSyncWsHandler } from "../src/connect/sync-ws-handler.ts";
 import {
   _reapCellSubscriptions,

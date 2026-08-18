@@ -8,7 +8,7 @@
 // Guards: project_scrollback_raw_ring_single_source (RC2). If a future
 // keeper change drops the ring or breaks GetHistory, head_seq resets to 0
 // on resume and the SPA's persisted lastSeq goes stale → lost history +
-// seq-epoch reset. CLAUDE.md L11.
+// seq-epoch reset. docs/FAILURE-INDEX.md.
 
 import { describe, test, expect, afterAll } from "bun:test";
 import { rmSync } from "node:fs";

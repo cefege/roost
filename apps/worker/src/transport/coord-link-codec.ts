@@ -1,6 +1,6 @@
-// Pure frame codecs for CoordLink.ts — stateless conversions between the
+// Pure frame codecs for coord-link.ts — stateless conversions between the
 // caller-facing UpstreamFrame / binary layout and wire CoordWorkerUp protos.
-// Extracted to keep CoordLink.ts under the 400-line cap; none of these close
+// Extracted to keep coord-link.ts under the 400-line cap; none of these close
 // over the factory's mutable state, so they take all inputs as parameters.
 
 import { create } from "@bufbuild/protobuf";
@@ -11,7 +11,7 @@ import {
   WUpdateProgressSchema,
 } from "@roost/shared/proto/worker_transport_pb";
 import type { CoordWorkerUp } from "@roost/shared/proto/worker_transport_pb";
-import type { UpstreamFrame } from "./CoordLink-types.ts";
+import type { UpstreamFrame } from "./coord-link-types.ts";
 
 export function frameToProto(f: UpstreamFrame): CoordWorkerUp | null {
   switch (f.kind) {

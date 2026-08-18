@@ -7,8 +7,8 @@
 // This shell owns: tab targeting, folder-bucket resolution from rootStore,
 // commit + the doSelect navigation coupling (selecting a session navigates to
 // it, exactly like a strip click).
-// store/sync.ts forwards frames via _dispatchUiCommand; UiBridge (lib/
-// uiBridge.tsx) registers the handler with router navigate bound. Frames are
+// store/sync.ts forwards frames via _dispatchUiCommand; UiBridge (components/
+// UiBridge.tsx) registers the handler with router navigate bound. Frames are
 // fire-and-forget: invalid ones drop with ONE console.warn, never throw.
 
 import type { UiCommand, UiCommandFrame } from "@roost/shared/proto/sync_pb";

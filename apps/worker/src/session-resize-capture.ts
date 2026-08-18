@@ -14,7 +14,7 @@
 // resize stayed unresolved, which is exactly the stall this replaces.
 
 import type { SessionManager } from "./session-manager.ts";
-import { diag, signal } from "@roost/shared";
+import { diag, signal } from "@roost/shared/diag";
 import { readRing, ringLength } from "./session-scrollback-ring.ts";
 import { _createWtermCore } from "./session-constants.ts";
 import { ALT_ENTER_SEQS } from "./terminal-stream-scan.ts";

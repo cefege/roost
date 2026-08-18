@@ -37,7 +37,7 @@ function _maybeToastKeeperDeath(): void {
     const n = _keeperDeathRespawnCount;
     _keeperDeathRespawnCount = 0;
     _keeperDeathToastTimer = null;
-    void import("../lib/toastStore.ts").then(({ addToast }) =>
+    void import("./toastStore.ts").then(({ addToast }) =>
       addToast(
         `${n} terminal${n === 1 ? "" : "s"} restarted — the server ran low on memory and recovered ${n === 1 ? "it" : "them"}. Scrollback before this point was lost. If this keeps happening, free up RAM or add memory.`,
         "warn",

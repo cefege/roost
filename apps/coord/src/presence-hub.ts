@@ -2,8 +2,9 @@
 // carry an opaque `payload`; publishPresence re-keys them by session_id onto
 // the globalPresenceBus firehose the SPA's single Sync sub consumes.
 //
-// No current producer (worker stopped emitting presence when its inbound WS
-// surface was removed); kept as the forward-compat wire path for multi-viewer.
+// Producer: handlers-sessions.ts imports publishPresence dynamically when a
+// worker relays a presence frame, so this file has no static importer — grep
+// for the dynamic import, not a top-level one, when tracing the call path.
 
 import { globalPresenceBus } from "./buses.ts";
 import { lookupSessionId } from "./byte-hub.ts";

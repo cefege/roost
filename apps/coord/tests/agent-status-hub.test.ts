@@ -26,7 +26,7 @@ import {
 } from "../src/agent-status-hub.ts";
 import { agentStatusBus, sessionBus } from "../src/buses.ts";
 import { cacheSessionWorker, evictSessionWorker } from "../src/byte-hub.ts";
-import { startSyncFeed } from "../src/connect/handlers-streaming.ts";
+import { startSyncFeed } from "../src/connect/sync-feed.ts";
 import { makeWorkerConn, type WorkerServiceDeps } from "../src/connect/worker-conn.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";
 

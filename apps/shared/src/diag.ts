@@ -46,7 +46,7 @@ function readEnabled(): boolean {
   // DEFAULT: OFF. Opt IN with ROOST_DIAG=1 (Bun env) /
   // localStorage.roostDiag='1' (SPA). The firehose left on is the
   // documented trap (coord ~21% CPU + GBs/day of *.out.log);
-  // see reference_two_tier_observability.md.
+  // docs/FAILURE-INDEX.md.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const proc = (globalThis as any).process;
   if (proc && proc.env && proc.env.ROOST_DIAG === "1") return true;

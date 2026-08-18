@@ -37,12 +37,12 @@ import {
   type WViewportResult,
 } from "@roost/shared/proto/worker_transport_pb";
 import type { WorkerFp } from "@roost/shared/wire";
-import { startCoordLink, type CoordLink } from "../src/transport/CoordLink.ts";
-import type { TerminalRequestBudget } from "../src/transport/CoordLink-types.ts";
+import { startCoordLink, type CoordLink } from "../src/transport/coord-link.ts";
+import type { TerminalRequestBudget } from "../src/transport/coord-link-types.ts";
 import {
   INPUT_REQUEST_INFLIGHT_CAP,
   TERMINAL_REQUEST_BUDGET_CAP_MS,
-} from "../src/transport/CoordLink-constants.ts";
+} from "../src/transport/coord-link-constants.ts";
 
 const SESSION_ID = "00000000-0000-4000-8000-0000000000aa";
 

@@ -18,13 +18,14 @@ import {
 import { openDb } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
 import { loadOrCreateCoordKey } from "../src/coord-key.ts";
-import { fingerprintOf, invalidateJwtKey, newJwtCache, signJwt } from "../src/jwt.ts";
+import { fingerprintOf } from "@roost/shared/fingerprint";
+import { invalidateJwtKey, newJwtCache, signJwt } from "../src/jwt.ts";
 import {
   handleSyncWsUpgrade,
   makeSyncWsHandler,
-  type SyncDeadlineClock,
   type SyncWsData,
 } from "../src/connect/sync-ws-handler.ts";
+import type { SyncDeadlineClock } from "../src/connect/sync-ws-deadline.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";
 import type { CoordConfig } from "@roost/shared/config";
 import { titleBus } from "../src/buses.ts";

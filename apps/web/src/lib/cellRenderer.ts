@@ -291,6 +291,7 @@ export class CellGridRenderer {
     if (this.ghostsEl.parentElement !== this.viewportEl) this.viewportEl.appendChild(this.ghostsEl);
   }
 
+  // ─── frame application ───
   /** Compatibility dispatcher for non-hot-path callers. CellTerminal names the
    * full-repair versus sparse-delta contract explicitly. */
   apply(incoming: CellGridFrame): boolean {
@@ -426,6 +427,7 @@ export class CellGridRenderer {
     return this._holdMask;
   }
 
+  // ─── reader-intent holds ───
   /** Begin an explicit reading interval before a gesture can race a frame. */
   enterReading(reason: ReaderIntentReason): void {
     // Explicit intent always wins a still-pending lifecycle classification.
@@ -1179,6 +1181,7 @@ export class CellGridRenderer {
     this.container.setAttribute("aria-label", label);
   }
 
+  // ─── scroll ownership ───
   private _writeScrollTop(value: number): void {
     const before = this.container.scrollTop;
     if (before !== value) this.container.scrollTop = value;

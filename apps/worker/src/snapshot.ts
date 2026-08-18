@@ -12,8 +12,8 @@
 
 import type { SessionManager } from "./session-manager.ts";
 import type { SessionEventSink } from "./event-sink.ts";
-import type { WorkerFp } from "@roost/shared";
-import { log } from "@roost/shared";
+import type { WorkerFp } from "@roost/shared/wire";
+import { log } from "@roost/shared/log";
 
 export async function emitSnapshot(opts: {
   mgr: SessionManager;

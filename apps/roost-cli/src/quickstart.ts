@@ -41,7 +41,7 @@ import { probeServiceHealth } from "@roost/shared/service-health";
 import {
   acquireMachineTransaction,
   type MachineTransactionLock,
-} from "@roost/shared/machine-transaction";
+} from "./machine-transaction.ts";
 import {
   durableRemove,
   durableReplace,

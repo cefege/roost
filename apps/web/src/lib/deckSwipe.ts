@@ -2,6 +2,10 @@
 // swipe (wired in TerminalDeck, gesture measured in MobileDeckBar). Pure so the
 // thresholds are unit-tested. Mirrors edgeSwipeDrawer.ts. dir: 1 = next, -1 =
 // prev (deck feeds the real finger dx, so dir 1 = finger-left, dir -1 = finger-right).
+// The swipe-slot presentation (Swipe state shape + every style the deck paints
+// from it) lives at the bottom of this file.
+
+import type { Rect } from "../store/paneLayout.ts";
 
 export const SWITCH_DIST_FRAC = 0.4;       // deliberate drag: travel >= 40% width
 export const SWITCH_FLING_VEL = 0.6;       // px/ms, directional flick
@@ -90,4 +94,121 @@ export function peekCard(p: number): { scale: number; shiftFrac: number; radius:
 export function newFabScale(p: number): number {
   const c = Math.max(0, Math.min(1, p));
   return NEW_FAB_MIN_SCALE + (1 - NEW_FAB_MIN_SCALE) * c;
+}
+
+// ── Mobile swipe-to-switch presentation ───────────────────────────────────
+// The gesture's state shape plus every style the deck paints from it. Moved
+// out of TerminalDeck — which keeps arm/track/end and the DOM listeners — so
+// the mapping stays pure: the deck threads its live swipe state, deck width,
+// and tab-strip height in.
+type SwipePhase = "track" | "settle";
+export type Swipe = {
+  phase: SwipePhase;
+  currentId: string;          // URL-active session at swipe start
+  neighborId: string | null;  // null → at an end (new-terminal / workspace affordance)
+  dir: 1 | -1;                 // 1 = finger-left → next; -1 = finger-right → prev
+  offset: number;              // live finger dx (px), clamped to [-w, w]
+  mode: SwipeMode;             // slide (real neighbor) | new-terminal | workspace
+  settleTarget?: "commit" | "cancel"; // set only in endSwipe → keys the settle geometry
+  settleMs?: number;           // per-settle duration (momentum); undefined during track
+};
+
+// Emphasized-decelerate easing for the swipe settle (shared by slot transform +
+// end-affordance placeholder). Mirrors the M3 token used across the mobile deck.
+const SWIPE_DECEL = "var(--md-sys-motion-easing-emphasized-decelerate, cubic-bezier(0.05, 0.7, 0.1, 1))";
+// Tab-switch slide settle — Chromium ToolbarSwipeLayout animates the offset with
+// Android's DecelerateInterpolator(1.0) = 1-(1-t)² (easeOutQuad). Gentler than the
+// M3 emphasized-decelerate SWIPE_DECEL, which front-loads ~70% of travel into the
+// first ~15% of time and hid the swipe direction. Slide only; affordances keep SWIPE_DECEL.
+const SWIPE_SLIDE_EASE = "cubic-bezier(0.25, 0.46, 0.45, 0.94)";
+export const NEW_BLOOM_MS = 300;       // container-transform reveal (M3 emphasized medium2)
+
+// ── Swipe transform per terminal slot ─────────────────────────────────
+// Composed AFTER termStyle (which never sets transform) so the slot's base
+// geometry is intact. During track: no transition (finger-follow). During
+// settle: constant-speed slide (settleDurationMs = 500ms per screen-width) with a
+// decelerate ease-out so a full traverse never blinks past and its direction reads.
+export function swipeOffsetsPx(sw: Swipe, w: number): { current: number; neighbor: number } {
+  if (sw.phase === "settle")
+    return sw.settleTarget === "commit"
+      ? { current: -sw.dir * w, neighbor: 0 }
+      : { current: 0, neighbor: sw.dir * w };
+  return { current: sw.offset, neighbor: sw.offset + sw.dir * w };
+}
+export function swipeStyleFor(sw: Swipe | null, id: string, w: number): Record<string, string> {
+  if (!sw || (id !== sw.currentId && id !== sw.neighborId)) return {};
+  const transition = sw.phase === "settle" ? `transform ${sw.settleMs ?? 200}ms ${SWIPE_SLIDE_EASE}` : "none";
+  const o = swipeOffsetsPx(sw, w);
+  if (id === sw.currentId) {
+    if (sw.mode === "new-terminal") {
+      const p = sw.phase === "settle" ? (sw.settleTarget === "commit" ? 1 : 0) : newFabProgress(sw.offset, w);
+      const { scale, shiftFrac, radius } = peekCard(p);
+      const ms = sw.settleMs ?? 200;
+      return {
+        transform: `translateX(${shiftFrac * w}px) scale(${scale})`,
+        "transform-origin": "center center",
+        "border-radius": `${radius}px`,
+        overflow: "hidden",
+        "box-shadow": p > 0 ? `0 ${Math.round(8 * p)}px ${Math.round(30 * p)}px color-mix(in srgb, var(--md-shadow) ${Math.round(50 * p)}%, transparent)` : "none",
+        transition: sw.phase === "settle"
+          ? `transform ${ms}ms ${SWIPE_DECEL}, border-radius ${ms}ms ${SWIPE_DECEL}, box-shadow ${ms}ms ${SWIPE_DECEL}`
+          : "none",
+      };
+    }
+    if (sw.mode === "workspace") return {};
+    return { transform: `translateX(${o.current}px)`, transition };
+  }
+  if (!sw.neighborId) return {}; // new-terminal/workspace: no session neighbor slot (placeholder owns that side)
+  return { transform: `translateX(${o.neighbor}px)`, transition };
+}
+
+// The neighbor terminal's own full bar rides in as a distinct card during a real
+// neighbor slide (Chrome-mobile whole-tab slide). null for new-terminal / workspace
+// end affordances and off-compact. slide mode always has a real neighbor.
+export function barNeighborId(sw: Swipe | null, compact: boolean): string | null {
+  if (!sw || !compact || sw.mode !== "slide") return null;
+  return sw.neighborId;
+}
+
+// Behind-surface that the shrinking terminal reveals (predictive-back peek).
+// rect = the single compact pane's rect; stripH = the deck bar height above it.
+export function newPeekStyle(sw: Swipe | null, rect: Rect | undefined, w: number, stripH: number): Record<string, string> {
+  if (!sw || sw.mode !== "new-terminal") return { display: "none" };
+  if (!rect || w <= 0) return { display: "none" };
+  const p = newFabProgress(sw.offset, w);
+  const committing = sw.phase === "settle" && sw.settleTarget === "commit";
+  const settling = sw.phase === "settle";
+  return {
+    position: "absolute", left: "0px", top: `${rect.y + stripH}px`,
+    width: `${rect.w}px`, height: `${Math.max(0, rect.h - stripH)}px`, "z-index": "1",
+    opacity: committing ? "1" : settling ? "0" : `${Math.min(1, p)}`,
+    transition: settling ? `opacity ${sw.settleMs ?? NEW_BLOOM_MS}ms ${SWIPE_DECEL}` : "none",
+  };
+}
+// Circular + FAB that grows under the finger and container-transforms to full deck on commit.
+export function newFabStyle(sw: Swipe | null, rect: Rect | undefined, w: number, stripH: number): Record<string, string> {
+  if (!sw || sw.mode !== "new-terminal") return { display: "none" };
+  if (!rect || w <= 0) return { display: "none" };
+  const areaTop = rect.y + stripH;
+  const areaH = Math.max(0, rect.h - stripH);
+  const committing = sw.phase === "settle" && sw.settleTarget === "commit";
+  const settling = sw.phase === "settle";
+  const p = newFabProgress(sw.offset, w);
+  const FAB = 56;
+  if (committing) {
+    return {
+      position: "absolute", left: "0px", top: `${areaTop}px`,
+      width: `${rect.w}px`, height: `${areaH}px`, "border-radius": "0px",
+      transform: "scale(1)", opacity: "1", "z-index": "6",
+      transition: `left ${NEW_BLOOM_MS}ms ${SWIPE_DECEL}, top ${NEW_BLOOM_MS}ms ${SWIPE_DECEL}, width ${NEW_BLOOM_MS}ms ${SWIPE_DECEL}, height ${NEW_BLOOM_MS}ms ${SWIPE_DECEL}, border-radius ${NEW_BLOOM_MS}ms ${SWIPE_DECEL}`,
+    };
+  }
+  const ms = sw.settleMs ?? 200;
+  return {
+    position: "absolute", left: `${rect.w - 20 - FAB}px`, top: `${areaTop + areaH / 2 - FAB / 2}px`,
+    width: `${FAB}px`, height: `${FAB}px`, "border-radius": "50%",
+    transform: `scale(${settling ? NEW_FAB_MIN_SCALE : newFabScale(p)})`, "transform-origin": "center center",
+    opacity: settling ? "0" : `${Math.min(1, p * 1.4)}`, "z-index": "6",
+    transition: settling ? `transform ${ms}ms ${SWIPE_DECEL}, opacity ${ms}ms ${SWIPE_DECEL}` : "none",
+  };
 }

@@ -1,12 +1,15 @@
 #!/usr/bin/env bun
-// scripts/lint-roost.ts — mechanical enforcement of CLAUDE.md L11
-// RECURRING-FAILURE-INDEX. Run pre-commit + pre-push.
+// scripts/lint-roost.ts — mechanical enforcement of the standing repo
+// invariants: the recurring-failure guards (docs/FAILURE-INDEX.md), the
+// design-system raw-value ratchet, the ≤400-line file cap, and the
+// log-facade rule.
 //
 // Exit 0 = clean. Exit 1 = at least one violation (printed with file:line +
 // memory pointer). Add a new check by appending to CHECKS below.
 //
-// Run: bun scripts/lint-roost.ts
-// CI:   bun scripts/lint-roost.ts || exit 1
+// Run: bun run lint           (blocking `lint` step of the ci.yml invariants job)
+// Re-snapshot a ratchet: --update-design-baseline | --update-size-baseline
+//                        --update-console-baseline
 
 import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -44,13 +47,13 @@ const CHECKS: Check[] = [
     // forced repeated micro-corrections. Selected states route through the M3
     // role only. theme-vars.css keeps back-compat aliases (styles/, not matched).
     rule: "M3: selected state must use --md-sys-color-secondary-container, not the removed --bg-selected/--border-selected tints",
-    memory: "themeTokens.ts secondary-container (plan tranquil-munching-wreath)",
+    memory: "CLAUDE.md — design system",
     files: /apps\/web\/src\/.*\.tsx$/,
     pattern: /var\(--(bg|border)-selected\)/,
   },
   {
     rule: "L11: Solid setStore(key, fn → newRecord) on a Record silently no-ops",
-    memory: "feedback_solid_setstore_record_replace.md",
+    memory: "docs/FAILURE-INDEX.md",
     // Any apps/web/src file that imports setRootStore can ship the
     // pattern. Originally scoped to sync/projector but the bug also
     // hit pair-refresh in a component and an ad-hoc fix in MainPane —
@@ -60,7 +63,7 @@ const CHECKS: Check[] = [
   },
   {
     rule: "L11: CellTerminal must render inside <For> deck, never <Show> (remount on nav loses scrollback)",
-    memory: "feedback_persistent_terminal_deck.md",
+    memory: "docs/FAILURE-INDEX.md",
     files: /apps\/web\/src\/components\/MainPane\.tsx$/,
     // <Show ...>{(session) => <CellTerminal …  (Terminal.tsx deleted in the
     // cell-shipping cutover; the deck now hosts CellTerminal).
@@ -68,66 +71,22 @@ const CHECKS: Check[] = [
   },
   {
     rule: "L11: never read props.* inside an onCleanup callback",
-    memory: "feedback_no_props_read_in_oncleanup.md",
+    memory: "docs/FAILURE-INDEX.md",
     files: /apps\/web\/src\/.*\.tsx$/,
     // crude: onCleanup(...)... props.foo within the same function body
     pattern: /onCleanup\s*\(\s*\(?\)?\s*=>\s*\{[^}]*props\./,
   },
   {
-    rule: "L11: build-keeper.sh must include --external=node-pty",
-    memory: "feedback_worker_deploy_macos_repairs.md",
-    files: /apps\/worker\/scripts\/build-keeper\.sh$/,
-    // pattern that should NOT match — invert by failing on absence below
-    ok: (file, _lineIdx, lines) =>
-      lines.some((l) => l.includes("--external=node-pty")),
-  },
-  {
-    rule: "L11: apps/worker/src/keeper/package.json must declare commonjs",
-    memory: "feedback_worker_deploy_macos_repairs.md",
-    files: /apps\/worker\/src\/keeper\/package\.json$/,
-    ok: (_file, _lineIdx, lines) =>
-      lines.join("\n").includes('"type":"commonjs"') ||
-      lines.join("\n").includes('"type": "commonjs"'),
-  },
-  // L11 ws-server.ts kill-ack rule retired in phase-24d-1 — the file is
-  // deleted along with the legacy browser↔worker inbound WSS. Kill
-  // routing now goes browser → sessions.kill mutation → coord →
-  // CoordWorkerDownstream browser-command → SessionManager.kill →
-  // closed SessionEvent fanout. The ack mechanism is the
-  // pending-rpcs map + the closed event projected through the
-  // sessions.events tRPC subscription.
-  {
     rule: "L11: sidebar data-selected must be URL-driven, never sessions().length",
-    memory: "feedback_selected_means_url_match_not_has_children.md",
+    memory: "docs/FAILURE-INDEX.md",
     files: /apps\/web\/src\/components\/sidebar\/.*\.tsx$/,
     pattern: /data-selected\s*=\s*\{\s*sessions\(\)\.length/,
   },
   {
     rule: "L11: addToast kind must be 'ok' | 'warn' | 'err' (no 'info', 'success' etc)",
-    memory: "feedback_toast_kind_must_be_in_union.md",
+    memory: "docs/FAILURE-INDEX.md",
     files: /apps\/web\/src\/.*\.tsx?$/,
     pattern: /addToast\([^,)]+,\s*"(?!ok"|warn"|err")[a-z]+"/,
-  },
-  {
-    // commit 4c05a8a4 — KeeperClient.kill destroyed the UDS socket
-    // immediately after writing KillChild, so the keeper's Exit
-    // frame arrived at a dead receiver. Result: closedByKeeper
-    // never fired → no "closed" event in coord → SPA never removed
-    // the row. Any sequence of `.write(...)` followed by
-    // `.destroy()` on the same socket in keeper/client.ts loses
-    // the queued bytes the same way.
-    rule: "L11: socket.write then socket.destroy() loses queued binary frames",
-    memory: "feedback_keeper_destroy_after_write.md",
-    files: /apps\/worker\/src\/keeper\/client\.ts$/,
-    ok: (_file, _i, lines) => {
-      const txt = lines.join("\n");
-      // Flag any `kill()` whose body still chains `this.socket.destroy()`.
-      // The fix replaces destroy() with leaving the socket open for the
-      // keeper's Exit frame to flow back.
-      const m = txt.match(/kill\s*\(\s*\)\s*:\s*void\s*\{[\s\S]*?\}/);
-      if (!m) return true;
-      return !/this\.socket\.destroy\s*\(/.test(m[0]);
-    },
   },
   {
     // REGRESSED 3 TIMES. Synchronous wterm._doRender() inside the
@@ -141,7 +100,7 @@ const CHECKS: Check[] = [
     // History: 0c4a7bca added it; reverted 7e817192 / 91YYY. User
     // reports 3+ regressions total.
     rule: "L11: never force _doRender() inside the CellTerminal byte handler",
-    memory: "feedback_no_force_doRender_in_byte_handler.md",
+    memory: "docs/FAILURE-INDEX.md",
     // Terminal.tsx deleted in the cell-shipping cutover; the byte handler
     // (now feeding the hidden input/mode-oracle wterm) lives in CellTerminal.
     files: /apps\/web\/src\/components\/CellTerminal\.tsx$/,
@@ -163,38 +122,31 @@ const CHECKS: Check[] = [
     },
   },
   {
-    // commit 14fe6c09 — worker main.ts `case "resize"` fell through
-    // to the fire-and-forget log-and-return stub for weeks. claude /
-    // vim / less rendered at the keeper default 220×50 while wterm
-    // displayed at viewport width → wrap chaos in every TUI. The fix:
-    // give resize its own handler block that calls sessionMgr.resize.
-    // Lint guard: ensure "resize" is NOT in the fall-through chain
-    // that ends in the browser_command_via_coord no-op stub.
-    rule: "L11: worker case \"resize\" must have its own handler block",
-    memory: "feedback_resize_fallthrough_to_noop.md",
-    files: /apps\/worker\/src\/main\.ts$/,
+    // `case "resize"` once fell through to a fire-and-forget log-and-return
+    // stub for weeks. claude / vim / less rendered at the keeper default
+    // 220×50 while the browser displayed at viewport width → wrap chaos in
+    // every TUI. Resize must reach a real handler.
+    //
+    // This rule FAILS when the dispatch is missing rather than passing
+    // vacuously: the previous version pinned `files:` to worker/src/main.ts,
+    // the dispatch later moved to browser-command-handler.ts, and the rule
+    // silently stopped checking anything. A guard that cannot find its
+    // subject is a dead guard, so absence is now the violation.
+    rule: "L11: worker case \"resize\" must reach a real viewport handler",
+    memory: "docs/FAILURE-INDEX.md",
+    files: /apps\/worker\/src\/browser-command-handler\.ts$/,
     ok: (_file, _i, lines) => {
       const txt = lines.join("\n");
-      // Find the index of `case "resize":` and look at what follows.
-      // OK if a `{` (own block) appears before the next `case` token.
-      // BAD if the next non-whitespace token is `case "...":` — i.e.
-      // resize is falling through into another case's body.
-      const m = txt.match(/case\s+["']resize["']\s*:([\s\S]*?)(?=case\s+["']|default\s*:|\n\s{4,}\}\s*\n)/);
-      if (!m) return true; // resize handler missing entirely — not our concern here
+      const m = txt.match(/case\s+["']resize["']\s*:([\s\S]*?)(?=case\s+["']|default\s*:)/);
+      // Subject gone: either resize dispatch moved again (retarget this rule)
+      // or it was dropped entirely (the original bug). Both need a human.
+      if (!m) return false;
       const body = m[1] ?? "";
-      // Acceptable shape: resize routes to a real handler. Post multi-viewer
-      // SCD model the call is sessionMgr.claimViewport (cols/rows=0 = withdraw);
-      // the pre-SCD name was sessionMgr.resize. Either is a real handler.
-      if (/sessionMgr\.(resize|claimViewport)/.test(body)) return true;
-      // Falls through with no handler → the bug.
-      return false;
+      // A real handler: the extracted handleResize (which calls
+      // sessionMgr.claimViewport) or a direct claimViewport/resize call.
+      return /handleResize\s*\(|sessionMgr\.(resize|claimViewport)/.test(body);
     },
   },
-  // L11 SSE-rehydrate rule retired in the cell-shipping cutover: the tRPC v11
-  // SSE transport that delivered Uint8Array as a {"0":x,…} JSON object is gone
-  // — PTY bytes now arrive as proto binary over the Connect Sync stream, so the
-  // instanceof-drops-bytes class is structurally impossible. (Terminal.tsx, the
-  // rule's target file, is also deleted.)
   {
     // att1f — attachment flow must go through PTY round-trip.
     // wterm.write* paints into the local buffer without traversing the
@@ -202,7 +154,7 @@ const CHECKS: Check[] = [
     // The user would see the path on screen but tools couldn't read it.
     rule: "att1: attachment code must NOT call wterm.write* — paint via PTY",
     memory: "docs/archive/phase-att1.md",
-    files: /apps\/web\/src\/(lib\/attachments|components\/AttachmentChip)\.(ts|tsx)$/,
+    files: /apps\/web\/src\/lib\/attachments\.ts$/,
     pattern: /wterm\.(write|writeRaw|writeString)\(/,
   },
 
@@ -225,7 +177,7 @@ const CHECKS: Check[] = [
         // trpc.ts deleted in crpc6. deepgramDictation dials Deepgram's live
         // STT endpoint — a genuine external WS, not an intra-Roost transport.
         "apps/web/src/lib/deepgramDictation.ts",
-        "apps/worker/src/transport/CoordLink.ts",
+        "apps/worker/src/transport/coord-link.ts",
         // sync.ts holds the canonical web↔coord Sync-stream client (the only
         // web-side sync WebSocket; the SPA analog of CoordLink on the worker).
         "apps/web/src/store/sync.ts",
@@ -269,7 +221,7 @@ const CHECKS: Check[] = [
     // only raw parse lexically inside a publish() call is. Fix: build the
     // value with safeJsonParse BEFORE publish, publish the variable.
     rule: "L11: raw JSON.parse() inside a *Bus.publish() payload — parse-after-commit 500s the RPC → split-brain; use safeJsonParse",
-    memory: "feedback_safejsonparse_on_bus_publish_path.md",
+    memory: "docs/FAILURE-INDEX.md",
     files: /apps\/coord\/src\/connect\/handlers-.*\.ts$/,
     ok: (_file, _i, lines) => {
       // Walk each `.publish(` call from its open-paren to the matching close,
@@ -301,7 +253,7 @@ const CHECKS: Check[] = [
     // see). The audit row must be written INSIDE the interceptor's try/finally
     // where the verified caller is in scope.
     rule: "L11: writeAuditLog must be CALLED inside the AuthInterceptor (else audit_log caller_fp=NULL)",
-    memory: "feedback_caller_fp_null_audit_log.md",
+    memory: "docs/FAILURE-INDEX.md",
     files: /apps\/coord\/src\/connect\/auth-interceptor\.ts$/,
     ok: (_file, _i, lines) => lines.join("\n").includes("writeAuditLog("),
   },
@@ -313,7 +265,7 @@ const CHECKS: Check[] = [
     // that pass TERM:… in themselves false-cover it — this pins the explicit
     // assignment at the real keeper spawn site.
     rule: "L11: keeper Bun.spawn env must set TERM explicitly (deployed-only ncurses $TERM=unknown)",
-    memory: "feedback_bun_terminal_needs_explicit_TERM.md",
+    memory: "docs/FAILURE-INDEX.md",
     files: /apps\/worker\/src\/keeper\/keeper-frame-handler\.ts$/,
     ok: (_file, _i, lines) => /TERM:\s*["']xterm/.test(lines.join("\n")),
   },
@@ -323,7 +275,7 @@ const CHECKS: Check[] = [
     // cannot scroll up to see history ("THERE IS NO SCROLL"). The fix is this
     // one CSS rule — NOT switching terminal cores. Pin it to the .wterm block.
     rule: "L11: .wterm must keep overflow-y: auto (scrollback rows clip otherwise — do NOT switch cores)",
-    memory: "feedback_no_force_doRender_in_byte_handler.md",
+    memory: "docs/FAILURE-INDEX.md",
     files: /apps\/web\/src\/styles\/sidebar\.css$/,
     ok: (_file, _i, lines) =>
       /\.wterm\s*\{[^}]*overflow-y\s*:\s*auto[^}]*\}/.test(lines.join("\n")),
@@ -335,7 +287,7 @@ const CHECKS: Check[] = [
     // the crash-safe path. connect-node compression was the first vector, the
     // main.ts static-asset + backup.ts buffer/stream calls were the second.
     rule: "coord must NOT import node:zlib (heap-corruption segfault under Bun — use Bun.gzipSync)",
-    memory: "feedback_no_connect_node_compression_under_bun.md",
+    memory: "docs/FAILURE-INDEX.md",
     files: /apps\/coord\/src\/.*\.ts$/,
     pattern: /from\s+["']node:zlib["']|require\(\s*["']node:zlib["']\s*\)/,
   },
@@ -446,7 +398,7 @@ function runColorFallbackCheck(): Violation[] {
           line: i + 1,
           text: line.trim().slice(0, 140),
           rule: `L11: var(--${name}) is not declared in theme-vars.css or sidebar.css`,
-          memory: "feedback_no_hardcoded_color_fallbacks.md",
+          memory: "docs/FAILURE-INDEX.md",
         });
       }
     });
@@ -461,7 +413,7 @@ function runColorFallbackCheck(): Violation[] {
 // so a hardcoded color fallback is dead code AND a landmine — if the token
 // ever went undefined it would silently paint the wrong color against the
 // active theme. Non-color fallbacks (px, font names, var refs) are allowed.
-// See feedback_no_hardcoded_color_fallbacks.md.
+// See docs/FAILURE-INDEX.md.
 // ───────────────────────────────────────────────────────────────────────
 
 function runHardcodedFallbackCheck(): Violation[] {
@@ -478,7 +430,7 @@ function runHardcodedFallbackCheck(): Violation[] {
         out.push({
           file: rel, line: i + 1, text: line.trim().slice(0, 140),
           rule: "L11: hardcoded color fallback var(--x, #hex) — tokens are always defined; drop the fallback",
-          memory: "feedback_no_hardcoded_color_fallbacks.md",
+          memory: "docs/FAILURE-INDEX.md",
         });
       }
       COLOR_FALLBACK.lastIndex = 0;
@@ -564,7 +516,7 @@ function runRawValueCheck(): Violation[] {
         file: rel, line: 1,
         text: `${n} raw hex/rgb/px-font value lines (baseline ${allowed}) — reference a theme token instead`,
         rule: "design: no NEW raw color/px-font values — use --md-*/--surface-*/--text-* + the type ramp (ratcheted)",
-        memory: "design-system-phase1",
+        memory: "CLAUDE.md — design system",
       });
     }
   }
@@ -583,12 +535,161 @@ if (process.argv.includes("--update-design-baseline")) {
 }
 
 // ───────────────────────────────────────────────────────────────────────
+// File-size ratchet: a source file stays ≤400 lines. A per-file baseline
+// (scripts/file-size-baseline.json) freezes the files that were already
+// over the cap when the rule went live, so the cap is enforceable without
+// one repo-wide split: a baselined file FAILS only when it grows PAST its
+// recorded count, and a file ABSENT from the baseline may never exceed the
+// cap at all. Splits lower counts → re-snapshot with
+// `bun scripts/lint-roost.ts --update-size-baseline`. Generated protoc
+// output (apps/shared/src/gen) is excluded — nobody hand-splits it.
+// ───────────────────────────────────────────────────────────────────────
+
+const FILE_LINE_CAP = 400;
+const SIZE_BASELINE_FILE = join(REPO, "scripts/file-size-baseline.json");
+const SIZE_EXCLUDE = /^apps\/[^/]+\/src\/gen\//;
+
+// Hand-written source roots the cap governs: every app's src + tests, plus
+// the two tool trees. Enumerated from the filesystem so a new app is covered
+// the day it lands.
+function sizeRoots(): string[] {
+  const out: string[] = [];
+  for (const app of readdirSync(join(REPO, "apps"), { withFileTypes: true })) {
+    if (!app.isDirectory()) continue;
+    for (const sub of ["src", "tests"]) out.push(join(REPO, "apps", app.name, sub));
+  }
+  for (const dir of ["scripts", "smoke"]) out.push(join(REPO, dir));
+  return out.filter((p) => { try { return statSync(p).isDirectory(); } catch { return false; } });
+}
+
+function collectFileSizes(): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const root of sizeRoots()) {
+    for (const file of walk(root)) {
+      const rel = file.slice(REPO.length).replace(/^\/+/, "");
+      if (!/\.(ts|tsx)$/.test(rel)) continue;
+      if (SIZE_EXCLUDE.test(rel)) continue;
+      let text: string;
+      try { text = readFileSync(file, "utf8"); } catch { continue; }
+      counts[rel] = text.split("\n").length;
+    }
+  }
+  return counts;
+}
+
+function runFileSizeCheck(): Violation[] {
+  const counts = collectFileSizes();
+  let baseline: Record<string, number> = {};
+  try { baseline = JSON.parse(readFileSync(SIZE_BASELINE_FILE, "utf8")) as Record<string, number>; }
+  catch { baseline = {}; }
+  const out: Violation[] = [];
+  for (const [rel, n] of Object.entries(counts)) {
+    if (n <= FILE_LINE_CAP) continue;
+    const allowed = baseline[rel] ?? FILE_LINE_CAP;
+    if (n > allowed) {
+      out.push({
+        file: rel, line: 1,
+        text: `${n} lines (cap ${FILE_LINE_CAP}, baseline ${allowed}) — split before growing`,
+        rule: "size: files stay ≤400 lines; baselined files may only shrink (ratcheted)",
+        memory: "CLAUDE.md — coding standards",
+      });
+    }
+  }
+  return out;
+}
+
+// `--update-size-baseline`: re-snapshot the file-size ratchet from the
+// current tree (run after a split lowers counts).
+if (process.argv.includes("--update-size-baseline")) {
+  const counts = collectFileSizes();
+  const over = Object.entries(counts).filter(([, n]) => n > FILE_LINE_CAP);
+  const sorted = Object.fromEntries(over.sort(([a], [b]) => a.localeCompare(b)));
+  writeFileSync(SIZE_BASELINE_FILE, JSON.stringify(sorted, null, 2) + "\n");
+  const total = over.reduce((s, [, n]) => s + n, 0);
+  console.log(`lint-roost: wrote file-size-baseline.json — ${over.length} files, ${total} lines`);
+  process.exit(0);
+}
+
+// ───────────────────────────────────────────────────────────────────────
+// Log-facade ratchet: coord and worker are long-lived services whose output
+// is machine-read, so they log through `log` from @roost/shared/log — the one
+// facade that stamps ev/level and owns the console sink (apps/shared/src/log.ts,
+// outside the roots scanned here). A raw console.* in a service bypasses it.
+// The surviving callsites are pre-logger bootstrap and fatal-exit paths; the
+// baseline (scripts/console-baseline.json) freezes them so the rule blocks NEW
+// drift. apps/roost-cli is deliberately out of scope — stdout is its product
+// surface — as is apps/web, which routes through diag()/signal().
+// Re-snapshot: `bun scripts/lint-roost.ts --update-console-baseline`.
+// ───────────────────────────────────────────────────────────────────────
+
+const CONSOLE_BASELINE_FILE = join(REPO, "scripts/console-baseline.json");
+const CONSOLE_ROOTS = ["apps/coord/src", "apps/worker/src"];
+const CONSOLE_CALL = /\bconsole\.(log|warn|error|info|debug)\s*\(/;
+
+function consoleLineCount(text: string): number {
+  let n = 0;
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    if (line.startsWith("//") || line.startsWith("*") || line.startsWith("/*")) continue;
+    if (CONSOLE_CALL.test(line)) n++;
+  }
+  return n;
+}
+
+function collectConsoleCounts(): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const root of CONSOLE_ROOTS) {
+    for (const file of walk(join(REPO, root))) {
+      const rel = file.slice(REPO.length).replace(/^\/+/, "");
+      if (!/\.ts$/.test(rel)) continue;
+      let text: string;
+      try { text = readFileSync(file, "utf8"); } catch { continue; }
+      const n = consoleLineCount(text);
+      if (n > 0) counts[rel] = n;
+    }
+  }
+  return counts;
+}
+
+function runConsoleCheck(): Violation[] {
+  const counts = collectConsoleCounts();
+  let baseline: Record<string, number> = {};
+  try { baseline = JSON.parse(readFileSync(CONSOLE_BASELINE_FILE, "utf8")) as Record<string, number>; }
+  catch { baseline = {}; }
+  const out: Violation[] = [];
+  for (const [rel, n] of Object.entries(counts)) {
+    const allowed = baseline[rel] ?? 0;
+    if (n > allowed) {
+      out.push({
+        file: rel, line: 1,
+        text: `${n} console.* call lines (baseline ${allowed}) — log through the @roost/shared/log facade`,
+        rule: "logging: use the log facade from @roost/shared/log, not console.* (ratcheted)",
+        memory: "CLAUDE.md — coding standards",
+      });
+    }
+  }
+  return out;
+}
+
+// `--update-console-baseline`: re-snapshot the log-facade ratchet.
+if (process.argv.includes("--update-console-baseline")) {
+  const counts = collectConsoleCounts();
+  const sorted = Object.fromEntries(Object.entries(counts).sort(([a], [b]) => a.localeCompare(b)));
+  writeFileSync(CONSOLE_BASELINE_FILE, JSON.stringify(sorted, null, 2) + "\n");
+  const total = Object.values(counts).reduce((s, n) => s + n, 0);
+  console.log(`lint-roost: wrote console-baseline.json — ${Object.keys(counts).length} files, ${total} console.* lines`);
+  process.exit(0);
+}
+
+// ───────────────────────────────────────────────────────────────────────
 
 const violations = [
   ...runPatternChecks(),
   ...runColorFallbackCheck(),
   ...runHardcodedFallbackCheck(),
   ...runRawValueCheck(),
+  ...runFileSizeCheck(),
+  ...runConsoleCheck(),
 ];
 
 if (violations.length === 0) {

@@ -4,9 +4,9 @@
 // Callers: coord-client.ts (Authorization header on every coord RPC).
 
 import { existsSync, readFileSync } from "node:fs";
-import { createHash } from "node:crypto";
-import { log } from "@roost/shared";
+import { log } from "@roost/shared/log";
 import { durableWriteFile } from "@roost/shared/durability";
+import { fingerprintOf } from "@roost/shared/fingerprint";
 import { windowsApplyAccountDacl } from "@roost/shared/windows-helper";
 
 // PKCS8 DER prefix for a raw 32-byte Ed25519 seed. crypto.subtle.importKey
@@ -82,13 +82,6 @@ function parseOpenSshEd25519(pem: string): { privSeed: Uint8Array; pubKey: Uint8
   return { privSeed: Uint8Array.from(privSeed), pubKey: Uint8Array.from(pubKey) };
 }
 
-// ─── fingerprint ─────────────────────────────────────────────────────
-
-/** Compute SHA-256 hex fingerprint from raw 32-byte ed25519 pubkey. */
-function fingerprintFromPubKey(pubKey: Uint8Array): string {
-  return createHash("sha256").update(pubKey).digest("hex");
-}
-
 // ─── JWT minting ──────────────────────────────────────────────────────
 
 interface LoadedKey {
@@ -125,7 +118,7 @@ export async function loadWorkerKey(keyPath: string): Promise<LoadedKey> {
     await windowsApplyAccountDacl(keyPath, process.env.ROOST_SERVICE_ACCOUNT);
   }
 
-  const fingerprint = fingerprintFromPubKey(parsed.pubKey);
+  const fingerprint = await fingerprintOf(parsed.pubKey);
   const signingKey = await importSigningKey(parsed.privSeed);
   _key = { seed: parsed.privSeed, pubKey: parsed.pubKey, fingerprint, signingKey };
   log.info("jwt", "worker key loaded", { fingerprint });

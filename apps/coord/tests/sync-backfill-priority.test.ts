@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { create } from "@bufbuild/protobuf";
 import { PbCellGridFrameSchema } from "@roost/shared/proto/cell_pb";
 import { globalCellBus } from "../src/buses.ts";
-import { startSyncFeed } from "../src/connect/handlers-streaming.ts";
+import { startSyncFeed } from "../src/connect/sync-feed.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";
 import { openDb } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";

@@ -1,9 +1,9 @@
-// SSE helper for tRPC subscriptions over H3. The tRPC fetch adapter
-// sends each yielded value as a Server-Sent Events data: frame.
-// R0.2 — httpSubscriptionLink, NOT the ws adapter.
+// Bus-to-AsyncIterable adapter. Turns a BoundedBus subscription into an
+// AsyncIterable so a handler can `for await` over live bus messages and stop
+// cleanly on an AbortSignal.
 //
-// Returns AsyncIterable<T> to match tRPC v11's subscription resolver
-// signature: `resolver(opts) => MaybePromise<AsyncIterable<T>>`.
+// Sole caller: deploy-jobs.ts streams a deploy job's log bus to the client
+// through this. The name is historical — nothing here is Server-Sent Events.
 
 import type { BoundedBus } from "./buses.ts";
 

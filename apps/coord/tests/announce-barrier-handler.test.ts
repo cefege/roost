@@ -25,6 +25,8 @@ import {
   _barrierRepairSnapshot,
   clearBarrierRepairForWorker,
   isBarrierRepairMarked,
+} from "../src/byte-hub-barrier-repair.ts";
+import {
   primeChannelMap,
   replaceWorkerChannelIndex,
 } from "../src/byte-hub.ts";

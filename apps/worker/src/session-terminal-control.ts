@@ -9,7 +9,7 @@
 // pending control is the stall this file exists to prevent.
 
 import type { SessionManager } from "./session-manager.ts";
-import type { TerminalRequestBudget } from "./transport/CoordLink-types.ts";
+import type { TerminalRequestBudget } from "./transport/coord-link-types.ts";
 import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
 import {
   acquireKeeperAdmission,

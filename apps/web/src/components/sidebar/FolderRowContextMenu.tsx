@@ -19,12 +19,12 @@ import { Show, For } from "solid-js";
 import { Portal } from "solid-js/web";
 import { rootStore } from "../../store/root.ts";
 import { workspaceForFolder } from "../../lib/folderKey.ts";
-import { openRenameDialog } from "../../lib/renameDialog.ts";
+import { openRenameDialog } from "../../store/renameDialog.ts";
 import { ctxMenuSurfaceStyle, CtxMenuItem } from "../contextMenuPrimitives.tsx";
 import { supportedWorkerPlatform } from "../../lib/nativePath.ts";
 import { invokeMachineAction, machineActionsForWorker } from "../../lib/machineActions.ts";
 import type { MachineActionDefinition } from "../../lib/machineActions.ts";
-import { addToast } from "../../lib/toastStore.ts";
+import { addToast } from "../../store/toastStore.ts";
 
 interface FolderRowContextMenuProps {
 	pos: { x: number; y: number };

@@ -24,7 +24,8 @@ import {
 } from "@roost/shared/proto/coordinator_pb";
 import { PairRequestSchema } from "@roost/shared/proto/wire_pb";
 import { callerOrigin, requireAuth, optionalAuth, authorizationKey } from "./auth-interceptor.ts";
-import { fingerprintOf, invalidateJwtKey, refreshJwtKey } from "../jwt.ts";
+import { fingerprintOf } from "@roost/shared/fingerprint";
+import { invalidateJwtKey, refreshJwtKey } from "../jwt.ts";
 import { decodeEd25519Pubkey, isAuthorizedKeyRevoked } from "../authorized-keys.ts";
 import { assertOnHost, assertOnHostOrTailnet } from "../middleware/caller-origin.ts";
 import { COORD_GIT_SHA } from "../git-sha.ts";

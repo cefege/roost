@@ -5,8 +5,8 @@
 import { createClient } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-node";
 import { CoordinatorService } from "@roost/shared/proto/coordinator_pb";
-import type { WorkerConfig as WorkerConfigType } from "@roost/shared";
-import { log } from "@roost/shared";
+import type { WorkerConfig as WorkerConfigType } from "./config.ts";
+import { log } from "@roost/shared/log";
 
 export type CoordClientOptions = {
   cfg: WorkerConfigType;

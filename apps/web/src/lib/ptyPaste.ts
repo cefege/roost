@@ -19,6 +19,16 @@ export function buildPtyPayload(text: string, bracketedPaste: boolean): Uint8Arr
   return new TextEncoder().encode(payload);
 }
 
+// A paste of ≥2 newlines into a shell WITHOUT bracketed paste executes every
+// line as it arrives — the classic "pasted a script into bash and it ran half
+// of it" foot-gun. With bracketed paste on, the shell buffers it safely, so
+// there is nothing to warn about and no prompt.
+export const MULTILINE_PASTE_MIN_NEWLINES = 2;
+
+export function countLineBreaks(text: string): number {
+  return text.match(/\r\n|\r|\n/g)?.length ?? 0;
+}
+
 // CR is a separate frame so the terminal text gateway can append it only for
 // submissions, after the enterDelayMs window.
 

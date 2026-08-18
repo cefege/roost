@@ -1,7 +1,7 @@
 import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, type Stats } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { durableRemove, durableWriteFile, flushDurablePath } from "@roost/shared/durability";
-import { acquireMachineTransaction } from "@roost/shared/machine-transaction";
+import { acquireMachineTransaction } from "./machine-transaction.ts";
 import {
   coordServicePath,
   roostServiceDir,
@@ -23,6 +23,7 @@ import {
 } from "./deploy-plist-env.ts";
 import { linuxWorkerResourceEnvironment } from "./deploy-linux.ts";
 import {
+  launchdBootstrapWithRetryCmd,
   restartWorkerCmd,
   verifyWorkerCmd,
   WORKER_AGENT,
@@ -466,10 +467,6 @@ export function localWorkerReleaseMatches(
     && (environment.GIT_SHA ?? environment.ROOST_GIT_SHA) === gitSha;
 }
 
-function quoteShell(value: string): string {
-  return `'${value.replaceAll("'", `'\"'\"'`)}'`;
-}
-
 function restoreCommand(
   os: "linux" | "darwin",
   servicePath: string,
@@ -485,12 +482,7 @@ function restoreCommand(
   if (!shouldRun) {
     return `launchctl bootout gui/$(id -u)/${WORKER_AGENT} 2>/dev/null || true`;
   }
-  return `set -e; uid=$(id -u); launchctl bootout gui/$uid/${WORKER_AGENT} 2>/dev/null || true; ` +
-    `for i in 1 2 3 4 5 6 7 8 9 10; do sleep 1; ` +
-    `launchctl bootstrap gui/$uid ${quoteShell(servicePath)} 2>/dev/null && break; ` +
-    `if test "$i" = 10; then echo "worker rollback bootstrap failed after 10 retries" >&2; exit 1; fi; done; ` +
-    `launchctl enable gui/$uid/${WORKER_AGENT}; ` +
-    `launchctl kickstart -k gui/$uid/${WORKER_AGENT} 2>/dev/null || true`;
+  return launchdBootstrapWithRetryCmd(WORKER_AGENT, servicePath, { role: "worker rollback" });
 }
 
 export function localWorkerDeployJournalPath(serviceDir: string = roostServiceDir()): string {

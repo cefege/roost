@@ -12,7 +12,7 @@
 // debounce, so a burst of focus clicks costs one RPC. Sends are best-effort:
 // coord offline / pre-auth first paint drops silently, next trigger retries.
 //
-// Wired by lib/uiBridge.tsx (mounted once in App's RootShell): the reporter
+// Wired by components/UiBridge.tsx (mounted once in App's RootShell): the reporter
 // needs the router pathname, injected as a plain accessor so this module
 // stays free of router context.
 

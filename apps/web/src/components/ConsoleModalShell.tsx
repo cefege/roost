@@ -1,8 +1,8 @@
-// Shared docked-bottom-right live-console shell for DeployConsoleModal +
-// TransferConsoleModal — identical chrome (spinner header, collapse-to-header,
-// Copy, auto-scrolling monospace <pre>). Each caller owns its own stream
-// subscription + header text; this owns the presentation so the two consoles
-// can't drift apart.
+// Shared docked-bottom-right live-console shell. TransferConsoleModal is the
+// only consumer today; the shell stays separate so a second live console gets
+// identical chrome (spinner header, collapse-to-header, Copy, auto-scrolling
+// monospace <pre>) instead of a divergent copy. Each caller owns its own stream
+// subscription + header text; this owns only the presentation.
 
 import { createSignal, onMount, onCleanup, Show, For, createEffect } from "solid-js";
 import { Portal } from "solid-js/web";

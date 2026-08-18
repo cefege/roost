@@ -13,8 +13,8 @@ import { coordClient } from "../connect.ts";
 import { Select, TextField, Button, Checkbox } from "./Settings/md/primitives.tsx";
 import { rootStore } from "../store/root.ts";
 import { activeTransferDialog, closeTransferDialog } from "../lib/transferDialog.ts";
-import { openTransferConsole } from "../lib/transferConsole.ts";
-import { addToast } from "../lib/toastStore.ts";
+import { openTransferConsole } from "../store/transferConsole.ts";
+import { addToast } from "../store/toastStore.ts";
 import { animateOverlayPanel } from "../lib/overlayMotion.ts";
 
 export function TransferDialogHost() {

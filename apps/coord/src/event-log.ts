@@ -340,7 +340,7 @@ export async function appendEvent(
     const authenticatedFp = opts.worker_fp as WorkerFp | null;
     applyDurableChannelIndex(event, authenticatedFp);
     // Stamp the row id so the SPA can track it for reconnect backfill; the Sync
-    // feed reads it back off the payload (handlers-streaming.ts).
+    // feed reads it back off the payload (sync-feed.ts).
     const stamped = event as SessionEvent & { _event_id?: number };
     if (insertedId !== undefined) stamped._event_id = insertedId;
     sessionBus.publish(event);

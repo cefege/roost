@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { AgentStatusUpdate } from "@roost/shared";
+import type { AgentStatusUpdate } from "@roost/shared/wire";
 import { evaluateManifest, type ManifestDetection } from "../src/agent-status/manifest-engine.ts";
 import { AGENT_MANIFESTS } from "../src/agent-status/manifests.ts";
 import {

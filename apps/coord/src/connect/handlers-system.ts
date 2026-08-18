@@ -29,9 +29,11 @@ import {
 import {
   _announcedBarrierSnapshot,
   _barrierRepairSnapshot,
+  type CoordinatorBarrierRepairDiagnostic,
+} from "../byte-hub-barrier-repair.ts";
+import {
   _lastCellSnapshot,
   _sessionRouteSnapshot,
-  type CoordinatorBarrierRepairDiagnostic,
   type CoordinatorLastCellDiagnostic,
 } from "../byte-hub.ts";
 import { getAgentStatusDiagnostics } from "../agent-status-hub.ts";

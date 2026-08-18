@@ -17,8 +17,10 @@ import {
   workerConvergenceThresholds,
   workerVersionProblems,
   tryCoordinatorWindowsDeploy,
+  type CoordinatorDeployJournalV1,
 } from "../src/push.ts";
 import type { WorkerStatus } from "../src/status.ts";
+import { stubFetch } from "./test-helpers.ts";
 
 function worker(label: string, os: string, reachableAddr: string, gitSha: string | null): WorkerStatus {
   return {
@@ -162,10 +164,7 @@ describe("Windows fleet release preflight", () => {
   const digest = createHash("sha256").update(manifest).digest("hex");
 
   test("pins one exact Windows manifest before any host mutates", async () => {
-    const fetchImpl: typeof fetch = async (input) => new Response(
-      String(input).endsWith(".sha256") ? `${digest}\n` : manifest,
-      { status: 200 },
-    );
+    const fetchImpl = stubFetch((url) => (url.endsWith(".sha256") ? `${digest}\n` : manifest));
     await expect(preflightWindowsFleetRelease(expectedSha, fetchImpl))
       .resolves.toEqual({ manifestSha256: digest });
   });
@@ -173,10 +172,7 @@ describe("Windows fleet release preflight", () => {
   test("rejects a signed-release build mismatch during fleet preflight", async () => {
     const drifted = manifest.replace(expectedSha, "d".repeat(40));
     const driftedDigest = createHash("sha256").update(drifted).digest("hex");
-    const fetchImpl: typeof fetch = async (input) => new Response(
-      String(input).endsWith(".sha256") ? `${driftedDigest}\n` : drifted,
-      { status: 200 },
-    );
+    const fetchImpl = stubFetch((url) => (url.endsWith(".sha256") ? `${driftedDigest}\n` : drifted));
     await expect(preflightWindowsFleetRelease(expectedSha, fetchImpl))
       .rejects.toThrow(`expected source commit ${expectedSha}`);
   });
@@ -325,7 +321,7 @@ describe("coordinator deploy journal", () => {
     `WorkingDirectory=${sourceReleasePath}`,
     `Environment="ROOST_GIT_SHA=${priorSha}"`,
   ].join("\n");
-  const journal = {
+  const journal: CoordinatorDeployJournalV1 = {
     schemaVersion: 1,
     phase: "prepared",
     priorDefinitionBase64: Buffer.from(priorDefinition).toString("base64"),

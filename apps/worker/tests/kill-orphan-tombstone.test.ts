@@ -7,8 +7,8 @@
 
 import { test, expect } from "bun:test";
 import { SessionManager } from "../src/session-manager.ts";
-import { asSessionId, asWorkerFp } from "@roost/shared";
-import type { SessionEvent } from "@roost/shared";
+import { asSessionId, asWorkerFp } from "@roost/shared/wire";
+import type { SessionEvent } from "@roost/shared/wire";
 
 test("kill of an orphaned (unknown) session emits a closed tombstone", () => {
   const events: SessionEvent[] = [];

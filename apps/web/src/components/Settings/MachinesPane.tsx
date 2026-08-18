@@ -14,7 +14,7 @@ import type { Worker } from "@roost/shared/wire";
 import { rootStore } from "../../store/root.ts";
 import { workerOnline } from "../../store/sync.ts";
 import { coordClient } from "../../connect.ts";
-import { addToast } from "../../lib/toastStore.ts";
+import { addToast } from "../../store/toastStore.ts";
 import { MachineDeployDialog } from "../MachineDeployDialog.tsx";
 import { CoordinatorMoveDialog } from "./CoordinatorMoveDialog.tsx";
 import { Card, Button, MetricTile, EmptyState, Icon, TextField } from "./md/primitives.tsx";

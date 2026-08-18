@@ -5,8 +5,9 @@
 // main() calls setupReconcile once after startHeartbeat, then awaits the
 // returned reconcileOpenSessions("boot").
 
-import { log, signal } from "@roost/shared";
-import type { WorkerFp } from "@roost/shared";
+import { signal } from "@roost/shared/diag";
+import { log } from "@roost/shared/log";
+import type { WorkerFp } from "@roost/shared/wire";
 import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
 import type { CoordClient } from "./coord-client.ts";
 import type { SessionEventSink } from "./event-sink.ts";

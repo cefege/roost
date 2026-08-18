@@ -2,7 +2,7 @@ import { expect, mock, test } from "bun:test";
 import { asChannelId, asSessionId, ClientControlFrame } from "@roost/shared/wire";
 import { handleSpawnShell } from "../src/browser-command-spawn.ts";
 import type { SessionManager } from "../src/session-manager.ts";
-import type { CoordLink } from "../src/transport/CoordLink.ts";
+import type { CoordLink } from "../src/transport/coord-link.ts";
 
 const SID = asSessionId("00000000-0000-4000-8000-000000000818");
 

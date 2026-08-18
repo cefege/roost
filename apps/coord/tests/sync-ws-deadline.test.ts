@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   scheduleDeadline,
   type SyncDeadlineClock,
-} from "../src/connect/sync-ws-handler.ts";
+} from "../src/connect/sync-ws-deadline.ts";
 
 interface PendingTimer {
   at: number;

@@ -11,8 +11,10 @@
 import type { Database } from "bun:sqlite";
 import { log } from "@roost/shared/log";
 
-const SWEEP_INTERVAL_MS = 24 * 60 * 60 * 1000;
-const DAY_MS = 24 * 60 * 60 * 1000;
+/** One day. The retention window is counted in these, this sweep runs once per
+ *  one, and backup.ts schedules on the same value — one definition so the three
+ *  cannot silently drift apart. */
+export const DAY_MS = 24 * 60 * 60 * 1000;
 // Rows per DELETE statement.
 const BATCH_SIZE = 10_000;
 
@@ -120,5 +122,5 @@ export function scheduleAuditRetention(sqlite: Database, retentionDays: number):
 
   setInterval(() => {
     void runSweep(sqlite, retentionDays);
-  }, SWEEP_INTERVAL_MS).unref();
+  }, DAY_MS).unref();
 }

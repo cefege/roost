@@ -3,8 +3,10 @@
 
 import type { SessionManager } from "./session-manager.ts";
 import type { SessionRecord } from "./session-record.ts";
-import type { SessionId } from "@roost/shared";
-import { asSessionId, log, diag } from "@roost/shared";
+import type { SessionId } from "@roost/shared/wire";
+import { diag } from "@roost/shared/diag";
+import { log } from "@roost/shared/log";
+import { asSessionId } from "@roost/shared/wire";
 import { randomUUID } from "node:crypto";
 import { newTraceId } from "@roost/shared/trace";
 import { initCellEmitState } from "@roost/shared/cell";

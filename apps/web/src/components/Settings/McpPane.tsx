@@ -13,7 +13,7 @@ import { rootStore } from "../../store/root.ts";
 import { replaceMcpRelays, deleteMcpRelay, upsertMcpRelay } from "../../store/mutations.ts";
 import { coordClient } from "../../connect.ts";
 import { McpRelayEditor } from "../McpRelayEditor.tsx";
-import { addToast } from "../../lib/toastStore.ts";
+import { addToast } from "../../store/toastStore.ts";
 import { Card, Button, EmptyState, List, ListRow, Icon } from "./md/primitives.tsx";
 
 export function McpPane() {

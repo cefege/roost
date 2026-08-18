@@ -17,7 +17,7 @@ import {
   secureLocalEndpoint,
   verifyLocalEndpointCapability,
   type LocalEndpoint,
-} from "@roost/shared";
+} from "@roost/shared/local-endpoint";
 import {
   KEEPER_PROTOCOL_VERSION,
   MuxFrameType,
@@ -28,7 +28,7 @@ import {
   isEmptyKeeperPayload,
   negotiateKeeperFeatures,
   type MuxFrame,
-} from "./protocol-v2.ts";
+} from "./protocol.ts";
 import { KEEPER_BUILD_STAMP } from "./keeper-stamp.ts";
 import { _log } from "./keeper-log.ts";
 import { reapAllChannels } from "./keeper-process-reap.ts";

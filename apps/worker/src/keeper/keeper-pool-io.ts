@@ -3,7 +3,9 @@
 // from MultiplexedKeeperPool (multiplexed-client.ts); each takes the pool
 // instance as its first argument. Behavior is unchanged.
 
-import { cleanupLocalEndpoint, log, signal } from "@roost/shared";
+import { signal } from "@roost/shared/diag";
+import { cleanupLocalEndpoint } from "@roost/shared/local-endpoint";
+import { log } from "@roost/shared/log";
 import {
   KeeperFeature,
   KEEPER_MAX_INPUT_BYTES,
@@ -12,7 +14,7 @@ import {
   encodePtyInRequestFrame,
   encodeResizeRequest,
   encodeResizeStatusQuery,
-} from "./protocol-v2.ts";
+} from "./protocol.ts";
 import { muxLocalEndpoint } from "./keeper-pool-config.ts";
 import { monoNowMs } from "../util/mono.ts";
 import type { MultiplexedKeeperPool } from "./multiplexed-client.ts";
@@ -20,7 +22,7 @@ import type {
   KeeperInputResult,
   KeeperResizeResult,
   KeeperTerminalState,
-} from "./protocol-v2.ts";
+} from "./protocol.ts";
 
 const DROP_LOG_INTERVAL_MS = 1000;
 const COMMAND_RESULT_TIMEOUT_MS = 2500;

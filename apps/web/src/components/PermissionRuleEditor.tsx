@@ -8,7 +8,7 @@ import type { PermissionRule, PermissionDecision } from "@roost/shared/wire";
 import { asPermissionRuleId } from "@roost/shared/wire";
 import { coordClient } from "../connect.ts";
 import { upsertPermissionRule, deletePermissionRule } from "../store/mutations.ts";
-import { addToast } from "../lib/toastStore.ts";
+import { addToast } from "../store/toastStore.ts";
 import { Switch, Button } from "./Settings/md/primitives.tsx";
 
 interface PermissionRuleEditorProps {

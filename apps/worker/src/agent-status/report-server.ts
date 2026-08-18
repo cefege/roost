@@ -9,12 +9,8 @@ import {
   secureLocalEndpoint,
   type LocalEndpoint,
 } from "@roost/shared/local-endpoint";
-import {
-  AGENT_STATUS_MESSAGE_MAX_LENGTH,
-  AgentRuntimeState,
-  SessionId,
-  log,
-} from "@roost/shared";
+import { log } from "@roost/shared/log";
+import { AGENT_STATUS_MESSAGE_MAX_LENGTH, AgentRuntimeState, SessionId } from "@roost/shared/wire";
 import { supportedHostPlatform } from "@roost/shared/platform";
 import type { AgentScreenDetector } from "./detector.ts";
 import type { BuiltinAgentId } from "./process-scan.ts";

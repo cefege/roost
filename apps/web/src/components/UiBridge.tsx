@@ -8,8 +8,8 @@
 
 import { createEffect, on, onCleanup, onMount } from "solid-js";
 import { useLocation, useNavigate } from "@solidjs/router";
-import { initUiStateReport, scheduleUiStateReport } from "./uiStateReport.ts";
-import { registerUiCommandHandler, handleUiCommand } from "./uiCommandDispatch.ts";
+import { initUiStateReport, scheduleUiStateReport } from "../lib/uiStateReport.ts";
+import { registerUiCommandHandler, handleUiCommand } from "../lib/uiCommandDispatch.ts";
 
 export function UiBridge() {
   const navigate = useNavigate();

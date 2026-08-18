@@ -152,7 +152,7 @@ function _paintSpan(
   // colour to the .cell-find-hit class — an inline colour would beat the class
   // and leave matches on styled output looking unhighlighted. Highlighting by
   // span split rather than an absolutely-positioned overlay keeps `.wterm`'s
-  // overflow/scrollbar-gutter rules (load-bearing, CLAUDE.md L11) untouched.
+  // overflow/scrollbar-gutter rules (load-bearing, docs/FAILURE-INDEX.md) untouched.
   //
   // An ATOMIC span is one cell (wide glyph, astral codepoint, cluster): it is
   // all-or-nothing, because slicing it by column would cut a surrogate pair or

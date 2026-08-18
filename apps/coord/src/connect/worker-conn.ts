@@ -8,7 +8,7 @@
 // WebSocket at /ws/coord-worker/:fp?token=<jwt> (worker-ws-handler.ts);
 // CoordWorkerUp/Down proto frames ride it as binary. NEVER re-wire this
 // as a Connect/gRPC bidi under Bun — it h2-tight-loops / h1.1-stalls /
-// flaps. See CLAUDE.md L11 + project_worker_coord_raw_ws_not_connect_bidi.
+// flaps. See docs/FAILURE-INDEX.md + project_worker_coord_raw_ws_not_connect_bidi.
 
 import { create } from "@bufbuild/protobuf";
 import { randomUUID } from "node:crypto";
@@ -31,6 +31,7 @@ import { signal, diag } from "@roost/shared/diag";
 import { connectWorkers, _publishRoutable, type WorkerHandle } from "./worker-registry.ts";
 import { handleWorkerAgentStatus } from "../agent-status-hub.ts";
 import { resolvePendingSpawnOpened } from "./pending-spawns.ts";
+import { KEEPALIVE_INTERVAL_MS } from "./sync-ws-handler.ts";
 
 export interface WorkerServiceDeps {
   db: KyselyDB;
@@ -161,15 +162,15 @@ export function makeWorkerConn(
         // from the DB below and stays DB-backed until this worker's own snapshot
         // declares its exact live set.
         resetWorkerChannelIndexReconcile(fp);
-        // Keepalive: coord pings the worker every 30s so the socket never
-        // goes idle (worker pongs). Lets the transport survive the quiet
-        // gaps between 270s JWT refreshes.
+        // Keepalive: coord pings the worker on the shared 30s WS cadence
+        // (KEEPALIVE_INTERVAL_MS, sync-ws-handler.ts) so the socket never goes
+        // idle (worker pongs) across the quiet gaps between 270s JWT refreshes.
         keepaliveTimer = setInterval(() => {
           if (done) return;
           trySend("keepalive", create(CoordWorkerDownSchema, {
             frame: { case: "ping", value: create(DPingSchema, { ts: BigInt(Date.now()) }) },
           }));
-        }, 30_000);
+        }, KEEPALIVE_INTERVAL_MS);
         // Prime byte-hub's channel→session map from DB on hello. When coord
         // restarts but the worker stays up, surviving sessions never re-emit
         // `opened`; without priming, every upstream echo byte drops as

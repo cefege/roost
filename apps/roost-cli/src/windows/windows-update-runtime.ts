@@ -11,7 +11,7 @@ import {
   windowsReadUpdaterArtifact,
   windowsReplaceUpdaterArtifact,
 } from "@roost/shared/windows-helper";
-import { WINDOWS_SERVICE_NAMES } from "./service-ctl.ts";
+import { WINDOWS_SERVICE_NAMES } from "../service-ctl.ts";
 import type { ServiceHealthProver, WindowsUpdateNative } from "./windows-update-broker.ts";
 import type { WindowsUpdateJournalV1, WindowsUpdateJournalV2 } from "./windows-update-journal.ts";
 

@@ -91,8 +91,8 @@ export const pairBus        = new BoundedBus<PairRequestDelta>(32);
 // OSC 0/2 terminal title, parsed CENTRALLY by coord (terminal-title-hub) from
 // the same relayed byte stream and fanned out via Sync. VOLATILE —
 // one value per session, published only on CHANGE, seeded to
-// fresh Sync subscribers. Replaces the dead per-browser onTitle path (orphaned
-// when Terminal.tsx was deleted) so the sidebar title is coord-authoritative.
+// fresh Sync subscribers. The title is coord-authoritative: it is parsed once
+// here, never per-browser, so every viewer of a session agrees on it.
 export const titleBus = new BoundedBus<{ session_id: string; title: string }>(256);
 
 // Last-activity timestamp (ms) per session, stamped by coord (last-activity-hub)

@@ -4,13 +4,9 @@
 
 import { existsSync, mkdirSync, openSync, closeSync } from "node:fs";
 import { join, basename } from "node:path";
-import {
-  localEndpointEnv,
-  prepareLocalEndpoint,
-  signal,
-  diag,
-  workerLogDir,
-} from "@roost/shared";
+import { signal, diag } from "@roost/shared/diag";
+import { localEndpointEnv, prepareLocalEndpoint } from "@roost/shared/local-endpoint";
+import { workerLogDir } from "@roost/shared/paths";
 import {
   MuxFrameType,
   decodeKeeperHistoryRecords,
@@ -19,7 +15,7 @@ import {
   decodePtyInResult,
   decodeResizeResult,
   encodeMuxFrame,
-} from "./protocol-v2.ts";
+} from "./protocol.ts";
 import { KEEPER_BUILD_STAMP } from "./keeper-stamp.ts";
 import { muxLocalEndpoint, MUX_KEEPER_MAIN_TS, BUN_BIN } from "./keeper-pool-config.ts";
 import { connectKeeperAuthenticated } from "./keeper-probe.ts";

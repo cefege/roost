@@ -1,6 +1,6 @@
 import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { posix, win32 } from "node:path";
+import { win32 } from "node:path";
 import {
   assertNeverPlatform,
   supportedHostPlatform,
@@ -91,36 +91,6 @@ export function isWorkerPathWithin(
   const baseKey = workerPathIdentityKey(base, platform).replace(/\/+$/, "");
   const candidateKey = workerPathIdentityKey(candidate, platform).replace(/\/+$/, "");
   return candidateKey === baseKey || candidateKey.startsWith(`${baseKey}/`);
-}
-
-export function workerPathBasename(
-  value: string,
-  platform: SupportedHostPlatform = supportedHostPlatform(),
-): string {
-  switch (platform) {
-    case "darwin":
-    case "linux":
-      return posix.basename(value);
-    case "win32":
-      return win32.basename(toFilesystemPath(value, platform));
-    default:
-      return assertNeverPlatform(platform);
-  }
-}
-
-export function workerPathParent(
-  value: string,
-  platform: SupportedHostPlatform = supportedHostPlatform(),
-): string {
-  switch (platform) {
-    case "darwin":
-    case "linux":
-      return posix.dirname(value);
-    case "win32":
-      return normalizeWorkerPath(win32.dirname(toFilesystemPath(value, platform)), platform);
-    default:
-      return assertNeverPlatform(platform);
-  }
 }
 
 // Expand a leading `~` to the user's home dir. POSIX keeps its historical

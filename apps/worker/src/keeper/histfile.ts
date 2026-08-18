@@ -18,7 +18,8 @@ import { createHash } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { supportedHostPlatform, workerDataDir } from "@roost/shared";
+import { workerDataDir } from "@roost/shared/paths";
+import { supportedHostPlatform } from "@roost/shared/platform";
 
 const HOST_PLATFORM = supportedHostPlatform();
 const HISTORY_ROOT = HOST_PLATFORM === "win32"

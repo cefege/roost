@@ -17,7 +17,7 @@ const setTransferProgress = mock((_id: string, _offset: number, _total: number) 
 const sanitize = mock((html: string) => html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ""));
 
 mock.module("../src/connect.ts", () => ({ coordClient: { filesReadChunk } }));
-mock.module("../src/lib/toastStore.ts", () => ({ addToast }));
+mock.module("../src/store/toastStore.ts", () => ({ addToast }));
 mock.module("../src/store/transfers.ts", () => ({ addTransfer, markTransferState, setTransferProgress }));
 mock.module("dompurify", () => ({ default: { sanitize } }));
 

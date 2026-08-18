@@ -15,7 +15,7 @@
 // won't run it standalone.
 
 import { SessionManager } from "../src/session-manager.ts";
-import { asSessionId, asChannelId, asWorkerFp } from "@roost/shared";
+import { asSessionId, asChannelId, asWorkerFp } from "@roost/shared/wire";
 import { VIEWER_WITHDRAW_GRACE_MS } from "@roost/shared/viewport";
 import { WasmBridge } from "@wterm/core";
 import { initCellEmitState } from "@roost/shared/cell";

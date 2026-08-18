@@ -1,6 +1,6 @@
 // Which sessions each browser TAB streams authoritative cell frames for.
 // Driven by sessionsResize (handlers-sessions.ts) and read by the Sync fanout
-// (handlers-streaming.ts::startSyncFeed), so a tab is no longer sent — and no
+// (sync-feed.ts::startSyncFeed), so a tab is no longer sent — and no
 // longer re-serialized — every cell frame on the fleet. Raw PTY bytes never
 // enter browser Sync; compact terminal-link mappings are intentionally global.
 //
@@ -13,9 +13,7 @@
 // session-close subscription.
 
 import { sessionBus } from "../buses.ts";
-import { VIEWER_CLAIM_TTL_MS } from "@roost/shared/viewport";
-
-const REAP_INTERVAL_MS = 10_000;
+import { VIEWER_CLAIM_TTL_MS, VIEWER_REAP_INTERVAL_MS } from "@roost/shared/viewport";
 
 interface CellSubscription {
 	readonly subscribed: boolean;
@@ -188,7 +186,7 @@ export function _reapCellSubscriptions(now = Date.now()): void {
 	}
 }
 
-setInterval(() => _reapCellSubscriptions(), REAP_INTERVAL_MS).unref?.();
+setInterval(() => _reapCellSubscriptions(), VIEWER_REAP_INTERVAL_MS).unref?.();
 
 // A closed session can never produce another frame; drop it from every tab now
 // rather than leaving TTL-lived entries behind (same reasoning as the viewer

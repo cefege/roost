@@ -7,7 +7,7 @@
 // consumers cannot recover from.
 
 import { describe, test, expect, beforeEach, afterEach, vi } from "bun:test";
-import { asWorkerFp, asChannelId, asSessionId } from "@roost/shared";
+import { asWorkerFp, asChannelId, asSessionId } from "@roost/shared/wire";
 import type { SessionEvent } from "@roost/shared/wire";
 import { publishBytes, primeChannelMap, applyDurableChannelIndex } from "../src/byte-hub.ts";
 import { globalBytesBus } from "../src/buses.ts";

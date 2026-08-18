@@ -23,7 +23,7 @@
 // does not implement, WITHOUT logging them. An empty list is not proof that the
 // core understood everything the application sent.
 
-import { signal } from "@roost/shared";
+import { signal } from "@roost/shared/diag";
 import { unhandledSequenceRing } from "@roost/shared/wterm-core-factory";
 import type { TerminalCore, UnhandledSequence } from "@wterm/core";
 import type { SessionRecord, UnhandledSequenceLog } from "./session-record.ts";

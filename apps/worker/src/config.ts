@@ -1,11 +1,22 @@
-// Worker config loader. Reads env vars → WorkerConfig Zod schema (apps/shared/src/config.ts).
+// The worker Zod config schema + its loader. Reads env vars → WorkerConfig.
 // Fails at boot if invalid (not at first-use). R0.12.
 // Bootstrap token is one-shot: cleared from env after redeem.
 // Callers: main.ts, coord-client.ts.
 
-import { WorkerConfig, workerDataDir, workerLogDir, type WorkerConfig as WorkerConfigType } from "@roost/shared";
+import { z } from "zod";
+import { workerDataDir, workerLogDir } from "@roost/shared/paths";
 import { join } from "node:path";
 import { hostname } from "node:os";
+
+export const WorkerConfig = z.object({
+  coordinatorUrl: z.string().url(),
+  bootstrapToken: z.string().optional(),      // one-shot first-boot
+  label: z.string().min(1),
+  logDir: z.string().default(workerLogDir()),
+  // path to coordinator_ed25519.key (the worker's own JWT-signing key)
+  workerKeyPath: z.string(),
+});
+export type WorkerConfig = z.infer<typeof WorkerConfig>;
 
 // Default state dir = RoostWorkerV2 (v2-isolated). Legacy Rust worker uses
 // idea-worker/; v2 must NOT share paths or it will clobber the legacy
@@ -33,6 +44,6 @@ function withDefaults(env: Record<string, string | undefined>): Record<string, u
   };
 }
 
-export function loadWorkerConfig(env: Record<string, string | undefined> = process.env as Record<string, string | undefined>): WorkerConfigType {
+export function loadWorkerConfig(env: Record<string, string | undefined> = process.env as Record<string, string | undefined>): WorkerConfig {
   return WorkerConfig.parse(withDefaults(env));
 }

@@ -7,7 +7,7 @@
 
 import { describe, test, expect } from "bun:test";
 import { SessionManager } from "../src/session-manager.ts";
-import { asSessionId, asChannelId, asWorkerFp } from "@roost/shared";
+import { asSessionId, asChannelId, asWorkerFp } from "@roost/shared/wire";
 import {
   initCellEmitState,
   SB_SNAPSHOT_HISTORY_ROWS,

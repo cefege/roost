@@ -15,7 +15,7 @@
 // A definite rejection therefore requires PROOF (nothing written, or a typed
 // keeper rejection), never merely "we did not hear back".
 
-import { asChannelId } from "@roost/shared";
+import { asChannelId } from "@roost/shared/wire";
 import type { SessionManager } from "./session-manager.ts";
 import type { ViewportClaim } from "./session-record.ts";
 import type { WorkerViewportIntent, WorkerViewportResult } from "./session-terminal-control.ts";

@@ -18,7 +18,7 @@
 // entrypoint (emitUpstreamChunk → ring + core) and the real emit path.
 
 import { describe, test, expect, afterEach, setSystemTime } from "bun:test";
-import { asChannelId, asSessionId, asWorkerFp } from "@roost/shared";
+import { asChannelId, asSessionId, asWorkerFp } from "@roost/shared/wire";
 import { setSignalSink } from "@roost/shared/diag";
 import { initCellEmitState } from "@roost/shared/cell";
 import { createWtermCore } from "@roost/shared/wterm-core-factory";

@@ -55,7 +55,7 @@ function reapStaleUiStates(now: number): void {
 // live tab would need 5 consecutive missed reports to be dropped.
 setInterval(() => reapStaleUiStates(Date.now()), UI_REAP_INTERVAL_MS).unref?.();
 
-/** Current live tab states for Sync-connect seeding (handlers-streaming.ts).
+/** Current live tab states for Sync-connect seeding (sync-feed.ts).
  *  Skips stale entries the interval reaper hasn't swept yet. */
 export function getUiStateSnapshot(): Array<{ fp: string; tabId: string; state: UiReportStateRequest }> {
   const now = Date.now();

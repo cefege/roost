@@ -1,7 +1,7 @@
 // Adapted from Herdr src/pane/agent_detection.rs at commit
 // eacea2daf0b72973173b728936b27478374f2cd2 (Apache-2.0).
 
-import type { AgentRuntimeState } from "@roost/shared";
+import type { AgentRuntimeState } from "@roost/shared/wire";
 import type { BuiltinAgentId } from "./process-scan.ts";
 import type { ManifestDetection } from "./manifest-engine.ts";
 

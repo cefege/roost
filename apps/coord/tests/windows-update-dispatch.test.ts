@@ -2,12 +2,12 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { __clearDeployJobsForTest } from "../src/deploy-jobs.ts";
 import {
-  __clearDeployJobsForTest,
   handleWorkerUpdateProgress,
   resumeWindowsUpdateDeploysForWorker,
   startWindowsUpdateDeploy,
-} from "../src/deploy-jobs.ts";
+} from "../src/windows-update-deploy-jobs.ts";
 import { __setConnectWorkerForTest } from "../src/connect/worker-registry.ts";
 import { rejectPendingRpcsForWorker } from "../src/router/pending-rpcs.ts";
 import type { CoordWorkerDown } from "@roost/shared/proto/worker_transport_pb";

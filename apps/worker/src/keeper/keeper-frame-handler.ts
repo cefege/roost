@@ -18,13 +18,13 @@ import {
   encodeResizeResult,
   isEmptyKeeperPayload,
   decodeSpawnRequest,
-} from "./protocol-v2.ts";
+} from "./protocol.ts";
 import type {
   KeeperHistoryRecord,
   KeeperHistoryRecords,
   PtyInWireResult,
   ResizeWireResult,
-} from "./protocol-v2.ts";
+} from "./protocol.ts";
 import { KEEPER_BUILD_STAMP } from "./keeper-stamp.ts";
 import { _log, _keeperOpenFdCount } from "./keeper-log.ts";
 import { reapChannelTree } from "./keeper-process-reap.ts";

@@ -1,5 +1,5 @@
-// Backoff + queue-cap tuning knobs for CoordLink.ts. Extracted to keep
-// CoordLink.ts under the 400-line cap; imported back by the factory.
+// Backoff + queue-cap tuning knobs for coord-link.ts. Extracted to keep
+// coord-link.ts under the 400-line cap; imported back by the factory.
 
 export const BACKOFF_INITIAL_MS = 500;
 export const BACKOFF_MAX_MS = 30_000;

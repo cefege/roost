@@ -16,7 +16,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { WasmBridge } from "@wterm/core";
-import { asChannelId, asSessionId, asWorkerFp } from "@roost/shared";
+import { asChannelId, asSessionId, asWorkerFp } from "@roost/shared/wire";
 import {
   initCellEmitState,
   readScrollbackRangeCells,
@@ -33,7 +33,7 @@ import { SessionManager } from "../src/session-manager.ts";
 import type { SessionShellRecord } from "../src/session-record.ts";
 import { createSbRing } from "../src/session-scrollback-ring.ts";
 import { initAgentOscState } from "../src/terminal-stream-scan.ts";
-import type { CoordLink } from "../src/transport/CoordLink.ts";
+import type { CoordLink } from "../src/transport/coord-link.ts";
 
 const SID = asSessionId("00000000-0000-0000-0000-0000000000aa");
 const CID = 7;

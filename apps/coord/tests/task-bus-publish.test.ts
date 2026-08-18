@@ -1,6 +1,6 @@
 // Regression guard for L11 "task state invisible cross-browser": every task
 // UPDATE path (next-pending / set-state / cancel) MUST publish a taskBus
-// `state` delta. The bug (feedback_task_state_delta_only_created.md) was that
+// `state` delta. The bug (docs/FAILURE-INDEX.md) was that
 // enqueue published `created` but the UPDATE paths did their DB write and
 // returned without publishing, so other browsers' QueueViews stayed stale
 // until a manual refresh — and the Sync backfill can't recover in-memory bus

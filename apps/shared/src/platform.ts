@@ -14,8 +14,6 @@ export function supportedHostPlatform(
   throw new Error(`unsupported host platform: ${value || "unknown"}`);
 }
 
-export const currentHostPlatform = supportedHostPlatform;
-
 export function assertNeverPlatform(value: never): never {
   throw new Error(`unhandled host platform: ${String(value)}`);
 }

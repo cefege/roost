@@ -2,7 +2,8 @@
 // Internal-only — not part of the public import surface.
 
 import { fileURLToPath } from "node:url";
-import { resolveLocalEndpoint, workerDataDir, type LocalEndpoint } from "@roost/shared";
+import { resolveLocalEndpoint, type LocalEndpoint } from "@roost/shared/local-endpoint";
+import { workerDataDir } from "@roost/shared/paths";
 
 export const MUX_KEEPER_ENDPOINT_NAME = "mux-keeper";
 

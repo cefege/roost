@@ -12,6 +12,7 @@
   "scripts": {
     "smoke": "bun test smoke/bun_smoke.test.ts",
     "typecheck": "bun run --filter='./apps/*' typecheck",
+    "lint": "bun scripts/lint-roost.ts",
     "knip": "knip",
     "test": "bun apps/roost-cli/src/main.ts test all",
     "test:unit": "bun apps/roost-cli/src/main.ts test unit",

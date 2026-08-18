@@ -15,20 +15,16 @@ import type { TerminalControlLane, KeeperAdmissionLane } from "./session-control
 import type { ResizeCapture } from "./session-resize-capture.ts";
 import { rebuildTerminalCore } from "./session-resize-capture.ts";
 import type { CellGateSuppression, SyncOutputHold } from "./session-emit.ts";
-import type { TerminalRequestBudget } from "./transport/CoordLink-types.ts";
+import type { TerminalRequestBudget } from "./transport/coord-link-types.ts";
 
 import { getMultiplexedPool, type MuxChannelCallbacks } from "./keeper/multiplexed-client.ts";
-import { log, asChannelId } from "@roost/shared";
+import { log } from "@roost/shared/log";
+import { asChannelId } from "@roost/shared/wire";
 import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
-import type { TransportSendResult } from "./transport/CoordLink-types.ts";
+import type { TransportSendResult } from "./transport/coord-link-types.ts";
 import type { SessionEventSink } from "./event-sink.ts";
 import type { ChannelState, FsmEvent } from "./fsm.ts";
-import type {
-	SessionId,
-	ChannelId,
-	WorkerFp,
-	SessionEvent,
-} from "@roost/shared";
+import type { SessionId, ChannelId, WorkerFp, SessionEvent } from "@roost/shared/wire";
 import {
 	VIEWPORT_REAPER_INTERVAL_MS,
 	STRAY_REAP_INTERVAL_MS,

@@ -3,7 +3,7 @@
 //
 // Verifies the 7 load-bearing Bun primitives the rewrite depends on.
 // PASS at pinned bun --version (see .bun-version) → R0.1 LOCKED.
-// FAIL on any test → fall back to Node + node-pty per REWRITE.md R4.-1.
+// FAIL on any test → fall back to Node + node-pty.
 //
 // Run: bun test smoke/bun_smoke.test.ts
 

@@ -1,7 +1,6 @@
 #!/usr/bin/env bun
 // roost CLI — single entry-point for dev, test, deploy, logs, reset,
 // state, cutover. Replaces the 7+ scattered shell scripts.
-// REWRITE.md R0.8.
 
 import { dev } from "./dev.ts";
 import { test } from "./test.ts";
@@ -51,12 +50,12 @@ const SUBCOMMANDS = {
       { admitPendingWindowsRelocationRequest },
     ] = await Promise.all([
       import("./service-ctl.ts"),
-      import("./windows-update-broker.ts"),
-      import("./windows-update-journal.ts"),
-      import("./windows-update-runtime.ts"),
-      import("./windows-update-control.ts"),
-      import("./windows-relocation-broker.ts"),
-      import("./windows-relocation-control.ts"),
+      import("./windows/windows-update-broker.ts"),
+      import("./windows/windows-update-journal.ts"),
+      import("./windows/windows-update-runtime.ts"),
+      import("./windows/windows-update-control.ts"),
+      import("./windows/windows-relocation-broker.ts"),
+      import("./windows/windows-relocation-control.ts"),
     ]);
     for (let admitted = 0; admitted < 16; admitted += 1) {
       const journal = await admitPendingWindowsRelocationRequest();

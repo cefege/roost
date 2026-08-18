@@ -4,9 +4,9 @@
 // coordLink.send. Extracted from main.ts (CLAUDE.md 400-line cap). Wired by
 // main.ts as CoordLink.onBrowserCommand.
 
-import { log } from "@roost/shared";
+import { log } from "@roost/shared/log";
 import type { ClientControlFrame } from "@roost/shared/wire";
-import type { CoordLink } from "./transport/CoordLink.ts";
+import type { CoordLink } from "./transport/coord-link.ts";
 import type { SessionManager } from "./session-manager.ts";
 import { handleAttach, handleKill, handleRespawnIfMissing, handleSpawnShell } from "./browser-command-spawn.ts";
 import { handleGetHome, handleListDir, handleMkdir, handleReadFile, handleReadFileChunk } from "./browser-command-files.ts";

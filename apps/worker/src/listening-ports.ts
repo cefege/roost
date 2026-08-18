@@ -6,7 +6,7 @@
 //
 // POSIX tools run under service managers with minimal PATHs. Windows never
 // invokes ps/ss/lsof; process and socket ownership comes from the typed helper.
-import { log } from "@roost/shared";
+import { log } from "@roost/shared/log";
 import {
   assertNeverPlatform,
   supportedHostPlatform,

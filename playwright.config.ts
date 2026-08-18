@@ -6,8 +6,8 @@ export default defineConfig({
   // full hermetic stack (its own coord on an ephemeral port, worker, keeper,
   // and PTYs under an mkdtemp root — smoke/terminal/stack.ts). Nothing is
   // shared but the read-only apps/web/dist bundle, so tests are independent
-  // both across files and inside a file: parallelize at test granularity, or
-  // terminal.spec.ts's 40 cases serialize behind one browser for 6+ minutes.
+  // both across files and inside a file: parallelize at test granularity, or a
+  // themed spec's cases serialize behind one browser for minutes at a time.
   fullyParallel: true,
   // 4 on an 8-core host. A worker is not one process: it drives Chromium (plus
   // its renderer and GPU process) against a coord, a worker, a keeper, and the
@@ -36,9 +36,10 @@ export default defineConfig({
     screenshot: "only-on-failure",
   },
   // webkit-iphone is macOS-only: Linux WebKit is a different engine build, and
-  // the two tests that need it (smoke/terminal/terminal.spec.ts:64,:129) already
-  // self-skip on any other project. Gating here rather than via a CI --project
-  // flag keeps `bun run test:terminal` correct on a Linux dev box too.
+  // the mobile-composer tests that need it already self-skip on any other
+  // project, so the skip — not this list — is what keeps them honest. Gating
+  // here rather than via a CI --project flag keeps `bun run test:terminal`
+  // correct on a Linux dev box too.
   // Two passes, run back to back by `roost test terminal`. Correctness cases
   // fan out across workers; anything tagged @serial (the perf/latency cases)
   // runs afterwards with --workers=1 on an otherwise idle box, because a

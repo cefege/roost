@@ -12,7 +12,7 @@ import { upsertPermissionRule } from "../../store/mutations.ts";
 import { coordClient } from "../../connect.ts";
 import type { PermissionDecision } from "@roost/shared/wire";
 import { PermissionRuleEditor } from "../PermissionRuleEditor.tsx";
-import { addToast } from "../../lib/toastStore.ts";
+import { addToast } from "../../store/toastStore.ts";
 import { Card, Button, EmptyState, Icon, TextField } from "./md/primitives.tsx";
 
 const DECISIONS: { id: PermissionDecision; label: string; icon: string }[] = [

@@ -1,7 +1,7 @@
 // Find-in-scrollback bar for one terminal pane. Rendered by CellTerminal ABOVE
 // the display and INSIDE the pane, so it genuinely consumes rows: the pane's
 // ResizeObserver re-claims the smaller viewport and the shell reflows to match.
-// That is deliberate — CLAUDE.md L11 requires a painting pane to have TRUTHFUL
+// That is deliberate — docs/FAILURE-INDEX.md requires a painting pane to have TRUTHFUL
 // geometry, so faking or compensating the height is not an option.
 //
 // State lives in lib/terminalFindController.ts; this file is presentation plus

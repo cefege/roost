@@ -23,7 +23,7 @@ const SOCK_PATH = join(SOCK_DIR, "mux-keeper.sock");
 import { describe, test, expect, afterAll } from "bun:test";
 import { SessionManager } from "../src/session-manager.ts";
 import { getMultiplexedPool, type MuxChannelCallbacks } from "../src/keeper/multiplexed-client.ts";
-import { asWorkerFp } from "@roost/shared";
+import { asWorkerFp } from "@roost/shared/wire";
 import { keeperTestShellSpec } from "./keeper-test-fixtures.ts";
 
 const pool = getMultiplexedPool();

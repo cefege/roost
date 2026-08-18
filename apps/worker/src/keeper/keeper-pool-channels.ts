@@ -3,12 +3,12 @@
 // each takes the pool instance as its first argument. Behavior is unchanged —
 // the class methods now delegate here.
 
-import { signal } from "@roost/shared";
-import { KeeperFeature, MuxFrameType, encodeMuxFrame, encodeSpawnRequest } from "./protocol-v2.ts";
+import { signal } from "@roost/shared/diag";
+import { KeeperFeature, MuxFrameType, encodeMuxFrame, encodeSpawnRequest } from "./protocol.ts";
 import { SPAWN_ACK_TIMEOUT_MS } from "./keeper-pool-config.ts";
 import type { MultiplexedKeeperPool, MuxChannelCallbacks } from "./multiplexed-client.ts";
 import type { ShellSpec } from "../shell-spec.ts";
-import type { KeeperHistoryRecords } from "./protocol-v2.ts";
+import type { KeeperHistoryRecords } from "./protocol.ts";
 export const KEEPER_HISTORY_LIVE_BUFFER_MAX_BYTES = 1 * 1024 * 1024;
 
 

@@ -9,7 +9,7 @@ import { existsSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, wr
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import {
-  downloadVerifiedReleaseAsset,
+  fetchAndVerifyReleaseAsset,
   needsUpdate,
   releaseAssetName,
   runUpdate,
@@ -98,8 +98,12 @@ describe("runUpdate orchestration", () => {
 const originalFetch = globalThis.fetch;
 const workdirs: string[] = [];
 
+const originalReleaseBase = process.env.ROOST_RELEASE_BASE_URL;
+
 afterEach(() => {
   globalThis.fetch = originalFetch;
+  if (originalReleaseBase === undefined) delete process.env.ROOST_RELEASE_BASE_URL;
+  else process.env.ROOST_RELEASE_BASE_URL = originalReleaseBase;
   for (const dir of workdirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
@@ -122,26 +126,67 @@ function tempPath(name: string): string {
   return join(dir, name);
 }
 
-describe("downloadVerifiedReleaseAsset", () => {
+describe("fetchAndVerifyReleaseAsset", () => {
   test("streams a matching binary and makes it executable", async () => {
     const binary = "verified release payload";
     const digest = createHash("sha256").update(binary).digest("hex");
     const requests = mockRelease(binary, `${digest}\n`);
     const dest = tempPath("roost.new");
 
-    await downloadVerifiedReleaseAsset("roost-linux-x64", dest);
+    await fetchAndVerifyReleaseAsset("roost-linux-x64", { destPath: dest });
 
     expect(readFileSync(dest)).toEqual(Buffer.from(binary));
     expect(statSync(dest).mode & 0o777).toBe(0o755);
-    expect(requests.map((url) => basename(url))).toEqual([
-      "roost-linux-x64.sha256",
-      "roost-linux-x64",
+    expect(requests).toEqual([
+      "https://github.com/cefege/roost/releases/latest/download/roost-linux-x64.sha256",
+      "https://github.com/cefege/roost/releases/latest/download/roost-linux-x64",
     ]);
+  });
+
+  // The self-updater used to hardcode the GitHub origin while the fleet deploy
+  // paths honoured ROOST_RELEASE_BASE_URL, so `roost update` could not be
+  // pointed at a mirror. One resolver now serves both.
+  test("ROOST_RELEASE_BASE_URL redirects the self-update download to a mirror", async () => {
+    const binary = "mirrored release payload";
+    const digest = createHash("sha256").update(binary).digest("hex");
+    const requests = mockRelease(binary, `${digest}\n`);
+    process.env.ROOST_RELEASE_BASE_URL = "https://mirror.internal/roost";
+    const dest = tempPath("roost.new");
+
+    await fetchAndVerifyReleaseAsset("roost-linux-x64", { destPath: dest });
+
+    expect(readFileSync(dest)).toEqual(Buffer.from(binary));
+    expect(requests).toEqual([
+      "https://mirror.internal/roost/roost-linux-x64.sha256",
+      "https://mirror.internal/roost/roost-linux-x64",
+    ]);
+  });
+
+  test("a mirror also serves the tag-pinned Windows manifest origin", async () => {
+    const manifest = '{"schemaVersion":1}';
+    const digest = createHash("sha256").update(manifest).digest("hex");
+    const requests = mockRelease(manifest, `${digest}\n`);
+
+    const pinned = await fetchAndVerifyReleaseAsset("roost-windows-x64.manifest.json", {
+      tag: "v9.9.9",
+    });
+    expect(pinned.url).toBe(
+      "https://github.com/cefege/roost/releases/download/v9.9.9/roost-windows-x64.manifest.json",
+    );
+    expect(pinned.sha256).toBe(digest);
+    expect(Buffer.from(pinned.bytes).toString("utf8")).toBe(manifest);
+
+    process.env.ROOST_RELEASE_BASE_URL = "https://mirror.internal/roost";
+    const mirrored = await fetchAndVerifyReleaseAsset("roost-windows-x64.manifest.json", {
+      tag: "v9.9.9",
+    });
+    expect(mirrored.url).toBe("https://mirror.internal/roost/roost-windows-x64.manifest.json");
+    expect(requests).toHaveLength(4);
   });
 
   for (const [name, checksum] of [
     ["malformed digest", "not-a-digest\n"],
-    ["uppercase digest", "A".repeat(64)],
+    ["sidecar that is an error page, not a digest", "<html>404</html>\n"],
     ["altered or truncated binary", "0".repeat(64)],
   ] as const) {
     test(`${name} fails without leaving a candidate`, async () => {
@@ -149,18 +194,42 @@ describe("downloadVerifiedReleaseAsset", () => {
       writeFileSync(dest, "stale candidate");
       mockRelease("truncated", checksum);
 
-      await expect(downloadVerifiedReleaseAsset("roost-linux-x64", dest)).rejects.toThrow();
+      await expect(fetchAndVerifyReleaseAsset("roost-linux-x64", { destPath: dest }))
+        .rejects.toThrow();
       expect(existsSync(dest)).toBe(false);
     });
   }
+
+  // The sidecar is required, but its FORMAT is not a security property — the
+  // digest is compared byte-for-byte regardless. A mirror that regenerated its
+  // sidecars with plain `sha256sum` publishes "<hash>  <filename>", and hex
+  // case is arbitrary. Rejecting either would make ROOST_RELEASE_BASE_URL
+  // useless against real mirrors, so both must keep verifying. Do not narrow
+  // the parse to make this test fail.
+  test("mirror-generated sidecar formats still verify", async () => {
+    const binary = "verified release payload";
+    const digest = createHash("sha256").update(binary).digest("hex");
+    for (const sidecar of [
+      `${digest}  roost-linux-x64\n`,
+      `${digest} *roost-linux-x64\n`,
+      `${digest.toUpperCase()}\n`,
+    ]) {
+      mockRelease(binary, sidecar);
+      const dest = tempPath("roost.new");
+
+      const verified = await fetchAndVerifyReleaseAsset("roost-linux-x64", { destPath: dest });
+
+      expect(verified.sha256).toBe(digest);
+      expect(readFileSync(dest)).toEqual(Buffer.from(binary));
+    }
+  });
 
   test("a missing checksum fails before downloading the binary", async () => {
     const requests = mockRelease("binary", new Response("missing", { status: 404 }));
     const dest = tempPath("roost.new");
 
-    await expect(downloadVerifiedReleaseAsset("roost-linux-x64", dest)).rejects.toThrow(
-      /checksum download failed: HTTP 404/,
-    );
+    await expect(fetchAndVerifyReleaseAsset("roost-linux-x64", { destPath: dest }))
+      .rejects.toThrow(/checksum download failed: HTTP 404/);
     expect(requests).toHaveLength(1);
     expect(existsSync(dest)).toBe(false);
   });
@@ -173,7 +242,9 @@ describe("downloadVerifiedReleaseAsset", () => {
       currentVersion: "1.0.0",
       execPath,
       fetchLatestTag: async () => "v1.1.0",
-      downloadBinary: (dest) => downloadVerifiedReleaseAsset("roost-linux-x64", dest),
+      downloadBinary: async (dest) => {
+        await fetchAndVerifyReleaseAsset("roost-linux-x64", { destPath: dest });
+      },
       replaceSelf: (candidate) => renameSync(candidate, execPath),
       log: () => {},
     };
