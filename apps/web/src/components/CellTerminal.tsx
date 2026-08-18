@@ -36,7 +36,11 @@ import {
 import { TerminalNavButtons } from "./TerminalNavButtons.tsx";
 import { IconButton } from "./Settings/md/IconButton.tsx";
 import { mouseForwardEnabled } from "../lib/mouseForwardPref.ts";
-import { terminalMouseReport, type MouseGesture } from "../lib/terminalMouse.ts";
+import {
+	cellFromPoint,
+	terminalMouseReport,
+	type MouseGesture,
+} from "../lib/terminalMouse.ts";
 import type { MouseTracking } from "@roost/shared/cell";
 import { isCompact, isTouchDevice } from "../lib/windowSizeClass.ts";
 import { uiStore } from "../store/uiStore.ts";
@@ -1188,16 +1192,27 @@ export function CellTerminal(props: CellTerminalProps) {
 			sendUserTerminalInput(props.session.id, bytes);
 			return true;
 		};
+		// Hit-test against the PAINTED grid (renderer.viewportCellGeometry), never
+		// the scroll container: the history spacer and the scrollback sheet sit
+		// above .cell-viewport inside it, so a container-relative row was off by
+		// (painted history − scrollTop) — the reported "click above the target"
+		// offset. The fallback only covers the pre-first-frame window (no frame,
+		// no measurable row box); it still takes its origin from the viewport
+		// element when the renderer exists, and clamps nothing because there is no
+		// known grid to clamp to yet.
 		const cellOf = (
 			clientX: number,
 			clientY: number,
 		): { col: number; row: number } => {
+			const geometry = renderer?.viewportCellGeometry();
+			if (geometry) return cellFromPoint(geometry, clientX, clientY);
 			if ((cellW === 0 || cellH === 0) && !measureCell())
 				return { col: 1, row: 1 };
-			const rect = displayRef!.getBoundingClientRect();
+			// predictionHost IS .cell-viewport — row 0's box, unlike displayRef.
+			const origin = (renderer?.predictionHost ?? displayRef!).getBoundingClientRect();
 			return {
-				col: Math.max(1, 1 + Math.floor((clientX - rect.left) / cellW)),
-				row: Math.max(1, 1 + Math.floor((clientY - rect.top) / cellH)),
+				col: Math.max(1, 1 + Math.floor((clientX - origin.left) / cellW)),
+				row: Math.max(1, 1 + Math.floor((clientY - origin.top) / cellH)),
 			};
 		};
 

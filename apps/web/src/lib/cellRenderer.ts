@@ -21,6 +21,7 @@ import {
   type CellRow,
 } from "@roost/shared/cell";
 import { renderRow, rowHash, type FindHit } from "./cellRow.ts";
+import type { TerminalCellGeometry } from "./terminalMouse.ts";
 
 const SB_BLOCK = 250; // scrollback rows per content-visibility block. sizeBlock() writes each block's EXACT pixel placeholder, so this is perf tuning only — any positive value renders identically.
 
@@ -1070,6 +1071,40 @@ export class CellGridRenderer {
     p.remove();
     if (h > 0) this._rowH = h;
     return this._rowH;
+  }
+
+  /** Client-space geometry of the PAINTED grid, for pointer hit-testing, or
+   *  null before the first frame / while the row box is unmeasurable.
+   *
+   *  The origin is `.cell-viewport`, NOT the `.wterm.cell-grid` scroll
+   *  container: inside that container the history spacer and the append-only
+   *  scrollback sheet both sit ABOVE the viewport, so the container's top is
+   *  (painted history height − scrollTop) above row 1 — hundreds of px in any
+   *  pane with scrollback. Hit-testing from the container reported a row that
+   *  far DOWN the grid, and only looked right on a fresh alt-screen pane, where
+   *  .cell-scrollback/.cell-sb-spacer are display:none.
+   *
+   *  Both cell dimensions are exact rather than probed: the row box is
+   *  rowHeight() (cached, invalidated by zoom and by a late webfont swap), and
+   *  CSS pins .cell-viewport to `cols * 1ch`, so the rect's own width divided by
+   *  the frame's cols is the cell advance with no rounding to accumulate. */
+  viewportCellGeometry(): TerminalCellGeometry | null {
+    const frame = this._canonicalFrame();
+    if (!frame) return null;
+    const rowHeight = this.rowHeight();
+    if (rowHeight <= 0) return null;
+    const rect = this.viewportEl.getBoundingClientRect?.();
+    if (!rect) return null;
+    const cellWidth = rect.width / frame.cols;
+    if (cellWidth <= 0) return null;
+    return {
+      left: rect.left,
+      top: rect.top,
+      cellWidth,
+      rowHeight,
+      cols: frame.cols,
+      rows: frame.rows,
+    };
   }
 
   /** Drop the cached row height so the next read re-measures. The terminal-zoom

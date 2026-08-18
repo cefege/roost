@@ -127,3 +127,38 @@ export function terminalMouseReport(
 		Math.min(row, X10_MAX_CELL) + X10_BIAS,
 	]);
 }
+
+/** The painted grid's geometry, in client (viewport) pixel space.
+ *
+ *  `left`/`top` are the origin of CELL (1,1) — the top-left of the PAINTED row
+ *  box, NOT of the scroll container: the scrollback sheet and the history
+ *  spacer sit above the rows inside that container, so the container's top is
+ *  hundreds of pixels off in any pane with history. */
+export interface TerminalCellGeometry {
+	left: number;
+	top: number;
+	cellWidth: number;
+	rowHeight: number;
+	cols: number;
+	rows: number;
+}
+
+/** Which cell a client-space point lands on, 1-based, clamped INTO the grid.
+ *
+ *  Clamping is not cosmetic: a pane letterboxes (the rows are pinned to
+ *  cols × 1ch, so a wider pane has margin) and the last row rarely ends exactly
+ *  at the container's bottom, so an unclamped report hands the application a
+ *  column past `cols` or a row past `rows` — which real TUIs mishandle rather
+ *  than ignore. A gesture in the margin belongs to the nearest edge cell. */
+export function cellFromPoint(
+	geometry: TerminalCellGeometry,
+	clientX: number,
+	clientY: number,
+): { col: number; row: number } {
+	const col = 1 + Math.floor((clientX - geometry.left) / geometry.cellWidth);
+	const row = 1 + Math.floor((clientY - geometry.top) / geometry.rowHeight);
+	return {
+		col: Math.min(geometry.cols, Math.max(1, col)),
+		row: Math.min(geometry.rows, Math.max(1, row)),
+	};
+}

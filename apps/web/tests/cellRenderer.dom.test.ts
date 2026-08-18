@@ -21,6 +21,7 @@ import {
 } from "../src/lib/cellRenderer.ts";
 import { registerRenderer, terminalBrowserStreamSnapshot } from "../src/lib/terminalPreview.ts";
 import { DEFAULT_COLOR, spansText, type CellGridFrame, type CellRow } from "@roost/shared/cell";
+import { cellFromPoint } from "../src/lib/terminalMouse.ts";
 
 // ── minimal fake DOM ──────────────────────────────────────────────────────
 class FakeStyle {
@@ -36,6 +37,8 @@ class FakeStyle {
 // distinguish browser geometry from CellGridRenderer's one conditional writer.
 const PAD_TOP = 12; // .wterm padding-top (styles/sidebar.css)
 const ROW_PX = 16;  // one .cell-row line box
+const CELL_PX = 8;  // one column advance (1ch in the display font)
+const PANE_PX = 1000; // .wterm client width — wider than the grid, so rows letterbox
 
 class FakeEl {
   className = "";
@@ -96,8 +99,40 @@ class FakeEl {
     const sp = (this.parentElement?.children as FakeEl[] | undefined)?.find((x) => x.className === "cell-sb-spacer");
     return PAD_TOP + (sp ? parseFloat(String(sp.style.height ?? "0")) || 0 : 0);
   }
-  // rowHeight()'s hidden probe measures one .cell-row.
-  getBoundingClientRect() { return { height: ROW_PX, width: 80, top: 0, left: 0, bottom: ROW_PX, right: 80 }; }
+  // Client-space box, derived from the same painted-rows layout model as
+  // scrollHeight/offsetTop. That is what lets a test tell the SCROLL
+  // CONTAINER's top (history, then the spacer) from .cell-viewport's top (row 1
+  // of the live grid) — the distinction pointer hit-testing got wrong.
+  // Widths mirror the real CSS: .cell-scrollback/.cell-viewport are
+  // calc(var(--cell-cols) * 1ch); the pane itself is wider (letterbox).
+  // A .cell-row is exactly one line box — what rowHeight()'s probe measures.
+  getBoundingClientRect() {
+    const height = this.className === "cell-row" ? ROW_PX : this.paintedRows * ROW_PX;
+    const width = this.className === "cell-viewport" || this.className === "cell-scrollback"
+      ? this.gridCols() * CELL_PX
+      : PANE_PX;
+    const top = this.clientTop();
+    return { height, width, top, left: 0, bottom: top + height, right: width };
+  }
+  // --cell-cols, written on the scroll container by CellGridRenderer.setGridWidth.
+  private gridCols(): number {
+    let root: FakeEl = this;
+    while (root.parentElement) root = root.parentElement;
+    return parseFloat(String((root.style as Record<string, unknown>)["--cell-cols"] ?? "")) || 80;
+  }
+  // The container's own box starts at 0; a child starts below the painted height
+  // of its preceding siblings, plus the pane's padding, minus how far the
+  // scroller has been scrolled.
+  private clientTop(): number {
+    const p = this.parentElement;
+    if (!p) return 0;
+    let y = p.clientTop() + (p.parentElement ? 0 : PAD_TOP - p.scrollTop);
+    for (const sib of p.children as FakeEl[]) {
+      if (sib === this) break;
+      y += (sib.paintedRows ?? 0) * ROW_PX;
+    }
+    return y;
+  }
   replaceChildren(...kids: any[]) {
     for (const c of this.children) c.parentElement = null;
     this.children = kids.slice();
@@ -1415,5 +1450,79 @@ describe("terminalBrowserStreamSnapshot — the range this document holds", () =
       rows_held: 0,
       floor: null,
     });
+  });
+});
+
+// ── pointer hit-test geometry: the viewport IS the origin ─────────────────
+// Forwarded mouse reports used to derive their cell from the SCROLL
+// CONTAINER's rect. Inside that container the history spacer and the
+// append-only scrollback sheet sit ABOVE .cell-viewport, so the container's top
+// is (painted history − scrollTop) above row 1 and every click reported a row
+// that far down the grid — the user had to aim centimetres high. It only ever
+// looked right on a fresh alt-screen pane, where both are display:none.
+describe("CellGridRenderer DOM — viewportCellGeometry", () => {
+  const nRows = (n: number, from = 0) =>
+    Array.from({ length: n }, (_, i) => row(from + i, `g${from + i}`));
+  const vpRows = (n: number) => Array.from({ length: n }, (_, i) => row(i, `v${i}`));
+
+  test("geometry is the VIEWPORT's box, not the scroll container's", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    // 300 rows of painted history (plus 500 unpainted, held by the spacer) above
+    // a 24-row live grid — an ordinary pane that has produced output.
+    seedHeldHistory(r, 80, vpRows(24), nRows(300, 500), 800);
+    c.scrollTop = 120;
+
+    const geometry = r.viewportCellGeometry()!;
+    expect(geometry).not.toBeNull();
+    // Row 1 of the grid begins below the spacer AND the painted scrollback.
+    const containerTop = c.getBoundingClientRect().top;
+    const historyPx = (500 + 300) * ROW_PX;
+    expect(geometry.top).toBe(containerTop + PAD_TOP - 120 + historyPx);
+    // The regression this pins: the container's top is nowhere near row 1.
+    expect(geometry.top - containerTop).toBeGreaterThan(historyPx - 120);
+    expect(vpEl(c).getBoundingClientRect().top).toBe(geometry.top);
+
+    // Exact cell box: rowHeight() for the row, and the cols-pinned viewport
+    // width divided by cols for the column advance (no probe rounding).
+    expect(geometry.rowHeight).toBe(ROW_PX);
+    expect(geometry.cellWidth).toBe(CELL_PX);
+    expect(geometry.left).toBe(vpEl(c).getBoundingClientRect().left);
+    expect(geometry.cols).toBe(80);
+    expect(geometry.rows).toBe(24);
+  });
+
+  test("a click resolves to the row the user aimed at, over painted history", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    seedHeldHistory(r, 80, vpRows(24), nRows(300, 500), 800);
+    c.scrollTop = 120;
+
+    const geometry = r.viewportCellGeometry()!;
+    // Aim at the middle of grid row 5, column 3.
+    const x = geometry.left + 2 * CELL_PX + CELL_PX / 2;
+    const y = geometry.top + 4 * ROW_PX + ROW_PX / 2;
+    expect(cellFromPoint(geometry, x, y)).toEqual({ col: 3, row: 5 });
+    // Letterbox margin to the right of the grid, and past the last row.
+    expect(cellFromPoint(geometry, geometry.left + PANE_PX, y).col).toBe(80);
+    expect(cellFromPoint(geometry, x, geometry.top + 24 * ROW_PX + 4).row).toBe(24);
+    // A container-relative hit-test would have landed far down the grid; with
+    // the viewport origin, the container's top clamps to row 1.
+    expect(cellFromPoint(geometry, x, c.getBoundingClientRect().top).row).toBe(1);
+  });
+
+  test("no frame and an unmeasurable viewport box report no geometry", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    expect(r.viewportCellGeometry()).toBeNull(); // pre-first-frame
+
+    seedHeldHistory(r, 80, vpRows(2), []);
+    expect(r.viewportCellGeometry()).not.toBeNull();
+    // Detached / zero-size layout: the cell advance is unknowable, so hit-testing
+    // must fall back rather than divide by zero.
+    const viewportEl = vpEl(c);
+    viewportEl.getBoundingClientRect = () =>
+      ({ height: 0, width: 0, top: 0, left: 0, bottom: 0, right: 0 });
+    expect(r.viewportCellGeometry()).toBeNull();
   });
 });

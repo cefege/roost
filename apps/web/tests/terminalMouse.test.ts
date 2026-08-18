@@ -6,10 +6,12 @@
 
 import { describe, expect, test } from "bun:test";
 import {
+	cellFromPoint,
 	terminalMouseReport,
 	type MouseGesture,
 	type MouseGestureModifiers,
 	type MouseReportModes,
+	type TerminalCellGeometry,
 } from "../src/lib/terminalMouse.ts";
 
 const SGR: MouseReportModes = { tracking: 1002, sgr: true };
@@ -127,5 +129,70 @@ describe("terminalMouseReport", () => {
 		expect(terminalMouseReport(SGR, press({ button: 4 }))).toBeNull();
 		expect(terminalMouseReport(SGR, { kind: "release", button: 3, col: 1, row: 1 })).toBeNull();
 		expect(text(terminalMouseReport(SGR, press({ button: 1 })))).toBe("\x1b[<1;1;1M");
+	});
+});
+
+// Pointer hit-testing. This is the half that shipped WRONG: the cell came from
+// the scroll container's rect, whose top sits (painted history − scrollTop)
+// above row 1, so every forwarded click landed rows too far down and the user
+// had to aim centimetres high. Geometry now comes from the painted viewport;
+// these lock the arithmetic done to it.
+describe("cellFromPoint", () => {
+	// A 10x4 grid whose row-1/column-1 origin is at (100, 200) — nonzero on both
+	// axes so a mixed-up origin cannot pass by symmetry.
+	const grid: TerminalCellGeometry = {
+		left: 100, top: 200, cellWidth: 8, rowHeight: 16, cols: 10, rows: 4,
+	};
+
+	test("a point inside the grid resolves to its own cell, 1-based", () => {
+		expect(cellFromPoint(grid, 100, 200)).toEqual({ col: 1, row: 1 });
+		// Last pixel of cell (1,1) still belongs to it; the next one steps.
+		expect(cellFromPoint(grid, 107.9, 215.9)).toEqual({ col: 1, row: 1 });
+		expect(cellFromPoint(grid, 108, 216)).toEqual({ col: 2, row: 2 });
+		expect(cellFromPoint(grid, 132, 248)).toEqual({ col: 5, row: 4 });
+		// Last cell of the grid, at its final pixel.
+		expect(cellFromPoint(grid, 179.5, 263.5)).toEqual({ col: 10, row: 4 });
+	});
+
+	test("the letterbox margin clamps to the first and last column", () => {
+		// Rows are pinned to cols × 1ch, so a wider pane has margin on the right —
+		// and the pane's own padding sits to the left of column 1. Neither may
+		// report a column the application does not have.
+		expect(cellFromPoint(grid, 40, 210).col).toBe(1);
+		expect(cellFromPoint(grid, 99.5, 210).col).toBe(1);
+		expect(cellFromPoint(grid, 180, 210).col).toBe(10);
+		expect(cellFromPoint(grid, 4000, 210).col).toBe(10);
+	});
+
+	test("above the first row and below the last row clamp into the grid", () => {
+		expect(cellFromPoint(grid, 110, 199.5)).toEqual({ col: 2, row: 1 });
+		expect(cellFromPoint(grid, 110, -500)).toEqual({ col: 2, row: 1 });
+		expect(cellFromPoint(grid, 110, 264)).toEqual({ col: 2, row: 4 });
+		expect(cellFromPoint(grid, 110, 9000)).toEqual({ col: 2, row: 4 });
+	});
+
+	test("a fractional row height resolves the right row at row 1, mid-grid and the last row", () => {
+		// 14px × line-height 1.2 = 16.8px: the real default box. Rounding it (the
+		// old probe path did) drifts by a whole row around row 20 — the drift the
+		// exact rowHeight() feed removes.
+		const tall: TerminalCellGeometry = {
+			left: 0, top: 0, cellWidth: 8.4, rowHeight: 16.8, cols: 80, rows: 24,
+		};
+		expect(cellFromPoint(tall, 0, 0).row).toBe(1);
+		expect(cellFromPoint(tall, 0, 16.79).row).toBe(1);
+		expect(cellFromPoint(tall, 0, 16.8).row).toBe(2);
+		// Row 12 spans [184.8, 201.6).
+		expect(cellFromPoint(tall, 0, 184.8).row).toBe(12);
+		expect(cellFromPoint(tall, 0, 201.5).row).toBe(12);
+		expect(cellFromPoint(tall, 0, 201.6).row).toBe(13);
+		// Row 24 (the last) spans [386.4, 403.2). Points sit just inside the row so
+		// the assertion is about the ACCUMULATED offset, not IEEE754 luck at an
+		// exact multiple; a rounded 17px box would put both on row 23.
+		expect(cellFromPoint(tall, 0, 386.5).row).toBe(24);
+		expect(cellFromPoint(tall, 0, 403.1).row).toBe(24);
+		// Fractional columns behave the same way across the grid's width.
+		expect(cellFromPoint(tall, 8.39, 0).col).toBe(1);
+		expect(cellFromPoint(tall, 8.4, 0).col).toBe(2);
+		expect(cellFromPoint(tall, 663.6, 0).col).toBe(80);
 	});
 });
