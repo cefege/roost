@@ -23,5 +23,9 @@
   "exclude": [
     "**/node_modules/**",
     "**/dist/**",
+    // apps/site is Astro: astro:content and image-import types resolve only
+    // through apps/site/tsconfig.json + the gitignored .astro cache, and
+    // astro is not installed at the repo root. `astro check` is its gate.
+    "apps/site/**",
   ]
 }
