@@ -26,7 +26,7 @@ const LINES = 3000;
 const TARGET = 400;
 
 test("find in scrollback lands the reader on a painted match", async ({ smokePage, stack }, testInfo) => {
-  test.skip(testInfo.project.name !== "chromium-desktop", "desktop scroll-geometry contract");
+  test.skip(!testInfo.project.name.startsWith("chromium"), "desktop scroll-geometry contract");
   test.setTimeout(240_000);
 
   const sessionId = await smokePage.evaluate(async (workerFp) => {

@@ -66,11 +66,20 @@ function logTail(path: string): string {
   }
 }
 
-function childEnvironment(home: string, values: Record<string, string>): NodeJS.ProcessEnv {
+function childEnvironment(home: string, tmpDir: string, values: Record<string, string>): NodeJS.ProcessEnv {
   const env = Object.fromEntries(
     Object.entries(process.env).filter(([key, value]) => value !== undefined && !key.startsWith("ROOST_")),
   );
-  return { ...env, HOME: home, ...values };
+  // Every child gets its own temp namespace. apps/worker/src/shell-spec.ts
+  // materializes the POSIX bootstrap rc at a FIXED tmpdir() path
+  // (roost-bash-osc7/roost.bashrc, roost-zsh-noPROMPT_SP/.zshrc), once per
+  // process, with a truncating write: any two workers sharing a temp root race
+  // there, and a shell that sources the file mid-truncate silently loses its
+  // OSC7 cwd tracking. That is reachable both across concurrent stacks (one
+  // per Playwright worker) and inside one stack, whose primary and second
+  // workers are separate processes. TMP/TEMP carry the same isolation on
+  // Windows, where os.tmpdir() reads those instead of TMPDIR.
+  return { ...env, HOME: home, TMPDIR: tmpDir, TMP: tmpDir, TEMP: tmpDir, ...values };
 }
 
 async function waitFor<T>(label: string, timeoutMs: number, probe: () => T | undefined | Promise<T | undefined>): Promise<T> {
@@ -131,6 +140,13 @@ export async function startTerminalTestStack(
   mkdirSync(home, { recursive: true });
   mkdirSync(secondHome, { recursive: true });
   mkdirSync(ptyFixtureHome, { recursive: true });
+  const childTmpDirs = {
+    coord: join(root, "coord-tmp"),
+    worker: join(root, "worker-tmp"),
+    secondWorker: join(root, "second-worker-tmp"),
+    ptyFixtureWorker: join(root, "pty-fixture-worker-tmp"),
+  };
+  for (const dir of Object.values(childTmpDirs)) mkdirSync(dir, { recursive: true });
   let coord: RunningService | undefined;
   let worker: RunningService | undefined;
   let secondWorker: RunningService | undefined;
@@ -189,7 +205,7 @@ export async function startTerminalTestStack(
       logPath: coordLogPath,
       child: spawn(bunExecutable, ["apps/coord/src/main.ts"], {
         cwd: REPOSITORY_ROOT,
-        env: childEnvironment(home, {
+        env: childEnvironment(home, childTmpDirs.coord, {
           ROOST_COORDINATOR_BIND: "127.0.0.1:0",
           // Bun auto-loads the repository .env after process spawn. Explicit
           // overrides keep the hermetic listener on loopback auth semantics and
@@ -225,6 +241,7 @@ export async function startTerminalTestStack(
       home: string;
       logPath: string;
       dataDir: string;
+      tmpDir: string;
       bootstrapToken: string;
       shell?: string;
     }): RunningService => {
@@ -233,7 +250,7 @@ export async function startTerminalTestStack(
         logPath: config.logPath,
         child: spawn(bunExecutable, ["apps/worker/src/main.ts"], {
           cwd: REPOSITORY_ROOT,
-          env: childEnvironment(config.home, {
+          env: childEnvironment(config.home, config.tmpDir, {
             ROOST_COORDINATOR_URL: baseUrl,
             // Only the first boot redeems the token; persisted data owns the
             // identity on restart.
@@ -261,6 +278,7 @@ export async function startTerminalTestStack(
       home,
       logPath: workerLogPath,
       dataDir: workerDataDir,
+      tmpDir: childTmpDirs.worker,
       bootstrapToken,
     });
     const workerFp = await awaitWorkerRoutable(WORKER_LABEL, workerLogPath);
@@ -275,6 +293,7 @@ export async function startTerminalTestStack(
           home: secondHome,
           logPath: secondWorkerLogPath,
           dataDir: secondWorkerDataDir,
+          tmpDir: childTmpDirs.secondWorker,
           bootstrapToken: secondBootstrapToken,
         });
         const workerFp = await awaitWorkerRoutable(SECOND_WORKER_LABEL, secondWorkerLogPath);
@@ -303,6 +322,7 @@ export async function startTerminalTestStack(
           home: ptyFixtureHome,
           logPath: ptyFixtureLogPath,
           dataDir: ptyFixtureDataDir,
+          tmpDir: childTmpDirs.ptyFixtureWorker,
           bootstrapToken: fixtureBootstrapToken,
           shell: ptyFixtureExecutable,
         });
@@ -328,6 +348,7 @@ export async function startTerminalTestStack(
         home,
         logPath: workerLogPath,
         dataDir: workerDataDir,
+        tmpDir: childTmpDirs.worker,
         bootstrapToken,
       });
       await awaitWorkerRoutable(WORKER_LABEL, workerLogPath);

@@ -11,7 +11,7 @@ type ClipSmoke = {
 };
 
 test("multi-line paste into an unbracketed shell is confirmed before it is sent", async ({ smokePage, stack }, testInfo) => {
-  test.skip(testInfo.project.name !== "chromium-desktop", "desktop keyboard + clipboard contract");
+  test.skip(!testInfo.project.name.startsWith("chromium"), "desktop keyboard + clipboard contract");
   test.setTimeout(120_000);
   await smokePage.context().grantPermissions(["clipboard-read", "clipboard-write"]);
 

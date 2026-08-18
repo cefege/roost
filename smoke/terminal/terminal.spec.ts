@@ -680,7 +680,7 @@ test("new-terminal server switch resets browse path before listing and spawning"
   stack,
   secondWorker,
 }, testInfo) => {
-  test.skip(testInfo.project.name !== "chromium-desktop", "desktop multi-worker browse contract");
+  test.skip(!testInfo.project.name.startsWith("chromium"), "desktop multi-worker browse contract");
 
   const suffix = crypto.randomUUID().slice(0, 8);
   const aChildName = `a-only-${suffix}`;
@@ -784,7 +784,7 @@ test("new-terminal server switch resets browse path before listing and spawning"
 });
 
 test("dropped initial full frame reclaims immediately on the first delta", async ({ smokePage, stack }, testInfo) => {
-  test.skip(testInfo.project.name !== "chromium-desktop", "desktop cell recovery contract");
+  test.skip(!testInfo.project.name.startsWith("chromium"), "desktop cell recovery contract");
   const sessionId = crypto.randomUUID();
   const canary = `initial-full-${sessionId}`;
   const spawned = await smokePage.evaluate(async ({ workerFp, sessionId: id }) => {
@@ -812,7 +812,7 @@ test("dropped initial full frame reclaims immediately on the first delta", async
 });
 
 test("dropped streaming delta recovers before the producer goes quiet", async ({ smokePage, stack }, testInfo) => {
-  test.skip(testInfo.project.name !== "chromium-desktop", "desktop cell recovery contract");
+  test.skip(!testInfo.project.name.startsWith("chromium"), "desktop cell recovery contract");
   const sessionId = (await spawnSmokeShell(smokePage, stack.workerFp)).session_id;
   await navigateToSmokeSession(smokePage, sessionId);
   await expect.poll(() => smokePage.evaluate(
@@ -851,7 +851,7 @@ test("dropped streaming delta recovers before the producer goes quiet", async ({
 });
 
 test("dropped final frame is repaired by the applied-sequence heartbeat", async ({ smokePage, stack }, testInfo) => {
-  test.skip(testInfo.project.name !== "chromium-desktop", "desktop cell recovery contract");
+  test.skip(!testInfo.project.name.startsWith("chromium"), "desktop cell recovery contract");
   test.setTimeout(75_000);
   const sessionId = (await spawnSmokeShell(smokePage, stack.workerFp)).session_id;
   await navigateToSmokeSession(smokePage, sessionId);
@@ -920,7 +920,7 @@ test("dropped final frame is repaired by the applied-sequence heartbeat", async 
 });
 
 test("parking a selection-held pane flushes its latest folded frame", async ({ smokePage, stack }, testInfo) => {
-  test.skip(testInfo.project.name !== "chromium-desktop", "desktop paint-hold contract");
+  test.skip(!testInfo.project.name.startsWith("chromium"), "desktop paint-hold contract");
   const sessionId = (await spawnSmokeShell(smokePage, stack.workerFp)).session_id;
   await navigateToSmokeSession(smokePage, sessionId);
   await expect.poll(() => smokePage.evaluate(
@@ -974,7 +974,7 @@ test("same session metadata updates preserve the mounted terminal DOM", async ({
   smokePage,
   stack,
 }, testInfo) => {
-  test.skip(testInfo.project.name !== "chromium-desktop", "desktop terminal identity contract");
+  test.skip(!testInfo.project.name.startsWith("chromium"), "desktop terminal identity contract");
   const sessionId = (await spawnSmokeShell(smokePage, stack.workerFp)).session_id;
   await navigateToSmokeSession(smokePage, sessionId);
   await expect.poll(() => smokePage.evaluate((id) => {
@@ -1036,11 +1036,15 @@ test("same session metadata updates preserve the mounted terminal DOM", async ({
     .toContain(marker);
 });
 
-test("real PTY input recovers held rendering and rejected same-generation reclaim self-heals", async ({
+// @serial: the heaviest fixture case in the suite — a PTY-fixture worker plus
+// dozens of painted-marker and cursor-geometry proofs on 10s budgets. Those are
+// timeliness assertions, so it is measured alone rather than given looser
+// budgets that would stop it detecting a real stall.
+test("real PTY input recovers held rendering and rejected same-generation reclaim self-heals @serial", async ({
   smokePage,
   stack,
 }, testInfo) => {
-  test.skip(testInfo.project.name !== "chromium-desktop", "desktop terminal recovery and reclaim reproduction");
+  test.skip(!testInfo.project.name.startsWith("chromium"), "desktop terminal recovery and reclaim reproduction");
   test.setTimeout(180_000);
 
   const fixtureWorker = await stack.startPtyFixtureWorker();
@@ -1567,7 +1571,7 @@ test("real PTY input recovers held rendering and rejected same-generation reclai
 });
 
 test("terminal replay and Ctrl keys stay owned by the PTY", async ({ smokePage, stack }, testInfo) => {
-  test.skip(testInfo.project.name !== "chromium-desktop", "desktop keyboard contract");
+  test.skip(!testInfo.project.name.startsWith("chromium"), "desktop keyboard contract");
   const sessionId = await smokePage.evaluate(async (workerFp) => {
     const smoke = (window as unknown as Window & { __smoke: { spawnShell(worker: string, folder: string): Promise<{ session_id: string }> } }).__smoke;
     return (await smoke.spawnShell(workerFp, "/tmp")).session_id;
@@ -1620,7 +1624,7 @@ test("terminal replay and Ctrl keys stay owned by the PTY", async ({ smokePage, 
 });
 
 test("desktop active terminal keeps a permanent reserved composer after send", async ({ smokePage, stack }, testInfo) => {
-  test.skip(testInfo.project.name !== "chromium-desktop", "desktop composer contract");
+  test.skip(!testInfo.project.name.startsWith("chromium"), "desktop composer contract");
   const sessionId = (await spawnSmokeShell(smokePage, stack.workerFp)).session_id;
   await navigateToSmokeSession(smokePage, sessionId);
 
@@ -1704,7 +1708,7 @@ test("desktop active terminal keeps a permanent reserved composer after send", a
 });
 
 test("desktop split panes each own and route their composer", async ({ smokePage, stack }, testInfo) => {
-  test.skip(testInfo.project.name !== "chromium-desktop", "desktop pane composer contract");
+  test.skip(!testInfo.project.name.startsWith("chromium"), "desktop pane composer contract");
   const initialSessionId = (await spawnSmokeShell(smokePage, stack.workerFp)).session_id;
   await navigateToSmokeSession(smokePage, initialSessionId);
 
@@ -1915,7 +1919,7 @@ test("desktop split panes each own and route their composer", async ({ smokePage
 });
 
 test("desktop composer attaches exact files in order without submitting", async ({ smokePage, stack }, testInfo) => {
-  test.skip(testInfo.project.name !== "chromium-desktop", "desktop native attachment contract");
+  test.skip(!testInfo.project.name.startsWith("chromium"), "desktop native attachment contract");
   const sessionId = (await spawnSmokeShell(smokePage, stack.workerFp)).session_id;
   await navigateToSmokeSession(smokePage, sessionId);
 
@@ -2002,7 +2006,7 @@ test("desktop composer attaches exact files in order without submitting", async 
 });
 
 test("desktop composer submits Enter and grows above a stable terminal deck", async ({ smokePage, stack }, testInfo) => {
-  test.skip(testInfo.project.name !== "chromium-desktop", "desktop composer keyboard and geometry contract");
+  test.skip(!testInfo.project.name.startsWith("chromium"), "desktop composer keyboard and geometry contract");
   const sessionId = (await spawnSmokeShell(smokePage, stack.workerFp)).session_id;
   await navigateToSmokeSession(smokePage, sessionId);
 
@@ -4253,7 +4257,7 @@ test("trusted keyboard input and bottom-follow behavior", async ({ smokePage, st
 });
 
 test("streaming sequence repair leaves an off-bottom reader fixed", async ({ smokePage, stack }, testInfo) => {
-  test.skip(testInfo.project.name !== "chromium-desktop", "desktop scroll-geometry contract");
+  test.skip(!testInfo.project.name.startsWith("chromium"), "desktop scroll-geometry contract");
   test.setTimeout(120_000);
   const sessionId = await smokePage.evaluate(async (workerFp) => {
     const smoke = (window as unknown as Window & {
@@ -4423,7 +4427,7 @@ test("two viewers preserve ordered terminal markers", async ({ smokePage, browse
 // A fresh deep-session attach starts with the current viewport and a truthful
 // spacer only. History stays off the network and out of the DOM until demand.
 test("deep-history attach/reveal paints the live tail until history is requested", async ({ smokePage, stack }, testInfo) => {
-  test.skip(testInfo.project.name !== "chromium-desktop", "desktop scroll-geometry contract");
+  test.skip(!testInfo.project.name.startsWith("chromium"), "desktop scroll-geometry contract");
   test.setTimeout(120_000);
   const sessionId = await smokePage.evaluate(async (workerFp) => {
     const smoke = (window as unknown as Window & {
@@ -4547,7 +4551,7 @@ test("deep-history attach/reveal paints the live tail until history is requested
 // round-trip, which serves history rows from the live core's own scrollback —
 // a second, independent path to the same per-cell link data.
 test("identical link text with different URIs keeps both, through a backfill round-trip", async ({ smokePage, stack }, testInfo) => {
-  test.skip(testInfo.project.name !== "chromium-desktop", "desktop cell paint contract");
+  test.skip(!testInfo.project.name.startsWith("chromium"), "desktop cell paint contract");
   test.setTimeout(120_000);
   const fixtureWorker = await stack.startPtyFixtureWorker();
   const sessionId = await spawnPtyFixtureSession(smokePage, fixtureWorker);
@@ -4682,7 +4686,7 @@ test("identical link text with different URIs keeps both, through a backfill rou
 // Returning to an already-open pane keeps the Sync socket but reclaims an
 // authoritative snapshot. Hidden and offscreen panes must receive no cells.
 test("returning to a dormant pane reclaims once without a Sync re-dial", async ({ smokePage, stack }, testInfo) => {
-  test.skip(testInfo.project.name !== "chromium-desktop", "desktop deck/visibility contract");
+  test.skip(!testInfo.project.name.startsWith("chromium"), "desktop deck/visibility contract");
   const spawn = (folder: string) => smokePage.evaluate(async ({ workerFp, dir }) => {
     const smoke = (window as unknown as Window & {
       __smoke: { spawnShell(worker: string, folder: string): Promise<{ session_id: string }> };
@@ -4790,7 +4794,7 @@ test("returning to a dormant pane reclaims once without a Sync re-dial", async (
 });
 
 test("offline producer divergence reconnects and repaints without a reload", async ({ smokePage, stack }, testInfo) => {
-  test.skip(testInfo.project.name !== "chromium-desktop", "desktop transport recovery contract");
+  test.skip(!testInfo.project.name.startsWith("chromium"), "desktop transport recovery contract");
   test.setTimeout(90_000);
   const sessionId = (await spawnSmokeShell(smokePage, stack.workerFp)).session_id;
   await navigateToSmokeSession(smokePage, sessionId);
@@ -4904,7 +4908,7 @@ test("offline producer divergence reconnects and repaints without a reload", asy
 });
 
 test("long hidden deep-history resume paints the current viewport before history", async ({ smokePage, stack }, testInfo) => {
-  test.skip(testInfo.project.name !== "chromium-desktop", "desktop visibility and geometry contract");
+  test.skip(!testInfo.project.name.startsWith("chromium"), "desktop visibility and geometry contract");
   test.setTimeout(180_000);
   const sessionId = await smokePage.evaluate(async (workerFp) => {
     const smoke = (window as unknown as Window & { __smoke: RecoverySmokeApi }).__smoke;
@@ -5202,7 +5206,7 @@ test("long hidden deep-history resume paints the current viewport before history
 // frame replaces that obsolete image with only the current viewport. No
 // history page may race the reveal or move the reader away from the bottom.
 test("deck switch to a stale deep-history pane lands at the live bottom instantly", async ({ smokePage, stack }, testInfo) => {
-  test.skip(testInfo.project.name !== "chromium-desktop", "desktop scroll-geometry contract");
+  test.skip(!testInfo.project.name.startsWith("chromium"), "desktop scroll-geometry contract");
   test.setTimeout(180_000);
   const sessionId = await smokePage.evaluate(async (workerFp) => {
     const smoke = (window as unknown as Window & {
@@ -5379,7 +5383,7 @@ test("deck switch to a stale deep-history pane lands at the live bottom instantl
 // nothing re-samples the bottom, and pre-noteBoxResize the pane revealed
 // off-bottom with live output landing below the fold — permanently.
 test("a pane revealed after the window shrank is still at the bottom", async ({ smokePage, stack }, testInfo) => {
-  test.skip(testInfo.project.name !== "chromium-desktop", "desktop scroll-geometry contract");
+  test.skip(!testInfo.project.name.startsWith("chromium"), "desktop scroll-geometry contract");
   const sessionId = await smokePage.evaluate(async (workerFp) => {
     const smoke = (window as unknown as Window & { __smoke: { spawnShell(worker: string, folder: string): Promise<{ session_id: string }> } }).__smoke;
     return (await smoke.spawnShell(workerFp, "/tmp")).session_id;
@@ -5465,7 +5469,7 @@ test("a pane revealed after the window shrank is still at the bottom", async ({ 
 // count are the remount detectors; nothing else in this suite navigates /file,
 // which is exactly why the regression slipped past green runs.
 test("a /file round-trip keeps the deck warm and costs no snapshot", async ({ smokePage, stack }, testInfo) => {
-  test.skip(testInfo.project.name !== "chromium-desktop", "desktop deck-persistence contract");
+  test.skip(!testInfo.project.name.startsWith("chromium"), "desktop deck-persistence contract");
   const sessionId = await smokePage.evaluate(async (workerFp) => {
     const smoke = (window as unknown as Window & { __smoke: { spawnShell(worker: string, folder: string): Promise<{ session_id: string }> } }).__smoke;
     return (await smoke.spawnShell(workerFp, "/tmp")).session_id;

@@ -10,6 +10,36 @@ import { test, expect } from "./fixtures.ts";
 import { encodePtyFixtureCommand, PTY_FIXTURE_READY } from "./pty-fixture-protocol.ts";
 import type { TerminalTestWorker } from "./stack.ts";
 
+// QUARANTINE — contention, not correctness. "stalled browser consumer
+// reconnects without reloading and resumes input" is the one case in
+// this suite whose contract is coupled to producer THROUGHPUT rather than to a
+// state machine: it blocks the page's main thread for a FIXED 4.5s wall-clock
+// window and requires the server's ACK deadline to expire inside that window,
+// so the stale socket closes and the browser re-dials (syncWsGeneration must
+// advance). Spread across 4 workers this box could not produce the
+// 4000-line flood inside that window, nothing went stale, and the poll failed
+// with the generation still at its initial value. The same code passes at
+// workers=1, so this is the host starving the producer, not a broken contract
+// and not cross-test interference.
+// What this containment does and does NOT buy, measured: running this file
+// alone it is 6/6 green and Playwright schedules it on 1 worker. In the full
+// 4-worker suite on a box already carrying an unrelated load average of 11-15
+// (8 cores, so ~27 under test), this case still failed — as `keeper spawn
+// no-ack after 8000ms`, a PRODUCT deadline during session spawn rather than the
+// re-dial poll. Keeping this file on one worker removes intra-file competition;
+// it cannot remove the other three workers' CPU pressure. If that failure mode
+// reappears on an idle host, the next lever is building the PTY fixture once in
+// globalSetup instead of once per worker (four concurrent `bun build --compile`
+// runs land on the same peak as the first fixture test in each worker), not
+// lowering the global worker count.
+// `default`, deliberately not `serial`: both keep this file's cases on ONE
+// worker in declaration order, but serial mode SKIPS the rest of the group
+// after a failure, which would turn one flake into five unrun tests and hide
+// failures. Costs no wall time either way — the six perf cases total ~110s
+// against a critical path of ~340s — and it also stops four 20k-line floods
+// from competing with each other.
+test.describe.configure({ mode: "default" });
+
 type SmokeWindow = Window & {
   readonly __smoke: SmokeApi;
   __roostDriverBeforeNavigationEpochMs?: number;
@@ -119,11 +149,11 @@ async function navigateAndProve(page: Page, sessionId: string, marker: string): 
   }, { id: sessionId, expected: marker });
 }
 
-test("real PTY fixture preserves framing and deterministic armed operations", async ({
+test("real PTY fixture preserves framing and deterministic armed operations @serial", async ({
   smokePage,
   stack,
 }, testInfo) => {
-  test.skip(testInfo.project.name !== "chromium-desktop", "desktop real-PTY fixture contract");
+  test.skip(!testInfo.project.name.startsWith("chromium"), "desktop real-PTY fixture contract");
   test.setTimeout(120_000);
 
   const fixtureWorker = await stack.startPtyFixtureWorker();
@@ -336,8 +366,8 @@ test("real PTY fixture preserves framing and deterministic armed operations", as
   expect(mainText).not.toContain(altLineReady);
 });
 
-test("terminal perf: navigation-origin paint and retained 20k flood", async ({ coldSmokePage, browser, stack }, testInfo) => {
-  test.skip(testInfo.project.name !== "chromium-desktop", "desktop perf budget");
+test("terminal perf: navigation-origin paint and retained 20k flood @serial", async ({ coldSmokePage, browser, stack }, testInfo) => {
+  test.skip(!testInfo.project.name.startsWith("chromium"), "desktop perf budget");
   test.setTimeout(360_000);
 
   const fixtureWorker = await stack.startPtyFixtureWorker();
@@ -448,8 +478,8 @@ test("terminal perf: navigation-origin paint and retained 20k flood", async ({ c
   }
 });
 
-test("terminal perf: trusted key, shallow/deep reveal, and child-observed resize", async ({ smokePage, stack }, testInfo) => {
-  test.skip(testInfo.project.name !== "chromium-desktop", "desktop interaction distributions");
+test("terminal perf: trusted key, shallow/deep reveal, and child-observed resize @serial", async ({ smokePage, stack }, testInfo) => {
+  test.skip(!testInfo.project.name.startsWith("chromium"), "desktop interaction distributions");
   test.setTimeout(360_000);
 
   const fixtureWorker = await stack.startPtyFixtureWorker();
@@ -606,8 +636,8 @@ test("terminal perf: trusted key, shallow/deep reveal, and child-observed resize
   }
 });
 
-test("terminal perf: optimistic first marker paints while spawn response is held", async ({ smokePage, stack }, testInfo) => {
-  test.skip(testInfo.project.name !== "chromium-desktop", "desktop optimistic paint endpoint");
+test("terminal perf: optimistic first marker paints while spawn response is held @serial", async ({ smokePage, stack }, testInfo) => {
+  test.skip(!testInfo.project.name.startsWith("chromium"), "desktop optimistic paint endpoint");
   test.setTimeout(120_000);
 
   const fixtureWorker = await stack.startPtyFixtureWorker();
@@ -678,8 +708,8 @@ test("terminal perf: optimistic first marker paints while spawn response is held
   }
 });
 
-test("offscreen mounted terminals receive no cell frames under load", async ({ smokePage, stack }, testInfo) => {
-  test.skip(testInfo.project.name !== "chromium-desktop", "desktop offscreen load");
+test("offscreen mounted terminals receive no cell frames under load @serial", async ({ smokePage, stack }, testInfo) => {
+  test.skip(!testInfo.project.name.startsWith("chromium"), "desktop offscreen load");
   test.setTimeout(180_000);
 
   const fixtureWorker = await stack.startPtyFixtureWorker();
@@ -720,8 +750,8 @@ test("offscreen mounted terminals receive no cell frames under load", async ({ s
   }
 });
 
-test("stalled browser consumer reconnects without reloading and resumes input", async ({ smokePage, stack }, testInfo) => {
-  test.skip(testInfo.project.name !== "chromium-desktop", "desktop transport recovery");
+test("stalled browser consumer reconnects without reloading and resumes input @serial", async ({ smokePage, stack }, testInfo) => {
+  test.skip(!testInfo.project.name.startsWith("chromium"), "desktop transport recovery");
   test.setTimeout(120_000);
 
   const fixtureWorker = await stack.startPtyFixtureWorker();

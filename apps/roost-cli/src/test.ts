@@ -54,9 +54,25 @@ async function runTerminal(): Promise<void> {
   try {
     await run("web build", [process.execPath, "run", "--cwd", "apps/web", "build"]);
     await run("web embed", [process.execPath, "scripts/gen-embed.ts"]);
+    // Pass 1: correctness, fanned out (playwright.config.ts pins workers:4).
     await run(
       "terminal",
-      ["bunx", "playwright", "test", "--config=playwright.config.ts"],
+      [
+        "bunx", "playwright", "test", "--config=playwright.config.ts",
+        ...(process.platform === "darwin"
+          ? ["--project=chromium-desktop", "--project=webkit-iphone"]
+          : ["--project=chromium-desktop"]),
+      ],
+      { ROOST_TEST_BUN: process.execPath },
+    );
+    // Pass 2: the @serial (perf/latency) cases, alone on the box. A number
+    // measured under the other three stacks' load asserts nothing.
+    await run(
+      "terminal perf",
+      [
+        "bunx", "playwright", "test", "--config=playwright.config.ts",
+        "--project=chromium-serial", "--workers=1",
+      ],
       { ROOST_TEST_BUN: process.execPath },
     );
   } finally {

@@ -45,7 +45,7 @@ async function report(
 }
 
 test("agent status reaches every browser surface and notification ACK", async ({ smokePage, stack }, testInfo) => {
-  test.skip(testInfo.project.name !== "chromium-desktop", "desktop status surfaces");
+  test.skip(!testInfo.project.name.startsWith("chromium"), "desktop status surfaces");
   test.setTimeout(180_000);
 
   const [activeId, backgroundId] = await smokePage.evaluate(async (workerFp) => {

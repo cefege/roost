@@ -19,7 +19,7 @@ type ZoomSmoke = {
 const LINES = 400;
 
 test("terminal zoom re-sizes the grid without mangling history", async ({ smokePage, stack }, testInfo) => {
-  test.skip(testInfo.project.name !== "chromium-desktop", "desktop keyboard contract");
+  test.skip(!testInfo.project.name.startsWith("chromium"), "desktop keyboard contract");
   test.setTimeout(180_000);
 
   const sessionId = await smokePage.evaluate(async (workerFp) => {
