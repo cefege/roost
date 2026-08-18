@@ -130,12 +130,13 @@ roosttt.com      CNAME  70b39358-d6da-41bb-8608-87f0e6559803.cfargotunnel.com   
 www.roosttt.com  CNAME  70b39358-d6da-41bb-8608-87f0e6559803.cfargotunnel.com   (proxied)
 ```
 
-They sit beside the pre-existing `mihai`/`paul` app hostnames on the same tunnel.
+They sit beside the `mihai`/`paul` app hostnames on the same tunnel. The site lives on the
+root domain and nowhere else.
 
 **Do not use `cloudflared tunnel route dns roost roosttt.com` here.** `~/.cloudflared/cert.pem`
-is scoped to the `repuestosyservicios360.com` zone, so that command reports success while
-creating `roosttt.com.repuestosyservicios360.com` in the wrong zone. Edit `roosttt.com` from
-the dashboard or with an API credential for that zone instead.
+was issued for a different zone, so that command reports success while silently writing the
+record into that other zone instead of `roosttt.com`. Edit the `roosttt.com` zone directly —
+dashboard, or an API credential scoped to it.
 
 Verify from anywhere once DNS resolves:
 
