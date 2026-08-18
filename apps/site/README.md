@@ -120,20 +120,22 @@ The three pieces of server config, already in place:
 Cloudflare terminates TLS, which is why the Caddy blocks are `http://`: the DNS records are
 tunnel CNAMEs, so ACME HTTP-01 against them would loop back through the tunnel.
 
-### DNS (the one step that needs zone credentials)
+### DNS
 
-`roosttt.com` needs a proxied CNAME to the tunnel:
+Both records exist in the `roosttt.com` zone (proxied, so Cloudflare terminates TLS and the
+apex CNAME is flattened):
 
 ```
 roosttt.com      CNAME  70b39358-d6da-41bb-8608-87f0e6559803.cfargotunnel.com   (proxied)
 www.roosttt.com  CNAME  70b39358-d6da-41bb-8608-87f0e6559803.cfargotunnel.com   (proxied)
 ```
 
-`cloudflared tunnel route dns roost roosttt.com` does **not** work here: `~/.cloudflared/cert.pem`
-is scoped to the `repuestosyservicios360.com` zone, so it silently creates
-`roosttt.com.repuestosyservicios360.com` instead. Create the records in the Cloudflare
-dashboard, or with a token that has `Zone:DNS:Edit` on `roosttt.com`, or re-run
-`cloudflared tunnel login` and select `roosttt.com` to re-scope `cert.pem`.
+They sit beside the pre-existing `mihai`/`paul` app hostnames on the same tunnel.
+
+**Do not use `cloudflared tunnel route dns roost roosttt.com` here.** `~/.cloudflared/cert.pem`
+is scoped to the `repuestosyservicios360.com` zone, so that command reports success while
+creating `roosttt.com.repuestosyservicios360.com` in the wrong zone. Edit `roosttt.com` from
+the dashboard or with an API credential for that zone instead.
 
 Verify from anywhere once DNS resolves:
 
