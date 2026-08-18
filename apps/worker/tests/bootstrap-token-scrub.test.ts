@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { scrubBootstrapTokenFromServiceDefinition } from "../src/install.ts";
@@ -51,7 +51,9 @@ describe("bootstrap token service scrub", () => {
     const updated = readFileSync(unit, "utf8");
     expect(updated).not.toContain("ROOST_BOOTSTRAP_TOKEN");
     expect(updated).toContain("ROOST_WORKER_LABEL");
-    expect(Bun.file(marker).size).toBeGreaterThanOrEqual(0);
+    // The fake systemctl on PATH must actually have run: Bun.file(marker).size
+    // is 0 for a missing file, so only existsSync proves the reload was spawned.
+    expect(existsSync(marker)).toBe(true);
     expect(statSync(unit).mode & 0o777).toBe(0o600);
   });
 });

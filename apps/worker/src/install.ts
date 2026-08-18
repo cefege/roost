@@ -45,7 +45,14 @@ export async function scrubBootstrapTokenFromServiceDefinition(
   await rename(temp, path);
   await chmod(path, 0o600);
   if (platform === "linux") {
+    // env: process.env — Bun.spawn resolves argv[0] against the PATH in the env
+    // it is handed, and with no env it uses a cached environ snapshot rather
+    // than live process.env. Without this the lookup ignores a PATH set after
+    // process start, which is how bootstrap-token-scrub.test.ts injects its
+    // fake systemctl (it found the host's real systemctl on Linux and nothing
+    // at all on macOS).
     const reload = Bun.spawn(["systemctl", "--user", "daemon-reload"], {
+      env: process.env as Record<string, string>,
       stdout: "ignore",
       stderr: "ignore",
     });
