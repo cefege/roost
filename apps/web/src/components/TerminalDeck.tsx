@@ -1,6 +1,6 @@
 // Layout-driven terminal deck. Open terminals retain their immutable spawn cwd,
-// share selection/close/reorder/split behavior, and stay mounted while parked
-// so switching tabs never loses live state.
+// share selection/close/reorder/split behavior, and a bounded warm set stays
+// mounted while parked (lib/deckWarmSet.ts) so switching tabs keeps live state.
 // Compact/mobile collapses to the focused pane's selected tab.
 // Swipe geometry and per-slot styles are pure in lib/deckSwipe.ts; the spotlight
 // scrim and the new-terminal pull affordance are TerminalDeckSpotlight.tsx and
@@ -37,6 +37,7 @@ import {
 import { spotlightSessionId, clearSpotlight, setSpotlightSessionId, setVisiblePaneCount } from "../store/spotlight.ts";
 import { zoneToSplit, zoneRect, tileTargetFor, type DropZone, type TileTarget } from "../lib/dropZones.ts";
 import { selectTabOp, focusPaneOp, closeSessionOp, type DeckOpsCtx } from "../lib/deckOps.ts";
+import { nextWarmSessionIds } from "../lib/deckWarmSet.ts";
 import { shouldCommitSwitch, settleDurationMs, endMode, newFabProgress, swipeStyleFor, barNeighborId as barNeighborIdOf, NEW_BLOOM_MS, type Swipe } from "../lib/deckSwipe.ts";
 import { EDGE_PX, lockAxis, openOffsetPx } from "../lib/edgeSwipeDrawer.ts";
 import { dragDrawer, settleDrawerOpen } from "../lib/drawerDrag.ts";
@@ -284,24 +285,16 @@ export function TerminalDeck(props: {
     return m;
   });
 
+  // Only a bounded set of panes stays mounted. A parked pane keeps its renderer
+  // and scrollback DOM so switching back is a visibility flip, but every mounted
+  // pane also adds forced layout to every FUTURE switch, so the set is capped
+  // (lib/deckWarmSet.ts). Currently-slotted panes are never evicted, and
+  // mountedSessionIds unions the slotted ids independently, so no policy bug
+  // here can unmount a visible pane.
   createEffect(() => {
-    const openIds = new Set<string>(openSessions().map((session) => session.id));
-    const selectedIds = slotBySession();
-    setWarmSessionIds((previous) => {
-      let changed = false;
-      const next = new Set<string>();
-      for (const id of previous) {
-        if (openIds.has(id)) next.add(id);
-        else changed = true;
-      }
-      for (const id of selectedIds.keys()) {
-        if (!next.has(id)) {
-          next.add(id);
-          changed = true;
-        }
-      }
-      return changed ? next : previous;
-    });
+    const openIds = new Set(openSessions().map((session) => session.id));
+    const slottedIds = [...slotBySession().keys()];
+    setWarmSessionIds((previous) => nextWarmSessionIds(previous, openIds, slottedIds));
   });
 
 
