@@ -85,6 +85,22 @@ systemd_quote() {
   printf '"%s"' "$(systemd_escape "$1")"
 }
 
+# systemd quoting is NOT universal: it applies to command lines (ExecStart=) and
+# Environment=, but path/specifier settings — WorkingDirectory=, StandardOutput=,
+# StandardError= — take the raw value. Quoting those makes systemd reject
+# WorkingDirectory as "path is not absolute" (fatal: the unit refuses to start)
+# and silently IGNORE the output specifiers, so logs vanish. Emit them raw, with
+# `%` doubled so it is never read as a specifier, and refuse a value carrying the
+# control characters that would let it forge a directive.
+systemd_path() {
+  local value="$1"
+  if [[ "$value" == *$'\n'* || "$value" == *$'\r'* || "$value" == *'"'* ]]; then
+    echo "refusing unit path with control characters: $value" >&2
+    exit 1
+  fi
+  printf '%s' "${value//%/%%}"
+}
+
 systemd_env() {
   local value="$2"
   value="${value//%/%%}"
@@ -295,9 +311,9 @@ write_unit() {
   web_dist="${ROOST_WEB_DIST_PATH:-$REPO_ROOT/apps/web/dist}"
   prog_bin_unit="$(systemd_quote "$prog_bin")"
   prog_arg2_unit="$(systemd_quote "$prog_arg2")"
-  workdir_unit="$(systemd_quote "$workdir")"
-  stdout_unit="$(systemd_quote "append:${LOG_DIR}/main.out.log")"
-  stderr_unit="$(systemd_quote "append:${LOG_DIR}/main.err.log")"
+  workdir_unit="$(systemd_path "$workdir")"
+  stdout_unit="$(systemd_path "append:${LOG_DIR}/main.out.log")"
+  stderr_unit="$(systemd_path "append:${LOG_DIR}/main.err.log")"
   {
     cat <<EOF
 [Unit]

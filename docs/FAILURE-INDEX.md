@@ -572,6 +572,39 @@ the way `spawnShell` always has, so a respawned session never starts on the cold
 for an unchanged viewport"`, `"an unprovable floor still falls through to the full transaction"`,
 `"a genuine resize still rebuilds exactly once"`, `"respawn seeds proven geometry"`.
 
+### Quoting a systemd path directive because quoting is "safer"
+
+**Symptom** — "`roost push` stages the release and then fails activation: `Unit roost-coord.service has a bad unit file setting` / `WorkingDirectory="/home/user/roost": path is not absolute`, the push rolls back, and the whole fleet stays pinned at the older commit while every Linux coordinator/worker deploy fails identically / or the unit starts clean and writes NO logs — `main.out.log` never grows and the journal carries `Failed to parse output specifier`"
+
+**Wrong** — treat systemd quoting as universal and pipe every dynamic value through
+`systemd_quote()` in `apps/coord/scripts/install.sh` / `apps/worker/scripts/install.sh`. It is tempting because
+the launchd branch of the SAME function must XML-escape everything it interpolates into the plist, and because
+quoting is genuine systemd syntax where it applies: `ExecStart=` is a command line and `Environment=` is a
+key=value list, so both really do accept (and for a path with a space, really do need) double quotes. One
+uniform escape helper for every interpolated value therefore looks like the conservative choice — and it is the
+one that bricks the unit. The two failure modes do not even look alike: `WorkingDirectory=` is FATAL and loud,
+while a quoted `StandardOutput=`/`StandardError=` specifier is discarded SILENTLY, so the service comes up
+"healthy" and its logs simply never exist.
+
+**Right** — **quoting is per-directive, not per-file.** `ExecStart=` and `Environment=` are parsed as quoted
+command lines; `WorkingDirectory=`, `StandardOutput=` and `StandardError=` take the RAW value — the quotes
+become part of the path, so `WorkingDirectory=` fails `path is not absolute` and the unit refuses to start, and
+the output specifier fails to parse and is dropped with no error and no log file. `systemd_path()` sits next to
+`systemd_quote()` in both installers: it rejects a value containing newline, CR or `"` (the characters that
+would let a value forge a directive line, which is the only thing the quoting bought), doubles `%` so the value
+can never be read as a systemd specifier, and emits it raw. `WorkingDirectory=`/`StandardOutput=`/`StandardError=`
+use `systemd_path`; `ExecStart=` keeps `systemd_quote`, and `systemd_env` keeps its own quoted
+`Environment="KEY=VALUE"` form (which is legal there). Second-order lesson:
+writing a unit file is not activating a service — activation must be proven by systemd actually STARTING the
+unit, which is exactly what caught this. `apps/roost-cli/src/push.ts` never saw a healthy coordinator at the
+expected SHA, took its `rollback-prior` branch and restored the previous release, so the fleet sat on an old
+commit instead of "succeeding" onto a dead one; a deploy path that trusted "the unit file was written" would
+have reported success against a coordinator that was never running.
+
+**Guard** — `apps/roost-cli/tests/systemd-unit-quoting.test.ts` — generates both units through each installer's
+`write-plist` verb and runs `systemd-analyze --user verify` on them, so a re-quoted path directive fails in CI
+rather than on the first `roost push`.
+
 ---
 
 ## Transport and connection lifecycle
