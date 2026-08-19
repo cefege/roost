@@ -166,10 +166,13 @@ jobs:
     name: verify Windows Server 2022
     # OFF by default: the Windows suite is red for environment reasons (temp-dir
     # EBUSY in coord-move, POSIX-only deploy fixtures, launchd timeouts), and it
-    # blocked v0.4.0 and v0.4.1 from publishing at all. Set repository variable
-    # ROOST_WINDOWS_GATE=on to put Windows back in the release path; that also
-    # re-enables windows-release, whose signed assets must be added back to
-    # publish's PUBLIC_RELEASE_ASSETS and its count.
+    # blocked v0.4.0 and v0.4.1 from publishing at all. Putting Windows back in
+    # the release path takes all four steps together, or publish races ahead of
+    # the signed assets and fails its own asset-set diff: set repository variable
+    # ROOST_WINDOWS_GATE=on; restore publish's `needs: [native-smoke,
+    # windows-release]`; restore its download-artifact step for
+    # `windows-release-candidates`; and add the eight Windows assets back to
+    # PUBLIC_RELEASE_ASSETS with the count gate at 20.
     if: vars.ROOST_WINDOWS_GATE == 'on'
     runs-on: windows-2022
     timeout-minutes: 60
