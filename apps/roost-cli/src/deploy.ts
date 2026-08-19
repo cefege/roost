@@ -24,6 +24,7 @@ import { acquireRemoteDeployLock, DeployFailure, failDeploy, finishWorkerDeploy,
 import { _isSelfHost } from "./deploy-self-host.ts";
 import { _backfillEnvFromPlist, _resolveDeployEnvValue } from "./deploy-plist-env.ts";
 import { _deployLocal } from "./deploy-local.ts";
+import { manifestOnlyWorkspaces } from "./deploy-workspaces.ts";
 import { deployLinux } from "./deploy-linux.ts";
 import { launchdBootstrapWithRetryCmd, loadWindowsServiceDefinitions, verifyWorkerCmd } from "./service-ctl.ts";
 import { buildAuthorizedApiClient, buildSelfAuthorizedApiClient } from "./api.ts";
@@ -1255,7 +1256,9 @@ export async function deploy(args: string[]): Promise<void> {
     console.log(">> committed a previously activated healthy macOS worker");
   }
   console.log(`>> ensure staged release ${remoteDir}/ on ${host}`);
-  const stage = await deploySsh(`mkdir -p ${remoteDir}/apps/roost-cli ${remoteDir}/smoke`);
+  // Manifest-only workspaces are derived, never enumerated (deploy-workspaces.ts).
+  const manifestOnly = manifestOnlyWorkspaces(sourceRoot);
+  const stage = await deploySsh(`mkdir -p ${manifestOnly.map((w) => `${remoteDir}/${w}`).join(" ")}`);
   if (stage.exit !== 0) {
     failDeploy(stage.exit || 4, `cannot create macOS release stage\n${stage.stdout}\n${stage.stderr}`);
   }
@@ -1306,14 +1309,10 @@ export async function deploy(args: string[]): Promise<void> {
       `${sourceRoot}/tsconfig.base.json`, `${sourceRoot}/bunfig.toml`,
       `${host}:${remoteDir}/`,
     ], "rsync root workspace", deployLease.signal),
-    runOrDie([
+    ...manifestOnly.map((relative) => runOrDie([
       "rsync", "-az", "-e", RSYNC_RSH,
-      `${sourceRoot}/apps/roost-cli/package.json`, `${host}:${remoteDir}/apps/roost-cli/`,
-    ], "rsync roost-cli manifest", deployLease.signal),
-    runOrDie([
-      "rsync", "-az", "-e", RSYNC_RSH,
-      `${sourceRoot}/smoke/package.json`, `${host}:${remoteDir}/smoke/`,
-    ], "rsync smoke manifest", deployLease.signal),
+      `${sourceRoot}/${relative}/package.json`, `${host}:${remoteDir}/${relative}/`,
+    ], `rsync ${relative} manifest`, deployLease.signal)),
   ]);
   const rejectedRsync = rsyncs.find(
     (result): result is PromiseRejectedResult => result.status === "rejected",

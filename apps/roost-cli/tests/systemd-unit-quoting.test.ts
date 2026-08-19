@@ -137,7 +137,7 @@ describe.skipIf(NOT_LINUX)("systemd unit quoting", () => {
           PATH: "/usr/bin:/bin",
           // --user needs a runtime dir to build its manager; without one verify fails
           // for an unrelated reason and would pass this test vacuously.
-          XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR ?? `/run/user/${process.getuid()}`,
+          XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR ?? `/run/user/${process.getuid?.() ?? 0}`,
         },
       });
       const output = `${proc.stdout.toString()}${proc.stderr.toString()}`;
