@@ -8,7 +8,10 @@ const HASH_CHUNK_SIZE = 1024 * 1024;
 export function createSqliteSnapshot(sqlite: Database, destPath: string): { size: number; sha256: string } {
   try {
     fs.rmSync(destPath, { force: true });
-    sqlite.prepare("VACUUM INTO ?").run(destPath);
+    // query(), not prepare(): a prepare()d Statement is finalized only on GC, so
+    // it keeps the source handle busy — the coordinator's own close(true) then
+    // reports "database is locked" after any snapshot. query() is cache-owned.
+    sqlite.query("VACUUM INTO ?").run(destPath);
     fs.chmodSync(destPath, 0o600);
 
     const snapshot = new Database(destPath, { readonly: true });

@@ -131,12 +131,12 @@ beforeEach(async () => {
   await writer.db.deleteFrom("events").execute();
 });
 
-afterAll(() => {
+afterAll(async () => {
   connectWorkers.delete(FP);
   connectWorkers.delete(OTHER_FP);
-  try { reader?.sqlite.close(); } catch { /* ignore */ }
-  try { writer?.sqlite.close(); } catch { /* ignore */ }
-  if (workdir && existsSync(workdir)) rmSync(workdir, { recursive: true, force: true });
+  try { await reader?.close(); } finally { // a leak in one handle must not skip the other close or the rm
+    try { await writer?.close(); } finally { if (workdir && existsSync(workdir)) rmSync(workdir, { recursive: true, force: true }); }
+  }
 });
 
 describe("appendEvent durable publication order", () => {

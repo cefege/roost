@@ -31,7 +31,7 @@ async function fixture() {
   handoffPath: join(dir, "coord-handoff.json"), webDistPath: "", logDir: dir,
   publicUrl: "https://source.ts.net:4102", tlsCertPath: undefined, tlsKeyPath: undefined,
   jwtMaxAgeSecs: 300, auditRetentionDays: 90, relaxedCsp: false, corsAllowedOrigins: [], }
-  return { dir, cfg, db: opened.db, sqlite: opened.sqlite, coordKey: await loadOrCreateCoordKey(keyPath) };
+  return { dir, cfg, db: opened.db, close: () => opened.close(), coordKey: await loadOrCreateCoordKey(keyPath) };
 }
 
 function worker(fp: string): MoveWorker {
@@ -101,7 +101,7 @@ describe("CoordinatorMoveOrchestrator", () => {
       "activate-worker", "activate-worker", "wait-workers", "commit-target",
       "target-healthy", `relocate:${handoffId}`,
     ]);
-    f.sqlite.close();
+    await f.close();
   });
 
   test("target commit authenticates the handoff and opens writes only after every worker acknowledges", async () => {
@@ -137,7 +137,7 @@ describe("CoordinatorMoveOrchestrator", () => {
     // First round obtains durable commit acknowledgements; the second round
     // tells workers to reconnect and replay events held during target_pending.
     expect(calls.filter((call) => call === "commit-worker")).toHaveLength(4);
-    f.sqlite.close();
+    await f.close();
   });
 
   test("write drain waits for in-flight mutations and rejects new ones", async () => {
@@ -171,7 +171,7 @@ describe("CoordinatorMoveOrchestrator", () => {
     expect(calls).toEqual(["abort-worker", "abort-target"]);
     expect(store.load()?.phase).toBe("ROLLED_BACK");
     expect(move.gate.mode).toBe("active");
-    f.sqlite.close();
+    await f.close();
   });
 
   test("recovered snapshot failure aborts every durably staged worker", async () => {
@@ -202,7 +202,7 @@ describe("CoordinatorMoveOrchestrator", () => {
 
     expect(calls).toEqual(["copy-state", "abort-worker", "abort-worker", "abort-target"]);
     expect(move.gate.mode).toBe("active");
-    f.sqlite.close();
+    await f.close();
   });
 
   // The gate is read by auth-interceptor, worker-conn and sync-ws-handler; a
@@ -232,7 +232,7 @@ describe("CoordinatorMoveOrchestrator", () => {
       // A terminal target owns nothing: no commit replay, no rollback retry.
       expect(calls).toEqual([]);
       expect(store.load()?.phase).toBe(phase);
-      f.sqlite.close();
+      await f.close();
     });
   }
 
@@ -264,7 +264,7 @@ describe("CoordinatorMoveOrchestrator", () => {
     expect(move.gate.mode).toBe("active");
     expect(store.load()?.phase).toBe("FAILED");
     expect(calls).toEqual(["abort-worker"]);
-    f.sqlite.close();
+    await f.close();
   });
 
   test("a source that throws at COMMITTING still reaches a terminal phase without a restart", async () => {
@@ -305,6 +305,6 @@ describe("CoordinatorMoveOrchestrator", () => {
     expect(move.gate.mode).toBe("retired");
     expect(commitAttempts).toBe(2);
     expect(calls).toContain(`relocate:${seeded.handoff_id}`);
-    f.sqlite.close();
+    await f.close();
   }, 20_000);
 });

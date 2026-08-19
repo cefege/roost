@@ -21,7 +21,7 @@ import type { CoordConfig } from "@roost/shared/config";
 
 let workdir: string;
 let coord: CoordHandle;
-let cleanup: () => void;
+let cleanup: () => Promise<void>;
 let workerJwt: string;
 let workerFp: string;
 let db: KyselyDB;
@@ -93,10 +93,10 @@ beforeAll(async () => {
 		workerFp,
 	);
 
-	cleanup = () => {
+	cleanup = async () => {
 		coord.dispose();
 		try {
-			sqlite.close();
+			await opened.close();
 		} catch {
 			/* ignore */
 		}

@@ -57,14 +57,14 @@ describe("coordinator backups", () => {
             .map(({ value }) => value);
           expect(values).toEqual([...expected]);
         } finally {
-          backup.close();
+          backup.close(true);
         }
       }
     } finally {
       try { reader.exec("ROLLBACK"); } catch { /* already closed or no transaction */ }
-      reader.close();
-      writer.close();
-      sqlite.close();
+      reader.close(true);
+      writer.close(true);
+      sqlite.close(true);
     }
   });
 
@@ -87,7 +87,7 @@ describe("coordinator backups", () => {
         name: "second_table",
       });
     } finally {
-      sqlite.close();
+      sqlite.close(true);
     }
   });
 
@@ -108,7 +108,7 @@ describe("coordinator backups", () => {
       expect(sqlite.query("SELECT name FROM sqlite_master WHERE name = 'forbidden'").get()).toBeNull();
       expect(sqlite.query("SELECT name FROM _migrations WHERE name = '0001_must_not_apply'").get()).toBeNull();
     } finally {
-      sqlite.close();
+      sqlite.close(true);
     }
   });
 });

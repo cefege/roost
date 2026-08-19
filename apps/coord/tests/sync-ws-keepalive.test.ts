@@ -32,7 +32,7 @@ import { titleBus } from "../src/buses.ts";
 import { _uiStatesByTab } from "../src/connect/handlers-ui.ts";
 
 let workdir: string;
-let cleanup: () => void;
+let cleanup: () => Promise<void>;
 let server: ReturnType<typeof Bun.serve>;
 let jwt: string;
 let deps: ConnectDeps;
@@ -94,14 +94,13 @@ beforeAll(async () => {
     websocket: makeSyncWsHandler(deps, { keepaliveMs: 100 }),
   });
 
-  cleanup = () => {
+  cleanup = async () => {
     try { server.stop(true); } catch { /* ignore */ }
-    try { sqlite.close(); } catch { /* ignore */ }
-    if (existsSync(workdir)) rmSync(workdir, { recursive: true, force: true });
+    try { await opened.close(); } finally { if (existsSync(workdir)) rmSync(workdir, { recursive: true, force: true }); }
   };
 });
 
-afterAll(() => cleanup?.());
+afterAll(async () => { await cleanup?.(); });
 
 test("open → server sends KeepaliveFrame within keepalive interval", async () => {
   const ws = new WebSocket(

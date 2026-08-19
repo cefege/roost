@@ -8,7 +8,7 @@ import { describe, it, expect, beforeAll, afterAll } from "bun:test";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { openDb } from "../src/db/connection.ts";
+import { openDb, type DbHandle, type KyselyDB } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
 import { appendEvent } from "../src/event-log.ts";
 import { __setConnectWorkerForTest } from "../src/connect/worker-service.ts";
@@ -20,8 +20,8 @@ const FP = asWorkerFp("cc".repeat(32));
 const tick = () => new Promise((r) => setTimeout(r, 60));
 
 let workdir: string;
-let db: ReturnType<typeof openDb>["db"];
-let sqlite: ReturnType<typeof openDb>["sqlite"];
+let db: KyselyDB;
+let handle: DbHandle;
 
 function liveSession(sid: string): Session {
   return {
@@ -42,19 +42,18 @@ function snapshot(sids: string[]): SessionEvent {
 
 beforeAll(async () => {
   workdir = mkdtempSync(join(tmpdir(), "roost-reap-"));
-  const opened = openDb(join(workdir, "test.db"));
-  db = opened.db; sqlite = opened.sqlite;
-  await runMigrations(sqlite);
+  handle = openDb(join(workdir, "test.db"));
+  db = handle.db;
+  await runMigrations(handle.sqlite);
   await db.insertInto("workers").values({
     fp: FP, label: "test", os: "darwin", git_sha: null, host_metrics_json: null,
     registered_at_ms: 1, last_seen_ms: 1,
   }).execute();
 });
 
-afterAll(() => {
+afterAll(async () => {
   __setConnectWorkerForTest(FP, null);
-  try { sqlite.close(); } catch { /* ignore */ }
-  if (existsSync(workdir)) rmSync(workdir, { recursive: true, force: true });
+  try { await handle.close(); } finally { if (existsSync(workdir)) rmSync(workdir, { recursive: true, force: true }); }
 });
 
 describe("force-close + snapshot reap", () => {

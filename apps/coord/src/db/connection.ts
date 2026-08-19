@@ -13,6 +13,8 @@ export type KyselyDB = Kysely<DB>;
 export interface DbHandle {
   db: KyselyDB;
   sqlite: Database;
+  /** Finalize the dialect's statements and close the file; throws if still busy. */
+  close(): Promise<void>;
 }
 
 export function openDb(dbPath: string): DbHandle {
@@ -37,5 +39,17 @@ export function openDb(dbPath: string): DbHandle {
     dialect: new BunSqliteDialect({ database: sqlite }),
   });
 
-  return { db, sqlite };
+  // Closing for real is load-bearing on Windows: a still-open file fails the
+  // temp-dir rm with EBUSY, while POSIX unlinks it regardless. The dialect
+  // prepare()s a Statement per query and bun finalizes a prepare()d statement
+  // only on GC, so destroy() (which retires Kysely and its statements) must run
+  // BEFORE the file closes. close(true) then either closes for real or throws
+  // "database is locked" because a caller still holds a live statement —
+  // bun's default close() swallows that and silently defers the close.
+  const close = async (): Promise<void> => {
+    await db.destroy();
+    sqlite.close(true);
+  };
+
+  return { db, sqlite, close };
 }

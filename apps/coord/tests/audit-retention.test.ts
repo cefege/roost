@@ -13,9 +13,9 @@ const NOW = Date.UTC(2026, 6, 28);
 const SVC = "/roost.v1.CoordinatorService";
 
 const workdirs: string[] = [];
-const closers: (() => void)[] = [];
-afterEach(() => {
-  for (const close of closers.splice(0)) close();
+const closers: (() => Promise<void>)[] = [];
+afterEach(async () => {
+  for (const close of closers.splice(0)) await close();
   for (const dir of workdirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
@@ -24,29 +24,28 @@ async function fixture(): Promise<Database> {
   workdirs.push(dir);
   const opened = openDb(join(dir, "coord.db"));
   await runMigrations(opened.sqlite);
-  closers.push(() => opened.sqlite.close());
+  closers.push(() => opened.close());
   return opened.sqlite;
 }
 
 function seed(sqlite: Database, rows: { ts: number; path: string }[]): void {
-  const insert = sqlite.prepare(
+  const insert = sqlite.query(
     "INSERT INTO audit_log (ts, caller_fp, method, path, status) VALUES (?, 'fp', 'POST', ?, 200)",
   );
   sqlite.exec("BEGIN");
   for (const row of rows) insert.run(row.ts, row.path);
   sqlite.exec("COMMIT");
-  insert.finalize();
 }
 
 function pathsLeft(sqlite: Database): string[] {
   // bun:sqlite .all() is untyped; this query literally selects `path`.
-  const rows = sqlite.prepare("SELECT path FROM audit_log ORDER BY id").all() as { path: string }[];
+  const rows = sqlite.query("SELECT path FROM audit_log ORDER BY id").all() as { path: string }[];
   return rows.map((r) => r.path);
 }
 
 function rowsLeft(sqlite: Database): number {
   // bun:sqlite .get() is untyped; this query literally selects `c`.
-  const row = sqlite.prepare("SELECT count(*) AS c FROM audit_log").get() as { c: number };
+  const row = sqlite.query("SELECT count(*) AS c FROM audit_log").get() as { c: number };
   return row.c;
 }
 

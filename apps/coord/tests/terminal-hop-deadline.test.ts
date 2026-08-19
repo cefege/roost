@@ -57,7 +57,7 @@ const CALLER_FP = "feedface".repeat(8);
 let workdir: string;
 let db: KyselyDB;
 let deps: ConnectDeps;
-let cleanup: () => void;
+let cleanup: () => Promise<void>;
 
 beforeAll(async () => {
   workdir = mkdtempSync(join(tmpdir(), "roost-hop-deadline-"));
@@ -89,14 +89,13 @@ beforeAll(async () => {
     registered_at_ms: Date.now(), last_seen_ms: Date.now(),
   }).execute();
 
-  cleanup = () => {
+  cleanup = async () => {
     __setConnectWorkerForTest(WORKER_FP, null);
-    try { opened.sqlite.close(); } catch { /* ignore */ }
-    if (existsSync(workdir)) rmSync(workdir, { recursive: true, force: true });
+    try { await opened.close(); } finally { if (existsSync(workdir)) rmSync(workdir, { recursive: true, force: true }); }
   };
 });
 
-afterAll(() => cleanup?.());
+afterAll(async () => { await cleanup?.(); });
 
 let sessionCounter = 0;
 async function seedSession(): Promise<string> {

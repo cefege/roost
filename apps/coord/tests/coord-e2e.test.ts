@@ -16,7 +16,7 @@ import type { CoordConfig } from "@roost/shared/config";
 
 let workdir: string;
 let coord: CoordHandle;
-let cleanup: () => void;
+let cleanup: () => Promise<void>;
 
 beforeAll(async () => {
   workdir = mkdtempSync(join(tmpdir(), "roost-coord-e2e-"));
@@ -25,7 +25,8 @@ beforeAll(async () => {
   const authPath = join(workdir, "authorized_keys");
   writeFileSync(authPath, "");
 
-  const { db, sqlite } = openDb(dbPath);
+  const opened = openDb(dbPath);
+  const { db, sqlite } = opened;
   await runMigrations(sqlite);
   const coordKey = await loadOrCreateCoordKey(keyPath);
   const jwtCache = newJwtCache();
@@ -41,10 +42,9 @@ beforeAll(async () => {
   publicUrl: undefined,
   handoffPath: join(workdir, "coord-handoff.json"), }
   coord = createCoord({ db, sqlite, coordKey, cfg, jwtCache });
-  cleanup = () => {
+  cleanup = async () => {
     coord.dispose();
-    try { sqlite.close(); } catch { /* ignore */ }
-    if (existsSync(workdir)) rmSync(workdir, { recursive: true, force: true });
+    try { await opened.close(); } finally { if (existsSync(workdir)) rmSync(workdir, { recursive: true, force: true }); }
   };
 });
 

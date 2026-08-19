@@ -9,17 +9,17 @@ import { runMigrations } from "../src/db/migrate.ts";
 import { getAgentConfig, setAgentConfig } from "../src/agent-config.ts";
 
 let workdir: string;
-let closeDb: () => void;
+let closeDb: () => Promise<void>;
 let db: KyselyDB;
 beforeAll(async () => {
   workdir = mkdtempSync(join(tmpdir(), "roost-agentcfg-"));
   const opened = openDb(join(workdir, "test.db"));
   await runMigrations(opened.sqlite);
-  closeDb = () => { try { opened.sqlite.close(); } catch { /* ignore */ } };
+  closeDb = async () => { await opened.close(); };
   db = opened.db;
 });
 
-afterAll(() => { closeDb?.(); rmSync(workdir, { recursive: true, force: true }); });
+afterAll(async () => { await closeDb?.(); rmSync(workdir, { recursive: true, force: true }); });
 
 describe("agent-config", () => {
   test("fresh db → OMP default, empty custom", async () => {

@@ -11,7 +11,8 @@ const RETIRE_MIGRATION_NAME = "0017_retire_structured_agent_sessions";
 
 test("normalizes open legacy PTY kinds while preserving closed history", async () => {
   const workdir = mkdtempSync(join(tmpdir(), "roost-session-kind-migration-"));
-  const { sqlite } = openDb(join(workdir, "test.db"));
+  const opened = openDb(join(workdir, "test.db"));
+  const { sqlite } = opened;
   try {
     await runMigrations(sqlite);
     sqlite.run(
@@ -35,21 +36,21 @@ test("normalizes open legacy PTY kinds while preserving closed history", async (
     const sql = await Bun.file(join(import.meta.dir, "../migrations/0015_normalize_legacy_session_kinds.sql")).text();
     await runMigrations(sqlite, [{ name: MIGRATION_NAME, sql }]);
 
-    const rows = sqlite.prepare("SELECT id, kind FROM sessions ORDER BY id").all() as { id: string; kind: string }[];
+    const rows = sqlite.query("SELECT id, kind FROM sessions ORDER BY id").all() as { id: string; kind: string }[];
     expect(rows).toEqual([
       { id: "closed-agent", kind: "agent" },
       { id: "open-agent", kind: "shell" },
       { id: "open-claude", kind: "shell" },
     ]);
   } finally {
-    try { sqlite.close(); } catch { /* ignore */ }
-    rmSync(workdir, { recursive: true, force: true });
+    try { await opened.close(); } finally { rmSync(workdir, { recursive: true, force: true }); }
   }
 });
 
 test("retires structured sessions before normalizing all history to shell", async () => {
   const workdir = mkdtempSync(join(tmpdir(), "roost-retire-agent-session-"));
-  const { sqlite } = openDb(join(workdir, "test.db"));
+  const opened = openDb(join(workdir, "test.db"));
+  const { sqlite } = opened;
   try {
     await runMigrations(sqlite);
     sqlite.run(
@@ -62,7 +63,7 @@ test("retires structured sessions before normalizing all history to shell", asyn
     );
     sqlite.run("DELETE FROM _migrations WHERE name = ?", [RETIRE_MIGRATION_NAME]);
 
-    const insertSession = sqlite.prepare(
+    const insertSession = sqlite.query(
       "INSERT INTO sessions (id, worker_fp, channel, kind, cwd, workspace_id, status, agent_json, created_at, closed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     );
     insertSession.run("equal-timestamp-open-agent", WORKER_FP, 1, "agent", "/tmp", null, "open", null, 1_000, null);
@@ -86,7 +87,7 @@ test("retires structured sessions before normalizing all history to shell", asyn
     ).text();
     await runMigrations(sqlite, [{ name: RETIRE_MIGRATION_NAME, sql }]);
 
-    const rows = sqlite.prepare(
+    const rows = sqlite.query(
       "SELECT id, kind, status, closed_at, agent_json FROM sessions ORDER BY id",
     ).all() as Array<{
       id: string;
@@ -116,7 +117,6 @@ test("retires structured sessions before normalizing all history to shell", asyn
     expect((rows[3]?.closed_at ?? 0) > 0).toBe(true);
     expect(rows[3]?.agent_json).toBe('{"session_file":"/tmp/history.jsonl"}');
   } finally {
-    try { sqlite.close(); } catch { /* ignore */ }
-    rmSync(workdir, { recursive: true, force: true });
+    try { await opened.close(); } finally { rmSync(workdir, { recursive: true, force: true }); }
   }
 });

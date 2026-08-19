@@ -88,7 +88,7 @@ describe("Sync durable replay priority", () => {
         ...Array.from({ length: 16 }, () => "replay"),
       ]);
     } finally {
-      opened.sqlite.close();
+      await opened.close();
       await rm(dir, { recursive: true, force: true });
     }
   });

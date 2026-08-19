@@ -50,7 +50,7 @@ const OTHER = "22222222-2222-2222-2222-222222222222";
 const BARRIER_FP = "barrier-sentinel";
 
 let workdir: string;
-let cleanup: () => void;
+let cleanup: () => Promise<void>;
 let server: Server<SyncWsData>;
 let jwt: string;
 let fingerprint: string;
@@ -104,14 +104,13 @@ beforeAll(async () => {
     websocket: makeSyncWsHandler(deps, { keepaliveMs: 60_000 }),
   });
 
-  cleanup = () => {
+  cleanup = async () => {
     try { server.stop(true); } catch { /* ignore */ }
-    try { sqlite.close(); } catch { /* ignore */ }
-    if (existsSync(workdir)) rmSync(workdir, { recursive: true, force: true });
+    try { await opened.close(); } finally { if (existsSync(workdir)) rmSync(workdir, { recursive: true, force: true }); }
   };
 });
 
-afterAll(() => cleanup?.());
+afterAll(async () => { await cleanup?.(); });
 
 /** Open a socket, publish per-session cell/title frames plus coordinator-internal
  * raw bytes, and return the frame ids that cross Sync. */

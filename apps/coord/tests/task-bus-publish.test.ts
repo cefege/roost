@@ -13,23 +13,25 @@ import { join } from "node:path";
 import { openDb } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
 import { makeTaskHandlers } from "../src/connect/handlers-tasks.ts";
+import type { ConnectDeps } from "../src/connect/router.ts";
 import { taskBus, type TaskBusMsg } from "../src/buses.ts";
 
 let workdir: string;
-let closeDb: () => void;
+let closeDb: () => Promise<void>;
 let handlers: ReturnType<typeof makeTaskHandlers>;
 // requireAuth only reads values.get(callerKey); a fake caller is enough.
 const authCtx = { values: { get: () => ({ fingerprint: "fp-test" }) } } as any;
 
 beforeAll(async () => {
   workdir = mkdtempSync(join(tmpdir(), "roost-taskbus-"));
-  const { db, sqlite } = openDb(join(workdir, "test.db"));
-  await runMigrations(sqlite);
-  closeDb = () => { try { sqlite.close(); } catch { /* ignore */ } };
-  handlers = makeTaskHandlers({ db } as any);
+  const opened = openDb(join(workdir, "test.db"));
+  await runMigrations(opened.sqlite);
+  closeDb = async () => { await opened.close(); };
+  // Only `db` is read by the task handlers; a full ConnectDeps would drag in the transport.
+  handlers = makeTaskHandlers({ db: opened.db } as unknown as ConnectDeps);
 });
 
-afterAll(() => { closeDb?.(); rmSync(workdir, { recursive: true, force: true }); });
+afterAll(async () => { await closeDb?.(); rmSync(workdir, { recursive: true, force: true }); });
 
 function capture(): { msgs: TaskBusMsg[]; stop: () => void } {
   const msgs: TaskBusMsg[] = [];

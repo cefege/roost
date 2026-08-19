@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Database } from "bun:sqlite";
 import type { CoordConfig } from "@roost/shared/config";
-import { openDb, type KyselyDB } from "../src/db/connection.ts";
+import { openDb, type DbHandle, type KyselyDB } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
 import { loadOrCreateCoordKey } from "../src/coord-key.ts";
 import { fingerprintOf } from "@roost/shared/fingerprint";
@@ -22,6 +22,7 @@ const SESSION_ID = "22222222-2222-4222-8222-222222222222";
 let workdir: string;
 let db: KyselyDB;
 let sqlite: Database;
+let opened: DbHandle;
 let coord: CoordHandle;
 let jwt: string;
 let viewerFp: string;
@@ -32,7 +33,7 @@ beforeAll(async () => {
   const keyPath = join(workdir, "coord.key");
   const authorizedKeysPath = join(workdir, "authorized_keys");
   writeFileSync(authorizedKeysPath, "");
-  const opened = openDb(dbPath);
+  opened = openDb(dbPath);
   db = opened.db;
   sqlite = opened.sqlite;
   await runMigrations(sqlite);
@@ -80,11 +81,16 @@ beforeEach(async () => {
   await db.deleteFrom("sessions").where("id", "=", SESSION_ID).execute();
 });
 
-afterAll(() => {
+afterAll(async () => {
   coord?.dispose();
   resetVapidKeysForTest();
-  try { sqlite?.close(); } catch { /* ignore */ }
-  if (workdir && existsSync(workdir)) rmSync(workdir, { recursive: true, force: true });
+  // finally: a close that throws (a leaked statement holding the file open)
+  // must still leave the temp dir removed.
+  try {
+    await opened?.close();
+  } finally {
+    if (workdir && existsSync(workdir)) rmSync(workdir, { recursive: true, force: true });
+  }
 });
 
 function rpc(method: string, body: object, authenticated = true): Promise<Response> {

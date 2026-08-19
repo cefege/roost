@@ -26,17 +26,18 @@ interface Harness {
   handlers: ReturnType<typeof makeAuthHandlers>;
   workerHandlers: ReturnType<typeof makeWorkerHandlers>;
   revoked: string[];
-  close(): void;
+  close(): Promise<void>;
 }
 
-const cleanups: Array<() => void> = [];
-afterEach(() => {
-  for (const cleanup of cleanups.splice(0)) cleanup();
+const cleanups: Array<() => Promise<void>> = [];
+afterEach(async () => {
+  for (const cleanup of cleanups.splice(0)) await cleanup();
 });
 
 async function harness(): Promise<Harness> {
   const dir = mkdtempSync(join(tmpdir(), "roost-device-revoke-"));
-  const { db, sqlite } = openDb(join(dir, "test.db"));
+  const opened = openDb(join(dir, "test.db"));
+  const { db, sqlite } = opened;
   await runMigrations(sqlite);
   const revoked: string[] = [];
   const deps = {
@@ -46,9 +47,8 @@ async function harness(): Promise<Harness> {
     jwtCache: newJwtCache(),
     onKeyRevoked: (fingerprint: string) => revoked.push(fingerprint),
   } as unknown as ConnectDeps;
-  const close = () => {
-    try { sqlite.close(); } catch { /* already closed */ }
-    rmSync(dir, { recursive: true, force: true });
+  const close = async () => {
+    try { await opened.close(); } finally { rmSync(dir, { recursive: true, force: true }); }
   };
   cleanups.push(close);
   return {

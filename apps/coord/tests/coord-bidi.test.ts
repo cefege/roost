@@ -49,7 +49,7 @@ import { resolvePendingRpc } from "../src/router/pending-rpcs.ts";
 
 let workdir: string;
 let coord: CoordHandle;
-let cleanup: () => void;
+let cleanup: () => Promise<void>;
 let browserJwt: string;
 let browserFp: string;
 let db: import("../src/db/connection.ts").KyselyDB;
@@ -100,14 +100,13 @@ beforeAll(async () => {
     browserFp,
   );
 
-  cleanup = () => {
+  cleanup = async () => {
     coord.dispose();
-    try { sqlite.close(); } catch { /* ignore */ }
-    if (existsSync(workdir)) rmSync(workdir, { recursive: true, force: true });
+    try { await opened.close(); } finally { if (existsSync(workdir)) rmSync(workdir, { recursive: true, force: true }); }
   };
 });
 
-afterAll(() => cleanup?.());
+afterAll(async () => { await cleanup?.(); });
 
 function authedFetch(path: string, body: unknown, tabId?: string): Promise<Response> {
   const headers: Record<string, string> = {

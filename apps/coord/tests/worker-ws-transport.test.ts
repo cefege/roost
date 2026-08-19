@@ -51,7 +51,7 @@ import { createPendingRpc } from "../src/router/pending-rpcs.ts";
 import type { CoordConfig } from "@roost/shared/config";
 
 let workdir: string;
-let cleanup: () => void;
+let cleanup: () => Promise<void>;
 let server: ReturnType<typeof Bun.serve>;
 let port: number;
 let workerFp: string;
@@ -123,14 +123,13 @@ beforeAll(async () => {
   });
   port = server.port!;
 
-  cleanup = () => {
+  cleanup = async () => {
     try { server.stop(true); } catch { /* ignore */ }
-    try { sqlite.close(); } catch { /* ignore */ }
-    if (existsSync(workdir)) rmSync(workdir, { recursive: true, force: true });
+    try { await opened.close(); } finally { if (existsSync(workdir)) rmSync(workdir, { recursive: true, force: true }); }
   };
 });
 
-afterAll(() => cleanup?.());
+afterAll(async () => { await cleanup?.(); });
 
 // Bun client WebSocket wrapper: decodes downstream proto frames + lets a
 // test await a frame matching a predicate.

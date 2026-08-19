@@ -26,7 +26,7 @@ import {
 import { uiBus, type UiBusMsg } from "../src/buses.ts";
 
 let workdir: string;
-let closeDb: () => void;
+let closeDb: () => Promise<void>;
 let handlers: UiHandlers;
 
 // requireAuth only reads ctx.values.get(callerKey); a fake caller suffices —
@@ -52,9 +52,10 @@ function selectTabCmd(sessionId: string) {
 
 beforeAll(async () => {
   workdir = mkdtempSync(join(tmpdir(), "roost-uibus-"));
-  const { db, sqlite } = openDb(join(workdir, "test.db"));
-  await runMigrations(sqlite);
-  closeDb = () => { try { sqlite.close(); } catch { /* ignore */ } };
+  const opened = openDb(join(workdir, "test.db"));
+  const db = opened.db;
+  await runMigrations(opened.sqlite);
+  closeDb = async () => { await opened.close(); };
   // Known fp → label mapping for the uiListStates label test.
   await db.insertInto("authorized_keys").values({
     fingerprint: "fp-known", public_key: new Uint8Array(32),
@@ -64,7 +65,10 @@ beforeAll(async () => {
   handlers = makeUiHandlers({ db } as unknown as ConnectDeps);
 });
 
-afterAll(() => { closeDb?.(); rmSync(workdir, { recursive: true, force: true }); });
+afterAll(async () => {
+  await closeDb?.();
+  rmSync(workdir, { recursive: true, force: true });
+});
 
 // Module-level singleton map — isolate tests from each other.
 beforeEach(() => { _uiStatesByTab.clear(); });

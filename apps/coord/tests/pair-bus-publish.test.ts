@@ -48,7 +48,7 @@ type PairHandlers = {
 };
 
 let workdir: string;
-let closeDb: () => void;
+let closeDb: () => Promise<void>;
 let handlers: PairHandlers;
 let pubkeyB64: string;
 let testDb: KyselyDB;
@@ -71,16 +71,17 @@ function remoteCtx(addr: string | undefined, onHost = false): HandlerContext {
 
 beforeAll(async () => {
   workdir = mkdtempSync(join(tmpdir(), "roost-pairbus-"));
-  const { db, sqlite } = openDb(join(workdir, "test.db"));
+  const opened = openDb(join(workdir, "test.db"));
+  const db = opened.db;
   testDb = db;
-  await runMigrations(sqlite);
+  await runMigrations(opened.sqlite);
   await db.insertInto("authorized_keys").values({
     fingerprint: "fp-test",
     public_key: new Uint8Array(32),
     label: "approver",
     added_at: Date.now(),
   }).execute();
-  closeDb = () => { try { sqlite.close(); } catch { /* ignore */ } };
+  closeDb = async () => { await opened.close(); };
   // Pair approval authorizes a new key and refreshes the shared JWT cache.
   handlers = makeAuthHandlers({
     db,
@@ -92,7 +93,7 @@ beforeAll(async () => {
   pubkeyB64 = Buffer.from(rawPub).toString("base64");
 });
 
-afterAll(() => { closeDb?.(); rmSync(workdir, { recursive: true, force: true }); });
+afterAll(async () => { await closeDb?.(); rmSync(workdir, { recursive: true, force: true }); });
 
 function capture(): { msgs: PairRequestDelta[]; stop: () => void } {
   const msgs: PairRequestDelta[] = [];

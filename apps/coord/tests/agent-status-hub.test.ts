@@ -203,7 +203,7 @@ describe("coordinator agent status hub", () => {
     } finally {
       await pairSeeded.promise;
       feed.dispose();
-      opened.sqlite.close();
+      await opened.close();
     }
   });
 
@@ -245,7 +245,7 @@ describe("coordinator agent status hub", () => {
       ]);
     } finally {
       conn.close();
-      opened.sqlite.close();
+      await opened.close();
     }
   });
 });

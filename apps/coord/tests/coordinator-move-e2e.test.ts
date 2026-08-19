@@ -30,9 +30,9 @@ interface MoveSide {
 }
 
 const workdirs: string[] = [];
-const closers: (() => void)[] = [];
-afterEach(() => {
-  for (const close of closers.splice(0)) close();
+const closers: (() => Promise<void>)[] = [];
+afterEach(async () => {
+  for (const close of closers.splice(0)) await close();
   for (const dir of workdirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
@@ -45,7 +45,7 @@ async function side(name: string, publicUrl: string): Promise<MoveSide> {
   writeFileSync(authorizedKeysPath, "");
   const opened = openDb(dbPath);
   await runMigrations(opened.sqlite);
-  closers.push(() => opened.sqlite.close());
+  closers.push(() => opened.close());
   const cfg: CoordConfig = { trustProxy: false, bind: "127.0.0.1:4102", dbPath, coordKeyPath: keyPath, authorizedKeysPath,
   handoffPath: join(dir, "coord-handoff.json"), webDistPath: "", logDir: dir,
   publicUrl, tlsCertPath: undefined, tlsKeyPath: undefined,

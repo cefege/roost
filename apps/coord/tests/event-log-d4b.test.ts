@@ -4,21 +4,20 @@ import { describe, it, expect, beforeAll, afterAll } from "bun:test";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { openDb } from "../src/db/connection.ts";
+import { openDb, type DbHandle, type KyselyDB } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
 import { appendEvent } from "../src/event-log.ts";
 import { SessionEvent, asSessionId, asWorkerFp, asChannelId } from "@roost/shared/wire";
 
 let workdir: string;
-let db: ReturnType<typeof openDb>["db"];
-let sqlite: ReturnType<typeof openDb>["sqlite"];
+let db: KyselyDB;
+let handle: DbHandle;
 
 beforeAll(async () => {
   workdir = mkdtempSync(join(tmpdir(), "roost-d4b-"));
-  const opened = openDb(join(workdir, "test.db"));
-  db = opened.db;
-  sqlite = opened.sqlite;
-  await runMigrations(sqlite);
+  handle = openDb(join(workdir, "test.db"));
+  db = handle.db;
+  await runMigrations(handle.sqlite);
   // Register worker rows so `opened` events satisfy the FK on sessions.worker_fp.
   for (const fp of ["aa".repeat(32), "bb".repeat(32)]) {
     await db.insertInto("workers").values({
@@ -28,9 +27,8 @@ beforeAll(async () => {
   }
 });
 
-afterAll(() => {
-  try { sqlite.close(); } catch { /* ignore */ }
-  if (existsSync(workdir)) rmSync(workdir, { recursive: true, force: true });
+afterAll(async () => {
+  try { await handle.close(); } finally { if (existsSync(workdir)) rmSync(workdir, { recursive: true, force: true }); }
 });
 
 describe("appendEvent dedup (D-4b)", () => {

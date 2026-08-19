@@ -37,7 +37,11 @@ export async function runMigrations(
     : await loadMigrationsFromDisk();
 
   // bun:sqlite .all() is untyped; this query literally selects `name`.
-  const appliedRows = sqlite.prepare("SELECT name FROM _migrations").all() as { name: string }[];
+  // query(), never prepare(): a prepare()d Statement is finalized only on GC, and
+  // an unfinalized statement keeps the handle busy, so a later close(true) fails
+  // with "database is locked" and Windows then fails the temp-dir rm with EBUSY.
+  // query() statements live in bun's per-Database cache, which close() finalizes.
+  const appliedRows = sqlite.query("SELECT name FROM _migrations").all() as { name: string }[];
   const applied = new Set(appliedRows.map((r) => r.name));
 
   const pending = migrations.filter(({ name }) => !applied.has(name));
@@ -49,7 +53,8 @@ export async function runMigrations(
     try {
       sqlite.exec("BEGIN");
       sqlite.exec(sql);
-      sqlite.prepare("INSERT INTO _migrations (name, applied_at) VALUES (?, ?)")
+      // query() so the statement is cache-owned and finalized on close (see above).
+      sqlite.query("INSERT INTO _migrations (name, applied_at) VALUES (?, ?)")
         .run(name, Date.now());
       sqlite.exec("COMMIT");
       console.log(JSON.stringify({ ev: "migration_applied", name }));

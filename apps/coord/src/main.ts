@@ -58,7 +58,7 @@ export async function runCoord() {
   }
 
   const databaseExisted = existsSync(cfg.dbPath);
-  const { db, sqlite } = openDb(cfg.dbPath);
+  const { db, sqlite, close: closeDb } = openDb(cfg.dbPath);
   await runMigrations(
     sqlite,
     MIGRATIONS.length > 0 ? MIGRATIONS : undefined,
@@ -419,7 +419,7 @@ export async function runCoord() {
     server.stop(true);
     publicServer?.stop(true);
     coord.dispose();
-    try { sqlite.close(); } catch { /* ignore */ }
+    await closeDb().catch((error) => log.warn("main", "db_close_failed", { error: String(error) }));
     process.exit(0);
   };
   process.on("SIGTERM", () => { void shutdown(); });
