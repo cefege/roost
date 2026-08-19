@@ -1,3 +1,4 @@
+import { availableParallelism } from "node:os";
 import { defineConfig, devices } from "@playwright/test";
 
 export default defineConfig({
@@ -9,16 +10,16 @@ export default defineConfig({
   // both across files and inside a file: parallelize at test granularity, or a
   // themed spec's cases serialize behind one browser for minutes at a time.
   fullyParallel: true,
-  // 4 on an 8-core host. A worker is not one process: it drives Chromium (plus
-  // its renderer and GPU process) against a coord, a worker, a keeper, and the
-  // PTY children of every session it spawns, and the flood cases push 20k rows
-  // through that whole pipeline, so one worker's peak demand is ~2 cores.
-  // 4 x 2 saturates the box exactly; 8 would starve the renderer and convert
-  // paint polls into timeouts that assert nothing about the contract they
-  // defend. It is also what Playwright's own default (half the logical cores)
-  // picks here — pinned rather than inferred so a bigger CI box cannot quietly
-  // scale past what one stack per worker can afford in RAM.
-  workers: 4,
+  // A worker is not one process: it drives Chromium (plus its renderer and GPU
+  // process) against a coord, a worker, a keeper, and the PTY children of every
+  // session it spawns, and the flood cases push 20k rows through that whole
+  // pipeline, so one worker's peak demand is ~2 cores. Size to the host instead
+  // of pinning 4: an 8-core dev box still gets 4, while GitHub's 3-4 core
+  // runners get 2 rather than 4x oversubscription — which is what turned paint
+  // polls and readiness waits into timeouts that asserted nothing (three macOS
+  // runs, three different 10s waits, each green on rerun). Floor of 2 keeps the
+  // parallel-independence contract above exercised even on a 2-core box.
+  workers: Math.max(2, Math.min(4, Math.floor(availableParallelism() / 2))),
   // Deliberately 0: a retry would paper over exactly the order- and
   // contention-dependent flakiness that raising parallelism can introduce.
   retries: 0,
