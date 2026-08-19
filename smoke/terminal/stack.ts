@@ -1,5 +1,5 @@
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
-import { mkdirSync, mkdtempSync, openSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, openSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { once } from "node:events";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -121,7 +121,13 @@ async function stopKeeper(workerDataDir: string): Promise<void> {
 export async function startTerminalTestStack(
   options: TerminalTestStackOptions = {},
 ): Promise<TerminalTestStack> {
-  const root = mkdtempSync(join(tmpdir(), "roost-terminal-system-"));
+  // AF_UNIX sun_path caps at 104 bytes on macOS, and os.tmpdir() there is
+  // /var/folders/<xx>/<hash>/T (~50 chars, ~58 once realpath adds /private) —
+  // long enough that the worker's <home>/.roost/agent-report.sock overflowed the
+  // limit with "OSError: AF_UNIX path too long". /tmp keeps the whole tree short.
+  // realpathSync: macOS tmp dirs are symlinks and workers report resolved cwds.
+  const tmpRoot = process.platform === "win32" ? tmpdir() : "/tmp";
+  const root = realpathSync(mkdtempSync(join(tmpRoot, "roost-terminal-system-")));
   const home = options.useRealHome ? (process.env.HOME ?? join(root, "home")) : join(root, "home");
   const secondHome = join(root, "second-home");
   const coordLogPath = join(root, "coord.log");

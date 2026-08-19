@@ -27,7 +27,7 @@ import {
   readMobileKeyboardGeometry,
 } from "./composer-mobile-keyboard-probes.ts";
 
-test("mobile terminal keyboard toggles and dispatches special keys", async ({ mobileSmokePage, stack }) => {
+test("mobile terminal keyboard toggles and dispatches special keys", async ({ mobileSmokePage, stack }, testInfo) => {
   const fixtureWorker = await stack.startPtyFixtureWorker();
   const sessionId = await spawnPtyFixtureSession(mobileSmokePage, fixtureWorker);
   await navigateToSmokeSession(mobileSmokePage, sessionId);
@@ -259,83 +259,87 @@ test("mobile terminal keyboard toggles and dispatches special keys", async ({ mo
   }, { id: sessionId, marker: `ALT_READY:${forwardAltNonce}` });
   await expect(mouse).toHaveAttribute("aria-pressed", "true");
 
-  // NEGATIVE: mouse-indifferent app, toggle ON, trusted wheel — nothing forwards.
-  const nativeWheelTarget = await measureMobileWheelTarget(terminalSlot);
-  expect(nativeWheelTarget).toMatchObject({ col: 1, row: 1 });
-  await resetTerminalInputCapture(mobileSmokePage);
-  await armImmediateTerminalPaintSample(mobileSmokePage, sessionId, "wheel", {});
-  await mobileSmokePage.mouse.move(nativeWheelTarget.x, nativeWheelTarget.y);
-  await mobileSmokePage.mouse.wheel(0, 120);
-  expect(await readImmediateTerminalPaintSample(mobileSmokePage)).toMatchObject({
-    eventType: "wheel",
-    trusted: true,
-  });
-  const nativeWheelCapture = await readTerminalInputCapture(mobileSmokePage);
-  expect(nativeWheelCapture.droppedBatches).toBe(0);
-  expect(nativeWheelCapture.batches).toEqual([]);
-  // Native reading, not a black hole: forwarding is admitted input and would have
-  // kept the pane live, so the reading hold is the positive proof it never ran.
-  await expect.poll(async () => {
-    const presentation = (await readTerminalStreamProbe(mobileSmokePage, sessionId))
-      .browser.presentation;
-    return { intent: presentation?.reader_intent, reason: presentation?.reader_reason };
-  }).toEqual({ intent: "reading", reason: "wheel" });
+  // Both wheel gestures below need a TRUSTED wheel, and `mouse.wheel` is
+  // unsupported in mobile WebKit (Playwright driver limit, not a product carve-out).
+  if (testInfo.project.name.startsWith("chromium")) {
+    // NEGATIVE: mouse-indifferent app, toggle ON, trusted wheel — nothing forwards.
+    const nativeWheelTarget = await measureMobileWheelTarget(terminalSlot);
+    expect(nativeWheelTarget).toMatchObject({ col: 1, row: 1 });
+    await resetTerminalInputCapture(mobileSmokePage);
+    await armImmediateTerminalPaintSample(mobileSmokePage, sessionId, "wheel", {});
+    await mobileSmokePage.mouse.move(nativeWheelTarget.x, nativeWheelTarget.y);
+    await mobileSmokePage.mouse.wheel(0, 120);
+    expect(await readImmediateTerminalPaintSample(mobileSmokePage)).toMatchObject({
+      eventType: "wheel",
+      trusted: true,
+    });
+    const nativeWheelCapture = await readTerminalInputCapture(mobileSmokePage);
+    expect(nativeWheelCapture.droppedBatches).toBe(0);
+    expect(nativeWheelCapture.batches).toEqual([]);
+    // Native reading, not a black hole: forwarding is admitted input and would have
+    // kept the pane live, so the reading hold is the positive proof it never ran.
+    await expect.poll(async () => {
+      const presentation = (await readTerminalStreamProbe(mobileSmokePage, sessionId))
+        .browser.presentation;
+      return { intent: presentation?.reader_intent, reason: presentation?.reader_reason };
+    }).toEqual({ intent: "reading", reason: "wheel" });
 
-  // The app now asks for drag tracking + SGR-1006, the way a mouse-aware TUI does.
-  // The mode rides the same frame as the marker the wheel hold keeps pending.
-  const beforeForwardPending = await readTerminalStreamProbe(mobileSmokePage, sessionId);
-  const forwardPendingMarker = `FORWARD-PENDING:${forwardAltNonce}`;
-  await inputSmokeTerminal(
-    mobileSmokePage,
-    sessionId,
-    encodePtyFixtureCommand({
-      op: "EMIT",
-      text: `\x1b[?1002h\x1b[?1006h${forwardPendingMarker}`,
-    }),
-  );
-  const forwardPending = await waitForCanonicalAdvance(
-    mobileSmokePage,
-    sessionId,
-    beforeForwardPending,
-  );
-  expectCanonicalAdvanceHeld(beforeForwardPending, forwardPending, {
-    readerReason: "wheel",
-    selectionHold: false,
-  });
-  const hiddenForwardMarker = await attemptPaintedMarker(
-    mobileSmokePage,
-    sessionId,
-    forwardPendingMarker,
-  );
-  expect(hiddenForwardMarker.proof).toBeNull();
-  // POSITIVE: identical gesture on the identical cell, now that the app asked.
-  await resetTerminalInputCapture(mobileSmokePage);
-  await armImmediateTerminalPaintSample(mobileSmokePage, sessionId, "wheel", {
-    marker: forwardPendingMarker,
-  });
-  const forwardWheelTarget = await measureMobileWheelTarget(terminalSlot);
-  expect(forwardWheelTarget).toMatchObject({ col: 1, row: 1 });
-  await mobileSmokePage.mouse.move(forwardWheelTarget.x, forwardWheelTarget.y);
-  await mobileSmokePage.mouse.wheel(0, 120);
-  const immediateForwardPaint = await readImmediateTerminalPaintSample(mobileSmokePage);
-  expect(immediateForwardPaint).toMatchObject({
-    eventType: "wheel",
-    trusted: true,
-    selectionCollapsed: true,
-  });
-  expect(immediateForwardPaint?.markerRowRect).not.toBeNull();
-  const forwardInputCapture = await readTerminalInputCapture(mobileSmokePage);
-  expect(forwardInputCapture.droppedBatches).toBe(0);
-  expect(forwardInputCapture.batches).toEqual([{
-    sessionId,
-    data: Array.from(new TextEncoder().encode("\x1b[<65;1;1M")),
-  }]);
-  const forwardRecoveredProof = await mobileSmokePage.evaluate(({ id, marker }) => {
-    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
-    return smokeWindow.__smoke.waitForPaintedMarker(id, marker, 10_000);
-  }, { id: sessionId, marker: forwardPendingMarker });
-  expect(forwardRecoveredProof).toMatchObject({ marker: forwardPendingMarker, frames: 2 });
-  expectRecoveredLive(forwardPending, await readTerminalStreamProbe(mobileSmokePage, sessionId));
+    // The app now asks for drag tracking + SGR-1006, the way a mouse-aware TUI does.
+    // The mode rides the same frame as the marker the wheel hold keeps pending.
+    const beforeForwardPending = await readTerminalStreamProbe(mobileSmokePage, sessionId);
+    const forwardPendingMarker = `FORWARD-PENDING:${forwardAltNonce}`;
+    await inputSmokeTerminal(
+      mobileSmokePage,
+      sessionId,
+      encodePtyFixtureCommand({
+        op: "EMIT",
+        text: `\x1b[?1002h\x1b[?1006h${forwardPendingMarker}`,
+      }),
+    );
+    const forwardPending = await waitForCanonicalAdvance(
+      mobileSmokePage,
+      sessionId,
+      beforeForwardPending,
+    );
+    expectCanonicalAdvanceHeld(beforeForwardPending, forwardPending, {
+      readerReason: "wheel",
+      selectionHold: false,
+    });
+    const hiddenForwardMarker = await attemptPaintedMarker(
+      mobileSmokePage,
+      sessionId,
+      forwardPendingMarker,
+    );
+    expect(hiddenForwardMarker.proof).toBeNull();
+    // POSITIVE: identical gesture on the identical cell, now that the app asked.
+    await resetTerminalInputCapture(mobileSmokePage);
+    await armImmediateTerminalPaintSample(mobileSmokePage, sessionId, "wheel", {
+      marker: forwardPendingMarker,
+    });
+    const forwardWheelTarget = await measureMobileWheelTarget(terminalSlot);
+    expect(forwardWheelTarget).toMatchObject({ col: 1, row: 1 });
+    await mobileSmokePage.mouse.move(forwardWheelTarget.x, forwardWheelTarget.y);
+    await mobileSmokePage.mouse.wheel(0, 120);
+    const immediateForwardPaint = await readImmediateTerminalPaintSample(mobileSmokePage);
+    expect(immediateForwardPaint).toMatchObject({
+      eventType: "wheel",
+      trusted: true,
+      selectionCollapsed: true,
+    });
+    expect(immediateForwardPaint?.markerRowRect).not.toBeNull();
+    const forwardInputCapture = await readTerminalInputCapture(mobileSmokePage);
+    expect(forwardInputCapture.droppedBatches).toBe(0);
+    expect(forwardInputCapture.batches).toEqual([{
+      sessionId,
+      data: Array.from(new TextEncoder().encode("\x1b[<65;1;1M")),
+    }]);
+    const forwardRecoveredProof = await mobileSmokePage.evaluate(({ id, marker }) => {
+      const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+      return smokeWindow.__smoke.waitForPaintedMarker(id, marker, 10_000);
+    }, { id: sessionId, marker: forwardPendingMarker });
+    expect(forwardRecoveredProof).toMatchObject({ marker: forwardPendingMarker, frames: 2 });
+    expectRecoveredLive(forwardPending, await readTerminalStreamProbe(mobileSmokePage, sessionId));
+  }
   await mouse.tap();
   await expect(mouse).toHaveAttribute("aria-pressed", "false");
   await inputSmokeTerminal(

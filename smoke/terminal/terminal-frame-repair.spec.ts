@@ -95,9 +95,12 @@ test("dropped final frame is repaired by the applied-sequence heartbeat", async 
   await expect.poll(() => smokePage.evaluate((id) => {
     // The test bootstrap installs this typed in-process harness on window.
     const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
-    return /HEARTBEAT-READY-001bash-\d+(?:\.\d+)+\$/.test(
-      smokeWindow.__smoke.viewportText(id),
-    );
+    const parts = smokeWindow.__smoke.viewportText(id).split("HEARTBEAT-READY-001");
+    // PS1-agnostic: viewportText concatenates rows (and trailing composer UI
+    // text), so require the row right after the marker to be a prompt token
+    // ending in $ or #. Hardcoding bash-<version>$ broke on CI runners whose
+    // profile sets PS1 to user@host:cwd$.
+    return /^\S{0,120}[$#](?:\s|$)/.test(parts.length > 1 ? (parts.at(-1) ?? "") : "");
   }, sessionId)).toBe(true);
   await waitForStableCellFrames(smokePage, sessionId);
   await smokePage.evaluate(

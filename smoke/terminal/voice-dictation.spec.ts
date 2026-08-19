@@ -18,7 +18,11 @@ test("desktop passive drafting and dictation preserve a selected reader until pa
   smokePage,
   stack,
   browserName,
-}) => {
+}, testInfo) => {
+  // The dock asserted below sits inside terminal-slot-<id> only on the desktop
+  // layout; the phone layout portals it out of the slot, so webkit-iphone fails
+  // on a locator rather than on the contract. Same gate as composer-desktop*.
+  test.skip(!testInfo.project.name.startsWith("chromium"), "desktop dictation and selected-reader contract");
   const interimSpeech = "still speaking\npassive dictated line\nanother dictated line";
   const finalSpeech = "finished speech\nfinal dictated line\nlast finalized line";
   const interimDraft = `typed base ${interimSpeech}`;
