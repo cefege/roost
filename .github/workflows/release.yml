@@ -126,7 +126,9 @@ jobs:
 
   publish:
     name: publish GitHub Release
-    needs: [native-smoke, windows-release]
+    # Windows is off the release path (see windows-verify's gate); publishing
+    # waits only on the assets it actually ships.
+    needs: [native-smoke]
     runs-on: ubuntu-24.04
     env:
       PUBLIC_RELEASE_ASSETS: |-
@@ -140,24 +142,10 @@ jobs:
         dist/roost-linux-x64.sha256
         dist/roost-linux-arm64
         dist/roost-linux-arm64.sha256
-        dist/roost-windows-x64.zip
-        dist/roost-windows-x64.zip.sha256
-        dist/roost-windows-x64.manifest.json
-        dist/roost-windows-x64.manifest.json.sha256
-        dist/roost-windows-x64.manifest.json.p7s
-        dist/roost-windows-x64.manifest.json.p7s.sha256
-        dist/join.ps1
-        dist/join.ps1.sha256
-        dist/install-binary.ps1
-        dist/install-binary.ps1.sha256
     steps:
       - uses: actions/download-artifact@v4
         with:
           name: release-candidates
-          path: dist
-      - uses: actions/download-artifact@v4
-        with:
-          name: windows-release-candidates
           path: dist
       - name: Require complete canonical public asset set
         shell: bash
@@ -166,7 +154,7 @@ jobs:
           expected="$(mktemp)"
           actual="$(mktemp)"
           printf '%s\n' "$PUBLIC_RELEASE_ASSETS" | sed 's#^dist/##' | LC_ALL=C sort > "$expected"
-          test "$(wc -l < "$expected")" -eq 20
+          test "$(wc -l < "$expected")" -eq 10
           find dist -maxdepth 1 -type f -printf '%f\n' | LC_ALL=C sort > "$actual"
           diff -u "$expected" "$actual"
       - uses: softprops/action-gh-release@v3
@@ -176,6 +164,13 @@ jobs:
 
   windows-verify:
     name: verify Windows Server 2022
+    # OFF by default: the Windows suite is red for environment reasons (temp-dir
+    # EBUSY in coord-move, POSIX-only deploy fixtures, launchd timeouts), and it
+    # blocked v0.4.0 and v0.4.1 from publishing at all. Set repository variable
+    # ROOST_WINDOWS_GATE=on to put Windows back in the release path; that also
+    # re-enables windows-release, whose signed assets must be added back to
+    # publish's PUBLIC_RELEASE_ASSETS and its count.
+    if: vars.ROOST_WINDOWS_GATE == 'on'
     runs-on: windows-2022
     timeout-minutes: 60
     steps:
@@ -242,6 +237,7 @@ jobs:
 
   windows-release:
     name: sign and package Windows release
+    if: vars.ROOST_WINDOWS_GATE == 'on'
     needs: [verify, windows-verify, build]
     runs-on: windows-2022
     timeout-minutes: 30
