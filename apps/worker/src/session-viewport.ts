@@ -12,21 +12,28 @@ import {
 	VIEWER_CLAIM_TTL_MS as VIEWPORT_CLAIM_TTL_MS,
 	VIEWER_CLAIM_FRESH_MS,
 } from "@roost/shared/viewport";
+import { sweepResizeFloors } from "./session-resize-floor.ts";
 
 /** Does this claim have to carry a full frame, or is the claimant provably
- *  holding the current grid? Two conditions must both hold to skip it:
- *  the claimant reports the seq of the last frame this channel emitted, AND
- *  emission never stopped while it was away (`wasStreaming` — some claim was
- *  live). The second is load-bearing: with no claim, _hasActiveViewer gates
- *  emission off (session-emit.ts), so the grid keeps mutating while
- *  cell_emit.seq freezes and a seq match would prove nothing. Unknown seq (0 /
- *  undefined) or behind → emit. A mismatch caused by a frame still in flight
- *  costs one redundant snapshot, so this errs toward emitting. */
+ *  holding the current grid? Three witnesses, all read off the live record:
+ *  (1) the claimant names the seq of the last frame this channel emitted;
+ *  (2) that frame belongs to the CURRENT core — `sentFull` is false for a
+ *      replacement core until its authoritative frame ships, and a rebuild
+ *      mints a new gridEpoch, so a kept seq alone could name a dead epoch;
+ *  (3) when emission had stopped, no PTY byte landed after that frame shipped.
+ *      `lastPtyOutMs` is that witness: emitCellFrame zeroes it on every
+ *      successful send and emitUpstreamChunk stamps it on the first chunk
+ *      after that, so 0 proves the grid cannot have moved. Unknown seq
+ *      (0 / undefined) or any witness failing → emit; a mismatch caused by a
+ *      frame still in flight costs one redundant snapshot. */
 export function needsClaimSnapshot(
 	mgr: SessionManager, channelId: number, heldCellSeq: number | undefined, wasStreaming: boolean,
 ): boolean {
-	if (!heldCellSeq || !wasStreaming) return true;
-	return mgr.shellByChannel(channelId)?.cell_emit.seq !== heldCellSeq;
+	if (!heldCellSeq) return true;
+	const rec = mgr.shellByChannel(channelId);
+	if (!rec || !rec.cell_emit.sentFull || rec.cell_emit.seq !== heldCellSeq) return true;
+	if (wasStreaming) return false;
+	return rec.lastPtyOutMs !== 0;
 }
 
 /** Current smallest-common dimensions across fresh, sizing claims. Background
@@ -233,4 +240,8 @@ export function _reapViewportClaims(this: SessionManager): void {
 		}
 		if (dropped || anyStale) this.reconcileTerminalViewport(channelId);
 	}
+	// Same 5 s maintenance tick revalidates resize floors. A floor left invalid
+	// by an adopted channel or an unresolved resize ACK is proven here, off the
+	// hot path, so a user-facing claim never pays the keeper round trip.
+	sweepResizeFloors(this);
 }

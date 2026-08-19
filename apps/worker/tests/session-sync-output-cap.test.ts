@@ -77,10 +77,10 @@ async function harness(): Promise<Harness> {
     sb_origin_pin: null,
     lastPtyOutMs: 0,
   } as never);
-  // Cells only flow to a watched channel; the claim's own snapshot is not part
-  // of what the ceilings govern, so drop it before the first assertion.
+  // Floor seed (every real spawn records it) + a watcher, since cells only flow to a watched channel.
+  mgr.channelResizeSeq.set(CID, 0);
   mgr.claimViewport(CID, "viewer", 80, 24, 1, 1);
-  frames.length = 0;
+  frames.length = 0; // the claim's own snapshot is not part of what the ceilings govern
   return { mgr, frames };
 }
 

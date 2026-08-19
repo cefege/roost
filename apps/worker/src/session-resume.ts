@@ -272,6 +272,13 @@ export async function respawn(this: SessionManager, opts: {
 		throw e;
 	}
 
+	// The keeper created THIS channel's PTY at exactly cols×rows, so it is PROVEN
+	// applied geometry — the same seed spawnShell records. Without it the first
+	// viewport claim reads keeper history and rebuilds a core at unchanged
+	// geometry, minting a gridEpoch that discards the browser's painted history.
+	this.channelResizeSeq.set(channelId, 0);
+	this.lastAppliedSize.set(channelId, { cols, rows });
+
 	this.emitEvent({
 		kind: "respawned",
 		session_id: opts.oldSessionId,

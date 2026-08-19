@@ -53,6 +53,11 @@ async function injectCellSession(mgr: SessionManager, channelId: number): Promis
     cell_emit: initCellEmitState("test-grid"),
     lastPtyOutMs: 0,
   });
+  // The resize floor every real creation path records (session-spawn.ts:97,
+  // session-resume.ts:151 and its respawn tail). Without it floorValid() is
+  // false, so a claim takes the full transaction and its capture gates exactly
+  // the cell emission these tests count.
+  mgr.channelResizeSeq.set(channelId, 0);
 }
 
 function expectViewportOnlySnapshot(raw: unknown): CellGridFrame {
@@ -226,10 +231,13 @@ describe("claim snapshots never bundle retained history", () => {
 
 // held_cell_seq: the claimant reports the cell-frame seq it has already applied
 // (SessionsResizeRequest.held_cell_seq → claimViewport's heldCellSeq), so a
-// reveal of a pane that never stopped streaming repaints NOTHING. The seq is
-// only proof while the channel stayed watched: with no claim, _hasActiveViewer
-// gates emission off (session-emit.ts), so cell_emit.seq freezes while the grid
-// keeps moving and a matching seq would prove the opposite of current.
+// reveal of a pane that never stopped streaming repaints NOTHING. A matching
+// seq is not proof BY ITSELF once emission stopped: with no claim
+// _hasActiveViewer gates emission off (session-emit.ts), so cell_emit.seq
+// freezes while the grid keeps moving. needsClaimSnapshot therefore reads two
+// further witnesses off the same record — cell_emit.sentFull (false until a
+// replacement core's authoritative frame ships) and rec.lastPtyOutMs (0 only
+// while no PTY byte has landed since the last successful emit).
 describe("claim snapshot only when the claimant is not provably current", () => {
   test("re-claim holding the last emitted seq emits nothing; one behind emits a full frame", async () => {
     const { mgr, frames } = mgrWithCellCounter();
@@ -268,8 +276,11 @@ describe("claim snapshot only when the claimant is not provably current", () => 
 
   test("output produced while UNWATCHED still forces a snapshot on the matching seq", async () => {
     // cell_emit.seq freezes while nobody claims, so held === cell_emit.seq says
-    // nothing about the grid. Without the wasStreaming clause the returning
-    // pane would paint its pre-withdraw bottom until the next PTY chunk.
+    // nothing on its own. rec.lastPtyOutMs separates the two cases: a chunk
+    // landed while unwatched, so it is non-zero and the returning pane is
+    // repainted instead of trusting its pre-withdraw bottom. The zero case — a
+    // dormant pane whose grid never moved — is the opposite contract, held by
+    // viewport-claim-fast-path.test.ts.
     const { mgr, frames } = mgrWithCellCounter();
     await injectCellSession(mgr, 1);
     mgr.claimViewport(1, "v", 80, 24, 1, 1);

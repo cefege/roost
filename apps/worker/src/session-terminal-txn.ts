@@ -32,17 +32,21 @@ import {
   rebuildTerminalCore,
   type ResizeCapture,
 } from "./session-resize-capture.ts";
+import {
+  FLOOR_REVALIDATE_BUDGET_MS,
+  floorValid,
+  type ProvenSize,
+  resolveResizeFloor,
+  revalidateResizeFloor,
+  sameViewportSize,
+  withinPhase,
+} from "./session-resize-floor.ts";
 
 const BACKGROUND_CAUSE = 5;
 const SNAPSHOT_CAUSES: Readonly<Record<number, true>> = { 1: true, 3: true, 6: true };
 /** Status probes per transaction. The per-command watchdog is 2.5 s and the
  *  reconciliation phase 6 s, so this is a belt on top of a bounded budget. */
 const RESIZE_MAX_STATUS_PROBES = 3;
-
-interface ProvenSize {
-  cols: number;
-  rows: number;
-}
 
 /** What the keeper proved about one logical resize sequence. */
 type ResizeOutcome =
@@ -51,21 +55,6 @@ type ResizeOutcome =
   | { kind: "known_rejected"; seq: number; reason: string }
   | { kind: "not_admitted"; reason: string }
   | { kind: "admitted_unknown"; seq: number; reason: string };
-
-/** Race work against the current phase deadline. The keeper command keeps its
- *  own watchdog; this is the phase's independent monotonic bound, so a hung
- *  socket cannot outlive the transaction. */
-async function withinPhase<T>(capture: ResizeCapture, work: Promise<T>, expired: T): Promise<T> {
-  const remaining = phaseRemainingMs(capture);
-  if (remaining <= 0) return expired;
-  const { promise, resolve } = Promise.withResolvers<T>();
-  const timer = setTimeout(() => resolve(expired), remaining);
-  try {
-    return await Promise.race([work, promise]);
-  } finally {
-    clearTimeout(timer);
-  }
-}
 
 /** Identity-guarded claim restoration. It may put the claim map back, but the
  *  caller must never use it to relabel an already-resized PTY as rejected. */
@@ -83,74 +72,6 @@ function restoreViewerClaim(
   } else if (claims.get(viewerId) !== installed) return;
   if (prior) claims.set(viewerId, prior);
   else claims.delete(viewerId);
-}
-
-/** The sequence floor plus whatever size is currently proven.
- *  `authoritative` = read from the keeper's live channel this pass. */
-interface ResizeFloor {
-  seq: number;
-  proven: ProvenSize | null;
-  authoritative: boolean;
-}
-
-/** Recover the floor before allocating. A cached/applied N is advanced past, its
- *  size reconciled, and the local floor can never hand out a sequence the keeper
- *  already consumed — including when the marker that recorded it was evicted,
- *  because the keeper answers from live channel state, not retained history. */
-async function resolveResizeFloor(
-  mgr: SessionManager,
-  channelId: number,
-  capture: ResizeCapture,
-): Promise<ResizeFloor> {
-  const cached = mgr.channelResizeSeq.get(channelId);
-  const provenSize = mgr.lastAppliedSize.get(channelId) ?? null;
-  if (cached !== undefined && !mgr.resizeFloorInvalid.has(channelId)) {
-    return { seq: cached, proven: provenSize, authoritative: false };
-  }
-  const pool = getMultiplexedPool();
-  const state = await withinPhase(capture, pool.getTerminalState(channelId), null);
-  if (state) {
-    const size = { cols: state.cols, rows: state.rows };
-    mgr.channelResizeSeq.set(channelId, state.highestResizeSeq);
-    mgr.resizeFloorInvalid.delete(channelId);
-    // appliedResizeSeq 0 = the keeper never applied a sequenced resize, so its
-    // dimensions are the spawn geometry and prove nothing about our floor.
-    if (state.appliedResizeSeq > 0) mgr.lastAppliedSize.set(channelId, size);
-    return {
-      seq: state.highestResizeSeq,
-      proven: state.appliedResizeSeq > 0 ? size : provenSize,
-      authoritative: true,
-    };
-  }
-  if (cached === undefined) {
-    // Never observed this channel (worker adoption): derive from ordered history
-    // and keep the floor invalid — retained markers can be evicted.
-    const history = await withinPhase(capture, pool.getHistoryRecords(channelId), null);
-    let latest = 0;
-    for (const record of history?.records ?? []) {
-      if (record.kind === "resize") latest = Math.max(latest, record.seq);
-    }
-    mgr.channelResizeSeq.set(channelId, latest);
-    mgr.resizeFloorInvalid.add(channelId);
-    mgr.pendingCellRepairs.add(channelId);
-    return { seq: latest, proven: provenSize, authoritative: false };
-  }
-  // Floor invalid and authority unreachable: probe the last sequence we wrote.
-  // An ACK proves both that it was consumed and at what size; anything else
-  // leaves the floor invalid, and allocating cached+1 is still collision-free
-  // because a sequence is reserved when its request is WRITTEN.
-  const probe = pool.beginResizeStatus(channelId, cached, () => markResizeBoundary(mgr, channelId, capture));
-  const result = probe.admission.written
-    ? await withinPhase<KeeperResizeResult>(capture, probe.result, { kind: "unknown", seq: cached, reason: "timeout" })
-    : { kind: "unknown" as const, seq: cached, reason: "timeout" as const };
-  if (result.kind === "ack") {
-    const size = { cols: result.cols, rows: result.rows };
-    mgr.lastAppliedSize.set(channelId, size);
-    mgr.resizeFloorInvalid.delete(channelId);
-    return { seq: Math.max(cached, result.seq), proven: size, authoritative: true };
-  }
-  mgr.pendingCellRepairs.add(channelId);
-  return { seq: cached, proven: provenSize, authoritative: false };
 }
 
 /** Drive one logical resize to a typed outcome inside the reconciliation budget.
@@ -314,10 +235,9 @@ export async function reconcileViewportNow(
   // resize that changes nothing on the very first claim.
   const proven = mgr.lastAppliedSize.get(channelId)
     ?? { cols: rec.wtermCore.getCols(), rows: rec.wtermCore.getRows() };
-  const floorValid = !mgr.resizeFloorInvalid.has(channelId);
   // No fresh sizing viewer: leave the PTY at its last size rather than resizing
   // a running TUI to a default.
-  if (!desired || (floorValid && proven.cols === desired.cols && proven.rows === desired.rows)) {
+  if (!desired || (floorValid(mgr, channelId) && sameViewportSize(desired, proven))) {
     ticket.release();
     return;
   }
@@ -395,10 +315,22 @@ export async function applyViewportNow(
   else claims.delete(intent.viewerId);
 
   const desired = desiredViewportSize.call(mgr, channelId);
-  const provenBefore = mgr.lastAppliedSize.get(channelId);
-  const current = provenBefore ?? { cols: rec.wtermCore.getCols(), rows: rec.wtermCore.getRows() };
-  const floorValid = !mgr.resizeFloorInvalid.has(channelId);
-  if (floorValid && (!desired || (desired.cols === current.cols && desired.rows === current.rows))) {
+  let current = mgr.lastAppliedSize.get(channelId)
+    ?? { cols: rec.wtermCore.getCols(), rows: rec.wtermCore.getRows() };
+  // A claim that issues no resize consumes no resize sequence, so an invalid
+  // floor is a reason to re-READ the keeper — never to freeze the core and
+  // rebuild it at a geometry nothing changed (which also mints a gridEpoch and
+  // throws the browser's painted history away). The revalidation installs no
+  // capture, so the live core keeps parsing at its proven size; if it cannot
+  // prove the floor, fall through to the full transaction exactly as before.
+  if (!floorValid(mgr, channelId) && sameViewportSize(desired, current)) {
+    await revalidateResizeFloor(mgr, channelId, Math.min(
+      FLOOR_REVALIDATE_BUDGET_MS,
+      intent.budget?.remainingMs() ?? FLOOR_REVALIDATE_BUDGET_MS,
+    ));
+    current = mgr.lastAppliedSize.get(channelId) ?? current;
+  }
+  if (floorValid(mgr, channelId) && sameViewportSize(desired, current)) {
     // Locally proven no-resize: no capture, no rebuild, and the write lane is
     // free the moment that decision is final.
     ticket.release();
