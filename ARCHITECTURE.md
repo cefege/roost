@@ -82,8 +82,13 @@ per-cell OSC 8 link identity (`PbCellSpan.link_uri`/`link_key`), and those
 cells — never raw PTY bytes — cross the Sync socket downward. Nothing derives
 hyperlinks from the byte stream and nothing matches link text.
 Only visible panes claim cell delivery; a
-mounted offscreen pane keeps its last grid without receiving cells, then
-reclaims an authoritative snapshot when revealed.
+mounted offscreen pane keeps its last grid without receiving cells, and a reveal
+reclaims an authoritative snapshot ONLY when a witness proves the grid moved
+while it was away (`session-viewport.ts::needsClaimSnapshot`) — a pane whose
+grid never moved reveals with zero bytes and zero repaint. How many panes stay
+mounted is itself bounded (`apps/web/src/lib/deckWarmSet.ts`), so the forced
+layout every switch pays has a ceiling instead of growing with each session the
+page has visited.
 
 **Proven outcomes, nested budgets.** A worker result carries a
 `TerminalWritePhase` (`PRE_WRITE`, `WRITTEN`, `UNKNOWN`) beside its status, so

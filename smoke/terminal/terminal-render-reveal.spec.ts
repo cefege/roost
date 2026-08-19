@@ -8,9 +8,10 @@ import {
   recoveryProbe,
 } from "./terminal-helpers.ts";
 
-// Returning to an already-open pane keeps the Sync socket but reclaims an
-// authoritative snapshot. Hidden and offscreen panes must receive no cells.
-test("returning to a dormant pane reclaims once without a Sync re-dial", async ({ smokePage, stack }, testInfo) => {
+// Returning to an already-open pane keeps the Sync socket and reclaims an
+// authoritative snapshot ONLY when the grid moved while it was away. Hidden and
+// offscreen panes must receive no cells either way.
+test("a dormant pane reclaims only when its grid moved, and never re-dials Sync", async ({ smokePage, stack }, testInfo) => {
   test.skip(!testInfo.project.name.startsWith("chromium"), "desktop deck/visibility contract");
   const spawn = (folder: string) => smokePage.evaluate(async ({ workerFp, dir }) => {
     const smoke = (window as unknown as Window & {
@@ -50,8 +51,9 @@ test("returning to a dormant pane reclaims once without a Sync re-dial", async (
   await expect.poll(() => slotA.textContent(), { timeout: 60_000 }).toContain("CELLLINE-8000");
   await smokePage.waitForTimeout(1000);
 
-  // Deck switch: A withdraws while offscreen, then one claim snapshot restores
-  // the still-mounted renderer. The shared Sync socket stays open.
+  // Deck switch with NO output on A while it is parked. A withdraws offscreen,
+  // and the return claim carries a held_cell_seq the worker can prove is still
+  // current, so the reveal is a visibility flip: zero cells, no repaint.
   const sessionB = await spawn("/tmp");
   await expect.poll(() => smokePage.evaluate((id) => {
     const smoke = (window as unknown as Window & { __smoke: { state(): { sessions: Record<string, unknown> } } }).__smoke;
@@ -73,12 +75,18 @@ test("returning to a dormant pane reclaims once without a Sync re-dial", async (
     smoke.navigate(`/s/${id}`);
   }, sessionA);
   await expect(smokePage.getByTestId(`tab-${sessionA}`)).toHaveAttribute("data-active", "true");
-  await expect.poll(async () => (await probe()).fullFrames).toBe(beforeSwitch.fullFrames + 1);
+  // Zero, not one: proving an absence needs a settle window, not a poll (a poll
+  // that starts equal passes before the frame it is meant to catch could land).
+  // The dwell on B was 1000 ms, past VIEWER_WITHDRAW_GRACE_MS (800), so this is
+  // genuinely the unwatched path and not a claim that never stopped streaming.
+  await smokePage.waitForTimeout(1000);
   expect(await probe()).toMatchObject({
     atBottom: true,
     markerMax: 8000,
     duplicated: [],
     outOfOrder: 0,
+    frames: beforeSwitch.frames,
+    fullFrames: beforeSwitch.fullFrames,
     wsGeneration: beforeSwitch.wsGeneration,
   });
 

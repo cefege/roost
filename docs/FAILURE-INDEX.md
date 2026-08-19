@@ -291,16 +291,29 @@ drags into reserved-but-unpainted space keeps the backfill drain pulling toward 
 **Wrong** — treat it as history serialization and shrink/skip the scrollback tail (forbidden by the entries
 above), keep hidden/offscreen panes streaming, or add a spinner over reveal.
 
-**Right** — **keep the Sync socket; dormancy costs exactly one viewport snapshot.** (a)
-`apps/web/src/store/sync-bootstrap.ts` has ONE reconnect-loop owner and refocus keeps a healthy Sync WS, so
-reveal never waits on a second dial. (b) Hidden and offscreen panes immediately send `WITHDRAW`; no 0×0
-BACKGROUND claim, grace timer, or deck LRU keeps cells flowing into an invisible renderer. (c) A visible return
-claim carries `held_cell_seq`; the worker sees the channel was unwatched and emits one viewport-only
-authoritative snapshot before deltas resume. (d) The mounted renderer applies that snapshot without replaying
-retained history, so the live bottom returns immediately while offscreen cell-frame count stays flat.
+**Right** — **keep the Sync socket; dormancy costs AT MOST one viewport snapshot, and nothing at all when the
+grid never moved.** (a) `apps/web/src/store/sync-bootstrap.ts` has ONE reconnect-loop owner and refocus keeps a
+healthy Sync WS, so reveal never waits on a second dial. (b) Hidden and offscreen panes immediately send
+`WITHDRAW`; no 0×0 BACKGROUND claim, grace timer, or deck LRU keeps cells flowing into an invisible renderer.
+(c) A visible return claim carries `held_cell_seq`, and an unwatched channel emits its one viewport-only
+authoritative snapshot ONLY WHEN A WITNESS PROVES THE GRID MOVED
+(`apps/worker/src/session-viewport.ts::needsClaimSnapshot`): the held seq is behind `cell_emit.seq`; or a
+replacement core has not yet flushed its authoritative frame (`cell_emit.sentFull === false` — a rebuild mints a
+new `gridEpoch`, so a kept seq alone could name a dead epoch); or a PTY byte landed since the last successful
+emit (`rec.lastPtyOutMs !== 0` — `emitCellFrame` zeroes it only on a successful send and the next chunk
+re-stamps it). A claimant provably holding the current grid gets NO FRAME AT ALL, so a shell idling at a prompt
+reveals with zero bytes and zero repaint. "Emission was gated off while it was away, so a frozen `cell_emit.seq`
+proves nothing" was the old reasoning; it is true and it is not the whole record — `lastPtyOutMs` is the missing
+witness and it was already there. (d) The mounted renderer applies that snapshot without replaying retained
+history, so the live bottom returns immediately while offscreen cell-frame count stays flat.
 
 **Guard** — `smoke/terminal/` — `"a /file round-trip keeps the deck warm and costs no snapshot"`,
-`"long hidden deep-history resume paints the current viewport before history"`.
+`"long hidden deep-history resume paints the current viewport before history"`,
+`"revealing an idle dormant pane costs zero cell frames @serial"`,
+`"revealing a pane that moved while parked costs exactly one viewport-only snapshot @serial"`;
+`apps/worker/tests/viewport-claim-fast-path.test.ts` — `"a reveal after dormancy emits nothing when no PTY byte
+landed"` (both branches of the `lastPtyOutMs` witness) and `"a rebuilt core always resnapshots even at a
+matching seq"` (the `sentFull` witness).
 
 ### Reveal lands in history instead of the present
 
@@ -527,6 +540,37 @@ on `hasOpened`; the log is `reconnect_backoff_escalated`, never `auth_rejection_
 `cgroup_memory_high_exceeded`/`_cleared` so the next occurrence is one grep, not a guess.
 
 **Guard** — `apps/worker/tests/coord-link-backoff-cap.test.ts`.
+
+### A no-resize viewport claim pays a keeper resize and a core rebuild
+
+**Symptom** — "tab switch stalls for seconds and the pane reloads its scrollback / the same terminal is instant
+sometimes and slow other times / switch cost depends on nothing the user did"
+
+**Wrong** — gate a no-resize claim on the resize floor, so an invalid floor freezes the core and rebuilds it at
+unchanged geometry; treat "we cannot prove the floor" as "we must resize". `resizeFloorInvalid` is set on worker
+adoption and by `reconcileResize` before an ACK is known, and clears only on a LATER successful keeper round
+trip, so ONE keeper hiccup made every future switch to that session pay `installResizeCapture` (canonical core
+frozen) + `reconcileResize` (separate OS process, 2.5 s command watchdog) + `rebuildTerminalCore` (a fresh
+`WebAssembly.instantiate` plus one synchronous VT reparse of the whole retained ring on the worker's single event
+loop) — a rebuild that also mints a new `gridEpoch` and therefore legitimately discards the browser's painted
+history. The user sees a seconds-long stall and a pane that reloads its scrollback, at byte-identical dimensions.
+
+**Right** — **the floor gates only ALLOCATING a resize sequence.** A claim whose desired size already equals
+proven geometry issues no resize, so it consumes no sequence — it needs only the keeper's current geometry, which
+is a plain READ that neither freezes the core nor changes geometry.
+`apps/worker/src/session-resize-floor.ts::revalidateResizeFloor` is capture-free, de-duplicates concurrent probes
+through a module-private registry (a user-facing claim awaits the sweep's in-flight probe instead of issuing a
+second read), and is bounded by `FLOOR_REVALIDATE_BUDGET_MS`; when it cannot prove the floor the claim falls
+through to the full transaction exactly as before. `floorValid` is now ONE definition and includes
+`channelResizeSeq.has(channelId)` — an adopted channel has no cached seq and is NOT in `resizeFloorInvalid`, so
+it used to cold-path silently. `sweepResizeFloors` runs at the END of `_reapViewportClaims`, outside its
+`viewportClaims` loop because a parked session holds no claims, so the existing 5 s viewport tick proves stale
+floors before the user clicks. `respawn()` seeds `channelResizeSeq` + `lastAppliedSize` for its brand-new channel
+the way `spawnShell` always has, so a respawned session never starts on the cold path at all.
+
+**Guard** — `apps/worker/tests/viewport-claim-fast-path.test.ts` — `"an invalid floor does not rebuild the core
+for an unchanged viewport"`, `"an unprovable floor still falls through to the full transaction"`,
+`"a genuine resize still rebuilds exactly once"`, `"respawn seeds proven geometry"`.
 
 ---
 
