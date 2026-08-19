@@ -24,7 +24,13 @@ export default defineConfig({
   // contention-dependent flakiness that raising parallelism can introduce.
   retries: 0,
   timeout: 120_000,
-  expect: { timeout: 10_000 },
+  // The default budget for a state that must BECOME true (focus lands, a mic
+  // enters listening, a marker paints). 10s is ample on a dev box; CI's 3-4 core
+  // runners are slow enough that it failed transitions that then passed on
+  // rerun, so they get 20s. This does not loosen any timeliness assertion: the
+  // specs that measure latency pass their own explicit budget (perf.spec.ts, and
+  // terminal-pty-recovery's 10s painted-marker and cursor-geometry proofs).
+  expect: { timeout: process.env.CI ? 20_000 : 10_000 },
   // Both reporters are parallel-safe and keep failures attributable: `list`
   // labels every result line with file:line:title, and its failure block is
   // emitted after the workers drain, while `html` keeps each test's stdout,
