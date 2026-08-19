@@ -31,9 +31,9 @@ import {
 } from "./terminal-probe-helpers.ts";
 
 // @serial: the heaviest fixture case in the suite — a PTY-fixture worker plus
-// dozens of painted-marker and cursor-geometry proofs on 10s budgets. Those are
-// timeliness assertions, so it is measured alone rather than given looser
-// budgets that would stop it detecting a real stall.
+// dozens of painted-marker and cursor-geometry proofs, whose 10s budgets are
+// timeliness assertions, so it is measured alone rather than loosened.
+const FIXTURE_ARM_MS = 30_000; // the fixture's ARM acks are readiness gates, not latency claims: 10s overran a loaded CI runner while asserting nothing.
 test("real PTY input recovers held rendering and rejected same-generation reclaim self-heals @serial", async ({
   smokePage,
   stack,
@@ -80,10 +80,10 @@ test("real PTY input recovers held rendering and rejected same-generation reclai
     sessionId,
     encodePtyFixtureCommand({ op: "ARM_CURSOR_MOVE", nonce: cursorNonce }),
   );
-  await smokePage.evaluate(({ id, marker }) => {
+  await smokePage.evaluate(({ id, marker, timeoutMs }) => {
     const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
-    return smokeWindow.__smoke.waitForPaintedMarker(id, marker, 10_000);
-  }, { id: sessionId, marker: cursorReady });
+    return smokeWindow.__smoke.waitForPaintedMarker(id, marker, timeoutMs);
+  }, { id: sessionId, marker: cursorReady, timeoutMs: FIXTURE_ARM_MS });
   await waitForStableCellFrames(smokePage, sessionId);
   const baselineCursor = await smokePage.evaluate((id) => {
     const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
@@ -369,10 +369,10 @@ test("real PTY input recovers held rendering and rejected same-generation reclai
     sessionId,
     encodePtyFixtureCommand({ op: "ARM_ALT_REDRAW", nonce: altNonce, trigger: "line" }),
   );
-  await smokePage.evaluate(({ id, marker }) => {
+  await smokePage.evaluate(({ id, marker, timeoutMs }) => {
     const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
-    return smokeWindow.__smoke.waitForPaintedMarker(id, marker, 10_000);
-  }, { id: sessionId, marker: altReady });
+    return smokeWindow.__smoke.waitForPaintedMarker(id, marker, timeoutMs);
+  }, { id: sessionId, marker: altReady, timeoutMs: FIXTURE_ARM_MS });
   await waitForStableCellFrames(smokePage, sessionId);
   const beforeAlt = await readTerminalStreamProbe(smokePage, sessionId);
   expect(await holdNativeTerminalSelection(smokePage, sessionId)).toBe(true);
@@ -425,10 +425,10 @@ test("real PTY input recovers held rendering and rejected same-generation reclai
     sessionId,
     encodePtyFixtureCommand({ op: "ARM_LINE_OVERWRITE", nonce: overwriteNonce }),
   );
-  await smokePage.evaluate(({ id, marker }) => {
+  await smokePage.evaluate(({ id, marker, timeoutMs }) => {
     const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
-    return smokeWindow.__smoke.waitForPaintedMarker(id, marker, 10_000);
-  }, { id: sessionId, marker: overwriteReady });
+    return smokeWindow.__smoke.waitForPaintedMarker(id, marker, timeoutMs);
+  }, { id: sessionId, marker: overwriteReady, timeoutMs: FIXTURE_ARM_MS });
   const delayedDraft = `delayed-response-${suffix}-` + "payload ".repeat(80);
   await composerInput.fill(delayedDraft);
   await expect.poll(async () => (await composerDock.boundingBox())?.height ?? 0)
