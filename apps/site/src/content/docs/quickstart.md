@@ -73,6 +73,10 @@ curl -fsSL https://raw.githubusercontent.com/cefege/roost/main/join.sh | \
 Those two environment variables are the whole contract: `roost join` refuses to
 run without both.
 
+> **Windows enrollment is paused.** Releases since `v0.4.2` publish no signed
+> `join.ps1`, so the generated PowerShell command has nothing to verify or run
+> until the Windows release tier is re-enabled.
+
 For a Windows x64 worker, choose **Windows** in the dialog (or pass
 `--publisher-sha256`) and paste the generated command into elevated
 PowerShell 5.1+. Before executing anything it downloaded, that command verifies

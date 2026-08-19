@@ -36,6 +36,12 @@ curl -fsSL https://raw.githubusercontent.com/cefege/roost/main/install-binary.sh
 "$HOME/.local/bin/roost" quickstart
 ```
 
+> **Windows releases are paused.** The Windows CI/release tier is disabled while
+> its gates are repaired, so releases after `v0.3.2` publish no
+> `install-binary.ps1`, `join.ps1`, or `roost-windows-x64.zip`. The steps below
+> are unchanged and correct, but they cannot complete against
+> `releases/latest` today.
+
 On Windows x64, open an elevated PowerShell 5.1+ session. Supply the trusted
 SHA-256 fingerprint of the release-publisher leaf certificate through a channel
 independent of the downloaded release manifest:

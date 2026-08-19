@@ -65,6 +65,13 @@ network-extension approval.
 
 ## Windows x64
 
+> **Windows releases are paused.** `v0.4.2` and later publish macOS and Linux
+> assets only: the Windows CI/release tier is disabled while its gates are
+> repaired, so no `roost-windows-x64.zip`, manifest, or signed `join.ps1` /
+> `install-binary.ps1` exists on `releases/latest`. The procedure below is
+> correct and unchanged, but it cannot complete until Windows assets are
+> published again. `v0.3.2` is the last release that carries them.
+
 Install Tailscale first. Then open an **elevated PowerShell 5.1+** session and
 supply the trusted SHA-256 fingerprint of the release-publisher leaf certificate
 through a channel independent of the downloaded release manifest:
@@ -129,13 +136,15 @@ release links keep working.
 | `roost-darwin-x64` | macOS x64 |
 | `roost-linux-x64` | Linux x64 |
 | `roost-linux-arm64` | Linux arm64 |
-| `roost-windows-x64.zip` | Windows x64 |
+| `roost-windows-x64.zip` | Windows x64 — **not published since `v0.3.2`** |
 
-The Windows package additionally ships `roost-windows-x64.manifest.json`, its
-`.sha256`, and a detached `.p7s` signature, plus the signed `join.ps1` and
-`install-binary.ps1` bootstrap scripts. The release workflow refuses to publish
-unless the macOS, Linux, and Windows assets identify the same source commit and
-every Windows signing artifact passes.
+When the Windows tier is enabled, the Windows package additionally ships
+`roost-windows-x64.manifest.json`, its `.sha256`, and a detached `.p7s`
+signature, plus the signed `join.ps1` and `install-binary.ps1` bootstrap
+scripts, and the release workflow refuses to publish unless every Windows
+signing artifact passes. That tier is currently disabled, so a release either
+carries the full signed Windows set or — as with `v0.4.2` — no Windows asset at
+all; a partial Windows package is never published.
 
 ## Source checkout (development only)
 
