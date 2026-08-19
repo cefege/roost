@@ -2,8 +2,8 @@ import { test, expect } from "./fixtures.ts";
 import { encodePtyFixtureCommand, PTY_FIXTURE_READY } from "./pty-fixture-protocol.ts";
 import type { RecoverySmokeApi } from "./terminal-smoke-api.ts";
 import {
-  shortcutPlatform,
   pressPlatformShortcut,
+  pasteFromClipboard,
   spawnPtyFixtureSession,
   spawnSmokeShell,
   navigateToSmokeSession,
@@ -314,7 +314,7 @@ test("real PTY input recovers held rendering and rejected same-generation reclai
   await armImmediateTerminalPaintSample(smokePage, sessionId, "paste", {
     marker: findPendingMarker,
   });
-  await smokePage.keyboard.press((await shortcutPlatform(smokePage)) === "macos" ? "Meta+V" : "Control+V");
+  await pasteFromClipboard(smokePage);
   const immediatePastePaint = await readImmediateTerminalPaintSample(smokePage);
   expect(immediatePastePaint).toMatchObject({
     eventType: "paste",

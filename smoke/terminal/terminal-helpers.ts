@@ -224,3 +224,20 @@ export function expectCleanRecovery(
   });
   expect(result.atBottom).toBe(true);
 }
+
+/** Trusted paste from the system clipboard.
+ *  NOT keyboard.press("Meta+V"): on macOS the OS owns that accelerator, so
+ *  Chromium under this driver delivers no paste event at all (the armed paint
+ *  sample came back null on CI's macos-latest terminal job). CDP's `commands`
+ *  is the hook Chromium itself uses to run editing accelerators, so it yields
+ *  one trusted paste event on every platform. */
+export async function pasteFromClipboard(page: Page): Promise<void> {
+  const key = { key: "v", code: "KeyV", windowsVirtualKeyCode: 86, nativeVirtualKeyCode: 86 } as const;
+  const cdp = await page.context().newCDPSession(page);
+  try {
+    await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", modifiers: 4, commands: ["paste"], ...key });
+    await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", modifiers: 4, ...key });
+  } finally {
+    await cdp.detach();
+  }
+}
