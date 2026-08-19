@@ -92,7 +92,13 @@ export async function spawnSmokeShell(page: Page, workerFp: string, sessionId?: 
 
 export async function navigateToSmokeSession(page: Page, sessionId: string): Promise<void> {
   await page.goto(`${new URL(page.url()).origin}/s/${sessionId}`, { waitUntil: "domcontentloaded" });
-  await expect(page.getByTestId(`terminal-slot-${sessionId}`)).toBeVisible();
+  // 30s, not the config's 10s expect budget: this is the readiness gate every
+  // spec crosses before its real assertions — a cold navigation must sync the
+  // session into the store first, and a loaded CI runner overran 10s with the
+  // SPA still showing "No session selected". Specs that assert navigation
+  // LATENCY do it explicitly (perf.spec.ts); here a slow arrival is not a bug,
+  // and a session that never arrives still fails.
+  await expect(page.getByTestId(`terminal-slot-${sessionId}`)).toBeVisible({ timeout: 30_000 });
 }
 
 export async function switchToSmokeSession(page: Page, sessionId: string): Promise<void> {

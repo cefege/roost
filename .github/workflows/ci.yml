@@ -59,7 +59,10 @@ jobs:
       matrix:
         os: [macos-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    # 30, not 20: this tier absorbed the retired humanchrome skills' coverage
+    # (render-stress on both screens, multi-viewer resize-hammer), and ubuntu
+    # was cancelled mid-run at the 20-minute cap.
+    timeout-minutes: 30
     needs: invariants
     steps:
       - uses: actions/checkout@v4
