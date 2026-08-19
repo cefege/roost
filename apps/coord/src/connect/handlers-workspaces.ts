@@ -16,6 +16,7 @@ import {
   WorkspacesSetSessionsResponseSchema,
 } from "@roost/shared/proto/coordinator_pb";
 import { WorkspaceSchema } from "@roost/shared/proto/wire_pb";
+import { sameWorkerFolder } from "@roost/shared/native-path";
 import type { KyselyDB } from "../db/connection.ts";
 import { workspaceBus } from "../buses.ts";
 import { requireAuth } from "./auth-interceptor.ts";
@@ -63,9 +64,9 @@ type WorkspaceMethods =
   | "workspacesList" | "workspacesCreate" | "workspacesUpdate"
   | "workspacesDelete" | "workspacesSetSessions";
 
-export function makeWorkspaceHandlers(
-  deps: ConnectDeps,
-): Pick<ServiceImpl<typeof CoordinatorService>, WorkspaceMethods> {
+export type WorkspaceHandlers = Pick<ServiceImpl<typeof CoordinatorService>, WorkspaceMethods>;
+
+export function makeWorkspaceHandlers(deps: ConnectDeps): WorkspaceHandlers {
   return {
     async workspacesList(_req, ctx) {
       requireAuth(ctx.values);
@@ -84,16 +85,19 @@ export function makeWorkspaceHandlers(
           .where("id", "=", req.attachSessionIds[0]!).executeTakeFirst();
         if (sess?.cwd) folderPath = sess.cwd;
       }
-      // 2026-06-15: server-side dedupe by (worker_fp, folder_path).
-      // The SPA already does a client-side check before calling this
-      // RPC, but two browsers (or a race) can still POST two creates
-      // concurrently. Catch it here too so the DB never accumulates
-      // duplicate empty workspaces. Returns the EXISTING row if one
-      // already lives at that path.
-      const existing = await deps.db.selectFrom("workspaces").selectAll()
-        .where("worker_fp", "=", req.workerFp)
-        .where("folder_path", "=", folderPath)
-        .executeTakeFirst();
+      const workerOs = (await deps.db.selectFrom("workers").select("os")
+        .where("fp", "=", req.workerFp).executeTakeFirst())?.os;
+      // Dedupe by PATH IDENTITY, not string equality: on darwin `/tmp` and
+      // `/private/tmp` are one directory, and a row can hold either form —
+      // sessions report the realpath (worker canonicalSessionCwd) while a row
+      // written before that, or from a typed path, holds what the user saw.
+      // Raw equality created a second workspace for the same folder, and the
+      // SPA then showed neither row's name (folderKey.ts resolves by identity).
+      // The SPA already checks client-side; this also catches two concurrent
+      // creates. Returns the EXISTING row when one lives at that path.
+      const rows = await deps.db.selectFrom("workspaces").selectAll()
+        .where("worker_fp", "=", req.workerFp).execute();
+      const existing = rows.find((r) => sameWorkerFolder(workerOs, r.folder_path, folderPath));
       if (existing) {
         const w = await workspaceRowToProto(deps.db, existing);
         return create(WorkspacesCreateResponseSchema, { workspace: w });

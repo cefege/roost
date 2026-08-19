@@ -1,5 +1,5 @@
 import type { SupportedHostPlatform } from "./platform.ts";
-import { assertNeverPlatform } from "./platform.ts";
+import { assertNeverPlatform, isSupportedHostPlatform } from "./platform.ts";
 
 export interface NativePathCrumb {
   name: string;
@@ -65,14 +65,40 @@ export function normalizeNativePath(platform: SupportedHostPlatform, input: stri
   }
 }
 
-/** Case-fold only where the host filesystem identity contract requires it. */
+/** Fold the identity differences the host filesystem itself treats as one path:
+ *  Windows case, and macOS's three system symlinks. `/tmp`, `/var` and `/etc`
+ *  ARE `/private/{tmp,var,etc}` on darwin, so one directory otherwise gets two
+ *  keys depending on whether the value came from what a user typed or from a
+ *  realpath'd source (a session's cwd, which the shell reports via OSC 7).
+ *  Folding only these three is exact, not a heuristic: any other `/private/x`
+ *  is a real directory and must stay distinct. */
+const DARWIN_PRIVATE_ROOTS = ["tmp", "var", "etc"] as const;
+
 export function nativePathIdentityKey(platform: SupportedHostPlatform, path: string): string {
   const normalized = normalizeNativePath(platform, path);
   switch (platform) {
-    case "darwin":
     case "linux": return normalized;
+    case "darwin": {
+      for (const root of DARWIN_PRIVATE_ROOTS) {
+        if (normalized === `/${root}` || normalized.startsWith(`/${root}/`)) return `/private${normalized}`;
+      }
+      return normalized;
+    }
     case "win32": return normalized.toLocaleLowerCase("en-US");
     default: return assertNeverPlatform(platform);
+  }
+}
+
+/** Same-directory test for a worker-advertised `os` string, for callers that
+ *  hold a raw os column rather than a validated platform (coord's workspace
+ *  dedupe). An unknown os, or a path either side cannot normalize (relative,
+ *  drive-relative), falls back to exact equality — never a false merge. */
+export function sameWorkerFolder(os: unknown, left: string, right: string): boolean {
+  if (!isSupportedHostPlatform(os)) return left === right;
+  try {
+    return nativePathIdentityKey(os, left) === nativePathIdentityKey(os, right);
+  } catch {
+    return left === right;
   }
 }
 
