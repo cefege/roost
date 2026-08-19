@@ -44,6 +44,13 @@ const compare = defineCollection({
       pushAgentState: z.string(),
       selfHostedNoAccount: z.enum(["yes", "partial", "no"]),
     }),
+    /**
+     * Skim-first fields. The detail page answers the question above the fold:
+     * `verdict` is the one-sentence bottom line, then the two `pick*` lines are
+     * rendered side by side, then the matrix. Prose comes after all of it.
+     */
+    verdict: z.string(),
+    pickRoostIf: z.string(),
     useInsteadIf: z.string(),
   }),
 });

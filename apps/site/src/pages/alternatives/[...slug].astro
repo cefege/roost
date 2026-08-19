@@ -73,7 +73,8 @@ const CATEGORY_DOC_LINKS: Record<Category, readonly [DocSlug, DocSlug]> = {
 
 const { entry } = Astro.props as Props;
 const { Content } = await render(entry);
-const { competitor, vendor, license, url, category } = entry.data;
+const { competitor, vendor, license, url, category, verdict, pickRoostIf, useInsteadIf } =
+  entry.data;
 
 const headline = `${competitor} vs Roost`;
 const differentiator = DIFFERENTIATOR[entry.id] ?? CATEGORY_DIFFERENTIATOR[category];
@@ -97,17 +98,34 @@ const host = new URL(url).host.replace(/^www\./, "");
       <span aria-hidden="true">&middot;</span>
       <span>{license}</span>
       <span aria-hidden="true">&middot;</span>
-      <a href={url} target="_blank" rel="noopener">{host}</a>
+      <span class="host">{host}</span>
     </p>
+
+    <!-- Answer first: the bottom line, then the two "pick this" cases, then the
+         table. Prose only after a skimmer has had the decision handed to them. -->
+    <section class="verdict" aria-label="Short answer">
+      <p class="bottom-line">{verdict}</p>
+      <div class="picks">
+        <div class="pick roost">
+          <p class="pick-label">Pick Roost if</p>
+          <p>{pickRoostIf}</p>
+        </div>
+        <div class="pick">
+          <p class="pick-label">Pick {competitor} if</p>
+          <p>{useInsteadIf}</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="block">
+      <h2>Side by side</h2>
+      <p class="hint">Scroll the table sideways on a phone.</p>
+      <CompareMatrix entries={[entry]} />
+    </section>
 
     <div class="prose">
       <Content />
     </div>
-
-    <section class="block">
-      <h2>Side by side</h2>
-      <CompareMatrix entries={[entry]} />
-    </section>
 
     <section class="block">
       <h2>Read more</h2>
@@ -166,8 +184,68 @@ const host = new URL(url).host.replace(/^www\./, "");
     line-height: var(--md-body-m-line);
   }
 
-  .meta a {
+  .meta .host {
     color: var(--text-mid);
+  }
+
+  /* Answer-first panel: the first thing under the H1, so it carries the most
+     visual weight on the page after the headline. */
+  .verdict {
+    margin: 0 0 var(--md-space-7);
+  }
+
+  .bottom-line {
+    margin: 0 0 var(--md-space-5);
+    color: var(--text-hi);
+    font-size: var(--md-title-l-size);
+    line-height: var(--md-title-l-line);
+    font-weight: var(--md-title-l-weight);
+  }
+
+  .picks {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: var(--md-space-4);
+  }
+
+  .pick {
+    padding: var(--md-space-4);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--md-shape-md);
+    background: var(--surface-1);
+  }
+
+  .pick.roost {
+    border-color: var(--brand-coral);
+    background: color-mix(in srgb, var(--brand-coral) 10%, var(--surface-1));
+  }
+
+  .pick .pick-label {
+    margin: 0 0 var(--md-space-2);
+    color: var(--text-lo);
+    font-size: var(--md-label-m-size);
+    line-height: var(--md-label-m-line);
+    font-weight: var(--md-label-m-weight);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .pick.roost .pick-label {
+    color: var(--brand-coral);
+  }
+
+  .pick p {
+    margin: 0;
+    color: var(--text-mid);
+    font-size: var(--md-body-m-size);
+    line-height: var(--md-body-m-line);
+  }
+
+  .hint {
+    margin: 0 0 var(--md-space-3);
+    color: var(--text-lo);
+    font-size: var(--md-label-m-size);
+    line-height: var(--md-label-m-line);
   }
 
   .prose :global(h2) {

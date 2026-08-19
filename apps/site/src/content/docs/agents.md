@@ -73,7 +73,7 @@ screen contents and OSC title/progress output against pinned per-agent manifests
 
 **Attribution.** Roost's screen and OSC-title detection manifests, its
 process-backed detection, and its first-party OMP and Pi lifecycle integrations
-were adapted from [herdr](https://herdr.dev) at commit `eacea2da` under
+were adapted from herdr (herdr.dev) at commit `eacea2da` under
 Apache-2.0. The attribution sits in the source headers of
 `apps/worker/src/agent-status/`. herdr solved agent-state detection well, and
 Roost's detection is downstream of that work rather than an independent

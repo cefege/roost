@@ -12,6 +12,61 @@ const description = clampDescription(
   "Four categories of agent terminal tooling, a feature matrix against eight of them, and an honest account of where Roost fits and where it does not.",
 );
 
+/**
+ * The decision list: one goal per row and the tool that serves it best, which
+ * is often not Roost. `page` is set where a detail page exists; every tool is
+ * named in plain text, never linked out to.
+ */
+interface Decision {
+  goal: string;
+  pick: string;
+  page?: string;
+  roost: boolean;
+}
+
+const DECISIONS: Decision[] = [
+  {
+    goal: "every machine you own in one browser tab, phone included",
+    pick: "Roost",
+    roost: true,
+  },
+  {
+    goal: "any CLI in a real PTY that survives a closed laptop",
+    pick: "Roost",
+    roost: true,
+  },
+  {
+    goal: "one Mac and the most polished native terminal",
+    pick: "cmux (cmux.com)",
+    page: "/alternatives/cmux-vs-roost/",
+    roost: false,
+  },
+  {
+    goal: "agent state inside the terminal you already SSH into",
+    pick: "herdr (herdr.dev)",
+    page: "/alternatives/herdr-vs-roost/",
+    roost: false,
+  },
+  {
+    goal: "overnight unattended runs with cost tracking and a board",
+    pick: "amux (amux.io)",
+    page: "/alternatives/amux-vs-roost/",
+    roost: false,
+  },
+  {
+    goal: "phone-first chat and approvals over managed agents",
+    pick: "Omnara (omnara.com)",
+    page: "/alternatives/omnara-vs-roost/",
+    roost: false,
+  },
+  {
+    goal: "git worktree isolation and diff review on one machine",
+    pick: "Conductor (conductor.build)",
+    page: "/alternatives/conductor-vs-roost/",
+    roost: false,
+  },
+];
+
 /** The four honest categories, defined once and reused as the landscape groupings. */
 interface CategoryNote {
   name: string;
@@ -22,29 +77,33 @@ const CATEGORIES: CategoryNote[] = [
   {
     name: "Agent-aware terminals and multiplexers",
     blurb:
-      "Run your agents in real terminals on the machine in front of you, and add a model of what each one is doing — working, blocked, done — so you stop hunting for the session that stopped.",
+      "Real terminals on the machine in front of you, plus a model of what each agent is doing: working, blocked, done.",
   },
   {
     name: "Browser and remote access to your own terminal",
     blurb:
-      "Publish terminals from a machine you own to a browser somewhere else. The code stays on your hardware; the client is a URL.",
+      "Terminals published from hardware you own to a browser somewhere else. The code stays put; the client is a URL.",
   },
   {
     name: "Worktree and GUI orchestrators, single machine",
     blurb:
-      "Give each agent an isolated git worktree or container on one computer, then own the review loop: diffs, checks, merges, pull requests.",
+      "One computer, an isolated git worktree or container per agent, and the review loop: diffs, checks, merges, pull requests.",
   },
   {
     name: "Cloud agent platforms",
     blurb:
-      "The vendor runs the agent on its own infrastructure. You get a task view, approvals, and a branch — not a shell.",
+      "The vendor runs the agent on its own infrastructure. You get a task view, approvals and a branch, not a shell.",
   },
 ];
 
-/** One row of the landscape list. `page` is set only where a detail page exists. */
+/**
+ * One row of the landscape list. Competitor identity is plain text: `domain`
+ * is rendered as text, never as an anchor. `page` is set only where a detail
+ * page exists, and that link is internal.
+ */
 interface LandscapeItem {
   name: string;
-  url: string;
+  domain: string;
   note: string;
   page?: string;
 }
@@ -60,55 +119,55 @@ const LANDSCAPE: LandscapeGroup[] = [
     items: [
       {
         name: "cmux",
-        url: "https://cmux.com",
+        domain: "cmux.com",
         page: "/alternatives/cmux-vs-roost/",
         note: "Native macOS terminal on libghostty's GPU renderer, with an embedded scriptable WebKit browser and git branch, pull request and listening ports annotated on every tab. macOS only, GPL-3.0.",
       },
       {
         name: "herdr",
-        url: "https://herdr.dev",
+        domain: "herdr.dev",
         page: "/alternatives/herdr-vs-roost/",
         note: "One dependency-free Rust binary that runs inside the terminal you already use and marks every pane working, blocked or idle. Apache-2.0; Roost's OMP and Pi lifecycle integrations were adapted from it.",
       },
       {
         name: "mato",
-        url: "https://mato.sh",
+        domain: "mato.sh",
         note: "Terminal multiplexer with an offices, desks and tabs hierarchy, a daemon that keeps sessions running after SSH drops, live activity spinners, and Esc as the only special key. Linux and macOS.",
       },
       {
         name: "amux",
-        url: "https://amux.io",
+        domain: "amux.io",
         page: "/alternatives/amux-vs-roost/",
         note: "Rust binary driving tmux behind a local HTTPS dashboard, with a REST API, a SQLite kanban board, a self-healing watchdog, per-session cost tracking, a PWA and a native iOS app. MIT.",
       },
       {
         name: "Termdock",
-        url: "https://termdock.com",
+        domain: "termdock.com",
         note: "Cross-platform Electron terminal for agents: per-session CPU and memory monitoring, basic health notifications, cost estimation, and a web session viewer. Proprietary with a free tier.",
       },
       {
         name: "wmux",
-        url: "https://github.com/amirlehmam/wmux",
+        domain: "github.com/amirlehmam/wmux",
         note: "A Windows terminal multiplexer for AI agents, described by its author as a port of cmux. MIT.",
       },
       {
         name: "dmux",
-        url: "https://github.com/standardagents/dmux",
+        domain: "github.com/standardagents/dmux",
         note: "Minimal CLI that fans one prompt out across N Claude Code agents, each in its own git worktree and tmux pane. No server, no config files. MIT.",
       },
       {
         name: "workmux",
-        url: "https://github.com/raine/workmux",
+        domain: "github.com/raine/workmux",
         note: "Shell tooling that pairs tmux with git worktrees and declares each agent's task in a YAML file rather than on the command line. MIT.",
       },
       {
         name: "ittybitty",
-        url: "https://github.com/adamwulf/ittybitty",
+        domain: "github.com/adamwulf/ittybitty",
         note: "A single bash script that spawns, organises and cleans up parallel Claude Code agents in worktrees. Readable end to end in five minutes. MIT.",
       },
       {
         name: "Superset",
-        url: "https://superset.sh",
+        domain: "superset.sh",
         note: "A GUI over parallel agent sessions with git worktree isolation, live output streaming and cost tracking, available as a local app or cloud-hosted. Proprietary with a free tier.",
       },
     ],
@@ -118,28 +177,28 @@ const LANDSCAPE: LandscapeGroup[] = [
     items: [
       {
         name: "VibeTunnel",
-        url: "https://vibetunnel.sh",
+        domain: "vibetunnel.sh",
         page: "/alternatives/vibetunnel-vs-roost/",
         note: "Menu-bar app on Apple Silicon, or npm on Linux and headless hosts, that forwards a terminal into the browser when you prefix a command with `vt`. Asciinema recording, no Windows host. MIT.",
       },
       {
         name: "sshx",
-        url: "https://sshx.io",
+        domain: "sshx.io",
         note: "Fast collaborative live terminal sharing over the web: one command publishes a session other people can join. MIT.",
       },
       {
         name: "ttyd",
-        url: "https://github.com/tsl0922/ttyd",
+        domain: "github.com/tsl0922/ttyd",
         note: "Small C daemon that shares one command's terminal over the web. The classic building block for do-it-yourself browser terminals. MIT.",
       },
       {
         name: "Wetty",
-        url: "https://github.com/butlerx/wetty",
+        domain: "github.com/butlerx/wetty",
         note: "Terminal in the browser over HTTP or HTTPS, usually placed in front of SSH. MIT.",
       },
       {
         name: "Happy Coder",
-        url: "https://happy.engineering",
+        domain: "happy.engineering",
         note: "Open-source remote control for Claude Code, Codex and other coding agents running on your own computers, driven from iOS, Android or the web.",
       },
     ],
@@ -149,23 +208,23 @@ const LANDSCAPE: LandscapeGroup[] = [
     items: [
       {
         name: "Conductor",
-        url: "https://conductor.build",
+        domain: "conductor.build",
         page: "/alternatives/conductor-vs-roost/",
         note: "macOS app that runs Claude Code, Codex and Cursor, each in its own isolated git workspace, then drives diff review, checks, merge and pull requests.",
       },
       {
         name: "Sculptor",
-        url: "https://imbue.com/sculptor/",
+        domain: "imbue.com/sculptor",
         note: "By imbue. Takes the isolation idea further and gives each agent its own Docker container rather than a git worktree.",
       },
       {
         name: "Vibe Kanban",
-        url: "https://www.vibekanban.com/",
+        domain: "vibekanban.com",
         note: "A CLI plus a web board over worktree-isolated agents. Its sunset was announced after Bloop shut down in April 2026, so it is listed for completeness rather than as a live option.",
       },
       {
         name: "emdash",
-        url: "https://emdash.com",
+        domain: "emdash.com",
         note: "Open-source agentic development environment for running several coding agents in parallel against any provider. Apache-2.0.",
       },
     ],
@@ -175,34 +234,34 @@ const LANDSCAPE: LandscapeGroup[] = [
     items: [
       {
         name: "Claude Code on the web",
-        url: "https://claude.com/product/claude-code",
+        domain: "claude.com/product/claude-code",
         page: "/alternatives/claude-code-web-vs-roost/",
         note: "Claude Code sessions in Anthropic-managed VMs behind an egress allowlist, with the GitHub token held in a separate proxy outside the sandbox. Enterprises may route sessions to their own infrastructure.",
       },
       {
         name: "Cursor Cloud Agents",
-        url: "https://cursor.com/docs/cloud-agent",
+        domain: "cursor.com/docs/cloud-agent",
         note: "Cursor runs agents in its own isolated cloud VMs, each on a branch, and opens a pull request when they finish. Formerly called Background Agents; requires a paid plan.",
       },
       {
         name: "Devin",
-        url: "https://devin.ai",
+        domain: "devin.ai",
         note: "Cognition's autonomous cloud engineer, with its own sandbox, shell, browser and editor. You hand it tickets and it hands back pull requests.",
       },
       {
         name: "OpenHands",
-        url: "https://openhands.dev",
+        domain: "openhands.dev",
         note: "Open-source agent platform that runs agents in sandboxed containers behind a web UI and an API, self-hostable. MIT.",
       },
       {
         name: "Omnara",
-        url: "https://omnara.com",
+        domain: "omnara.com",
         page: "/alternatives/omnara-vs-roost/",
         note: "Apache-2.0 managed-agent platform with web, iOS, Android and Slack surfaces, durable Postgres-backed runs, approvals, secrets and project RBAC. Cloud or self-hosted with Docker Compose.",
       },
       {
         name: "Claude Code Agent Teams",
-        url: "https://code.claude.com/docs/en/agent-teams",
+        domain: "code.claude.com/docs/en/agent-teams",
         note: "Built into Claude Code itself: `claude --agent-teams` spawns parallel sub-agents in their own worktrees, coordinated and merged by a lead agent. Nothing extra to install.",
       },
     ],
@@ -218,46 +277,30 @@ const LANDSCAPE: LandscapeGroup[] = [
         <h1>Roost vs the agent terminal landscape</h1>
         <p class="lede">
           A dozen tools now claim some version of &ldquo;run your coding agents in parallel&rdquo;. They are not
-          competing for the same job. Sorting them into four honest categories makes the choice much easier, and
-          makes clear where Roost is genuinely the wrong answer.
+          competing for the same job.
         </p>
 
-        <dl class="cats">
-          {
-            CATEGORIES.map((category) => (
-              <div class="cat">
-                <dt>{category.name}</dt>
-                <dd>{category.blurb}</dd>
-              </div>
-            ))
-          }
-        </dl>
-
-        <p class="note">
-          Underneath all four sits the baseline: <a href="/alternatives/tmux-vs-roost/">tmux and Zellij</a>, which
-          give you persistent sessions and splits and deliberately know nothing about agents.
-        </p>
-
-        <div class="placement">
-          <h2>Where Roost sits</h2>
+        <div class="answer">
           <p>
-            Roost is in the second category, with the agent-state model from the first. It is a self-hosted web
-            control plane over a fleet of macOS, Linux and Windows machines you already own, where every session
-            is a real PTY that any CLI runs inside natively &mdash; including Claude Code.
+            <strong>
+              Roost is a self-hosted web control plane over a fleet of macOS, Linux and Windows machines you already
+              own.
+            </strong>
+            Every session is a real PTY that any CLI runs inside natively, including Claude Code, reachable from any
+            browser &mdash; laptop, phone or tablet.
           </p>
-          <p>
-            It is <strong>not</strong> a macOS terminal application, and it is <strong>not</strong> a tmux wrapper.
-            One coordinator holds the sessions; workers on every other machine dial outbound only and never expose
-            an inbound port; the client is any browser, on a laptop, a phone or a tablet, with nothing to install.
-            It is also not a cloud platform: there is no account, no tenant, no telemetry, and no third party
-            between you and your own hardware.
-          </p>
-          <p class="reads">
-            <a href="/docs/fleet/">How the fleet works</a>
-            <a href="/docs/terminal/">Why a browser can be a real terminal</a>
-            <a href="/docs/mobile/">The phone and tablet client</a>
-          </p>
+          <ul class="nots">
+            <li><strong>Not</strong> a macOS terminal app</li>
+            <li><strong>Not</strong> a tmux wrapper</li>
+            <li><strong>Not</strong> a managed cloud platform: no account, no telemetry</li>
+          </ul>
         </div>
+
+        <p class="reads">
+          <a href="/docs/fleet/">How the fleet works</a>
+          <a href="/docs/terminal/">Why a browser can be a real terminal</a>
+          <a href="/docs/mobile/">The phone and tablet client</a>
+        </p>
       </div>
     </section>
 
@@ -265,8 +308,8 @@ const LANDSCAPE: LandscapeGroup[] = [
       <div class="wrap">
         <h2>The matrix</h2>
         <p class="sub">
-          Ten rows that decide most of these choices. Roost's column is pinned; every comparison page renders from
-          this same data, so the numbers here and there cannot drift apart.
+          Ten rows decide most of these choices. Roost's column is pinned first; scroll or swipe the table sideways
+          for the rest.
         </p>
         <CompareMatrix entries={sorted} />
       </div>
@@ -274,10 +317,33 @@ const LANDSCAPE: LandscapeGroup[] = [
 
     <section class="section">
       <div class="wrap">
+        <h2>Pick by what you actually want</h2>
+        <p class="sub">Seven goals, and the tool that serves each one best &mdash; including where that is not Roost.</p>
+        <ul class="decide">
+          {
+            DECISIONS.map((row) => (
+              <li class:list={["decide-row", { roost: row.roost }]}>
+                <strong class="goal">If you want {row.goal}</strong>
+                <span class="pick">
+                  <span class="pick-name">{row.pick}</span>
+                  {row.page ? (
+                    <a class="detail" href={row.page}>
+                      compare
+                    </a>
+                  ) : null}
+                </span>
+              </li>
+            ))
+          }
+        </ul>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="wrap">
         <h2>Eight comparisons in detail</h2>
         <p class="sub">
-          Each page states what the tool actually is, where the two differ, and one honest paragraph on when to
-          pick it over Roost.
+          Each page states what the tool actually is, where the two differ, and when to pick it over Roost.
         </p>
         <ul class="cards">
           {
@@ -301,6 +367,27 @@ const LANDSCAPE: LandscapeGroup[] = [
 
     <section class="section">
       <div class="wrap">
+        <h2>The four categories, briefly</h2>
+        <dl class="cats">
+          {
+            CATEGORIES.map((category) => (
+              <div class="cat">
+                <dt>{category.name}</dt>
+                <dd>{category.blurb}</dd>
+              </div>
+            ))
+          }
+        </dl>
+        <p class="note">
+          Roost is in the second, with the agent-state model from the first. Underneath all four sits the baseline:
+          <a href="/alternatives/tmux-vs-roost/">tmux and Zellij</a>, which give you persistent sessions and splits
+          and deliberately know nothing about agents.
+        </p>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="wrap">
         <h2>The wider landscape</h2>
         <p class="sub">
           Everything else worth knowing about, grouped the same way. These do not have dedicated pages; the
@@ -314,9 +401,9 @@ const LANDSCAPE: LandscapeGroup[] = [
                 {group.items.map((item) => (
                   <li class="item">
                     <p class="item-head">
-                      <a href={item.url} target="_blank" rel="noopener">
-                        {item.name}
-                      </a>
+                      <span class="item-name">
+                        {item.name} <span class="item-domain">({item.domain})</span>
+                      </span>
                       {item.page ? (
                         <a class="detail" href={item.page}>
                           compare with Roost
@@ -386,7 +473,7 @@ const LANDSCAPE: LandscapeGroup[] = [
 
   .lede {
     margin: 0;
-    max-width: 68ch;
+    max-width: 62ch;
   }
 
   .sub {
@@ -397,68 +484,48 @@ const LANDSCAPE: LandscapeGroup[] = [
     line-height: 26px;
   }
 
-  /* ── The four categories ───────────────────────────────────────────────── */
+  /* ── Short answer, above everything ────────────────────────────────────── */
 
-  .cats {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-    gap: var(--md-space-4);
-    margin: var(--md-space-7) 0 0;
-  }
-
-  .cat {
-    padding: var(--md-space-5);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--md-shape-md);
-    background: var(--surface-0);
-  }
-
-  .cat dt {
-    color: var(--text-hi);
-    font-size: 16px;
-    line-height: 24px;
-    font-weight: 500;
-  }
-
-  .cat dd {
-    margin: var(--md-space-2) 0 0;
-    color: var(--text-mid);
-    font-size: var(--md-body-m-size);
-    line-height: 22px;
-  }
-
-  .note {
-    margin: var(--md-space-5) 0 0;
-    max-width: 68ch;
-    color: var(--text-lo);
-    font-size: 16px;
-    line-height: 26px;
-  }
-
-  .note a,
-  .reads a {
-    color: var(--brand-coral);
-  }
-
-  /* ── Where Roost sits ──────────────────────────────────────────────────── */
-
-  .placement {
-    margin-top: var(--md-space-8);
+  .answer {
+    margin: var(--md-space-6) 0 var(--md-space-5);
     padding: var(--md-space-6);
     border: 1px solid var(--border-strong);
     border-radius: var(--md-shape-lg);
     background: var(--surface-1);
   }
 
-  .placement p {
-    margin: 0 0 var(--md-space-4);
-    max-width: 68ch;
+  .answer p {
+    margin: 0;
+    max-width: 74ch;
     color: var(--text-mid);
-    font-size: 16px;
-    line-height: 26px;
+    font-size: 17px;
+    line-height: 28px;
   }
 
-  .placement strong {
+  .answer strong {
+    color: var(--text-hi);
+  }
+
+  .nots {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--md-space-2) var(--md-space-3);
+    margin: var(--md-space-4) 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .nots li {
+    padding: var(--md-space-2) var(--md-space-4);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--md-shape-full);
+    background: var(--surface-0);
+    color: var(--text-mid);
+    font-size: var(--md-body-m-size);
+    line-height: var(--md-body-m-line);
+  }
+
+  .nots strong {
     color: var(--text-hi);
   }
 
@@ -469,6 +536,76 @@ const LANDSCAPE: LandscapeGroup[] = [
     margin: 0;
     font-size: 16px;
     line-height: 26px;
+  }
+
+  .note a,
+  .reads a {
+    color: var(--brand-coral);
+  }
+
+  /* ── Decision list ─────────────────────────────────────────────────────── */
+
+  .decide {
+    display: grid;
+    gap: var(--md-space-3);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .decide-row {
+    display: grid;
+    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+    align-items: baseline;
+    gap: var(--md-space-2) var(--md-space-4);
+    padding: var(--md-space-4) var(--md-space-5);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--md-shape-md);
+    background: var(--surface-0);
+  }
+
+  .decide-row.roost {
+    border-color: var(--border-strong);
+    background: var(--surface-1);
+  }
+
+  .goal {
+    color: var(--text-hi);
+    font-size: 16px;
+    line-height: 24px;
+    font-weight: 500;
+  }
+
+  .pick {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--md-space-2) var(--md-space-3);
+    color: var(--text-mid);
+    font-size: 16px;
+    line-height: 24px;
+  }
+
+  .pick::before {
+    content: "\2192";
+    color: var(--text-lo);
+  }
+
+  .pick-name {
+    overflow-wrap: anywhere;
+  }
+
+  .decide-row.roost .pick-name {
+    color: var(--brand-coral);
+    font-weight: 500;
+  }
+
+  .detail {
+    color: var(--brand-coral);
+    font-size: var(--md-label-m-size);
+    line-height: var(--md-label-m-line);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
   }
 
   /* ── Detail-page cards ─────────────────────────────────────────────────── */
@@ -527,6 +664,49 @@ const LANDSCAPE: LandscapeGroup[] = [
     line-height: 22px;
   }
 
+  /* ── Category definitions, demoted to background ───────────────────────── */
+
+  .cats {
+    display: grid;
+    gap: var(--md-space-3);
+    margin: 0;
+  }
+
+  .cat {
+    display: grid;
+    grid-template-columns: minmax(0, 26ch) minmax(0, 1fr);
+    gap: var(--md-space-1) var(--md-space-5);
+    padding-bottom: var(--md-space-3);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .cat:last-child {
+    padding-bottom: 0;
+    border-bottom: 0;
+  }
+
+  .cat dt {
+    color: var(--text-hi);
+    font-size: 15px;
+    line-height: 22px;
+    font-weight: 500;
+  }
+
+  .cat dd {
+    margin: 0;
+    color: var(--text-mid);
+    font-size: var(--md-body-m-size);
+    line-height: 22px;
+  }
+
+  .note {
+    margin: var(--md-space-5) 0 0;
+    max-width: 74ch;
+    color: var(--text-lo);
+    font-size: 16px;
+    line-height: 26px;
+  }
+
   /* ── Landscape list ───────────────────────────────────────────────────── */
 
   .group + .group {
@@ -560,25 +740,19 @@ const LANDSCAPE: LandscapeGroup[] = [
     margin: 0 0 var(--md-space-1);
   }
 
-  .item-head > a:first-child {
+  .item-name {
     color: var(--text-hi);
     font-size: 16px;
     line-height: 24px;
     font-weight: 500;
-    text-decoration: none;
     overflow-wrap: anywhere;
   }
 
-  .item-head > a:first-child:hover {
-    color: var(--brand-coral);
-  }
-
-  .detail {
-    color: var(--brand-coral);
-    font-size: var(--md-label-m-size);
-    line-height: var(--md-label-m-line);
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
+  .item-domain {
+    color: var(--text-lo);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 400;
   }
 
   .item-note {
@@ -630,13 +804,23 @@ const LANDSCAPE: LandscapeGroup[] = [
     color: var(--text-hi);
   }
 
+  @media (max-width: 700px) {
+    .decide-row {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .cat {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+
   @media (max-width: 600px) {
     h1 {
       font-size: 26px;
       line-height: 34px;
     }
 
-    .placement,
+    .answer,
     .wrong {
       padding: var(--md-space-5) var(--md-space-4);
     }

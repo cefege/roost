@@ -63,7 +63,8 @@ const VERDICT: Record<string, string | undefined> = {
 
 interface Column {
   name: string;
-  url: string;
+  /** Only ever set for the Roost column: the site never links out to a competitor. */
+  href?: string;
   meta: string;
   roost: boolean;
   matrix: Matrix;
@@ -72,7 +73,7 @@ interface Column {
 const columns: Column[] = [
   {
     name: "Roost",
-    url: "https://github.com/cefege/roost",
+    href: "https://github.com/cefege/roost",
     meta: "cefege \u00b7 GPL-3.0-only",
     roost: true,
     matrix: ROOST,
@@ -84,7 +85,7 @@ const columns: Column[] = [
       const matrix: Matrix = entry.data.matrix;
       return {
         name: entry.data.competitor,
-        url: entry.data.url,
+        // No href: competitor identity is plain text here by policy.
         meta: `${entry.data.vendor} \u00b7 ${entry.data.license}`,
         roost: false,
         matrix,
@@ -101,9 +102,7 @@ const columns: Column[] = [
         {
           columns.map((col) => (
             <th scope="col" class:list={["colhead", { roost: col.roost }]}>
-              <a href={col.url} rel="noopener">
-                {col.name}
-              </a>
+              {col.href ? <a href={col.href} rel="noopener">{col.name}</a> : <span class="name">{col.name}</span>}
               <span class="meta">{col.meta}</span>
             </th>
           ))
@@ -198,7 +197,8 @@ const columns: Column[] = [
     vertical-align: bottom;
   }
 
-  .colhead a {
+  .colhead a,
+  .colhead .name {
     display: block;
     color: var(--text-hi);
     font-size: 16px;
@@ -225,7 +225,8 @@ const columns: Column[] = [
     border-top: 2px solid var(--brand-coral);
   }
 
-  .colhead.roost a {
+  .colhead.roost a,
+  .colhead.roost .name {
     color: var(--brand-coral);
   }
 
