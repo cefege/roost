@@ -93,6 +93,27 @@ export function isWorkerPathWithin(
   return candidateKey === baseKey || candidateKey.startsWith(`${baseKey}/`);
 }
 
+/** The spawn/respawn cwd as the session record will report it.
+ *  realpath, not just tilde expansion: a symlinked request (/tmp on macOS, which
+ *  is /private/tmp) otherwise disagrees with the physical path the shell emits
+ *  via OSC 7 a moment later, and the SPA keys folders off that cwd — one
+ *  directory then splits into two folder groups, and TerminalDeck's liveIds
+ *  filter drops every session that landed under the other key.
+ *  A missing directory keeps the expanded value; the spawn itself fails later
+ *  with the real error instead of being masked here. */
+export function canonicalSessionCwd(
+  value: string,
+  platform: SupportedHostPlatform = supportedHostPlatform(),
+  home = homedir(),
+): string {
+  const expanded = expandTilde(value, platform, home);
+  try {
+    return canonicalExistingWorkerPath(expanded, platform);
+  } catch {
+    return expanded;
+  }
+}
+
 // Expand a leading `~` to the user's home dir. POSIX keeps its historical
 // `~/` behavior; Windows accepts both slash styles and emits canonical `/`.
 export function expandTilde(

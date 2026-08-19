@@ -1,6 +1,6 @@
 // Unit-covers the statusCheckRollup → checks reduction in pr-status.ts. The
-// gh subprocess itself isn't driven here (that's the humanchrome real-flow
-// verify); this pins the rollup classification that decides ✓/✕/• on the badge.
+// gh subprocess itself isn't driven here (that needs a real repo + network);
+// this pins the rollup classification that decides ✓/✕/• on the badge.
 
 import { test, expect } from "bun:test";
 import { prStatusEq, rollupChecks, type PrStatus } from "../src/pr-status.ts";

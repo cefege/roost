@@ -234,50 +234,49 @@ simplify → commit → next phase, with NO interim check-ins. The next message
 after a phase commit starts the next phase. "Want me to continue?" is a
 critical failure — the plan IS the answer.
 
-### Testing rule for terminal data-plane features: real flow is the floor
+### Testing rule for terminal data-plane features: hermetic tiers are the floor
 
-Every feature that touches the producer→wire→consumer chain (worker emits a
-`SessionEvent` or terminal frame → coord routes it → SPA folds state or paints
-the grid) MUST ship with real-flow verification through those code paths.
-Synthesized test-hook coverage may supplement, but does not replace, that
-verification.
+A change to the producer→wire→consumer chain (worker emits a `SessionEvent` or
+terminal frame → coord routes it → SPA folds state or paints the grid) is done
+when the five gates under `### Commands` are green, and not before. Test-hook
+coverage supplements, never replaces, `bun run test:terminal` — the real-flow
+tier: each Playwright worker starts a real coord, worker, keeper and PTYs
+(`smoke/terminal/stack.ts`) and drives a real browser against the built
+`apps/web/dist` (`playwright.config.ts`). Coverage, by path and test name:
 
-Playwright is the deterministic isolated browser tier, not production proof.
-Terminal-render changes require both `bun run test:terminal` and the live
-humanchrome canary (the `roost-smoke` and `roost-render-stress` skills) on the
-current tailnet coordinator. An agent CLI may be launched inside the PTY as a
-realistic TUI workload, but the assertion surface remains terminal input,
-output, scrollback, and rendering. Data-plane-only changes may use
-`bun run test:live-api`. Resolve the current host via `tailscale status`; do
-not substitute localhost for the live canary. If the feature cannot be
-verified live via humanchrome, it is not done.
+- `runFlow` (`apps/web/src/lib/smokeHarness.ts`) — workspace create → terminal
+  open → PTY marker round-trip → pane close → workspace cascade-delete — in
+  `smoke/terminal/terminal-delivery.spec.ts` `"browser smoke flow creates and
+  cleans its resources"`.
+- `runRenderStress` (same harness) — resize/tab-switch loop and the symmetric
+  multi-viewer resize-hammer, in `smoke/terminal/terminal-render*.spec.ts`'s
+  stress cases: duplicated, lost, changed or mis-ordered markers fail the run.
+- trusted-keyboard focus and input — `smoke/terminal/terminal-render.spec.ts`
+  `"trusted keyboard input and bottom-follow behavior"`, and
+  `smoke/terminal/terminal-input.spec.ts` `"terminal replay and Ctrl keys stay
+  owned by the PTY"`.
 
-Emulated mobile is not a device. Chromium's iPhone descriptor in
-`smoke/terminal/*.spec.ts` reproduces layout and touch dispatch, never the
-platform behaviour that actually breaks terminal panes on phones: iOS
-Safari's visual-viewport shifts under the on-screen keyboard, WebKit's
-compositor scroll-anchoring, Page Lifecycle freeze/resume on a backgrounded
-PWA, and per-tab transport starvation. A terminal-render change that touches
-the compact deck, the composer, reader-intent gestures, or Sync lifecycle
-therefore still owes ONE pass on a physical phone (installed PWA, both a
-keyboard-open compose and a long background/resume) before it is trusted in
-the field. Automated suites gate the merge; the device pass gates the claim.
+`smoke/terminal/live-stack.ts` is the hands-on escape hatch, never a gate: `bun
+run --cwd apps/web build`, then `bun smoke/terminal/live-stack.ts` holds that
+same working-tree stack open and prints `READY <url> worker=<fp>`; no tailnet.
+`bun run test:live-api` and a physical-phone pass watch production only —
+OPTIONAL, outside the definition of done, never a merge blocker.
 
 ### Commands
 
 ```
-bun run lint            # scripts/lint-roost.ts — blocking in CI
-bun run test:unit       # hermetic unit tier
-bun run test:worker     # per-file isolated worker suite (the correct worker gate)
-bun run test:terminal   # isolated coord + worker + browser (Playwright)
-bun run test:live-api   # tailnet data-plane canary (needs ROOST_COORD_URL)
-bun x tsgo -p tsconfig.base.json --noEmit    # exactly what CI typechecks
+bun run lint            # gate — scripts/lint-roost.ts, blocking in CI
+bun run test:unit       # gate — hermetic unit tier; runs test:worker first
+bun run test:worker     # gate — per-file isolated worker suite
+bun run test:terminal   # gate — real coord + worker + keeper + PTY + browser
+bun x tsgo -p tsconfig.base.json --noEmit   # gate — exactly what CI typechecks
+bun run test:live-api   # optional monitor — deployed coord (ROOST_COORD_URL)
 ```
 
-CI (`.github/workflows/ci.yml`) runs typecheck, `lint`, knip (report-only),
-and the unit suite in its `invariants` job, then the terminal suite on macOS
-and Ubuntu, a reproducibility gate on the pinned wterm WASM, and a
-`windows-2022` job that is the ONLY gate for the Windows brokers.
+CI (`.github/workflows/ci.yml`) runs every gate above plus knip (report-only)
+on ubuntu-latest AND macos-latest, then the pinned-wterm-WASM gate and
+`windows-2022`, the ONLY gate for the Windows brokers. No gate needs a deployed
+coordinator, a tailnet, or a human driving a browser.
 
 ---
 

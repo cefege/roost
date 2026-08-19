@@ -1,10 +1,10 @@
-// Smoke backdoor — exposes a window.__smoke API so /roost-smoke
-// (humanchrome) can drive PTY input + read state without going
+// Smoke backdoor — exposes a window.__smoke API so the terminal tier
+// (smoke/terminal/) can drive PTY input + read state without going
 // through wterm's textarea + KeyboardEvent pipeline (which is brittle
 // for synthetic events).
 //
-// Only installed when localStorage.roostSmoke === "1". User runs
-// `localStorage.roostSmoke = "1"; location.reload()` in the smoke tab.
+// Only installed when localStorage.roostSmoke === "1"; smoke/terminal/
+// fixtures.ts sets it in an init script before the SPA boots.
 //
 // Phase-26 smoke-backdoor. crpc6: migrated from tRPC to Connect.
 
@@ -244,8 +244,8 @@ export interface SmokeApi {
   trackCreatedSession(sessionId: string): void;
   /** Test resources created by this tab, cleaned without touching live state. */
   cleanupCreated(): Promise<{ killedSessions: string[]; deletedWorkspaces: string[]; errors: string[] }>;
-  /** `workerFp` pins the spawn target; omit it to use the most recently seen
-   *  worker (the live-canary launcher's behaviour). */
+  /** `workerFp` pins the spawn target; omit it to spawn on the most recently
+   *  seen worker. */
   runFlow(options?: { workerFp?: string }): Promise<{ steps: Array<{ name: string; pass: boolean; detail: unknown }>; summary: string }>;
   runRenderStress(options: {
     sessionId: string;

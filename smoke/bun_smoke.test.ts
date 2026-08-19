@@ -20,11 +20,11 @@ import { join } from "node:path";
 describe("R4.-1 #1 PTY round-trip", () => {
   test("Bun.spawn child stdout returns expected bytes", async () => {
     const proc = spawn({
-      cmd: ["sh", "-c", "echo roost-smoke-pty"],
+      cmd: ["sh", "-c", "echo roost-bun-pty"],
       stdout: "pipe",
     });
     const text = await new Response(proc.stdout).text();
-    expect(text.includes("roost-smoke-pty")).toBe(true);
+    expect(text.includes("roost-bun-pty")).toBe(true);
     await proc.exited;
     expect(proc.exitCode).toBe(0);
   });
@@ -36,7 +36,7 @@ describe("R4.-1 #1 PTY round-trip", () => {
       const proc = spawn({
         // @ts-expect-error — `terminal` is bun-specific, types may lag
         terminal: true,
-        cmd: ["sh", "-c", "tty && echo roost-smoke-tty"],
+        cmd: ["sh", "-c", "tty && echo roost-bun-tty"],
         stdout: "pipe",
         stderr: "pipe",
       });
@@ -62,7 +62,7 @@ describe("R4.-1 #1 PTY round-trip", () => {
 // sub-bun process that itself spawns the detached child and exits.
 describe("R4.-1 #2 detached + unref survives parent", () => {
   test("detached child writes sentinel after parent exit", async () => {
-    const sentinel = join(tmpdir(), `roost-smoke-detached-${Date.now()}.txt`);
+    const sentinel = join(tmpdir(), `roost-bun-detached-${Date.now()}.txt`);
     if (existsSync(sentinel)) unlinkSync(sentinel);
 
     // Parent script: spawn a detached child that writes the sentinel after

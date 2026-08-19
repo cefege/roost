@@ -7,8 +7,8 @@
 // Author 2026-06-17: "it needs to fucking work and easily transition
 // from one computer terminal from one to another. from one browser to
 // another laptop, from a laptop to another." These tests drive that
-// transition graph at the SessionManager level. The DOM/CSS layer
-// requires humanchrome — covered by a separate smoke.
+// transition graph at the SessionManager level. The DOM/CSS layer needs a real
+// browser — smoke/terminal/terminal-render.spec.ts's two-viewer case covers it.
 
 import { describe, test, expect } from "bun:test";
 import { SessionManager } from "../src/session-manager.ts";

@@ -1,7 +1,7 @@
 // cell-phase-3 — CellGridRenderer pure style mapping (R11). DOM painting itself is
-// verified live via /roost-smoke (no jsdom in this repo, by design — the
-// project verifies rendered DOM through humanchrome). Here we lock the
-// span→CSS + 256-palette mapping that the paint depends on.
+// verified by the browser tier (smoke/terminal/, `bun run test:terminal`) — no
+// jsdom in this repo, by design. Here we lock the span→CSS + 256-palette mapping
+// that the paint depends on.
 
 import { describe, test, expect } from "bun:test";
 import { spanStyle, ansi256ToCss, rowHash } from "../src/lib/cellRow.ts";

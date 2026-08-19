@@ -9,7 +9,7 @@
 // Boundary: this sees the coord DB projection + the worker's serialized grid.
 // It does NOT run the SPA, so it is blind to browser DOM/render/focus — the
 // offscreen-textarea focus-dead bug and client-side render corruption still
-// need humanchrome / window.__smoke DOM probes.
+// need window.__smoke DOM probes, driven by the terminal tier (smoke/terminal/).
 
 import { Code, ConnectError } from "@connectrpc/connect";
 import { basename, join } from "node:path";

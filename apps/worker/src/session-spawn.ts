@@ -11,7 +11,7 @@ import { randomUUID } from "node:crypto";
 import { newTraceId } from "@roost/shared/trace";
 import { initCellEmitState } from "@roost/shared/cell";
 import { FsmChannel } from "./fsm.ts";
-import { expandTilde } from "./util/path.ts";
+import { canonicalSessionCwd } from "./util/path.ts";
 import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
 import { _createWtermCore } from "./session-constants.ts";
 import { createSbRing } from "./session-scrollback-ring.ts";
@@ -52,7 +52,7 @@ export async function spawnShell(
 	}
 	const channelId = this.nextChannelId();
 	const sessionId = targetSessionId ?? asSessionId(randomUUID());
-	const resolvedCwd = expandTilde(cwd);
+	const resolvedCwd = canonicalSessionCwd(cwd);
 	const shellSpec = resolveShellSpec({
 		cwd: resolvedCwd,
 		sessionId: String(sessionId),

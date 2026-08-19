@@ -1,11 +1,12 @@
-// Headless API smoke — the data-plane portion of the roost-smoke flow driven
+// Headless API smoke — the data-plane portion of the browser flow driven
 // PURELY over Connect RPC against a LIVE coord. No browser: this proves the
 // spawn → PTY echo → rename → workspace lifecycle → sync-stream → kill loop
-// works end-to-end (coord + real worker + real PTY) in seconds, replacing the
-// slow humanchrome pass for data-plane-only changes. Browser-only concerns
-// (DOM paint, focus pipeline, error boundaries) stay in the roost-smoke skill.
-// Requires a live tailnet coordinator. The `live-api` profile is intentionally
-// separate from local smoke tests; a missing URL is a hard failure, never skip.
+// works end-to-end (coord + real worker + real PTY) in seconds against a
+// DEPLOYED coordinator. It is an OPTIONAL production monitor, never a gate:
+// the definition of done is `bun run test:terminal`, whose hermetic stack
+// (smoke/terminal/stack.ts) covers the same flow plus the browser. The
+// `live-api` profile needs ROOST_COORD_URL; a missing URL is a hard failure,
+// never a green skip.
 //
 // No fixed sleeps anywhere: every step is a bounded 100ms poll (pollUntil),
 // so wall-clock tracks actual coord/worker latency. Target < 10s total;

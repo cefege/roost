@@ -129,6 +129,7 @@ Break one of these and you get back the history-corruption class this repo keeps
   Do not introduce a DOM emulator to make a test easier.
 - `bun run --cwd apps/web typecheck` type-checks this workspace; CI type-checks the whole tree with
   `bun x tsgo -p tsconfig.base.json --noEmit`.
-- Renderer correctness beyond the deterministic tiers is proven by the `roost-smoke` and
-  `roost-render-stress` skills — resize / tab-switch / multi-viewer loops that catch the corruption
-  class the unit tier cannot see.
+- Renderer correctness beyond the deterministic tiers is proven inside `bun run test:terminal`:
+  `runRenderStress` (`src/lib/smokeHarness.ts`) drives the resize / tab-switch / multi-viewer loops in
+  `smoke/terminal/terminal-render*.spec.ts` and fails on duplicated, lost, changed or mis-ordered
+  markers — the corruption class the unit tier cannot see.

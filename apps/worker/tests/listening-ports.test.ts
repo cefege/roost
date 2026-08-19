@@ -2,8 +2,8 @@
 // NON-loopback bind survive, because the folder chip opens them at
 // http://<worker reachable_addr>:<port> and a 127.x / [::1] server never
 // answers on the tailnet IP (the "chips that never work" bug). The lsof
-// subprocess itself isn't driven here — that's the humanchrome real-flow
-// verify; this pins the classification. Sample rows are verbatim lsof -nP
+// subprocess itself isn't driven here — that needs a real host, not a test
+// harness; this pins the classification. Sample rows are verbatim lsof -nP
 // output captured on macOS.
 
 import { test, expect } from "bun:test";

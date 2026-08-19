@@ -6,7 +6,7 @@
 //   3. A real PTY subprocess on the worker
 //
 // (2) + (3) live outside this harness (Bun.serve WSS + Bun.Terminal); the
-// smoke under /roost-smoke covers the full flow against the deployed worker.
+// terminal tier (smoke/terminal/) covers the full flow against a real worker.
 // This file proves auth-gated unary setup plus the canonical Sync v2 terminal
 // control hook: typed-frame composition, three-way acknowledged outcomes, and
 // transactional provisional membership. Shared proto round trips and

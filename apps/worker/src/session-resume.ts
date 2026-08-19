@@ -10,7 +10,7 @@ import { log } from "@roost/shared/log";
 import { newTraceId } from "@roost/shared/trace";
 import { initCellEmitState } from "@roost/shared/cell";
 import { FsmChannel } from "./fsm.ts";
-import { expandTilde } from "./util/path.ts";
+import { canonicalSessionCwd } from "./util/path.ts";
 import {
 	getMultiplexedPool,
 	type KeeperHistoryRecords,
@@ -203,7 +203,7 @@ export async function respawn(this: SessionManager, opts: {
 	// first means the async Exit-frame round-trip from the keeper finds
 	// no record and bails harmlessly.
 	const existing = this.getBySessionId(opts.oldSessionId);
-	const requestedCwd = expandTilde(opts.cwd);
+	const requestedCwd = canonicalSessionCwd(opts.cwd);
 	const shellSpec = existing?.shellSpec ?? opts.shellSpec ?? resolveShellSpec({
 		cwd: requestedCwd,
 		sessionId: String(opts.oldSessionId),

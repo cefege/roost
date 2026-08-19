@@ -756,7 +756,11 @@ never spawns, supervises, or owns the agent session.
 
 **Right** — additive commits behind a flag; the smoke flow must still pass after each.
 
-**Guard** — `none` — the `roost-smoke` skill run is the only check that the prior fixes survived.
+**Guard** — `smoke/terminal/terminal-delivery.spec.ts` `"browser smoke flow creates and cleans its
+resources"` re-runs the whole flow on every CI run (`runFlow`: workspace create → terminal open → PTY
+marker round-trip → pane close → cascade-delete), plus the deck-persistence cases in
+`smoke/terminal/terminal-render-deck.spec.ts`. Gap: nothing asserts that a *named* earlier fix
+survived a rewrite — only that the flow, the deck, and the `scripts/lint-roost.ts` sidebar rules hold.
 
 ---
 

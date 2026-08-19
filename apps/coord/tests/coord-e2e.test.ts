@@ -1,7 +1,7 @@
 // T3.2 — Headless coord e2e via the createCoord factory.
 // Boots a coord in-memory (fresh SQLite in /tmp), calls .fetch()
 // directly with crafted Connect-shape Requests. No Bun.serve, no
-// port allocation, no humanchrome — fully deterministic.
+// port allocation, no browser — fully deterministic.
 
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";

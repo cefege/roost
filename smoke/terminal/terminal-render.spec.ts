@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures.ts";
-import { fixturePath } from "./terminal-helpers.ts";
+import { fixturePath, waitForStableCellFrames } from "./terminal-helpers.ts";
 
 test("trusted keyboard input and bottom-follow behavior", async ({ smokePage, stack }) => {
   const sessionId = await smokePage.evaluate(async (workerFp) => {
@@ -146,6 +146,51 @@ test("alternate screen survives width and height perturbations", async ({ smokeP
   }, sessionId);
   expect(result).toMatchObject({ verdict: "PASS", fails: [] });
   await smokePage.keyboard.press("q");
+});
+
+// The alt case above can only assert dup/order: a full-screen app legitimately
+// re-ranges its own repaint on every SIGWINCH. Main-screen history is stricter —
+// `screen: "main"` additionally fails the run if the NEWEST marker stops being
+// painted, i.e. live history was lost rather than scrolled out (a shorter deck
+// legitimately paints fewer rows, so the oldest visible marker does move). This
+// is the invariant the hand-driven render-stress procedure asserted and nothing
+// else automates.
+test("main screen history survives width and height perturbations", async ({ smokePage, stack }) => {
+  test.setTimeout(240_000);
+  const sessionId = await smokePage.evaluate(async (workerFp) => {
+    const smoke = (window as unknown as Window & { __smoke: { spawnShell(worker: string, folder: string): Promise<{ session_id: string }> } }).__smoke;
+    return (await smoke.spawnShell(workerFp, "/tmp")).session_id;
+  }, stack.workerFp);
+  await smokePage.goto(`${stack.baseUrl}/s/${sessionId}`);
+  await expect(smokePage.getByTestId(`terminal-slot-${sessionId}`)).toBeVisible();
+  await smokePage.keyboard.type("seq -f 'CELLLINE-%g' 1 60");
+  await smokePage.keyboard.press("Enter");
+  const range = () => smokePage.evaluate((id) => {
+    const smoke = (window as unknown as Window & {
+      __smoke: { markerScan(sessionId: string, prefix: string): { min: number; max: number } };
+    }).__smoke;
+    const scan = smoke.markerScan(id, "CELLLINE-");
+    return { min: scan.min, max: scan.max };
+  }, sessionId);
+  // Settle the range before the loop samples it as the baseline: a half-painted
+  // history would hand the stress run a moving target and pass either way.
+  await expect.poll(range, { timeout: 60_000 }).toEqual({ min: 1, max: 60 });
+  await waitForStableCellFrames(smokePage, sessionId);
+  const result = await smokePage.evaluate(async (id) => {
+    const smoke = (window as unknown as Window & {
+      __smoke: {
+        runRenderStress(options: {
+          sessionId: string; prefix: string; screen: "main" | "alt"; iterations: number;
+        }): Promise<{ verdict: string; fails: unknown[] }>;
+      };
+    }).__smoke;
+    return smoke.runRenderStress({ sessionId: id, prefix: "CELLLINE-", screen: "main", iterations: 48 });
+  }, sessionId);
+  expect(result).toMatchObject({ verdict: "PASS", fails: [] });
+  // No post-loop range assertion: rows the shrink pushed into scrollback stay
+  // there when the deck grows back — the canonical renderer letterboxes instead
+  // of reflowing history (apps/web/README.md), so a returning min would assert
+  // a behaviour Roost deliberately does not have.
 });
 
 test("two viewers preserve ordered terminal markers", async ({ smokePage, browser, stack }) => {

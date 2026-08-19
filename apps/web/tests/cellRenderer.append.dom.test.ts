@@ -3,9 +3,9 @@
 // Cell mode kills the terminal-history-corruption saga by NEVER re-parsing or
 // reflowing: scrollback rows are immutable + append-only, and the painted
 // width is pinned to the worker's grid cols (letterbox, no client reflow).
-// Until now that guarantee was only checked live via /roost-smoke + the manual
-// roost-render-stress skill — a /simplify pass that turned apply()'s delta path
-// back into a full re-render would go green. This locks it by NODE IDENTITY:
+// Otherwise it is only checked by the browser tier's render-stress cases
+// (smoke/terminal/terminal-render*.spec.ts) — a /simplify pass turning apply()'s
+// delta path back into a full re-render would go green. Locked by NODE IDENTITY:
 // existing scrollback DOM nodes must survive every delta.
 //
 // This file: the append-only scrollback path plus viewport-only full frames and

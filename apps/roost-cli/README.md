@@ -28,7 +28,7 @@ omitted because neither is user-invoked.
 | `version` | Print the version / build identity (`--version`, `-v`) |
 | `expose <hostname>` | Put the coordinator behind Cloudflare Access (`--team`, `--aud`, `--config`) |
 | `dev` | Boot coord (:4102) + outbound-only worker + web dev server (:5174) in parallel |
-| `test [profile]` | Canonical test entry point; profiles `unit`, `worker`, `terminal`, `live-api`, `all` |
+| `test [profile]` | Canonical test entry point; gate profiles `unit`, `worker`, `terminal`, plus `live-api` (optional deployed-coord monitor) and `all` |
 | `deploy <host>` | Refresh the worker on a tailnet host (macOS rsync + LaunchAgent, Linux in-place checkout) |
 | `push` | Publish one clean commit, deploy every registered worker, update the coordinator's own checkout, and prove every process reports that commit before returning success |
 | `keeper-refresh <host> --yes` | Re-spawn a host's keeper on current code. Destructive, explicitly confirmed, and the only workflow authorized to stop a keeper |
@@ -120,7 +120,9 @@ verification contract; `tests/machine-transaction.test.ts` pins the machine lock
 
 The repo's own test scripts run through this CLI: `bun run test:unit`,
 `bun run test:terminal`, and `bun run test:live-api` all shell into
-`roost test <profile>` (`src/test.ts`). `bun run test:worker` is the exception —
-it calls `scripts/test-worker.ts` directly, the same script `roost test worker`
-and the `unit` profile invoke, because each worker test file needs an isolated
-process, keeper PID, and temp root.
+`roost test <profile>` (`src/test.ts`). `unit`, `worker` and `terminal` are the
+gates; `live-api` needs a deployed coordinator (`ROOST_COORD_URL`) and is an
+optional production monitor, never a merge gate. `bun run test:worker` is the
+exception to the shelling — it calls `scripts/test-worker.ts` directly, the same
+script `roost test worker` and the `unit` profile invoke, because each worker
+test file needs an isolated process, keeper PID, and temp root.

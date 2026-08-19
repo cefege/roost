@@ -451,9 +451,9 @@ Use one tagged release and one clean command:
    ROOST_API_SMOKE=1 ROOST_COORD_URL=https://<coord>.<tailnet>.ts.net:4102 \
      bun test smoke/api_smoke.test.ts
    ```
-4. Run the `roost-smoke` browser flow, including its separate trusted-keyboard
-   marker and cleanup, then run `roost-render-stress` for 80 iterations plus
-   the two-size multi-viewer pass.
+4. Run the hermetic real-flow tier on the release commit — `bun run test:terminal`
+   (real coord + worker + keeper + PTY + browser, `smoke/terminal/stack.ts`).
+   That tier is the gate; the live steps here only observe the deployment.
 5. Restart the coordinator and local worker. Require a new coordinator boot
    timestamp, all workers online on the expected build, and the pre-restart PTY
    to paint a new marker. Reject new uncaught errors, sequence gaps, queue

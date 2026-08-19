@@ -600,8 +600,8 @@ export async function runRenderStress(
       }
       await frames(2);
       const scan = api.markerScan(options.sessionId, options.prefix);
-      const changedRange = scan.max !== baseline.max || scan.min !== baseline.min;
-      if (scan.duplicated.length || scan.outOfOrder || (options.screen === "main" && changedRange)) {
+      // markerScan reads the PAINTED viewport: a shorter deck shows fewer rows, so a rising scan.min is normal — a moving scan.max is not, it means live history was lost rather than scrolled out.
+      if (scan.duplicated.length || scan.outOfOrder || (options.screen === "main" && scan.max !== baseline.max)) {
         fails.push({ iteration, screen: options.screen, scan, baseline });
       }
     }
