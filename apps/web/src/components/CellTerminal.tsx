@@ -836,15 +836,14 @@ export function CellTerminal(props: CellTerminalProps) {
 		});
 
 		// MOBILE keyboard fix: tapping a sidebar row to switch terminals closes the
-		// overlay, and that same tap's click falls through onto the now-revealed
-		// display → onDisplayClick → forceFocus → on-screen keyboard pops, unwanted.
-		// Record when this pane becomes active; on touch, the display handlers skip
-		// focus within NAV_FALLTHROUGH_MS of activation (the fall-through) but a
-		// deliberate later tap still focuses + opens the keyboard. Transition-only
-		// (prevActive) so a re-running effect can't keep refreshing the window.
+		// overlay, and that tap's click falls through onto the revealed display →
+		// forceFocus → keyboard pops, unwanted. Record when this pane becomes active
+		// (transition-only via prevActive) and skip focus within NAV_FALLTHROUGH_MS
+		// on touch. A fall-through tap started on the OVERLAY and synthesized mouse
+		// events target the touchstart element, so the display sees a click with NO
+		// mousedown: click applies the window only then, never to a real tap.
 		const NAV_FALLTHROUGH_MS = 700;
-		let lastActivatedMs = 0;
-		let prevActive = false;
+		let lastActivatedMs = 0, prevActive = false, gestureStartedOnDisplay = false;
 		createEffect(() => {
 			const active = props.focused === true;
 			if (active && !prevActive) lastActivatedMs = Date.now();
@@ -864,6 +863,7 @@ export function CellTerminal(props: CellTerminalProps) {
 			// its microtask runs before `contextmenu` reads getSelection(), so the
 			// "Copy" item would never see the marked text.
 			if (ev.button !== 0) return;
+			gestureStartedOnDisplay = true; // a fall-through click has no mousedown here
 			if (isNavFallthrough()) return;
 			const t = ev.target as HTMLElement | null;
 			if (t?.closest("button, input, textarea, a")) return;
@@ -874,8 +874,8 @@ export function CellTerminal(props: CellTerminalProps) {
 		// A trusted click can move focus to body after mousedown. Restore terminal
 		// focus after the click settles unless the user has selected text.
 		const onDisplayClick = (ev: MouseEvent) => {
-			if (ev.button !== 0) return;
-			if (isNavFallthrough()) return; // sidebar-tap fall-through on mobile, not a real tap
+			const startedHere = gestureStartedOnDisplay; gestureStartedOnDisplay = false;
+			if (ev.button !== 0 || (!startedHere && isNavFallthrough())) return; // fall-through, not a real tap
 			const t = ev.target as HTMLElement | null;
 			if (t?.closest("button, input, textarea, a")) return;
 			const sel = displayRef?.ownerDocument.getSelection();
