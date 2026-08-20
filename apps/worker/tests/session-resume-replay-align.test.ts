@@ -19,7 +19,7 @@ import { gridToCellFrame } from "@roost/shared/cell";
 import { ringLength } from "../src/session-scrollback-ring.ts";
 import { MuxFrameType } from "../src/keeper/protocol.ts";
 import { getMultiplexedPool } from "../src/keeper/multiplexed-client.ts";
-import type { KeeperHistoryRecords } from "../src/keeper/multiplexed-client.ts";
+import type { KeeperHistoryRecords, MuxChannelCallbacks } from "../src/keeper/multiplexed-client.ts";
 import { installAutoKeeper, type FakeKeeper } from "./keeper-fake-pool.ts";
 import type { ShellSpec } from "../src/shell-spec.ts";
 
@@ -64,6 +64,9 @@ async function resumeWith(opts: {
   headSeq: number;
   baseCols?: number;
   baseRows?: number;
+  liveOutput?: Uint8Array;
+  liveExit?: number;
+  expectedResumed?: boolean;
 }): Promise<Fixture> {
   // Before the manager: its constructor dials the pool, and a real keeper
   // adopted by that dial would replace the fake socket mid-test.
@@ -75,13 +78,25 @@ async function resumeWith(opts: {
   const priorReattach = pool.reattach;
   const priorHistoryRecords = pool.getHistoryRecords;
   pool.listChannels = async () => [{ channelId: CHANNEL_ID, pid: CHILD_PID }];
-  pool.reattach = () => {};
-  pool.getHistoryRecords = async () => ({
-    headSeq: opts.headSeq,
-    baseCols,
-    baseRows,
-    records: opts.records,
-  });
+  let attachedCallbacks: MuxChannelCallbacks | null = null;
+  pool.reattach = (_channelId, callbacks) => {
+    attachedCallbacks = callbacks;
+  };
+  pool.getHistoryRecords = async () => {
+    if (opts.liveOutput) {
+      const chunk = Buffer.from(opts.liveOutput);
+      queueMicrotask(() => attachedCallbacks?.onOutput(chunk));
+    }
+    if (opts.liveExit !== undefined) {
+      queueMicrotask(() => attachedCallbacks?.onExit(opts.liveExit!));
+    }
+    return {
+      headSeq: opts.headSeq,
+      baseCols,
+      baseRows,
+      records: opts.records,
+    };
+  };
 
   const mgr = new SessionManager({
     workerFp: asWorkerFp("11".repeat(32)),
@@ -100,7 +115,7 @@ async function resumeWith(opts: {
     cwd: "/",
     shellSpec: SHELL_SPEC,
   });
-  expect(resumed).toBe(true);
+  expect(resumed).toBe(opts.expectedResumed ?? true);
 
   const fixture: Fixture = {
     mgr,
@@ -124,6 +139,34 @@ function coreText(mgr: SessionManager): string {
   for (const row of frame.viewportRows) lines.push(row.spans.map((s) => s.text).join(""));
   return lines.join("\n");
 }
+
+  test("live output arriving after the history boundary survives record construction", async () => {
+    const history = enc.encode("HISTORY\r\n");
+    const liveOutput = enc.encode("STATIC-LABEL");
+    const f = await resumeWith({
+      records: [{ kind: "output", bytes: history }],
+      headSeq: history.byteLength,
+      liveOutput,
+    });
+
+    expect(coreText(f.mgr)).toContain("STATIC-LABEL");
+    const rec = f.mgr.sessions.get(CHANNEL_ID)!;
+    expect(rec.head_seq).toBe(history.byteLength + liveOutput.byteLength);
+    expect(ringLength(rec.scrollback)).toBe(history.byteLength + liveOutput.byteLength);
+  });
+  test("a staged keeper exit cannot leave partial resume state", async () => {
+    const f = await resumeWith({
+      records: [],
+      headSeq: 0,
+      liveExit: 17,
+      expectedResumed: false,
+    });
+
+    expect(f.mgr.sessions.has(CHANNEL_ID)).toBe(false);
+    expect(f.mgr.channelResizeSeq.has(CHANNEL_ID)).toBe(false);
+    expect(f.mgr.lastAppliedSize.has(CHANNEL_ID)).toBe(false);
+  });
+
 
 describe("resume replay into a cold core", () => {
   test("an evicted window opening mid-ESC[1;32m replays no literal text and keeps the repaint", async () => {

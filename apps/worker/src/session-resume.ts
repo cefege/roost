@@ -14,6 +14,7 @@ import { canonicalSessionCwd } from "./util/path.ts";
 import {
 	getMultiplexedPool,
 	type KeeperHistoryRecords,
+	type MuxChannelCallbacks,
 } from "./keeper/multiplexed-client.ts";
 import { ALT_ENTER_SEQS, _scanAltModeTransitions } from "./terminal-stream-scan.ts";
 import { _createWtermCore } from "./session-constants.ts";
@@ -28,6 +29,35 @@ import { resolveShellSpec } from "./shell-spec.ts";
 import type { ShellSpec } from "./shell-spec.ts";
 import { KeeperFeature } from "./keeper/protocol.ts";
 import { redrawEvictedResume } from "./session-terminal-control.ts";
+
+type PendingResumeEvent =
+	| { readonly kind: "output"; readonly chunk: Buffer }
+	| { readonly kind: "exit"; readonly exitCode: number | null }
+	| { readonly kind: "error"; readonly error: Error };
+
+function stageResumeCallbacks(
+	live: MuxChannelCallbacks,
+	pending: PendingResumeEvent[],
+): MuxChannelCallbacks {
+	return {
+		onOutput: (chunk) =>
+			pending.push({ kind: "output", chunk: Buffer.from(chunk) }),
+		onExit: (exitCode) => pending.push({ kind: "exit", exitCode }),
+		onError: (error) => pending.push({ kind: "error", error }),
+	};
+}
+
+function flushResumeEvents(
+	live: MuxChannelCallbacks,
+	pending: PendingResumeEvent[],
+): void {
+	for (const event of pending) {
+		if (event.kind === "output") live.onOutput(event.chunk);
+		else if (event.kind === "exit") live.onExit(event.exitCode);
+		else live.onError(event.error);
+	}
+	pending.length = 0;
+}
 
 /** Rebuild SessionRecord for a session whose keeper survived this
  * worker restart. Probes the mux pool; if the channel is alive in the
@@ -48,12 +78,21 @@ export async function resume(this: SessionManager, opts: {
 		this._onTransition(opts.sessionId, opts.channelId, from, to, event),
 	);
 
+	const pool = getMultiplexedPool();
+	const liveCallbacks = this.muxCallbacks(opts.channelId);
+	const pendingEvents: PendingResumeEvent[] = [];
 	try {
-		const pool = getMultiplexedPool();
 		const live = await pool.listChannels();
 		const liveChannel = live.find((c) => c.channelId === opts.channelId);
 		if (!liveChannel) return false;
-		pool.reattach(opts.channelId, this.muxCallbacks(opts.channelId));
+		// Reattach must precede the history request so the keeper can establish
+		// its ordered boundary. The SessionRecord cannot exist until that history
+		// has rebuilt a core, so stage post-boundary events instead of feeding
+		// them into emitUpstreamChunk, which correctly rejects unknown channels.
+		pool.reattach(
+			opts.channelId,
+			stageResumeCallbacks(liveCallbacks, pendingEvents),
+		);
 		let orderedHistory: KeeperHistoryRecords | null = null;
 		let legacyBytes: Uint8Array = new Uint8Array(0);
 		let resumedHeadSeq = 0;
@@ -206,6 +245,12 @@ export async function resume(this: SessionManager, opts: {
 		const originalCols = record.wtermCore.getCols();
 		const originalRows = record.wtermCore.getRows();
 		this.lastAppliedSize.set(opts.channelId, { cols: originalCols, rows: originalRows });
+		// Swap to the ordinary callbacks synchronously, then replay everything
+		// delivered after the keeper's history boundary. JS cannot interleave a
+		// socket callback between this swap and the synchronous flush.
+		pool.reattach(opts.channelId, liveCallbacks);
+		flushResumeEvents(liveCallbacks, pendingEvents);
+		if (!this.sessions.has(opts.channelId)) return false;
 		if (historyEvicted) {
 			// Eviction makes the retained resize maximum only a lower sequence bound.
 			this.resizeFloorInvalid.add(opts.channelId);
@@ -275,6 +320,10 @@ export async function resume(this: SessionManager, opts: {
 		});
 		return true;
 	} catch (e) {
+		// Do not leave a surviving keeper channel attached to the staging queue
+		// when boot reconciliation falls back to respawn.
+		pool.reattach(opts.channelId, liveCallbacks);
+		flushResumeEvents(liveCallbacks, pendingEvents);
 		log.warn("session-manager", "resume_probe_failed", { error: String(e) });
 		diag("session.resume_downgraded_respawn", {
 			sid: opts.sessionId,
