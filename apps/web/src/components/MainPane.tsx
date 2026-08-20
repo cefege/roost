@@ -20,6 +20,7 @@ import { Button } from "./Settings/md/Button.tsx";
 import { uiStore, closeSidebar } from "../store/uiStore.ts";
 import { isCompact } from "../lib/windowSizeClass.ts";
 import type { Session } from "@roost/shared/wire";
+import { TerminalLoadingNotice } from "./TerminalOfflineNotice.tsx";
 
 // Code-split boundary (ts-no-dynamic-import exception): solid `lazy` is the
 // bundler's split mechanism — the file viewer (+ syntaxLite) loads only when a
@@ -198,6 +199,15 @@ export function MainPane() {
           activeSessionId={activeOpenSession()?.id ?? null}
           surfaceVisible={!overlayActive()}
         />
+
+        <Show when={
+          onTerminalRoute()
+          && activeOpenSession() === null
+          && !sessionsHydrated()
+          && stuckKind() === null
+        }>
+          <TerminalLoadingNotice />
+        </Show>
 
         {/* Stuck-terminal escape: the pane resolves to no live terminal AND
             bootstrap is wedged (coord unreachable or browser unpaired) — show

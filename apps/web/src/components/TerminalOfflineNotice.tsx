@@ -5,6 +5,29 @@
 
 import { Show } from "solid-js";
 
+export function TerminalLoadingNotice() {
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      data-testid="terminal-loading-status"
+      style={{
+        position: "absolute",
+        inset: "0",
+        display: "flex",
+        "align-items": "center",
+        "justify-content": "center",
+        color: "var(--text-lo)",
+        "font-size": "13px",
+        "pointer-events": "none",
+        "z-index": "5",
+      }}
+    >
+      Loading terminal…
+    </div>
+  );
+}
+
 export interface TerminalOfflineNoticeProps {
   onRetry: () => void;
   onOpenSibling: () => void;

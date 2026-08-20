@@ -92,7 +92,10 @@ import { createOfflineWatch } from "../lib/offlineWatch.ts";
 import { pageVisible, isPageVisible } from "../lib/pageVisible.ts";
 import { newestOpenSessionForFolderKey } from "../store/selectors.ts";
 import { folderKeyOf } from "../lib/folderKey.ts";
-import { TerminalOfflineNotice } from "./TerminalOfflineNotice.tsx";
+import {
+	TerminalLoadingNotice,
+	TerminalOfflineNotice,
+} from "./TerminalOfflineNotice.tsx";
 import {
 	isPendingSpawn,
 	publishMountedSpawnMeasurement,
@@ -315,6 +318,7 @@ export function CellTerminal(props: CellTerminalProps) {
 	// rises after matching acceptance plus any required authoritative full frame.
 	const navigate = useNavigate();
 	const [viewportLiveReady, setViewportLiveReady] = createSignal(false);
+	const [hasReconciledFrame, setHasReconciledFrame] = createSignal(false);
 	const [offline, setOffline] = createSignal(false);
 	const retryOffline = () =>
 		sendClaim(ResizeCause.TAB_VISIBLE, true);
@@ -325,7 +329,7 @@ export function CellTerminal(props: CellTerminalProps) {
 	createEffect(() =>
 		offlineWatch.update(
 			props.inLayout === true && props.surfaceActive && isPageVisible(),
-			viewportLiveReady(),
+			hasReconciledFrame() && viewportLiveReady(),
 		),
 	);
 	onCleanup(() => offlineWatch.dispose());
@@ -506,7 +510,7 @@ export function CellTerminal(props: CellTerminalProps) {
 		const cellOwner = getOwner();
 		runWithOwner(cellOwner, () => {
 			// ── output: cells ────────────────────────────────────────────────
-			renderer = new CellGridRenderer(displayRef!);
+			renderer = new CellGridRenderer(displayRef!, () => setHasReconciledFrame(true));
 		// Retained history is paged only after explicit scroll/find demand; a
 		// literal-bottom full frame paints only the current viewport.
 		const backfill = createScrollbackBackfill({
@@ -1476,6 +1480,16 @@ export function CellTerminal(props: CellTerminalProps) {
 				onPasteText={pasteText}
 
 			/>
+			<Show when={
+				props.inLayout === true
+				&& props.surfaceVisible
+				&& props.surfaceActive
+				&& !pending()
+				&& !hasReconciledFrame()
+				&& !offline()
+			}>
+				<TerminalLoadingNotice />
+			</Show>
 			<Show when={offline()}>
 				<TerminalOfflineNotice
 					onRetry={retryOffline}

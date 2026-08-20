@@ -172,6 +172,37 @@ describe("CellGridRenderer DOM — viewport diff", () => {
   });
 });
 
+describe("CellGridRenderer DOM — first reconciliation notification", () => {
+  test("fires only after the first completed DOM reconciliation", () => {
+    const c = makeContainer();
+    let notifications = 0;
+    const r = new CellGridRenderer(
+      c as unknown as HTMLElement,
+      () => { notifications += 1; },
+    );
+
+    const rejected = { ...fullFrame(80, [row(0, "rejected")]), rows: 2 };
+    expect(r.applyFullFrame(rejected)).toBe(false);
+    expect(notifications).toBe(0);
+
+    r.setSelectionHold(true);
+    expect(r.applyFullFrame(fullFrame(80, [row(0, "held")]))).toBe(true);
+    expect(r.reconciledEpochSeq()).toEqual({ grid_epoch: null, seq: null });
+    expect(notifications).toBe(0);
+
+    expect(r.prepareLiveInteraction()).toEqual({ reconciled: true, anchorChanged: true });
+    expect(r.reconciledEpochSeq()).toEqual({ grid_epoch: "test-grid:0", seq: 1 });
+    expect(notifications).toBe(1);
+
+    expect(r.applyDeltaFrame(deltaFrame(80, 1, [row(0, "delta")], [], 2))).toBe(true);
+    expect(r.applyFullFrame({
+      ...fullFrame(80, [row(0, "later-full")]),
+      seq: 3,
+    })).toBe(true);
+    expect(notifications).toBe(1);
+  });
+});
+
 // ── truthful scroll space: the [0, sbBase) history spacer ─────────────────
 // A full frame ships only a scrollback TAIL, so the painted DOM used to occupy
 // the WHOLE scroll space while describing ~250 rows: every backfill prepend

@@ -26,6 +26,7 @@ import {
   APPLICATION_MAX_UNACKED_FRAMES,
   type SyncBackpressureReason,
 } from "./sync-ws-v1-delivery.ts";
+import { isSubscribed } from "./cell-subscriptions.ts";
 import {
   V2_AGGREGATE_MAX_QUEUED_BYTES,
   V2_AGGREGATE_MAX_QUEUED_FRAMES,
@@ -59,6 +60,22 @@ export interface SyncV2SchedulerDeps {
   ): void;
   rearmApplicationDeadline(ws: ServerWebSocket<SyncWsData>): void;
 }
+
+const pruneUnsubscribedQueuedCells = (
+  ws: ServerWebSocket<SyncWsData>,
+): void => {
+  const viewerKey = ws.data.viewerKey;
+  if (viewerKey === null) return;
+  const terminal = ws.data.v2?.domains.get(SyncDomain.TERMINAL);
+  if (!terminal) return;
+  let sessionIds: Set<string> | null = null;
+  for (const item of terminal.queue) {
+    const sessionId = item.meta.lane === "cell" ? item.meta.sessionId : undefined;
+    if (!sessionId || isSubscribed(viewerKey, sessionId)) continue;
+    (sessionIds ??= new Set()).add(sessionId);
+  }
+  if (sessionIds) removeQueuedV2Cells(ws, sessionIds);
+};
 
 export function makeSyncV2Scheduler(deps: SyncV2SchedulerDeps) {
   const {
@@ -186,6 +203,7 @@ export function makeSyncV2Scheduler(deps: SyncV2SchedulerDeps) {
     const v2 = ws.data.v2;
     if (!v2 || ws.data.pressureClosing) return;
     v2.schedulerPending = false;
+    pruneUnsubscribedQueuedCells(ws);
     for (let sentCount = 0; sentCount < 64; sentCount += 1) {
       const candidate = selectV2Candidate(ws);
       if (!candidate) return;
@@ -268,11 +286,21 @@ export function makeSyncV2Scheduler(deps: SyncV2SchedulerDeps) {
     }
     const domain = v2.domains.get(effectiveMeta.domain);
     if (!domain || !domain.subscribed) return;
+    if (effectiveMeta.domain === SyncDomain.TERMINAL) {
+      pruneUnsubscribedQueuedCells(ws);
+    }
 
     const owned = clone(FirehoseFrameSchema, frame);
     owned.deliverySeq = 0n;
     owned.domain = effectiveMeta.domain;
     owned.domainGeneration = domain.generation;
+    if (
+      owned.frame.case === "cellGrid"
+      && owned.frame.value.full
+      && effectiveMeta.sessionId
+    ) {
+      removeQueuedV2Cells(ws, new Set([effectiveMeta.sessionId]));
+    }
     const estimatedBytes = toBinary(FirehoseFrameSchema, owned).byteLength + 10;
     const exceedsDomain = domain.queue.length + 1 > V2_DOMAIN_MAX_QUEUED_FRAMES
       || domain.queuedBytes + estimatedBytes > V2_DOMAIN_MAX_QUEUED_BYTES;

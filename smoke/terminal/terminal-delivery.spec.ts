@@ -26,6 +26,127 @@ test("browser smoke flow creates and cleans its resources", async ({ smokePage, 
   expect(result.steps.filter((step) => !step.pass)).toEqual([]);
 });
 
+test("cold document shows loading until an existing terminal paints", async ({
+  smokePage,
+  coldSmokePage,
+  stack,
+}) => {
+  const sessionId = (await spawnSmokeShell(smokePage, stack.workerFp)).session_id;
+  await navigateToSmokeSession(smokePage, sessionId);
+
+  const marker = `COLD-BOOT-${crypto.randomUUID().replaceAll("-", "")}`;
+  await smokePage.evaluate(async ({ id, command }) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    await smokeWindow.__smoke.input(id, command);
+  }, { id: sessionId, command: `printf '${marker}\\n'\r` });
+  const seededProof = await smokePage.evaluate(({ id, expected }) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return smokeWindow.__smoke.waitForPaintedMarker(id, expected, 30_000);
+  }, { id: sessionId, expected: marker });
+  expect(seededProof).toMatchObject({
+    proof_kind: "marker",
+    sessionId,
+    marker,
+    frames: 2,
+  });
+
+  await coldSmokePage.addInitScript(() => {
+    type LoadingProbeWindow = Window & {
+      __terminalLoadingStatusTexts?: string[];
+      __terminalLoadingStatusObserver?: MutationObserver;
+    };
+    const probeWindow = window as LoadingProbeWindow;
+    const observations: string[] = [];
+    const recordedText = new WeakMap<Element, string>();
+    probeWindow.__terminalLoadingStatusTexts = observations;
+
+    const recordStatus = (status: Element) => {
+      const text = status.textContent ?? "";
+      if (recordedText.get(status) === text) return;
+      recordedText.set(status, text);
+      observations.push(text);
+    };
+    const recordTree = (node: Node) => {
+      if (!(node instanceof Element)) return;
+      if (node.matches('[data-testid="terminal-loading-status"]')) recordStatus(node);
+      for (const status of node.querySelectorAll('[data-testid="terminal-loading-status"]')) {
+        recordStatus(status);
+      }
+    };
+    const observer = new MutationObserver((records) => {
+      for (const record of records) {
+        for (const added of record.addedNodes) recordTree(added);
+      }
+    });
+    observer.observe(document, { childList: true, subtree: true });
+    probeWindow.__terminalLoadingStatusObserver = observer;
+    for (const status of document.querySelectorAll('[data-testid="terminal-loading-status"]')) {
+      recordStatus(status);
+    }
+  });
+
+  const sessionsListPattern = "**/roost.v1.CoordinatorService/SessionsList";
+  let releaseSessionsList!: () => void;
+  let finishHeldRoute!: () => void;
+  const sessionsListGate = new Promise<void>((resolve) => {
+    releaseSessionsList = resolve;
+  });
+  const heldRouteFinished = new Promise<void>((resolve) => {
+    finishHeldRoute = resolve;
+  });
+  let routeIntercepted = false;
+  await coldSmokePage.route(sessionsListPattern, async (route) => {
+    routeIntercepted = true;
+    try {
+      await sessionsListGate;
+      await route.continue();
+    } finally {
+      finishHeldRoute();
+    }
+  });
+
+  const targetUrl = `${stack.baseUrl}/s/${sessionId}`;
+  const documentRequests: string[] = [];
+  coldSmokePage.on("request", (request) => {
+    if (request.isNavigationRequest() && request.frame() === coldSmokePage.mainFrame()) {
+      documentRequests.push(request.url());
+    }
+  });
+
+  try {
+    const sessionsListRequest = coldSmokePage.waitForRequest(sessionsListPattern);
+    await coldSmokePage.goto(targetUrl, { waitUntil: "commit" });
+    await sessionsListRequest;
+    await expect.poll(() => routeIntercepted).toBe(true);
+    await expect.poll(() => coldSmokePage.evaluate(() => {
+      return (window as Window & { __terminalLoadingStatusTexts?: string[] })
+        .__terminalLoadingStatusTexts ?? [];
+    })).toContain("Loading terminal…");
+
+    releaseSessionsList();
+    await heldRouteFinished;
+    await expect(coldSmokePage.getByTestId(`terminal-slot-${sessionId}`))
+      .toBeVisible({ timeout: 30_000 });
+    const coldBootProof = await coldSmokePage.evaluate(({ id, expected }) => {
+      const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+      return smokeWindow.__smoke.waitForPaintedMarker(id, expected, 30_000);
+    }, { id: sessionId, expected: marker });
+    expect(coldBootProof).toMatchObject({
+      proof_kind: "marker",
+      sessionId,
+      marker,
+      frames: 2,
+    });
+    await expect(coldSmokePage.getByTestId("terminal-loading-status")).toHaveCount(0);
+    await expect(coldSmokePage).toHaveURL(targetUrl);
+    expect(documentRequests).toEqual([targetUrl]);
+  } finally {
+    releaseSessionsList();
+    if (routeIntercepted) await heldRouteFinished.catch(() => undefined);
+    await coldSmokePage.unroute(sessionsListPattern);
+  }
+});
+
 test("new-terminal server switch resets browse path before listing and spawning", async ({
   multiWorkerSmokePage,
   stack,

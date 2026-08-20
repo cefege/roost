@@ -228,8 +228,12 @@ export class CellGridRenderer {
   private _reconciledAltScreen: boolean | null = null;
   private _reconciledCursorKeysApp: boolean | null = null;
   private _reconciledBracketedPaste: boolean | null = null;
+  private readonly container: HTMLElement;
+  private onFirstReconcile: (() => void) | undefined;
 
-  constructor(private readonly container: HTMLElement) {
+  constructor(container: HTMLElement, onFirstReconcile?: () => void) {
+    this.container = container;
+    this.onFirstReconcile = onFirstReconcile;
     this.doc = container.ownerDocument;
     container.classList.add("wterm", "cell-grid");
     // role="log" gives the grid an IMPLICIT polite live region: a screen reader
@@ -895,11 +899,18 @@ export class CellGridRenderer {
         )
       )
     ) return;
+    const firstReconcile = this._reconciledGridEpoch === null
+      && this._reconciledSeq === null;
     this._reconciledGridEpoch = frame.gridEpoch;
     this._reconciledSeq = frame.seq;
     this._reconciledAltScreen = frame.altScreen;
     this._reconciledCursorKeysApp = frame.cursorKeysApp;
     this._reconciledBracketedPaste = frame.bracketedPaste;
+    if (firstReconcile) {
+      const callback = this.onFirstReconcile;
+      this.onFirstReconcile = undefined;
+      callback?.();
+    }
   }
 
   /** Full viewport reconciliation is reserved for authoritative repairs, hold

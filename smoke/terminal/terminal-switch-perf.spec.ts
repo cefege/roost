@@ -1,9 +1,11 @@
 // End-to-end proof of the three switch-latency contracts this suite owns:
 // revealing an idle dormant pane emits NOTHING, revealing a pane whose grid
 // moved while parked costs exactly ONE viewport-only full frame, and the deck
-// keeps a BOUNDED number of panes mounted. Distributions publish on every run;
-// absolute millisecond budgets are gated behind ROOST_PERF_QUALIFY=1, because a
-// contended box measures the host rather than the product.
+// keeps a BOUNDED number of panes mounted. The bound case also proves an evicted
+// pane cold-remounts from one viewport-only frame and visibly self-repairs a
+// dropped first frame. Distributions publish on every run; absolute millisecond
+// budgets are gated behind ROOST_PERF_QUALIFY=1, because a contended box
+// measures the host rather than the product.
 //
 // Every case is @serial: playwright.config.ts routes /@serial/ to the
 // chromium-serial project with fullyParallel:false, and a switch-latency number
@@ -95,7 +97,13 @@ async function paintMarker(page: Page, sessionId: string, marker: string): Promi
   });
 }
 
-type CellCounters = { frames: number; fullFrames: number; sbRows: number };
+type CellCounters = {
+  frames: number;
+  fullFrames: number;
+  sbRows: number;
+  backfillRequests: number;
+  droppedFrames: number;
+};
 
 async function readCounters(page: Page, sessionId: string): Promise<CellCounters> {
   return page.evaluate((id) => {
@@ -104,6 +112,8 @@ async function readCounters(page: Page, sessionId: string): Promise<CellCounters
       frames: smoke.cellFrameCount(id),
       fullFrames: smoke.cellFullFrameCount(id),
       sbRows: smoke.lastFullFrameSbRows(id),
+      backfillRequests: smoke.scrollbackBackfillRequestCount(id),
+      droppedFrames: smoke.droppedCellFrameCount(id),
     };
   }, sessionId);
 }
@@ -243,20 +253,38 @@ test("the deck mounts a bounded number of panes @serial", async ({
   stack,
 }, testInfo) => {
   test.skip(!testInfo.project.name.startsWith("chromium"), "desktop deck mount bound");
-  test.setTimeout(240_000);
+  test.setTimeout(360_000);
 
   const fixtureWorker = await stack.startPtyFixtureWorker();
-  const sessionIds = await spawnFixtureSessions(smokePage, fixtureWorker, 16);
-  for (const sessionId of sessionIds) await navigateAndProve(smokePage, sessionId, PTY_FIXTURE_READY);
+  // Keep the original 16-session performance population while making the
+  // eviction premise explicit if the production warm bound ever changes.
+  const sessionIds = await spawnFixtureSessions(
+    smokePage,
+    fixtureWorker,
+    Math.max(16, DECK_WARM_LIMIT + 2),
+  );
+  const suffix = crypto.randomUUID().replaceAll("-", "").slice(0, 12);
+  const lruTarget = sessionIds[0]!;
+  const ordinaryTailMarker = `EVICTED-TAIL-A:${suffix}`;
+  const repairTailMarker = `EVICTED-TAIL-B:${suffix}`;
+
+  for (const [index, sessionId] of sessionIds.entries()) {
+    await navigateAndProve(smokePage, sessionId, PTY_FIXTURE_READY);
+    // Give the oldest pane a unique tail while it is visibly reconciled. The
+    // later cold-remount proof therefore cannot pass on the fixture-ready text
+    // shared by every session.
+    if (index === 0) await paintMarker(smokePage, sessionId, ordinaryTailMarker);
+  }
 
   // One folder is one pane, so exactly one session is slotted and the warm set
-  // adds at most DECK_WARM_LIMIT more. Unbounded warmth would leave all 16
-  // mounted and make every future switch pay their forced layout.
+  // adds at most DECK_WARM_LIMIT more. Unbounded warmth would leave all fixture
+  // sessions mounted and make every future switch pay their forced layout.
   const mountedSlots = await smokePage.locator('[data-testid^="terminal-slot-"]').count();
 
   // The two most recently visited sessions are the two most recently slotted,
   // so they are the two the warm policy can never evict — alternating between
-  // them measures the steady-state switch cost at the mount ceiling.
+  // them preserves the original 16-session steady-state timing coverage at the
+  // mount ceiling.
   const older = sessionIds.at(-2)!;
   const newer = sessionIds.at(-1)!;
   const revealSamples: number[] = [];
@@ -266,6 +294,99 @@ test("the deck mounts a bounded number of panes @serial", async ({
   const p50 = percentile(revealSamples, 0.5);
   const p95 = percentile(revealSamples, 0.95);
 
+  expect(mountedSlots).toBeLessThanOrEqual(1 + DECK_WARM_LIMIT);
+  if (QUALIFY) expect(p95).toBeLessThanOrEqual(150);
+
+  const targetSlot = smokePage.getByTestId(`terminal-slot-${lruTarget}`);
+  const loadingStatus = smokePage.getByTestId("terminal-loading-status");
+
+  // Round A — ordinary cold remount. The first-visited session is now the true
+  // LRU, and absence of its slot proves this is a remount rather than a warm
+  // visibility flip.
+  await expect(targetSlot).toHaveCount(0);
+  const ordinaryBefore = await readCounters(smokePage, lruTarget);
+  const ordinaryRevealMs = await timeReveal(smokePage, lruTarget, ordinaryTailMarker);
+  await expect(loadingStatus).toHaveCount(0);
+  const ordinaryAfter = await readCounters(smokePage, lruTarget);
+
+  expect(ordinaryAfter.fullFrames - ordinaryBefore.fullFrames).toBe(1);
+  expect(ordinaryAfter.backfillRequests - ordinaryBefore.backfillRequests).toBe(0);
+  expect(ordinaryAfter.droppedFrames - ordinaryBefore.droppedFrames).toBe(0);
+  expect(ordinaryAfter.sbRows).toBe(0);
+  if (QUALIFY) expect(ordinaryRevealMs).toBeLessThanOrEqual(1_000);
+
+  // Revisit more than the complete warm set with distinct sessions. Whatever
+  // their prior recency, the target must be older than the current slot plus
+  // DECK_WARM_LIMIT warm panes when this loop completes.
+  const evictionIds = sessionIds.slice(1, DECK_WARM_LIMIT + 2);
+  expect(evictionIds).toHaveLength(DECK_WARM_LIMIT + 1);
+  for (const sessionId of evictionIds) {
+    await navigateAndProve(smokePage, sessionId, PTY_FIXTURE_READY);
+  }
+  await expect(targetSlot).toHaveCount(0);
+
+  // Round B — drop the cold claim's first cell frame, then let the mounted pane
+  // repair itself. A document canary distinguishes in-place repair from a
+  // same-URL reload, which a URL assertion alone cannot detect.
+  const repairBefore = await readCounters(smokePage, lruTarget);
+  const documentCanaryKey = `__roostEvictedRepair_${suffix}`;
+  const documentCanary = `document-${suffix}`;
+  await smokePage.evaluate(({ key, value }) => {
+    Object.defineProperty(document, key, { value, configurable: false });
+  }, { key: documentCanaryKey, value: documentCanary });
+  await smokePage.evaluate((id) => {
+    window.__smoke.dropNextCellFrame(id);
+  }, lruTarget);
+
+  await Promise.all([
+    smokePage.waitForURL((url) => url.pathname === `/s/${lruTarget}`),
+    smokePage.evaluate((id) => {
+      window.__smoke.navigate(`/s/${id}`);
+    }, lruTarget),
+  ]);
+  const repairUrl = smokePage.url();
+
+  // The drop is the observable boundary proving the initial full frame was
+  // actually lost. Only after that boundary may the loading affordance count
+  // as evidence for the blind-input interval.
+  await expect.poll(
+    () => readCounters(smokePage, lruTarget).then((counters) => counters.droppedFrames),
+    { timeout: 30_000, intervals: [25, 50, 100] },
+  ).toBe(repairBefore.droppedFrames + 1);
+  await expect(loadingStatus).toBeVisible();
+  await expect(loadingStatus).toHaveText("Loading terminal…");
+
+  const loadingAtInput = await smokePage.evaluate(async ({ id, frame }) => {
+    const status = document.querySelector('[data-testid="terminal-loading-status"]');
+    if (!(status instanceof HTMLElement)) return false;
+    const box = status.getBoundingClientRect();
+    const style = getComputedStyle(status);
+    const visiblyLoading = status.textContent === "Loading terminal…"
+      && box.width > 0
+      && box.height > 0
+      && style.display !== "none"
+      && style.visibility !== "hidden";
+    if (!visiblyLoading) return false;
+    await window.__smoke.input(id, frame);
+    return true;
+  }, {
+    id: lruTarget,
+    frame: encodePtyFixtureCommand({ op: "EMIT", text: repairTailMarker }),
+  });
+  expect(loadingAtInput).toBe(true);
+
+  // This geometric proof can resolve only after the automatic mount-repair full
+  // frame has reconciled the marker emitted through the still-live input lane.
+  await smokePage.evaluate(({ id, marker }) => {
+    return window.__smoke.waitForPaintedMarker(id, marker, 60_000);
+  }, { id: lruTarget, marker: repairTailMarker });
+  await expect(loadingStatus).toHaveCount(0);
+
+  const repairAfter = await readCounters(smokePage, lruTarget);
+  const documentSurvived = await smokePage.evaluate(({ key, value }) => {
+    return (document as unknown as Record<string, unknown>)[key] === value;
+  }, { key: documentCanaryKey, value: documentCanary });
+
   await publish(testInfo, {
     case: "bounded_deck",
     sessions_spawned: sessionIds.length,
@@ -274,8 +395,28 @@ test("the deck mounts a bounded number of panes @serial", async ({
     alternating_reveal_ms: revealSamples,
     alternating_reveal_p50_ms: p50,
     alternating_reveal_p95_ms: p95,
+    evicted_remount: {
+      session_id: lruTarget,
+      reveal_ms: ordinaryRevealMs,
+      cell_full_frame_delta: ordinaryAfter.fullFrames - ordinaryBefore.fullFrames,
+      scrollback_backfill_delta: ordinaryAfter.backfillRequests - ordinaryBefore.backfillRequests,
+      last_full_frame_sb_rows: ordinaryAfter.sbRows,
+    },
+    dropped_evicted_remount: {
+      session_id: lruTarget,
+      dropped_frame_delta: repairAfter.droppedFrames - repairBefore.droppedFrames,
+      cell_full_frame_delta: repairAfter.fullFrames - repairBefore.fullFrames,
+      scrollback_backfill_delta: repairAfter.backfillRequests - repairBefore.backfillRequests,
+      last_full_frame_sb_rows: repairAfter.sbRows,
+      document_survived: documentSurvived,
+      repair_url: repairUrl,
+    },
   });
 
-  expect(mountedSlots).toBeLessThanOrEqual(1 + DECK_WARM_LIMIT);
-  if (QUALIFY) expect(p95).toBeLessThanOrEqual(150);
+  expect(repairAfter.droppedFrames - repairBefore.droppedFrames).toBe(1);
+  expect(repairAfter.fullFrames - repairBefore.fullFrames).toBe(1);
+  expect(repairAfter.backfillRequests - repairBefore.backfillRequests).toBe(0);
+  expect(repairAfter.sbRows).toBe(0);
+  expect(documentSurvived).toBe(true);
+  expect(smokePage.url()).toBe(repairUrl);
 });
