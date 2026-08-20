@@ -198,6 +198,12 @@ function diagnosticClientSeq(clientSeq: bigint): number {
   );
 }
 
+/** The exact current ordered watermark, including a retained withdrawal.
+ * The JSON-safe viewer projection is capped and cannot supply ordering state. */
+export function currentViewerSeq(sessionId: string, viewerFp: string): bigint | null {
+  return _viewerStatesBySession.get(sessionId)?.get(viewerFp)?.clientSeq ?? null;
+}
+
 /** Provisionally apply viewer membership at the same ordered watermark as the
  * cell subscription. The mutation remains TTL-backed on an ambiguous worker
  * result; only a definite non-admission or matching typed rejection rolls it
@@ -238,9 +244,7 @@ export function mutateViewer(
 
   const effectiveClientSeq = clientSeq > 0n
     ? clientSeq
-    : subscribed
-      ? (prior?.clientSeq ?? -1n) + 1n
-      : (prior?.clientSeq ?? 0n);
+    : (prior?.clientSeq ?? -1n) + 1n;
   const now = Date.now();
   if (prior) clearViewerTimer(prior);
 

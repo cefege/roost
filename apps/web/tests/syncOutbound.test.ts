@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test, vi } from "bun:test";
+import { registerViewportRetryCases } from "./syncOutboundRebase.cases.ts";
 
 interface TestState {
   socketGeneration: number;
@@ -23,6 +24,20 @@ let state: TestState | null = {
 let controlHandler: ((control: TestOneof, state: TestState) => void) | null = null;
 let generationHandler: ((state: TestState | null) => void) | null = null;
 const sent: TestOneof[] = [];
+
+const VIEWPORT_STORAGE_KEY = "roost.sync-v2.viewport-intents";
+const sessionStorageValues = new Map<string, string>();
+Object.defineProperty(globalThis, "sessionStorage", {
+  configurable: true,
+  value: {
+    get length() { return sessionStorageValues.size; },
+    clear: () => sessionStorageValues.clear(),
+    getItem: (key: string) => sessionStorageValues.get(key) ?? null,
+    key: () => null,
+    removeItem: (key: string) => { sessionStorageValues.delete(key); },
+    setItem: (key: string, value: string) => { sessionStorageValues.set(key, value); },
+  } as Storage,
+});
 
 mock.module("../src/store/sync.ts", () => ({
   currentSyncV2TerminalState: () => state,
@@ -65,6 +80,14 @@ function viewportCommands(): TestOneof[] {
   return sent.filter((frame) => frame.case === "viewport");
 }
 
+function persistedViewportSequence(sessionId: string): string | undefined {
+  const records = JSON.parse(sessionStorageValues.get(VIEWPORT_STORAGE_KEY) ?? "[]") as Array<{
+    sessionId: string;
+    sequence: string;
+  }>;
+  return records.find((record) => record.sessionId === sessionId)?.sequence;
+}
+
 function acceptViewport(clientSeq: bigint, domainGeneration = state?.domainGeneration ?? 0n): void {
   emitControl({
     case: "viewportAccepted",
@@ -83,15 +106,16 @@ function failViewport(
   controlCase: "viewportRejected" | "viewportAmbiguous",
   clientSeq: bigint,
   reason = "injected failure",
-  domainGeneration = state?.domainGeneration ?? 0n,
+  options: { sequenceFloor?: bigint; domainGeneration?: bigint } = {},
 ): void {
   emitControl({
     case: controlCase,
     value: {
       sessionId: "s1",
       clientSeq,
-      domainGeneration,
+      domainGeneration: options.domainGeneration ?? state?.domainGeneration ?? 0n,
       reason,
+      ...(options.sequenceFloor === undefined ? {} : { sequenceFloor: options.sequenceFloor }),
     },
   });
 }
@@ -157,44 +181,16 @@ describe("Sync v2 terminal outbound", () => {
     expect(sent).toHaveLength(0);
   });
 
-  test("retries a same-generation rejection after the first bounded delay", async () => {
-    const owner = outbound.acquireTerminalViewportOwner("s1");
-    const admission = owner.claim({ cols: 120, rows: 40, cause: 1, heldCellSeq: 9n });
-    const firstSequence = viewportCommands()[0]?.value.clientSeq as bigint;
-
-    failViewport("viewportRejected", firstSequence, "keeper rejected resize");
-    vi.advanceTimersByTime(249);
-    expect(viewportCommands()).toHaveLength(1);
-    vi.advanceTimersByTime(1);
-    expect(viewportCommands()).toHaveLength(2);
-    const retrySequence = viewportCommands()[1]?.value.clientSeq as bigint;
-    expect(retrySequence).toBeGreaterThan(firstSequence);
-
-    acceptViewport(retrySequence);
-    expect(await admission.result).toMatchObject({ status: "accepted", sequence: retrySequence });
-  });
-
-  test("retries ambiguous outcomes forever with 250/500/1000/2000ms capped backoff", async () => {
-    const owner = outbound.acquireTerminalViewportOwner("s1");
-    const admission = owner.claim({ cols: 120, rows: 40, cause: 1, heldCellSeq: 1n });
-    const delays = [250, 500, 1_000, 2_000, 2_000];
-    let sequence = viewportCommands()[0]?.value.clientSeq as bigint;
-
-    for (const delay of delays) {
-      const commandCount = viewportCommands().length;
-      failViewport("viewportAmbiguous", sequence, "worker result unknown");
-      expect(outbound.terminalOutboundSnapshot("s1").claim.status).toBe("retrying");
-      vi.advanceTimersByTime(delay - 1);
-      expect(viewportCommands()).toHaveLength(commandCount);
-      vi.advanceTimersByTime(1);
-      expect(viewportCommands()).toHaveLength(commandCount + 1);
-      const nextSequence = viewportCommands().at(-1)?.value.clientSeq as bigint;
-      expect(nextSequence).toBeGreaterThan(sequence);
-      sequence = nextSequence;
-    }
-
-    acceptViewport(sequence);
-    expect(await admission.result).toMatchObject({ status: "accepted", sequence });
+  registerViewportRetryCases({
+    claim: () => outbound.acquireTerminalViewportOwner("s1")
+      .claim({ cols: 120, rows: 40, cause: 1, heldCellSeq: 9n }),
+    sequences: () => viewportCommands().map((command) => command.value.clientSeq as bigint),
+    fail: (kind, sequence, reason, sequenceFloor) =>
+      failViewport(kind, sequence, reason, { sequenceFloor }),
+    accept: acceptViewport,
+    snapshot: () => outbound.terminalOutboundSnapshot("s1").claim,
+    sequenceFloor: () => outbound.terminalOutboundSnapshot("s1").claim.sequence_floor,
+    persistedSequence: () => persistedViewportSequence("s1"),
   });
 
   test("turns a lost result into a retry only after the ten-second result deadline", () => {

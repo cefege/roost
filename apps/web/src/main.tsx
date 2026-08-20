@@ -11,6 +11,7 @@ import { loadAgentConfig } from "./lib/agents.ts";
 import { installSpaDiag, installSignalShip, markPhase } from "./lib/diag.ts";
 import { installLeakWatch } from "./lib/leakWatch.ts";
 import { applyTermFontSize } from "./lib/terminalFontPref.ts";
+import { claimTabIdentity } from "./auth/tab-id.ts";
 import "./lib/keyboardInset.ts"; // side effect: track soft-keyboard inset via --kb-offset
 import { diag, signal } from "@roost/shared/diag";
 import { effectiveAttempts, shouldReloadForChunkError } from "./lib/chunkError.ts";
@@ -136,6 +137,9 @@ window.addEventListener("pageshow", (e) => {
 async function mountApp(): Promise<void> {
   const root = document.getElementById("app");
   if (!root) throw new Error("no #app element");
+  // Browser tab duplication copies sessionStorage. Settle the document's
+  // unique identity before App can open any authenticated transport.
+  await claimTabIdentity();
   // Push the persisted terminal zoom onto the document BEFORE the first pane
   // measures its cell box, or that pane claims a viewport sized for 14px and
   // immediately re-claims when the preference lands.

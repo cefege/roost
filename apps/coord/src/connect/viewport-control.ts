@@ -11,10 +11,12 @@ import {
 import type { ConnectDeps } from "./router.ts";
 import { isBarrierRepairMarked } from "../byte-hub-barrier-repair.ts";
 import {
+  currentCellSubscriptionSeq,
   mutateCellSubscription,
   type CellSubscriptionMutation,
 } from "./cell-subscriptions.ts";
 import {
+  currentViewerSeq,
   mutateViewer,
   type ViewerMutation,
 } from "./viewer-tracker.ts";
@@ -66,6 +68,7 @@ export type ViewportControlResult =
       sessionId: string;
       clientSeq: bigint;
       reason: string;
+      sequenceFloor?: bigint;
     }
   | {
       status: "ambiguous";
@@ -91,11 +94,13 @@ export interface ViewportControlCommand {
 const viewportRejected = (
   command: Pick<ViewportControlCommand, "sessionId" | "clientSeq">,
   reason: string,
+  sequenceFloor?: bigint,
 ): ViewportControlResult => ({
   status: "rejected",
   sessionId: command.sessionId,
   clientSeq: command.clientSeq,
   reason: reason.slice(0, 200),
+  ...(sequenceFloor === undefined ? {} : { sequenceFloor }),
 });
 
 const viewportAmbiguous = (
@@ -177,7 +182,14 @@ export function processViewportControl(
           ) {
             return committed.result;
           }
-          return viewportRejected(command, "stale or conflicting viewport intent");
+          return viewportRejected(
+            command,
+            "stale or conflicting viewport intent",
+            currentCellSubscriptionSeq(
+              command.identity.viewerKey,
+              command.sessionId,
+            ) ?? undefined,
+          );
         }
 
         const effectiveClientSeq = cellMutation.effectiveClientSeq;
@@ -198,7 +210,14 @@ export function processViewportControl(
         ) {
           viewerMutation?.rollback();
           cellMutation.rollback();
-          return viewportRejected(command, "stale or conflicting viewer intent");
+          return viewportRejected(
+            command,
+            "stale or conflicting viewer intent",
+            currentViewerSeq(
+              command.sessionId,
+              command.identity.viewerKey,
+            ) ?? undefined,
+          );
         }
 
         const workerCall = sendTerminalViewportRequest(route.workerFp, {
@@ -255,6 +274,7 @@ export function processViewportControl(
             return viewportRejected(
               command,
               result.reason || "keeper rejected viewport",
+              result.sequenceFloor,
             );
           case TerminalViewportStatus.AMBIGUOUS:
             return viewportAmbiguous(

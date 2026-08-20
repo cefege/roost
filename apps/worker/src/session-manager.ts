@@ -53,11 +53,11 @@ export class SessionManager {
 	private readonly pendingSpawnSessionIds = new Set<SessionId>();
 	readonly workerFp: WorkerFp;
 	readonly sink: SessionEventSink;
-	// Per-channel viewport claims keyed by viewer fingerprint. Empty map
-	// entry kept until the channel is killed (cheap, ~24 bytes). PTY size
-	// recomputed on every claim/withdraw/reap; SIGWINCH only fires if the
-	// resulting SCD changes from the last applied size.
+	// Per-channel live viewport claims; retained sequence floors reject stale
+	// intents after withdrawal. Both maps live until the channel is killed.
+	// SCD geometry is recomputed on every claim, withdrawal, and reap.
 	viewportClaims = new Map<number, Map<string, ViewportClaim>>();
+	viewportSequenceFloors = new Map<number, Map<string, bigint>>();
 	// Monotonic accepted viewport intent epoch. Unlike resize sequence, this also
 	// advances for no-resize background/withdraw transitions, so maintenance
 	// redraws cannot overwrite newer browser ownership.

@@ -173,6 +173,7 @@ export function buildCoordLinkDeps(ctx: CoordLinkDepsCtx): CoordLinkDeps {
 						resized: false,
 						phase: TerminalWritePhase.PRE_WRITE,
 						reason: result.reason,
+						sequence_floor: result.sequenceFloor,
 					});
 					return;
 				case "ambiguous":

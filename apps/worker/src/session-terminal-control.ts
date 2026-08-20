@@ -38,7 +38,7 @@ export type WorkerInputResult =
 
 export type WorkerViewportResult =
   | { status: "committed"; channelResizeSeq: number; cols: number; rows: number; resized: boolean }
-  | { status: "rejected"; reason: string }
+  | { status: "rejected"; reason: string; sequenceFloor?: bigint }
   | { status: "ambiguous"; reason: string };
 
 export interface WorkerViewportIntent {

@@ -48,6 +48,7 @@ export type SyncTerminalResultControl =
         clientSeq: bigint;
         domainGeneration: bigint;
         reason: string;
+        sequenceFloor?: bigint;
       };
     }
   | {
@@ -146,6 +147,7 @@ export function makeSyncTerminalControlHooks(deps: ConnectDeps): SyncTerminalCon
                 clientSeq: result.clientSeq,
                 domainGeneration: command.domainGeneration,
                 reason: result.reason,
+                sequenceFloor: result.sequenceFloor,
               },
             });
           } else {

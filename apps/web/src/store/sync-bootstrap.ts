@@ -14,6 +14,7 @@ import type { SessionsListResponse } from "@roost/shared/proto/coordinator_pb";
 import { sessionFromProto } from "@roost/shared/wire/session-proto";
 import type { Worker, Session, Workspace, Task, PermissionRule, McpRelay } from "@roost/shared/wire";
 import { getPublicKeyB64, persistedWebKeyAtStartup } from "../auth/web-key.ts";
+import { claimTabIdentity } from "../auth/tab-id.ts";
 import { setRoutableFps } from "./sync-routable.ts";
 import { _startCoordHealthPoller } from "./sync-health.ts";
 import {
@@ -52,7 +53,6 @@ const SYNC_SUBSCRIBED_WAIT_MS = 3000;
 export { sessionsHydrated, terminalBootstrapStage, type TerminalBootstrapStage } from "./sync-hydrated.ts";
 
 // ─── self-register ────────────────────────────────────────────────────────────
-
 async function _attemptSelfRegister(): Promise<void> {
   markPhase("self_register_start");
   try {
@@ -82,14 +82,13 @@ async function _attemptSelfRegister(): Promise<void> {
 export function bootstrapSync(): void {
   if (synced) return;
   synced = true;
-  _startCoordHealthPoller();
   void _bootstrap();
   // Page-lifecycle resume is owned by store/sync.ts: one coalesced wake edge for
   // the one redial loop. Coord can be restarted while the tab sits idle, so the
   // same edge re-fetches coord_identity + workers — without it the SPA carries a
   // stale coord_identity.git_sha and the drift badge silently mis-reports until
   // the next full reload.
-  installSyncLifecycleWake(() => { void refreshCoordAndWorkers(); });
+  installSyncLifecycleWake(() => { void claimTabIdentity().then(() => refreshCoordAndWorkers()); });
 }
 
 /** Re-fetch coord identity + worker list and overwrite the relevant
@@ -191,7 +190,9 @@ function _scheduleBootstrapRetry(): void {
 }
 
 async function _bootstrap(): Promise<void> {
+  await claimTabIdentity();
   setTerminalBootstrapStage("identity");
+  _startCoordHealthPoller();
   const firstUseWebKey = !persistedWebKeyAtStartup;
   try {
     // Fragment credential redemption and identity remain the only serial

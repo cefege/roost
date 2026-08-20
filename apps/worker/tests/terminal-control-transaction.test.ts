@@ -319,7 +319,6 @@ describe("viewport transaction stages", () => {
     // Concurrent output during the whole exchange stays out of the old core.
     ptyOut(f.mgr, "new\r\n");
     expect(coreText(f.mgr)).toBe("old");
-
     f.keeper.resizeAck(CHANNEL_ID, 6, 100, 30);
     ptyOut(f.mgr, "tail\r\n");
     const result = await applied;
@@ -328,27 +327,41 @@ describe("viewport transaction stages", () => {
     expect(coreText(f.mgr)).toBe("old\nnew\ntail");
     const published = f.cells.at(-1)!;
     expect([published.cols, published.rows]).toEqual([100, 30]);
-
     f.keeper.inputAck(CHANNEL_ID, 9, 1);
     expect(await wrote).toEqual({ status: "accepted", writtenBytes: 1 });
   });
-
+  test("withdrawal retains the viewer sequence watermark", async () => {
+    const f = await fixture({ cols: 80, rows: 24, seed: "w" });
+    const first = f.mgr.applyTerminalViewport(claim({ clientSeq: 1n, cols: 100, rows: 30 }));
+    await settle();
+    f.keeper.resizeAck(CHANNEL_ID, 1, 100, 30);
+    expect((await first).status).toBe("committed");
+    expect((await f.mgr.applyTerminalViewport(claim({ clientSeq: 2n, cols: 0, rows: 0 }))).status).toBe("committed");
+    expect(await f.mgr.applyTerminalViewport(claim({ clientSeq: 1n, cols: 90, rows: 25 }))).toEqual({
+      status: "rejected",
+      reason: "stale viewport sequence",
+      sequenceFloor: 2n,
+    });
+    expect(await f.mgr.applyTerminalViewport(claim({ clientSeq: 2n, cols: 90, rows: 25 }))).toEqual({
+      status: "rejected",
+      reason: "conflicting viewport sequence",
+      sequenceFloor: 2n,
+    });
+    expect(f.keeper.seqOf(MuxFrameType.ResizeRequest)).toEqual([1]);
+  });
   test("a pre-mutation failure rejects and leaves no claim; a post-mutation failure is ambiguous", async () => {
     const f = await fixture({ cols: 80, rows: 24, seed: "x" });
     const first = f.mgr.applyTerminalViewport(claim({ clientSeq: 4n, cols: 100, rows: 30 }));
     await settle();
     f.keeper.resizeAck(CHANNEL_ID, 1, 100, 30);
     expect((await first).status).toBe("committed");
-
-    // Pre-mutation: a stale sequence is validated before anything mutates.
     const stale = await f.mgr.applyTerminalViewport(claim({ clientSeq: 3n, cols: 10, rows: 10 }));
-    expect(stale).toEqual({ status: "rejected", reason: "stale viewport sequence" });
+    expect(stale).toEqual({ status: "rejected", reason: "stale viewport sequence", sequenceFloor: 4n });
+    const conflicting = await f.mgr.applyTerminalViewport(claim({ clientSeq: 4n, cols: 10, rows: 10 }));
+    expect(conflicting).toEqual({ status: "rejected", reason: "conflicting viewport sequence", sequenceFloor: 4n });
     expect(f.mgr.viewportClaims.get(CHANNEL_ID)!.get(VIEWER)).toMatchObject({ cols: 100, rows: 30 });
     expect(f.keeper.seqOf(MuxFrameType.ResizeRequest)).toEqual([1]);
-
-    // Post-mutation: the claim is installed and the resize admitted, then the
-    // rebuild fails. The PTY may already be resized, so this can only be
-    // ambiguous — never a fabricated rejection.
+    // Once resize is admitted, a later rebuild failure is ambiguous.
     const rec = f.mgr.sessions.get(CHANNEL_ID)!;
     const applied = f.mgr.applyTerminalViewport(claim({ clientSeq: 5n, cols: 120, rows: 40 }));
     await settle();
@@ -358,15 +371,12 @@ describe("viewport transaction stages", () => {
     });
     f.keeper.resizeAck(CHANNEL_ID, 2, 120, 40);
     const result = await applied;
-
     expect(result.status).toBe("ambiguous");
     expect(result).toMatchObject({ reason: expect.stringContaining("injected post-mutation failure") });
-    // The claim the caller installed survives: nothing proved it wrong.
     expect(f.mgr.viewportClaims.get(CHANNEL_ID)!.get(VIEWER)).toMatchObject({ cols: 120, rows: 40 });
     expect(f.mgr.cellEmissionGates.has(CHANNEL_ID)).toBe(false);
     expect(f.mgr.resizeCaptures.has(CHANNEL_ID)).toBe(false);
   });
-
   test("a freshness reap and a typed claim cannot build two cores for one decision", async () => {
     const f = await fixture({ cols: 80, rows: 24, seed: "z" });
     // A stale claim that the reaper will exclude from the SCD, plus the live

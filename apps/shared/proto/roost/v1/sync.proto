@@ -162,6 +162,7 @@ message ViewportRejected {
   uint64 client_seq = 2;
   uint64 domain_generation = 3;
   string reason = 4;
+  optional uint64 sequence_floor = 5;
 }
 
 message ViewportAmbiguous {

@@ -256,7 +256,7 @@ export async function reconcileViewportNow(
   const rec = mgr.sessions.get(channelId);
   if (!rec) {
     // Session gone — drop leftovers so the maps cannot grow across spawn/kill.
-    mgr.viewportClaims.delete(channelId);
+    mgr.viewportClaims.delete(channelId); mgr.viewportSequenceFloors.delete(channelId);
     mgr.lastAppliedSize.delete(channelId);
     mgr.viewportIntentEpoch.delete(channelId);
     ticket.release();
@@ -304,18 +304,20 @@ export async function applyViewportNow(
     mgr.viewportClaims.set(channelId, claims);
   }
   const prior = claims.get(intent.viewerId);
-  const priorSeq = prior?.clientSeq ?? -1n;
+  let sequenceFloors = mgr.viewportSequenceFloors.get(channelId);
+  if (!sequenceFloors) mgr.viewportSequenceFloors.set(channelId, sequenceFloors = new Map());
+  const priorSeq = sequenceFloors.get(intent.viewerId) ?? prior?.clientSeq ?? -1n;
   const isBackground = intent.cause === BACKGROUND_CAUSE;
   const withdraw = !isBackground && (intent.cols <= 0 || intent.rows <= 0);
   if (intent.clientSeq < priorSeq) {
     ticket.release();
-    return { status: "rejected", reason: "stale viewport sequence" };
+    return { status: "rejected", reason: "stale viewport sequence", sequenceFloor: priorSeq };
   }
   if (intent.clientSeq === priorSeq) {
-    const equivalent = withdraw ? prior === undefined : prior?.cols === intent.cols && prior.rows === intent.rows;
+    const equivalent = withdraw ? prior === undefined : prior?.cols === intent.cols && prior?.rows === intent.rows;
     if (!equivalent) {
       ticket.release();
-      return { status: "rejected", reason: "conflicting viewport sequence" };
+      return { status: "rejected", reason: "conflicting viewport sequence", sequenceFloor: priorSeq };
     }
     ticket.release();
     if (prior) prior.lastMs = Date.now();
@@ -333,9 +335,7 @@ export async function applyViewportNow(
       resized: false,
     };
   }
-
-  // ── admitted ── the claim is installed; a definite rejection from here on
-  // requires proof that the PTY was never resized.
+  sequenceFloors.set(intent.viewerId, intent.clientSeq);
   const wasStreaming = claims.size > 0;
   const shouldSnapshot = !withdraw && needsClaimSnapshot(mgr, channelId, Number(intent.heldCellSeq), wasStreaming);
   const installed: ViewportClaim | null = withdraw ? null : {

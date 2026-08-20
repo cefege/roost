@@ -204,6 +204,17 @@ export function updateViewportSequence(
   persistViewportIntents();
 }
 
+/** Move the persisted sequence watermark forward without changing the live
+ * desired claim. The caller decides when that claim should be redispatched. */
+export function rebaseViewportSequenceFloor(session: ViewportSession, sequenceFloor: bigint): boolean {
+  if (sequenceFloor <= session.sequenceFloor) return false;
+  session.sequenceFloor = sequenceFloor;
+  session.sequenceUpdatedAt = Date.now();
+  trimViewportSessions(session.sessionId);
+  persistViewportIntents();
+  return true;
+}
+
 export function advanceViewportSequence(session: ViewportSession, desired: ViewportDesired): void {
   updateViewportSequence(session, desired, session.sequenceFloor + 1n);
 }

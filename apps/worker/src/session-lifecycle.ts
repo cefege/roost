@@ -187,12 +187,9 @@ export function _checkDeadBirth(this: SessionManager, rec: SessionRecord): void 
 	}
 }
 
-/** Remove all per-channel maps when a session closes. The legacy
- *  sites only deleted from `this.sessions`; the SCD viewport maps
- *  (viewportClaims + lastAppliedSize) leaked across spawn/kill
- *  churn. Per-call cost: 3 Map.delete. Called from every kill /
- *  closedByKeeper / spawn-failure cleanup site so the maps never
- *  carry channels that no longer exist. */
+/** Remove all per-channel state when a session closes. Legacy sites only
+ *  deleted `sessions`, leaking viewport claims, sequence floors, and resize
+ *  state across spawn/kill churn. Every close/failure path calls this owner. */
 export function _dropChannelState(this: SessionManager, channelId: number): void {
 	const rec = this.sessions.get(channelId);
 	if (rec) {
@@ -224,6 +221,7 @@ export function _dropChannelState(this: SessionManager, channelId: number): void
 		if (nowMs - at >= RECENTLY_CLOSED_TTL_MS) this.recentlyClosed.delete(ch);
 	}
 	this.viewportClaims.delete(channelId);
+	this.viewportSequenceFloors.delete(channelId);
 	this.viewportIntentEpoch.delete(channelId);
 	this.lastAppliedSize.delete(channelId);
 	this.terminalControlChains.delete(channelId);

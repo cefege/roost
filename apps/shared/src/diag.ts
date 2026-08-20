@@ -116,6 +116,7 @@ export type SignalKind =
   | "spa.uncaught"
   | "spa.chunk_reload"         // SPA self-healed a stale-chunk load after a redeploy (kv.msg,attempt). A BURST = deploys leaving tabs broken, or dist served inconsistently
   | "diag.corruption_signal"   // SPA anomaly detectors (kv.kind = the detector)
+  | "tab.duplicate_identity_rotated" // duplicated browser tab inherited sessionStorage identity; newcomer rotated before opening authenticated transports
   | "auth.key_evicted"
   | "auth.relogin_401"
   | "auth.pin_mismatch"

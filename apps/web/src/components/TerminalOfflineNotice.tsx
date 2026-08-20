@@ -33,6 +33,15 @@ export interface TerminalLoadingNoticeProps {
   actions?: JSX.Element;
 }
 
+const VIEWPORT_CONFLICT_DETAIL =
+  "Another terminal view changed this screen. Reconnecting automatically.";
+
+// Presentation only: retry control is driven by structured viewport results.
+function isStaleOrConflictingViewportReason(reason: string): boolean {
+  const normalized = reason.toLowerCase();
+  return normalized.includes("stale") || normalized.includes("conflicting");
+}
+
 export function terminalViewportLoadingNotice(
   pending: boolean,
   status: TerminalViewportOwnerStatus | null,
@@ -58,12 +67,18 @@ export function terminalViewportLoadingNotice(
         title: "Requesting terminal viewport",
         detail: "Waiting for the worker to accept this pane's size.",
       };
-    case "retrying":
+    case "retrying": {
+      const retryTiming = status.retryInMs <= 0
+        ? " Retrying now."
+        : ` Next attempt in ${Math.max(1, Math.ceil(status.retryInMs / 1000))}s.`;
       return {
         stage: "retry",
         title: "Retrying terminal viewport",
-        detail: `${status.reason.slice(0, 200)} Next attempt in ${Math.max(1, Math.ceil(status.retryInMs / 1000))}s.`,
+        detail: isStaleOrConflictingViewportReason(status.reason)
+          ? `${VIEWPORT_CONFLICT_DETAIL}${retryTiming}`
+          : `${status.reason.slice(0, 200)}${retryTiming}`,
       };
+    }
     case "repairing":
       return {
         stage: "frame",
@@ -81,7 +96,9 @@ export function terminalViewportLoadingNotice(
       return {
         stage: "retry",
         title: "Re-establishing terminal viewport",
-        detail: `${status.reason.slice(0, 200)} Re-establishing the viewport.`,
+        detail: isStaleOrConflictingViewportReason(status.reason)
+          ? VIEWPORT_CONFLICT_DETAIL
+          : `${status.reason.slice(0, 200)} Re-establishing the viewport.`,
       };
   }
   const unreachable: never = status;

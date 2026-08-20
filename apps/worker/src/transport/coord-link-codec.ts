@@ -54,6 +54,7 @@ export function frameToProto(f: UpstreamFrame): CoordWorkerUp | null {
         resized: f.resized,
         reason: f.reason ?? "",
         phase: f.phase,
+        sequenceFloor: f.sequence_floor,
       })}});
     case "transfer-line":
       return create(CoordWorkerUpSchema, { frame: { case: "transferLine", value: create(WTransferLineSchema, {

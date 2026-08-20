@@ -418,7 +418,6 @@ describe("per-tab viewer identity — resize and cursor presence", () => {
       sessionId: sid, cols: 80, rows: 24,
       clientSeq: 1n, cause: ResizeCause.INITIAL,
     });
-
     __setConnectWorkerForTest(FAKE_WORKER_FP, null);
     try {
       const rejected = await rejectSyncViewport(tabId, {
@@ -429,7 +428,6 @@ describe("per-tab viewer identity — resize and cursor presence", () => {
     } finally {
       attachAcknowledgingWorker();
     }
-
     expect(isSubscribed(viewerKey, sid)).toBe(true);
     expect(_viewersBySession.get(sid)?.has(viewerKey)).toBe(true);
   });
@@ -455,17 +453,18 @@ describe("per-tab viewer identity — resize and cursor presence", () => {
           status: TerminalViewportStatus.REJECTED,
           phase: TerminalWritePhase.PRE_WRITE,
           reason: "keeper declined viewport",
+          sequenceFloor: 42n,
         }));
       }
       return 1;
     });
-
     try {
       const rejected = await rejectSyncViewport(tabId, {
         sessionId: sid, cols: 80, rows: 24,
         clientSeq: 41n, cause: ResizeCause.INITIAL,
       });
       expect(rejected.reason).toBe("keeper declined viewport");
+      expect(rejected.sequenceFloor).toBe(42n);
       expect(isSubscribed(viewerKey, sid)).toBe(false);
       expect(_viewersBySession.get(sid)?.has(viewerKey) ?? false).toBe(false);
     } finally {
@@ -588,6 +587,7 @@ describe("per-tab viewer identity — resize and cursor presence", () => {
         clientSeq: 70n, cause: ResizeCause.INITIAL,
       });
       expect(staleReplay.reason).toMatch(/stale|conflicting/);
+      expect(staleReplay.sequenceFloor).toBe(71n);
       expect(viewportRequests()).toHaveLength(1);
       expect(isSubscribed(viewerKey, sid)).toBe(false);
     } finally {
@@ -828,15 +828,15 @@ describe("per-tab viewer identity — resize and cursor presence", () => {
       sessionId: sid, cols: 82, rows: 26,
       clientSeq: 81n, cause: ResizeCause.VIEWPORT,
     });
-    // A zero-sequence withdraw preserves the effective watermark because the
-    // worker removes the claim before inspecting client_seq.
+    // Every zero-sequence compatibility command receives a fresh coordinator
+    // watermark, including withdrawal now that the worker retains its floor.
     await acceptSyncViewport(tabId, {
       sessionId: sid, cols: 0, rows: 0,
       clientSeq: 0n, cause: ResizeCause.WITHDRAW,
     });
     await acceptSyncViewport(tabId, {
       sessionId: sid, cols: 83, rows: 27,
-      clientSeq: 82n, cause: ResizeCause.TAB_VISIBLE,
+      clientSeq: 0n, cause: ResizeCause.TAB_VISIBLE,
     });
 
     const sentResizes = viewportRequests().map((request) => ({
@@ -847,8 +847,8 @@ describe("per-tab viewer identity — resize and cursor presence", () => {
     expect(sentResizes).toEqual([
       { clientSeq: 80n, cols: 80, rows: 24 },
       { clientSeq: 81n, cols: 81, rows: 25 },
-      { clientSeq: 81n, cols: 0, rows: 0 },
-      { clientSeq: 82n, cols: 83, rows: 27 },
+      { clientSeq: 82n, cols: 0, rows: 0 },
+      { clientSeq: 83n, cols: 83, rows: 27 },
     ]);
     expect(isSubscribed(viewerKey, sid)).toBe(true);
   });

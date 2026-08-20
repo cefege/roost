@@ -120,6 +120,7 @@ message WViewportResult {
   bool resized = 8;
   string reason = 9;
   TerminalWritePhase phase = 10;
+  optional uint64 sequence_floor = 11;
 }
 
 

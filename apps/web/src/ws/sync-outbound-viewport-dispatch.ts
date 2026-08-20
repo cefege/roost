@@ -28,6 +28,7 @@ import {
   emitViewportStatus,
   existingViewportSession,
   isCurrentViewportSession,
+  rebaseViewportSequenceFloor,
   settleViewportDesired,
   viewportSession,
 } from "./sync-outbound-viewport-registry.ts";
@@ -41,6 +42,7 @@ import type {
 const VIEWPORT_RESULT_TIMEOUT_MS = 10_000;
 const VIEWPORT_RETRY_DELAYS_MS = [250, 500, 1_000, 2_000] as const;
 export const VIEWPORT_REPAIR_TIMEOUT_MS = 3_000;
+const equalFloorImmediateRetries = new WeakSet<ViewportDesired>();
 
 type TerminalState = SyncV2TerminalState;
 type OutboundCommand = Parameters<typeof sendSyncV2Command>[0];
@@ -111,15 +113,22 @@ export function finishViewportReady(session: ViewportSession, desired: ViewportD
   settleViewportDesired(session, outcome);
 }
 
-export function scheduleViewportRetry(session: ViewportSession, desired: ViewportDesired, reason: string): void {
+export function scheduleViewportRetry(
+  session: ViewportSession,
+  desired: ViewportDesired,
+  reason: string,
+  mode: "backoff" | "immediate" = "backoff",
+): void {
   if (session.desired !== desired) return;
   clearViewportAttempt(session);
   clearViewportRetry(session);
   desired.needsSequenceAdvance = true;
-  const retryInMs = VIEWPORT_RETRY_DELAYS_MS[
-    Math.min(desired.retryCount, VIEWPORT_RETRY_DELAYS_MS.length - 1)
-  ]!;
-  desired.retryCount += 1;
+  const retryInMs = mode === "immediate"
+    ? 0
+    : VIEWPORT_RETRY_DELAYS_MS[
+      Math.min(desired.retryCount, VIEWPORT_RETRY_DELAYS_MS.length - 1)
+    ]!;
+  if (mode === "backoff") desired.retryCount += 1;
   session.retryAt = Date.now() + retryInMs;
   session.retryReason = boundedViewportReason(reason);
   const failedSync = currentSyncV2TerminalState();
@@ -267,6 +276,17 @@ export function handleViewportControl(control: ResultControl, state: TerminalSta
   const reason = control.case === "viewportRejected"
     ? `viewport rejected: ${control.value.reason}`
     : `viewport outcome ambiguous: ${control.value.reason}`;
+  if (control.case === "viewportRejected"
+    && control.value.sequenceFloor !== undefined) {
+    const sequenceFloor = control.value.sequenceFloor;
+    const floorAdvanced = rebaseViewportSequenceFloor(session, sequenceFloor);
+    const equalFloor = sequenceFloor === desired.sequence;
+    if (floorAdvanced || (equalFloor && !equalFloorImmediateRetries.has(desired))) {
+      if (equalFloor) equalFloorImmediateRetries.add(desired);
+      scheduleViewportRetry(session, desired, reason, "immediate");
+      return true;
+    }
+  }
   scheduleViewportRetry(session, desired, reason);
   return true;
 }

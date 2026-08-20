@@ -1,5 +1,6 @@
 import { test, expect } from "./fixtures.ts";
 import { fixturePath, waitForStableCellFrames } from "./terminal-helpers.ts";
+import { readTerminalStreamProbe } from "./terminal-probe-helpers.ts";
 
 test("trusted keyboard input and bottom-follow behavior", async ({ smokePage, stack }) => {
   const sessionId = await smokePage.evaluate(async (workerFp) => {
@@ -232,5 +233,143 @@ test("two viewers preserve ordered terminal markers", async ({ smokePage, browse
     await smokePage.evaluate(() => (window as unknown as Window & { __smoke: { forceVisible(on: boolean): void } }).__smoke.forceVisible(false)).catch(() => undefined);
     await passive.evaluate(() => (window as unknown as Window & { __smoke: { forceVisible(on: boolean): void } }).__smoke.forceVisible(false)).catch(() => undefined);
     await passiveContext.close();
+  }
+});
+
+test("duplicated tab rotates identity and adopts its final resize", async ({ smokePage, stack }) => {
+  test.setTimeout(120_000);
+  const sessionId = await smokePage.evaluate(async (workerFp) => {
+    const smoke = (window as unknown as Window & {
+      __smoke: { spawnShell(worker: string, folder: string): Promise<{ session_id: string }> };
+    }).__smoke;
+    return (await smoke.spawnShell(workerFp, "/tmp")).session_id;
+  }, stack.workerFp);
+  await smokePage.goto(`${stack.baseUrl}/s/${sessionId}`);
+  await expect(smokePage.getByTestId(`terminal-slot-${sessionId}`)).toBeVisible();
+  await smokePage.evaluate(() => {
+    (window as unknown as Window & { __smoke: { forceVisible(on: boolean): void } })
+      .__smoke.forceVisible(true);
+  });
+  await expect.poll(async () => {
+    const claim = (await readTerminalStreamProbe(smokePage, sessionId)).browser.claim;
+    return {
+      status: claim.status,
+      desired: claim.desired !== null,
+      confirmed: claim.confirmed !== null,
+    };
+  }, { timeout: 30_000, intervals: [50, 100, 250] }).toEqual({
+    status: "ready",
+    desired: true,
+    confirmed: true,
+  });
+
+  const firstTabId = await smokePage.evaluate(() => sessionStorage.getItem("roost.tabId"));
+  if (!firstTabId) throw new Error("primary tab did not persist roost.tabId");
+  const copiedStorage = await smokePage.evaluate(() => Array.from(
+    { length: sessionStorage.length },
+    (_, index) => {
+      const key = sessionStorage.key(index);
+      return key === null ? null : [key, sessionStorage.getItem(key) ?? ""] as [string, string];
+    },
+  ).filter((entry): entry is [string, string] => entry !== null));
+  const copied = new Map(copiedStorage);
+  expect(copied.get("roost.tabId")).toBe(firstTabId);
+  expect(copied.has("roost.sync-v2.viewport-intents")).toBe(true);
+
+  const duplicate = await smokePage.context().newPage();
+  await duplicate.setViewportSize({ width: 1200, height: 800 });
+  await duplicate.addInitScript((entries: Array<[string, string]>) => {
+    for (const [key, value] of entries) sessionStorage.setItem(key, value);
+  }, copiedStorage);
+  try {
+    await duplicate.goto(`${stack.baseUrl}/s/${sessionId}`);
+    await duplicate.waitForFunction(
+      () => typeof (window as unknown as Window & { __smoke?: unknown }).__smoke === "object",
+    );
+    await duplicate.evaluate(() => {
+      (window as unknown as Window & { __smoke: { forceVisible(on: boolean): void } })
+        .__smoke.forceVisible(true);
+    });
+    await expect(duplicate.getByTestId(`terminal-slot-${sessionId}`)).toBeVisible();
+    await expect.poll(
+      () => duplicate.evaluate(() => sessionStorage.getItem("roost.tabId")),
+      { timeout: 10_000, intervals: [20, 50, 100] },
+    ).not.toBe(firstTabId);
+    expect(await smokePage.evaluate(() => sessionStorage.getItem("roost.tabId")))
+      .toBe(firstTabId);
+
+    await expect.poll(async () => {
+      const claim = (await readTerminalStreamProbe(duplicate, sessionId)).browser.claim;
+      return {
+        status: claim.status,
+        desired: claim.desired !== null,
+        confirmed: claim.confirmed !== null,
+      };
+    }, { timeout: 30_000, intervals: [50, 100, 250] }).toEqual({
+      status: "ready",
+      desired: true,
+      confirmed: true,
+    });
+    const beforeResize = await readTerminalStreamProbe(duplicate, sessionId);
+    const beforeDesired = beforeResize.browser.claim.desired;
+    const beforeConfirmed = beforeResize.browser.claim.confirmed;
+    if (!beforeDesired || !beforeConfirmed) {
+      throw new Error("duplicate tab never confirmed its bootstrap viewport");
+    }
+
+    await duplicate.setViewportSize({ width: 720, height: 500 });
+    await expect.poll(async () => {
+      const claim = (await readTerminalStreamProbe(duplicate, sessionId)).browser.claim;
+      const desired = claim.desired;
+      const confirmed = claim.confirmed;
+      return {
+        dimensionsConverged: desired !== null
+          && confirmed !== null
+          && desired.cols === confirmed.effective_cols
+          && desired.rows === confirmed.effective_rows,
+        smaller: desired !== null
+          && desired.cols < beforeDesired.cols
+          && desired.rows < beforeDesired.rows,
+        sameSequence: desired?.client_seq === confirmed?.client_seq,
+        newer: desired !== null
+          && BigInt(desired.client_seq) > BigInt(beforeConfirmed.client_seq),
+      };
+    }, { timeout: 30_000, intervals: [50, 100, 250] }).toEqual({
+      dimensionsConverged: true,
+      smaller: true,
+      sameSequence: true,
+      newer: true,
+    });
+
+    const finalProbe = await readTerminalStreamProbe(duplicate, sessionId);
+    const confirmed = finalProbe.browser.claim.confirmed;
+    if (!confirmed) throw new Error("duplicate tab lost its confirmed final viewport");
+    const marker = `DUP_RESIZE_${crypto.randomUUID().replace(/-/g, "").slice(0, 8)}`;
+    await duplicate.getByTestId(`terminal-slot-${sessionId}`).click();
+    await duplicate.keyboard.type(`printf '${marker} '; stty size`);
+    await duplicate.keyboard.press("Enter");
+    await expect.poll(async () => duplicate.evaluate(({ id, prefix }) => {
+      const smoke = (window as unknown as Window & {
+        __smoke: { viewportText(sessionId: string): string };
+      }).__smoke;
+      const matches = [...smoke.viewportText(id).matchAll(
+        new RegExp(`${prefix} (\\d+) (\\d+)`, "g"),
+      )];
+      const match = matches.at(-1);
+      return match ? [Number(match[1]), Number(match[2])] : null;
+    }, { id: sessionId, prefix: marker }), {
+      timeout: 30_000,
+      intervals: [50, 100, 250],
+    }).toEqual([confirmed.effective_rows, confirmed.effective_cols]);
+  } finally {
+    await duplicate.evaluate(() => {
+      (window as unknown as Window & { __smoke: { forceVisible(on: boolean): void } })
+        .__smoke.forceVisible(false);
+    }).catch(() => undefined);
+    await duplicate.close();
+    await smokePage.evaluate(() => {
+      (window as unknown as Window & { __smoke: { forceVisible(on: boolean): void } })
+        .__smoke.forceVisible(false);
+    }).catch(() => undefined);
   }
 });

@@ -56,15 +56,12 @@ export function mutateCellSubscription(
 	}
 
 	// Legacy claims remain arrival-ordered, but the coordinator owns the
-	// synthesized watermark and forwards it to the worker. A legacy withdraw
-	// preserves the prior watermark because the worker withdraw path removes the
-	// claim before inspecting client_seq; advancing only here would suppress the
-	// next ordered reclaim that the worker would accept.
+	// synthesized watermark and forwards it to the worker. Every legacy intent,
+	// including a withdraw, advances that watermark: the worker retains sequence
+	// floors across withdrawal and therefore accepts only a newer reclaim.
 	const effectiveClientSeq = clientSeq > 0n
 		? clientSeq
-		: subscribed
-			? (prior?.clientSeq ?? -1n) + 1n
-			: (prior?.clientSeq ?? 0n);
+		: (prior?.clientSeq ?? -1n) + 1n;
 	let sessions = _sessionsByViewer.get(viewerKey);
 	if (!sessions) {
 		sessions = new Map();
@@ -112,6 +109,12 @@ export function subscribeCells(
 export function subscribedCellSeq(viewerKey: string, sessionId: string): bigint | null {
 	const entry = _sessionsByViewer.get(viewerKey)?.get(sessionId);
 	return entry?.subscribed === true ? entry.clientSeq : null;
+}
+
+/** The current ordered watermark, including a retained withdrawn claim. */
+export function currentCellSubscriptionSeq(viewerKey: string, sessionId: string): bigint | null {
+	const entry = _sessionsByViewer.get(viewerKey)?.get(sessionId);
+	return entry?.clientSeq ?? null;
 }
 
 export function unsubscribeCells(

@@ -143,6 +143,7 @@ export type UpstreamFrame =
       resized: boolean;
       phase: TerminalWritePhase;
       reason?: string;
+      sequence_floor?: bigint;
     }
   | { kind: "transfer-line"; job_id: string; text: string }
   | { kind: "transfer-done"; job_id: string; exit: number | null; error?: string }
