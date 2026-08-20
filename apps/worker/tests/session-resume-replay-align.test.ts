@@ -66,7 +66,6 @@ async function resumeWith(opts: {
   baseRows?: number;
   liveOutput?: Uint8Array;
   liveExit?: number;
-  expectedResumed?: boolean;
 }): Promise<Fixture> {
   // Before the manager: its constructor dials the pool, and a real keeper
   // adopted by that dial would replace the fake socket mid-test.
@@ -115,7 +114,7 @@ async function resumeWith(opts: {
     cwd: "/",
     shellSpec: SHELL_SPEC,
   });
-  expect(resumed).toBe(opts.expectedResumed ?? true);
+  expect(resumed).toBe(true);
 
   const fixture: Fixture = {
     mgr,
@@ -159,7 +158,6 @@ function coreText(mgr: SessionManager): string {
       records: [],
       headSeq: 0,
       liveExit: 17,
-      expectedResumed: false,
     });
 
     expect(f.mgr.sessions.has(CHANNEL_ID)).toBe(false);

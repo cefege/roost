@@ -250,7 +250,9 @@ export async function resume(this: SessionManager, opts: {
 		// socket callback between this swap and the synchronous flush.
 		pool.reattach(opts.channelId, liveCallbacks);
 		flushResumeEvents(liveCallbacks, pendingEvents);
-		if (!this.sessions.has(opts.channelId)) return false;
+		// The survivor was found and its real exit was delivered. Report the
+		// reconciliation as handled so boot-reconcile does not respawn it.
+		if (!this.sessions.has(opts.channelId)) return true;
 		if (historyEvicted) {
 			// Eviction makes the retained resize maximum only a lower sequence bound.
 			this.resizeFloorInvalid.add(opts.channelId);
