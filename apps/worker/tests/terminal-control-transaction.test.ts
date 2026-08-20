@@ -478,7 +478,7 @@ describe("viewport transaction stages", () => {
     expect([published.cols, published.rows]).toEqual([100, 30]);
   });
 
-  test("resume redraw reserves admission before a queued viewport", async () => {
+  test("a delayed resume nudge does not park input behind its unused restore", async () => {
     const f = await fixture({
       cols: 80,
       rows: 24,
@@ -487,6 +487,7 @@ describe("viewport transaction stages", () => {
         if (
           write.type === MuxFrameType.ResizeRequest &&
           write.seq !== null &&
+          write.seq > 1 &&
           write.cols !== null &&
           write.rows !== null
         ) {
@@ -495,22 +496,34 @@ describe("viewport transaction stages", () => {
       },
     });
     const redraw = redrawEvictedResume(f.mgr, CHANNEL_ID, 80, 24);
-    const viewport = f.mgr.applyTerminalViewport(
-      claim({ clientSeq: 1n, cols: 100, rows: 30 }),
+    expect(await f.keeper.waitForWrite(MuxFrameType.ResizeRequest))
+      .toMatchObject({ seq: 1, cols: 80, rows: 23 });
+    // The nudge ACK is deliberately withheld. Its write already established the
+    // ordering boundary, so input must reach the keeper before restore exists.
+    const input = f.mgr.writeTerminalInput(
+      SESSION_ID,
+      1n,
+      new TextEncoder().encode("q"),
     );
-    // Both calls are made in one turn. The redraw owns the control lane, so its
-    // admission tickets must already precede the viewport's ticket; acquiring
-    // them inside the queued callback leaves each lane waiting on the other.
+    expect(await f.keeper.waitForWrite(MuxFrameType.PtyInRequest))
+      .toMatchObject({ seq: 1 });
+    f.keeper.inputAck(CHANNEL_ID, 1, 1);
+    expect(await input).toEqual({ status: "accepted", writtenBytes: 1 });
+    expect(f.keeper.seqOf(MuxFrameType.ResizeRequest)).toEqual([1]);
+    f.keeper.resizeAck(CHANNEL_ID, 1, 80, 23);
     expect(await redraw).toMatchObject({
       nudge: { status: "committed", resizeSeq: 1 },
       restore: { status: "committed", resizeSeq: 2 },
     });
+    const viewport = f.mgr.applyTerminalViewport(
+      claim({ clientSeq: 1n, cols: 100, rows: 30 }),
+    );
     expect(await viewport).toMatchObject({ status: "committed", cols: 100, rows: 30 });
-    expect(f.keeper.writes.filter((write) => write.type === MuxFrameType.ResizeRequest))
-      .toMatchObject([
-        { seq: 1, cols: 80, rows: 23 },
-        { seq: 2, cols: 80, rows: 24 },
-        { seq: 3, cols: 100, rows: 30 },
-      ]);
+    expect(f.keeper.order()).toEqual([
+      "ResizeRequest",
+      "PtyInRequest",
+      "ResizeRequest",
+      "ResizeRequest",
+    ]);
   });
 });

@@ -190,10 +190,13 @@ async function settleResumeRedraw(
   }
 }
 
-/** Keep one control owner across both rebuilds. Both admission tickets are
- * reserved before the control lane, matching ordinary viewport receipt order:
- * otherwise a viewport can hold the next admission ticket while waiting behind
- * this redraw, and the redraw can wait forever for that ticket. */
+/** Redraw an evicted resume in two control transactions. The nudge reserves its
+ * write before entering the control lane, then releases admission at the write
+ * boundary like every viewport resize. Only after its ACK/rebuild settles do we
+ * reserve and queue the restore, so PTY input is never parked behind an unused
+ * second ticket. A viewport received during the nudge runs before the restore;
+ * its newer resize is already the authoritative restoration and must not be
+ * overwritten with the stale pre-resume geometry. */
 export function redrawEvictedResume(
   mgr: SessionManager,
   channelId: number,
@@ -201,17 +204,44 @@ export function redrawEvictedResume(
   rows: number,
 ): Promise<ResumeRedrawRecovery> {
   const nudgeTicket = acquireKeeperAdmission(mgr, channelId, "resume_resize");
-  const restoreTicket = acquireKeeperAdmission(mgr, channelId, "resume_resize");
-  const operation = enqueueTerminalControl(mgr, channelId, "resume_redraw", async () => {
-    const nudgeRows = rows > 1 ? rows - 1 : rows + 1;
-    const nudge = await settleResumeRedraw(mgr, channelId, nudgeTicket, cols, nudgeRows);
-    const restore = await settleResumeRedraw(mgr, channelId, restoreTicket, cols, rows);
-    return { nudge, restore };
-  });
-  return operation.catch((error) => {
+  const nudgeRows = rows > 1 ? rows - 1 : rows + 1;
+  const nudgeOperation = enqueueTerminalControl(
+    mgr,
+    channelId,
+    "resume_redraw",
+    () => settleResumeRedraw(mgr, channelId, nudgeTicket, cols, nudgeRows),
+  ).catch((error) => {
     nudgeTicket.release();
-    restoreTicket.release();
     throw error;
+  });
+  return nudgeOperation.then(async (nudge) => {
+    const restoreTicket = acquireKeeperAdmission(mgr, channelId, "resume_resize");
+    const restoreOperation = enqueueTerminalControl(
+      mgr,
+      channelId,
+      "resume_redraw",
+      async () => {
+        if (!mgr.sessions.has(channelId)) {
+          restoreTicket.release();
+          return {
+            status: "rejected",
+            resizeSeq: mgr.channelResizeSeq.get(channelId) ?? 0,
+            reason: "session is not live",
+          } satisfies ResumeRedrawResult;
+        }
+        const currentSeq = mgr.channelResizeSeq.get(channelId) ?? 0;
+        if (currentSeq !== nudge.resizeSeq) {
+          restoreTicket.release();
+          return { status: "committed", resizeSeq: currentSeq } satisfies ResumeRedrawResult;
+        }
+        return settleResumeRedraw(mgr, channelId, restoreTicket, cols, rows);
+      },
+    ).catch((error) => {
+      restoreTicket.release();
+      throw error;
+    });
+    const restore = await restoreOperation;
+    return { nudge, restore };
   });
 }
 
