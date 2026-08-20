@@ -1,5 +1,6 @@
 import { test, expect } from "./fixtures.ts";
 import type { RecoverySmokeApi } from "./terminal-smoke-api.ts";
+import { ResizeCause } from "../../apps/shared/src/gen/roost/v1/coordinator_pb.ts";
 import {
   spawnSmokeShell,
   navigateToSmokeSession,
@@ -7,11 +8,13 @@ import {
   setRecoveryCanary,
   recoveryProbe,
 } from "./terminal-helpers.ts";
+import { readTerminalStreamProbe } from "./terminal-probe-helpers.ts";
 
-// Returning to an already-open pane keeps the Sync socket and reclaims an
-// authoritative snapshot ONLY when the grid moved while it was away. Hidden and
-// offscreen panes must receive no cells either way.
-test("a dormant pane reclaims only when its grid moved, and never re-dials Sync", async ({ smokePage, stack }, testInfo) => {
+// Returning to a current warm pane is a frame-free visibility flip that keeps
+// the Sync socket. A document visibility return instead reclaims one
+// authoritative snapshot when the hidden grid moved; stale-link resume may
+// reconnect Sync while doing so. Hidden and offscreen panes receive no cells.
+test("a dormant pane stays frame-free on deck reveal and repairs document return", async ({ smokePage, stack }, testInfo) => {
   test.skip(!testInfo.project.name.startsWith("chromium"), "desktop deck/visibility contract");
   const spawn = (folder: string) => smokePage.evaluate(async ({ workerFp, dir }) => {
     const smoke = (window as unknown as Window & {
@@ -90,9 +93,10 @@ test("a dormant pane reclaims only when its grid moved, and never re-dials Sync"
     wsGeneration: beforeSwitch.wsGeneration,
   });
 
-  // Deterministic hidden pin: the page stays schedulable while lifecycle
-  // handlers withdraw A. Output advances at the PTY but no cell reaches the
-  // browser until visibility returns and one authoritative snapshot reclaims it.
+  // Deterministic document-hidden pin: the page stays schedulable while
+  // lifecycle handlers withdraw A. Output advances at the PTY but no cell
+  // reaches the browser until visibility returns and one authoritative
+  // snapshot reclaims it. Stale-link resume may reconnect Sync on that return.
   const beforeHide = await probe();
   await smokePage.evaluate(() => {
     const smoke = (window as unknown as Window & { __smoke: { forceHidden(on: boolean): void } }).__smoke;
@@ -122,8 +126,242 @@ test("a dormant pane reclaims only when its grid moved, and never re-dials Sync"
     duplicated: [],
     outOfOrder: 0,
     fullFrames: beforeHide.fullFrames + 1,
-    wsGeneration: beforeHide.wsGeneration,
   });
+});
+
+test("an already-painted active pane repairs on a same-session document visibility return", async ({
+  smokePage,
+  stack,
+}, testInfo) => {
+  test.skip(!testInfo.project.name.startsWith("chromium"), "desktop document visibility contract");
+  test.setTimeout(120_000);
+
+  const suffix = crypto.randomUUID().replaceAll("-", "").slice(0, 12);
+  const originalMarker = `DOC-VIS-ORIGINAL-${suffix}`;
+  const newMarker = `DOC-VIS-NEW-${suffix}`;
+  const sessionId = (await spawnSmokeShell(smokePage, stack.workerFp)).session_id;
+  await navigateToSmokeSession(smokePage, sessionId);
+
+  const slot = smokePage.getByTestId(`terminal-slot-${sessionId}`);
+  const loadingStatus = smokePage.getByTestId("terminal-loading-status");
+  const readCounters = () => smokePage.evaluate((id) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    const smoke = smokeWindow.__smoke;
+    return {
+      fullFrames: smoke.cellFullFrameCount(id),
+      backfills: smoke.scrollbackBackfillRequestCount(id),
+      lastFullFrameSbRows: smoke.lastFullFrameSbRows(id),
+    };
+  }, sessionId);
+
+  await expect(slot).toBeVisible();
+  const originalPaint = await smokePage.evaluate(async ({ id, marker }) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    const smoke = smokeWindow.__smoke;
+    await smoke.input(id, `printf '%s\\n' ${marker}\\r`);
+    return smoke.waitForPaintedMarker(id, marker, 15_000);
+  }, { id: sessionId, marker: originalMarker });
+  expect(originalPaint).toMatchObject({
+    proof_kind: "marker",
+    marker: originalMarker,
+    frames: 2,
+  });
+  await expect.poll(async () => {
+    const browser = (await readTerminalStreamProbe(smokePage, sessionId)).browser;
+    const desired = browser.claim.desired;
+    return {
+      positive: (desired?.cols ?? 0) > 0 && (desired?.rows ?? 0) > 0,
+      ready: browser.claim.status === "ready"
+        && browser.claim.confirmed?.client_seq === desired?.client_seq,
+      inLayout: browser.slot.in_layout,
+      surfaceActive: browser.slot.surface_active,
+    };
+  }, { timeout: 15_000, intervals: [50, 100, 250] }).toEqual({
+    positive: true,
+    ready: true,
+    inLayout: true,
+    surfaceActive: true,
+  });
+
+  const before = await readCounters();
+  const beforeProbe = await readTerminalStreamProbe(smokePage, sessionId);
+  const beforeDesired = beforeProbe.browser.claim.desired;
+  if (!beforeDesired) throw new Error("painted terminal omitted its positive viewport claim");
+  expect(beforeProbe.browser.handler_canonical).toEqual(beforeProbe.browser.dom_reconciled);
+  await expect(loadingStatus).toHaveCount(0);
+
+  const initialUrl = smokePage.url();
+  const documentCanaryKey = `__roostDocumentVisibility_${suffix}`;
+  const slotCanaryKey = `__roostSlotVisibility_${suffix}`;
+  const canary = `visibility-${suffix}`;
+  await smokePage.evaluate(({ id, documentKey, slotKey, value }) => {
+    const liveSlot = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
+    if (!(liveSlot instanceof HTMLElement)) throw new Error("active terminal slot disappeared before visibility round-trip");
+    const runtime = {
+      value,
+      slot: liveSlot,
+      loadingSeen: document.querySelector('[data-testid="terminal-loading-status"]') !== null,
+      observer: null as MutationObserver | null,
+    };
+    const isLoadingNode = (node: Node): boolean => node instanceof Element
+      && (node.matches('[data-testid="terminal-loading-status"]')
+        || node.querySelector('[data-testid="terminal-loading-status"]') !== null);
+    runtime.observer = new MutationObserver((records) => {
+      if (records.some((record) => Array.from(record.addedNodes).some(isLoadingNode))) {
+        runtime.loadingSeen = true;
+      }
+    });
+    runtime.observer.observe(document.documentElement, { childList: true, subtree: true });
+    Object.defineProperty(document, documentKey, { value: runtime, configurable: false });
+    Object.defineProperty(liveSlot, slotKey, { value, configurable: false });
+  }, {
+    id: sessionId,
+    documentKey: documentCanaryKey,
+    slotKey: slotCanaryKey,
+    value: canary,
+  });
+
+  await smokePage.evaluate(() => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    smokeWindow.__smoke.forceHidden(true);
+  });
+  await expect.poll(async () => {
+    const browser = (await readTerminalStreamProbe(smokePage, sessionId)).browser;
+    const desired = browser.claim.desired;
+    return {
+      desired: desired && {
+        cols: desired.cols,
+        rows: desired.rows,
+        cause: desired.cause,
+      },
+      sequenceAdvanced: desired !== null
+        && BigInt(desired.client_seq) > BigInt(beforeDesired.client_seq),
+      confirmed: desired !== null
+        && browser.claim.confirmed?.client_seq === desired.client_seq,
+      inLayout: browser.slot.in_layout,
+      surfaceActive: browser.slot.surface_active,
+      pageVisible: browser.visibility.page_visible,
+    };
+  }, { timeout: 15_000, intervals: [50, 100, 250] }).toEqual({
+    desired: { cols: 0, rows: 0, cause: ResizeCause.WITHDRAW },
+    sequenceAdvanced: true,
+    confirmed: true,
+    inLayout: true,
+    surfaceActive: true,
+    pageVisible: false,
+  });
+  const hiddenProbe = await readTerminalStreamProbe(smokePage, sessionId);
+  const hiddenDesired = hiddenProbe.browser.claim.desired;
+  if (!hiddenDesired) throw new Error("hidden terminal omitted its withdraw claim");
+  const hiddenCounters = await readCounters();
+  expect(hiddenCounters.fullFrames).toBe(before.fullFrames);
+  expect(hiddenCounters.backfills).toBe(before.backfills);
+
+  await smokePage.evaluate(() => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    smokeWindow.__smoke.forceHidden(false);
+  });
+  await expect.poll(async () => {
+    const browser = (await readTerminalStreamProbe(smokePage, sessionId)).browser;
+    const desired = browser.claim.desired;
+    return {
+      positive: (desired?.cols ?? 0) > 0 && (desired?.rows ?? 0) > 0,
+      cause: desired?.cause ?? null,
+      heldCellSeq: desired?.held_cell_seq ?? null,
+      sequenceAdvanced: desired !== null
+        && BigInt(desired.client_seq) > BigInt(hiddenDesired.client_seq),
+      inLayout: browser.slot.in_layout,
+      surfaceActive: browser.slot.surface_active,
+      pageVisible: browser.visibility.page_visible,
+    };
+  }, { timeout: 15_000, intervals: [50, 100, 250] }).toEqual({
+    positive: true,
+    cause: ResizeCause.TAB_VISIBLE,
+    heldCellSeq: "0",
+    sequenceAdvanced: true,
+    inLayout: true,
+    surfaceActive: true,
+    pageVisible: true,
+  });
+  await expect.poll(
+    async () => (await readCounters()).fullFrames,
+    { timeout: 15_000, intervals: [25, 50, 100, 250] },
+  ).toBe(before.fullFrames + 1);
+  await expect.poll(async () => {
+    const claim = (await readTerminalStreamProbe(smokePage, sessionId)).browser.claim;
+    return claim.status === "ready"
+      && claim.desired !== null
+      && claim.confirmed?.client_seq === claim.desired.client_seq;
+  }, { timeout: 15_000, intervals: [50, 100, 250] }).toBe(true);
+
+  const originalRepaint = await smokePage.evaluate(({ id, marker }) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return smokeWindow.__smoke.waitForPaintedMarker(id, marker, 15_000);
+  }, { id: sessionId, marker: originalMarker });
+  expect(originalRepaint).toMatchObject({
+    proof_kind: "marker",
+    marker: originalMarker,
+    frames: 2,
+  });
+  const newPaint = await smokePage.evaluate(async ({ id, marker }) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    const smoke = smokeWindow.__smoke;
+    await smoke.input(id, `printf '%s\\n' ${marker}\\r`);
+    return smoke.waitForPaintedMarker(id, marker, 15_000);
+  }, { id: sessionId, marker: newMarker });
+  expect(newPaint).toMatchObject({
+    proof_kind: "marker",
+    marker: newMarker,
+    frames: 2,
+  });
+
+  const after = await readCounters();
+  expect(after.fullFrames - before.fullFrames).toBe(1);
+  expect(after.backfills - before.backfills).toBe(0);
+  expect(after.lastFullFrameSbRows).toBe(0);
+  const afterProbe = await readTerminalStreamProbe(smokePage, sessionId);
+  expect(afterProbe.browser.claim.status).toBe("ready");
+  expect(afterProbe.browser.claim.confirmed?.client_seq)
+    .toBe(afterProbe.browser.claim.desired?.client_seq);
+  expect(afterProbe.browser.handler_canonical).toEqual(afterProbe.browser.dom_reconciled);
+  expect(afterProbe.browser.slot).toMatchObject({
+    in_layout: true,
+    surface_active: true,
+  });
+
+  const survival = await smokePage.evaluate(({ id, documentKey, slotKey, value }) => {
+    const liveSlot = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
+    const documentRecord = document as unknown as Record<string, unknown>;
+    const runtime = documentRecord[documentKey] as {
+      value: string;
+      slot: Element;
+      loadingSeen: boolean;
+      observer: MutationObserver;
+    } | undefined;
+    let slotSurvived = false;
+    if (liveSlot !== null) {
+      const slotRecord = liveSlot as unknown as Record<string, unknown>;
+      slotSurvived = runtime?.slot === liveSlot && slotRecord[slotKey] === value;
+    }
+    runtime?.observer.disconnect();
+    return {
+      document: runtime?.value === value,
+      slot: slotSurvived,
+      loadingSeen: runtime?.loadingSeen ?? true,
+    };
+  }, {
+    id: sessionId,
+    documentKey: documentCanaryKey,
+    slotKey: slotCanaryKey,
+    value: canary,
+  });
+  expect(survival).toEqual({
+    document: true,
+    slot: true,
+    loadingSeen: false,
+  });
+  await expect(loadingStatus).toHaveCount(0);
+  expect(smokePage.url()).toBe(initialUrl);
 });
 
 test("offline producer divergence reconnects and repaints without a reload", async ({ smokePage, stack }, testInfo) => {

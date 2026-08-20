@@ -977,8 +977,8 @@ export function CellTerminal(props: CellTerminalProps) {
 			enqueueFileItems(e.dataTransfer?.items);
 		};
 
-		// Visibility owns both viewport admission and keyboard focus. Parked panes
-		// remain mounted but withdraw immediately; reveal reclaims a full repair.
+		// Layout visibility owns viewport admission and keyboard focus. Parked panes
+		// remain mounted but withdraw immediately; deck/sidebar reveal uses an ordinary claim.
 		const claimVisibleFlag = createMemo(
 			() => props.inLayout === true && props.surfaceActive,
 		);
@@ -1156,22 +1156,16 @@ export function CellTerminal(props: CellTerminalProps) {
 			});
 		}, { defer: true }));
 
-		// Hidden and offscreen panes withdraw immediately; visibility recovery
-		// reclaims one authoritative snapshot on the existing Sync socket.
+		// A hidden browser document parks the still-selected pane. Its return
+		// intentionally pays for one viewport-only repair so the renderer rebuilds
+		// presentation the browser may have discarded. This is distinct from the
+		// ordinary claim used by a deck/sidebar reveal above.
 		const onVisibility = () => {
 			if (!claimVisibleFlag() || !isPageVisible()) {
 				sendPark();
 				return;
 			}
-			// NOT repairRequired: it is client-local (no wire field), so it cannot
-			// make the worker resync — it only holds this attempt in `repairing`
-			// until VIEWPORT_REPAIR_TIMEOUT_MS forces a retry ladder, and an idle
-			// tab-back owes no full frame, so viewportLiveReady would stay false and
-			// raise the offline notice on a healthy pane. The worker already
-			// snapshots every claimant whose held seq is behind the frame it last
-			// emitted; a pane that is genuinely current needs no repaint, and a gap
-			// after this point re-requests through requestFullFrame.
-			sendClaimNow(ResizeCause.TAB_VISIBLE);
+			sendClaimNow(ResizeCause.TAB_VISIBLE, true);
 		};
 		document.addEventListener("visibilitychange", onVisibility);
 
@@ -1180,15 +1174,15 @@ export function CellTerminal(props: CellTerminalProps) {
 		// reaper and other viewers stay clamped to this tab's size. Best-effort
 		// unary (connect-web can't set fetch keepalive) — if the browser cancels
 		// it mid-flight, the worker-side freshness tick recovers at
-		// VIEWER_CLAIM_FRESH_MS. pageshow re-claims after a bfcache restore
-		// (visibilitychange doesn't always fire on restore).
+		// VIEWER_CLAIM_FRESH_MS. pageshow requests the same viewport-only repair
+		// after a bfcache restore (visibilitychange doesn't always fire on restore).
 		const onPageHide = () => {
 			releasePaintHolds();
 			sendWithdraw();
 		};
 		const onPageShow = () => {
 			if (isPageVisible() && claimVisibleFlag()) {
-				sendClaimNow(ResizeCause.TAB_VISIBLE);
+				sendClaimNow(ResizeCause.TAB_VISIBLE, true);
 			}
 		};
 		window.addEventListener("pagehide", onPageHide);

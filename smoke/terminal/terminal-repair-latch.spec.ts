@@ -27,10 +27,17 @@ function viewportText(page: Page, sessionId: string): Promise<string> {
   }, sessionId);
 }
 
-function frameCounts(page: Page, sessionId: string): Promise<{ frames: number; fullFrames: number }> {
+function frameCounts(
+  page: Page,
+  sessionId: string,
+): Promise<{ frames: number; fullFrames: number; backfillRequests: number }> {
   return page.evaluate((id) => {
     const smoke = (window as unknown as Window & { __smoke: RecoverySmokeApi }).__smoke;
-    return { frames: smoke.cellFrameCount(id), fullFrames: smoke.cellFullFrameCount(id) };
+    return {
+      frames: smoke.cellFrameCount(id),
+      fullFrames: smoke.cellFullFrameCount(id),
+      backfillRequests: smoke.scrollbackBackfillRequestCount(id),
+    };
   }, sessionId);
 }
 
@@ -61,14 +68,13 @@ function runInSession(page: Page, sessionId: string, command: string): Promise<v
 //
 // The repair is requested through the mount-repair callback
 // (__smoke.requestCellMountRepair → the `() => requestFullFrame(0)` a pane
-// registers with registerCellHandler) rather than by dropping a frame, and that
-// choice is the whole point: this pane's watermark is CURRENT. Nothing is
-// missing, so needsClaimSnapshot (apps/worker/src/session-viewport.ts) declines
-// the reveal claim and no full frame ever arrives to bypass the delta gate and
-// clear a stuck latch. Recovery here can only come from the latch not surviving
-// the park. A drop-based arm cannot discriminate that: it leaves the watermark
-// behind, which always earns an authoritative snapshot on reveal.
-test("a repair requested while hidden must not wedge the pane on reveal", async ({ smokePage, stack }, testInfo) => {
+// registers with registerCellHandler) rather than by dropping a frame. The
+// pane's watermark is current, but the visibility gate must still accept and
+// divert the request without arming a latch for a repair that was not sent.
+// Returning to the document now intentionally requests one viewport-only full
+// repair. That forced repair must reconcile without leaving the pane wedged,
+// after which ordinary deltas must continue painting without a reload.
+test("a hidden repair request must not wedge streaming across forced document-resume repair", async ({ smokePage, stack }, testInfo) => {
   test.skip(!testInfo.project.name.startsWith("chromium"), "desktop cell recovery contract");
   const sessionId = (await spawnSmokeShell(smokePage, stack.workerFp)).session_id;
   await navigateToSmokeSession(smokePage, sessionId);
@@ -77,11 +83,9 @@ test("a repair requested while hidden must not wedge the pane on reveal", async 
     return smoke.cellFullFrameCount(id);
   }, sessionId)).toBeGreaterThan(0);
 
-  // Baseline while visible: a painted marker floor, then quiet. The pane must
-  // enter the park with EVERY frame applied — a frame still in flight at the
-  // hide would be dropped by the hidden handler, leaving the watermark behind
-  // and earning a snapshot on reveal, which is exactly the self-healing shape
-  // this case must avoid.
+  // Baseline while visible: a painted marker floor, then quiet. Enter the park
+  // with every frame applied so the forced document-resume repair is the only
+  // frame transition attributable to returning from the hidden interval.
   await runInSession(smokePage, sessionId, "seq -f 'WEDGE-%04g' 1 12\r");
   await expect.poll(() => paintedMax(smokePage, sessionId), {
     timeout: 15_000,
@@ -90,17 +94,13 @@ test("a repair requested while hidden must not wedge the pane on reveal", async 
   await waitForStableCellFrames(smokePage, sessionId);
   const canary = `repair-latch-${sessionId}`;
   await setRecoveryCanary(smokePage, canary);
-  const generation = await smokePage.evaluate(() => {
-    const smoke = (window as unknown as Window & { __smoke: RecoverySmokeApi }).__smoke;
-    return smoke.syncWsGeneration();
-  });
   const parked = await frameCounts(smokePage, sessionId);
   const frozenMax = await paintedMax(smokePage, sessionId);
 
   try {
-    // Close the visibility gate, THEN ask for the repair: sendClaim can only
-    // divert this claim to sendPark()/sendWithdraw(), so nothing is in flight
-    // and the latch must not be left armed.
+    // Close the visibility gate, THEN ask for the repair. sendClaim can only
+    // divert this claim to sendPark()/sendWithdraw(), so no repair is in flight
+    // and the accepted request must not arm a doomed in-flight latch.
     await setHidden(smokePage, true);
     const requested = await smokePage.evaluate((id) => {
       const smoke = (window as unknown as Window & { __smoke: RecoverySmokeApi }).__smoke;
@@ -110,31 +110,42 @@ test("a repair requested while hidden must not wedge the pane on reveal", async 
     // everything below would pass for the wrong reason.
     expect(requested).toBe(true);
 
-    // The PTY must stay QUIET across the park, and the producer must start only
-    // after the reveal. needsClaimSnapshot's third witness is `lastPtyOutMs`: a
-    // returning viewer whose PTY moved while it was withdrawn earns an
-    // authoritative snapshot, and that snapshot would clear a stuck latch by
-    // itself — healing the very wedge this case exists to catch.
+    // Keep the PTY quiet across the park so the hidden interval contributes no
+    // cell traffic. This makes the single full frame below specifically the
+    // intentional document-resume repair rather than output-driven recovery.
     await smokePage.waitForTimeout(600);
     const quiet = await frameCounts(smokePage, sessionId);
-    // Nothing streamed to the parked viewer, so the reveal claim below arrives
-    // with `wasStreaming` false and a watermark the worker will not repaint.
     expect(quiet).toEqual(parked);
     const frozenViewport = await viewportText(smokePage, sessionId);
 
     await setHidden(smokePage, false);
 
-    // Output resumes only now, as deltas on top of the grid the pane already
-    // holds. A wedged pane drops every one of them.
+    // Foreground return intentionally forces exactly one authoritative repair.
+    // It is viewport-only and must not trigger a scrollback backfill.
+    await expect.poll(() => smokePage.evaluate((id) => {
+      const smoke = (window as unknown as Window & { __smoke: RecoverySmokeApi }).__smoke;
+      return smoke.cellFullFrameCount(id);
+    }, sessionId), {
+      timeout: 15_000,
+      intervals: [50],
+    }).toBe(parked.fullFrames + 1);
+    expect(await smokePage.evaluate((id) => {
+      const smoke = (window as unknown as Window & { __smoke: RecoverySmokeApi }).__smoke;
+      return smoke.lastFullFrameSbRows(id);
+    }, sessionId)).toBe(0);
+    expect((await frameCounts(smokePage, sessionId)).backfillRequests).toBe(parked.backfillRequests);
+
+    // Once the forced repair has reconciled, output resumes as deltas on top of
+    // that repaired grid. A wedged pane would stop applying the stream.
     await runInSession(
       smokePage,
       sessionId,
       "i=13; while [ \"$i\" -le 400 ]; do printf 'WEDGE-%04d\\n' \"$i\"; i=$((i+1)); sleep 0.1; done\r",
     );
 
-    // THE regression: with the latch still armed, every delta after the reveal is
-    // dropped by the continuity gate and the viewport stays on frozenMax forever.
-    // Several markers, not one, so a single lucky repaint cannot satisfy it.
+    // The regression surface: the hidden request plus forced resume repair must
+    // leave the continuity gate open. Several markers, not one, prove repeated
+    // paints rather than a single lucky repaint.
     await expect.poll(() => paintedMax(smokePage, sessionId), {
       timeout: 20_000,
       intervals: [50],
@@ -148,11 +159,9 @@ test("a repair requested while hidden must not wedge the pane on reveal", async 
       };
     }, { id: sessionId, prefix: MARKER });
     expect(revealed.text).not.toBe(frozenViewport);
-    // No authoritative snapshot was involved: the worker declined to repaint a
-    // current watermark, so those rows were painted by DELTAS through the gate
-    // the latch guards. This is what makes the case discriminating — if a full
-    // frame had arrived it would have cleared a stuck latch by itself.
-    expect(revealed.fullFrames).toBe(parked.fullFrames);
+    // Exactly the one intentional resume repair was involved; the repeatedly
+    // advancing rows after it were painted by the continuing delta stream.
+    expect(revealed.fullFrames).toBe(parked.fullFrames + 1);
 
     // Still live afterwards: later deltas keep painting, so the reveal left a
     // streaming pane, not a one-shot repaint.
@@ -163,16 +172,11 @@ test("a repair requested while hidden must not wedge the pane on reveal", async 
     expect(await viewportText(smokePage, sessionId)).not.toBe(revealed.text);
 
     // The recovered viewport is intact (no lost, duplicated, or out-of-position
-    // rows), the same document recovered it (canary survived — no reload), and it
-    // reused the existing Sync socket.
+    // rows), and the canary proves the same document recovered without reload.
     const probe = await recoveryProbe(smokePage, sessionId, MARKER);
     expect(probe.canary).toBe(canary);
     expect(probe.scan).toMatchObject({ duplicated: [], missing: 0, outOfOrder: 0 });
     expect(probe.atBottom).toBe(true);
-    expect(await smokePage.evaluate(() => {
-      const smoke = (window as unknown as Window & { __smoke: RecoverySmokeApi }).__smoke;
-      return smoke.syncWsGeneration();
-    })).toBe(generation);
   } finally {
     await setHidden(smokePage, false).catch(() => undefined);
     await runInSession(smokePage, sessionId, "\u0003").catch(() => undefined);
