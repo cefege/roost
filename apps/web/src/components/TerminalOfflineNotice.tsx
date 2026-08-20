@@ -3,27 +3,198 @@
 // blank pane with an explicit state + escape hatches. The wrapper is
 // click-through (pointer-events:none) so only the card is interactive.
 
-import { Show } from "solid-js";
+import {
+  Show,
+  createEffect,
+  createSignal,
+  onCleanup,
+  untrack,
+  type JSX,
+} from "solid-js";
+import { isPageVisible } from "../lib/pageVisible.ts";
+import type { TerminalViewportOwnerStatus } from "../ws/sync-outbound.ts";
 
-export function TerminalLoadingNotice() {
+export type TerminalLoadingStage =
+  | "identity"
+  | "authorization"
+  | "sync"
+  | "sessions"
+  | "spawn"
+  | "measure"
+  | "viewport"
+  | "retry"
+  | "frame"
+  | "render";
+
+export interface TerminalLoadingNoticeProps {
+  stage: TerminalLoadingStage;
+  title: string;
+  detail: string;
+  actions?: JSX.Element;
+}
+
+export function terminalViewportLoadingNotice(
+  pending: boolean,
+  status: TerminalViewportOwnerStatus | null,
+): TerminalLoadingNoticeProps {
+  if (pending) {
+    return {
+      stage: "spawn",
+      title: "Starting terminal process",
+      detail: "Waiting for the coordinator to confirm the new PTY.",
+    };
+  }
+  if (status === null) {
+    return {
+      stage: "measure",
+      title: "Measuring terminal view",
+      detail: "Waiting for the visible pane size before requesting a screen.",
+    };
+  }
+  switch (status.status) {
+    case "pending":
+      return {
+        stage: "viewport",
+        title: "Requesting terminal viewport",
+        detail: "Waiting for the worker to accept this pane's size.",
+      };
+    case "retrying":
+      return {
+        stage: "retry",
+        title: "Retrying terminal viewport",
+        detail: `${status.reason.slice(0, 200)} Next attempt in ${Math.max(1, Math.ceil(status.retryInMs / 1000))}s.`,
+      };
+    case "repairing":
+      return {
+        stage: "frame",
+        title: "Waiting for terminal screen",
+        detail: `Worker accepted ${status.effectiveCols}×${status.effectiveRows}; waiting for a full frame.`,
+      };
+    case "ready":
+      return {
+        stage: "render",
+        title: "Rendering terminal screen",
+        detail: "The frame arrived; waiting for browser layout and paint.",
+      };
+    case "rejected":
+    case "superseded":
+      return {
+        stage: "retry",
+        title: "Re-establishing terminal viewport",
+        detail: `${status.reason.slice(0, 200)} Re-establishing the viewport.`,
+      };
+  }
+  const unreachable: never = status;
+  return unreachable;
+}
+
+export function TerminalLoadingNotice(props: TerminalLoadingNoticeProps) {
+  const [elapsedSeconds, setElapsedSeconds] = createSignal(0);
+  const [announcement, setAnnouncement] = createSignal({
+    title: props.title,
+    detail: props.detail,
+  });
+  let announcedStage: TerminalLoadingStage | undefined;
+
+  createEffect(() => {
+    const stage = props.stage;
+    const stageStartedAt = performance.now();
+    setElapsedSeconds(0);
+    if (stage !== announcedStage) {
+      announcedStage = stage;
+      setAnnouncement({
+        title: untrack(() => props.title),
+        detail: untrack(() => props.detail),
+      });
+    }
+    const timer = setInterval(() => {
+      if (!isPageVisible()) return;
+      setElapsedSeconds(Math.floor((performance.now() - stageStartedAt) / 1000));
+    }, 1_000);
+    onCleanup(() => clearInterval(timer));
+  });
+
   return (
     <div
-      role="status"
-      aria-live="polite"
       data-testid="terminal-loading-status"
+      data-stage={props.stage}
+      data-elapsed-seconds={elapsedSeconds()}
       style={{
         position: "absolute",
         inset: "0",
         display: "flex",
         "align-items": "center",
         "justify-content": "center",
-        color: "var(--text-lo)",
-        "font-size": "13px",
+        padding: "24px",
         "pointer-events": "none",
         "z-index": "5",
       }}
     >
-      Loading terminal…
+      <div
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        style={{
+          position: "absolute",
+          width: "1px",
+          height: "1px",
+          padding: "0",
+          margin: "-1px",
+          overflow: "hidden",
+          clip: "rect(0, 0, 0, 0)",
+          "white-space": "nowrap",
+          border: "0",
+        }}
+      >
+        {announcement().title}. {announcement().detail}
+      </div>
+      <div
+        style={{
+          "max-width": "360px",
+          display: "flex",
+          "flex-direction": "column",
+          gap: "10px",
+          padding: "20px 22px",
+          "border-radius": "12px",
+          background: "var(--surface-1)",
+          border: "1px solid var(--border-strong)",
+          color: "var(--text-hi)",
+          "text-align": "center",
+        }}
+      >
+        <div
+          data-testid="terminal-loading-title"
+          style={{ "font-size": "15px", "font-weight": "600" }}
+        >
+          {props.title}
+        </div>
+        <div
+          data-testid="terminal-loading-detail"
+          style={{ "font-size": "13px", color: "var(--text-lo)", "line-height": "1.4" }}
+        >
+          {props.detail}
+        </div>
+        <div
+          aria-hidden="true"
+          data-testid="terminal-loading-elapsed"
+          style={{ "font-size": "12px", color: "var(--text-lo)" }}
+        >
+          This step has taken {elapsedSeconds()}s
+        </div>
+        <Show when={props.actions}>
+          <div
+            style={{
+              display: "flex",
+              gap: "8px",
+              "justify-content": "center",
+              "margin-top": "6px",
+              "pointer-events": "auto",
+            }}
+          >
+            {props.actions}
+          </div>
+        </Show>
+      </div>
     </div>
   );
 }

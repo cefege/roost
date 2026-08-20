@@ -7,6 +7,10 @@ import { FilesListDirRequestSchema } from "../../apps/shared/src/gen/roost/v1/co
 import { encodeFolderPath } from "../../apps/web/src/lib/terminalHref.ts";
 import type { RecoverySmokeApi, TerminalIdentityProbeWindow } from "./terminal-smoke-api.ts";
 import { spawnSmokeShell, navigateToSmokeSession } from "./terminal-helpers.ts";
+import {
+  installTerminalLoadingStageProbe,
+  terminalLoadingStages,
+} from "./terminal-loading-stage-probe.ts";
 
 test("browser smoke flow creates and cleans its resources", async ({ smokePage, stack }) => {
   // Pin the shell worker: the shared stack also runs a PTY-FIXTURE worker whose
@@ -50,40 +54,7 @@ test("cold document shows loading until an existing terminal paints", async ({
     frames: 2,
   });
 
-  await coldSmokePage.addInitScript(() => {
-    type LoadingProbeWindow = Window & {
-      __terminalLoadingStatusTexts?: string[];
-      __terminalLoadingStatusObserver?: MutationObserver;
-    };
-    const probeWindow = window as LoadingProbeWindow;
-    const observations: string[] = [];
-    const recordedText = new WeakMap<Element, string>();
-    probeWindow.__terminalLoadingStatusTexts = observations;
-
-    const recordStatus = (status: Element) => {
-      const text = status.textContent ?? "";
-      if (recordedText.get(status) === text) return;
-      recordedText.set(status, text);
-      observations.push(text);
-    };
-    const recordTree = (node: Node) => {
-      if (!(node instanceof Element)) return;
-      if (node.matches('[data-testid="terminal-loading-status"]')) recordStatus(node);
-      for (const status of node.querySelectorAll('[data-testid="terminal-loading-status"]')) {
-        recordStatus(status);
-      }
-    };
-    const observer = new MutationObserver((records) => {
-      for (const record of records) {
-        for (const added of record.addedNodes) recordTree(added);
-      }
-    });
-    observer.observe(document, { childList: true, subtree: true });
-    probeWindow.__terminalLoadingStatusObserver = observer;
-    for (const status of document.querySelectorAll('[data-testid="terminal-loading-status"]')) {
-      recordStatus(status);
-    }
-  });
+  await installTerminalLoadingStageProbe(coldSmokePage, true);
 
   const sessionsListPattern = "**/roost.v1.CoordinatorService/SessionsList";
   let releaseSessionsList!: () => void;
@@ -118,11 +89,24 @@ test("cold document shows loading until an existing terminal paints", async ({
     await coldSmokePage.goto(targetUrl, { waitUntil: "commit" });
     await sessionsListRequest;
     await expect.poll(() => routeIntercepted).toBe(true);
-    await expect.poll(() => coldSmokePage.evaluate(() => {
-      return (window as Window & { __terminalLoadingStatusTexts?: string[] })
-        .__terminalLoadingStatusTexts ?? [];
-    })).toContain("Loading terminal…");
 
+    const loadingStatus = coldSmokePage.getByTestId("terminal-loading-status");
+    await expect(loadingStatus).toHaveAttribute("data-stage", "sessions");
+    await expect(coldSmokePage.getByTestId("terminal-loading-title"))
+      .toHaveText("Loading terminal sessions");
+    await expect(coldSmokePage.getByTestId("terminal-loading-detail"))
+      .toHaveText("Live terminal channel opened; waiting for the session list.");
+    await expect.poll(() => terminalLoadingStages(coldSmokePage)).toContain("sessions");
+    await expect.poll(async () => {
+      return loadingStatus.evaluate((status) => {
+        const elapsedSeconds = Number(status.getAttribute("data-elapsed-seconds"));
+        const elapsedCopy = status.querySelector(
+          '[data-testid="terminal-loading-elapsed"]',
+        )?.textContent;
+        return elapsedSeconds >= 1 &&
+          elapsedCopy === `This step has taken ${elapsedSeconds}s`;
+      });
+    }).toBe(true);
     releaseSessionsList();
     await heldRouteFinished;
     await expect(coldSmokePage.getByTestId(`terminal-slot-${sessionId}`))

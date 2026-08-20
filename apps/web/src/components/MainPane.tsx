@@ -9,7 +9,11 @@ import { rootStore } from "../store/root.ts";
 import { resolveSessionByFolder, resolveSessionByWorkspace, newestOpenSessionForFolderKey } from "../store/selectors.ts";
 import { decodeFolderPath } from "../lib/terminalHref.ts";
 import { rememberVisit } from "../lib/lastVisited.ts";
-import { sessionsHydrated } from "../store/sync-bootstrap.ts";
+import {
+  sessionsHydrated,
+  terminalBootstrapStage,
+  type TerminalBootstrapStage,
+} from "../store/sync-bootstrap.ts";
 import { installDeadRouteSafetyNet } from "../lib/deadRouteSafetyNet.ts";
 import { installStuckTerminalWatcher } from "../lib/stuckTerminal.ts";
 import { consumeBootRestore } from "../lib/bootRestore.ts";
@@ -20,7 +24,10 @@ import { Button } from "./Settings/md/Button.tsx";
 import { uiStore, closeSidebar } from "../store/uiStore.ts";
 import { isCompact } from "../lib/windowSizeClass.ts";
 import type { Session } from "@roost/shared/wire";
-import { TerminalLoadingNotice } from "./TerminalOfflineNotice.tsx";
+import {
+  TerminalLoadingNotice,
+  type TerminalLoadingStage,
+} from "./TerminalOfflineNotice.tsx";
 
 // Code-split boundary (ts-no-dynamic-import exception): solid `lazy` is the
 // bundler's split mechanism — the file viewer (+ syntaxLite) loads only when a
@@ -28,6 +35,45 @@ import { TerminalLoadingNotice } from "./TerminalOfflineNotice.tsx";
 const FileViewerSheet = lazy(() =>
   import("./FileViewerSheet.tsx").then((m) => ({ default: m.FileViewerSheet })),
 );
+
+interface BootstrapLoadingCopy {
+  stage: Exclude<TerminalBootstrapStage, "ready"> & TerminalLoadingStage;
+  title: string;
+  detail: string;
+}
+
+function terminalBootstrapCopy(stage: TerminalBootstrapStage): BootstrapLoadingCopy | null {
+  switch (stage) {
+    case "identity":
+      return {
+        stage,
+        title: "Connecting to coordinator",
+        detail: "Waiting for coordinator identity.",
+      };
+    case "authorization":
+      return {
+        stage,
+        title: "Authorizing this browser",
+        detail: "Waiting for the coordinator to trust this browser.",
+      };
+    case "sync":
+      return {
+        stage,
+        title: "Opening terminal connection",
+        detail: "Coordinator reached; waiting for the live terminal channel.",
+      };
+    case "sessions":
+      return {
+        stage,
+        title: "Loading terminal sessions",
+        detail: "Live terminal channel opened; waiting for the session list.",
+      };
+    case "ready":
+      return null;
+  }
+  const unreachable: never = stage;
+  return unreachable;
+}
 
 export function MainPane() {
   const params = useParams<{
@@ -122,6 +168,16 @@ export function MainPane() {
     unauthorized: () => rootStore.browser_unauthorized,
   });
 
+  const bootstrapLoading = createMemo(() => {
+    if (
+      !onTerminalRoute()
+      || activeOpenSession() !== null
+      || sessionsHydrated()
+      || stuckKind() === "unpaired"
+    ) return null;
+    return terminalBootstrapCopy(terminalBootstrapStage());
+  });
+
   // Remember where you were (browser-local): boot restores into your last
   // terminal, and each folder reopens its last-viewed tab. Only records a LIVE
   // terminal so a dead route never overwrites a good memory.
@@ -200,52 +256,56 @@ export function MainPane() {
           surfaceVisible={!overlayActive()}
         />
 
-        <Show when={
-          onTerminalRoute()
-          && activeOpenSession() === null
-          && !sessionsHydrated()
-          && stuckKind() === null
-        }>
-          <TerminalLoadingNotice />
+        <Show when={bootstrapLoading()}>
+          {(loading) => (
+            <TerminalLoadingNotice
+              stage={loading().stage}
+              title={loading().title}
+              detail={loading().detail}
+              actions={stuckKind() === "connecting"
+                ? (
+                  <Button
+                    variant="tonal"
+                    data-testid="stuck-terminal-home"
+                    onClick={() => { consumeBootRestore(); navigate("/"); }}
+                  >
+                    Go home
+                  </Button>
+                )
+                : undefined}
+            />
+          )}
         </Show>
 
-        {/* Stuck-terminal escape: the pane resolves to no live terminal AND
-            bootstrap is wedged (coord unreachable or browser unpaired) — show
-            an actionable card over the otherwise-black deck instead of
-            stranding the user on a void. See stuckTerminal.ts. */}
-        <Show when={stuckKind()}>
-          {(kind) => (
-            <div
-              data-testid="stuck-terminal"
-              data-kind={kind()}
-              style={{
-                position: "absolute", inset: "0", "z-index": "20",
-                display: "flex", "flex-direction": "column",
-                "align-items": "center", "justify-content": "center",
-                gap: "14px", padding: "32px", "text-align": "center",
-                background: "var(--bg-base)",
-              }}
-            >
-              <div style={{ "font-size": "15px", "font-weight": 600, color: "var(--text-hi)" }}>
-                {kind() === "unpaired" ? "Browser not paired" : "Reconnecting…"}
-              </div>
-              <div style={{ "font-size": "13px", "line-height": 1.5, color: "var(--text-lo)", "max-width": "340px" }}>
-                {kind() === "unpaired"
-                  ? "This browser isn't trusted by this coordinator yet. Pair it to open terminals."
-                  : "Waiting for the coordinator. This terminal reopens on its own once the connection is back."}
-              </div>
-              <div style={{ display: "flex", gap: "8px", "margin-top": "4px" }}>
-                <Show when={kind() === "unpaired"}>
-                  <Button variant="filled" data-testid="stuck-terminal-pair" onClick={() => navigate("/pair")}>
-                    Pair this browser
-                  </Button>
-                </Show>
-                <Button variant="tonal" data-testid="stuck-terminal-home" onClick={() => { consumeBootRestore(); navigate("/"); }}>
-                  Go home
-                </Button>
-              </div>
+        {/* An unpaired browser cannot progress through bootstrap without user
+            action, so replace progress immediately with pairing escapes. */}
+        <Show when={stuckKind() === "unpaired"}>
+          <div
+            data-testid="stuck-terminal"
+            data-kind="unpaired"
+            style={{
+              position: "absolute", inset: "0", "z-index": "20",
+              display: "flex", "flex-direction": "column",
+              "align-items": "center", "justify-content": "center",
+              gap: "14px", padding: "32px", "text-align": "center",
+              background: "var(--bg-base)",
+            }}
+          >
+            <div style={{ "font-size": "15px", "font-weight": 600, color: "var(--text-hi)" }}>
+              Browser not paired
             </div>
-          )}
+            <div style={{ "font-size": "13px", "line-height": 1.5, color: "var(--text-lo)", "max-width": "340px" }}>
+              This browser isn't trusted by this coordinator yet. Pair it to open terminals.
+            </div>
+            <div style={{ display: "flex", gap: "8px", "margin-top": "4px" }}>
+              <Button variant="filled" data-testid="stuck-terminal-pair" onClick={() => navigate("/pair")}>
+                Pair this browser
+              </Button>
+              <Button variant="tonal" data-testid="stuck-terminal-home" onClick={() => { consumeBootRestore(); navigate("/"); }}>
+                Go home
+              </Button>
+            </div>
+          </div>
         </Show>
       </div>
     </div>

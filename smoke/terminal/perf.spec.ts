@@ -9,6 +9,7 @@ import type { SmokeApi } from "../../apps/web/src/lib/smoke.ts";
 import { test, expect } from "./fixtures.ts";
 import { encodePtyFixtureCommand, PTY_FIXTURE_READY } from "./pty-fixture-protocol.ts";
 import type { TerminalTestWorker } from "./stack.ts";
+import { installTerminalLoadingStageProbe, terminalLoadingStages } from "./terminal-loading-stage-probe.ts";
 
 // QUARANTINE — contention, not correctness. "stalled browser consumer
 // reconnects without reloading and resumes input" is the one case in
@@ -643,10 +644,7 @@ test("terminal perf: optimistic first marker paints while spawn response is held
   const fixtureWorker = await stack.startPtyFixtureWorker();
   const anchorId = await spawnFixtureSession(smokePage, fixtureWorker);
   await navigateAndProve(smokePage, anchorId, PTY_FIXTURE_READY);
-  const oldIds = await smokePage.evaluate(() => {
-    const smoke = window.__smoke;
-    return Object.keys(smoke.state().sessions);
-  });
+  const oldIds = await smokePage.evaluate(() => Object.keys(window.__smoke.state().sessions));
 
   let releaseResponse!: () => void;
   let sawRequest!: () => void;
@@ -669,13 +667,14 @@ test("terminal perf: optimistic first marker paints while spawn response is held
     }
   });
 
-  const timingId = await smokePage.evaluate(() => {
-    const smoke = window.__smoke;
-    return smoke.beginTerminalTiming("optimistic");
-  });
+  await installTerminalLoadingStageProbe(smokePage);
+
+  const timingId = await smokePage.evaluate(() => window.__smoke.beginTerminalTiming("optimistic"));
   try {
     await smokePage.getByTestId("tab-new").first().click();
     await intercepted;
+    await expect.poll(() => terminalLoadingStages(smokePage)).toContain("spawn");
+    expect(responseReleased).toBe(false);
     await smokePage.waitForFunction((existing) => {
       const smoke = window.__smoke;
       return Object.keys(smoke.state().sessions).some((id) => !existing.includes(id));
@@ -692,6 +691,7 @@ test("terminal perf: optimistic first marker paints while spawn response is held
       const smoke = window.__smoke;
       return smoke.finishTerminalTiming(timingId, id, marker, 60_000);
     }, { timingId, id: optimisticId, marker: PTY_FIXTURE_READY });
+    await expect(smokePage.getByTestId("terminal-loading-status")).toHaveCount(0);
     expect(responseReleased).toBe(false);
     expect(await smokePage.evaluate((id) => {
       const smoke = window.__smoke;

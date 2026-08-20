@@ -9,6 +9,21 @@
 
 import { createSignal } from "solid-js";
 
+export type TerminalBootstrapStage =
+  | "identity"
+  | "authorization"
+  | "sync"
+  | "sessions"
+  | "ready";
+
+const [terminalBootstrapStage, setTerminalBootstrapStage] =
+  createSignal<TerminalBootstrapStage>("identity");
+
 const [sessionsHydrated, setSessionsHydrated] = createSignal(false);
 
-export { sessionsHydrated, setSessionsHydrated };
+export {
+  sessionsHydrated,
+  setSessionsHydrated,
+  terminalBootstrapStage,
+  setTerminalBootstrapStage,
+};

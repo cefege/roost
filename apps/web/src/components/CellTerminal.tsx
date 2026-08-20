@@ -52,6 +52,7 @@ import {
 	seedTerminalViewportIntent,
 	type InputAdmission,
 	type TerminalViewportOwner,
+	type TerminalViewportOwnerStatus,
 } from "../ws/sync-outbound.ts";
 import {
 	registerUserTerminalInput,
@@ -92,10 +93,7 @@ import { createOfflineWatch } from "../lib/offlineWatch.ts";
 import { pageVisible, isPageVisible } from "../lib/pageVisible.ts";
 import { newestOpenSessionForFolderKey } from "../store/selectors.ts";
 import { folderKeyOf } from "../lib/folderKey.ts";
-import {
-	TerminalLoadingNotice,
-	TerminalOfflineNotice,
-} from "./TerminalOfflineNotice.tsx";
+import { TerminalLoadingNotice, TerminalOfflineNotice, terminalViewportLoadingNotice } from "./TerminalOfflineNotice.tsx";
 import {
 	isPendingSpawn,
 	publishMountedSpawnMeasurement,
@@ -318,6 +316,7 @@ export function CellTerminal(props: CellTerminalProps) {
 	// rises after matching acceptance plus any required authoritative full frame.
 	const navigate = useNavigate();
 	const [viewportLiveReady, setViewportLiveReady] = createSignal(false);
+	const [viewportOwnerStatus, setViewportOwnerStatus] = createSignal<TerminalViewportOwnerStatus | null>(null);
 	const [hasReconciledFrame, setHasReconciledFrame] = createSignal(false);
 	const [offline, setOffline] = createSignal(false);
 	const retryOffline = () =>
@@ -339,6 +338,18 @@ export function CellTerminal(props: CellTerminalProps) {
 		const sib = offlineSibling();
 		if (sib) navigate(`/s/${sib.id}`);
 	};
+
+	const loadingNotice = createMemo(() => {
+		if (
+			props.inLayout !== true
+			|| !props.surfaceVisible
+			|| !props.surfaceActive
+			|| !pageVisible()
+			|| offline()
+			|| hasReconciledFrame()
+		) return null;
+		return terminalViewportLoadingNotice(pending(), viewportOwnerStatus());
+	});
 
 	// Measure one monospace cell in the display font (probe — independent of
 	// rendered content, so a claim can fire before the first frame arrives).
@@ -383,6 +394,7 @@ export function CellTerminal(props: CellTerminalProps) {
 		mountClaim?.deactivate();
 		setViewportLiveReady(false);
 		viewportPositive = false;
+		setViewportOwnerStatus(null);
 		// A parked pane has NO repair in flight: the zero-size claim below
 		// supersedes any pending one, and reveal re-claims from scratch. Holding
 		// the latch across a park would make the delta gate in the cell handler
@@ -502,6 +514,7 @@ export function CellTerminal(props: CellTerminalProps) {
 		viewportOwner = acquireTerminalViewportOwner(sessionId);
 		mountClaim = acquireCellMountClaim(sessionId);
 		const releaseViewportStatus = viewportOwner.subscribeStatus((status) => {
+			setViewportOwnerStatus(viewportPositive ? status : null);
 			setViewportLiveReady(viewportPositive && status.status === "ready");
 		});
 		try {
@@ -1383,13 +1396,6 @@ export function CellTerminal(props: CellTerminalProps) {
 				data-testid="terminal-display"
 				style={{ flex: "1", "min-width": "0", "min-height": "0", "touch-action": "pan-y" }}
 			/>
-			{/* Optimistic spawn placeholder: paint the pane instantly; the real
-          terminal reconciles into this same tab when the spawn RPC resolves. */}
-			<Show when={pending()}>
-				<div aria-live="polite" style={{ position: "absolute", inset: "0", display: "flex", "align-items": "center", "justify-content": "center", color: "var(--text-lo)", "font-size": "13px", "pointer-events": "none" }}>
-					Starting…
-				</div>
-			</Show>
 			{/* Unbracketed multi-line paste confirmation. Registered in FOCUS_OWNERS
           (md-dialog) so the pane's focus guards let its buttons take focus.
           Mounted ONLY while a paste is pending: md-dialog keeps its slotted
@@ -1474,15 +1480,8 @@ export function CellTerminal(props: CellTerminalProps) {
 				onPasteText={pasteText}
 
 			/>
-			<Show when={
-				props.inLayout === true
-				&& props.surfaceVisible
-				&& props.surfaceActive
-				&& !pending()
-				&& !hasReconciledFrame()
-				&& !offline()
-			}>
-				<TerminalLoadingNotice />
+			<Show when={loadingNotice()}>
+				{(notice) => <TerminalLoadingNotice {...notice()} />}
 			</Show>
 			<Show when={offline()}>
 				<TerminalOfflineNotice

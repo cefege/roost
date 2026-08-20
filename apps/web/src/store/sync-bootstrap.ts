@@ -28,7 +28,7 @@ import { createSingleSyncLoopStarter } from "./sync-flow.ts";
 import { applySessionsSnapshot } from "./projector.ts";
 import { _dispatchFragmentCredential } from "./sync-bootstrap.pair.ts";
 import { relocateRetiredBrowser } from "../auth/coordinator-relocation.ts";
-import { setSessionsHydrated } from "./sync-hydrated.ts";
+import { setSessionsHydrated, setTerminalBootstrapStage } from "./sync-hydrated.ts";
 import { markPhase } from "../lib/diag.ts";
 
 // Set browser_unauthorized; emit the auth.relogin_401 signal ONLY on the
@@ -46,14 +46,10 @@ let synced = false;
 // protected SessionsList solely to classify first-use auth versus offline.
 const SYNC_SUBSCRIBED_WAIT_MS = 3000;
 
-// True once the Phase-1 `sessionsList` has populated the store at least once.
-// MainPane's dead-URL safety net reads this to tell "still bootstrapping"
-// (don't bounce a deep link yet) from "genuinely dead" (bounce home). The
-// signal itself lives in the leaf sync-hydrated.ts so the firehose can read it
-// without an import cycle; re-exported here because that is where consumers
-// have always imported it from.
-export { sessionsHydrated } from "./sync-hydrated.ts";
-
+// MainPane's dead-URL guards consume these leaf signals through the historical
+// sync-bootstrap import path; keeping the state in sync-hydrated avoids the
+// firehose import cycle.
+export { sessionsHydrated, terminalBootstrapStage, type TerminalBootstrapStage } from "./sync-hydrated.ts";
 
 // ─── self-register ────────────────────────────────────────────────────────────
 
@@ -195,6 +191,7 @@ function _scheduleBootstrapRetry(): void {
 }
 
 async function _bootstrap(): Promise<void> {
+  setTerminalBootstrapStage("identity");
   const firstUseWebKey = !persistedWebKeyAtStartup;
   try {
     // Fragment credential redemption and identity remain the only serial
@@ -232,10 +229,10 @@ async function _bootstrap(): Promise<void> {
       identityStatus: initialIdentity.status,
     });
     if (firstUseWebKey && initialIdentity.status === "fulfilled") {
+      setTerminalBootstrapStage("authorization");
       await _attemptSelfRegister();
     }
-
-
+    setTerminalBootstrapStage("sync");
     _startSyncLoop();
     const subscribed = await waitForSyncSubscribed(SYNC_SUBSCRIBED_WAIT_MS);
     if (!subscribed) {
@@ -262,6 +259,7 @@ async function _bootstrap(): Promise<void> {
       _scheduleBootstrapRetry();
       return;
     }
+    setTerminalBootstrapStage("sessions");
     if (_hydratorsInstalled) return;
     _hydratorsInstalled = true;
 
@@ -316,6 +314,7 @@ async function _bootstrap(): Promise<void> {
           // session proxies — and the terminals mounted against them — in place.
           applySessionsSnapshot(sessions);
           setSessionsHydrated(true);
+          setTerminalBootstrapStage("ready");
           setBrowserUnauthorized(false);
           markPhase("sessions_list_publish", {
             socketGeneration: token.socketGeneration,

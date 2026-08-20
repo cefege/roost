@@ -23,6 +23,7 @@ import { DECK_WARM_LIMIT } from "../../apps/web/src/lib/deckWarmSet.ts";
 import { test, expect } from "./fixtures.ts";
 import { encodePtyFixtureCommand, PTY_FIXTURE_READY } from "./pty-fixture-protocol.ts";
 import type { TerminalTestWorker } from "./stack.ts";
+import { installTerminalLoadingStageProbe, terminalLoadingStages } from "./terminal-loading-stage-probe.ts";
 
 type SmokeWindow = Window & { readonly __smoke: SmokeApi };
 // Playwright serializes callbacks without module closures. This erased binding
@@ -103,6 +104,7 @@ type CellCounters = {
   sbRows: number;
   backfillRequests: number;
   droppedFrames: number;
+  rejectedClaims: number;
 };
 
 async function readCounters(page: Page, sessionId: string): Promise<CellCounters> {
@@ -114,6 +116,7 @@ async function readCounters(page: Page, sessionId: string): Promise<CellCounters
       sbRows: smoke.lastFullFrameSbRows(id),
       backfillRequests: smoke.scrollbackBackfillRequestCount(id),
       droppedFrames: smoke.droppedCellFrameCount(id),
+      rejectedClaims: smoke.rejectedViewportClaimCount(id),
     };
   }, sessionId);
 }
@@ -325,9 +328,11 @@ test("the deck mounts a bounded number of panes @serial", async ({
   }
   await expect(targetSlot).toHaveCount(0);
 
-  // Round B — drop the cold claim's first cell frame, then let the mounted pane
-  // repair itself. A document canary distinguishes in-place repair from a
-  // same-URL reload, which a URL assertion alone cannot detect.
+  await installTerminalLoadingStageProbe(smokePage);
+
+  // Round B — reject the cold claim once, drop the accepted retry's full frame,
+  // then let the mounted pane repair itself. A document canary distinguishes
+  // in-place repair from a same-URL reload, which a URL assertion alone cannot.
   const repairBefore = await readCounters(smokePage, lruTarget);
   const documentCanaryKey = `__roostEvictedRepair_${suffix}`;
   const documentCanary = `document-${suffix}`;
@@ -335,6 +340,7 @@ test("the deck mounts a bounded number of panes @serial", async ({
     Object.defineProperty(document, key, { value, configurable: false });
   }, { key: documentCanaryKey, value: documentCanary });
   await smokePage.evaluate((id) => {
+    window.__smoke.rejectNextViewportClaim(id);
     window.__smoke.dropNextCellFrame(id);
   }, lruTarget);
 
@@ -346,22 +352,22 @@ test("the deck mounts a bounded number of panes @serial", async ({
   ]);
   const repairUrl = smokePage.url();
 
-  // The drop is the observable boundary proving the initial full frame was
-  // actually lost. Only after that boundary may the loading affordance count
-  // as evidence for the blind-input interval.
+  // The drop is the observable boundary proving the accepted retry's full
+  // frame was actually lost. Only after that boundary may the loading
+  // affordance count as evidence for the blind-input interval.
   await expect.poll(
     () => readCounters(smokePage, lruTarget).then((counters) => counters.droppedFrames),
     { timeout: 30_000, intervals: [25, 50, 100] },
   ).toBe(repairBefore.droppedFrames + 1);
   await expect(loadingStatus).toBeVisible();
-  await expect(loadingStatus).toHaveText("Loading terminal…");
+  await expect(loadingStatus).toHaveAttribute("data-stage", "frame");
 
   const loadingAtInput = await smokePage.evaluate(async ({ id, frame }) => {
     const status = document.querySelector('[data-testid="terminal-loading-status"]');
     if (!(status instanceof HTMLElement)) return false;
     const box = status.getBoundingClientRect();
     const style = getComputedStyle(status);
-    const visiblyLoading = status.textContent === "Loading terminal…"
+    const visiblyLoading = status.getAttribute("data-stage") === "frame"
       && box.width > 0
       && box.height > 0
       && style.display !== "none"
@@ -381,6 +387,10 @@ test("the deck mounts a bounded number of panes @serial", async ({
     return window.__smoke.waitForPaintedMarker(id, marker, 60_000);
   }, { id: lruTarget, marker: repairTailMarker });
   await expect(loadingStatus).toHaveCount(0);
+  const loadingStages = await terminalLoadingStages(smokePage, true);
+  const retryStageIndex = loadingStages.indexOf("retry");
+  expect(retryStageIndex).toBeGreaterThanOrEqual(0);
+  expect(loadingStages.slice(retryStageIndex + 1)).toContain("frame");
 
   const repairAfter = await readCounters(smokePage, lruTarget);
   const documentSurvived = await smokePage.evaluate(({ key, value }) => {
@@ -405,15 +415,18 @@ test("the deck mounts a bounded number of panes @serial", async ({
     dropped_evicted_remount: {
       session_id: lruTarget,
       dropped_frame_delta: repairAfter.droppedFrames - repairBefore.droppedFrames,
+      rejected_viewport_claim_delta: repairAfter.rejectedClaims - repairBefore.rejectedClaims,
       cell_full_frame_delta: repairAfter.fullFrames - repairBefore.fullFrames,
       scrollback_backfill_delta: repairAfter.backfillRequests - repairBefore.backfillRequests,
       last_full_frame_sb_rows: repairAfter.sbRows,
       document_survived: documentSurvived,
       repair_url: repairUrl,
+      loading_stages: loadingStages,
     },
   });
 
   expect(repairAfter.droppedFrames - repairBefore.droppedFrames).toBe(1);
+  expect(repairAfter.rejectedClaims - repairBefore.rejectedClaims).toBe(1);
   expect(repairAfter.fullFrames - repairBefore.fullFrames).toBe(1);
   expect(repairAfter.backfillRequests - repairBefore.backfillRequests).toBe(0);
   expect(repairAfter.sbRows).toBe(0);
