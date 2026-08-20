@@ -263,9 +263,10 @@ export function TerminalDeck(props: {
   // Swiping left/right on MobileDeckBar slides the current terminal out and
   // the next/prev in, in parallel. The neighbor is already mounted (parked at
   // -99999px); surfacing a slot flips its inLayout true (CellTerminal TAB_VISIBLE
-  // claim — canvas keeps its last frame, so it never slides in blank). Commit
-  // is delayed to the end of the 200ms settle so reactivity matches the visual
-  // at switch time (no flash). Mobile-only; reads isCompact() at arm + render.
+  // claim — the parked pane keeps its painted rows in the DOM, so it never
+  // slides in blank). Commit is delayed to the end of the 200ms settle so
+  // reactivity matches the visual at switch time (no flash). Mobile-only; reads
+  // isCompact() at arm + render.
   const [swipe, setSwipe] = createSignal<Swipe | null>(null);
   let newFabArmed = false; // per-gesture latch so the arm haptic fires once (reset in armSwipe)
 
