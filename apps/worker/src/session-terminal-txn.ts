@@ -22,7 +22,11 @@ import type { WorkerViewportIntent, WorkerViewportResult } from "./session-termi
 import type { KeeperAdmissionTicket } from "./session-control-lanes.ts";
 import type { KeeperResizeResult } from "./keeper/multiplexed-client.ts";
 import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
-import { desiredViewportSize, needsClaimSnapshot } from "./session-viewport.ts";
+import {
+  advanceViewportIntentEpoch,
+  desiredViewportSize,
+  needsClaimSnapshot,
+} from "./session-viewport.ts";
 import {
   clearResizeCapture,
   enterPhase,
@@ -254,6 +258,7 @@ export async function reconcileViewportNow(
     // Session gone — drop leftovers so the maps cannot grow across spawn/kill.
     mgr.viewportClaims.delete(channelId);
     mgr.lastAppliedSize.delete(channelId);
+    mgr.viewportIntentEpoch.delete(channelId);
     ticket.release();
     return;
   }
@@ -364,6 +369,7 @@ export async function applyViewportNow(
     // free the moment that decision is final.
     ticket.release();
     if (shouldSnapshot) mgr.emitCellSnapshot(asChannelId(channelId));
+    advanceViewportIntentEpoch(mgr, channelId);
     return {
       status: "committed",
       channelResizeSeq: mgr.channelResizeSeq.get(channelId) ?? 0,
@@ -382,6 +388,7 @@ export async function applyViewportNow(
   );
   const seq = mgr.channelResizeSeq.get(channelId) ?? 0;
   if (outcome.kind === "known_applied" || outcome.kind === "no_resize_needed") {
+    advanceViewportIntentEpoch(mgr, channelId);
     return {
       status: "committed",
       channelResizeSeq: outcome.seq,
@@ -396,5 +403,6 @@ export async function applyViewportNow(
     restoreViewerClaim(mgr, channelId, intent.viewerId, installed, prior);
     return { status: "rejected", reason: outcome.reason };
   }
+  advanceViewportIntentEpoch(mgr, channelId);
   return { status: "ambiguous", reason: `resize seq ${seq} unresolved: ${outcome.reason}` };
 }

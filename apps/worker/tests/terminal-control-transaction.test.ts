@@ -478,7 +478,7 @@ describe("viewport transaction stages", () => {
     expect([published.cols, published.rows]).toEqual([100, 30]);
   });
 
-  test("a delayed resume nudge admits input and preserves an interleaved no-resize viewport", async () => {
+  test("a delayed resume nudge admits input and preserves interleaved background intent", async () => {
     const f = await fixture({
       cols: 80,
       rows: 24,
@@ -510,11 +510,11 @@ describe("viewport transaction stages", () => {
     f.keeper.inputAck(CHANNEL_ID, 1, 1);
     expect(await input).toEqual({ status: "accepted", writtenBytes: 1 });
     expect(f.keeper.seqOf(MuxFrameType.ResizeRequest)).toEqual([1]);
-    // This viewport arrives while seq 1 is unresolved and asks to keep the
-    // nudge geometry. It commits without a resize, so sequence equality alone
-    // cannot distinguish it from "no newer viewport".
+    // This background intent arrives while seq 1 is unresolved. It owns no
+    // dimensions, returns desiredViewportSize=null, and commits without a resize;
+    // neither geometry nor resize sequence can witness that it is newer.
     const viewport = f.mgr.applyTerminalViewport(
-      claim({ clientSeq: 1n, cols: 80, rows: 23 }),
+      claim({ clientSeq: 1n, cols: 0, rows: 0, cause: 5 }),
     );
     f.keeper.resizeAck(CHANNEL_ID, 1, 80, 23);
     expect(await viewport).toMatchObject({
@@ -527,6 +527,7 @@ describe("viewport transaction stages", () => {
       nudge: { status: "committed", resizeSeq: 1 },
       restore: { status: "committed", resizeSeq: 1 },
     });
+    expect(f.mgr.viewportIntentEpoch.get(CHANNEL_ID)).toBe(1);
     expect(f.keeper.seqOf(MuxFrameType.ResizeRequest)).toEqual([1]);
     const core = f.mgr.sessions.get(CHANNEL_ID)!.wtermCore;
     expect([core.getCols(), core.getRows()]).toEqual([80, 23]);

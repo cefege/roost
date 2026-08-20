@@ -57,6 +57,14 @@ export function desiredViewportSize(
 		: { cols: minCols, rows: minRows };
 }
 
+/** Record one accepted intent-bearing viewport transition, including states
+ * that deliberately own no dimensions and therefore consume no resize seq. */
+export function advanceViewportIntentEpoch(mgr: SessionManager, channelId: number): number {
+	const next = (mgr.viewportIntentEpoch.get(channelId) ?? 0) + 1;
+	mgr.viewportIntentEpoch.set(channelId, next);
+	return next;
+}
+
 /** Register or refresh a viewer's viewport claim, then resize the
  *  PTY to the SCD across live claims. Each browser viewing the same
  *  session has its own claim keyed by its EdDSA fingerprint. Two
@@ -151,6 +159,7 @@ export function claimViewport(
 		return;
 	}
 	claims.set(viewerFp, { cols, rows, lastMs: Date.now(), clientSeq: seq });
+	advanceViewportIntentEpoch(this, channelId);
 	diag("viewport.claim", {
 		sid: rec?.sessionId,
 		viewer_key: viewerFp,
@@ -185,6 +194,7 @@ export function withdrawViewport(this: SessionManager, channelId: number, viewer
 	if (!claims || !claims.has(viewerFp)) return;
 	const key = `${channelId}:${viewerFp}`;
 	if (this.pendingWithdraws.has(key)) return; // already scheduled
+	advanceViewportIntentEpoch(this, channelId);
 	const rec = this.sessions.get(channelId);
 	diag("viewport.withdraw", {
 		sid: rec?.sessionId,
@@ -233,6 +243,7 @@ export function _reapViewportClaims(this: SessionManager): void {
 			const age = now - claim.lastMs;
 			if (age > VIEWPORT_CLAIM_TTL_MS) {
 				claims.delete(fp);
+				advanceViewportIntentEpoch(this, channelId);
 				dropped = true;
 			} else if (age > VIEWER_CLAIM_FRESH_MS) {
 				anyStale = true;

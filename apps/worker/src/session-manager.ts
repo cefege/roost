@@ -58,6 +58,10 @@ export class SessionManager {
 	// recomputed on every claim/withdraw/reap; SIGWINCH only fires if the
 	// resulting SCD changes from the last applied size.
 	viewportClaims = new Map<number, Map<string, ViewportClaim>>();
+	// Monotonic accepted viewport intent epoch. Unlike resize sequence, this also
+	// advances for no-resize background/withdraw transitions, so maintenance
+	// redraws cannot overwrite newer browser ownership.
+	viewportIntentEpoch = new Map<number, number>();
 	// Cache of the last (cols,rows) we actually applied to the PTY, keyed
 	// by channelId. Skip SIGWINCH if the recompute lands on the same value.
 	lastAppliedSize = new Map<number, { cols: number; rows: number }>();

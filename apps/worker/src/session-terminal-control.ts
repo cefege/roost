@@ -22,7 +22,6 @@ import {
   reconcileViewportNow,
   type ResumeRedrawResult,
 } from "./session-terminal-txn.ts";
-import { desiredViewportSize } from "./session-viewport.ts";
 
 /** Outer report bound. Above the transaction ceiling (7 s) so a transaction that
  *  finished inside its own phase budgets always reports its truthful result, and
@@ -204,6 +203,7 @@ export function redrawEvictedResume(
   cols: number,
   rows: number,
 ): Promise<ResumeRedrawRecovery> {
+  const viewportEpoch = mgr.viewportIntentEpoch.get(channelId) ?? 0;
   const nudgeTicket = acquireKeeperAdmission(mgr, channelId, "resume_resize");
   const nudgeRows = rows > 1 ? rows - 1 : rows + 1;
   const nudgeOperation = enqueueTerminalControl(
@@ -231,14 +231,12 @@ export function redrawEvictedResume(
           } satisfies ResumeRedrawResult;
         }
         const currentSeq = mgr.channelResizeSeq.get(channelId) ?? 0;
-        const desired = desiredViewportSize.call(mgr, channelId);
-        // A viewport that ran between the nudge and this queued restore owns the
-        // final geometry even when it needed no keeper write and consumed no
-        // resize sequence. Its current size is already authoritative.
-        if (
-          currentSeq !== nudge.resizeSeq ||
-          (desired !== null && (desired.cols !== cols || desired.rows !== rows))
-        ) {
+        // Any accepted viewport intent that ran between the nudge and this
+        // queued restore owns the handoff, including background and withdrawal
+        // states with no dimensions and no resize sequence.
+        const viewportChanged =
+          (mgr.viewportIntentEpoch.get(channelId) ?? 0) !== viewportEpoch;
+        if (currentSeq !== nudge.resizeSeq || viewportChanged) {
           restoreTicket.release();
           return { status: "committed", resizeSeq: currentSeq } satisfies ResumeRedrawResult;
         }

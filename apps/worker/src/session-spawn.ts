@@ -136,6 +136,7 @@ export async function spawnShell(
 				clientSeq: initialViewport.clientSeq,
 			},
 		]]));
+		this.viewportIntentEpoch.set(channelId, 1);
 		this.lastAppliedSize.set(channelId, {
 			cols: initialViewport.cols,
 			rows: initialViewport.rows,

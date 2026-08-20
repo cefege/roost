@@ -224,6 +224,7 @@ export function _dropChannelState(this: SessionManager, channelId: number): void
 		if (nowMs - at >= RECENTLY_CLOSED_TTL_MS) this.recentlyClosed.delete(ch);
 	}
 	this.viewportClaims.delete(channelId);
+	this.viewportIntentEpoch.delete(channelId);
 	this.lastAppliedSize.delete(channelId);
 	this.terminalControlChains.delete(channelId);
 	this.keeperAdmissionLane.delete(channelId);
