@@ -19,6 +19,7 @@ import { readRing, ringLength } from "./session-scrollback-ring.ts";
 import { _createWtermCore } from "./session-constants.ts";
 import { ALT_ENTER_SEQS } from "./terminal-stream-scan.ts";
 import { answerQueries, drainCoreReplies } from "./terminal-query-reply.ts";
+import { rewindToSequenceStart, skipOrphanSequencePrefix } from "./terminal-replay-align.ts";
 import { initCellEmitState, scrollbackOrigin } from "@roost/shared/cell";
 import { newTraceId } from "@roost/shared/trace";
 import { monoNowMs } from "./util/mono.ts";
@@ -248,7 +249,33 @@ export async function rebuildTerminalCore(
     if (boundary < retainedStart) capture.ringEvicted = true;
     boundaryOffset = Math.max(0, Math.min(retained.length, boundary - retainedStart));
   }
-  const head = retained.subarray(0, boundaryOffset);
+  // A fresh core's VT parser starts COLD, so the first byte replayed into it
+  // must be a token START. The boundary is `head_seq` at the keeper's result
+  // frame and head_seq advances by WHOLE PTY CHUNKS, so it lands wherever the
+  // pty flushed — including between `ESC [` and `32m`, which a cold parser then
+  // prints as the literal text `32m` at row 0 (production: an htop rebuild
+  // showing `32m1969M` with permanently stale regions behind it, because the
+  // tail IS the post-SIGWINCH repaint and a desynced repaint leaves cells htop
+  // believes are already painted). Rewinding onto the split sequence's own head
+  // is what makes the tail's first bytes complete a sequence instead.
+  let aligned = rewindToSequenceStart(retained, boundaryOffset);
+  // An eviction cut cannot be rewound: the bytes that opened the split sequence
+  // were overwritten in place by the ring, so there is nothing behind the cut to
+  // rewind ONTO. `ringEvicted` with `aligned === 0` is exactly that case — the
+  // clamp above put the boundary at the ring's oldest retained byte, an
+  // arbitrary eviction offset. Move FORWARD instead, to the first byte whose
+  // parser state is knowable from the retained window alone.
+  let replayStart = 0;
+  if (capture?.ringEvicted && aligned === 0) {
+    boundaryOffset = skipOrphanSequencePrefix(retained);
+    aligned = boundaryOffset;
+    replayStart = boundaryOffset;
+  }
+  // `head` stops at `aligned`, not at the boundary: the rewound bytes move into
+  // `prefix` and are replayed exactly once, from there, on BOTH paths — leaving
+  // them in `head` too would double them on the non-alt path.
+  const head = retained.subarray(replayStart, aligned);
+  const prefix = retained.subarray(aligned, boundaryOffset);
   const tail = retained.subarray(boundaryOffset);
   // Alt-screen: never replay the ring at a new width. It holds absolute cursor
   // moves and line clears painted for the old geometry; replaying them at
@@ -264,12 +291,26 @@ export async function rebuildTerminalCore(
   // repaint, and painting it on the normal buffer and only then switching to the
   // alternate buffer would show an empty grid with the repaint hidden behind it.
   if (altAtBoundary && !fresh.usingAltScreen()) fresh.writeRaw(ALT_ENTER_SEQS[0]!);
+  // Parser alignment, not content. `prefix` is the lead-in of the sequence the
+  // boundary split (the `ESC [` of an `ESC [ 3 2 m`), and it is written on BOTH
+  // paths: the alt path skips `head` deliberately, but a cold parser still needs
+  // the opening bytes or the tail's remainder prints as text. It goes through
+  // writeRaw and NEVER through answerQueries — these bytes were already
+  // tokenized and answered by the live probe path, and re-tokenizing them here
+  // would answer one probe TWICE on the same stdin lane. It also cannot queue a
+  // native reply to leak into the tail's ordered replies: by construction
+  // `prefix` is one INCOMPLETE sequence, which the core parks in its parser.
+  if (prefix.length > 0) fresh.writeRaw(prefix);
   let reply = "";
   if (tail.length > 0) {
-    // The tail is one contiguous ring range, so its own carry starts empty: a
-    // probe split across the head/tail boundary was answered live, and a probe
-    // split across two captured chunks is whole here. The live carry has been
-    // advancing over these same bytes all along, so the session resumes aligned.
+    // answerQueries' own carry starts empty, and that is a claim about the REPLY
+    // lane, not the parser: a probe split across the boundary was answered live
+    // (its lead-in is in `prefix`, deliberately not re-tokenized), and a probe
+    // split across two captured chunks is whole in this one contiguous ring
+    // range. The CORE's parser is NOT cold here — the prefix write left it
+    // exactly mid-sequence where the boundary cut — so the tail's first bytes
+    // complete a sequence. The live carry has been advancing over these same
+    // bytes all along, so the session resumes aligned.
     reply = answerQueries({ query_carry: new Uint8Array(0) }, fresh, tail).bytes;
   }
   // The tail may itself enter or leave alt-screen; this reconciles the final mode
@@ -393,7 +434,17 @@ export async function rebuildTerminalCore(
     replayed_ring: !altAtBoundary,
     ring_bytes: retained.length,
     boundary_seq: capture?.boundarySeq ?? null,
-    boundary_bytes: head.length,
+    // Pre-boundary bytes, which is `head` PLUS the parser-alignment `prefix`
+    // carved off its end — the split is a replay detail, the boundary is not.
+    boundary_bytes: head.length + prefix.length,
+    // Bytes the boundary was rewound onto a sequence start by, or 0 when it
+    // already landed on one. Non-zero means this rebuild would have printed a
+    // sequence remnant as literal text before the alignment landed.
+    align_rewind_bytes: prefix.length,
+    // Bytes dropped off the front of an evicted ring because no parser context
+    // for them survives. A real (bounded) loss, so it is recorded rather than
+    // folded silently into ring_evicted.
+    orphan_skipped_bytes: replayStart,
     tail_bytes: tail.length,
     ring_evicted: capture?.ringEvicted ?? false,
     captured_bytes: capture?.capturedBytes ?? 0,

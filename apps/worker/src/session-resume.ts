@@ -19,6 +19,7 @@ import { ALT_ENTER_SEQS, _scanAltModeTransitions } from "./terminal-stream-scan.
 import { _createWtermCore } from "./session-constants.ts";
 import { drainCoreReplies } from "./terminal-query-reply.ts";
 import { appendToRing, createSbRing, readRing } from "./session-scrollback-ring.ts";
+import { skipOrphanSequencePrefix } from "./terminal-replay-align.ts";
 import { withAgentStatusEnvironment } from "./agent-status/environment.ts";
 import { initAgentOscState } from "./terminal-stream-scan.ts";
 import { existsSync } from "node:fs";
@@ -98,18 +99,58 @@ export async function resume(this: SessionManager, opts: {
 			orderedHistory?.baseRows ?? 24,
 		);
 		const resumedScrollback = createSbRing();
+		// The keeper's history window opens at whatever byte its own ring last
+		// evicted over (keeper/keeper-frame-handler.ts orderedHistory() reads
+		// outRing from offset 0), so under eviction the first replayed byte can be
+		// the tail of a sequence whose `ESC [` was overwritten in place. This core's
+		// parser is COLD, so that remnant prints as LITERAL text (`32m`) and then
+		// sticks: nothing downstream re-parses, and a TUI's cursor-addressed partial
+		// repaint never revisits a cell it believes it already painted. Unlike a
+		// resize boundary there is nothing to rewind onto — the bytes that would
+		// give the remnant its parser context were overwritten at the keeper and are
+		// gone — so dropping the orphan prefix is the only sound repair.
+		//
+		// Only when the keeper actually evicted: head_seq counts every byte the pty
+		// ever produced, so `head_seq === retained` proves the window still starts at
+		// the true start of the stream, which is token-aligned by construction and
+		// whose leading plain text is real history worth keeping.
+		//
+		// The RING keeps the untrimmed bytes either way: session-resize-capture.ts
+		// derives `retainedStart = head_seq - ringLength(scrollback)`, so shortening
+		// the ring without moving head_seq would skew every later boundary offset by
+		// exactly the dropped count.
 		if (orderedHistory) {
+			const retainedTotal = orderedHistory.records.reduce(
+				(total, historyRecord) =>
+					historyRecord.kind === "output" ? total + historyRecord.bytes.byteLength : total,
+				0,
+			);
+			// True only for the cold core's first write, and only under eviction.
+			// Every later record continues that same now-warm parser stream and must
+			// be replayed verbatim.
+			let dropOrphanPrefix = resumedHeadSeq > retainedTotal;
 			for (const historyRecord of orderedHistory.records) {
 				if (historyRecord.kind === "output") {
 					appendToRing(resumedScrollback, historyRecord.bytes);
-					wtermCore.writeRaw(historyRecord.bytes);
+					wtermCore.writeRaw(
+						dropOrphanPrefix
+							? historyRecord.bytes.subarray(skipOrphanSequencePrefix(historyRecord.bytes))
+							: historyRecord.bytes,
+					);
+					dropOrphanPrefix = false;
 				} else {
+					// A resize feeds the parser no bytes, so a not-yet-written core
+					// stays cold across it.
 					wtermCore.resize(historyRecord.cols, historyRecord.rows);
 				}
 			}
 		} else if (legacyBytes.length > 0) {
 			appendToRing(resumedScrollback, legacyBytes);
-			wtermCore.writeRaw(legacyBytes);
+			wtermCore.writeRaw(
+				resumedHeadSeq > legacyBytes.length
+					? legacyBytes.subarray(skipOrphanSequencePrefix(legacyBytes))
+					: legacyBytes,
+			);
 		}
 		const resumedBytes = readRing(resumedScrollback);
 		const resumedAlt = resumedBytes.length > 0
