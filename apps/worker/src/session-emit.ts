@@ -454,6 +454,7 @@ export function _disposeOutputState(this: SessionManager, channelId: number): vo
 	this.rawMetadataQueues.delete(channelId);
 	this.inputSensitiveChannels.delete(channelId);
 	this.pendingCellRepairs.delete(channelId);
+	this.pendingSyncCellSnapshots.delete(channelId);
 	this.cellDirty.delete(channelId);
 	this.cellGateSuppression.delete(channelId);
 	releaseSyncOutputHold(this, channelId);
@@ -556,31 +557,25 @@ export function _scheduleCellEmit(
 }
 
 /** R11. Emit a cell frame upstream for `channelId`. Full frame on
- *  first emit / reframe (dims change, scrollback shrink, rebuild) or when
- *  forced (fresh viewer attach); delta from core.isDirtyRow otherwise.
- *  Full frames carry the current viewport and zero historical rows; retained
- *  history stays addressable through scrollbackTotal/sbBase and the explicit
- *  get-scrollback-cells path. clearDirty() AFTER reading so the next delta
- *  carries only new changes — the worker's wtermCore dirty bits have no
- *  other consumer. */
+ *  first emit / reframe (dims change, scrollback shrink, rebuild), when
+ *  forced (fresh viewer attach), or when a forced snapshot was deferred to a
+ *  synchronized-output boundary. Full frames carry the current viewport and
+ *  zero historical rows; retained history stays addressable through
+ *  scrollbackTotal/sbBase and the explicit get-scrollback-cells path.
+ *  clearDirty() AFTER reading so the next delta carries only new changes —
+ *  the worker's wtermCore dirty bits have no other consumer. */
 export function emitCellFrame(this: SessionManager, channelId: number, force: boolean): void {
 	if (this.cellEmissionGates.has(channelId)) {
 		this.cellDirty.add(channelId);
 		noteCellGateSuppression(this, channelId, "resize_capture");
 		return;
 	}
-	// Streaming frames only. A leading microtask queued before the frame opened
-	// lands here too, and it cannot be cancelled — so this, not the scheduler, is
-	// the one place that holds every deferred path. Forced frames are never
-	// withheld: an attach snapshot, a dropped-send repair and the post-rebuild
-	// authoritative frame all have to reach the browser regardless of what the
-	// application declared. A ceiling trip needs no force — tripping the hold is
-	// itself what opens this gate for the rest of that generation.
-	if (!force && this.syncOutputHolds.get(channelId)?.tripped === false) {
-		this.cellDirty.add(channelId);
-		noteCellGateSuppression(this, channelId, "sync_output");
-		return;
-	}
+	// Every path, including forced snapshots, respects an open synchronized
+	// output frame. Reading and clearDirty() midway through the application's
+	// atomic repaint would publish a partial grid and prevent already-dirtied
+	// cells from being resent at the declared boundary. The existing hold
+	// ceilings still bound a producer that never closes its frame.
+	const snapshot = force || this.pendingSyncCellSnapshots.has(channelId);
 	const send = this.sendCellGridUpstream;
 	if (!send) return;
 	const rec = this.sessions.get(channelId);
@@ -589,6 +584,15 @@ export function emitCellFrame(this: SessionManager, channelId: number, force: bo
 	// narrow for teardown races and sparse test fixtures.
 	const core = rec.wtermCore;
 	if (!core) return;
+	// Output may have entered mode 2026 while every viewer was withdrawn, so no
+	// streaming schedule existed to open a hold. Read the canonical core here
+	// through the same state machine before a fresh claim snapshots it.
+	if (syncOutputAction(this, channelId) === "hold") {
+		if (snapshot) this.pendingSyncCellSnapshots.add(channelId);
+		this.cellDirty.add(channelId);
+		noteCellGateSuppression(this, channelId, "sync_output");
+		return;
+	}
 	const pending = this.cellEmitTimers.get(channelId);
 	if (pending !== undefined) {
 		if (pending !== LEADING_SENTINEL) clearTimeout(pending);
@@ -598,7 +602,7 @@ export function emitCellFrame(this: SessionManager, channelId: number, force: bo
 	const { frame, state } = nextCellFrame(
 		core,
 		rec.cell_emit,
-		force || repair,
+		snapshot || repair,
 		SB_SNAPSHOT_HISTORY_ROWS,
 	);
 	// Read alongside the frame: these spans are exactly the ones a saturated link
@@ -641,6 +645,7 @@ export function emitCellFrame(this: SessionManager, channelId: number, force: bo
 	core.clearDirty();
 	this.cellDirty.delete(channelId);
 	this.pendingCellRepairs.delete(channelId);
+	this.pendingSyncCellSnapshots.delete(channelId);
 	// A synchronized-output hold that is still OPEN keeps its record: the emitter
 	// stopped withholding (this frame just shipped), but a terminal sitting
 	// inside an unterminated synchronized frame is precisely what the diagnostic

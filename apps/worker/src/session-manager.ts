@@ -81,6 +81,11 @@ export class SessionManager {
 	// A dropped delta is never guessed forward. The next writable edge emits
 	// one authoritative full repair for that channel.
 	pendingCellRepairs = new Set<number>();
+	// An authoritative full snapshot requested while DEC synchronized output is
+	// open must land at the application's paint boundary, not split its atomic
+	// repaint. Separate from transport-drop repair: the latter deliberately
+	// suppresses output until the worker link reports writable.
+	pendingSyncCellSnapshots = new Set<number>();
 	viewportReaperTimer: ReturnType<typeof setInterval> | null = null;
 	strayReaperTimer: ReturnType<typeof setInterval> | null = null;
 	// channelId -> consecutive sweeps seen as a stray (see STRAY_REAP_STRIKES).

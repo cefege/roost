@@ -2,13 +2,21 @@ import { test, expect } from "./fixtures.ts";
 import type { RecoverySmokeApi } from "./terminal-smoke-api.ts";
 import { ResizeCause } from "../../apps/shared/src/gen/roost/v1/coordinator_pb.ts";
 import {
+  encodePtyFixtureCommand,
+  PTY_FIXTURE_READY,
+} from "./pty-fixture-protocol.ts";
+import {
   spawnSmokeShell,
+  spawnPtyFixtureSession,
   navigateToSmokeSession,
   waitForStableCellFrames,
   setRecoveryCanary,
   recoveryProbe,
 } from "./terminal-helpers.ts";
-import { readTerminalStreamProbe } from "./terminal-probe-helpers.ts";
+import {
+  readTerminalStreamProbe,
+  workerViewerClaimCount,
+} from "./terminal-probe-helpers.ts";
 
 // Returning to a current warm pane is a frame-free visibility flip that keeps
 // the Sync socket. A document visibility return instead reclaims one
@@ -362,6 +370,151 @@ test("an already-painted active pane repairs on a same-session document visibili
   });
   await expect(loadingStatus).toHaveCount(0);
   expect(smokePage.url()).toBe(initialUrl);
+});
+
+test("a document-return repair waits for a synchronized TUI repaint boundary", async ({
+  smokePage,
+  stack,
+}, testInfo) => {
+  test.skip(!testInfo.project.name.startsWith("chromium"), "desktop synchronized-output contract");
+  test.setTimeout(90_000);
+
+  const suffix = crypto.randomUUID().replaceAll("-", "").slice(0, 12);
+  const staticMarker = `SYNC-STATIC-${suffix}`;
+  const dynamicMarker = `SYNC-DYNAMIC-${suffix}`;
+  const fixtureWorker = await stack.startPtyFixtureWorker();
+  const sessionId = await spawnPtyFixtureSession(smokePage, fixtureWorker);
+  await navigateToSmokeSession(smokePage, sessionId);
+  await smokePage.evaluate(async ({ id, marker }) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return smokeWindow.__smoke.waitForPaintedMarker(id, marker, 30_000);
+  }, { id: sessionId, marker: PTY_FIXTURE_READY });
+  const readCounters = () => smokePage.evaluate((id) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    const smoke = smokeWindow.__smoke;
+    return {
+      frames: smoke.cellFrameCount(id),
+      fullFrames: smoke.cellFullFrameCount(id),
+      backfills: smoke.scrollbackBackfillRequestCount(id),
+      lastFullFrameSbRows: smoke.lastFullFrameSbRows(id),
+    };
+  }, sessionId);
+  const workerRawHead = async (): Promise<number> => {
+    const probe = await readTerminalStreamProbe(smokePage, sessionId);
+    const raw = probe.worker.session?.raw;
+    if (raw === null || typeof raw !== "object" || !("head_seq" in raw)) return -1;
+    const headSeq = raw.head_seq;
+    return typeof headSeq === "number" || typeof headSeq === "string"
+      ? Number(headSeq)
+      : -1;
+  };
+  await expect.poll(async () => {
+    const counters = await readCounters();
+    return counters.fullFrames;
+  }).toBeGreaterThan(0);
+  await waitForStableCellFrames(smokePage, sessionId);
+
+  await smokePage.evaluate(() => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    smokeWindow.__smoke.forceHidden(true);
+  });
+  await expect.poll(async () => {
+    const probe = await readTerminalStreamProbe(smokePage, sessionId);
+    const desired = probe.browser.claim.desired;
+    return {
+      cause: desired?.cause ?? null,
+      confirmed: desired !== null
+        && probe.browser.claim.confirmed?.client_seq === desired.client_seq,
+      workerClaims: workerViewerClaimCount(probe),
+    };
+  }, { timeout: 15_000, intervals: [50, 100, 250] }).toEqual({
+    cause: ResizeCause.WITHDRAW,
+    confirmed: true,
+    workerClaims: 0,
+  });
+
+  const hiddenRaw = await workerRawHead();
+  const before = await readCounters();
+  const firstHalf = encodePtyFixtureCommand({
+    op: "EMIT",
+    newline: false,
+    text: `\x1b[?2026h\x1b[2J\x1b[H${staticMarker}`,
+  });
+  await smokePage.evaluate(async ({ id, command }) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    await smokeWindow.__smoke.input(id, command);
+  }, { id: sessionId, command: firstHalf });
+  await expect.poll(workerRawHead, {
+    timeout: 15_000,
+    intervals: [25, 50, 100],
+  }).toBeGreaterThan(hiddenRaw);
+  expect(await readCounters()).toEqual(before);
+
+  await smokePage.evaluate(() => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    smokeWindow.__smoke.forceHidden(false);
+  });
+  await expect.poll(async () => {
+    const probe = await readTerminalStreamProbe(smokePage, sessionId);
+    const desired = probe.browser.claim.desired;
+    const syncOutput = probe.worker.session?.sync_output;
+    const counters = await readCounters();
+    return {
+      cause: desired?.cause ?? null,
+      heldCellSeq: desired?.held_cell_seq ?? null,
+      confirmed: desired !== null
+        && probe.browser.claim.confirmed?.client_seq === desired.client_seq,
+      syncHeld: syncOutput !== null
+        && typeof syncOutput === "object"
+        && "tripped" in syncOutput
+        && syncOutput.tripped === false,
+      frames: counters.frames,
+      fullFrames: counters.fullFrames,
+    };
+  }, { timeout: 15_000, intervals: [10, 25, 50] }).toEqual({
+    cause: ResizeCause.TAB_VISIBLE,
+    heldCellSeq: "0",
+    confirmed: true,
+    syncHeld: true,
+    frames: before.frames,
+    fullFrames: before.fullFrames,
+  });
+
+  const secondHalf = encodePtyFixtureCommand({
+    op: "EMIT",
+    newline: false,
+    text: `\x1b[2;1H${dynamicMarker}\x1b[?2026l`,
+  });
+  await smokePage.evaluate(async ({ id, command }) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    await smokeWindow.__smoke.input(id, command);
+  }, { id: sessionId, command: secondHalf });
+  await expect.poll(readCounters, { timeout: 15_000, intervals: [25, 50, 100] }).toMatchObject({
+    frames: before.frames + 1,
+    fullFrames: before.fullFrames + 1,
+  });
+
+  const staticPaint = await smokePage.evaluate(async ({ id, marker }) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return smokeWindow.__smoke.waitForPaintedMarker(id, marker, 15_000);
+  }, { id: sessionId, marker: staticMarker });
+  const dynamicPaint = await smokePage.evaluate(async ({ id, marker }) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return smokeWindow.__smoke.waitForPaintedMarker(id, marker, 15_000);
+  }, { id: sessionId, marker: dynamicMarker });
+  expect(staticPaint).toMatchObject({ proof_kind: "marker", marker: staticMarker, frames: 2 });
+  expect(dynamicPaint).toMatchObject({ proof_kind: "marker", marker: dynamicMarker, frames: 2 });
+
+  const after = await readCounters();
+  expect(after).toMatchObject({
+    frames: before.frames + 1,
+    fullFrames: before.fullFrames + 1,
+    backfills: before.backfills,
+    lastFullFrameSbRows: 0,
+  });
+  const afterProbe = await readTerminalStreamProbe(smokePage, sessionId);
+  expect(afterProbe.worker.session?.sync_output ?? null).toBeNull();
+  expect(afterProbe.browser.handler_canonical).toEqual(afterProbe.browser.dom_reconciled);
 });
 
 test("offline producer divergence reconnects and repaints without a reload", async ({ smokePage, stack }, testInfo) => {

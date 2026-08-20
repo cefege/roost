@@ -26,6 +26,7 @@ const CHANNEL_ID = 7;
 const VIEWER = "viewer:tab-a";
 /** DEC private mode 2026 opener, unclosed on purpose: a TUI mid-repaint. */
 const SYNC_ON = "\x1b[?2026h";
+const SYNC_OFF = "\x1b[?2026l";
 
 interface Fixture {
   mgr: SessionManager;
@@ -442,23 +443,26 @@ describe("viewport transaction stages", () => {
     expect(result).toMatchObject({ status: "committed", cols: 100, rows: 30 });
     expect(f.mgr.coreRebuilds.get(CHANNEL_ID)).toBe(1);
     expect(f.mgr.cellEmissionGates.has(CHANNEL_ID)).toBe(false);
-    expect(f.mgr.syncOutputHolds.has(CHANNEL_ID)).toBe(false);
-    // The authoritative frame for the replacement core still lands: forced, and
-    // raised only after the gate is gone.
-    const published = f.cells.at(-1)!;
-    expect(published.full).toBe(true);
-    expect([published.cols, published.rows]).toEqual([100, 30]);
-
-    // The replayed ring still carries the unclosed opener, so the rebuilt core is
-    // mid-frame too — and the next chunk opens a NEW hold against ITS generation,
-    // timed from after the browser already has pixels.
-    ptyOut(f.mgr, "post-resize\r\n");
+    // The replacement core still carries the unclosed opener. Its required
+    // authoritative snapshot waits on a NEW hold against that core rather than
+    // publishing replayed intermediate cells.
+    expect(f.cells).toHaveLength(publishedBefore);
+    expect(f.mgr.pendingSyncCellSnapshots.has(CHANNEL_ID)).toBe(true);
     const core = f.mgr.shellByChannel(CHANNEL_ID)!.wtermCore;
     expect(core.synchronizedOutput?.()).toBe(true);
     const fresh = f.mgr.syncOutputHolds.get(CHANNEL_ID);
     expect(fresh).toBeDefined();
     expect(fresh).not.toBe(stale);
     expect(fresh!.generation).toBe(core.synchronizedOutputGeneration?.() ?? 0);
-    expect(f.cells.at(-1)).toBe(published);
+
+    // The application boundary releases exactly one complete full frame at the
+    // replacement geometry.
+    ptyOut(f.mgr, `post-resize${SYNC_OFF}`);
+    expect(f.mgr.syncOutputHolds.has(CHANNEL_ID)).toBe(false);
+    expect(f.mgr.pendingSyncCellSnapshots.has(CHANNEL_ID)).toBe(false);
+    expect(f.cells).toHaveLength(publishedBefore + 1);
+    const published = f.cells.at(-1)!;
+    expect(published.full).toBe(true);
+    expect([published.cols, published.rows]).toEqual([100, 30]);
   });
 });

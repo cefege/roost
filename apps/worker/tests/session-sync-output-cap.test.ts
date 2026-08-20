@@ -193,6 +193,30 @@ describe("synchronized output withholds intermediate frames", () => {
     teardown(mgr);
   });
 
+  test("a returning viewer's full snapshot waits for the synchronized paint boundary", async () => {
+    const { mgr, frames } = await harness();
+    mgr.viewportClaims.get(CID)?.clear();
+    // With no viewer, output still advances the canonical core but does not
+    // enter the streaming scheduler, so no hold record exists yet.
+    chunk(mgr, `${SYNC_ON}\x1b[2J\x1b[1;1Hbefore-repair`);
+    expect(mgr.syncOutputHolds.has(CID)).toBe(false);
+    // TAB_VISIBLE attaches midway through the atomic paint. The claim must
+    // discover mode 2026 from the core itself and defer its required full frame.
+    mgr.claimViewport(CID, "viewer", 80, 24, 2, 3, 0);
+    expect(frames).toHaveLength(0);
+    expect(mgr.syncOutputHolds.get(CID)?.tripped).toBe(false);
+    expect(mgr.pendingSyncCellSnapshots.has(CID)).toBe(true);
+    chunk(mgr, `\x1b[2;1Hafter-repair${SYNC_OFF}`);
+    expect(frames).toHaveLength(1);
+    expect(frames[0]!.full).toBe(true);
+    const painted = frames[0]!.viewportRows.map(textOf).join("\n");
+    expect(painted).toContain("before-repair");
+    expect(painted).toContain("after-repair");
+    expect(mgr.pendingSyncCellSnapshots.has(CID)).toBe(false);
+    expect(mgr.syncOutputHolds.has(CID)).toBe(false);
+    teardown(mgr);
+  });
+
   test("closing the frame ships the withheld state at that boundary, in one frame", async () => {
     const { mgr, frames } = await harness();
     chunk(mgr, SYNC_ON);
@@ -450,18 +474,11 @@ describe("the suppression is bounded", () => {
       clearResizeCapture(mgr, CID);
       mgr.emitCellSnapshot(asChannelId(CID));
 
-      // The authoritative frame for the replacement core reaches the browser:
-      // forced, and raised only after the gate is gone.
-      expect(frames).toHaveLength(1);
-      expect(frames[0]!.full).toBe(true);
-      expect(frames[0]!.cols).toBe(100);
-      frames.length = 0;
-
-      // The replayed ring still holds the unclosed 2026h, so the fresh core is
-      // mid-frame too — and the next chunk opens a NEW hold, timed from here,
-      // after the browser already has pixels. One ceiling, not the stale one
-      // plus the transaction plus another.
-      chunk(mgr, "after the resize\r\n");
+      // The rebuilt core still holds the unclosed 2026h. Its authoritative
+      // snapshot therefore opens a fresh hold on the replacement core instead
+      // of publishing the replay's intermediate grid.
+      expect(frames).toHaveLength(0);
+      expect(mgr.pendingSyncCellSnapshots.has(CID)).toBe(true);
       const core = rec(mgr).wtermCore;
       const fresh = mgr.syncOutputHolds.get(CID);
       expect(fresh).toBeDefined();
@@ -472,11 +489,15 @@ describe("the suppression is bounded", () => {
       // Measured against the REBUILT core's numbering, not the retired one's.
       expect(fresh!.sbTotalAtOpen)
         .toBe(scrollbackOrigin(core, rec(mgr).cell_emit) + core.getScrollbackCount());
-      expect(frames).toHaveLength(0);
+      // The normal synchronized-output ceiling remains the bounded fallback for
+      // an application that never declares the paint complete.
       jest.advanceTimersByTime(SYNC_OUTPUT_MAX_MS - 1);
       expect(frames).toHaveLength(0);
       jest.advanceTimersByTime(1);
       expect(frames).toHaveLength(1);
+      expect(frames[0]!.full).toBe(true);
+      expect(frames[0]!.cols).toBe(100);
+      expect(mgr.pendingSyncCellSnapshots.has(CID)).toBe(false);
       teardown(mgr);
     } finally {
       jest.useRealTimers();
