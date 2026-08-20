@@ -68,6 +68,18 @@ describe("multi-viewer dynamic — withdraw / disconnect", () => {
     expect(() => mgr.withdrawViewport(CID, FP_B)).not.toThrow();
     expect(await readApplied(mgr)).toEqual({ cols: 100, rows: 30 });
   });
+
+  test("3F — canceled deferred withdraw does not advance viewport intent", async () => {
+    const mgr = freshMgr();
+    await injectSession(mgr, 80, 24);
+    mgr.claimViewport(CID, FP_A, 100, 30, 1);
+    expect(mgr.viewportIntentEpoch.get(CID)).toBe(1);
+    mgr.withdrawViewport(CID, FP_A);
+    expect(mgr.viewportIntentEpoch.get(CID)).toBe(1);
+    mgr.claimViewport(CID, FP_A, 100, 30, 1);
+    expect(mgr.pendingWithdraws.has(`${CID}:${FP_A}`)).toBe(false);
+    expect(mgr.viewportIntentEpoch.get(CID)).toBe(1);
+  });
 });
 
 describe("multi-viewer dynamic — TTL reaper", () => {

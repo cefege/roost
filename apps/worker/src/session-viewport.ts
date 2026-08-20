@@ -194,7 +194,6 @@ export function withdrawViewport(this: SessionManager, channelId: number, viewer
 	if (!claims || !claims.has(viewerFp)) return;
 	const key = `${channelId}:${viewerFp}`;
 	if (this.pendingWithdraws.has(key)) return; // already scheduled
-	advanceViewportIntentEpoch(this, channelId);
 	const rec = this.sessions.get(channelId);
 	diag("viewport.withdraw", {
 		sid: rec?.sessionId,
@@ -209,6 +208,7 @@ export function withdrawViewport(this: SessionManager, channelId: number, viewer
 		this.pendingWithdraws.delete(key);
 		const live = this.viewportClaims.get(channelId);
 		if (!live || !live.delete(viewerFp)) return;
+		advanceViewportIntentEpoch(this, channelId);
 		this.reconcileTerminalViewport(channelId);
 	}, VIEWPORT_WITHDRAW_GRACE_MS);
 	this.pendingWithdraws.set(key, timer);
