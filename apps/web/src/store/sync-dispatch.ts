@@ -168,6 +168,25 @@ export function dropNextCellFrame(sessionId: string): void {
 export function droppedCellFrameCount(sessionId: string): number {
   return _droppedCellFrameCounts.get(sessionId) ?? 0;
 }
+// Smoke seam for the mount-repair callback below. The fatal shape of the pane's
+// repair latch is `requestFullRepair()` firing while the pane's watermark is
+// CURRENT: nothing is actually missing, so the worker grants no snapshot, and a
+// latch armed there is never cleared by an arriving full frame. Every app
+// gesture that reaches line 185 leaves the watermark BEHIND instead (a dropped
+// frame), which self-heals and therefore cannot discriminate the fix. Retained
+// only under the smoke pin so production neither allocates nor keeps a closure
+// alive past the handler it belongs to.
+const _cellRepairRequesters = new Map<string, () => void>();
+
+/** Smoke-only: fire the mount-repair callback a pane registered, without
+ *  needing the mount buffer to have actually overflowed. */
+export function requestCellMountRepair(sessionId: string): boolean {
+  if (!_smokeEnabled) return false;
+  const fn = _cellRepairRequesters.get(sessionId);
+  if (!fn) return false;
+  fn();
+  return true;
+}
 export function registerCellHandler(
   sessionId: string,
   fn: CellHandler,
@@ -182,9 +201,11 @@ export function registerCellHandler(
     for (const frame of pending.frames) fn(protoToCellFrame(frame));
   }
   _cellHandlers.set(sessionId, fn);
+  if (_smokeEnabled && requestFullRepair) _cellRepairRequesters.set(sessionId, requestFullRepair);
   if (_cellMountRepairPending.delete(sessionId)) requestFullRepair?.();
   return () => {
     if (_cellHandlers.get(sessionId) === fn) _cellHandlers.delete(sessionId);
+    if (_cellRepairRequesters.get(sessionId) === requestFullRepair) _cellRepairRequesters.delete(sessionId);
   };
 }
 export function registerPresenceHandler(sessionId: string, fn: PresenceHandler): () => void {
@@ -277,6 +298,7 @@ export function pruneCellFrameCount(sessionId: string): void {
   _dropNextCellFrames.delete(sessionId);
   if (typeof localStorage !== "undefined") localStorage.removeItem(smokeDropKey(sessionId));
   _droppedCellFrameCounts.delete(sessionId);
+  _cellRepairRequesters.delete(sessionId);
   forceClearCellMountClaim(sessionId);
 }
 

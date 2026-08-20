@@ -208,6 +208,11 @@ export function CellTerminal(props: CellTerminalProps) {
 	let viewportOwner: TerminalViewportOwner | null = null;
 	let mountClaim: CellMountClaim | null = null;
 	let viewportPositive = false;
+	// Continuity latch: an authoritative full frame has been REQUESTED and only
+	// that frame may clear it, so repeated deltas can't defer their own repair.
+	// Component scope rather than onMount-local because sendWithdraw must be
+	// able to disarm it; the cell handler below is the only other toucher.
+	let awaitingFullFrame = false;
 	// One intent claim per cold mount: set on any real claim send, so the INITIAL
 	// effect no-ops when the inLayout TAB_VISIBLE effect already claimed (each
 	// forced its own full snapshot before — worker treats both as intentMount).
@@ -374,6 +379,12 @@ export function CellTerminal(props: CellTerminalProps) {
 		mountClaim?.deactivate();
 		setViewportLiveReady(false);
 		viewportPositive = false;
+		// A parked pane has NO repair in flight: the zero-size claim below
+		// supersedes any pending one, and reveal re-claims from scratch. Holding
+		// the latch across a park would make the delta gate in the cell handler
+		// drop EVERY frame after reveal, forever — the pane wedges with no
+		// self-heal. Sequence continuity re-arms it if a real gap reappears.
+		awaitingFullFrame = false;
 		backfillRef?.suspend();
 		if (claimTimer) {
 			clearTimeout(claimTimer);
@@ -403,20 +414,24 @@ export function CellTerminal(props: CellTerminalProps) {
 
 	// cause = the browser event behind this claim (ResizeCause model).
 	// Worker hint only; defaults to VIEWPORT (a plain ResizeObserver tick).
+	// Returns whether a claim actually TRANSMITTED (reached the viewport owner).
+	// False = diverted to park/withdraw by the visibility gate below, or dropped
+	// as a passive no-op. Callers that arm repair state (requestFullFrame) MUST
+	// NOT latch on a false: nothing is in flight that could ever clear it.
 	function sendClaim(
 		cause: ResizeCause = ResizeCause.VIEWPORT,
 		repairRequired = false,
-	): void {
-		if (!displayRef || unmounted || !viewportOwner) return;
-		if (pending()) return; // placeholder has no PTY yet — don't fire a doomed round-trip
+	): boolean {
+		if (!displayRef || unmounted || !viewportOwner) return false;
+		if (pending()) return false; // placeholder has no PTY yet — don't fire a doomed round-trip
 		// Only a pane currently visible on the active terminal surface may claim
 		// dimensions. Every other state withdraws immediately.
 		if (!isPageVisible() || props.inLayout !== true || !props.surfaceActive) {
 			sendPark();
-			return;
+			return false;
 		}
 		const measured = measureViewport();
-		if (!measured) return;
+		if (!measured) return false;
 		const { cols, rows } = measured;
 		// Suppress passive no-change claims. Explicit repair and lifecycle claims
 		// still enter the owner so it can reconcile the current Sync generation.
@@ -424,7 +439,7 @@ export function CellTerminal(props: CellTerminalProps) {
 			&& cause === ResizeCause.VIEWPORT
 			&& lastEnqueued.cols > 0
 			&& cols === lastEnqueued.cols
-			&& rows === lastEnqueued.rows) return;
+			&& rows === lastEnqueued.rows) return false;
 		lastEnqueued = { cols, rows };
 		viewportPositive = true;
 		initialClaimSent = true;
@@ -433,8 +448,16 @@ export function CellTerminal(props: CellTerminalProps) {
 			rows,
 			cause,
 			// The worker skips a repaint when this watermark is current, or sends
-			// one authoritative viewport-only full frame when the dormant grid fell behind.
-			heldCellSeq: renderer?.heldFrameSeq() ?? 0,
+			// one authoritative viewport-only full frame when the dormant grid fell
+			// behind. A REPAIR claim zeroes it deliberately: needsClaimSnapshot
+			// (apps/worker/src/session-viewport.ts) declines any claim whose seq
+			// matches the last frame it emitted, and `repairRequired` is not on the
+			// wire (sync-outbound-viewport-dispatch.ts sends cols/rows/cause/
+			// heldCellSeq only), so a repair asked for with a current-looking
+			// watermark is answered with nothing — and the requester waits for a
+			// full frame that will never come. 0 is the one value that cannot be
+			// declined, and only an explicit repair pays for it.
+			heldCellSeq: repairRequired ? 0 : (renderer?.heldFrameSeq() ?? 0),
 			repairRequired,
 		});
 		mountClaim?.activate();
@@ -445,6 +468,7 @@ export function CellTerminal(props: CellTerminalProps) {
 			rows,
 			client_seq: admission.sequence,
 		});
+		return true;
 	}
 
 	function scheduleClaim(cause: ResizeCause = ResizeCause.VIEWPORT): void {
@@ -461,12 +485,12 @@ export function CellTerminal(props: CellTerminalProps) {
 	// worker even started streaming. Clears any pending debounced claim so the
 	// immediate send can't be followed by a stale double-send. ResizeObserver
 	// claims keep the debounce (that's what it exists for — viewport wobble).
-	function sendClaimNow(cause: ResizeCause, repairRequired = false): void {
+	function sendClaimNow(cause: ResizeCause, repairRequired = false): boolean {
 		if (claimTimer) {
 			clearTimeout(claimTimer);
 			claimTimer = null;
 		}
-		sendClaim(cause, repairRequired);
+		return sendClaim(cause, repairRequired);
 	}
 
 
@@ -544,7 +568,6 @@ export function CellTerminal(props: CellTerminalProps) {
 				},
 			};
 		});
-		let awaitingFullFrame = false;
 		const ghostMap = new Map<
 			string,
 			{ x: number; y: number; label?: string }
@@ -555,6 +578,13 @@ export function CellTerminal(props: CellTerminalProps) {
 		// booleans synchronously and never reparses PTY output.
 		let measurementRaf = 0;
 		runWithOwner(cellOwner, () => {
+			// Arm across the send so a synchronous re-entry can't stack requests,
+			// then keep the latch ONLY if the repair claim genuinely transmitted.
+			// A warm-mounted-but-unslotted pane (or a backgrounded tab) has its
+			// claim diverted to park/withdraw by sendClaim's visibility gate:
+			// latching there would wait forever for a full frame nobody asked
+			// for while the gate below dropped every delta. Diverted → stay
+			// clear, keep applying deltas, and re-claim on reveal.
 			const requestFullFrame = (got: number) => {
 				if (awaitingFullFrame) return;
 				awaitingFullFrame = true;
@@ -564,7 +594,7 @@ export function CellTerminal(props: CellTerminalProps) {
 					got,
 					cooldownKey: sessionId,
 				});
-				sendClaimNow(ResizeCause.TAB_VISIBLE, true);
+				if (!sendClaimNow(ResizeCause.TAB_VISIBLE, true)) awaitingFullFrame = false;
 			};
 			unsubCell = registerCellHandler(props.session.id, (frame) => {
 				// Hidden and offscreen panes are unsubscribed. Their next visible
@@ -607,6 +637,12 @@ export function CellTerminal(props: CellTerminalProps) {
 					? renderer.applyFullFrame(frame)
 					: renderer.applyDeltaFrame(frame);
 				if (!applied) {
+					// cellRenderer rejected the frame (dimension/epoch validation).
+					// The latch is still armed from the request that produced it, so
+					// the guard in requestFullFrame would swallow this retry: re-arm
+					// explicitly. The guard stays — it still bounds recursion within
+					// one request.
+					awaitingFullFrame = false;
 					requestFullFrame(frame.seq);
 					return;
 				}
@@ -1123,6 +1159,14 @@ export function CellTerminal(props: CellTerminalProps) {
 				sendPark();
 				return;
 			}
+			// NOT repairRequired: it is client-local (no wire field), so it cannot
+			// make the worker resync — it only holds this attempt in `repairing`
+			// until VIEWPORT_REPAIR_TIMEOUT_MS forces a retry ladder, and an idle
+			// tab-back owes no full frame, so viewportLiveReady would stay false and
+			// raise the offline notice on a healthy pane. The worker already
+			// snapshots every claimant whose held seq is behind the frame it last
+			// emitted; a pane that is genuinely current needs no repaint, and a gap
+			// after this point re-requests through requestFullFrame.
 			sendClaimNow(ResizeCause.TAB_VISIBLE);
 		};
 		document.addEventListener("visibilitychange", onVisibility);

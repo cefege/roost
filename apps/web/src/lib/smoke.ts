@@ -24,6 +24,7 @@ import type { SyncRedialStatus } from "../store/sync.ts";
 import {
   dropNextCellFrame as dropNextCellFrameImpl,
   droppedCellFrameCount as droppedCellFrameCountImpl,
+  requestCellMountRepair as requestCellMountRepairImpl,
 } from "../store/sync-dispatch.ts";
 import { perfCounters, leakSample, resetPerfCounters as resetPerfCountersImpl } from "./leakWatch.ts";
 import { rootStore, setRootStore } from "../store/root.ts";
@@ -224,6 +225,11 @@ export interface SmokeApi {
   /** Drop exactly the next cell frame before counters and pane dispatch. */
   dropNextCellFrame(sessionId: string): void;
   droppedCellFrameCount(sessionId: string): number;
+  /** Fire a pane's mount-repair callback directly. Unlike `dropNextCellFrame`,
+   *  this leaves the pane's watermark CURRENT — the one shape in which an
+   *  optimistically-armed repair latch is permanently fatal, and which no app
+   *  gesture can reach. False when no pane has registered for this session. */
+  requestCellMountRepair(sessionId: string): boolean;
   /** Reject exactly the next positive viewport claim for this session before
    * wire send. Smoke-only, one-shot, and scoped to the current document. */
   rejectNextViewportClaim(sessionId: string): void;
@@ -732,6 +738,9 @@ export function maybeInstallSmokeBackdoor(): void {
     },
     droppedCellFrameCount(sessionId) {
       return droppedCellFrameCountImpl(sessionId);
+    },
+    requestCellMountRepair(sessionId) {
+      return requestCellMountRepairImpl(sessionId);
     },
     rejectNextViewportClaim(sessionId) {
       rejectNextViewportClaimImpl(sessionId);

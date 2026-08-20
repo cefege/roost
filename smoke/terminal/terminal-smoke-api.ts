@@ -35,6 +35,10 @@ export interface RecoverySmokeApi {
   resetTerminalInputCapture(): void;
   dropNextCellFrame(sessionId: string): void;
   droppedCellFrameCount(sessionId: string): number;
+  /** Fire the mount-repair callback a mounted pane registered with
+   *  registerCellHandler, without needing its mount buffer to overflow. False
+   *  when the smoke pin is off or no pane has registered for this session. */
+  requestCellMountRepair(sessionId: string): boolean;
   cellFrameCount(sessionId: string): number;
   cellFullFrameCount(sessionId: string): number;
   cellGridEpoch(sessionId: string): string;
