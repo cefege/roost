@@ -22,6 +22,7 @@ import {
   reconcileViewportNow,
   type ResumeRedrawResult,
 } from "./session-terminal-txn.ts";
+import { desiredViewportSize } from "./session-viewport.ts";
 
 /** Outer report bound. Above the transaction ceiling (7 s) so a transaction that
  *  finished inside its own phase budgets always reports its truthful result, and
@@ -230,7 +231,14 @@ export function redrawEvictedResume(
           } satisfies ResumeRedrawResult;
         }
         const currentSeq = mgr.channelResizeSeq.get(channelId) ?? 0;
-        if (currentSeq !== nudge.resizeSeq) {
+        const desired = desiredViewportSize.call(mgr, channelId);
+        // A viewport that ran between the nudge and this queued restore owns the
+        // final geometry even when it needed no keeper write and consumed no
+        // resize sequence. Its current size is already authoritative.
+        if (
+          currentSeq !== nudge.resizeSeq ||
+          (desired !== null && (desired.cols !== cols || desired.rows !== rows))
+        ) {
           restoreTicket.release();
           return { status: "committed", resizeSeq: currentSeq } satisfies ResumeRedrawResult;
         }
