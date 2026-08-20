@@ -303,8 +303,10 @@ function syncOutputAction(mgr: SessionManager, channelId: number): SyncOutputAct
 		if (hold === undefined) return "pass";
 		// The application closed its frame. A hold that actually withheld output
 		// owes the browser one authoritative frame at the boundary the
-		// application itself declared; a tripped one already got one.
-		const owed = !hold.tripped;
+		// application itself declared. A tripped hold normally already flushed,
+		// except when that ceiling emission was withheld because it would have
+		// resolved a pending full snapshot from the intermediate grid.
+		const owed = !hold.tripped || mgr.pendingSyncCellSnapshots.has(channelId);
 		releaseSyncOutputHold(mgr, channelId);
 		return owed ? "flush" : "pass";
 	}
@@ -570,12 +572,11 @@ export function emitCellFrame(this: SessionManager, channelId: number, force: bo
 		noteCellGateSuppression(this, channelId, "resize_capture");
 		return;
 	}
-	// Every path, including forced snapshots, respects an open synchronized
-	// output frame. Reading and clearDirty() midway through the application's
-	// atomic repaint would publish a partial grid and prevent already-dirtied
-	// cells from being resent at the declared boundary. The existing hold
-	// ceilings still bound a producer that never closes its frame.
-	const snapshot = force || this.pendingSyncCellSnapshots.has(channelId);
+	// A full-producing request cannot read or clear the grid inside the
+	// application's atomic paint, even after the hold's liveness ceiling has
+	// tripped. Once tripped, an already-baselined channel may keep streaming
+	// ordinary unforced deltas, but the authoritative full remains owed until
+	// the core observes the real DECRST 2026 boundary.
 	const send = this.sendCellGridUpstream;
 	if (!send) return;
 	const rec = this.sessions.get(channelId);
@@ -584,11 +585,25 @@ export function emitCellFrame(this: SessionManager, channelId: number, force: bo
 	// narrow for teardown races and sparse test fixtures.
 	const core = rec.wtermCore;
 	if (!core) return;
+	const repair = this.pendingCellRepairs.has(channelId);
+	const fullOwed =
+		force ||
+		repair ||
+		!rec.cell_emit.sentFull ||
+		this.pendingSyncCellSnapshots.has(channelId);
 	// Output may have entered mode 2026 while every viewer was withdrawn, so no
 	// streaming schedule existed to open a hold. Read the canonical core here
 	// through the same state machine before a fresh claim snapshots it.
-	if (syncOutputAction(this, channelId) === "hold") {
-		if (snapshot) this.pendingSyncCellSnapshots.add(channelId);
+	const syncAction = syncOutputAction(this, channelId);
+	const synchronized = core.synchronizedOutput?.() ?? false;
+	const deferFull = synchronized && fullOwed;
+	if (deferFull) {
+		this.pendingSyncCellSnapshots.add(channelId);
+		// The boundary snapshot now owns a transport repair. Leaving the repair
+		// gate set would make the real close's chunk return before it can emit.
+		if (repair) this.pendingCellRepairs.delete(channelId);
+	}
+	if (syncAction === "hold" || (deferFull && !rec.cell_emit.sentFull)) {
 		this.cellDirty.add(channelId);
 		noteCellGateSuppression(this, channelId, "sync_output");
 		return;
@@ -598,13 +613,20 @@ export function emitCellFrame(this: SessionManager, channelId: number, force: bo
 		if (pending !== LEADING_SENTINEL) clearTimeout(pending);
 		this.cellEmitTimers.delete(channelId);
 	}
-	const repair = this.pendingCellRepairs.has(channelId);
 	const { frame, state } = nextCellFrame(
 		core,
 		rec.cell_emit,
-		snapshot || repair,
+		fullOwed && !deferFull,
 		SB_SNAPSHOT_HISTORY_ROWS,
 	);
+	// Even unforced emission may choose a semantic full after a dimension,
+	// screen, or history transition. Do not publish that partial baseline while
+	// the explicit full request is waiting for the application's boundary.
+	if (deferFull && frame.full) {
+		this.cellDirty.add(channelId);
+		noteCellGateSuppression(this, channelId, "sync_output");
+		return;
+	}
 	// Read alongside the frame: these spans are exactly the ones a saturated link
 	// table would have stripped hyperlinks from.
 	noteHyperlinkSaturation(this, channelId, core, String(rec.sessionId));
@@ -645,7 +667,7 @@ export function emitCellFrame(this: SessionManager, channelId: number, force: bo
 	core.clearDirty();
 	this.cellDirty.delete(channelId);
 	this.pendingCellRepairs.delete(channelId);
-	this.pendingSyncCellSnapshots.delete(channelId);
+	if (!deferFull) this.pendingSyncCellSnapshots.delete(channelId);
 	// A synchronized-output hold that is still OPEN keeps its record: the emitter
 	// stopped withholding (this frame just shipped), but a terminal sitting
 	// inside an unterminated synchronized frame is precisely what the diagnostic

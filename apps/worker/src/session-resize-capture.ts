@@ -249,28 +249,21 @@ export async function rebuildTerminalCore(
     if (boundary < retainedStart) capture.ringEvicted = true;
     boundaryOffset = Math.max(0, Math.min(retained.length, boundary - retainedStart));
   }
-  // A fresh core's VT parser starts COLD, so the first byte replayed into it
-  // must be a token START. The boundary is `head_seq` at the keeper's result
-  // frame and head_seq advances by WHOLE PTY CHUNKS, so it lands wherever the
-  // pty flushed — including between `ESC [` and `32m`, which a cold parser then
-  // prints as the literal text `32m` at row 0 (production: an htop rebuild
-  // showing `32m1969M` with permanently stale regions behind it, because the
-  // tail IS the post-SIGWINCH repaint and a desynced repaint leaves cells htop
-  // believes are already painted). Rewinding onto the split sequence's own head
-  // is what makes the tail's first bytes complete a sequence instead.
-  let aligned = rewindToSequenceStart(retained, boundaryOffset);
-  // An eviction cut cannot be rewound: the bytes that opened the split sequence
-  // were overwritten in place by the ring, so there is nothing behind the cut to
-  // rewind ONTO. `ringEvicted` with `aligned === 0` is exactly that case — the
-  // clamp above put the boundary at the ring's oldest retained byte, an
-  // arbitrary eviction offset. Move FORWARD instead, to the first byte whose
-  // parser state is knowable from the retained window alone.
-  let replayStart = 0;
-  if (capture?.ringEvicted && aligned === 0) {
-    boundaryOffset = skipOrphanSequencePrefix(retained);
-    aligned = boundaryOffset;
-    replayStart = boundaryOffset;
-  }
+  // A fresh core's VT parser starts COLD, so both retained-window cuts must be
+  // token aligned. A pre-existing eviction is visible as retainedStart > 0:
+  // advance past its orphan prefix before reconstructing either side of this
+  // resize. This remains necessary on every later core rebuild because the raw
+  // ring deliberately keeps those untrimmed bytes for sequence accounting.
+  const replayStart = retainedStart > 0 ? skipOrphanSequencePrefix(retained) : 0;
+  if (boundaryOffset < replayStart) boundaryOffset = replayStart;
+  // The resize boundary is `head_seq` at the keeper's result frame and advances
+  // by WHOLE PTY CHUNKS, so it can land between `ESC [` and `32m`. Unlike the
+  // eviction cut, its opener is retained: rewind onto that opener, but never
+  // behind the safe replay start established above.
+  const aligned = Math.max(
+    replayStart,
+    rewindToSequenceStart(retained, boundaryOffset),
+  );
   // `head` stops at `aligned`, not at the boundary: the rewound bytes move into
   // `prefix` and are replayed exactly once, from there, on BOTH paths — leaving
   // them in `head` too would double them on the non-alt path.

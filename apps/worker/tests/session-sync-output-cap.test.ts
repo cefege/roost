@@ -328,6 +328,52 @@ describe("the suppression is bounded", () => {
     }
   });
 
+  test("a ceiling trip cannot resolve a pending full from a still-open frame", async () => {
+    const { mgr, frames } = await harness();
+    // The harness's initial claim shipped a real baseline before discarding its
+    // captured frame: this is a returning viewer, not a new unbaselined core.
+    expect(rec(mgr).cell_emit.sentFull).toBe(true);
+    expect(rec(mgr).cell_emit.seq).toBeGreaterThan(0);
+    jest.useFakeTimers();
+    try {
+      mgr.viewportClaims.get(CID)?.clear();
+      // The application has erased and begun rebuilding its static UI, but its
+      // dynamic values and declared paint boundary have not arrived yet.
+      chunk(mgr, `${SYNC_ON}\x1b[2J\x1b[1;1Hstatic label`);
+      expect(mgr.syncOutputHolds.has(CID)).toBe(false);
+
+      // TAB_VISIBLE with an unknown held frame requests a full snapshot. The
+      // shared emitter discovers the already-open bracket and defers it.
+      mgr.claimViewport(CID, "viewer", 80, 24, 2, 3, 0);
+      expect(frames).toHaveLength(0);
+      expect(mgr.pendingSyncCellSnapshots.has(CID)).toBe(true);
+
+      jest.advanceTimersByTime(SYNC_OUTPUT_MAX_MS);
+      expect(rec(mgr).wtermCore.synchronizedOutput?.()).toBe(true);
+      // The ceiling still serves the ordinary bounded delta to viewers with a
+      // baseline, but it cannot turn the partial grid into the owed full frame.
+      expect(frames).toHaveLength(1);
+      expect(frames[0]!.full).toBe(false);
+      expect(mgr.pendingSyncCellSnapshots.has(CID)).toBe(true);
+
+      chunk(mgr, `\x1b[2;1Hdynamic value${SYNC_OFF}`);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(rec(mgr).wtermCore.synchronizedOutput?.()).toBe(false);
+      expect(frames).toHaveLength(2);
+      const fullFrames = frames.filter((frame) => frame.full);
+      expect(fullFrames).toHaveLength(1);
+      const painted = fullFrames[0]!.viewportRows.map(textOf).join("\n");
+      expect(painted).toContain("static label");
+      expect(painted).toContain("dynamic value");
+      expect(mgr.pendingSyncCellSnapshots.has(CID)).toBe(false);
+      expect(mgr.syncOutputHolds.has(CID)).toBe(false);
+      teardown(mgr);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   test("the work ceiling recovers a stuck frame that keeps flooding", async () => {
     const { mgr, frames } = await harness();
     chunk(mgr, SYNC_ON);
@@ -489,11 +535,14 @@ describe("the suppression is bounded", () => {
       // Measured against the REBUILT core's numbering, not the retired one's.
       expect(fresh!.sbTotalAtOpen)
         .toBe(scrollbackOrigin(core, rec(mgr).cell_emit) + core.getScrollbackCount());
-      // The normal synchronized-output ceiling remains the bounded fallback for
-      // an application that never declares the paint complete.
-      jest.advanceTimersByTime(SYNC_OUTPUT_MAX_MS - 1);
+      // A resize changed the frame geometry, so even the unforced ceiling path
+      // would be a semantic full. Keep waiting rather than publish the rebuilt
+      // core's intermediate grid as an authoritative baseline.
+      jest.advanceTimersByTime(SYNC_OUTPUT_MAX_MS);
       expect(frames).toHaveLength(0);
-      jest.advanceTimersByTime(1);
+      expect(core.synchronizedOutput?.()).toBe(true);
+      expect(mgr.pendingSyncCellSnapshots.has(CID)).toBe(true);
+      chunk(mgr, SYNC_OFF);
       expect(frames).toHaveLength(1);
       expect(frames[0]!.full).toBe(true);
       expect(frames[0]!.cols).toBe(100);

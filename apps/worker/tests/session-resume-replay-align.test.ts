@@ -17,10 +17,10 @@ import { SessionManager } from "../src/session-manager.ts";
 import { asSessionId, asChannelId, asWorkerFp } from "@roost/shared/wire";
 import { gridToCellFrame } from "@roost/shared/cell";
 import { ringLength } from "../src/session-scrollback-ring.ts";
-import { KeeperFeature } from "../src/keeper/protocol.ts";
+import { MuxFrameType } from "../src/keeper/protocol.ts";
 import { getMultiplexedPool } from "../src/keeper/multiplexed-client.ts";
 import type { KeeperHistoryRecords } from "../src/keeper/multiplexed-client.ts";
-import { installFakeKeeper, type FakeKeeper } from "./keeper-fake-pool.ts";
+import { installAutoKeeper, type FakeKeeper } from "./keeper-fake-pool.ts";
 import type { ShellSpec } from "../src/shell-spec.ts";
 
 const SESSION_ID = asSessionId("8c1e5b20-3333-4444-8555-666677778888");
@@ -62,10 +62,14 @@ afterEach(() => {
 async function resumeWith(opts: {
   records: KeeperHistoryRecords["records"];
   headSeq: number;
+  baseCols?: number;
+  baseRows?: number;
 }): Promise<Fixture> {
   // Before the manager: its constructor dials the pool, and a real keeper
   // adopted by that dial would replace the fake socket mid-test.
-  const keeper = installFakeKeeper({ features: [KeeperFeature.OrderedHistory] });
+  const baseCols = opts.baseCols ?? 80;
+  const baseRows = opts.baseRows ?? 24;
+  const keeper = installAutoKeeper({ cols: baseCols, rows: baseRows });
   const pool = getMultiplexedPool();
   const priorListChannels = pool.listChannels;
   const priorReattach = pool.reattach;
@@ -74,8 +78,8 @@ async function resumeWith(opts: {
   pool.reattach = () => {};
   pool.getHistoryRecords = async () => ({
     headSeq: opts.headSeq,
-    baseCols: 80,
-    baseRows: 24,
+    baseCols,
+    baseRows,
     records: opts.records,
   });
 
@@ -135,6 +139,14 @@ describe("resume replay into a cold core", () => {
     expect(text).not.toContain("32m");
     expect(text).not.toContain("1969M");
     expect(text).toContain("MEM-OK-REPAINT");
+    const resizes = f.keeper.writes.filter((write) => write.type === MuxFrameType.ResizeRequest);
+    expect(resizes.map(({ seq, cols, rows }) => ({ seq, cols, rows }))).toEqual([
+      { seq: 1, cols: 80, rows: 23 },
+      { seq: 2, cols: 80, rows: 24 },
+    ]);
+    const core = f.mgr.sessions.get(CHANNEL_ID)!.wtermCore;
+    expect([core.getCols(), core.getRows()]).toEqual([80, 24]);
+    expect(f.mgr.channelResizeSeq.get(CHANNEL_ID)).toBe(2);
   });
 
   test("the ring keeps the untrimmed bytes so head_seq - ringLength stays the retained tail", async () => {
@@ -159,6 +171,10 @@ describe("resume replay into a cold core", () => {
     });
 
     expect(coreText(f.mgr)).toContain("hello-unevicted");
+    expect(f.keeper.writes.filter((write) => write.type === MuxFrameType.ResizeRequest)).toHaveLength(0);
+    const core = f.mgr.sessions.get(CHANNEL_ID)!.wtermCore;
+    expect([core.getCols(), core.getRows()]).toEqual([80, 24]);
+    expect(f.mgr.channelResizeSeq.get(CHANNEL_ID)).toBe(0);
   });
 
   test("only the cold first write is trimmed; later records replay verbatim", async () => {
@@ -176,5 +192,22 @@ describe("resume replay into a cold core", () => {
     const text = coreText(f.mgr);
     expect(text).not.toContain("32m");
     expect(text).toContain("FIRST-SECOND-VERBATIM");
+  });
+
+  test("an evicted one-row terminal nudges upward before restoring its original geometry", async () => {
+    const bytes = enc.encode("one-row-evicted");
+    const f = await resumeWith({
+      records: [{ kind: "output", bytes }],
+      headSeq: bytes.byteLength + 1,
+      baseRows: 1,
+    });
+
+    const resizes = f.keeper.writes.filter((write) => write.type === MuxFrameType.ResizeRequest);
+    expect(resizes.map(({ seq, cols, rows }) => ({ seq, cols, rows }))).toEqual([
+      { seq: 1, cols: 80, rows: 2 },
+      { seq: 2, cols: 80, rows: 1 },
+    ]);
+    const core = f.mgr.sessions.get(CHANNEL_ID)!.wtermCore;
+    expect([core.getCols(), core.getRows()]).toEqual([80, 1]);
   });
 });

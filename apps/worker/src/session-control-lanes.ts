@@ -25,11 +25,13 @@ import { monoNowMs } from "./util/mono.ts";
 export type TerminalControlKind =
   | "viewport_claim"
   | "viewport_reconcile"
+  | "resume_redraw"
   | "terminal_kill";
 
 /** Write kinds that take the admission lane. */
 export type KeeperAdmissionKind =
   | "viewport_resize"
+  | "resume_resize"
   | "terminal_input"
   | "query_reply";
 

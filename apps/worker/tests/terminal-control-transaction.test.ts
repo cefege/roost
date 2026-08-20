@@ -18,8 +18,15 @@ import { createSbRing, readRing } from "../src/session-scrollback-ring.ts";
 import { initAgentOscState } from "../src/terminal-stream-scan.ts";
 import { MuxFrameType } from "../src/keeper/protocol.ts";
 import { KeeperFeature } from "../src/keeper/protocol.ts";
-import { installFakeKeeper, type FakeKeeper } from "./keeper-fake-pool.ts";
-import type { WorkerViewportIntent } from "../src/session-terminal-control.ts";
+import {
+  installFakeKeeper,
+  type FakeKeeper,
+  type KeeperWrite,
+} from "./keeper-fake-pool.ts";
+import {
+  redrawEvictedResume,
+  type WorkerViewportIntent,
+} from "../src/session-terminal-control.ts";
 
 const SESSION_ID = asSessionId("2f9d4a10-1111-4222-8333-444455556666");
 const CHANNEL_ID = 7;
@@ -47,11 +54,16 @@ async function fixture(opts: {
   rows: number;
   seed?: string;
   features?: readonly string[];
+  onKeeperWrite?: (keeper: FakeKeeper, write: KeeperWrite) => void;
 }): Promise<Fixture> {
   const cells: PbCellGridFrame[] = [];
   // Before the manager: its constructor calls pool.ensure(), and a real keeper
   // adopted by that dial would replace the fake socket mid-test.
-  const keeper = installFakeKeeper({ features: opts.features });
+  let keeper!: FakeKeeper;
+  keeper = installFakeKeeper({
+    features: opts.features,
+    onWrite: (write) => opts.onKeeperWrite?.(keeper, write),
+  });
   const mgr = new SessionManager({
     workerFp: asWorkerFp("00".repeat(32)),
     sink: { emit: () => {} },
@@ -464,5 +476,41 @@ describe("viewport transaction stages", () => {
     const published = f.cells.at(-1)!;
     expect(published.full).toBe(true);
     expect([published.cols, published.rows]).toEqual([100, 30]);
+  });
+
+  test("resume redraw reserves admission before a queued viewport", async () => {
+    const f = await fixture({
+      cols: 80,
+      rows: 24,
+      seed: "evicted\r\n",
+      onKeeperWrite: (keeper, write) => {
+        if (
+          write.type === MuxFrameType.ResizeRequest &&
+          write.seq !== null &&
+          write.cols !== null &&
+          write.rows !== null
+        ) {
+          keeper.resizeAck(CHANNEL_ID, write.seq, write.cols, write.rows);
+        }
+      },
+    });
+    const redraw = redrawEvictedResume(f.mgr, CHANNEL_ID, 80, 24);
+    const viewport = f.mgr.applyTerminalViewport(
+      claim({ clientSeq: 1n, cols: 100, rows: 30 }),
+    );
+    // Both calls are made in one turn. The redraw owns the control lane, so its
+    // admission tickets must already precede the viewport's ticket; acquiring
+    // them inside the queued callback leaves each lane waiting on the other.
+    expect(await redraw).toMatchObject({
+      nudge: { status: "committed", resizeSeq: 1 },
+      restore: { status: "committed", resizeSeq: 2 },
+    });
+    expect(await viewport).toMatchObject({ status: "committed", cols: 100, rows: 30 });
+    expect(f.keeper.writes.filter((write) => write.type === MuxFrameType.ResizeRequest))
+      .toMatchObject([
+        { seq: 1, cols: 80, rows: 23 },
+        { seq: 2, cols: 80, rows: 24 },
+        { seq: 3, cols: 100, rows: 30 },
+      ]);
   });
 });

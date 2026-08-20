@@ -84,10 +84,12 @@ async function reconcileResize(
   capture: ResizeCapture,
   ticket: KeeperAdmissionTicket,
   desired: ProvenSize,
+  forceResize: boolean,
 ): Promise<ResizeOutcome> {
   const pool = getMultiplexedPool();
   const floor = await resolveResizeFloor(mgr, channelId, capture);
-  if (floor.proven && floor.proven.cols === desired.cols && floor.proven.rows === desired.rows) {
+  if (!forceResize && floor.proven
+      && floor.proven.cols === desired.cols && floor.proven.rows === desired.rows) {
     // A prior written resize already applies the newest desired geometry.
     return { kind: "no_resize_needed", seq: floor.seq, size: floor.proven };
   }
@@ -171,11 +173,12 @@ async function applyProvenGeometry(
   ticket: KeeperAdmissionTicket,
   reason: string,
   desired: ProvenSize,
+  forceResize = false,
 ): Promise<ResizeOutcome> {
   const capture = installResizeCapture(mgr, channelId, reason);
   let outcome: ResizeOutcome = { kind: "not_admitted", reason: "transaction did not run" };
   try {
-    outcome = await reconcileResize(mgr, channelId, capture, ticket, desired);
+    outcome = await reconcileResize(mgr, channelId, capture, ticket, desired, forceResize);
     if (outcome.kind === "known_applied" || outcome.kind === "no_resize_needed") {
       mgr.lastAppliedSize.set(channelId, outcome.size);
       enterPhase(capture, "pty_resized");
@@ -209,6 +212,32 @@ async function applyProvenGeometry(
     // discarded silently and the browser keeps the pre-resize grid.
     if (mgr.sessions.has(channelId)) mgr.emitCellSnapshot(asChannelId(channelId));
   }
+}
+
+export type ResumeRedrawResult =
+  | { status: "committed"; resizeSeq: number }
+  | { status: "rejected"; resizeSeq: number; reason: string }
+  | { status: "ambiguous"; resizeSeq: number; reason: string };
+
+/** Forced resume redraw: restoration must not collapse to a proven-size no-op
+ * after an ambiguous nudge; ordinary viewport transactions still may. */
+export async function applyResumeRedrawNow(
+  mgr: SessionManager,
+  channelId: number,
+  ticket: KeeperAdmissionTicket,
+  desired: ProvenSize,
+): Promise<ResumeRedrawResult> {
+  if (!mgr.sessions.has(channelId)) {
+    ticket.release();
+    return { status: "rejected", resizeSeq: mgr.channelResizeSeq.get(channelId) ?? 0, reason: "session is not live" };
+  }
+  const outcome = await applyProvenGeometry(mgr, channelId, ticket, "resume_eviction_redraw", desired, true);
+  const resizeSeq = mgr.channelResizeSeq.get(channelId) ?? 0;
+  if (outcome.kind === "known_applied" || outcome.kind === "no_resize_needed")
+    return { status: "committed", resizeSeq };
+  if (outcome.kind === "known_rejected" || outcome.kind === "not_admitted")
+    return { status: "rejected", resizeSeq, reason: outcome.reason };
+  return { status: "ambiguous", resizeSeq, reason: outcome.reason };
 }
 
 /** Withdraw / freshness-reap / SCD recompute. Same owner, same capture, same

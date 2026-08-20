@@ -16,7 +16,12 @@ import {
   enqueueTerminalControl,
   type KeeperAdmissionTicket,
 } from "./session-control-lanes.ts";
-import { applyViewportNow, reconcileViewportNow } from "./session-terminal-txn.ts";
+import {
+  applyResumeRedrawNow,
+  applyViewportNow,
+  reconcileViewportNow,
+  type ResumeRedrawResult,
+} from "./session-terminal-txn.ts";
 
 /** Outer report bound. Above the transaction ceiling (7 s) so a transaction that
  *  finished inside its own phase budgets always reports its truthful result, and
@@ -157,6 +162,57 @@ export function applyTerminalViewport(
     () => applyViewportNow(this, channelId, intent, ticket),
   ).finally(() => ticket.release());
   return reportViewportResultWithinBudget(operation);
+}
+
+export interface ResumeRedrawRecovery {
+  nudge: ResumeRedrawResult;
+  restore: ResumeRedrawResult;
+}
+
+async function settleResumeRedraw(
+  mgr: SessionManager,
+  channelId: number,
+  ticket: KeeperAdmissionTicket,
+  cols: number,
+  rows: number,
+): Promise<ResumeRedrawResult> {
+  try {
+    await ticket.granted;
+    return await applyResumeRedrawNow(mgr, channelId, ticket, { cols, rows });
+  } catch (error) {
+    return {
+      status: "ambiguous",
+      resizeSeq: mgr.channelResizeSeq.get(channelId) ?? 0,
+      reason: error instanceof Error ? error.message : String(error),
+    };
+  } finally {
+    ticket.release();
+  }
+}
+
+/** Keep one control owner across both rebuilds. Both admission tickets are
+ * reserved before the control lane, matching ordinary viewport receipt order:
+ * otherwise a viewport can hold the next admission ticket while waiting behind
+ * this redraw, and the redraw can wait forever for that ticket. */
+export function redrawEvictedResume(
+  mgr: SessionManager,
+  channelId: number,
+  cols: number,
+  rows: number,
+): Promise<ResumeRedrawRecovery> {
+  const nudgeTicket = acquireKeeperAdmission(mgr, channelId, "resume_resize");
+  const restoreTicket = acquireKeeperAdmission(mgr, channelId, "resume_resize");
+  const operation = enqueueTerminalControl(mgr, channelId, "resume_redraw", async () => {
+    const nudgeRows = rows > 1 ? rows - 1 : rows + 1;
+    const nudge = await settleResumeRedraw(mgr, channelId, nudgeTicket, cols, nudgeRows);
+    const restore = await settleResumeRedraw(mgr, channelId, restoreTicket, cols, rows);
+    return { nudge, restore };
+  });
+  return operation.catch((error) => {
+    nudgeTicket.release();
+    restoreTicket.release();
+    throw error;
+  });
 }
 
 /** Deferred withdrawal, freshness reaping, and SCD recompute. Same control lane

@@ -27,6 +27,7 @@ import { join } from "node:path";
 import { resolveShellSpec } from "./shell-spec.ts";
 import type { ShellSpec } from "./shell-spec.ts";
 import { KeeperFeature } from "./keeper/protocol.ts";
+import { redrawEvictedResume } from "./session-terminal-control.ts";
 
 /** Rebuild SessionRecord for a session whose keeper survived this
  * worker restart. Probes the mux pool; if the channel is alive in the
@@ -56,6 +57,7 @@ export async function resume(this: SessionManager, opts: {
 		let orderedHistory: KeeperHistoryRecords | null = null;
 		let legacyBytes: Uint8Array = new Uint8Array(0);
 		let resumedHeadSeq = 0;
+		let historyEvicted = false;
 		let historyError: unknown;
 		const orderedHistorySupported = pool.supportsKeeperFeature(
 			KeeperFeature.OrderedHistory,
@@ -125,10 +127,11 @@ export async function resume(this: SessionManager, opts: {
 					historyRecord.kind === "output" ? total + historyRecord.bytes.byteLength : total,
 				0,
 			);
+			historyEvicted = resumedHeadSeq > retainedTotal;
 			// True only for the cold core's first write, and only under eviction.
 			// Every later record continues that same now-warm parser stream and must
 			// be replayed verbatim.
-			let dropOrphanPrefix = resumedHeadSeq > retainedTotal;
+			let dropOrphanPrefix = historyEvicted;
 			for (const historyRecord of orderedHistory.records) {
 				if (historyRecord.kind === "output") {
 					appendToRing(resumedScrollback, historyRecord.bytes);
@@ -144,13 +147,16 @@ export async function resume(this: SessionManager, opts: {
 					wtermCore.resize(historyRecord.cols, historyRecord.rows);
 				}
 			}
-		} else if (legacyBytes.length > 0) {
-			appendToRing(resumedScrollback, legacyBytes);
-			wtermCore.writeRaw(
-				resumedHeadSeq > legacyBytes.length
-					? legacyBytes.subarray(skipOrphanSequencePrefix(legacyBytes))
-					: legacyBytes,
-			);
+		} else {
+			historyEvicted = resumedHeadSeq > legacyBytes.length;
+			if (legacyBytes.length > 0) {
+				appendToRing(resumedScrollback, legacyBytes);
+				wtermCore.writeRaw(
+					historyEvicted
+						? legacyBytes.subarray(skipOrphanSequencePrefix(legacyBytes))
+						: legacyBytes,
+				);
+			}
 		}
 		const resumedBytes = readRing(resumedScrollback);
 		const resumedAlt = resumedBytes.length > 0
@@ -197,6 +203,62 @@ export async function resume(this: SessionManager, opts: {
 				0,
 			) ?? 0,
 		);
+		const originalCols = record.wtermCore.getCols();
+		const originalRows = record.wtermCore.getRows();
+		this.lastAppliedSize.set(opts.channelId, { cols: originalCols, rows: originalRows });
+		if (historyEvicted) {
+			// Eviction makes the retained resize maximum only a lower sequence bound.
+			this.resizeFloorInvalid.add(opts.channelId);
+			try {
+				const redraw = await redrawEvictedResume(this, opts.channelId, originalCols, originalRows);
+				const finalCore = this.sessions.get(opts.channelId)?.wtermCore;
+				const finalCols = finalCore?.getCols() ?? originalCols;
+				const finalRows = finalCore?.getRows() ?? originalRows;
+				const details = {
+					sessionId: opts.sessionId,
+					channelId: opts.channelId,
+					originalCols,
+					originalRows,
+					nudgeStatus: redraw.nudge.status,
+					nudgeResizeSeq: redraw.nudge.resizeSeq,
+					nudgeReason: "reason" in redraw.nudge ? redraw.nudge.reason : null,
+					restoreStatus: redraw.restore.status,
+					restoreResizeSeq: redraw.restore.resizeSeq,
+					restoreReason: "reason" in redraw.restore ? redraw.restore.reason : null,
+					finalCols,
+					finalRows,
+				};
+				diag("session.resume_eviction_redraw", {
+					sid: opts.sessionId,
+					channel_id: opts.channelId,
+					original_cols: originalCols,
+					original_rows: originalRows,
+					nudge_status: redraw.nudge.status,
+					nudge_resize_seq: redraw.nudge.resizeSeq,
+					restore_status: redraw.restore.status,
+					restore_resize_seq: redraw.restore.resizeSeq,
+					final_cols: finalCols,
+					final_rows: finalRows,
+				});
+				if (redraw.nudge.status !== "committed"
+					|| redraw.restore.status !== "committed"
+					|| finalCols !== originalCols
+					|| finalRows !== originalRows) {
+					log.warn("session-manager", "resume_eviction_redraw_unsettled", details);
+				}
+			} catch (error) {
+				// Keep the survivor live and leave its floor marked for the next repair.
+				this.resizeFloorInvalid.add(opts.channelId);
+				this.pendingCellRepairs.add(opts.channelId);
+				log.warn("session-manager", "resume_eviction_redraw_failed", { channelId: opts.channelId, error: String(error) });
+				diag("session.resume_eviction_redraw", {
+					sid: opts.sessionId,
+					channel_id: opts.channelId,
+					status: "failed",
+					error: String(error),
+				});
+			}
+		}
 		this._startGitBranch(record);
 		this._startPorts(record);
 		// OMP bridge state reconnects independently of terminal byte replay.
