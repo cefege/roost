@@ -3,15 +3,26 @@
 // epoch-addressed rows and prepends them at the exact absolute seam.
 
 import { coordClient } from "../connect.ts";
-import {
-  ScrollbackHistoryFloor as PbScrollbackHistoryFloor,
-  type SessionsGetScrollbackCellsResponse,
-} from "@roost/shared/proto/coordinator_pb";
+import type { SessionsGetScrollbackCellsResponse } from "@roost/shared/proto/coordinator_pb";
 import type { ScrollbackHistoryFloor } from "@roost/shared/wire";
 import { diag } from "@roost/shared/diag";
 import { cellRowFromProto } from "@roost/shared/cell/cell-proto";
 import type { CellRow } from "@roost/shared/cell";
-import { MAX_HELD_SCROLLBACK_ROWS, type BackfillAnchor, type CellGridRenderer } from "./cellRenderer.ts";
+import {
+  MAX_HELD_SCROLLBACK_ROWS,
+  type BackfillAnchor,
+  type CellGridRenderer,
+  type ReaderAnchor,
+} from "./cellRenderer.ts";
+import {
+  backfillStateOf,
+  SCROLLBACK_FLOOR_REASON,
+} from "./scrollbackBackfillState.ts";
+export {
+  scrollbackBackfillRequestCount,
+  scrollbackHistoryFloor,
+  SCROLLBACK_FLOOR_REASON,
+} from "./scrollbackBackfillState.ts";
 
 
 // Rows per disjoint RPC page.
@@ -28,56 +39,6 @@ const BACKFILL_RETRY_MS = 2000;
 // Concurrent disjoint pages per demand wave.
 const BACKFILL_CONCURRENCY = 3;
 
-/** Per-session observability the diagnostic surfaces read without holding a
- *  controller. One entry per session this document has backfilled — the same
- *  bound as the plain request counter it replaces; the value simply carries the
- *  proven floor alongside the count instead of adding a second map. */
-interface BackfillState {
-  requests: number;
-  /** Earliest absolute row the worker proved it still retains. 0 = never hit. */
-  floor: number;
-  /** Why that floor is there, straight off the response that established it. */
-  floorReason: ScrollbackHistoryFloor;
-}
-const _state = new Map<string, BackfillState>();
-
-function stateOf(sessionId: string): BackfillState {
-  let state = _state.get(sessionId);
-  if (state === undefined) {
-    state = { requests: 0, floor: 0, floorReason: "none" };
-    _state.set(sessionId, state);
-  }
-  return state;
-}
-
-/** Smoke observability: issued epoch-addressed history RPCs per session. */
-export function scrollbackBackfillRequestCount(sessionId: string): number {
-  return _state.get(sessionId)?.requests ?? 0;
-}
-
-/** The history floor this document has proven for a session and WHY it is there:
- *  "evicted" = gone forever, "resize_replay" = a resize rebuilt the grid from the
- *  worker's bounded byte ring and that ring could not reach as far back as the
- *  core it replaced. null until a page actually comes back short, so a blank
- *  top-of-history is attributable instead of merely visible. */
-export function scrollbackHistoryFloor(
-  sessionId: string,
-): { row: number; reason: ScrollbackHistoryFloor } | null {
-  const state = _state.get(sessionId);
-  if (state === undefined || state.floorReason === "none") return null;
-  return { row: state.floor, reason: state.floorReason };
-}
-
-/** The get-scrollback-cells response's proto enum in the vocabulary the rest of
- *  Roost speaks. Total over the enum, so a reason added to the proto cannot
- *  silently read as "none"; the `??` at each use covers only a number no version
- *  of the enum defines. Shared with the smoke retained-history pager, the other
- *  client of this RPC, so the decode exists once. */
-export const SCROLLBACK_FLOOR_REASON: Record<PbScrollbackHistoryFloor, ScrollbackHistoryFloor> = {
-  [PbScrollbackHistoryFloor.UNSPECIFIED]: "none",
-  [PbScrollbackHistoryFloor.EVICTED]: "evicted",
-  [PbScrollbackHistoryFloor.RESIZE_REPLAY]: "resize_replay",
-};
 
 
 export interface ScrollbackBackfill {
@@ -113,6 +74,7 @@ export function createScrollbackBackfill(opts: {
 }): ScrollbackBackfill {
   let epoch = 0;
   let activeLoop = -1;
+  let activeAnchorRestore = -1;
   let disposed = false;
   let fullGridEpoch: string | null = null;
   let fullCols = 0;
@@ -125,17 +87,23 @@ export function createScrollbackBackfill(opts: {
   const suspend = (): void => {
     epoch++;
     activeLoop = -1;
+    activeAnchorRestore = -1;
   };
 
   const start = (): void => {
-    if (disposed || !opts.active() || activeLoop === epoch) return;
+    if (
+      disposed
+      || !opts.active()
+      || activeLoop === epoch
+      || activeAnchorRestore === epoch
+    ) return;
     const myEpoch = epoch;
     activeLoop = myEpoch;
     void loop(myEpoch);
   };
 
   function maybeStart(): void {
-    if (disposed || !opts.active()) return;
+    if (disposed || !opts.active() || activeAnchorRestore === epoch) return;
     const renderer = opts.renderer();
     const anchor = renderer?.backfillAnchor();
     if (!renderer || !anchor || anchor.sbBase <= retainedFloor) return;
@@ -147,10 +115,12 @@ export function createScrollbackBackfill(opts: {
   }
 
 
+  /** Paint newest-to-oldest; targeted pulls stop as soon as their row is visible. */
   async function spliceBatch(
     rows: readonly CellRow[],
     myEpoch: number,
     gridEpoch: string,
+    throughRow?: number,
   ): Promise<boolean> {
     for (let end = rows.length; end > 0; end -= BACKFILL_SPLICE_ROWS) {
       if (!valid(myEpoch)) return false;
@@ -166,6 +136,7 @@ export function createScrollbackBackfill(opts: {
           : setTimeout(resolve, 0),
       );
       if (!valid(myEpoch)) return false;
+      if (throughRow !== undefined && slice[0]!.index <= throughRow) return true;
     }
     return true;
   }
@@ -226,7 +197,7 @@ export function createScrollbackBackfill(opts: {
     anchor: BackfillAnchor,
     endRow: number,
   ): Promise<ValidatedChunk | null> {
-    stateOf(opts.sessionId).requests++;
+    backfillStateOf(opts.sessionId).requests++;
     const resp = await coordClient.sessionsGetScrollbackCells({
       sessionId: opts.sessionId,
       endRow: BigInt(endRow),
@@ -245,7 +216,7 @@ export function createScrollbackBackfill(opts: {
   function noteFloor(chunk: ValidatedChunk): void {
     if (chunk.retainedFloor === null) return;
     retainedFloor = Math.max(retainedFloor, chunk.retainedFloor);
-    const state = stateOf(opts.sessionId);
+    const state = backfillStateOf(opts.sessionId);
     state.floor = retainedFloor;
     state.floorReason = chunk.floorReason;
   }
@@ -282,7 +253,7 @@ export function createScrollbackBackfill(opts: {
         if (ends.length === 0) return;
 
         const pending = ends.map((end) => {
-          stateOf(opts.sessionId).requests++;
+          backfillStateOf(opts.sessionId).requests++;
           return coordClient.sessionsGetScrollbackCells({
             sessionId: opts.sessionId,
             endRow: BigInt(end),
@@ -339,6 +310,41 @@ export function createScrollbackBackfill(opts: {
     }
   }
 
+  async function ensureRowPainted(absIndex: number): Promise<boolean> {
+    if (disposed || !opts.active()) return false;
+    const myEpoch = epoch;
+    for (;;) {
+      if (!valid(myEpoch)) return false;
+      const anchor = opts.renderer()?.backfillAnchor();
+      if (!anchor || absIndex < 0 || absIndex >= anchor.total) return false;
+      if (anchor.sbBase <= absIndex) return true;
+      if (absIndex < retainedFloor) return false;
+      let chunk: ValidatedChunk | null;
+      try {
+        chunk = await fetchChunk(myEpoch, anchor, anchor.sbBase);
+      } catch {
+        return false;
+      }
+      if (!valid(myEpoch) || !chunk) return false;
+      noteFloor(chunk);
+      if (chunk.rows.length === 0 || absIndex < retainedFloor) return false;
+      if (!(await spliceBatch(chunk.rows, myEpoch, anchor.gridEpoch, absIndex))) return false;
+      if (!valid(myEpoch)) return false;
+    }
+  }
+
+  function restoreReaderAnchor(target: ReaderAnchor): void {
+    if (disposed || !opts.active() || activeAnchorRestore === epoch) return;
+    const myEpoch = epoch;
+    activeAnchorRestore = myEpoch;
+    void ensureRowPainted(target.row).then((painted) => {
+      if (!painted || !valid(myEpoch)) return;
+      opts.renderer()?.restoreReaderAnchor(target);
+    }).finally(() => {
+      if (activeAnchorRestore === myEpoch) activeAnchorRestore = -1;
+    });
+  }
+
   return {
     onFullFrame(): void {
       const renderer = opts.renderer();
@@ -355,39 +361,24 @@ export function createScrollbackBackfill(opts: {
         retainedFloor = 0;
         // A new epoch's floor is unproven until a page comes back short in it, so
         // the probe must not keep showing the previous numbering's floor.
-        const state = stateOf(opts.sessionId);
+        const state = backfillStateOf(opts.sessionId);
         state.floor = 0;
         state.floorReason = "none";
       }
-      if (!renderer || !opts.active() || renderer.atBottom()) return;
+      if (!renderer || !opts.active()) return;
+      const readerAnchor = renderer.readerAnchorForBackfill?.();
+      if (readerAnchor) {
+        restoreReaderAnchor(readerAnchor);
+        return;
+      }
+      if (renderer.atBottom()) return;
       maybeStart();
     },
     onUserScrollUp(): void {
       maybeStart();
     },
     suspend,
-    async ensureRowPainted(absIndex: number): Promise<boolean> {
-      if (disposed || !opts.active()) return false;
-      const myEpoch = epoch;
-      for (;;) {
-        if (!valid(myEpoch)) return false;
-        const anchor = opts.renderer()?.backfillAnchor();
-        if (!anchor) return false;
-        if (anchor.sbBase <= absIndex) return true;
-        if (absIndex < retainedFloor) return false;
-        let chunk: ValidatedChunk | null;
-        try {
-          chunk = await fetchChunk(myEpoch, anchor, anchor.sbBase);
-        } catch {
-          return false;
-        }
-        if (!valid(myEpoch) || !chunk) return false;
-        noteFloor(chunk);
-        if (chunk.rows.length === 0 || absIndex < retainedFloor) return false;
-        if (!(await spliceBatch(chunk.rows, myEpoch, anchor.gridEpoch))) return false;
-        if (!valid(myEpoch)) return false;
-      }
-    },
+    ensureRowPainted,
     dispose(): void {
       disposed = true;
       suspend();

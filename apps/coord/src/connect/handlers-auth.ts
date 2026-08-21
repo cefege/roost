@@ -30,7 +30,7 @@ import { decodeEd25519Pubkey, isAuthorizedKeyRevoked } from "../authorized-keys.
 import { assertOnHost, assertOnHostOrTailnet } from "../middleware/caller-origin.ts";
 import { COORD_GIT_SHA } from "../git-sha.ts";
 import { randomToken } from "./router-helpers.ts";
-import { _invalidateLabel } from "./viewer-tracker.ts";
+import { invalidateTerminalViewerLabel } from "./terminal-view-hub.ts";
 import { pairBus } from "../buses.ts";
 import type { ConnectDeps } from "./router.ts";
 
@@ -132,7 +132,7 @@ export function makeAuthHandlers(
       // Authorization must not advance the revocation generation: a verifier
       // may already have loaded this newly committed row.
       refreshJwtKey(deps.jwtCache, fp);
-      _invalidateLabel(fp);
+      invalidateTerminalViewerLabel(fp);
       log.info("auth.connect", "browser_authorized", { fp, label: req.label });
       return create(AuthAuthorizeBrowserResponseSchema, { fingerprint: fp });
     },
@@ -321,7 +321,7 @@ export function makeAuthHandlers(
         }
         throw new ConnectError(`relocation redeem failed: ${message}`, Code.Unavailable);
       }
-      _invalidateLabel(fingerprint);
+      invalidateTerminalViewerLabel(fingerprint);
       return create(AuthRedeemCoordinatorRelocationResponseSchema, { fingerprint, label: req.label });
     },
 
@@ -417,7 +417,7 @@ export function makeAuthHandlers(
         approvedFp = fp;
       });
       refreshJwtKey(deps.jwtCache, approvedFp);
-      _invalidateLabel(approvedFp);
+      invalidateTerminalViewerLabel(approvedFp);
       pairBus.publish({ kind: "removed", ephemeral_id: req.ephemeralId });
       log.info("pair.connect", "approved", { ephemeral_id: req.ephemeralId, fp: approvedFp });
       return create(PairApproveResponseSchema, { ok: true });
@@ -486,7 +486,7 @@ export function makeAuthHandlers(
           .where("fingerprint", "=", req.fingerprint).execute();
       });
       invalidateJwtKey(deps.jwtCache, req.fingerprint);
-      _invalidateLabel(req.fingerprint);
+      invalidateTerminalViewerLabel(req.fingerprint);
       deps.onKeyRevoked?.(req.fingerprint);
       return create(DevicesRevokeResponseSchema, { ok: true });
     },
@@ -532,7 +532,7 @@ export function makeAuthHandlers(
       });
       refreshJwtKey(deps.jwtCache, fingerprint);
       invalidateJwtKey(deps.jwtCache, caller.fingerprint);
-      _invalidateLabel(caller.fingerprint);
+      invalidateTerminalViewerLabel(caller.fingerprint);
       deps.onKeyRevoked?.(caller.fingerprint);
       return create(DevicesRotateCurrentResponseSchema, { fingerprint });
     },

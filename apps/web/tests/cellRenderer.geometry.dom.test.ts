@@ -111,7 +111,7 @@ describe("CellGridRenderer DOM — box resize + unreachable window", () => {
     expect(r.atBottom()).toBe(true);
   });
 
-  test("an epoch-changing full frame resumes atomically from explicit reading", () => {
+  test("an epoch-changing full frame installs atomically during explicit reading", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
     seedHeldHistory(r, 80, [row(0, "v")], nRows(250, 500), 750);
@@ -130,9 +130,9 @@ describe("CellGridRenderer DOM — box resize + unreachable window", () => {
 
     expect(c.scrollTop).toBe(before);
     expect(c.scrollTopWrites).toBe(0);
-    expect(r.currentFrame!.gridEpoch).toBe("test-grid:0");
-    expect(r.heldFrameSeq()).toBe(3);
-    expect(r.prepareLiveInteraction()).toEqual({ reconciled: true, anchorChanged: true });
+    expect(r.currentFrame!.gridEpoch).toBe("test-grid:1");
+    expect(r.canonicalFrameSeq()).toBe(3);
+    expect(r.prepareLiveInteraction()).toEqual({ reconciled: false, anchorChanged: false });
     expect(r.currentFrame!.gridEpoch).toBe("test-grid:1");
     expect(c.scrollTop).toBe(c.scrollHeight - c.clientHeight);
     expect(c.scrollTopWrites).toBe(1);

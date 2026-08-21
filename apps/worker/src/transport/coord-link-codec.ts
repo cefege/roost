@@ -7,7 +7,7 @@ import { create } from "@bufbuild/protobuf";
 import {
   CoordWorkerUpSchema, WHelloSchema, WPongSchema, WBinarySchema,
   WRpcOkSchema, WRpcErrorSchema, WTransferLineSchema, WTransferDoneSchema,
-  WInputResultSchema, WViewportResultSchema,
+  WInputResultSchema, WTerminalStreamResultSchema,
   WUpdateProgressSchema,
 } from "@roost/shared/proto/worker_transport_pb";
 import type { CoordWorkerUp } from "@roost/shared/proto/worker_transport_pb";
@@ -42,19 +42,20 @@ export function frameToProto(f: UpstreamFrame): CoordWorkerUp | null {
         reason: f.reason ?? "",
         phase: f.phase,
       })}});
-    case "viewport-result":
-      return create(CoordWorkerUpSchema, { frame: { case: "viewportResult", value: create(WViewportResultSchema, {
+    case "terminal-stream-result":
+      return create(CoordWorkerUpSchema, { frame: { case: "terminalStreamResult", value: create(WTerminalStreamResultSchema, {
         requestId: f.request_id,
         sessionId: f.session_id,
-        clientSeq: f.client_seq,
+        streamId: f.stream_id,
+        enabled: f.enabled,
         status: f.status,
         channelResizeSeq: f.channel_resize_seq,
-        cols: f.cols,
-        rows: f.rows,
+        effectiveCols: f.effective_cols,
+        effectiveRows: f.effective_rows,
         resized: f.resized,
         reason: f.reason ?? "",
         phase: f.phase,
-        sequenceFloor: f.sequence_floor,
+        failureKind: f.failure_kind,
       })}});
     case "transfer-line":
       return create(CoordWorkerUpSchema, { frame: { case: "transferLine", value: create(WTransferLineSchema, {

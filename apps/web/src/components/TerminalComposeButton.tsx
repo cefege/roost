@@ -21,6 +21,11 @@ import { createEffect, createSignal, onCleanup, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { MobileVoiceInput } from "./MobileVoiceInput.tsx";
 import {
+  createTerminalComposeSelection,
+  type TerminalSelectionGuard,
+} from "./TerminalComposeSelection.ts";
+export type { TerminalSelectionGuard } from "./TerminalComposeSelection.ts";
+import {
   getComposerDraft,
   saveComposerDraft,
   subscribeComposerDraft,
@@ -29,18 +34,6 @@ import { isCompact, isTouchDevice } from "../lib/windowSizeClass.ts";
 import type { TerminalContext } from "../lib/keytermContext.ts";
 import type { Session } from "@roost/shared/wire";
 import type { InputAdmission } from "../ws/sync-outbound.ts";
-
-export interface TerminalSelectionGuard {
-  /**
-   * Temporarily yield the captured native range to the focused editor. This
-   * removes only that exact range and retains it for a guarded restore.
-   */
-  suspend(): boolean;
-  /** Restore the captured native range if its exact row identity is still live. */
-  restore(): boolean;
-  /** Drop every retained DOM reference without changing the current Selection. */
-  release(): void;
-}
 
 interface Props {
   placement: "viewport" | "pane";
@@ -93,86 +86,13 @@ export function TerminalComposeButton(props: Props) {
   let dockEl: HTMLDivElement | undefined;
   let dockObserver: ResizeObserver | undefined;
   let dockMutationObserver: MutationObserver | undefined;
-  let terminalSelectionGuard: TerminalSelectionGuard | undefined;
-  let composerSelectionStart = 0;
-  let composerSelectionEnd = 0;
-  let composerSelectionDirection: "forward" | "backward" | "none" = "none";
-  let composerSelectionActive = false;
-  let composing = false;
-  let stopInputEditCapture: (() => void) | undefined;
-
-  const releaseTerminalSelectionGuard = () => {
-    terminalSelectionGuard?.release();
-    terminalSelectionGuard = undefined;
-    composerSelectionActive = false;
-  };
-  const captureTerminalSelectionGuard = () => {
-    const next = props.captureTerminalSelection?.();
-    if (!next) return;
-    terminalSelectionGuard?.release();
-    terminalSelectionGuard = next;
-    composerSelectionActive = false;
-  };
-  const rememberComposerSelection = () => {
-    if (!inputEl) return;
-    composerSelectionStart = inputEl.selectionStart;
-    composerSelectionEnd = inputEl.selectionEnd;
-    composerSelectionDirection = inputEl.selectionDirection ?? "none";
-  };
-  const restoreTerminalSelection = () => {
-    const guard = terminalSelectionGuard;
-    if (!guard) return;
-    if (composerSelectionActive) rememberComposerSelection();
-    if (guard.restore()) {
-      composerSelectionActive = false;
-      return;
-    }
-    releaseTerminalSelectionGuard();
-  };
-  const activateComposerSelection = () => {
-    const guard = terminalSelectionGuard;
-    if (!guard || !inputEl || composerSelectionActive) return;
-    const nativeSelection = inputEl.ownerDocument.getSelection();
-    const composerAlreadyOwnedSelection = !!nativeSelection && nativeSelection.isCollapsed;
-    if (!guard.suspend()) {
-      releaseTerminalSelectionGuard();
-      return;
-    }
-    if (composerAlreadyOwnedSelection) {
-      // Browser automation, soft keyboards, and paste can establish a real
-      // textarea caret/selection before beforeinput without a keydown.
-      composerSelectionActive = true;
-      rememberComposerSelection();
-      return;
-    }
-    try {
-      inputEl.setSelectionRange(
-        composerSelectionStart,
-        composerSelectionEnd,
-        composerSelectionDirection,
-      );
-      composerSelectionActive = true;
-    } catch {
-      // A disabled/disconnected replacement cannot become an editing surface.
-      releaseTerminalSelectionGuard();
-    }
-  };
-  // Programmatic focus (Playwright fill, browser autofill, accessibility
-  // actions) has no pointerdown to capture the terminal range before Chromium
-  // collapses it into the textarea. Retain the newest pane-owned range while it
-  // is noncollapsed; a collapse outside this dock is a genuine abandonment.
-  const onDocumentSelectionChange = () => {
-    if (!props.active) return;
-    const selection = document.getSelection();
-    if (selection && !selection.isCollapsed) {
-      captureTerminalSelectionGuard();
-      return;
-    }
-    if (!dockEl?.contains(document.activeElement)) {
-      releaseTerminalSelectionGuard();
-    }
-  };
-  document.addEventListener("selectionchange", onDocumentSelectionChange);
+  const terminalSelection = createTerminalComposeSelection({
+    active: () => props.active,
+    capture: () => props.captureTerminalSelection?.(),
+    dock: () => dockEl,
+    input: () => inputEl,
+    afterInputMount: () => growAndFollow(),
+  });
 
 
   // Claim the viewport input surface synchronously with the component mount so
@@ -222,7 +142,7 @@ export function TerminalComposeButton(props: Props) {
 
   const handleDockFocusIn = () => {
     if (!props.active) return;
-    if (!terminalSelectionGuard) captureTerminalSelectionGuard();
+    if (!terminalSelection.hasGuard()) terminalSelection.capture();
     if (!viewportPlacement) claimComposeFocus();
   };
 
@@ -230,11 +150,11 @@ export function TerminalComposeButton(props: Props) {
   const handleDockPointerDown = (event: PointerEvent) => {
     if (!props.active) return;
     stopPointerReleaseWatch?.();
-    captureTerminalSelectionGuard();
+    terminalSelection.capture();
     handleDockFocusIn();
     // Pane composers also retain their temporary focus claim through pointerup.
     // A viewport composer needs this watch only while guarding a Selection.
-    if (viewportPlacement && !terminalSelectionGuard) return;
+    if (viewportPlacement && !terminalSelection.hasGuard()) return;
     const pointerId = event.pointerId;
     const pointerTargetsInput = event.target === inputEl;
     const onPointerEnd = (endEvent: PointerEvent) => {
@@ -244,9 +164,9 @@ export function TerminalComposeButton(props: Props) {
       // before pointerup. Restore synchronously in pointerup capture, after that
       // native default and before the control's click can admit terminal input.
       if (pointerTargetsInput && document.activeElement === inputEl) {
-        composerSelectionActive = true;
+        terminalSelection.markComposerSelectionActive();
       }
-      restoreTerminalSelection();
+      terminalSelection.restoreAfterLayout();
       releasePaneClaimIfUnfocused();
     };
     window.addEventListener("pointerup", onPointerEnd, true);
@@ -262,10 +182,10 @@ export function TerminalComposeButton(props: Props) {
     // focusout follows the key default that moved focus. Return any suspended
     // range before dropping its guard; a new non-collapsed owner is never
     // overwritten because restore validates current Selection ownership.
-    restoreTerminalSelection();
+    terminalSelection.restore();
     queueMicrotask(() => {
       if (dockEl?.contains(document.activeElement)) return;
-      releaseTerminalSelectionGuard();
+      terminalSelection.release();
       if (!viewportPlacement && ownsComposeFocus()) releaseComposeFocus();
     });
   };
@@ -273,7 +193,7 @@ export function TerminalComposeButton(props: Props) {
   createEffect(() => {
     if (props.active) return;
     stopPointerReleaseWatch?.();
-    releaseTerminalSelectionGuard();
+    terminalSelection.release();
     setDictating(false);
     releaseComposeFocus();
     const focused = document.activeElement;
@@ -299,59 +219,11 @@ export function TerminalComposeButton(props: Props) {
     // Dictation replaces a programmatic tail rather than the user's current
     // selection. Its next real edit must begin after that newest tail even while
     // the terminal Range owns document Selection.
-    composerSelectionStart = inputEl.value.length;
-    composerSelectionEnd = inputEl.value.length;
-    composerSelectionDirection = "none";
+    terminalSelection.rememberCaretAt(inputEl.value.length);
   };
   const mountInput = (el: HTMLTextAreaElement) => {
     inputEl = el;
-    stopInputEditCapture?.();
-    // A retained document Selection leaves the textarea focused but suppresses
-    // Chromium's editable default. Suspend that exact range and restore the
-    // saved textarea caret in capture phase before key/beforeinput chooses its
-    // edit range; onInput returns ownership to the terminal range.
-    const onKeyDownCapture = () => {
-      if (!composing) activateComposerSelection();
-    };
-    // Unlike a keydown microtask, keyup runs after the browser's editing
-    // default. Input normally restores first; this is the no-input-key fallback.
-    const onKeyUpCapture = () => {
-      if (!composing) restoreTerminalSelection();
-    };
-    const onBeforeInputCapture = () => {
-      if (!composing) activateComposerSelection();
-    };
-    const onCompositionStartCapture = () => {
-      composing = true;
-      activateComposerSelection();
-    };
-    const onCompositionEndCapture = () => {
-      composing = false;
-      queueMicrotask(restoreTerminalSelection);
-    };
-    el.addEventListener("keydown", onKeyDownCapture, true);
-    el.addEventListener("keyup", onKeyUpCapture, true);
-    el.addEventListener("beforeinput", onBeforeInputCapture, true);
-    el.addEventListener("compositionstart", onCompositionStartCapture, true);
-    el.addEventListener("compositionend", onCompositionEndCapture, true);
-    stopInputEditCapture = () => {
-      el.removeEventListener("keydown", onKeyDownCapture, true);
-      el.removeEventListener("keyup", onKeyUpCapture, true);
-      el.removeEventListener("beforeinput", onBeforeInputCapture, true);
-      el.removeEventListener("compositionstart", onCompositionStartCapture, true);
-      el.removeEventListener("compositionend", onCompositionEndCapture, true);
-      stopInputEditCapture = undefined;
-    };
-    // DOM insertion completes after this turn. Restore retained-draft height and
-    // the private textarea caret without focusing the field on startup.
-    setTimeout(() => {
-      if (!el.isConnected) return;
-      el.setSelectionRange(el.value.length, el.value.length);
-      composerSelectionStart = el.value.length;
-      composerSelectionEnd = el.value.length;
-      composerSelectionDirection = "none";
-      growAndFollow();
-    }, 0);
+    terminalSelection.mountInput(el);
   };
 
   // Speech callbacks mutate a controlled textarea outside the browser's native
@@ -361,13 +233,11 @@ export function TerminalComposeButton(props: Props) {
   // native Range intact, so recapture that still-connected Range first.
   const writeSpeechDraft = (next: string) => {
     if (next === draft()) return;
-    if (!terminalSelectionGuard) captureTerminalSelectionGuard();
-    const guard = terminalSelectionGuard;
-    if (guard && !guard.suspend()) releaseTerminalSelectionGuard();
+    terminalSelection.prepareProgrammaticWrite();
     setDraft(next);
     queueMicrotask(() => {
       growAndFollow();
-      restoreTerminalSelection();
+      terminalSelection.restoreAfterLayout();
     });
   };
 
@@ -418,7 +288,7 @@ export function TerminalComposeButton(props: Props) {
       setSubmissionStatus(admission.reason);
       return;
     }
-    releaseTerminalSelectionGuard();
+    terminalSelection.release();
     setPendingSubmission(text);
     dictationBase = null;
     setDraft("");
@@ -455,9 +325,7 @@ export function TerminalComposeButton(props: Props) {
     }
     unsubscribeDraft();
     stopPointerReleaseWatch?.();
-    document.removeEventListener("selectionchange", onDocumentSelectionChange);
-    stopInputEditCapture?.();
-    releaseTerminalSelectionGuard();
+    terminalSelection.dispose();
     stopObservingDock();
     releaseComposeFocus();
     if (activeViewportToken === ownerToken) {
@@ -505,18 +373,20 @@ export function TerminalComposeButton(props: Props) {
             onInput={(e) => {
               // Input proves that the textarea selection was active. Snapshot its
               // post-edit caret before returning ownership to the terminal range.
-              composerSelectionActive = true;
-              rememberComposerSelection();
+              terminalSelection.markComposerSelectionActive();
+              terminalSelection.rememberComposerSelection();
               setDraft(e.currentTarget.value);
               autoGrow();
-              if (!e.isComposing && !composing) restoreTerminalSelection();
+              if (!e.isComposing && !terminalSelection.isComposing()) {
+                terminalSelection.restoreAfterLayout();
+              }
             }}
             onKeyDown={(e) => {
               if (
                 e.key === "Enter"
                 && !e.shiftKey
                 && !e.isComposing
-                && !composing
+                && !terminalSelection.isComposing()
                 && !isTouchDevice()
               ) {
                 e.preventDefault();

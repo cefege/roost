@@ -109,6 +109,9 @@ export class MultiplexedKeeperPool {
     timer: ReturnType<typeof setTimeout>;
   }>>();
   _pendingInputUsage = new Map<number, { commands: number; bytes: number }>();
+  /** Worker-owned keeper correlation keys. Browser input_seq never enters this
+   * map, so two senders may both use local sequence 1 concurrently. */
+  _nextInputSeq = new Map<number, number>();
   connectPromise: Promise<void> | null = null;
   // Invoked once per worker→keeper socket close (= keeper died). main.ts
   // registers the boot resume/respawn reconcile loop here so a keeper that
@@ -225,11 +228,21 @@ export class MultiplexedKeeperPool {
     channelInput(this, channelId, bytes);
   }
 
-  /** Acknowledged logical input as a two-phase command: `admission` proves the
-   *  request frame reached this socket, `result` carries the keeper's truthful
-   *  accepted/rejected/ambiguous outcome. Full ACK is the only acceptance. */
-  beginInput(channelId: number, inputSeq: number, bytes: Uint8Array): KeeperCommand<KeeperInputResult> {
+  /** Allocate a collision-free keeper-local key. Sequence wrap skips every
+   * still-pending key; the pending-command cap guarantees a free safe integer. */
+  beginInput(channelId: number, bytes: Uint8Array): KeeperCommand<KeeperInputResult> {
+    let inputSeq = (this._nextInputSeq.get(channelId) ?? 0) + 1;
+    if (inputSeq > Number.MAX_SAFE_INTEGER) inputSeq = 1;
+    while (this.pendingInputs.has(`${channelId}:${inputSeq}`)) {
+      inputSeq += 1;
+      if (inputSeq > Number.MAX_SAFE_INTEGER) inputSeq = 1;
+    }
+    this._nextInputSeq.set(channelId, inputSeq);
     return channelInputCommand(this, channelId, inputSeq, bytes);
+  }
+
+  forgetInputSequence(channelId: number): void {
+    this._nextInputSeq.delete(channelId);
   }
 
   /** Apply a logical resize sequence at most once. `onResultFrame` runs

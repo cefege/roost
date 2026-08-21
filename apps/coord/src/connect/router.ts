@@ -1,8 +1,8 @@
 // Connect router ASSEMBLY — wires the CoordinatorService. Every RPC group
 // lives in a sibling connect/handlers-*.ts file (400-line cap); each returns a
 // Pick<ServiceImpl<…>> spread into the SINGLE router.service() literal below.
-// This file owns only: the auth interceptor, the viewer-tracker DB wiring, the
-// tailnet resolver kickoff, and the spread assembly. No handler logic here.
+// This file owns only auth interception and spread assembly. No handler logic
+// lives here.
 
 import { createConnectRouter } from "@connectrpc/connect";
 import type { ConnectRouter } from "@connectrpc/connect";
@@ -22,14 +22,12 @@ import { makeStreamingHandlers } from "./handlers-streaming.ts";
 import { makeUiHandlers } from "./handlers-ui.ts";
 import { makeCoordinatorMoveHandlers } from "./handlers-coordinator-move.ts";
 import { makePushHandlers } from "./handlers-push.ts";
-import { _setViewerTrackerDb } from "./viewer-tracker.ts";
 
 import type { KyselyDB } from "../db/connection.ts";
 import type { Database } from "bun:sqlite";
 import type { CoordKey } from "../coord-key.ts";
 import type { CoordConfig } from "@roost/shared/config";
 import type { JwtCache } from "../jwt.ts";
-import { startTailnetResolver } from "../tailnet-resolver.ts";
 import { makeAuthInterceptor } from "./auth-interceptor.ts";
 import type { CoordinatorMoveService } from "../coord-move/orchestrator.ts";
 
@@ -48,8 +46,6 @@ export interface ConnectDeps {
 // ─── ConnectRouter build ──────────────────────────────────────────────────
 
 export function buildConnectRouter(deps: ConnectDeps): ConnectRouter {
-  _setViewerTrackerDb(deps.db);
-  startTailnetResolver();
   const interceptor = makeAuthInterceptor({
     db: deps.db, jwtCache: deps.jwtCache, cfg: deps.cfg, move: deps.move,
   });
@@ -94,5 +90,3 @@ export function buildConnectRouter(deps: ConnectDeps): ConnectRouter {
 
   return router;
 }
-
-// Viewer-presence tracker lives in ./viewer-tracker.ts (imported above).

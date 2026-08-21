@@ -1,37 +1,26 @@
 // Two per-channel ordering lanes. They exist for different reasons and must not
 // be collapsed into one:
 //
-//   terminalControlChains — MUTUAL EXCLUSION for whole terminal-control
-//     transactions (typed viewport claim, deferred withdraw / freshness reap /
-//     SCD recompute, keeper resize, core rebuild, kill). Two transactions can
-//     never interleave mid-flight, so there is exactly one owner of the resize
-//     sequence, the capture, and the core swap.
+//   terminalControlChains — MUTUAL EXCLUSION for stream-state transactions,
+//     keeper resize/reconciliation, and kill. A live resize owns the synchronous
+//     result-frame boundary until the existing core is aligned.
 //
-//   keeperAdmissionLane — RECEIVE-ORDER preservation for keeper WRITES (resize
-//     request, status query, PTY input, query reply). A transaction holds it only
-//     from before its first keeper operation until the write that can apply the
-//     newest geometry has actually been written — never until the ACK. Input
-//     therefore waits for the ordering boundary, not for a resize result, which
-//     is the whole point: head-of-line blocking of input behind a pending
-//     control is the bug.
-//
-// This module deliberately imports nothing but the manager type: both the
-// transaction and the capture/rebuild owner queue work here.
+//   keeperAdmissionLane — RECEIVE-ORDER preservation for keeper writes. A
+//     stream transaction releases it as soon as its resize request is written;
+//     input therefore waits for the ordered boundary, never for the resize ACK
+//     or snapshot transfer.
 
 import type { SessionManager } from "./session-manager.ts";
 import { monoNowMs } from "./util/mono.ts";
 
 /** Transaction kinds that take the control lane. */
 export type TerminalControlKind =
-  | "viewport_claim"
-  | "viewport_reconcile"
-  | "resume_redraw"
+  | "terminal_stream"
   | "terminal_kill";
 
 /** Write kinds that take the admission lane. */
 export type KeeperAdmissionKind =
-  | "viewport_resize"
-  | "resume_resize"
+  | "terminal_resize"
   | "terminal_input"
   | "query_reply";
 
@@ -134,20 +123,4 @@ export function acquireKeeperAdmission(
       });
     },
   };
-}
-
-/** Ordered keeper write that owns the lane for exactly its own write. */
-export async function withKeeperAdmission<T>(
-  mgr: SessionManager,
-  channelId: number,
-  kind: KeeperAdmissionKind,
-  run: () => T | Promise<T>,
-): Promise<T> {
-  const ticket = acquireKeeperAdmission(mgr, channelId, kind);
-  await ticket.granted;
-  try {
-    return await run();
-  } finally {
-    ticket.release();
-  }
 }

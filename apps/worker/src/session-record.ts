@@ -1,5 +1,4 @@
-// Session lifecycle record + viewport-claim shapes. Split out of
-// session-manager.ts (400-line cap); re-exported from there.
+// Session lifecycle record. Split out of session-manager.ts and re-exported.
 //
 // Every session owns terminal state: scrollback ring, wterm core, and cell
 // emitter.
@@ -88,12 +87,11 @@ interface SessionRecordCommon {
 /** The last core-rebuild origin pin, and the history floor that pin established.
  *
  *  A rebuild is the one moment Roost's monotonic numbering is re-derived rather
- *  than merely advanced: the fresh core's own discarded counter restarts at 0, so
- *  `sbOrigin` must absorb the whole difference or every absolute row index a
- *  browser holds re-aliases. It is also the only moment history can vanish for a
- *  reason OTHER than eviction — the replay reads a FIXED byte ring, so a ring that
- *  no longer reaches as far back as the core it replaces rebuilds a SHALLOWER
- *  history and the floor jumps.
+ *  than merely advanced. A replacement core restarts its discarded counter at
+ *  zero; a preserved alternate core retains it. `sbOrigin` absorbs either
+ *  difference so browser-held absolute row indexes never re-alias. It is also
+ *  the only moment history can vanish for a reason OTHER than eviction: a
+ *  bounded replay can rebuild shallower history and move the floor.
  *
  *  One fixed record per session, overwritten in place by its single writer
  *  (rebuildTerminalCore), so sampling it is O(1) and it retains no history. */
@@ -103,8 +101,8 @@ export interface SbOriginPin {
 	at_mono_ms: number;
 	cols: number;
 	rows: number;
-	/** false = alt-primed: an alt-screen boundary replays NOTHING and starts the
-	 *  fresh core empty, so the whole retained history is left behind by design. */
+	/** True when the full retained byte ring was replayed into a replacement
+	 *  core; false when a frozen alternate core was caught up in place. */
 	replayed_ring: boolean;
 	/** The capture's recorded boundary had already fallen out of the ring. */
 	ring_evicted: boolean;
@@ -112,7 +110,7 @@ export interface SbOriginPin {
 	 *  to reproduce. */
 	prev_dropped: number;
 	prev_total: number;
-	/** FRESH core after the replay: what the ring was actually able to rebuild. */
+	/** Core counters after replay or in-place alternate resize. */
 	fresh_discarded: number;
 	fresh_count: number;
 	/** The pin's outputs — the additive origin and the floor it establishes. */
@@ -183,17 +181,9 @@ export interface SessionShellRecord extends SessionRecordCommon, AgentOscState {
 	// Escape sequences THIS core instance reported as unhandled, plus the
 	// high-water mark that stops the core's never-cleared ring from re-reporting
 	// them. undefined = this core has logged nothing, the healthy case, in which
-	// nothing is allocated at all. Reset by resetUnhandledSequences() wherever
-	// wtermCore is replaced. See session-unhandled-seq.ts.
+	// nothing is allocated at all. See session-unhandled-seq.ts.
 	unhandled?: UnhandledSequenceLog;
 
 }
 
 export type SessionRecord = SessionShellRecord;
-
-export interface ViewportClaim {
-	cols: number;
-	rows: number;
-	lastMs: number;
-	clientSeq?: bigint;
-}

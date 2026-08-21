@@ -21,11 +21,8 @@ import { foldEvent, SessionEvent as SessionEventSchema } from "@roost/shared/wir
 import { signal } from "@roost/shared/diag";
 import { rootStore, setRootStore } from "./root.ts";
 import { isPendingSpawn } from "./optimisticSpawn.ts";
-import { pruneCellFrameCount } from "./sync-dispatch.ts";
-import {
-  noteTerminalProducerGeneration,
-  pruneTerminalOutbound,
-} from "../ws/sync-outbound.ts";
+import { pruneTerminalSession } from "./terminal-stream.ts";
+import { pruneTerminalInput } from "../ws/sync-outbound.ts";
 import { pruneSessionTrace } from "../lib/diag.ts";
 import { clearAgentStatusForSession } from "./agent-status.ts";
 
@@ -59,8 +56,8 @@ function _deleteSession(id: string): void {
   setRootStore("last_activity", id, undefined as unknown as never);
   setRootStore("session_viewers", id, undefined as unknown as never);
   clearAgentStatusForSession(id);
-  pruneCellFrameCount(id); // module-private Map, same per-session-reaper duty
-  pruneTerminalOutbound(id); // input/viewport queues + persisted intent
+  pruneTerminalSession(id);
+  pruneTerminalInput(id);
   pruneSessionTrace(id); // diag session_trace_id cache
 }
 
@@ -148,14 +145,5 @@ export function foldEventIntoStore(event: SessionEvent): void {
       cooldownKey: sid,
     });
     return;
-  }
-  // Producer generation: a respawn hands the session a new keeper core, and a
-  // worker boot/reconcile snapshot means the announcing worker lost the claims
-  // it held. The projection now agrees with the coordinator's route, so every
-  // tab holding a current positive viewport owner replays a newer claim that
-  // demands the new core's first full frame; inactive tabs do nothing.
-  if (valid.kind === "respawned") noteTerminalProducerGeneration([valid.session_id]);
-  else if (valid.kind === "snapshot") {
-    noteTerminalProducerGeneration(valid.sessions.map((session) => session.id));
   }
 }

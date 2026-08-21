@@ -54,7 +54,7 @@ describe("keeper degradation self-heal", () => {
       kind: "shell", cwd: "/", fsm: {}, bridge: null, scrollback: createSbRing(),
       head_seq: 0, alt_mode: false, mode_carry: new Uint8Array(0), osc7_carry: new Uint8Array(0), query_carry: new Uint8Array(0),
       ...initAgentOscState(),
-      wtermCore: core, cell_emit: initCellEmitState("test-grid"),
+      wtermCore: core, cell_emit: initCellEmitState("test-grid", "00000000-0000-4000-8000-000000000001"),
     });
     for (let i = 0; i < 10; i++) emitOrphan(h.mgr, 7); // ch 7 IS mapped → no emit_no_session
     expect(h.degradedCalls).toBe(0);

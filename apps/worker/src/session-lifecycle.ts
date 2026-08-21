@@ -187,9 +187,7 @@ export function _checkDeadBirth(this: SessionManager, rec: SessionRecord): void 
 	}
 }
 
-/** Remove all per-channel state when a session closes. Legacy sites only
- *  deleted `sessions`, leaking viewport claims, sequence floors, and resize
- *  state across spawn/kill churn. Every close/failure path calls this owner. */
+/** Remove all per-channel state when a session closes. */
 export function _dropChannelState(this: SessionManager, channelId: number): void {
 	const rec = this.sessions.get(channelId);
 	if (rec) {
@@ -220,17 +218,13 @@ export function _dropChannelState(this: SessionManager, channelId: number): void
 	for (const [ch, at] of this.recentlyClosed) {
 		if (nowMs - at >= RECENTLY_CLOSED_TTL_MS) this.recentlyClosed.delete(ch);
 	}
-	this.viewportClaims.delete(channelId);
-	this.viewportSequenceFloors.delete(channelId);
-	this.viewportIntentEpoch.delete(channelId);
+	this.terminalStreams.delete(channelId);
 	this.lastAppliedSize.delete(channelId);
 	this.terminalControlChains.delete(channelId);
 	this.keeperAdmissionLane.delete(channelId);
 	this.channelResizeSeq.delete(channelId);
-	this.resizeFloorInvalid.delete(channelId);
 	this.cellEmissionGates.delete(channelId);
-	this.resizeCaptures.delete(channelId);
-	this.coreRebuilds.delete(channelId);
+	getMultiplexedPool().forgetInputSequence(channelId);
 	this.hyperlinkSaturated.delete(channelId);
 	const cellTimer = this.cellEmitTimers.get(channelId);
 	if (cellTimer !== undefined) {
@@ -252,19 +246,10 @@ export function diagSnapshot(this: SessionManager): Record<string, unknown> {
 	const keeper = getMultiplexedPool();
 	for (const [channelId, rec] of this.sessions) {
 		const retainedBytes = ringLength(rec.scrollback);
-		const claims: Record<string, unknown> = {};
-		for (const [viewerId, claim] of this.viewportClaims.get(channelId) ?? []) {
-			claims[viewerId] = {
-				cols: claim.cols,
-				rows: claim.rows,
-				last_ms: claim.lastMs,
-				age_ms: Math.max(0, capturedAtMs - claim.lastMs),
-				client_seq: claim.clientSeq?.toString() ?? null,
-			};
-		}
 
 		const gateActive = this.cellEmissionGates.has(channelId);
-		const capture = this.resizeCaptures.get(channelId);
+		const stream = this.terminalStreams.get(channelId);
+		const capture = stream?.resizeCapture ?? null;
 		const suppression = this.cellGateSuppression.get(channelId);
 		const syncHold = this.syncOutputHolds.get(channelId);
 		const controlLane = this.terminalControlChains.get(channelId);
@@ -363,7 +348,7 @@ export function diagSnapshot(this: SessionManager): Record<string, unknown> {
 				suppressed_frames: suppression?.frames ?? 0,
 				over_budget: suppression?.overBudget ?? false,
 				budget_ms: suppression?.budgetMs ?? CELL_GATE_BUDGET_MS,
-				reason: capture?.reason ?? (gateActive ? "resize_capture" : syncHold ? "sync_output" : null),
+				reason: capture?.failedReason ?? (gateActive ? "resize_capture" : syncHold ? "sync_output" : null),
 			},
 			sync_output: syncHold
 				? {
@@ -376,24 +361,35 @@ export function diagSnapshot(this: SessionManager): Record<string, unknown> {
 				: null,
 			resize_capture: capture
 				? {
-					reason: capture.reason,
-					phase: capture.phase,
-					phase_age_ms: Math.max(0, Math.round(nowMonoMs - capture.phaseSinceMonoMs)),
-					phase_remaining_ms: Math.round(capture.phaseDeadlineMonoMs - nowMonoMs),
-					txn_remaining_ms: Math.round(capture.txnDeadlineMonoMs - nowMonoMs),
+					stream_id: capture.streamId,
+					resize_seq: capture.resizeSeq,
 					install_seq: capture.installSeq,
+					from_cols: capture.fromCols,
+					from_rows: capture.fromRows,
+					to_cols: capture.toCols,
+					to_rows: capture.toRows,
 					boundary_seq: capture.boundarySeq >= 0 ? capture.boundarySeq : null,
-					boundary_alt_mode: capture.boundaryAltMode,
+					boundary_applied: capture.boundaryApplied,
 					captured_bytes: capture.capturedBytes,
 					captured_chunks: capture.capturedChunks,
-					ring_evicted: capture.ringEvicted,
-					rebuilds: capture.rebuilds,
-					forwarded_replies: capture.forwardedReplies,
-					over_budget: capture.overBudget,
+					failed_reason: capture.failedReason,
 				}
 				: null,
 			pending_repair: this.pendingCellRepairs.has(channelId),
-			claims,
+			terminal_stream: stream
+				? {
+					stream_id: stream.streamId,
+					enabled: stream.enabled,
+					cols: stream.cols,
+					rows: stream.rows,
+					baseline_ready: stream.baselineReady,
+					baseline_dirty: stream.baselineDirty,
+					core_valid: stream.coreValid,
+					snapshot_id: stream.snapshotCursor?.snapshotId ?? null,
+					snapshot_next_part: stream.snapshotCursor?.nextPart ?? null,
+					snapshot_part_count: stream.snapshotCursor?.parts.length ?? null,
+				}
+				: null,
 			terminal_control: {
 				// Lane state is the head-of-line story: a control running while
 				// writes are queued behind it is exactly what stalls input.
@@ -407,9 +403,7 @@ export function diagSnapshot(this: SessionManager): Record<string, unknown> {
 				admission_held_age_ms: admissionLane?.holder
 					? Math.max(0, Math.round(nowMonoMs - admissionLane.heldSinceMonoMs))
 					: null,
-				core_rebuilds: this.coreRebuilds.get(channelId) ?? 0,
 				last_resize_seq: this.channelResizeSeq.get(channelId) ?? null,
-				resize_floor_valid: !this.resizeFloorInvalid.has(channelId),
 				last_applied_size: this.lastAppliedSize.get(channelId) ?? null,
 				keeper_connected: Boolean(keeper.socket && !keeper.socket.destroyed),
 				input_ack: {
@@ -506,13 +500,8 @@ export function _onTransition(
 }
 
 
-/** Stop the class-level reaper intervals. Per-record timers clear on their
- * close paths; these run for the manager's whole lifetime. */
+/** Stop the class-level reaper interval. Per-record timers clear on close. */
 export function dispose(this: SessionManager): void {
-	if (this.viewportReaperTimer !== null) {
-		clearInterval(this.viewportReaperTimer);
-		this.viewportReaperTimer = null;
-	}
 	if (this.strayReaperTimer !== null) {
 		clearInterval(this.strayReaperTimer);
 		this.strayReaperTimer = null;

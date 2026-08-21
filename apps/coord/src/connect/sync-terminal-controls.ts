@@ -1,173 +1,68 @@
-import type { SyncWsHandlerOptions } from "./sync-ws-handler.ts";
-import type { ConnectDeps } from "./router.ts";
+import { create } from "@bufbuild/protobuf";
 import {
-  cancelTerminalControlGeneration,
-  processInputControl,
-  processViewportControl,
-} from "./session-control.ts";
+  InputAcceptedSchema,
+  InputAmbiguousSchema,
+  InputRejectedSchema,
+} from "@roost/shared/proto/sync_pb";
+import { isTerminalUuid } from "@roost/shared/viewport";
+import type { ConnectDeps } from "./router.ts";
+import { cancelTerminalControlGeneration } from "./terminal-control-lane.ts";
+import { processInputControl } from "./input-control.ts";
+import type { SyncWsHandlerOptions } from "./sync-ws-handler.ts";
+import type { SyncV2CommandContext } from "./sync-ws-v2-commands.ts";
+import type { TerminalViewHub } from "./terminal-view-hub.ts";
 
-export type SyncTerminalCommand =
-  | {
-      case: "viewport";
-      value: {
-        sessionId: string;
-        cols: number;
-        rows: number;
-        clientSeq: bigint;
-        cause: number;
-        heldCellSeq: bigint;
-        domainGeneration: bigint;
-      };
-    }
-  | {
-      case: "input";
-      value: {
-        sessionId: string;
-        inputSeq: bigint;
-        data: Uint8Array;
-        domainGeneration: bigint;
-      };
-    };
-
-export type SyncTerminalResultControl =
-  | {
-      case: "viewportAccepted";
-      value: {
-        sessionId: string;
-        clientSeq: bigint;
-        domainGeneration: bigint;
-        effectiveCols: number;
-        effectiveRows: number;
-        channelResizeSeq: bigint;
-      };
-    }
-  | {
-      case: "viewportRejected";
-      value: {
-        sessionId: string;
-        clientSeq: bigint;
-        domainGeneration: bigint;
-        reason: string;
-        sequenceFloor?: bigint;
-      };
-    }
-  | {
-      case: "viewportAmbiguous";
-      value: {
-        sessionId: string;
-        clientSeq: bigint;
-        domainGeneration: bigint;
-        reason: string;
-      };
-    }
-  | {
-      case: "inputAccepted";
-      value: {
-        sessionId: string;
-        inputSeq: bigint;
-        domainGeneration: bigint;
-        writtenBytes: number;
-      };
-    }
-  | {
-      case: "inputRejected";
-      value: {
-        sessionId: string;
-        inputSeq: bigint;
-        domainGeneration: bigint;
-        reason: string;
-      };
-    }
-  | {
-      case: "inputAmbiguous";
-      value: {
-        sessionId: string;
-        inputSeq: bigint;
-        domainGeneration: bigint;
-        writtenBytes: number;
-        reason: string;
-      };
-    };
-
-export interface SyncTerminalCommandContext {
-  caller: { fingerprint: string; label?: string };
-  viewerKey: string;
-  remoteAddress?: string;
-  socketId: string;
-  command: SyncTerminalCommand;
-  /** Socket-identity guarded by sync-ws-handler; false after close/reset. */
-  reply(control: SyncTerminalResultControl): boolean;
-}
-
-/** Extra makeSyncWsHandler options consumed by Sync v2. Extending the existing
- * options type keeps this adapter source-compatible with the v1 handler during
- * the schema/hook merge; v1 simply ignores the additional properties. */
 export interface SyncTerminalControlHooks extends SyncWsHandlerOptions {
-  onV2Command(context: SyncTerminalCommandContext): void;
+  onV2Command(context: SyncV2CommandContext): void;
   onV2Close(context: { viewerKey: string; socketId: string }): void;
 }
 
-export function makeSyncTerminalControlHooks(deps: ConnectDeps): SyncTerminalControlHooks {
+export function makeSyncTerminalControlHooks(
+  deps: ConnectDeps,
+  terminalViews: TerminalViewHub,
+): SyncTerminalControlHooks {
   return {
+    terminalViews,
     onV2Command(context): void {
-      const identity = {
-        viewerKey: context.viewerKey,
-        callerFingerprint: context.caller.fingerprint,
-        clientIp: context.remoteAddress,
-      };
-      if (context.command.case === "viewport") {
-        const command = context.command.value;
-        void processViewportControl(deps, {
-          identity,
-          sessionId: command.sessionId,
-          clientSeq: command.clientSeq,
-          cols: command.cols,
-          rows: command.rows,
-          cause: command.cause,
-          heldCellSeq: command.heldCellSeq,
-          socketGeneration: context.socketId,
-        }).then((result) => {
-          if (result.status === "accepted") {
-            context.reply({
-              case: "viewportAccepted",
-              value: {
-                sessionId: result.sessionId,
-                clientSeq: result.clientSeq,
-                domainGeneration: command.domainGeneration,
-                effectiveCols: result.cols,
-                effectiveRows: result.rows,
-                channelResizeSeq: result.channelResizeSeq,
-              },
-            });
-          } else if (result.status === "rejected") {
-            context.reply({
-              case: "viewportRejected",
-              value: {
-                sessionId: result.sessionId,
-                clientSeq: result.clientSeq,
-                domainGeneration: command.domainGeneration,
-                reason: result.reason,
-                sequenceFloor: result.sequenceFloor,
-              },
-            });
-          } else {
-            context.reply({
-              case: "viewportAmbiguous",
-              value: {
-                sessionId: result.sessionId,
-                clientSeq: result.clientSeq,
-                domainGeneration: command.domainGeneration,
-                reason: result.reason,
-              },
-            });
-          }
+      if (context.command.case === "terminalView") {
+        terminalViews.handleViewCommand(context.socketId, context.command.value);
+        return;
+      }
+      if (context.command.case === "terminalResync") {
+        terminalViews.handleResync(context.socketId, context.command.value);
+        return;
+      }
+      const command = context.command.value;
+      if (context.viewerKey === null) {
+        context.reply({
+          case: "inputRejected",
+          value: create(InputRejectedSchema, {
+            sessionId: command.sessionId,
+            inputSeq: command.inputSeq,
+            domainGeneration: command.domainGeneration,
+            reason: "terminal input requires a tab-bound Sync socket",
+          }),
         });
         return;
       }
-
-      const command = context.command.value;
+      if (command.viewId !== undefined && command.viewId !== "" && !isTerminalUuid(command.viewId)) {
+        context.reply({
+          case: "inputRejected",
+          value: create(InputRejectedSchema, {
+            sessionId: command.sessionId,
+            inputSeq: command.inputSeq,
+            domainGeneration: command.domainGeneration,
+            reason: "invalid terminal input view id",
+          }),
+        });
+        return;
+      }
       void processInputControl(deps, {
-        identity,
+        identity: {
+          viewerKey: context.viewerKey,
+          callerFingerprint: context.caller.fingerprint,
+          clientIp: context.remoteAddress,
+        },
         sessionId: command.sessionId,
         inputSeq: command.inputSeq,
         data: command.data,
@@ -177,33 +72,33 @@ export function makeSyncTerminalControlHooks(deps: ConnectDeps): SyncTerminalCon
         if (result.status === "accepted") {
           context.reply({
             case: "inputAccepted",
-            value: {
+            value: create(InputAcceptedSchema, {
               sessionId: result.sessionId,
               inputSeq: result.inputSeq,
               domainGeneration: command.domainGeneration,
               writtenBytes: result.writtenBytes,
-            },
+            }),
           });
         } else if (result.status === "rejected") {
           context.reply({
             case: "inputRejected",
-            value: {
+            value: create(InputRejectedSchema, {
               sessionId: result.sessionId,
               inputSeq: result.inputSeq,
               domainGeneration: command.domainGeneration,
               reason: result.reason,
-            },
+            }),
           });
         } else {
           context.reply({
             case: "inputAmbiguous",
-            value: {
+            value: create(InputAmbiguousSchema, {
               sessionId: result.sessionId,
               inputSeq: result.inputSeq,
               domainGeneration: command.domainGeneration,
               writtenBytes: result.writtenBytes,
               reason: result.reason,
-            },
+            }),
           });
         }
       });

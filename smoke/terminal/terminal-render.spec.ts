@@ -1,7 +1,16 @@
 import { test, expect } from "./fixtures.ts";
-import { fixturePath, waitForStableCellFrames } from "./terminal-helpers.ts";
-import { readTerminalStreamProbe } from "./terminal-probe-helpers.ts";
-
+import {
+  fixturePath,
+  inputSmokeTerminal,
+  navigateToSmokeSession,
+  spawnSmokeShell,
+  waitForStableCellFrames,
+} from "./terminal-helpers.ts";
+import type { RecoverySmokeApi } from "./terminal-smoke-api.ts";
+import {
+  coordinatorTerminalViewState,
+  readTerminalStreamProbe,
+} from "./terminal-probe-helpers.ts";
 test("trusted keyboard input and bottom-follow behavior", async ({ smokePage, stack }) => {
   const sessionId = await smokePage.evaluate(async (workerFp) => {
     const smoke = (window as unknown as Window & { __smoke: { spawnShell(worker: string, folder: string): Promise<{ session_id: string }> } }).__smoke;
@@ -26,45 +35,33 @@ test("trusted keyboard input and bottom-follow behavior", async ({ smokePage, st
 test("streaming sequence repair leaves an off-bottom reader fixed", async ({ smokePage, stack }, testInfo) => {
   test.skip(!testInfo.project.name.startsWith("chromium"), "desktop scroll-geometry contract");
   test.setTimeout(120_000);
-  const sessionId = await smokePage.evaluate(async (workerFp) => {
-    const smoke = (window as unknown as Window & {
-      __smoke: { spawnShell(worker: string, folder: string): Promise<{ session_id: string }> };
-    }).__smoke;
-    return (await smoke.spawnShell(workerFp, "/tmp")).session_id;
-  }, stack.workerFp);
-  await smokePage.goto(`${stack.baseUrl}/s/${sessionId}`);
+  const sessionId = (await spawnSmokeShell(smokePage, stack.workerFp)).session_id;
+  await navigateToSmokeSession(smokePage, sessionId);
   const slot = smokePage.getByTestId(`terminal-slot-${sessionId}`);
   await expect(slot).toBeVisible();
-  await smokePage.evaluate(async (id) => {
-    const smoke = (window as unknown as Window & {
-      __smoke: { input(sessionId: string, text: string): Promise<void> };
-    }).__smoke;
-    await smoke.input(id, "for i in $(seq 1 1500); do printf 'READERLINE-%04d stable-history\\n' $i; done\r");
-  }, sessionId);
+  await inputSmokeTerminal(
+    smokePage,
+    sessionId,
+    "for i in $(seq 1 1500); do printf 'READERLINE-%04d stable-history\\n' $i; done\r",
+  );
   await expect.poll(() => smokePage.evaluate((id) => {
-    const smoke = (window as unknown as Window & {
-      __smoke: { markerScan(sessionId: string, prefix: string): { max: number } };
-    }).__smoke;
-    return smoke.markerScan(id, "READERLINE-").max;
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return smokeWindow.__smoke.markerScan(id, "READERLINE-").max;
   }, sessionId), { timeout: 60_000 }).toBe(1500);
-
+  await inputSmokeTerminal(smokePage, sessionId, "stty -echo\r");
+  await waitForStableCellFrames(smokePage, sessionId);
   const grid = slot.locator(".wterm.cell-grid");
   const box = await grid.boundingBox();
   if (!box) throw new Error("streaming reader grid missing");
   await smokePage.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await smokePage.mouse.wheel(0, -6000);
   const sample = () => smokePage.evaluate((id) => {
-    const smoke = (window as unknown as Window & {
-      __smoke: {
-        cellFrameCount(sessionId: string): number;
-        cellFullFrameCount(sessionId: string): number;
-        cellGridEpoch(sessionId: string): string;
-        droppedCellFrameCount(sessionId: string): number;
-      };
-    }).__smoke;
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    const smoke = smokeWindow.__smoke;
     const container = document.querySelector(
       `[data-testid="terminal-slot-${id}"] .wterm.cell-grid`,
-    ) as HTMLElement;
+    );
+    if (!(container instanceof HTMLElement)) throw new Error("terminal cell grid missing");
     const rect = container.getBoundingClientRect();
     const row = document.elementFromPoint(rect.left + 100, rect.top + 200)?.closest(".cell-row");
     return {
@@ -74,54 +71,67 @@ test("streaming sequence repair leaves an off-bottom reader fixed", async ({ smo
       rowOffset: row ? row.getBoundingClientRect().top - (rect.top + 200) : null,
       frames: smoke.cellFrameCount(id),
       gridEpoch: smoke.cellGridEpoch(id),
-      fullFrames: smoke.cellFullFrameCount(id),
       dropped: smoke.droppedCellFrameCount(id),
     };
   }, sessionId);
   await expect.poll(async () => (await sample()).row, { timeout: 10_000 })
     .toContain("READERLINE-");
+  // The settled, echo-free shell makes the first post-arm accepted delivery
+  // the controlled 1501 marker rather than stale prompt or input-echo output.
   const before = await sample();
-
+  const beforeStream = await readTerminalStreamProbe(smokePage, sessionId);
+  expect(beforeStream.browser.handler_canonical).toEqual(beforeStream.browser.dom_reconciled);
+  const beforeSeq = beforeStream.browser.handler_canonical.seq;
+  if (beforeSeq === null) throw new Error("off-bottom reader omitted its canonical sequence");
   await smokePage.evaluate(async (id) => {
-    const smoke = (window as unknown as Window & {
-      __smoke: {
-        dropNextCellFrame(sessionId: string): void;
-        input(sessionId: string, text: string): Promise<void>;
-      };
-    }).__smoke;
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    const smoke = smokeWindow.__smoke;
     smoke.dropNextCellFrame(id);
     await smoke.input(
       id,
-      "for i in $(seq 1501 1800); do printf 'READERLINE-%04d streaming\\n' $i; sleep 0.01; done\r",
+      "printf 'READERLINE-1501 streaming\\n'; read _; for i in $(seq 1502 1800); do printf 'READERLINE-%04d streaming\\n' $i; sleep 0.01; done; stty echo\r",
     );
   }, sessionId);
-  await expect.poll(() => sample(), { timeout: 60_000 }).toMatchObject({
-    fullFrames: before.fullFrames + 1,
-    dropped: before.dropped + 1,
+  await expect.poll(async () => (await sample()).dropped, {
+    timeout: 3_000,
+    intervals: [20, 50],
+  }).toBe(before.dropped + 1);
+  // One renderer delivery was lost; later frames may repair it immediately from the folded browser canonical replica.
+  expect(await sample()).toMatchObject({
+    scrollTop: before.scrollTop,
+    scrollHeight: before.scrollHeight,
+    row: before.row,
+    rowOffset: before.rowOffset,
   });
+  await inputSmokeTerminal(smokePage, sessionId, "go\r");
   await expect.poll(async () => (await sample()).frames, { timeout: 60_000 })
     .toBeGreaterThan(before.frames + 200);
-
   const during = await sample();
   expect(during.gridEpoch).toBe(before.gridEpoch);
   expect(during.scrollTop).toBe(before.scrollTop);
   expect(during.scrollHeight).toBe(before.scrollHeight);
   expect(during.row).toBe(before.row);
   expect(during.rowOffset).toBe(before.rowOffset);
-
   await smokePage.mouse.wheel(0, 100_000);
   await expect.poll(() => smokePage.evaluate((id) => {
-    const smoke = (window as unknown as Window & {
-      __smoke: {
-        renderProbe(sessionId: string): { atBottom: boolean };
-        markerScan(sessionId: string, prefix: string): { max: number };
-      };
-    }).__smoke;
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    const smoke = smokeWindow.__smoke;
     return {
       atBottom: smoke.renderProbe(id).atBottom,
       markerMax: smoke.markerScan(id, "READERLINE-").max,
     };
   }, sessionId), { timeout: 30_000 }).toEqual({ atBottom: true, markerMax: 1800 });
+  const repaired = await readTerminalStreamProbe(smokePage, sessionId);
+  const canonical = repaired.browser.handler_canonical;
+  expect(repaired.browser.replica).toMatchObject({
+    baseline_ready: true,
+    resync_latched: false,
+  });
+  expect(canonical.grid_epoch).toBe(beforeStream.browser.handler_canonical.grid_epoch);
+  if (canonical.seq === null) throw new Error("repaired reader omitted its canonical sequence");
+  expect(canonical.seq).toBeGreaterThan(beforeSeq);
+  expect(repaired.browser.presentation?.canonical).toEqual(canonical);
+  expect(repaired.browser.dom_reconciled).toEqual(canonical);
 });
 
 test("alternate screen survives width and height perturbations", async ({ smokePage, stack }) => {
@@ -251,17 +261,22 @@ test("duplicated tab rotates identity and adopts its final resize", async ({ smo
       .__smoke.forceVisible(true);
   });
   await expect.poll(async () => {
-    const claim = (await readTerminalStreamProbe(smokePage, sessionId)).browser.claim;
-    return {
-      status: claim.status,
-      desired: claim.desired !== null,
-      confirmed: claim.confirmed !== null,
-    };
-  }, { timeout: 30_000, intervals: [50, 100, 250] }).toEqual({
-    status: "ready",
-    desired: true,
-    confirmed: true,
-  });
+    const probe = await readTerminalStreamProbe(smokePage, sessionId);
+    const { view, replica } = probe.browser;
+    const coordinator = coordinatorTerminalViewState(probe);
+    return view.status === "accepted"
+      && view.active
+      && view.view_id !== null
+      && view.revision !== null
+      && view.effective_cols > 0
+      && view.effective_rows > 0
+      && replica.baseline_ready
+      && replica.expected_stream_id === view.stream_id
+      && coordinator?.activeViews === 1
+      && coordinator.streamId === view.stream_id;
+  }, { timeout: 30_000, intervals: [50, 100, 250] }).toBe(true);
+  const primaryViewId = (await readTerminalStreamProbe(smokePage, sessionId)).browser.view.view_id;
+  if (!primaryViewId) throw new Error("primary tab did not create a terminal view");
 
   const firstTabId = await smokePage.evaluate(() => sessionStorage.getItem("roost.tabId"));
   if (!firstTabId) throw new Error("primary tab did not persist roost.tabId");
@@ -274,7 +289,6 @@ test("duplicated tab rotates identity and adopts its final resize", async ({ smo
   ).filter((entry): entry is [string, string] => entry !== null));
   const copied = new Map(copiedStorage);
   expect(copied.get("roost.tabId")).toBe(firstTabId);
-  expect(copied.has("roost.sync-v2.viewport-intents")).toBe(true);
 
   const duplicate = await smokePage.context().newPage();
   await duplicate.setViewportSize({ width: 1200, height: 800 });
@@ -299,51 +313,61 @@ test("duplicated tab rotates identity and adopts its final resize", async ({ smo
       .toBe(firstTabId);
 
     await expect.poll(async () => {
-      const claim = (await readTerminalStreamProbe(duplicate, sessionId)).browser.claim;
-      return {
-        status: claim.status,
-        desired: claim.desired !== null,
-        confirmed: claim.confirmed !== null,
-      };
-    }, { timeout: 30_000, intervals: [50, 100, 250] }).toEqual({
-      status: "ready",
-      desired: true,
-      confirmed: true,
-    });
+      const probe = await readTerminalStreamProbe(duplicate, sessionId);
+      const { view, replica } = probe.browser;
+      const coordinator = coordinatorTerminalViewState(probe);
+      return view.status === "accepted"
+        && view.active
+        && view.view_id !== null
+        && view.view_id !== primaryViewId
+        && view.revision !== null
+        && view.effective_cols > 0
+        && view.effective_rows > 0
+        && replica.baseline_ready
+        && replica.expected_stream_id === view.stream_id
+        && coordinator?.activeViews === 2
+        && coordinator.streamId === view.stream_id;
+    }, { timeout: 30_000, intervals: [50, 100, 250] }).toBe(true);
     const beforeResize = await readTerminalStreamProbe(duplicate, sessionId);
-    const beforeDesired = beforeResize.browser.claim.desired;
-    const beforeConfirmed = beforeResize.browser.claim.confirmed;
-    if (!beforeDesired || !beforeConfirmed) {
-      throw new Error("duplicate tab never confirmed its bootstrap viewport");
+    const beforeView = beforeResize.browser.view;
+    if (!beforeView.revision || !beforeView.stream_id) {
+      throw new Error("duplicate tab never established its bootstrap terminal view");
     }
+    const beforeRevision = BigInt(beforeView.revision);
 
     await duplicate.setViewportSize({ width: 720, height: 500 });
     await expect.poll(async () => {
-      const claim = (await readTerminalStreamProbe(duplicate, sessionId)).browser.claim;
-      const desired = claim.desired;
-      const confirmed = claim.confirmed;
+      const probe = await readTerminalStreamProbe(duplicate, sessionId);
+      const { view, replica } = probe.browser;
+      const coordinator = coordinatorTerminalViewState(probe);
       return {
-        dimensionsConverged: desired !== null
-          && confirmed !== null
-          && desired.cols === confirmed.effective_cols
-          && desired.rows === confirmed.effective_rows,
-        smaller: desired !== null
-          && desired.cols < beforeDesired.cols
-          && desired.rows < beforeDesired.rows,
-        sameSequence: desired?.client_seq === confirmed?.client_seq,
-        newer: desired !== null
-          && BigInt(desired.client_seq) > BigInt(beforeConfirmed.client_seq),
+        dimensionsConverged: coordinator?.effective?.cols === view.effective_cols
+          && coordinator.effective?.rows === view.effective_rows,
+        smaller: view.effective_cols < beforeView.effective_cols
+          && view.effective_rows < beforeView.effective_rows,
+        acceptedBaseline: view.status === "accepted"
+          && view.active
+          && replica.baseline_ready
+          && replica.expected_stream_id === view.stream_id,
+        newer: view.revision !== null && BigInt(view.revision) > beforeRevision,
+        newStream: view.stream_id !== null && view.stream_id !== beforeView.stream_id
+          && coordinator?.streamId === view.stream_id,
+        coordinatorViews: coordinator?.activeViews ?? 0,
       };
     }, { timeout: 30_000, intervals: [50, 100, 250] }).toEqual({
       dimensionsConverged: true,
       smaller: true,
-      sameSequence: true,
+      acceptedBaseline: true,
       newer: true,
+      newStream: true,
+      coordinatorViews: 2,
     });
 
     const finalProbe = await readTerminalStreamProbe(duplicate, sessionId);
-    const confirmed = finalProbe.browser.claim.confirmed;
-    if (!confirmed) throw new Error("duplicate tab lost its confirmed final viewport");
+    const finalView = finalProbe.browser.view;
+    if (finalView.status !== "accepted" || !finalView.active) {
+      throw new Error("duplicate tab lost its accepted final terminal view");
+    }
     const marker = `DUP_RESIZE_${crypto.randomUUID().replace(/-/g, "").slice(0, 8)}`;
     await duplicate.getByTestId(`terminal-slot-${sessionId}`).click();
     await duplicate.keyboard.type(`printf '${marker} '; stty size`);
@@ -360,7 +384,7 @@ test("duplicated tab rotates identity and adopts its final resize", async ({ smo
     }, { id: sessionId, prefix: marker }), {
       timeout: 30_000,
       intervals: [50, 100, 250],
-    }).toEqual([confirmed.effective_rows, confirmed.effective_cols]);
+    }).toEqual([finalView.effective_rows, finalView.effective_cols]);
   } finally {
     await duplicate.evaluate(() => {
       (window as unknown as Window & { __smoke: { forceVisible(on: boolean): void } })

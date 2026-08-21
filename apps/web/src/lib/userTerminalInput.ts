@@ -25,8 +25,12 @@ export function registerUserTerminalInput(
  * Admit bytes to the bounded terminal input lane, then synchronously notify the
  * currently mounted pane. Rejected input is passive and never changes its view.
  */
-export function sendUserTerminalInput(sessionId: string, bytes: Uint8Array): InputAdmission {
-  const admission = sendTerminalInput(sessionId, bytes);
+export function sendUserTerminalInput(
+  sessionId: string,
+  bytes: Uint8Array,
+  viewId?: string,
+): InputAdmission {
+  const admission = sendTerminalInput(sessionId, bytes, viewId);
   if (!admission.accepted) return admission;
 
   const registration = registrations.get(sessionId);

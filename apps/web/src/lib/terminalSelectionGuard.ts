@@ -262,6 +262,7 @@ export function createTerminalSelectionGuard(
 		};
 		activeSelectionGuard?.release();
 		activeSelectionGuard = guard;
+		syncNativeSelectionHold();
 		return guard;
 	};
 	const prepareLiveInteraction = (): void => {

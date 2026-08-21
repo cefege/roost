@@ -80,7 +80,7 @@ describe("CellGridRenderer DOM — held-window eviction", () => {
     grow(r, 100, 8);
     expect(r.readerIntent).toBe("reading");
     expect(r.currentFrame!.scrollbackRows.length).toBe(100);
-    expect(r.heldFrameSeq()).toBe(10);
+    expect(r.canonicalFrameSeq()).toBe(10);
     expect(c.scrollTopWrites).toBe(0);
 
     c.scrollTop = Math.max(0, c.scrollHeight - c.clientHeight);
@@ -112,7 +112,7 @@ describe("CellGridRenderer DOM — held-window eviction", () => {
     for (let i = 0; i < 12; i++) {
       const append = seq(BLOCK).map((k) => row(idx + k, `s${idx + k}`));
       idx += BLOCK; running += BLOCK;
-      r.apply(appDelta(append, running, i + 2));
+      r.apply(appDelta(append, running, i + 3));
       const f = r.currentFrame!;
       expect(f.scrollbackTotal - f.sbBase).toBe(f.scrollbackRows.length);
       expect(f.scrollbackRows.length).toBeLessThanOrEqual(MAX_HELD_SCROLLBACK_ROWS);
@@ -134,7 +134,7 @@ describe("CellGridRenderer DOM — held-window eviction", () => {
     r.prependScrollback([row(299, "backfill")]);
     expect((scrollbackEl.children[2] as FakeEl).style["overflow-anchor"]).toBeUndefined();
 
-    r.apply(appDelta([row(600, "stream")], 601, 2));
+    r.apply(appDelta([row(600, "stream")], 601, 3));
     expect((scrollbackEl.children[2] as FakeEl).style["overflow-anchor"]).toBe("none");
   });
 
@@ -149,10 +149,10 @@ describe("CellGridRenderer DOM — held-window eviction", () => {
     const baseBefore = r.currentFrame!.sbBase;
     const append = seq(BLOCK).map((k) => row(2000 + k, `s${2000 + k}`));
     c.resetScrollTopWrites();
-    r.apply(appDelta(append, 2000 + BLOCK, 99));
+    r.apply(appDelta(append, 2000 + BLOCK, 3));
     expect(r.currentFrame!.sbBase).toBe(baseBefore);
     expect(r.currentFrame!.scrollbackRows.length).toBe(2000);
-    expect(r.heldFrameSeq()).toBe(99);
+    expect(r.canonicalFrameSeq()).toBe(3);
     expect(c.scrollTop).toBe(held);
     expect(c.scrollTopWrites).toBe(0);
   });
@@ -181,7 +181,7 @@ describe("CellGridRenderer DOM — content-visibility placeholder exactness", ()
     // Cross a block boundary: the closed block is exactly SB_BLOCK rows, the new
     // open block carries the remainder.
     const append = seqN(BLOCK).map((k) => row(7 + k, `s${7 + k}`));
-    r.apply({ ...deltaFrame(80, 1, [row(0, "v")], append, 2), scrollbackTotal: 7 + BLOCK });
+    r.apply({ ...deltaFrame(80, 1, [row(0, "v")], append, 3), scrollbackTotal: 7 + BLOCK });
     expect(sb.children.length).toBe(2);
     expect(csz(sb.children[0])).toBe("4000.00px"); // 250 × 16px, the full block
     expect(csz(sb.children[1])).toBe("112.00px");  // 257 - 250 = 7 rows
@@ -205,7 +205,7 @@ describe("CellGridRenderer DOM — content-visibility placeholder exactness", ()
     expect(cv(sb.children[0])).toBe("visible");
 
     const append = seqN(BLOCK).map((k) => row(7 + k, `s${7 + k}`));
-    r.apply({ ...deltaFrame(80, 1, [row(0, "v")], append, 2), scrollbackTotal: 7 + BLOCK });
+    r.apply({ ...deltaFrame(80, 1, [row(0, "v")], append, 3), scrollbackTotal: 7 + BLOCK });
     expect(sb.children.length).toBe(2);
     expect(cv(sb.children[0])).toBeUndefined(); // sealed → back to the stylesheet's auto
     expect(cv(sb.children[1])).toBe("visible"); // the new open tail

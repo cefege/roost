@@ -4,11 +4,11 @@
   "workspaces": {
     "apps/shared":   { "ignoreDependencies": ["@bufbuild/protoc-gen-es"] },
     "apps/coord":    { "entry": ["src/main.ts!", "tests/**/*.test.ts"] },
-    "apps/worker":   { "entry": ["src/main.ts!", "src/keeper/multiplexed-main.ts!", "tests/**/*.test.ts", "tests/**/fixtures/*.ts"] },
+    "apps/worker":   { "entry": ["src/main.ts!", "src/keeper/multiplexed-main.ts!", "tests/**/*.test.ts", "tests/**/fixtures/*.ts"], "ignoreBinaries": ["ip"] },
     "apps/web":      { "entry": ["src/main.tsx!", "index.html", "public/sw-push.js", "tests/**/*.test.ts"] },
     "apps/roost-cli": { "entry": ["src/main.ts!"] },
     "apps/site":     { "entry": ["scripts/*.ts!", "src/pages/**/*.{astro,ts}"], "ignore": [".astro/**"] },
-    "smoke":         { "entry": ["*.test.ts"] }
+    "smoke":         { "entry": ["*.test.ts", "terminal/live-stack.ts", "terminal/pty-fixture.ts", "terminal/resize-tui.ts"] }
   },
   "ignore": ["**/gen/**", "mockups/**", "docs/archive/**", ".claude/**", "scripts/**"],
   "ignoreBinaries": ["vm_stat"]

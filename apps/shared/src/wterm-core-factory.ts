@@ -11,6 +11,11 @@
 import { WasmBridge, type TerminalCore, type UnhandledSequence } from "@wterm/core";
 import { WTERM_ROOST_WASM_PATH, expectedRoostWasmSha256 } from "./wterm-wasm.ts";
 import { log } from "./log.ts";
+import {
+  TERMINAL_MAX_COLS,
+  assertTerminalGeometry,
+  type TerminalGeometry,
+} from "./viewport.ts";
 
 // Every WASM export @wterm/core 0.3.4's WasmBridge invokes. 0.3.4 widened the
 // ABI over 0.3.0 (per-cell display width and OSC 8 link index, mouse/focus and
@@ -154,6 +159,17 @@ function wasmCounter(instance: WebAssembly.Instance, name: string): WasmCounter 
   }
   return fn;
 }
+/** Verify the digest-pinned module's raw emulator ceiling before any bridge
+ * hides that export behind its private cached maxCols field. */
+export function assertWtermCoreModuleLimits(instance: WebAssembly.Instance): void {
+  const maxCols = wasmCounter(instance, "getMaxCols")();
+  if (maxCols !== TERMINAL_MAX_COLS) {
+    throw new Error(
+      `terminal core max columns ${maxCols} does not match shared bound ${TERMINAL_MAX_COLS}`,
+    );
+  }
+}
+
 
 function makeUnhandledSequenceRing(instance: WebAssembly.Instance): UnhandledSequenceRing {
   const memory = instance.exports.memory;
@@ -210,15 +226,47 @@ export function unhandledSequenceRing(core: TerminalCore): UnhandledSequenceRing
   return _unhandledRings.get(core) ?? null;
 }
 
+/** Prove that a core has the already validated geometry requested by its owner.
+ * Call this after every init/resize boundary; silently accepting a clamped or
+ * stale size would desynchronize the PTY and all three screen replicas. The
+ * raw module ceiling is checked once at instantiation. */
+export function assertWtermCoreGeometry(
+  core: TerminalCore,
+  expected: Readonly<TerminalGeometry>,
+): void {
+  assertTerminalGeometry(expected);
+  const cols = core.getCols();
+  const rows = core.getRows();
+  if (cols !== expected.cols || rows !== expected.rows) {
+    throw new Error(
+      `terminal core geometry ${cols}x${rows} does not match requested `
+      + `${expected.cols}x${expected.rows}`,
+    );
+  }
+}
+
+/** Synchronous in-place resize plus the same postcondition used at creation. */
+export function resizeWtermCore(
+  core: TerminalCore,
+  geometry: Readonly<TerminalGeometry>,
+): void {
+  assertTerminalGeometry(geometry);
+  core.resize(geometry.cols, geometry.rows);
+  assertWtermCoreGeometry(core, geometry);
+}
+
 /** One independent, mutable core per session or rebuild, instantiated from the
  * shared stateless module. Each instance owns its own linear memory (the 10k ×
  * 256 × 12-byte scrollback reserves ~32 MiB), so cores never share grid,
  * scrollback, response-queue or link-table state; dropping the last reference
  * to a bridge releases that memory (the ABI exposes no explicit teardown). */
 export async function createWtermCore(cols: number, rows: number): Promise<TerminalCore> {
+  const geometry = assertTerminalGeometry({ cols, rows });
   const instance = await WebAssembly.instantiate(await roostWasmModule());
+  assertWtermCoreModuleLimits(instance);
   const bridge = new WasmBridge(instance);
-  bridge.init(cols, rows);
+  bridge.init(geometry.cols, geometry.rows);
+  assertWtermCoreGeometry(bridge, geometry);
   const ring = makeUnhandledSequenceRing(instance);
   _unhandledRings.set(bridge, ring);
   // Leave no second, wrong way to read the same ring: the interface method now

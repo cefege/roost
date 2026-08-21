@@ -2,13 +2,15 @@
 // Extracted to keep coord-link.ts under the 400-line cap; re-exported
 // from coord-link.ts so external import paths stay unchanged.
 
-import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
+import type { PbCellGridChunk, PbCellGridFrame } from "@roost/shared/proto/cell_pb";
 import type { CoordWorkerUp, CoordWorkerDown } from "@roost/shared/proto/worker_transport_pb";
 import type {
   DInputRequest,
-  DViewportRequest,
+  DTerminalSnapshotRequest,
+  DTerminalStreamState,
   TerminalInputStatus,
-  TerminalViewportStatus,
+  TerminalStreamFailureKind,
+  TerminalStreamStatus,
   TerminalWritePhase,
 } from "@roost/shared/proto/worker_transport_pb";
 import type { AgentStatusUpdate, WorkerFp, ClientControlFrame, SessionEvent } from "@roost/shared/wire";
@@ -59,7 +61,8 @@ export interface CoordLinkDeps {
   onBrowserCommand?: (msg: { browser_id: string; viewer_id: string; request_id: string; frame: ClientControlFrame }) => void;
   onBinary?: (channelId: number, dir: number, bytes: Uint8Array) => void;
   onInputRequest?: (request: DInputRequest, budget: TerminalRequestBudget) => Promise<void> | void;
-  onViewportRequest?: (request: DViewportRequest, budget: TerminalRequestBudget) => Promise<void> | void;
+  onTerminalStreamState?: (request: DTerminalStreamState, budget: TerminalRequestBudget) => Promise<void> | void;
+  onTerminalSnapshotRequest?: (request: DTerminalSnapshotRequest) => Promise<void> | void;
   onAttachmentChunk?: (msg: { request_id: string; session_id: string; filename: string; short_path: boolean; data: Uint8Array; last: boolean; seq: number }) => void;
   onCoordMovePrepare?: (msg: {
     request_id: string; handoff_id: string; source_url: string; target_url: string;
@@ -104,6 +107,7 @@ export interface CoordLink {
   sendCellGrid(channelId: number, frame: PbCellGridFrame): TransportSendResult;
   sendAgentStatus(status: AgentStatusUpdate): boolean;
   state(): CoordLinkState;
+  sendCellGridChunk(channelId: number, chunk: PbCellGridChunk): TransportSendResult;
   relocate(targetUrl: string, force?: boolean): void;
   unackedEventCount(): number;
   dispose(): void;
@@ -132,18 +136,19 @@ export type UpstreamFrame =
       reason?: string;
     }
   | {
-      kind: "viewport-result";
+      kind: "terminal-stream-result";
       request_id: string;
       session_id: string;
-      client_seq: bigint;
-      status: TerminalViewportStatus;
+      stream_id: string;
+      enabled: boolean;
+      status: TerminalStreamStatus;
       channel_resize_seq: bigint;
-      cols: number;
-      rows: number;
+      effective_cols: number;
+      effective_rows: number;
       resized: boolean;
       phase: TerminalWritePhase;
+      failure_kind: TerminalStreamFailureKind;
       reason?: string;
-      sequence_floor?: bigint;
     }
   | { kind: "transfer-line"; job_id: string; text: string }
   | { kind: "transfer-done"; job_id: string; exit: number | null; error?: string }
@@ -170,6 +175,7 @@ export interface CoordLinkOutbox {
   sendBinary(channelId: number, direction: number, endSeq: number, data: Uint8Array): TransportSendResult;
   sendCellGrid(channelId: number, frame: PbCellGridFrame): TransportSendResult;
   sendAgentStatus(status: AgentStatusUpdate): boolean;
+  sendCellGridChunk(channelId: number, chunk: PbCellGridChunk): TransportSendResult;
   sendControlProto(frame: CoordWorkerUp): TransportSendResult;
   encodeUpstream(frame: CoordWorkerUp): Uint8Array | null;
   /** Bypasses byte admission. Legitimate only for the hello frame on a

@@ -12,10 +12,10 @@
 
 import { create, toBinary } from "@bufbuild/protobuf";
 import {
-  CoordWorkerUpSchema, WCellGridSchema, WAgentStatusSchema,
+  CoordWorkerUpSchema, WCellGridSchema, WCellGridChunkSchema, WAgentStatusSchema,
 } from "@roost/shared/proto/worker_transport_pb";
 import type { CoordWorkerUp } from "@roost/shared/proto/worker_transport_pb";
-import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
+import type { PbCellGridChunk, PbCellGridFrame } from "@roost/shared/proto/cell_pb";
 import type { AgentStatusUpdate } from "@roost/shared/wire";
 import { diag } from "@roost/shared/diag";
 import { log } from "@roost/shared/log";
@@ -286,6 +286,31 @@ export function createCoordLinkOutbox(
     });
     return "dropped";
   }
+  function sendCellGridChunk(channelId: number, chunk: PbCellGridChunk): TransportSendResult {
+    if (
+      isDisposed() ||
+      !linkReady ||
+      !writer ||
+      events.unsentCount() > 0 ||
+      (controlPending.length > 0 && !notifyingWritable)
+    ) {
+      writableNotificationPending = true;
+      scheduleDrain();
+      return "dropped";
+    }
+    const bytes = encodeUpstream(create(CoordWorkerUpSchema, {
+      frame: { case: "cellGridChunk", value: create(WCellGridChunkSchema, { channelId, chunk }) },
+    }));
+    if (bytes && tryWriteEncoded(bytes)) return "sent";
+    writableNotificationPending = true;
+    scheduleDrain();
+    diag("transport.frame_dropped", {
+      reason: bytes ? "native_backpressure" : "encode",
+      kind: "cellGridChunk",
+      channel_id: channelId,
+    });
+    return "dropped";
+  }
 
   function sendAgentStatus(status: AgentStatusUpdate): boolean {
     if (
@@ -328,7 +353,7 @@ export function createCoordLinkOutbox(
   }
 
   return {
-    send, sendBinary, sendCellGrid, sendAgentStatus, sendControlProto,
+    send, sendBinary, sendCellGrid, sendCellGridChunk, sendAgentStatus, sendControlProto,
     encodeUpstream, detachSocket, reset, drainQueues, clearDrainTimer,
     forceWrite: (bytes) => { if (!writer) return false; writer(bytes); return true; },
     attachSocket: (socket, write) => { linkReady = false; activeWs = socket; writer = write; },

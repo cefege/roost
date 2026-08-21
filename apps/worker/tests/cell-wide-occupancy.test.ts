@@ -96,7 +96,7 @@ describe("wide-glyph occupancy on the cell wire", () => {
 
   test("W5 — a frame full of wide glyphs survives the wire's occupancy validation", async () => {
     const core = await coreWith(20, 6, "中文\r\n🐙 ok\r\n한국어\r\n");
-    const frame = gridToCellFrame(core, 1, "wide-grid:0");
+    const frame = gridToCellFrame(core, 1, "wide-grid:0", "00000000-0000-4000-8000-000000000001");
 
     for (const row of frame.viewportRows) {
       expect(rowColumns(row.spans)).toBeLessThanOrEqual(frame.cols);
@@ -120,7 +120,7 @@ describe("wide-glyph occupancy on the cell wire", () => {
     expect(rowColumns(spans)).toBe(5);
     expect(core.getCursor().col).toBe(rowColumns(spans));
 
-    const frame = gridToCellFrame(core, 1, "wide-grid:0");
+    const frame = gridToCellFrame(core, 1, "wide-grid:0", "00000000-0000-4000-8000-000000000001");
     expect(frame.cursorCol).toBe(rowColumns(frame.viewportRows[0]!.spans));
   });
 });

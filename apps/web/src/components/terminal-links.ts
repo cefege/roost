@@ -472,20 +472,19 @@ export function attachTerminalLinks(
     const colsRaw = container.style.getPropertyValue("--cell-cols");
     const cols = colsRaw ? parseInt(colsRaw, 10) || 0 : 0;
     const ownerRepo = opts.githubOwnerRepo?.();
-    if (fullScanNeeded || dirtyRows.size > DIRTY_LIMIT) {
-      // Overflow (a hot stream blew past DIRTY_LIMIT) is NOT the same as a real
-      // full scan: rescanning ≤2000 rows of history per frame was measured at
-      // 55% of a streaming pane's main-thread CPU. Scan the rows that can
-      // actually have changed — the viewport plus the newest scrollback block —
-      // and leave the latch set so the genuine full pass runs on the next scan
-      // where the dirty set fits, i.e. as soon as the stream calms.
-      const overflowOnly = !fullScanNeeded;
+    const dirtyOverflow = dirtyRows.size > DIRTY_LIMIT && !fullScanNeeded;
+    const hot = dirtyOverflow ? _hotRows() : [];
+    const hotSet = new Set(hot);
+    const hotStreamOverflow = dirtyOverflow
+      && hot.length > 0
+      && !Array.from(dirtyRows).some((row) => row.isConnected && !hotSet.has(row));
+    if (fullScanNeeded || hotStreamOverflow) {
+      // Bound hot-stream overflow to its live tail. History materialization has
+      // connected cold rows and must fall through so loaded backfill receives
+      // inferred URL/file anchors.
       dirtyRows.clear();
-      const hot = overflowOnly ? _hotRows() : [];
-      const rows = hot.length > 0
-        ? hot
-        : Array.from(container.querySelectorAll<HTMLElement>(ROW_SELECTOR));
-      fullScanNeeded = hot.length > 0;
+      const rows = hotStreamOverflow ? hot : Array.from(container.querySelectorAll<HTMLElement>(ROW_SELECTOR));
+      fullScanNeeded = hotStreamOverflow;
       _linkifyRows(rows, cols, opts.resolveFile, ownerRepo);
       return;
     }

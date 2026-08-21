@@ -41,12 +41,27 @@ export interface SyncFeedFrameMeta {
   readonly closes?: readonly string[];
   /** Retained snapshot item that must precede the pre-ready live segment. */
   readonly beforeBuffered?: boolean;
+  /** Scheduler-owned incremental terminal snapshot cursor metadata. */
+  readonly terminalStreamId?: string;
+  readonly terminalCursorIndex?: number;
 }
 
 export function frameMeta(frame: FirehoseFrame): SyncFeedFrameMeta {
   switch (frame.frame.case) {
     case "cellGrid":
       return { domain: SyncDomain.TERMINAL, lane: "cell", sessionId: frame.frame.value.sessionId };
+    case "cellGridChunk":
+      return {
+        domain: SyncDomain.TERMINAL,
+        lane: "cell",
+        sessionId: frame.frame.value.part?.sessionId,
+      };
+    case "terminalViewState":
+      return {
+        domain: SyncDomain.TERMINAL,
+        lane: "cell",
+        sessionId: frame.frame.value.sessionId,
+      };
     case "sessions": {
       try {
         const event = JSON.parse(frame.frame.value.payloadJson) as {
@@ -127,9 +142,6 @@ export function frameMeta(frame: FirehoseFrame): SyncFeedFrameMeta {
     case "coordinatorRelocation":
     case "subscribed":
     case "domainReset":
-    case "viewportAccepted":
-    case "viewportRejected":
-    case "viewportAmbiguous":
     case "inputAccepted":
     case "inputRejected":
     case "inputAmbiguous":

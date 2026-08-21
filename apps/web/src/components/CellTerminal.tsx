@@ -40,19 +40,15 @@ import { attachTerminalLinks, type ResolveFile, type TerminalLinkAttachment } fr
 import { downloadWorkerFileByHref } from "../lib/downloadWorkerFile.ts";
 import { resolveWorkerPath, workerFileHref } from "../lib/nativePath.ts";
 import { registerRenderer } from "../lib/terminalPreview.ts";
+import { registerPresenceHandler } from "../store/sync.ts";
 import {
-	registerCellHandler,
-	registerPresenceHandler,
-	acquireCellMountClaim,
-	type CellMountClaim,
-} from "../store/sync.ts";
+	createTerminalView,
+	type TerminalViewHandle,
+	type TerminalViewHandleStatus,
+} from "../store/terminal-stream.ts";
 import {
-	acquireTerminalViewportOwner,
 	consumeLastInputSendTs,
-	seedTerminalViewportIntent,
 	type InputAdmission,
-	type TerminalViewportOwner,
-	type TerminalViewportOwnerStatus,
 } from "../ws/sync-outbound.ts";
 import {
 	registerUserTerminalInput,
@@ -75,7 +71,6 @@ import { applyCtrlModifier, isAltGraphKey } from "../lib/terminalInput.ts";
 
 
 import { coordClient } from "../connect.ts";
-import { ResizeCause } from "@roost/shared/proto/coordinator_pb";
 import { isResizeDragging, arrangeEpoch } from "../lib/resizeDrag.ts";
 import { diag, isDiagEnabled, signal } from "@roost/shared/diag";
 import { getSessionTraceId, markPhase, markPhaseOnce } from "../lib/diag.ts";
@@ -97,15 +92,13 @@ import { TerminalLoadingNotice, TerminalOfflineNotice, terminalViewportLoadingNo
 import {
 	isPendingSpawn,
 	publishMountedSpawnMeasurement,
-	takeSpawnViewportSeed,
 } from "../store/optimisticSpawn.ts";
 import { predictMode } from "../lib/predictPref.ts";
 
 interface CellTerminalProps {
 	session: Session;
-	// In the current tiling layout (a visible pane's selected tab) → claim size +
-	// render cells. Not in layout → withdraw + go dormant (stays MOUNTED for the
-	// persistent-deck no-remount guarantee). Replaces the old single `isActive`.
+	// In the current tiling layout (a visible pane's selected tab) → publish view
+	// membership and render cells. Parked tabs remain mounted but inactive.
 	inLayout?: boolean;
 	// Owns the keyboard = the focused pane's selected tab. Only the focused pane
 	// force-focuses and runs the document focus-recovery nets, so N live panes
@@ -125,25 +118,12 @@ interface CellTerminalProps {
 }
 
 
-const CLAIM_DEBOUNCE_MS = 150;
-// Liveness heartbeat for the viewport claim. The worker reaps a claim after
-// VIEWER_CLAIM_TTL_MS (120s, viewport.ts) of silence and then STOPS emitting
-// cells to that viewer (_hasActiveViewer gate, session-manager.ts). A
-// foreground tab left idle — no resize, no visibility flip; e.g. the machine
-// slept — sends no claim, so after 120s the pane goes dead-on-type: input
-// reaches the worker and updates the grid, but no cells come back until a
-// refresh/tab-switch re-claims. 30s = ¼ TTL, matching the "viewers refresh
-// every 30s" the worker's reaper comment already assumes.
-const CLAIM_HEARTBEAT_MS = 30_000;
+const VIEWPORT_DEBOUNCE_MS = 150;
 
 
-// Grace before a viewed-but-frameless pane is declared "not responding" (a dead
-// breadcrumb: open session, no live PTY). Applied PER ATTEMPT: on expiry the
-// watch silently re-claims (up to 2×, one grace apart) before showing the
-// notice, so a truly dead breadcrumb surfaces only after ~OFFLINE_GRACE_MS × 3
-// (~9s) while a live-but-transiently-stuck pane self-heals without ever showing
-// it. Long enough that a slow first snapshot never false-flags a live pane; the
-// notice self-clears the instant a frame lands. See lib/offlineWatch.ts.
+// Grace before a viewed-but-frameless pane is declared "not responding".
+// Each retry republishes the current socket-bound view intent. A slow first
+// baseline does not flash an offline notice, and the notice clears on paint.
 const OFFLINE_GRACE_MS = 3000;
 
 
@@ -198,28 +178,15 @@ export function CellTerminal(props: CellTerminalProps) {
 
 	let cellW = 0;
 	let cellH = 0;
-	// Zoom the pane last measured at. Seeded from the current preference so the
-	// effect below is purely change-driven — starting at 0 would make its first
-	// run look like a change and fire a redundant claim on every cold mount.
+	// Zoom changes the cell box without resizing the containing element.
 	let lastZoomPx = termFontSize();
-	let claimSeq = 0;
-	let lastEnqueued = { cols: 0, rows: 0 };
 	let resizeObs: ResizeObserver | null = null;
-	let claimTimer: ReturnType<typeof setTimeout> | null = null;
-	let viewportOwner: TerminalViewportOwner | null = null;
-	let mountClaim: CellMountClaim | null = null;
-	let viewportPositive = false;
-	// Continuity latch: an authoritative full frame has been REQUESTED and only
-	// that frame may clear it, so repeated deltas can't defer their own repair.
-	// Component scope rather than onMount-local because sendWithdraw must be
-	// able to disarm it; the cell handler below is the only other toucher.
-	let awaitingFullFrame = false;
-	// One intent claim per cold mount: set on any real claim send, so the INITIAL
-	// effect no-ops when the inLayout TAB_VISIBLE effect already claimed (each
-	// forced its own full snapshot before — worker treats both as intentMount).
-	let initialClaimSent = false;
-	// Reveal forensics: performance.now() at the inLayout flip → true; the first
-	// frame applied afterwards emits diag("cell.reveal") with the elapsed ms.
+	let viewportTimer: ReturnType<typeof setTimeout> | null = null;
+	let viewportCandidate: { cols: number; rows: number } | null = null;
+	let unmeasuredRaf = 0;
+	let view: TerminalViewHandle | null = null;
+	// Reveal forensics: performance.now() at the visible-layout transition.
+	let unmeasuredRetryUsed = false;
 	let revealT0 = 0;
 	const sendTerminalText = (text: string, submit = false): InputAdmission => {
 		const payload = text.length === 0 ? new Uint8Array(0) : buildPtyPayload(text, frameBracketed);
@@ -228,7 +195,7 @@ export function CellTerminal(props: CellTerminalProps) {
 			bytes.set(payload);
 			bytes.set(CR_BYTES, payload.byteLength);
 		}
-		const admission = sendUserTerminalInput(sessionId, bytes);
+		const admission = sendUserTerminalInput(sessionId, bytes, view?.viewId);
 		if (!admission.accepted) {
 			signal("input.drop_burst", {
 				sid: sessionId,
@@ -311,23 +278,24 @@ export function CellTerminal(props: CellTerminalProps) {
 	// no-op, so mount behaviour is byte-identical to before.
 	const pending = createMemo(() => isPendingSpawn(props.session.id));
 
-	// ── liveness: is the current positive viewport attempt live-ready? ───────
-	// Unlike a once-ever frame bit, this drops on every changed attempt and only
-	// rises after matching acceptance plus any required authoritative full frame.
+	// A view is live-ready only after its active state is accepted and the
+	// session replica has installed that stream's complete full baseline.
 	const navigate = useNavigate();
 	const [viewportLiveReady, setViewportLiveReady] = createSignal(false);
-	const [viewportOwnerStatus, setViewportOwnerStatus] = createSignal<TerminalViewportOwnerStatus | null>(null);
+	const [viewStatus, setViewStatus] = createSignal<TerminalViewHandleStatus | null>(null);
 	const [hasReconciledFrame, setHasReconciledFrame] = createSignal(false);
 	const [offline, setOffline] = createSignal(false);
-	const retryOffline = () =>
-		sendClaim(ResizeCause.TAB_VISIBLE, true);
+	const retryOffline = () => view?.refresh();
 	const offlineWatch = createOfflineWatch(OFFLINE_GRACE_MS, setOffline, () => {
 		diag("cell.offline_retry", { sid: props.session.id });
 		retryOffline();
 	});
 	createEffect(() =>
 		offlineWatch.update(
-			props.inLayout === true && props.surfaceActive && isPageVisible(),
+			props.inLayout === true
+				&& props.surfaceVisible
+				&& props.surfaceActive
+				&& isPageVisible(),
 			hasReconciledFrame() && viewportLiveReady(),
 		),
 	);
@@ -346,13 +314,13 @@ export function CellTerminal(props: CellTerminalProps) {
 			|| !props.surfaceActive
 			|| !pageVisible()
 			|| offline()
-			|| hasReconciledFrame()
+			|| (hasReconciledFrame() && viewportLiveReady())
 		) return null;
-		return terminalViewportLoadingNotice(pending(), viewportOwnerStatus());
+		return terminalViewportLoadingNotice(pending(), viewStatus());
 	});
 
-	// Measure one monospace cell in the display font (probe — independent of
-	// rendered content, so a claim can fire before the first frame arrives).
+	// Measure one monospace cell in the display font (independent of rendered
+	// content, so view activity can publish before the first frame arrives).
 	function measureCell(): boolean {
 		if (!displayRef) return false;
 		const probe = document.createElement("span");
@@ -378,144 +346,123 @@ export function CellTerminal(props: CellTerminalProps) {
 		const padR = parseFloat(cs.paddingRight) || 0;
 		const padT = parseFloat(cs.paddingTop) || 0;
 		const padB = parseFloat(cs.paddingBottom) || 0;
-		const usableW = Math.max(0, displayRef.clientWidth - padL - padR);
-		const usableH = Math.max(0, displayRef.clientHeight - padT - padB);
-		return {
-			cols: Math.max(1, Math.floor(usableW / cellW)),
-			rows: Math.max(1, Math.floor(usableH / cellH)),
-		};
+		const usableW = displayRef.clientWidth - padL - padR;
+		const usableH = displayRef.clientHeight - padT - padB;
+		const cols = Math.floor(usableW / cellW);
+		const rows = Math.floor(usableH / cellH);
+		return cols > 0 && rows > 0 ? { cols, rows } : null;
 	}
 
-	// Zero-size claims remove inactive viewers from the SCD-min PTY size.
-	// Hidden, offscreen, and unmounted panes withdraw immediately. Visibility
-	// reads route through isPageVisible() so the __smoke.forceVisible automation
-	// pin applies.
-	function sendWithdraw(): void {
-		mountClaim?.deactivate();
+	function shouldPublishActive(): boolean {
+		return !unmounted
+			&& !pending()
+			&& isPageVisible()
+			&& props.inLayout === true
+			&& props.surfaceVisible
+			&& props.surfaceActive;
+	}
+
+	function publishInactive(): void {
 		setViewportLiveReady(false);
-		viewportPositive = false;
-		setViewportOwnerStatus(null);
-		// A parked pane has NO repair in flight: the zero-size claim below
-		// supersedes any pending one, and reveal re-claims from scratch. Holding
-		// the latch across a park would make the delta gate in the cell handler
-		// drop EVERY frame after reveal, forever — the pane wedges with no
-		// self-heal. Sequence continuity re-arms it if a real gap reappears.
-		awaitingFullFrame = false;
 		backfillRef?.suspend();
-		if (claimTimer) {
-			clearTimeout(claimTimer);
-			claimTimer = null;
+		if (viewportTimer) {
+			clearTimeout(viewportTimer);
+			viewportTimer = null;
 		}
-		lastEnqueued = { cols: 0, rows: 0 };
-		const admission = viewportOwner?.claim({
-			cols: 0,
-			rows: 0,
-			cause: ResizeCause.WITHDRAW,
-		});
-		if (!admission) return;
-		diag("cell.claim", {
-			sid: sessionId,
-			cols: 0,
-			rows: 0,
-			client_seq: admission.sequence,
-		});
+		viewportCandidate = null;
+		if (unmeasuredRaf !== 0) {
+			cancelAnimationFrame(unmeasuredRaf);
+			unmeasuredRaf = 0;
+		}
+		unmeasuredRetryUsed = false;
+		view?.setInactive();
 	}
 
-	/** Leaving the visible surface releases paint state and the viewport claim. */
-	function sendPark(): void {
+	function parkView(): void {
 		releasePaintHolds();
-		sendWithdraw();
+		publishInactive();
 	}
 
+	function retryUnmeasuredViewport(): void {
+		if (unmeasuredRaf !== 0 || unmeasuredRetryUsed) return;
+		unmeasuredRetryUsed = true;
+		unmeasuredRaf = requestAnimationFrame(() => {
+			unmeasuredRaf = 0;
+			if (shouldPublishActive()) publishViewport();
+		});
+	}
 
-	// cause = the browser event behind this claim (ResizeCause model).
-	// Worker hint only; defaults to VIEWPORT (a plain ResizeObserver tick).
-	// Returns whether a claim actually TRANSMITTED (reached the viewport owner).
-	// False = diverted to park/withdraw by the visibility gate below, or dropped
-	// as a passive no-op. Callers that arm repair state (requestFullFrame) MUST
-	// NOT latch on a false: nothing is in flight that could ever clear it.
-	function sendClaim(
-		cause: ResizeCause = ResizeCause.VIEWPORT,
-		repairRequired = false,
-	): boolean {
-		if (!displayRef || unmounted || !viewportOwner) return false;
-		if (pending()) return false; // placeholder has no PTY yet — don't fire a doomed round-trip
-		// Only a pane currently visible on the active terminal surface may claim
-		// dimensions. Every other state withdraws immediately.
-		if (!isPageVisible() || props.inLayout !== true || !props.surfaceActive) {
-			sendPark();
+	function publishViewport(): boolean {
+		if (!displayRef || !view) return false;
+		if (!shouldPublishActive()) {
+			parkView();
 			return false;
 		}
 		const measured = measureViewport();
-		if (!measured) return false;
-		const { cols, rows } = measured;
-		// Suppress passive no-change claims. Explicit repair and lifecycle claims
-		// still enter the owner so it can reconcile the current Sync generation.
-		if (!repairRequired
-			&& cause === ResizeCause.VIEWPORT
-			&& lastEnqueued.cols > 0
-			&& cols === lastEnqueued.cols
-			&& rows === lastEnqueued.rows) return false;
-		lastEnqueued = { cols, rows };
-		viewportPositive = true;
-		initialClaimSent = true;
-		const admission = viewportOwner.claim({
-			cols,
-			rows,
-			cause,
-			// The worker skips a repaint when this watermark is current, or sends
-			// one authoritative viewport-only full frame when the dormant grid fell
-			// behind. A REPAIR claim zeroes it deliberately: needsClaimSnapshot
-			// (apps/worker/src/session-viewport.ts) declines any claim whose seq
-			// matches the last frame it emitted, and `repairRequired` is not on the
-			// wire (sync-outbound-viewport-dispatch.ts sends cols/rows/cause/
-			// heldCellSeq only), so a repair asked for with a current-looking
-			// watermark is answered with nothing — and the requester waits for a
-			// full frame that will never come. 0 is the one value that cannot be
-			// declined, and only an explicit repair pays for it.
-			heldCellSeq: repairRequired ? 0 : (renderer?.heldFrameSeq() ?? 0),
-			repairRequired,
-		});
-		mountClaim?.activate();
-		claimSeq = Math.max(claimSeq, Number(admission.sequence));
-		diag("cell.claim", {
+		if (!measured) {
+			// A lifecycle-active 0×0 box is transiently unmeasured. Keep the
+			// last positive lease instead of turning layout jitter into a leave.
+			retryUnmeasuredViewport();
+			return false;
+		}
+		unmeasuredRetryUsed = false;
+		view.setViewport(measured);
+		diag("terminal.view_publish", {
 			sid: sessionId,
-			cols,
-			rows,
-			client_seq: admission.sequence,
+			view_id: view.viewId,
+			cols: measured.cols,
+			rows: measured.rows,
 		});
 		return true;
 	}
 
-	function scheduleClaim(cause: ResizeCause = ResizeCause.VIEWPORT): void {
-		if (claimTimer) clearTimeout(claimTimer);
-		claimTimer = setTimeout(() => {
-			claimTimer = null;
-			sendClaim(cause);
-		}, CLAIM_DEBOUNCE_MS);
+	function scheduleViewport(): void {
+		clearTimeout(viewportTimer ?? undefined);
+		viewportTimer = setTimeout(() => {
+			viewportTimer = null;
+			if (!shouldPublishActive()) {
+				viewportCandidate = null;
+				publishViewport();
+				return;
+			}
+			const measured = measureViewport();
+			if (!measured) {
+				viewportCandidate = null;
+				publishViewport();
+				return;
+			}
+			if (
+				viewportCandidate?.cols !== measured.cols
+				|| viewportCandidate.rows !== measured.rows
+			) {
+				viewportCandidate = measured;
+				scheduleViewport();
+				return;
+			}
+			viewportCandidate = null;
+			publishViewport();
+		}, VIEWPORT_DEBOUNCE_MS);
 	}
 
-	// Intent-bearing claims (in↔out-of-layout flip, visibilitychange, pageshow)
-	// skip the 150ms viewport-wobble debounce — routing them through
-	// scheduleClaim added a hard +150ms to every session switch before the
-	// worker even started streaming. Clears any pending debounced claim so the
-	// immediate send can't be followed by a stale double-send. ResizeObserver
-	// claims keep the debounce (that's what it exists for — viewport wobble).
-	function sendClaimNow(cause: ResizeCause, repairRequired = false): boolean {
-		if (claimTimer) {
-			clearTimeout(claimTimer);
-			claimTimer = null;
+	function publishViewportNow(): boolean {
+		if (viewportTimer) {
+			clearTimeout(viewportTimer);
+			viewportTimer = null;
 		}
-		return sendClaim(cause, repairRequired);
+		viewportCandidate = null;
+		return publishViewport();
 	}
 
 
 	onMount(() => {
-		viewportOwner = acquireTerminalViewportOwner(sessionId);
-		mountClaim = acquireCellMountClaim(sessionId);
-		const releaseViewportStatus = viewportOwner.subscribeStatus((status) => {
-			setViewportOwnerStatus(viewportPositive ? status : null);
-			setViewportLiveReady(viewportPositive && status.status === "ready");
+		view = createTerminalView(sessionId);
+		const releaseViewStatus = view.subscribeStatus((status) => {
+			setViewStatus(status);
+			setViewportLiveReady(
+				status.status === "accepted"
+					&& status.active
+					&& status.baselineReady,
+			);
 		});
 		try {
 		// Sync v2 owns connection and replay; no per-pane input channel startup.
@@ -529,7 +476,10 @@ export function CellTerminal(props: CellTerminalProps) {
 		const backfill = createScrollbackBackfill({
 			sessionId: props.session.id,
 			renderer: () => renderer,
-			active: () => props.inLayout === true && props.surfaceActive && isPageVisible(),
+			active: () => props.inLayout === true
+				&& props.surfaceVisible
+				&& props.surfaceActive
+				&& isPageVisible(),
 		});
 		backfillRef = backfill;
 		unregisterUserInput = registerUserTerminalInput(sid, prepareLiveInteraction);
@@ -542,16 +492,10 @@ export function CellTerminal(props: CellTerminalProps) {
 			if (!renderer.atBottom() && renderer.nearHistoryTop()) backfill.onUserScrollUp();
 		};
 		displayRef!.addEventListener("scroll", onScroll, { passive: true });
-		// Predictor is initialized only after the cell handler and first visible
-		// claim below, keeping speculative/UI work out of first-paint setup.
 		// Ghost cursors: this viewer's latest cursor (sent to others) + the map of
-		// OTHER viewers' cursors (received via presence, painted by cellRenderer).
-		let lastCurRow = 0,
-			lastCurCol = 0;
-		// Last cell-frame seq actually APPLIED to the renderer. Frame loss is
-		// otherwise invisible: nothing else on this path checks continuity.
-		let lastAppliedSeq = 0;
-		let lastAppliedGridEpoch: string | null = null;
+		// other viewers' cursors received through presence metadata.
+		let lastCurRow = 0;
+		let lastCurCol = 0;
 		const unregPreview = registerRenderer(props.session.id, renderer, () => {
 			let cssVisible: boolean | null = null;
 			if (displayRef?.isConnected) {
@@ -569,10 +513,8 @@ export function CellTerminal(props: CellTerminalProps) {
 				}
 			}
 			return {
-				handler_canonical: {
-					grid_epoch: lastAppliedGridEpoch,
-					seq: lastAppliedSeq > 0 ? lastAppliedSeq : null,
-				},
+				handler_canonical: renderer?.canonicalEpochSeq()
+					?? { grid_epoch: null, seq: null },
 				slot: {
 					connected: displayRef?.isConnected === true,
 					in_layout: props.inLayout ?? null,
@@ -589,58 +531,28 @@ export function CellTerminal(props: CellTerminalProps) {
 			string,
 			{ x: number; y: number; label?: string }
 		>();
-		let unsubCell: () => void;
+		let unsubscribeRenderer: () => void;
 		let unsubPresence: () => void;
-		// Input modes ride cell frames directly; the textarea encoder reads these
-		// booleans synchronously and never reparses PTY output.
 		let measurementRaf = 0;
 		runWithOwner(cellOwner, () => {
-			// Arm across the send so a synchronous re-entry can't stack requests,
-			// then keep the latch ONLY if the repair claim genuinely transmitted.
-			// A warm-mounted-but-unslotted pane (or a backgrounded tab) has its
-			// claim diverted to park/withdraw by sendClaim's visibility gate:
-			// latching there would wait forever for a full frame nobody asked
-			// for while the gate below dropped every delta. Diverted → stay
-			// clear, keep applying deltas, and re-claim on reveal.
-			const requestFullFrame = (got: number) => {
-				if (awaitingFullFrame) return;
-				awaitingFullFrame = true;
-				signal("cell.seq_gap", {
-					sid: sessionId,
-					expected: lastAppliedSeq + 1,
-					got,
-					cooldownKey: sessionId,
-				});
-				if (!sendClaimNow(ResizeCause.TAB_VISIBLE, true)) awaitingFullFrame = false;
-			};
-			unsubCell = registerCellHandler(props.session.id, (frame) => {
-				// Hidden and offscreen panes are unsubscribed. Their next visible
-				// claim receives one authoritative full snapshot.
-				if (!isPageVisible() || props.inLayout !== true || !props.surfaceActive) return;
+			unsubscribeRenderer = view!.subscribeRenderer(renderer!, ({ frame }) => {
 				const diagOn = isDiagEnabled();
-				const _frameArr = diagOn ? performance.now() : 0;
-				// Echo RTT tracker: input→cell-frame round-trip, works even when
-				// predictive echo is off. Consumes the last-send timestamp (one
-				// measurement per input→echo cycle).
+				const frameArrivedAt = diagOn ? performance.now() : 0;
 				const sendTs = consumeLastInputSendTs(props.session.id);
 				if (sendTs !== undefined) {
 					const rttMs = performance.now() - sendTs;
-					recordInputRtt(rttMs); // always-on felt-lag ring (leakWatch), independent of diag gate
-					if (rttMs > 0 && rttMs < 5000) diag("echo.frame_rtt", { sid: props.session.id, rtt_ms: rttMs });
-				}
-				if (!renderer) return;
-				// Once continuity is lost, only an authoritative full frame can
-				// clear the latch. Repeated deltas cannot defer their own repair.
-				if (!frame.full) {
-					if (awaitingFullFrame) return;
-					if (lastAppliedSeq !== 0 && frame.seq !== lastAppliedSeq + 1) {
-						requestFullFrame(frame.seq);
-						return;
+					recordInputRtt(rttMs);
+					if (rttMs > 0 && rttMs < 5000) {
+						diag("echo.frame_rtt", {
+							sid: props.session.id,
+							rtt_ms: rttMs,
+						});
 					}
 				}
 				if (diagOn) {
 					diag("cell.apply", {
 						sid: props.session.id,
+						stream_id: frame.streamId,
 						seq: frame.seq,
 						full: frame.full,
 						vp_rows: frame.viewportRows.length,
@@ -649,50 +561,29 @@ export function CellTerminal(props: CellTerminalProps) {
 						cursor_col: frame.cursorCol,
 					});
 				}
-				const _ap = diagOn ? performance.now() : 0;
-				const applied = frame.full
-					? renderer.applyFullFrame(frame)
-					: renderer.applyDeltaFrame(frame);
-				if (!applied) {
-					// cellRenderer rejected the frame (dimension/epoch validation).
-					// The latch is still armed from the request that produced it, so
-					// the guard in requestFullFrame would swallow this retry: re-arm
-					// explicitly. The guard stays — it still bounds recursion within
-					// one request.
-					awaitingFullFrame = false;
-					requestFullFrame(frame.seq);
-					return;
-				}
-				markPhaseOnce("first_cell_apply", props.session.id, {
-					sessionId: props.session.id,
-					sequence: frame.seq,
-					full: frame.full,
-				});
-				awaitingFullFrame = false;
-				lastAppliedSeq = frame.seq;
-				lastAppliedGridEpoch = frame.gridEpoch;
-				if (frame.full) viewportOwner?.noteFullFrame({
-					seq: frame.seq,
-					gridEpoch: frame.gridEpoch,
-				});
 				setAltScreen(frame.altScreen);
-				if (diagOn) diag("cell.apply_dur", { sid: props.session.id, dur_ms: performance.now() - _ap });
 				if (revealT0 !== 0) {
-					// First frame applied after an inLayout reveal — the user-felt
-					// switch latency. One grep instead of a week of guessing.
-					diag("cell.reveal", { sid: props.session.id, ms: Math.round(performance.now() - revealT0), full: frame.full });
+					diag("cell.reveal", {
+						sid: props.session.id,
+						ms: Math.round(performance.now() - revealT0),
+						full: frame.full,
+					});
 					revealT0 = 0;
 				}
-				if (diagOn && isPageVisible() && props.inLayout === true && props.surfaceActive) {
-					// Two animation frames make this a presentation opportunity, not
-					// raster-paint proof. Smoke acceptance uses clipped marker/cursor
-					// geometry separately.
+				if (
+					diagOn
+					&& isPageVisible()
+					&& props.inLayout === true
+					&& props.surfaceActive
+				) {
 					requestAnimationFrame(() => requestAnimationFrame(() => {
-						const canonical = renderer?.canonicalEpochSeq() ?? { grid_epoch: null, seq: null };
-						const reconciled = renderer?.reconciledEpochSeq() ?? { grid_epoch: null, seq: null };
+						const canonical = renderer?.canonicalEpochSeq()
+							?? { grid_epoch: null, seq: null };
+						const reconciled = renderer?.reconciledEpochSeq()
+							?? { grid_epoch: null, seq: null };
 						diag("cell.dom_reconcile_opportunity", {
 							sid: props.session.id,
-							dur_ms: performance.now() - _frameArr,
+							dur_ms: performance.now() - frameArrivedAt,
 							canonical_epoch: canonical.grid_epoch,
 							canonical_seq: canonical.seq,
 							reconciled_epoch: reconciled.grid_epoch,
@@ -708,34 +599,24 @@ export function CellTerminal(props: CellTerminalProps) {
 				setMouseTracking(frame.mouseTracking);
 				lastCurRow = frame.cursorRow;
 				lastCurCol = frame.cursorCol;
-				predictor?.onFrame(frame); // reconcile predictions against the authoritative grid
+				predictor?.onFrame(frame);
 				if (frame.full) backfill.onFullFrame();
-			}, () => requestFullFrame(0));
+			});
 			markPhase("terminal_mount", { sessionId: props.session.id });
-			// Optimistic spawn may begin only after renderer + repair-aware cell
-			// handler installation. Reserve the mounted slot's real dimensions;
-			// one rAF retry covers layout not yet measurable in onMount.
+
+			// Spawn geometry is only an initial PTY-size hint. The real mounted
+			// view always attaches normally after the opened event.
 			const publishSpawnMeasurement = (): boolean => {
 				if (
 					!pending()
 					|| props.inLayout !== true
+					|| !props.surfaceVisible
 					|| !props.surfaceActive
 					|| !isPageVisible()
 				) return false;
 				const measured = measureViewport();
 				if (!measured) return false;
-				const measuredClientSeq = claimSeq + 1;
-				const published = publishMountedSpawnMeasurement(props.session.id, {
-					...measured,
-					clientSeq: measuredClientSeq,
-				});
-				if (published) {
-					claimSeq = measuredClientSeq;
-					lastEnqueued = measured;
-					viewportPositive = true;
-					mountClaim?.activate();
-				}
-				return published;
+				return publishMountedSpawnMeasurement(props.session.id, measured);
 			};
 			if (!publishSpawnMeasurement()) {
 				measurementRaf = requestAnimationFrame(() => {
@@ -744,11 +625,7 @@ export function CellTerminal(props: CellTerminalProps) {
 				});
 			}
 
-			// Persist the ordinary initial claim only after the renderer and cell
-			// handler are ready. Optimistic sessions seed this owner on reconcile.
-			if (!pending() && props.inLayout === true && props.surfaceActive && isPageVisible()) {
-				sendClaim(ResizeCause.INITIAL);
-			}
+			if (shouldPublishActive()) publishViewport();
 
 			predictor = new PredictiveEcho(renderer!.predictionHost, {
 				mode: predictMode,
@@ -772,7 +649,11 @@ export function CellTerminal(props: CellTerminalProps) {
 					const controlledData = armed ? applyCtrlModifier(data) : data;
 					if (armed) setCtrlArmed(false);
 					const bytes = new TextEncoder().encode(controlledData);
-					const admission = sendUserTerminalInput(props.session.id, bytes);
+					const admission = sendUserTerminalInput(
+						props.session.id,
+						bytes,
+						view?.viewId,
+					);
 					if (!admission.accepted) {
 						signal("input.drop_burst", {
 							sid: props.session.id,
@@ -857,19 +738,6 @@ export function CellTerminal(props: CellTerminalProps) {
 			});
 		});
 
-		// Heartbeat the latest positive desired geometry, including while its first
-		// result is pending. The owner refreshes held seq without allocating a waiter.
-		const claimHeartbeat = setInterval(() => {
-			if (
-				!isPageVisible()
-				|| props.inLayout !== true
-				|| !props.surfaceActive
-				|| !viewportPositive
-				|| lastEnqueued.cols <= 0
-				|| lastEnqueued.rows <= 0
-			) return;
-			viewportOwner?.heartbeat(renderer?.heldFrameSeq() ?? 0);
-		}, CLAIM_HEARTBEAT_MS);
 
 
 		// Linkify rendered .cell-row text: regex URLs + resolvable file paths,
@@ -963,7 +831,8 @@ export function CellTerminal(props: CellTerminalProps) {
 		const mouseForwarding = attachTerminalMouseForwarding({
 			display: displayRef!,
 			mouseTracking,
-			sendBytes: (bytes) => sendUserTerminalInput(props.session.id, bytes),
+			sendBytes: (bytes) =>
+				sendUserTerminalInput(props.session.id, bytes, view?.viewId),
 			getRenderer: () => renderer,
 			getMouseSgr: () => frameMouseSgr,
 			getCellW: () => cellW,
@@ -990,26 +859,28 @@ export function CellTerminal(props: CellTerminalProps) {
 			enqueueFileItems(e.dataTransfer?.items);
 		};
 
-		// Layout visibility owns viewport admission and keyboard focus. Parked panes
-		// remain mounted but withdraw immediately; deck/sidebar reveal uses an ordinary claim.
-		const claimVisibleFlag = createMemo(
-			() => props.inLayout === true && props.surfaceActive,
+		// Layout/surface visibility publishes membership only. The session replica
+		// continues owning canonical screen state while this renderer is detached,
+		// parked, or covered.
+		const viewActiveFlag = createMemo(
+			() => props.inLayout === true
+				&& props.surfaceVisible
+				&& props.surfaceActive,
 		);
-		createEffect(on(claimVisibleFlag, (visible) => {
-			if (!visible) {
-				sendPark();
+		createEffect(on(viewActiveFlag, (active) => {
+			if (!active) {
+				parkView();
 				return;
 			}
-			if (viewportPositive && initialClaimSent) return;
 			revealT0 = performance.now();
-			sendClaimNow(ResizeCause.TAB_VISIBLE);
+			publishViewportNow();
 		}));
 		// Focus gate: only the focused pane's terminal grabs the keyboard. Touch
 		// devices skip it (an explicit tap on the display still focuses) so selecting
 		// a pane doesn't pop the on-screen keyboard. This effect is intentionally
 		// non-deferred: selection must focus in the same reactive turn.
 		const focusGate = createMemo(
-			() => claimVisibleFlag() && props.focused === true,
+			() => viewActiveFlag() && props.focused === true,
 		);
 		createEffect(() => {
 			if (!focusGate()) {
@@ -1024,7 +895,7 @@ export function CellTerminal(props: CellTerminalProps) {
 		// parked tabs stay mounted without multiplying document event work.
 		runWithOwner(cellOwner, () =>
 			createEffect(() => {
-				if (!claimVisibleFlag()) return;
+				if (!viewActiveFlag()) return;
 				document.addEventListener("selectionchange", onSelectionChange);
 				window.addEventListener("pointerup", onSelectionSettled);
 				window.addEventListener("keyup", onSelectionSettled);
@@ -1061,46 +932,13 @@ export function CellTerminal(props: CellTerminalProps) {
 			}),
 		);
 
-		// Reconcile the coordinator-installed preclaim into the persisted Sync
-		// viewport owner before deciding whether a corrective INITIAL is needed.
+		// When an optimistic spawn resolves, attach through the ordinary view
+		// command. Spawn dimensions were only the PTY's initial-size hint.
 		createEffect(() => {
-			if (pending()) return;
-			const seed = takeSpawnViewportSeed(sessionId);
-			if (seed) {
-				const hasNewerIntent = claimSeq > seed.clientSeq;
-				claimSeq = Math.max(claimSeq, seed.effectiveClientSeq);
-				if (!hasNewerIntent && viewportOwner) {
-					seedTerminalViewportIntent(
-						sessionId,
-						BigInt(seed.effectiveClientSeq),
-						seed.cols,
-						seed.rows,
-						ResizeCause.INITIAL,
-					);
-					lastEnqueued = { cols: seed.cols, rows: seed.rows };
-					viewportPositive = true;
-					const admission = viewportOwner.claim({
-						cols: seed.cols,
-						rows: seed.rows,
-						cause: ResizeCause.INITIAL,
-						heldCellSeq: renderer?.heldFrameSeq() ?? 0,
-					});
-					claimSeq = Math.max(claimSeq, Number(admission.sequence));
-					mountClaim?.activate();
-					const current = measureViewport();
-					initialClaimSent = current?.cols === seed.cols
-						&& current.rows === seed.rows;
-				}
-			}
-			if (!claimVisibleFlag() || initialClaimSent) return;
-			sendClaim(ResizeCause.INITIAL);
+			if (pending() || !viewActiveFlag()) return;
+			scheduleViewport();
 		});
-		// Terminal zoom: the cell box changed without the container changing, so
-		// nothing else invalidates the measurements. Zero cellW/cellH to force a
-		// re-measure, drop the renderer's cached row height (block placeholders and
-		// the spacer derive from it), then re-claim. Cols or rows WILL change for a
-		// fixed pane, and any size change already takes the full refetch path that
-		// docs/FAILURE-INDEX.md requires; CLAIM_DEBOUNCE_MS coalesces a key-repeat burst.
+
 		createEffect(() => {
 			const px = termFontSize();
 			if (px === lastZoomPx) return;
@@ -1108,95 +946,66 @@ export function CellTerminal(props: CellTerminalProps) {
 			cellW = 0;
 			cellH = 0;
 			renderer?.invalidateRowHeight();
-			scheduleClaim(ResizeCause.VIEWPORT);
+			scheduleViewport();
 		});
 		resizeObs = new ResizeObserver(() => {
-			// Re-latch bottom-follow across box changes FIRST — divider drags are
-			// continuous height changes and must re-pin per tick even while claims
-			// are suppressed (isResizeDragging below).
 			notifyBackfill(renderer?.noteBoxResize());
-			if (isResizeDragging()) return; // suppress mid-drag PTY round-trips; flush on release (effect below)
-			scheduleClaim(ResizeCause.VIEWPORT);
+			if (isResizeDragging()) return;
+			scheduleViewport();
 		});
 		resizeObs.observe(displayRef!);
 
-		// Divider/sidebar drag: claims are gated off during the drag (resizeObs
-		// above). The final size == the last drag frame's size, so the observer
-		// does NOT re-fire after commit — fire the single settle claim here on
-		// release.
+		// Divider/sidebar drag publishes one settled size on release.
 		let wasResizeDragging = false;
 		createEffect(() => {
 			const dragging = isResizeDragging();
 			if (dragging) {
-				if (claimTimer) { clearTimeout(claimTimer); claimTimer = null; }
-			} else if (wasResizeDragging && props.inLayout !== false && isPageVisible()) {
-				sendClaim(ResizeCause.VIEWPORT);
+				if (viewportTimer) {
+					clearTimeout(viewportTimer);
+					viewportTimer = null;
+				}
+			} else if (wasResizeDragging && viewActiveFlag() && isPageVisible()) {
+				publishViewport();
 			}
 			wasResizeDragging = dragging;
 		});
 
-		// Spotlight float/push-back is an INTENT-bearing resize: the pane's slot
-		// jumps to the card rect (or back to its tile). Nothing else fires a settle
-		// claim for it (the passive ResizeObserver claim doesn't re-fit the PTY on
-		// this jump), so force one on the flip. rAF: measure AFTER the slot's new
-		// size has laid out.
 		const spotlitFlag = createMemo(() => !!props.spotlit);
 		let wasSpotlit = false;
 		createEffect(() => {
-			const s = spotlitFlag();
-			if (s === wasSpotlit) return;
-			wasSpotlit = s;
+			const spotlit = spotlitFlag();
+			if (spotlit === wasSpotlit) return;
+			wasSpotlit = spotlit;
 			requestAnimationFrame(() => {
-				if (claimVisibleFlag() && isPageVisible()) {
-					sendClaim(ResizeCause.VIEWPORT);
-				}
+				if (viewActiveFlag() && isPageVisible()) scheduleViewport();
 			});
 		});
 
-		// Arrange presets (TerminalDeck doArrange) re-tile every pane at once.
-		// Same settle as spotlight above: rAF (commitLayout applies the new slot
-		// rects reactively AFTER doArrange returns — a synchronous measure here
-		// would read the STALE pre-arrange size). sendClaim no-ops when this
-		// pane's size didn't change, so unaffected panes cost nothing; panes newly
-		// ENTERING the layout already re-claim exact via the inLayout TAB_VISIBLE
-		// effect, and panes LEAVING are gated out by the inLayout check. defer:
-		// the INITIAL claim covers mount.
 		createEffect(on(arrangeEpoch, () => {
 			requestAnimationFrame(() => {
-				if (claimVisibleFlag() && isPageVisible()) {
-					sendClaim(ResizeCause.VIEWPORT);
-				}
+				if (viewActiveFlag() && isPageVisible()) scheduleViewport();
 			});
 		}, { defer: true }));
 
-		// A hidden browser document parks the still-selected pane. Its return
-		// intentionally pays for one viewport-only repair so the renderer rebuilds
-		// presentation the browser may have discarded. This is distinct from the
-		// ordinary claim used by a deck/sidebar reveal above.
 		const onVisibility = () => {
-			if (!claimVisibleFlag() || !isPageVisible()) {
-				sendPark();
+			if (!viewActiveFlag() || !isPageVisible()) {
+				parkView();
 				return;
 			}
-			sendClaimNow(ResizeCause.TAB_VISIBLE, true);
+			publishViewportNow();
 		};
 		document.addEventListener("visibilitychange", onVisibility);
+		const onWindowResize = () => {
+			if (viewActiveFlag() && isPageVisible()) scheduleViewport();
+		};
+		window.addEventListener("resize", onWindowResize);
 
-		// Hard-exit release: tab close / reload / cross-page nav never runs
-		// onCleanup, so without this the worker holds the claim until the TTL
-		// reaper and other viewers stay clamped to this tab's size. Best-effort
-		// unary (connect-web can't set fetch keepalive) — if the browser cancels
-		// it mid-flight, the worker-side freshness tick recovers at
-		// VIEWER_CLAIM_FRESH_MS. pageshow requests the same viewport-only repair
-		// after a bfcache restore (visibilitychange doesn't always fire on restore).
 		const onPageHide = () => {
 			releasePaintHolds();
-			sendWithdraw();
+			publishInactive();
 		};
 		const onPageShow = () => {
-			if (isPageVisible() && claimVisibleFlag()) {
-				sendClaimNow(ResizeCause.TAB_VISIBLE, true);
-			}
+			if (isPageVisible() && viewActiveFlag()) publishViewportNow();
 		};
 		window.addEventListener("pagehide", onPageHide);
 		window.addEventListener("pageshow", onPageShow);
@@ -1298,40 +1107,40 @@ export function CellTerminal(props: CellTerminalProps) {
 				unregisterUserInput?.();
 				unregisterUserInput = null;
 				releasePaintHolds();
-				unsubCell();
+				unsubscribeRenderer();
 				unsubPresence();
 				linkAttachment?.dispose();
 				linkAttachment = null;
 				releaseCursorPoll();
-				clearInterval(claimHeartbeat);
 				document.removeEventListener("visibilitychange", onVisibility);
+				window.removeEventListener("resize", onWindowResize);
 				window.removeEventListener("pagehide", onPageHide);
 				window.removeEventListener("pageshow", onPageShow);
 				document.removeEventListener("keydown", onDocKeydown, true);
 				document.removeEventListener("mousedown", onDocMousedown, true);
-				sendWithdraw(); // release this viewer's claim immediately on nav-away
-				releaseViewportStatus();
-				mountClaim?.release();
-				viewportOwner?.dispose();
+				publishInactive();
+				releaseViewStatus();
+				view?.dispose();
 				backfill.dispose();
 				backfillRef = null;
 				displayRef?.removeEventListener("scroll", onScroll);
 				displayRef?.removeEventListener("mousedown", onDisplayDown);
 				displayRef?.removeEventListener("click", onDisplayClick);
 				mouseForwarding.dispose();
-				clearTimeout(claimTimer ?? undefined);
+				resizeObs?.disconnect();
+				clearTimeout(viewportTimer ?? undefined);
 				if (measurementRaf !== 0) cancelAnimationFrame(measurementRaf);
+				if (unmeasuredRaf !== 0) cancelAnimationFrame(unmeasuredRaf);
 
 				predictor?.dispose();
-				renderer?.dispose();
 				unregPreview();
+				renderer?.dispose();
 				inputController?.destroy();
-				clearInput(sid); // drop the typed-text ring on real unmount
+				clearInput(sid);
 				predictor = null;
 				renderer = null;
 				inputController = null;
-				mountClaim = null;
-				viewportOwner = null;
+				view = null;
 			}),
 		);
 		});
@@ -1340,12 +1149,10 @@ export function CellTerminal(props: CellTerminalProps) {
 			unregisterUserInput = null;
 			inputController?.destroy();
 			inputController = null;
-			sendWithdraw();
-			releaseViewportStatus();
-			mountClaim?.release();
-			viewportOwner?.dispose();
-			mountClaim = null;
-			viewportOwner = null;
+			publishInactive();
+			releaseViewStatus();
+			view?.dispose();
+			view = null;
 			// A synchronous pane setup failure must surface instead of leaving a
 			// silent, painted-but-untypable terminal.
 			signal("diag.corruption_signal", {
@@ -1382,8 +1189,7 @@ export function CellTerminal(props: CellTerminalProps) {
 			}}
 		>
 			{/* Above the display and inside the pane: the bar consumes real rows, so
-          the ResizeObserver re-claims the smaller viewport. Faking or
-          compensating that geometry is what docs/FAILURE-INDEX.md forbids. */}
+          ResizeObserver publishes the smaller viewport. */}
 			<Show when={find.open()}>
 				<TerminalFindBar
 					find={find}

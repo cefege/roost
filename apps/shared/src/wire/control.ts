@@ -12,10 +12,9 @@ import { ChannelId, SessionId, TraceId } from "./brand.ts";
  *  "none"          the full requested range was served; no floor was hit.
  *  "evicted"       gone forever: the core's own line ring rolled past those
  *                  rows as newer output arrived.
- *  "resize_replay" lost to the replay bound: a resize rebuilt the grid from the
- *                  fixed byte ring, which could not reach as far back as the
- *                  core it replaced. A never-resized session would still hold
- *                  those rows — the loss is resize-induced, not genuine. */
+ *  "resize_replay" lost to the bounded keeper history available during worker
+ *                  adoption, where no in-memory core survived. Ordinary live
+ *                  resize is in place and never creates this floor. */
 export type ScrollbackHistoryFloor = "none" | "evicted" | "resize_replay";
 
 const Base = z.object({ trace_id: TraceId.optional() });
@@ -25,21 +24,6 @@ export const ClientControlFrame = z.discriminatedUnion("kind", [
   // attach a viewer to a session — N attachers per session allowed
   Base.extend({ kind: z.literal("attach"), session_id: SessionId, from_offset: z.number().int().nonnegative().optional() }),
   Base.extend({ kind: z.literal("detach"), session_id: SessionId }),
-  // Viewport claim. Worker treats each (caller_fp, session) pair as a
-  // viewer holding a claim; PTY size = SCD across live claims. cols=0
-  // OR rows=0 = withdraw this viewer's claim (SPA fires on tab-hidden /
-  // pagehide / blur). Zero allowed for that sentinel.
-  // client_seq: monotonic per SPA window, bumped on each intent-bearing
-  // claim (focus / resize / visibilitychange). Heartbeats re-send the
-  // last intent's seq → worker dedupes (no latestViewer flap). WAN
-  // reorder: late packet has stale seq → ignored for latest-pointer.
-  // Optional for back-compat with legacy non-SPA callers.
-  // cause: numeric roost.v1.ResizeCause — the browser event that produced this
-  // claim (mount/resize/visible/withdraw). Worker hint only (e.g. force a full
-  // cell frame on a re-attach). Optional/0 = legacy (treat as VIEWPORT).
-  // held_cell_seq: cell-frame seq this viewer has already applied — the worker
-  // skips the claim snapshot entirely when it matches the seq it last emitted.
-  Base.extend({ kind: z.literal("resize"), session_id: SessionId, cols: z.number().int().nonnegative(), rows: z.number().int().nonnegative(), client_seq: z.number().int().nonnegative().optional(), cause: z.number().int().nonnegative().optional(), held_cell_seq: z.number().int().nonnegative().optional() }),
   Base.extend({
     kind: z.literal("spawn-shell"),
     folder: z.string(),
@@ -52,11 +36,6 @@ export const ClientControlFrame = z.discriminatedUnion("kind", [
     rows: z.number().int().positive().optional(),
     // caller-minted id (optimistic spawn); worker reuses it verbatim
     session_id: SessionId.optional(),
-    // Mounted optimistic spawn. The coordinator derives viewer_id from the
-    // authenticated tab and replaces this requested sequence with its effective
-    // membership watermark before forwarding.
-    preclaim_initial_viewport: z.boolean().optional(),
-    initial_viewport_client_seq: z.number().int().positive().optional(),
   }),
   Base.extend({ kind: z.literal("kill"), session_id: SessionId }),
   Base.extend({ kind: z.literal("read-file"), request_id: z.string(), path: z.string(), max_lines: z.number().int().positive().optional() }),

@@ -13,6 +13,7 @@ import { createCoord } from "./coord-factory.ts";
 import { handleWorkerWsUpgrade, makeWorkerWsHandler, type WorkerWsData } from "./connect/worker-ws-handler.ts";
 import { handleSyncWsUpgrade, makeSyncWsHandler, type SyncWsData } from "./connect/sync-ws-handler.ts";
 import { makeSyncTerminalControlHooks } from "./connect/sync-terminal-controls.ts";
+import { TerminalViewHub, installTerminalViewHub } from "./connect/terminal-view-hub.ts";
 import { CoordinatorMoveOrchestrator } from "./coord-move/orchestrator.ts";
 import { HandoffStateStore } from "./coord-move/state.ts";
 import { createBunCoordinatorMoveRuntime } from "./coord-move/bun-runtime.ts";
@@ -22,8 +23,6 @@ import { connectWorkers } from "./connect/worker-registry.ts";
 import { handleWorkerUpdateProgress, resumeWindowsUpdateDeploysForWorker } from "./windows-update-deploy-jobs.ts";
 import type { WorkerServiceDeps } from "./connect/worker-service.ts";
 import type { Server, ServerWebSocket } from "bun";
-import { workspaceBus } from "./buses.ts";
-import { asWorkspaceId } from "@roost/shared/wire";
 import { serveServiceHealth } from "@roost/shared/service-health";
 import { log } from "@roost/shared/log";
 import { ROOST_ARTIFACT_VERSION } from "@roost/shared/build-identity";
@@ -43,6 +42,7 @@ import {
 import { makeCfAccessVerifier } from "./middleware/cf-access.ts";
 import { coordinatorAvailabilityResponse } from "./middleware/coordinator-availability.ts";
 import { makePublicSurface } from "./middleware/public-surface.ts";
+import { runStartupJanitor } from "./startup-janitor.ts";
 
 
 export async function runCoord() {
@@ -70,46 +70,7 @@ export async function runCoord() {
   );
   log.info("main", "db_ready", { path: cfg.dbPath });
 
-  try {
-    // Closed sessions are DELETED, not parked (no "closed" limbo). Purge any
-    // already-closed rows (legacy 'closed' data + safety net). NEVER touch
-    // 'open' rows here — a live long-running terminal must never be deleted by
-    // a janitor; truly-dead open sessions are reconciled by the worker
-    // snapshot's ghost-close on reconnect, not by a wall-clock age cutoff.
-    const closed = await db
-      .deleteFrom("sessions")
-      .where("status", "=", "closed")
-      .executeTakeFirst();
-    await db
-      .deleteFrom("workspace_sessions")
-      .where("workspace_id", "not in", db
-        .selectFrom("workspace_sessions as ws")
-        .innerJoin("sessions as s", "s.id", "ws.session_id")
-        .where("s.status", "=", "open").select("ws.workspace_id"))
-      .execute();
-    // Capture orphan ids BEFORE the delete so workspaceBus subscribers
-    // (SPA sync stream) get the `deleted` deltas — without this, SPAs
-    // that survive a coord restart see stale workspace rows in the
-    // sidebar until the user reloads the tab.
-    const orphanRows = await db
-      .selectFrom("workspaces")
-      .select("id")
-      .where("id", "not in", db.selectFrom("workspace_sessions").select("workspace_id").distinct())
-      .execute();
-    const orphans = await db
-      .deleteFrom("workspaces")
-      .where("id", "not in", db.selectFrom("workspace_sessions").select("workspace_id").distinct())
-      .executeTakeFirst();
-    for (const r of orphanRows) {
-      workspaceBus.publish({ kind: "deleted", id: asWorkspaceId(r.id as string) });
-    }
-    log.info("main", "janitor", {
-      deleted_sessions: Number(closed?.numDeletedRows ?? 0),
-      pruned_orphan_workspaces: Number(orphans?.numDeletedRows ?? 0),
-    });
-  } catch (e) {
-    log.warn("main", "janitor_failed", { error: (e as Error).message });
-  }
+  await runStartupJanitor(db);
 
   const coordKey = await loadOrCreateCoordKey(cfg.coordKeyPath);
   log.info("main", "coord_key_ready", { kid: coordKey.verifyingKeyKid() });
@@ -153,6 +114,8 @@ export async function runCoord() {
     onKeyRevoked: (fingerprint) => closeRevokedSockets?.(fingerprint),
   });
   const spaResponse = createSpaResponder(cfg.webDistPath, WEB_ASSETS);
+  const terminalViews = new TerminalViewHub({ db });
+  installTerminalViewHub(terminalViews);
 
   // Raw-WS worker transport deps (Bun-specific; coord-factory stays
   // fetch-only/portable). The WS handler (worker-ws-handler.ts) reuses the
@@ -163,7 +126,10 @@ export async function runCoord() {
     jwtCache,
     cfg,
     move,
-    onWorkerConnected: resumeWindowsUpdateDeploysForWorker,
+    onWorkerConnected: async (workerFp) => {
+      terminalViews.workerReplacement(workerFp);
+      await resumeWindowsUpdateDeploysForWorker(workerFp);
+    },
     onUpdateProgress: handleWorkerUpdateProgress,
   };
   const workerWs = makeWorkerWsHandler(wsDeps);
@@ -172,9 +138,10 @@ export async function runCoord() {
   const syncDeps = { db, sqlite, coordKey, jwtCache, cfg, move };
   const syncWs = makeSyncWsHandler(
     syncDeps,
-    makeSyncTerminalControlHooks(syncDeps),
+    makeSyncTerminalControlHooks(syncDeps, terminalViews),
   );
   closeRevokedSockets = (fingerprint) => {
+    terminalViews.removeFingerprint(fingerprint);
     syncWs.closeForFingerprint(fingerprint);
     workerWs.closeForFingerprint(fingerprint);
   };
@@ -419,6 +386,8 @@ export async function runCoord() {
     server.stop(true);
     publicServer?.stop(true);
     coord.dispose();
+    installTerminalViewHub(null);
+    terminalViews.dispose();
     await closeDb().catch((error) => log.warn("main", "db_close_failed", { error: String(error) }));
     process.exit(0);
   };

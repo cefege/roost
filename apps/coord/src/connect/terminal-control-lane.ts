@@ -1,10 +1,7 @@
-// Shared substrate for the two terminal control paths — viewport-control.ts and
-// input-control.ts — split out of the former session-control.ts, which is now a
-// re-export barrel. Holds the per-tab viewer identity, the per-viewer/session
-// command lane with its Sync-generation cancel registry, and session route
-// resolution. The lanes/generationQueues/aggregateDepth state below MUST stay
-// singleton to this module: both control paths serialize against the same lane
-// tails, so a second copy would silently unorder viewport against input.
+// Shared coordinator substrate for terminal input admission. It owns the
+// tab-scoped sender identity, bounded per-sender/session FIFO, Sync-generation
+// cancellation, and live session-route resolution. Terminal view membership
+// and SCD are owned exclusively by TerminalViewHub and never enter this lane.
 
 import type { KyselyDB } from "../db/connection.ts";
 import {
@@ -24,9 +21,9 @@ export interface TerminalViewerIdentity {
 
 export type TerminalControlGeneration = number | string;
 
-/** Build the one viewer identity used by unary compatibility and Sync v2.
+/** Build the sender identity used by unary compatibility and Sync v2.
  * The remote address remains metadata rather than part of the stable key: a
- * tailnet address change must not mint a second viewport claim for one tab. */
+ * tailnet address change must not mint a second browser sender. */
 export function terminalViewerIdentity(
   callerFingerprint: string,
   tabId: string | null | undefined,
@@ -85,13 +82,11 @@ function generationWasCanceled(
     && generationQueues.get(generationKey(viewerKey, socketGeneration))?.canceled === true;
 }
 
-/** Run one command behind the per-viewer/session lane. `run` is handed a
+/** Run one input command behind the per-sender/session lane. `run` is handed a
  * one-shot `releaseLane`: calling it lets the next queued command start while
- * this one keeps finalizing. Both viewport and input release at worker-send
- * admission, so the socket write order that the worker's keeper-admission lane
- * depends on is still fixed here, but a viewport parked on a keeper resize no
- * longer holds the following PTY input hostage to its own result. Depth counts
- * the command until it truly settles, so the lane stays bounded either way. */
+ * this one keeps finalizing. Input releases at worker-send admission, preserving
+ * coordinator socket order while the worker's channel/keeper lane owns the
+ * authoritative FIFO and result proof. Depth counts through settlement. */
 export function enqueueLane<T>(
   viewerKey: string,
   sessionId: string,
@@ -165,8 +160,7 @@ export async function resolveSessionRoute(db: KyselyDB, sessionId: string): Prom
   // restarted under a live worker, before that worker's snapshot arrived). Once
   // the worker announced its exact live set, a session with no live route is
   // offline: re-caching the open breadcrumb here used to resurrect the
-  // pre-restart channel, so input and claims were written into a channel no
-  // keeper owned and never produced output.
+  // stale channel, so input was written into a channel no keeper owned.
   if (isWorkerChannelIndexReconciled(row.worker_fp)) return null;
   cacheSessionWorker(sessionId, row.worker_fp, row.channel);
   return { workerFp: row.worker_fp, channel: row.channel };

@@ -11,15 +11,11 @@ export interface PendingSpawnSignature {
   folder: string;
   cols?: number;
   rows?: number;
-  preclaimInitialViewport: boolean;
-  requestedClientSeq: bigint;
 }
 
 export interface PendingSpawnResult {
   sessionId: string;
   channelId: number;
-  initialViewportPreclaimed: boolean;
-  effectiveClientSeq: bigint;
 }
 
 interface PendingSpawnEntry {
@@ -30,8 +26,6 @@ interface PendingSpawnEntry {
   reject: (error: Error) => void;
   state: "pending" | "resolved";
   timer: ReturnType<typeof setTimeout>;
-  effectiveClientSeq: bigint;
-  rollback?: () => boolean;
   ambiguous: boolean;
   durableOpened?: { workerFp: string; channelId: number };
 }
@@ -52,8 +46,6 @@ function signatureKey(signature: PendingSpawnSignature): string {
     folder: signature.folder,
     cols: signature.cols ?? null,
     rows: signature.rows ?? null,
-    preclaimInitialViewport: signature.preclaimInitialViewport,
-    requestedClientSeq: signature.requestedClientSeq.toString(),
   });
 }
 
@@ -82,7 +74,6 @@ export function reservePendingSpawn(
     reject,
     state: "pending",
     timer: undefined as unknown as ReturnType<typeof setTimeout>,
-    effectiveClientSeq: 0n,
     ambiguous: false,
   };
   entry.timer = setTimeout(() => {
@@ -98,18 +89,6 @@ export function reservePendingSpawn(
   return { kind: "new", promise };
 }
 
-/** Attach the exact provisional-membership mutation to a fresh reservation. */
-export function configurePendingSpawnPreclaim(
-  sessionId: string,
-  effectiveClientSeq: bigint,
-  rollback: () => boolean,
-): boolean {
-  const entry = pendingSpawns.get(sessionId);
-  if (!entry || entry.state !== "pending") return false;
-  entry.effectiveClientSeq = effectiveClientSeq;
-  entry.rollback = rollback;
-  return true;
-}
 
 export function resolvePendingSpawn(
   sessionId: string,
@@ -133,13 +112,9 @@ function resolveFromDurableOpened(
 ): boolean {
   const opened = entry.durableOpened;
   if (!opened || !entry.ambiguous || entry.state !== "pending") return false;
-  const preclaimed = entry.signature.preclaimInitialViewport
-    && entry.effectiveClientSeq > 0n;
   return resolvePendingSpawn(sessionId, {
     sessionId,
     channelId: opened.channelId,
-    initialViewportPreclaimed: preclaimed,
-    effectiveClientSeq: preclaimed ? entry.effectiveClientSeq : 0n,
   });
 }
 
@@ -162,9 +137,8 @@ export function resolvePendingSpawnOpened(
   return true;
 }
 
-/** Explicit worker rejection/send-before-admission failure is definite and may
- * roll back the exact provisional object. Transport loss/timeouts are ambiguous:
- * retain the entry and membership for durable-open reconciliation. */
+/** Transport loss/timeouts are ambiguous and retain the reservation for
+ * durable-open reconciliation; definite failures reject immediately. */
 export function rejectPendingSpawn(
   sessionId: string,
   error: Error,
@@ -179,7 +153,6 @@ export function rejectPendingSpawn(
   }
   clearTimeout(entry.timer);
   pendingSpawns.delete(sessionId);
-  entry.rollback?.();
   entry.reject(error);
   return true;
 }

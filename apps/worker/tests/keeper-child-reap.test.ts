@@ -84,6 +84,40 @@ const noopCallbacks: MuxChannelCallbacks = {
 };
 
 describe("keeper-child-reap — closing a channel kills the whole process tree", () => {
+  test("PTY owns a foreground process group and resize delivers SIGWINCH", async () => {
+    const channelId = _nextCh++;
+    let output = "";
+    const shellPid = await pool.spawn({
+      channelId,
+      shellSpec: keeperTestShellSpec({
+        executable: "/bin/bash",
+        argv: ["--norc", "-i"],
+        cwd: homedir(),
+      }),
+      cols: 80,
+      rows: 24,
+      callbacks: {
+        onOutput: (bytes) => { output += Buffer.from(bytes).toString("utf8"); },
+        onExit: () => { /* liveness is checked with kill(pid, 0) */ },
+        onError: () => { /* assertions below expose keeper failures */ },
+      },
+    });
+
+    pool.input(channelId, new TextEncoder().encode(
+      "trap 'read r c < <(stty size); echo WINCH:$r:$c' WINCH; echo TRAP_READY\n",
+    ));
+    expect(await waitFor(() => output.includes("TRAP_READY"), 4000)).toBe(true);
+    expect(output).not.toContain("no job control in this shell");
+
+    const resize = pool.beginResize(channelId, 1, 70, 20);
+    expect(resize.admission.written).toBe(true);
+    expect(await resize.result).toEqual({ kind: "ack", seq: 1, cols: 70, rows: 20 });
+    expect(await waitFor(() => output.includes("WINCH:20:70"), 4000)).toBe(true);
+
+    pool.kill(channelId);
+    expect(await waitFor(() => !isAlive(shellPid), 6000)).toBe(true);
+  }, 30_000);
+
   test("interactive shell + foreground job + background job are ALL dead after kill", async () => {
     const channelId = _nextCh++;
     // Interactive bash: --norc for determinism, -i forces interactive so it

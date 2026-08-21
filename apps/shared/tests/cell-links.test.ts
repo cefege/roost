@@ -166,7 +166,7 @@ describe("proto round-trip", () => {
   );
 
   // tailRows = 1 so the frame carries the retained line as well.
-  const frame = gridToCellFrame(asCore(core), 1, "grid", 1);
+  const frame = gridToCellFrame(asCore(core), 1, "grid", "00000000-0000-4000-8000-000000000001", 1);
 
   test("link fields survive on viewport AND scrollback rows", () => {
     const back = protoToCellFrame(cellFrameToProto(frame, "sid"));

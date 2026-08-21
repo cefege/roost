@@ -282,6 +282,7 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
     send: outbox.send,
     sendBinary: outbox.sendBinary,
     sendCellGrid: outbox.sendCellGrid,
+    sendCellGridChunk: outbox.sendCellGridChunk,
     sendAgentStatus: outbox.sendAgentStatus,
     state: () => state,
     relocate,

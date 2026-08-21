@@ -17,7 +17,7 @@ describe("real-core full → delta → applyDelta reconstruct", () => {
     core.init(20, 4);
     core.writeRaw(new TextEncoder().encode("AAAA\r\nBBBB\r\nCCCC\r\n"));
 
-    let st = initCellEmitState("test-grid");
+    let st = initCellEmitState("test-grid", "00000000-0000-4000-8000-000000000001");
     const full = nextCellFrame(core, st, false);
     expect(full.frame.full).toBe(true);
     const seen = full.frame.viewportRows.flatMap((r) => r.spans.map((s) => s.text)).join("|");
@@ -33,7 +33,7 @@ describe("real-core full → delta → applyDelta reconstruct", () => {
     expect(delta.frame.scrollbackAppend.length).toBe(core.getScrollbackCount());
 
     const reconstructed = applyDelta(full.frame, delta.frame);
-    const freshFull = gridToCellFrame(core, delta.frame.seq, "test-grid:0");
+    const freshFull = gridToCellFrame(core, delta.frame.seq, "test-grid:0", "00000000-0000-4000-8000-000000000001");
     expect(reconstructed).toEqual(freshFull);
   });
 
@@ -56,7 +56,7 @@ describe("real-core full → delta → applyDelta reconstruct", () => {
     const core = await WasmBridge.load();
     core.init(48, 12);
     core.writeRaw(TABLE_BYTES);
-    const f = gridToCellFrame(core, 1, "test-grid:0");
+    const f = gridToCellFrame(core, 1, "test-grid:0", "00000000-0000-4000-8000-000000000001");
     const allText = f.viewportRows.flatMap((r) => r.spans.map((s) => s.text)).join("");
     // Box-drawing preserved verbatim (no reflow/mangle).
     for (const ch of ["┌", "┬", "┐", "│", "├", "┼", "┤", "└", "┴", "┘", "─"]) {
@@ -80,11 +80,11 @@ describe("real-core full → delta → applyDelta reconstruct", () => {
     const core = await WasmBridge.load();
     core.init(48, 14);
     core.writeRaw(TABLE_BYTES);
-    const full = nextCellFrame(core, initCellEmitState("test-grid"), false);
+    const full = nextCellFrame(core, initCellEmitState("test-grid", "00000000-0000-4000-8000-000000000001"), false);
     core.clearDirty();
     core.writeRaw(new TextEncoder().encode("\x1b[33m• Note:\x1b[0m grind matters most\r\n"));
     const delta = nextCellFrame(core, full.state, false);
-    expect(applyDelta(full.frame, delta.frame)).toEqual(gridToCellFrame(core, delta.frame.seq, "test-grid:0"));
+    expect(applyDelta(full.frame, delta.frame)).toEqual(gridToCellFrame(core, delta.frame.seq, "test-grid:0", "00000000-0000-4000-8000-000000000001"));
   });
 
   test("determinism: two independent cores, same bytes + cols → identical cell frame", async () => {
@@ -93,7 +93,7 @@ describe("real-core full → delta → applyDelta reconstruct", () => {
     // (bytes, cols) — this is what makes A→B→A settle byte-identical live.
     const a = await WasmBridge.load(); a.init(60, 16); a.writeRaw(TABLE_BYTES);
     const b = await WasmBridge.load(); b.init(60, 16); b.writeRaw(TABLE_BYTES);
-    expect(gridToCellFrame(a, 1, "test-grid:0")).toEqual(gridToCellFrame(b, 1, "test-grid:0"));
+    expect(gridToCellFrame(a, 1, "test-grid:0", "00000000-0000-4000-8000-000000000001")).toEqual(gridToCellFrame(b, 1, "test-grid:0", "00000000-0000-4000-8000-000000000001"));
   });
 
   // Phase-2 (G5): grapheme / wide-char fidelity through the cell pipeline.
@@ -106,7 +106,7 @@ describe("real-core full → delta → applyDelta reconstruct", () => {
     core.init(40, 6);
     // CJK (each is width-2), an emoji, then ASCII on the next line.
     core.writeRaw(new TextEncoder().encode("你好世界 \u{1f600}\r\nASCII-TAIL\r\n"));
-    const f = gridToCellFrame(core, 1, "test-grid:0");
+    const f = gridToCellFrame(core, 1, "test-grid:0", "00000000-0000-4000-8000-000000000001");
     const allText = f.viewportRows.flatMap((r) => r.spans.map((s) => s.text)).join("");
     // Wide CJK glyphs preserved verbatim (not dropped / not split into mojibake).
     for (const ch of ["你", "好", "世", "界"]) {
@@ -121,7 +121,7 @@ describe("real-core full → delta → applyDelta reconstruct", () => {
     const core = await WasmBridge.load();
     core.init(20, 4);
     core.writeRaw(new TextEncoder().encode("shell prompt $ "));
-    const full = nextCellFrame(core, initCellEmitState("test-grid"), false);
+    const full = nextCellFrame(core, initCellEmitState("test-grid", "00000000-0000-4000-8000-000000000001"), false);
     core.clearDirty();
     // Enter alt-screen (what a TUI like vim/claude does).
     core.writeRaw(new Uint8Array([0x1b, 0x5b, 0x3f, 0x31, 0x30, 0x34, 0x39, 0x68])); // ESC[?1049h
@@ -140,7 +140,7 @@ describe("real-core full → delta → applyDelta reconstruct", () => {
   test("app-requested mouse/focus modes ride every frame, full and delta", async () => {
     const core = await WasmBridge.load();
     core.init(20, 4);
-    const cold = nextCellFrame(core, initCellEmitState("test-grid"), false);
+    const cold = nextCellFrame(core, initCellEmitState("test-grid", "00000000-0000-4000-8000-000000000001"), false);
     expect(cold.frame.mouseTracking).toBe(0);
     expect(cold.frame.mouseSgr).toBe(false);
     expect(cold.frame.focusEvents).toBe(false);
@@ -195,7 +195,7 @@ describe("real-core full → delta → applyDelta reconstruct", () => {
     const write = (n: number): void => {
       for (let i = 0; i < n; i++) core.writeRaw(enc.encode(`CELLLINE-${next++}\r\n`));
     };
-    let st = initCellEmitState("test-grid");
+    let st = initCellEmitState("test-grid", "00000000-0000-4000-8000-000000000001");
     const emit = () => {
       const r = nextCellFrame(core, st, false);
       st = r.state;
@@ -210,10 +210,16 @@ describe("real-core full → delta → applyDelta reconstruct", () => {
     expect(core.getScrollbackCount()).toBe(retained); // the count has PINNED
 
     // Locate a still-retained line by its monotonic index.
-    const rowsOf = (f: { scrollbackRows: { index: number; spans: { text: string }[] }[] }) =>
-      f.scrollbackRows.map((r) => [r.index, r.spans.map((s) => s.text).join("")] as const);
+    const rowsOf = (f: {
+      scrollbackRows: readonly {
+        index: number;
+        spans: readonly { text: string }[];
+      }[];
+    }) => f.scrollbackRows.map(
+      (r) => [r.index, r.spans.map((s) => s.text).join("")] as const,
+    );
     const marker = `CELLLINE-${next - 50}`;
-    const beforeRows = rowsOf(gridToCellFrame(core, 0, "test-grid:0", undefined, st.sbDropped));
+    const beforeRows = rowsOf(gridToCellFrame(core, 0, "test-grid:0", "00000000-0000-4000-8000-000000000001", undefined, st.sbDropped));
     const beforeIdx = beforeRows.find(([, t]) => t === marker)?.[0];
     expect(beforeIdx).toBeDefined();
     const totalBefore = st.lastSbTotal;
@@ -229,7 +235,7 @@ describe("real-core full → delta → applyDelta reconstruct", () => {
     expect(appended).toBe(3 * CHUNK);        // pre-fix: 0 — history stopped flowing
     expect(st.lastSbTotal).toBe(totalBefore + 3 * CHUNK); // pre-fix: unchanged
 
-    const afterRows = rowsOf(gridToCellFrame(core, 0, "test-grid:0", undefined, st.sbDropped));
+    const afterRows = rowsOf(gridToCellFrame(core, 0, "test-grid:0", "00000000-0000-4000-8000-000000000001", undefined, st.sbDropped));
     const afterIdx = afterRows.find(([, t]) => t === marker)?.[0];
     expect(afterIdx).toBe(beforeIdx!);       // pre-fix: slid down by 300
     // And the index still names that line, not merely an equal number.
@@ -247,7 +253,7 @@ describe("real-core full → delta → applyDelta reconstruct", () => {
     const enc = new TextEncoder();
     core.writeRaw(enc.encode("\x1b]8;;https://example.com/x\x1b\\text\x1b]8;;\x1b\\ tail\r\n"));
 
-    const full = nextCellFrame(core, initCellEmitState("link-grid"), false);
+    const full = nextCellFrame(core, initCellEmitState("link-grid", "00000000-0000-4000-8000-000000000001"), false);
     const linked = full.frame.viewportRows[0]!.spans;
     expect(linked.map((s) => [s.text, s.linkUri])).toEqual([
       ["text", "https://example.com/x"],
@@ -301,6 +307,6 @@ describe("real-core full → delta → applyDelta reconstruct", () => {
     // deltaViewportShift's boundary compare would have refused the shift and
     // reconstructed a different grid.
     const reconstructed = applyDelta(base.frame, scrolled.frame);
-    expect(reconstructed).toEqual(gridToCellFrame(core, scrolled.frame.seq, "link-grid:0"));
+    expect(reconstructed).toEqual(gridToCellFrame(core, scrolled.frame.seq, "link-grid:0", "00000000-0000-4000-8000-000000000001"));
   });
 });

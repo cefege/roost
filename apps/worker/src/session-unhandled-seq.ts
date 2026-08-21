@@ -12,10 +12,9 @@
 // sequence has been logged it stays in the window for the rest of that core's
 // life. Reporting straight off the window would re-fire the same stale entry on
 // every frame, so a consumer has to hold its own high-water mark against the
-// ring's total — that is what `UnhandledSequenceLog.consumed` is. A resize
-// rebuild mints a fresh core whose ring is EMPTY and whose total restarts at
-// zero, so the mark must be dropped in the same step that replaces
-// `rec.wtermCore` (`resetUnhandledSequences`).
+// ring's total — that is what `UnhandledSequenceLog.consumed` is. A normal
+// resize no longer rebuilds this core, so the ring and consumer mark share the
+// full lifetime of the session.
 //
 // PARTIAL DETECTOR BY CONSTRUCTION. The core logs unhandled CSI finals
 // (DECSCUSR `CSI Ps SP q`, `CSI > … W`, …) but silently drops every OSC other
@@ -104,14 +103,6 @@ export function noteUnhandledSequences(rec: SessionRecord, core: TerminalCore): 
 			break;
 		}
 	}
-}
-
-/** A rebuild replaces the core with one whose ring is empty and whose logged
- *  total restarts at zero, so a mark taken against the old core would suppress
- *  the new one's entries outright. Reset in the same step that assigns
- *  `rec.wtermCore`. */
-export function resetUnhandledSequences(rec: SessionRecord): void {
-	rec.unhandled = undefined;
 }
 
 export interface UnhandledSequenceSnapshotEntry {

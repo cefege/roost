@@ -20,17 +20,11 @@ import { assertOnHost } from "../middleware/caller-origin.ts";
 import { COORD_GIT_SHA } from "../git-sha.ts";
 import { ROOST_ARTIFACT_VERSION } from "@roost/shared/build-identity";
 import { getMetricsSnapshot } from "../telemetry.ts";
-import { _viewersBySession } from "./viewer-tracker.ts";
 import {
-  _cellSubscriptionSnapshot,
-  _cellSubscriptionStateSnapshot,
-  type CellSubscriptionDiagnostic,
-} from "./cell-subscriptions.ts";
-import {
-  _announcedBarrierSnapshot,
-  _barrierRepairSnapshot,
-  type CoordinatorBarrierRepairDiagnostic,
-} from "../byte-hub-barrier-repair.ts";
+  currentTerminalScreenHub,
+  terminalViewerProjection,
+  terminalViewSnapshot,
+} from "./terminal-view-hub.ts";
 import {
   _lastCellSnapshot,
   _sessionRouteSnapshot,
@@ -142,9 +136,8 @@ export function makeSystemHandlers(
       const connectedWorkerFps = new Set(connectWorkers.keys());
       const routeState = _sessionRouteSnapshot();
       const lastCellState = _lastCellSnapshot();
-      const barrierRepairState = _barrierRepairSnapshot(capturedAtMs);
-      const subscriptionState = _cellSubscriptionStateSnapshot(capturedAtMs);
-      const activeSubscriptions = _cellSubscriptionSnapshot();
+      const viewerState = terminalViewerProjection();
+      const terminalScreen = currentTerminalScreenHub();
       const openSessions = await deps.db.selectFrom("sessions")
         .select(["id", "worker_fp", "channel"])
         .where("status", "=", "open")
@@ -160,18 +153,16 @@ export function makeSystemHandlers(
           connected: boolean;
           source: "live_cache" | "database";
         } | null;
-        last_cell: CoordinatorLastCellDiagnostic | null;
-        /** Routes whose announced cell frames were dropped: while a mark stands,
-         *  the coordinator forces that route's next claim to fetch a full frame. */
-        barrier_repair: CoordinatorBarrierRepairDiagnostic[];
-        viewers: Record<string, {
+        terminal_view: ReturnType<typeof terminalViewSnapshot>;
+        terminal_screen: {
+          stream_id: string;
+          grid_epoch: string;
+          seq: string;
           cols: number;
           rows: number;
-          last_ms: number;
-          age_ms: number;
-          client_seq: number;
-        }>;
-        subscriptions: Record<string, CellSubscriptionDiagnostic>;
+          valid: boolean;
+        } | null;
+        viewers: Record<string, { cols: number; rows: number }>;
       };
       const sessions: Record<string, CoordSessionDiagnostic> = {};
       const ensureSession = (sessionId: string): CoordSessionDiagnostic => {
@@ -184,10 +175,9 @@ export function makeSystemHandlers(
               connected: connectedWorkerFps.has(route.worker_fp),
               source: "live_cache",
             } : null,
-            last_cell: lastCellState[sessionId] ?? null,
-            barrier_repair: barrierRepairState[sessionId] ?? [],
+            terminal_view: terminalViewSnapshot(sessionId),
+            terminal_screen: null,
             viewers: {},
-            subscriptions: {},
           };
           sessions[sessionId] = state;
         }
@@ -205,25 +195,29 @@ export function makeSystemHandlers(
           };
         }
       }
-      for (const [sessionId, viewers] of _viewersBySession) {
+      for (const [sessionId, viewers] of viewerState) {
         const state = ensureSession(sessionId);
-        for (const [viewerId, viewer] of viewers) {
+        for (const [viewerId, geometry] of viewers) {
           state.viewers[viewerId] = {
-            cols: viewer.cols,
-            rows: viewer.rows,
-            last_ms: viewer.lastMs,
-            age_ms: Math.max(0, capturedAtMs - viewer.lastMs),
-            client_seq: viewer.clientSeq,
+            cols: geometry.cols,
+            rows: geometry.rows,
           };
         }
       }
-      for (const [viewerId, bySession] of Object.entries(subscriptionState)) {
-        for (const [sessionId, subscription] of Object.entries(bySession)) {
-          ensureSession(sessionId).subscriptions[viewerId] = subscription;
+      for (const sessionId of Object.keys(sessions)) {
+        const screen = terminalScreen?.snapshot(sessionId);
+        if (screen) {
+          sessions[sessionId]!.terminal_screen = {
+            stream_id: screen.streamId,
+            grid_epoch: screen.gridEpoch,
+            seq: screen.seq.toString(),
+            cols: screen.cols,
+            rows: screen.rows,
+            valid: screen.valid,
+          };
         }
       }
       for (const sessionId of Object.keys(lastCellState)) ensureSession(sessionId);
-      for (const sessionId of Object.keys(barrierRepairState)) ensureSession(sessionId);
 
       const workerFps = new Set(registeredWorkers.map((worker) => worker.fp));
       for (const workerFp of connectedWorkerFps) workerFps.add(workerFp);
@@ -234,9 +228,7 @@ export function makeSystemHandlers(
           artifact_version: ROOST_ARTIFACT_VERSION,
         },
         sessions,
-        cell_subscriptions: activeSubscriptions,
         agent_status: getAgentStatusDiagnostics(),
-        announced_barrier: _announcedBarrierSnapshot(),
         terminal_control: {
           pending_rpcs: _pendingRpcStats().pending,
         },

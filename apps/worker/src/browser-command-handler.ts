@@ -10,7 +10,7 @@ import type { CoordLink } from "./transport/coord-link.ts";
 import type { SessionManager } from "./session-manager.ts";
 import { handleAttach, handleKill, handleRespawnIfMissing, handleSpawnShell } from "./browser-command-spawn.ts";
 import { handleGetHome, handleListDir, handleMkdir, handleReadFile, handleReadFileChunk } from "./browser-command-files.ts";
-import { handleGetScrollbackCells, handleResize, handleSearchScrollback } from "./browser-command-terminal.ts";
+import { handleGetScrollbackCells, handleSearchScrollback } from "./browser-command-terminal.ts";
 import { handleStartTransfer } from "./browser-command-transfer.ts";
 import { handleAttachmentProbe, handleDeleteAttachment, handleListAttachments } from "./browser-command-attachments.ts";
 import { handleDiagDumpBytecap, handleDiagSnapshot } from "./browser-command-diag.ts";
@@ -26,7 +26,7 @@ export function handleBrowserCommand(
 	msg: BrowserCommandMsg,
 	deps: { coordLink: CoordLink; sessionMgr: SessionManager },
 ): void {
-	const { frame, request_id, viewer_id } = msg;
+	const { frame, request_id } = msg;
 	const { coordLink, sessionMgr } = deps;
 	log.info("worker", "onBrowserCommand", { kind: frame.kind, request_id });
 	switch (frame.kind) {
@@ -35,7 +35,7 @@ export function handleBrowserCommand(
 			return;
 		}
 		case "spawn-shell": {
-			handleSpawnShell(frame, viewer_id, request_id, { coordLink, sessionMgr });
+			handleSpawnShell(frame, request_id, { coordLink, sessionMgr });
 			return;
 		}
 		case "attach": {
@@ -68,10 +68,6 @@ export function handleBrowserCommand(
 		}
 		case "search-scrollback": {
 			void handleSearchScrollback(frame, request_id, { coordLink, sessionMgr });
-			return;
-		}
-		case "resize": {
-			handleResize(frame, viewer_id, { sessionMgr });
 			return;
 		}
 		case "start-transfer": {

@@ -1,31 +1,76 @@
-// Shared viewport / SCD-policy timing. The worker (session-manager.ts
-// viewportClaims) and coord (router.ts _viewersBySession) each track viewer
-// claims independently and MUST agree on these two timings, or the
-// two-sided withdraw hysteresis and TTL reaping desync (one side drops a
-// viewer while the other holds it → PTY size ≠ SPA grid). Single source of
-// truth so they can't drift. See feedback_viewport_scd_min_policy.
+// Shared terminal-view geometry and lease policy. The coordinator's
+// TerminalViewHub is the only SCD/membership owner; browsers clamp trusted
+// measurements to these core limits and every later trust boundary rejects an
+// out-of-range value.
 
-// Defer removing a withdrawn viewer this long so a refresh's re-claim
-// cancels it → no SCD-min flap / scrollback re-serialize on a reload.
-export const VIEWER_WITHDRAW_GRACE_MS = 800;
+export const TERMINAL_MAX_COLS = 256;
+export const TERMINAL_MAX_ROWS = 256;
 
-// Drop a viewer claim with no heartbeat for this long (dead browser:
-// kill -9, WiFi drop, OS sleep). 4× the 30s SPA heartbeat = grace for
-// missed beats.
-export const VIEWER_CLAIM_TTL_MS = 120_000;
+export const TERMINAL_VIEW_LEASE_MS = 15_000;
+export const TERMINAL_VIEW_HEARTBEAT_MS = 5_000;
+export const TERMINAL_VIEW_SWEEP_MS = 1_000;
 
-// How often each side sweeps for claims past VIEWER_CLAIM_TTL_MS above. The
-// coordinator runs TWO reapers — connect/viewer-tracker.ts for presence and
-// connect/cell-subscriptions.ts for the cell fanout — and their own comments
-// require them to stay in lockstep: one dropping a claim the other still holds
-// is exactly the desync this module exists to prevent.
-export const VIEWER_REAP_INTERVAL_MS = 10_000;
+export interface TerminalGeometry {
+  cols: number;
+  rows: number;
+}
 
-// Liveness threshold for SCD-min weighting (A3). A claim not refreshed
-// within ~2× the 30s SPA heartbeat is almost certainly a dead viewer and
-// MUST NOT constrain the shared PTY size — otherwise a dead phone's tiny
-// window clips every live desktop viewer for the full TTL (120s). The TTL
-// above stays the hard backstop for actually removing the claim; this is
-// the faster "stop letting it shrink everyone" cutoff. 70s = 2×heartbeat
-// + 10s slack for one missed beat.
-export const VIEWER_CLAIM_FRESH_MS = 70_000;
+/** UUID shape used by view, stream and snapshot generations. IDs are opaque;
+ * accepting every RFC-4122 version keeps validation independent of how a
+ * caller obtained its collision-resistant UUID. */
+const TERMINAL_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export function isTerminalUuid(value: string): boolean {
+  return TERMINAL_UUID_RE.test(value);
+}
+
+export function isTerminalGeometry(value: Readonly<TerminalGeometry>): boolean {
+  return Number.isInteger(value.cols)
+    && value.cols >= 1
+    && value.cols <= TERMINAL_MAX_COLS
+    && Number.isInteger(value.rows)
+    && value.rows >= 1
+    && value.rows <= TERMINAL_MAX_ROWS;
+}
+
+/** Validate untrusted wire/API geometry without mutating it. */
+export function assertTerminalGeometry(
+  value: Readonly<TerminalGeometry>,
+): TerminalGeometry {
+  if (!isTerminalGeometry(value)) {
+    throw new RangeError(
+      `terminal geometry ${String(value.cols)}x${String(value.rows)} is outside `
+      + `1..${TERMINAL_MAX_COLS}x1..${TERMINAL_MAX_ROWS}`,
+    );
+  }
+  return { cols: value.cols, rows: value.rows };
+}
+
+/** Bound a trusted positive browser measurement before it enters the wire. */
+export function clampTerminalGeometry(
+  value: Readonly<TerminalGeometry>,
+): TerminalGeometry {
+  const cols = Number.isFinite(value.cols) ? Math.floor(value.cols) : 1;
+  const rows = Number.isFinite(value.rows) ? Math.floor(value.rows) : 1;
+  return {
+    cols: Math.min(Math.max(cols, 1), TERMINAL_MAX_COLS),
+    rows: Math.min(Math.max(rows, 1), TERMINAL_MAX_ROWS),
+  };
+}
+
+/** Independent-axis smallest-common dimensions. Empty input means unwatched. */
+export function minimumTerminalGeometry(
+  geometries: Iterable<Readonly<TerminalGeometry>>,
+): TerminalGeometry | null {
+  let cols = TERMINAL_MAX_COLS + 1;
+  let rows = TERMINAL_MAX_ROWS + 1;
+  let seen = false;
+  for (const geometry of geometries) {
+    assertTerminalGeometry(geometry);
+    if (geometry.cols < cols) cols = geometry.cols;
+    if (geometry.rows < rows) rows = geometry.rows;
+    seen = true;
+  }
+  return seen ? { cols, rows } : null;
+}

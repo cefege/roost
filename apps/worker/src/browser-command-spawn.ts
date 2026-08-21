@@ -31,42 +31,16 @@ export function handleKill(
 
 export function handleSpawnShell(
 	frame: Extract<ClientControlFrame, { kind: "spawn-shell" }>,
-	viewerId: string,
 	request_id: string,
 	deps: { coordLink: CoordLink; sessionMgr: SessionManager },
 ): void {
 	const { coordLink, sessionMgr } = deps;
-	const wantsPreclaim = frame.preclaim_initial_viewport === true;
-	const validPreclaim = wantsPreclaim
-		&& frame.cols !== undefined
-		&& frame.rows !== undefined
-		&& frame.session_id !== undefined
-		&& frame.initial_viewport_client_seq !== undefined
-		&& frame.initial_viewport_client_seq > 0
-		&& viewerId.length > 0;
-	if (wantsPreclaim && !validPreclaim) {
-		coordLink.send({
-			kind: "rpc-error",
-			request_id,
-			message: "invalid initial viewport preclaim",
-		});
-		return;
-	}
-	const initialViewport = validPreclaim
-		? {
-			viewerId,
-			clientSeq: BigInt(frame.initial_viewport_client_seq!),
-			cols: frame.cols!,
-			rows: frame.rows!,
-		}
-		: undefined;
 	sessionMgr
 		.spawnShell(
 			frame.folder,
 			frame.cols,
 			frame.rows,
 			frame.session_id,
-			initialViewport,
 		)
 		.then((rec) => {
 			coordLink.send({
@@ -75,8 +49,6 @@ export function handleSpawnShell(
 				data: {
 					session_id: rec.sessionId,
 					channel_id: rec.channelId,
-					initial_viewport_preclaimed: initialViewport !== undefined,
-					effective_client_seq: initialViewport ? Number(initialViewport.clientSeq) : 0,
 				},
 			});
 		})

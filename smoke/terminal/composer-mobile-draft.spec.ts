@@ -1,7 +1,10 @@
 import { test, expect } from "./fixtures.ts";
 import type { RecoverySmokeApi } from "./terminal-smoke-api.ts";
 import { spawnSmokeShell, navigateToSmokeSession, inputSmokeTerminal } from "./terminal-helpers.ts";
-import { readTerminalStreamProbe } from "./terminal-probe-helpers.ts";
+import {
+  coordinatorTerminalViewState,
+  readTerminalStreamProbe,
+} from "./terminal-probe-helpers.ts";
 
 // Compact composition is structurally two rows from its first paint. The field
 // always owns the full first row; its content never decides whether the actions
@@ -114,11 +117,25 @@ test("mobile composer gives multiline drafts the full message width", async ({ m
   await input.fill("short");
   const baseline = await geometry();
   await expect.poll(async () => {
-    const claim = (await readTerminalStreamProbe(mobileSmokePage, sessionId)).browser.claim;
-    return claim.desired !== null && claim.confirmed?.client_seq === claim.desired.client_seq;
+    const probe = await readTerminalStreamProbe(mobileSmokePage, sessionId);
+    const { view, replica } = probe.browser;
+    const coordinator = coordinatorTerminalViewState(probe);
+    return view.status === "accepted"
+      && view.active
+      && view.effective_cols > 0
+      && view.effective_rows > 0
+      && replica.baseline_ready
+      && replica.expected_stream_id === view.stream_id
+      && coordinator?.activeViews === 1
+      && coordinator.streamId === view.stream_id
+      && coordinator.effective?.cols === view.effective_cols
+      && coordinator.effective?.rows === view.effective_rows;
   }, { timeout: 10_000, intervals: [50] }).toBe(true);
-  const baselineClaim = (await readTerminalStreamProbe(mobileSmokePage, sessionId)).browser.claim.desired;
-  if (!baselineClaim) throw new Error("compact terminal omitted its baseline viewport claim");
+  const baselineProbe = await readTerminalStreamProbe(mobileSmokePage, sessionId);
+  const baselineView = baselineProbe.browser.view;
+  if (!baselineView.revision || !baselineView.stream_id) {
+    throw new Error("compact terminal omitted its active baseline view");
+  }
 
   const expectFullWidthRows = (
     current: typeof baseline,
@@ -253,18 +270,81 @@ test("mobile composer gives multiline drafts the full message width", async ({ m
   );
   expect(transformed.deckTransform).not.toBe(baseline.deckTransform);
 
-  // Wait past the desktop ResizeObserver debounce. Compact growth is transform
-  // only, so it must not enqueue a viewport claim even while output stays live.
+  // Wait past the desktop ResizeObserver debounce. Compact growth is a paint
+  // transform only, so it must not publish a new terminal-view revision while
+  // output and the existing replica baseline stay live.
   await mobileSmokePage.waitForTimeout(250);
-  const compactClaim = (await readTerminalStreamProbe(mobileSmokePage, sessionId)).browser.claim;
-  expect(compactClaim.desired).toMatchObject({
-    client_seq: baselineClaim.client_seq,
-    cols: baselineClaim.cols,
-    rows: baselineClaim.rows,
+  const compactProbe = await readTerminalStreamProbe(mobileSmokePage, sessionId);
+  const compactView = compactProbe.browser.view;
+  expect(compactView).toMatchObject({
+    revision: baselineView.revision,
+    status: "accepted",
+    active: true,
+    stream_id: baselineView.stream_id,
+    effective_cols: baselineView.effective_cols,
+    effective_rows: baselineView.effective_rows,
   });
-  expect(compactClaim.confirmed?.client_seq).toBe(baselineClaim.client_seq);
-  const compactGrowthMarker = `COMPACT_GROWTH_LIVE_${crypto.randomUUID().replaceAll("-", "").slice(0, 8)}`;
-  await inputSmokeTerminal(mobileSmokePage, sessionId, `printf '%s\\n' ${compactGrowthMarker}\r`);
+  expect(compactProbe.browser.replica).toMatchObject({
+    expected_stream_id: baselineView.stream_id,
+    baseline_ready: true,
+    resync_latched: false,
+  });
+  expect(coordinatorTerminalViewState(compactProbe)).toMatchObject({
+    activeViews: 1,
+    streamId: baselineView.stream_id,
+    effective: {
+      cols: baselineView.effective_cols,
+      rows: baselineView.effective_rows,
+    },
+    unavailable: false,
+  });
+  const compactGrowthHead = "COMPACT_GROWTH_";
+  const compactGrowthTail = `LIVE_${crypto.randomUUID().replaceAll("-", "").slice(0, 8)}`;
+  const compactGrowthMarker = `${compactGrowthHead}${compactGrowthTail}`;
+  // The shell's ordinary bottom-row output may sit outside the visual clip
+  // while the fixed composer translates the unchanged terminal layout upward.
+  // Pick a fully visible viewport row and paint the marker there; split its
+  // shell arguments so the echoed command cannot itself satisfy the proof.
+  const compactGrowthRow = await mobileSmokePage.evaluate((id) => {
+    const slot = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
+    const grid = slot?.querySelector(".cell-grid");
+    const viewport = grid?.querySelector(".cell-viewport");
+    if (!(grid instanceof HTMLElement) || !(viewport instanceof HTMLElement)) {
+      throw new Error("compact terminal viewport was unavailable");
+    }
+    const gridRect = grid.getBoundingClientRect();
+    const visual = window.visualViewport;
+    const visualTop = visual?.offsetTop ?? 0;
+    const visualBottom = visualTop + (visual?.height ?? innerHeight);
+    const clipTop = Math.max(gridRect.top, visualTop);
+    const clipBottom = Math.min(gridRect.bottom, visualBottom);
+    const clipCenter = (clipTop + clipBottom) / 2;
+    const candidates = Array.from(viewport.querySelectorAll(":scope > .cell-row"))
+      .flatMap((row, index) => {
+        const rect = row.getBoundingClientRect();
+        return rect.width > 0
+          && rect.height > 0
+          && rect.top >= clipTop + 1
+          && rect.bottom <= clipBottom - 1
+          ? [{ index, distance: Math.abs((rect.top + rect.bottom) / 2 - clipCenter) }]
+          : [];
+      })
+      .sort((left, right) => left.distance - right.distance);
+    if (!candidates[0]) {
+      throw new Error(`compact terminal has no fully visible output row: ${JSON.stringify({
+        gridTop: gridRect.top,
+        gridBottom: gridRect.bottom,
+        visualTop,
+        visualBottom,
+      })}`);
+    }
+    return candidates[0].index + 1;
+  }, sessionId);
+  await inputSmokeTerminal(
+    mobileSmokePage,
+    sessionId,
+    `printf '\\033[${compactGrowthRow};1H%s%s' '${compactGrowthHead}' '${compactGrowthTail}'\r`,
+  );
   const compactGrowthProof = await mobileSmokePage.evaluate(({ id, marker }) => {
     const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
     return smokeWindow.__smoke.waitForPaintedMarker(id, marker, 10_000);

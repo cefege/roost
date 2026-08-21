@@ -1,12 +1,6 @@
-// Terminal outbound lane: the PTY input queue, the control/generation fan-out
-// that drives both outbound lanes, and the diagnostic snapshot.
-//
-// The viewport half lives in the sync-outbound-viewport*.ts siblings and is
-// re-exported below, so callers keep one import site (the same shape store/sync.ts
-// uses for its own leaf modules). handleGeneration stays HERE because it
-// reconciles both lanes: an input batch and a viewport heartbeat can each observe
-// a newer Sync generation before the store's notification arrives, and both must
-// see the same reconciliation.
+// Generation-aware terminal input transport. View membership and screen
+// continuity live in store/terminal-stream.ts; this module owns only atomic
+// input admission/result correlation.
 
 import { diag, signal } from "@roost/shared/diag";
 import { getSessionTraceId } from "../lib/diag.ts";
@@ -20,41 +14,11 @@ import {
 } from "../store/sync.ts";
 import {
   currentSmokeTerminalInputObserver,
-  forgetSmokeViewportSession,
   _resetSmokeOutboundForTest,
 } from "./sync-outbound-smoke.ts";
-import {
-  command,
-  handleViewportControl,
-  reconcileViewportGeneration,
-} from "./sync-outbound-viewport-dispatch.ts";
-import {
-  persistViewportIntents,
-  pruneViewportSession,
-  viewportClaimSnapshot,
-  _resetViewportOutboundForTest,
-} from "./sync-outbound-viewport-registry.ts";
-import type { TerminalViewportClaimSnapshot } from "./sync-outbound-viewport-types.ts";
 
-// Public viewport surface, fronted here so the pane, the projector and the smoke
-// harness keep importing terminal outbound state from one module.
-export { acquireTerminalViewportOwner } from "./sync-outbound-viewport.ts";
-export { seedTerminalViewportIntent } from "./sync-outbound-viewport-registry.ts";
-export {
-  noteTerminalProducerGeneration,
-  rejectNextViewportClaim,
-} from "./sync-outbound-viewport-dispatch.ts";
-export { rejectedViewportClaimCount, setSmokeTerminalInputObserver } from "./sync-outbound-smoke.ts";
+export { setSmokeTerminalInputObserver } from "./sync-outbound-smoke.ts";
 export type { SmokeTerminalInputObserver } from "./sync-outbound-smoke.ts";
-export type {
-  TerminalViewportClaim,
-  TerminalViewportFullFrame,
-  TerminalViewportOwner,
-  TerminalViewportOwnerStatus,
-  TerminalViewportStatusListener,
-  ViewportAdmission,
-  ViewportOutcome,
-} from "./sync-outbound-viewport-types.ts";
 
 const MAX_INPUT_BYTES = 64 * 1024;
 const MAX_PENDING_INPUTS_PER_SESSION = 200;
@@ -63,6 +27,7 @@ const INPUT_RESULT_TIMEOUT_MS = 10_000;
 
 type TerminalState = SyncV2TerminalState;
 type ResultControl = SyncV2Control;
+type OutboundCommand = Parameters<typeof sendSyncV2Command>[0];
 
 export type InputOutcome =
   | { status: "accepted"; inputSeq: bigint; writtenBytes: number }
@@ -75,6 +40,7 @@ export type InputAdmission =
 
 interface PendingInput {
   sessionId: string;
+  viewId: string | undefined;
   inputSeq: bigint;
   bytes: Uint8Array;
   socketId: string;
@@ -92,7 +58,12 @@ interface InputLane {
 const inputLanes = new Map<string, InputLane>();
 const lastInputSendTs = new Map<string, number>();
 let observedSocketId: string | null = null;
+let observedDomainGeneration: bigint | null = null;
 let nextInputSeq = 0n;
+
+function command(value: unknown): OutboundCommand {
+  return value as OutboundCommand;
+}
 
 function finishInput(pending: PendingInput, outcome: InputOutcome): void {
   const lane = inputLanes.get(pending.sessionId);
@@ -106,9 +77,15 @@ function finishInput(pending: PendingInput, outcome: InputOutcome): void {
   pending.resolve(outcome);
 }
 
-function trySendInput(pending: PendingInput, state = currentSyncV2TerminalState()): void {
+function trySendInput(
+  pending: PendingInput,
+  state = currentSyncV2TerminalState(),
+): void {
   if (pending.started || !state?.ready) return;
-  if (state.socketId !== pending.socketId || state.domainGeneration !== pending.domainGeneration) {
+  if (
+    state.socketId !== pending.socketId
+    || state.domainGeneration !== pending.domainGeneration
+  ) {
     finishInput(pending, {
       status: "rejected",
       inputSeq: pending.inputSeq,
@@ -124,6 +101,7 @@ function trySendInput(pending: PendingInput, state = currentSyncV2TerminalState(
       inputSeq: pending.inputSeq,
       data: pending.bytes,
       domainGeneration: pending.domainGeneration,
+      ...(pending.viewId === undefined ? {} : { viewId: pending.viewId }),
     },
   }));
   if (!sent) {
@@ -150,23 +128,32 @@ function trySendInput(pending: PendingInput, state = currentSyncV2TerminalState(
     dir: "up",
     len: pending.bytes.byteLength,
     input_seq: pending.inputSeq,
+    view_id: pending.viewId,
   });
 }
 
 function findInput(sessionId: string, inputSeq: bigint): PendingInput | null {
-  return inputLanes.get(sessionId)?.pending.find((entry) => entry.inputSeq === inputSeq) ?? null;
+  return inputLanes.get(sessionId)?.pending.find(
+    (entry) => entry.inputSeq === inputSeq,
+  ) ?? null;
 }
 
-function handleInputControl(control: ResultControl, state: TerminalState): boolean {
-  if (control.case !== "inputAccepted"
+function handleControl(control: ResultControl, state: TerminalState): void {
+  if (
+    control.case !== "inputAccepted"
     && control.case !== "inputRejected"
-    && control.case !== "inputAmbiguous") return false;
+    && control.case !== "inputAmbiguous"
+  ) return;
   const value = control.value;
   const pending = findInput(value.sessionId, value.inputSeq);
-  if (!pending || !pending.started
+  if (
+    !pending
+    || !pending.started
     || pending.socketId !== state.socketId
     || pending.domainGeneration !== value.domainGeneration
-    || pending.domainGeneration !== state.domainGeneration) return true;
+    || pending.domainGeneration !== state.domainGeneration
+  ) return;
+
   if (control.case === "inputAccepted") {
     const accepted = control.value;
     if (accepted.writtenBytes === pending.bytes.byteLength) {
@@ -183,40 +170,39 @@ function handleInputControl(control: ResultControl, state: TerminalState): boole
         reason: "coordinator accepted an incomplete input batch",
       });
     }
-  } else if (control.case === "inputRejected") {
-    const rejected = control.value;
+    return;
+  }
+  if (control.case === "inputRejected") {
     finishInput(pending, {
       status: "rejected",
       inputSeq: pending.inputSeq,
       writtenBytes: 0,
-      reason: rejected.reason,
+      reason: control.value.reason,
     });
-  } else {
-    const ambiguous = control.value;
-    finishInput(pending, {
-      status: "ambiguous",
-      inputSeq: pending.inputSeq,
-      writtenBytes: ambiguous.writtenBytes,
-      reason: ambiguous.reason,
-    });
+    return;
   }
-  return true;
+  finishInput(pending, {
+    status: "ambiguous",
+    inputSeq: pending.inputSeq,
+    writtenBytes: control.value.writtenBytes,
+    reason: control.value.reason,
+  });
 }
 
-function handleControl(control: ResultControl, state: TerminalState): void {
-  if (handleInputControl(control, state)) return;
-  handleViewportControl(control, state);
-}
-
-/** Reconcile BOTH outbound lanes against the live Sync generation. Exported for
- * the viewport owner heartbeat, which can observe a newer generation before the
- * store notification reaches this module. */
 export function handleGeneration(state: TerminalState | null): void {
-  if (!state || state.socketId !== observedSocketId) {
+  const changed = !state
+    || state.socketId !== observedSocketId
+    || state.domainGeneration !== observedDomainGeneration;
+  if (changed) {
     const closingSocket = observedSocketId;
+    const closingDomain = observedDomainGeneration;
     for (const lane of Array.from(inputLanes.values())) {
       for (const pending of [...lane.pending]) {
-        if (closingSocket && pending.socketId !== closingSocket) continue;
+        if (
+          closingSocket !== null
+          && (pending.socketId !== closingSocket
+            || pending.domainGeneration !== closingDomain)
+        ) continue;
         const outcome: InputOutcome = pending.started
           ? {
               status: "ambiguous",
@@ -233,16 +219,17 @@ export function handleGeneration(state: TerminalState | null): void {
         finishInput(pending, outcome);
         signal("input.drop_burst", {
           sid: pending.sessionId,
-          reason: outcome.status === "ambiguous" ? "generation_ambiguous" : "generation_closed",
+          reason: outcome.status === "ambiguous"
+            ? "generation_ambiguous"
+            : "generation_closed",
           cooldownKey: pending.sessionId,
         });
       }
     }
     observedSocketId = state?.socketId ?? null;
+    observedDomainGeneration = state?.domainGeneration ?? null;
     nextInputSeq = 0n;
   }
-
-  reconcileViewportGeneration(state);
 
   if (!state?.ready) return;
   for (const lane of inputLanes.values()) {
@@ -255,7 +242,13 @@ queueMicrotask(() => {
   registerSyncV2GenerationHandler(handleGeneration);
 });
 
-export function sendTerminalInput(sessionId: string, bytes: Uint8Array): InputAdmission {
+/** Admit one complete PTY input batch. `viewId` is attribution only; callers
+ * without a mounted browser view intentionally omit it. */
+export function sendTerminalInput(
+  sessionId: string,
+  bytes: Uint8Array,
+  viewId?: string,
+): InputAdmission {
   const state = currentSyncV2TerminalState();
   if (!state) return { accepted: false, reason: "terminal Sync is not connected" };
   if (bytes.byteLength > MAX_INPUT_BYTES) {
@@ -266,17 +259,23 @@ export function sendTerminalInput(sessionId: string, bytes: Uint8Array): InputAd
     lane = { pending: [], bytes: 0 };
     inputLanes.set(sessionId, lane);
   }
-  if (lane.pending.length >= MAX_PENDING_INPUTS_PER_SESSION
-    || lane.bytes + bytes.byteLength > MAX_PENDING_INPUT_BYTES_PER_SESSION) {
+  if (
+    lane.pending.length >= MAX_PENDING_INPUTS_PER_SESSION
+    || lane.bytes + bytes.byteLength > MAX_PENDING_INPUT_BYTES_PER_SESSION
+  ) {
     if (lane.pending.length === 0) inputLanes.delete(sessionId);
     return { accepted: false, reason: "terminal input queue is full" };
   }
-  if (observedSocketId !== state.socketId) handleGeneration(state);
+  if (
+    observedSocketId !== state.socketId
+    || observedDomainGeneration !== state.domainGeneration
+  ) handleGeneration(state);
   const inputSeq = ++nextInputSeq;
   const owned = bytes.slice();
   const { promise, resolve } = Promise.withResolvers<InputOutcome>();
   const pending: PendingInput = {
     sessionId,
+    viewId,
     inputSeq,
     bytes: owned,
     socketId: state.socketId,
@@ -291,7 +290,7 @@ export function sendTerminalInput(sessionId: string, bytes: Uint8Array): InputAd
   try {
     currentSmokeTerminalInputObserver()?.(sessionId, owned.slice());
   } catch {
-    // Smoke instrumentation must never perturb terminal input delivery.
+    // Smoke instrumentation must never perturb delivery.
   }
   trySendInput(pending, state);
   return { accepted: true, inputSeq, result: promise };
@@ -307,37 +306,7 @@ export function inputMapSizes(): number {
   return lastInputSendTs.size + inputLanes.size;
 }
 
-export interface TerminalOutboundSnapshot {
-  claim: TerminalViewportClaimSnapshot;
-  sync: {
-    socket_generation: number | null;
-    socket_id: string | null;
-    process_epoch: string | null;
-    domain_generation: string | null;
-    ready: boolean;
-  };
-}
-
-/** Bounded on-demand view of the current desired/confirmed viewport ownership
- * and terminal Sync identity. Stale-generation confirmation is never reported
- * as current. */
-export function terminalOutboundSnapshot(sessionId: string): TerminalOutboundSnapshot {
-  const sync = currentSyncV2TerminalState();
-  return {
-    claim: viewportClaimSnapshot(sessionId, sync),
-    sync: {
-      socket_generation: sync?.socketGeneration ?? null,
-      socket_id: sync?.socketId ?? null,
-      process_epoch: sync?.processEpoch ?? null,
-      domain_generation: sync?.domainGeneration.toString() ?? null,
-      ready: sync?.ready ?? false,
-    },
-  };
-}
-
-export function pruneTerminalOutbound(sessionId: string): void {
-  pruneViewportSession(sessionId);
-  forgetSmokeViewportSession(sessionId);
+export function pruneTerminalInput(sessionId: string): void {
   const lane = inputLanes.get(sessionId);
   if (lane) {
     for (const pending of [...lane.pending]) {
@@ -350,12 +319,9 @@ export function pruneTerminalOutbound(sessionId: string): void {
     }
   }
   lastInputSendTs.delete(sessionId);
-  persistViewportIntents();
 }
 
-/** Deterministic state reset for the focused outbound protocol tests. */
 export function _resetTerminalOutboundForTest(): void {
-  _resetViewportOutboundForTest();
   for (const lane of inputLanes.values()) {
     for (const pending of lane.pending) {
       clearTimeout(pending.timer ?? undefined);
@@ -370,6 +336,7 @@ export function _resetTerminalOutboundForTest(): void {
   inputLanes.clear();
   lastInputSendTs.clear();
   observedSocketId = null;
+  observedDomainGeneration = null;
   nextInputSeq = 0n;
   _resetSmokeOutboundForTest();
 }

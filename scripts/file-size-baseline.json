@@ -6,7 +6,6 @@
   "apps/coord/src/connect/worker-send.ts": 494,
   "apps/coord/src/coord-move/orchestrator.ts": 418,
   "apps/coord/src/main.ts": 436,
-  "apps/coord/tests/cell-subscriptions.test.ts": 471,
   "apps/coord/tests/coord-bidi.test.ts": 912,
   "apps/coord/tests/durable-publication.test.ts": 402,
   "apps/coord/tests/sync-ws-keepalive.test.ts": 747,

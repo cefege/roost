@@ -187,6 +187,62 @@ describe("ScrollbackBackfill demand and cancellation", () => {
     h.controller.dispose();
   });
 
+  test("an incompatible full fetches through the reader anchor before restoring it", async () => {
+    const order: string[] = [];
+    const pending = Promise.withResolvers<ScrollResponse>();
+    const restoreComplete = Promise.withResolvers<void>();
+    rpcImpl = () => {
+      order.push("request");
+      return pending.promise;
+    };
+    const anchor = {
+      sbBase: 1000,
+      cols: 80,
+      total: 1000,
+      gridEpoch: GRID_EPOCH,
+    };
+    let readerAnchor: { row: number; offsetPx: number } | null = null;
+    const renderer = {
+      backfillAnchor: () => ({ ...anchor }),
+      readerAnchorForBackfill: () => readerAnchor,
+      atBottom: () => true,
+      prependScrollback(rows: readonly CellRow[]) {
+        order.push("prepend");
+        anchor.sbBase = rows[0]!.index;
+      },
+      restoreReaderAnchor(restored: { row: number; offsetPx: number }) {
+        order.push("restore");
+        expect(restored).toEqual({ row: 800, offsetPx: 4 });
+        restoreComplete.resolve();
+        return true;
+      },
+    } as unknown as CellGridRenderer;
+    const controller = createScrollbackBackfill({
+      sessionId: "session-reader-anchor",
+      renderer: () => renderer,
+      active: () => true,
+    });
+
+    controller.onFullFrame();
+    anchor.gridEpoch = "test-grid:1";
+    readerAnchor = { row: 800, offsetPx: 4 };
+    controller.onFullFrame();
+
+    expect(rpcCalls[0]).toEqual({
+      sessionId: "session-reader-anchor",
+      endRow: 1000n,
+      maxRows: 1000,
+      gridEpoch: "test-grid:1",
+    });
+    expect(order).toEqual(["request"]);
+
+    pending.resolve({ ...response(0, 1000), gridEpoch: "test-grid:1" });
+    await flushWork();
+    await restoreComplete.promise;
+    expect(order).toEqual(["request", "prepend", "restore"]);
+    controller.dispose();
+  });
+
   test("a short page paints the retained suffix and parks at its floor", async () => {
     rpcImpl = async (request) =>
       request.endRow === 1000n

@@ -51,6 +51,21 @@ export interface SyncV2QueuedFrame {
   readonly queuedAtMs: number;
   readonly estimatedBytes: number;
 }
+export interface SyncTerminalSnapshotCursor {
+  readonly streamId: string;
+  readonly frames: readonly FirehoseFrame[];
+  index: number;
+  queued: boolean;
+  readonly deltaTail: FirehoseFrame[];
+  deltaBytes: number;
+}
+
+export interface SyncTerminalSessionLane {
+  streamId: string;
+  cursor: SyncTerminalSnapshotCursor | null;
+  readonly pendingStates: FirehoseFrame[];
+}
+
 
 export interface SyncV2DomainState {
   generation: bigint;
@@ -67,6 +82,7 @@ export interface SyncV2SocketState {
   readonly domains: Map<SyncDomain, SyncV2DomainState>;
   readonly announcedSessions: Set<string>;
   readonly pendingSessionAnnouncements: Map<string, bigint>;
+  readonly terminalSessions: Map<string, SyncTerminalSessionLane>;
   queuedFrames: number;
   queuedBytes: number;
   laneCursor: number;
@@ -92,6 +108,7 @@ export function createSyncV2SocketState(): SyncV2SocketState {
     domains,
     announcedSessions: new Set(),
     pendingSessionAnnouncements: new Map(),
+    terminalSessions: new Map(),
     queuedFrames: 0,
     queuedBytes: 0,
     laneCursor: 0,
@@ -109,6 +126,7 @@ export const clearV2State = (ws: ServerWebSocket<SyncWsData>): void => {
   v2.queuedBytes = 0;
   v2.announcedSessions.clear();
   v2.pendingSessionAnnouncements.clear();
+  v2.terminalSessions.clear();
   for (const domain of v2.domains.values()) {
     domain.queue.length = 0;
     domain.queuedBytes = 0;
@@ -161,6 +179,7 @@ export const queuedV2FrameEligible = (
   item: SyncV2QueuedFrame,
 ): boolean => {
   if (item.meta.lane !== "cell") return true;
+  if (item.frame.frame.case === "terminalViewState") return true;
   if (!item.meta.sessionId || !v2.announcedSessions.has(item.meta.sessionId)) return false;
   const announcementSeq = v2.pendingSessionAnnouncements.get(item.meta.sessionId);
   return announcementSeq === undefined || ackDeliverySeq >= announcementSeq;

@@ -8,11 +8,10 @@
 // the state list is empty; that's the accepted trade of the command-channel
 // design (plan G1 decision — no server-persisted layout, no cross-device merge).
 //
-// Module-level singleton state + TTL reap, same shape as viewer-tracker.ts:
-// ephemeral presence-class data, in-memory map, NOT a DB table. TTL (5 min)
-// is generous vs the SPA's 60s heartbeat so live tabs never expire; a closed
-// tab simply stops reporting and ages out. Spread into router.ts's single
-// router.service() literal. Split per the 400-line handler-file cap.
+// Module-level singleton state + TTL reap for ephemeral presence-class data.
+// This is an in-memory UI projection, not terminal view membership or a DB
+// table. Its five-minute TTL is generous relative to the SPA heartbeat, so a
+// closed tab ages out without expiring a live one.
 
 import type { ServiceImpl } from "@connectrpc/connect";
 import { Code, ConnectError } from "@connectrpc/connect";
@@ -37,9 +36,8 @@ interface UiTabEntry {
   state: UiReportStateRequest;
 }
 
-// Keyed `${fp}:${tabId}` — the tab id (sessionStorage roost.tabId) alone
-// isn't unique across browsers. Underscore export mirrors viewer-tracker's
-// _viewersBySession: tests + diag may read/manipulate, handlers own it.
+// Keyed `${fp}:${tabId}` because the browser-local tab id is not globally
+// unique. Tests and diagnostics may inspect the underscored map; handlers own it.
 export const _uiStatesByTab = new Map<string, UiTabEntry>();
 
 // Inline reap shared by the interval, uiListStates, and the Sync-connect

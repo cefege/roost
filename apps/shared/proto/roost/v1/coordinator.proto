@@ -119,23 +119,18 @@ message SessionsSpawnRequest {
   optional uint32 cols = 5;
   optional uint32 rows = 6;
   optional string session_id = 7;  // caller-minted id (optimistic spawn); worker reuses it verbatim
-  // Optimistic SPA spawn: cols/rows came from the mounted placeholder and the
-  // authenticated tab's viewport membership must exist before worker spawn.
-  // Non-SPA/public callers leave this false and retain ordinary spawn behavior.
-  bool preclaim_initial_viewport = 8;
-  // Monotonic sequence minted by the mounted pane for the preclaim. The
-  // coordinator owns the effective sequence and returns it below.
-  uint64 initial_viewport_client_seq = 9;
+  // 8/9 were optimistic viewport-preclaim fields. Membership now begins only
+  // when the mounted browser sends TerminalViewCommand after `opened`.
+  reserved 8, 9;
+  reserved "preclaim_initial_viewport", "initial_viewport_client_seq";
 }
 message SessionsSpawnResponse {
   string session_id = 1;
   uint32 channel_id = 2;
-  // True only when the coordinator and worker both installed the authenticated
-  // tab's measured viewport before the first cell frame.
-  bool initial_viewport_preclaimed = 3;
-  // Coordinator-owned sequence actually installed for the preclaim. Zero when
-  // initial_viewport_preclaimed is false.
-  uint64 effective_client_seq = 4;
+  // 3/4 were viewport-preclaim outcome fields. Spawn geometry is only the
+  // initial PTY-size hint; it never installs terminal-view membership.
+  reserved 3, 4;
+  reserved "initial_viewport_preclaimed", "effective_client_seq";
 }
 
 message SessionsAttachRequest {
@@ -153,43 +148,9 @@ message SessionsKillResponse { bool accepted = 1; }
 message SessionsRenameRequest { string session_id = 1; string title = 2; }
 message SessionsRenameResponse { bool ok = 1; }
 
-// What browser event produced a viewport claim (the ResizeCause model). The
-// SPA states its INTENT; the worker uses it as a hint (e.g.
-// force a full cell frame on a (re)attach/visible so a reconnecting viewer
-// paints immediately, vs a plain VIEWPORT resize that just re-paces). The SPA
-// does NOT try to distinguish chrome-wobble from a user drag — both are
-// VIEWPORT; wobble is absorbed by SCD-min + letterbox, not by this field.
-enum ResizeCause {
-  RESIZE_CAUSE_UNSPECIFIED = 0;  // legacy caller (treat as VIEWPORT)
-  RESIZE_CAUSE_INITIAL = 1;      // pane mount / first claim
-  RESIZE_CAUSE_VIEWPORT = 2;     // ResizeObserver — window/element size change
-  RESIZE_CAUSE_TAB_VISIBLE = 3;  // visibilitychange → visible (re-claim)
-  RESIZE_CAUSE_WITHDRAW = 4;     // tab hidden / unmount → 0x0 withdraw
-  RESIZE_CAUSE_BACKGROUND = 5;   // parked deck pane: keep streaming, don't constrain size
-  RESIZE_CAUSE_HEARTBEAT = 6;    // visible claim liveness + applied cell-seq check
-}
 
-message SessionsResizeRequest {
-  string session_id = 1;
-  uint32 cols = 2;
-  uint32 rows = 3;
-  // Monotonic per-SPA-window counter, bumped on each intent-bearing
-  // claim (focus / resize / visibilitychange-visible). Heartbeats reuse
-  // the last intent's value → worker treats as no-op for latestViewer.
-  // 0 (unset) = legacy caller; worker synthesizes a fresh seq locally.
-  uint64 client_seq = 4;
-  ResizeCause cause = 5;
-  // 6 was held_scrollback_total. Retired: authoritative claim frames are
-  // viewport-only and retained history is fetched only by explicit demand.
-  reserved 6;
-  reserved "held_scrollback_total";
-  // Cell-frame seq this viewer has already applied (CellGridFrame.seq). The
-  // worker emits a claim snapshot only when this differs from the seq it last
-  // emitted — a pane that never stopped streaming needs no repaint. 0 = unset /
-  // holds nothing → always snapshot.
-  uint32 held_cell_seq = 7;
-}
-message SessionsResizeResponse { bool accepted = 1; }
+
+
 
 
 
@@ -699,7 +660,6 @@ service CoordinatorService {
   rpc SessionsAttach(SessionsAttachRequest) returns (SessionsAttachResponse);
   rpc SessionsKill(SessionsKillRequest) returns (SessionsKillResponse);
   rpc SessionsRename(SessionsRenameRequest) returns (SessionsRenameResponse);
-  rpc SessionsResize(SessionsResizeRequest) returns (SessionsResizeResponse);
   rpc SessionsInput(SessionsInputRequest) returns (SessionsInputResponse);
   rpc SessionsCursorPos(SessionsCursorPosRequest) returns (SessionsCursorPosResponse);
   rpc SessionsAssignWorkspace(SessionsAssignWorkspaceRequest) returns (SessionsAssignWorkspaceResponse);

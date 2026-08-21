@@ -10,11 +10,12 @@
 import { batch } from "solid-js";
 import { reconcile } from "solid-js/store";
 import { signal, diag } from "@roost/shared/diag";
-import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
+import type { PbCellGridChunk, PbCellGridFrame } from "@roost/shared/proto/cell_pb";
 import type { PairRequestDeltaProto } from "@roost/shared/proto/events_pb";
 import type {
   AgentStatusFrame,
   FirehoseFrame,
+  TerminalViewStateFrame,
   UiCommandFrame,
 } from "@roost/shared/proto/sync_pb";
 import { protoToEvent } from "@roost/shared/wire/event-proto";
@@ -23,7 +24,12 @@ import { _dispatchUiCommand } from "../lib/uiCommandDispatch.ts";
 import { applyAgentStatusFrame } from "./agent-status.ts";
 import { setRootStore, rootStore } from "./root.ts";
 import type { PairRequest } from "./root.ts";
-import { _dispatchCell, _dispatchPresence } from "./sync-dispatch.ts";
+import { _dispatchPresence } from "./sync-dispatch.ts";
+import {
+  dispatchTerminalCellChunk,
+  dispatchTerminalCellFrame,
+  dispatchTerminalViewState,
+} from "./terminal-stream.ts";
 import {
   _handleSessionsEvent, _handlePresenceEvent, _handleWorkspacesDelta,
   _handleTasksDelta, _handlePermissionsDelta, _handleMcpEvent,
@@ -162,10 +168,21 @@ export function _dispatchSyncFrame(frame: FirehoseFrame): boolean {
             break;
           }
           case "cellGrid": {
-            // R11 — pre-rendered cell frame. CellGridRenderer (cell
-            // mode) consumes it; no-op for byte-mode viewers (no handler).
-            diag("cell.recv", { sid: (v as PbCellGridFrame).sessionId || "", seq: Number((v as PbCellGridFrame).seq || 0) });
-            _dispatchCell(v as PbCellGridFrame);
+            const cell = v as PbCellGridFrame;
+            diag("cell.recv", {
+              sid: cell.sessionId,
+              stream_id: cell.streamId,
+              seq: Number(cell.seq),
+            });
+            dispatchTerminalCellFrame(cell);
+            break;
+          }
+          case "cellGridChunk": {
+            dispatchTerminalCellChunk(v as PbCellGridChunk);
+            break;
+          }
+          case "terminalViewState": {
+            dispatchTerminalViewState(v as TerminalViewStateFrame);
             break;
           }
           case "sessionPresence": {

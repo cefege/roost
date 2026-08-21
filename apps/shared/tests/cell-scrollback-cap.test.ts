@@ -26,8 +26,8 @@ const ROWS = 24;
 // still on the live grid. Derived from the writer, never from the counter under
 // test.
 const pushedBy = (lines: number): number => lines - (ROWS - 1);
-// Roost's patched MAX_SCROLLBACK_LINES (scripts/wterm-0.3.4-scrollback.patch
-// raises upstream's 1k). Stock @wterm/core is still a real 1k core.
+// Roost's patched MAX_SCROLLBACK_LINES (scripts/wterm-0.3.4-roost.patch raises
+// upstream's 1k). Stock @wterm/core is still a real 1k core.
 const ROOST_CAPACITY = 10_000;
 const STOCK_CAPACITY = 1_000;
 
@@ -47,7 +47,7 @@ function floodLines(core: TerminalCore, count: number, from = 1): void {
  *  the stream scrolled into history, with nothing lost between them. */
 function expectExactAccounting(core: TerminalCore, pushed: number, capacity: number): void {
   const retained = core.getScrollbackCount();
-  const discarded = scrollbackOrigin(core, initCellEmitState("cap"));
+  const discarded = scrollbackOrigin(core, initCellEmitState("cap", "00000000-0000-4000-8000-000000000001"));
   expect(retained).toBe(capacity);
   expect(discarded).toBe(pushed - capacity);
   expect(retained + discarded).toBe(pushed);
@@ -71,12 +71,12 @@ describe("the ring's eviction origin is authoritative on the real cores", () => 
     const core = await createWtermCore(80, ROWS);
     floodLines(core, 500);
     expect(core.getScrollbackCount()).toBe(pushedBy(500));
-    expect(scrollbackOrigin(core, initCellEmitState("cap"))).toBe(0);
+    expect(scrollbackOrigin(core, initCellEmitState("cap", "00000000-0000-4000-8000-000000000001"))).toBe(0);
   });
 
   test("the origin only ever grows as the ring keeps rolling", async () => {
     const core = await createWtermCore(80, ROWS);
-    const emit = initCellEmitState("cap");
+    const emit = initCellEmitState("cap", "00000000-0000-4000-8000-000000000001");
     floodLines(core, LINES);
     const first = scrollbackOrigin(core, emit);
     expect(first).toBeGreaterThan(0);
@@ -95,14 +95,14 @@ describe("the ring's eviction origin is authoritative on the real cores", () => 
     // session-resize-capture pins the difference in sbOrigin.
     const core = await createWtermCore(80, ROWS);
     floodLines(core, LINES);
-    const raw = scrollbackOrigin(core, initCellEmitState("cap"));
-    const rebased = scrollbackOrigin(core, { ...initCellEmitState("cap"), sbOrigin: 40_000 });
+    const raw = scrollbackOrigin(core, initCellEmitState("cap", "00000000-0000-4000-8000-000000000001"));
+    const rebased = scrollbackOrigin(core, { ...initCellEmitState("cap", "00000000-0000-4000-8000-000000000001"), sbOrigin: 40_000 });
     expect(rebased).toBe(raw + 40_000);
   });
 
   test("a core that cannot report discards fails loudly instead of guessing", () => {
     const blind = { getScrollbackCount: () => 10 } as unknown as TerminalCore;
-    expect(() => scrollbackOrigin(blind, initCellEmitState("cap")))
+    expect(() => scrollbackOrigin(blind, initCellEmitState("cap", "00000000-0000-4000-8000-000000000001")))
       .toThrow(/getScrollbackDiscardedCount/);
   });
 });

@@ -58,7 +58,9 @@ export class FakeEl {
   get paintedRows(): number {
     // The history spacer's reserved height IS scroll space (CellGridRenderer
     // ._syncSpacer) — count it as rows so the fake's geometry stays truthful.
-    if (this.className === "cell-sb-spacer") return (parseFloat(String(this.style.height ?? "0")) || 0) / ROW_PX;
+    if (this.className === "cell-sb-spacer" || this.className === "cell-sb-gap") {
+      return (parseFloat(String(this.style.height ?? "0")) || 0) / ROW_PX;
+    }
     if (this.className === "cell-row") return 1;
     let n = 0;
     for (const c of this.children) n += (c as FakeEl).paintedRows ?? 0;
@@ -165,6 +167,7 @@ export function row(index: number, text: string): CellRow {
   return { index, spans: text ? [{ text, columns: text.length, fg: DEFAULT_COLOR, bg: DEFAULT_COLOR, flags: 0 }] : [] };
 }
 const BASE = {
+  streamId: "test-stream:0",
   gridEpoch: "test-grid:0",
   cursorRow: 0, cursorCol: 0, cursorVisible: true, altScreen: false,
   cursorKeysApp: false, bracketedPaste: false,
@@ -173,7 +176,7 @@ const BASE = {
 export function fullFrame(cols: number, viewport: CellRow[], scrollbackTotal = 0): CellGridFrame {
   return { ...BASE, cols, rows: viewport.length, full: true,
     viewportRows: viewport, scrollbackRows: [], scrollbackAppend: [],
-    scrollbackTotal, sbBase: scrollbackTotal, seq: 1 };
+    scrollbackTotal, sbBase: scrollbackTotal, baseSeq: 0, seq: 1 };
 }
 export function deltaFrame(
   cols: number,
@@ -184,7 +187,7 @@ export function deltaFrame(
 ): CellGridFrame {
   return { ...BASE, cols, rows, full: false,
     viewportRows: viewport, scrollbackRows: [], scrollbackAppend: append,
-    scrollbackTotal: 0, sbBase: 0, seq };
+    scrollbackTotal: 0, sbBase: 0, baseSeq: seq - 1, seq };
 }
 export function seedHeldHistory(
   renderer: CellGridRenderer,

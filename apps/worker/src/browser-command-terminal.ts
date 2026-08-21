@@ -371,28 +371,3 @@ export async function handleSearchScrollback(
 		});
 	}
 }
-
-export function handleResize(
-	frame: Extract<ClientControlFrame, { kind: "resize" }>,
-	viewer_id: string,
-	deps: { sessionMgr: SessionManager },
-): void {
-	const { sessionMgr } = deps;
-	// Viewport claim per (viewer_fp, channel). PTY size = SCD
-	// across live claims so two browsers at different window
-	// sizes can't ping-pong the running TUI between sizes.
-	// cols=0 OR rows=0 = withdraw (SPA fires on tab-hidden,
-	// pagehide, blur). See SessionManager.claimViewport.
-	const rec = sessionMgr.getBySessionId(frame.session_id);
-	if (rec)
-		sessionMgr.claimViewport(
-			rec.channelId,
-			viewer_id,
-			frame.cols,
-			frame.rows,
-			frame.client_seq,
-			frame.cause,
-			frame.held_cell_seq,
-		);
-	return;
-}

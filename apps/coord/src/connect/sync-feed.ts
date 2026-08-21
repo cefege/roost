@@ -13,12 +13,11 @@ import {
 import {
   sessionBus, presenceBus, workspaceBus, taskBus, webhookBus,
   permissionBus, mcpBus, globalPresenceBus, auditBus,
-  titleBus, lastActivityBus, workerRoutableBus, globalCellBus, agentStatusBus,
+  titleBus, lastActivityBus, workerRoutableBus, agentStatusBus,
   pairBus, uiBus,
 } from "../buses.ts";
 import { getEventMaxId, getEventsSince, getEventsThrough } from "../event-log.ts";
 import { getUiStateSnapshot } from "./handlers-ui.ts";
-import { isSubscribed } from "./cell-subscriptions.ts";
 import { log } from "@roost/shared/log";
 import { signal } from "@roost/shared/diag";
 import type { SessionEvent } from "@roost/shared/wire";
@@ -156,13 +155,7 @@ export function startSyncFeed(
         })},
       }));
     }),
-    // R11 cell-grid cell-shipping. Bus payload is already a PbCellGridFrame
-    // (session_id stamped by byte-hub::publishCellGrid).
-    globalCellBus.subscribe((frame) => {
-      if (viewerKey && !isSubscribed(viewerKey, frame.sessionId)) return;
-      frame.coordFanoutMs = BigInt(Date.now());
-      push(create(FirehoseFrameSchema, { frame: { case: "cellGrid", value: frame } }));
-    }),
+    // V2 terminal cells are delivered exclusively by TerminalScreenHub. The
     titleBus.subscribe(({ session_id, title }) =>
       push(create(FirehoseFrameSchema, {
         frame: { case: "terminalTitle", value: create(TerminalTitleFrameSchema, {

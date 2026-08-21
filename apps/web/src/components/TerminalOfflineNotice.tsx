@@ -12,7 +12,7 @@ import {
   type JSX,
 } from "solid-js";
 import { isPageVisible } from "../lib/pageVisible.ts";
-import type { TerminalViewportOwnerStatus } from "../ws/sync-outbound.ts";
+import type { TerminalViewHandleStatus } from "../store/terminal-stream.ts";
 
 export type TerminalLoadingStage =
   | "identity"
@@ -44,7 +44,7 @@ function isStaleOrConflictingViewportReason(reason: string): boolean {
 
 export function terminalViewportLoadingNotice(
   pending: boolean,
-  status: TerminalViewportOwnerStatus | null,
+  status: TerminalViewHandleStatus | null,
 ): TerminalLoadingNoticeProps {
   if (pending) {
     return {
@@ -65,40 +65,33 @@ export function terminalViewportLoadingNotice(
       return {
         stage: "viewport",
         title: "Requesting terminal viewport",
-        detail: "Waiting for the worker to accept this pane's size.",
+        detail: "Waiting for the coordinator to accept this terminal view.",
       };
-    case "retrying": {
-      const retryTiming = status.retryInMs <= 0
-        ? " Retrying now."
-        : ` Next attempt in ${Math.max(1, Math.ceil(status.retryInMs / 1000))}s.`;
+    case "accepted":
+      return status.baselineReady
+        ? {
+            stage: "render",
+            title: "Rendering terminal screen",
+            detail: "The full screen arrived; waiting for browser layout and paint.",
+          }
+        : {
+            stage: "frame",
+            title: "Waiting for terminal screen",
+            detail: `View accepted at ${status.effectiveCols}×${status.effectiveRows}; waiting for its full baseline.`,
+          };
+    case "unavailable":
       return {
         stage: "retry",
-        title: "Retrying terminal viewport",
-        detail: isStaleOrConflictingViewportReason(status.reason)
-          ? `${VIEWPORT_CONFLICT_DETAIL}${retryTiming}`
-          : `${status.reason.slice(0, 200)}${retryTiming}`,
-      };
-    }
-    case "repairing":
-      return {
-        stage: "frame",
-        title: "Waiting for terminal screen",
-        detail: `Worker accepted ${status.effectiveCols}×${status.effectiveRows}; waiting for a full frame.`,
-      };
-    case "ready":
-      return {
-        stage: "render",
-        title: "Rendering terminal screen",
-        detail: "The frame arrived; waiting for browser layout and paint.",
+        title: "Terminal stream unavailable",
+        detail: `${status.reason.slice(0, 200)} The active view will retry on its next lease refresh.`,
       };
     case "rejected":
-    case "superseded":
       return {
         stage: "retry",
-        title: "Re-establishing terminal viewport",
+        title: "Terminal view rejected",
         detail: isStaleOrConflictingViewportReason(status.reason)
           ? VIEWPORT_CONFLICT_DETAIL
-          : `${status.reason.slice(0, 200)} Re-establishing the viewport.`,
+          : status.reason.slice(0, 200),
       };
   }
   const unreachable: never = status;

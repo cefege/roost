@@ -74,29 +74,29 @@ export function linkUriWithinCap(uri: string): boolean {
 
 export interface CellSpan {
   /** Concatenated codepoints of the run (NUL cells render as a space). */
-  text: string;
+  readonly text: string;
   /** 0..15 ANSI, 16..255 palette, 256 = default. */
-  fg: number;
-  bg: number;
+  readonly fg: number;
+  readonly bg: number;
   /** CELL_* bitfield. */
-  flags: number;
+  readonly flags: number;
   /** Resolved 24-bit fg (0xRRGGBB) when the core provides true color; else undefined. */
-  fgRgb?: number;
-  bgRgb?: number;
+  readonly fgRgb?: number;
+  readonly bgRgb?: number;
   /** REQUIRED terminal columns this span occupies (>= 1). See the column
    *  occupancy note above: equals text.length only for a coalesced narrow run. */
-  columns: number;
+  readonly columns: number;
   /** Core-authored OSC 8 URI for every cell of this span, or undefined when the
    *  run carries no hyperlink. This is Roost's ONLY hyperlink source — nothing
    *  re-derives links from bytes and nothing text-matches them. */
-  linkUri?: string;
+  readonly linkUri?: string;
   /** Opaque per-core RUN identity for the OSC 8 link (@wterm/core
    *  CellData.linkKey). Present exactly when `linkUri` is. Two separate OSC 8
    *  emissions can share one URI and must stay two independently clickable
    *  spans, so this — not `linkUri` — is the coalescing and grouping key. It is
    *  meaningful only inside one core instance: never persist or compare it
    *  across a core rebuild. */
-  linkKey?: string;
+  readonly linkKey?: string;
 }
 
 export interface CellRow {
@@ -106,7 +106,8 @@ export interface CellRow {
    * retained line), used to splice deltas onto the client's held frame.
    */
   index: number;
-  spans: CellSpan[];
+  /** Immutable after decoding/encoding; replica clones safely share this array. */
+  spans: readonly CellSpan[];
 }
 
 /** Mouse reporting mode the foreground application requested, exactly as
@@ -123,6 +124,8 @@ export function asMouseTracking(raw: number): MouseTracking {
 }
 
 export interface CellGridFrame {
+  /** Coordinator-minted generation for one watched-session stream. */
+  streamId: string;
   /** Opaque identity for the worker-side grid numbering epoch. */
   gridEpoch: string;
   cols: number;
@@ -160,13 +163,17 @@ export interface CellGridFrame {
    *  retained line. Delta frames: always 0 (scrollbackRows empty; appends
    *  carry their own absolute index). */
   sbBase: number;
-  /** Per-channel monotonic frame seq; lets the client detect gaps/resets. */
+  /** Previous emitted sequence for a delta; full baselines always carry 0. */
+  baseSeq: number;
+  /** Monotonic sequence within the stream; gaps require a new full baseline. */
   seq: number;
 }
 
-// Authoritative FULL frames are viewport-only. Retained scrollback depth still
-// rides in scrollbackTotal/sbBase and is fetched only on explicit scroll/find.
+// Initial and ordinary repair FULLs stay viewport-only. A renewed stream over
+// the same grid carries the newest renderer-sized history window so any output
+// emitted during unsubscribe races overlaps the browser's retained 2,000 rows.
 export const SB_SNAPSHOT_HISTORY_ROWS = 0;
+export const SB_RENEWAL_HISTORY_ROWS = 2_000;
 
 // ── Column geometry ────────────────────────────────────────────────────
 // The single implementation of "which grid column is this text at", shared by

@@ -131,8 +131,7 @@ describe("TTL reap", () => {
   test("stale entry excluded from uiListStates and getUiStateSnapshot", async () => {
     await handlers.uiReportState(reportReq("tab-live"), authCtx);
     await handlers.uiReportState(reportReq("tab-dead"), authCtx);
-    // Age the second entry past TTL via the exported map (smallest honest
-    // mechanism — mirrors viewer-tracker's _viewersBySession seam).
+    // Age the second entry past TTL through the module's explicit test seam.
     const dead = _uiStatesByTab.get("fp-test:tab-dead")!;
     dead.lastMs = Date.now() - UI_STATE_TTL_MS - 1;
 

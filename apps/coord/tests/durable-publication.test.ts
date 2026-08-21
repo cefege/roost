@@ -20,18 +20,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { create } from "@bufbuild/protobuf";
 import {
-  CoordWorkerUpSchema, WHelloSchema, WSessionEventSchema, WCellGridSchema,
+  CoordWorkerUpSchema, WHelloSchema, WSessionEventSchema,
 } from "@roost/shared/proto/worker_transport_pb";
-import { PbCellGridFrameSchema } from "@roost/shared/proto/cell_pb";
 import { openDb, type DbHandle } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
 import { appendEvent } from "../src/event-log.ts";
 import {
   applyDurableChannelIndex, evictSessionWorker, getCachedSessionWorker,
-  isWorkerChannelIndexReconciled, lookupSessionId, publishBytes, publishCellGrid,
+  isWorkerChannelIndexReconciled, lookupSessionId, publishBytes,
   resetWorkerChannelIndexReconcile,
 } from "../src/byte-hub.ts";
-import { globalBytesBus, globalCellBus, sessionBus } from "../src/buses.ts";
+import { globalBytesBus, sessionBus } from "../src/buses.ts";
 import { makeWorkerConn, type WorkerServiceDeps } from "../src/connect/worker-conn.ts";
 import { connectWorkers } from "../src/connect/worker-registry.ts";
 import { processInputControl, terminalViewerIdentity } from "../src/connect/session-control.ts";
@@ -93,12 +92,6 @@ function committedChannel(sid: string): number | null {
   const row = reader.sqlite.query("select channel from sessions where id = ?").get(sid);
   if (!row || typeof row !== "object" || !("channel" in row)) return null;
   return typeof row.channel === "number" ? row.channel : null;
-}
-
-function cellFrame(seq: number) {
-  return create(PbCellGridFrameSchema, {
-    cols: 80, rows: 24, full: true, seq: BigInt(seq), gridEpoch: `epoch:${seq}`,
-  });
 }
 
 beforeEach(async () => {
@@ -214,39 +207,25 @@ describe("appendEvent durable publication order", () => {
 });
 
 describe("respawned channel-index operation", () => {
-  test("routes cells and PTY metadata on the new channel immediately, old channel dead", async () => {
+  test("routes PTY metadata on the new channel immediately, old channel dead", async () => {
     await append(openedEvent(SID_A, 11));
 
-    const cells: Array<{ sessionId: string; seq: string }> = [];
     const bytes: string[] = [];
-    const unsubCells = globalCellBus.subscribe((f) => {
-      if (f.sessionId === SID_A) cells.push({ sessionId: f.sessionId, seq: f.seq.toString() });
-    });
     const unsubBytes = globalBytesBus.subscribe((m) => {
       if (m.session_id === SID_A) bytes.push(new TextDecoder().decode(m.bytes));
     });
     try {
-      publishCellGrid(FP, asChannelId(11), cellFrame(1));
-      expect(cells).toEqual([{ sessionId: SID_A, seq: "1" }]);
-
       await append(respawnedEvent(SID_A, 12));
 
       // No browser reconnect, no re-`opened`: the new channel is already live.
-      publishCellGrid(FP, asChannelId(12), cellFrame(2));
       publishBytes(FP, asChannelId(12), new TextEncoder().encode("\x1b]0;new title\x07"));
       // The dead channel routes nothing — a surviving stale key would fan the
       // old core's trailing output into the same session.
-      publishCellGrid(FP, asChannelId(11), cellFrame(3));
       publishBytes(FP, asChannelId(11), new TextEncoder().encode("stale"));
     } finally {
-      unsubCells();
       unsubBytes();
     }
 
-    expect(cells).toEqual([
-      { sessionId: SID_A, seq: "1" },
-      { sessionId: SID_A, seq: "2" },
-    ]);
     expect(bytes).toEqual(["\x1b]0;new title\x07"]);
     expect(lookupSessionId(FP, asChannelId(11))).toBeUndefined();
     expect(lookupSessionId(FP, asChannelId(12))).toBe(SID_A);
@@ -343,8 +322,8 @@ describe("superseded worker generation fence", () => {
     });
   }
 
-  test("a superseded socket cannot publish cells, append events, or replace the index", async () => {
-    // makeWorkerConn uses only these members on the hello/event/cell path.
+  test("a superseded socket cannot append events or replace the index", async () => {
+    // makeWorkerConn uses only these members on the hello/event path.
     const deps = {
       db: writer.db,
       coordKey: { verifyingKeyB64: () => "key", verifyingKeyKid: () => "kid" },
@@ -369,23 +348,11 @@ describe("superseded worker generation fence", () => {
       await newConn.handleUpstream(upFrame(openedEvent(SID_A, 11), 101));
       expect(lookupSessionId(FP, asChannelId(11))).toBe(SID_A);
 
-      const cells: string[] = [];
-      const unsub = globalCellBus.subscribe((f) => cells.push(f.sessionId));
-      try {
-        // Late frames from the superseded socket: an event append, an exact
-        // snapshot that would wipe the replacement's index, and a cell publish.
-        await oldConn.handleUpstream(upFrame(openedEvent(SID_B, 12), 102));
-        await oldConn.handleUpstream(upFrame(snapshotEvent([]), 103));
-        await oldConn.handleUpstream(create(CoordWorkerUpSchema, {
-          frame: { case: "cellGrid", value: create(WCellGridSchema, {
-            channelId: 11, frame: cellFrame(7),
-          }) },
-        }));
-      } finally {
-        unsub();
-      }
+      // Late frames from the superseded socket: an event append and an exact
+      // snapshot that would wipe the replacement's index.
+      await oldConn.handleUpstream(upFrame(openedEvent(SID_B, 12), 102));
+      await oldConn.handleUpstream(upFrame(snapshotEvent([]), 103));
 
-      expect(cells).toEqual([]);
       expect(lookupSessionId(FP, asChannelId(11))).toBe(SID_A);
       expect(lookupSessionId(FP, asChannelId(12))).toBeUndefined();
       expect(isWorkerChannelIndexReconciled(FP)).toBe(false);

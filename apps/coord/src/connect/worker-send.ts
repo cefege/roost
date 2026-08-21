@@ -8,8 +8,8 @@ import { Code, ConnectError } from "@connectrpc/connect";
 import {
   CoordWorkerDownSchema, DBrowserCommandSchema, DBinarySchema, DAttachmentChunkSchema,
   DCoordMovePrepareSchema, DCoordMoveSnapshotStartSchema, DCoordMoveSnapshotChunkSchema, DCoordRelocateSchema,
-  DInputRequestSchema, DViewportRequestSchema,
-  type WInputResult, type WViewportResult,
+  DInputRequestSchema, DTerminalStreamStateSchema, DTerminalSnapshotRequestSchema,
+  type WInputResult, type WTerminalStreamResult,
   DUpdateBrokerSchema,
 } from "@roost/shared/proto/worker_transport_pb";
 import { connectWorkers } from "./worker-registry.ts";
@@ -83,138 +83,11 @@ export function sendBrowserCommand(
   } catch { return false; }
 }
 
-export type WorkerDiagSnapshotErrorCode =
-  | "offline"
-  | "timeout"
-  | "send_failed"
-  | "rpc_error";
-
-export type WorkerDiagSnapshotResult =
-  | {
-      status: "ok";
-      response_ms: number;
-      snapshot: Record<string, unknown>;
-    }
-  | {
-      status: "error";
-      response_ms: number;
-      error: {
-        code: WorkerDiagSnapshotErrorCode;
-        message: string;
-      };
-    };
-
-const DIAG_SNAPSHOT_TIMEOUT_MS = 2_000;
-
-function diagError(
-  startedAtMs: number,
-  code: WorkerDiagSnapshotErrorCode,
-  message: string,
-): WorkerDiagSnapshotResult {
-  return {
-    status: "error",
-    response_ms: Math.max(0, Date.now() - startedAtMs),
-    error: { code, message: message.slice(0, 240) },
-  };
-}
-
-async function requestWorkerDiagSnapshot(
-  workerFp: string,
-  timeoutMs: number,
-): Promise<WorkerDiagSnapshotResult> {
-  const startedAtMs = Date.now();
-  const worker = connectWorkers.get(workerFp);
-  if (!worker) return diagError(startedAtMs, "offline", "worker is not connected");
-
-  const pending = createPendingRpc<Record<string, unknown>>(timeoutMs, workerFp);
-  try {
-    const sent = worker.send(create(CoordWorkerDownSchema, {
-      frame: { case: "browserCommand", value: create(DBrowserCommandSchema, {
-        browserId: "coordinator-diag",
-        viewerId: "coordinator-diag",
-        requestId: pending.request_id,
-        frameJson: JSON.stringify({ kind: "diag-snapshot" }),
-      }) },
-    }));
-    if (sent === 0) {
-      rejectPendingRpcUnavailable(
-        pending.request_id,
-        "worker transport dropped diagnostic snapshot request",
-      );
-      await pending.promise.catch(() => undefined);
-      return diagError(startedAtMs, "send_failed", "worker transport dropped request");
-    }
-  } catch (error) {
-    rejectPendingRpcUnavailable(
-      pending.request_id,
-      error instanceof Error ? error.message : "worker transport failed diagnostic snapshot",
-    );
-    await pending.promise.catch(() => undefined);
-    return diagError(
-      startedAtMs,
-      "send_failed",
-      error instanceof Error ? error.message : "worker transport send failed",
-    );
-  }
-
-  try {
-    const snapshot = await pending.promise;
-    if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
-      return diagError(startedAtMs, "rpc_error", "worker returned an invalid diagnostic snapshot");
-    }
-    return {
-      status: "ok",
-      response_ms: Math.max(0, Date.now() - startedAtMs),
-      snapshot,
-    };
-  } catch (error) {
-    const code = error instanceof ConnectError
-      ? error.code === Code.DeadlineExceeded
-        ? "timeout"
-        : error.code === Code.Unavailable
-          ? "offline"
-          : "rpc_error"
-      : "rpc_error";
-    return diagError(
-      startedAtMs,
-      code,
-      error instanceof Error ? error.message : String(error),
-    );
-  }
-}
-
-/** Fan out one bounded, correlated request per known worker. The registry key
- * is the authenticated fingerprint from the worker hello; payload identity is
- * never used as a result key. Promise.allSettled isolates worker failures, and
- * each pending RPC owns a deadline/cleanup timer. */
-export async function collectWorkerDiagSnapshots(
-  workerFps: Iterable<string> = connectWorkers.keys(),
-  timeoutMs = DIAG_SNAPSHOT_TIMEOUT_MS,
-): Promise<Record<string, WorkerDiagSnapshotResult>> {
-  const boundedTimeoutMs = Number.isFinite(timeoutMs)
-    ? Math.max(1, Math.min(timeoutMs, 10_000))
-    : DIAG_SNAPSHOT_TIMEOUT_MS;
-  const fingerprints = [...new Set(workerFps)].sort();
-  const startedAtMs = Date.now();
-  const settled = await Promise.allSettled(
-    fingerprints.map((workerFp) =>
-      requestWorkerDiagSnapshot(workerFp, boundedTimeoutMs)),
-  );
-  const entries = fingerprints.map((workerFp, index) => {
-    const result = settled[index]!;
-    return [
-      workerFp,
-      result.status === "fulfilled"
-        ? result.value
-        : diagError(
-            startedAtMs,
-            "rpc_error",
-            result.reason instanceof Error ? result.reason.message : String(result.reason),
-          ),
-    ] as const;
-  });
-  return Object.fromEntries(entries);
-}
+export {
+  collectWorkerDiagSnapshots,
+  type WorkerDiagSnapshotErrorCode,
+  type WorkerDiagSnapshotResult,
+} from "./worker-diag-snapshot.ts";
 
 // ── monotonic hop budgets ────────────────────────────────────────────
 //
@@ -227,14 +100,14 @@ export async function collectWorkerDiagSnapshots(
 // The budgets nest strictly:
 //   keeper reconciliation (6s, worker)
 //     < worker pre-write budget (coordinator remaining − WORKER_HOP_RESERVE_MS)
-//       < coordinator result deadline (5s input / 8s viewport)
+//       < coordinator result deadline (5s input / 8s stream-state)
 // so an inner expiry always reports back while its outer waiter is still
 // listening, and an outer expiry can never race an inner one into a
 // fabricated verdict.
 export const INPUT_CONTROL_TIMEOUT_MS = 5_000;
 // Bound the coordinator lane independently of the worker's 6s keeper budget.
 // Expiry is post-admission ambiguity, never a fabricated rejection.
-export const VIEWPORT_CONTROL_TIMEOUT_MS = 8_000;
+export const TERMINAL_STREAM_CONTROL_TIMEOUT_MS = 8_000;
 // Return-trip + decode headroom withheld from the worker's slice so a worker
 // pre-write rejection still arrives before the coordinator stops waiting.
 const WORKER_HOP_RESERVE_MS = 750;
@@ -336,57 +209,49 @@ export function sendTerminalInputRequest(
   };
 }
 
-/** Send one viewport mutation and wait for a typed committed, rejected, or
- * ambiguous worker result. The bounded deadline rejects only this correlation
- * promise; the caller classifies a missing/late result as post-admission
- * ambiguity and retains its provisional membership. */
-export function sendTerminalViewportRequest(
+/** Send one aggregated terminal stream state and wait for the worker's
+ * keeper-proof result. Membership is coordinator-local and is never rolled
+ * back from this result; the failure kind only drives stream retry/adoption. */
+export function sendTerminalStreamStateRequest(
   workerFp: string,
   message: {
     sessionId: string;
-    viewerId: string;
-    clientSeq: bigint;
+    streamId: string;
+    enabled: boolean;
     cols: number;
     rows: number;
-    cause: number;
-    heldCellSeq: bigint;
   },
-  deadline: HopDeadline = startHopDeadline(VIEWPORT_CONTROL_TIMEOUT_MS),
-): TerminalWorkerRequest<WViewportResult> {
+  deadline: HopDeadline = startHopDeadline(TERMINAL_STREAM_CONTROL_TIMEOUT_MS),
+): TerminalWorkerRequest<WTerminalStreamResult> {
   const worker = connectWorkers.get(workerFp);
   if (!worker) return unsentRequest("worker offline", false);
   const budgetMs = workerBudgetMs(deadline);
-  if (budgetMs === null) return unsentRequest("viewport budget expired before send", true);
-  const pending = createPendingRpc<WViewportResult>(
+  if (budgetMs === null) return unsentRequest("terminal stream budget expired before send", true);
+  const pending = createPendingRpc<WTerminalStreamResult>(
     Math.max(1, Math.ceil(deadline.remainingMs())),
     workerFp,
   );
   let admitted = false;
   try {
     const sent = worker.send(create(CoordWorkerDownSchema, {
-      frame: { case: "viewportRequest", value: create(DViewportRequestSchema, {
+      frame: { case: "terminalStreamState", value: create(DTerminalStreamStateSchema, {
         requestId: pending.request_id,
         sessionId: message.sessionId,
-        viewerId: message.viewerId,
-        clientSeq: message.clientSeq,
+        streamId: message.streamId,
+        enabled: message.enabled,
         cols: message.cols,
         rows: message.rows,
-        cause: message.cause,
-        heldCellSeq: message.heldCellSeq,
         budgetMs,
       }) },
     }));
     admitted = sent !== 0;
     if (!admitted) {
-      rejectPendingRpcUnavailable(
-        pending.request_id,
-        "worker transport dropped viewport request",
-      );
+      rejectPendingRpcUnavailable(pending.request_id, "worker transport dropped terminal stream state");
     }
   } catch (error) {
     rejectPendingRpcUnavailable(
       pending.request_id,
-      error instanceof Error ? error.message : "worker transport failed viewport request",
+      error instanceof Error ? error.message : "worker transport failed terminal stream state",
     );
   }
   return {
@@ -395,6 +260,28 @@ export function sendTerminalViewportRequest(
     requestId: pending.request_id,
     result: pending.promise,
   };
+}
+
+/** Fire-and-forget full-baseline repair for the currently expected stream. */
+export function sendTerminalSnapshotRequest(
+  workerFp: string,
+  message: { sessionId: string; streamId: string },
+): boolean {
+  const worker = connectWorkers.get(workerFp);
+  if (!worker) return false;
+  try {
+    return worker.send(create(CoordWorkerDownSchema, {
+      frame: {
+        case: "terminalSnapshotRequest",
+        value: create(DTerminalSnapshotRequestSchema, {
+          sessionId: message.sessionId,
+          streamId: message.streamId,
+        }),
+      },
+    })) !== 0;
+  } catch {
+    return false;
+  }
 }
 
 /** att1-stream — relay one streamed-upload chunk to a worker. The first chunk

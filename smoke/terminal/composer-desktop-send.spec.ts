@@ -9,7 +9,10 @@ import {
   readTerminalInputCapture,
 } from "./terminal-helpers.ts";
 import { attemptPaintedMarker } from "./terminal-paint-helpers.ts";
-import { readTerminalStreamProbe } from "./terminal-probe-helpers.ts";
+import {
+  coordinatorTerminalViewState,
+  readTerminalStreamProbe,
+} from "./terminal-probe-helpers.ts";
 
 test("desktop composer attaches exact files in order without submitting", async ({ smokePage, stack }, testInfo) => {
   test.skip(!testInfo.project.name.startsWith("chromium"), "desktop native attachment contract");
@@ -149,11 +152,35 @@ test("desktop composer submits Enter and grows above a stable terminal deck", as
   expect(baseline.slotHeight).toBeGreaterThan(0);
   expect(baseline.composerHeight).toBeGreaterThan(0);
   await expect.poll(async () => {
-    const claim = (await readTerminalStreamProbe(smokePage, sessionId)).browser.claim;
-    return claim.desired !== null && claim.confirmed?.client_seq === claim.desired.client_seq;
-  }, { timeout: 10_000, intervals: [50] }).toBe(true);
-  const baselineClaim = (await readTerminalStreamProbe(smokePage, sessionId)).browser.claim.desired;
-  if (!baselineClaim) throw new Error("desktop terminal omitted its baseline viewport claim");
+    const probe = await readTerminalStreamProbe(smokePage, sessionId);
+    const { view, replica } = probe.browser;
+    const coordinator = coordinatorTerminalViewState(probe);
+    return {
+      status: view.status,
+      active: view.active,
+      positiveGeometry: view.effective_cols > 0 && view.effective_rows > 0,
+      baselineReady: replica.baseline_ready,
+      streamMatched: replica.expected_stream_id === view.stream_id
+        && coordinator?.streamId === view.stream_id,
+      coordinatorViews: coordinator?.activeViews ?? 0,
+      coordinatorGeometryMatched: coordinator?.effective?.cols === view.effective_cols
+        && coordinator.effective?.rows === view.effective_rows,
+    };
+  }, { timeout: 10_000, intervals: [50] }).toEqual({
+    status: "accepted",
+    active: true,
+    positiveGeometry: true,
+    baselineReady: true,
+    streamMatched: true,
+    coordinatorViews: 1,
+    coordinatorGeometryMatched: true,
+  });
+  const baselineProbe = await readTerminalStreamProbe(smokePage, sessionId);
+  const baselineView = baselineProbe.browser.view;
+  if (!baselineView.revision || !baselineView.stream_id) {
+    throw new Error("desktop terminal omitted its active baseline view");
+  }
+  const baselineRevision = BigInt(baselineView.revision);
 
   const growthDraft = [
     "first composer row",
@@ -192,21 +219,33 @@ test("desktop composer submits Enter and grows above a stable terminal deck", as
     "desktop composer autogrow must resize terminal-display",
   ).toBeGreaterThan(1);
   await expect.poll(async () => {
-    const claim = (await readTerminalStreamProbe(smokePage, sessionId)).browser.claim;
-    return claim.desired !== null
-      && claim.confirmed?.client_seq === claim.desired.client_seq
-      && BigInt(claim.desired.client_seq) > BigInt(baselineClaim.client_seq)
-      && claim.desired.cols === baselineClaim.cols
-      && claim.desired.rows < baselineClaim.rows;
+    const probe = await readTerminalStreamProbe(smokePage, sessionId);
+    const { view, replica } = probe.browser;
+    const coordinator = coordinatorTerminalViewState(probe);
+    return view.revision !== null
+      && view.status === "accepted"
+      && view.active
+      && BigInt(view.revision) > baselineRevision
+      && view.effective_cols === baselineView.effective_cols
+      && view.effective_rows < baselineView.effective_rows
+      && view.stream_id !== baselineView.stream_id
+      && replica.baseline_ready
+      && replica.expected_stream_id === view.stream_id
+      && coordinator?.activeViews === 1
+      && coordinator.streamId === view.stream_id
+      && coordinator.effective?.cols === view.effective_cols
+      && coordinator.effective?.rows === view.effective_rows;
   }, {
-    message: "desktop terminal-display resize must produce one debounced adopted claim",
+    message: "desktop terminal-display resize must publish and baseline its settled active view",
     timeout: 10_000,
     intervals: [50],
   }).toBe(true);
-  const grownClaim = (await readTerminalStreamProbe(smokePage, sessionId)).browser.claim.desired;
-  if (!grownClaim) throw new Error("desktop terminal omitted its grown viewport claim");
-  expect(BigInt(grownClaim.client_seq) > BigInt(baselineClaim.client_seq)).toBe(true);
-  expect(grownClaim.rows).toBeLessThan(baselineClaim.rows);
+  const grownProbe = await readTerminalStreamProbe(smokePage, sessionId);
+  const grownView = grownProbe.browser.view;
+  if (!grownView.revision) throw new Error("desktop terminal omitted its resized active view");
+  expect(BigInt(grownView.revision)).toBeGreaterThan(baselineRevision);
+  expect(grownView.effective_rows).toBeLessThan(baselineView.effective_rows);
+  expect(grownProbe.browser.replica.baseline_ready).toBe(true);
 
   const growthOutputMarker = `DESKTOP_GROWTH_LIVE_${crypto.randomUUID().replaceAll("-", "").slice(0, 8)}`;
   await inputSmokeTerminal(smokePage, sessionId, `printf '%s\\n' ${growthOutputMarker}\r`);

@@ -14,6 +14,13 @@ export interface TerminalInputCapture {
   droppedBatches: number;
 }
 
+export interface PaintedScrollbackProbe {
+  rows: Array<{ index: number; text: string }>;
+  headSpacerPx: number;
+  tailGapPx: number;
+  readerAnchor: { row: number; offsetPx: number } | null;
+}
+
 interface SmokeSessionProjection {
   id: string;
   worker_fp: string;
@@ -35,10 +42,6 @@ export interface RecoverySmokeApi {
   resetTerminalInputCapture(): void;
   dropNextCellFrame(sessionId: string): void;
   droppedCellFrameCount(sessionId: string): number;
-  /** Fire the mount-repair callback a mounted pane registered with
-   *  registerCellHandler, without needing its mount buffer to overflow. False
-   *  when the smoke pin is off or no pane has registered for this session. */
-  requestCellMountRepair(sessionId: string): boolean;
   cellFrameCount(sessionId: string): number;
   cellFullFrameCount(sessionId: string): number;
   cellGridEpoch(sessionId: string): string;
@@ -59,6 +62,7 @@ export interface RecoverySmokeApi {
   viewportText(sessionId: string): string;
   markerScan(sessionId: string, prefix: string): RecoveryMarkerScan;
   renderProbe(sessionId: string): { atBottom: boolean };
+  paintedScrollback(sessionId: string): PaintedScrollbackProbe;
   terminalStreamProbe(sessionId: string): Promise<TerminalStreamProbe>;
   waitForPaintedMarker(sessionId: string, marker: string, timeoutMs?: number): Promise<PaintedMarkerProof>;
   waitForPaintedCursor(
@@ -66,8 +70,6 @@ export interface RecoverySmokeApi {
     expected?: { row?: number; column?: number },
     timeoutMs?: number,
   ): Promise<PaintedCursorProof>;
-  rejectNextViewportClaim(sessionId: string): void;
-  rejectedViewportClaimCount(sessionId: string): number;
 }
 
 export interface TerminalIdentityProbeWindow {

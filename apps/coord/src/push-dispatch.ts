@@ -4,7 +4,7 @@
 
 import { log } from "@roost/shared/log";
 import type { KyselyDB } from "./db/connection.ts";
-import { _viewersBySession } from "./connect/viewer-tracker.ts";
+import { activeTerminalViewerFingerprints } from "./connect/terminal-view-hub.ts";
 import { sendPushToSubscriptions } from "./push-sender.ts";
 
 export type PushTransition = "blocked" | "done";
@@ -30,11 +30,10 @@ export async function firePushForTransition(
       return;
     }
 
-    const viewers = _viewersBySession.get(sessionId);
-    const targets = subscriptions.filter((subscription) => {
-      const claim = viewers?.get(subscription.viewer_fp);
-      return !(claim && claim.cols > 0 && claim.rows > 0);
-    });
+    const viewers = activeTerminalViewerFingerprints(sessionId);
+    const targets = subscriptions.filter(
+      (subscription) => !viewers.has(subscription.viewer_fp),
+    );
     const suppressed = subscriptions.length - targets.length;
     if (targets.length === 0) {
       log.info("push", "suppressed_all", {

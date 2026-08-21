@@ -83,4 +83,18 @@ message PbCellGridFrame {
   uint32 mouse_tracking = 22;
   bool mouse_sgr = 23;         // DECSET 1006: SGR-1006 encoding; else legacy X10
   bool focus_events = 24;      // DECSET 1004: SPA emits CSI I / CSI O on real focus/blur
+  // Coordinator-minted generation for one watched-session stream. A full
+  // baseline names base_seq=0; each delta names the preceding emitted seq.
+  string stream_id = 25;
+  uint64 base_seq = 26;
+}
+
+// One deterministic whole-row part of an oversized full snapshot. Every part
+// repeats identical scalar metadata; viewport row indices occur exactly once
+// across the completed snapshot.
+message PbCellGridChunk {
+  string snapshot_id = 1;
+  uint32 chunk_index = 2;
+  uint32 chunk_count = 3;
+  PbCellGridFrame part = 4;
 }

@@ -27,10 +27,9 @@ export const MODE_CARRY_MAX = 7;
 // of PtyOut chunks into a single latest-state delta. Imperceptible echo latency
 // on a local/LAN worker; bounds frame rate under floods.
 export const CELL_EMIT_COALESCE_MS = 16;
-// Coordinator-only raw terminal metadata follows the same leading/trailing
-// cadence as cells. These caps bound the brief worker-side staging queues; the
-// encoded CoordLink outbox has its own independent 8 MiB cap.
-export const RAW_METADATA_COALESCE_MS = CELL_EMIT_COALESCE_MS;
+// Coordinator-only raw terminal metadata uses this same leading/trailing
+// cadence. These caps bound the brief worker-side staging queues; the encoded
+// CoordLink outbox has its own independent 8 MiB cap.
 export const RAW_METADATA_CHANNEL_CAP_BYTES = 256 * 1024;
 export const RAW_METADATA_AGGREGATE_CAP_BYTES = 2 * 1024 * 1024;
 
@@ -64,19 +63,6 @@ export const SYNC_OUTPUT_MAX_PENDING_ROWS = 2_000;
 
 
 
-// Multi-viewer PTY size: SCD (smallest-common-denominator) policy. PTY
-// size = min(cols) × min(rows) across all active viewer claims so no
-// viewer is ever clipped. Decision lives in _recomputeViewport. SCD min
-// was briefly retired for WINDOW_SIZE_LATEST in phase-pathl (6cad2d71)
-// but LATEST let a refresh/focus hijack everyone's size AND oscillated
-// under a now-fixed accidental-reactive-dep bug
-// ([[feedback_viewport_claim_accidental_grid_dep]]); SCD restored
-// 2026-06-18 as a stable fixed point. SPA mirrors the same min in
-// CellTerminal.tsx so wterm grid === PTY grid. claimViewport bumps lastMs
-// only on focus/input (heartbeats refresh presence without bumping).
-// TTL + withdraw-grace are shared with coord (@roost/shared/viewport) so
-// the two sides' claim sets can't desync — see that file for the why.
-export const VIEWPORT_REAPER_INTERVAL_MS = 5_000;
 
 // Reverse-reap sweep: every N ms diff the keeper's live channels against
 // this.sessions (the worker's authoritative tracked set) and SIGKILL strays.

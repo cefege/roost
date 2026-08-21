@@ -1,4 +1,4 @@
-// Hop-deadline semantics for the typed terminal-control path.
+// Hop-deadline semantics for the typed terminal-input path.
 //
 // Three nested budgets bound one browser intent: the coordinator's result
 // deadline, the worker's relative pre-write budget carved out of whatever is
@@ -6,15 +6,13 @@
 // file pins the coordinator half of that contract:
 //
 //   * an expiry BEFORE the worker send is a definite rejection — nothing was
-//     written, provisional state is unwound, and a retry cannot duplicate;
+//     written, and a retry cannot duplicate;
 //   * a worker rejection is honoured as definite only when its phase proves
 //     the keeper never wrote;
 //   * every other post-send outcome is ambiguous, never presented as unsent
 //     and never auto-retried as a fresh write;
 //   * wall-clock skew/steps on either host change nothing, because only
-//     monotonic elapsed time and RELATIVE budgets are ever used;
-//   * a viewport parked on its worker result releases the lane at send
-//     admission, so the next PTY input is written exactly once, immediately.
+//     monotonic elapsed time and RELATIVE budgets are ever used.
 
 import { create } from "@bufbuild/protobuf";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -23,10 +21,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   TerminalInputStatus,
-  TerminalViewportStatus,
   TerminalWritePhase,
   WInputResultSchema,
-  WViewportResultSchema,
   type CoordWorkerDown,
 } from "@roost/shared/proto/worker_transport_pb";
 import type { CoordConfig } from "@roost/shared/config";
@@ -34,20 +30,14 @@ import { openDb, type KyselyDB } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
 import { loadOrCreateCoordKey } from "../src/coord-key.ts";
 import { newJwtCache } from "../src/jwt.ts";
-import { isSubscribed } from "../src/connect/cell-subscriptions.ts";
-import { _setViewerTrackerDb, _viewersBySession } from "../src/connect/viewer-tracker.ts";
 import { __setConnectWorkerForTest } from "../src/connect/worker-registry.ts";
 import { resolvePendingRpc } from "../src/router/pending-rpcs.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";
-import {
-  processInputControl,
-  processViewportControl,
-  type TerminalViewerIdentity,
-} from "../src/connect/session-control.ts";
+import { processInputControl } from "../src/connect/input-control.ts";
+import type { TerminalViewerIdentity } from "../src/connect/terminal-control-lane.ts";
 import {
   startHopDeadline,
   INPUT_CONTROL_TIMEOUT_MS,
-  VIEWPORT_CONTROL_TIMEOUT_MS,
   type HopDeadline,
 } from "../src/connect/worker-send.ts";
 
@@ -67,7 +57,6 @@ beforeAll(async () => {
   const opened = openDb(join(workdir, "test.db"));
   db = opened.db;
   await runMigrations(opened.sqlite);
-  _setViewerTrackerDb(db);
   const cfg: CoordConfig = {
     trustProxy: false, bind: "127.0.0.1:0", dbPath: join(workdir, "test.db"),
     coordKeyPath: keyPath, authorizedKeysPath: authPath, webDistPath: "",
@@ -122,26 +111,7 @@ function attachWorker(send: (frame: CoordWorkerDown) => number): void {
   __setConnectWorkerForTest(WORKER_FP, { workerFp: WORKER_FP, send });
 }
 
-describe("pre-send expiry is a definite rejection with no mutation", () => {
-  test("an exhausted viewport budget never reaches the socket and unwinds membership", async () => {
-    const sessionId = await seedSession();
-    const viewer = identity("tab-viewport-presend");
-    const frames: CoordWorkerDown[] = [];
-    attachWorker((frame) => { frames.push(frame); return 1; });
-
-    const result = await processViewportControl(deps, {
-      identity: viewer, sessionId, clientSeq: 1n, cols: 80, rows: 24, cause: 1,
-      deadline: frozenDeadline(VIEWPORT_CONTROL_TIMEOUT_MS, 0),
-    });
-
-    expect(result.status).toBe("rejected");
-    if (result.status !== "rejected") throw new Error("expected rejection");
-    expect(result.reason).toBe("viewport budget expired before worker send");
-    expect(frames).toHaveLength(0);
-    expect(isSubscribed(viewer.viewerKey, sessionId)).toBe(false);
-    expect(_viewersBySession.get(sessionId)?.has(viewer.viewerKey) ?? false).toBe(false);
-  });
-
+describe("pre-send expiry is a definite rejection", () => {
   test("a budget too short to survive the hop is refused rather than half-spent", async () => {
     const sessionId = await seedSession();
     const frames: CoordWorkerDown[] = [];
@@ -196,62 +166,6 @@ describe("pre-send expiry is a definite rejection with no mutation", () => {
 });
 
 describe("only a phase-proved rejection is definite", () => {
-  test("REJECTED + PRE_WRITE rolls provisional membership back", async () => {
-    const sessionId = await seedSession();
-    const viewer = identity("tab-prewrite-reject");
-    attachWorker((frame) => {
-      if (frame.frame.case === "viewportRequest") {
-        const request = frame.frame.value;
-        resolvePendingRpc(request.requestId, create(WViewportResultSchema, {
-          requestId: request.requestId, sessionId: request.sessionId,
-          clientSeq: request.clientSeq, status: TerminalViewportStatus.REJECTED,
-          phase: TerminalWritePhase.PRE_WRITE,
-          reason: "viewport budget expired before keeper write",
-        }));
-      }
-      return 1;
-    });
-
-    const result = await processViewportControl(deps, {
-      identity: viewer, sessionId, clientSeq: 1n, cols: 80, rows: 24, cause: 1,
-    });
-
-    expect(result.status).toBe("rejected");
-    if (result.status !== "rejected") throw new Error("expected rejection");
-    expect(result.reason).toBe("viewport budget expired before keeper write");
-    expect(isSubscribed(viewer.viewerKey, sessionId)).toBe(false);
-    expect(_viewersBySession.get(sessionId)?.has(viewer.viewerKey) ?? false).toBe(false);
-  });
-
-  test("REJECTED after the write is downgraded to ambiguous and keeps membership", async () => {
-    const sessionId = await seedSession();
-    const viewer = identity("tab-postwrite-reject");
-    attachWorker((frame) => {
-      if (frame.frame.case === "viewportRequest") {
-        const request = frame.frame.value;
-        // A worker that says "rejected" but cannot prove it stopped before the
-        // resize may already have moved the PTY; unwinding here would let a
-        // retry issue a second resize against a changed core.
-        resolvePendingRpc(request.requestId, create(WViewportResultSchema, {
-          requestId: request.requestId, sessionId: request.sessionId,
-          clientSeq: request.clientSeq, status: TerminalViewportStatus.REJECTED,
-          phase: TerminalWritePhase.UNKNOWN, reason: "keeper result lost",
-        }));
-      }
-      return 1;
-    });
-
-    const result = await processViewportControl(deps, {
-      identity: viewer, sessionId, clientSeq: 1n, cols: 90, rows: 30, cause: 1,
-    });
-
-    expect(result.status).toBe("ambiguous");
-    expect(isSubscribed(viewer.viewerKey, sessionId)).toBe(true);
-    expect(_viewersBySession.get(sessionId)?.get(viewer.viewerKey)).toMatchObject({
-      cols: 90, rows: 30,
-    });
-  });
-
   test("input REJECTED without a pre-write phase is ambiguous, so it is never retried", async () => {
     const sessionId = await seedSession();
     let attempts = 0;
@@ -276,48 +190,6 @@ describe("only a phase-proved rejection is definite", () => {
 
     expect(result.status).toBe("ambiguous");
     expect(attempts).toBe(1);
-  });
-});
-
-describe("post-send uncertainty is ambiguous, never unsent", () => {
-  test("a lost worker result expires the correlation as ambiguous without a second write", async () => {
-    const sessionId = await seedSession();
-    const viewer = identity("tab-lost-result");
-    let sends = 0;
-    attachWorker((frame) => {
-      if (frame.frame.case === "viewportRequest") sends += 1;
-      return 1;
-    });
-
-    // 1.2s remaining leaves ~450ms of coordinator wait after the worker slice,
-    // so this finishes as a real deadline expiry rather than a stubbed reply.
-    const result = await processViewportControl(deps, {
-      identity: viewer, sessionId, clientSeq: 1n, cols: 100, rows: 40, cause: 1,
-      deadline: frozenDeadline(VIEWPORT_CONTROL_TIMEOUT_MS, 1_200),
-    });
-
-    expect(result.status).toBe("ambiguous");
-    if (result.status !== "ambiguous") throw new Error("expected ambiguity");
-    expect(result.reason).toMatch(/did not reply within \d+ms/);
-    expect(sends).toBe(1);
-    // Membership survives so a newer monotonic claim reconciles it; a rollback
-    // here would be the fabricated rejection this path exists to prevent.
-    expect(isSubscribed(viewer.viewerKey, sessionId)).toBe(true);
-  });
-
-  test("a dropped socket write is definite, not ambiguous", async () => {
-    const sessionId = await seedSession();
-    const viewer = identity("tab-dropped-write");
-    attachWorker(() => 0);
-
-    const result = await processViewportControl(deps, {
-      identity: viewer, sessionId, clientSeq: 1n, cols: 80, rows: 24, cause: 1,
-    });
-
-    expect(result.status).toBe("rejected");
-    if (result.status !== "rejected") throw new Error("expected rejection");
-    expect(result.reason).toBe("worker unavailable");
-    expect(isSubscribed(viewer.viewerKey, sessionId)).toBe(false);
   });
 });
 
@@ -391,108 +263,5 @@ describe("wall-clock skew cannot change expiry semantics", () => {
       Date.now = realNow;
     }
     expect(frames).toHaveLength(0);
-  });
-});
-
-describe("a blocked viewport cannot block or duplicate PTY input", () => {
-  test("input is written exactly once while the viewport result is still pending", async () => {
-    const sessionId = await seedSession();
-    const viewer = identity("tab-hol");
-    const order: string[] = [];
-    let inputWrites = 0;
-    const viewportSent = Promise.withResolvers<void>();
-
-    attachWorker((frame) => {
-      if (frame.frame.case === "viewportRequest") {
-        // Deliberately never settled: the viewport is parked on a keeper
-        // resize for its whole budget.
-        order.push("viewport");
-        viewportSent.resolve();
-        return 1;
-      }
-      if (frame.frame.case === "inputRequest") {
-        order.push("input");
-        inputWrites += 1;
-        const request = frame.frame.value;
-        resolvePendingRpc(request.requestId, create(WInputResultSchema, {
-          requestId: request.requestId, sessionId: request.sessionId,
-          inputSeq: request.inputSeq, status: TerminalInputStatus.ACCEPTED,
-          writtenBytes: request.data.byteLength,
-          phase: TerminalWritePhase.WRITTEN,
-        }));
-      }
-      return 1;
-    });
-
-    const viewportResult = processViewportControl(deps, {
-      identity: viewer, sessionId, clientSeq: 1n, cols: 120, rows: 40, cause: 1,
-      deadline: frozenDeadline(VIEWPORT_CONTROL_TIMEOUT_MS, 1_200),
-    });
-    await viewportSent.promise;
-
-    // Same viewer + session, so this shares the lane the viewport is holding.
-    const inputResult = await processInputControl(deps, {
-      identity: viewer, sessionId, inputSeq: 1n, data: Uint8Array.of(0x0d),
-    });
-
-    expect(inputResult.status).toBe("accepted");
-    expect(inputWrites).toBe(1);
-    // Send order is still viewport-then-input: the lane splits at admission,
-    // it does not disappear.
-    expect(order).toEqual(["viewport", "input"]);
-
-    expect((await viewportResult).status).toBe("ambiguous");
-    // The parked viewport never provoked a second input write.
-    expect(inputWrites).toBe(1);
-  });
-
-  test("an older in-flight rejection cannot unwind the successor it overlaps", async () => {
-    const sessionId = await seedSession();
-    const viewer = identity("tab-overlap");
-    const parked: Array<{ requestId: string; sessionId: string; clientSeq: bigint }> = [];
-    const firstSent = Promise.withResolvers<void>();
-
-    attachWorker((frame) => {
-      if (frame.frame.case !== "viewportRequest") return 1;
-      const request = frame.frame.value;
-      if (parked.length === 0) {
-        parked.push(request);
-        firstSent.resolve();
-        return 1;
-      }
-      resolvePendingRpc(request.requestId, create(WViewportResultSchema, {
-        requestId: request.requestId, sessionId: request.sessionId,
-        clientSeq: request.clientSeq, status: TerminalViewportStatus.COMMITTED,
-        channelResizeSeq: 9n, cols: request.cols, rows: request.rows,
-        resized: true, phase: TerminalWritePhase.WRITTEN,
-      }));
-      return 1;
-    });
-
-    const stale = processViewportControl(deps, {
-      identity: viewer, sessionId, clientSeq: 1n, cols: 80, rows: 24, cause: 1,
-    });
-    await firstSent.promise;
-
-    // Only reachable because the lane released at admission: the successor
-    // runs while its predecessor's result is still outstanding.
-    const successor = await processViewportControl(deps, {
-      identity: viewer, sessionId, clientSeq: 2n, cols: 132, rows: 43, cause: 2,
-    });
-    expect(successor.status).toBe("accepted");
-
-    // The stale attempt now answers with a proved pre-write rejection. Its
-    // rollback is identity-guarded, so the newer claim survives intact.
-    const first = parked[0]!;
-    resolvePendingRpc(first.requestId, create(WViewportResultSchema, {
-      requestId: first.requestId, sessionId: first.sessionId,
-      clientSeq: first.clientSeq, status: TerminalViewportStatus.REJECTED,
-      phase: TerminalWritePhase.PRE_WRITE, reason: "superseded before keeper write",
-    }));
-    expect((await stale).status).toBe("rejected");
-    expect(isSubscribed(viewer.viewerKey, sessionId)).toBe(true);
-    expect(_viewersBySession.get(sessionId)?.get(viewer.viewerKey)).toMatchObject({
-      cols: 132, rows: 43,
-    });
   });
 });

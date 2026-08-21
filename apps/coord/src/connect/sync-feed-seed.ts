@@ -20,7 +20,7 @@ import { getTitleSnapshot } from "../terminal-title-hub.ts";
 import { getUiStateSnapshot } from "./handlers-ui.ts";
 import { getLastActivitySnapshot } from "../last-activity-hub.ts";
 import { getAgentStatusSnapshot } from "../agent-status-hub.ts";
-import { _viewersBySession } from "./viewer-tracker.ts";
+import { terminalViewerProjection } from "./terminal-view-hub.ts";
 import { log } from "@roost/shared/log";
 import { agentStatusFrame, type SyncFeedFrameMeta } from "./sync-feed-frames.ts";
 
@@ -156,13 +156,13 @@ export async function seedDomain(
     if (sessionIds && !sessionIds.has(status.session_id)) continue;
     retained(agentStatusFrame(status), status.session_id);
   }
-  for (const [sessionId, viewers] of _viewersBySession) {
-    const entries = [...viewers.entries()].map(([fp, viewer]) => ({
+  for (const [sessionId, viewers] of terminalViewerProjection()) {
+    const entries = [...viewers.entries()].map(([fp, geometry]) => ({
       fp,
       viewerKey: fp,
-      cols: viewer.cols,
-      rows: viewer.rows,
-      lastMs: viewer.lastMs,
+      cols: geometry.cols,
+      rows: geometry.rows,
+      lastMs: Date.now(),
     }));
     if (sessionIds && !sessionIds.has(sessionId)) continue;
     retained(create(FirehoseFrameSchema, {

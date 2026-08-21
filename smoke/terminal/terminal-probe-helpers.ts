@@ -1,7 +1,10 @@
 import { expect } from "./fixtures.ts";
 import type { Page } from "@playwright/test";
 import type { TerminalStreamProbe } from "../../apps/web/src/lib/smoke.ts";
-import type { RecoverySmokeApi } from "./terminal-smoke-api.ts";
+import type {
+  PaintedScrollbackProbe,
+  RecoverySmokeApi,
+} from "./terminal-smoke-api.ts";
 
 export async function readTerminalStreamProbe(page: Page, sessionId: string): Promise<TerminalStreamProbe> {
   return page.evaluate((id) => {
@@ -15,10 +18,12 @@ export async function waitForCanonicalAdvance(
   sessionId: string,
   before: TerminalStreamProbe,
 ): Promise<TerminalStreamProbe> {
-  const floor = Math.max(
-    before.browser.wire_received.seq ?? -1,
-    before.browser.handler_canonical.seq ?? -1,
-  );
+  const beforeWireSeq = before.browser.wire_received.seq;
+  const beforeCanonicalSeq = before.browser.handler_canonical.seq;
+  if (beforeWireSeq === null || beforeCanonicalSeq === null) {
+    throw new Error("terminal stream probe omitted its baseline browser sequence");
+  }
+  const floor = Math.max(beforeWireSeq, beforeCanonicalSeq);
   await expect.poll(async () => {
     const probe = await readTerminalStreamProbe(page, sessionId);
     return Math.min(
@@ -44,8 +49,12 @@ export function expectCanonicalAdvanceHeld(
   const wire = pending.browser.wire_received;
   const canonical = pending.browser.handler_canonical;
   const reconciled = pending.browser.dom_reconciled;
-  if (beforeWire.seq === null || beforeCanonical.seq === null || beforeReconciled.seq === null
-    || wire.seq === null || canonical.seq === null || reconciled.seq === null) {
+  if (beforeWire.seq === null || beforeWire.grid_epoch === null
+    || beforeCanonical.seq === null || beforeCanonical.grid_epoch === null
+    || beforeReconciled.seq === null || beforeReconciled.grid_epoch === null
+    || wire.seq === null || wire.grid_epoch === null
+    || canonical.seq === null || canonical.grid_epoch === null
+    || reconciled.seq === null || reconciled.grid_epoch === null) {
     throw new Error("terminal stream probe omitted an epoch sequence");
   }
   if (options.epoch === "changed") {
@@ -74,16 +83,16 @@ export function expectCanonicalAdvanceHeld(
   const rawHead = workerRawHeadSequence(pending);
   const beforeWorkerCell = workerCellSequence(before);
   const workerCell = workerCellSequence(pending);
-  const beforeCoordCell = coordCellSequence(before);
-  const coordCell = coordCellSequence(pending);
+  const beforeCoordScreen = coordScreenSequence(before);
+  const coordScreen = coordScreenSequence(pending);
   if (beforeRawHead === null || rawHead === null
     || beforeWorkerCell === null || workerCell === null
-    || beforeCoordCell === null || coordCell === null) {
-    throw new Error("terminal stream probe omitted a worker/coordinator sequence");
+    || beforeCoordScreen === null || coordScreen === null) {
+    throw new Error("terminal stream probe omitted a current worker/coordinator sequence");
   }
   expect(rawHead > beforeRawHead).toBe(true);
   expect(workerCell > beforeWorkerCell).toBe(true);
-  expect(coordCell > beforeCoordCell).toBe(true);
+  expect(coordScreen > beforeCoordScreen).toBe(true);
 }
 
 export function expectRecoveredLive(
@@ -113,6 +122,49 @@ export function expectRecoveredLive(
     expect(recovered.browser.reconcile_block_reason).toBeNull();
   }
 }
+export function expectPaintedScrollbackWellFormed(
+  painted: PaintedScrollbackProbe,
+): void {
+  expect(Number.isFinite(painted.headSpacerPx)).toBe(true);
+  expect(painted.headSpacerPx).toBeGreaterThanOrEqual(0);
+  expect(Number.isFinite(painted.tailGapPx)).toBe(true);
+  expect(painted.tailGapPx).toBeGreaterThanOrEqual(0);
+  const indices = painted.rows.map((row) => row.index);
+  expect(indices.every((index) => Number.isSafeInteger(index) && index >= 0)).toBe(true);
+  expect(new Set(indices).size).toBe(indices.length);
+  expect(indices).toEqual([...indices].sort((left, right) => left - right));
+  expect(painted.rows.every((row) => typeof row.text === "string")).toBe(true);
+  if (painted.readerAnchor !== null) {
+    expect(Number.isSafeInteger(painted.readerAnchor.row)).toBe(true);
+    expect(painted.readerAnchor.row).toBeGreaterThanOrEqual(0);
+    expect(Number.isFinite(painted.readerAnchor.offsetPx)).toBe(true);
+  }
+}
+
+export function expectPaintedRowsPreserved(
+  before: PaintedScrollbackProbe,
+  after: PaintedScrollbackProbe,
+  allowLeadingEviction = false,
+): void {
+  expectPaintedScrollbackWellFormed(before);
+  expectPaintedScrollbackWellFormed(after);
+  const afterByIndex = new Map(after.rows.map((row) => [row.index, row.text]));
+  const retainedFloor = allowLeadingEviction ? (after.rows[0]?.index ?? Number.MAX_SAFE_INTEGER) : 0;
+  for (const row of before.rows) {
+    if (row.index < retainedFloor) continue;
+    expect(
+      afterByIndex.get(row.index),
+      `painted scrollback row ${row.index} changed or disappeared; after=${JSON.stringify({
+        count: after.rows.length,
+        first: after.rows[0]?.index,
+        last: after.rows.at(-1)?.index,
+        headSpacerPx: after.headSpacerPx,
+        tailGapPx: after.tailGapPx,
+      })}`,
+    ).toBe(row.text);
+  }
+}
+
 
 function unknownRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -136,27 +188,57 @@ function workerCellSequence(probe: TerminalStreamProbe): bigint | null {
   return diagnosticSequence(cell?.seq);
 }
 
-function coordCellSequence(probe: TerminalStreamProbe): bigint | null {
-  const lastCell = unknownRecord(unknownRecord(probe.coord?.session)?.last_cell);
-  return diagnosticSequence(lastCell?.seq);
+function coordScreenSequence(probe: TerminalStreamProbe): bigint | null {
+  const screen = unknownRecord(unknownRecord(probe.coord?.session)?.terminal_screen);
+  if (screen?.valid !== true) return null;
+  return diagnosticSequence(screen.seq);
 }
 
-export function activeCoordSubscriptionCount(probe: TerminalStreamProbe): number {
+export interface CoordinatorTerminalViewState {
+  activeViews: number;
+  parkedViews: number;
+  streamId: string;
+  effective: { cols: number; rows: number } | null;
+  unavailable: boolean;
+}
+
+function nonNegativeInteger(value: unknown, label: string): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`${label} was not a non-negative integer`);
+  }
+  return value;
+}
+
+export function coordinatorTerminalViewState(
+  probe: TerminalStreamProbe,
+): CoordinatorTerminalViewState | null {
   const session = unknownRecord(probe.coord?.session);
-  const subscriptions = unknownRecord(session?.subscriptions);
-  if (!subscriptions) return 0;
-  return Object.values(subscriptions).filter((value) =>
-    unknownRecord(value)?.subscribed === true
-  ).length;
-}
-
-export function coordViewerCount(probe: TerminalStreamProbe): number {
-  const viewers = unknownRecord(unknownRecord(probe.coord?.session)?.viewers);
-  return viewers ? Object.keys(viewers).length : 0;
-}
-
-export function workerViewerClaimCount(probe: TerminalStreamProbe): number {
-  const session = unknownRecord(probe.worker.session);
-  const claims = unknownRecord(session?.claims);
-  return claims ? Object.keys(claims).length : 0;
+  const terminalView = unknownRecord(session?.terminal_view);
+  if (!terminalView) return null;
+  const effectiveValue = terminalView.effective;
+  const effectiveRecord = effectiveValue === null || effectiveValue === undefined
+    ? null
+    : unknownRecord(effectiveValue);
+  if (effectiveValue !== null && effectiveValue !== undefined && !effectiveRecord) {
+    throw new Error("coordinator terminal effective geometry was not an object");
+  }
+  const streamId = terminalView.streamId;
+  if (typeof streamId !== "string") {
+    throw new Error("coordinator terminal stream ID was not a string");
+  }
+  if (typeof terminalView.unavailable !== "boolean") {
+    throw new Error("coordinator terminal unavailable state was not a boolean");
+  }
+  return {
+    activeViews: nonNegativeInteger(terminalView.activeViews, "coordinator active view count"),
+    parkedViews: nonNegativeInteger(terminalView.parkedViews, "coordinator parked view count"),
+    streamId,
+    effective: effectiveRecord
+      ? {
+        cols: nonNegativeInteger(effectiveRecord.cols, "coordinator effective columns"),
+        rows: nonNegativeInteger(effectiveRecord.rows, "coordinator effective rows"),
+      }
+      : null,
+    unavailable: terminalView.unavailable,
+  };
 }

@@ -81,12 +81,12 @@ PTY; node-pty and `ROOST_KEEPER_MODE` are retired.
 - **Boot** — `src/main.ts`, `src/coord-link-deps.ts`, `src/boot-keeper.ts`, `src/boot-reconcile.ts`,
   `src/install.ts`, `src/config.ts`, `src/jwt.ts`. **`src/transport/`** — the outbound coord link (above).
   **`src/keeper/`** — the PTY host (above).
-- **Session family**, one owner split across `this`-bound modules: `src/session-manager.ts` (the maps + delegating
+- **Session family**, one owner split across `this`-bound modules: `src/session-manager.ts` (maps + delegating
   wrappers), `session-record.ts`, `session-constants.ts`, `session-spawn.ts`, `session-resume.ts`,
-  `session-lifecycle.ts`, `session-emit.ts`, `session-viewport.ts`, `session-terminal-control.ts`,
-  `session-terminal-txn.ts`, `session-resize-capture.ts`, `session-control-lanes.ts`, `session-scrollback.ts`,
-  `session-scrollback-ring.ts`, `session-unhandled-seq.ts`, `session-git-ports.ts`, plus the channel FSM in
-  `src/fsm.ts`.
+  `session-lifecycle.ts`, `session-emit.ts`, `session-terminal-control.ts`,
+  `session-terminal-txn.ts`, `session-resize-capture.ts` (adoption only),
+  `session-control-lanes.ts`, `session-scrollback.ts`, `session-scrollback-ring.ts`,
+  `session-unhandled-seq.ts`, `session-git-ports.ts`, plus the channel FSM in `src/fsm.ts`.
 - **Browser RPCs** — `src/browser-command-handler.ts` dispatches every `ClientControlFrame` variant to
   `browser-command-{spawn,terminal,files,attachments,transfer,diag}.ts`, answering upstream as `rpc-ok` /
   `rpc-error`.
@@ -104,20 +104,24 @@ PTY; node-pty and `ROOST_KEEPER_MODE` are retired.
 
 ## Invariants
 
-- **`SessionManager`'s core map is keyed by `channelId`, not `SessionId`** — `sessions = new Map<number,
-  SessionRecord>()` in `src/session-manager.ts`, and likewise `viewportClaims`, `lastAppliedSize`,
-  `cellEmitTimers`, `rawMetadataQueues`. Reach a session by sid via `getBySessionId()`; a sid-keyed map you add
-  yourself diverges from every other one.
-- **The worker holds the one authoritative grid.** History is served as immutable cell rows by
-  `handleGetScrollbackCells` (`src/browser-command-terminal.ts`); the browser paints rows as-is and never re-reflows
-  (`ARCHITECTURE.md`, "Terminal fidelity"). Reads are epoch-fenced and await `terminalControlChains`, so no
-  response can splice rows across a reframe. `getScrollbackSince` is retired — see `src/session-scrollback.ts`.
-- **Viewport size is the smallest common denominator across live viewers**, so no viewer is clipped.
-  `desiredViewportSize()` in `src/session-viewport.ts` takes the min over fresh, non-zero claims (a 0×0 claim is a
-  background viewer: output stays live without constraining the PTY). TTL, withdraw grace and freshness live in
-  `apps/shared/src/viewport.ts` so worker and coord cannot desync. The claim map is *intent only* — every resize it
-  implies is executed by the single terminal-control owner (`reconcileTerminalViewport` in
-  `src/session-terminal-control.ts` → `src/session-terminal-txn.ts`).
+- **`SessionManager`'s live maps are keyed by `channelId`, not `SessionId`** —
+  `sessions`, `terminalStreams`, cell emission state and raw metadata queues all
+  share that key. Reach a session by sid via `getBySessionId()`; an ad-hoc
+  sid-keyed owner will diverge.
+- **The worker holds the one authoritative grid.** History is served as
+  immutable cell rows by `handleGetScrollbackCells`; the browser paints rows
+  as-is and never reflows them. Reads are epoch-fenced against the terminal
+  control lane. `getScrollbackSince` remains retired.
+- **The coordinator owns viewer membership and SCD.** The worker receives one
+  `DTerminalStreamState` per channel with an already-aggregated geometry and
+  never keeps per-viewer claims, freshness timers, or withdraw grace. A new
+  stream ID gates deltas until its complete full cursor is installed and sent.
+  Disable gates cell emission without changing the keeper/core geometry.
+- **Live resize mutates the existing core at the keeper boundary.** The
+  `ResizeAck` callback synchronously calls `wtermCore.resize` before any later
+  `PtyOut` from that ordered stream can dispatch. No ordinary viewer change
+  allocates a core or replays the raw ring. `session-resize-capture.ts` is
+  reachable only for degraded adoption when no in-memory core exists.
 - **`Bun.spawn({terminal})` does not inject `TERM` into the child env** (node-pty did). A locally bootstrapped
   worker inherits `TERM` from its terminal and hides the bug; an SSH-deployed one sees `TERM=""`/`unknown` →
   backspace echoes wrong and ncurses dies with `cannot initialize terminal type`. The real spawn site in
@@ -127,12 +131,11 @@ PTY; node-pty and `ROOST_KEEPER_MODE` are retired.
 - **`agent-status` is volatile metadata on a shell PTY.** No SQLite row, no event-log variant, no `session.kind`.
   It ships as `CoordWorkerUp.agent_status`, is resent after every CoordLink reopen, and is dropped when the session
   closes; a restart must re-derive it. Do not persist it and do not promote it to a session kind.
-- **`case "resize"` must have its own handler block that reaches a real handler.** It once fell through to a
-  fire-and-forget log-and-return stub for weeks: `claude`/`vim`/`less` rendered at the keeper default 220×50 while
-  wterm displayed at viewport width. The live block is `src/browser-command-handler.ts` → `handleResize`
-  (`src/browser-command-terminal.ts`) → `sessionMgr.claimViewport`. Guard: lint rule `L11: worker case "resize"
-  must have its own handler block` in `scripts/lint-roost.ts` — its `files:` anchor is still `src/main.ts`, where
-  the switch used to live, so move the anchor with the switch or the guard passes vacuously.
+- **Keeper input correlation is worker-owned.** Browser-local `input_seq` and
+  worker request IDs correlate their respective hops only. The keeper receives
+  a monotonically increasing per-channel/connection key allocated by the
+  worker, so simultaneous devices using the same local sequence cannot replace
+  each other's pending result.
 
 ## Agent status
 

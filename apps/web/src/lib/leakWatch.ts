@@ -11,7 +11,7 @@
 
 import { diag, signal } from "@roost/shared/diag";
 import { rootStore } from "../store/root.ts";
-import { cellFrameCountSize } from "../store/sync-dispatch.ts";
+import { cellFrameCountSize } from "../store/terminal-stream.ts";
 import { inputMapSizes } from "../ws/sync-outbound.ts";
 import { sessionTraceSize } from "./diag.ts";
 

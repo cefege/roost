@@ -3,6 +3,8 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Database } from "bun:sqlite";
+import { create } from "@bufbuild/protobuf";
+import { TerminalViewCommandSchema } from "@roost/shared/proto/sync_pb";
 import type { CoordConfig } from "@roost/shared/config";
 import { openDb, type DbHandle, type KyselyDB } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
@@ -16,14 +18,20 @@ import {
   type PushNotificationTransport,
 } from "../src/push-sender.ts";
 import { firePushForTransition } from "../src/push-dispatch.ts";
-import { _bumpViewer, _viewersBySession } from "../src/connect/viewer-tracker.ts";
+import {
+  installTerminalViewHub,
+  TerminalViewHub,
+} from "../src/connect/terminal-view-hub.ts";
 
 const SESSION_ID = "22222222-2222-4222-8222-222222222222";
+const VIEW_ID = "33333333-3333-4333-8333-333333333333";
+const VIEW_SOCKET_ID = "push-delivery-view-socket";
 let workdir: string;
 let db: KyselyDB;
 let sqlite: Database;
 let opened: DbHandle;
 let coord: CoordHandle;
+let terminalViews: TerminalViewHub;
 let jwt: string;
 let viewerFp: string;
 
@@ -72,16 +80,23 @@ beforeAll(async () => {
     keys.privateKey,
     viewerFp,
   );
+  terminalViews = new TerminalViewHub({
+    db,
+    resolveRoute: async () => null,
+  });
+  installTerminalViewHub(terminalViews);
   coord = createCoord({ db, sqlite, coordKey, cfg, jwtCache });
 });
 
 beforeEach(async () => {
-  _viewersBySession.delete(SESSION_ID);
+  terminalViews.closeSession(SESSION_ID);
   await db.deleteFrom("push_subscriptions").execute();
   await db.deleteFrom("sessions").where("id", "=", SESSION_ID).execute();
 });
 
 afterAll(async () => {
+  installTerminalViewHub(null);
+  terminalViews?.dispose();
   coord?.dispose();
   resetVapidKeysForTest();
   // finally: a close that throws (a leaked statement holding the file open)
@@ -192,7 +207,29 @@ describe("Web Push delivery", () => {
       { viewer_fp: viewerFp, endpoint: "https://push.example/viewing", p256dh: "a", auth: "b", created_at_ms: 1 },
       { viewer_fp: otherFp, endpoint: "https://push.example/background", p256dh: "c", auth: "d", created_at_ms: 1 },
     ]).execute();
-    _bumpViewer(SESSION_ID, viewerFp, 80, 24, 1);
+    terminalViews.registerSocket({
+      socketId: VIEW_SOCKET_ID,
+      viewerKey: `${viewerFp}:push-delivery-tab`,
+      callerFingerprint: viewerFp,
+      sink: {
+        beginTerminalStream() {},
+        enqueueTerminalState() {},
+        replaceTerminalSnapshot() {},
+        enqueueTerminalDelta: () => true,
+        dropTerminalSession() {},
+      },
+    });
+    terminalViews.handleViewCommand(
+      VIEW_SOCKET_ID,
+      create(TerminalViewCommandSchema, {
+        viewId: VIEW_ID,
+        sessionId: SESSION_ID,
+        revision: 1n,
+        cols: 80,
+        rows: 24,
+        active: true,
+      }),
+    );
 
     const deliveries: Array<{ viewerFps: string[]; payload: object }> = [];
     const sender: typeof sendPushToSubscriptions = async (_db, subscriptions, payload) => {

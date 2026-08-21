@@ -3,9 +3,8 @@
 //
 // Every command is guarded on socket identity AND on the domain generation it
 // was issued against, so a frame composed before a domain reset can never be
-// admitted after it. Terminal viewport/input commands are handed to the
-// injected onV2Command hook (sync-terminal-controls.ts) with a reply() that
-// dies with the socket generation it was created for.
+// admitted after it. Terminal view/input commands are handed to the injected
+// onV2Command hook with a reply closure bound to this socket generation.
 //
 // Split out of sync-ws-handler.ts.
 
@@ -29,24 +28,16 @@ import type { SyncWsData } from "./sync-ws-handler.ts";
 
 type SyncTerminalCommand = Extract<
   SyncClientFrame["command"],
-  { case: "viewport" | "input" }
+  { case: "terminalView" | "terminalResync" | "input" }
 >;
 export type SyncV2ResultControl = Extract<
   FirehoseFrame["frame"],
-  {
-    case:
-      | "viewportAccepted"
-      | "viewportRejected"
-      | "viewportAmbiguous"
-      | "inputAccepted"
-      | "inputRejected"
-      | "inputAmbiguous";
-  }
+  { case: "inputAccepted" | "inputRejected" | "inputAmbiguous" }
 >;
 
 export interface SyncV2CommandContext {
   readonly caller: SyncWsData["caller"];
-  readonly viewerKey: string;
+  readonly viewerKey: string | null;
   readonly remoteAddress?: string;
   readonly socketId: string;
   readonly command: SyncTerminalCommand;
@@ -129,19 +120,25 @@ export function makeSyncV2CommandHandler(deps: SyncV2CommandDeps) {
       }));
       return;
     }
-    if (command.case !== "viewport" && command.case !== "input") return;
-    const viewerKey = ws.data.viewerKey;
-    if (viewerKey === null) return;
+    if (
+      command.case !== "terminalView"
+      && command.case !== "terminalResync"
+      && command.case !== "input"
+    ) return;
     const terminal = v2.domains.get(SyncDomain.TERMINAL);
     if (
       !terminal?.ready
       || command.value.domainGeneration !== terminal.generation
     ) return;
     const owned = clone(SyncClientFrameSchema, clientFrame).command;
-    if (owned.case !== "viewport" && owned.case !== "input") return;
+    if (
+      owned.case !== "terminalView"
+      && owned.case !== "terminalResync"
+      && owned.case !== "input"
+    ) return;
     deps.onV2Command?.({
       caller: ws.data.caller,
-      viewerKey,
+      viewerKey: ws.data.viewerKey,
       remoteAddress: ws.data.remoteAddress ?? undefined,
       socketId: v2.socketId,
       command: owned,

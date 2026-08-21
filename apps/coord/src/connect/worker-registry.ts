@@ -22,11 +22,9 @@ export interface WorkerHandle {
 // SEPARATE, weaker signal (see workersList routable field).
 export const connectWorkers = new Map<string, WorkerHandle>();
 
-/** Test-only seam: install/remove a fake WorkerHandle without going
- *  through the full raw-WS attach handshake. Used by
- *  coord-bidi.test.ts to drive `forwardToSessionWorker` → `_bumpViewer` for
- *  multi-viewer / sessionsResize assertions where spinning up a real
- *  worker WS is out of scope. Production code paths never call this. */
+/** Test-only seam: install/remove a fake WorkerHandle without the full raw-WS
+ * attach handshake. Focused routing tests use it to prove worker command
+ * admission and response correlation. Production code never calls this. */
 export function __setConnectWorkerForTest(workerFp: string, handle: WorkerHandle | null): void {
   if (handle) connectWorkers.set(workerFp, handle);
   else connectWorkers.delete(workerFp);

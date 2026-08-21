@@ -1,7 +1,6 @@
 // Terminal diagnostic snapshot — the browser half of the layered probe. Reads
-// the registered CellGridRenderer's watermarks and the outbound claim/sync
-// state and reports them as one bounded JSON record, plus the geometric proofs
-// a smoke run records after it has visually confirmed a paint.
+// the registered CellGridRenderer plus the per-session replica/view owner and
+// reports their independent stream watermarks in one bounded JSON record.
 //
 // Audience: diagnostics only. Every caller is a smoke-only module that is
 // dynamically imported (lib/smoke.ts, lib/smokeHarness.ts), so nothing here is
@@ -14,8 +13,8 @@ import type {
   RendererEpochSeq,
   RendererPresentationSnapshot,
 } from "./cellRenderer.ts";
-import { cellWireEpochSeq } from "../store/sync-dispatch.ts";
-import { terminalOutboundSnapshot, type TerminalOutboundSnapshot } from "../ws/sync-outbound.ts";
+import { terminalStreamDiagnosticSnapshot } from "../store/terminal-stream-diagnostics.ts";
+import type { TerminalStreamDiagnosticSnapshot } from "../store/terminal-stream-types.ts";
 import { isPageVisible } from "./pageVisible.ts";
 import type { ScrollbackHistoryFloor } from "@roost/shared/wire";
 import { scrollbackHistoryFloor } from "./scrollbackBackfill.ts";
@@ -62,7 +61,10 @@ export interface TerminalBrowserStreamSnapshot {
   session_id: string;
   captured_at_ms: number;
   build: { git_sha: string | null };
-  wire_received: RendererEpochSeq;
+  wire_received: TerminalStreamDiagnosticSnapshot["wire_received"];
+  replica: TerminalStreamDiagnosticSnapshot["replica"];
+  view: TerminalStreamDiagnosticSnapshot["view"];
+  /** Retained name for adjacent probes; this is the browser replica watermark. */
   handler_canonical: RendererEpochSeq;
   dom_reconciled: RendererEpochSeq;
   reconcile_block_reason: ReconcileBlockReason;
@@ -82,7 +84,6 @@ export interface TerminalBrowserStreamSnapshot {
     floor: { row: number; reason: ScrollbackHistoryFloor } | null;
   };
   last_geometry_proof: TerminalGeometryProof | null;
-  claim: TerminalOutboundSnapshot["claim"];
   slot: {
     registered: boolean;
     connected: boolean;
@@ -91,7 +92,7 @@ export interface TerminalBrowserStreamSnapshot {
     css_visible: boolean | null;
   };
   visibility: TerminalRendererOwnerSnapshot["visibility"];
-  sync: TerminalOutboundSnapshot["sync"];
+  sync: TerminalStreamDiagnosticSnapshot["sync"];
 }
 
 const buildShaValue = "VITE_BUILD_SHA" in import.meta.env
@@ -133,7 +134,7 @@ export function terminalBrowserStreamSnapshot(sessionId: string): TerminalBrowse
   } catch {
     // A diagnostic read must never perturb terminal ownership or rendering.
   }
-  const outbound = terminalOutboundSnapshot(sessionId);
+  const stream = terminalStreamDiagnosticSnapshot(sessionId);
   // backfillAnchor is the SAME four values the paging controller addresses history
   // with, so the probe reports the range the browser is actually asking about
   // rather than a second derivation of it.
@@ -142,9 +143,17 @@ export function terminalBrowserStreamSnapshot(sessionId: string): TerminalBrowse
     session_id: sessionId,
     captured_at_ms: Date.now(),
     build: { git_sha: BUILD_SHA },
-    wire_received: cellWireEpochSeq(sessionId),
-    handler_canonical: owner?.handler_canonical ?? { grid_epoch: null, seq: null },
-    dom_reconciled: renderer?.reconciledEpochSeq() ?? { grid_epoch: null, seq: null },
+    wire_received: stream.wire_received,
+    replica: stream.replica,
+    view: stream.view,
+    handler_canonical: {
+      grid_epoch: stream.replica.grid_epoch,
+      seq: stream.replica.seq,
+    },
+    dom_reconciled: renderer?.reconciledEpochSeq() ?? {
+      grid_epoch: null,
+      seq: null,
+    },
     reconcile_block_reason: renderer?.reconcileBlockReason() ?? null,
     presentation: renderer?.presentationSnapshot() ?? null,
     history: {
@@ -156,7 +165,8 @@ export function terminalBrowserStreamSnapshot(sessionId: string): TerminalBrowse
       floor: scrollbackHistoryFloor(sessionId),
     },
     last_geometry_proof: entry?.lastGeometryProof ?? null,
-    claim: outbound.claim,
+    // View membership and replica continuity are reported above; renderer
+    // ownership below is presentation-only.
     slot: {
       registered: entry !== undefined,
       connected: owner?.slot.connected ?? false,
@@ -168,6 +178,6 @@ export function terminalBrowserStreamSnapshot(sessionId: string): TerminalBrowse
       document_visible: typeof document !== "undefined" && document.visibilityState === "visible",
       page_visible: isPageVisible(),
     },
-    sync: outbound.sync,
+    sync: stream.sync,
   };
 }

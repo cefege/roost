@@ -1,7 +1,7 @@
 // Plan section 7 — the patched-core load contract.
 //
 // The worker runs a LOCALLY PATCHED @wterm/core wasm (upstream 0.3.4 plus
-// scripts/wterm-0.3.4-scrollback.patch). Two things used to be able to rot
+// scripts/wterm-0.3.4-roost.patch). Two things used to be able to rot
 // silently: the artifact could drift from the sources that built it, and a
 // stale/foreign module could be loaded anyway because the factory degraded to
 // the stock 1k-line core on any failure. Both are now hard failures, and this
@@ -12,11 +12,17 @@
 // reservation in the module, so every session costs it up front.
 
 import { describe, test, expect } from "bun:test";
-import type { TerminalCore } from "@wterm/core";
+import { WasmBridge, type TerminalCore } from "@wterm/core";
 import {
-  createWtermCore, prepareWtermCoreModule, verifyRoostWasm,
+  assertWtermCoreGeometry, assertWtermCoreModuleLimits,
+  createWtermCore, prepareWtermCoreModule, resizeWtermCore, verifyRoostWasm,
 } from "../src/wterm-core-factory.ts";
 import { WTERM_ROOST_WASM_PATH, expectedRoostWasmSha256 } from "../src/wterm-wasm.ts";
+import {
+  TERMINAL_MAX_COLS, TERMINAL_MAX_ROWS, TERMINAL_VIEW_HEARTBEAT_MS,
+  TERMINAL_VIEW_LEASE_MS, TERMINAL_VIEW_SWEEP_MS, clampTerminalGeometry,
+  minimumTerminalGeometry,
+} from "../src/viewport.ts";
 
 const artifact = await Bun.file(WTERM_ROOST_WASM_PATH).arrayBuffer();
 const committedSha256 = await expectedRoostWasmSha256();
@@ -99,6 +105,43 @@ describe("patched wterm wasm load contract", () => {
     expect(core.getCell(0, 0).linkUri).toBe("https://example.test/x");
     expect(core.getCell(0, 0).linkId).toBe("a1");
     expect(core.getResourceState?.().hyperlinks?.capacity).toBeGreaterThan(0);
+  });
+
+  test("shared 256x256 bounds match the core clamp and validated factory contract", async () => {
+    const module = await verifyRoostWasm(artifact, committedSha256);
+    const instance = await WebAssembly.instantiate(module);
+    expect(() => assertWtermCoreModuleLimits(instance)).not.toThrow();
+    const raw = new WasmBridge(instance);
+    raw.init(TERMINAL_MAX_COLS + 1, TERMINAL_MAX_ROWS + 1);
+    expect(raw.getCols()).toBe(TERMINAL_MAX_COLS);
+    expect(raw.getRows()).toBe(TERMINAL_MAX_ROWS);
+
+    const core = await createWtermCore(TERMINAL_MAX_COLS, TERMINAL_MAX_ROWS);
+    expect(() => assertWtermCoreGeometry(core, {
+      cols: TERMINAL_MAX_COLS,
+      rows: TERMINAL_MAX_ROWS,
+    })).not.toThrow();
+    resizeWtermCore(core, { cols: 80, rows: 24 });
+    expect([core.getCols(), core.getRows()]).toEqual([80, 24]);
+    await expect(createWtermCore(TERMINAL_MAX_COLS + 1, 24)).rejects.toThrow(/outside/);
+    await expect(createWtermCore(80, TERMINAL_MAX_ROWS + 1)).rejects.toThrow(/outside/);
+  });
+
+  test("shared view policy clamps measurements and minimizes each axis independently", () => {
+    expect(clampTerminalGeometry({ cols: 257, rows: 1_000 })).toEqual({
+      cols: TERMINAL_MAX_COLS,
+      rows: TERMINAL_MAX_ROWS,
+    });
+    expect(minimumTerminalGeometry([
+      { cols: 80, rows: 50 },
+      { cols: 120, rows: 24 },
+    ])).toEqual({ cols: 80, rows: 24 });
+    expect(minimumTerminalGeometry([])).toBeNull();
+    expect([
+      TERMINAL_VIEW_LEASE_MS,
+      TERMINAL_VIEW_HEARTBEAT_MS,
+      TERMINAL_VIEW_SWEEP_MS,
+    ]).toEqual([15_000, 5_000, 1_000]);
   });
 
   test("cores from the shared module share no mutable state", async () => {

@@ -19,7 +19,7 @@ describe("worker diagnostic snapshot", () => {
       workerFp: WORKER_FP,
       sink: { emit: () => {} },
     });
-    const cellEmit = initCellEmitState("diag-grid");
+    const cellEmit = initCellEmitState("diag-grid", "00000000-0000-4000-8000-000000000001");
     cellEmit.seq = 17;
     const scrollback = createSbRing();
     appendToRing(scrollback, Buffer.from("retained"));
@@ -44,34 +44,38 @@ describe("worker diagnostic snapshot", () => {
       cell_emit: cellEmit,
       sb_origin_pin: null,
     } as never);
-    manager.viewportClaims.set(CHANNEL_ID, new Map([["viewer:tab", {
+    const baseline = Promise.withResolvers<void>();
+    manager.terminalStreams.set(CHANNEL_ID, {
+      streamId: "00000000-0000-4000-8000-000000000001",
+      enabled: true,
       cols: 91,
       rows: 27,
-      lastMs: Date.now() - 50,
-      clientSeq: 9n,
-    }]]));
+      version: 1,
+      baselineReady: false,
+      coreValid: true,
+      baselineDirty: true,
+      snapshotCursor: null,
+      baselineInstalled: baseline.promise,
+      resolveBaselineInstalled: baseline.resolve,
+      resizeCapture: {
+        streamId: "00000000-0000-4000-8000-000000000001",
+        resizeSeq: 12,
+        installSeq: 36,
+        fromCols: 80,
+        fromRows: 24,
+        toCols: 91,
+        toRows: 27,
+        queryCarry: new Uint8Array(),
+        capturedBytes: 5,
+        capturedChunks: 2,
+        boundarySeq: 38,
+        boundaryApplied: true,
+        failedReason: null,
+      },
+    });
     manager.lastAppliedSize.set(CHANNEL_ID, { cols: 91, rows: 27 });
     manager.channelResizeSeq.set(CHANNEL_ID, 12);
-    manager.resizeFloorInvalid.add(CHANNEL_ID);
-    manager.coreRebuilds.set(CHANNEL_ID, 1);
     manager.cellEmissionGates.add(CHANNEL_ID);
-    manager.resizeCaptures.set(CHANNEL_ID, {
-      reason: "viewport_resize",
-      installedMonoMs: monoNowMs() - 40,
-      installSeq: 36,
-      phase: "keeper_written",
-      phaseSinceMonoMs: monoNowMs() - 30,
-      phaseDeadlineMonoMs: monoNowMs() + 5_000,
-      txnDeadlineMonoMs: monoNowMs() + 6_000,
-      boundarySeq: 38,
-      boundaryAltMode: false,
-      capturedBytes: 5,
-      capturedChunks: 2,
-      ringEvicted: false,
-      rebuilds: 0,
-      forwardedReplies: 0,
-      overBudget: false,
-    });
     manager.cellGateSuppression.set(CHANNEL_ID, {
       gate: "resize_capture",
       sinceMonoMs: monoNowMs() - 25,
@@ -83,13 +87,13 @@ describe("worker diagnostic snapshot", () => {
     manager.terminalControlChains.set(CHANNEL_ID, {
       tail: Promise.resolve(),
       depth: 2,
-      running: "viewport_claim",
+      running: "terminal_stream",
       runningSinceMonoMs: monoNowMs() - 20,
     });
     manager.keeperAdmissionLane.set(CHANNEL_ID, {
       tail: Promise.resolve(),
       depth: 1,
-      holder: "viewport_resize",
+      holder: "terminal_resize",
       heldSinceMonoMs: monoNowMs() - 15,
     });
     manager.rawMetadataQueues.set(CHANNEL_ID, {
@@ -128,19 +132,18 @@ describe("worker diagnostic snapshot", () => {
             reason: string | null;
           };
           resize_capture: {
-            phase: string;
-            phase_age_ms: number;
-            phase_remaining_ms: number;
+            stream_id: string;
+            resize_seq: number;
+            boundary_applied: boolean;
             captured_bytes: number;
           } | null;
           pending_repair: boolean;
-          claims: Record<string, {
-            cols: number;
-            rows: number;
-            last_ms: number;
-            age_ms: number;
-            client_seq: string | null;
-          }>;
+          terminal_stream: {
+            stream_id: string;
+            baseline_ready: boolean;
+            baseline_dirty: boolean;
+            core_valid: boolean;
+          } | null;
           terminal_control: {
             control_running_age_ms: number | null;
             admission_held_age_ms: number | null;
@@ -194,7 +197,7 @@ describe("worker diagnostic snapshot", () => {
       expect(session.gate).toMatchObject({
         active: true,
         gate: "resize_capture",
-        reason: "viewport_resize",
+        reason: "resize_capture",
         suppressed_frames: 3,
         over_budget: false,
       });
@@ -202,36 +205,36 @@ describe("worker diagnostic snapshot", () => {
       if (session.gate.age_ms === null) throw new Error("active gate has no age");
       expect(session.gate.age_ms).toBeGreaterThanOrEqual(25);
       expect(session.resize_capture).toMatchObject({
-        reason: "viewport_resize",
-        phase: "keeper_written",
+        stream_id: "00000000-0000-4000-8000-000000000001",
+        resize_seq: 12,
         install_seq: 36,
+        from_cols: 80,
+        from_rows: 24,
+        to_cols: 91,
+        to_rows: 27,
         boundary_seq: 38,
-        boundary_alt_mode: false,
+        boundary_applied: true,
         captured_bytes: 5,
         captured_chunks: 2,
-        ring_evicted: false,
-        rebuilds: 0,
-        forwarded_replies: 0,
-        over_budget: false,
+        failed_reason: null,
       });
       if (session.resize_capture === null) throw new Error("installed capture is not reported");
-      expect(session.resize_capture.phase_age_ms).toBeGreaterThanOrEqual(30);
-      expect(session.resize_capture.phase_remaining_ms).toBeGreaterThan(0);
       expect(session.pending_repair).toBe(true);
-      expect(session.claims["viewer:tab"]).toMatchObject({
+      expect(session.terminal_stream).toMatchObject({
+        stream_id: "00000000-0000-4000-8000-000000000001",
+        enabled: true,
         cols: 91,
         rows: 27,
-        client_seq: "9",
+        baseline_ready: false,
+        baseline_dirty: true,
+        core_valid: true,
       });
-      expect(session.claims["viewer:tab"]!.age_ms).toBeGreaterThanOrEqual(50);
       expect(session.terminal_control).toMatchObject({
-        control_state: "viewport_claim",
+        control_state: "terminal_stream",
         control_depth: 2,
-        admission_holder: "viewport_resize",
+        admission_holder: "terminal_resize",
         admission_depth: 1,
-        core_rebuilds: 1,
         last_resize_seq: 12,
-        resize_floor_valid: false,
         input_ack: {
           pending_commands: 2,
           pending_bytes: 11,

@@ -8,11 +8,6 @@ import { eventToProto, protoToEvent } from "@roost/shared/wire/event-proto";
 import { applySessionsSnapshot, foldEventIntoStore } from "../src/store/projector.ts";
 import { beginOptimisticSpawn, endOptimisticSpawn } from "../src/store/optimisticSpawn.ts";
 import { rootStore, setRootStore } from "../src/store/root.ts";
-import {
-  _resetTerminalOutboundForTest,
-  acquireTerminalViewportOwner,
-  terminalOutboundSnapshot,
-} from "../src/ws/sync-outbound.ts";
 
 // ──────────────────────────────────────────────────────────────────────
 // Helpers to build canonical test events. Use as* constructors for branded types.
@@ -421,38 +416,4 @@ describe("fold safety and producer-generation replay", () => {
     expect(rootStore.sessions[SESSION_ID]!.channel).toBe(asChannelId(3));
   });
 
-  test("respawn and reconcile snapshot replay a positive viewport owner at held zero", () => {
-    resetSessions();
-    _resetTerminalOutboundForTest();
-    foldEventIntoStore(makeOpenedEvent());
-    const owner = acquireTerminalViewportOwner(SESSION_ID);
-    owner.claim({ cols: 120, rows: 40, cause: 1, heldCellSeq: 31n });
-    expect(terminalOutboundSnapshot(SESSION_ID).claim.desired?.held_cell_seq).toBe("31");
-
-    foldEventIntoStore({ kind: "respawned", session_id: SESSION_ID, new_channel: asChannelId(44), ts: 4400 });
-    expect(terminalOutboundSnapshot(SESSION_ID).claim.desired?.held_cell_seq).toBe("0");
-
-    // A later heartbeat re-states the tab's own watermark; the announcing
-    // worker's reconcile snapshot forces zero again.
-    owner.heartbeat(77n);
-    expect(terminalOutboundSnapshot(SESSION_ID).claim.desired?.held_cell_seq).toBe("77");
-    foldEventIntoStore({
-      kind: "snapshot",
-      worker_fp: FP,
-      sessions: [makeSession(SESSION_ID, { channel: asChannelId(44) })],
-      ts: 4500,
-    });
-    expect(terminalOutboundSnapshot(SESSION_ID).claim.desired?.held_cell_seq).toBe("0");
-    owner.dispose();
-    _resetTerminalOutboundForTest();
-  });
-
-  test("a tab with no viewport owner is untouched by a producer generation change", () => {
-    resetSessions();
-    _resetTerminalOutboundForTest();
-    foldEventIntoStore(makeOpenedEvent());
-    foldEventIntoStore({ kind: "respawned", session_id: SESSION_ID, new_channel: asChannelId(45), ts: 4600 });
-    expect(terminalOutboundSnapshot(SESSION_ID).claim.desired).toBeNull();
-    expect(rootStore.sessions[SESSION_ID]!.channel).toBe(asChannelId(45));
-  });
 });

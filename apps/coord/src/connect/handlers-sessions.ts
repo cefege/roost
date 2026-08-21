@@ -1,9 +1,8 @@
-// Session RPC handlers: list/spawn/attach/kill/rename/resize/input/cursor-pos/
-// assign-workspace. Most forward a browser-command frame to the session's worker
-// hub socket (sendBrowserCmd / forwardToSessionWorker) and await the worker
-// reply; resize also bumps the viewer-presence tracker. The two scrollback reads
-// live in handlers-sessions-scrollback.ts and are spread in below; the whole
-// object spreads into router.ts's single router.service() literal (400-line cap).
+// Session RPC handlers: list/spawn/attach/kill/rename/input/cursor-pos/
+// assign-workspace. Most forward a browser-command frame to the session's
+// worker and await its reply. Terminal views and resize aggregation are handled
+// only on the socket-bound TerminalViewHub path. Scrollback reads live in
+// handlers-sessions-scrollback.ts.
 
 import type { ServiceImpl } from "@connectrpc/connect";
 import { Code, ConnectError } from "@connectrpc/connect";
@@ -12,7 +11,7 @@ import { randomUUID } from "node:crypto";
 import {
   CoordinatorService,
   SessionsListResponseSchema, SessionsAttachResponseSchema,
-  SessionsKillResponseSchema, SessionsRenameResponseSchema, SessionsResizeResponseSchema,
+  SessionsKillResponseSchema, SessionsRenameResponseSchema,
   SessionsInputResponseSchema, SessionsCursorPosResponseSchema,
   SessionsAssignWorkspaceResponseSchema,
 } from "@roost/shared/proto/coordinator_pb";
@@ -35,7 +34,6 @@ import { bindSyncSessionSnapshot } from "./sync-snapshot-registry.ts";
 import {
   nextCompatibilityInputSeq,
   processInputControl,
-  processViewportControl,
   terminalViewerIdentity,
 } from "./session-control.ts";
 
@@ -66,8 +64,8 @@ function sessionRowToProto(row: any) {
 
 type SessionMethods =
   | "sessionsList" | "sessionsSpawn" | "sessionsAttach" | "sessionsKill"
-  | "sessionsRename" | "sessionsResize" | "sessionsInput"
-  | "sessionsCursorPos" | "sessionsAssignWorkspace"
+  | "sessionsRename" | "sessionsInput" | "sessionsCursorPos"
+  | "sessionsAssignWorkspace"
   | "sessionsGetScrollbackCells" | "sessionsSearchScrollback";
 
 export function makeSessionHandlers(
@@ -176,25 +174,6 @@ export function makeSessionHandlers(
       return create(SessionsRenameResponseSchema, { ok: true });
     },
 
-    async sessionsResize(req, ctx) {
-      const caller = requireAuth(ctx.values);
-      const result = await processViewportControl(deps, {
-        identity: terminalViewerIdentity(
-          caller.fingerprint,
-          ctx.values.get(tabIdKey),
-          ctx.values.get(remoteAddressKey) ?? undefined,
-        ),
-        sessionId: req.sessionId,
-        clientSeq: req.clientSeq,
-        cols: req.cols,
-        rows: req.rows,
-        cause: req.cause,
-        heldCellSeq: BigInt(req.heldCellSeq),
-      });
-      return create(SessionsResizeResponseSchema, {
-        accepted: result.status === "accepted",
-      });
-    },
 
 
     async sessionsInput(req, ctx) {
@@ -233,7 +212,7 @@ export function makeSessionHandlers(
         kind: "cursor-pos" as const,
         session_id: asSessionId(req.sessionId),
         col: req.col, row: req.row,
-      } as ClientControlFrame, viewerKey);
+      } as ClientControlFrame);
       return create(SessionsCursorPosResponseSchema, { accepted: ok });
     },
 

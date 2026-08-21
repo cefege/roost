@@ -11,8 +11,11 @@
 import type { TerminalCore } from "@wterm/core";
 import { gridToCellFrame, gridDeltaFrame } from "./grid-to-cells.ts";
 import type { CellGridFrame } from "./types.ts";
+import { isTerminalUuid } from "../viewport.ts";
 
 export interface CellEmitState {
+  /** Coordinator-minted generation addressed by every emitted frame. */
+  streamId: string;
   /** Opaque identity base for one worker-side grid numbering lifetime. */
   gridEpochBase: string;
   /** Increments only when a non-forced semantic reframe invalidates row identity. */
@@ -24,11 +27,10 @@ export interface CellEmitState {
   cols: number;
   rows: number;
   alt: boolean;
-  /** Base of Roost's monotonic index space for the CURRENT core instance. A
-   *  resize rebuilds the core and replays the raw ring, which restarts the
-   *  core's own discarded counter at 0 while the SPA's absolute row indices must
-   *  not rewind; the rebuild pins that difference here (session-resize-capture).
-   *  0 for the core a session spawns with. */
+  /** Absolute scrollback origin carried only across explicit worker adoption,
+   * where keeper history creates a replacement core. Ordinary live resize
+   * mutates this core in place and leaves the core's own counters authoritative.
+   * Zero for the core a session spawns with. */
   sbOrigin: number;
   /** Eviction origin at the last emit: sbOrigin plus the core's authoritative
    *  discarded count, read ONCE so a frame's sbBase, scrollbackTotal and append
@@ -36,8 +38,12 @@ export interface CellEmitState {
   sbDropped: number;
 }
 
-export function initCellEmitState(gridEpochBase: string): CellEmitState {
+export function initCellEmitState(gridEpochBase: string, streamId: string): CellEmitState {
+  if (!isTerminalUuid(streamId)) {
+    throw new Error(`cell stream_id is not a UUID: ${JSON.stringify(streamId)}`);
+  }
   return {
+    streamId,
     gridEpochBase, gridEpochRevision: 0,
     seq: 0, lastSbTotal: 0, sentFull: false, cols: 0, rows: 0, alt: false,
     sbOrigin: 0, sbDropped: 0,
@@ -104,11 +110,12 @@ export function nextCellFrame(
   const gridEpoch = `${st.gridEpochBase}:${gridEpochRevision}`;
   const seq = st.seq + 1;
   const frame = reframe
-    ? gridToCellFrame(core, seq, gridEpoch, tailRows, sbDropped)
-    : gridDeltaFrame(core, st.lastSbTotal, seq, gridEpoch, sbDropped);
+    ? gridToCellFrame(core, seq, gridEpoch, st.streamId, tailRows, sbDropped)
+    : gridDeltaFrame(core, st.lastSbTotal, seq, st.seq, gridEpoch, st.streamId, sbDropped);
   return {
     frame,
     state: {
+      streamId: st.streamId,
       gridEpochBase: st.gridEpochBase, gridEpochRevision,
       seq, lastSbTotal: monoTotal, sentFull: true, cols, rows, alt,
       sbOrigin: st.sbOrigin, sbDropped,

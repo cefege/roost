@@ -108,8 +108,8 @@ async function saturationHarness() {
   const mgr = new SessionManager({
     workerFp: asWorkerFp("00".repeat(32)),
     sink: { emit: () => {} },
-    sendBinaryUpstream: () => {},
-    sendCellGridUpstream: () => {},
+    sendBinaryUpstream: () => "sent",
+    sendCellGridUpstream: () => "sent",
   });
   const wtermCore = await WasmBridge.load();
   wtermCore.init(40, 6);
@@ -131,8 +131,23 @@ async function saturationHarness() {
     query_carry: new Uint8Array(0),
     ...initAgentOscState(),
     wtermCore,
-    cell_emit: initCellEmitState("sat-grid"),
+    cell_emit: initCellEmitState("sat-grid", "00000000-0000-4000-8000-000000000001"),
     lastPtyOutMs: 0,
+  });
+  const baseline = Promise.withResolvers<void>();
+  mgr.terminalStreams.set(asChannelId(1), {
+    streamId: "00000000-0000-4000-8000-000000000001",
+    enabled: true,
+    cols: 40,
+    rows: 6,
+    version: 1,
+    baselineReady: true,
+    coreValid: true,
+    baselineDirty: false,
+    snapshotCursor: null,
+    resizeCapture: null,
+    baselineInstalled: baseline.promise,
+    resolveBaselineInstalled: baseline.resolve,
   });
   return { mgr, links, signals };
 }

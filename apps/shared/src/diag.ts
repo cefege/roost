@@ -131,6 +131,12 @@ export type SignalKind =
   | "scrollback.gap"            // ring rolled past lastSeq → silent history hole on resume (observability, NOT a band-aid trigger)
   | "scrollback.replay_bound"   // a core rebuild could not reproduce the history the core it replaced still held, and/or its monotonic origin pin CLAMPED — the "history shrank / mis-spliced after a resize" class. A rebuild replays a FIXED byte ring, so once that ring no longer reaches as far back as the old core's line ring the history floor silently JUMPS; kv names the pin's before/after values, how many rows the replay could not reach, and whether the clamp fired. The one moment sbOrigin's correctness is in doubt, so it reports even though the rebuild itself succeeded
   | "terminal.gate_over_budget"  // worker cell-emission gate outlived the keeper command budget: a resize transaction (or repair) is stalling frames, so kv names the gate, its monotonic age, the transaction phase, and the captured byte count
+  | "terminal.core_failed"      // in-place core resize/recovery trapped; the stream is fail-closed and later PTY bytes stay in ordered recovery records until adoption
+  | "terminal.invalid_frame"    // worker canonical full exceeded structural/chunk limits and cannot establish a baseline for the stream
+  | "terminal.screen_capacity" // coordinator replica bounds rejected a newly completing screen without evicting an active session
+  | "terminal.snapshot_encode_failed" // coordinator could not encode a canonical cached snapshot for incremental recipient delivery
+  | "terminal.stream_result_mismatch" // worker stream result did not match the coordinator lane's addressed stream or desired payload
+  | "terminal.stream_invariant_failure" // worker classified a coordinator-produced stream request as structurally invalid
   | "terminal.sync_output_cap"   // an application opened a DEC 2026 synchronized-output frame and did not close it inside either ceiling, so the worker force-emitted the withheld cell frame and stopped suppressing that generation; kv names which cap tripped, the generation, the hold's monotonic age and how many frames it withheld
   | "terminal.hyperlink_saturated" // the core's fixed OSC 8 link table filled up, so every NEW distinct hyperlink this session emits silently renders as PLAIN TEXT (no error, no missing output — links just stop appearing); kv names capacity/used/rejected. Fires once per false→true flip, and the table resets on a core rebuild
   | "terminal.unhandled_sequence" // the terminal core's dispatcher IGNORED an escape sequence the application sent — the "renders wrong in Roost, fine in iTerm" class (e.g. DA1 `CSI c`, DECSCUSR `CSI Ps SP q`); kv names final/private/param_count/params plus ring_full+dropped. ONE line per distinct sequence per core instance (a rebuild reports afresh), per-channel cooldown. Partial detector: the core never logs unhandled OSC (other than 0/2/8) or unimplemented DECSET/DECRST modes
@@ -141,7 +147,7 @@ export type SignalKind =
   | "perf.longtask_stall"       // SPA main-thread task ≥ freeze threshold; kv carries the leak-watch accumulator snapshot (per-session map sizes, dom_nodes, heap_mb, uptime) at stall time → names days-long-uptime bloat vs a transient
   // ─── Coverage-sweep additions (coord Tier-1, worker transport/lifecycle, deploy) ───
   | "bytes.drop_unmapped"       // coord byte-hub dropped PTY output/cell/status for a channel with no session mapping (burst = real output/history loss, not the open-race)
-  | "cell.announce_barrier_drop" // coord's announced-channel barrier abandoned a channel's buffered cell/PTY frames (kv.reason = overflow/timeout/out_of_order/...); a marked route forces the next viewport claim to fetch a full frame
+  | "cell.announce_barrier_drop" // coord's announced-channel barrier abandoned buffered worker frames; a mapped terminal stream is invalidated and requests one full snapshot
   | "bytes.metadata_loss"       // coord dropped announced binary PTY frames: a later cell snapshot recreates the grid (hyperlinks included — they ride the cells) but NOT that channel's one-time OSC 0/2 title
   | "sync.backfill_failed"      // coord reconnect backfill query threw; live stream continued → SPA split-brain
   | "sync.backfill_truncated"   // coord backfill hit the getEventsSince row cap → events silently skipped

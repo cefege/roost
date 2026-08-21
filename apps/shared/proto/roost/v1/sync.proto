@@ -135,41 +135,49 @@ message SyncDomainSubscriptionCommand {
   uint64 generation = 2;
 }
 
-// Terminal-control command/result messages are declared here so the raw Sync
-// socket can carry them without importing coordinator.proto (which imports this
-// file for the retired Connect Sync declaration).
-message ViewportCommand {
-  string session_id = 1;
-  uint32 cols = 2;
-  uint32 rows = 3;
-  uint64 client_seq = 4;
-  uint32 cause = 5;
-  uint64 held_cell_seq = 6;
+// Terminal views are socket-bound leases. `revision` orders one mount's
+// activity/geometry intent; a replay with the same revision and payload is
+// idempotent across a Sync redial.
+message TerminalViewCommand {
+  string view_id = 1;
+  string session_id = 2;
+  uint32 cols = 3;
+  uint32 rows = 4;
+  uint64 revision = 5;
+  bool active = 6;
   uint64 domain_generation = 7;
 }
 
-message ViewportAccepted {
-  string session_id = 1;
-  uint64 client_seq = 2;
-  uint64 domain_generation = 3;
-  uint32 effective_cols = 4;
-  uint32 effective_rows = 5;
-  uint64 channel_resize_seq = 6;
+// Browser repair request for the stream/baseline it currently expects.
+message TerminalResyncCommand {
+  string view_id = 1;
+  string session_id = 2;
+  string stream_id = 3;
+  string grid_epoch = 4;
+  uint64 seq = 5;
+  uint64 domain_generation = 6;
 }
 
-message ViewportRejected {
-  string session_id = 1;
-  uint64 client_seq = 2;
-  uint64 domain_generation = 3;
-  string reason = 4;
-  optional uint64 sequence_floor = 5;
+enum TerminalViewStatus {
+  TERMINAL_VIEW_STATUS_UNSPECIFIED = 0;
+  TERMINAL_VIEW_STATUS_ACCEPTED = 1;
+  TERMINAL_VIEW_STATUS_REJECTED = 2;
+  TERMINAL_VIEW_STATUS_UNAVAILABLE = 3;
 }
 
-message ViewportAmbiguous {
-  string session_id = 1;
-  uint64 client_seq = 2;
-  uint64 domain_generation = 3;
-  string reason = 4;
+// Recipient-addressed state for one view handle. Active accepted views share
+// the stream/effective geometry for their session while retaining their own
+// view_id and revision.
+message TerminalViewStateFrame {
+  string view_id = 1;
+  string session_id = 2;
+  uint64 revision = 3;
+  bool active = 4;
+  string stream_id = 5;
+  TerminalViewStatus status = 6;
+  uint32 effective_cols = 7;
+  uint32 effective_rows = 8;
+  string reason = 9;
 }
 
 message InputCommand {
@@ -177,6 +185,7 @@ message InputCommand {
   uint64 input_seq = 2;
   bytes data = 3;
   uint64 domain_generation = 4;
+  optional string view_id = 5;
 }
 
 message InputAccepted {
@@ -203,7 +212,8 @@ message InputAmbiguous {
 
 
 message FirehoseFrame {
-  reserved 7, 28, 30;  // retired fields
+  reserved 7, 28, 30, 42, 43, 47;  // retired fields
+  reserved "viewport_accepted", "viewport_rejected", "viewport_ambiguous";
   // Per-socket application-delivery sequence. Zero means legacy/unenforced or
   // an unsequenced v2 control frame.
   uint64 delivery_seq = 31;
@@ -226,6 +236,8 @@ message FirehoseFrame {
     WorkerRoutableFrame worker_routable = 19;
     // R11 cell-grid cell-shipping — pre-rendered grid, SPA paints + never reflows.
     PbCellGridFrame cell_grid = 20;
+    // Oversized full snapshots are streamed as bounded whole-row parts.
+    PbCellGridChunk cell_grid_chunk = 34;
     TerminalTitleFrame terminal_title = 21;
     LastActivityFrame last_activity = 22;
     PairRequestDeltaProto pair_request_delta = 23;
@@ -240,12 +252,10 @@ message FirehoseFrame {
     // delivery_seq=0, so cached flow=1 clients never observe them.
     SyncSubscribedFrame subscribed = 40;
     SyncDomainResetFrame domain_reset = 41;
-    ViewportAccepted viewport_accepted = 42;
-    ViewportRejected viewport_rejected = 43;
     InputAccepted input_accepted = 44;
     InputRejected input_rejected = 45;
     InputAmbiguous input_ambiguous = 46;
-    ViewportAmbiguous viewport_ambiguous = 47;
+    TerminalViewStateFrame terminal_view_state = 48;
   }
 }
 
@@ -253,13 +263,16 @@ message FirehoseFrame {
 // cumulative. A canonical command-only frame omits ack_delivery_seq (or leaves
 // it zero); controls never consume or advance the application ACK window.
 message SyncClientFrame {
+  reserved 5;
+  reserved "viewport";
   optional uint64 ack_delivery_seq = 1;
   oneof command {
     SyncDomainSubscriptionCommand domain_subscribe = 2;
     SyncDomainSubscriptionCommand domain_unsubscribe = 3;
     SyncDomainReadyCommand domain_ready = 4;
-    ViewportCommand viewport = 5;
     InputCommand input = 6;
+    TerminalViewCommand terminal_view = 7;
+    TerminalResyncCommand terminal_resync = 8;
   }
   // Opaque v2 socket identity from SyncSubscribedFrame. A stale socket id is
   // ignored rather than allowing an old generation to ACK or mutate a new one.

@@ -582,7 +582,7 @@ export async function replayTrace(program: TraceProgram, opts: ReplayOptions): P
   const ref = await opts.createCore(program.cols, program.rows);
   const decoder = new TextDecoder();
 
-  let emit: CellEmitState = initCellEmitState("trace");
+  let emit: CellEmitState = initCellEmitState("trace", "00000000-0000-4000-8000-000000000001");
   // The one browser-side fold under test. Boxed because every writer is a
   // closure below, and a bare `let` would let control-flow analysis conclude the
   // frame is still the initial null after the replay loop.
@@ -921,7 +921,7 @@ export async function replayTrace(program: TraceProgram, opts: ReplayOptions): P
     client.held = folded;
     core.clearDirty();
 
-    const snapshot = gridToCellFrame(core, frame.seq, frame.gridEpoch, 0, emit.sbDropped);
+    const snapshot = gridToCellFrame(core, frame.seq, frame.gridEpoch, "00000000-0000-4000-8000-000000000001", 0, emit.sbDropped);
     dimensions.add(`${snapshot.cols}x${snapshot.rows}`);
     gridHashes.add(gridHash(snapshot.viewportRows));
     if (!snapshot.cursorVisible) coverage.cursorHiddenSteps++;
@@ -965,9 +965,9 @@ export async function replayTrace(program: TraceProgram, opts: ReplayOptions): P
         coverage.discardedAtSweep[step.label] = emit.sbDropped;
         if (client.held !== null) {
           if (!compareScrollback(client.held, true)) { aborted = stepIndex; break; }
-          const full = gridToCellFrame(core, -1, "sweep", undefined, emit.sbDropped);
+          const full = gridToCellFrame(core, -1, "sweep", "00000000-0000-4000-8000-000000000001", undefined, emit.sbDropped);
           checkDocument(full, full.scrollbackRows);
-          const recut = gridToCellFrame(ref, -1, "sweep", BOUNDARY_TAIL_ROWS, 0);
+          const recut = gridToCellFrame(ref, -1, "sweep", "00000000-0000-4000-8000-000000000001", BOUNDARY_TAIL_ROWS, 0);
           const want = `${gridHash(full.viewportRows)}/${historyTailHash(full.scrollbackRows, BOUNDARY_TAIL_ROWS)}`;
           const got = `${gridHash(recut.viewportRows)}/${historyTailHash(recut.scrollbackRows, BOUNDARY_TAIL_ROWS)}`;
           if (want !== got) {

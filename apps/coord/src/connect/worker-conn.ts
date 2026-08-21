@@ -1,7 +1,7 @@
 // makeWorkerConn — the transport-agnostic per-connection worker link.
 // Owns the upstream-frame reader logic + downstream 30s keepalive + the
-// connectWorkers registry lifecycle, plus the respawn-if-missing dispatch
-// fired 3s after hello. The raw-WebSocket handler (worker-ws-handler.ts)
+// connectWorkers registry lifecycle. After hello it schedules the extracted
+// worker-respawn.ts dispatch. The raw-WebSocket handler (worker-ws-handler.ts)
 // creates a WorkerConn and feeds it frames.
 //
 // TRANSPORT: this is NOT a Connect bidi. The worker dials a raw Bun
@@ -11,8 +11,7 @@
 // flaps. See docs/FAILURE-INDEX.md + project_worker_coord_raw_ws_not_connect_bidi.
 
 import { create } from "@bufbuild/protobuf";
-import { randomUUID } from "node:crypto";
-import { CoordWorkerDownSchema, DHelloAckSchema, DBrowserCommandSchema, DEventAckSchema, DPingSchema } from "@roost/shared/proto/worker_transport_pb";
+import { CoordWorkerDownSchema, DHelloAckSchema, DEventAckSchema, DPingSchema } from "@roost/shared/proto/worker_transport_pb";
 import type { CoordWorkerUp, CoordWorkerDown } from "@roost/shared/proto/worker_transport_pb";
 import type { CoordKey } from "../coord-key.ts";
 import type { CoordConfig } from "@roost/shared/config";
@@ -20,11 +19,16 @@ import type { JwtCache } from "../jwt.ts";
 import type { CoordinatorMoveService } from "../coord-move/orchestrator.ts";
 import { verifyJwt } from "../jwt.ts";
 import { appendEvent } from "../event-log.ts";
-import { publishBytes, publishCellGrid, primeChannelMap, resetWorkerChannelIndexReconcile } from "../byte-hub.ts";
+import {
+  publishBytes,
+  publishCellGrid,
+  publishCellGridChunk,
+  primeChannelMap,
+  resetWorkerChannelIndexReconcile,
+} from "../byte-hub.ts";
 import { resolvePendingRpc, rejectPendingRpc, rejectPendingRpcsForWorker } from "../router/pending-rpcs.ts";
 import { protoToEvent } from "@roost/shared/wire/event-proto";
-import { asWorkerFp, asChannelId, asSessionId, SessionKind } from "@roost/shared/wire";
-import type { ClientControlFrame } from "@roost/shared/wire";
+import { asWorkerFp, asChannelId } from "@roost/shared/wire";
 import type { KyselyDB } from "../db/connection.ts";
 import { log } from "@roost/shared/log";
 import { signal, diag } from "@roost/shared/diag";
@@ -32,6 +36,7 @@ import { connectWorkers, _publishRoutable, type WorkerHandle } from "./worker-re
 import { handleWorkerAgentStatus } from "../agent-status-hub.ts";
 import { resolvePendingSpawnOpened } from "./pending-spawns.ts";
 import { KEEPALIVE_INTERVAL_MS } from "./sync-ws-handler.ts";
+import { respawnMissingForWorker } from "./worker-respawn.ts";
 
 export interface WorkerServiceDeps {
   db: KyselyDB;
@@ -201,7 +206,7 @@ export function makeWorkerConn(
         // Respawn-if-missing 3s after hello (grace for the worker's own
         // snapshot events to land first); idempotent on the worker side.
         setTimeout(() => {
-          _respawnMissingForWorker(deps.db, fp, myHandle).catch((e) => {
+          respawnMissingForWorker(deps.db, fp, myHandle).catch((e) => {
             log.warn("worker-service", "respawn_missing_failed", { error: String(e), worker_fp: fp });
           });
         }, 3000);
@@ -290,6 +295,17 @@ export function makeWorkerConn(
         }
         return;
       }
+      case "cellGridChunk": {
+        const cg = f.frame.value;
+        if (workerFp && cg.chunk && !_fenced("cell_grid_chunk")) {
+          publishCellGridChunk(
+            asWorkerFp(workerFp),
+            asChannelId(cg.channelId),
+            cg.chunk,
+          );
+        }
+        return;
+      }
       case "agentStatus": {
         if (!workerFp) {
           diag("worker.frame_dropped", {
@@ -313,7 +329,7 @@ export function makeWorkerConn(
         });
         return;
       }
-      case "viewportResult": {
+      case "terminalStreamResult": {
         resolvePendingRpc(
           f.frame.value.requestId,
           f.frame.value,
@@ -405,58 +421,4 @@ export function makeWorkerConn(
   }
 
   return { handleUpstream, close, isCurrentGeneration: _isCurrentGeneration };
-}
-
-// ─── respawn-if-missing ──────────────────────────────────────────────
-// Called 3s after worker.hello. Open terminal sessions are revived at their
-// saved cwd with the same session_id; the worker no-ops if the sid is live.
-
-
-async function _respawnMissingForWorker(
-  db: KyselyDB,
-  workerFp: string,
-  handle: WorkerHandle,
-): Promise<void> {
-  const rows = await db.selectFrom("sessions")
-    .select(["id", "kind", "cwd"])
-    .where("worker_fp", "=", workerFp)
-    .where("status", "=", "open")
-    .execute();
-  if (rows.length === 0) return;
-  log.info("worker-service", "respawn_missing_dispatch", { worker_fp: workerFp, count: rows.length });
-  for (const row of rows) {
-    const requestId = randomUUID();
-    // Kinds SessionKind knows about are recreated; a historical row carrying
-    // any other value stays visible but is not respawned.
-    const kind = SessionKind.safeParse(row.kind);
-    if (!kind.success) {
-      log.warn("worker-service", "respawn_unknown_kind", {
-        worker_fp: workerFp, session_id: row.id, kind: row.kind,
-      });
-      continue;
-    }
-    const frame: ClientControlFrame = {
-      kind: "respawn-if-missing",
-      request_id: requestId,
-      session_id: asSessionId(row.id),
-      cwd: row.cwd,
-      cols: 80,
-      rows: 24,
-    };
-    try {
-      // sendBrowserCmd helper expects a viewer_id; respawn-if-missing has
-      // no human caller — use a synthetic "coord:respawn" tag.
-      const bc = create(DBrowserCommandSchema, {
-        browserId: "coord", viewerId: "coord:respawn",
-        requestId, frameJson: JSON.stringify(frame),
-      });
-      handle.send(create(CoordWorkerDownSchema, {
-        frame: { case: "browserCommand", value: bc },
-      }));
-    } catch (e) {
-      log.warn("worker-service", "respawn_send_failed", {
-        worker_fp: workerFp, session_id: row.id, error: String(e),
-      });
-    }
-  }
 }

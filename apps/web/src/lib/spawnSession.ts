@@ -20,18 +20,16 @@ import { log } from "@roost/shared/log";
 import type { WorkerFp, Session } from "@roost/shared/wire";
 import { sendTerminalInput } from "../ws/sync-outbound.ts";
 import { resolveAgent, autoLaunchEnabled } from "./agents.ts";
+import { clampTerminalGeometry } from "@roost/shared/viewport";
 
 export interface SpawnInitialViewport {
   cols: number;
   rows: number;
-  clientSeq: number;
 }
 
 export interface SpawnShellResult {
   sessionId: string;
   channelId: number;
-  initialViewportPreclaimed: boolean;
-  effectiveClientSeq: number;
 }
 
 export interface SpawnShellRequest {
@@ -41,19 +39,18 @@ export interface SpawnShellRequest {
   cols?: number;
   rows?: number;
   sessionId?: string;
-  preclaimInitialViewport?: boolean;
-  initialViewportClientSeq?: bigint;
 }
 
-/** Pure request builder shared with tests. A measured mount is the only path
- * that asks the server to preclaim; estimates merely choose the PTY start size. */
+/** Pure request builder shared with tests. Geometry is an initial PTY hint;
+ * mounted membership always arrives through TerminalViewCommand. */
 export function buildSpawnShellRequest(
   workerFp: WorkerFp,
   folder: string,
   sessionId?: string,
   initialViewport?: SpawnInitialViewport,
 ): SpawnShellRequest {
-  const size = initialViewport ?? estimateWtermSize() ?? undefined;
+  const rawSize = initialViewport ?? estimateWtermSize() ?? undefined;
+  const size = rawSize ? clampTerminalGeometry(rawSize) : undefined;
   return {
     workerFp,
     kind: "shell",
@@ -61,12 +58,6 @@ export function buildSpawnShellRequest(
     cols: size?.cols,
     rows: size?.rows,
     ...(sessionId ? { sessionId } : {}),
-    ...(initialViewport
-      ? {
-        preclaimInitialViewport: true,
-        initialViewportClientSeq: BigInt(initialViewport.clientSeq),
-      }
-      : {}),
   };
 }
 
@@ -126,8 +117,6 @@ export async function spawnShellDetailed(
   return {
     sessionId: result.sessionId,
     channelId: result.channelId,
-    initialViewportPreclaimed: result.initialViewportPreclaimed,
-    effectiveClientSeq: Number(result.effectiveClientSeq),
   };
 }
 
@@ -161,19 +150,6 @@ export async function spawnInWorkspaceDetailed(
   } catch { /* projection still groups by workspace_id once the assign event lands */ }
   return result;
 }
-
-export async function spawnInWorkspace(
-  workerFp: WorkerFp,
-  workspaceId: string,
-  folderPath: string,
-  sessionId?: string,
-): Promise<string> {
-  return (
-    await spawnInWorkspaceDetailed(workerFp, workspaceId, folderPath, sessionId)
-  ).sessionId;
-}
-
-
 
 /**
  * Wait for an opened session to land in the SPA store via the

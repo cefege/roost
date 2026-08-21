@@ -6,10 +6,8 @@ import { asChannelId, asSessionId, asWorkerFp } from "@roost/shared/wire";
 import {
   gridToCellFrame,
   initCellEmitState,
-  SB_SNAPSHOT_HISTORY_ROWS,
   type CellRow,
 } from "@roost/shared/cell";
-import { protoToCellFrame } from "@roost/shared/cell/cell-proto";
 import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
 import type { ClientControlFrame } from "@roost/shared/wire";
 import { handleGetScrollbackCells } from "../src/browser-command-terminal.ts";
@@ -59,7 +57,7 @@ async function injectSession(manager: SessionManager): Promise<SessionShellRecor
     ...initAgentOscState(),
     wtermCore,
     session_trace_id: "sbcell00",
-    cell_emit: initCellEmitState("test-grid"),
+    cell_emit: initCellEmitState("test-grid", "00000000-0000-4000-8000-000000000001"),
     lastPtyOutMs: 0,
     sb_origin_pin: null,
     spawnedAtMs: Date.now(),
@@ -108,27 +106,12 @@ function rowText(row: CellRow): string {
 }
 
 describe("viewport-only frame and epoch-addressed history", () => {
-  test("a forced authoritative frame carries no historical rows", async () => {
-    const frames: PbCellGridFrame[] = [];
-    const manager = freshManager((frame) => frames.push(frame));
-    const record = await injectSession(manager);
-    const total = record.wtermCore.getScrollbackCount();
-    expect(total).toBeGreaterThan(0);
-
-    manager.emitCellSnapshot(asChannelId(CID));
-    const frame = protoToCellFrame(frames[0]!);
-    expect(frame.full).toBe(true);
-    expect(frame.gridEpoch).toBe(GRID_EPOCH);
-    expect(frame.scrollbackRows).toHaveLength(SB_SNAPSHOT_HISTORY_ROWS);
-    expect(frame.scrollbackTotal).toBe(total);
-    expect(frame.sbBase).toBe(frame.scrollbackTotal);
-  });
 
   test("disjoint pages reconstruct the complete real-core history", async () => {
     const manager = freshManager();
     const record = await injectSession(manager);
     const { coordLink, sent } = linkCapture();
-    const reference = gridToCellFrame(record.wtermCore, 1, GRID_EPOCH);
+    const reference = gridToCellFrame(record.wtermCore, 1, GRID_EPOCH, "00000000-0000-4000-8000-000000000001");
     const collected: CellRow[] = [];
     let endRow = reference.scrollbackTotal;
 

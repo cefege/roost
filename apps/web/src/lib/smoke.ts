@@ -7,7 +7,6 @@
 // fixtures.ts sets it in an init script before the SPA boots.
 //
 // Phase-26 smoke-backdoor. crpc6: migrated from tRPC to Connect.
-
 import { coordClient } from "../connect.ts";
 import {
   forceSyncMaxBackoff as forceSyncMaxBackoffImpl,
@@ -24,8 +23,7 @@ import type { SyncRedialStatus } from "../store/sync.ts";
 import {
   dropNextCellFrame as dropNextCellFrameImpl,
   droppedCellFrameCount as droppedCellFrameCountImpl,
-  requestCellMountRepair as requestCellMountRepairImpl,
-} from "../store/sync-dispatch.ts";
+} from "../store/terminal-stream-diagnostics.ts";
 import { perfCounters, leakSample, resetPerfCounters as resetPerfCountersImpl } from "./leakWatch.ts";
 import { rootStore, setRootStore } from "../store/root.ts";
 import { workerPathBasename } from "./nativePath.ts";
@@ -38,9 +36,11 @@ import type { ScrollbackHistoryFloor } from "@roost/shared/wire";
 import {
   sendTerminalInput,
   setSmokeTerminalInputObserver,
-  rejectNextViewportClaim as rejectNextViewportClaimImpl,
-  rejectedViewportClaimCount as rejectedViewportClaimCountImpl,
 } from "../ws/sync-outbound.ts";
+import {
+  rendererRegistryEntry,
+} from "./terminalPreview.ts";
+import { MAX_HELD_SCROLLBACK_ROWS, type RendererPaintPresentation } from "./cellRenderer.ts";
 import { phaseTimeline as phaseTimelineImpl } from "./diag.ts";
 import type { SpaPhaseTimeline } from "./diag.ts";
 import {
@@ -144,6 +144,8 @@ export interface SmokeApi {
     rowCount: number; nonEmptyRows: number;
     firstLine: string; lastLine: string;
   };
+  /** Bounded presentation-owned scrollback rows, spacer/gap, and reader anchor. */
+  paintedScrollback(sessionId: string): RendererPaintPresentation;
   /** Scan EVERY rendered row for `${prefix}<N>` markers. Detects history depth
    *  (min/max N), loss (missing Ns in [min,max]), and CORRUPTION (any N seen
    *  more than once = duplicated rows, the cell-mode tab-switch bug). */
@@ -189,12 +191,10 @@ export interface SmokeApi {
     workers: Record<string, unknown>;
     pair_requests: Record<string, unknown>;
   };
-  /** Automation visibility pin: treat the page as foregrounded while the tab
-   *  is hidden/occluded — claims stay held, timers tick, sync stream stays
-   *  managed (lib/pageVisible.ts::setForceVisible). Fixes the FOREGROUND
-   *  GOTCHA class of false verification failures (Author 2026-07-11 "push to
-   *  front via API"). Chrome may still starve a long-backgrounded tab's
-   *  HTTP/2 stream at the transport layer — keep hidden probe windows short. */
+  /** Automation visibility pin: treat the page as foregrounded while hidden or
+   * occluded so terminal views remain active and Sync timers keep running.
+   * Chrome may still starve a long-backgrounded tab's transport, so hidden
+   * probe windows remain short. */
   forceVisible(on: boolean): void;
   /** Pin app-level visibility to background; false releases the pin. */
   forceHidden(on: boolean): void;
@@ -212,29 +212,17 @@ export interface SmokeApi {
   resumeSyncTransport(): void;
   /** How many cell frames have arrived for this session (smoke verification). */
   cellFrameCount(sessionId: string): number;
-  /** How many FULL cell frames have arrived — a reveal of a current pane must
-   *  not move this (the worker's claim snapshot is what it proves absent). */
+  /** Complete full baselines received for the session replica. */
   cellFullFrameCount(sessionId: string): number;
-  /** Historical rows carried by the last authoritative full frame; viewport-
-   * only resume requires this to remain exactly zero. */
+  /** Historical rows carried by the last full (normally zero for viewport-only replicas). */
   lastFullFrameSbRows(sessionId: string): number;
   /** Epoch-addressed retained-history RPCs issued for this session. */
   scrollbackBackfillRequestCount(sessionId: string): number;
   /** Opaque worker grid epoch on the latest cell frame. */
   cellGridEpoch(sessionId: string): string;
-  /** Drop exactly the next cell frame before counters and pane dispatch. */
+  /** Suppress exactly the next accepted cell frame's renderer delivery after the session replica folds it. */
   dropNextCellFrame(sessionId: string): void;
   droppedCellFrameCount(sessionId: string): number;
-  /** Fire a pane's mount-repair callback directly. Unlike `dropNextCellFrame`,
-   *  this leaves the pane's watermark CURRENT — the one shape in which an
-   *  optimistically-armed repair latch is permanently fatal, and which no app
-   *  gesture can reach. False when no pane has registered for this session. */
-  requestCellMountRepair(sessionId: string): boolean;
-  /** Reject exactly the next positive viewport claim for this session before
-   * wire send. Smoke-only, one-shot, and scoped to the current document. */
-  rejectNextViewportClaim(sessionId: string): void;
-  /** Number of one-shot viewport rejections consumed for this session. */
-  rejectedViewportClaimCount(sessionId: string): number;
   /** Sync WebSocket dial count. Unchanged across a refocus = the socket was
    *  kept (no JWT sign + TLS handshake + since= backfill ahead of the reveal). */
   syncWsGeneration(): number;
@@ -314,7 +302,6 @@ function diagnosticBuild(
       : null,
   };
 }
-
 function normalizeTerminalStreamProbe(
   sessionId: string,
   browser: TerminalBrowserStreamSnapshot,
@@ -325,11 +312,15 @@ function normalizeTerminalStreamProbe(
   const coordRecord = diagnosticRecord(root.coord);
   const coordSessions = diagnosticRecord(coordRecord?.sessions);
   const coordSession = diagnosticRecord(coordSessions?.[sessionId]);
+  const terminalView = diagnosticRecord(coordSession?.terminal_view);
+  const terminalEffective = diagnosticRecord(terminalView?.effective);
+  const terminalControl = terminalView ? {
+    active_view_count: terminalView.activeViews, parked_view_count: terminalView.parkedViews,
+    stream_id: terminalView.streamId, unavailable: terminalView.unavailable,
+    effective_cols: terminalEffective?.cols ?? null, effective_rows: terminalEffective?.rows ?? null,
+  } : null;
   const route = diagnosticRecord(coordSession?.route);
-  const workerFp = typeof route?.worker_fp === "string"
-    ? route.worker_fp
-    : null;
-
+  const workerFp = typeof route?.worker_fp === "string" ? route.worker_fp : null;
   const workers = diagnosticRecord(root.workers);
   const workerEnvelope = workerFp ? diagnosticRecord(workers?.[workerFp]) : null;
   const workerStatus = workerEnvelope?.status;
@@ -358,7 +349,7 @@ function normalizeTerminalStreamProbe(
         artifact_version: null,
       },
       session: coordSession,
-      terminal_control: diagnosticRecord(coordRecord.terminal_control),
+      terminal_control: terminalControl,
     } : null,
     worker: {
       worker_fp: workerFp,
@@ -648,6 +639,15 @@ export function maybeInstallSmokeBackdoor(): void {
         firstLine: nonEmpty[0] ?? "", lastLine: nonEmpty[nonEmpty.length - 1] ?? "",
       };
     },
+    paintedScrollback(sessionId) {
+      const renderer = rendererRegistryEntry(sessionId)?.renderer;
+      return renderer?.paintPresentation(MAX_HELD_SCROLLBACK_ROWS) ?? {
+        rows: [],
+        headSpacerPx: 0,
+        tailGapPx: 0,
+        readerAnchor: null,
+      };
+    },
     markerScan(sessionId, prefix) {
       const slot = document.querySelector(`[data-testid="terminal-slot-${sessionId}"]`);
       const c = slot?.querySelector(".cell-grid") as HTMLElement | null;
@@ -738,15 +738,6 @@ export function maybeInstallSmokeBackdoor(): void {
     },
     droppedCellFrameCount(sessionId) {
       return droppedCellFrameCountImpl(sessionId);
-    },
-    requestCellMountRepair(sessionId) {
-      return requestCellMountRepairImpl(sessionId);
-    },
-    rejectNextViewportClaim(sessionId) {
-      rejectNextViewportClaimImpl(sessionId);
-    },
-    rejectedViewportClaimCount(sessionId) {
-      return rejectedViewportClaimCountImpl(sessionId);
     },
     perfProbe(sessionId) {
       const counters = perfCounters();

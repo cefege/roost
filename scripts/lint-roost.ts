@@ -122,29 +122,18 @@ const CHECKS: Check[] = [
     },
   },
   {
-    // `case "resize"` once fell through to a fire-and-forget log-and-return
-    // stub for weeks. claude / vim / less rendered at the keeper default
-    // 220×50 while the browser displayed at viewport width → wrap chaos in
-    // every TUI. Resize must reach a real handler.
+    // A live SCD resize must update the existing terminal core at the keeper's
+    // ordered boundary. Reintroducing the old rebuild/claim path makes static
+    // cells and scrollback continuity depend on timing again.
     //
-    // This rule FAILS when the dispatch is missing rather than passing
-    // vacuously: the previous version pinned `files:` to worker/src/main.ts,
-    // the dispatch later moved to browser-command-handler.ts, and the rule
-    // silently stopped checking anything. A guard that cannot find its
-    // subject is a dead guard, so absence is now the violation.
-    rule: "L11: worker case \"resize\" must reach a real viewport handler",
+    // Absence is a violation: either the boundary moved and this guard must be
+    // retargeted, or the in-place resize was dropped.
+    rule: "L11: worker stream resize must update the existing terminal core",
     memory: "docs/FAILURE-INDEX.md",
-    files: /apps\/worker\/src\/browser-command-handler\.ts$/,
+    files: /apps\/worker\/src\/session-resize-capture\.ts$/,
     ok: (_file, _i, lines) => {
       const txt = lines.join("\n");
-      const m = txt.match(/case\s+["']resize["']\s*:([\s\S]*?)(?=case\s+["']|default\s*:)/);
-      // Subject gone: either resize dispatch moved again (retarget this rule)
-      // or it was dropped entirely (the original bug). Both need a human.
-      if (!m) return false;
-      const body = m[1] ?? "";
-      // A real handler: the extracted handleResize (which calls
-      // sessionMgr.claimViewport) or a direct claimViewport/resize call.
-      return /handleResize\s*\(|sessionMgr\.(resize|claimViewport)/.test(body);
+      return /rec\.wtermCore\.resize\(capture\.toCols,\s*capture\.toRows\)/.test(txt);
     },
   },
   {

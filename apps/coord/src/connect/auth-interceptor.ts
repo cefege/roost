@@ -62,9 +62,8 @@ export const onHostKey = createContextKey<boolean>(false);
 export const listenerTrustKey = createContextKey<ListenerTrust>("direct");
 
 // Per-tab id (set via x-roost-tab-id header by SPA's connect interceptor).
-// Disambiguates multiple tabs from the same browser fingerprint so the
-// viewport-claim maps (coord _viewersBySession + worker viewportClaims)
-// don't collapse two tabs into one entry. See `sessionsResize` handler.
+// Sync terminal commands require it so concurrent same-device sockets retain
+// distinct sender/viewer identities.
 export const tabIdKey = createContextKey<string | undefined>(undefined);
 /** Raw bearer header preserved for retired-source relocation forwarding. */
 export const authorizationKey = createContextKey<string | undefined>(undefined);
@@ -81,9 +80,8 @@ export interface AuthInterceptorDeps {
 const WRITE_METHODS: Record<string, true | undefined> = {
   WorkersRegister: true, WorkersHeartbeat: true, WorkersRename: true, WorkersDelete: true, WorkersDeployStart: true,
   SessionsSpawn: true, SessionsAttach: true, SessionsKill: true, SessionsRename: true,
-  // SessionsResize/Input acquire their lease only after entering the shared
-  // per-viewer/session FIFO (terminal-control-lane.ts). Taking one here would
-  // let a queued command hold the move drain open before it has begun.
+  // SessionsInput acquires its lease only after entering the per-session FIFO.
+  // Taking one here would let queued input hold the move drain open.
   SessionsCursorPos: true, SessionsAssignWorkspace: true,
   TasksEnqueue: true, TasksNextPending: true, TasksSetState: true, TasksCancel: true,
   WorkspacesCreate: true, WorkspacesUpdate: true, WorkspacesDelete: true, WorkspacesSetSessions: true,
@@ -100,7 +98,7 @@ const WRITE_METHODS: Record<string, true | undefined> = {
 };
 
 // High-frequency methods whose audit rows carry no forensic signal: health
-// pings, heartbeats, polling reads, and cursor/resize chatter. Auditing them
+// pings, heartbeats, polling reads, and cursor chatter. Auditing them
 // buried the rows that matter — DiagDebugLogBatch alone (a *receipt* for the
 // SPA uploading its own debug logs, which go to disk, not this table) was 61%
 // of a 7M-row, 1GB audit_log with no retention. A non-200 still gets written:
@@ -108,7 +106,7 @@ const WRITE_METHODS: Record<string, true | undefined> = {
 // keeping.
 const AUDIT_SKIP_METHODS: Record<string, true | undefined> = {
   DiagDebugLogBatch: true, MiscHealth: true, WorkersHeartbeat: true,
-  PairList: true, SessionsResize: true, SessionsCursorPos: true,
+  PairList: true, SessionsCursorPos: true,
   // Non-mutating SPA polling. These were briefly handled by the retention
   // sweep instead, which meant paying an INSERT per RPC to delete the row
   // days later. Never writing them is strictly cheaper and leaves the sweep

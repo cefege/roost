@@ -15,7 +15,6 @@ import {
   encodeKeeperTerminalState,
   encodeMuxFrame,
   encodePtyInResult,
-  encodeResizeResult,
   isEmptyKeeperPayload,
   decodeSpawnRequest,
 } from "./protocol.ts";
@@ -29,6 +28,7 @@ import { KEEPER_BUILD_STAMP } from "./keeper-stamp.ts";
 import { _log, _keeperOpenFdCount } from "./keeper-log.ts";
 import { reapChannelTree } from "./keeper-process-reap.ts";
 import type { Channel, ClientState } from "./keeper-types.ts";
+import { cacheResizeResult, sendResizeResult } from "./keeper-resize-result.ts";
 import { createSbRing, appendToRing, readRing, ringLength } from "../session-scrollback-ring.ts";
 import { assertNeverPlatform, supportedHostPlatform } from "@roost/shared/platform";
 import { nativePathToFsPath } from "@roost/shared/native-path";
@@ -51,7 +51,6 @@ const SPAWNING_CHANNELS = new Set<number>();
 const KEEPER_INPUT_DEADLINE_MS = 2000;
 const KEEPER_INPUT_QUEUE_MAX_COMMANDS = 200;
 const KEEPER_INPUT_QUEUE_MAX_BYTES = 256 * 1024;
-const RESIZE_STATUS_CACHE_MAX = KEEPER_MAX_HISTORY_RESIZE_RECORDS;
 
 function trimEvictedResizeHistory(ch: Channel): void {
   const retainedTail = ch.headSeq - ringLength(ch.outRing);
@@ -265,30 +264,6 @@ function enqueueInput(
   return true;
 }
 
-function sendResizeResult(
-  socket: ClientState["socket"],
-  channelId: number,
-  result: ResizeWireResult,
-): void {
-  const frameType = result.kind === "ack" ? MuxFrameType.ResizeAck : MuxFrameType.ResizeReject;
-  try {
-    socket.write(encodeMuxFrame(frameType, channelId, encodeResizeResult(result)));
-  } catch {
-    // Cached status remains queryable after the worker reconnects.
-  }
-}
-
-function cacheResizeResult(ch: Channel, result: ResizeWireResult): void {
-  if (!ch.resizeStatuses.has(result.seq)
-      && ch.resizeStatuses.size >= RESIZE_STATUS_CACHE_MAX) {
-    const oldest = ch.resizeStatuses.keys().next().value as number | undefined;
-    if (oldest !== undefined) ch.resizeStatuses.delete(oldest);
-  }
-  ch.resizeStatuses.set(result.seq, result);
-  ch.highestResizeSeq = Math.max(ch.highestResizeSeq, result.seq);
-  if (result.kind === "ack") ch.appliedResizeSeq = Math.max(ch.appliedResizeSeq, result.seq);
-}
-
 export interface FrameHandlerCtx {
   channels: Map<number, Channel>;
   broadcast: (frame: Buffer) => void;
@@ -352,6 +327,11 @@ export function handleFrame(ctx: FrameHandlerCtx, client: ClientState, f: { type
               proc = Bun.spawn([spec.executable, ...spec.argv], {
                 cwd: spec.cwd,
                 terminal,
+                // Bun only makes the PTY the child's controlling terminal when
+                // the subprocess starts a new session. Without this, bash has
+                // no foreground process group and terminal.resize() cannot
+                // deliver SIGWINCH to a running TUI.
+                detached: true,
                 env: { ...spec.env, TERM: "xterm-256color" },
               });
               childPid = proc.pid;

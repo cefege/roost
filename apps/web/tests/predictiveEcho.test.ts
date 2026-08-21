@@ -34,6 +34,7 @@ function fakeHost(): HTMLElement {
 function frame(o: { seq: number; cc?: number; cr?: number; rows?: (string | null)[]; alt?: boolean; full?: boolean; cols?: number }): CellGridFrame {
   const rows = o.rows ?? [null];
   return {
+    streamId: "test-stream:0",
     gridEpoch: "test-grid:0",
     cols: o.cols ?? 80, rows: 24,
     cursorRow: o.cr ?? 0, cursorCol: o.cc ?? 0, cursorVisible: true,
@@ -42,6 +43,7 @@ function frame(o: { seq: number; cc?: number; cr?: number; rows?: (string | null
     viewportRows: rows.map((t, i) => ({ index: i, spans: t ? [{ text: t, columns: t.length, fg: 256, bg: 256, flags: 0 }] : [] })),
     scrollbackRows: [], scrollbackAppend: [], scrollbackTotal: 0, sbBase: 0,
     seq: o.seq,
+    baseSeq: o.full === true ? 0 : Math.max(0, o.seq - 1),
   } as CellGridFrame;
 }
 
@@ -284,12 +286,14 @@ describe("prediction-engine hardening", () => {
     clock.t = 200;
     // DELTA: only row 5 changed, at viewportRows ARRAY POSITION 0 (.index=5).
     const delta = {
+      streamId: "test-stream:0",
       gridEpoch: "test-grid:0",
       cols: 80, rows: 24, cursorRow: 5, cursorCol: 1, cursorVisible: true,
       altScreen: false, cursorKeysApp: false, bracketedPaste: false, full: false,
       viewportRows: [{ index: 5, spans: [{ text: "a", columns: 1, fg: 256, bg: 256, flags: 0 }] }],
       mouseTracking: 0, mouseSgr: false, focusEvents: false,
-      scrollbackRows: [], scrollbackAppend: [], scrollbackTotal: 0, sbBase: 0, seq: 2,
+      scrollbackRows: [], scrollbackAppend: [], scrollbackTotal: 0, sbBase: 0,
+      baseSeq: 1, seq: 2,
     } as CellGridFrame;
     pe.onFrame(delta);
     const d = pe._debug();

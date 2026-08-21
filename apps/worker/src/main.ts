@@ -219,6 +219,8 @@ export async function runWorker() {
 			coordLink.sendBinary(channelId, direction, endSeq, bytes),
 		sendCellGridUpstream: (channelId, frame) =>
 			coordLink.sendCellGrid(channelId, frame),
+		sendCellGridChunkUpstream: (channelId, chunk) =>
+			coordLink.sendCellGridChunk(channelId, chunk),
 	});
 	refs.sessionMgr = sessionMgr;
 	const agentRegistry = new AgentStatusRegistry({

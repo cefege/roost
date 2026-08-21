@@ -6,18 +6,22 @@
 // to cells and raw metadata is unchanged.
 
 import {
-  TerminalInputStatus, TerminalViewportStatus, TerminalWritePhase,
+  TerminalInputStatus,
+  TerminalStreamFailureKind,
+  TerminalStreamStatus,
+  TerminalWritePhase,
 } from "@roost/shared/proto/worker_transport_pb";
 import type {
   CoordWorkerDown,
   DInputRequest,
-  DViewportRequest,
+  DTerminalSnapshotRequest,
+  DTerminalStreamState,
 } from "@roost/shared/proto/worker_transport_pb";
 import type { ClientControlFrame } from "@roost/shared/wire";
 import { diag } from "@roost/shared/diag";
 import { log } from "@roost/shared/log";
 import {
-  INPUT_REQUEST_INFLIGHT_CAP, VIEWPORT_REQUEST_INFLIGHT_CAP,
+  INPUT_REQUEST_INFLIGHT_CAP, TERMINAL_STREAM_REQUEST_INFLIGHT_CAP,
   TERMINAL_REQUEST_BUDGET_CAP_MS,
 } from "./coord-link-constants.ts";
 import type {
@@ -30,11 +34,10 @@ export function createCoordLinkDownstream(
 ): CoordLinkDownstream {
   const { send } = outbox;
   const snapshotRequestIds = new Map<string, string>();
-  // Downstream terminal-control admission, counted per kind. A viewport RPC
-  // parked on a keeper resize therefore cannot spend the slots PTY input
-  // needs, and neither lane can starve the other.
+  // Stream-state and input requests have independent bounded admissions so a
+  // keeper resize cannot consume the input lane.
   let inputRequestsInFlight = 0;
-  let viewportRequestsInFlight = 0;
+  let terminalStreamRequestsInFlight = 0;
 
   /** Bound one downstream terminal request to a monotonic budget derived from
    * the coordinator's RELATIVE `budget_ms`. Frame receipt is the origin, so
@@ -143,51 +146,60 @@ export function createCoordLinkDownstream(
           .finally(() => { inputRequestsInFlight -= 1; });
         return;
       }
-      case "viewportRequest": {
-        const request = v as DViewportRequest;
-        if (viewportRequestsInFlight >= VIEWPORT_REQUEST_INFLIGHT_CAP) {
+      case "terminalStreamState": {
+        const request = v as DTerminalStreamState;
+        if (terminalStreamRequestsInFlight >= TERMINAL_STREAM_REQUEST_INFLIGHT_CAP) {
           diag("transport.terminal_admission_full", {
-            kind: "viewport",
-            in_flight: viewportRequestsInFlight,
+            kind: "terminal_stream",
+            in_flight: terminalStreamRequestsInFlight,
           });
           send({
-            kind: "viewport-result",
+            kind: "terminal-stream-result",
             request_id: request.requestId,
             session_id: request.sessionId,
-            client_seq: request.clientSeq,
-            status: TerminalViewportStatus.REJECTED,
+            stream_id: request.streamId,
+            enabled: request.enabled,
+            status: TerminalStreamStatus.REJECTED,
             channel_resize_seq: 0n,
-            cols: 0,
-            rows: 0,
+            effective_cols: 0,
+            effective_rows: 0,
             resized: false,
             phase: TerminalWritePhase.PRE_WRITE,
-            reason: "worker viewport admission is full",
+            failure_kind: TerminalStreamFailureKind.RETRYABLE_PRE_WRITE,
+            reason: "worker terminal-stream admission is full",
           });
           return;
         }
-        viewportRequestsInFlight += 1;
-        void (async () => deps.onViewportRequest?.(request, terminalBudget(socket, request.budgetMs)))()
-          .catch((error: unknown) => {
-            const message = error instanceof Error ? error.message : String(error);
-            log.warn("coord-link", "viewport_request_failed", {
-              request_id: request.requestId,
-              error: message,
-            });
-            send({
-              kind: "viewport-result",
-              request_id: request.requestId,
-              session_id: request.sessionId,
-              client_seq: request.clientSeq,
-              status: TerminalViewportStatus.AMBIGUOUS,
-              channel_resize_seq: 0n,
-              cols: 0,
-              rows: 0,
-              resized: false,
-              phase: TerminalWritePhase.UNKNOWN,
-              reason: message,
-            });
-          })
-          .finally(() => { viewportRequestsInFlight -= 1; });
+        terminalStreamRequestsInFlight += 1;
+        void (async () => deps.onTerminalStreamState?.(
+          request,
+          terminalBudget(socket, request.budgetMs),
+        ))().catch((error: unknown) => {
+          const message = error instanceof Error ? error.message : String(error);
+          log.warn("coord-link", "terminal_stream_request_failed", {
+            request_id: request.requestId,
+            error: message,
+          });
+          send({
+            kind: "terminal-stream-result",
+            request_id: request.requestId,
+            session_id: request.sessionId,
+            stream_id: request.streamId,
+            enabled: request.enabled,
+            status: TerminalStreamStatus.AMBIGUOUS,
+            channel_resize_seq: 0n,
+            effective_cols: 0,
+            effective_rows: 0,
+            resized: false,
+            phase: TerminalWritePhase.UNKNOWN,
+            failure_kind: TerminalStreamFailureKind.AMBIGUOUS_BOUNDARY,
+            reason: message,
+          });
+        }).finally(() => { terminalStreamRequestsInFlight -= 1; });
+        return;
+      }
+      case "terminalSnapshotRequest": {
+        deps.onTerminalSnapshotRequest?.(v as DTerminalSnapshotRequest);
         return;
       }
       case "attachmentChunk": {

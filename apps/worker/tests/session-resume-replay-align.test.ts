@@ -132,7 +132,7 @@ async function resumeWith(opts: {
 
 function coreText(mgr: SessionManager): string {
   const core = mgr.sessions.get(CHANNEL_ID)!.wtermCore;
-  const frame = gridToCellFrame(core, 0, "resume-align:0");
+  const frame = gridToCellFrame(core, 0, "resume-align:0", "00000000-0000-4000-8000-000000000001");
   const lines: string[] = [];
   for (const row of frame.scrollbackRows) lines.push(row.spans.map((s) => s.text).join(""));
   for (const row of frame.viewportRows) lines.push(row.spans.map((s) => s.text).join(""));
@@ -180,14 +180,10 @@ describe("resume replay into a cold core", () => {
     expect(text).not.toContain("32m");
     expect(text).not.toContain("1969M");
     expect(text).toContain("MEM-OK-REPAINT");
-    const resizes = f.keeper.writes.filter((write) => write.type === MuxFrameType.ResizeRequest);
-    expect(resizes.map(({ seq, cols, rows }) => ({ seq, cols, rows }))).toEqual([
-      { seq: 1, cols: 80, rows: 23 },
-      { seq: 2, cols: 80, rows: 24 },
-    ]);
+    expect(f.keeper.writes.filter((write) => write.type === MuxFrameType.ResizeRequest)).toHaveLength(0);
     const core = f.mgr.sessions.get(CHANNEL_ID)!.wtermCore;
     expect([core.getCols(), core.getRows()]).toEqual([80, 24]);
-    expect(f.mgr.channelResizeSeq.get(CHANNEL_ID)).toBe(2);
+    expect(f.mgr.channelResizeSeq.get(CHANNEL_ID)).toBe(0);
   });
 
   test("the ring keeps the untrimmed bytes so head_seq - ringLength stays the retained tail", async () => {
@@ -235,7 +231,7 @@ describe("resume replay into a cold core", () => {
     expect(text).toContain("FIRST-SECOND-VERBATIM");
   });
 
-  test("an evicted one-row terminal nudges upward before restoring its original geometry", async () => {
+  test("an evicted one-row terminal rebuilds directly at its original geometry", async () => {
     const bytes = enc.encode("one-row-evicted");
     const f = await resumeWith({
       records: [{ kind: "output", bytes }],
@@ -243,11 +239,7 @@ describe("resume replay into a cold core", () => {
       baseRows: 1,
     });
 
-    const resizes = f.keeper.writes.filter((write) => write.type === MuxFrameType.ResizeRequest);
-    expect(resizes.map(({ seq, cols, rows }) => ({ seq, cols, rows }))).toEqual([
-      { seq: 1, cols: 80, rows: 2 },
-      { seq: 2, cols: 80, rows: 1 },
-    ]);
+    expect(f.keeper.writes.filter((write) => write.type === MuxFrameType.ResizeRequest)).toHaveLength(0);
     const core = f.mgr.sessions.get(CHANNEL_ID)!.wtermCore;
     expect([core.getCols(), core.getRows()]).toEqual([80, 1]);
   });

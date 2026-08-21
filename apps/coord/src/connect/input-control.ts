@@ -1,8 +1,6 @@
-// Terminal input control: one logical PTY input batch per lane turn, with the
-// bounded audit-log queue that persists its outcome. Split out of
-// session-control.ts, which is now a re-export barrel; the lane, the viewer
-// identity, and session route resolution are shared with viewport-control.ts
-// through terminal-control-lane.ts.
+// Terminal input control: one logical PTY input batch per bounded sender lane,
+// with the audit-log queue that persists its outcome. Terminal view membership
+// and SCD are intentionally absent; input admission remains session-scoped.
 
 import { signal } from "@roost/shared/diag";
 import {
@@ -216,8 +214,8 @@ export function processInputControl(
     return finish(Promise.resolve(inputRejected(command, "input exceeds 64 KiB")));
   }
   const socketGeneration = command.socketGeneration ?? 0;
-  // Same monotonic origin rule as the viewport path: the budget starts before
-  // the lane wait so queueing cannot mint a fresh one at send time.
+  // The budget starts before the lane wait so queueing cannot mint a fresh
+  // deadline at worker admission.
   const deadline = command.deadline ?? startHopDeadline(INPUT_CONTROL_TIMEOUT_MS);
   return finish(enqueueLane(
     command.identity.viewerKey,

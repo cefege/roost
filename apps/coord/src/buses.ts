@@ -12,7 +12,6 @@ import type { PermissionRuleDelta } from "@roost/shared/wire";
 import type { McpStreamMessage } from "@roost/shared/wire";
 import type { AgentStatusUpdate } from "@roost/shared/wire";
 import type { Task as PbTask } from "@roost/shared/proto/wire_pb";
-import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
 import type { UiReportStateRequest, UiCommand } from "@roost/shared/proto/sync_pb";
 
 // taskBus carries proto-typed Task deltas directly — the firehose
@@ -116,11 +115,6 @@ export const workerRoutableBus = new BoundedBus<{ fps: string[] }>(64);
 // pressure on Chrome's 6-per-origin HTTP/1.1 connection budget.
 export const globalBytesBus    = new BoundedBus<{ session_id: string; bytes: Uint8Array }>(512);
 export const globalPresenceBus = new BoundedBus<{ session_id: string; data: unknown }>(64);
-// R11 cell-grid cell-shipping. Worker emits PbCellGridFrame (full/delta) per
-// session; coord stamps session_id (byte-hub) and fans out here. Sync's
-// cell_grid branch is the SPA's cell path. Small ring — a fresh viewer gets
-// a full frame from the worker on attach, so stale deltas needn't replay.
-export const globalCellBus     = new BoundedBus<PbCellGridFrame>(64);
 
 // Volatile coding-agent state. Active updates upsert a session; inactive
 // updates delete it. The coordinator hub owns revision ordering and seeds

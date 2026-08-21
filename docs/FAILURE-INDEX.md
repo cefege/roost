@@ -110,21 +110,26 @@ visit never tears it down.
 
 ### Torn seam between retained history and the live stream
 
-**Symptom** — "scrollback seam torn — duped tail / missing chunk / 'two terminals' between history and live"
+**Symptom** — "scrollback seam torn — duplicated tail, missing unchanged cells,
+or two different terminals after a tab switch/reconnect"
 
-**Wrong** — new in-band sentinel + retry / timeout / overlay / cache layer to mask the gap (the sb59-sb63 loop).
+**Wrong** — infer continuity from mount state, a remembered applied sequence, a
+zero-byte reveal witness, or a bounded mount-gap buffer. Those mechanisms have
+different lifetimes and can accept a delta after the component that owned its
+baseline disappeared.
 
-**Right** — the stream MUST be resumable by a monotonic offset; anything else is a band-aid. The offset is now
-per-frame, not per-byte: cell frames carry a monotonic `cell_seq` and an opaque `gridEpoch`, a viewer's claim
-carries `held_cell_seq`, and a detected loss sets a coordinator-local repair mark that forces exactly ONE
-authoritative full frame (`noteBarrierChannelLoss` in `apps/coord/src/byte-hub.ts`). The original per-byte
-`getScrollbackSince(lastSeq)` RPC form is RETIRED — `apps/worker/src/session-scrollback.ts` records the
-retirement; do not reintroduce a byte-offset resume path.
+**Right** — three explicit replicas and full-before-delta sequencing. Worker
+frames carry UUID `stream_id`, opaque `gridEpoch`, monotonic `seq`, and exact
+`base_seq`. `TerminalScreenHub` accepts a delta only against its complete
+coordinator replica; `terminal-stream.ts` applies the same rule to its
+per-session browser replica. A gap latches one snapshot request. Chunked fulls
+install atomically only after every viewport row occurs exactly once. Renderer
+mount state is not part of the continuity proof.
 
-**Guard** — `apps/coord/tests/barrier-repair.test.ts`; `smoke/terminal/` —
-`"dropped initial full frame reclaims immediately on the first delta"`,
-`"dropped streaming delta recovers before the producer goes quiet"`,
-`"dropped final frame is repaired by the applied-sequence heartbeat"`.
+**Guard** — `apps/shared/tests/cell-frame-chunks.test.ts`;
+`apps/coord/tests/terminal-screen-hub.test.ts`;
+`apps/web/tests/terminalStream.test.ts`;
+`smoke/terminal/terminal-multiview.spec.ts`.
 
 ### Alt-screen wallpaper of stale text after a worker restart
 
@@ -173,24 +178,28 @@ switch terminal cores; the bug is one CSS rule.
 **Guard** — `scripts/lint-roost.ts` rule
 `"L11: .wterm must keep overflow-y: auto (scrollback rows clip otherwise — do NOT switch cores)"`.
 
-### Scrollback mangles or drifts with no user action (reflow corruption)
+### Scrollback mangles or drifts with no user action
 
-**Symptom** — "terminal history 'always fucked up' / 'afraid to refresh or resize' / scrollback mangles or grows on its own while the live pane is fine"
+**Symptom** — "terminal history changes after another viewer joins, leaves, or
+resizes; unchanged TUI cells disappear"
 
-**Wrong** — PTY/grid size slaved to the browser viewport; browser-chrome wobble (innerHeight 987↔931, ~5 rows,
-~1/sec) round-trips a real PTY + core resize, and the core's ASYMMETRIC row-resize (shrink→scrollback,
-grow→blanks, never reverses) bakes the wobble into permanent scrollback drift with ZERO user action. Re-deriving
-alt-screen history at the new width still mangles even when the rebuild is deterministic — deterministic-reflow
-≠ freeze. Tempting wrong fixes: ratchet-to-min hysteresis (its own monotonic-shrink creep bug); "better reflow"
-(no lib reflows a TUI grid to a new width — they all freeze).
+**Wrong** — let browser mounts and worker claim reapers independently choose
+geometry, or rebuild the emulator from a bounded raw-byte ring after every
+resize. A rebuild cannot recover bytes already evicted and silently converts
+unchanged cells into blanks.
 
-**Right** — **cell-mode structural fix — cell frames carry immutable rows, never reflowed → browser-chrome
-wobble cannot corrupt scrollback → the entire reflow corruption class is structurally eliminated.** The old
-stop-bleeds (hold-anchor hysteresis, hold-anchor settle, alt-screen freeze) were retired with it. Cell rows are
-emitted by `apps/shared/src/cell/` and painted 1:1; there is no client reflow to re-open.
+**Right** — `TerminalViewHub` is the sole SCD owner and independently minimizes
+active rows and columns. The worker applies that one geometry synchronously to
+the existing wterm core at the keeper's ordered `ResizeAck` boundary: earlier
+bytes parse at the old size, `wtermCore.resize` runs before the callback
+returns, and later bytes parse at the new size. The resize forces a complete
+new-stream baseline but never reconstructs ordinary live state. Worker-history
+replay is reserved for genuine process adoption when no in-memory core exists.
 
-**Guard** — `apps/worker/tests/wterm-rebuild-determinism.test.ts`; `apps/shared/tests/cell-realcore.test.ts`;
-`apps/worker/tests/width-change-order-realpty.test.ts`.
+**Guard** — `apps/coord/tests/terminal-view-hub.test.ts`;
+`apps/worker/tests/terminal-stream-state.test.ts`;
+`apps/shared/tests/wterm-resize-in-place.test.ts`;
+`smoke/terminal/terminal-multiview.spec.ts`.
 
 ### Attach/reveal cost proportional to scrollback depth
 
@@ -284,36 +293,29 @@ drags into reserved-but-unpainted space keeps the backfill drain pulling toward 
 `"an eviction grows the spacer by exactly the rows it drops"`,
 `"renderFull reserves the incoming spacer BEFORE wiping painted history"`.
 
-### Reveal after dormancy re-dials or re-streams
+### Reveal after dormancy loses unchanged cells
 
-**Symptom** — "tab switch / return to the browser tab makes a terminal reload before the bottom is readable / deck switches are instant at first then slow forever"
+**Symptom** — "tab switch or browser reconnect shows only cells that changed
+while hidden; static TUI chrome stays blank until a full repaint"
 
-**Wrong** — treat it as history serialization and shrink/skip the scrollback tail (forbidden by the entries
-above), keep hidden/offscreen panes streaming, or add a spinner over reveal.
+**Wrong** — make `CellTerminal` own the baseline, deliberately discard hidden
+frames, or use a renderer watermark or zero-byte reveal witness to guess that
+its old DOM is still authoritative. Component, socket, coordinator membership
+and worker stream lifecycles do not expire together.
 
-**Right** — **keep the Sync socket; dormancy costs AT MOST one viewport snapshot, and nothing at all when the
-grid never moved.** (a) `apps/web/src/store/sync-bootstrap.ts` has ONE reconnect-loop owner and refocus keeps a
-healthy Sync WS, so reveal never waits on a second dial. (b) Hidden and offscreen panes immediately send
-`WITHDRAW`; no 0×0 BACKGROUND claim, grace timer, or deck LRU keeps cells flowing into an invisible renderer.
-(c) A visible return claim carries `held_cell_seq`, and an unwatched channel emits its one viewport-only
-authoritative snapshot ONLY WHEN A WITNESS PROVES THE GRID MOVED
-(`apps/worker/src/session-viewport.ts::needsClaimSnapshot`): the held seq is behind `cell_emit.seq`; or a
-replacement core has not yet flushed its authoritative frame (`cell_emit.sentFull === false` — a rebuild mints a
-new `gridEpoch`, so a kept seq alone could name a dead epoch); or a PTY byte landed since the last successful
-emit (`rec.lastPtyOutMs !== 0` — `emitCellFrame` zeroes it only on a successful send and the next chunk
-re-stamps it). A claimant provably holding the current grid gets NO FRAME AT ALL, so a shell idling at a prompt
-reveals with zero bytes and zero repaint. "Emission was gated off while it was away, so a frozen `cell_emit.seq`
-proves nothing" was the old reasoning; it is true and it is not the whole record — `lastPtyOutMs` is the missing
-witness and it was already there. (d) The mounted renderer applies that snapshot without replaying retained
-history, so the live bottom returns immediately while offscreen cell-frame count stays flat.
+**Right** — `terminal-stream.ts` owns one canonical replica per session while
+any view handle exists. Renderer detach does not delete it. Explicitly inactive
+views stop constraining SCD and receiving cells; reactivation starts an
+independent per-socket snapshot cursor from the coordinator cache, or waits for
+the worker's full when the stream/geometry changed. New-stream cells share the
+same scheduler lane as their state predecessor and cannot overtake it. A
+same-epoch/same-width repair updates the live tail without deleting already
+painted immutable history or the reader's global anchor.
 
-**Guard** — `smoke/terminal/` — `"a /file round-trip keeps the deck warm and costs no snapshot"`,
-`"long hidden deep-history resume paints the current viewport before history"`,
-`"revealing an idle dormant pane costs zero cell frames @serial"`,
-`"revealing a pane that moved while parked costs exactly one viewport-only snapshot @serial"`;
-`apps/worker/tests/viewport-claim-fast-path.test.ts` — `"a reveal after dormancy emits nothing when no PTY byte
-landed"` (both branches of the `lastPtyOutMs` witness) and `"a rebuilt core always resnapshots even at a
-matching seq"` (the `sentFull` witness).
+**Guard** — `apps/web/tests/terminalStream.test.ts`;
+`apps/web/tests/cellRenderer.reconcile.dom.test.ts`;
+`smoke/terminal/terminal-multiview.spec.ts`;
+`smoke/terminal/terminal-render-resume.spec.ts`.
 
 ### Reveal lands in history instead of the present
 
@@ -387,41 +389,46 @@ cells — each one leaves the canonical model ahead of the DOM with nothing that
   reader-pending frame + re-pin bottom as ONE transition), and park/`pagehide`/unmount ENDS the reading interval
   so a revealed pane presents the newest canonical frame.
 
-- (b) `acquireTerminalViewportOwner` (`apps/web/src/ws/sync-outbound-viewport.ts`) is the single tokenized
-  desired-viewport registry per mount, with bounded 250 ms→2 s retries and typed status; cell-delivery
-  membership is the matching `acquireCellMountClaim` (`apps/web/src/store/sync-dispatch.ts`). No component keeps
-  private claim liveness.
+- (b) `terminal-stream.ts` owns one per-session browser replica and stable view
+  handles. `CellTerminal` only measures, publishes active/inactive geometry,
+  forwards attributed input and attaches a renderer. Detach never destroys the
+  baseline; a reconnect replays desired views and resumes from a full snapshot.
 
-- (c) Worker results are three-way with `TerminalWritePhase`: only a proven `PRE_WRITE` refusal is a rejection,
-  `AMBIGUOUS` KEEPS provisional viewer membership, and the budgets nest per PATH, not as one chain — input:
-  keeper 2.5 s per-command watchdog (`COMMAND_RESULT_TIMEOUT_MS`, `apps/worker/src/keeper/keeper-pool-io.ts`) <
-  worker `budget_ms` (coord remaining − 750 ms reserve, `apps/coord/src/connect/worker-send.ts`) < coord
-  `INPUT_CONTROL_TIMEOUT_MS` 5 s < browser 10 s; viewport: the same 2.5 s watchdog inside per-phase bounds
-  clamped by `VIEWPORT_TXN_BUDGET_MS` 7 s < coord `VIEWPORT_CONTROL_TIMEOUT_MS` 8 s < browser 10 s. 6 s is a
-  worker PHASE bound, never a tier above the 5 s input deadline.
+- (c) `TerminalViewHub` is the only membership/SCD owner. It independently
+  minimizes active columns and rows, parks disconnected sockets only until
+  their existing lease expires, and mints a UUID stream for every effective
+  geometry or worker-generation transition. Invalid or fail-closed worker
+  outcomes retain membership but publish unavailable until route
+  reconciliation can issue a fresh stream.
 
-- (d) The worker applies a viewport as a staged transaction (`apps/worker/src/session-terminal-txn.ts` over
-  `TerminalTxnPhase`) on a control lane, while keeper WRITES ride a separate ordering lane released at the write
-  boundary — PTY input never queues behind a pending resize. The coordinator's lane+generation scheduler is
-  `apps/coord/src/connect/terminal-control-lane.ts`.
+- (d) The worker owns one generation-addressed stream state per session. The
+  keeper's resize ACK is the ordered parse boundary; the existing wterm core is
+  resized synchronously there, never rebuilt for an ordinary live resize. Input
+  has its own lane and worker-owned keeper correlation keys, so browser-local
+  sequence collisions cannot replace another device's pending result.
 
-- (e) Sync redial caps the DELAY only (`SYNC_REDIAL_MAX_MS` 30 s, `apps/web/src/store/sync-watchdog.ts`); only a
-  hidden document sleeps and one coalesced lifecycle wake re-dials in place and replays owners, so recovery
-  never needs a reload.
+- (e) `TerminalScreenHub` validates and folds full/delta frames into one
+  canonical coordinator replica, assembles bounded row chunks atomically, and
+  latches one resync on any gap, invalid frame or ten-second chunk stall. Each
+  socket owns an independent snapshot cursor and delta tail on the same
+  per-session scheduler lane as view state.
 
-- (f) `appendEvent` is a durable publication (commit → exact channel binding via `applyDurableChannelIndex` →
-  `sessionBus`, `apps/coord/src/event-log.ts`), the announcement barrier drains cell AND binary frames in
-  arrival order, and an overflow/timeout with a live viewer sets a coordinator-local repair mark that forces ONE
-  authoritative full frame; the core is pinned on a digest-verified patched WASM with explicit per-span columns
-  and an authoritative `getScrollbackDiscardedCount()`.
-Diagnose with `wire_received` → `handler_canonical` → `dom_reconciled` + `reconcile_block_reason`
+- (f) Sync redial caps delay rather than attempts. A hidden document may sleep,
+  but a lifecycle wake reconnects in place, replays active view intent and
+  converges from a complete baseline without a reload. Durable session
+  publication still commits before route installation and `sessionBus`
+  publication.
+
+Diagnose `wire_received` → browser `replica` → `handler_canonical` →
+`dom_reconciled` plus `reconcile_block_reason`
 (`apps/web/src/lib/terminalDiagSnapshot.ts`), never a screenshot.
 
-**Guard** — `apps/shared/tests/core-trace-oracle.test.ts`; `apps/web/tests/syncOutbound.test.ts`;
-`apps/worker/tests/terminal-control-transaction.test.ts`; `apps/coord/tests/durable-publication.test.ts`;
-`smoke/terminal/` — `"parking a selection-held pane flushes its latest folded frame"`,
-`"long hidden deep-history resume paints the current viewport before history"`,
-`"real PTY input recovers held rendering and rejected same-generation reclaim self-heals"`.
+**Guard** — `apps/shared/tests/cell-frame-chunks.test.ts`;
+`apps/worker/tests/terminal-stream-state.test.ts`;
+`apps/coord/tests/terminal-view-hub.test.ts`;
+`apps/coord/tests/terminal-screen-hub.test.ts`;
+`apps/web/tests/terminalStream.test.ts`;
+`smoke/terminal/terminal-multiview.spec.ts`.
 
 ---
 
@@ -541,36 +548,28 @@ on `hasOpened`; the log is `reconnect_backoff_escalated`, never `auth_rejection_
 
 **Guard** — `apps/worker/tests/coord-link-backoff-cap.test.ts`.
 
-### A no-resize viewport claim pays a keeper resize and a core rebuild
+### A live viewport change rebuilds the terminal core
 
-**Symptom** — "tab switch stalls for seconds and the pane reloads its scrollback / the same terminal is instant
-sometimes and slow other times / switch cost depends on nothing the user did"
+**Symptom** — "tab switch stalls for seconds and reloads scrollback / unchanged
+TUI chrome disappears after resize / switch cost depends on retained output"
 
-**Wrong** — gate a no-resize claim on the resize floor, so an invalid floor freezes the core and rebuilds it at
-unchanged geometry; treat "we cannot prove the floor" as "we must resize". `resizeFloorInvalid` is set on worker
-adoption and by `reconcileResize` before an ACK is known, and clears only on a LATER successful keeper round
-trip, so ONE keeper hiccup made every future switch to that session pay `installResizeCapture` (canonical core
-frozen) + `reconcileResize` (separate OS process, 2.5 s command watchdog) + `rebuildTerminalCore` (a fresh
-`WebAssembly.instantiate` plus one synchronous VT reparse of the whole retained ring on the worker's single event
-loop) — a rebuild that also mints a new `gridEpoch` and therefore legitimately discards the browser's painted
-history. The user sees a seconds-long stall and a pane that reloads its scrollback, at byte-identical dimensions.
+**Wrong** — rebuild a fresh emulator from a bounded raw-byte ring for every
+viewer claim or resize. The ring may no longer contain the bytes that produced
+the current screen, so replay legitimately forgets static cells; it also
+re-instantiates WASM and reparses history on the worker's event loop.
 
-**Right** — **the floor gates only ALLOCATING a resize sequence.** A claim whose desired size already equals
-proven geometry issues no resize, so it consumes no sequence — it needs only the keeper's current geometry, which
-is a plain READ that neither freezes the core nor changes geometry.
-`apps/worker/src/session-resize-floor.ts::revalidateResizeFloor` is capture-free, de-duplicates concurrent probes
-through a module-private registry (a user-facing claim awaits the sweep's in-flight probe instead of issuing a
-second read), and is bounded by `FLOOR_REVALIDATE_BUDGET_MS`; when it cannot prove the floor the claim falls
-through to the full transaction exactly as before. `floorValid` is now ONE definition and includes
-`channelResizeSeq.has(channelId)` — an adopted channel has no cached seq and is NOT in `resizeFloorInvalid`, so
-it used to cold-path silently. `sweepResizeFloors` runs at the END of `_reapViewportClaims`, outside its
-`viewportClaims` loop because a parked session holds no claims, so the existing 5 s viewport tick proves stale
-floors before the user clicks. `respawn()` seeds `channelResizeSeq` + `lastAppliedSize` for its brand-new channel
-the way `spawnShell` always has, so a respawned session never starts on the cold path at all.
+**Right** — the coordinator computes one SCD geometry and addresses it with a
+new stream ID. The keeper resize ACK is the ordered boundary between old-size
+and new-size PTY bytes. At that boundary the worker calls
+`wtermCore.resize(cols, rows)` on the existing core, resets only the cell
+emission baseline/epoch, and emits one viewport-only full. Primary and
+alternate grids, modes, links and representable scrollback stay in memory.
+Keeper-history replay is reserved for genuine worker adoption when no live core
+exists; an unprovable resize boundary fails closed.
 
-**Guard** — `apps/worker/tests/viewport-claim-fast-path.test.ts` — `"an invalid floor does not rebuild the core
-for an unchanged viewport"`, `"an unprovable floor still falls through to the full transaction"`,
-`"a genuine resize still rebuilds exactly once"`, `"respawn seeds proven geometry"`.
+**Guard** — `apps/shared/tests/wterm-resize-in-place.test.ts`;
+`apps/worker/tests/terminal-stream-state.test.ts`;
+`smoke/terminal/terminal-multiview.spec.ts`.
 
 ### Quoting a systemd path directive because quoting is "safer"
 
@@ -657,8 +656,8 @@ boot to fix only the first-ever boot), or paper over it with a post-bootstrap `s
 **Right** — **the snapshot must be ordered AFTER the socket is subscribed, and an authorization must wake the
 backoff.** coord runs NO backfill from zero, so an event published between `sessionsList` resolving and the
 socket subscribing is lost outright — there is nothing to replay it from. (a)
-`apps/web/src/store/sync-bootstrap.ts` awaits the subscribed barrier (`syncSocketOpened` →
-`waitForSyncSubscribed` in `apps/web/src/store/sync.ts`, which resolves only once the subscription establishes
+`apps/web/src/store/sync-bootstrap.ts` awaits the subscribed barrier (`waitForSyncSubscribed` in
+`apps/web/src/store/sync.ts`, which resolves only once the subscription establishes
 socket/domain generations, never at `WebSocket.onopen`) and takes its snapshot against that socket's id, so the
 window is CLOSED, not merely shrunk. (b) after a first-boot `_attemptSelfRegister()` authorizes the key,
 `resumeSyncNow()` re-dials at once instead of serving out a 1s/2s/4s backoff. Any change to the dial ordering

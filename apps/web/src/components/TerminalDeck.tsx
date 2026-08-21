@@ -548,27 +548,18 @@ export function TerminalDeck(props: {
     apply((l) => focusPane(l, paneId)); // reconcile appends the optimistic placeholder into this pane
     const sid = beginOptimisticSpawn(anchor); // tab + pane + CellTerminal render THIS frame
     navigate(`/s/${sid}`); // URL-fold selects the new tab in the focused pane
-    // Renderer + cell handler mount first and resolve the one-shot measurement.
-    // A genuinely slow/non-mounted placeholder takes the ordinary estimated
-    // spawn path after 100ms; it is never mislabeled as preclaimed.
+    // The mounted size is a bounded initial PTY hint only. The terminal view
+    // attaches normally after the opened event.
     const measured = await waitForMountedSpawnMeasurement(sid, 100);
     // A close during the measurement window cancels before any PTY exists.
     if (wasAborted(sid)) { clearAborted(sid); return; }
     const t0 = Date.now();
     try {
-      const result = await spawnSibling(anchor, sid, measured ?? undefined);
+      await spawnSibling(anchor, sid, measured ?? undefined);
       diag("spawn.optimistic", { session_id: sid, rtt_ms: Date.now() - t0 });
       // Closed mid-flight → reap the now-real PTY and leave the tab gone.
       if (wasAborted(sid)) { clearAborted(sid); void coordClient.sessionsKill({ sessionId: sid }); return; }
-      endOptimisticSpawn(
-        sid,
-        result.initialViewportPreclaimed && measured
-          ? {
-            ...measured,
-            effectiveClientSeq: result.effectiveClientSeq,
-          }
-          : undefined,
-      );
+      endOptimisticSpawn(sid);
       maybeAutoLaunchAgent(sid);
     } catch (e) {
       // The HTTP reply can be lost after the durable opened event. The pending
@@ -921,7 +912,7 @@ export function TerminalDeck(props: {
                     spotlit={slot()?.spotlit ?? false}
                     // A route overlay hides only the host and body-portaled
                     // accessories. Keep laid-out terminals active so their
-                    // renderer, cell stream, and viewport claim stay warm.
+                    // renderer, replica and terminal view stay warm.
                     surfaceVisible={props.surfaceVisible}
                     surfaceActive={
                       spotlightPane() === null || slot()?.spotlit === true

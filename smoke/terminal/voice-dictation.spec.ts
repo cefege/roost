@@ -53,8 +53,11 @@ test("desktop passive drafting and dictation preserve a selected reader until pa
       stop() {
         const result = [{ transcript: finalSpeech }] as FakeResult;
         result.isFinal = true;
-        this.onresult?.({ resultIndex: 0, results: [result] });
-        queueMicrotask(() => this.onend?.());
+        // SpeechRecognition result/end events arrive after the stop gesture.
+        setTimeout(() => {
+          this.onresult?.({ resultIndex: 0, results: [result] });
+          queueMicrotask(() => this.onend?.());
+        }, 0);
       }
       abort() {
         queueMicrotask(() => this.onend?.());
@@ -164,9 +167,21 @@ test("desktop passive drafting and dictation preserve a selected reader until pa
   expect(readerBaseline.sameRow).toBe(true);
   expect(readerBaseline.rowText).toContain(readerPrefix);
   expect(readerBaseline.rangeRect.bottom).toBeGreaterThan(readerBaseline.rangeRect.top);
+  const expectReaderHeld = async () => {
+    await expect.poll(async () =>
+      (await readTerminalStreamProbe(smokePage, firstId)).browser.presentation
+    ).toMatchObject({
+      reader_intent: "reading",
+      reader_reason: "selection",
+      hold_mask: { selection: true, link: false },
+      reconciled: passivePending.browser.dom_reconciled,
+    });
+  };
   const expectReaderPreserved = async (label: string) => {
+    await expect.poll(readReaderGeometry, {
+      message: `${label}: selected reader geometry`,
+    }).not.toBeNull();
     const current = await readReaderGeometry();
-    expect(current, `${label}: selected reader geometry`).not.toBeNull();
     expect(current!.rangeConnected, `${label}: connected native range`).toBe(true);
     expect(current!.rangeOnRow, `${label}: native range endpoints`).toBe(true);
     expect(current!.sameRow, `${label}: selected row identity`).toBe(true);
@@ -181,13 +196,7 @@ test("desktop passive drafting and dictation preserve a selected reader until pa
         ).toBeLessThanOrEqual(1);
       }
     }
-    const presentation = (await readTerminalStreamProbe(smokePage, firstId)).browser.presentation;
-    expect(presentation).toMatchObject({
-      reader_intent: "reading",
-      reader_reason: "selection",
-      hold_mask: { selection: true, link: false },
-      reconciled: passivePending.browser.dom_reconciled,
-    });
+    await expectReaderHeld();
   };
 
   await firstInput.click();
@@ -237,10 +246,15 @@ test("desktop passive drafting and dictation preserve a selected reader until pa
     element.getBoundingClientRect().height)).toBeGreaterThan(singleLineComposerHeight + 1);
   await expectReaderPreserved("dictation interim");
 
-  await firstInput.press("Enter");
+  await smokePage.keyboard.press("Enter");
   await expect(firstVoice).toHaveAttribute("data-state", "listening");
   await expect(firstInput).toHaveValue(interimDraft);
-  await expectReaderPreserved("dictation Enter");
+  await smokePage.evaluate(() => new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  }));
+  // Cross the browser's post-keyup default and queued selectionchange before
+  // probing the authoritative reader/selection hold rather than transient Selection.
+  await expectReaderHeld();
 
   await firstDock.getByTestId("voice-mic").click();
   await expect(firstVoice).toHaveAttribute("data-state", "idle");

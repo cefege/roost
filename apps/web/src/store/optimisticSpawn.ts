@@ -7,6 +7,7 @@ import { asSessionId, asChannelId } from "@roost/shared/wire";
 import type { Session } from "@roost/shared/wire";
 import { rootStore, setRootStore } from "./root.ts";
 import { addToast } from "./toastStore.ts";
+import { clampTerminalGeometry } from "@roost/shared/viewport";
 
 // Reactive so CellTerminal's `pending` memo re-runs when a placeholder resolves.
 // `aborted` needs no reactivity — it is read imperatively in doNewTab's resolve.
@@ -16,11 +17,6 @@ const aborted = new Set<string>();
 export interface MountedSpawnMeasurement {
   cols: number;
   rows: number;
-  clientSeq: number;
-}
-
-export interface SpawnViewportSeed extends MountedSpawnMeasurement {
-  effectiveClientSeq: number;
 }
 
 interface MeasurementDeferred {
@@ -34,9 +30,6 @@ interface MeasurementDeferred {
 // enters the Solid store, so a synchronously mounted CellTerminal can resolve it
 // without racing doNewTab's waiter.
 const measurementDeferreds = new Map<string, MeasurementDeferred>();
-// Spawn response state is consumed once by the already-mounted pane. Seeding
-// before clearing pending makes the pending→false INITIAL effect deterministic.
-const viewportSeeds = new Map<string, SpawnViewportSeed>();
 
 export function isPendingSpawn(id: string): boolean {
   return pendingIds().has(id);
@@ -48,9 +41,7 @@ export function clearAborted(id: string): void {
   aborted.delete(id);
 }
 
-/** Publish the real mounted slot size exactly once, after renderer + cell
- * handler installation. Late measurements after the 100ms caller deadline are
- * rejected so an ordinary fallback spawn can never be mislabeled preclaimed. */
+/** Publish the mounted slot size exactly once as an initial PTY-size hint. */
 export function publishMountedSpawnMeasurement(
   id: string,
   measurement: MountedSpawnMeasurement,
@@ -61,15 +52,13 @@ export function publishMountedSpawnMeasurement(
     || deferred.done
     || deferred.closed
     || !pendingIds().has(id)
-    || !Number.isInteger(measurement.cols)
-    || !Number.isInteger(measurement.rows)
-    || !Number.isSafeInteger(measurement.clientSeq)
+    || !Number.isFinite(measurement.cols)
+    || !Number.isFinite(measurement.rows)
     || measurement.cols <= 0
     || measurement.rows <= 0
-    || measurement.clientSeq <= 0
   ) return false;
   deferred.done = true;
-  deferred.resolve(measurement);
+  deferred.resolve(clampTerminalGeometry(measurement));
   return true;
 }
 
@@ -96,12 +85,6 @@ export async function waitForMountedSpawnMeasurement(
   }
 }
 
-/** Consume the coordinator-owned preclaim watermark once. */
-export function takeSpawnViewportSeed(id: string): SpawnViewportSeed | null {
-  const seed = viewportSeeds.get(id) ?? null;
-  viewportSeeds.delete(id);
-  return seed;
-}
 
 // Insert a shell placeholder in the bucket selected by the anchor tab.
 export function beginOptimisticSpawn(anchor: Session): string {
@@ -131,11 +114,9 @@ export function beginOptimisticSpawn(anchor: Session): string {
   return id;
 }
 
-// Spawn confirmed. When the measured viewport was preclaimed, publish its
-// coordinator-owned watermark before dropping pending; the mounted terminal
-// consumes it synchronously and suppresses only the equivalent INITIAL claim.
-export function endOptimisticSpawn(id: string, seed?: SpawnViewportSeed): void {
-  if (seed) viewportSeeds.set(id, seed);
+// Spawn confirmation only releases the placeholder. The mounted terminal view
+// attaches through its normal socket-bound command after the opened event.
+export function endOptimisticSpawn(id: string): void {
   closeMeasurementDeferred(id);
   clearPending(id);
 }
@@ -146,7 +127,6 @@ export function failOptimisticSpawn(id: string, err: unknown): void {
   const wasAbortedNow = aborted.has(id);
   removePlaceholder(id);
   clearPending(id);
-  viewportSeeds.delete(id);
   closeMeasurementDeferred(id);
   aborted.delete(id);
   if (!wasAbortedNow) {
@@ -159,7 +139,6 @@ export function failOptimisticSpawn(id: string, err: unknown): void {
 export function abortOptimisticSpawn(id: string): void {
   aborted.add(id);
   removePlaceholder(id);
-  viewportSeeds.delete(id);
   closeMeasurementDeferred(id);
   clearPending(id);
 }

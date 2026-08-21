@@ -34,9 +34,9 @@ constant-time secret and executes commit/abort side effects.
 
 ## The 14 handler domains
 
-`src/connect/router.ts` is **pure wiring**: it installs the auth interceptor, wires the viewer-tracker DB
-(`_setViewerTrackerDb`), kicks off `startTailnetResolver()`, and spreads 14 domain factories into a **single**
-`router.service(CoordinatorService, {…})` literal. No handler logic, no per-domain state.
+`src/connect/router.ts` is **pure wiring**: it installs the auth interceptor and
+spreads 14 domain factories into a **single** `router.service(CoordinatorService, {…})`
+literal. No handler logic, no per-domain state.
 
 **Load-bearing:** it must stay one `router.service()` call. Connect stubs every absent method with an
 unimplemented-throw, so a second `router.service()` call registers a second impl that shadows every method the first
@@ -61,10 +61,10 @@ provided. Add a domain with another `...makeXHandlers(deps)` spread, never with 
 
 ## Module map
 
-- `src/connect/` — everything protocol-facing: the 14 `handlers-*.ts` domains, the auth interceptor, the Bun↔Connect
-  adapter, both WS transports with their split protocol modules, the Sync feed, the terminal control lanes, the
-  worker facade (`worker-service.ts` re-exports `worker-registry.ts` + `worker-send.ts` + `worker-conn.ts`), the
-  announced-channel barrier, cell subscriptions, viewer tracker, pending spawns.
+- `src/connect/` — everything protocol-facing: the 14 `handlers-*.ts` domains,
+  the auth interceptor, both WS transports and their split protocol modules,
+  Sync feed/scheduler, terminal view/screen hubs, terminal input lane, worker
+  facade, announced-channel barrier and pending spawns.
 - `src/db/` — `connection.ts` (Kysely over `kysely-bun-sqlite`, WAL + busy timeout), `schema.ts` (the `DB`
   interface), `migrate.ts` (custom runner over `apps/coord/migrations/*.sql`, throws on any failure), `snapshot.ts`
   (online SQLite copy for db-export and coord move).
@@ -76,13 +76,16 @@ provided. Add a domain with another `...makeXHandlers(deps)` spread, never with 
 - `src/coord-move/` — live coordinator relocation (below).
 - `src/router/pending-rpcs.ts` — correlation table for browser→worker RPCs needing a reply; a UUID-keyed entry is
   resolved by the worker's upstream `rpc_ok`/`rpc_error` frame, deadline-bounded.
-- Top level: `event-log.ts` (append + project + publish), `byte-hub.ts` + `byte-hub-barrier-repair.ts` (PTY/cell
-  fan-out and its repair ledger), `buses.ts` (`BoundedBus<T>`, one per domain), `jwt.ts`, `coord-key.ts`,
-  `authorized-keys.ts`, `agent-status-hub.ts` with `push-dispatch.ts`/`push-sender.ts`/`vapid.ts`, `deploy-jobs.ts`
-  (generic job registry + the POSIX `roost deploy` subprocess), `backup.ts`, `audit-retention.ts`, `sse.ts`
-  (`busToAsyncIterable`, consumed by the deploy-output stream), `presence-hub.ts` (live caller:
-  `handlers-sessions.ts`), `tailnet-resolver.ts`, `spa.ts`, `telemetry.ts`. Signed Windows-update job bookkeeping
-  lives entirely in `windows-update-deploy-jobs.ts`, `windows-update-deploy-runtime.ts`,
+- Top level: `event-log.ts` (append + project + publish), `byte-hub.ts` (durable
+  worker/channel routing), `connect/terminal-view-hub.ts` (browser membership
+  and SCD geometry), `connect/terminal-screen-hub.ts` (canonical cell replica
+  and resumable per-socket cursors), `buses.ts` (`BoundedBus<T>`, one per
+  non-terminal domain), `jwt.ts`, `coord-key.ts`, `authorized-keys.ts`,
+  `agent-status-hub.ts` with `push-dispatch.ts`/`push-sender.ts`/`vapid.ts`,
+  `deploy-jobs.ts` (generic job registry + the POSIX `roost deploy` subprocess),
+  `backup.ts`, `audit-retention.ts`, `sse.ts` (`busToAsyncIterable`, consumed by
+  the deploy-output stream), `presence-hub.ts`, `spa.ts` and `telemetry.ts`.
+Signed Windows-update job bookkeeping lives entirely in `windows-update-deploy-jobs.ts`, `windows-update-deploy-runtime.ts`,
   `windows-update-deploy-record.ts` and `windows-update-manifest.ts` — `deploy-jobs.ts` does **not** own it.
 
 ### `src/coord-move/` — live coordinator relocation
@@ -127,12 +130,11 @@ the worker-WS registry that server populates.
   fetch layer so Connect never opens the stream. The feed is `src/connect/sync-feed.ts` (bus subscription + durable
   event paging), `sync-feed-frames.ts` (stateless payload→`FirehoseFrame` adapters + lane metadata) and
   `sync-feed-seed.ts` (retained-snapshot seeding).
-- `src/connect/session-control.ts` is a **re-export barrel** over `terminal-control-lane.ts` (viewer identity, the
-  per-viewer/session lane and its generation cancel registry, session routing), `viewport-control.ts`,
-  `input-control.ts` (plus its bounded audit queue) and `barrier-repair-replay.ts`. It stays a barrel so its
-  importers keep unchanged paths: `handlers-sessions.ts`, `sync-terminal-controls.ts`, `worker-ws-handler.ts`, and
-  the tests `barrier-repair`, `announce-barrier-handler`, `durable-publication`, `terminal-hop-deadline`. Despite
-  the name it owns no session lifecycle — that is `handlers-sessions.ts` and `handler-session-spawn.ts`.
+- `src/connect/session-control.ts` is a **re-export barrel** over
+  `terminal-control-lane.ts` (per-session ordering and generation cancellation)
+  and `input-control.ts` (including its bounded audit queue). Terminal view
+  membership lives only in `terminal-view-hub.ts`; terminal cell continuity
+  lives only in `terminal-screen-hub.ts`. The barrel owns no session lifecycle.
 
 ## Invariants
 
@@ -142,9 +144,9 @@ the worker-WS registry that server populates.
   transaction raced Sync fan-out ahead of the binding, so a tab could observe `opened`/`respawned`/`snapshot` before
   its worker/channel route existed and send the first claim or keystroke into a channel no keeper owned. Do not
   reorder it, and never mutate the channel index from a `sessionBus` subscription.
-- **`_channelToSession` is private to `byte-hub.ts`.** The barrier-repair ledger in `byte-hub-barrier-repair.ts`
-  reaches it through exactly one narrow accessor, `_isChannelBoundToOtherSession(workerFp, channelId, sessionId)`,
-  so a mark sweep can never mutate a route. Do not export the map.
+- **`_channelToSession` is private to `byte-hub.ts`.** Terminal hubs receive an
+  already-resolved session ID through their narrow routing APIs; they never read
+  or mutate the channel index.
 - **Every mutation whose domain has a `*Bus` must publish after its DB write**, in that domain's own
   `handlers-<domain>.ts`: `publishTaskState(row)` in `handlers-tasks.ts`, `workspaceBus.publish` in
   `handlers-workspaces.ts`, `webhookBus`/`permissionBus`/`mcpBus` in `handlers-settings.ts`. Omit it and the write
@@ -164,11 +166,13 @@ the worker-WS registry that server populates.
 
 - `bun test apps/coord/tests/` — 48 files, 299 tests. `coord-e2e.test.ts` boots a coordinator through `createCoord`
   against in-memory SQLite and drives `coord.fetch(...)` directly: no `Bun.serve`, no port allocation, no network.
-- The coordinator half of the terminal flow is pinned by `cell-passthrough.test.ts`, `byte-hub-coalesce.test.ts`,
-  `durable-publication.test.ts`, `announced-channel-barrier.test.ts`, `announce-barrier-handler.test.ts`,
-  `barrier-repair.test.ts`, `terminal-hop-deadline.test.ts`, `sync-backfill-priority.test.ts`,
-  `sync-ws-keepalive.test.ts`, `sync-ws-deadline.test.ts`, `worker-ws-transport.test.ts` and
-  `worker-bidi-event.test.ts`. The browser end is `smoke/terminal/*.spec.ts` (`bun run test:terminal`).
+- The coordinator half of the terminal flow is pinned by
+  `terminal-view-hub.test.ts`, `terminal-screen-hub.test.ts`,
+  `sync-ws-v2-scheduler.test.ts`, `coord-bidi.test.ts`,
+  `durable-publication.test.ts`, `announced-channel-barrier.test.ts`,
+  `sync-ws-keepalive.test.ts`, `sync-ws-deadline.test.ts`,
+  `worker-ws-transport.test.ts` and `worker-bidi-event.test.ts`. The browser end
+  is `smoke/terminal/*.spec.ts` (`bun run test:terminal`).
 - `bun run test:unit` runs the fast tier across all apps; `bun run lint` enforces the 400-line file cap and the
   `console.*` ratchet.
 - Run it with `bun apps/coord/src/main.ts` (env parsed by `CoordConfig` in `apps/shared/src/config.ts`); install as

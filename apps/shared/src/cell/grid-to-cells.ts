@@ -105,6 +105,8 @@ function _width(c: CellData): number {
  *  when the style is identical on both sides. Both the viewport and the
  *  scrollback readers below go through here, so retained history carries links
  *  with no separate message. */
+type MutableCellSpan = { -readonly [K in keyof CellSpan]: CellSpan[K] };
+
 export function rowToSpans(cells: CellData[]): CellSpan[] {
   // Right-trim trailing default-style blanks. A width-0 cell backed by a wide
   // lead is that glyph's SECOND COLUMN, not padding: trimming it would shrink
@@ -121,8 +123,8 @@ export function rowToSpans(cells: CellData[]): CellSpan[] {
     end--;
   }
 
-  const spans: CellSpan[] = [];
-  let run: CellSpan | null = null;
+  const spans: MutableCellSpan[] = [];
+  let run: MutableCellSpan | null = null;
   let col = 0;
   // At most ONE diagnostic per row, whatever the cells do: a row alternating
   // two over-cap links would otherwise log per cell, per frame, forever.
@@ -225,6 +227,7 @@ export function gridToCellFrame(
   core: TerminalCore,
   seq: number,
   gridEpoch: string,
+  streamId: string,
   tailRows?: number,
   sbDropped = 0,
 ): CellGridFrame {
@@ -242,6 +245,7 @@ export function gridToCellFrame(
   for (let i = sbBase; i < monoTotal; i++) scrollbackRows[i - sbBase] = _scrollbackRow(core, i, total, sbDropped);
 
   return {
+    streamId,
     gridEpoch,
     cols, rows,
     cursorRow: cursor.row, cursorCol: cursor.col, cursorVisible: cursor.visible,
@@ -260,6 +264,7 @@ export function gridToCellFrame(
     scrollbackAppend: [],
     scrollbackTotal: monoTotal,
     sbBase,
+    baseSeq: 0,
     seq,
   };
 }
@@ -274,7 +279,9 @@ export function gridDeltaFrame(
   core: TerminalCore,
   prevMonoTotal: number,
   seq: number,
+  baseSeq: number,
   gridEpoch: string,
+  streamId: string,
   sbDropped = 0,
 ): CellGridFrame {
   const cols = core.getCols();
@@ -288,6 +295,7 @@ export function gridDeltaFrame(
   }
 
   return {
+    streamId,
     gridEpoch,
     cols, rows,
     cursorRow: cursor.row, cursorCol: cursor.col, cursorVisible: cursor.visible,
@@ -303,6 +311,7 @@ export function gridDeltaFrame(
     scrollbackAppend: readScrollbackRangeCells(core, Math.max(prevMonoTotal, 0), sbDropped + total, sbDropped),
     scrollbackTotal: sbDropped + total,
     sbBase: 0,
+    baseSeq,
     seq,
   };
 }

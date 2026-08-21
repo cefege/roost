@@ -5,13 +5,26 @@
 // real encoder is covered by tests/cell-realcore.test.ts.
 //
 // OWNERSHIP: the caller owns `base`; applyDelta CONSUMES and returns it. It
-// mutates `base` in place rather than rebuilding, because rebuilding copied the
-// whole held scrollback window (up to MAX_HELD_SCROLLBACK_ROWS = 2000 rows) on
-// every frame that scrolled a single line. The only production caller is
-// CellGridRenderer.apply, which holds exactly one frame per pane and always
-// stores the return value back.
+// mutates that replica in place rather than rebuilding. Coordinator and browser
+// canonical replicas clone before folding when another owner retains the same
+// state; renderers keep one independently owned frame and store the return.
 
-import type { CellGridFrame } from "./types.ts";
+import type { CellGridFrame, CellRow } from "./types.ts";
+
+/** Give a replica/renderer independent mutable row coordinates while sharing
+ * immutable span arrays. applyDelta may replace row slots and renumber rows, so
+ * copying only the outer arrays is insufficient. */
+export function cloneCellGridFrame(frame: CellGridFrame): CellGridFrame {
+	const cloneRows = (rows: readonly CellRow[]): CellRow[] =>
+		rows.map((row) => ({ index: row.index, spans: row.spans }));
+	return {
+		...frame,
+		viewportRows: cloneRows(frame.viewportRows),
+		scrollbackRows: cloneRows(frame.scrollbackRows),
+		scrollbackAppend: cloneRows(frame.scrollbackAppend),
+	};
+}
+
 
 /** Number of held viewport rows that a delta proves moved into scrollback.
  *
@@ -52,7 +65,10 @@ export function deltaViewportShift(base: CellGridFrame, delta: CellGridFrame): n
 export function applyDelta(base: CellGridFrame, delta: CellGridFrame): CellGridFrame | null {
 	if (delta.full) return delta;
 	if (
-		delta.gridEpoch !== base.gridEpoch
+		delta.streamId !== base.streamId
+		|| delta.baseSeq !== base.seq
+		|| delta.seq !== delta.baseSeq + 1
+		|| delta.gridEpoch !== base.gridEpoch
 		|| delta.cols !== base.cols
 		|| delta.rows !== base.rows
 		|| delta.altScreen !== base.altScreen
@@ -61,11 +77,18 @@ export function applyDelta(base: CellGridFrame, delta: CellGridFrame): CellGridF
 	) return null;
 
 	const viewportRows = base.viewportRows;
+	const changedRows = new Set<number>();
 	const scrolled = deltaViewportShift(base, delta);
 	for (const row of delta.viewportRows) {
-		if (!Number.isInteger(row.index) || row.index < 0 || row.index >= viewportRows.length) {
+		if (
+			!Number.isInteger(row.index)
+			|| row.index < 0
+			|| row.index >= viewportRows.length
+			|| changedRows.has(row.index)
+		) {
 			return null;
 		}
+		changedRows.add(row.index);
 	}
 	// A scroll shifts the canonical viewport just as the renderer shifts its DOM
 	// nodes. Every newly exposed tail row must be present in the sparse patch;
@@ -94,6 +117,7 @@ export function applyDelta(base: CellGridFrame, delta: CellGridFrame): CellGridF
 	for (const row of delta.scrollbackAppend) base.scrollbackRows.push(row);
 	if (base.scrollbackAppend.length > 0) base.scrollbackAppend.length = 0;
 
+	base.streamId = delta.streamId;
 	base.gridEpoch = delta.gridEpoch;
 	base.cols = delta.cols;
 	base.rows = delta.rows;
@@ -108,6 +132,7 @@ export function applyDelta(base: CellGridFrame, delta: CellGridFrame): CellGridF
 	base.focusEvents = delta.focusEvents;
 	base.full = true;
 	base.scrollbackTotal = delta.scrollbackTotal;
+	base.baseSeq = 0;
 	base.seq = delta.seq;
 	// sbBase is deliberately untouched: deltas never move the held window's base.
 	return base;

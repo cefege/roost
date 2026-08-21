@@ -15,7 +15,7 @@ import type { McpStreamMessageProto, PairRequestDeltaProto, PermissionRuleDeltaP
 import { file_roost_v1_events } from "./events_pb.ts";
 import type { AuditRow } from "./wire_pb.ts";
 import { file_roost_v1_wire } from "./wire_pb.ts";
-import type { PbCellGridFrame } from "./cell_pb.ts";
+import type { PbCellGridChunk, PbCellGridFrame } from "./cell_pb.ts";
 import { file_roost_v1_cell } from "./cell_pb.ts";
 import type { Message } from "@bufbuild/protobuf";
 
@@ -23,7 +23,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file roost/v1/sync.proto.
  */
 export const file_roost_v1_sync: GenFile = /*@__PURE__*/
-  fileDesc("ChNyb29zdC92MS9zeW5jLnByb3RvEghyb29zdC52MSIlCgtTeW5jUmVxdWVzdBIWCg5zaW5jZV9ldmVudF9pZBgBIAEoBCIhCglKc29uRXZlbnQSFAoMcGF5bG9hZF9qc29uGAEgASgJIjsKD1Nlc3Npb25QcmVzZW5jZRISCgpzZXNzaW9uX2lkGAEgASgJEhQKDHBheWxvYWRfanNvbhgCIAEoCSI3ChJUZXJtaW5hbFRpdGxlRnJhbWUSEgoKc2Vzc2lvbl9pZBgBIAEoCRINCgV0aXRsZRgCIAEoCSI2ChFMYXN0QWN0aXZpdHlGcmFtZRISCgpzZXNzaW9uX2lkGAEgASgJEg0KBXRzX21zGAIgASgBImEKE1dvcmtlclJvdXRhYmxlRnJhbWUSCwoDZnBzGAEgAygJEhMKC3NuYXBzaG90X2lkGAIgASgJEhMKC2NodW5rX2luZGV4GAMgASgNEhMKC2NodW5rX2NvdW50GAQgASgNIlgKGkNvb3JkaW5hdG9yUmVsb2NhdGlvbkZyYW1lEhIKCmhhbmRvZmZfaWQYASABKAkSEgoKc291cmNlX3VybBgCIAEoCRISCgp0YXJnZXRfdXJsGAMgASgJIrsBChBBZ2VudFN0YXR1c0ZyYW1lEhIKCnNlc3Npb25faWQYASABKAkSEAoIYWdlbnRfaWQYAiABKAkSDQoFc3RhdGUYAyABKAkSFAoHbWVzc2FnZRgEIAEoCUgAiAEBEhAKCHJldmlzaW9uGAUgASgEEhoKEmNvbXBsZXRlZF9yZXZpc2lvbhgGIAEoBBISCgp1cGRhdGVkX2F0GAcgASgBEg4KBmFjdGl2ZRgIIAEoCEIKCghfbWVzc2FnZSJkChRTeW5jRG9tYWluR2VuZXJhdGlvbhIkCgZkb21haW4YASABKA4yFC5yb29zdC52MS5TeW5jRG9tYWluEhIKCmdlbmVyYXRpb24YAiABKAQSEgoKc3Vic2NyaWJlZBgDIAEoCCJ0ChNTeW5jU3Vic2NyaWJlZEZyYW1lEhEKCXNvY2tldF9pZBgBIAEoCRIVCg1wcm9jZXNzX2Vwb2NoGAIgASgJEjMKC2dlbmVyYXRpb25zGAMgAygLMh4ucm9vc3QudjEuU3luY0RvbWFpbkdlbmVyYXRpb24idAoUU3luY0RvbWFpblJlc2V0RnJhbWUSJAoGZG9tYWluGAEgASgOMhQucm9vc3QudjEuU3luY0RvbWFpbhISCgpnZW5lcmF0aW9uGAIgASgEEg4KBnJlYXNvbhgDIAEoCRISCgpzdWJzY3JpYmVkGAQgASgIIoIBChZTeW5jRG9tYWluUmVhZHlDb21tYW5kEiQKBmRvbWFpbhgBIAEoDjIULnJvb3N0LnYxLlN5bmNEb21haW4SEgoKZ2VuZXJhdGlvbhgCIAEoBBIbCg5zbmFwc2hvdF90b2tlbhgDIAEoCUgAiAEBQhEKD19zbmFwc2hvdF90b2tlbiJZCh1TeW5jRG9tYWluU3Vic2NyaXB0aW9uQ29tbWFuZBIkCgZkb21haW4YASABKA4yFC5yb29zdC52MS5TeW5jRG9tYWluEhIKCmdlbmVyYXRpb24YAiABKAQilgEKD1ZpZXdwb3J0Q29tbWFuZBISCgpzZXNzaW9uX2lkGAEgASgJEgwKBGNvbHMYAiABKA0SDAoEcm93cxgDIAEoDRISCgpjbGllbnRfc2VxGAQgASgEEg0KBWNhdXNlGAUgASgNEhUKDWhlbGRfY2VsbF9zZXEYBiABKAQSGQoRZG9tYWluX2dlbmVyYXRpb24YByABKAQioQEKEFZpZXdwb3J0QWNjZXB0ZWQSEgoKc2Vzc2lvbl9pZBgBIAEoCRISCgpjbGllbnRfc2VxGAIgASgEEhkKEWRvbWFpbl9nZW5lcmF0aW9uGAMgASgEEhYKDmVmZmVjdGl2ZV9jb2xzGAQgASgNEhYKDmVmZmVjdGl2ZV9yb3dzGAUgASgNEhoKEmNoYW5uZWxfcmVzaXplX3NlcRgGIAEoBCKVAQoQVmlld3BvcnRSZWplY3RlZBISCgpzZXNzaW9uX2lkGAEgASgJEhIKCmNsaWVudF9zZXEYAiABKAQSGQoRZG9tYWluX2dlbmVyYXRpb24YAyABKAQSDgoGcmVhc29uGAQgASgJEhsKDnNlcXVlbmNlX2Zsb29yGAUgASgESACIAQFCEQoPX3NlcXVlbmNlX2Zsb29yImYKEVZpZXdwb3J0QW1iaWd1b3VzEhIKCnNlc3Npb25faWQYASABKAkSEgoKY2xpZW50X3NlcRgCIAEoBBIZChFkb21haW5fZ2VuZXJhdGlvbhgDIAEoBBIOCgZyZWFzb24YBCABKAkiXgoMSW5wdXRDb21tYW5kEhIKCnNlc3Npb25faWQYASABKAkSEQoJaW5wdXRfc2VxGAIgASgEEgwKBGRhdGEYAyABKAwSGQoRZG9tYWluX2dlbmVyYXRpb24YBCABKAQiaAoNSW5wdXRBY2NlcHRlZBISCgpzZXNzaW9uX2lkGAEgASgJEhEKCWlucHV0X3NlcRgCIAEoBBIZChFkb21haW5fZ2VuZXJhdGlvbhgDIAEoBBIVCg13cml0dGVuX2J5dGVzGAQgASgNImEKDUlucHV0UmVqZWN0ZWQSEgoKc2Vzc2lvbl9pZBgBIAEoCRIRCglpbnB1dF9zZXEYAiABKAQSGQoRZG9tYWluX2dlbmVyYXRpb24YAyABKAQSDgoGcmVhc29uGAQgASgJInkKDklucHV0QW1iaWd1b3VzEhIKCnNlc3Npb25faWQYASABKAkSEQoJaW5wdXRfc2VxGAIgASgEEhkKEWRvbWFpbl9nZW5lcmF0aW9uGAMgASgEEhUKDXdyaXR0ZW5fYnl0ZXMYBCABKA0SDgoGcmVhc29uGAUgASgJIuwMCg1GaXJlaG9zZUZyYW1lEhQKDGRlbGl2ZXJ5X3NlcRgfIAEoBBIZChFkb21haW5fZ2VuZXJhdGlvbhggIAEoBBIkCgZkb21haW4YISABKA4yFC5yb29zdC52MS5TeW5jRG9tYWluEicKCHNlc3Npb25zGAEgASgLMhMucm9vc3QudjEuSnNvbkV2ZW50SAASNQoQc2Vzc2lvbl9wcmVzZW5jZRgIIAEoCzIZLnJvb3N0LnYxLlNlc3Npb25QcmVzZW5jZUgAEicKCWF1ZGl0X3JvdxgKIAEoCzISLnJvb3N0LnYxLkF1ZGl0Um93SAASNAoNc2Vzc2lvbl9ldmVudBgLIAEoCzIbLnJvb3N0LnYxLlNlc3Npb25FdmVudFByb3RvSAASOAoPd29ya3NwYWNlX2RlbHRhGAwgASgLMh0ucm9vc3QudjEuV29ya3NwYWNlRGVsdGFQcm90b0gAEi4KCnRhc2tfZGVsdGEYDSABKAsyGC5yb29zdC52MS5UYXNrRGVsdGFQcm90b0gAEj8KE3dlYmhvb2tfdG9rZW5fZGVsdGEYDiABKAsyIC5yb29zdC52MS5XZWJob29rVG9rZW5EZWx0YVByb3RvSAASPgoQcGVybWlzc2lvbl9kZWx0YRgPIAEoCzIiLnJvb3N0LnYxLlBlcm1pc3Npb25SdWxlRGVsdGFQcm90b0gAEjIKB21jcF9tc2cYECABKAsyHy5yb29zdC52MS5NY3BTdHJlYW1NZXNzYWdlUHJvdG9IABI4Cg93b3JrZXJfcHJlc2VuY2UYESABKAsyHS5yb29zdC52MS5Xb3JrZXJQcmVzZW5jZVByb3RvSAASOAoPd29ya2VyX3JvdXRhYmxlGBMgASgLMh0ucm9vc3QudjEuV29ya2VyUm91dGFibGVGcmFtZUgAEi4KCWNlbGxfZ3JpZBgUIAEoCzIZLnJvb3N0LnYxLlBiQ2VsbEdyaWRGcmFtZUgAEjYKDnRlcm1pbmFsX3RpdGxlGBUgASgLMhwucm9vc3QudjEuVGVybWluYWxUaXRsZUZyYW1lSAASNAoNbGFzdF9hY3Rpdml0eRgWIAEoCzIbLnJvb3N0LnYxLkxhc3RBY3Rpdml0eUZyYW1lSAASPQoScGFpcl9yZXF1ZXN0X2RlbHRhGBcgASgLMh8ucm9vc3QudjEuUGFpclJlcXVlc3REZWx0YVByb3RvSAASKgoIdWlfc3RhdGUYGCABKAsyFi5yb29zdC52MS5VaVN0YXRlRnJhbWVIABIuCgp1aV9jb21tYW5kGBkgASgLMhgucm9vc3QudjEuVWlDb21tYW5kRnJhbWVIABItCglrZWVwYWxpdmUYGiABKAsyGC5yb29zdC52MS5LZWVwYWxpdmVGcmFtZUgAEkYKFmNvb3JkaW5hdG9yX3JlbG9jYXRpb24YGyABKAsyJC5yb29zdC52MS5Db29yZGluYXRvclJlbG9jYXRpb25GcmFtZUgAEjIKDGFnZW50X3N0YXR1cxgdIAEoCzIaLnJvb3N0LnYxLkFnZW50U3RhdHVzRnJhbWVIABIzCgpzdWJzY3JpYmVkGCggASgLMh0ucm9vc3QudjEuU3luY1N1YnNjcmliZWRGcmFtZUgAEjYKDGRvbWFpbl9yZXNldBgpIAEoCzIeLnJvb3N0LnYxLlN5bmNEb21haW5SZXNldEZyYW1lSAASNwoRdmlld3BvcnRfYWNjZXB0ZWQYKiABKAsyGi5yb29zdC52MS5WaWV3cG9ydEFjY2VwdGVkSAASNwoRdmlld3BvcnRfcmVqZWN0ZWQYKyABKAsyGi5yb29zdC52MS5WaWV3cG9ydFJlamVjdGVkSAASMQoOaW5wdXRfYWNjZXB0ZWQYLCABKAsyFy5yb29zdC52MS5JbnB1dEFjY2VwdGVkSAASMQoOaW5wdXRfcmVqZWN0ZWQYLSABKAsyFy5yb29zdC52MS5JbnB1dFJlamVjdGVkSAASMwoPaW5wdXRfYW1iaWd1b3VzGC4gASgLMhgucm9vc3QudjEuSW5wdXRBbWJpZ3VvdXNIABI5ChJ2aWV3cG9ydF9hbWJpZ3VvdXMYLyABKAsyGy5yb29zdC52MS5WaWV3cG9ydEFtYmlndW91c0gAQgcKBWZyYW1lSgQIBxAISgQIHBAdSgQIHhAfIoEDCg9TeW5jQ2xpZW50RnJhbWUSHQoQYWNrX2RlbGl2ZXJ5X3NlcRgBIAEoBEgBiAEBEkMKEGRvbWFpbl9zdWJzY3JpYmUYAiABKAsyJy5yb29zdC52MS5TeW5jRG9tYWluU3Vic2NyaXB0aW9uQ29tbWFuZEgAEkUKEmRvbWFpbl91bnN1YnNjcmliZRgDIAEoCzInLnJvb3N0LnYxLlN5bmNEb21haW5TdWJzY3JpcHRpb25Db21tYW5kSAASOAoMZG9tYWluX3JlYWR5GAQgASgLMiAucm9vc3QudjEuU3luY0RvbWFpblJlYWR5Q29tbWFuZEgAEi0KCHZpZXdwb3J0GAUgASgLMhkucm9vc3QudjEuVmlld3BvcnRDb21tYW5kSAASJwoFaW5wdXQYBiABKAsyFi5yb29zdC52MS5JbnB1dENvbW1hbmRIABIRCglzb2NrZXRfaWQYCiABKAlCCQoHY29tbWFuZEITChFfYWNrX2RlbGl2ZXJ5X3NlcSIcCg5LZWVwYWxpdmVGcmFtZRIKCgJ0cxgBIAEoAyKaAQoUVWlSZXBvcnRTdGF0ZVJlcXVlc3QSDgoGdGFiX2lkGAEgASgJEhMKC2FjdGl2ZV9wYXRoGAIgASgJEhIKCmZvbGRlcl9rZXkYAyABKAkSEwoLbGF5b3V0X2pzb24YBCABKAkSFwoPZm9jdXNlZF9wYW5lX2lkGAUgASgJEhsKE3Zpc2libGVfc2Vzc2lvbl9pZHMYBiADKAki8QIKCVVpQ29tbWFuZBIoCghuYXZpZ2F0ZRgBIAEoCzIULnJvb3N0LnYxLlVpTmF2aWdhdGVIABItCgtwbGFjZV9zcGxpdBgCIAEoCzIWLnJvb3N0LnYxLlVpUGxhY2VTcGxpdEgAEisKCnNlbGVjdF90YWIYAyABKAsyFS5yb29zdC52MS5VaVNlbGVjdFRhYkgAEisKCmZvY3VzX3BhbmUYBCABKAsyFS5yb29zdC52MS5VaUZvY3VzUGFuZUgAEicKCG1vdmVfdGFiGAUgASgLMhMucm9vc3QudjEuVWlNb3ZlVGFiSAASJgoHYXJyYW5nZRgGIAEoCzITLnJvb3N0LnYxLlVpQXJyYW5nZUgAEikKCWNsb3NlX3RhYhgHIAEoCzIULnJvb3N0LnYxLlVpQ2xvc2VUYWJIABIqCglzcG90bGlnaHQYCCABKAsyFS5yb29zdC52MS5VaVNwb3RsaWdodEgAQgkKB2NvbW1hbmQiGgoKVWlOYXZpZ2F0ZRIMCgRwYXRoGAEgASgJImAKDFVpUGxhY2VTcGxpdBISCgpzZXNzaW9uX2lkGAEgASgJEhkKEWFuY2hvcl9zZXNzaW9uX2lkGAIgASgJEgsKA2RpchgDIAEoCRIUCgxpbnNlcnRfZmlyc3QYBCABKAgiIQoLVWlTZWxlY3RUYWISEgoKc2Vzc2lvbl9pZBgBIAEoCSIhCgtVaUZvY3VzUGFuZRISCgpzZXNzaW9uX2lkGAEgASgJIjgKCVVpTW92ZVRhYhISCgpzZXNzaW9uX2lkGAEgASgJEhcKD2Rlc3Rfc2Vzc2lvbl9pZBgCIAEoCSIbCglVaUFycmFuZ2USDgoGcHJlc2V0GAEgASgJIiAKClVpQ2xvc2VUYWISEgoKc2Vzc2lvbl9pZBgBIAEoCSIuCgtVaVNwb3RsaWdodBISCgpzZXNzaW9uX2lkGAEgASgJEgsKA29mZhgCIAEoCCJZCgxVaVN0YXRlRnJhbWUSCgoCZnAYASABKAkSDgoGdGFiX2lkGAIgASgJEi0KBXN0YXRlGAMgASgLMh4ucm9vc3QudjEuVWlSZXBvcnRTdGF0ZVJlcXVlc3QiTQoOVWlDb21tYW5kRnJhbWUSFQoNdGFyZ2V0X3RhYl9pZBgBIAEoCRIkCgdjb21tYW5kGAIgASgLMhMucm9vc3QudjEuVWlDb21tYW5kKocCCgpTeW5jRG9tYWluEhsKF1NZTkNfRE9NQUlOX1VOU1BFQ0lGSUVEEAASGAoUU1lOQ19ET01BSU5fVEVSTUlOQUwQARIXChNTWU5DX0RPTUFJTl9XT1JLRVJTEAISGgoWU1lOQ19ET01BSU5fV09SS1NQQUNFUxADEhUKEVNZTkNfRE9NQUlOX1RBU0tTEAQSGwoXU1lOQ19ET01BSU5fUEVSTUlTU0lPTlMQBRITCg9TWU5DX0RPTUFJTl9NQ1AQBhIUChBTWU5DX0RPTUFJTl9QQUlSEAcSFwoTU1lOQ19ET01BSU5fV0VCSE9PSxAIEhUKEVNZTkNfRE9NQUlOX0FVRElUEAliBnByb3RvMw", [file_roost_v1_events, file_roost_v1_wire, file_roost_v1_cell]);
+  fileDesc("ChNyb29zdC92MS9zeW5jLnByb3RvEghyb29zdC52MSIlCgtTeW5jUmVxdWVzdBIWCg5zaW5jZV9ldmVudF9pZBgBIAEoBCIhCglKc29uRXZlbnQSFAoMcGF5bG9hZF9qc29uGAEgASgJIjsKD1Nlc3Npb25QcmVzZW5jZRISCgpzZXNzaW9uX2lkGAEgASgJEhQKDHBheWxvYWRfanNvbhgCIAEoCSI3ChJUZXJtaW5hbFRpdGxlRnJhbWUSEgoKc2Vzc2lvbl9pZBgBIAEoCRINCgV0aXRsZRgCIAEoCSI2ChFMYXN0QWN0aXZpdHlGcmFtZRISCgpzZXNzaW9uX2lkGAEgASgJEg0KBXRzX21zGAIgASgBImEKE1dvcmtlclJvdXRhYmxlRnJhbWUSCwoDZnBzGAEgAygJEhMKC3NuYXBzaG90X2lkGAIgASgJEhMKC2NodW5rX2luZGV4GAMgASgNEhMKC2NodW5rX2NvdW50GAQgASgNIlgKGkNvb3JkaW5hdG9yUmVsb2NhdGlvbkZyYW1lEhIKCmhhbmRvZmZfaWQYASABKAkSEgoKc291cmNlX3VybBgCIAEoCRISCgp0YXJnZXRfdXJsGAMgASgJIrsBChBBZ2VudFN0YXR1c0ZyYW1lEhIKCnNlc3Npb25faWQYASABKAkSEAoIYWdlbnRfaWQYAiABKAkSDQoFc3RhdGUYAyABKAkSFAoHbWVzc2FnZRgEIAEoCUgAiAEBEhAKCHJldmlzaW9uGAUgASgEEhoKEmNvbXBsZXRlZF9yZXZpc2lvbhgGIAEoBBISCgp1cGRhdGVkX2F0GAcgASgBEg4KBmFjdGl2ZRgIIAEoCEIKCghfbWVzc2FnZSJkChRTeW5jRG9tYWluR2VuZXJhdGlvbhIkCgZkb21haW4YASABKA4yFC5yb29zdC52MS5TeW5jRG9tYWluEhIKCmdlbmVyYXRpb24YAiABKAQSEgoKc3Vic2NyaWJlZBgDIAEoCCJ0ChNTeW5jU3Vic2NyaWJlZEZyYW1lEhEKCXNvY2tldF9pZBgBIAEoCRIVCg1wcm9jZXNzX2Vwb2NoGAIgASgJEjMKC2dlbmVyYXRpb25zGAMgAygLMh4ucm9vc3QudjEuU3luY0RvbWFpbkdlbmVyYXRpb24idAoUU3luY0RvbWFpblJlc2V0RnJhbWUSJAoGZG9tYWluGAEgASgOMhQucm9vc3QudjEuU3luY0RvbWFpbhISCgpnZW5lcmF0aW9uGAIgASgEEg4KBnJlYXNvbhgDIAEoCRISCgpzdWJzY3JpYmVkGAQgASgIIoIBChZTeW5jRG9tYWluUmVhZHlDb21tYW5kEiQKBmRvbWFpbhgBIAEoDjIULnJvb3N0LnYxLlN5bmNEb21haW4SEgoKZ2VuZXJhdGlvbhgCIAEoBBIbCg5zbmFwc2hvdF90b2tlbhgDIAEoCUgAiAEBQhEKD19zbmFwc2hvdF90b2tlbiJZCh1TeW5jRG9tYWluU3Vic2NyaXB0aW9uQ29tbWFuZBIkCgZkb21haW4YASABKA4yFC5yb29zdC52MS5TeW5jRG9tYWluEhIKCmdlbmVyYXRpb24YAiABKAQikwEKE1Rlcm1pbmFsVmlld0NvbW1hbmQSDwoHdmlld19pZBgBIAEoCRISCgpzZXNzaW9uX2lkGAIgASgJEgwKBGNvbHMYAyABKA0SDAoEcm93cxgEIAEoDRIQCghyZXZpc2lvbhgFIAEoBBIOCgZhY3RpdmUYBiABKAgSGQoRZG9tYWluX2dlbmVyYXRpb24YByABKAQiiwEKFVRlcm1pbmFsUmVzeW5jQ29tbWFuZBIPCgd2aWV3X2lkGAEgASgJEhIKCnNlc3Npb25faWQYAiABKAkSEQoJc3RyZWFtX2lkGAMgASgJEhIKCmdyaWRfZXBvY2gYBCABKAkSCwoDc2VxGAUgASgEEhkKEWRvbWFpbl9nZW5lcmF0aW9uGAYgASgEIuABChZUZXJtaW5hbFZpZXdTdGF0ZUZyYW1lEg8KB3ZpZXdfaWQYASABKAkSEgoKc2Vzc2lvbl9pZBgCIAEoCRIQCghyZXZpc2lvbhgDIAEoBBIOCgZhY3RpdmUYBCABKAgSEQoJc3RyZWFtX2lkGAUgASgJEiwKBnN0YXR1cxgGIAEoDjIcLnJvb3N0LnYxLlRlcm1pbmFsVmlld1N0YXR1cxIWCg5lZmZlY3RpdmVfY29scxgHIAEoDRIWCg5lZmZlY3RpdmVfcm93cxgIIAEoDRIOCgZyZWFzb24YCSABKAkigAEKDElucHV0Q29tbWFuZBISCgpzZXNzaW9uX2lkGAEgASgJEhEKCWlucHV0X3NlcRgCIAEoBBIMCgRkYXRhGAMgASgMEhkKEWRvbWFpbl9nZW5lcmF0aW9uGAQgASgEEhQKB3ZpZXdfaWQYBSABKAlIAIgBAUIKCghfdmlld19pZCJoCg1JbnB1dEFjY2VwdGVkEhIKCnNlc3Npb25faWQYASABKAkSEQoJaW5wdXRfc2VxGAIgASgEEhkKEWRvbWFpbl9nZW5lcmF0aW9uGAMgASgEEhUKDXdyaXR0ZW5fYnl0ZXMYBCABKA0iYQoNSW5wdXRSZWplY3RlZBISCgpzZXNzaW9uX2lkGAEgASgJEhEKCWlucHV0X3NlcRgCIAEoBBIZChFkb21haW5fZ2VuZXJhdGlvbhgDIAEoBBIOCgZyZWFzb24YBCABKAkieQoOSW5wdXRBbWJpZ3VvdXMSEgoKc2Vzc2lvbl9pZBgBIAEoCRIRCglpbnB1dF9zZXEYAiABKAQSGQoRZG9tYWluX2dlbmVyYXRpb24YAyABKAQSFQoNd3JpdHRlbl9ieXRlcxgEIAEoDRIOCgZyZWFzb24YBSABKAkigg0KDUZpcmVob3NlRnJhbWUSFAoMZGVsaXZlcnlfc2VxGB8gASgEEhkKEWRvbWFpbl9nZW5lcmF0aW9uGCAgASgEEiQKBmRvbWFpbhghIAEoDjIULnJvb3N0LnYxLlN5bmNEb21haW4SJwoIc2Vzc2lvbnMYASABKAsyEy5yb29zdC52MS5Kc29uRXZlbnRIABI1ChBzZXNzaW9uX3ByZXNlbmNlGAggASgLMhkucm9vc3QudjEuU2Vzc2lvblByZXNlbmNlSAASJwoJYXVkaXRfcm93GAogASgLMhIucm9vc3QudjEuQXVkaXRSb3dIABI0Cg1zZXNzaW9uX2V2ZW50GAsgASgLMhsucm9vc3QudjEuU2Vzc2lvbkV2ZW50UHJvdG9IABI4Cg93b3Jrc3BhY2VfZGVsdGEYDCABKAsyHS5yb29zdC52MS5Xb3Jrc3BhY2VEZWx0YVByb3RvSAASLgoKdGFza19kZWx0YRgNIAEoCzIYLnJvb3N0LnYxLlRhc2tEZWx0YVByb3RvSAASPwoTd2ViaG9va190b2tlbl9kZWx0YRgOIAEoCzIgLnJvb3N0LnYxLldlYmhvb2tUb2tlbkRlbHRhUHJvdG9IABI+ChBwZXJtaXNzaW9uX2RlbHRhGA8gASgLMiIucm9vc3QudjEuUGVybWlzc2lvblJ1bGVEZWx0YVByb3RvSAASMgoHbWNwX21zZxgQIAEoCzIfLnJvb3N0LnYxLk1jcFN0cmVhbU1lc3NhZ2VQcm90b0gAEjgKD3dvcmtlcl9wcmVzZW5jZRgRIAEoCzIdLnJvb3N0LnYxLldvcmtlclByZXNlbmNlUHJvdG9IABI4Cg93b3JrZXJfcm91dGFibGUYEyABKAsyHS5yb29zdC52MS5Xb3JrZXJSb3V0YWJsZUZyYW1lSAASLgoJY2VsbF9ncmlkGBQgASgLMhkucm9vc3QudjEuUGJDZWxsR3JpZEZyYW1lSAASNAoPY2VsbF9ncmlkX2NodW5rGCIgASgLMhkucm9vc3QudjEuUGJDZWxsR3JpZENodW5rSAASNgoOdGVybWluYWxfdGl0bGUYFSABKAsyHC5yb29zdC52MS5UZXJtaW5hbFRpdGxlRnJhbWVIABI0Cg1sYXN0X2FjdGl2aXR5GBYgASgLMhsucm9vc3QudjEuTGFzdEFjdGl2aXR5RnJhbWVIABI9ChJwYWlyX3JlcXVlc3RfZGVsdGEYFyABKAsyHy5yb29zdC52MS5QYWlyUmVxdWVzdERlbHRhUHJvdG9IABIqCgh1aV9zdGF0ZRgYIAEoCzIWLnJvb3N0LnYxLlVpU3RhdGVGcmFtZUgAEi4KCnVpX2NvbW1hbmQYGSABKAsyGC5yb29zdC52MS5VaUNvbW1hbmRGcmFtZUgAEi0KCWtlZXBhbGl2ZRgaIAEoCzIYLnJvb3N0LnYxLktlZXBhbGl2ZUZyYW1lSAASRgoWY29vcmRpbmF0b3JfcmVsb2NhdGlvbhgbIAEoCzIkLnJvb3N0LnYxLkNvb3JkaW5hdG9yUmVsb2NhdGlvbkZyYW1lSAASMgoMYWdlbnRfc3RhdHVzGB0gASgLMhoucm9vc3QudjEuQWdlbnRTdGF0dXNGcmFtZUgAEjMKCnN1YnNjcmliZWQYKCABKAsyHS5yb29zdC52MS5TeW5jU3Vic2NyaWJlZEZyYW1lSAASNgoMZG9tYWluX3Jlc2V0GCkgASgLMh4ucm9vc3QudjEuU3luY0RvbWFpblJlc2V0RnJhbWVIABIxCg5pbnB1dF9hY2NlcHRlZBgsIAEoCzIXLnJvb3N0LnYxLklucHV0QWNjZXB0ZWRIABIxCg5pbnB1dF9yZWplY3RlZBgtIAEoCzIXLnJvb3N0LnYxLklucHV0UmVqZWN0ZWRIABIzCg9pbnB1dF9hbWJpZ3VvdXMYLiABKAsyGC5yb29zdC52MS5JbnB1dEFtYmlndW91c0gAEj8KE3Rlcm1pbmFsX3ZpZXdfc3RhdGUYMCABKAsyIC5yb29zdC52MS5UZXJtaW5hbFZpZXdTdGF0ZUZyYW1lSABCBwoFZnJhbWVKBAgHEAhKBAgcEB1KBAgeEB9KBAgqECtKBAgrECxKBAgvEDBSEXZpZXdwb3J0X2FjY2VwdGVkUhF2aWV3cG9ydF9yZWplY3RlZFISdmlld3BvcnRfYW1iaWd1b3VzItYDCg9TeW5jQ2xpZW50RnJhbWUSHQoQYWNrX2RlbGl2ZXJ5X3NlcRgBIAEoBEgBiAEBEkMKEGRvbWFpbl9zdWJzY3JpYmUYAiABKAsyJy5yb29zdC52MS5TeW5jRG9tYWluU3Vic2NyaXB0aW9uQ29tbWFuZEgAEkUKEmRvbWFpbl91bnN1YnNjcmliZRgDIAEoCzInLnJvb3N0LnYxLlN5bmNEb21haW5TdWJzY3JpcHRpb25Db21tYW5kSAASOAoMZG9tYWluX3JlYWR5GAQgASgLMiAucm9vc3QudjEuU3luY0RvbWFpblJlYWR5Q29tbWFuZEgAEicKBWlucHV0GAYgASgLMhYucm9vc3QudjEuSW5wdXRDb21tYW5kSAASNgoNdGVybWluYWxfdmlldxgHIAEoCzIdLnJvb3N0LnYxLlRlcm1pbmFsVmlld0NvbW1hbmRIABI6Cg90ZXJtaW5hbF9yZXN5bmMYCCABKAsyHy5yb29zdC52MS5UZXJtaW5hbFJlc3luY0NvbW1hbmRIABIRCglzb2NrZXRfaWQYCiABKAlCCQoHY29tbWFuZEITChFfYWNrX2RlbGl2ZXJ5X3NlcUoECAUQBlIIdmlld3BvcnQiHAoOS2VlcGFsaXZlRnJhbWUSCgoCdHMYASABKAMimgEKFFVpUmVwb3J0U3RhdGVSZXF1ZXN0Eg4KBnRhYl9pZBgBIAEoCRITCgthY3RpdmVfcGF0aBgCIAEoCRISCgpmb2xkZXJfa2V5GAMgASgJEhMKC2xheW91dF9qc29uGAQgASgJEhcKD2ZvY3VzZWRfcGFuZV9pZBgFIAEoCRIbChN2aXNpYmxlX3Nlc3Npb25faWRzGAYgAygJIvECCglVaUNvbW1hbmQSKAoIbmF2aWdhdGUYASABKAsyFC5yb29zdC52MS5VaU5hdmlnYXRlSAASLQoLcGxhY2Vfc3BsaXQYAiABKAsyFi5yb29zdC52MS5VaVBsYWNlU3BsaXRIABIrCgpzZWxlY3RfdGFiGAMgASgLMhUucm9vc3QudjEuVWlTZWxlY3RUYWJIABIrCgpmb2N1c19wYW5lGAQgASgLMhUucm9vc3QudjEuVWlGb2N1c1BhbmVIABInCghtb3ZlX3RhYhgFIAEoCzITLnJvb3N0LnYxLlVpTW92ZVRhYkgAEiYKB2FycmFuZ2UYBiABKAsyEy5yb29zdC52MS5VaUFycmFuZ2VIABIpCgljbG9zZV90YWIYByABKAsyFC5yb29zdC52MS5VaUNsb3NlVGFiSAASKgoJc3BvdGxpZ2h0GAggASgLMhUucm9vc3QudjEuVWlTcG90bGlnaHRIAEIJCgdjb21tYW5kIhoKClVpTmF2aWdhdGUSDAoEcGF0aBgBIAEoCSJgCgxVaVBsYWNlU3BsaXQSEgoKc2Vzc2lvbl9pZBgBIAEoCRIZChFhbmNob3Jfc2Vzc2lvbl9pZBgCIAEoCRILCgNkaXIYAyABKAkSFAoMaW5zZXJ0X2ZpcnN0GAQgASgIIiEKC1VpU2VsZWN0VGFiEhIKCnNlc3Npb25faWQYASABKAkiIQoLVWlGb2N1c1BhbmUSEgoKc2Vzc2lvbl9pZBgBIAEoCSI4CglVaU1vdmVUYWISEgoKc2Vzc2lvbl9pZBgBIAEoCRIXCg9kZXN0X3Nlc3Npb25faWQYAiABKAkiGwoJVWlBcnJhbmdlEg4KBnByZXNldBgBIAEoCSIgCgpVaUNsb3NlVGFiEhIKCnNlc3Npb25faWQYASABKAkiLgoLVWlTcG90bGlnaHQSEgoKc2Vzc2lvbl9pZBgBIAEoCRILCgNvZmYYAiABKAgiWQoMVWlTdGF0ZUZyYW1lEgoKAmZwGAEgASgJEg4KBnRhYl9pZBgCIAEoCRItCgVzdGF0ZRgDIAEoCzIeLnJvb3N0LnYxLlVpUmVwb3J0U3RhdGVSZXF1ZXN0Ik0KDlVpQ29tbWFuZEZyYW1lEhUKDXRhcmdldF90YWJfaWQYASABKAkSJAoHY29tbWFuZBgCIAEoCzITLnJvb3N0LnYxLlVpQ29tbWFuZCqHAgoKU3luY0RvbWFpbhIbChdTWU5DX0RPTUFJTl9VTlNQRUNJRklFRBAAEhgKFFNZTkNfRE9NQUlOX1RFUk1JTkFMEAESFwoTU1lOQ19ET01BSU5fV09SS0VSUxACEhoKFlNZTkNfRE9NQUlOX1dPUktTUEFDRVMQAxIVChFTWU5DX0RPTUFJTl9UQVNLUxAEEhsKF1NZTkNfRE9NQUlOX1BFUk1JU1NJT05TEAUSEwoPU1lOQ19ET01BSU5fTUNQEAYSFAoQU1lOQ19ET01BSU5fUEFJUhAHEhcKE1NZTkNfRE9NQUlOX1dFQkhPT0sQCBIVChFTWU5DX0RPTUFJTl9BVURJVBAJKqYBChJUZXJtaW5hbFZpZXdTdGF0dXMSJAogVEVSTUlOQUxfVklFV19TVEFUVVNfVU5TUEVDSUZJRUQQABIhCh1URVJNSU5BTF9WSUVXX1NUQVRVU19BQ0NFUFRFRBABEiEKHVRFUk1JTkFMX1ZJRVdfU1RBVFVTX1JFSkVDVEVEEAISJAogVEVSTUlOQUxfVklFV19TVEFUVVNfVU5BVkFJTEFCTEUQA2IGcHJvdG8z", [file_roost_v1_events, file_roost_v1_wire, file_roost_v1_cell]);
 
 /**
  * @generated from message roost.v1.SyncRequest
@@ -402,42 +402,42 @@ export const SyncDomainSubscriptionCommandSchema: GenMessage<SyncDomainSubscript
   messageDesc(file_roost_v1_sync, 12);
 
 /**
- * Terminal-control command/result messages are declared here so the raw Sync
- * socket can carry them without importing coordinator.proto (which imports this
- * file for the retired Connect Sync declaration).
+ * Terminal views are socket-bound leases. `revision` orders one mount's
+ * activity/geometry intent; a replay with the same revision and payload is
+ * idempotent across a Sync redial.
  *
- * @generated from message roost.v1.ViewportCommand
+ * @generated from message roost.v1.TerminalViewCommand
  */
-export type ViewportCommand = Message<"roost.v1.ViewportCommand"> & {
+export type TerminalViewCommand = Message<"roost.v1.TerminalViewCommand"> & {
   /**
-   * @generated from field: string session_id = 1;
+   * @generated from field: string view_id = 1;
+   */
+  viewId: string;
+
+  /**
+   * @generated from field: string session_id = 2;
    */
   sessionId: string;
 
   /**
-   * @generated from field: uint32 cols = 2;
+   * @generated from field: uint32 cols = 3;
    */
   cols: number;
 
   /**
-   * @generated from field: uint32 rows = 3;
+   * @generated from field: uint32 rows = 4;
    */
   rows: number;
 
   /**
-   * @generated from field: uint64 client_seq = 4;
+   * @generated from field: uint64 revision = 5;
    */
-  clientSeq: bigint;
+  revision: bigint;
 
   /**
-   * @generated from field: uint32 cause = 5;
+   * @generated from field: bool active = 6;
    */
-  cause: number;
-
-  /**
-   * @generated from field: uint64 held_cell_seq = 6;
-   */
-  heldCellSeq: bigint;
+  active: boolean;
 
   /**
    * @generated from field: uint64 domain_generation = 7;
@@ -446,122 +446,116 @@ export type ViewportCommand = Message<"roost.v1.ViewportCommand"> & {
 };
 
 /**
- * Describes the message roost.v1.ViewportCommand.
- * Use `create(ViewportCommandSchema)` to create a new message.
+ * Describes the message roost.v1.TerminalViewCommand.
+ * Use `create(TerminalViewCommandSchema)` to create a new message.
  */
-export const ViewportCommandSchema: GenMessage<ViewportCommand> = /*@__PURE__*/
+export const TerminalViewCommandSchema: GenMessage<TerminalViewCommand> = /*@__PURE__*/
   messageDesc(file_roost_v1_sync, 13);
 
 /**
- * @generated from message roost.v1.ViewportAccepted
+ * Browser repair request for the stream/baseline it currently expects.
+ *
+ * @generated from message roost.v1.TerminalResyncCommand
  */
-export type ViewportAccepted = Message<"roost.v1.ViewportAccepted"> & {
+export type TerminalResyncCommand = Message<"roost.v1.TerminalResyncCommand"> & {
   /**
-   * @generated from field: string session_id = 1;
+   * @generated from field: string view_id = 1;
+   */
+  viewId: string;
+
+  /**
+   * @generated from field: string session_id = 2;
    */
   sessionId: string;
 
   /**
-   * @generated from field: uint64 client_seq = 2;
+   * @generated from field: string stream_id = 3;
    */
-  clientSeq: bigint;
+  streamId: string;
 
   /**
-   * @generated from field: uint64 domain_generation = 3;
+   * @generated from field: string grid_epoch = 4;
+   */
+  gridEpoch: string;
+
+  /**
+   * @generated from field: uint64 seq = 5;
+   */
+  seq: bigint;
+
+  /**
+   * @generated from field: uint64 domain_generation = 6;
    */
   domainGeneration: bigint;
+};
+
+/**
+ * Describes the message roost.v1.TerminalResyncCommand.
+ * Use `create(TerminalResyncCommandSchema)` to create a new message.
+ */
+export const TerminalResyncCommandSchema: GenMessage<TerminalResyncCommand> = /*@__PURE__*/
+  messageDesc(file_roost_v1_sync, 14);
+
+/**
+ * Recipient-addressed state for one view handle. Active accepted views share
+ * the stream/effective geometry for their session while retaining their own
+ * view_id and revision.
+ *
+ * @generated from message roost.v1.TerminalViewStateFrame
+ */
+export type TerminalViewStateFrame = Message<"roost.v1.TerminalViewStateFrame"> & {
+  /**
+   * @generated from field: string view_id = 1;
+   */
+  viewId: string;
 
   /**
-   * @generated from field: uint32 effective_cols = 4;
+   * @generated from field: string session_id = 2;
+   */
+  sessionId: string;
+
+  /**
+   * @generated from field: uint64 revision = 3;
+   */
+  revision: bigint;
+
+  /**
+   * @generated from field: bool active = 4;
+   */
+  active: boolean;
+
+  /**
+   * @generated from field: string stream_id = 5;
+   */
+  streamId: string;
+
+  /**
+   * @generated from field: roost.v1.TerminalViewStatus status = 6;
+   */
+  status: TerminalViewStatus;
+
+  /**
+   * @generated from field: uint32 effective_cols = 7;
    */
   effectiveCols: number;
 
   /**
-   * @generated from field: uint32 effective_rows = 5;
+   * @generated from field: uint32 effective_rows = 8;
    */
   effectiveRows: number;
 
   /**
-   * @generated from field: uint64 channel_resize_seq = 6;
-   */
-  channelResizeSeq: bigint;
-};
-
-/**
- * Describes the message roost.v1.ViewportAccepted.
- * Use `create(ViewportAcceptedSchema)` to create a new message.
- */
-export const ViewportAcceptedSchema: GenMessage<ViewportAccepted> = /*@__PURE__*/
-  messageDesc(file_roost_v1_sync, 14);
-
-/**
- * @generated from message roost.v1.ViewportRejected
- */
-export type ViewportRejected = Message<"roost.v1.ViewportRejected"> & {
-  /**
-   * @generated from field: string session_id = 1;
-   */
-  sessionId: string;
-
-  /**
-   * @generated from field: uint64 client_seq = 2;
-   */
-  clientSeq: bigint;
-
-  /**
-   * @generated from field: uint64 domain_generation = 3;
-   */
-  domainGeneration: bigint;
-
-  /**
-   * @generated from field: string reason = 4;
+   * @generated from field: string reason = 9;
    */
   reason: string;
-
-  /**
-   * @generated from field: optional uint64 sequence_floor = 5;
-   */
-  sequenceFloor?: bigint | undefined;
 };
 
 /**
- * Describes the message roost.v1.ViewportRejected.
- * Use `create(ViewportRejectedSchema)` to create a new message.
+ * Describes the message roost.v1.TerminalViewStateFrame.
+ * Use `create(TerminalViewStateFrameSchema)` to create a new message.
  */
-export const ViewportRejectedSchema: GenMessage<ViewportRejected> = /*@__PURE__*/
+export const TerminalViewStateFrameSchema: GenMessage<TerminalViewStateFrame> = /*@__PURE__*/
   messageDesc(file_roost_v1_sync, 15);
-
-/**
- * @generated from message roost.v1.ViewportAmbiguous
- */
-export type ViewportAmbiguous = Message<"roost.v1.ViewportAmbiguous"> & {
-  /**
-   * @generated from field: string session_id = 1;
-   */
-  sessionId: string;
-
-  /**
-   * @generated from field: uint64 client_seq = 2;
-   */
-  clientSeq: bigint;
-
-  /**
-   * @generated from field: uint64 domain_generation = 3;
-   */
-  domainGeneration: bigint;
-
-  /**
-   * @generated from field: string reason = 4;
-   */
-  reason: string;
-};
-
-/**
- * Describes the message roost.v1.ViewportAmbiguous.
- * Use `create(ViewportAmbiguousSchema)` to create a new message.
- */
-export const ViewportAmbiguousSchema: GenMessage<ViewportAmbiguous> = /*@__PURE__*/
-  messageDesc(file_roost_v1_sync, 16);
 
 /**
  * @generated from message roost.v1.InputCommand
@@ -586,6 +580,11 @@ export type InputCommand = Message<"roost.v1.InputCommand"> & {
    * @generated from field: uint64 domain_generation = 4;
    */
   domainGeneration: bigint;
+
+  /**
+   * @generated from field: optional string view_id = 5;
+   */
+  viewId?: string | undefined;
 };
 
 /**
@@ -593,7 +592,7 @@ export type InputCommand = Message<"roost.v1.InputCommand"> & {
  * Use `create(InputCommandSchema)` to create a new message.
  */
 export const InputCommandSchema: GenMessage<InputCommand> = /*@__PURE__*/
-  messageDesc(file_roost_v1_sync, 17);
+  messageDesc(file_roost_v1_sync, 16);
 
 /**
  * @generated from message roost.v1.InputAccepted
@@ -625,7 +624,7 @@ export type InputAccepted = Message<"roost.v1.InputAccepted"> & {
  * Use `create(InputAcceptedSchema)` to create a new message.
  */
 export const InputAcceptedSchema: GenMessage<InputAccepted> = /*@__PURE__*/
-  messageDesc(file_roost_v1_sync, 18);
+  messageDesc(file_roost_v1_sync, 17);
 
 /**
  * @generated from message roost.v1.InputRejected
@@ -657,7 +656,7 @@ export type InputRejected = Message<"roost.v1.InputRejected"> & {
  * Use `create(InputRejectedSchema)` to create a new message.
  */
 export const InputRejectedSchema: GenMessage<InputRejected> = /*@__PURE__*/
-  messageDesc(file_roost_v1_sync, 19);
+  messageDesc(file_roost_v1_sync, 18);
 
 /**
  * @generated from message roost.v1.InputAmbiguous
@@ -694,7 +693,7 @@ export type InputAmbiguous = Message<"roost.v1.InputAmbiguous"> & {
  * Use `create(InputAmbiguousSchema)` to create a new message.
  */
 export const InputAmbiguousSchema: GenMessage<InputAmbiguous> = /*@__PURE__*/
-  messageDesc(file_roost_v1_sync, 20);
+  messageDesc(file_roost_v1_sync, 19);
 
 /**
  * @generated from message roost.v1.FirehoseFrame
@@ -804,6 +803,14 @@ export type FirehoseFrame = Message<"roost.v1.FirehoseFrame"> & {
     case: "cellGrid";
   } | {
     /**
+     * Oversized full snapshots are streamed as bounded whole-row parts.
+     *
+     * @generated from field: roost.v1.PbCellGridChunk cell_grid_chunk = 34;
+     */
+    value: PbCellGridChunk;
+    case: "cellGridChunk";
+  } | {
+    /**
      * @generated from field: roost.v1.TerminalTitleFrame terminal_title = 21;
      */
     value: TerminalTitleFrame;
@@ -869,18 +876,6 @@ export type FirehoseFrame = Message<"roost.v1.FirehoseFrame"> & {
     case: "domainReset";
   } | {
     /**
-     * @generated from field: roost.v1.ViewportAccepted viewport_accepted = 42;
-     */
-    value: ViewportAccepted;
-    case: "viewportAccepted";
-  } | {
-    /**
-     * @generated from field: roost.v1.ViewportRejected viewport_rejected = 43;
-     */
-    value: ViewportRejected;
-    case: "viewportRejected";
-  } | {
-    /**
      * @generated from field: roost.v1.InputAccepted input_accepted = 44;
      */
     value: InputAccepted;
@@ -899,10 +894,10 @@ export type FirehoseFrame = Message<"roost.v1.FirehoseFrame"> & {
     case: "inputAmbiguous";
   } | {
     /**
-     * @generated from field: roost.v1.ViewportAmbiguous viewport_ambiguous = 47;
+     * @generated from field: roost.v1.TerminalViewStateFrame terminal_view_state = 48;
      */
-    value: ViewportAmbiguous;
-    case: "viewportAmbiguous";
+    value: TerminalViewStateFrame;
+    case: "terminalViewState";
   } | { case: undefined; value?: undefined };
 };
 
@@ -911,7 +906,7 @@ export type FirehoseFrame = Message<"roost.v1.FirehoseFrame"> & {
  * Use `create(FirehoseFrameSchema)` to create a new message.
  */
 export const FirehoseFrameSchema: GenMessage<FirehoseFrame> = /*@__PURE__*/
-  messageDesc(file_roost_v1_sync, 21);
+  messageDesc(file_roost_v1_sync, 20);
 
 /**
  * Browser acknowledgement after synchronous application dispatch. ACKs are
@@ -949,16 +944,22 @@ export type SyncClientFrame = Message<"roost.v1.SyncClientFrame"> & {
     case: "domainReady";
   } | {
     /**
-     * @generated from field: roost.v1.ViewportCommand viewport = 5;
-     */
-    value: ViewportCommand;
-    case: "viewport";
-  } | {
-    /**
      * @generated from field: roost.v1.InputCommand input = 6;
      */
     value: InputCommand;
     case: "input";
+  } | {
+    /**
+     * @generated from field: roost.v1.TerminalViewCommand terminal_view = 7;
+     */
+    value: TerminalViewCommand;
+    case: "terminalView";
+  } | {
+    /**
+     * @generated from field: roost.v1.TerminalResyncCommand terminal_resync = 8;
+     */
+    value: TerminalResyncCommand;
+    case: "terminalResync";
   } | { case: undefined; value?: undefined };
 
   /**
@@ -975,7 +976,7 @@ export type SyncClientFrame = Message<"roost.v1.SyncClientFrame"> & {
  * Use `create(SyncClientFrameSchema)` to create a new message.
  */
 export const SyncClientFrameSchema: GenMessage<SyncClientFrame> = /*@__PURE__*/
-  messageDesc(file_roost_v1_sync, 22);
+  messageDesc(file_roost_v1_sync, 21);
 
 /**
  * @generated from message roost.v1.KeepaliveFrame
@@ -992,7 +993,7 @@ export type KeepaliveFrame = Message<"roost.v1.KeepaliveFrame"> & {
  * Use `create(KeepaliveFrameSchema)` to create a new message.
  */
 export const KeepaliveFrameSchema: GenMessage<KeepaliveFrame> = /*@__PURE__*/
-  messageDesc(file_roost_v1_sync, 23);
+  messageDesc(file_roost_v1_sync, 22);
 
 /**
  * @generated from message roost.v1.UiReportStateRequest
@@ -1046,7 +1047,7 @@ export type UiReportStateRequest = Message<"roost.v1.UiReportStateRequest"> & {
  * Use `create(UiReportStateRequestSchema)` to create a new message.
  */
 export const UiReportStateRequestSchema: GenMessage<UiReportStateRequest> = /*@__PURE__*/
-  messageDesc(file_roost_v1_sync, 24);
+  messageDesc(file_roost_v1_sync, 23);
 
 /**
  * Typed command set — unlike layout_json, commands ARE the contract.
@@ -1113,7 +1114,7 @@ export type UiCommand = Message<"roost.v1.UiCommand"> & {
  * Use `create(UiCommandSchema)` to create a new message.
  */
 export const UiCommandSchema: GenMessage<UiCommand> = /*@__PURE__*/
-  messageDesc(file_roost_v1_sync, 25);
+  messageDesc(file_roost_v1_sync, 24);
 
 /**
  * @generated from message roost.v1.UiNavigate
@@ -1130,7 +1131,7 @@ export type UiNavigate = Message<"roost.v1.UiNavigate"> & {
  * Use `create(UiNavigateSchema)` to create a new message.
  */
 export const UiNavigateSchema: GenMessage<UiNavigate> = /*@__PURE__*/
-  messageDesc(file_roost_v1_sync, 26);
+  messageDesc(file_roost_v1_sync, 25);
 
 /**
  * Split the pane holding anchor_session_id; the new sibling pane holds
@@ -1166,7 +1167,7 @@ export type UiPlaceSplit = Message<"roost.v1.UiPlaceSplit"> & {
  * Use `create(UiPlaceSplitSchema)` to create a new message.
  */
 export const UiPlaceSplitSchema: GenMessage<UiPlaceSplit> = /*@__PURE__*/
-  messageDesc(file_roost_v1_sync, 27);
+  messageDesc(file_roost_v1_sync, 26);
 
 /**
  * @generated from message roost.v1.UiSelectTab
@@ -1183,7 +1184,7 @@ export type UiSelectTab = Message<"roost.v1.UiSelectTab"> & {
  * Use `create(UiSelectTabSchema)` to create a new message.
  */
 export const UiSelectTabSchema: GenMessage<UiSelectTab> = /*@__PURE__*/
-  messageDesc(file_roost_v1_sync, 28);
+  messageDesc(file_roost_v1_sync, 27);
 
 /**
  * Focus the pane currently holding session_id.
@@ -1202,7 +1203,7 @@ export type UiFocusPane = Message<"roost.v1.UiFocusPane"> & {
  * Use `create(UiFocusPaneSchema)` to create a new message.
  */
 export const UiFocusPaneSchema: GenMessage<UiFocusPane> = /*@__PURE__*/
-  messageDesc(file_roost_v1_sync, 29);
+  messageDesc(file_roost_v1_sync, 28);
 
 /**
  * Move session_id's tab into the pane holding dest_session_id.
@@ -1226,7 +1227,7 @@ export type UiMoveTab = Message<"roost.v1.UiMoveTab"> & {
  * Use `create(UiMoveTabSchema)` to create a new message.
  */
 export const UiMoveTabSchema: GenMessage<UiMoveTab> = /*@__PURE__*/
-  messageDesc(file_roost_v1_sync, 30);
+  messageDesc(file_roost_v1_sync, 29);
 
 /**
  * preset: even | rows | tiled | main-vertical | balance (paneLayoutPresets.ts)
@@ -1245,7 +1246,7 @@ export type UiArrange = Message<"roost.v1.UiArrange"> & {
  * Use `create(UiArrangeSchema)` to create a new message.
  */
 export const UiArrangeSchema: GenMessage<UiArrange> = /*@__PURE__*/
-  messageDesc(file_roost_v1_sync, 31);
+  messageDesc(file_roost_v1_sync, 30);
 
 /**
  * Soft-close honoring the pendingClose undo window (TerminalDeck doClose).
@@ -1264,7 +1265,7 @@ export type UiCloseTab = Message<"roost.v1.UiCloseTab"> & {
  * Use `create(UiCloseTabSchema)` to create a new message.
  */
 export const UiCloseTabSchema: GenMessage<UiCloseTab> = /*@__PURE__*/
-  messageDesc(file_roost_v1_sync, 32);
+  messageDesc(file_roost_v1_sync, 31);
 
 /**
  * @generated from message roost.v1.UiSpotlight
@@ -1286,7 +1287,7 @@ export type UiSpotlight = Message<"roost.v1.UiSpotlight"> & {
  * Use `create(UiSpotlightSchema)` to create a new message.
  */
 export const UiSpotlightSchema: GenMessage<UiSpotlight> = /*@__PURE__*/
-  messageDesc(file_roost_v1_sync, 33);
+  messageDesc(file_roost_v1_sync, 32);
 
 /**
  * @generated from message roost.v1.UiStateFrame
@@ -1315,7 +1316,7 @@ export type UiStateFrame = Message<"roost.v1.UiStateFrame"> & {
  * Use `create(UiStateFrameSchema)` to create a new message.
  */
 export const UiStateFrameSchema: GenMessage<UiStateFrame> = /*@__PURE__*/
-  messageDesc(file_roost_v1_sync, 34);
+  messageDesc(file_roost_v1_sync, 33);
 
 /**
  * @generated from message roost.v1.UiCommandFrame
@@ -1339,7 +1340,7 @@ export type UiCommandFrame = Message<"roost.v1.UiCommandFrame"> & {
  * Use `create(UiCommandFrameSchema)` to create a new message.
  */
 export const UiCommandFrameSchema: GenMessage<UiCommandFrame> = /*@__PURE__*/
-  messageDesc(file_roost_v1_sync, 35);
+  messageDesc(file_roost_v1_sync, 34);
 
 /**
  * Sync v2 divides application traffic into independently hydrated domains.
@@ -1405,4 +1406,35 @@ export enum SyncDomain {
  */
 export const SyncDomainSchema: GenEnum<SyncDomain> = /*@__PURE__*/
   enumDesc(file_roost_v1_sync, 0);
+
+/**
+ * @generated from enum roost.v1.TerminalViewStatus
+ */
+export enum TerminalViewStatus {
+  /**
+   * @generated from enum value: TERMINAL_VIEW_STATUS_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: TERMINAL_VIEW_STATUS_ACCEPTED = 1;
+   */
+  ACCEPTED = 1,
+
+  /**
+   * @generated from enum value: TERMINAL_VIEW_STATUS_REJECTED = 2;
+   */
+  REJECTED = 2,
+
+  /**
+   * @generated from enum value: TERMINAL_VIEW_STATUS_UNAVAILABLE = 3;
+   */
+  UNAVAILABLE = 3,
+}
+
+/**
+ * Describes the enum roost.v1.TerminalViewStatus.
+ */
+export const TerminalViewStatusSchema: GenEnum<TerminalViewStatus> = /*@__PURE__*/
+  enumDesc(file_roost_v1_sync, 1);
 

@@ -43,15 +43,14 @@ export function sendBrowserCmd(
   caller: Caller,
   requestId: string,
   frame: ClientControlFrame,
-  overrideViewerId?: string,
 ): void {
   const downstream = {
     kind: "browser-command" as const,
     browser_id: caller.fingerprint,
-    // Resize handler passes a `${fp}:${tab_id}` composite so worker's
-    // viewportClaims map disambiguates tabs from the same browser.
-    // Other call sites omit the override and fall back to the raw fp.
-    viewer_id: overrideViewerId ?? caller.fingerprint,
+    // Legacy JSON worker commands retain sender attribution only; terminal
+    // input has its own proof-carrying transport and terminal views never pass
+    // through this envelope.
+    viewer_id: caller.fingerprint,
     request_id: requestId,
     frame,
   };
@@ -69,16 +68,14 @@ export async function forwardToSessionWorker(
   sessionIdRaw: string,
   caller: Caller,
   frame: ClientControlFrame,
-  overrideViewerId?: string,
 ): Promise<boolean> {
-  // Frames that carry their own request_id reuse it as the envelope id so the
-  // worker's logs/rpc replies key off ONE identifier per forward; the rest
-  // (resize / user-message / cursor-pos / kill) get a fresh uuid as before.
+  // Frames that carry their own request_id reuse it as the envelope id so
+  // worker logs and RPC replies share one identifier; all others get a UUID.
   const requestId = "request_id" in frame ? frame.request_id : randomUUID();
   const row = await db.selectFrom("sessions").select(["worker_fp"]).where("id", "=", sessionIdRaw).executeTakeFirst();
   if (!row) return false;
   const sock = getWorkerHubSocket(row.worker_fp);
   if (!sock) return false;
-  try { sendBrowserCmd(sock, caller, requestId, frame, overrideViewerId); return true; }
+  try { sendBrowserCmd(sock, caller, requestId, frame); return true; }
   catch (e) { log.warn("router-helpers.forwardToSessionWorker", "send_failed", { error: String(e) }); return false; }
 }

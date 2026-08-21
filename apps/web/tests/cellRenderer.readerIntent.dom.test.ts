@@ -166,7 +166,7 @@ describe("CellGridRenderer DOM — reader intent and live tail", () => {
     expect(r.readerIntent).toBe("live");
   });
 
-  test("passive full and delta output freeze behind explicit native reading", () => {
+  test("an incompatible full installs atomically while retaining the reader anchor", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement);
     const viewportEl = vpEl(c);
@@ -174,7 +174,6 @@ describe("CellGridRenderer DOM — reader intent and live tail", () => {
     c.scrollTop = PAD_TOP + 50 * ROW_PX;
     expect(r.handleScroll()).toEqual({ reconciled: false, anchorChanged: false });
     const heldRow = viewportEl.children[0];
-    const heldHeight = c.scrollHeight;
     c.resetScrollTopWrites();
 
     expect(r.apply({
@@ -195,11 +194,12 @@ describe("CellGridRenderer DOM — reader intent and live tail", () => {
 
     expect(r.readerIntent).toBe("reading");
     expect(r.readerReason).toBe("native_scroll");
-    expect(r.currentFrame!.gridEpoch).toBe("test-grid:0");
-    expect(r.heldFrameSeq()).toBe(4);
-    expect(viewportEl.children[0]).toBe(heldRow);
-    expect(c.scrollHeight).toBe(heldHeight);
+    expect(r.currentFrame!.gridEpoch).toBe("test-grid:1");
+    expect(r.canonicalFrameSeq()).toBe(4);
+    expect(viewportEl.children[0]).not.toBe(heldRow);
+    expect(c.scrollTop).toBe(PAD_TOP + 50 * ROW_PX);
     expect(c.scrollTopWrites).toBe(0);
+    expect(r.readerAnchorForBackfill()?.row).toBe(50);
     expect(r.presentationSnapshot().mode).toEqual({
       canonical: {
         alt_screen: true,
@@ -207,9 +207,9 @@ describe("CellGridRenderer DOM — reader intent and live tail", () => {
         bracketed_paste: true,
       },
       reconciled: {
-        alt_screen: false,
-        cursor_keys_app: false,
-        bracketed_paste: false,
+        alt_screen: true,
+        cursor_keys_app: true,
+        bracketed_paste: true,
       },
     });
   });

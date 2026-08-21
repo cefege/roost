@@ -4,6 +4,8 @@ import { startTerminalTestStack, type TerminalTestStack, type TerminalTestWorker
 
 type Fixtures = {
   smokePage: Page;
+  /** A second page in its own browser context for cross-browser ownership proofs. */
+  secondSmokePage: Page;
   /** Fresh about:blank context: no Roost HTML/assets/modules have loaded. */
   coldSmokePage: Page;
   mobileSmokePage: Page;
@@ -122,6 +124,9 @@ export const test = base.extend<Fixtures, WorkerFixtures>({
     await use(await stack.startSecondWorker());
   }, { scope: "worker" }],
   smokePage: async ({ browser, stack }, use, testInfo) => {
+    await useSmokePage(browser, stack, use, testInfo);
+  },
+  secondSmokePage: async ({ browser, stack }, use, testInfo) => {
     await useSmokePage(browser, stack, use, testInfo);
   },
   coldSmokePage: async ({ browser, stack }, use, testInfo) => {

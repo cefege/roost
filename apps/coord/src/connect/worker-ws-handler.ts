@@ -32,13 +32,8 @@ import { diag, signal } from "@roost/shared/diag";
 import { makeWorkerConn, type WorkerConn, type WorkerServiceDeps } from "./worker-service.ts";
 import { protoToEvent } from "@roost/shared/wire/event-proto";
 import { asChannelId, asWorkerFp } from "@roost/shared/wire";
-import {
-  clearBarrierRepairForWorker,
-  noteBarrierChannelLoss,
-  noteBarrierRepairFullFrames,
-} from "../byte-hub-barrier-repair.ts";
 import { lookupSessionId } from "../byte-hub.ts";
-import { requestBarrierRepairFullFrame } from "./session-control.ts";
+import { currentTerminalScreenHub } from "./terminal-view-hub.ts";
 import {
   AnnouncedChannelBarrier,
   type AnnouncedDrop,
@@ -61,32 +56,12 @@ export interface WorkerWsData {
   announcedChannels: AnnouncedChannelBarrier;
 }
 
-/** The barrier abandoned a channel's buffer. Cells lost here return only as a
- *  full frame, so mark the exact route — the browser cannot know its held
- *  sequence went stale — and, when a viewer is actually watching, replay one
- *  refresh claim now instead of waiting for an unrelated delta or a reload. */
+/** A barrier drop invalidates the coordinator replica and latches exactly one
+ * worker snapshot request after the route announcement is durable. */
 function handleAnnouncedDrop(workerFp: string, drop: AnnouncedDrop): void {
-  const marked = noteBarrierChannelLoss({
-    workerFp,
-    sessionId: drop.sessionId,
-    channelId: drop.channelId,
-    reason: drop.reason,
-    phase: drop.phase,
-    cellFrames: drop.cellFrames,
-    binaryFrames: drop.binaryFrames,
-    binaryBytes: drop.binaryBytes,
-  });
-  if (!marked) return;
-  const replay = requestBarrierRepairFullFrame({
-    workerFp,
-    sessionId: drop.sessionId,
-    channelId: drop.channelId,
-  });
-  noteBarrierRepairFullFrames(
-    workerFp,
+  currentTerminalScreenHub()?.invalidate(
     drop.sessionId,
-    drop.channelId,
-    replay.enqueued,
+    `announced channel barrier ${drop.reason} on ${workerFp.slice(0, 12)}`,
   );
 }
 
@@ -245,7 +220,7 @@ export function makeWorkerWsHandler(deps: WorkerServiceDeps) {
       // constraint. A cell grid or PTY chunk for a synchronously announced
       // channel waits behind only that channel's durable append, and both lanes
       // share one buffer so their original arrival order survives the barrier.
-      if (fcase === "cellGrid" || fcase === "binary") {
+      if (fcase === "cellGrid" || fcase === "cellGridChunk" || fcase === "binary") {
         const channelId = frame.frame.value.channelId;
         // Measuring a frame means encoding it, so only an actually announced
         // channel pays that: the steady-state PTY/cell lanes must not
@@ -293,10 +268,6 @@ export function makeWorkerWsHandler(deps: WorkerServiceDeps) {
     close(ws: ServerWebSocket<WorkerWsData>): void {
       sockets.delete(ws);
       ws.data.announcedChannels.clear();
-      // A dead connection's repair marks would only strand overrides on routes
-      // no keeper is producing; the returning worker's reconcile snapshot forces
-      // a fresh full frame for every active owner instead.
-      clearBarrierRepairForWorker(ws.data.fp);
       ws.data.conn?.close();
       ws.data.conn = null;
       log.info("worker-ws", "close", { worker_fp: ws.data.fp });

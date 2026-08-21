@@ -12,23 +12,28 @@ practice: every window resize re-reflows history at a new width, and every
 reconnect either duplicates or drops output. Roost uses the model server-side
 terminal multiplexers use instead.
 
-The **worker** holds the one authoritative grid per session and rebuilds it at a
-single agreed width when the viewport changes. The **browser** renders that grid
-as-is and never re-reflows it. Raw output never reaches the browser at all: the
-worker sends authoritative cell-grid snapshots and deltas, and those cells are
-what cross the wire.
+The **worker** holds the one authoritative grid per session and resizes that
+same core at the keeper's ordered resize boundary. The coordinator computes one
+agreed size from the smallest active columns and rows, independently per axis.
+The **browser** renders the resulting grid as-is and never re-flows it. Raw
+output never reaches the browser: only authoritative cell-grid snapshots and
+deltas cross the Sync socket.
 
-## Resume by sequence
+## Resume by stream and sequence
 
-Delivery is resumable by sequence number. Every cell frame carries a monotonic
-`seq`. A viewer's claim carries the `held_cell_seq` it has already applied, and
-the worker answers a stale or unset sequence with exactly one authoritative full
-frame. A splice therefore cannot duplicate or drop rows — the worst case is one
-redundant full frame.
+Every terminal stream starts with a complete viewport-only baseline. A delta is
+accepted only when its stream ID, grid epoch, dimensions and `base_seq` match
+the installed replica and its `seq` is the exact successor. A gap latches one
+snapshot request; no later delta can paint until a valid full arrives.
 
-One layer lower, per-byte sequence numbers live in the keeper's per-channel ring,
-which is how a restarted worker re-adopts a live PTY without losing the tail of
-its output.
+The coordinator keeps one canonical screen replica and gives each active socket
+an independent resumable cursor. The browser keeps its own per-session replica
+across renderer detach, tab switches and Sync reconnect, so unchanged cells do
+not disappear when a component remounts.
+
+One layer lower, per-byte sequence numbers live in the keeper's per-channel
+ring, allowing a restarted worker to re-adopt a live PTY without losing the
+retained tail.
 
 ## History is fetched on demand
 

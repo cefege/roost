@@ -1,7 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { Code, ConnectError } from "@connectrpc/connect";
 import {
-  configurePendingSpawnPreclaim,
   pendingSpawnStats,
   rejectPendingSpawn,
   reservePendingSpawn,
@@ -18,8 +17,6 @@ const signature: PendingSpawnSignature = {
   folder: "/work",
   cols: 100,
   rows: 31,
-  preclaimInitialViewport: true,
-  requestedClientSeq: 7n,
 };
 
 afterEach(resetPendingSpawnsForTest);
@@ -33,7 +30,6 @@ test("exact caller and parameters join one caller-minted spawn", async () => {
   if (joined.kind === "conflict" || joined.kind === "capacity") throw new Error("join failed");
   expect(joined.promise).toBe(first.promise);
 
-  expect(configurePendingSpawnPreclaim(SID, 9n, () => true)).toBe(true);
   expect(resolvePendingSpawnOpened(signature.workerFp, SID, 17)).toBe(true);
   // Durable opened is recorded, but normal success still waits for rpc-ok so
   // the worker's first full remains ahead of the HTTP response.
@@ -46,8 +42,6 @@ test("exact caller and parameters join one caller-minted spawn", async () => {
   await expect(first.promise).resolves.toEqual({
     sessionId: SID,
     channelId: 17,
-    initialViewportPreclaimed: true,
-    effectiveClientSeq: 9n,
   });
   expect(pendingSpawnStats()).toEqual({ pending: 0, resolved: 1 });
 });
@@ -64,19 +58,27 @@ test("conflicting caller or parameters fail before sharing the pending result", 
   }).kind).toBe("conflict");
 });
 
-test("only definite failure rolls back provisional membership", async () => {
-  const reservation = reservePendingSpawn(SID, signature);
-  if (reservation.kind === "conflict" || reservation.kind === "capacity") throw new Error("reservation failed");
-  let rollbacks = 0;
-  configurePendingSpawnPreclaim(SID, 7n, () => { rollbacks++; return true; });
+test("ambiguous failures reconcile with durable opened while definite failures reject", async () => {
+  const ambiguousReservation = reservePendingSpawn(SID, signature);
+  if (ambiguousReservation.kind === "conflict" || ambiguousReservation.kind === "capacity") {
+    throw new Error("reservation failed");
+  }
 
   const ambiguous = new ConnectError("worker disconnected", Code.Unavailable);
   expect(rejectPendingSpawn(SID, ambiguous, false)).toBe(true);
-  expect(rollbacks).toBe(0);
   expect(pendingSpawnStats().pending).toBe(1);
+  expect(resolvePendingSpawnOpened(signature.workerFp, SID, 23)).toBe(true);
+  await expect(ambiguousReservation.promise).resolves.toEqual({
+    sessionId: SID,
+    channelId: 23,
+  });
 
+  const definiteSession = "00000000-0000-4000-8000-000000000617";
+  const definiteReservation = reservePendingSpawn(definiteSession, signature);
+  if (definiteReservation.kind === "conflict" || definiteReservation.kind === "capacity") {
+    throw new Error("reservation failed");
+  }
   const definite = new ConnectError("keeper rejected spawn", Code.Internal);
-  expect(rejectPendingSpawn(SID, definite, true)).toBe(true);
-  expect(rollbacks).toBe(1);
-  await expect(reservation.promise).rejects.toThrow("keeper rejected spawn");
+  expect(rejectPendingSpawn(definiteSession, definite, true)).toBe(true);
+  await expect(definiteReservation.promise).rejects.toThrow("keeper rejected spawn");
 });

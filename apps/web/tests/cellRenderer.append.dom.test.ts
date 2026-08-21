@@ -44,7 +44,7 @@ describe("CellGridRenderer DOM — append-only scrollback, no reflow", () => {
     const h0 = rows0[0];
     const h1 = rows0[1];
 
-    r.apply(deltaFrame(80, 2, [row(1, "v1b")], [row(2, "h2")], 2));
+    r.apply(deltaFrame(80, 2, [row(1, "v1b")], [row(2, "h2")], 3));
     // Append-only: the two original nodes are the SAME objects (not re-rendered),
     // the third is new. A full re-render would replace all three.
     const rows1 = sbRows(scrollbackEl);
@@ -54,23 +54,19 @@ describe("CellGridRenderer DOM — append-only scrollback, no reflow", () => {
     expect(rows1[2]).not.toBe(h1);
   });
 
-  // heldFrameSeq is what a visible viewport claim reports as held_cell_seq.
-  // It MUST track the last APPLIED frame across deltas: reporting a stale seq
-  // costs a redundant repaint, while reporting one the viewer never applied
-  // would suppress the authoritative reclaim snapshot it needs.
-  test("heldFrameSeq tracks the last applied frame across a full frame then deltas", () => {
+  test("canonicalFrameSeq tracks each exactly sequenced accepted frame", () => {
     const c = makeContainer();
     const r = new CellGridRenderer(c as unknown as HTMLElement); // FakeEl covers the renderer's DOM surface
-    expect(r.heldFrameSeq()).toBe(0); // nothing held → the worker must snapshot
+    expect(r.canonicalFrameSeq()).toBe(0); // nothing held → the worker must snapshot
 
     seedHeldHistory(r, 80, [row(0, "v0")], []);
-    expect(r.heldFrameSeq()).toBe(1); // fullFrame() carries seq 1
+    expect(r.canonicalFrameSeq()).toBe(1); // fullFrame() carries seq 1
 
-    r.apply(deltaFrame(80, 1, [row(0, "v0b")], [row(1, "h1")], 7));
-    expect(r.heldFrameSeq()).toBe(7);
+    r.apply(deltaFrame(80, 1, [row(0, "v0b")], [row(1, "h1")], 2));
+    expect(r.canonicalFrameSeq()).toBe(2);
 
-    r.apply(deltaFrame(80, 1, [row(0, "v0c")], [], 8));
-    expect(r.heldFrameSeq()).toBe(8);
+    r.apply(deltaFrame(80, 1, [row(0, "v0c")], [], 3));
+    expect(r.canonicalFrameSeq()).toBe(3);
   });
 
   test("a delta from a different grid epoch is rejected", () => {
@@ -210,7 +206,7 @@ describe("CellGridRenderer DOM — append-only scrollback, no reflow", () => {
     const scrollbackEl = sbEl(c);
 
     expect(r.apply(deltaFrame(80, 1, [row(0, "x")], [row(0, "orphan")], 1))).toBe(false);
-    expect(r.heldFrameSeq()).toBe(0);
+    expect(r.canonicalFrameSeq()).toBe(0);
     expect(scrollbackEl.children.length).toBe(0);
 
     expect(seedHeldHistory(r, 80, [row(0, "v0")], [row(0, "h0")])).toBe(true);
@@ -290,7 +286,7 @@ describe("CellGridRenderer DOM — viewport-only frames + backfill", () => {
       sbBase: 2,
     });
     r.prependScrollback([row(1, "h1")]);
-    r.apply({ ...deltaFrame(80, 1, [], [row(2, "h2")], 3), scrollbackTotal: 3 });
+    r.apply({ ...deltaFrame(80, 1, [], [row(2, "h2")], 2), scrollbackTotal: 3 });
     expect(sbRows(scrollbackEl)).toHaveLength(2);
     expect(r.backfillAnchor()!.sbBase).toBe(1);
     r.prependScrollback([row(0, "h0")]);

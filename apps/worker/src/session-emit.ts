@@ -8,7 +8,11 @@ import { log } from "@roost/shared/log";
 import { asChannelId, DIR_FROM_PTY } from "@roost/shared/wire";
 import type { TerminalCore } from "@wterm/core";
 import {
-	nextCellFrame, scrollbackOrigin, SB_SNAPSHOT_HISTORY_ROWS, type CellEmitState,
+	CELL_GRID_PART_MAX_BYTES,
+	encodedCellGridFrameSize,
+	nextCellFrame,
+	scrollbackOrigin,
+	type CellEmitState,
 } from "@roost/shared/cell";
 import { cellFrameToProto } from "@roost/shared/cell/cell-proto";
 import type { MuxChannelCallbacks } from "./keeper/multiplexed-client.ts";
@@ -18,7 +22,6 @@ import {
 	KEEPER_DEGRADED_WINDOW_MS,
 	KEEPER_DEGRADED_THRESHOLD,
 	CELL_EMIT_COALESCE_MS,
-	RAW_METADATA_COALESCE_MS,
 	RAW_METADATA_CHANNEL_CAP_BYTES,
 	RAW_METADATA_AGGREGATE_CAP_BYTES,
 	SYNC_OUTPUT_MAX_MS,
@@ -27,11 +30,16 @@ import {
 import { monoNowMs } from "./util/mono.ts";
 import {
 	CELL_GATE_BUDGET_MS,
-	captureUpstreamChunk,
+	captureResizeOutput,
 	noteGateOverBudget,
 } from "./session-resize-capture.ts";
 import { noteUnhandledSequences } from "./session-unhandled-seq.ts";
-
+import {
+	drainSnapshotCursor,
+	installSnapshotCursor,
+	renewalHistoryRows,
+	validateRenewalHistorySnapshot,
+} from "./session-snapshot-cursor.ts";
 
 // Leading-edge sentinel shared by the cell and raw-metadata governors.
 const LEADING_SENTINEL = -1 as unknown as NodeJS.Timeout;
@@ -41,17 +49,12 @@ const LEADING_SENTINEL = -1 as unknown as NodeJS.Timeout;
 // (attachOutputClient.onOutput below). See docs/FAILURE-INDEX.md "scrollback
 // seam torn" row.
 
-/** Ingest one PTY chunk. All scrollback/grid consumers run synchronously
- * before the pooled keeper buffer can be reused. Raw metadata gets one
- * deliberate defensive copy because its send is deferred.
- *
- * While a resize capture is installed the chunk takes the capture lane: it still
- * advances head_seq, still enters the fixed raw ring, still feeds the bounded
- * coordinator raw-metadata lane — it just never reaches the frozen core, whose
- * geometry is not yet proven. Cells are gated for the same reason, and the gate
- * counts what it suppressed. */
+/** Ingest one PTY chunk synchronously. While a sequenced resize boundary is
+ * unresolved (or a resize trap invalidated the core), bytes still enter the
+ * bounded recovery record and metadata lanes but never parse at stale geometry. */
 export function emitUpstreamChunk(this: SessionManager, channelId: number, chunk: Buffer): void {
-	const capture = this.resizeCaptures.get(channelId);
+	const stream = this.terminalStreams.get(channelId);
+	const capture = stream?.resizeCapture ?? null;
 	const rec = this.sessions.get(channelId);
 	if (rec && rec.lastPtyOutMs === 0) rec.lastPtyOutMs = Date.now();
 	diag("cell.recv", { sid: String(rec?.sessionId ?? ""), channel_id: channelId, len: chunk.length });
@@ -63,8 +66,10 @@ export function emitUpstreamChunk(this: SessionManager, channelId: number, chunk
 		return;
 	}
 	const endSeq = capture
-		? captureUpstreamChunk(this, channelId, capture, chunk)
-		: this.appendScrollback(channelId, chunk);
+		? captureResizeOutput(this, channelId, capture, chunk)
+		: stream && !stream.coreValid
+			? this.appendCapturedScrollback(channelId, chunk)
+			: this.appendScrollback(channelId, chunk);
 	if (endSeq < 0) {
 		const closedAt = this.recentlyClosed.get(channelId);
 		if (
@@ -93,12 +98,20 @@ export function emitUpstreamChunk(this: SessionManager, channelId: number, chunk
 		return;
 	}
 	this.onTerminalChanged?.(channelId);
-	// Consume exactly once on the first returning chunk, even when no viewer is
-	// attached. With a viewer, this promotes the echo past an armed trailing
-	// timer; later output remains on the ordinary 16 ms cadence.
 	const promoteInputEcho = this.inputSensitiveChannels.delete(channelId);
-	if (this._hasActiveViewer(channelId)) {
-		this._scheduleCellEmit(channelId, promoteInputEcho);
+	if (stream?.enabled) {
+		const baselineBoundaryReady = !stream.baselineReady
+			&& !stream.snapshotCursor
+			&& this.pendingSyncCellSnapshots.has(channelId)
+			&& !(rec?.wtermCore.synchronizedOutput?.() ?? false);
+		if (baselineBoundaryReady) {
+			this.installTerminalBaseline(asChannelId(channelId));
+		} else if (!stream.baselineReady || stream.snapshotCursor || capture || !stream.coreValid) {
+			stream.baselineDirty = true;
+			this.cellDirty.add(channelId);
+		} else {
+			this._scheduleCellEmit(channelId, promoteInputEcho);
+		}
 	}
 	// Schedule cells first. Its leading microtask/timer is therefore registered
 	// ahead of the lower-priority raw metadata lane.
@@ -215,17 +228,15 @@ function _armRawMetadata(this: SessionManager, channelId: number): void {
 		if (!queue || queue.frames.length === 0) return;
 		_flushRawMetadata.call(this, channelId);
 		_armRawMetadata.call(this, channelId);
-	}, RAW_METADATA_COALESCE_MS);
+	}, CELL_EMIT_COALESCE_MS);
 	this.rawMetadataTimers.set(channelId, timer);
 }
 
-export function flushPendingCellRepairs(this: SessionManager): void {
-	for (const channelId of this.pendingCellRepairs) {
-		if (!this.sessions.has(channelId)) {
-			this.pendingCellRepairs.delete(channelId);
-			continue;
-		}
-		if (this._hasActiveViewer(channelId)) this.emitCellFrame(channelId, true);
+export function resumeTerminalSnapshots(this: SessionManager): void {
+	for (const [channelId, state] of this.terminalStreams) {
+		if (!this.sessions.has(channelId) || !state.enabled || !state.coreValid) continue;
+		if (state.snapshotCursor) drainSnapshotCursor(this, channelId, state);
+		else if (this.pendingCellRepairs.delete(channelId)) this.installTerminalBaseline(asChannelId(channelId));
 	}
 }
 
@@ -233,7 +244,7 @@ export function flushPendingCellRepairs(this: SessionManager): void {
  *  and how many frames it has suppressed. A stalled emitter is then attributable
  *  from the diagnostic snapshot alone instead of by correlating logs. */
 export interface CellGateSuppression {
-	gate: "resize_capture" | "pending_repair" | "sync_output";
+	gate: "resize_capture" | "baseline" | "sync_output";
 	sinceMonoMs: number;
 	frames: number;
 	/** The gate outlived its own ceiling: a resize/repair gate past the keeper
@@ -463,20 +474,11 @@ export function _disposeOutputState(this: SessionManager, channelId: number): vo
 }
 
 
-/** Is any live viewer claiming this channel? Withdrawn viewers are removed
- *  (deferred withdraw) and crashed ones reaped at VIEWPORT_CLAIM_TTL_MS, so a
- *  non-empty claim set = a real watcher. Drives B's "don't emit to nobody". */
-export function _hasActiveViewer(this: SessionManager, channelId: number): boolean {
-	return (this.viewportClaims.get(channelId)?.size ?? 0) > 0;
-}
-
-/** Re-emit one authoritative full frame for every live claimed session after
- *  the worker→coordinator channel map has been re-primed by helloAck. */
-export function resnapshotClaimedSessions(this: SessionManager): void {
-	for (const [channelId, claims] of this.viewportClaims) {
-		if (claims.size === 0 || !this.sessions.has(channelId)) continue;
-		this.emitCellSnapshot(asChannelId(channelId));
-	}
+/** Cell production is gated by the coordinator-owned stream state, never by
+ * per-viewer claims in the worker. */
+export function _hasEnabledStream(this: SessionManager, channelId: number): boolean {
+	const stream = this.terminalStreams.get(channelId);
+	return stream?.enabled === true && stream.coreValid;
 }
 
 /** Rate governor: leading-edge cell emit plus trailing coalesce. A single
@@ -487,14 +489,21 @@ export function _scheduleCellEmit(
 	channelId: number,
 	promoteInputEcho = false,
 ): void {
+	const stream = this.terminalStreams.get(channelId);
+	if (!stream?.enabled || !stream.coreValid) return;
+	if (!stream.baselineReady || stream.snapshotCursor) {
+		stream.baselineDirty = true;
+		this.cellDirty.add(channelId);
+		noteCellGateSuppression(this, channelId, "baseline");
+		return;
+	}
 	if (this.cellEmissionGates.has(channelId)) {
 		this.cellDirty.add(channelId);
 		noteCellGateSuppression(this, channelId, "resize_capture");
 		return;
 	}
-	if (this.pendingCellRepairs.has(channelId)) {
-		this.cellDirty.add(channelId);
-		noteCellGateSuppression(this, channelId, "pending_repair");
+	if (this.pendingCellRepairs.delete(channelId)) {
+		this.installTerminalBaseline(asChannelId(channelId));
 		return;
 	}
 	switch (syncOutputAction(this, channelId)) {
@@ -558,52 +567,39 @@ export function _scheduleCellEmit(
 	});
 }
 
-/** R11. Emit a cell frame upstream for `channelId`. Full frame on
- *  first emit / reframe (dims change, scrollback shrink, rebuild), when
- *  forced (fresh viewer attach), or when a forced snapshot was deferred to a
- *  synchronized-output boundary. Full frames carry the current viewport and
- *  zero historical rows; retained history stays addressable through
- *  scrollbackTotal/sbBase and the explicit get-scrollback-cells path.
- *  clearDirty() AFTER reading so the next delta carries only new changes —
- *  the worker's wtermCore dirty bits have no other consumer. */
+export function installTerminalBaseline(this: SessionManager, channelId: number): void {
+	this.emitCellFrame(channelId, true);
+}
+
+/** Emit a delta only after a complete baseline. A full is installed as a
+ * cancellable immutable cursor; oversized deltas promote to that same path. */
 export function emitCellFrame(this: SessionManager, channelId: number, force: boolean): void {
+	const state = this.terminalStreams.get(channelId);
+	const rec = this.sessions.get(channelId);
+	if (!state?.enabled || !state.coreValid || !rec) return;
 	if (this.cellEmissionGates.has(channelId)) {
+		state.baselineDirty = true;
 		this.cellDirty.add(channelId);
 		noteCellGateSuppression(this, channelId, "resize_capture");
 		return;
 	}
-	// A full-producing request cannot read or clear the grid inside the
-	// application's atomic paint, even after the hold's liveness ceiling has
-	// tripped. Once tripped, an already-baselined channel may keep streaming
-	// ordinary unforced deltas, but the authoritative full remains owed until
-	// the core observes the real DECRST 2026 boundary.
-	const send = this.sendCellGridUpstream;
-	if (!send) return;
-	const rec = this.sessions.get(channelId);
-	if (!rec) return;
-	// The live paths create a terminal core before registration. Keep this
-	// narrow for teardown races and sparse test fixtures.
-	const core = rec.wtermCore;
-	if (!core) return;
-	const repair = this.pendingCellRepairs.has(channelId);
-	const fullOwed =
-		force ||
-		repair ||
-		!rec.cell_emit.sentFull ||
-		this.pendingSyncCellSnapshots.has(channelId);
-	// Output may have entered mode 2026 while every viewer was withdrawn, so no
-	// streaming schedule existed to open a hold. Read the canonical core here
-	// through the same state machine before a fresh claim snapshots it.
-	const syncAction = syncOutputAction(this, channelId);
-	const synchronized = core.synchronizedOutput?.() ?? false;
-	const deferFull = synchronized && fullOwed;
-	if (deferFull) {
-		this.pendingSyncCellSnapshots.add(channelId);
-		// The boundary snapshot now owns a transport repair. Leaving the repair
-		// gate set would make the real close's chunk return before it can emit.
-		if (repair) this.pendingCellRepairs.delete(channelId);
+	if (state.snapshotCursor) {
+		if (!force) state.baselineDirty = true;
+		return;
 	}
-	if (syncAction === "hold" || (deferFull && !rec.cell_emit.sentFull)) {
+	if (!force && !state.baselineReady) {
+		state.baselineDirty = true;
+		this.cellDirty.add(channelId);
+		noteCellGateSuppression(this, channelId, "baseline");
+		return;
+	}
+	const core = rec.wtermCore;
+	const fullOwed = force || !rec.cell_emit.sentFull || this.pendingSyncCellSnapshots.has(channelId);
+	const syncAction = syncOutputAction(this, channelId);
+	const deferFull = (core.synchronizedOutput?.() ?? false) && fullOwed;
+	if (deferFull) this.pendingSyncCellSnapshots.add(channelId);
+	if (syncAction === "hold" || deferFull) {
+		state.baselineDirty = true;
 		this.cellDirty.add(channelId);
 		noteCellGateSuppression(this, channelId, "sync_output");
 		return;
@@ -613,82 +609,58 @@ export function emitCellFrame(this: SessionManager, channelId: number, force: bo
 		if (pending !== LEADING_SENTINEL) clearTimeout(pending);
 		this.cellEmitTimers.delete(channelId);
 	}
-	const { frame, state } = nextCellFrame(
-		core,
-		rec.cell_emit,
-		fullOwed && !deferFull,
-		SB_SNAPSHOT_HISTORY_ROWS,
-	);
-	// Even unforced emission may choose a semantic full after a dimension,
-	// screen, or history transition. Do not publish that partial baseline while
-	// the explicit full request is waiting for the application's boundary.
-	if (deferFull && frame.full) {
-		this.cellDirty.add(channelId);
-		noteCellGateSuppression(this, channelId, "sync_output");
-		return;
+	let tailRows = 0;
+	if (fullOwed && rec.cell_emit.sentFull && rec.cell_emit.seq === 0) {
+		tailRows = renewalHistoryRows(core, rec.cell_emit);
 	}
-	// Read alongside the frame: these spans are exactly the ones a saturated link
-	// table would have stripped hyperlinks from.
-	noteHyperlinkSaturation(this, channelId, core, String(rec.sessionId));
-	// Same read window: whatever this frame paints, these are the sequences the
-	// core threw away while producing it. Honest limits — the core logs unhandled
-	// CSI finals only. Every OSC other than title (0/2) and hyperlink (8), and
-	// every DECSET/DECRST mode number it does not implement, is dropped WITHOUT
-	// being logged, so an empty list is not proof the core understood everything
-	// the application sent.
-	noteUnhandledSequences(rec, core);
-	// session_id left empty: coord stamps it from the channel→session map.
-	const pb = cellFrameToProto(frame, "");
+	let next = nextCellFrame(core, rec.cell_emit, fullOwed, tailRows);
+	let pb = cellFrameToProto(next.frame, String(rec.sessionId));
 	pb.ptyOutMs = BigInt(rec.lastPtyOutMs || Date.now());
 	pb.workerEmitMs = BigInt(Date.now());
-	let result: TransportSendResult;
-	try {
-		result = send(channelId, pb) ?? "sent";
-	} catch (error) {
-		log.warn("session-manager", "cell_sink_throw", {
-			channelId,
-			error: error instanceof Error ? error.message : String(error),
-		});
-		result = "dropped";
+	if (!next.frame.full && encodedCellGridFrameSize(pb) > CELL_GRID_PART_MAX_BYTES) {
+		next = nextCellFrame(core, rec.cell_emit, true, tailRows);
+		pb = cellFrameToProto(next.frame, String(rec.sessionId));
+		pb.ptyOutMs = BigInt(rec.lastPtyOutMs || Date.now());
+		pb.workerEmitMs = BigInt(Date.now());
 	}
-	if (result === "dropped") {
-		// Do not advance the model watermark or clear dirty rows. A writable
-		// edge will regenerate one full frame from the current canonical core.
-		this.pendingCellRepairs.add(channelId);
-		diag("transport.frame_dropped", {
-			reason: "cell_sink_drop",
-			kind: "cellGrid",
-			channel_id: channelId,
-			seq: frame.seq,
-		});
-		return;
+	if (tailRows > 0 && !validateRenewalHistorySnapshot(pb)) {
+		rec.cell_emit.gridEpochRevision++;
+		tailRows = 0;
+		next = nextCellFrame(core, rec.cell_emit, true, 0);
+		pb = cellFrameToProto(next.frame, String(rec.sessionId));
+		pb.ptyOutMs = BigInt(rec.lastPtyOutMs || Date.now());
+		pb.workerEmitMs = BigInt(Date.now());
 	}
-	rec.cell_emit = state;
-	core.clearDirty();
-	this.cellDirty.delete(channelId);
-	this.pendingCellRepairs.delete(channelId);
-	if (!deferFull) this.pendingSyncCellSnapshots.delete(channelId);
-	// A synchronized-output hold that is still OPEN keeps its record: the emitter
-	// stopped withholding (this frame just shipped), but a terminal sitting
-	// inside an unterminated synchronized frame is precisely what the diagnostic
-	// snapshot has to keep saying. releaseSyncOutputHold clears both together
-	// when the application finally closes it.
-	if (!this.syncOutputHolds.has(channelId)) this.cellGateSuppression.delete(channelId);
+	noteHyperlinkSaturation(this, channelId, core, String(rec.sessionId));
+	noteUnhandledSequences(rec, core);
+	if (next.frame.full) {
+		rec.cell_emit = next.state;
+		core.clearDirty();
+		this.cellDirty.delete(channelId);
+		state.baselineDirty = false;
+		if (!installSnapshotCursor(this, channelId, state, pb)) return;
+	} else {
+		const result = this.sendCellGridUpstream?.(channelId, pb) ?? "dropped";
+		if (result === "dropped") {
+			this.pendingCellRepairs.add(channelId);
+			state.baselineReady = false;
+			this.installTerminalBaseline(asChannelId(channelId));
+			return;
+		}
+		rec.cell_emit = next.state;
+		core.clearDirty();
+		this.cellDirty.delete(channelId);
+	}
 	rec.lastPtyOutMs = 0;
 	if (isDiagEnabled()) {
 		diag("cell.emit", {
 			sid: String(rec.sessionId),
-			seq: frame.seq,
-			full: frame.full,
-			vp_rows: frame.viewportRows.length,
-			sb_append: frame.scrollbackAppend.length,
-			sb_rows: frame.scrollbackRows.length,
-			sb_base: frame.sbBase,
-			cursor_row: frame.cursorRow,
-			cursor_col: frame.cursorCol,
-			cursor_vis: frame.cursorVisible,
-			alt: frame.altScreen,
-			result,
+			stream_id: state.streamId,
+			seq: next.frame.seq,
+			base_seq: next.frame.baseSeq,
+			full: next.frame.full,
+			vp_rows: next.frame.viewportRows.length,
+			result: state.snapshotCursor ? "cursor" : "sent",
 		});
 	}
 }

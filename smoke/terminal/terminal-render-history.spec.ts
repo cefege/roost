@@ -1,14 +1,16 @@
 import { test, expect } from "./fixtures.ts";
+import { SB_RENEWAL_HISTORY_ROWS } from "../../apps/shared/src/cell/types.ts";
+import { TERMINAL_MAX_ROWS } from "../../apps/shared/src/viewport.ts";
 import { encodePtyFixtureCommand, PTY_FIXTURE_READY } from "./pty-fixture-protocol.ts";
-import type { RecoverySmokeApi } from "./terminal-smoke-api.ts";
+import type { RecoveryMarkerScan, RecoverySmokeApi } from "./terminal-smoke-api.ts";
 import {
   spawnPtyFixtureSession,
   navigateToSmokeSession,
   inputSmokeTerminal,
 } from "./terminal-helpers.ts";
 
-// A fresh deep-session attach starts with the current viewport and a truthful
-// spacer only. History stays off the network and out of the DOM until demand.
+// A fresh deep-session renewal starts at the live tail with a bounded retained
+// history window. Older history stays off the network until explicit demand.
 test("deep-history attach/reveal paints the live tail until history is requested", async ({ smokePage, stack }, testInfo) => {
   test.skip(!testInfo.project.name.startsWith("chromium"), "desktop scroll-geometry contract");
   test.setTimeout(120_000);
@@ -41,19 +43,15 @@ test("deep-history attach/reveal paints the live tail until history is requested
           rowCount: number;
           atBottom: boolean;
         };
-        markerScan(sessionId: string, prefix: string): {
-          max: number;
-          duplicated: number[];
-          missing: number;
-          outOfOrder: number;
-        };
+        markerScan(sessionId: string, prefix: string): RecoveryMarkerScan;
         lastFullFrameSbRows(sessionId: string): number;
         scrollbackBackfillRequestCount(sessionId: string): number;
       };
     }).__smoke;
+    const scan = smoke.markerScan(id, "CELLLINE-");
     return {
       ...smoke.renderProbe(id),
-      markerMax: smoke.markerScan(id, "CELLLINE-").max,
+      scan,
       snapshotSbRows: smoke.lastFullFrameSbRows(id),
       historyRequests: smoke.scrollbackBackfillRequestCount(id),
     };
@@ -62,12 +60,24 @@ test("deep-history attach/reveal paints the live tail until history is requested
   const attached = await probe();
   expect(attached).toMatchObject({
     mode: "cell",
-    markerMax: 8000,
     atBottom: true,
-    snapshotSbRows: 0,
     historyRequests: 0,
+    scan: {
+      max: 8000,
+      duplicated: [],
+      missing: 0,
+      outOfOrder: 0,
+    },
   });
-  expect(attached.rowCount).toBeLessThan(100);
+  expect(attached.snapshotSbRows).toBeGreaterThan(0);
+  expect(attached.snapshotSbRows).toBeLessThanOrEqual(SB_RENEWAL_HISTORY_ROWS);
+  expect(attached.rowCount).toBeGreaterThan(0);
+  const paintedViewportRows = attached.rowCount - attached.snapshotSbRows;
+  expect(paintedViewportRows).toBeGreaterThan(0);
+  expect(paintedViewportRows).toBeLessThanOrEqual(TERMINAL_MAX_ROWS);
+  expect(attached.rowCount).toBeLessThanOrEqual(
+    SB_RENEWAL_HISTORY_ROWS + TERMINAL_MAX_ROWS,
+  );
 
   const idleSamples = await smokePage.evaluate(async ({ id, rowCount, requests }) => {
     const smoke = (window as unknown as Window & {
@@ -112,16 +122,18 @@ test("deep-history attach/reveal paints the live tail until history is requested
   const demanded = await smokePage.evaluate((id) => {
     const smoke = (window as unknown as Window & {
       __smoke: {
-        markerScan(sessionId: string, prefix: string): {
-          duplicated: number[];
-          missing: number;
-          outOfOrder: number;
-        };
+        markerScan(sessionId: string, prefix: string): RecoveryMarkerScan;
       };
     }).__smoke;
     return smoke.markerScan(id, "CELLLINE-");
   }, sessionId);
-  expect(demanded).toMatchObject({ duplicated: [], missing: 0, outOfOrder: 0 });
+  expect(demanded).toMatchObject({
+    max: 8000,
+    duplicated: [],
+    missing: 0,
+    outOfOrder: 0,
+  });
+  expect(demanded.total).toBeGreaterThan(attached.scan.total);
 });
 
 // OSC 8 hyperlinks are CORE-AUTHORED per cell — never derived from the byte
@@ -203,48 +215,111 @@ test("identical link text with different URIs keeps both, through a backfill rou
           text: anchor.textContent ?? "",
         }));
     }, sessionId);
+  const expectLinksIntact = async (): Promise<void> => {
+    await expect.poll(
+      async () => (await paintedLinks()).map((link) => link.href),
+      { timeout: 30_000, intervals: [100] },
+    ).toEqual([firstUri, secondUri]);
+    const producerLinks = await paintedLinks();
+    // Distinct run identity is what keeps identically-styled, identically-
+    // texted links from coalescing into one span and losing a URI.
+    expect(new Set(producerLinks.map((link) => link.key)).size).toBe(2);
+    await expect.poll(inferredUrls, { timeout: 15_000, intervals: [100] }).toEqual([inferredUrl]);
+    await expect.poll(
+      async () => (await fileLinks()).map((link) => link.text),
+      { timeout: 15_000, intervals: [100] },
+    ).toEqual([filePath]);
+    const files = await fileLinks();
+    // The internal file route, not a browser navigation — Roost opens it itself.
+    expect(files[0]?.href.startsWith("/file/")).toBe(true);
+  };
 
-  const live = await paintedLinks();
-  expect(live.map((link) => link.href)).toEqual([firstUri, secondUri]);
-  // Distinct run identity is what keeps two identically-styled, identically-
-  // texted links from coalescing into one span and losing a URI.
-  expect(new Set(live.map((link) => link.key)).size).toBe(2);
-  // The inferred scan is asynchronous (idle/rAF), unlike the painted anchors,
-  // which exist the instant the row paints.
-  await expect.poll(inferredUrls, { timeout: 15_000, intervals: [100] }).toEqual([inferredUrl]);
-  const liveFiles = await fileLinks();
-  expect(liveFiles.map((link) => link.text)).toEqual([filePath]);
-  // The internal file route, not a browser navigation — Roost opens it itself.
-  expect(liveFiles[0].href.startsWith("/file/")).toBe(true);
+  await expectLinksIntact();
 
-  // Push the link row deep into retained history, then reload: the authoritative
-  // snapshot paints only the live tail plus a spacer, so the anchors leave the
-  // DOM entirely and can only come back through a history page.
+  // A same-grid renewal is allowed to carry a bounded history tail. Keep the
+  // link close enough to the tail to prove that path preserves both producer
+  // identities without issuing the demand-only history RPC.
+  const retainedPrefix = `OSC8-FILL-${suffix}-`;
+  const retainedCount = 200;
   await inputSmokeTerminal(
     smokePage,
     sessionId,
-    encodePtyFixtureCommand({ op: "FLOOD", prefix: `OSC8-FILL-${suffix}-`, count: 200 }),
+    encodePtyFixtureCommand({ op: "FLOOD", prefix: retainedPrefix, count: retainedCount }),
   );
   await smokePage.evaluate(({ id, marker }) => {
     const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
     return smokeWindow.__smoke.waitForPaintedMarker(id, marker, 30_000);
-  }, { id: sessionId, marker: `OSC8-FILL-${suffix}-200` });
+  }, { id: sessionId, marker: `${retainedPrefix}${retainedCount}` });
 
   await smokePage.reload({ waitUntil: "domcontentloaded" });
-  await smokePage.waitForFunction(() =>
-    typeof (window as unknown as Window & { __smoke?: unknown }).__smoke === "object");
+  await smokePage.waitForFunction(() => {
+    const smokeWindow = window as unknown as Window & { __smoke?: unknown };
+    return typeof smokeWindow.__smoke === "object";
+  });
   await smokePage.waitForFunction((id) => {
     const pane = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
     return !!pane?.querySelector(".cell-sb-spacer") && !!pane.querySelector(".cell-row");
   }, sessionId);
+
+  const renewed = await smokePage.evaluate(({ id, prefix }) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    const smoke = smokeWindow.__smoke;
+    return {
+      historyRequests: smoke.scrollbackBackfillRequestCount(id),
+      snapshotSbRows: smoke.lastFullFrameSbRows(id),
+      scan: smoke.markerScan(id, prefix),
+    };
+  }, { id: sessionId, prefix: retainedPrefix });
+  expect(renewed.historyRequests).toBe(0);
+  expect(renewed.snapshotSbRows).toBeGreaterThan(0);
+  expect(renewed.snapshotSbRows).toBeLessThanOrEqual(SB_RENEWAL_HISTORY_ROWS);
+  expect(renewed.scan.total).toBeGreaterThan(0);
+  expect(renewed.scan).toMatchObject({
+    max: retainedCount,
+    duplicated: [],
+    missing: 0,
+    outOfOrder: 0,
+  });
+  await expectLinksIntact();
+
+  // Advance beyond the renewal window while staying at the live bottom. The
+  // original link row must leave the bounded DOM tail, but no paging is allowed
+  // until the user actually asks for the older rows.
+  const deepPrefix = `OSC8-DEEP-${suffix}-`;
+  const deepCount = SB_RENEWAL_HISTORY_ROWS + 300;
+  await inputSmokeTerminal(
+    smokePage,
+    sessionId,
+    encodePtyFixtureCommand({ op: "FLOOD", prefix: deepPrefix, count: deepCount }),
+  );
+  await smokePage.evaluate(({ id, marker }) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return smokeWindow.__smoke.waitForPaintedMarker(id, marker, 30_000);
+  }, { id: sessionId, marker: `${deepPrefix}${deepCount}` });
+
+  const beforeDemand = await smokePage.evaluate(({ id, prefix }) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    const smoke = smokeWindow.__smoke;
+    return {
+      atBottom: smoke.renderProbe(id).atBottom,
+      historyRequests: smoke.scrollbackBackfillRequestCount(id),
+      scan: smoke.markerScan(id, prefix),
+    };
+  }, { id: sessionId, prefix: deepPrefix });
+  expect(beforeDemand.atBottom).toBe(true);
+  expect(beforeDemand.historyRequests).toBe(renewed.historyRequests);
+  expect(beforeDemand.scan.total).toBeGreaterThan(0);
+  expect(beforeDemand.scan.min).toBeGreaterThan(1);
+  expect(beforeDemand.scan).toMatchObject({
+    max: deepCount,
+    duplicated: [],
+    missing: 0,
+    outOfOrder: 0,
+  });
   expect(await paintedLinks()).toEqual([]);
   expect(await inferredUrls()).toEqual([]);
   expect(await fileLinks()).toEqual([]);
 
-  const beforeHistory = await smokePage.evaluate((id) => {
-    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
-    return smokeWindow.__smoke.scrollbackBackfillRequestCount(id);
-  }, sessionId);
   await smokePage.evaluate((id) => {
     const pane = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
     const container = pane?.querySelector(".wterm");
@@ -255,13 +330,21 @@ test("identical link text with different URIs keeps both, through a backfill rou
   await smokePage.waitForFunction(({ id, previous }) => {
     const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
     return smokeWindow.__smoke.scrollbackBackfillRequestCount(id) > previous;
-  }, { id: sessionId, previous: beforeHistory });
+  }, { id: sessionId, previous: beforeDemand.historyRequests });
 
-  await expect.poll(
-    async () => (await paintedLinks()).map((link) => link.href),
-    { timeout: 30_000, intervals: [100] },
-  ).toEqual([firstUri, secondUri]);
-  expect(new Set((await paintedLinks()).map((link) => link.key)).size).toBe(2);
-  await expect.poll(inferredUrls, { timeout: 15_000, intervals: [100] }).toEqual([inferredUrl]);
-  expect((await fileLinks()).map((link) => link.text)).toEqual([filePath]);
+  await expectLinksIntact();
+  const demanded = await smokePage.evaluate(({ id, prefix }) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    const smoke = smokeWindow.__smoke;
+    return smoke.markerScan(id, prefix);
+  }, { id: sessionId, prefix: deepPrefix });
+  expect(demanded).toMatchObject({
+    total: deepCount,
+    unique: deepCount,
+    min: 1,
+    max: deepCount,
+    duplicated: [],
+    missing: 0,
+    outOfOrder: 0,
+  });
 });

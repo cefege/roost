@@ -23,7 +23,6 @@ import { isPageVisible } from "../lib/pageVisible.ts";
 // The event firehose is _runConnectSync: a raw WebSocket to coord's
 // /ws/coord-sync carrying state, cell grids, and compact terminal metadata.
 import { signal, diag } from "@roost/shared/diag";
-import { resetCellMountBuffers } from "./sync-dispatch.ts";
 import {
   nextRedialDelayMs,
   shouldCloseStaleLinkOnResume,
@@ -45,16 +44,17 @@ import {
 // Worker-routability signal lives in sync-routable.ts (leaf): _runConnectSync
 // writes it; the UI reads workerOnline (re-exported here so consumers keep
 // importing it from store/sync.ts).
-import { setOpen } from "./sync-stream-open.ts";
 import { setRoutableFps } from "./sync-routable.ts";
 export { workerOnline } from "./sync-routable.ts";
-// Per-session cell/presence fan-out lives in sync-dispatch.ts (leaf module).
+// Presence metadata remains a leaf dispatch. Terminal screen/state ownership is
+// in terminal-stream.ts and is re-exported here for diagnostics/smoke callers.
+export { registerPresenceHandler } from "./sync-dispatch.ts";
 export {
-  registerCellHandler, registerPresenceHandler, acquireCellMountClaim,
-  cellFrameCount, cellFullFrameCount, lastFullFrameSbRows, cellGridEpoch,
-  cellMountBufferStats,
-} from "./sync-dispatch.ts";
-export type { CellMountClaim } from "./sync-dispatch.ts";
+  cellFrameCount,
+  cellFullFrameCount,
+  lastFullFrameSbRows,
+  cellGridEpoch,
+} from "./terminal-stream.ts";
 // Per-domain delta handlers + keeper-death detector + delta-sub registries
 // live in sync-handlers.ts; the per-frame switch calls them and iterates the
 // sub Sets.
@@ -122,9 +122,6 @@ export type SyncV2Control = Extract<
   FirehoseFrame["frame"],
   {
     case:
-      | "viewportAccepted"
-      | "viewportRejected"
-      | "viewportAmbiguous"
       | "inputAccepted"
       | "inputRejected"
       | "inputAmbiguous";
@@ -276,7 +273,6 @@ export function applySyncDomainSnapshot(
   if (!isCurrentSyncDomainToken(token)) return false;
   domain.ready = true;
   if (token.domain === SyncDomain.TERMINAL) {
-    setOpen(true);
     _notifyV2Generation(currentSyncV2TerminalState());
   }
   return true;
@@ -489,7 +485,6 @@ function _armCloseEscape(link: LiveSyncLink): void {
     link.accepting = false;
     _deactivateV2Link(link);
     link.closeEscapeTimer = null;
-    if (_liveLink === link) setOpen(false);
     link.resolveClosed();
   }, WS_CLOSE_ESCAPE_MS);
 }
@@ -500,7 +495,6 @@ function _initiateWsClose(reason: Exclude<SyncAbortReason, null>): void {
   link.accepting = false;
   _deactivateV2Link(link);
   link.abortReason = reason;
-  if (_liveLink === link) setOpen(false);
   try { link.ws.close(); } catch { link.resolveClosed(); }
   _armCloseEscape(link);
 }
@@ -514,7 +508,6 @@ export function _requestSyncRedial(): void {
 function _closeFailedLink(link: LiveSyncLink): void {
   link.accepting = false;
   _deactivateV2Link(link);
-  if (_liveLink === link) setOpen(false);
   try { link.ws.close(); } catch { link.resolveClosed(); }
   _armCloseEscape(link);
 }
@@ -568,14 +561,6 @@ export function reconnectNow(): void {
   console.info("[sync.connect] manual reconnect requested");
   resumeSyncNow();
   _initiateWsClose("manual");
-}
-
-
-// Backward-compatible name for callers migrating from the raw-open barrier.
-// V2 resolves only after the subscribed control establishes socket/domain
-// generations, never at WebSocket.onopen.
-export async function syncSocketOpened(timeoutMs: number): Promise<void> {
-  await waitForSyncSubscribed(timeoutMs);
 }
 
 // Immediate re-dial request. Read by whichever side sees it first, so it works
@@ -714,7 +699,6 @@ function _handleDomainReset(link: LiveSyncLink, reset: SyncDomainResetFrame): vo
   domain.ready = false;
   if (reset.domain === SyncDomain.WORKERS) v2.routableChunks.clear();
   if (reset.domain === SyncDomain.TERMINAL) {
-    setOpen(false);
     _notifyV2Generation(currentSyncV2TerminalState());
   }
   if (reset.subscribed) _triggerDomainHydration(reset.domain);
@@ -781,9 +765,6 @@ function _handleV2Control(link: LiveSyncLink, frame: FirehoseFrame): boolean {
     case "domainReset":
       _handleDomainReset(link, frame.frame.value);
       return true;
-    case "viewportAccepted":
-    case "viewportRejected":
-    case "viewportAmbiguous":
     case "inputAccepted":
     case "inputRejected":
     case "inputAmbiguous": {
@@ -907,7 +888,7 @@ export async function _runConnectSync(): Promise<void> {
         }
         link.accepting = true;
         // Raw OPEN is not hydration readiness. The subscribed control installs
-        // generations; terminal domain_ready raises syncStreamOpen.
+        // generations; terminal domain_ready publishes the hydrated generation.
         link.watchdog = startStaleWatchdog(ws, {
           onStale: () => {
             if (_liveLink === link) _initiateWsClose("stale");
@@ -943,10 +924,6 @@ export async function _runConnectSync(): Promise<void> {
           link.abortReason === null
           && isSyncBackpressureClose(event.code, event.reason)
         ) link.abortReason = "flow";
-        if (_liveLink === link) {
-          resetCellMountBuffers();
-          setOpen(false);
-        }
         link.resolveClosed();
       };
       await closed;
@@ -957,10 +934,7 @@ export async function _runConnectSync(): Promise<void> {
       if (dialLink) {
         abortReason = dialLink.abortReason;
         _cleanupLink(dialLink);
-        if (_liveLink === dialLink) {
-          _liveLink = null;
-          setOpen(false);
-        }
+        if (_liveLink === dialLink) _liveLink = null;
       }
     }
     // Intentional lifecycle closes and server flow recovery redial immediately.

@@ -16,7 +16,8 @@ import { log } from "@roost/shared/log";
 import type { WorkerFp } from "@roost/shared/wire";
 import {
 	TerminalInputStatus,
-	TerminalViewportStatus,
+	TerminalStreamFailureKind,
+	TerminalStreamStatus,
 	TerminalWritePhase,
 } from "@roost/shared/proto/worker_transport_pb";
 import { handleAttachmentChunk } from "./attachment-upload.ts";
@@ -25,10 +26,37 @@ import type { CoordTarget } from "./coord-target.ts";
 import type { WorkerCoordRelocation } from "./coord-relocation.ts";
 import type { SessionManager } from "./session-manager.ts";
 import type { AgentStatusRegistry } from "./agent-status/registry.ts";
+import type { TerminalStreamFailure } from "./session-terminal-state.ts";
 import type { CoordLink, CoordLinkDeps } from "./transport/coord-link.ts";
 
 const _workerSha8 = (b: Uint8Array): string =>
 	createHash("sha256").update(b).digest("hex").slice(0, 8);
+function terminalFailureKind(
+	failure: TerminalStreamFailure | undefined,
+): TerminalStreamFailureKind {
+	switch (failure) {
+		case "retryable_pre_write": return TerminalStreamFailureKind.RETRYABLE_PRE_WRITE;
+		case "session_not_live": return TerminalStreamFailureKind.SESSION_NOT_LIVE;
+		case "invalid_request": return TerminalStreamFailureKind.INVALID_REQUEST;
+		case "core_failed": return TerminalStreamFailureKind.CORE_FAILED;
+		case "ambiguous_boundary": return TerminalStreamFailureKind.AMBIGUOUS_BOUNDARY;
+		default: return TerminalStreamFailureKind.UNSPECIFIED;
+	}
+}
+
+function boundedTerminalReason(reason: string | undefined): string | undefined {
+	if (!reason) return undefined;
+	const encoded = Buffer.from(reason);
+	if (encoded.byteLength <= 200) return reason;
+	for (let end = 200; end > 0; end -= 1) {
+		try {
+			return new TextDecoder("utf-8", { fatal: true }).decode(encoded.subarray(0, end));
+		} catch {
+			// Continue to the previous UTF-8 boundary.
+		}
+	}
+	return "";
+}
 
 async function replayDurableWindowsUpdateProgress(coordLink: CoordLink): Promise<void> {
 	if (process.platform !== "win32") return;
@@ -91,10 +119,10 @@ export function buildCoordLinkDeps(ctx: CoordLinkDepsCtx): CoordLinkDeps {
 		workerVersion: "v2",
 		mintJwt: ctx.mintJwt,
 		onHelloAck: ({ reconnected }) => {
-			if (reconnected) refs.sessionMgr?.resnapshotClaimedSessions();
+			if (reconnected) refs.sessionMgr?.invalidateTerminalStreamsForReconnect();
 		},
 		onWritable: () => {
-			refs.sessionMgr?.flushPendingCellRepairs();
+			refs.sessionMgr?.resumeTerminalSnapshots();
 		},
 		onOpen: (reconnected) => {
 			if (reconnected) refs.agentRegistry?.resend();
@@ -134,64 +162,46 @@ export function buildCoordLinkDeps(ctx: CoordLinkDepsCtx): CoordLinkDeps {
 				reason: result.status === "accepted" ? undefined : result.reason,
 			});
 		},
-		onViewportRequest: async (request, budget) => {
-			const result = await mgr().applyTerminalViewport({
+		onTerminalStreamState: async (request, budget) => {
+			const result = await mgr().applyTerminalStreamState({
+				requestId: request.requestId,
 				sessionId: request.sessionId,
-				viewerId: request.viewerId,
-				clientSeq: request.clientSeq,
+				streamId: request.streamId,
+				enabled: request.enabled,
 				cols: request.cols,
 				rows: request.rows,
-				cause: request.cause,
-				heldCellSeq: request.heldCellSeq,
 				budget,
 			});
-			switch (result.status) {
-				case "committed":
-					link().send({
-						kind: "viewport-result",
-						request_id: request.requestId,
-						session_id: request.sessionId,
-						client_seq: request.clientSeq,
-						status: TerminalViewportStatus.COMMITTED,
-						channel_resize_seq: BigInt(result.channelResizeSeq),
-						cols: result.cols,
-						rows: result.rows,
-						resized: result.resized,
-						phase: TerminalWritePhase.WRITTEN,
-					});
-					return;
-				case "rejected":
-					link().send({
-						kind: "viewport-result",
-						request_id: request.requestId,
-						session_id: request.sessionId,
-						client_seq: request.clientSeq,
-						status: TerminalViewportStatus.REJECTED,
-						channel_resize_seq: 0n,
-						cols: 0,
-						rows: 0,
-						resized: false,
-						phase: TerminalWritePhase.PRE_WRITE,
-						reason: result.reason,
-						sequence_floor: result.sequenceFloor,
-					});
-					return;
-				case "ambiguous":
-					link().send({
-						kind: "viewport-result",
-						request_id: request.requestId,
-						session_id: request.sessionId,
-						client_seq: request.clientSeq,
-						status: TerminalViewportStatus.AMBIGUOUS,
-						channel_resize_seq: 0n,
-						cols: 0,
-						rows: 0,
-						resized: false,
-						phase: TerminalWritePhase.UNKNOWN,
-						reason: result.reason,
-					});
-					return;
-			}
+			link().send({
+				kind: "terminal-stream-result",
+				request_id: request.requestId,
+				session_id: request.sessionId,
+				stream_id: result.streamId,
+				enabled: result.enabled,
+				status: result.status === "committed"
+					? TerminalStreamStatus.COMMITTED
+					: result.status === "rejected"
+						? TerminalStreamStatus.REJECTED
+						: TerminalStreamStatus.AMBIGUOUS,
+				channel_resize_seq: BigInt(result.channelResizeSeq),
+				effective_cols: result.cols,
+				effective_rows: result.rows,
+				resized: result.status === "committed" ? result.resized : false,
+				phase: result.phase === "written"
+					? TerminalWritePhase.WRITTEN
+					: result.phase === "pre_write"
+						? TerminalWritePhase.PRE_WRITE
+						: TerminalWritePhase.UNKNOWN,
+				failure_kind: terminalFailureKind(
+					result.status === "committed" ? undefined : result.failure,
+				),
+				reason: boundedTerminalReason(
+					result.status === "committed" ? undefined : result.reason,
+				),
+			});
+		},
+		onTerminalSnapshotRequest: (request) => {
+			mgr().requestTerminalSnapshot(request.sessionId, request.streamId);
 		},
 		// phase-24c-1: PTY input routed via sessions.input mutation arrives
 		// here as a downstream binary frame. Demux by channel_id, only

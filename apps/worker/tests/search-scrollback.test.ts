@@ -93,7 +93,7 @@ async function injectSession(mgr: SessionManager): Promise<SessionShellRecord> {
     ...initAgentOscState(),
     wtermCore,
     session_trace_id: "sbfind00",
-    cell_emit: initCellEmitState("test-grid"),
+    cell_emit: initCellEmitState("test-grid", "00000000-0000-4000-8000-000000000001"),
     lastPtyOutMs: 0,
     sb_origin_pin: null,
     spawnedAtMs: Date.now(),
@@ -354,7 +354,7 @@ describe("search-scrollback", () => {
       Array.from({ length: LINE_COUNT }, (_, i) => `REBUILT-${i}`).join("\r\n") + "\r\n",
     ));
     rec.wtermCore = rebuilt;
-    rec.cell_emit = initCellEmitState("rebuilt-grid");
+    rec.cell_emit = initCellEmitState("rebuilt-grid", "00000000-0000-4000-8000-000000000001");
     const freshEpoch = cellGridEpoch(rec.cell_emit);
     expect(freshEpoch).not.toBe(heldEpoch);
 

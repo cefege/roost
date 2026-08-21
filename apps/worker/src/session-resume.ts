@@ -9,12 +9,13 @@ import { diag, signal } from "@roost/shared/diag";
 import { log } from "@roost/shared/log";
 import { newTraceId } from "@roost/shared/trace";
 import { initCellEmitState } from "@roost/shared/cell";
+import { isTerminalGeometry } from "@roost/shared/viewport";
+import { randomUUID } from "node:crypto";
 import { FsmChannel } from "./fsm.ts";
 import { canonicalSessionCwd } from "./util/path.ts";
 import {
 	getMultiplexedPool,
 	type KeeperHistoryRecords,
-	type MuxChannelCallbacks,
 } from "./keeper/multiplexed-client.ts";
 import { ALT_ENTER_SEQS, _scanAltModeTransitions } from "./terminal-stream-scan.ts";
 import { _createWtermCore } from "./session-constants.ts";
@@ -28,36 +29,11 @@ import { join } from "node:path";
 import { resolveShellSpec } from "./shell-spec.ts";
 import type { ShellSpec } from "./shell-spec.ts";
 import { KeeperFeature } from "./keeper/protocol.ts";
-import { redrawEvictedResume } from "./session-terminal-control.ts";
-
-type PendingResumeEvent =
-	| { readonly kind: "output"; readonly chunk: Buffer }
-	| { readonly kind: "exit"; readonly exitCode: number | null }
-	| { readonly kind: "error"; readonly error: Error };
-
-function stageResumeCallbacks(
-	live: MuxChannelCallbacks,
-	pending: PendingResumeEvent[],
-): MuxChannelCallbacks {
-	return {
-		onOutput: (chunk) =>
-			pending.push({ kind: "output", chunk: Buffer.from(chunk) }),
-		onExit: (exitCode) => pending.push({ kind: "exit", exitCode }),
-		onError: (error) => pending.push({ kind: "error", error }),
-	};
-}
-
-function flushResumeEvents(
-	live: MuxChannelCallbacks,
-	pending: PendingResumeEvent[],
-): void {
-	for (const event of pending) {
-		if (event.kind === "output") live.onOutput(event.chunk);
-		else if (event.kind === "exit") live.onExit(event.exitCode);
-		else live.onError(event.error);
-	}
-	pending.length = 0;
-}
+import {
+	flushResumeEvents,
+	stageResumeCallbacks,
+	type PendingResumeEvent,
+} from "./session-resume-events.ts";
 
 /** Rebuild SessionRecord for a session whose keeper survived this
  * worker restart. Probes the mux pool; if the channel is alive in the
@@ -135,10 +111,19 @@ export async function resume(this: SessionManager, opts: {
 			// under the wrong geometry, so force the normal respawn path.
 			if (orderedHistorySupported) throw historyError;
 		}
-		const wtermCore = await _createWtermCore(
-			orderedHistory?.baseCols ?? 80,
-			orderedHistory?.baseRows ?? 24,
-		);
+		const terminalState = await pool.getTerminalState(opts.channelId);
+		if (!terminalState || !isTerminalGeometry({ cols: terminalState.cols, rows: terminalState.rows })) {
+			throw new Error("keeper did not report valid terminal geometry for adoption");
+		}
+		const baseCols = orderedHistory?.baseCols ?? terminalState.cols;
+		const baseRows = orderedHistory?.baseRows ?? terminalState.rows;
+		if (!isTerminalGeometry({ cols: baseCols, rows: baseRows })) {
+			throw new Error("keeper history reported invalid base terminal geometry");
+		}
+		const wtermCore = await _createWtermCore(baseCols, baseRows);
+		if (wtermCore.getCols() !== baseCols || wtermCore.getRows() !== baseRows) {
+			throw new Error("terminal core did not retain keeper history base geometry");
+		}
 		const resumedScrollback = createSbRing();
 		// The keeper's history window opens at whatever byte its own ring last
 		// evicted over (keeper/keeper-frame-handler.ts orderedHistory() reads
@@ -181,10 +166,17 @@ export async function resume(this: SessionManager, opts: {
 					);
 					dropOrphanPrefix = false;
 				} else {
-					// A resize feeds the parser no bytes, so a not-yet-written core
-					// stays cold across it.
+					if (!isTerminalGeometry({ cols: historyRecord.cols, rows: historyRecord.rows })) {
+						throw new Error("keeper history contains invalid resize geometry");
+					}
 					wtermCore.resize(historyRecord.cols, historyRecord.rows);
-				}
+					if (
+						wtermCore.getCols() !== historyRecord.cols
+						|| wtermCore.getRows() !== historyRecord.rows
+					) {
+						throw new Error("terminal core did not retain keeper history resize geometry");
+					}
+			}
 			}
 		} else {
 			historyEvicted = resumedHeadSeq > legacyBytes.length;
@@ -196,6 +188,12 @@ export async function resume(this: SessionManager, opts: {
 						: legacyBytes,
 				);
 			}
+		}
+		if (
+			wtermCore.getCols() !== terminalState.cols
+			|| wtermCore.getRows() !== terminalState.rows
+		) {
+			throw new Error("ordered keeper history did not converge to reported terminal geometry");
 		}
 		const resumedBytes = readRing(resumedScrollback);
 		const resumedAlt = resumedBytes.length > 0
@@ -224,7 +222,7 @@ export async function resume(this: SessionManager, opts: {
 			...initAgentOscState(),
 			wtermCore,
 			session_trace_id: newTraceId(),
-			cell_emit: initCellEmitState(newTraceId()),
+			cell_emit: initCellEmitState(newTraceId(), randomUUID()),
 			lastPtyOutMs: 0,
 			sb_origin_pin: null,
 			spawnedAtMs: Date.now(),
@@ -234,14 +232,7 @@ export async function resume(this: SessionManager, opts: {
 			childPid: liveChannel.pid,
 		};
 		this.sessions.set(opts.channelId, record);
-		this.channelResizeSeq.set(
-			opts.channelId,
-			orderedHistory?.records.reduce(
-				(latest, historyRecord) =>
-					historyRecord.kind === "resize" ? Math.max(latest, historyRecord.seq) : latest,
-				0,
-			) ?? 0,
-		);
+		this.channelResizeSeq.set(opts.channelId, terminalState.highestResizeSeq);
 		const originalCols = record.wtermCore.getCols();
 		const originalRows = record.wtermCore.getRows();
 		this.lastAppliedSize.set(opts.channelId, { cols: originalCols, rows: originalRows });
@@ -253,59 +244,6 @@ export async function resume(this: SessionManager, opts: {
 		// The survivor was found and its real exit was delivered. Report the
 		// reconciliation as handled so boot-reconcile does not respawn it.
 		if (!this.sessions.has(opts.channelId)) return true;
-		if (historyEvicted) {
-			// Eviction makes the retained resize maximum only a lower sequence bound.
-			this.resizeFloorInvalid.add(opts.channelId);
-			try {
-				const redraw = await redrawEvictedResume(this, opts.channelId, originalCols, originalRows);
-				const finalCore = this.sessions.get(opts.channelId)?.wtermCore;
-				const finalCols = finalCore?.getCols() ?? originalCols;
-				const finalRows = finalCore?.getRows() ?? originalRows;
-				const details = {
-					sessionId: opts.sessionId,
-					channelId: opts.channelId,
-					originalCols,
-					originalRows,
-					nudgeStatus: redraw.nudge.status,
-					nudgeResizeSeq: redraw.nudge.resizeSeq,
-					nudgeReason: "reason" in redraw.nudge ? redraw.nudge.reason : null,
-					restoreStatus: redraw.restore.status,
-					restoreResizeSeq: redraw.restore.resizeSeq,
-					restoreReason: "reason" in redraw.restore ? redraw.restore.reason : null,
-					finalCols,
-					finalRows,
-				};
-				diag("session.resume_eviction_redraw", {
-					sid: opts.sessionId,
-					channel_id: opts.channelId,
-					original_cols: originalCols,
-					original_rows: originalRows,
-					nudge_status: redraw.nudge.status,
-					nudge_resize_seq: redraw.nudge.resizeSeq,
-					restore_status: redraw.restore.status,
-					restore_resize_seq: redraw.restore.resizeSeq,
-					final_cols: finalCols,
-					final_rows: finalRows,
-				});
-				if (redraw.nudge.status !== "committed"
-					|| redraw.restore.status !== "committed"
-					|| finalCols !== originalCols
-					|| finalRows !== originalRows) {
-					log.warn("session-manager", "resume_eviction_redraw_unsettled", details);
-				}
-			} catch (error) {
-				// Keep the survivor live and leave its floor marked for the next repair.
-				this.resizeFloorInvalid.add(opts.channelId);
-				this.pendingCellRepairs.add(opts.channelId);
-				log.warn("session-manager", "resume_eviction_redraw_failed", { channelId: opts.channelId, error: String(error) });
-				diag("session.resume_eviction_redraw", {
-					sid: opts.sessionId,
-					channel_id: opts.channelId,
-					status: "failed",
-					error: String(error),
-				});
-			}
-		}
 		this._startGitBranch(record);
 		this._startPorts(record);
 		// OMP bridge state reconnects independently of terminal byte replay.
@@ -357,6 +295,9 @@ export async function respawn(this: SessionManager, opts: {
 	// first means the async Exit-frame round-trip from the keeper finds
 	// no record and bails harmlessly.
 	const existing = this.getBySessionId(opts.oldSessionId);
+	const existingSize = existing
+		? { cols: existing.wtermCore.getCols(), rows: existing.wtermCore.getRows() }
+		: null;
 	const requestedCwd = canonicalSessionCwd(opts.cwd);
 	const shellSpec = existing?.shellSpec ?? opts.shellSpec ?? resolveShellSpec({
 		cwd: requestedCwd,
@@ -370,12 +311,18 @@ export async function respawn(this: SessionManager, opts: {
 
 	const channelId = this.nextChannelId();
 	const resolvedCwd = shellSpec.cwd;
-	const cols = opts.cols ?? 80;
-	const rows = opts.rows ?? 24;
+	const cols = opts.cols ?? existingSize?.cols ?? 80;
+	const rows = opts.rows ?? existingSize?.rows ?? 24;
+	if (!isTerminalGeometry({ cols: cols, rows: rows })) {
+		throw new Error("respawn geometry must be within 1..256 on both axes");
+	}
 	const fsm = new FsmChannel((from, to, event) =>
 		this._onTransition(opts.oldSessionId, channelId, from, to, event),
 	);
 	const wtermCore = await _createWtermCore(cols, rows);
+	if (wtermCore.getCols() !== cols || wtermCore.getRows() !== rows) {
+		throw new Error("terminal core did not retain validated respawn geometry");
+	}
 
 	const record: SessionRecord = {
 		sessionId: opts.oldSessionId,
@@ -395,7 +342,7 @@ export async function respawn(this: SessionManager, opts: {
 		...initAgentOscState(),
 		wtermCore,
 		session_trace_id: newTraceId(),
-		cell_emit: initCellEmitState(newTraceId()),
+		cell_emit: initCellEmitState(newTraceId(), randomUUID()),
 		lastPtyOutMs: 0,
 		sb_origin_pin: null,
 		spawnedAtMs: Date.now(),
@@ -426,10 +373,9 @@ export async function respawn(this: SessionManager, opts: {
 		throw e;
 	}
 
-	// The keeper created THIS channel's PTY at exactly cols×rows, so it is PROVEN
-	// applied geometry — the same seed spawnShell records. Without it the first
-	// viewport claim reads keeper history and rebuilds a core at unchanged
-	// geometry, minting a gridEpoch that discards the browser's painted history.
+	// The keeper created this channel's PTY at exactly cols×rows, so this is
+	// proven applied geometry. A later coordinator stream can reuse it without
+	// issuing a no-op keeper resize or replacing the in-memory core.
 	this.channelResizeSeq.set(channelId, 0);
 	this.lastAppliedSize.set(channelId, { cols, rows });
 

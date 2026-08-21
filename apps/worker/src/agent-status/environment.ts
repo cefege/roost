@@ -45,13 +45,6 @@ export function resolveAgentReportEndpoint(
   }
 }
 
-export function defaultAgentReportSocketPath(
-  env: NodeJS.ProcessEnv = process.env,
-  home = homedir(),
-): string {
-  return resolveAgentReportEndpoint(env, home).address;
-}
-
 function capabilityForSession(
   sessionId: string,
   endpoint: LocalEndpoint,

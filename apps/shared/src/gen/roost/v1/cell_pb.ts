@@ -15,7 +15,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file roost/v1/cell.proto.
  */
 export const file_roost_v1_cell: GenFile = /*@__PURE__*/
-  fileDesc("ChNyb29zdC92MS9jZWxsLnByb3RvEghyb29zdC52MSLaAQoKUGJDZWxsU3BhbhIMCgR0ZXh0GAEgASgJEgoKAmZnGAIgASgNEgoKAmJnGAMgASgNEg0KBWZsYWdzGAQgASgNEhMKBmZnX3JnYhgFIAEoDUgAiAEBEhMKBmJnX3JnYhgGIAEoDUgBiAEBEg8KB2NvbHVtbnMYByABKA0SFQoIbGlua191cmkYCCABKAlIAogBARIVCghsaW5rX2tleRgJIAEoCUgDiAEBQgkKB19mZ19yZ2JCCQoHX2JnX3JnYkILCglfbGlua191cmlCCwoJX2xpbmtfa2V5Ij8KCVBiQ2VsbFJvdxINCgVpbmRleBgBIAEoDRIjCgVzcGFucxgCIAMoCzIULnJvb3N0LnYxLlBiQ2VsbFNwYW4iyAQKD1BiQ2VsbEdyaWRGcmFtZRISCgpzZXNzaW9uX2lkGAEgASgJEgwKBGNvbHMYAiABKA0SDAoEcm93cxgDIAEoDRISCgpjdXJzb3Jfcm93GAQgASgNEhIKCmN1cnNvcl9jb2wYBSABKA0SFgoOY3Vyc29yX3Zpc2libGUYBiABKAgSEgoKYWx0X3NjcmVlbhgHIAEoCBIMCgRmdWxsGAggASgIEioKDXZpZXdwb3J0X3Jvd3MYCSADKAsyEy5yb29zdC52MS5QYkNlbGxSb3cSLAoPc2Nyb2xsYmFja19yb3dzGAogAygLMhMucm9vc3QudjEuUGJDZWxsUm93Ei4KEXNjcm9sbGJhY2tfYXBwZW5kGAsgAygLMhMucm9vc3QudjEuUGJDZWxsUm93EhgKEHNjcm9sbGJhY2tfdG90YWwYDCABKAQSCwoDc2VxGA0gASgEEg8KB3NiX2Jhc2UYDiABKAQSFwoPY3Vyc29yX2tleXNfYXBwGA8gASgIEhcKD2JyYWNrZXRlZF9wYXN0ZRgQIAEoCBISCgpwdHlfb3V0X21zGBEgASgEEhYKDndvcmtlcl9lbWl0X21zGBIgASgEEhUKDWNvb3JkX3JlY3ZfbXMYEyABKAQSFwoPY29vcmRfZmFub3V0X21zGBQgASgEEhIKCmdyaWRfZXBvY2gYFSABKAkSFgoObW91c2VfdHJhY2tpbmcYFiABKA0SEQoJbW91c2Vfc2dyGBcgASgIEhQKDGZvY3VzX2V2ZW50cxgYIAEoCGIGcHJvdG8z");
+  fileDesc("ChNyb29zdC92MS9jZWxsLnByb3RvEghyb29zdC52MSLaAQoKUGJDZWxsU3BhbhIMCgR0ZXh0GAEgASgJEgoKAmZnGAIgASgNEgoKAmJnGAMgASgNEg0KBWZsYWdzGAQgASgNEhMKBmZnX3JnYhgFIAEoDUgAiAEBEhMKBmJnX3JnYhgGIAEoDUgBiAEBEg8KB2NvbHVtbnMYByABKA0SFQoIbGlua191cmkYCCABKAlIAogBARIVCghsaW5rX2tleRgJIAEoCUgDiAEBQgkKB19mZ19yZ2JCCQoHX2JnX3JnYkILCglfbGlua191cmlCCwoJX2xpbmtfa2V5Ij8KCVBiQ2VsbFJvdxINCgVpbmRleBgBIAEoDRIjCgVzcGFucxgCIAMoCzIULnJvb3N0LnYxLlBiQ2VsbFNwYW4i7QQKD1BiQ2VsbEdyaWRGcmFtZRISCgpzZXNzaW9uX2lkGAEgASgJEgwKBGNvbHMYAiABKA0SDAoEcm93cxgDIAEoDRISCgpjdXJzb3Jfcm93GAQgASgNEhIKCmN1cnNvcl9jb2wYBSABKA0SFgoOY3Vyc29yX3Zpc2libGUYBiABKAgSEgoKYWx0X3NjcmVlbhgHIAEoCBIMCgRmdWxsGAggASgIEioKDXZpZXdwb3J0X3Jvd3MYCSADKAsyEy5yb29zdC52MS5QYkNlbGxSb3cSLAoPc2Nyb2xsYmFja19yb3dzGAogAygLMhMucm9vc3QudjEuUGJDZWxsUm93Ei4KEXNjcm9sbGJhY2tfYXBwZW5kGAsgAygLMhMucm9vc3QudjEuUGJDZWxsUm93EhgKEHNjcm9sbGJhY2tfdG90YWwYDCABKAQSCwoDc2VxGA0gASgEEg8KB3NiX2Jhc2UYDiABKAQSFwoPY3Vyc29yX2tleXNfYXBwGA8gASgIEhcKD2JyYWNrZXRlZF9wYXN0ZRgQIAEoCBISCgpwdHlfb3V0X21zGBEgASgEEhYKDndvcmtlcl9lbWl0X21zGBIgASgEEhUKDWNvb3JkX3JlY3ZfbXMYEyABKAQSFwoPY29vcmRfZmFub3V0X21zGBQgASgEEhIKCmdyaWRfZXBvY2gYFSABKAkSFgoObW91c2VfdHJhY2tpbmcYFiABKA0SEQoJbW91c2Vfc2dyGBcgASgIEhQKDGZvY3VzX2V2ZW50cxgYIAEoCBIRCglzdHJlYW1faWQYGSABKAkSEAoIYmFzZV9zZXEYGiABKAQieQoPUGJDZWxsR3JpZENodW5rEhMKC3NuYXBzaG90X2lkGAEgASgJEhMKC2NodW5rX2luZGV4GAIgASgNEhMKC2NodW5rX2NvdW50GAMgASgNEicKBHBhcnQYBCABKAsyGS5yb29zdC52MS5QYkNlbGxHcmlkRnJhbWViBnByb3RvMw");
 
 /**
  * @generated from message roost.v1.PbCellSpan
@@ -295,6 +295,19 @@ export type PbCellGridFrame = Message<"roost.v1.PbCellGridFrame"> & {
    * @generated from field: bool focus_events = 24;
    */
   focusEvents: boolean;
+
+  /**
+   * Coordinator-minted generation for one watched-session stream. A full
+   * baseline names base_seq=0; each delta names the preceding emitted seq.
+   *
+   * @generated from field: string stream_id = 25;
+   */
+  streamId: string;
+
+  /**
+   * @generated from field: uint64 base_seq = 26;
+   */
+  baseSeq: bigint;
 };
 
 /**
@@ -303,4 +316,40 @@ export type PbCellGridFrame = Message<"roost.v1.PbCellGridFrame"> & {
  */
 export const PbCellGridFrameSchema: GenMessage<PbCellGridFrame> = /*@__PURE__*/
   messageDesc(file_roost_v1_cell, 2);
+
+/**
+ * One deterministic whole-row part of an oversized full snapshot. Every part
+ * repeats identical scalar metadata; viewport row indices occur exactly once
+ * across the completed snapshot.
+ *
+ * @generated from message roost.v1.PbCellGridChunk
+ */
+export type PbCellGridChunk = Message<"roost.v1.PbCellGridChunk"> & {
+  /**
+   * @generated from field: string snapshot_id = 1;
+   */
+  snapshotId: string;
+
+  /**
+   * @generated from field: uint32 chunk_index = 2;
+   */
+  chunkIndex: number;
+
+  /**
+   * @generated from field: uint32 chunk_count = 3;
+   */
+  chunkCount: number;
+
+  /**
+   * @generated from field: roost.v1.PbCellGridFrame part = 4;
+   */
+  part?: PbCellGridFrame | undefined;
+};
+
+/**
+ * Describes the message roost.v1.PbCellGridChunk.
+ * Use `create(PbCellGridChunkSchema)` to create a new message.
+ */
+export const PbCellGridChunkSchema: GenMessage<PbCellGridChunk> = /*@__PURE__*/
+  messageDesc(file_roost_v1_cell, 3);
 

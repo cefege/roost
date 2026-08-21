@@ -18,15 +18,18 @@
 // exact worker/channel binding existed and route the first claim/keystroke
 // into a channel no keeper owned.
 
-import { globalBytesBus, globalCellBus } from "./buses.ts";
 import type { SessionEvent, SessionId, WorkerFp, ChannelId } from "@roost/shared/wire";
-import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
+import type { PbCellGridChunk, PbCellGridFrame } from "@roost/shared/proto/cell_pb";
 import {
-  clearBarrierRepairForFullFrame,
-  dropStaleBarrierRepair,
-} from "./byte-hub-barrier-repair.ts";
+  currentTerminalScreenHub,
+  notifyTerminalRouteReconciled,
+} from "./connect/terminal-view-hub.ts";
 import { log } from "@roost/shared/log";
 import { signal, diag } from "@roost/shared/diag";
+import {
+  dropCoalescedBytes,
+  publishCoalescedBytes,
+} from "./byte-hub-coalescer.ts";
 
 // (workerFp, channelId) → SessionId. Built from `opened` SessionEvents.
 // Worker binary frames carry channel_id only; coord needs the session_id
@@ -199,19 +202,6 @@ export function lookupSessionId(workerFp: WorkerFp, channelId: ChannelId): Sessi
   return _channelToSession.get(_key(workerFp, channelId));
 }
 
-/** The barrier-repair ledger (byte-hub-barrier-repair.ts) sweeps its marks
- *  against the live index after a rebind, and needs exactly one bit of it: has
- *  this route been rebound to some OTHER session? An unbound route answers
- *  false — its durable binding may still be in flight. This stays an accessor
- *  so `_channelToSession` is never handed out for mutation. */
-export function _isChannelBoundToOtherSession(
-  workerFp: string,
-  channelId: number,
-  sessionId: string,
-): boolean {
-  const bound = _channelToSession.get(_key(workerFp, channelId));
-  return bound !== undefined && bound !== sessionId;
-}
 
 // When coord restarts and the worker stays up, the worker never
 // re-emits `opened` for sessions that survived; the in-memory
@@ -225,52 +215,6 @@ export function primeChannelMap(rows: Array<{ id: string; worker_fp: string; cha
   }
 }
 
-// Per-session coordinator-internal PTY-byte coalescer. Mirrors the worker's
-// cell governor (CELL_EMIT_COALESCE_MS, worker/session-constants.ts):
-// LEADING-edge publish gives a single keystroke echo zero added latency, then
-// a RE-ARMED fixed interval — never a reset deadline — bounds continuous PTY
-// output to one parser batch per window instead of one batch per chunk.
-// Order and content are preserved: concatenation is append-only in publish
-// order, and both consumers (terminal-title-hub and last-activity-hub) are
-// carry-based stream scanners that cannot observe a chunk boundary.
-const BYTE_COALESCE_MS = 16;
-// Bound each pending parser batch and its temporary concatenation allocation.
-const BYTE_COALESCE_CAP_BYTES = 256 * 1024;
-interface PendingBytes {
-  parts: Uint8Array[];
-  len: number;
-  timer: Timer | undefined;
-}
-const _pendingBytes = new Map<SessionId, PendingBytes>();
-
-function _flushPendingBytes(sessionId: SessionId, pending: PendingBytes): void {
-  if (pending.len === 0) return;
-  const joined = new Uint8Array(pending.len);
-  let at = 0;
-  for (const part of pending.parts) {
-    joined.set(part, at);
-    at += part.length;
-  }
-  pending.parts = [];
-  pending.len = 0;
-  globalBytesBus.publish({ session_id: sessionId, bytes: joined });
-}
-
-function _armByteCoalesce(sessionId: SessionId, pending: PendingBytes): void {
-  const timer = setTimeout(() => {
-    // Nothing absorbed this window: the session went quiet, so retire the entry
-    // and let its next chunk take the leading edge again.
-    if (pending.len === 0) {
-      if (_pendingBytes.get(sessionId) === pending) _pendingBytes.delete(sessionId);
-      return;
-    }
-    _flushPendingBytes(sessionId, pending);
-    _armByteCoalesce(sessionId, pending);
-  }, BYTE_COALESCE_MS);
-  // Never hold the process (or a coord test) open on this timer.
-  timer.unref?.();
-  pending.timer = timer;
-}
 
 export function publishBytes(workerFp: WorkerFp, channelId: ChannelId, bytes: Uint8Array): void {
   const sessionId = _channelToSession.get(_key(workerFp, channelId));
@@ -284,32 +228,29 @@ export function publishBytes(workerFp: WorkerFp, channelId: ChannelId, bytes: Ui
     return;
   }
   _clearUnmappedDrop(workerFp, channelId);
-  const pending = _pendingBytes.get(sessionId);
-  if (!pending) {
-    globalBytesBus.publish({ session_id: sessionId, bytes });
-    const fresh: PendingBytes = { parts: [], len: 0, timer: undefined };
-    _pendingBytes.set(sessionId, fresh);
-    _armByteCoalesce(sessionId, fresh);
-    return;
-  }
-  pending.parts.push(bytes);
-  pending.len += bytes.length;
-  if (pending.len >= BYTE_COALESCE_CAP_BYTES) {
-    clearTimeout(pending.timer);
-    _flushPendingBytes(sessionId, pending);
-    _armByteCoalesce(sessionId, pending);
-  }
+  publishCoalescedBytes(sessionId, bytes);
 }
 
-// R11 cell-shipping. Worker WCellGrid frames carry channel_id only (same
-// as binary); map to session_id, stamp it on the proto frame, fan out via
-// globalCellBus. Unmapped channel = drop (same as bytes — the viewer gets a
-// full frame once the `opened` event binds the channel).
+// Worker cell frames carry only channel_id. Stamp the durable session binding
+// and deliver them directly to the canonical TerminalScreenHub.
 export function publishCellGrid(workerFp: WorkerFp, channelId: ChannelId, frame: PbCellGridFrame): void {
   const sessionId = _channelToSession.get(_key(workerFp, channelId));
   if (!sessionId) {
     diag("byte-hub.drop_unmapped_cell", { worker_fp: workerFp, channel_id: channelId });
     _recordUnmappedDrop(workerFp, channelId);
+    return;
+  }
+  if (frame.sessionId !== "" && frame.sessionId !== sessionId) {
+    diag("byte-hub.drop_mismatched_cell_session", {
+      worker_fp: workerFp,
+      channel_id: channelId,
+      expected_session_id: sessionId,
+      received_session_id: frame.sessionId,
+    });
+    currentTerminalScreenHub()?.invalidate(
+      sessionId,
+      "worker cell frame carried a mismatched session id",
+    );
     return;
   }
   _clearUnmappedDrop(workerFp, channelId);
@@ -335,10 +276,52 @@ export function publishCellGrid(workerFp: WorkerFp, channelId: ChannelId, frame:
     });
   }
   diag("cell.relay", { sid: sessionId, channel_id: channelId });
-  globalCellBus.publish(frame);
-  // Only a full frame for this exact route proves the cells the announcement
-  // barrier dropped are back — never a timer, never a delta.
-  if (frame.full) clearBarrierRepairForFullFrame(workerFp, sessionId, channelId);
+  currentTerminalScreenHub()?.publishFrame(sessionId, frame);
+}
+
+export function publishCellGridChunk(
+  workerFp: WorkerFp,
+  channelId: ChannelId,
+  chunk: PbCellGridChunk,
+): void {
+  const sessionId = _channelToSession.get(_key(workerFp, channelId));
+  if (!sessionId) {
+    diag("byte-hub.drop_unmapped_cell_chunk", {
+      worker_fp: workerFp,
+      channel_id: channelId,
+    });
+    _recordUnmappedDrop(workerFp, channelId);
+    return;
+  }
+  if (
+    chunk.part
+    && chunk.part.sessionId !== ""
+    && chunk.part.sessionId !== sessionId
+  ) {
+    diag("byte-hub.drop_mismatched_cell_chunk_session", {
+      worker_fp: workerFp,
+      channel_id: channelId,
+      expected_session_id: sessionId,
+      received_session_id: chunk.part.sessionId,
+    });
+    currentTerminalScreenHub()?.invalidate(
+      sessionId,
+      "worker cell chunk carried a mismatched session id",
+    );
+    return;
+  }
+  _clearUnmappedDrop(workerFp, channelId);
+  if (chunk.part) {
+    chunk.part.sessionId = sessionId;
+    chunk.part.coordRecvMs = BigInt(Date.now());
+  }
+  currentTerminalScreenHub()?.publishChunk(sessionId, chunk);
+  diag("cell.chunk_relay", {
+    sid: sessionId,
+    channel_id: channelId,
+    chunk_index: chunk.chunkIndex,
+    chunk_count: chunk.chunkCount,
+  });
 }
 
 // ─── durable channel-index publication ────────────────────────────────
@@ -364,15 +347,6 @@ export function resetWorkerChannelIndexReconcile(workerFp: string): void {
   _reconciledWorkers.delete(workerFp);
 }
 
-// Undelivered tail bytes are discarded, matching the worker's own post-close
-// drop policy (session-emit.ts). Clearing the timer is what stops a closed
-// session from leaking a re-armed coalescer.
-function _dropPendingBytes(sessionId: SessionId): void {
-  const pending = _pendingBytes.get(sessionId);
-  if (!pending) return;
-  clearTimeout(pending.timer);
-  _pendingBytes.delete(sessionId);
-}
 
 /** `respawned`: the keeper handed this session a NEW channel on `workerFp` —
  *  the fingerprint that authenticated the connection the event arrived on,
@@ -380,7 +354,7 @@ function _dropPendingBytes(sessionId: SessionId): void {
  *  Every previous key for the session goes first, so a later `closed` cannot
  *  prune the new binding and the dead channel stops resolving; the route cache
  *  is rebound before the browser sees the event, so the next cell frame,
- *  keystroke, and viewport claim reach the new core with no Sync reconnect. */
+ *  keystroke, and coordinator stream state reach the new core without redial. */
 export function rebindRespawnedChannel(
   workerFp: WorkerFp,
   sessionId: SessionId,
@@ -392,7 +366,6 @@ export function rebindRespawnedChannel(
   _lastCellBySession.delete(sessionId);
   _bindKey(_key(workerFp, newChannel), sessionId);
   cacheSessionWorker(sessionId, workerFp, newChannel);
-  dropStaleBarrierRepair(workerFp);
 }
 
 /** An authenticated worker `snapshot` is an EXACT replacement of that worker's
@@ -437,7 +410,6 @@ export function replaceWorkerChannelIndex(
     cacheSessionWorker(entry.sessionId, workerFp, entry.channelId);
   }
   _reconciledWorkers.add(workerFp);
-  dropStaleBarrierRepair(workerFp);
 }
 
 /** Post-commit channel-index step of appendEvent's durable publication.
@@ -471,7 +443,7 @@ export function applyDurableChannelIndex(
       // appends per-ghost synthetic closes back to back.
       _unbindSessionKeys(event.session_id);
       evictSessionWorker(event.session_id);
-      _dropPendingBytes(event.session_id);
+      dropCoalescedBytes(event.session_id);
       return;
     case "respawned":
       if (authenticatedWorkerFp === null) {
@@ -488,6 +460,10 @@ export function applyDurableChannelIndex(
         return;
       }
       rebindRespawnedChannel(authenticatedWorkerFp, event.session_id, event.new_channel);
+      notifyTerminalRouteReconciled(
+        authenticatedWorkerFp,
+        [event.session_id],
+      );
       return;
     case "snapshot": {
       const live: Array<{ sessionId: SessionId; channelId: ChannelId }> = [];
@@ -502,6 +478,10 @@ export function applyDurableChannelIndex(
         live.push({ sessionId: s.id, channelId: s.channel });
       }
       replaceWorkerChannelIndex(event.worker_fp, live);
+      notifyTerminalRouteReconciled(
+        event.worker_fp,
+        live.map((entry) => entry.sessionId),
+      );
       return;
     }
     default:

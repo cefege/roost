@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # Reproducibly rebuild apps/shared/wasm/wterm-roost.wasm from upstream wterm
-# sources plus Roost's single checked-in scrollback change.
+# sources plus Roost's checked-in scrollback and resize changes.
 #
 # Roost runs a PATCHED @wterm/core WASM: upstream caps alt-screen scrollback at
-# 1,000 lines, the SPA renders 10,000, so src/scrollback.zig's
-# MAX_SCROLLBACK_LINES is raised. That is the ONLY delta. This script exists so
-# the patched binary is auditable rather than a mystery blob: it proves an
-# unmodified build of the pinned upstream commit reproduces upstream's own
-# committed wterm.wasm byte-for-byte, and only then applies the patch and
-# rebuilds.
+# 1,000 lines while the SPA renders 10,000, and upstream resize updates only
+# the active grid, leaving the saved primary grid at stale dimensions while
+# alternate screen is active. The audited patch changes only src/scrollback.zig
+# and src/terminal.zig. This script proves an unmodified build of the pinned
+# upstream commit reproduces upstream's own committed wterm.wasm byte-for-byte,
+# then applies the patch and rebuilds.
 #
 # TOOLCHAIN PREREQUISITES (all mandatory — the script fails loudly, it NEVER
 # falls back to the prebuilt binary):
@@ -37,7 +37,7 @@ readonly ZIG_VERSION="0.16.0"
 # what we think it is and the patched output means nothing.
 readonly UPSTREAM_WASM_PATH="packages/@wterm/core/wasm/wterm.wasm"
 readonly UPSTREAM_WASM_SHA256="dab230ac368e4bdaa16fdbb2e3844bae530d98bc78a15ccdc2f86269dc1845f4"
-readonly PATCH_REL="scripts/wterm-0.3.4-scrollback.patch"
+readonly PATCH_REL="scripts/wterm-0.3.4-roost.patch"
 readonly ARTIFACT_REL="apps/shared/wasm/wterm-roost.wasm"
 readonly DIGEST_REL="apps/shared/wasm/wterm-roost.wasm.sha256"
 
@@ -63,7 +63,7 @@ command -v "$zig_bin" >/dev/null 2>&1 || die "zig $ZIG_VERSION is required and w
 zig_have="$("$zig_bin" version)"
 [ "$zig_have" = "$ZIG_VERSION" ] || die "zig $ZIG_VERSION is required, found $zig_have at '$(command -v "$zig_bin")'. The artifact digest is toolchain-exact; a different zig produces a different binary."
 
-[ -f "$REPO_ROOT/$PATCH_REL" ] || die "missing $PATCH_REL — the checked-in scrollback change is part of the build input."
+[ -f "$REPO_ROOT/$PATCH_REL" ] || die "missing $PATCH_REL — the checked-in Roost changes are part of the build input."
 
 # ── source checkout ─────────────────────────────────────────────────────────
 if [ -n "${WTERM_SRC_CACHE-}" ]; then
@@ -110,13 +110,13 @@ cmp -s "$src/zig-out/bin/wterm.wasm" "$src/$UPSTREAM_WASM_PATH" || die \
    The toolchain or sources differ from the pinned pair; refusing to derive a patched artifact."
 step "stock build reproduces upstream $UPSTREAM_WASM_PATH exactly ($UPSTREAM_WASM_SHA256)"
 
-# ── proof 2: apply the sole checked change, rebuild ─────────────────────────
+# ── proof 2: apply the audited changes, rebuild ──────────────────────────────
 step "applying $PATCH_REL"
 git -C "$src" apply --whitespace=nowarn "$REPO_ROOT/$PATCH_REL" \
   || die "$PATCH_REL does not apply to $UPSTREAM_COMMIT — rebase the patch before rebuilding."
 changed="$(git -C "$src" diff --name-only)"
-[ "$changed" = "src/scrollback.zig" ] \
-  || die "patch touches unexpected files (expected only src/scrollback.zig):
+[ "$changed" = "$(printf '%s\n' src/scrollback.zig src/terminal.zig)" ] \
+  || die "patch touches unexpected files (expected src/scrollback.zig and src/terminal.zig):
 $changed"
 build "patched"
 

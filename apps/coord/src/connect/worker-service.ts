@@ -18,7 +18,8 @@
 export { __setConnectWorkerForTest, listRoutableFps } from "./worker-registry.ts";
 export {
   getWorkerHubSocket, sendBrowserCommand, sendAttachmentChunk,
-  sendTerminalInputRequest, sendTerminalViewportRequest,
+  sendTerminalInputRequest, sendTerminalStreamStateRequest,
+  sendTerminalSnapshotRequest,
 } from "./worker-send.ts";
 export { makeWorkerConn } from "./worker-conn.ts";
 export type { WorkerServiceDeps, WorkerConn } from "./worker-conn.ts";

@@ -1,19 +1,18 @@
-// Durable Sync replay must yield often enough for live terminal cells to preempt it.
+// Durable Sync replay must yield often enough for live session events to preempt it.
 
 import { describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { create } from "@bufbuild/protobuf";
-import { PbCellGridFrameSchema } from "@roost/shared/proto/cell_pb";
-import { globalCellBus } from "../src/buses.ts";
+import { SessionEvent, asSessionId } from "@roost/shared/wire";
+import { sessionBus } from "../src/buses.ts";
 import { startSyncFeed } from "../src/connect/sync-feed.ts";
 import type { ConnectDeps } from "../src/connect/router.ts";
 import { openDb } from "../src/db/connection.ts";
 import { runMigrations } from "../src/db/migrate.ts";
 
 describe("Sync durable replay priority", () => {
-  test("a queued live cell lands between sixteen-event replay batches", async () => {
+  test("a queued live session event lands between sixteen-event replay batches", async () => {
     const dir = await mkdtemp(join(tmpdir(), "roost-sync-priority-"));
     const opened = openDb(join(dir, "coord.db"));
     try {
@@ -52,27 +51,26 @@ describe("Sync durable replay priority", () => {
 
       const order: string[] = [];
       let replayed = 0;
-      let queuedLiveCell = false;
-      const liveSessionId = "live-cell-priority-session";
+      let queuedLiveSession = false;
+      const liveSessionId = "00000000-0000-4000-8000-999999999999";
+      const liveEvent = SessionEvent.parse({
+        kind: "closed",
+        session_id: asSessionId(liveSessionId),
+        exit_code: null,
+        ts: 100,
+      });
       const deps = { db: opened.db } as unknown as ConnectDeps;
-      const feed = startSyncFeed(deps, Number(seed.id), (frame) => {
-        if (frame.frame.case === "sessionEvent") {
-          order.push("replay");
-          replayed += 1;
-          if (!queuedLiveCell) {
-            queuedLiveCell = true;
-            queueMicrotask(() => globalCellBus.publish(create(PbCellGridFrameSchema, {
-              sessionId: liveSessionId,
-              gridEpoch: "live-grid:0",
-              full: true,
-              seq: 1n,
-            })));
-          }
-        } else if (
-          frame.frame.case === "cellGrid"
-          && frame.frame.value.sessionId === liveSessionId
-        ) {
-          order.push("live-cell");
+      const feed = startSyncFeed(deps, Number(seed.id), (frame, meta) => {
+        if (frame.frame.case !== "sessionEvent") return;
+        if (meta?.sessionId === liveSessionId) {
+          order.push("live-session");
+          return;
+        }
+        order.push("replay");
+        replayed += 1;
+        if (!queuedLiveSession) {
+          queuedLiveSession = true;
+          queueMicrotask(() => sessionBus.publish(liveEvent));
         }
       });
       try {
@@ -84,7 +82,7 @@ describe("Sync durable replay priority", () => {
       expect(replayed).toBe(32);
       expect(order).toEqual([
         ...Array.from({ length: 16 }, () => "replay"),
-        "live-cell",
+        "live-session",
         ...Array.from({ length: 16 }, () => "replay"),
       ]);
     } finally {

@@ -5,31 +5,25 @@
 import * as scrollback from "./session-scrollback.ts";
 import * as emit from "./session-emit.ts";
 import * as gitPorts from "./session-git-ports.ts";
-import * as viewport from "./session-viewport.ts";
 import * as spawnFns from "./session-spawn.ts";
 import * as resumeFns from "./session-resume.ts";
-import type { InitialViewportPreclaim } from "./session-spawn.ts";
 import * as lifecycle from "./session-lifecycle.ts";
 import * as terminalControl from "./session-terminal-control.ts";
 import type { TerminalControlLane, KeeperAdmissionLane } from "./session-control-lanes.ts";
-import type { ResizeCapture } from "./session-resize-capture.ts";
-import { rebuildTerminalCore } from "./session-resize-capture.ts";
+import type { TerminalStreamState } from "./session-terminal-state.ts";
 import type { CellGateSuppression, SyncOutputHold } from "./session-emit.ts";
 import type { TerminalRequestBudget } from "./transport/coord-link-types.ts";
 
 import { getMultiplexedPool, type MuxChannelCallbacks } from "./keeper/multiplexed-client.ts";
 import { log } from "@roost/shared/log";
 import { asChannelId } from "@roost/shared/wire";
-import type { PbCellGridFrame } from "@roost/shared/proto/cell_pb";
+import type { PbCellGridChunk, PbCellGridFrame } from "@roost/shared/proto/cell_pb";
 import type { TransportSendResult } from "./transport/coord-link-types.ts";
 import type { SessionEventSink } from "./event-sink.ts";
 import type { ChannelState, FsmEvent } from "./fsm.ts";
 import type { SessionId, ChannelId, WorkerFp, SessionEvent } from "@roost/shared/wire";
-import {
-	VIEWPORT_REAPER_INTERVAL_MS,
-	STRAY_REAP_INTERVAL_MS,
-} from "./session-constants.ts";
-import type { SessionRecord, SessionShellRecord, ViewportClaim } from "./session-record.ts";
+import { STRAY_REAP_INTERVAL_MS } from "./session-constants.ts";
+import type { SessionRecord, SessionShellRecord } from "./session-record.ts";
 import type { ShellSpec } from "./shell-spec.ts";
 
 export type { SessionRecord, SessionShellRecord } from "./session-record.ts";
@@ -53,22 +47,15 @@ export class SessionManager {
 	private readonly pendingSpawnSessionIds = new Set<SessionId>();
 	readonly workerFp: WorkerFp;
 	readonly sink: SessionEventSink;
-	// Per-channel live viewport claims; retained sequence floors reject stale
-	// intents after withdrawal. Both maps live until the channel is killed.
-	// SCD geometry is recomputed on every claim, withdrawal, and reap.
-	viewportClaims = new Map<number, Map<string, ViewportClaim>>();
-	viewportSequenceFloors = new Map<number, Map<string, bigint>>();
-	// Monotonic accepted viewport intent epoch. Unlike resize sequence, this also
-	// advances for no-resize background/withdraw transitions, so maintenance
-	// redraws cannot overwrite newer browser ownership.
-	viewportIntentEpoch = new Map<number, number>();
-	// Cache of the last (cols,rows) we actually applied to the PTY, keyed
-	// by channelId. Skip SIGWINCH if the recompute lands on the same value.
+	/** One generation-addressed delivery stream per live channel. The coordinator
+	 * owns membership/SCD; the worker only applies this already-aggregated state. */
+	terminalStreams = new Map<number, TerminalStreamState>();
+	private terminalStreamVersion = 0;
+	nextTerminalStreamVersion(): number {
+		return ++this.terminalStreamVersion;
+	}
+	// Last geometry proven by spawn/adoption or an acknowledged keeper resize.
 	lastAppliedSize = new Map<number, { cols: number; rows: number }>();
-	// Deferred-removal timers for withdraw hysteresis, keyed
-	// `${channelId}:${viewerFp}`. A re-claim clears the pending timer so a
-	// refresh doesn't flap the SCD size. See VIEWPORT_WITHDRAW_GRACE_MS.
-	pendingWithdraws = new Map<string, ReturnType<typeof setTimeout>>();
 	// Per-channel coalesce timer for cell deltas. A burst of terminal output
 	// marks the channel dirty; one delta ships the latest grid per
 	// CELL_EMIT_COALESCE_MS.
@@ -90,21 +77,12 @@ export class SessionManager {
 	// repaint. Separate from transport-drop repair: the latter deliberately
 	// suppresses output until the worker link reports writable.
 	pendingSyncCellSnapshots = new Set<number>();
-	viewportReaperTimer: ReturnType<typeof setInterval> | null = null;
 	strayReaperTimer: ReturnType<typeof setInterval> | null = null;
 	// channelId -> consecutive sweeps seen as a stray (see STRAY_REAP_STRIKES).
 	strayStrikes = new Map<number, number>();
-	// OPT2-1: rebuilding a fresh core and replaying the raw ring is the ONLY
-	// resize path. @wterm/core's in-place resize is asymmetric (shrink pushes rows
-	// to scrollback, grow appends blanks, never reverses) and PATH-DEPENDENT: the
-	// same final cols×rows yields a different grid depending on the resize history
-	// → the "phone rotation sometimes mangles" coin-flip. Same ring + same size =
-	// same grid, every time. The rebuild now runs INSIDE the owning terminal
-	// control transaction (see terminalControlChains) instead of on its own
-	// uncorrelated chain, so one decision can never build two cores.
-	// Per-channel count of actual core swaps. Bounded (one number per live
-	// channel) and monotonic — the once-only rebuild is observable, not assumed.
-	coreRebuilds = new Map<number, number>();
+	// Full terminal-control transactions are serialized per channel. Live resize
+	// mutates the existing core at the keeper result-frame boundary; no ordinary
+	// control operation allocates a replacement core.
 	// Mutual exclusion for whole terminal-control transactions; see
 	// session-control-lanes.ts for why this is separate from the write lane.
 	terminalControlChains = new Map<number, TerminalControlLane>();
@@ -114,16 +92,7 @@ export class SessionManager {
 	// Highest resize sequence this worker has WRITTEN for the channel (reserved at
 	// write time, not at ACK time).
 	channelResizeSeq = new Map<number, number>();
-	// Channels whose sequence floor is not trustworthy: an ambiguous resize means
-	// the keeper may have consumed a sequence we cannot prove. The next allocation
-	// recovers authoritative keeper state first.
-	resizeFloorInvalid = new Set<number>();
 	cellEmissionGates = new Set<number>();
-	// Installed atomically with the gate for a geometry-uncertain transaction: the
-	// canonical core is frozen while captured bytes still reach the raw ring and
-	// the coordinator metadata lane. Replaces the unbounded postResizeOutput.
-	resizeCaptures = new Map<number, ResizeCapture>();
-	// Which gate is withholding cell frames, since when, and how many frames it
 	// has suppressed — so a stalled emitter is attributable from the snapshot.
 	cellGateSuppression = new Map<number, CellGateSuppression>();
 	// Open DEC 2026 synchronized-output frames, one per channel. Bounded by an
@@ -144,10 +113,11 @@ export class SessionManager {
 			bytes: Uint8Array,
 		) => TransportSendResult | void)
 		| null;
-	// Cells are the sole renderer. A void result is accepted only for narrow
-	// legacy test sinks; production CoordLink always returns a truthful result.
 	readonly sendCellGridUpstream:
 		| ((channelId: number, frame: PbCellGridFrame) => TransportSendResult | void)
+		| null;
+	readonly sendCellGridChunkUpstream:
+		| ((channelId: number, chunk: PbCellGridChunk) => TransportSendResult | void)
 		| null;
 
 	// Sliding-window timestamps of emit_no_session events → keeper.degraded.
@@ -192,19 +162,16 @@ export class SessionManager {
 			channelId: number,
 			frame: PbCellGridFrame,
 		) => TransportSendResult | void;
+		sendCellGridChunkUpstream?: (
+			channelId: number,
+			chunk: PbCellGridChunk,
+		) => TransportSendResult | void;
 	}) {
 		this.workerFp = opts.workerFp;
 		this.sink = opts.sink;
 		this.sendBinaryUpstream = opts.sendBinaryUpstream ?? null;
 		this.sendCellGridUpstream = opts.sendCellGridUpstream ?? null;
-		// Viewport-claim reaper. Every 5s: drop claims older than 60s,
-		// recompute SCD per affected channel, SIGWINCH if changed. Catches
-		// dead browsers that didn't get to send a withdraw (kill -9, WiFi
-		// drop, OS sleep) so they don't pin the PTY small forever.
-		this.viewportReaperTimer = setInterval(
-			() => this._reapViewportClaims(),
-			VIEWPORT_REAPER_INTERVAL_MS,
-		);
+		this.sendCellGridChunkUpstream = opts.sendCellGridChunkUpstream ?? null;
 		// Reverse-reap sweep (see STRAY_REAP_INTERVAL_MS): kill keeper PTYs the
 		// worker no longer tracks so a deleted session's process can't outlive it.
 		this.strayReaperTimer = setInterval(
@@ -268,8 +235,34 @@ export class SessionManager {
 		return terminalControl.writeTerminalInput.call(this, sessionId, inputSeq, bytes, budget);
 	}
 
-	applyTerminalViewport(intent: terminalControl.WorkerViewportIntent): Promise<terminalControl.WorkerViewportResult> {
-		return terminalControl.applyTerminalViewport.call(this, intent);
+	applyTerminalStreamState(
+		intent: terminalControl.WorkerTerminalStreamIntent,
+	): Promise<terminalControl.WorkerTerminalStreamResult> {
+		return terminalControl.applyTerminalStreamState.call(this, intent);
+	}
+
+	requestTerminalSnapshot(sessionId: string, streamId: string): void {
+		terminalControl.requestTerminalSnapshot.call(this, sessionId, streamId);
+	}
+	invalidateTerminalStreamsForReconnect(): void {
+		for (const [channelId, current] of this.terminalStreams) {
+			const baseline = Promise.withResolvers<void>();
+			baseline.resolve();
+			this.terminalStreams.set(channelId, {
+				streamId: current.streamId,
+				enabled: false,
+				cols: 0,
+				rows: 0,
+				version: this.nextTerminalStreamVersion(),
+				baselineReady: true,
+				coreValid: current.coreValid,
+				baselineDirty: false,
+				snapshotCursor: null,
+				resizeCapture: current.resizeCapture,
+				baselineInstalled: baseline.promise,
+				resolveBaselineInstalled: baseline.resolve,
+			});
+		}
 	}
 
 
@@ -278,14 +271,9 @@ export class SessionManager {
 		return Array.from(this.sessions.values());
 	}
 
-	/** R11 — force a full cell frame upstream (a fresh SPA viewer attaching
-	 *  needs the whole grid; live deltas follow). */
-	emitCellSnapshot(channelId: ChannelId): void {
-		this.emitCellFrame(channelId, true);
-	}
-
-	resnapshotClaimedSessions(): void {
-		return emit.resnapshotClaimedSessions.call(this);
+	/** Install a fresh immutable full-snapshot cursor for the current stream. */
+	installTerminalBaseline(channelId: ChannelId): void {
+		emit.installTerminalBaseline.call(this, channelId);
 	}
 
 	appendScrollback(channelId: number, chunk: Buffer): number {
@@ -301,8 +289,8 @@ export class SessionManager {
 		return emit.emitUpstreamChunk.call(this, channelId, chunk);
 	}
 
-	_hasActiveViewer(channelId: number): boolean {
-		return emit._hasActiveViewer.call(this, channelId);
+	_hasEnabledStream(channelId: number): boolean {
+		return emit._hasEnabledStream.call(this, channelId);
 	}
 
 
@@ -314,8 +302,8 @@ export class SessionManager {
 		return emit._enqueueRawMetadata.call(this, channelId, endSeq, chunk);
 	}
 
-	flushPendingCellRepairs(): void {
-		return emit.flushPendingCellRepairs.call(this);
+	resumeTerminalSnapshots(): void {
+		return emit.resumeTerminalSnapshots.call(this);
 	}
 
 	_disposeOutputState(channelId: number): void {
@@ -359,41 +347,12 @@ export class SessionManager {
 		return gitPorts._resolvePr.call(this, rec);
 	}
 
-	claimViewport(channelId: number, viewerFp: string, cols: number, rows: number, clientSeq?: number | bigint, cause?: number, heldCellSeq?: number): void {
-		return viewport.claimViewport.call(this, channelId, viewerFp, cols, rows, clientSeq, cause, heldCellSeq);
-	}
-
-	withdrawViewport(channelId: number, viewerFp: string): void {
-		return viewport.withdrawViewport.call(this, channelId, viewerFp);
-	}
-
-	_cancelPendingWithdraw(channelId: number, viewerFp: string): void {
-		return viewport._cancelPendingWithdraw.call(this, channelId, viewerFp);
-	}
-
-	_reapViewportClaims(): void {
-		return viewport._reapViewportClaims.call(this);
-	}
-
-	/** Single owner of an SCD size decision: claim, deferred withdraw, and the
-	 *  freshness reaper all queue here. */
-	reconcileTerminalViewport(channelId: number): void {
-		return terminalControl.reconcileTerminalViewport.call(this, channelId);
-	}
-
-	/** Rebuild the core at an exact size from the retained ring, with no capture
-	 *  to split at. Production always rebuilds through a capture (inside the
-	 *  owning transaction); this is the determinism reference. */
-	_rebuildWtermCore(channelId: number, cols: number, rows: number): Promise<boolean> {
-		return rebuildTerminalCore(this, channelId, cols, rows, null);
-	}
 
 	spawnShell(
 		cwd: string,
 		cols?: number,
 		rows?: number,
 		targetSessionId?: SessionId,
-		initialViewport?: InitialViewportPreclaim,
 	): Promise<SessionRecord> {
 		if (
 			targetSessionId
@@ -411,7 +370,6 @@ export class SessionManager {
 			cols,
 			rows,
 			targetSessionId,
-			initialViewport,
 		);
 		return targetSessionId
 			? spawned.finally(() => this.pendingSpawnSessionIds.delete(targetSessionId))

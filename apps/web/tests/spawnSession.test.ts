@@ -76,20 +76,20 @@ test("withSpawnRetry: rethrows a non-transient error immediately (no retry)", as
   expect(calls).toBe(1);
 });
 
-test("mounted viewport opts into preclaim while carrying the caller UUID and sequence", () => {
+test("mounted viewport is only a bounded initial PTY-size hint", () => {
   const req = buildSpawnShellRequest(
     asWorkerFp("aa".repeat(32)),
     "/work",
     "00000000-0000-4000-8000-000000000123",
-    { cols: 119, rows: 41, clientSeq: 7 },
+    { cols: 119, rows: 41 },
   );
-  expect(req).toMatchObject({
+  expect(req).toEqual({
+    workerFp: asWorkerFp("aa".repeat(32)),
+    kind: "shell",
     folder: "/work",
     cols: 119,
     rows: 41,
     sessionId: "00000000-0000-4000-8000-000000000123",
-    preclaimInitialViewport: true,
-    initialViewportClientSeq: 7n,
   });
 });
 

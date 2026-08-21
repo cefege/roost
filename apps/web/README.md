@@ -47,9 +47,9 @@ One row per directory in this workspace.
 | `apps/web/src/components/sidebar/` | machine / folder / session lists, sidebar search, row context menus, `ViewersChip.tsx` | per-view stores — selection and filtering derive from the URL and `rootStore` |
 | `apps/web/src/components/Settings/` | the 15 settings panes + `SettingsRoot.tsx` + `CoordinatorMoveDialog.tsx`; the workers pane is `MachinesPane.tsx` (there is no `WorkersPane`) | raw CSS values; panes compose the primitives in `apps/web/src/components/Settings/md/` |
 | `apps/web/src/components/Settings/md/` | the M3 primitive set (one component per file, re-exported by `primitives.tsx`) plus `tokens.css` / `icon.css` — a token *declaration* site | app state or data fetching; primitives are presentational |
-| `apps/web/src/store/` | the single reactive-global-state tier: `root.ts` + `selectors.ts` + `mutations.ts`, the projector, the Sync client (`sync.ts` and its `sync-*.ts` leaves), pane-layout tiling, and **every** UI-state store (`uiStore.ts`, `toastStore.ts`, `renameDialog.ts`, `transferConsole.ts`, `queueTaskDialog.ts`) | JSX, and module-level `let _ws` / `let _reconnectTimer` / `let _backoffMs` (lint-guarded) |
-| `apps/web/src/ws/` | the **outbound** half of the Sync v2 socket: the PTY input lane (`sync-outbound.ts`, also the re-export facade), the viewport claim operations (`sync-outbound-viewport.ts`), its per-session claim state — the one `viewportSessions` map (`sync-outbound-viewport-registry.ts`), command dispatch (`sync-outbound-viewport-dispatch.ts`), shared types (`sync-outbound-viewport-types.ts`), and the smoke backdoor hooks (`sync-outbound-smoke.ts`) | the socket itself and inbound dispatch — those are `apps/web/src/store/sync.ts` + `apps/web/src/store/sync-frame.ts` |
-| `apps/web/src/lib/` | pure helpers, DOM controllers, and browser-API adapters (`cellRenderer.ts`, `cellRow.ts`, `terminalInputController.ts`, `ptyPaste.ts`, `deckSwipe.ts`, prefs, diag) | JSX — this directory holds zero `.tsx` files, which is why `UiBridge.tsx` now lives in `apps/web/src/components/` |
+| `apps/web/src/store/` | the single reactive-global-state tier: `root.ts` + `selectors.ts` + `mutations.ts`, the projector, the Sync client (`sync.ts` and its `sync-*.ts` leaves), the per-session terminal replica/view registry (`terminal-stream.ts`), pane-layout tiling, and **every** UI-state store (`uiStore.ts`, `toastStore.ts`, `renameDialog.ts`, `transferConsole.ts`, `queueTaskDialog.ts`) | JSX, and module-level `let _ws` / `let _reconnectTimer` / `let _backoffMs` (lint-guarded) |
+| `apps/web/src/ws/` | the **outbound** half of the Sync v2 socket: PTY input plus terminal-view command transport (`sync-outbound.ts`) and smoke backdoor hooks | the socket, inbound dispatch, terminal membership, or terminal continuity — those live in `apps/web/src/store/` |
+| `apps/web/src/lib/` | pure helpers, DOM controllers, and browser-API adapters (`cellRenderer.ts`, `cellRow.ts`, `terminalInputController.ts`, `ptyPaste.ts`, `deckSwipe.ts`, prefs, diag) | JSX or terminal stream ownership — this directory holds zero `.tsx` files, which is why `UiBridge.tsx` lives in `apps/web/src/components/` |
 | `apps/web/src/auth/` | credential material: ed25519 WebCrypto key + IndexedDB (`web-key.ts`), TOFU coord pin (`trust.ts`), pair-token redemption, per-tab identity, coordinator relocation | RPC plumbing (`apps/web/src/connect.ts`) and any UI |
 | `apps/web/src/styles/` | the six eagerly-imported global stylesheets; `theme-vars.css` is the alias graph the theme engine writes into, `sidebar.css` carries the `.wterm` terminal shell | component-local one-offs; scoped styles stay inline in the component |
 | `apps/web/tests/` | the hermetic Bun tier (~80 files), including 10 hand-rolled fake-DOM suites and the shared shim `apps/web/tests/helpers/cellRendererFakeDom.ts` | browser-real assertions — those are Playwright specs in `smoke/terminal/` |
@@ -84,14 +84,14 @@ Break one of these and you get back the history-corruption class this repo keeps
   named functions in `apps/web/src/store/mutations.ts`. New UI adds a selector and a JSX line; it does
   not add a store. `apps/web/src/store/projector.ts` folds `SessionEvent` with the same `foldEvent`
   coord uses (`@roost/shared/wire`), so SPA and coord projections agree by construction.
-- **Only visible panes hold viewport claims.** Input goes
-  `apps/web/src/lib/userTerminalInput.ts` → `sendTerminalInput` in `apps/web/src/ws/sync-outbound.ts`;
-  every batch resolves accepted / rejected / ambiguous and nothing is silently retried. Claims go
-  through `claimTerminalViewport` / `acquireTerminalViewportOwner` in
-  `apps/web/src/ws/sync-outbound-viewport.ts`; the claim STATE they mutate is the single
-  `viewportSessions` map in `apps/web/src/ws/sync-outbound-viewport-registry.ts` — that map is not
-  exported, so reach it through those functions. A mounted offscreen pane keeps its last grid and
-  receives no cells.
+- **Only visible panes publish active terminal views.** Input goes through
+  `sendTerminalInput` in `apps/web/src/ws/sync-outbound.ts`; every batch resolves
+  accepted/rejected/ambiguous and is never silently retried. `terminal-stream.ts`
+  owns stable `view_id` handles, revisions, Sync-generation replay and one
+  canonical viewport replica per session. `CellTerminal` only calls
+  `view.setViewport(...)` / `view.setInactive()` and attaches a renderer. A
+  hidden renderer receives no cells, but detach or tab switching cannot delete
+  the session replica; reactivation receives a complete baseline before deltas.
 - **Design system: no raw values in components.** No hex, `rgb()`, or px font-size outside the
   token-declaration files — `apps/web/src/styles/theme-vars.css`,
   `apps/web/src/styles/syntax-vars.css`, `apps/web/src/styles/voice-input.css`,

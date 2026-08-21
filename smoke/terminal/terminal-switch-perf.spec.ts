@@ -1,154 +1,56 @@
 // End-to-end proof of the three switch-latency contracts this suite owns:
-// revealing an idle dormant pane emits NOTHING, revealing a pane whose grid
-// moved while parked costs exactly ONE viewport-only full frame, and the deck
-// keeps a BOUNDED number of panes mounted. The bound case also proves an evicted
-// pane cold-remounts from one viewport-only frame and visibly self-repairs a
-// dropped first frame. Distributions publish on every run; absolute millisecond
-// budgets are gated behind ROOST_PERF_QUALIFY=1, because a contended box
-// measures the host rather than the product.
+// activating an idle pane converges from one complete baseline, activating a
+// pane whose grid moved while inactive also costs exactly one complete
+// baseline, and the deck keeps a BOUNDED number of panes mounted. The bound
+// case also proves an evicted pane cold-remounts from one baseline and visibly
+// self-repairs a dropped first frame. Distributions publish on every run;
+// absolute millisecond budgets are gated behind ROOST_PERF_QUALIFY=1, because
+// a contended box measures the host rather than the product.
 //
 // Every case is @serial: playwright.config.ts routes /@serial/ to the
 // chromium-serial project with fullyParallel:false, and a switch-latency number
 // measured while three sibling stacks fight for the same cores is not a
 // measurement. The PTY fixture (never a real shell) is equally load-bearing:
-// it emits only on command, so "no cell frame arrived" is a statement about the
-// product instead of about a shell that happened not to repaint.
+// it emits only on command, so frame accounting reflects terminal activation
+// rather than incidental shell repaint.
 //
 // Sibling file to perf.spec.ts on purpose — that file sits at its recorded size
 // baseline and may only shrink.
 
-import type { Page, TestInfo } from "@playwright/test";
 import type { SmokeApi } from "../../apps/web/src/lib/smoke.ts";
 import { DECK_WARM_LIMIT } from "../../apps/web/src/lib/deckWarmSet.ts";
 import { test, expect } from "./fixtures.ts";
 import { encodePtyFixtureCommand, PTY_FIXTURE_READY } from "./pty-fixture-protocol.ts";
-import type { TerminalTestWorker } from "./stack.ts";
+import {
+  FLOOD_LINES,
+  FRAME_SETTLE_MS,
+  INACTIVE_SETTLE_MS,
+  navigateAndProve,
+  paintMarker,
+  percentile,
+  publish,
+  QUALIFY,
+  readCounters,
+  spawnFixtureSessions,
+  timeReveal,
+} from "./terminal-switch-perf-helpers.ts";
 import { installTerminalLoadingStageProbe, terminalLoadingStages } from "./terminal-loading-stage-probe.ts";
+import {
+  coordinatorTerminalViewState,
+  readTerminalStreamProbe,
+} from "./terminal-probe-helpers.ts";
 
 type SmokeWindow = Window & { readonly __smoke: SmokeApi };
 // Playwright serializes callbacks without module closures. This erased binding
 // types the browser global once without adding a runtime helper to those callbacks.
 declare const window: SmokeWindow;
 
-const QUALIFY = process.env.ROOST_PERF_QUALIFY === "1";
 
-/** apps/shared/src/viewport.ts VIEWER_WITHDRAW_GRACE_MS is 800 ms: the worker
- *  defers a withdraw that long, so a shorter dwell proves nothing about the
- *  unwatched path — emission was still on. 1200 ms clears the grace with margin
- *  while staying far inside the claim TTL. */
-const DORMANT_DWELL_MS = 1_200;
-/** A reveal's paint proof can resolve off DOM the pane already holds, so a
- *  frame the worker sent anyway could land after the proof. Reading the
- *  counters only after this settle window is what keeps a zero-delta assertion
- *  a statement instead of a race the product wins by being slow. */
-const FRAME_SETTLE_MS = 750;
-const FLOOD_LINES = 200;
-
-function percentile(values: readonly number[], quantile: number): number {
-  if (values.length === 0) return -1;
-  const sorted = [...values].sort((left, right) => left - right);
-  return sorted[Math.min(sorted.length - 1, Math.floor(quantile * sorted.length))]!;
-}
-
-async function navigateAndProve(page: Page, sessionId: string, marker: string): Promise<void> {
-  await page.evaluate(({ id, expected }) => {
-    const smoke = window.__smoke;
-    smoke.navigate(`/s/${id}`);
-    return smoke.waitForPaintedMarker(id, expected, 60_000);
-  }, { id: sessionId, expected: marker });
-}
-
-/** Spawn `count` fixture sessions in ONE folder. Same folder means one pane
- *  with tabs, so switching between them is a park/reveal — the interaction
- *  under measurement — and not a layout change that would mount a second pane
- *  and confound both the frame accounting and the mount bound. */
-async function spawnFixtureSessions(
-  page: Page,
-  worker: TerminalTestWorker,
-  count: number,
-): Promise<string[]> {
-  await page.waitForFunction((fp) => {
-    const smoke = window.__smoke;
-    return !!smoke.state().workers[fp];
-  }, worker.workerFp);
-  return page.evaluate(async ({ workerFp, folder, total }) => {
-    const smoke = window.__smoke;
-    return Promise.all(Array.from({ length: total }, async () =>
-      (await smoke.spawnShell(workerFp, folder)).session_id));
-  }, {
-    workerFp: worker.workerFp,
-    // Windows keeper paths arrive with backslashes; the folder key the deck
-    // groups panes by is the forward-slash form.
-    folder: process.platform === "win32" ? worker.home.replaceAll("\\", "/") : worker.home,
-    total: count,
-  });
-}
-
-/** Emit one marker into a VISIBLE pane and prove it painted. The paint proof
- *  requires visibility, so this is only valid for the pane on screen. */
-async function paintMarker(page: Page, sessionId: string, marker: string): Promise<void> {
-  await page.evaluate(async ({ id, frame, expected }) => {
-    const smoke = window.__smoke;
-    await smoke.input(id, frame);
-    await smoke.waitForPaintedMarker(id, expected, 60_000);
-  }, {
-    id: sessionId,
-    frame: encodePtyFixtureCommand({ op: "EMIT", text: marker }),
-    expected: marker,
-  });
-}
-
-type CellCounters = {
-  frames: number;
-  fullFrames: number;
-  sbRows: number;
-  backfillRequests: number;
-  droppedFrames: number;
-  rejectedClaims: number;
-};
-
-async function readCounters(page: Page, sessionId: string): Promise<CellCounters> {
-  return page.evaluate((id) => {
-    const smoke = window.__smoke;
-    return {
-      frames: smoke.cellFrameCount(id),
-      fullFrames: smoke.cellFullFrameCount(id),
-      sbRows: smoke.lastFullFrameSbRows(id),
-      backfillRequests: smoke.scrollbackBackfillRequestCount(id),
-      droppedFrames: smoke.droppedCellFrameCount(id),
-      rejectedClaims: smoke.rejectedViewportClaimCount(id),
-    };
-  }, sessionId);
-}
-
-/** One timed reveal: open the timing endpoint, navigate through the live
- *  router, and finish only on the shared geometric paint proof for `marker`. */
-async function timeReveal(page: Page, sessionId: string, marker: string): Promise<number> {
-  return page.evaluate(async ({ id, expected }) => {
-    const smoke = window.__smoke;
-    const timingId = await smoke.beginTerminalTiming("reveal", id);
-    smoke.navigate(`/s/${id}`);
-    const result = await smoke.finishTerminalTiming(timingId, id, expected, 30_000);
-    return result.durationMs;
-  }, { id: sessionId, expected: marker });
-}
-
-/** Publish unconditionally. A run with QUALIFY off still has to leave its
- *  distribution behind, or a regression is invisible until someone reruns on a
- *  pinned box. */
-async function publish(testInfo: TestInfo, report: Record<string, unknown>): Promise<void> {
-  console.log(`[perf.switch] ${JSON.stringify(report)}`);
-  await testInfo.attach("perf-interaction.json", {
-    body: JSON.stringify(report, null, 2),
-    contentType: "application/json",
-  });
-}
-
-test("revealing an idle dormant pane costs zero cell frames @serial", async ({
+test("activating an idle pane installs one complete baseline @serial", async ({
   smokePage,
   stack,
 }, testInfo) => {
-  test.skip(!testInfo.project.name.startsWith("chromium"), "desktop dormant reveal accounting");
+  test.skip(!testInfo.project.name.startsWith("chromium"), "desktop dormant activation accounting");
   test.setTimeout(120_000);
 
   const fixtureWorker = await stack.startPtyFixtureWorker();
@@ -162,23 +64,20 @@ test("revealing an idle dormant pane costs zero cell frames @serial", async ({
   await navigateAndProve(smokePage, idB, PTY_FIXTURE_READY);
   await paintMarker(smokePage, idB, markerB);
 
-  // Park B by revealing A, then dwell past the deferred withdraw with NO input
-  // to B. After this the worker is genuinely not emitting on B's channel and
-  // B's grid is provably unmoved (the fixture writes only on command), so the
-  // only thing a reveal could add is the claim snapshot that must not exist.
+  // Mark B inactive by activating A, then leave B's PTY unchanged. Its existing
+  // replica and DOM remain available for immediate paint while the active view
+  // still establishes a fresh coordinator stream and complete baseline.
   await navigateAndProve(smokePage, idA, markerA);
-  await smokePage.waitForTimeout(DORMANT_DWELL_MS);
+  await smokePage.waitForTimeout(INACTIVE_SETTLE_MS);
   const before = await readCounters(smokePage, idB);
 
-  // B already holds this marker in its parked DOM; the reveal is what makes it
-  // painted again, so this times the visibility flip and nothing else.
   const revealMs = await timeReveal(smokePage, idB, markerB);
   await smokePage.waitForTimeout(FRAME_SETTLE_MS);
   const after = await readCounters(smokePage, idB);
 
   await publish(testInfo, {
-    case: "idle_dormant_reveal",
-    dwell_ms: DORMANT_DWELL_MS,
+    case: "idle_dormant_rebaseline",
+    inactive_settle_ms: INACTIVE_SETTLE_MS,
     settle_ms: FRAME_SETTLE_MS,
     reveal_ms: revealMs,
     cell_frames_before: before.frames,
@@ -187,12 +86,12 @@ test("revealing an idle dormant pane costs zero cell frames @serial", async ({
     cell_full_frame_delta: after.fullFrames - before.fullFrames,
   });
 
-  expect(after.frames - before.frames).toBe(0);
-  expect(after.fullFrames - before.fullFrames).toBe(0);
+  expect(after.frames - before.frames).toBe(1);
+  expect(after.fullFrames - before.fullFrames).toBe(1);
   if (QUALIFY) expect(revealMs).toBeLessThanOrEqual(150);
 });
 
-test("revealing a pane that moved while parked costs exactly one viewport-only snapshot @serial", async ({
+test("activating a pane that moved while inactive costs one complete baseline @serial", async ({
   smokePage,
   stack,
 }, testInfo) => {
@@ -209,15 +108,13 @@ test("revealing a pane that moved while parked costs exactly one viewport-only s
   await navigateAndProve(smokePage, idB, PTY_FIXTURE_READY);
   await navigateAndProve(smokePage, idA, PTY_FIXTURE_READY);
   await paintMarker(smokePage, idA, markerA);
-  await smokePage.waitForTimeout(DORMANT_DWELL_MS);
+  await smokePage.waitForTimeout(INACTIVE_SETTLE_MS);
   const parked = await readCounters(smokePage, idB);
 
-  // Input goes through the transport (sendTerminalInput), not through B's
-  // renderer, so these rows land on a pane that is parked and withdrawn: they
-  // exist only on the worker until the reveal pulls them. That is what makes
-  // this the "grid moved while unwatched" branch instead of deltas the client
-  // already applied. B is hidden, so there is no painted marker to wait on —
-  // wait for the transport to settle, then read the counters.
+  // Input goes through the transport, not through B's renderer, so these rows
+  // land while B is inactive and exist only in the worker core until activation
+  // installs the fresh baseline. B is hidden, so there is no painted marker to
+  // await; let the producer settle before sampling transport counters.
   await smokePage.evaluate(async ({ id, frame }) => {
     const smoke = window.__smoke;
     await smoke.input(id, frame);
@@ -245,8 +142,8 @@ test("revealing a pane that moved while parked costs exactly one viewport-only s
   });
 
   expect(after.fullFrames - before.fullFrames).toBe(1);
-  // SB_SNAPSHOT_HISTORY_ROWS = 0: the authoritative frame carries the viewport
-  // and nothing else, so history stays demand-pulled.
+  // The complete baseline carries the live viewport and no historical rows, so
+  // scrollback remains demand-pulled.
   expect(after.sbRows).toBe(0);
   if (QUALIFY) expect(revealMs).toBeLessThanOrEqual(300);
 });
@@ -330,9 +227,9 @@ test("the deck mounts a bounded number of panes @serial", async ({
 
   await installTerminalLoadingStageProbe(smokePage);
 
-  // Round B — reject the cold claim once, drop the accepted retry's full frame,
-  // then let the mounted pane repair itself. A document canary distinguishes
-  // in-place repair from a same-URL reload, which a URL assertion alone cannot.
+  // Round B — drop the cold view's first complete baseline, then let the
+  // browser replica detect the following delta gap and resync in place. A
+  // document canary distinguishes repair from a same-URL reload.
   const repairBefore = await readCounters(smokePage, lruTarget);
   const documentCanaryKey = `__roostEvictedRepair_${suffix}`;
   const documentCanary = `document-${suffix}`;
@@ -340,7 +237,6 @@ test("the deck mounts a bounded number of panes @serial", async ({
     Object.defineProperty(document, key, { value, configurable: false });
   }, { key: documentCanaryKey, value: documentCanary });
   await smokePage.evaluate((id) => {
-    window.__smoke.rejectNextViewportClaim(id);
     window.__smoke.dropNextCellFrame(id);
   }, lruTarget);
 
@@ -352,9 +248,9 @@ test("the deck mounts a bounded number of panes @serial", async ({
   ]);
   const repairUrl = smokePage.url();
 
-  // The drop is the observable boundary proving the accepted retry's full
-  // frame was actually lost. Only after that boundary may the loading
-  // affordance count as evidence for the blind-input interval.
+  // The drop is the observable boundary proving the new-stream baseline was
+  // lost. Only after that boundary may the loading affordance count as evidence
+  // for the blind-input interval.
   await expect.poll(
     () => readCounters(smokePage, lruTarget).then((counters) => counters.droppedFrames),
     { timeout: 30_000, intervals: [25, 50, 100] },
@@ -388,14 +284,33 @@ test("the deck mounts a bounded number of panes @serial", async ({
   }, { id: lruTarget, marker: repairTailMarker });
   await expect(loadingStatus).toHaveCount(0);
   const loadingStages = await terminalLoadingStages(smokePage, true);
-  const retryStageIndex = loadingStages.indexOf("retry");
-  expect(retryStageIndex).toBeGreaterThanOrEqual(0);
-  expect(loadingStages.slice(retryStageIndex + 1)).toContain("frame");
+  expect(loadingStages).toContain("frame");
+  expect(loadingStages).not.toContain("retry");
 
   const repairAfter = await readCounters(smokePage, lruTarget);
   const documentSurvived = await smokePage.evaluate(({ key, value }) => {
     return (document as unknown as Record<string, unknown>)[key] === value;
   }, { key: documentCanaryKey, value: documentCanary });
+  const repairedProbe = await readTerminalStreamProbe(smokePage, lruTarget);
+  const repairedCoordinator = coordinatorTerminalViewState(repairedProbe);
+  expect(repairedProbe.browser.view).toMatchObject({
+    status: "accepted",
+    active: true,
+  });
+  expect(repairedProbe.browser.replica).toMatchObject({
+    expected_stream_id: repairedProbe.browser.view.stream_id,
+    baseline_ready: true,
+    resync_latched: false,
+  });
+  expect(repairedCoordinator).toMatchObject({
+    activeViews: 1,
+    streamId: repairedProbe.browser.view.stream_id,
+    effective: {
+      cols: repairedProbe.browser.view.effective_cols,
+      rows: repairedProbe.browser.view.effective_rows,
+    },
+    unavailable: false,
+  });
 
   await publish(testInfo, {
     case: "bounded_deck",
@@ -412,10 +327,9 @@ test("the deck mounts a bounded number of panes @serial", async ({
       scrollback_backfill_delta: ordinaryAfter.backfillRequests - ordinaryBefore.backfillRequests,
       last_full_frame_sb_rows: ordinaryAfter.sbRows,
     },
-    dropped_evicted_remount: {
+    dropped_evicted_rebaseline: {
       session_id: lruTarget,
       dropped_frame_delta: repairAfter.droppedFrames - repairBefore.droppedFrames,
-      rejected_viewport_claim_delta: repairAfter.rejectedClaims - repairBefore.rejectedClaims,
       cell_full_frame_delta: repairAfter.fullFrames - repairBefore.fullFrames,
       scrollback_backfill_delta: repairAfter.backfillRequests - repairBefore.backfillRequests,
       last_full_frame_sb_rows: repairAfter.sbRows,
@@ -426,7 +340,6 @@ test("the deck mounts a bounded number of panes @serial", async ({
   });
 
   expect(repairAfter.droppedFrames - repairBefore.droppedFrames).toBe(1);
-  expect(repairAfter.rejectedClaims - repairBefore.rejectedClaims).toBe(1);
   expect(repairAfter.fullFrames - repairBefore.fullFrames).toBe(1);
   expect(repairAfter.backfillRequests - repairBefore.backfillRequests).toBe(0);
   expect(repairAfter.sbRows).toBe(0);

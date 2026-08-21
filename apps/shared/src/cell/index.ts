@@ -4,10 +4,11 @@
 
 export * from "./types.ts";
 export {
-  rowToSpans, gridToCellFrame, readScrollbackRangeCells,
+  rowToSpans, gridToCellFrame, gridDeltaFrame, readScrollbackRangeCells,
   viewportRowSpans, scrollbackOffsetSpans,
 } from "./grid-to-cells.ts";
-export { applyDelta, deltaViewportShift } from "./diff-grid.ts";
+export { applyDelta, cloneCellGridFrame, deltaViewportShift } from "./diff-grid.ts";
+export * from "./frame-chunks.ts";
 export {
   cellGridEpoch, initCellEmitState, nextCellFrame, scrollbackOrigin, type CellEmitState,
 } from "./emitter.ts";

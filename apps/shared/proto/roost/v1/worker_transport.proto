@@ -36,10 +36,10 @@ message WBinary { uint32 channel_id = 1; uint32 direction = 2; uint64 seq = 3; b
 // swaps the caller binding for this stream. Stream stays open.
 message WRefreshJwt { string jwt = 1; }
 
-// R11 cell-shipping. Worker emits a pre-rendered cell grid (full on
-// attach/resize, delta after each PTY chunk) keyed by channel_id; coord
-// maps channel→session (byte-hub) and fans out via FirehoseFrame.cell_grid.
+// Generation-addressed cell shipping. Small frames travel directly; oversized
+// full snapshots travel as bounded whole-row chunks under the same channel.
 message WCellGrid { uint32 channel_id = 1; PbCellGridFrame frame = 2; }
+message WCellGridChunk { uint32 channel_id = 1; PbCellGridChunk chunk = 2; }
 
 // Volatile agent runtime metadata. The worker owns revision ordering; this
 // frame is never placed in the durable event outbox.
@@ -103,29 +103,41 @@ message WInputResult {
   TerminalWritePhase phase = 7;
 }
 
-enum TerminalViewportStatus {
-  TERMINAL_VIEWPORT_STATUS_UNSPECIFIED = 0;
-  TERMINAL_VIEWPORT_STATUS_COMMITTED = 1;
-  TERMINAL_VIEWPORT_STATUS_REJECTED = 2;
-  TERMINAL_VIEWPORT_STATUS_AMBIGUOUS = 3;
+enum TerminalStreamStatus {
+  TERMINAL_STREAM_STATUS_UNSPECIFIED = 0;
+  TERMINAL_STREAM_STATUS_COMMITTED = 1;
+  TERMINAL_STREAM_STATUS_REJECTED = 2;
+  TERMINAL_STREAM_STATUS_AMBIGUOUS = 3;
 }
-message WViewportResult {
+
+enum TerminalStreamFailureKind {
+  TERMINAL_STREAM_FAILURE_KIND_UNSPECIFIED = 0;
+  TERMINAL_STREAM_FAILURE_KIND_RETRYABLE_PRE_WRITE = 1;
+  TERMINAL_STREAM_FAILURE_KIND_SESSION_NOT_LIVE = 2;
+  TERMINAL_STREAM_FAILURE_KIND_INVALID_REQUEST = 3;
+  TERMINAL_STREAM_FAILURE_KIND_CORE_FAILED = 4;
+  TERMINAL_STREAM_FAILURE_KIND_AMBIGUOUS_BOUNDARY = 5;
+}
+
+message WTerminalStreamResult {
   string request_id = 1;
   string session_id = 2;
-  uint64 client_seq = 3;
-  TerminalViewportStatus status = 4;
-  uint64 channel_resize_seq = 5;
-  uint32 cols = 6;
-  uint32 rows = 7;
-  bool resized = 8;
-  string reason = 9;
-  TerminalWritePhase phase = 10;
-  optional uint64 sequence_floor = 11;
+  string stream_id = 3;
+  bool enabled = 4;
+  TerminalStreamStatus status = 5;
+  uint64 channel_resize_seq = 6;
+  uint32 effective_cols = 7;
+  uint32 effective_rows = 8;
+  bool resized = 9;
+  string reason = 10;
+  TerminalWritePhase phase = 11;
+  TerminalStreamFailureKind failure_kind = 12;
 }
 
 
 message CoordWorkerUp {
-  reserved 4, 5, 13;
+  reserved 4, 5, 13, 15;
+  reserved "viewport_result";
   oneof frame {
     WHello hello = 1;
     WPong pong = 2;
@@ -138,8 +150,9 @@ message CoordWorkerUp {
     WRefreshJwt refresh_jwt = 11;
     WCellGrid cell_grid = 12;
     WAgentStatus agent_status = 14;
-    WViewportResult viewport_result = 15;
     WInputResult input_result = 16;
+    WTerminalStreamResult terminal_stream_result = 17;
+    WCellGridChunk cell_grid_chunk = 18;
     WUpdateProgress update_progress = 30;
   }
 }
@@ -157,9 +170,9 @@ message DBrowserCommand {
 message DBinary { uint32 channel_id = 1; uint32 direction = 2; bytes data = 3; }
 message DEventAck { uint64 client_seq = 1; }
 
-// Dedicated terminal-control requests. SPA Sync v2 and the compatibility
-// unary handlers both use these typed frames so transport admission is never
-// mistaken for a completed PTY write/resize.
+// Dedicated terminal-control requests. Input stays session-scoped. Terminal
+// stream state carries the coordinator's already-aggregated geometry and one
+// generation ID; no per-viewer membership crosses this boundary.
 //
 // `budget_ms` is the RELATIVE time the coordinator will still wait when it
 // writes the frame, never an absolute instant: the two hosts' wall clocks may
@@ -175,16 +188,21 @@ message DInputRequest {
   uint32 budget_ms = 5;
 }
 
-message DViewportRequest {
+message DTerminalStreamState {
   string request_id = 1;
   string session_id = 2;
-  string viewer_id = 3;
-  uint64 client_seq = 4;
+  string stream_id = 3;
+  bool enabled = 4;
   uint32 cols = 5;
   uint32 rows = 6;
-  uint32 cause = 7;
-  uint64 held_cell_seq = 8;
-  uint32 budget_ms = 9;
+  uint32 budget_ms = 7;
+}
+
+// Fire-and-forget repair request. Repeating it replaces any partial same-stream
+// snapshot cursor with a fresh snapshot_id and full baseline.
+message DTerminalSnapshotRequest {
+  string session_id = 1;
+  string stream_id = 2;
 }
 
 message DAttachmentChunk {
@@ -249,6 +267,8 @@ message DUpdateBroker {
 }
 
 message CoordWorkerDown {
+  reserved 11;
+  reserved "viewport_request";
   oneof frame {
     DHelloAck hello_ack = 1;
     DPing ping = 2;
@@ -260,8 +280,9 @@ message CoordWorkerDown {
     DCoordMoveSnapshotStart coord_move_snapshot_start = 8;
     DCoordMoveSnapshotChunk coord_move_snapshot_chunk = 9;
     DCoordRelocate coord_relocate = 10;
-    DViewportRequest viewport_request = 11;
     DInputRequest input_request = 12;
+    DTerminalStreamState terminal_stream_state = 13;
+    DTerminalSnapshotRequest terminal_snapshot_request = 14;
     DUpdateBroker update_broker = 30;
   }
 }

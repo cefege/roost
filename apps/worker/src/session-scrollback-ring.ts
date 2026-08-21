@@ -1,6 +1,6 @@
 // The per-session retained PTY byte window, as an actual fixed-capacity ring.
-// Owned by SessionRecord.scrollback; written by appendScrollback on every PTY
-// chunk and read by the wterm-core rebuild path (session-viewport.ts).
+// Owned by SessionRecord.scrollback; written on every PTY chunk and retained
+// as bounded input for explicit worker-restart adoption.
 //
 // The grow-and-slice predecessor allocated `retained + chunk` bytes and memcpy'd
 // twice per chunk, so appending one byte of keystroke echo to a saturated

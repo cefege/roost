@@ -29,24 +29,23 @@
 //   sync-ws-v2-state.ts     — v2 per-socket state vocabulary
 
 import type { ServerWebSocket } from "bun";
-import { clone, create, fromBinary, toBinary } from "@bufbuild/protobuf";
+import { clone, create } from "@bufbuild/protobuf";
 import { randomUUID } from "node:crypto";
 import {
   CoordinatorRelocationFrameSchema,
   FirehoseFrameSchema,
   KeepaliveFrameSchema,
-  SyncClientFrameSchema,
   SyncDomainGenerationSchema,
   SyncSubscribedFrameSchema,
   SyncDomain,
   type FirehoseFrame,
-  type SyncClientFrame,
 } from "@roost/shared/proto/sync_pb";
 import { jwtKeyGeneration, verifyJwt } from "../jwt.ts";
 import { log } from "@roost/shared/log";
 import { signal } from "@roost/shared/diag";
 import { startSyncFeed, type SyncFeed } from "./sync-feed.ts";
 import { registerSyncSnapshotSocket } from "./sync-snapshot-registry.ts";
+import { makeSyncWsClientIngress } from "./sync-ws-client-ingress.ts";
 import {
   realDeadlineClock,
   scheduleDeadline,
@@ -69,6 +68,7 @@ import {
   type SyncV2SocketState,
 } from "./sync-ws-v2-state.ts";
 import type { ConnectDeps } from "./router.ts";
+import type { TerminalViewHub } from "./terminal-view-hub.ts";
 
 const WS_PATH = "/ws/coord-sync";
 
@@ -111,10 +111,9 @@ export interface SyncWsData {
   kind: "sync";
   caller: { fingerprint: string; label?: string; keyGeneration: number };
   sinceEventId: number;
-  /** `${fingerprint}:${tabId}` — the same per-tab key sessionsResize claims
-   *  use, so this socket can be fanned out only the sessions this tab claimed.
-   *  null when the client sent no `tab=` (an older SPA build, the CLI, a test
-   *  client): the fanout then FAILS OPEN and ships everything, as before. */
+  /** `${fingerprint}:${tabId}` identifies the browser tab that owns socket-bound
+   * terminal view handles and attributes typed input. A v2 socket without
+   * `tab=` remains a read-only firehose consumer and cannot issue either. */
   viewerKey: string | null;
   remoteAddress?: string | null;
   feed: SyncFeed | null;
@@ -231,6 +230,7 @@ export interface SyncWsHandlerOptions {
     viewerKey: string;
     socketId: string;
   }) => void;
+  terminalViews?: TerminalViewHub;
 }
 
 export function makeSyncWsHandler(
@@ -271,16 +271,20 @@ export function makeSyncWsHandler(
     scheduleV2: v2Scheduler.scheduleV2,
     onV2Command: options.onV2Command,
   });
+  const handleClientMessage = makeSyncWsClientIngress({
+    closeForInvalidAck: delivery.closeForInvalidAck,
+    applyCumulativeAck: delivery.applyCumulativeAck,
+    handleV2Command: v2Commands.handleV2Command,
+  });
 
   cleanupSocket = (ws: ServerWebSocket<SyncWsData>): void => {
     sockets.delete(ws);
     const v2 = ws.data.v2;
     if (v2 && !v2.closeNotified) {
       v2.closeNotified = true;
+      options.terminalViews?.closeSocket(v2.socketId);
       const viewerKey = ws.data.viewerKey;
-      if (viewerKey !== null) {
-        options.onV2Close?.({ viewerKey, socketId: v2.socketId });
-      }
+      if (viewerKey !== null) options.onV2Close?.({ viewerKey, socketId: v2.socketId });
     }
     if (ws.data.keepaliveTimer) {
       clearInterval(ws.data.keepaliveTimer);
@@ -352,6 +356,23 @@ export function makeSyncWsHandler(
           try { ws.close(1011, "subscribed send failed"); } catch { /* already closed */ }
           return;
         }
+        options.terminalViews?.registerSocket({
+          socketId: v2.socketId,
+          viewerKey: ws.data.viewerKey,
+          callerFingerprint: ws.data.caller.fingerprint,
+          sink: {
+            beginTerminalStream: (sessionId, streamId) =>
+              v2Scheduler.beginTerminalStream(ws, sessionId, streamId),
+            enqueueTerminalState: (frame, sessionId) =>
+              v2Scheduler.enqueueTerminalState(ws, frame, sessionId),
+            replaceTerminalSnapshot: (sessionId, streamId, frames) =>
+              v2Scheduler.replaceTerminalSnapshot(ws, sessionId, streamId, frames),
+            enqueueTerminalDelta: (sessionId, streamId, frame) =>
+              v2Scheduler.enqueueTerminalDelta(ws, sessionId, streamId, frame),
+            dropTerminalSession: (sessionId) =>
+              v2Scheduler.dropTerminalSession(ws, sessionId),
+          },
+        });
       } else {
         const push = (frame: FirehoseFrame): void => { delivery.sendGuarded(ws, frame); };
         feed = startSyncFeed(
@@ -384,49 +405,7 @@ export function makeSyncWsHandler(
       });
     },
     message(ws: ServerWebSocket<SyncWsData>, message: string | Buffer): void {
-      if (!ws.data.flowControl || ws.data.pressureClosing) return;
-      let clientFrame: SyncClientFrame;
-      try {
-        if (typeof message === "string") throw new TypeError("Sync client frame must be binary");
-        clientFrame = fromBinary(SyncClientFrameSchema, message, {
-          readUnknownFields: false,
-        });
-        const canonical = toBinary(SyncClientFrameSchema, clientFrame);
-        if (
-          canonical.byteLength !== message.byteLength
-          || canonical.some((byte, index) => byte !== message[index])
-        ) throw new TypeError("Sync client frame must be canonical");
-      } catch {
-        delivery.closeForInvalidAck(ws);
-        return;
-      }
-
-      if (!ws.data.v2) {
-        const ack = clientFrame.ackDeliverySeq;
-        if (
-          ack === undefined
-          || ack <= 0n
-          || clientFrame.command.case !== undefined
-          || clientFrame.socketId !== ""
-        ) {
-          delivery.closeForInvalidAck(ws);
-          return;
-        }
-        delivery.applyCumulativeAck(ws, ack);
-        return;
-      }
-
-      if (clientFrame.socketId !== ws.data.v2.socketId) return;
-      const ack = clientFrame.ackDeliverySeq;
-      if (ack !== undefined && ack > 0n && !delivery.applyCumulativeAck(ws, ack)) return;
-      if (
-        (ack === undefined || ack === 0n)
-        && clientFrame.command.case === undefined
-      ) {
-        delivery.closeForInvalidAck(ws);
-        return;
-      }
-      v2Commands.handleV2Command(ws, clientFrame);
+      handleClientMessage(ws, message);
     },
     drain(ws: ServerWebSocket<SyncWsData>): void {
       // Bun drain releases only native buffered-byte pressure. Application
