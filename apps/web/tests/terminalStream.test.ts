@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "bun:test";
+import { describe, expect, setSystemTime, test, vi } from "bun:test";
 import {
   CELL_GRID_CHUNK_STALL_MS,
   EPOCH_A,
@@ -19,6 +19,7 @@ import {
   row,
   terminalStream,
   updateSyncState,
+  viewCommands,
   type TerminalViewHandleStatus,
 } from "./helpers/terminalStreamFixture.ts";
 
@@ -177,25 +178,65 @@ describe("per-session browser terminal replica", () => {
   });
 
   test("keeps accepted status stable across exact heartbeats", () => {
-    const view = terminalStream.createTerminalView(SESSION_ID);
-    const statuses: TerminalViewHandleStatus[] = [];
-    view.subscribeStatus((status) => statuses.push(status));
-    view.setViewport({ cols: 80, rows: 24 });
-    const revision = latestViewCommand().value.revision as bigint;
-    acceptView(view.viewId, revision, STREAM_A, 80, 24);
-    terminalStream.dispatchTerminalCellFrame(cellFrameToProto(full(STREAM_A, Array.from(
-      { length: 24 },
-      (_, index) => row(index, "x".repeat(80)),
-    )), SESSION_ID));
-    const acceptedCount = statuses.length;
+    setSystemTime(0);
+    try {
+      const view = terminalStream.createTerminalView(SESSION_ID);
+      const sink = new RecordingRenderer();
+      view.subscribeRenderer(renderer(sink));
+      const statuses: TerminalViewHandleStatus[] = [];
+      view.subscribeStatus((status) => statuses.push(status));
+      view.setViewport({ cols: 80, rows: 24 });
+      const revision = latestViewCommand().value.revision as bigint;
+      acceptView(view.viewId, revision, STREAM_A, 80, 24);
+      terminalStream.dispatchTerminalCellFrame(cellFrameToProto(full(STREAM_A, Array.from(
+        { length: 24 },
+        (_, index) => row(index, "x".repeat(80)),
+      )), SESSION_ID));
+      const acceptedCount = statuses.length;
+      const acceptedCommandCount = viewCommands().length;
 
-    vi.advanceTimersByTime(5_000);
-    expect((latestViewCommand().value.revision as bigint)).toBe(revision);
-    expect(statuses).toHaveLength(acceptedCount);
-    expect(statuses.at(-1)).toMatchObject({
-      status: "accepted",
-      baselineReady: true,
-    });
+      setSystemTime(10_001);
+      terminalStream.dispatchTerminalCellFrame(cellFrameToProto({
+        ...delta(2, "y".repeat(80)),
+        cols: 80,
+        rows: 24,
+      }, SESSION_ID));
+      expect(viewCommands()).toHaveLength(acceptedCommandCount + 1);
+      expect(viewCommands().at(-1)!.value).toMatchObject({
+        viewId: view.viewId,
+        revision,
+        active: true,
+        cols: 80,
+        rows: 24,
+      });
+      expect(statuses).toHaveLength(acceptedCount);
+      expect(statuses.at(-1)).toMatchObject({
+        status: "accepted",
+        baselineReady: true,
+      });
+
+      view.setInactive();
+      const inactiveCommandCount = viewCommands().length;
+      const inactiveStatusCount = statuses.length;
+      terminalStream.dispatchTerminalCellFrame(cellFrameToProto({
+        ...delta(3, "z".repeat(80)),
+        cols: 80,
+        rows: 24,
+      }, SESSION_ID));
+      expect(viewCommands()).toHaveLength(inactiveCommandCount);
+      expect(statuses).toHaveLength(inactiveStatusCount);
+
+      view.dispose();
+      terminalStream.dispatchTerminalCellFrame(cellFrameToProto({
+        ...delta(4, "q".repeat(80)),
+        cols: 80,
+        rows: 24,
+      }, SESSION_ID));
+      expect(viewCommands()).toHaveLength(inactiveCommandCount);
+      expect(statuses).toHaveLength(inactiveStatusCount);
+    } finally {
+      setSystemTime();
+    }
   });
 
   test("retains the offline replica and requires a fresh baseline on the next generation", () => {

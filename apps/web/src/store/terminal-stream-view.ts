@@ -287,7 +287,19 @@ export function createTerminalView(sessionId: string): TerminalViewHandle {
       if (view.disposed) return () => undefined;
       const subscriber: TerminalRendererSubscriber = {
         renderer,
-        onDelivery,
+        onDelivery: (delivery) => {
+          const desired = view.desired;
+          const leaseDeadlineMs = view.leaseDeadlineMs;
+          if (
+            !view.disposed
+            && desired?.active
+            && leaseDeadlineMs !== null
+            && leaseDeadlineMs <= Date.now() + TERMINAL_VIEW_HEARTBEAT_MS
+          ) {
+            publishIntent(view, desired);
+          }
+          onDelivery?.(delivery);
+        },
         streamId: null,
         gridEpoch: null,
         seq: null,

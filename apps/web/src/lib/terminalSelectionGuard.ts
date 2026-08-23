@@ -295,7 +295,10 @@ export function createTerminalSelectionGuard(
 		const selection = getDisplay()?.ownerDocument.getSelection();
 		const ownedSelection = !!selection && paneOwnsSelectionEndpoint(selection);
 		const result = getRenderer()?.prepareLiveInteraction();
-		if (ownedSelection) selection?.removeAllRanges();
+		if (ownedSelection) {
+			getRenderer()?.beginLiveSelectionRelease();
+			selection?.removeAllRanges();
+		}
 		getLinkAttachment()?.releaseInteraction();
 		notifyBackfill(result);
 	};

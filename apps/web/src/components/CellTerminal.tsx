@@ -483,11 +483,19 @@ export function CellTerminal(props: CellTerminalProps) {
 		});
 		backfillRef = backfill;
 		unregisterUserInput = registerUserTerminalInput(sid, prepareLiveInteraction);
-		// Only an active surface can produce genuine scrollbar/accessibility
-		// intent. Renderer-owned writes remain guarded until their active event.
+		// Only an interactive surface can produce genuine scrollbar/accessibility
+		// intent. Hidden or parked scrolls are lifecycle cleanup and must restore
+		// the newest canonical frame before the surface can be revealed.
 		const onScroll = () => {
 			if (!renderer || !displayRef) return;
-			if (props.inLayout !== true || !props.surfaceActive || !isPageVisible()) return;
+			const interactive = props.inLayout === true
+				&& props.surfaceVisible
+				&& props.surfaceActive
+				&& isPageVisible();
+			if (!interactive) {
+				notifyBackfill(renderer.prepareLiveInteraction());
+				return;
+			}
 			notifyBackfill(renderer.handleScroll());
 			if (!renderer.atBottom() && renderer.nearHistoryTop()) backfill.onUserScrollUp();
 		};
