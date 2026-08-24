@@ -121,11 +121,31 @@ function _key(workerFp: string, channelId: number): string {
 // a mapping that never bound = real output/history loss → Tier-1 signal.
 const UNMAPPED_DROP_THRESHOLD = 50;
 const UNMAPPED_DROP_WINDOW_MS = 5000;
+// A channel that stops dropping must not pin its breadcrumb forever — the map
+// used to grow monotonically over coord's uptime. Swept lazily at most once
+// per window, plus a hard cap so a pathological many-channel burst stays O(1).
+const UNMAPPED_DROP_MAX_ENTRIES = 1024;
 const _unmappedDrops = new Map<string, { count: number; first_ts: number }>();
+let _unmappedSweepTs = 0;
 
 function _recordUnmappedDrop(workerFp: WorkerFp, channelId: ChannelId): void {
   const key = _key(workerFp, channelId);
   const now = Date.now();
+  if (_unmappedDrops.size > 0 && now - _unmappedSweepTs >= UNMAPPED_DROP_WINDOW_MS) {
+    _unmappedSweepTs = now;
+    for (const [k, rec] of _unmappedDrops) {
+      if (now - rec.first_ts > UNMAPPED_DROP_WINDOW_MS) _unmappedDrops.delete(k);
+    }
+  }
+  while (_unmappedDrops.size >= UNMAPPED_DROP_MAX_ENTRIES) {
+    let oldestKey: string | null = null;
+    let oldestTs = Infinity;
+    for (const [k, rec] of _unmappedDrops) {
+      if (rec.first_ts < oldestTs) { oldestTs = rec.first_ts; oldestKey = k; }
+    }
+    if (oldestKey === null) break;
+    _unmappedDrops.delete(oldestKey);
+  }
   let rec = _unmappedDrops.get(key);
   if (!rec || now - rec.first_ts > UNMAPPED_DROP_WINDOW_MS) {
     rec = { count: 0, first_ts: now };

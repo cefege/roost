@@ -1,6 +1,15 @@
+// Browser side of coordinator move. A live SPA is handed off mid-session via
+// a one-time token: relocateBrowserToCoordinator mints it on the CURRENT
+// coord and navigates to the destination with the token only in the URL
+// fragment (never a query/header — intermediaries log those); the fragment
+// is redeemed once by redeemCoordinatorRelocation on the destination and
+// scrubbed by startup before any authenticated transport opens. The
+// module-level `relocating` latch collapses the COMMITTED race between the
+// sync frame and the settings dialog poll into one navigation.
 import { createClient } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
 import { CoordinatorService } from "@roost/shared/proto/coordinator_pb";
+import { diag } from "@roost/shared/diag";
 import { coordClient } from "../connect.ts";
 import { getPublicKeyB64 } from "./web-key.ts";
 import { browserSelfLabel } from "../lib/browserSelfLabel.ts";
@@ -37,7 +46,7 @@ export async function redeemCoordinatorRelocation(
     location.reload();
     return true;
   } catch (error) {
-    console.error("[coord-relocation] destination redemption failed", error);
+    diag("coord_move.spa_redeem_failed", { error: String(error) });
     return false;
   }
 }
@@ -62,7 +71,7 @@ export async function relocateBrowserToCoordinator(handoffId: string, targetUrl:
     return "started";
   } catch (error) {
     relocating = false;
-    console.error("[coord-relocation] source token mint failed", error);
+    diag("coord_move.spa_mint_failed", { handoff_id: handoffId, error: String(error) });
     return "failed";
   }
 }

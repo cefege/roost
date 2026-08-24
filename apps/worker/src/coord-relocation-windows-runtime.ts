@@ -1,3 +1,7 @@
+// Concrete WindowsCoordRuntime: executes SCM queries and relocation broker
+// commands through @roost/shared/windows-helper, maps service state into the
+// snapshots and recovery policies the Windows relocation operation expects,
+// and reports host arch/release alongside results for fleet diagnostics.
 import { arch, release } from "node:os";
 import type {
   WindowsRelocationBrokerCommand,

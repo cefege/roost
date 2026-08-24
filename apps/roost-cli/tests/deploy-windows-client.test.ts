@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { deployWindowsWorkerViaCoordinator } from "../src/deploy.ts";
+import { deployWindowsWorkerViaCoordinator } from "../src/deploy-windows-channel.ts";
 import { DeployFailure } from "../src/deploy-exec.ts";
 
 type DeployClient = Parameters<typeof deployWindowsWorkerViaCoordinator>[0];

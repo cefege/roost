@@ -1,3 +1,8 @@
+// Transport-neutral contract for coordinator moves: the orchestrator talks
+// ONLY through CoordinatorMoveRuntime, never to sockets or sqlite directly.
+// MoveSnapshot is persisted verbatim by state.ts and carries the handoff
+// secret in plaintext; expectedCoordKid/expectedGitSha pin target identity,
+// so widening these shapes changes what lands in the on-disk handoff file.
 import type { MovePhase } from "./state.ts";
 
 export interface MoveWorker {

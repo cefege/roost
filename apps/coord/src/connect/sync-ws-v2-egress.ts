@@ -34,6 +34,7 @@ import {
   V2_WEIGHTED_LANES,
   allocateDomainGeneration,
   clearV2DomainQueue,
+  isV2SnapshotFrame,
   queuedV2FrameEligible,
   removeQueuedV2Cells,
   type SyncV2DomainState,
@@ -62,6 +63,28 @@ export interface SyncV2SchedulerDeps {
 function isTerminalCellFrame(frame: FirehoseFrame): boolean {
   return frame.frame.case === "cellGrid" || frame.frame.case === "cellGridChunk";
 }
+// A freshly attached session's baseline may pass other sessions' queued deltas,
+// but never this session's own queued frames (per-session FIFO, view states
+// before chunks) or another session's snapshot (no viewer's baseline waits
+// behind a later attach). Returns the queue position to splice into.
+function v2AttachSnapshotInsertIndex(
+  queue: readonly SyncV2QueuedFrame[],
+  sessionId: string | undefined,
+): number {
+  let insertIndex = queue.length;
+  for (let index = queue.length - 1; index >= 0; index -= 1) {
+    const item = queue[index]!;
+    if (
+      (item.meta.sessionId !== undefined && item.meta.sessionId === sessionId)
+      || isV2SnapshotFrame(item.frame)
+    ) {
+      return index + 1;
+    }
+    insertIndex = index;
+  }
+  return insertIndex;
+}
+
 
 export function makeSyncV2Scheduler(deps: SyncV2SchedulerDeps) {
   const {
@@ -214,6 +237,10 @@ export function makeSyncV2Scheduler(deps: SyncV2SchedulerDeps) {
     if (effectiveMeta.beforeBuffered) {
       domain.queue.splice(domain.seedInsertIndex, 0, item);
       domain.seedInsertIndex++;
+    } else if (effectiveMeta.attachSnapshot) {
+      const insertIndex = v2AttachSnapshotInsertIndex(domain.queue, effectiveMeta.sessionId);
+      domain.queue.splice(insertIndex, 0, item);
+      if (insertIndex < domain.seedInsertIndex) domain.seedInsertIndex++;
     } else {
       domain.queue.push(item);
     }
@@ -223,12 +250,11 @@ export function makeSyncV2Scheduler(deps: SyncV2SchedulerDeps) {
     scheduleV2(ws);
     return true;
   }
-
   const terminalScheduler = makeSyncV2TerminalScheduler({
+    deadlineClock,
     enqueueV2Frame,
     removeTerminalQueued,
   });
-
   let scheduleV2: (ws: ServerWebSocket<SyncWsData>) => void;
   const flushV2 = (ws: ServerWebSocket<SyncWsData>): void => {
     const v2 = ws.data.v2;

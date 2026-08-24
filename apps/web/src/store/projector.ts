@@ -19,7 +19,7 @@ import { reconcile } from "solid-js/store";
 import type { SessionEvent, Session } from "@roost/shared/wire";
 import { foldEvent, SessionEvent as SessionEventSchema } from "@roost/shared/wire";
 import { signal } from "@roost/shared/diag";
-import { rootStore, setRootStore } from "./root.ts";
+import { deleteStoreRecord, rootStore, setRootStore } from "./root.ts";
 import { isPendingSpawn } from "./optimisticSpawn.ts";
 import { pruneTerminalSession } from "./terminal-stream.ts";
 import { pruneTerminalInput } from "../ws/sync-outbound.ts";
@@ -51,10 +51,10 @@ function affectedIds(event: SessionEvent): Set<string> {
  *  re-hydration, arriving mid-spawn omits the not-yet-real session id. */
 function _deleteSession(id: string): void {
   if (isPendingSpawn(id)) return;
-  setRootStore("sessions", id, undefined as unknown as Session);
-  setRootStore("terminal_title", id, undefined as unknown as string);
-  setRootStore("last_activity", id, undefined as unknown as never);
-  setRootStore("session_viewers", id, undefined as unknown as never);
+  deleteStoreRecord("sessions", id);
+  deleteStoreRecord("terminal_title", id);
+  deleteStoreRecord("last_activity", id);
+  deleteStoreRecord("session_viewers", id);
   clearAgentStatusForSession(id);
   pruneTerminalSession(id);
   pruneTerminalInput(id);

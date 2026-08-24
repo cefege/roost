@@ -94,6 +94,11 @@ Non-negotiable for every change.
    the actual verb (`handleClaudeEventFrame`, `replayRingBufferSince`,
    `mergeRemoteSessions`). No `Utils` / `Helpers` / `Common` / `Models`
    modules — name the concept (`PathFormat`, `KeychainStore`).
+   A leading `_` on an *exported* symbol (`_quoteRemoteShell`,
+   `_recoverMacosDeployJournal`, `_dispatchSyncFrame`) is the established
+   marker for an export that exists so tests or diagnostics can reach module
+   internals — ordinary callers use the unprefixed API; keep the marker when
+   adding such exports instead of inventing a second convention.
 
 3. **Predictable per-file shape.** TypeScript: file-header comment (3–6
    lines) → imports → types → exported API → private helpers. Solid
@@ -144,7 +149,7 @@ Non-negotiable for every change.
       valid *package* name, so the `--filter` command above is correct.
     - **Coord RPC handlers** live by domain in `apps/coord/src/connect/handlers-*.ts`,
       each exporting a `make<Domain>Handlers(deps)` spread into the SINGLE
-      `router.service()` literal in `connect/router.ts`. A separate
+      `router.service()` literal in `apps/coord/src/connect/router.ts`. A separate
       `router.service()` call per domain shadows the rest with
       unimplemented-throws.
 
@@ -256,6 +261,11 @@ tier: each Playwright worker starts a real coord, worker, keeper and PTYs
   `smoke/terminal/terminal-input.spec.ts` `"terminal replay and Ctrl keys stay
   owned by the PTY"`.
 
+The `window.__smoke` backdoor those specs drive ships out of production
+bundles: it is only included when the web bundle was built with
+`VITE_ROOST_SMOKE=1` (the terminal tier's build sets it), and even then it is
+code-split and installed solely when `localStorage.roostSmoke === "1"`.
+
 `smoke/terminal/live-stack.ts` is the hands-on escape hatch, never a gate: `bun
 run --cwd apps/web build`, then `bun smoke/terminal/live-stack.ts` holds that
 same working-tree stack open and prints `READY <url> worker=<fp>`; no tailnet.
@@ -268,21 +278,26 @@ OPTIONAL, outside the definition of done, never a merge blocker.
 bun run lint            # gate — scripts/lint-roost.ts, blocking in CI
 bun run test:unit       # gate — hermetic unit tier; runs test:worker first
 bun run test:worker     # gate — per-file isolated worker suite
-bun run test:terminal   # gate — real coord + worker + keeper + PTY + browser
+bun run test:terminal   # gate — real coord + worker + keeper + PTY + browser;
+                        #   builds apps/web with VITE_ROOST_SMOKE=1 (the only
+                        #   way window.__smoke exists; prod builds fold it out)
 bun x tsgo -p tsconfig.base.json --noEmit   # gate — exactly what CI typechecks
+bun run --cwd apps/site typecheck          # gate — apps/site `astro check`
 bun run test:live-api   # optional monitor — deployed coord (ROOST_COORD_URL)
 ```
 
 CI (`.github/workflows/ci.yml`) runs every gate above plus knip (report-only)
-on ubuntu-latest AND macos-latest, then the pinned-wterm-WASM gate and
-`windows-2022`, the ONLY gate for the Windows brokers. No gate needs a deployed
-coordinator, a tailnet, or a human driving a browser.
+on ubuntu-latest AND macos-latest, then the pinned-wterm-WASM gate and, ONLY
+when the repo variable ROOST_WINDOWS_GATE is `on` (off by default since
+2026-08-16, paused per GETTING_STARTED.md), the `windows-2022` tier — the only
+gate covering the Windows brokers. No gate needs a deployed coordinator, a
+tailnet, or a human driving a browser.
 
 ---
 
 ## Failure index
 
-[`docs/FAILURE-INDEX.md`](docs/FAILURE-INDEX.md) is the symptom→fix index: 39
+[`docs/FAILURE-INDEX.md`](docs/FAILURE-INDEX.md) is the symptom→fix index: 42
 entries, one `###` heading each, with `**Symptom**` (the grep string),
 `**Wrong**`, `**Right**`, and `**Guard**` (the lint rule or test that pins
 it). It is the only actively maintained institutional memory in this repo and

@@ -22,6 +22,19 @@ import type { CallerOrigin, ListenerTrust } from "../middleware/caller-origin.ts
 import { verifyJwt } from "../jwt.ts";
 import { writeAuditLog } from "../middleware/security.ts";
 import { signal, diag } from "@roost/shared/diag";
+// Header names + auth-layer sentinels are the SPA↔coord trust contract; both
+// ends must import them, never retype them.
+import {
+  X_ROOST_TRACE_ID,
+  X_ROOST_REMOTE_ADDR,
+  X_ROOST_ON_HOST,
+  X_ROOST_LISTENER_TRUST,
+  X_ROOST_TAB_ID,
+  X_ROOST_AUTH_LAYER,
+  AUTH_LAYER_DEVICE,
+  AUTH_LAYER_TAILSCALE_SERVE,
+  AUTH_LAYER_PUBLIC_EDGE,
+} from "@roost/shared/wire/headers";
 
 // Map a Connect Code → conventional HTTP status. Audit_log records
 // HTTP-semantic status so dashboards reading `WHERE status >= 400`
@@ -139,17 +152,17 @@ export function makeAuthInterceptor(deps: AuthInterceptorDeps): Interceptor {
         // leave caller null; authed handlers reject
       }
     }
-    const traceId = req.header.get("x-roost-trace-id") ?? undefined;
+    const traceId = req.header.get(X_ROOST_TRACE_ID) ?? undefined;
     req.contextValues.set(callerKey, caller);
     req.contextValues.set(traceIdKey, traceId);
-    req.contextValues.set(remoteAddressKey, req.header.get("x-roost-remote-addr") ?? undefined);
-    req.contextValues.set(onHostKey, req.header.get("x-roost-on-host") === "1");
-    const listener = req.header.get("x-roost-listener-trust");
+    req.contextValues.set(remoteAddressKey, req.header.get(X_ROOST_REMOTE_ADDR) ?? undefined);
+    req.contextValues.set(onHostKey, req.header.get(X_ROOST_ON_HOST) === "1");
+    const listener = req.header.get(X_ROOST_LISTENER_TRUST);
     req.contextValues.set(
       listenerTrustKey,
-      listener === "tailscale-serve" || listener === "public-edge" ? listener : "direct",
+      listener === AUTH_LAYER_TAILSCALE_SERVE || listener === AUTH_LAYER_PUBLIC_EDGE ? listener : "direct",
     );
-    req.contextValues.set(tabIdKey, req.header.get("x-roost-tab-id") ?? undefined);
+    req.contextValues.set(tabIdKey, req.header.get(X_ROOST_TAB_ID) ?? undefined);
     req.contextValues.set(authorizationKey, auth);
     let status = 200;
     const lease = deps.move && WRITE_METHODS[method] ? deps.move.gate.acquire() : null;
@@ -192,7 +205,7 @@ export function requireAuth(values: ContextValues): Caller {
     throw new ConnectError(
       "authentication required",
       Code.Unauthenticated,
-      new Headers({ "x-roost-auth-layer": "device" }),
+      new Headers({ [X_ROOST_AUTH_LAYER]: AUTH_LAYER_DEVICE }),
     );
   }
   return caller;

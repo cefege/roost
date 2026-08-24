@@ -2,6 +2,7 @@ import { test, expect } from "./fixtures.ts";
 import type { RecoverySmokeApi } from "./terminal-smoke-api.ts";
 import { spawnSmokeShell, navigateToSmokeSession, inputSmokeTerminal } from "./terminal-helpers.ts";
 import {
+  acceptedGeometry,
   coordinatorTerminalViewState,
   readTerminalStreamProbe,
 } from "./terminal-probe-helpers.ts";
@@ -120,10 +121,10 @@ test("mobile composer gives multiline drafts the full message width", async ({ m
     const probe = await readTerminalStreamProbe(mobileSmokePage, sessionId);
     const { view, replica } = probe.browser;
     const coordinator = coordinatorTerminalViewState(probe);
+    const geometry = acceptedGeometry(view);
     return view.status === "accepted"
       && view.active
-      && view.effective_cols > 0
-      && view.effective_rows > 0
+      && geometry !== null && geometry.cols > 0 && geometry.rows > 0
       && replica.baseline_ready
       && replica.expected_stream_id === view.stream_id
       && coordinator?.activeViews === 1

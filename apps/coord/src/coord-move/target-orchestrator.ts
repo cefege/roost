@@ -53,6 +53,7 @@ export abstract class CoordinatorMoveTargetRole {
   protected writeTerminalState(state: HandoffState): Promise<HandoffState> {
     if (!isTerminalPhase(state.phase)) throw new Error(`coordinator move phase ${state.phase} is not terminal`);
     const retiresSource = state.role === "SOURCE" && state.phase === "COMMITTED";
+    log.info("coord-move", "move_terminal", { handoff_id: state.handoff_id, role: state.role, phase: state.phase });
     return this.options.store.writeDurable(state, (persisted) => {
       this.gate.setMode(retiresSource ? "retired" : "active");
       if (retiresSource) this.options.runtime.publishRelocation(this.snapshot(persisted, "COMMITTED"));

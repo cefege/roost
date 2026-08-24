@@ -92,7 +92,7 @@ async function startKeeper(endpointArgument: string): Promise<void> {
     }
   }
 
-  const frameCtx: FrameHandlerCtx = { channels, broadcast };
+  const frameCtx: FrameHandlerCtx = { channels, spawningChannels: new Set<number>(), broadcast };
 
   function removeClient(client: KeeperClientState): void {
     if (client.authenticationTimer) {

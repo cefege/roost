@@ -1,7 +1,7 @@
 import { expect } from "bun:test";
 import type { ServerWebSocket } from "bun";
 import { clone, create, fromBinary, toBinary } from "@bufbuild/protobuf";
-import { PbCellGridFrameSchema } from "@roost/shared/proto/cell_pb";
+import { PbCellGridChunkSchema, PbCellGridFrameSchema } from "@roost/shared/proto/cell_pb";
 import {
   FirehoseFrameSchema,
   SyncDomain,
@@ -201,6 +201,42 @@ export function cellIdentity(frame: FirehoseFrame): CellIdentity {
     full: frame.frame.value.full,
     seq: frame.frame.value.seq,
   };
+}
+
+export function makeChunk(sessionId: string, seq: number, chunkIndex: number): FirehoseFrame {
+  return create(FirehoseFrameSchema, {
+    frame: {
+      case: "cellGridChunk",
+      value: create(PbCellGridChunkSchema, {
+        snapshotId: `${sessionId}:snap`,
+        chunkIndex,
+        chunkCount: 2,
+        part: create(PbCellGridFrameSchema, {
+          sessionId,
+          cols: 80,
+          rows: 24,
+          seq: BigInt(seq),
+          full: false,
+          gridEpoch: `${sessionId}:grid`,
+        }),
+      }),
+    },
+  });
+}
+
+export type QueuedIdentity =
+  | { case: "cellGrid"; sessionId: string; full: boolean; seq: bigint }
+  | { case: "cellGridChunk"; sessionId: string | undefined; chunkIndex: number };
+
+export function queuedIdentity(frame: FirehoseFrame): QueuedIdentity {
+  if (frame.frame.case === "cellGridChunk") {
+    return {
+      case: "cellGridChunk",
+      sessionId: frame.frame.value.part?.sessionId,
+      chunkIndex: frame.frame.value.chunkIndex,
+    };
+  }
+  return { case: "cellGrid", ...cellIdentity(frame) };
 }
 
 export function decodedFrames(socket: TestSocket): FirehoseFrame[] {

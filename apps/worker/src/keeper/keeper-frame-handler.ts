@@ -1,9 +1,9 @@
 // Mux frame dispatch for the multiplexed keeper. The entry owns the single
 // channels Map + broadcast function; shell policy arrives fully resolved in
-// SpawnRequest.shell_spec.
+// SpawnRequest.shell_spec. History assembly lives in keeper-history.ts and the
+// acknowledged-input FIFO in keeper-input-queue.ts; this file composes them.
 
 import {
-  KEEPER_MAX_HISTORY_RESIZE_RECORDS,
   KEEPER_MAX_INPUT_BYTES,
   KEEPER_MAX_TERMINAL_DIMENSION,
   KEEPER_PROTOCOL_VERSION,
@@ -14,22 +14,22 @@ import {
   encodeKeeperHistoryRecords,
   encodeKeeperTerminalState,
   encodeMuxFrame,
-  encodePtyInResult,
   isEmptyKeeperPayload,
   decodeSpawnRequest,
 } from "./protocol.ts";
-import type {
-  KeeperHistoryRecord,
-  KeeperHistoryRecords,
-  PtyInWireResult,
-  ResizeWireResult,
-} from "./protocol.ts";
+import type { ResizeWireResult } from "./protocol.ts";
+import {
+  appendResizeHistory,
+  orderedHistory,
+  trimEvictedResizeHistory,
+} from "./keeper-history.ts";
+import { enqueueInput, sendPtyInResult } from "./keeper-input-queue.ts";
 import { KEEPER_BUILD_STAMP } from "./keeper-stamp.ts";
 import { _log, _keeperOpenFdCount } from "./keeper-log.ts";
 import { reapChannelTree } from "./keeper-process-reap.ts";
 import type { Channel, ClientState } from "./keeper-types.ts";
 import { cacheResizeResult, sendResizeResult } from "./keeper-resize-result.ts";
-import { createSbRing, appendToRing, readRing, ringLength } from "../session-scrollback-ring.ts";
+import { createSbRing, appendToRing, readRing } from "../session-scrollback-ring.ts";
 import { assertNeverPlatform, supportedHostPlatform } from "@roost/shared/platform";
 import { nativePathToFsPath } from "@roost/shared/native-path";
 import { spawnWindowsJobHost } from "@roost/shared/windows-helper";
@@ -47,23 +47,6 @@ const KEEPER_RING_CAP_BYTES = 1 * 1024 * 1024;
 
 // GetHistory on an unknown/exited channel: no ring to read.
 const EMPTY_U8 = new Uint8Array(0);
-const SPAWNING_CHANNELS = new Set<number>();
-const KEEPER_INPUT_DEADLINE_MS = 2000;
-const KEEPER_INPUT_QUEUE_MAX_COMMANDS = 200;
-const KEEPER_INPUT_QUEUE_MAX_BYTES = 256 * 1024;
-
-function trimEvictedResizeHistory(ch: Channel): void {
-  const retainedTail = ch.headSeq - ringLength(ch.outRing);
-  let removeCount = 0;
-  while (removeCount < ch.historyResizes.length
-      && ch.historyResizes[removeCount]!.headSeq <= retainedTail) {
-    const evicted = ch.historyResizes[removeCount]!;
-    ch.historyBaseCols = evicted.cols;
-    ch.historyBaseRows = evicted.rows;
-    removeCount++;
-  }
-  if (removeCount > 0) ch.historyResizes.splice(0, removeCount);
-}
 
 function releaseOutput(
   ch: Channel,
@@ -104,173 +87,37 @@ function releaseBoundaryOutput(
   for (const chunk of boundary.chunks) releaseOutput(ch, channelId, chunk, broadcast);
 }
 
-function appendResizeHistory(ch: Channel, seq: number, cols: number, rows: number): void {
-  // A resize-only flood must not grow an unbounded marker list. If its marker
-  // budget is exhausted, discard the raw window too; retaining fewer records
-  // is truthful, while retaining bytes under an unknowable geometry is not.
-  if (ch.historyResizes.length >= KEEPER_MAX_HISTORY_RESIZE_RECORDS) {
-    ch.outRing.buf = EMPTY_U8;
-    ch.outRing.write = 0;
-    ch.outRing.filled = 0;
-    ch.historyResizes.length = 0;
-    ch.historyBaseCols = ch.currentCols;
-    ch.historyBaseRows = ch.currentRows;
-  }
-  ch.historyResizes.push({ headSeq: ch.headSeq, seq, cols, rows });
-  ch.currentCols = cols;
-  ch.currentRows = rows;
-}
-
-function orderedHistory(ch: Channel): KeeperHistoryRecords {
-  const retained = readRing(ch.outRing);
-  const retainedTail = ch.headSeq - retained.byteLength;
-  const records: KeeperHistoryRecord[] = [];
-  let rawSeq = retainedTail;
-  for (const resize of ch.historyResizes) {
-    if (resize.headSeq < retainedTail || resize.headSeq > ch.headSeq) continue;
-    const outputBytes = resize.headSeq - rawSeq;
-    if (outputBytes > 0) {
-      const offset = rawSeq - retainedTail;
-      records.push({ kind: "output", bytes: retained.subarray(offset, offset + outputBytes) });
-      rawSeq = resize.headSeq;
-    }
-    records.push({
-      kind: "resize",
-      seq: resize.seq,
-      cols: resize.cols,
-      rows: resize.rows,
-    });
-  }
-  if (rawSeq < ch.headSeq) {
-    records.push({ kind: "output", bytes: retained.subarray(rawSeq - retainedTail) });
-  }
-  return {
-    headSeq: ch.headSeq,
-    baseCols: ch.historyBaseCols,
-    baseRows: ch.historyBaseRows,
-    records,
-  };
-}
-
-function sendPtyInResult(
+/** SpawnAck/SpawnErr writes must never throw into their caller: a dead client
+ * socket would relabel a successful spawn as spawn_failed (or escape the
+ * void'd spawn IIFE as an unhandled rejection). The client resolves every
+ * outstanding command conservatively on close, so a failed write needs no
+ * compensation. */
+function writeSpawnResult(
   socket: ClientState["socket"],
   channelId: number,
-  result: PtyInWireResult,
+  frameType: MuxFrameType,
+  payload: string,
 ): void {
-  const frameType = result.kind === "ack"
-    ? MuxFrameType.PtyInAck
-    : result.kind === "reject"
-      ? MuxFrameType.PtyInReject
-      : MuxFrameType.PtyInAmbiguous;
   try {
-    socket.write(encodeMuxFrame(frameType, channelId, encodePtyInResult(result)));
+    socket.write(encodeMuxFrame(frameType, channelId, payload));
   } catch {
-    // The client resolves an outstanding command conservatively on close.
+    // Dead client; nothing to deliver to.
   }
 }
 
-async function drainInputQueue(channelId: number, ch: Channel): Promise<void> {
-  if (ch.inputWriting) return;
-  ch.inputWriting = true;
-  try {
-    while (ch.inputQueue.length > 0) {
-      const batch = ch.inputQueue[0]!;
-      if (!batch.started && batch.socket?.destroyed) {
-        ch.inputQueue.shift();
-        ch.inputQueueBytes -= batch.bytes.byteLength;
-        continue;
-      }
-      batch.started = true;
-      const deadline = Date.now() + KEEPER_INPUT_DEADLINE_MS;
-      let writtenBytes = 0;
-      let result: PtyInWireResult | null = null;
-      while (writtenBytes < batch.bytes.byteLength) {
-        if (ch.exited || ch.terminal.closed) {
-          result = writtenBytes === 0
-            ? { kind: "reject", inputSeq: batch.inputSeq ?? 1, writtenBytes: 0, reason: "channel_exited" }
-            : { kind: "ambiguous", inputSeq: batch.inputSeq ?? 1, writtenBytes, reason: "channel_exited" };
-          break;
-        }
-        if (Date.now() >= deadline) {
-          result = writtenBytes === 0
-            ? { kind: "reject", inputSeq: batch.inputSeq ?? 1, writtenBytes: 0, reason: "deadline" }
-            : { kind: "ambiguous", inputSeq: batch.inputSeq ?? 1, writtenBytes, reason: "deadline" };
-          break;
-        }
-        let count: number;
-        try {
-          count = ch.terminal.write(batch.bytes.subarray(writtenBytes));
-        } catch (error) {
-          _log("warn", "multiplexed-keeper", "ptyin_write_failed", {
-            channelId,
-            error: String(error),
-          });
-          result = writtenBytes === 0
-            ? { kind: "reject", inputSeq: batch.inputSeq ?? 1, writtenBytes: 0, reason: "write_error" }
-            : { kind: "ambiguous", inputSeq: batch.inputSeq ?? 1, writtenBytes, reason: "write_error" };
-          break;
-        }
-        const remaining = batch.bytes.byteLength - writtenBytes;
-        if (!Number.isInteger(count) || count < 0 || count > remaining) {
-          result = writtenBytes === 0
-            ? { kind: "reject", inputSeq: batch.inputSeq ?? 1, writtenBytes: 0, reason: "invalid_write_count" }
-            : { kind: "ambiguous", inputSeq: batch.inputSeq ?? 1, writtenBytes, reason: "invalid_write_count" };
-          break;
-        }
-        if (count > 0) {
-          writtenBytes += count;
-          continue;
-        }
-        await new Promise<void>(resolve => setTimeout(resolve, 0));
-      }
-      if (!result) {
-        result = {
-          kind: "ack",
-          inputSeq: batch.inputSeq ?? 1,
-          writtenBytes: batch.bytes.byteLength,
-        };
-      }
-      if (batch.inputSeq !== null && batch.socket) {
-        sendPtyInResult(batch.socket, channelId, result);
-      }
-      ch.inputQueue.shift();
-      ch.inputQueueBytes -= batch.bytes.byteLength;
-    }
-  } finally {
-    ch.inputWriting = false;
-  }
-}
-
-function enqueueInput(
-  channelId: number,
-  ch: Channel,
-  bytes: Buffer,
-  inputSeq: number | null,
-  socket: ClientState["socket"] | null,
-): boolean {
-  if (ch.inputQueue.length >= KEEPER_INPUT_QUEUE_MAX_COMMANDS
-      || ch.inputQueueBytes + bytes.byteLength > KEEPER_INPUT_QUEUE_MAX_BYTES) {
-    return false;
-  }
-  ch.inputQueue.push({ inputSeq, bytes, socket, started: false });
-  ch.inputQueueBytes += bytes.byteLength;
-  void drainInputQueue(channelId, ch).catch(error => {
-    ch.inputWriting = false;
-    _log("error", "multiplexed-keeper", "input_queue_failed", {
-      channelId,
-      error: String(error),
-    });
-  });
-  return true;
-}
 
 export interface FrameHandlerCtx {
   channels: Map<number, Channel>;
+  // Channels with an in-flight spawn attempt. Lives beside `channels` in the
+  // keeper process's startKeeper closure because channel-id uniqueness holds
+  // WITHIN one keeper process — the worker talks to exactly one keeper, so a
+  // per-process set is the complete collision guard.
+  spawningChannels: Set<number>;
   broadcast: (frame: Buffer) => void;
 }
 
 export function handleFrame(ctx: FrameHandlerCtx, client: ClientState, f: { type: MuxFrameType; channelId: number; payload: Buffer }): void {
-  const { channels, broadcast } = ctx;
+  const { channels, spawningChannels, broadcast } = ctx;
   switch (f.type) {
     case MuxFrameType.Spawn: {
       const req = decodeSpawnRequest(f.payload);
@@ -278,23 +125,24 @@ export function handleFrame(ctx: FrameHandlerCtx, client: ClientState, f: { type
         _log("error", "multiplexed-keeper", "spawn_decode_failed", { payload_len: f.payload.length });
         return;
       }
-      if (channels.has(req.channel_id) || SPAWNING_CHANNELS.has(req.channel_id)) {
+      if (channels.has(req.channel_id) || spawningChannels.has(req.channel_id)) {
         _log("warn", "multiplexed-keeper", "spawn_channel_in_use", { channelId: req.channel_id });
-        client.socket.write(encodeMuxFrame(MuxFrameType.SpawnErr, req.channel_id, JSON.stringify({ error: "channel_id in use" })));
+        writeSpawnResult(client.socket, req.channel_id, MuxFrameType.SpawnErr, JSON.stringify({ error: "channel_id in use" }));
         return;
       }
       const spec = req.shell_spec;
       const runtimePlatform = supportedHostPlatform();
       if (spec.platform !== runtimePlatform) {
-        client.socket.write(encodeMuxFrame(
-          MuxFrameType.SpawnErr,
+        writeSpawnResult(
+          client.socket,
           req.channel_id,
+          MuxFrameType.SpawnErr,
           JSON.stringify({ error: `shell platform ${spec.platform} does not match keeper ${runtimePlatform}` }),
-        ));
+        );
         return;
       }
       const spawnedAtMs = Date.now();
-      SPAWNING_CHANNELS.add(req.channel_id);
+      spawningChannels.add(req.channel_id);
       void (async () => {
         let terminal: Bun.Terminal | undefined;
         let jobHost: WindowsJobHostHandle | undefined;
@@ -419,7 +267,7 @@ export function handleFrame(ctx: FrameHandlerCtx, client: ClientState, f: { type
             try { terminal?.close(); } catch { /* process is already gone */ }
           });
 
-          client.socket.write(encodeMuxFrame(MuxFrameType.SpawnAck, req.channel_id, JSON.stringify({ pid: childPid })));
+          writeSpawnResult(client.socket, req.channel_id, MuxFrameType.SpawnAck, JSON.stringify({ pid: childPid }));
         } catch (error) {
           if (jobHost) {
             try { await jobHost.close(); }
@@ -439,9 +287,9 @@ export function handleFrame(ctx: FrameHandlerCtx, client: ClientState, f: { type
             open_fds: _keeperOpenFdCount(),
             live_channels: channels.size,
           });
-          client.socket.write(encodeMuxFrame(MuxFrameType.SpawnErr, req.channel_id, JSON.stringify({ error: String(error) })));
+          writeSpawnResult(client.socket, req.channel_id, MuxFrameType.SpawnErr, JSON.stringify({ error: String(error) }));
         } finally {
-          SPAWNING_CHANNELS.delete(req.channel_id);
+          spawningChannels.delete(req.channel_id);
         }
       })();
       return;

@@ -1,3 +1,8 @@
+// Live resize capture for the cell emitter: while a sequenced resize boundary
+// is unresolved, incoming PTY bytes are captured instead of parsed at stale
+// geometry, then replayed once the new size is proven — protecting the core
+// from mid-repaint geometry flips. Owns the capture gate budget that flags
+// gates overstaying their ceiling.
 import { diag, signal } from "@roost/shared/diag";
 import { newTraceId } from "@roost/shared/trace";
 import type { SessionManager } from "./session-manager.ts";

@@ -9,6 +9,7 @@ import { Portal } from "solid-js/web";
 import { Button } from "./Settings/md/primitives.tsx";
 import { animateOverlayDock } from "../lib/overlayMotion.ts";
 import { isPageVisible } from "../lib/pageVisible.ts";
+import { copyToClipboard } from "../lib/clipboard.ts";
 
 export interface ConsoleDone {
   exit: number | null;
@@ -55,7 +56,8 @@ export function ConsoleModalShell(props: Props) {
 
   async function copyAll(e: MouseEvent) {
     e.stopPropagation();
-    try { await navigator.clipboard.writeText(props.lines().join("\n")); } catch { /* denied */ }
+    // Denial drops silently — the log text remains selectable in the pane.
+    await copyToClipboard(props.lines().join("\n"));
   }
 
   return (

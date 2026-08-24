@@ -19,7 +19,7 @@ import { asSessionId } from "@roost/shared/wire";
 import { requireAuth } from "./auth-interceptor.ts";
 import { getWorkerHubSocket, sendAttachmentChunk } from "./worker-service.ts";
 import { createPendingRpc, createPendingRpcWithId } from "../router/pending-rpcs.ts";
-import { sendBrowserCmd } from "./router-helpers.ts";
+import { sendBrowserCmd, requireSessionWorkerSocket } from "./router-helpers.ts";
 import type { ConnectDeps } from "./router.ts";
 
 type AttachmentMethods =
@@ -101,10 +101,8 @@ export function makeAttachmentHandlers(
       requireAuth(ctx.values);  // authz gate (throws if unauthed)
       if (!req.uploadId) throw new ConnectError("upload_id required", Code.InvalidArgument);
       if (!req.sessionId) throw new ConnectError("session_id required", Code.InvalidArgument);
-      const row = await deps.db.selectFrom("sessions").select(["worker_fp"]).where("id", "=", req.sessionId).executeTakeFirst();
-      if (!row) throw new ConnectError("session not found", Code.NotFound);
+      const { row } = await requireSessionWorkerSocket(deps.db, req.sessionId);
       const workerFp = row.worker_fp;
-      if (!getWorkerHubSocket(workerFp)) throw new ConnectError("worker offline", Code.Unavailable);
 
       // Register the pending BEFORE sending the final chunk so the worker's
       // rpc-ok can't race ahead of the pending entry. 5 min deadline covers a
@@ -126,10 +124,7 @@ export function makeAttachmentHandlers(
     async attachmentProbe(req, ctx) {
       const caller = requireAuth(ctx.values);
       if (!req.sessionId) throw new ConnectError("session_id required", Code.InvalidArgument);
-      const row = await deps.db.selectFrom("sessions").select(["worker_fp"]).where("id", "=", req.sessionId).executeTakeFirst();
-      if (!row) throw new ConnectError("session not found", Code.NotFound);
-      const sock = getWorkerHubSocket(row.worker_fp);
-      if (!sock) throw new ConnectError("worker offline", Code.Unavailable);
+      const { row, sock } = await requireSessionWorkerSocket(deps.db, req.sessionId);
       const pending = createPendingRpc<{ hit: boolean; abs_path: string }>(10_000, row.worker_fp);
       sendBrowserCmd(sock, caller, pending.request_id, {
         kind: "attachment-probe" as const, request_id: pending.request_id, session_id: asSessionId(req.sessionId), sha256: req.sha256, short_path: req.shortPath,
@@ -140,10 +135,7 @@ export function makeAttachmentHandlers(
 
     async listAttachments(req, ctx) {
       const caller = requireAuth(ctx.values);
-      const row = await deps.db.selectFrom("sessions").select(["worker_fp"]).where("id", "=", req.sessionId).executeTakeFirst();
-      if (!row) throw new ConnectError("session not found", Code.NotFound);
-      const sock = getWorkerHubSocket(row.worker_fp);
-      if (!sock) throw new ConnectError("worker offline", Code.Unavailable);
+      const { row, sock } = await requireSessionWorkerSocket(deps.db, req.sessionId);
       const pending = createPendingRpc<{ entries: Array<{ filename: string; size_bytes: number; mtime_ms: number; abs_path: string }> }>(10_000, row.worker_fp);
       sendBrowserCmd(sock, caller, pending.request_id, {
         kind: "list-attachments" as const,
@@ -163,10 +155,7 @@ export function makeAttachmentHandlers(
 
     async deleteAttachment(req, ctx) {
       const caller = requireAuth(ctx.values);
-      const row = await deps.db.selectFrom("sessions").select(["worker_fp"]).where("id", "=", req.sessionId).executeTakeFirst();
-      if (!row) throw new ConnectError("session not found", Code.NotFound);
-      const sock = getWorkerHubSocket(row.worker_fp);
-      if (!sock) throw new ConnectError("worker offline", Code.Unavailable);
+      const { row, sock } = await requireSessionWorkerSocket(deps.db, req.sessionId);
       const pending = createPendingRpc<{ ok: boolean }>(10_000, row.worker_fp);
       sendBrowserCmd(sock, caller, pending.request_id, {
         kind: "delete-attachment" as const,

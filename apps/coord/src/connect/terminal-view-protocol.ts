@@ -1,3 +1,8 @@
+// Wire protocol helpers for terminal view commands and the state frames pushed
+// to viewer sockets. validateTerminalViewCommand is the trust boundary: the
+// viewerKey always comes from the authenticated socket, never from the command.
+// Any new command field MUST be mirrored into TerminalViewIntent and
+// equalTerminalViewIntent, or same-revision replays will silently diverge.
 import { create } from "@bufbuild/protobuf";
 import {
   FirehoseFrameSchema,

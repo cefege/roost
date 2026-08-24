@@ -1,103 +1,45 @@
 // Auth + device-pairing RPC handlers: coord identity, browser/worker key
 // authorization, bootstrap-token mint/redeem, and the pairing flow
-// (create/poll/list/approve/deny). Spread into router.ts's single
-// router.service() literal. Split out of router.ts (400-line cap).
+// (create/poll/list/approve/deny). Coordinator-relocation RPCs live in
+// handlers-relocation.ts. Spread into router.ts's single router.service()
+// literal.
 
 import type { ServiceImpl } from "@connectrpc/connect";
 import { Code, ConnectError } from "@connectrpc/connect";
-import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
+import { create } from "@bufbuild/protobuf";
 import { sql } from "kysely";
 import { randomUUID } from "node:crypto";
 import { log } from "@roost/shared/log";
 import { isSupportedHostPlatform } from "@roost/shared/platform";
 import {
   CoordinatorService,
-  AuthCoordIdentityRequestSchema, AuthCoordIdentityResponseSchema,
+  AuthCoordIdentityResponseSchema,
   AuthAuthorizeBrowserResponseSchema,
   AuthMintBootstrapResponseSchema, AuthRedeemWorkerResponseSchema, AuthRedeemBrowserResponseSchema,
-  AuthMintCoordinatorRelocationRequestSchema, AuthMintCoordinatorRelocationResponseSchema,
-  AuthRedeemCoordinatorRelocationResponseSchema,
   PairCreateResponseSchema, PairPollResponseSchema, PairListResponseSchema,
   PairApproveResponseSchema, PairDenyResponseSchema,
   DeviceRowSchema, DevicesListResponseSchema, DevicesRevokeResponseSchema,
   DevicesRotateCurrentResponseSchema,
 } from "@roost/shared/proto/coordinator_pb";
 import { PairRequestSchema } from "@roost/shared/proto/wire_pb";
-import { callerOrigin, requireAuth, optionalAuth, authorizationKey } from "./auth-interceptor.ts";
+import { callerOrigin, requireAuth, optionalAuth } from "./auth-interceptor.ts";
 import { fingerprintOf } from "@roost/shared/fingerprint";
 import { invalidateJwtKey, refreshJwtKey } from "../jwt.ts";
 import { decodeEd25519Pubkey, isAuthorizedKeyRevoked } from "../authorized-keys.ts";
 import { assertOnHost, assertOnHostOrTailnet } from "../middleware/caller-origin.ts";
 import { COORD_GIT_SHA } from "../git-sha.ts";
 import { randomToken } from "./router-helpers.ts";
-import { invalidateTerminalViewerLabel } from "./terminal-view-hub.ts";
 import { pairBus } from "../buses.ts";
 import type { ConnectDeps } from "./router.ts";
 
 type AuthMethods =
   | "authCoordIdentity" | "authAuthorizeBrowser" | "authMintBootstrap"
   | "authRedeemWorker" | "authRedeemBrowser"
-  | "authMintCoordinatorRelocation" | "authRedeemCoordinatorRelocation"
   | "pairCreate" | "pairPoll" | "pairList" | "pairApprove" | "pairDeny"
   | "devicesList" | "devicesRevoke" | "devicesRotateCurrent";
 
-const CONNECT_COORDINATOR_PATH = "/roost.v1.CoordinatorService/";
-
-function relocationErrorCode(status: number): Code {
-  if (status === 401) return Code.Unauthenticated;
-  if (status === 403) return Code.PermissionDenied;
-  if (status === 404) return Code.NotFound;
-  return Code.FailedPrecondition;
-}
-
-async function postCoordinatorRpc(
-  baseUrl: string,
-  method: "AuthCoordIdentity" | "AuthMintCoordinatorRelocation",
-  body: Uint8Array,
-  authorization?: string,
-): Promise<Uint8Array> {
-  const url = new URL(`${CONNECT_COORDINATOR_PATH}${method}`, baseUrl);
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "content-type": "application/proto",
-      "connect-protocol-version": "1",
-      ...(authorization ? { authorization } : {}),
-    },
-    body: body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength) as ArrayBuffer,
-    signal: AbortSignal.timeout(5_000),
-  });
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new ConnectError(detail || `coordinator relocation request failed (${response.status})`, relocationErrorCode(response.status));
-  }
-  return new Uint8Array(await response.arrayBuffer());
-}
-
-async function resolveCurrentCoordinator(initialUrl: string): Promise<{ url: string; handoffId: string }> {
-  const seen = new Set<string>();
-  let url = initialUrl;
-  for (let hop = 0; hop < 8; hop++) {
-    const parsed = new URL(url);
-    if (parsed.protocol !== "https:" || parsed.username || parsed.password) {
-      throw new ConnectError("invalid coordinator relocation target", Code.FailedPrecondition);
-    }
-    const origin = parsed.origin;
-    if (seen.has(origin)) throw new ConnectError("coordinator relocation cycle detected", Code.FailedPrecondition);
-    seen.add(origin);
-    const response = fromBinary(
-      AuthCoordIdentityResponseSchema,
-      await postCoordinatorRpc(origin, "AuthCoordIdentity", toBinary(AuthCoordIdentityRequestSchema, create(AuthCoordIdentityRequestSchema))),
-    );
-    if (!response.relocatedToUrl) {
-      if (!response.handoffId) throw new ConnectError("current coordinator has no relocation handoff", Code.FailedPrecondition);
-      return { url: origin, handoffId: response.handoffId };
-    }
-    url = response.relocatedToUrl;
-  }
-  throw new ConnectError("coordinator relocation exceeded eight hops", Code.FailedPrecondition);
-}
-
+// Coordinator-relocation RPCs live in handlers-relocation.ts (self-contained
+// domain: follower-chain walk + mint/redeem).
 export function makeAuthHandlers(
   deps: ConnectDeps,
 ): Pick<ServiceImpl<typeof CoordinatorService>, AuthMethods> {
@@ -132,7 +74,6 @@ export function makeAuthHandlers(
       // Authorization must not advance the revocation generation: a verifier
       // may already have loaded this newly committed row.
       refreshJwtKey(deps.jwtCache, fp);
-      invalidateTerminalViewerLabel(fp);
       log.info("auth.connect", "browser_authorized", { fp, label: req.label });
       return create(AuthAuthorizeBrowserResponseSchema, { fingerprint: fp });
     },
@@ -221,110 +162,6 @@ export function makeAuthHandlers(
       log.info("auth.connect", "browser_redeemed", { fp, label: req.label });
       return create(AuthRedeemBrowserResponseSchema, { fingerprint: fp, label: req.label });
     },
-
-    async authMintCoordinatorRelocation(req, ctx) {
-      const handoff = deps.move?.current();
-      const sourceCommitted = handoff?.role === "SOURCE" && handoff.phase === "COMMITTED";
-      if (sourceCommitted) {
-        if (handoff.handoff_id !== req.handoffId) {
-          throw new ConnectError("coordinator relocation is not available", Code.FailedPrecondition);
-        }
-        const authorization = ctx.values.get(authorizationKey);
-        if (!authorization) throw new ConnectError("authentication required", Code.Unauthenticated);
-        const current = await resolveCurrentCoordinator(handoff.target_url);
-        const minted = fromBinary(
-          AuthMintCoordinatorRelocationResponseSchema,
-          await postCoordinatorRpc(
-            current.url,
-            "AuthMintCoordinatorRelocation",
-            toBinary(
-              AuthMintCoordinatorRelocationRequestSchema,
-              create(AuthMintCoordinatorRelocationRequestSchema, { handoffId: current.handoffId }),
-            ),
-            authorization,
-          ),
-        );
-        return create(AuthMintCoordinatorRelocationResponseSchema, {
-          token: minted.token,
-          targetUrl: minted.targetUrl,
-        });
-      }
-      const caller = requireAuth(ctx.values);
-      if (!handoff || handoff.handoff_id !== req.handoffId || deps.move?.gate.mode !== "active") {
-        throw new ConnectError("coordinator relocation is not available", Code.FailedPrecondition);
-      }
-      const now = Math.floor(Date.now() / 1000);
-      const token = await deps.coordKey.sign({
-        // 60s, not 300s: this is an unbound bearer credential that enrolls an
-        // arbitrary ed25519 key into the target's authorized_keys, and the
-        // fragment→redeem hop is a single navigation. It cannot be bound to
-        // claims.sub — source and target are different origins, so the browser
-        // necessarily mints a fresh keypair on the destination.
-        aud: "roost-coordinator-relocation", sub: caller.fingerprint, iat: now, exp: now + 60,
-        handoff_id: handoff.handoff_id, target_url: handoff.target_url, jti: randomUUID(),
-      });
-      return create(AuthMintCoordinatorRelocationResponseSchema, { token, targetUrl: handoff.target_url });
-    },
-
-    async authRedeemCoordinatorRelocation(req, _ctx) {
-      const handoff = deps.move?.current();
-      if (!handoff || handoff.role !== "TARGET" || handoff.phase !== "COMMITTED") {
-        throw new ConnectError("coordinator relocation is not committed", Code.FailedPrecondition);
-      }
-      let claims;
-      try {
-        claims = await deps.coordKey.verifyRelocation(req.token);
-      } catch (error) {
-        throw new ConnectError((error as Error).message, Code.Unauthenticated);
-      }
-      if (claims.handoff_id !== handoff.handoff_id || claims.target_url !== handoff.target_url) {
-        throw new ConnectError("relocation token targets a different coordinator", Code.Unauthenticated);
-      }
-      const pubkey = decodeEd25519Pubkey(req.sshPubkeyB64);
-      if (!pubkey) throw new ConnectError("invalid ssh_pubkey_b64", Code.InvalidArgument);
-      const fingerprint = await fingerprintOf(pubkey);
-      if (await isAuthorizedKeyRevoked(deps.db, fingerprint)) {
-        throw new ConnectError("authorized key was revoked", Code.Unauthenticated);
-      }
-      const now = Date.now();
-      try {
-        await deps.db.transaction().execute(async (trx) => {
-          const replay = await sql`
-            INSERT INTO bootstrap_tokens (
-              token, kind, label, created_at_ms, expires_at_ms,
-              used_at_ms, used_by_fp, minted_by_fp
-            )
-            SELECT ${`roost_move_${claims.jti}`}, 'browser', ${req.label}, ${now},
-                   ${claims.exp * 1000}, ${now}, ${fingerprint}, ${claims.sub}
-            WHERE EXISTS (
-              SELECT 1 FROM authorized_keys WHERE fingerprint = ${claims.sub}
-            ) AND NOT EXISTS (
-              SELECT 1 FROM authorized_key_revocations WHERE fingerprint = ${claims.sub}
-            )
-          `.execute(trx);
-          if (replay.numAffectedRows !== 1n) {
-            throw new ConnectError("relocation delegator is not authorized", Code.Unauthenticated);
-          }
-          await trx.insertInto("authorized_keys").values({
-            fingerprint, public_key: pubkey, label: req.label, added_at: now,
-          }).onConflict((oc) => oc.column("fingerprint").doUpdateSet({ label: req.label })).execute();
-        });
-        refreshJwtKey(deps.jwtCache, fingerprint);
-      } catch (error) {
-        if (error instanceof ConnectError) throw error;
-        const message = String((error as Error)?.message ?? error);
-        if (/UNIQUE|PRIMARY KEY|constraint failed: bootstrap_tokens/i.test(message)) {
-          throw new ConnectError("relocation token already used", Code.Unauthenticated);
-        }
-        if (/bootstrap minter revoked|authorized key revoked/i.test(message)) {
-          throw new ConnectError("relocation key was revoked", Code.Unauthenticated);
-        }
-        throw new ConnectError(`relocation redeem failed: ${message}`, Code.Unavailable);
-      }
-      invalidateTerminalViewerLabel(fingerprint);
-      return create(AuthRedeemCoordinatorRelocationResponseSchema, { fingerprint, label: req.label });
-    },
-
     // ─── pair ──────────────────────────────────────────────────────────
     async pairCreate(req, _ctx) {
       // public
@@ -417,7 +254,6 @@ export function makeAuthHandlers(
         approvedFp = fp;
       });
       refreshJwtKey(deps.jwtCache, approvedFp);
-      invalidateTerminalViewerLabel(approvedFp);
       pairBus.publish({ kind: "removed", ephemeral_id: req.ephemeralId });
       log.info("pair.connect", "approved", { ephemeral_id: req.ephemeralId, fp: approvedFp });
       return create(PairApproveResponseSchema, { ok: true });
@@ -486,7 +322,6 @@ export function makeAuthHandlers(
           .where("fingerprint", "=", req.fingerprint).execute();
       });
       invalidateJwtKey(deps.jwtCache, req.fingerprint);
-      invalidateTerminalViewerLabel(req.fingerprint);
       deps.onKeyRevoked?.(req.fingerprint);
       return create(DevicesRevokeResponseSchema, { ok: true });
     },
@@ -532,7 +367,6 @@ export function makeAuthHandlers(
       });
       refreshJwtKey(deps.jwtCache, fingerprint);
       invalidateJwtKey(deps.jwtCache, caller.fingerprint);
-      invalidateTerminalViewerLabel(caller.fingerprint);
       deps.onKeyRevoked?.(caller.fingerprint);
       return create(DevicesRotateCurrentResponseSchema, { fingerprint });
     },

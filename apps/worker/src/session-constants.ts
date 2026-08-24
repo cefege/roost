@@ -33,6 +33,15 @@ export const CELL_EMIT_COALESCE_MS = 16;
 export const RAW_METADATA_CHANNEL_CAP_BYTES = 256 * 1024;
 export const RAW_METADATA_AGGREGATE_CAP_BYTES = 2 * 1024 * 1024;
 
+// Live PTY bytes staged across session-resume()'s multi-await adoption window
+// (history read + WASM core build can span seconds while the keeper keeps
+// producing). Same magnitude as RAW_METADATA_CHANNEL_CAP_BYTES: enough for a
+// burst, small against a flood. Overflow FAILS ADOPTION rather than dropping:
+// a PTY stream is contiguous, so discarding either end splices an invisible
+// byte hole into parser state — the respawn path is the only recovery that
+// keeps the no-gap invariant.
+export const RESUME_STAGE_CAP_BYTES = 256 * 1024;
+
 // DEC private mode 2026 (synchronized output). An application that opens a
 // synchronized frame is telling the renderer not to paint a half-drawn grid, so
 // the emitter withholds streaming cell frames until the frame closes. A stream

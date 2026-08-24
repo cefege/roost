@@ -13,6 +13,7 @@ import { makeAgentConfigHandlers } from "./handlers-agent-config.ts";
 import { makeAttachmentHandlers } from "./handlers-attachments.ts";
 import { makeSettingsHandlers } from "./handlers-settings.ts";
 import { makeAuthHandlers } from "./handlers-auth.ts";
+import { makeRelocationHandlers } from "./handlers-relocation.ts";
 import { makeSystemHandlers } from "./handlers-system.ts";
 import { makeWorkspaceHandlers } from "./handlers-workspaces.ts";
 import { makeTaskHandlers } from "./handlers-tasks.ts";
@@ -72,6 +73,7 @@ export function buildConnectRouter(deps: ConnectDeps): ConnectRouter {
     ...makeTaskHandlers(deps),
     ...makeSettingsHandlers(deps),
     ...makeAuthHandlers(deps),
+    ...makeRelocationHandlers(deps),
     ...makeSystemHandlers(deps),
     ...makeTranscriptionHandlers(deps),
     ...makeAgentConfigHandlers(deps),

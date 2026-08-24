@@ -42,3 +42,17 @@ export const ROUTES = {
   BROWSE_ROOT: "/browse",
   SEARCH: "/search",
 } as const;
+
+// Concrete-href builders — the only sanctioned way to navigate to a
+// parameterized route. Raw template strings drift silently from these
+// patterns when a route shape changes (compiles clean, breaks deep links,
+// ⌘-switcher targets and boot restore at once).
+export function sessionHref(sessionId: string): string {
+  return `/s/${sessionId}`;
+}
+export function browseHref(workerFp: string): string {
+  return `/browse/${workerFp}`;
+}
+export function settingsPaneHref(pane: string): string {
+  return `/settings/${pane}`;
+}

@@ -1,3 +1,8 @@
+// Binds authoritative SessionsList snapshots to the live Sync v2 socket that
+// requested them: bind issues a token, terminal domain_ready consumes it
+// exactly once. Tokens are capped at 4 per socket (oldest evicted), and the
+// unregister disposer is identity-safe so a late double-close can never
+// delete a re-registered socket's binding.
 import { randomUUID } from "node:crypto";
 
 interface SnapshotBinding {

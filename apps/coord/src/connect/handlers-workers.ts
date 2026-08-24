@@ -26,6 +26,7 @@ import {
 } from "@roost/shared/wire/row-proto";
 import { presenceBus } from "../buses.ts";
 import { startDeploy, deployOutput } from "../deploy-jobs.ts";
+import { SseQueueOverflowError } from "../sse.ts";
 import { startWindowsDeploy } from "../windows-update-manifest.ts";
 import { listRoutableFps } from "./worker-service.ts";
 import { requireAuth } from "./auth-interceptor.ts";
@@ -277,19 +278,34 @@ export function makeWorkerHandlers(
 
 		async *workersDeployOutput(req, ctx) {
 			requireAuth(ctx.values);
-			for await (const msg of deployOutput(req.jobId, ctx.signal)) {
-				if (msg.kind === "line") {
-					yield create(WorkersDeployOutputFrameSchema, {
-						kind: "line",
-						text: msg.text,
-					});
-				} else {
+			try {
+				for await (const msg of deployOutput(req.jobId, ctx.signal)) {
+					if (msg.kind === "line") {
+						yield create(WorkersDeployOutputFrameSchema, {
+							kind: "line",
+							text: msg.text,
+						});
+					} else {
+						yield create(WorkersDeployOutputFrameSchema, {
+							kind: "done",
+							exit: msg.exit ?? -1,
+							error: msg.error ?? "",
+						});
+					}
+				}
+			} catch (e) {
+				// A stalled reader tripped the bounded SSE queue: end with a
+				// terminal done-frame instead of a protocol error so the SPA
+				// sees why the log stopped and can reconnect for the tail.
+				if (e instanceof SseQueueOverflowError) {
 					yield create(WorkersDeployOutputFrameSchema, {
 						kind: "done",
-						exit: msg.exit ?? -1,
-						error: msg.error ?? "",
+						exit: -1,
+						error: "deploy output stream overflowed; reopen to resume",
 					});
+					return;
 				}
+				throw e;
 			}
 		},
 

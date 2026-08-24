@@ -3,7 +3,7 @@
 // fp + cwd) is pre-filled from the row that triggered it; the user
 // picks the destination worker + paths + options + clicks Start.
 //
-// On Start: trpc.transfers.start fires, returns a jobId, dialog closes
+// On Start: coordClient.transfersStart fires, returns a jobId, dialog closes
 // and openTransferConsole hands off to TransferConsoleHost which mounts
 // the streaming output panel.
 
@@ -117,15 +117,15 @@ function TransferDialog(props: DialogProps) {
             "flex-direction": "column",
             gap: "14px",
             "box-shadow": "var(--md-elev-5)",
-            color: "var(--df-text-300)",
+            color: "var(--md-on-surface-variant)",
             "font-size": "13px",
           }}
         >
-          <div style={{ "font-weight": "600", "font-size": "var(--md-body-m-size)", color: "var(--df-text-000)" }}>
+          <div style={{ "font-weight": "600", "font-size": "var(--md-body-m-size)", color: "var(--md-on-surface)" }}>
             Transfer files
           </div>
           <FieldRow label="From">
-            <span style={{ color: "var(--df-text-400)" }}>
+            <span style={{ color: "var(--md-on-surface-dim)" }}>
               <strong>{props.ctx.srcLabel}</strong> · <code>{props.ctx.srcPath}</code>
             </span>
           </FieldRow>
@@ -151,7 +151,7 @@ function TransferDialog(props: DialogProps) {
               <CheckboxRow checked={deleteExtra()} onChange={setDeleteExtra} label="--delete (mirror, removes extras on destination)" />
             </span>
           </FieldRow>
-          <div style={{ "font-size": "11px", color: "var(--df-text-500)" }}>
+          <div style={{ "font-size": "11px", color: "var(--md-on-surface-dim)" }}>
             Source worker SSHes to destination over tailnet. Both workers must be online.
           </div>
           <div style={{ display: "flex", "justify-content": "flex-end", gap: "8px", "margin-top": "4px" }}>
@@ -171,7 +171,7 @@ function TransferDialog(props: DialogProps) {
 function FieldRow(props: { label: string; children: any }) {
   return (
     <label style={{ display: "flex", "flex-direction": "column", gap: "4px" }}>
-      <span style={{ "font-size": "11px", color: "var(--df-text-500)", "text-transform": "uppercase", "letter-spacing": "0.04em" }}>
+      <span style={{ "font-size": "11px", color: "var(--md-on-surface-dim)", "text-transform": "uppercase", "letter-spacing": "0.04em" }}>
         {props.label}
       </span>
       {props.children}

@@ -1,6 +1,15 @@
 import { expect, test } from "bun:test";
-import { SyncDomain, type FirehoseFrame } from "@roost/shared/proto/sync_pb";
-import { V2_DOMAIN_MAX_QUEUED_FRAMES } from "../src/connect/sync-ws-v2-state.ts";
+import { create } from "@bufbuild/protobuf";
+import {
+  FirehoseFrameSchema,
+  SyncDomain,
+  TerminalViewStateFrameSchema,
+  TerminalViewStatus,
+  type FirehoseFrame,
+} from "@roost/shared/proto/sync_pb";
+import {
+  V2_DOMAIN_MAX_QUEUED_FRAMES,
+} from "../src/connect/sync-ws-v2-state.ts";
 import {
   OTHER_SESSION,
   SESSION_A,
@@ -107,13 +116,15 @@ test("a replacement snapshot supersedes only its own stream cursor and delta tai
   expect(harness.scheduler.enqueueTerminalDelta(harness.ws, TARGET_SESSION, targetStream, followingDelta)).toBe(true);
   await flushMicrotasks();
 
-  const survivors = [other, newFull];
+  // The fresh TARGET baseline jumps the OTHER delta; snapshots never pass
+  // snapshots and per-session FIFO still holds.
+  const survivors = [newFull, other];
   const survivorBytes = survivors.map((frame) =>
     estimatedTerminalBytes(frame, harness.terminal.generation)
   );
   expect(harness.terminal.queue.map((item) => cellIdentity(item.frame))).toEqual([
-    { sessionId: OTHER_SESSION, full: false, seq: 1n },
     { sessionId: TARGET_SESSION, full: true, seq: 4n },
+    { sessionId: OTHER_SESSION, full: false, seq: 1n },
   ]);
   expect(harness.terminal.queue.map((item) => item.estimatedBytes)).toEqual(survivorBytes);
   const cursor = harness.socket.data.v2!.terminalSessions.get(TARGET_SESSION)?.cursor;
@@ -228,3 +239,67 @@ test("terminal state precedes the snapshot cursor and its delta tail after ACK r
   expect(harness.delivery.applyCumulativeAck(harness.ws, sent.at(-1)!.deliverySeq)).toBe(true);
   await flushMicrotasks();
 });
+
+// Distinct revisions make the shed order observable: with a blocked domain
+// queue, the backlog must keep the NEWEST states at the frame cap.
+const pendingState = (
+  sessionId: string,
+  streamId: string,
+  revision: bigint,
+): FirehoseFrame =>
+  create(FirehoseFrameSchema, {
+    frame: {
+      case: "terminalViewState",
+      value: create(TerminalViewStateFrameSchema, {
+        viewId: "55555555-5555-4555-8555-555555555555",
+        sessionId,
+        revision,
+        active: true,
+        streamId,
+        status: TerminalViewStatus.ACCEPTED,
+        effectiveCols: 80,
+        effectiveRows: 24,
+      }),
+    },
+  });
+
+test("a blocked terminal domain sheds pendingStates oldest-first at the frame cap", () => {
+  const harness = makeHarness("scheduler-test:pending-states-overflow", true);
+  const streamId = "stream-pending-overflow";
+  const pushed = V2_DOMAIN_MAX_QUEUED_FRAMES + 1;
+
+  // Saturate the TERMINAL domain queue so every state push below stalls in
+  // the lane's pendingStates backlog instead of draining into the queue.
+  harness.scheduler.beginTerminalStream(harness.ws, SESSION_A, streamId);
+  harness.socket.data.v2!.announcedSessions.add(SESSION_A);
+  fillApplicationAckWindow(harness);
+  for (let seq = 1; seq <= V2_DOMAIN_MAX_QUEUED_FRAMES; seq += 1) {
+    expect(
+      harness.scheduler.enqueueTerminalDelta(
+        harness.ws, SESSION_A, streamId, makeCell(SESSION_A, seq, false),
+      ),
+    ).toBe(true);
+  }
+  expect(harness.terminal.queue).toHaveLength(V2_DOMAIN_MAX_QUEUED_FRAMES);
+  for (let seq = 1; seq <= pushed; seq += 1) {
+    harness.scheduler.enqueueTerminalState(
+      harness.ws,
+      pendingState(SESSION_A, streamId, BigInt(seq)),
+      SESSION_A,
+    );
+  }
+
+  const lane = harness.socket.data.v2!.terminalSessions.get(SESSION_A);
+  const revisions = (lane?.pendingStates ?? []).map(
+    (frame) => frame.frame.case === "terminalViewState"
+      ? frame.frame.value.revision
+      : undefined,
+  );
+  expect(lane?.pendingStates).toHaveLength(V2_DOMAIN_MAX_QUEUED_FRAMES);
+  expect(revisions[0]).toBe(2n);
+  expect(revisions.at(-1)).toBe(BigInt(pushed));
+  // The saturated domain queue must be untouched — the cap is shed inside the
+  // lane's own backlog, never by resetting the shared queue.
+  expect(harness.socket.closes).toEqual([]);
+});
+

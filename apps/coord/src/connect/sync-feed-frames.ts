@@ -4,6 +4,7 @@
 // seeds them is sync-feed.ts.
 
 import { create } from "@bufbuild/protobuf";
+import { log } from "@roost/shared/log";
 import {
   FirehoseFrameSchema, type FirehoseFrame,
   AgentStatusFrameSchema, SyncDomain,
@@ -44,6 +45,10 @@ export interface SyncFeedFrameMeta {
   /** Scheduler-owned incremental terminal snapshot cursor metadata. */
   readonly terminalStreamId?: string;
   readonly terminalCursorIndex?: number;
+  /** Baseline frame of a freshly attached session; the v2 egress scheduler may
+   *  jump other sessions' queued deltas but never their snapshots or this
+   *  session's own queued frames. */
+  readonly attachSnapshot?: boolean;
 }
 
 export function frameMeta(frame: FirehoseFrame): SyncFeedFrameMeta {
@@ -76,7 +81,13 @@ export function frameMeta(frame: FirehoseFrame): SyncFeedFrameMeta {
           announces: event.kind === "opened" && sessionId ? [sessionId] : undefined,
           closes: event.kind === "closed" && sessionId ? [sessionId] : undefined,
         };
-      } catch {
+      } catch (error) {
+        // The JsonEvent fallback still delivers the payload — only the
+        // routing metadata is lost, so this stays at debug level.
+        log.debug("connect.sync", "session_meta_parse_failed", {
+          dropped_fields: ["session_id", "announces", "closes"],
+          error: String(error),
+        });
         return { domain: SyncDomain.TERMINAL, lane: "session" };
       }
     }

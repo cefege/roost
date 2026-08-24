@@ -1,3 +1,9 @@
+// SessionsSpawn RPC handler: forwards spawn frames to the target worker and,
+// for caller-supplied UUIDs, dedupes concurrent spawns via pending-spawns so
+// exact duplicates share one result while any signature conflict rejects.
+// Caller-minted session ids are trusted only after canonical-UUID validation
+// plus a DB existence check, and worker replies must match the reserved
+// identity before resolving. Spawn cols/rows are initial PTY hints only.
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
 import {

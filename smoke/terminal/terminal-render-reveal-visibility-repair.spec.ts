@@ -79,7 +79,8 @@ test("an already-painted active pane repairs on a same-session document visibili
   const before = await readCounters();
   const beforeProbe = await readTerminalStreamProbe(smokePage, sessionId);
   const beforeView = beforeProbe.browser.view;
-  if (!beforeView.revision || !beforeView.stream_id) {
+  const beforeRevision = beforeView.revision;
+  if (!beforeRevision || !beforeView.stream_id) {
     throw new Error("painted terminal omitted its accepted active view");
   }
   expect(beforeProbe.browser.handler_canonical).toEqual(beforeProbe.browser.dom_reconciled);
@@ -129,7 +130,7 @@ test("an already-painted active pane repairs on a same-session document visibili
       active: view.active,
       zeroGeometry: view.effective_cols === 0 && view.effective_rows === 0,
       revisionAdvanced: view.revision !== null
-        && BigInt(view.revision) > BigInt(beforeView.revision),
+        && BigInt(view.revision) > BigInt(beforeRevision),
       streamCleared: view.stream_id === "",
       coordinatorViews: coordinator?.activeViews ?? -1,
       coordinatorGeometry: coordinator?.effective,

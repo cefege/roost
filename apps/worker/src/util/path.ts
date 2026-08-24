@@ -1,3 +1,7 @@
+// Cross-platform filesystem-path policy for the worker: converts native
+// (Windows drive-letter / POSIX) paths to the FS form every subsystem agrees
+// on and keeps session working directories canonical, so a path that entered
+// through the SPA, coord or a shell resolves to exactly one location.
 import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { win32 } from "node:path";

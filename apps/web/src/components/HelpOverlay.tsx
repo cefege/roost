@@ -9,6 +9,7 @@ import { createMemo, createSignal, For, Show, onMount, onCleanup } from "solid-j
 import type { JSX } from "solid-js";
 import { helpOpen, closeHelp } from "../lib/keyboardShortcuts.ts";
 import { Button } from "./Settings/md/primitives.tsx";
+import { copyToClipboard } from "../lib/clipboard.ts";
 import { createOverlayPresence } from "../lib/overlayMotion.ts";
 import { platformShortcutLabel } from "../lib/browserPlatform.ts";
 
@@ -251,9 +252,7 @@ async function copyDiagnostic(): Promise<void> {
     ua: typeof navigator !== "undefined" ? navigator.userAgent : "",
     time: new Date().toISOString(),
   };
-  try {
-    await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
-  } catch {
-    // clipboard write may fail in insecure context; ignore silently
-  }
+  // Clipboard write may fail in insecure context; non-fatal — the payload
+  // fields are all visible in the overlay itself.
+  await copyToClipboard(JSON.stringify(payload, null, 2));
 }

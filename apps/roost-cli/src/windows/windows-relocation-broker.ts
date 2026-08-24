@@ -1,4 +1,3 @@
-import { lstat } from "node:fs/promises";
 import { win32 } from "node:path";
 import { acquireMachineTransaction } from "../machine-transaction.ts";
 import { roostServiceDir, roostVersionsDir } from "@roost/shared/paths";
@@ -38,6 +37,13 @@ import {
   type WindowsRelocationJournalV1,
 } from "./windows-relocation-journal.ts";
 import type { WindowsUpdateNative } from "./windows-update-broker.ts";
+import { normalizedWindowsAccount, runTrustedTailscale } from "./windows-identity.ts";
+import {
+  assertNoReparseComponents,
+  depsNow,
+  errorText,
+  samePath,
+} from "./windows-path-safety.ts";
 import { createWindowsUpdateNative } from "./windows-update-runtime.ts";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -103,7 +109,7 @@ export async function prepareWindowsRelocationJournal(
       command.operation.handoffId,
     );
   }
-  const timestamp = currentTime(deps).toISOString();
+  const timestamp = depsNow(deps).toISOString();
   return {
     schemaVersion: WINDOWS_RELOCATION_SCHEMA_VERSION,
     relocationId: command.relocationId,
@@ -139,7 +145,7 @@ export function rejectedWindowsRelocationJournal(
   deps: Pick<WindowsRelocationBrokerDeps, "now">,
 ): WindowsRelocationJournalV1 {
   if (command.action !== "START" || !command.operation) throw new Error("rejected relocation has no START operation");
-  const timestamp = currentTime(deps).toISOString();
+  const timestamp = depsNow(deps).toISOString();
   return {
     schemaVersion: WINDOWS_RELOCATION_SCHEMA_VERSION,
     relocationId: command.relocationId,
@@ -156,7 +162,7 @@ export function rejectedWindowsRelocationJournal(
       revision: 1,
       success: false,
       message: "relocation admission rejected before lifecycle mutation",
-      error: boundedError(error),
+      error: errorText(error),
       completedAt: timestamp,
     },
     createdAt: timestamp,
@@ -182,7 +188,7 @@ export async function runWindowsRelocationBroker(
       try {
         journal = await processJournal(journal, deps);
       } catch (error) {
-        journal = await restoreTransaction(journal, deps, "APPLY", boundedError(error));
+        journal = await restoreTransaction(journal, deps, "APPLY", errorText(error));
       }
       if (journal.phase === "committed" || journal.phase === "rolled-back") {
         return { handled: true, journal };
@@ -373,7 +379,7 @@ async function terminalCheckpoint(
     phase,
     revision,
     pendingAction: undefined,
-    result: { action, revision, success, message, error, completedAt: currentTime(deps).toISOString() },
+    result: { action, revision, success, message, error, completedAt: depsNow(deps).toISOString() },
   }, deps, false);
 }
 
@@ -385,7 +391,7 @@ async function saveCheckpoint(
   const next = {
     ...journal,
     revision: advance ? journal.revision + 1 : journal.revision,
-    updatedAt: currentTime(deps).toISOString(),
+    updatedAt: depsNow(deps).toISOString(),
   };
   await deps.store.save(next);
   return next;
@@ -525,7 +531,7 @@ function assertStableSnapshot(
     || snapshot.imagePathRaw !== definition.imagePath
     || JSON.stringify(snapshot.binaryArgv) !== JSON.stringify([definition.shawlPath, ...definition.shawlArguments])
     || snapshot.startType !== definition.startMode
-    || normalizedAccount(snapshot.account) !== normalizedAccount(definition.account)
+    || normalizedWindowsAccount(snapshot.account) !== normalizedWindowsAccount(definition.account)
     || JSON.stringify(snapshot.dependencies.map((entry) => entry.toLowerCase()).sort()) !== JSON.stringify(dependencies)
     || snapshot.displayName !== definition.displayName
     || snapshot.description !== definition.description
@@ -596,21 +602,6 @@ async function readOptionalOverride(path: string): Promise<string | null> {
   }
 }
 
-async function assertNoReparseComponents(root: string, target: string): Promise<void> {
-  const relative = win32.relative(root, target);
-  if (relative.startsWith("..") || win32.isAbsolute(relative)) throw new Error("relocation path escaped root");
-  let current = root;
-  for (const component of relative.split(win32.sep).filter(Boolean)) {
-    current = win32.join(current, component);
-    try {
-      if ((await lstat(current)).isSymbolicLink()) throw new Error(`reparse component: ${current}`);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
-      throw error;
-    }
-  }
-}
-
 function sameSnapshot(actual: WindowsServiceSnapshot, expected: WindowsServiceSnapshot, lifecycle: boolean): boolean {
   const project = (snapshot: WindowsServiceSnapshot): unknown => ({
     ...snapshot,
@@ -633,23 +624,6 @@ function validCoordinatorUrl(value: string): boolean {
 function boundedIdentifier(value: string): boolean {
   return value.length > 0 && value.length <= 256 && !/[\0\r\n]/.test(value);
 }
-function normalizedAccount(value: string): string { return value.trim().replace(/^\.\\/, "").toLowerCase(); }
-function samePath(left: string, right: string): boolean {
-  return win32.resolve(left).replace(/[\\/]+$/, "").toLowerCase() === win32.resolve(right).replace(/[\\/]+$/, "").toLowerCase();
-}
-function needsBroker(journal: WindowsRelocationJournalV1): boolean {
-  return ["apply-requested", "applying", "commit-requested", "restore-requested", "restoring"].includes(journal.phase);
-}
-function currentTime(deps: Pick<WindowsRelocationBrokerDeps, "now">): Date { return (deps.now ?? (() => new Date()))(); }
-function boundedError(error: unknown): string { return String(error).replace(/[\r\n]+/g, " ").slice(0, 2048); }
-
-function trustedTailscaleBinary(): string {
-  const programFiles = process.env.ProgramFiles;
-  if (!programFiles || !win32.isAbsolute(programFiles)) {
-    throw new Error("trusted ProgramFiles path is unavailable");
-  }
-  return win32.join(programFiles, "Tailscale", "tailscale.exe");
-}
 
 function tailscaleRollbackPath(serviceDir: string, relocationId: string): string {
   if (!UUID_RE.test(relocationId)) throw new Error("invalid Tailscale relocation identity");
@@ -661,23 +635,6 @@ function tailscaleRollbackPath(serviceDir: string, relocationId: string): string
     relocationId,
     "tailscale-before.json",
   );
-}
-
-async function runTrustedTailscale(args: string[]): Promise<void> {
-  const child = Bun.spawn([trustedTailscaleBinary(), ...args], {
-    stdout: "pipe",
-    stderr: "pipe",
-    signal: AbortSignal.timeout(30_000),
-  });
-  const [stdout, stderr, code] = await Promise.all([
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-    child.exited,
-  ]);
-  if (code !== 0) {
-    const detail = `${stderr}\n${stdout}`.trim().replace(/[\r\n]+/g, " ").slice(0, 1024);
-    throw new Error(`trusted Tailscale command failed (${code})${detail ? `: ${detail}` : ""}`);
-  }
 }
 
 async function captureTailscale(serviceDir: string, relocationId: string): Promise<string> {

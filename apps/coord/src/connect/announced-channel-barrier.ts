@@ -1,3 +1,9 @@
+// Bridges the worker-open chronology gap: frames for an announced channel are
+// buffered between synchronous decode of opened/respawned and its durable DB
+// append plus channel-map publication. Unannounced channels never enter here.
+// Buffers are hard-bounded (64 frames / 4 MiB / 3s); once dropped, later cell
+// frames rebuild the grid, but one-shot OSC 0/2 titles are lost forever since
+// they cross the binary lane only once.
 import type { CoordWorkerUp } from "@roost/shared/proto/worker_transport_pb";
 
 export const ANNOUNCED_CHANNEL_MAX_FRAMES = 64;

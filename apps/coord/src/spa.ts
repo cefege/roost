@@ -1,3 +1,9 @@
+// Static responder for exactly one complete SPA build: a valid on-disk dist
+// wins for source runs, otherwise the build-time embedded manifest — chosen
+// once at creation so two generations can never be mixed in one process.
+// Source-run disk assets are mutable, so their gzip bodies are memoized in a
+// small cache invalidated on mtime/size mismatch; embedded assets skip that
+// cache because their raw and gzip forms both ship at build time.
 import { existsSync, statSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 

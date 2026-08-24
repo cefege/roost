@@ -1,16 +1,18 @@
 // FileViewerSheet — full-screen modal showing a file from a worker.
 // Opens when the current route is /file/:workerFp/*path (via URL params).
-// Calls trpc.files.read.query({ worker_fp, path }) → { content_b64, size }.
-// Decodes base64 to text if UTF-8 parseable, else shows "binary" notice.
+// Fetches via coordClient.filesRead({ workerFp, path }) → { data, size }.
+// Decodes bytes to text if UTF-8 parseable, else shows "binary" notice.
 // Syntax highlighting via syntaxLite.ts (JS-ish regex tokenizer).
 // #L<n> fragment support: scrolls to line on mount; "copy link" per line.
 
-import { Show, createSignal, createEffect, createMemo, For, Index } from "solid-js";
+import { Show, createSignal, createEffect, createMemo, onCleanup, For, Index } from "solid-js";
 import { useLocation, useParams } from "@solidjs/router";
 import { coordClient } from "../connect.ts";
 import { tokenizeLines, shouldHighlight, extFromPath, type Token } from "../lib/syntaxLite.ts";
 import "../styles/syntax-vars.css";
 import { decodeWorkerPathRoute } from "../lib/nativePath.ts";
+import { copyToClipboard } from "../lib/clipboard.ts";
+import { createTrackedTimeouts } from "./trackedTimeout.ts";
 
 // ─── helpers ─────────────────────────────────────────────────────────────
 
@@ -93,14 +95,19 @@ export function FileViewerSheet() {
   const [byteSize, setByteSize] = createSignal(0);
   const [loading, setLoading] = createSignal(false);
   const [fetchError, setFetchError] = createSignal<string | null>(null);
-  const [copiedLine, setCopiedLine] = createSignal<number | null>(null);
-
-  // Ref to the scroll container — used to scrollIntoView after load.
-  let scrollRef: HTMLDivElement | undefined;
+  const [copiedLine, setCopiedLine] = createSignal<{ line: number; ok: boolean } | null>(null);
+  // Single-flight token (terminalFindController idiom): only the newest
+  // route-param fetch may publish. Navigating /file/A → /file/B must not let
+  // A's slower response overwrite B's state, and a late reply after unmount
+  // must not touch disposed signals.
+  let fetchToken = 0;
+  onCleanup(() => { fetchToken++; });
+  const setTimeoutTracked = createTrackedTimeouts();
 
   createEffect(() => {
     const fp = workerFp();
     const path = filePath();
+    const mine = ++fetchToken;
     if (!fp || !path) {
       setLines([]);
       setTokenGrid(null);
@@ -112,6 +119,7 @@ export function FileViewerSheet() {
     setFetchError(null);
     coordClient.filesRead({ workerFp: fp, path })
       .then((result) => {
+        if (mine !== fetchToken) return; // superseded by a newer route param / unmount
         setByteSize(Number(result.size));
         // Connect returns raw bytes; decode UTF-8 via TextDecoder
         const text = (() => {
@@ -138,6 +146,7 @@ export function FileViewerSheet() {
         });
       })
       .catch((e: unknown) => {
+        if (mine !== fetchToken) return;
         const msg = e instanceof Error ? e.message : String(e);
         setFetchError(msg);
         setLoading(false);
@@ -145,10 +154,14 @@ export function FileViewerSheet() {
   });
 
   function copyLineLink(lineNum: number) {
-    navigator.clipboard.writeText(lineUrl(lineNum)).catch(() => {});
-    setCopiedLine(lineNum);
-    setTimeout(() => setCopiedLine(null), 1500);
+    // Clipboard denial (permission, insecure context) shows ✕, never ✓.
+    void copyToClipboard(lineUrl(lineNum)).then((ok) =>
+      setCopiedLine({ line: lineNum, ok }));
+    setTimeoutTracked(() => setCopiedLine(null), 1500);
   }
+
+  // Ref to the scroll container — used to scrollIntoView after load.
+  let scrollRef: HTMLDivElement | undefined;
 
   // Only render when we have route params to show.
   const hasTarget = createMemo(() => !!workerFp() && !!filePath());
@@ -327,7 +340,9 @@ export function FileViewerSheet() {
                           background: "none",
                           border: "none",
                           cursor: "pointer",
-                          color: copiedLine() === lineNum ? "var(--color-ok)" : "var(--text-lo)",
+                          color: copiedLine()?.line === lineNum
+                            ? (copiedLine()!.ok ? "var(--color-ok)" : "var(--color-err)")
+                            : "var(--text-lo)",
                           "font-size": "10px",
                           "padding": "0 4px",
                           opacity: "0",
@@ -336,7 +351,7 @@ export function FileViewerSheet() {
                         class="fvs-copy-btn"
                         aria-label={`Copy link to line ${lineNum}`}
                       >
-                        {copiedLine() === lineNum ? "✓" : "#"}
+                        {copiedLine()?.line === lineNum ? (copiedLine()!.ok ? "✓" : "✕") : "#"}
                       </button>
                     </div>
                   );

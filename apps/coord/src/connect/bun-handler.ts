@@ -13,6 +13,13 @@ import type { ConnectRouter } from "@connectrpc/connect";
 import type { UniversalHandler } from "@connectrpc/connect/protocol";
 import type { UniversalServerRequest, UniversalServerResponse } from "@connectrpc/connect/protocol";
 import type { CallerOrigin } from "../middleware/caller-origin.ts";
+// Trust headers are stamped here and consumed by the auth interceptor; the
+// names come from the shared contract so the SPA side cannot drift.
+import {
+  X_ROOST_REMOTE_ADDR,
+  X_ROOST_ON_HOST,
+  X_ROOST_LISTENER_TRUST,
+} from "@roost/shared/wire/headers";
 
 export interface ConnectBunHandler {
   /** True if the path matches a registered Connect RPC. */
@@ -47,13 +54,13 @@ export function makeConnectBunHandler(router: ConnectRouter): ConnectBunHandler 
     // immutable" elsewhere. The strip-then-set guards below also prevent
     // browser-supplied origin values from reaching trust-gated handlers.
     const header = new Headers(req.headers);
-    header.delete("x-roost-remote-addr");
-    header.delete("x-roost-on-host");
-    header.delete("x-roost-listener-trust");
+    header.delete(X_ROOST_REMOTE_ADDR);
+    header.delete(X_ROOST_ON_HOST);
+    header.delete(X_ROOST_LISTENER_TRUST);
     if (origin) {
-      header.set("x-roost-remote-addr", origin.clientIp);
-      header.set("x-roost-on-host", origin.onHost ? "1" : "0");
-      header.set("x-roost-listener-trust", origin.listener);
+      header.set(X_ROOST_REMOTE_ADDR, origin.clientIp);
+      header.set(X_ROOST_ON_HOST, origin.onHost ? "1" : "0");
+      header.set(X_ROOST_LISTENER_TRUST, origin.listener);
     }
 
     const requestAbort = new AbortController();

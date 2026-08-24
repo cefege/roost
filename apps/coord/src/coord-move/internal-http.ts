@@ -1,3 +1,8 @@
+// The /internal/coord-handoff/* HTTP surface the TARGET coordinator calls to
+// observe and finalize a move (status/commit/abort). Auth is handoff id +
+// secret headers; unknown id and bad secret deliberately collapse into one
+// "handoff not found" mapped to 401. abortTarget branches on 4xx-vs-412, so
+// changing that status mapping changes rollback semantics.
 import type { CoordinatorMoveService } from "./orchestrator.ts";
 
 function handoffCredentials(request: Request): { handoffId: string; secret: string } | null {

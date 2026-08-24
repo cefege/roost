@@ -1,3 +1,8 @@
+// Desired-state reconciler for per-session terminal streams toward workers:
+// computes the effective geometry (min across viewers) and drives it to the
+// routed worker, coalescing concurrent requests via inFlight/latest. Each
+// desire mints a fresh streamId and must call screen.expectStream BEFORE
+// broadcasting ACCEPTED, or snapshot requests race the worker's first frame.
 import { randomUUID } from "node:crypto";
 import {
   TerminalStreamFailureKind,

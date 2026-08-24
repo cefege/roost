@@ -3,7 +3,7 @@
  *
  * The ENGINE (lib/theme.ts) writes the canonical token set (themeTokens.ts:
  * --bg-base, --surface-0..3, --text-hi/mid/lo, --accent*, --border-*,
- * --status-*, --syntax-*, --bg-selected, --border-selected, --term-bg/fg,
+ * --status-*, --syntax-*, --term-bg/fg,
  * --ansi-*) directly onto documentElement.style per the active theme.
  *
  * THIS FILE does two jobs:
@@ -75,8 +75,6 @@
   --syntax-string: #98c379;
   --syntax-number: #d19a66;
   --syntax-comment: #5c6370;
-  --bg-selected: #1e2a1e;
-  --border-selected: #2a4a2a;
   --ansi-black: #282c34;
   --ansi-red: #e06c75;
   --ansi-green: #98c379;
@@ -278,10 +276,6 @@
   --md-sys-color-on-error: var(--md-on-error);
   --md-sys-color-error-container: var(--md-error-container);
   --md-sys-color-on-error-container: var(--md-on-error-container);
-  /* Back-compat: legacy selection aliases now route through the M3 role so any
-     straggler consumer is auto-correct. The old per-theme tints are gone. */
-  --bg-selected: var(--md-sys-color-secondary-container);
-  --border-selected: var(--md-sys-color-outline-variant);
 
   /* Legacy --bg-* elevation tier → canonical surfaces. */
   --bg-elev-0: var(--surface-0);
@@ -299,8 +293,6 @@
   --color-action: var(--accent);
   --color-accent: var(--accent);
   --color-accent-tonal: var(--accent-container);
-  --green: var(--status-ok);
-  --peach: var(--status-warn);
 
   /* ── Terminal palette bridge ──
      Cell spans reference --term-color-0..15 plus --term-bg/fg/cursor. These
@@ -326,20 +318,7 @@
   --terminal-grid-bg: var(--term-bg);
   --terminal-grid-fg: var(--term-fg);
   --terminal-cursor: var(--accent);
-  --terminal-selection: var(--bg-selected);
-
-  /* Catppuccin-name aliases (legacy components). */
-  --base: var(--bg-base);
-  --crust: var(--surface-0);
-  --mantle: var(--surface-1);
-  --surface0: var(--surface-2);
-  --surface1: var(--surface-3);
-  --overlay1: var(--border-strong);
-  --overlay2: var(--border-subtle);
-  --text: var(--text-hi);
-  --subtext1: var(--text-lo);
-  --blue: var(--status-info);
-  --red: var(--status-err);
+  --terminal-selection: var(--md-sys-color-secondary-container);
 
   /* ── 3. Non-color tokens (font / shape / density) — theme-independent. ── */
   --term-font-family: Menlo, Consolas, "DejaVu Sans Mono", "Courier New", monospace;

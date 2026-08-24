@@ -87,6 +87,7 @@ export function makeWorkerConn(
   let workerFp: string | null = null;
   let done = false;
   let keepaliveTimer: ReturnType<typeof setInterval> | null = null;
+  let respawnTimer: ReturnType<typeof setTimeout> | null = null;
   // 2026-06-15: identity-stamped handle so cleanup only deletes THIS
   // connection's own registry entry. When a worker reconnects rapidly,
   // connection A's delayed cleanup must not delete connection B's entry —
@@ -123,6 +124,7 @@ export function makeWorkerConn(
     if (done) return;
     done = true;
     if (keepaliveTimer) { clearInterval(keepaliveTimer); keepaliveTimer = null; }
+    if (respawnTimer) { clearTimeout(respawnTimer); respawnTimer = null; }
     if (workerFp) {
       _deleteIfStillMine(workerFp);
       // A5: fast-fail this worker's in-flight RPCs (browser spawn/attach
@@ -205,7 +207,12 @@ export function makeWorkerConn(
         });
         // Respawn-if-missing 3s after hello (grace for the worker's own
         // snapshot events to land first); idempotent on the worker side.
-        setTimeout(() => {
+        // Stored + cleared in close(), and generation-guarded: a superseded
+        // connection must not dispatch through its dead handle — the newer
+        // connection schedules its own pass on hello.
+        respawnTimer = setTimeout(() => {
+          respawnTimer = null;
+          if (done || connectWorkers.get(fp) !== myHandle) return;
           respawnMissingForWorker(deps.db, fp, myHandle).catch((e) => {
             log.warn("worker-service", "respawn_missing_failed", { error: String(e), worker_fp: fp });
           });

@@ -1,14 +1,15 @@
+// Per-session terminal screen cache and fan-out: assembles chunked baselines,
+// folds deltas onto the canonical cache, seeds new watchers, and latches a
+// resync whenever anything fails validation instead of serving wrong pixels.
+// residentRows/residentSpans are global counters that MUST be adjusted on every
+// cache install/drop — drift silently exhausts capacity for all sessions.
+// Deltas arriving mid-assembly park in the bounded hold; an interrupting
+// non-matching frame clears it and requests a fresh snapshot.
 import { clone } from "@bufbuild/protobuf";
 import {
-  applyDelta,
-  assertCellGridSnapshot,
-  CellGridChunkAssembler,
-  CELL_GRID_CHUNK_STALL_MS,
-  CELL_GRID_PART_MAX_BYTES,
-  CELL_GRID_SNAPSHOT_MAX_SPANS,
-  cloneCellGridFrame,
-  encodedCellGridFrameSize,
-  type CellGridFrame,
+  applyDelta, assertCellGridSnapshot, CellGridChunkAssembler, CELL_GRID_CHUNK_STALL_MS,
+  CELL_GRID_PART_MAX_BYTES, CELL_GRID_SNAPSHOT_MAX_SPANS, cloneCellGridFrame,
+  encodedCellGridFrameSize, type CellGridFrame,
 } from "@roost/shared/cell";
 import { cellFrameToProto, protoToCellFrame } from "@roost/shared/cell/cell-proto";
 import {
@@ -27,6 +28,14 @@ import {
   terminalSnapshotFrames,
   type TerminalScreenSnapshot,
 } from "./terminal-screen-frames.ts";
+import {
+  TerminalAssemblyHold,
+  type ChunkState,
+  type ExpectedStream,
+  type ResidentCache,
+  type SessionScreen,
+  type SocketRegistration,
+} from "./terminal-screen-hub-state.ts";
 
 export { terminalSnapshotFrames };
 
@@ -52,30 +61,6 @@ export interface TerminalScreenHubOptions {
   clearTimer?: (timer: ReturnType<typeof setTimeout>) => void;
   now?: () => number;
 }
-
-interface ExpectedStream { streamId: string; cols: number; rows: number }
-interface ResidentCache {
-  frame: CellGridFrame;
-  proto: PbCellGridFrame;
-  rows: number;
-  spans: number;
-  valid: boolean;
-}
-interface ChunkState {
-  assembler: CellGridChunkAssembler;
-  timer: ReturnType<typeof setTimeout> | null;
-}
-interface SessionScreen {
-  expected: ExpectedStream | null;
-  cache: ResidentCache | null;
-  chunks: ChunkState;
-  resyncLatched: boolean;
-}
-interface SocketRegistration {
-  sink: TerminalScreenSocketSink;
-  watchedSessions: Set<string>;
-}
-
 
 export class TerminalScreenHub {
   private readonly sessions = new Map<string, SessionScreen>();
@@ -136,6 +121,7 @@ export class TerminalScreenHub {
       && state.expected.rows === rows) return;
     this.resetChunks(state);
     this.dropCache(state);
+    state.hold.clear();
     state.expected = { streamId, cols, rows };
     state.resyncLatched = false;
     for (const socket of this.sockets.values()) {
@@ -161,6 +147,7 @@ export class TerminalScreenHub {
     const state = this.sessions.get(sessionId);
     if (!state?.expected) return;
     this.resetChunks(state);
+    state.hold.clear();
     if (state.cache) state.cache.valid = false;
     state.resyncLatched = true;
     diag("terminal.screen_fail_closed", {
@@ -174,6 +161,7 @@ export class TerminalScreenHub {
     const state = this.sessions.get(sessionId);
     if (!state?.expected) return;
     this.resetChunks(state);
+    state.hold.clear();
     if (state.cache) state.cache.valid = false;
     this.latchResync(sessionId, state, reason);
   }
@@ -183,8 +171,13 @@ export class TerminalScreenHub {
     if (!state?.expected) return;
     frame.sessionId = sessionId;
     if (state.chunks.assembler.activeSnapshotId !== null) {
+      // Deltas park in the bounded hold during assembly; a matching full supersedes; else resync.
+      const interrupts = !frame.full || frame.streamId !== state.expected.streamId;
+      if (!frame.full && state.hold.push(frame)) return;
+      state.hold.clear();
       this.resetChunks(state);
-      this.latchResync(sessionId, state, "ordinary frame interrupted chunk assembly");
+      if (interrupts) this.latchResync(sessionId, state, "ordinary frame interrupted chunk assembly");
+      if (frame.full) this.acceptFull(sessionId, state, frame, false);
       return;
     }
     if (frame.full) this.acceptFull(sessionId, state, frame, false);
@@ -203,6 +196,7 @@ export class TerminalScreenHub {
       this.resetChunks(state);
       this.acceptFull(sessionId, state, result.frame, true);
     } catch (error) {
+      state.hold.clear();
       this.resetChunks(state);
       this.latchResync(
         sessionId,
@@ -240,6 +234,11 @@ export class TerminalScreenHub {
         error instanceof Error ? error.message : "invalid terminal baseline",
       );
     }
+    state.hold.replay(
+      () => (state.cache ? BigInt(state.cache.frame.seq) : null),
+      () => Boolean(state.cache?.valid) && !state.resyncLatched,
+      (delta) => this.acceptDelta(sessionId, state, delta),
+    );
   }
 
   private acceptDelta(sessionId: string, state: SessionScreen, proto: PbCellGridFrame): void {
@@ -351,6 +350,7 @@ export class TerminalScreenHub {
         cache: null,
         chunks: { assembler: new CellGridChunkAssembler(), timer: null },
         resyncLatched: false,
+        hold: new TerminalAssemblyHold(),
       };
       this.sessions.set(sessionId, state);
     }
@@ -373,6 +373,7 @@ export class TerminalScreenHub {
     state.chunks.timer = this.setTimer(() => {
       state.chunks.timer = null;
       if (!state.chunks.assembler.expire(this.now())) return;
+      state.hold.clear();
       this.latchResync(sessionId, state, "terminal snapshot chunk transfer stalled");
     }, CELL_GRID_CHUNK_STALL_MS);
     state.chunks.timer.unref?.();

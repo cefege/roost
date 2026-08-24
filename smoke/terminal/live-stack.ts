@@ -7,7 +7,8 @@
 //
 //   bun smoke/terminal/live-stack.ts        # prints READY <url>, runs until SIGINT
 //
-// Requires apps/web/dist to be current: `bun run --cwd apps/web build`.
+// Requires apps/web/dist to be current AND smoke-enabled (the window.__smoke tier):
+// `VITE_ROOST_SMOKE=1 bun run --cwd apps/web build`.
 
 import { startTerminalTestStack } from "./stack.ts";
 

@@ -4,6 +4,8 @@ The browser client. One Solid 1.x app on plain Vite (`bun x vite` on :5174 in de
 into `apps/web/dist/` which coord serves in production). It paints terminal cells the worker already
 rendered; it does not run a terminal core.
 
+Path references are relative to `apps/web/` unless they start at the repo root (`apps/…`, `scripts/…`, `smoke/…`, `docs/…`).
+
 ## Entry point
 
 `apps/web/index.html` loads `apps/web/src/main.tsx`. In order, before any component renders:
@@ -37,7 +39,8 @@ solid `lazy()`, the repo's sanctioned code-split mechanism (its `ts-no-dynamic-i
 
 ## Module map
 
-One row per directory in this workspace.
+One row per directory in this workspace. Within a row, a bare file name lives in that
+row's directory; any ref with a path prefix follows the convention at the top of this file.
 
 | Directory | Owns | Must not own |
 | --- | --- | --- |
@@ -49,7 +52,7 @@ One row per directory in this workspace.
 | `apps/web/src/components/Settings/md/` | the M3 primitive set (one component per file, re-exported by `primitives.tsx`) plus `tokens.css` / `icon.css` — a token *declaration* site | app state or data fetching; primitives are presentational |
 | `apps/web/src/store/` | the single reactive-global-state tier: `root.ts` + `selectors.ts` + `mutations.ts`, the projector, the Sync client (`sync.ts` and its `sync-*.ts` leaves), the per-session terminal replica/view registry (`terminal-stream.ts`), pane-layout tiling, and **every** UI-state store (`uiStore.ts`, `toastStore.ts`, `renameDialog.ts`, `transferConsole.ts`, `queueTaskDialog.ts`) | JSX, and module-level `let _ws` / `let _reconnectTimer` / `let _backoffMs` (lint-guarded) |
 | `apps/web/src/ws/` | the **outbound** half of the Sync v2 socket: PTY input plus terminal-view command transport (`sync-outbound.ts`) and smoke backdoor hooks | the socket, inbound dispatch, terminal membership, or terminal continuity — those live in `apps/web/src/store/` |
-| `apps/web/src/lib/` | pure helpers, DOM controllers, and browser-API adapters (`cellRenderer.ts`, `cellRow.ts`, `terminalInputController.ts`, `ptyPaste.ts`, `deckSwipe.ts`, prefs, diag) | JSX or terminal stream ownership — this directory holds zero `.tsx` files, which is why `UiBridge.tsx` lives in `apps/web/src/components/` |
+| `apps/web/src/lib/` | pure helpers, DOM controllers, and browser-API adapters (`cellRenderer.ts`, `cellRow.ts`, `terminalInputController.ts`, `ptyPaste.ts`, `deckSwipe.ts`, prefs, diag) | JSX or terminal stream ownership — this directory holds zero `.tsx` files, which is why `src/components/UiBridge.tsx` lives in `apps/web/src/components/` |
 | `apps/web/src/auth/` | credential material: ed25519 WebCrypto key + IndexedDB (`web-key.ts`), TOFU coord pin (`trust.ts`), pair-token redemption, per-tab identity, coordinator relocation | RPC plumbing (`apps/web/src/connect.ts`) and any UI |
 | `apps/web/src/styles/` | the six eagerly-imported global stylesheets; `theme-vars.css` is the alias graph the theme engine writes into, `sidebar.css` carries the `.wterm` terminal shell | component-local one-offs; scoped styles stay inline in the component |
 | `apps/web/tests/` | the hermetic Bun tier (~80 files), including 10 hand-rolled fake-DOM suites and the shared shim `apps/web/tests/helpers/cellRendererFakeDom.ts` | browser-real assertions — those are Playwright specs in `smoke/terminal/` |
@@ -74,7 +77,7 @@ Break one of these and you get back the history-corruption class this repo keeps
   app writes terminal scroll position. Scrollback rows are append-only and immutable; every
   `content-visibility` block gets an exact pixel placeholder (`blockPlaceholder`) so a revealed block
   cannot move the scroll maximum out from under a pinned pane.
-- **`CellTerminal` renders inside the `<For>` deck, never a `<Show>`.** `TerminalDeck.tsx` feeds
+- **`CellTerminal` renders inside the `<For>` deck, never a `<Show>`.** `src/components/TerminalDeck.tsx` feeds
   `<For each={mountedSessionIds()}>` primitive session ids (not `Session` objects) so a root snapshot
   that replaces a same-id object cannot tear down a warm renderer; a remount loses scrollback. Guard:
   lint rule `L11: CellTerminal must render inside <For> deck, never <Show> (remount on nav loses
@@ -86,7 +89,7 @@ Break one of these and you get back the history-corruption class this repo keeps
   coord uses (`@roost/shared/wire`), so SPA and coord projections agree by construction.
 - **Only visible panes publish active terminal views.** Input goes through
   `sendTerminalInput` in `apps/web/src/ws/sync-outbound.ts`; every batch resolves
-  accepted/rejected/ambiguous and is never silently retried. `terminal-stream.ts`
+  accepted/rejected/ambiguous and is never silently retried. `src/store/terminal-stream.ts`
   owns stable `view_id` handles, revisions, Sync-generation replay and one
   canonical viewport replica per session. `CellTerminal` only calls
   `view.setViewport(...)` / `view.setInactive()` and attaches a renderer. A

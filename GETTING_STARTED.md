@@ -454,7 +454,7 @@ Use one tagged release and one clean command:
    converges to the expected build.
 3. Run the live API canary:
    ```sh
-   ROOST_API_SMOKE=1 ROOST_COORD_URL=https://<coord>.<tailnet>.ts.net:4102 \
+   ROOST_COORD_URL=https://<coord>.<tailnet>.ts.net:4102 \
      bun test smoke/api_smoke.test.ts
    ```
 4. Run the hermetic real-flow tier on the release commit — `bun run test:terminal`

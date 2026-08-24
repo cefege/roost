@@ -28,6 +28,7 @@ import { coordClient } from "../connect.ts";
 import { spawnShell, waitForSession, maybeAutoLaunchAgent } from "../lib/spawnSession.ts";
 import { terminalHref } from "../lib/terminalHref.ts";
 import { pushRecent } from "../lib/sidebarRecent.ts";
+import { browseHref, sessionHref } from "../routes.ts";
 import { computeFolderActivity, type FolderActivity } from "../lib/folderActivity.ts";
 import { isCompact } from "../lib/windowSizeClass.ts";
 import { addToast } from "../store/toastStore.ts";
@@ -256,7 +257,7 @@ function WorkerBrowsePage(props: { workerFp: string }) {
       pushRecent(sessionId);
       const session = await waitForSession(sessionId);
       maybeAutoLaunchAgent(sessionId);
-      navigate(session ? terminalHref(session) : `/s/${sessionId}`);
+      navigate(session ? terminalHref(session) : sessionHref(sessionId));
     } catch (err) {
       addToast(`New terminal failed: ${err instanceof Error ? err.message : String(err)}`, "err");
     }
@@ -288,7 +289,7 @@ function WorkerBrowsePage(props: { workerFp: string }) {
 
   function selectServer(fp: string) {
     setServerMenuOpen(false);
-    navigate(`/browse/${fp}`);
+    navigate(browseHref(fp));
   }
 
   function onKeydown(e: KeyboardEvent) {
@@ -425,11 +426,10 @@ function WorkerBrowsePage(props: { workerFp: string }) {
 
 // /browse (no server) → most-recent online server, else Home.
 export function BrowseRedirect() {
-  const navigate = useNavigate();
   const fp = createMemo(() => {
-    const recent = [...allSessions()].sort((a, b) => b.created_at - a.created_at)
-      .find((s) => { const w = rootStore.workers[s.worker_fp]; return w ? workerOnline(w) : false; });
+    const recent = [...allSessions()].sort((a, b) => b.created_at - a.created_at).find((s) => { const w = rootStore.workers[s.worker_fp]; return w ? workerOnline(w) : false; });
     return recent?.worker_fp ?? Object.values(rootStore.workers).find(workerOnline)?.fp;
   });
-  return <Navigate href={fp() ? `/browse/${fp()}` : "/"} />;
+  const resolved = fp();
+  return <Navigate href={resolved ? browseHref(resolved) : "/"} />;
 }

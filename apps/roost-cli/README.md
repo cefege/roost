@@ -6,10 +6,12 @@ It replaced 7+ scattered shell scripts. Run it as `bun run roost <sub> [args]`
 `roost` binary — the compiled binary also uses this CLI for its *server* modes
 (`roost coord`, `roost worker`, `roost keeper`).
 
+Path references are relative to `apps/roost-cli/` unless they start at the repo root (`apps/…`, `scripts/…`, `smoke/…`, `docs/…`).
+
 ## Entry point
 
 `src/main.ts` holds the `SUBCOMMANDS` dispatch object. It is the source of truth
-for the command surface: `main.ts` looks the argv up in that object, so a command
+for the command surface: `src/main.ts` looks the argv up in that object, so a command
 exists exactly when it has a key there. `--version` / `-v` alias to `version`; an
 unknown key prints `usage()` and exits 1.
 
@@ -39,7 +41,7 @@ omitted because neither is user-invoked.
 | `status` | ✓/✗ health readout (tailscale gate, both services, coord liveness, workers), each line carrying its own remedy |
 | `doctor [--since 24h]` | Anomaly digest from the low-volume Tier-1 channel (`main.err.log` + rotated `.N.gz`) |
 | `api <verb>` | Headless introspect/drive over the coord Connect RPCs: `sessions`, `cells`, `input`, `rename`, `assign`, `attach`, `spawn`, `kill`, `workers`, `workspaces`, `ws-*`, `tasks`, `task-*`, `ui`, `ui-state`, `events` |
-| `join` | Install + register this machine's worker from a one-shot bootstrap token (driven by `join.sh`; needs `ROOST_COORDINATOR_URL` + `ROOST_BOOTSTRAP_TOKEN`) |
+| `join` | Install + register this machine's worker from a one-shot bootstrap token (driven by the repo-root `join.sh`; needs `ROOST_COORDINATOR_URL` + `ROOST_BOOTSTRAP_TOKEN`) |
 | `add-machine --platform <macos\|linux\|windows>` | Mint one worker token and print the platform-specific enrollment command. Coordinator-only |
 
 ### `__windows-updater-broker` is a contract, not an implementation detail
@@ -60,13 +62,20 @@ code never enters a POSIX command path. It drains pending relocation requests
   recovery), `src/deploy-linux.ts` (in-place git checkout, not an rsynced slim
   tree), `src/deploy-local.ts`, `src/deploy-exec.ts` (the ssh/spawn layer and the
   shared ssh option set), `src/deploy-plist-env.ts`, `src/deploy-self-host.ts`,
-  `src/push.ts`, `src/keeper-refresh.ts`.
-- **Windows-only** — `src/windows/`: `windows-update-broker.ts` (the elevated
-  update state machine), `windows-update-journal.ts` (durable `update-v2.json`
-  journal + progress ring), `windows-update-control.ts` (request admission +
-  progress read), `windows-update-runtime.ts` (native + health-prover bindings),
-  and the relocation trio `windows-relocation-broker.ts`,
-  `windows-relocation-control.ts`, `windows-relocation-journal.ts`.
+  `src/push.ts`, `src/keeper-refresh.ts`. The deploy journals share
+  `src/posix-deploy-journal.ts` (phase/confinement/decision core); per-platform
+  halves: macOS `src/deploy-macos-journal.ts` + `-controller.ts` +
+  `macos-deploy-journal-program.ts`, Linux `src/linux-deploy-journal.ts` +
+  `-commands.ts`, localhost `src/local-worker-deploy-journal.ts`, coordinator
+  `src/coordinator-deploy-journal.ts` + `-recovery.ts`; the signed Windows
+  update twins live in `src/deploy-windows-channel.ts`, and the remote lease
+  program in `src/remote-deploy-lock-program.ts`.
+- **Windows-only** — `src/windows/windows-update-broker.ts` (the elevated
+  update state machine), `src/windows/windows-update-journal.ts` (durable `update-v2.json`
+  journal + progress ring), `src/windows/windows-update-control.ts` (request admission +
+  progress read), `src/windows/windows-update-runtime.ts` (native + health-prover bindings),
+  and the relocation trio `src/windows/windows-relocation-broker.ts`,
+  `src/windows/windows-relocation-control.ts`, `src/windows/windows-relocation-journal.ts`.
 - **Install + service control** — `src/service-ctl.ts`,
   `src/install-binary-agents.ts`, `src/machine-transaction.ts`, `src/join.ts`,
   `src/add-machine.ts`, `src/quickstart.ts`, `src/expose.ts`.

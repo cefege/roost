@@ -7,6 +7,8 @@
 import { For, Show, createSignal, onMount, onCleanup } from "solid-js";
 import { Portal } from "solid-js/web";
 import { toasts, dismissToast, type ToastKind } from "../store/toastStore.ts";
+import { copyToClipboard } from "../lib/clipboard.ts";
+import { createTrackedTimeouts } from "./trackedTimeout.ts";
 
 const KIND_ACCENT: Record<ToastKind, string> = {
   ok: "var(--color-ok)",
@@ -21,6 +23,7 @@ const KIND_STYLES: Record<ToastKind, { border: string; color: string }> = {
 };
 
 export function ToastContainer() {
+  const setTimeoutTracked = createTrackedTimeouts();
   let containerRef: HTMLDivElement | undefined;
 
   // Publish the toast stack height as a CSS var so PairRequestNotifier can
@@ -66,11 +69,11 @@ export function ToastContainer() {
             const [copied, setCopied] = createSignal(false);
             async function copy(e: MouseEvent) {
               e.stopPropagation();
-              try {
-                await navigator.clipboard.writeText(fullText());
-                setCopied(true);
-                setTimeout(() => setCopied(false), 1500);
-              } catch { /* clipboard denied */ }
+              // Denial leaves the label unchanged — the text stays selectable
+              // in the card, so the user can still copy it by hand.
+              if (!(await copyToClipboard(fullText()))) return;
+              setCopied(true);
+              setTimeoutTracked(() => setCopied(false), 1500);
             }
             return (
               <div

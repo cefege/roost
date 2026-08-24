@@ -16,7 +16,19 @@ import {
 import { taskRowToProto } from "@roost/shared/wire/row-proto";
 import { taskBus } from "../buses.ts";
 import { requireAuth } from "./auth-interceptor.ts";
+import { TaskState } from "@roost/shared/wire";
+import type { TaskState as TaskStateValue } from "@roost/shared/wire";
 import type { ConnectDeps } from "./router.ts";
+
+// Proto arrives as a bare string; the row, the queue and every SPA consumer
+// speak the shared TaskState union. Narrow once at the boundary.
+function taskStateOf(raw: string): TaskStateValue {
+  const parsed = TaskState.safeParse(raw);
+  if (!parsed.success) {
+    throw new ConnectError(`invalid task state ${JSON.stringify(raw)}`, Code.InvalidArgument);
+  }
+  return parsed.data;
+}
 
 // Emit a `state` delta on the taskBus. Used by next-pending/set-state/cancel.
 // taskBus carries the proto Task directly (TaskBusMsg) so no JSON
@@ -33,9 +45,8 @@ export function makeTaskHandlers(
 ): Pick<ServiceImpl<typeof CoordinatorService>, TaskMethods> {
   return {
     async tasksList(req, ctx) {
-      requireAuth(ctx.values);
       let q = deps.db.selectFrom("tasks").selectAll().orderBy("enqueued_at_ms");
-      if (req.state) q = q.where("state", "=", req.state as any);
+      if (req.state) q = q.where("state", "=", taskStateOf(req.state));
       const rows = await q.execute();
       return create(TasksListResponseSchema, { tasks: rows.map(taskRowToProto) });
     },
@@ -92,7 +103,7 @@ export function makeTaskHandlers(
         throw new ConnectError("task claimed by different worker", Code.PermissionDenied);
       }
       const result = await deps.db.updateTable("tasks").set({
-        state: req.state as any,
+        state: taskStateOf(req.state),
         ...(terminal && { finished_at_ms: now }),
         ...(req.resultJson !== undefined && { result_json: req.resultJson }),
       }).where("id", "=", req.id).returningAll().executeTakeFirstOrThrow();

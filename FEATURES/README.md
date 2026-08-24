@@ -42,9 +42,10 @@ Status authoritative in this table; detail files linked per row.
 - `att2-image-media-extensions.md` — never created; wterm has no image hooks (only `getCursor()`) and the original plan was based on nonexistent APIs (`onOscSequence`, `drawImage`, etc.).
 - `ROADMAP.md` — never created; its phase-24/25→Connect-RPC dependency graph was incorrect and the Connect-RPC migration shipped without that path.
 - Neutralino desktop shell (macOS → Windows → Linux rollout) — superseded by
-  shipped native service management: `roost service` installs a launchd agent,
-  a systemd --user unit, or a Windows service from one CLI
-  (`apps/roost-cli/src/service-ctl.ts`).
+  shipped native service management: the quickstart/deploy flows install a
+  launchd agent, a systemd --user unit, or a Windows service via the internal
+  `apps/roost-cli/src/service-ctl.ts` library (no user-facing `service`
+  subcommand).
 
 ---
 

@@ -1,3 +1,9 @@
+// Bun/bun:sqlite implementation of CoordinatorMoveRuntime: target
+// check/prepare/commit/abort plus chunked VACUUM-INTO snapshot streaming over
+// the worker socket. copySnapshot must FAIL on a mid-transfer target
+// reconnect — chunks would split across two sockets while backpressure is
+// measured on the dead one — and its backpressure drain keeps the DB out of
+// coord's heap; execute()'s catch turns either into a clean rollback.
 import * as fs from "node:fs";
 import { dirname, join } from "node:path";
 import type { Database } from "bun:sqlite";

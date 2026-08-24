@@ -6,6 +6,7 @@
 // Items: Copy | Paste | New terminal | Attach file | Close terminal.
 // Mounted alongside the Terminal component in MainPane.
 
+import { copyToClipboard } from "../lib/clipboard.ts";
 import { Show, batch, createSignal, onCleanup, onMount, type JSX } from "solid-js";
 import { Portal } from "solid-js/web";
 import { useNavigate, useLocation } from "@solidjs/router";
@@ -72,7 +73,8 @@ export function TerminalContextMenu(props: Props) {
 
   const doCopySelection = async (text: string) => {
     if (!text) return;
-    await navigator.clipboard.writeText(text).catch(() => { /* ignore */ });
+    // Denial is ignored — the menu still dismisses; the user can re-select.
+    await copyToClipboard(text);
     dismiss();
   };
 

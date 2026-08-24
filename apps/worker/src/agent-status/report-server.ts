@@ -1,3 +1,7 @@
+// Local socket server the installed omp/pi extensions report into. Enforces
+// the shared local-endpoint bounds (connection count, unauthenticated byte
+// cap, timeout) and zod-validates every frame before it may influence agent
+// status — this surface is reachable by anything running as the same user.
 import net from "node:net";
 import { z } from "zod";
 import {

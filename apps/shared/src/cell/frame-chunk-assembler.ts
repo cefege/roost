@@ -47,6 +47,23 @@ export class CellGridChunkAssembler {
     return this.partial?.snapshotId ?? null;
   }
 
+  /** Attach-progress read: how far the in-flight baseline has assembled.
+   * Null whenever no partial exists — idle, completed, or reset — so a
+   * single-frame baseline never reports progress. */
+  get snapshotProgress(): {
+    snapshotId: string;
+    receivedChunks: number;
+    totalChunks: number;
+  } | null {
+    const partial = this.partial;
+    if (partial === null) return null;
+    return {
+      snapshotId: partial.snapshotId,
+      receivedChunks: partial.nextChunkIndex,
+      totalChunks: partial.chunkCount,
+    };
+  }
+
   reset(): void {
     this.partial = null;
   }

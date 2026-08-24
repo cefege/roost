@@ -1,3 +1,7 @@
+// Installs the omp/pi extension sources into user agent-config dirs: refuses
+// to touch files it does not own (ROOST_INTEGRATION_ID marker), writes through
+// durableWriteFile, and locks targets to a private DACL on Windows so other
+// local accounts cannot alter what the agents will load as code.
 import { mkdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
@@ -11,6 +15,7 @@ import {
   OMP_AGENT_INTEGRATION,
   PI_AGENT_INTEGRATION,
 } from "./integration-assets.generated.ts";
+import { composeStandaloneIntegration } from "./standalone-integration.ts";
 
 const OMP_INSTALL_NAME = "roost-omp-agent-state.ts";
 const PI_INSTALL_NAME = "roost-pi-agent-state.ts";
@@ -82,11 +87,17 @@ async function integrationAssets(): Promise<{ omp: string; pi: string }> {
   if (OMP_AGENT_INTEGRATION && PI_AGENT_INTEGRATION) {
     return { omp: OMP_AGENT_INTEGRATION, pi: PI_AGENT_INTEGRATION };
   }
-  const [omp, pi] = await Promise.all([
+  // From-source: read the in-repo sources and splice the shared transport
+  // into each, producing the same standalone text the embed path bakes.
+  const [transport, omp, pi] = await Promise.all([
+    Bun.file(new URL("./report-transport.ts", import.meta.url)).text(),
     Bun.file(new URL("./integrations/omp/roost-agent-state.ts", import.meta.url)).text(),
     Bun.file(new URL("./integrations/pi/roost-agent-state.ts", import.meta.url)).text(),
   ]);
-  return { omp, pi };
+  return {
+    omp: composeStandaloneIntegration(omp, transport),
+    pi: composeStandaloneIntegration(pi, transport),
+  };
 }
 
 async function retireOwnedOmpExtension(directory: string): Promise<void> {

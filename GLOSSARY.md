@@ -60,7 +60,7 @@ wins.
   deltas for every domain (sessions, presence, workspaces, tasks, permissions,
   MCP, webhook tokens, audit) plus PTY bytes. On reconnect, the browser sends
   the last event id it saw and the coordinator backfills the gap.
-  Source: coordinator `connect/handlers-streaming.ts`,
+  Source: `apps/coord/src/connect/handlers-streaming.ts`,
   `apps/web/src/store/sync.ts`.
 
 - **scrollback** — a session's history. The live cell frame carries only the

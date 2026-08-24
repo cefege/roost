@@ -1,3 +1,9 @@
+// Coord-side owner of socket-bound terminal view membership: which viewer
+// sockets watch which session, the route reconciliation when a worker
+// reconnects, and the projection snapshot Sync seeds. All registry mutation
+// flows through TerminalViewHub methods — the module-level productionHub is
+// install-once; reading it from outside (activeTerminalViewerFingerprints)
+// must tolerate "no hub installed" because tests construct hubs directly.
 import type { WTerminalStreamResult } from "@roost/shared/proto/worker_transport_pb";
 import type {
   TerminalResyncCommand,
@@ -58,7 +64,6 @@ export function terminalViewerProjection(): ReadonlyMap<string, ReadonlyMap<stri
   return productionHub?.viewerProjection() ?? new Map();
 }
 
-export function invalidateTerminalViewerLabel(_fingerprint: string): void {}
 
 export function currentTerminalScreenHub(): TerminalScreenHub | null {
   return productionHub?.screen ?? null;

@@ -18,7 +18,8 @@ import { relTimeSince } from "../lib/relTime.ts";
 import { relTimeTickMs } from "./sidebar/SessionRow.tsx";
 import type { Session } from "@roost/shared/wire";
 import { renderPreview } from "../lib/terminalPreview.ts";
-import { ctxMenuSurfaceStyle, CtxMenuItem } from "./contextMenuPrimitives.tsx";
+import { anchoredMenuPosition, anchoredMenuSurfaceStyle, CtxMenuItem, trackFloatingMenuDismiss } from "./contextMenuPrimitives.tsx";
+import { createTrackedTimeouts } from "./trackedTimeout.ts";
 import { shouldDismissCard, cardSwipeAlpha, CARD_DISMISS_PX } from "../lib/deckSwipe.ts";
 import { flipGrid } from "../lib/gridFlip.ts";
 import { AgentStatusIndicator } from "./AgentStatusIndicator.tsx";
@@ -287,8 +288,8 @@ function WorkspaceTabsSheet(props: WorkspaceTabsSheetProps) {
   );
 }
 
-// Right-anchored overflow menu for the tab grid. Mirrors ArrangeMenu's
-// toggle/anchor/doc-click/Escape dismissal. zIndex 70 clears the sheet (60).
+// Right-anchored overflow menu for the tab grid, built on the shared anchored-
+// menu primitives. zIndex 70 clears the sheet (60).
 function WorkspaceTabsMenu(props: {
   selectionMode: boolean;
   onCloseAll: () => void;
@@ -301,37 +302,16 @@ function WorkspaceTabsMenu(props: {
   let menuEl: HTMLDivElement | undefined;
 
   const toggle = () => {
-    if (open()) {
-      setOpen(null);
-      return;
-    }
-    const r = btnEl!.getBoundingClientRect();
-    setOpen({ right: Math.max(6, window.innerWidth - r.right), y: r.bottom + 4 });
-  };
-
-  const surfaceStyle = (right: number, y: number) => {
-    const s = { ...ctxMenuSurfaceStyle(0, y, 70), "min-width": "200px", right: `${right}px` };
-    delete s.left;
-    return s;
+    if (open()) { setOpen(null); return; }
+    setOpen(anchoredMenuPosition(btnEl!));
   };
 
   const choose = (fn: () => void) => { setOpen(null); fn(); };
 
-  const onDocClick = (e: MouseEvent) => {
-    const t = e.target as Node;
-    if (btnEl?.contains(t) || menuEl?.contains(t)) return;
-    setOpen(null);
-  };
-  const onEsc = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(null); };
+  trackFloatingMenuDismiss({ within: [() => btnEl, () => menuEl], onClose: () => setOpen(null) });
 
-  onMount(() => {
-    document.addEventListener("click", onDocClick);
-    document.addEventListener("keydown", onEsc);
-    onCleanup(() => {
-      document.removeEventListener("click", onDocClick);
-      document.removeEventListener("keydown", onEsc);
-    });
-  });
+  const surfaceStyle = (pos: { right: number; y: number }) =>
+    anchoredMenuSurfaceStyle(pos, { minWidth: "200px", zIndex: 70 });
 
   return (
     <>
@@ -349,7 +329,7 @@ function WorkspaceTabsMenu(props: {
               ref={menuEl}
               data-testid="workspace-tabs-menu-popup"
               class="df-menu-enter"
-              style={surfaceStyle(pos().right, pos().y)}
+              style={surfaceStyle(pos())}
             >
               <Show when={!props.selectionMode}>
                 <CtxMenuItem testid="workspace-tabs-close-all" danger onClick={() => choose(props.onCloseAll)}>
@@ -404,6 +384,7 @@ function TerminalCard(props: {
   onMount(() => {
     if (previewRef) setHasPreview(renderPreview(s().id, previewRef));
   });
+  const setTimeoutTracked = createTrackedTimeouts();
 
   // ── Swipe-to-close (touch only) ───────────────────────────────────────
   // Chrome TabGridItemTouchHelperCallback: drag a card left/right and it slides
@@ -462,7 +443,7 @@ function TerminalCard(props: {
       _swiped = true; // suppress the trailing click during slide-off
       const off = swipeX() > 0 ? window.innerWidth : -window.innerWidth;
       setSwipeX(off);
-      setTimeout(() => props.onClose(s()), 180);
+      setTimeoutTracked(() => props.onClose(s()), 180);
     } else {
       setSwipeX(0);
       _swiped = false; // short drag that didn't dismiss → don't block next tap

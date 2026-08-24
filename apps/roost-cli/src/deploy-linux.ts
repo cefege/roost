@@ -24,484 +24,35 @@ import {
   workerServiceMatchesRelease,
   sshExec,
 } from "./deploy-exec.ts";
-import { COORD_UNIT, verifyWorkerCmd, WORKER_UNIT } from "./service-ctl.ts";
+import { COORD_UNIT, WORKER_UNIT } from "./service-ctl.ts";
+import { posixShellQuote } from "./shell-quote.ts";
+import {
+  isManagedLinuxWorkerReleasePath,
+  linuxDeployJournalPath,
+  linuxDeployRecoveryPlan,
+  linuxWorkerReleaseRoot,
+  malformedLinuxJournal,
+  parseLinuxDeployJournalSnapshot,
+  type LinuxDeployJournal,
+} from "./linux-deploy-journal.ts";
+import {
+  _linuxCheckpointDeployJournalCommand,
+  _linuxClearDeployJournalCommand,
+  _linuxLoadDeployJournalCommand,
+  _linuxPrepareDeployJournalCommand,
+  _linuxPriorServiceProofCommand,
+  _linuxRemoveManagedWorkerReleaseCommand,
+  _linuxRestorePriorServiceCommand,
+  _linuxTargetVerificationCommand,
+} from "./linux-deploy-journal-commands.ts";
+import { POSIX_FULL_GIT_SHA_RE } from "./posix-deploy-journal.ts";
 
-function quoteRemote(value: string): string {
-  return `'${value.replaceAll("'", `'\"'\"'`)}'`;
-}
-
-const LINUX_WORKER_RELEASE_RELATIVE_ROOT = ".local/share/roost/releases/worker";
-const LINUX_DEPLOY_JOURNAL_NAME = "worker-deploy-journal";
-const LINUX_DEPLOY_JOURNAL_SCHEMA = "2";
-
-export type LinuxDeployJournalPhase = "prepared" | "activating" | "activated";
-export type LinuxDeployPriorLifecycle = "running" | "stopped";
-export type LinuxDeployPriorEnablement = "enabled" | "disabled" | "masked" | "absent";
-
-export interface LinuxDeployJournal {
-  phase: LinuxDeployJournalPhase;
-  targetSha: string;
-  targetReleasePath: string;
-  priorUnit: string | null;
-  priorUnitMode: number | null;
-  priorLifecycle: LinuxDeployPriorLifecycle;
-  priorEnablement: LinuxDeployPriorEnablement;
-  priorPid: number;
-}
-
-export type LinuxDeployRecoveryPlan =
-  | { kind: "clean-prepared" }
-  | { kind: "commit-target" }
-  | {
-      kind: "rollback";
-      priorUnitState: "present" | "absent";
-      priorLifecycle: LinuxDeployPriorLifecycle;
-    };
 
 type DeploySsh = (
   command: string,
 ) => Promise<{ exit: number; stdout: string; stderr: string }>;
 
-function malformedLinuxJournal(detail: string): never {
-  failDeploy(5, `Linux worker deployment journal is malformed: ${detail}`);
-}
 
-function linuxWorkerReleaseRoot(home: string): string {
-  if (!posix.isAbsolute(home) || /[\r\n\0]/.test(home)) {
-    failDeploy(2, `remote Linux home path is unsafe: ${JSON.stringify(home)}`);
-  }
-  return posix.join(home, LINUX_WORKER_RELEASE_RELATIVE_ROOT);
-}
-
-export function isManagedLinuxWorkerReleasePath(candidate: string, home: string): boolean {
-  if (!posix.isAbsolute(candidate) || /[\r\n\0]/.test(candidate)) return false;
-  let root: string;
-  try {
-    root = linuxWorkerReleaseRoot(home);
-  } catch {
-    return false;
-  }
-  return posix.normalize(candidate) === candidate
-    && posix.dirname(candidate) === root
-    && posix.basename(candidate).length > 0;
-}
-
-export function linuxDeployJournalPath(
-  machineTransactionPath: string,
-  home: string,
-): string {
-  linuxWorkerReleaseRoot(home);
-  if (!machineTransactionPath || /[\r\n\0]/.test(machineTransactionPath)) {
-    failDeploy(2, "remote Linux machine transaction path is unsafe");
-  }
-  const normalized = posix.normalize(machineTransactionPath);
-  if (!posix.isAbsolute(normalized)
-    && (normalized === ".." || normalized.startsWith("../"))) {
-    failDeploy(2, "remote Linux machine transaction path escapes the remote home");
-  }
-  const absolute = posix.isAbsolute(normalized)
-    ? normalized
-    : posix.join(home, normalized);
-  return posix.join(posix.dirname(absolute), LINUX_DEPLOY_JOURNAL_NAME);
-}
-
-function assertFixedLinuxJournalPath(journalPath: string): void {
-  if (!posix.isAbsolute(journalPath)
-    || posix.basename(journalPath) !== LINUX_DEPLOY_JOURNAL_NAME
-    || /[\r\n\0]/.test(journalPath)) {
-    failDeploy(2, `Linux deployment journal path is unsafe: ${JSON.stringify(journalPath)}`);
-  }
-}
-
-function assertLinuxDeployJournal(
-  journal: LinuxDeployJournal,
-  home: string,
-): void {
-  if (journal.phase !== "prepared"
-    && journal.phase !== "activating"
-    && journal.phase !== "activated") {
-    malformedLinuxJournal(`invalid phase ${JSON.stringify(journal.phase)}`);
-  }
-  if (!/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(journal.targetSha)) {
-    malformedLinuxJournal("target SHA is not a full hexadecimal object id");
-  }
-  if (!isManagedLinuxWorkerReleasePath(journal.targetReleasePath, home)) {
-    malformedLinuxJournal(
-      `target release path is outside the managed worker release root: ${JSON.stringify(journal.targetReleasePath)}`,
-    );
-  }
-  if (journal.priorLifecycle !== "running" && journal.priorLifecycle !== "stopped") {
-    malformedLinuxJournal(`invalid prior lifecycle ${JSON.stringify(journal.priorLifecycle)}`);
-  }
-  if (!Number.isSafeInteger(journal.priorPid) || journal.priorPid < 0) {
-    malformedLinuxJournal("prior process epoch is malformed");
-  }
-  if ((journal.priorLifecycle === "running") !== (journal.priorPid > 0)) {
-    malformedLinuxJournal("prior process epoch and lifecycle disagree");
-  }
-  if (journal.priorUnit === null && journal.priorLifecycle === "running") {
-    malformedLinuxJournal("an absent prior unit cannot have a running lifecycle");
-  }
-  if (journal.priorUnit === null) {
-    if (journal.priorUnitMode !== null) {
-      malformedLinuxJournal("an absent prior unit cannot have a saved mode");
-    }
-  } else if (!Number.isInteger(journal.priorUnitMode)
-    || journal.priorUnitMode! < 0
-    || journal.priorUnitMode! > 0o777) {
-    malformedLinuxJournal("prior unit mode is malformed");
-  }
-  if (!["enabled", "disabled", "masked", "absent"].includes(journal.priorEnablement)) {
-    malformedLinuxJournal("prior unit enablement is malformed");
-  }
-  if ((journal.priorUnit === null) !== (journal.priorEnablement === "absent")) {
-    malformedLinuxJournal("prior unit presence and enablement disagree");
-  }
-  if (journal.priorLifecycle === "running" && journal.priorEnablement === "masked") {
-    malformedLinuxJournal("a masked prior unit cannot have a running lifecycle");
-  }
-}
-
-function decodeJournalField(name: string, value: string): Buffer {
-  if (value.length % 4 !== 0
-    || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) {
-    malformedLinuxJournal(`${name} is not canonical base64`);
-  }
-  const decoded = Buffer.from(value, "base64");
-  if (decoded.toString("base64") !== value) {
-    malformedLinuxJournal(`${name} is not canonical base64`);
-  }
-  return decoded;
-}
-
-export function parseLinuxDeployJournalSnapshot(
-  output: string,
-  home: string,
-): LinuxDeployJournal | null {
-  if (output === "absent" || output === "absent\n") return null;
-  const lines = output.endsWith("\n")
-    ? output.slice(0, -1).split("\n")
-    : output.split("\n");
-  if (lines.shift() !== "journal") {
-    malformedLinuxJournal("snapshot header is missing");
-  }
-  const encoded = new Map<string, string>();
-  for (const line of lines) {
-    const separator = line.indexOf("=");
-    if (separator < 1) malformedLinuxJournal("snapshot field framing is invalid");
-    const name = line.slice(0, separator);
-    if (encoded.has(name)) malformedLinuxJournal(`duplicate ${name} field`);
-    encoded.set(name, line.slice(separator + 1));
-  }
-  const expected = [
-    "schema",
-    "phase",
-    "target-sha",
-    "target-release",
-    "prior-unit-state",
-    "prior-unit-mode",
-    "prior-lifecycle",
-    "prior-enablement",
-    "prior-pid",
-    "prior-unit",
-  ];
-  if (encoded.size !== expected.length || expected.some((name) => !encoded.has(name))) {
-    malformedLinuxJournal("snapshot fields are incomplete or unexpected");
-  }
-  const text = (name: string): string => {
-    const value = decodeJournalField(name, encoded.get(name)!);
-    const decoded = value.toString("utf8");
-    if (Buffer.from(decoded, "utf8").compare(value) !== 0 || /[\r\n\0]/.test(decoded)) {
-      malformedLinuxJournal(`${name} is not a single UTF-8 value`);
-    }
-    return decoded;
-  };
-  if (text("schema") !== LINUX_DEPLOY_JOURNAL_SCHEMA) {
-    malformedLinuxJournal("unsupported schema");
-  }
-  const phase = text("phase") as LinuxDeployJournalPhase;
-  const targetSha = text("target-sha");
-  const targetReleasePath = text("target-release");
-  const priorUnitState = text("prior-unit-state");
-  const priorUnitModeText = text("prior-unit-mode");
-  const priorLifecycle = text("prior-lifecycle") as LinuxDeployPriorLifecycle;
-  const priorEnablement = text("prior-enablement") as LinuxDeployPriorEnablement;
-  const priorPidText = text("prior-pid");
-  const priorUnitBytes = decodeJournalField("prior-unit", encoded.get("prior-unit")!);
-  if (priorUnitState !== "present" && priorUnitState !== "absent") {
-    malformedLinuxJournal(`invalid prior unit state ${JSON.stringify(priorUnitState)}`);
-  }
-  if (priorUnitState === "absent" && priorUnitBytes.length !== 0) {
-    malformedLinuxJournal("absent prior unit has saved bytes");
-  }
-  if (priorUnitState === "absent" && priorUnitModeText !== "") {
-    malformedLinuxJournal("absent prior unit has a saved mode");
-  }
-  if (priorUnitState === "present" && !/^[0-7]{3}$/.test(priorUnitModeText)) {
-    malformedLinuxJournal("prior unit mode is malformed");
-  }
-  if (!/^(?:0|[1-9][0-9]*)$/.test(priorPidText)
-    || !Number.isSafeInteger(Number(priorPidText))) {
-    malformedLinuxJournal("prior process epoch is malformed");
-  }
-  const journal: LinuxDeployJournal = {
-    phase,
-    targetSha,
-    targetReleasePath,
-    priorUnit: priorUnitState === "present"
-      ? priorUnitBytes.toString("utf8")
-      : null,
-    priorUnitMode: priorUnitState === "present"
-      ? Number.parseInt(priorUnitModeText, 8)
-      : null,
-    priorLifecycle,
-    priorEnablement,
-    priorPid: Number(priorPidText),
-  };
-  if (priorUnitState === "present"
-    && Buffer.from(journal.priorUnit!, "utf8").compare(priorUnitBytes) !== 0) {
-    malformedLinuxJournal("prior unit is not UTF-8");
-  }
-  assertLinuxDeployJournal(journal, home);
-  return journal;
-}
-
-export function linuxDeployRecoveryPlan(
-  journal: LinuxDeployJournal,
-  targetHealthy: boolean,
-  home: string,
-): LinuxDeployRecoveryPlan {
-  assertLinuxDeployJournal(journal, home);
-  if (journal.phase === "prepared") return { kind: "clean-prepared" };
-  if (targetHealthy) return { kind: "commit-target" };
-  return {
-    kind: "rollback",
-    priorUnitState: journal.priorUnit === null ? "absent" : "present",
-    priorLifecycle: journal.priorLifecycle,
-  };
-}
-
-export function _linuxLoadDeployJournalCommand(journalPath: string): string {
-  assertFixedLinuxJournalPath(journalPath);
-  return `set -e; journal=${quoteRemote(journalPath)}; ` +
-    `if test ! -e "$journal" && test ! -L "$journal"; then printf 'absent\\n'; exit 0; fi; ` +
-    `test -d "$journal" && test ! -L "$journal"; ` +
-    `for name in schema phase target-sha target-release prior-unit-state prior-unit-mode prior-lifecycle prior-enablement prior-pid; do ` +
-    `test -f "$journal/$name" && test ! -L "$journal/$name"; done; ` +
-    `prior_unit_state=$(cat "$journal/prior-unit-state"); ` +
-    `case "$prior_unit_state" in ` +
-    `present) test -f "$journal/prior-unit" && test ! -L "$journal/prior-unit";; ` +
-    `absent) test ! -e "$journal/prior-unit" && test ! -L "$journal/prior-unit";; ` +
-    `*) exit 65;; esac; ` +
-    `emit() { name="$1"; printf '%s=' "$name"; base64 -w0 < "$journal/$name"; printf '\\n'; }; ` +
-    `printf 'journal\\n'; ` +
-    `for name in schema phase target-sha target-release prior-unit-state prior-unit-mode prior-lifecycle prior-enablement prior-pid; do emit "$name"; done; ` +
-    `if test "$prior_unit_state" = present; then emit prior-unit; else printf 'prior-unit=\\n'; fi`;
-}
-
-interface LinuxPrepareJournalInput {
-  journalPath: string;
-  unitPath: string;
-  targetSha: string;
-  targetReleasePath: string;
-  home: string;
-}
-
-export function _linuxPrepareDeployJournalCommand(
-  input: LinuxPrepareJournalInput,
-): string {
-  const { journalPath, unitPath, targetSha, targetReleasePath, home } = input;
-  assertFixedLinuxJournalPath(journalPath);
-  const candidate: LinuxDeployJournal = {
-    phase: "prepared",
-    targetSha,
-    targetReleasePath,
-    priorUnit: "",
-    priorUnitMode: 0o600,
-    priorLifecycle: "stopped",
-    priorEnablement: "enabled",
-    priorPid: 0,
-  };
-  assertLinuxDeployJournal(candidate, home);
-  const parent = posix.dirname(journalPath);
-  return `set -e; umask 077; ` +
-    `export XDG_RUNTIME_DIR="\${XDG_RUNTIME_DIR:-/run/user/\$(id -u)}"; ` +
-    `journal=${quoteRemote(journalPath)}; parent=${quoteRemote(parent)}; unit=${quoteRemote(unitPath)}; ` +
-    `target_sha=${quoteRemote(targetSha)}; target_release=${quoteRemote(targetReleasePath)}; ` +
-    `test "$(basename -- "$journal")" = ${LINUX_DEPLOY_JOURNAL_NAME}; ` +
-    `test ! -e "$journal" && test ! -L "$journal"; ` +
-    `new="$journal.new"; rm -rf -- "$new"; mkdir "$new"; ` +
-    `if test -L "$unit"; then exit 65; ` +
-    `elif test -f "$unit"; then unit_state=present; unit_mode=$(stat -c '%a' "$unit"); ` +
-    `case "$unit_mode" in [0-7][0-7][0-7]) ;; *) exit 65;; esac; ` +
-    `cp -- "$unit" "$new/prior-unit"; chmod 600 "$new/prior-unit"; ` +
-    `elif test -e "$unit"; then exit 65; else unit_state=absent; fi; ` +
-    `active_state=$(systemctl --user show ${WORKER_UNIT} --property=ActiveState --value); ` +
-    `prior_pid=$(systemctl --user show ${WORKER_UNIT} --property=MainPID --value); ` +
-    `case "$active_state" in active) lifecycle=running; case "$prior_pid" in ''|0|*[!0-9]*) exit 65;; esac;; ` +
-    `inactive|failed) lifecycle=stopped; prior_pid=0;; *) exit 65;; esac; ` +
-    `if test "$unit_state" = present; then ` +
-    `enablement=$(systemctl --user is-enabled ${WORKER_UNIT} 2>/dev/null || true); ` +
-    `case "$enablement" in enabled|disabled|masked) ;; *) exit 65;; esac; ` +
-    `else enablement=absent; fi; ` +
-    `if test "$unit_state" = absent && test "$lifecycle" = running; then exit 65; fi; ` +
-    `write_metadata() { name="$1"; value="$2"; printf '%s' "$value" > "$new/$name"; ` +
-    `chmod 600 "$new/$name"; sync -f "$new/$name"; }; ` +
-    `write_metadata schema ${LINUX_DEPLOY_JOURNAL_SCHEMA}; ` +
-    `write_metadata phase prepared; write_metadata target-sha "$target_sha"; ` +
-    `write_metadata target-release "$target_release"; write_metadata prior-unit-state "$unit_state"; ` +
-    `write_metadata prior-unit-mode "$(if test "$unit_state" = present; then printf '%s' "$unit_mode"; fi)"; ` +
-    `write_metadata prior-lifecycle "$lifecycle"; write_metadata prior-enablement "$enablement"; ` +
-    `write_metadata prior-pid "$prior_pid"; ` +
-    `if test "$unit_state" = present; then sync -f "$new/prior-unit"; fi; ` +
-    `sync -f "$new"; mv -- "$new" "$journal"; sync -f "$parent"`;
-}
-
-export function _linuxCheckpointDeployJournalCommand(
-  journalPath: string,
-  from: LinuxDeployJournalPhase,
-  to: LinuxDeployJournalPhase,
-): string {
-  assertFixedLinuxJournalPath(journalPath);
-  if (!((from === "prepared" && to === "activating")
-    || (from === "activating" && to === "activated"))) {
-    throw new Error(`invalid Linux deployment journal transition: ${from} -> ${to}`);
-  }
-  return `set -e; umask 077; journal=${quoteRemote(journalPath)}; ` +
-    `test -d "$journal" && test ! -L "$journal"; ` +
-    `test "$(cat "$journal/phase")" = ${from}; next="$journal/phase.next"; ` +
-    `rm -f -- "$next"; printf '%s' ${to} > "$next"; chmod 600 "$next"; ` +
-    `sync -f "$next"; mv -- "$next" "$journal/phase"; sync -f "$journal"`;
-}
-
-export function _linuxClearDeployJournalCommand(journalPath: string): string {
-  assertFixedLinuxJournalPath(journalPath);
-  const parent = posix.dirname(journalPath);
-  return `set -e; journal=${quoteRemote(journalPath)}; parent=${quoteRemote(parent)}; ` +
-    `test "$(basename -- "$journal")" = ${LINUX_DEPLOY_JOURNAL_NAME}; ` +
-    `if test ! -e "$journal" && test ! -L "$journal"; then exit 0; fi; ` +
-    `test -d "$journal" && test ! -L "$journal"; cleared="$journal.cleared"; ` +
-    `rm -rf -- "$cleared"; mv -- "$journal" "$cleared"; sync -f "$parent"; ` +
-    `rm -rf -- "$cleared"; sync -f "$parent"`;
-}
-
-export function _linuxRemoveManagedWorkerReleaseCommand(
-  targetReleasePath: string,
-  home: string,
-): string {
-  if (!isManagedLinuxWorkerReleasePath(targetReleasePath, home)) {
-    malformedLinuxJournal(
-      `refusing to remove unmanaged worker release ${JSON.stringify(targetReleasePath)}`,
-    );
-  }
-  const root = linuxWorkerReleaseRoot(home);
-  return `set -e; root=${quoteRemote(root)}; target=${quoteRemote(targetReleasePath)}; ` +
-    `test "$(dirname -- "$target")" = "$root"; ` +
-    `if test ! -e "$target" && test ! -L "$target"; then exit 0; fi; ` +
-    `if test -d "$target" && git -C "$target" rev-parse --git-dir >/dev/null 2>&1; then ` +
-    `git -C "$target" worktree remove --force "$target" 2>/dev/null || true; fi; ` +
-    `if test -e "$target" || test -L "$target"; then rm -rf -- "$target"; fi; ` +
-    `test ! -e "$target" && test ! -L "$target"`;
-}
-
-export function _linuxTargetVerificationCommand(
-  journal: LinuxDeployJournal,
-  home: string,
-): string {
-  assertLinuxDeployJournal(journal, home);
-  const expected = quoteRemote(journal.targetReleasePath);
-  const targetSha = quoteRemote(journal.targetSha);
-  return `${verifyWorkerCmd("linux")}; service_exit=$?; ` +
-    `expected=${expected}; target_sha=${targetSha}; prior_pid=${journal.priorPid}; ` +
-    `pid=$(systemctl --user show ${WORKER_UNIT} --property=MainPID --value); pid_exit=$?; ` +
-    `case "$pid" in ''|0|*[!0-9]*) exit 1;; esac; ` +
-    `actual=$(readlink -f -- "/proc/$pid/cwd"); actual_exit=$?; ` +
-    `environment=$(tr '\\0' '\\n' < "/proc/$pid/environ"); environment_exit=$?; ` +
-    `if test "$service_exit" -eq 0 && test "$pid_exit" -eq 0 ` +
-    `&& test "$actual_exit" -eq 0 && test "$environment_exit" -eq 0 ` +
-    `&& { test "$prior_pid" -eq 0 || test "$pid" -ne "$prior_pid"; } ` +
-    `&& test -d "$expected" && test "$actual" = "$expected" ` +
-    `&& printf '%s\\n' "$environment" | grep -Fqx -- "GIT_SHA=$target_sha"; ` +
-    `then echo RoostReleaseMatch=yes; else exit 1; fi`;
-}
-
-export function _linuxRestorePriorServiceCommand(
-  journal: LinuxDeployJournal,
-  journalPath: string,
-  unitPath: string,
-  home: string,
-): string {
-  assertLinuxDeployJournal(journal, home);
-  assertFixedLinuxJournalPath(journalPath);
-  const restore = journal.priorUnit === null
-    ? `rm -f -- "$unit"`
-    : `test -f "$journal/prior-unit" && test ! -L "$journal/prior-unit"; ` +
-      `mkdir -p "$(dirname -- "$unit")"; rm -f -- "$unit"; cp -- "$journal/prior-unit" "$unit"; ` +
-      `chmod ${journal.priorUnitMode!.toString(8).padStart(3, "0")} "$unit"`;
-  const enablement = journal.priorEnablement === "enabled"
-    ? `systemctl --user enable ${WORKER_UNIT}`
-    : journal.priorEnablement === "masked"
-      ? `systemctl --user mask --runtime ${WORKER_UNIT}`
-      : `systemctl --user disable ${WORKER_UNIT} 2>/dev/null || true`;
-  const restart = journal.priorLifecycle === "running"
-    ? `; systemctl --user start ${WORKER_UNIT}`
-    : "";
-  return `set -e; export XDG_RUNTIME_DIR="\${XDG_RUNTIME_DIR:-/run/user/\$(id -u)}"; ` +
-    `journal=${quoteRemote(journalPath)}; unit=${quoteRemote(unitPath)}; ` +
-    `test -d "$journal" && test ! -L "$journal"; ` +
-    `systemctl --user stop ${WORKER_UNIT} 2>/dev/null || true; ` +
-    `systemctl --user disable ${WORKER_UNIT} 2>/dev/null || true; ` +
-    `systemctl --user unmask ${WORKER_UNIT} 2>/dev/null || true; ` +
-    `systemctl --user reset-failed ${WORKER_UNIT} 2>/dev/null || true; ` +
-    `${restore}; systemctl --user daemon-reload; ${enablement}${restart}`;
-}
-
-export function _linuxPriorServiceProofCommand(
-  journal: LinuxDeployJournal,
-  journalPath: string,
-  unitPath: string,
-  home: string,
-): string {
-  assertLinuxDeployJournal(journal, home);
-  assertFixedLinuxJournalPath(journalPath);
-  const expectedEnablement = journal.priorEnablement === "absent"
-    ? "not-found"
-    : journal.priorEnablement;
-  const prefix = `export XDG_RUNTIME_DIR="\${XDG_RUNTIME_DIR:-/run/user/\$(id -u)}"; ` +
-    `journal=${quoteRemote(journalPath)}; unit=${quoteRemote(unitPath)}; `;
-  if (journal.priorUnit === null) {
-    return prefix +
-      `state=$(systemctl --user show ${WORKER_UNIT} --property=LoadState --property=ActiveState); show_exit=$?; ` +
-      `enablement=$(systemctl --user is-enabled ${WORKER_UNIT} 2>/dev/null || true); ` +
-      `printf '%s\\n' "$state"; ` +
-      `if test "$show_exit" -eq 0 && test "$enablement" = ${expectedEnablement} ` +
-      `&& test ! -e "$unit" && test ! -L "$unit" ` +
-      `&& printf '%s\\n' "$state" | grep -q '^LoadState=not-found$' ` +
-      `&& printf '%s\\n' "$state" | grep -q '^ActiveState=inactive$'; ` +
-      `then echo RoostPriorStateMatch=yes; else exit 1; fi`;
-  }
-  const exactDefinition =
-    `cmp -s "$journal/prior-unit" "$unit" ` +
-    `&& test "$(stat -c '%a' "$unit")" = ${journal.priorUnitMode!.toString(8).padStart(3, "0")}`;
-  if (journal.priorLifecycle === "running") {
-    return prefix +
-      `load_state=$(systemctl --user show ${WORKER_UNIT} --property=LoadState --value); load_exit=$?; ` +
-      `enablement=$(systemctl --user is-enabled ${WORKER_UNIT} 2>/dev/null || true); ` +
-      `${verifyWorkerCmd("linux")}; service_exit=$?; ` +
-      `if test "$load_exit" -eq 0 && test "$load_state" = loaded && test "$service_exit" -eq 0 ` +
-      `&& test "$enablement" = ${expectedEnablement} && ${exactDefinition}; ` +
-      `then echo RoostPriorStateMatch=yes; else exit 1; fi`;
-  }
-  return prefix +
-    `state=$(systemctl --user show ${WORKER_UNIT} --property=LoadState --property=ActiveState); show_exit=$?; ` +
-    `enablement=$(systemctl --user is-enabled ${WORKER_UNIT} 2>/dev/null || true); ` +
-    `printf '%s\\n' "$state"; ` +
-    `if test "$show_exit" -eq 0 && test "$enablement" = ${expectedEnablement} ` +
-    `&& ${exactDefinition} ` +
-    `&& printf '%s\\n' "$state" | grep -q '^LoadState=loaded$' ` +
-    `&& printf '%s\\n' "$state" | grep -q '^ActiveState=inactive$'; ` +
-    `then echo RoostPriorStateMatch=yes; else exit 1; fi`;
-}
 
 export function linuxWorkerResourceEnvironment(definition: string): Record<string, string> {
   const installed = parsePosixServiceEnvironment(definition, "linux");
@@ -805,7 +356,7 @@ export async function deployLinux(
 
   // The caller has refreshed and proved the source upstream before acquiring
   // any target lease; retain only the exact clean identity at this boundary.
-  if (!/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(gitSha) || gitSha.endsWith("-dirty")) {
+  if (!POSIX_FULL_GIT_SHA_RE.test(gitSha) || gitSha.endsWith("-dirty")) {
     failDeploy(7, "a Linux deploy requires a clean pushed commit");
   }
 
@@ -824,10 +375,10 @@ export async function deployLinux(
     const releaseRoot = linuxWorkerReleaseRoot(home);
     const journalPath = linuxDeployJournalPath(machineTransactionPath, home);
     const foreignJournalGuard = await deploySsh(
-      `set -e; base=${quoteRemote(posix.dirname(journalPath))}; ` +
-        `for relative in ${quoteRemote(POSIX_WORKER_DEPLOY_JOURNAL_PATHS.local)} ` +
-        `${quoteRemote(POSIX_WORKER_DEPLOY_JOURNAL_PATHS.darwin)} ` +
-        `${quoteRemote(POSIX_WORKER_DEPLOY_JOURNAL_PATHS.coordinator)}; do ` +
+      `set -e; base=${posixShellQuote(posix.dirname(journalPath))}; ` +
+        `for relative in ${posixShellQuote(POSIX_WORKER_DEPLOY_JOURNAL_PATHS.local)} ` +
+        `${posixShellQuote(POSIX_WORKER_DEPLOY_JOURNAL_PATHS.darwin)} ` +
+        `${posixShellQuote(POSIX_WORKER_DEPLOY_JOURNAL_PATHS.coordinator)}; do ` +
         `foreign="$base/$relative"; ` +
         `if test -e "$foreign" || test -L "$foreign"; then exit 66; fi; done`,
     );
@@ -889,10 +440,10 @@ export async function deployLinux(
 
     console.log(`>> stage ${gitSha.slice(0, 8)} in ${host}:${releaseDir}`);
     const stage = await deploySsh(
-      `set -e; mkdir -p ${quoteRemote(releaseRoot)}; ` +
-        `git -C ${quoteRemote(remoteRepo)} fetch --quiet origin; ` +
-        `git -C ${quoteRemote(remoteRepo)} worktree add --quiet --force --detach ` +
-        `${quoteRemote(releaseDir)} ${quoteRemote(gitSha)}`,
+      `set -e; mkdir -p ${posixShellQuote(releaseRoot)}; ` +
+        `git -C ${posixShellQuote(remoteRepo)} fetch --quiet origin; ` +
+        `git -C ${posixShellQuote(remoteRepo)} worktree add --quiet --force --detach ` +
+        `${posixShellQuote(releaseDir)} ${posixShellQuote(gitSha)}`,
     );
     if (stage.exit !== 0) {
       if (!deployLease.signal.aborted) await cleanupStage();
@@ -943,7 +494,7 @@ export async function deployLinux(
     const priorDefinition = journal.priorUnit ?? "";
     const preservedResources = linuxWorkerResourceEnvironment(priorDefinition);
     const resourceAssignments = Object.entries(preservedResources)
-      .map(([key, value]) => `${key}=${quoteRemote(value)}`)
+      .map(([key, value]) => `${key}=${posixShellQuote(value)}`)
       .join(" ");
     const activationEnvironment = [passthroughEnv, resourceAssignments]
       .filter(Boolean)
@@ -994,7 +545,7 @@ export async function deployLinux(
 
     console.log(`>> frozen bun install on ${host}`);
     const install = await deploySsh(
-      `set -eo pipefail; cd ${quoteRemote(releaseDir)} && ` +
+      `set -eo pipefail; cd ${posixShellQuote(releaseDir)} && ` +
         `bun install --frozen-lockfile 2>&1 | tail -25`,
     );
     if (install.exit !== 0) {
@@ -1012,7 +563,7 @@ export async function deployLinux(
     console.log(`>> activate staged systemd unit (${WORKER_UNIT}) on ${host}`);
     const installSh = await deploySsh(
       `${activationEnvironment} bash ` +
-        `${quoteRemote(posix.join(releaseDir, "apps/worker/scripts/install.sh"))} install 2>&1`,
+        `${posixShellQuote(posix.join(releaseDir, "apps/worker/scripts/install.sh"))} install 2>&1`,
     );
     if (installSh.exit !== 0) {
       const committed = await settleActivationFailure("install.sh failed", installSh);

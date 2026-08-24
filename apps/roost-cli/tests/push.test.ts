@@ -5,20 +5,22 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   ambiguousPushTargets,
-  coordinatorDeployRecoveryAction,
-  coordinatorInstallEnvironment,
-  coordinatorRestartCommand,
-  coordinatorStagedReleasePathIsSafe,
   deployCoordinatorForPlatform,
-  parseCoordinatorDeployJournal,
   preserveWebDistForNoBuild,
   preflightWindowsFleetRelease,
   resolvePushTargets,
   workerConvergenceThresholds,
   workerVersionProblems,
-  tryCoordinatorWindowsDeploy,
-  type CoordinatorDeployJournalV1,
 } from "../src/push.ts";
+import {
+  coordinatorDeployRecoveryAction,
+  coordinatorInstallEnvironment,
+  coordinatorRestartCommand,
+  coordinatorStagedReleasePathIsSafe,
+  parseCoordinatorDeployJournal,
+  type CoordinatorDeployJournalV1,
+} from "../src/coordinator-deploy-journal.ts";
+import { tryCoordinatorSelfUpdate } from "../src/deploy-windows-channel.ts";
 import type { WorkerStatus } from "../src/status.ts";
 import { stubFetch } from "./test-helpers.ts";
 
@@ -182,13 +184,13 @@ describe("Windows coordinator fleet update", () => {
   const sha = "a".repeat(40);
 
   test("leaves POSIX coordinator deployment to the source transaction", async () => {
-    expect(await tryCoordinatorWindowsDeploy(sha, { platform: "linux" })).toBeNull();
+    expect(await tryCoordinatorSelfUpdate(sha, { platform: "linux" })).toBeNull();
   });
 
   test("does not dispatch a second transaction when the worker update already advanced the coordinator", async () => {
     let starts = 0;
     const lines: string[] = [];
-    const result = await tryCoordinatorWindowsDeploy(sha, {
+    const result = await tryCoordinatorSelfUpdate(sha, {
       platform: "win32",
       current: async () => true,
       start: async () => {
@@ -205,7 +207,7 @@ describe("Windows coordinator fleet update", () => {
   test("waits for durable terminal success instead of treating START admission as completion", async () => {
     let statusCalls = 0;
     const lines: string[] = [];
-    const result = await tryCoordinatorWindowsDeploy(sha, {
+    const result = await tryCoordinatorSelfUpdate(sha, {
       platform: "win32",
       current: async () => false,
       start: async () => ({
@@ -237,7 +239,7 @@ describe("Windows coordinator fleet update", () => {
   });
 
   test("requires the local coordinator API to report the exact build after terminal success", async () => {
-    await expect(tryCoordinatorWindowsDeploy(sha, {
+    await expect(tryCoordinatorSelfUpdate(sha, {
       platform: "win32",
       current: async () => false,
       start: async () => ({
@@ -272,7 +274,7 @@ describe("Windows coordinator fleet update", () => {
   });
 
   test("propagates a durable rollback result as rollout failure", async () => {
-    await expect(tryCoordinatorWindowsDeploy(sha, {
+    await expect(tryCoordinatorSelfUpdate(sha, {
       platform: "win32",
       current: async () => false,
       start: async () => ({
@@ -297,9 +299,7 @@ describe("coordinator restart identity", () => {
 
   test("uses the configured macOS label for bootout, enable, and kickstart", () => {
     const command = coordinatorRestartCommand(
-      "/Users/test/Library/LaunchAgents/custom.plist",
-      "darwin",
-      "org.example.custom",
+      "/Users/test/Library/LaunchAgents/custom.plist", "darwin", "org.example.custom",
     );
     expect(command).toContain("gui/$uid/'org.example.custom'");
     expect(command).not.toContain("com.cefege.roost.coordinator-v2");

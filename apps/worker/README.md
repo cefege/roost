@@ -5,6 +5,8 @@ the one authoritative terminal grid, and relays PTY bytes both ways over a singl
 are ordinary programs launched inside those PTYs; the worker never interprets agent output and exposes no
 transcript, tool, or approval state. It owns **no listener** — no inbound HTTP or WS surface exists.
 
+Path references are relative to `apps/worker/` unless they start at the repo root (`apps/…`, `scripts/…`, `smoke/…`, `docs/…`).
+
 ## Entry point
 
 `src/main.ts` exports exactly one symbol, `runWorker()`, and the boot order it enforces:
@@ -27,7 +29,7 @@ coord→worker callback the worker answers. It uses a **forward ref** (`CoordLin
 `CoordLink`, the `SessionManager` and the `AgentStatusRegistry` are all constructed *from* this object, so none of
 them exists when it is built. Callbacks read `refs.sessionMgr` / `refs.link` through a getter that throws while
 unbound, and `runWorker()` binds each ref the instant it exists; a null read there is a boot-wiring bug, never a
-race. Add a callback here, not in `main.ts`.
+race. Add a callback here, not in `src/main.ts`.
 
 ## Transport — outbound only
 
@@ -63,8 +65,8 @@ PTY; node-pty and `ROOST_KEEPER_MODE` are retired.
 
 - `src/keeper/protocol.ts` is the entry point: it holds the frame diagram (`[4B BE total][1B type][2B BE
   channel_id][payload]`), the wire-version bump log, and `KEEPER_PROTOCOL_VERSION`, and re-exports three families —
-  `protocol-envelope.ts` (envelope, spawn, scalar codecs), `protocol-io.ts` (hello handshake, typed `PtyIn`),
-  `protocol-terminal.ts` (resize control, authoritative terminal state, ordered history). There is no
+  `src/keeper/protocol-envelope.ts` (envelope, spawn, scalar codecs), `src/keeper/protocol-io.ts` (hello handshake, typed `PtyIn`),
+  `src/keeper/protocol-terminal.ts` (resize control, authoritative terminal state, ordered history). There is no
   `protocol-v1.ts` and no `protocol-v2.ts`: the version is a **field**, not a filename, and a mismatch is reported
   rather than dispatched across.
 - **Decode hazard, load-bearing.** `decodeMuxFrames()` returns each frame's `payload` as a `subarray` **view** onto
@@ -72,9 +74,9 @@ PTY; node-pty and `ROOST_KEEPER_MODE` are retired.
   outliving the read MUST copy. That is why the frame handler wraps input in `Buffer.from(...)` before queueing it
   for `proc.terminal.write` (`src/keeper/keeper-frame-handler.ts`), and why retained history chunks are copied out
   (`src/keeper/keeper-pool-lifecycle.ts`). Skipping the copy yields garbage PTY bytes under load.
-- Keeper side: `src/keeper/multiplexed-main.ts` (entry, listener, endpoint watchdog), `keeper-frame-handler.ts`
-  (frame dispatch, the real PTY spawn site), `keeper-types.ts`, `keeper-log.ts`, `keeper-process-reap.ts`,
-  `histfile.ts`. Worker side: `src/keeper/multiplexed-client.ts` (the pool) + `keeper-pool-{lifecycle,channels,io,config}.ts`.
+- Keeper side: `src/keeper/multiplexed-main.ts` (entry, listener, endpoint watchdog), `src/keeper/keeper-frame-handler.ts`
+  (frame dispatch, the real PTY spawn site), `src/keeper/keeper-types.ts`, `src/keeper/keeper-log.ts`, `src/keeper/keeper-process-reap.ts`,
+  `src/keeper/histfile.ts`. Worker side: `src/keeper/multiplexed-client.ts` (the pool) + `src/keeper/keeper-pool-{lifecycle,channels,io,config}.ts`.
 
 ## Module map
 
@@ -82,16 +84,16 @@ PTY; node-pty and `ROOST_KEEPER_MODE` are retired.
   `src/install.ts`, `src/config.ts`, `src/jwt.ts`. **`src/transport/`** — the outbound coord link (above).
   **`src/keeper/`** — the PTY host (above).
 - **Session family**, one owner split across `this`-bound modules: `src/session-manager.ts` (maps + delegating
-  wrappers), `session-record.ts`, `session-constants.ts`, `session-spawn.ts`, `session-resume.ts`,
-  `session-lifecycle.ts`, `session-emit.ts`, `session-terminal-control.ts`,
-  `session-terminal-txn.ts`, `session-resize-capture.ts` (adoption only),
-  `session-control-lanes.ts`, `session-scrollback.ts`, `session-scrollback-ring.ts`,
-  `session-unhandled-seq.ts`, `session-git-ports.ts`, plus the channel FSM in `src/fsm.ts`.
+  wrappers), `src/session-record.ts`, `src/session-constants.ts`, `src/session-spawn.ts`, `src/session-resume.ts`,
+  `src/session-lifecycle.ts`, `src/session-emit.ts`, `src/session-terminal-control.ts`,
+  `src/session-terminal-txn.ts`, `src/session-resize-capture.ts` (adoption only),
+  `src/session-control-lanes.ts`, `src/session-scrollback.ts`, `src/session-scrollback-ring.ts`,
+  `src/session-unhandled-seq.ts`, `src/session-git-ports.ts`, plus the channel FSM in `src/fsm.ts`.
 - **Browser RPCs** — `src/browser-command-handler.ts` dispatches every `ClientControlFrame` variant to
-  `browser-command-{spawn,terminal,files,attachments,transfer,diag}.ts`, answering upstream as `rpc-ok` /
+  `src/browser-command-{spawn,terminal,files,attachments,transfer,diag}.ts`, answering upstream as `rpc-ok` /
   `rpc-error`.
-- **`src/agent-status/`** — volatile per-session agent state (below). **`src/util/`** — `mono.ts` (monotonic ms
-  behind every terminal-control deadline), `path.ts`.
+- **`src/agent-status/`** — volatile per-session agent state (below). **`src/util/`** — `src/util/mono.ts` (monotonic ms
+  behind every terminal-control deadline), `src/util/path.ts`.
 - **Host + coord plumbing** — `src/heartbeat.ts` with `src/host-sample-{darwin,linux,win32,types}.ts`;
   `src/coord-client.ts` (Connect client, boot calls only — events ride CoordLink); `src/event-sink.ts`;
   `src/snapshot.ts`. **Coordinator move** — `src/coord-target.ts`, `src/coord-relocation.ts`,
@@ -120,7 +122,7 @@ PTY; node-pty and `ROOST_KEEPER_MODE` are retired.
 - **Live resize mutates the existing core at the keeper boundary.** The
   `ResizeAck` callback synchronously calls `wtermCore.resize` before any later
   `PtyOut` from that ordered stream can dispatch. No ordinary viewer change
-  allocates a core or replays the raw ring. `session-resize-capture.ts` is
+  allocates a core or replays the raw ring. `src/session-resize-capture.ts` is
   reachable only for degraded adoption when no in-memory core exists.
 - **`Bun.spawn({terminal})` does not inject `TERM` into the child env** (node-pty did). A locally bootstrapped
   worker inherits `TERM` from its terminal and hides the bug; an SSH-deployed one sees `TERM=""`/`unknown` →
@@ -142,19 +144,19 @@ PTY; node-pty and `ROOST_KEEPER_MODE` are retired.
 Labels each shell PTY `working` / `blocked` / `idle` for whatever coding agent runs inside it. Metadata only, never
 an agent API. All under `src/agent-status/`.
 
-- `process-scan.ts` — throttled (250 ms) `ps -A` snapshot finds a known agent in the session's process tree;
-  identity survives one missed scan so a momentary miss cannot flap. `detector.ts` wires the pieces together.
-- `report-server.ts` — authoritative reports on `$ROOST_AGENT_SOCKET_PATH` (default `~/.roost/agent-report.sock`,
+- `src/agent-status/process-scan.ts` — throttled (250 ms) `ps -A` snapshot finds a known agent in the session's process tree;
+  identity survives one missed scan so a momentary miss cannot flap. `src/agent-status/detector.ts` wires the pieces together.
+- `src/agent-status/report-server.ts` — authoritative reports on `$ROOST_AGENT_SOCKET_PATH` (default `~/.roost/agent-report.sock`,
   dir `0700`, socket `0600`): one `agent.report` JSON line per request, ≤4 KiB, 32 per connection, `seq` monotonic,
   `active:false` withdraws, `pid` resolved to its owning session with a mismatch rejected
-  (`pid_session_mismatch`) so a report cannot claim another terminal. `environment.ts` injects
+  (`pid_session_mismatch`) so a report cannot claim another terminal. `src/agent-status/environment.ts` injects
   `ROOST_AGENT_SOCKET_PATH` + `ROOST_SESSION_ID` into every spawned shell.
-- `install-integrations.ts` — the two owned `roost-agent-state.ts` extensions (mode `0600`, temp-file + rename,
+- `src/agent-status/install-integrations.ts` — the two owned `roost-agent-state.ts` extensions (mode `0600`, temp-file + rename,
   idempotent) under `${PI_CONFIG_DIR:-~/.omp}/agent/extensions` and `${PI_CODING_AGENT_DIR:-~/.pi/agent}/extensions`;
   one lacking a `ROOST_INTEGRATION_ID=<id>` marker is a user file and is never overwritten, and
   `ROOST_AGENT_STATUS_DISABLED=1` makes an installed one inert.
-- `registry.ts` — an integration report wins while its 30 s lease is fresh, else the screen fallback
-  (`manifests.ts` + `manifest-engine.ts` + `stable-detection.ts`, pinned from Herdr `eacea2da`, Apache-2.0), where
+- `src/agent-status/registry.ts` — an integration report wins while its 30 s lease is fresh, else the screen fallback
+  (`src/agent-status/manifests.ts` + `src/agent-status/manifest-engine.ts` + `src/agent-status/stable-detection.ts`, pinned from Herdr `eacea2da`, Apache-2.0), where
   a plain `working → idle` needs repeated confirmation so a redraw cannot flicker a completion. Changes carry a
   monotonic revision; `working|blocked → idle` also stamps the completion revision the SPA's badge keys on.
 

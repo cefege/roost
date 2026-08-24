@@ -1,3 +1,8 @@
+// Owns terminal view ownership: which socket watches which session's terminal,
+// with lease deadlines renewed by every accepted command. A view bound to a
+// live socket can be taken over ONLY when parked and the revision+intent match
+// exactly; a view can never move between sessions. Every mutation path must
+// end in recompute() (geometry changed) or an explicit reply, never neither.
 import {
   TerminalViewStatus, type TerminalResyncCommand, type TerminalViewCommand,
 } from "@roost/shared/proto/sync_pb";
@@ -5,13 +10,8 @@ import {
   TERMINAL_VIEW_LEASE_MS, isTerminalUuid, type TerminalGeometry,
 } from "@roost/shared/viewport";
 import { TerminalScreenHub, type TerminalScreenSocketSink } from "./terminal-screen-hub.ts";
-import {
-  enqueueTerminalViewState,
-  equalTerminalViewIntent,
-  terminalViewIntent,
-  terminalViewKey,
-  validateTerminalViewCommand,
-  type TerminalViewIntent,
+import { enqueueTerminalViewState, equalTerminalViewIntent, terminalViewIntent,
+  terminalViewKey, validateTerminalViewCommand, type TerminalViewIntent,
 } from "./terminal-view-protocol.ts";
 import {
   activeTerminalFingerprints, projectTerminalViewers, retainTerminalViewTombstone,

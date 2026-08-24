@@ -9,7 +9,7 @@ import {
 } from "@roost/shared/wire";
 import type { AgentStatusFrame } from "@roost/shared/proto/sync_pb";
 import { signal } from "@roost/shared/diag";
-import { rootStore, setRootStore } from "./root.ts";
+import { deleteStoreRecord, rootStore, setRootStore } from "./root.ts";
 
 export interface AgentStatusChange {
   sessionId: string;
@@ -87,7 +87,7 @@ export function applyAgentStatusFrame(frame: AgentStatusFrame): boolean {
     });
   } else {
     if (current) {
-      setRootStore("agent_status", update.session_id, undefined as unknown as AgentStatusValue);
+      deleteStoreRecord("agent_status", update.session_id);
       publish({
         sessionId: update.session_id,
         previous: current,
@@ -107,13 +107,13 @@ export function clearAgentStatusForSession(sessionId: string): void {
     sessionId,
     Math.max(revisionFloors.get(sessionId) ?? -1, current.revision),
   );
-  setRootStore("agent_status", sessionId, undefined as unknown as AgentStatusValue);
+  deleteStoreRecord("agent_status", sessionId);
   publish({ sessionId, previous: current, next: null, revision: current.revision });
 }
 
 export function resetAgentStatusProjectionForTest(): void {
   revisionFloors.clear();
   for (const sessionId of Object.keys(rootStore.agent_status)) {
-    setRootStore("agent_status", sessionId, undefined as unknown as AgentStatusValue);
+    deleteStoreRecord("agent_status", sessionId);
   }
 }

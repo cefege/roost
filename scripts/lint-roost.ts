@@ -11,7 +11,8 @@
 // Re-snapshot a ratchet: --update-design-baseline | --update-size-baseline
 //                        --update-console-baseline
 
-import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { collectCounts, runRatchet, walk, type RatchetSpec } from "./lint-ratchet.ts";
 import { join } from "node:path";
 
 const REPO = new URL("..", import.meta.url).pathname;
@@ -284,20 +285,6 @@ const CHECKS: Check[] = [
 
 // ───────────────────────────────────────────────────────────────────────
 
-const SKIP_DIRS = new Set([
-  "node_modules", ".git", "dist", ".turbo", "target",
-  "coverage", "test-results", ".claude",
-]);
-
-function* walk(dir: string): Generator<string> {
-  for (const ent of readdirSync(dir, { withFileTypes: true })) {
-    if (SKIP_DIRS.has(ent.name)) continue;
-    const p = join(dir, ent.name);
-    if (ent.isDirectory()) yield* walk(p);
-    else if (ent.isFile()) yield p;
-  }
-}
-
 function runPatternChecks(): Violation[] {
   const out: Violation[] = [];
   for (const file of walk(REPO)) {
@@ -477,51 +464,26 @@ function rawValueLineCount(text: string): number {
   return n;
 }
 
-function collectRawCounts(): Record<string, number> {
-  const counts: Record<string, number> = {};
-  for (const file of walk(join(REPO, "apps/web/src"))) {
-    const rel = file.slice(REPO.length).replace(/^\/+/, "");
-    if (!/\.(tsx|ts|css)$/.test(rel)) continue;
-    if (rel.endsWith(".test.tsx") || rel.endsWith(".test.ts") || rel.includes("/e2e/")) continue;
-    if (RAW_VALUE_ALLOW.has(rel)) continue;
-    let text: string;
-    try { text = readFileSync(file, "utf8"); } catch { continue; }
-    const n = rawValueLineCount(text);
-    if (n > 0) counts[rel] = n;
-  }
-  return counts;
+const RAW_RATCHET: RatchetSpec = {
+  baselineFile: RAW_BASELINE_FILE,
+  updateFlag: "--update-design-baseline",
+  freshAllowance: 0,
+  text: (n, allowed) => `${n} raw hex/rgb/px-font value lines (baseline ${allowed}) — reference a theme token instead`,
+  rule: "design: no NEW raw color/px-font values — use --md-*/--surface-*/--text-* + the type ramp (ratcheted)",
+  memory: "CLAUDE.md — design system",
+  unit: "raw-value lines",
+};
+
+function rawCounts(): Record<string, number> {
+  return collectCounts([join(REPO, "apps/web/src")], (rel) =>
+    /\.(tsx|ts|css)$/.test(rel)
+    && !rel.endsWith(".test.tsx")
+    && !rel.endsWith(".test.ts")
+    && !rel.includes("/e2e/")
+    && !RAW_VALUE_ALLOW.has(rel),
+  rawValueLineCount);
 }
 
-function runRawValueCheck(): Violation[] {
-  const counts = collectRawCounts();
-  let baseline: Record<string, number> = {};
-  try { baseline = JSON.parse(readFileSync(RAW_BASELINE_FILE, "utf8")) as Record<string, number>; }
-  catch { baseline = {}; }
-  const out: Violation[] = [];
-  for (const [rel, n] of Object.entries(counts)) {
-    const allowed = baseline[rel] ?? 0;
-    if (n > allowed) {
-      out.push({
-        file: rel, line: 1,
-        text: `${n} raw hex/rgb/px-font value lines (baseline ${allowed}) — reference a theme token instead`,
-        rule: "design: no NEW raw color/px-font values — use --md-*/--surface-*/--text-* + the type ramp (ratcheted)",
-        memory: "CLAUDE.md — design system",
-      });
-    }
-  }
-  return out;
-}
-
-// `--update-design-baseline`: rewrite the ratchet baseline from the current
-// tree (run after migration lowers counts). Prints + exits before the checks.
-if (process.argv.includes("--update-design-baseline")) {
-  const counts = collectRawCounts();
-  const sorted = Object.fromEntries(Object.entries(counts).sort(([a], [b]) => a.localeCompare(b)));
-  writeFileSync(RAW_BASELINE_FILE, JSON.stringify(sorted, null, 2) + "\n");
-  const total = Object.values(counts).reduce((s, n) => s + n, 0);
-  console.log(`lint-roost: wrote design-raw-baseline.json — ${Object.keys(counts).length} files, ${total} raw-value lines`);
-  process.exit(0);
-}
 
 // ───────────────────────────────────────────────────────────────────────
 // File-size ratchet: a source file stays ≤400 lines. A per-file baseline
@@ -551,53 +513,21 @@ function sizeRoots(): string[] {
   return out.filter((p) => { try { return statSync(p).isDirectory(); } catch { return false; } });
 }
 
-function collectFileSizes(): Record<string, number> {
-  const counts: Record<string, number> = {};
-  for (const root of sizeRoots()) {
-    for (const file of walk(root)) {
-      const rel = file.slice(REPO.length).replace(/^\/+/, "");
-      if (!/\.(ts|tsx)$/.test(rel)) continue;
-      if (SIZE_EXCLUDE.test(rel)) continue;
-      let text: string;
-      try { text = readFileSync(file, "utf8"); } catch { continue; }
-      counts[rel] = text.split("\n").length;
-    }
-  }
-  return counts;
+const SIZE_RATCHET: RatchetSpec = {
+  baselineFile: SIZE_BASELINE_FILE,
+  updateFlag: "--update-size-baseline",
+  freshAllowance: FILE_LINE_CAP,
+  guardFloor: FILE_LINE_CAP + 1,
+  text: (n, allowed) => `${n} lines (cap ${FILE_LINE_CAP}, baseline ${allowed}) — split before growing`,
+  rule: "size: files stay ≤400 lines; baselined files may only shrink (ratcheted)",
+  memory: "CLAUDE.md — coding standards",
+  unit: "lines",
+};
+
+function fileSizes(): Record<string, number> {
+  return collectCounts(sizeRoots(), (rel) => /\.(ts|tsx)$/.test(rel) && !SIZE_EXCLUDE.test(rel), (text) => text.split("\n").length);
 }
 
-function runFileSizeCheck(): Violation[] {
-  const counts = collectFileSizes();
-  let baseline: Record<string, number> = {};
-  try { baseline = JSON.parse(readFileSync(SIZE_BASELINE_FILE, "utf8")) as Record<string, number>; }
-  catch { baseline = {}; }
-  const out: Violation[] = [];
-  for (const [rel, n] of Object.entries(counts)) {
-    if (n <= FILE_LINE_CAP) continue;
-    const allowed = baseline[rel] ?? FILE_LINE_CAP;
-    if (n > allowed) {
-      out.push({
-        file: rel, line: 1,
-        text: `${n} lines (cap ${FILE_LINE_CAP}, baseline ${allowed}) — split before growing`,
-        rule: "size: files stay ≤400 lines; baselined files may only shrink (ratcheted)",
-        memory: "CLAUDE.md — coding standards",
-      });
-    }
-  }
-  return out;
-}
-
-// `--update-size-baseline`: re-snapshot the file-size ratchet from the
-// current tree (run after a split lowers counts).
-if (process.argv.includes("--update-size-baseline")) {
-  const counts = collectFileSizes();
-  const over = Object.entries(counts).filter(([, n]) => n > FILE_LINE_CAP);
-  const sorted = Object.fromEntries(over.sort(([a], [b]) => a.localeCompare(b)));
-  writeFileSync(SIZE_BASELINE_FILE, JSON.stringify(sorted, null, 2) + "\n");
-  const total = over.reduce((s, [, n]) => s + n, 0);
-  console.log(`lint-roost: wrote file-size-baseline.json — ${over.length} files, ${total} lines`);
-  process.exit(0);
-}
 
 // ───────────────────────────────────────────────────────────────────────
 // Log-facade ratchet: coord and worker are long-lived services whose output
@@ -625,62 +555,102 @@ function consoleLineCount(text: string): number {
   return n;
 }
 
-function collectConsoleCounts(): Record<string, number> {
-  const counts: Record<string, number> = {};
-  for (const root of CONSOLE_ROOTS) {
-    for (const file of walk(join(REPO, root))) {
-      const rel = file.slice(REPO.length).replace(/^\/+/, "");
-      if (!/\.ts$/.test(rel)) continue;
-      let text: string;
-      try { text = readFileSync(file, "utf8"); } catch { continue; }
-      const n = consoleLineCount(text);
-      if (n > 0) counts[rel] = n;
-    }
-  }
-  return counts;
-}
+const CONSOLE_RATCHET: RatchetSpec = {
+  baselineFile: CONSOLE_BASELINE_FILE,
+  updateFlag: "--update-console-baseline",
+  freshAllowance: 0,
+  text: (n, allowed) => `${n} console.* call lines (baseline ${allowed}) — log through the @roost/shared/log facade`,
+  rule: "logging: use the log facade from @roost/shared/log, not console.* (ratcheted)",
+  memory: "CLAUDE.md — coding standards",
+  unit: "console.* lines",
+};
 
-function runConsoleCheck(): Violation[] {
-  const counts = collectConsoleCounts();
-  let baseline: Record<string, number> = {};
-  try { baseline = JSON.parse(readFileSync(CONSOLE_BASELINE_FILE, "utf8")) as Record<string, number>; }
-  catch { baseline = {}; }
-  const out: Violation[] = [];
-  for (const [rel, n] of Object.entries(counts)) {
-    const allowed = baseline[rel] ?? 0;
-    if (n > allowed) {
-      out.push({
-        file: rel, line: 1,
-        text: `${n} console.* call lines (baseline ${allowed}) — log through the @roost/shared/log facade`,
-        rule: "logging: use the log facade from @roost/shared/log, not console.* (ratcheted)",
-        memory: "CLAUDE.md — coding standards",
-      });
-    }
-  }
-  return out;
-}
-
-// `--update-console-baseline`: re-snapshot the log-facade ratchet.
-if (process.argv.includes("--update-console-baseline")) {
-  const counts = collectConsoleCounts();
-  const sorted = Object.fromEntries(Object.entries(counts).sort(([a], [b]) => a.localeCompare(b)));
-  writeFileSync(CONSOLE_BASELINE_FILE, JSON.stringify(sorted, null, 2) + "\n");
-  const total = Object.values(counts).reduce((s, n) => s + n, 0);
-  console.log(`lint-roost: wrote console-baseline.json — ${Object.keys(counts).length} files, ${total} console.* lines`);
-  process.exit(0);
+function consoleCounts(): Record<string, number> {
+  return collectCounts(CONSOLE_ROOTS.map((root) => join(REPO, root)), (rel) => /\.ts$/.test(rel), consoleLineCount);
 }
 
 // ───────────────────────────────────────────────────────────────────────
+// Header-presence ratchet (CLAUDE.md coding standard #4): every
+// hand-written app source file opens with a WHY header of ≥3 comment
+// lines. Only PRESENCE is gated — length past the minimum stays style.
+// Files already short when the rule landed are frozen in
+// scripts/header-baseline.json keyed by their header-line count: fixing a
+// file drops its entry at the next re-snapshot, and shrinking one further
+// still fails. Generated output and tests are exempt; script-entry
+// runners that violate are simply baselined like any legacy file.
+// Re-snapshot: `bun scripts/lint-roost.ts --update-header-baseline`.
+// ───────────────────────────────────────────────────────────────────────
+
+const HEADER_MIN_LINES = 3;
+const HEADER_BASELINE_FILE = join(REPO, "scripts/header-baseline.json");
+const HEADER_EXCLUDE = [/^apps\/[^/]+\/src\/gen\//, /\.generated\.ts$/, /\.d\.ts$/];
+
+// Length of the leading comment run: consecutive // lines plus one /*…*/
+// block. Blank lines and a shebang before the run count neither way.
+function leadingHeaderLines(text: string): number {
+  const lines = text.split("\n");
+  let i = lines[0]?.startsWith("#!") ? 1 : 0;
+  while (i < lines.length && lines[i].trim() === "") i++;
+  let n = 0;
+  let inBlock = false;
+  for (; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    if (inBlock) {
+      n++;
+      if (trimmed.includes("*/")) inBlock = false;
+    } else if (trimmed.startsWith("//")) n++;
+    else if (trimmed.startsWith("/*")) {
+      n++;
+      inBlock = !trimmed.includes("*/");
+    } else break;
+  }
+  return n;
+}
+
+function headerRoots(): string[] {
+  return readdirSync(join(REPO, "apps"), { withFileTypes: true })
+    .filter((ent) => ent.isDirectory())
+    .map((ent) => join(REPO, "apps", ent.name, "src"))
+    .filter((path) => { try { return statSync(path).isDirectory(); } catch { return false; } });
+}
+
+function headerCounts(): Record<string, number> {
+  return collectCounts(
+    headerRoots(),
+    (rel) => /\.(ts|tsx)$/.test(rel)
+      && !HEADER_EXCLUDE.some((pattern) => pattern.test(rel))
+      && !rel.includes("/tests/")
+      && !/\.(test|spec)\.(ts|tsx)$/.test(rel),
+    leadingHeaderLines,
+    true,
+  );
+}
+
+const HEADER_RATCHET: RatchetSpec = {
+  baselineFile: HEADER_BASELINE_FILE,
+  updateFlag: "--update-header-baseline",
+  // An unbaselined file may sit no lower than the minimum itself.
+  freshAllowance: HEADER_MIN_LINES,
+  guardFloor: 0,
+  // Compare every counted file; only the snapshot narrows to offenders so
+  // fully-headered files never enter the baseline JSON.
+  snapshot: (n) => n < HEADER_MIN_LINES,
+  regressed: (n, allowed) => n < allowed,
+  text: (n, allowed) =>
+    `file opens with ${n === 0 ? "no WHY header" : `a ${n}-line header`} (need ≥${HEADER_MIN_LINES}; grandfathered at ${allowed}) — add the mandatory file-header comment`,
+  rule: "headers: every source file opens with a WHY-file-header comment (ratcheted)",
+  memory: "CLAUDE.md — coding standards",
+};
 
 const violations = [
   ...runPatternChecks(),
   ...runColorFallbackCheck(),
   ...runHardcodedFallbackCheck(),
-  ...runRawValueCheck(),
-  ...runFileSizeCheck(),
-  ...runConsoleCheck(),
+  ...runRatchet(rawCounts(), RAW_RATCHET),
+  ...runRatchet(fileSizes(), SIZE_RATCHET),
+  ...runRatchet(consoleCounts(), CONSOLE_RATCHET),
+  ...runRatchet(headerCounts(), HEADER_RATCHET),
 ];
-
 if (violations.length === 0) {
   console.log("lint-roost: 0 violations");
   process.exit(0);

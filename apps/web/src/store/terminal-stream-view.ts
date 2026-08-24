@@ -35,6 +35,7 @@ import {
   terminalSessions,
 } from "./terminal-stream-state.ts";
 import type {
+  BaselineProgress,
   TerminalOutboundCommand,
   TerminalRendererSubscriber,
   TerminalViewHandle,
@@ -237,6 +238,26 @@ function handleGeneration(state: SyncV2TerminalState | null): void {
 
 queueMicrotask(() => registerSyncV2GenerationHandler(handleGeneration));
 
+const TERMINAL_PROGRESS_POLL_MS = 200;
+
+function baselineProgressKey(progress: BaselineProgress | null): string {
+  return progress === null
+    ? "idle"
+    : `${progress.snapshotId}:${progress.receivedChunks}/${progress.totalChunks}`;
+}
+
+/** Read the replica assembler's current attach progress and fan any change
+ * out to the view's subscribers. Chunk pushes land here within one poll;
+ * completion and reset surface as a null emission because the assembler's
+ * getter goes idle in both cases. */
+function emitTerminalViewProgress(view: TerminalViewRecord): void {
+  const progress = view.session.assembler.snapshotProgress;
+  const key = baselineProgressKey(progress);
+  if (key === view.lastProgressKey) return;
+  view.lastProgressKey = key;
+  for (const listener of view.progressListeners) listener(progress);
+}
+
 export function createTerminalView(sessionId: string): TerminalViewHandle {
   const session = terminalSessionReplica(sessionId);
   const viewId = crypto.randomUUID();
@@ -248,9 +269,12 @@ export function createTerminalView(sessionId: string): TerminalViewHandle {
     accepted: null,
     status: null,
     statusListeners: new Set(),
+    progressListeners: new Set(),
+    progressTimer: null,
+    lastProgressKey: null,
     rendererSubscribers: new Set(),
     rollingBack: false,
-    heartbeat: 0 as unknown as ReturnType<typeof setInterval>,
+    heartbeat: null,
     leaseDeadlineMs: null,
     disposed: false,
   };
@@ -282,6 +306,25 @@ export function createTerminalView(sessionId: string): TerminalViewHandle {
       view.statusListeners.add(listener);
       if (view.status) listener(view.status);
       return () => { view.statusListeners.delete(listener); };
+    },
+    subscribeProgress(listener): () => void {
+      if (view.disposed) return () => undefined;
+      view.progressListeners.add(listener);
+      const current = view.session.assembler.snapshotProgress;
+      view.lastProgressKey = baselineProgressKey(current);
+      listener(current);
+      // One poller per view, alive only while a listener is attached.
+      view.progressTimer = setInterval(
+        () => emitTerminalViewProgress(view),
+        TERMINAL_PROGRESS_POLL_MS,
+      );
+      return () => {
+        view.progressListeners.delete(listener);
+        if (view.progressListeners.size === 0 && view.progressTimer !== null) {
+          clearInterval(view.progressTimer);
+          view.progressTimer = null;
+        }
+      };
     },
     subscribeRenderer(renderer, onDelivery): () => void {
       if (view.disposed) return () => undefined;
@@ -321,8 +364,12 @@ export function createTerminalView(sessionId: string): TerminalViewHandle {
       if (view.disposed) return;
       if (view.desired?.active) changeIntent(view, false, 0, 0);
       view.disposed = true;
-      clearInterval(view.heartbeat);
+      if (view.heartbeat !== null) clearInterval(view.heartbeat);
       view.statusListeners.clear();
+      view.lastProgressKey = null;
+      if (view.progressTimer !== null) clearInterval(view.progressTimer);
+      view.progressTimer = null;
+      view.progressListeners.clear();
       for (const subscriber of view.rendererSubscribers) {
         session.subscribers.delete(subscriber);
       }

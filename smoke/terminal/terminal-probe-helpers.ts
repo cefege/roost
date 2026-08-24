@@ -194,6 +194,23 @@ function coordScreenSequence(probe: TerminalStreamProbe): bigint | null {
   return diagnosticSequence(screen.seq);
 }
 
+export interface AcceptedViewGeometry {
+  cols: number;
+  rows: number;
+}
+
+/** Probe view geometry is number|null; specs compare it as settled numbers, so
+ *  narrow once here instead of scattering null guards through poll bodies. */
+export function acceptedGeometry(
+  view: TerminalStreamProbe["browser"]["view"],
+): AcceptedViewGeometry | null {
+  if (view.status !== "accepted" || view.effective_cols === null || view.effective_rows === null) {
+    return null;
+  }
+  return { cols: view.effective_cols, rows: view.effective_rows };
+}
+
+
 export interface CoordinatorTerminalViewState {
   activeViews: number;
   parkedViews: number;

@@ -1,22 +1,19 @@
-// Spawn a new keeper PTY session on a worker.
+// Spawn a keeper PTY session on a worker via coordClient.sessionsSpawn
+// (Connect unary RPC). Coord forwards the request over its WorkerHub link;
+// the worker's keeper creates the PTY and the resulting session row reaches
+// this SPA through the Sync firehose sessions domain (no SSE, no browser→
+// worker dial). Callers navigate to /s/<sessionId> — waitForSession polls
+// rootStore until the projected row lands so the route resolves immediately.
 //
-// phase-24c-1: dispatches via tRPC `sessions.spawn` mutation. Coord
-// forwards as `browser-command` to the worker over the WorkerHub WSS;
-// worker SessionManager creates the keeper + emits the `opened`
-// SessionEvent; coord projects + fans out via `sessions.events` SSE,
-// so the new row lands in the SPA store within ~50ms. The `attached`
-// reply carries (session_id, channel_id), letting the caller navigate
-// directly to /w/<id>/t/<channel>.
-//
-// Replaces the previous worker-direct WSS round-trip — no browser
-// dials worker for spawn anymore. Reachability problems with a
-// specific worker can no longer wedge the click flow.
+// Post-restart spawns retry inside withSpawnRetry: coord rejects with
+// FailedPrecondition while the target worker is still re-dialing.
 
 import { ConnectError, Code } from "@connectrpc/connect";
 import { coordClient } from "../connect.ts";
-import { rootStore } from "../store/root.ts";
-import { estimateWtermSize } from "./wtermSizeEstimate.ts";
 import { log } from "@roost/shared/log";
+import { signal } from "@roost/shared/diag";
+import { estimateWtermSize } from "./wtermSizeEstimate.ts";
+import { rootStore } from "../store/root.ts";
 import type { WorkerFp, Session } from "@roost/shared/wire";
 import { sendTerminalInput } from "../ws/sync-outbound.ts";
 import { resolveAgent, autoLaunchEnabled } from "./agents.ts";
@@ -152,8 +149,8 @@ export async function spawnInWorkspaceDetailed(
 }
 
 /**
- * Wait for an opened session to land in the SPA store via the
- * sessions.events SSE projection.
+ * Wait for an opened session to land in the SPA store via the Sync
+ * firehose sessions domain.
  */
 export async function waitForSession(sessionId: string, timeoutMs = 2_000): Promise<Session | null> {
   const deadline = Date.now() + timeoutMs;
@@ -169,16 +166,23 @@ export async function waitForSession(sessionId: string, timeoutMs = 2_000): Prom
 export function maybeAutoLaunchAgent(sessionId: string): void {
   if (!autoLaunchEnabled()) return;
   if (autoLaunchedSessionIds.has(sessionId)) return;
-  const cmd = resolveAgent().command + "\r";
-  const admission = sendTerminalInput(sessionId, new TextEncoder().encode(cmd));
-  if (admission.accepted) autoLaunchedSessionIds.add(sessionId);
+  sendAgentLaunch(sessionId, resolveAgent().command);
 }
 
 /** Launch the selected default agent NOW, bypassing the auto-launch toggle
  *  (quick chats always launch — that's the point). At most once per session. */
 export function forceLaunchAgent(sessionId: string): void {
   if (autoLaunchedSessionIds.has(sessionId)) return;
-  const cmd = resolveAgent().command + "\r";
-  const admission = sendTerminalInput(sessionId, new TextEncoder().encode(cmd));
-  if (admission.accepted) autoLaunchedSessionIds.add(sessionId);
+  sendAgentLaunch(sessionId, resolveAgent().command);
+}
+
+function sendAgentLaunch(sessionId: string, command: string): void {
+  const admission = sendTerminalInput(sessionId, new TextEncoder().encode(command + "\r"));
+  if (!admission.accepted) {
+    // One legitimate attempt, no retry path — without this line the PTY opens
+    // agentless and nothing explains why.
+    signal("spawn.agent_launch_dropped", { sid: sessionId, reason: admission.reason ?? "unknown" });
+    return;
+  }
+  autoLaunchedSessionIds.add(sessionId);
 }

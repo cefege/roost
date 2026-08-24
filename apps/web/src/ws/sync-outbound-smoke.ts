@@ -8,6 +8,8 @@ let smokeTerminalInputObserver: SmokeTerminalInputObserver | null = null;
 export function setSmokeTerminalInputObserver(
   observer: SmokeTerminalInputObserver | null,
 ): void {
+  // Build-time gate first: prod bundles fold the observer hook away entirely.
+  if (import.meta.env.VITE_ROOST_SMOKE !== "1") return;
   try {
     if (typeof localStorage === "undefined" || localStorage.getItem("roostSmoke") !== "1") return;
   } catch {

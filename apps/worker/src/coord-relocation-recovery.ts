@@ -1,3 +1,7 @@
+// Recovery classification for coordinator relocations: given the persisted
+// journal state, decides which side (worker or coord) owns each
+// CoordinatorMovePhase and what a worker should do when it boots mid-move.
+// Pure decision logic over CoordRelocationJournal records; no I/O.
 import { CoordinatorMovePhase } from "@roost/shared/proto/coordinator_pb";
 import type { CoordRelocationJournal, WorkerCoordRelocation } from "./coord-relocation.ts";
 import type { CoordLink } from "./transport/coord-link-types.ts";

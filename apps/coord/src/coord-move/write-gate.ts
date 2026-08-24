@@ -1,4 +1,11 @@
+// The coordinator's single write-availability switch. Every durable mutation
+// takes a lease; a move flips the mode through draining→retired (source) or
+// target_pending→active (target). setMode is the one choke point that sees
+// every flip, so it owns the audit trail — highest-stakes state in the
+// process, silent flips made move failures undiagnosable.
+
 import { Code, ConnectError } from "@connectrpc/connect";
+import { log } from "@roost/shared/log";
 
 export type CoordinatorWriteMode = "active" | "source_draining" | "target_pending" | "retired";
 
@@ -56,7 +63,13 @@ export class CoordinatorWriteGate {
     });
   }
 
+  /** Single choke point for every gate transition — logs from→to so a stuck
+   *  cluster's RPC rejections can be traced back to the flip that caused
+   *  them. */
   setMode(mode: CoordinatorWriteMode): void {
+    if (mode !== this.#mode) {
+      log.info("coord-move", "gate_mode", { from: this.#mode, to: mode });
+    }
     this.#mode = mode;
   }
 }

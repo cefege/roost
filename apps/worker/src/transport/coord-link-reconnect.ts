@@ -4,12 +4,16 @@
 //
 // A worker is a daemon, so nothing here ever gives up — the ceiling only makes
 // a wedged worker observable. Every counter reset below is load-bearing for
-// exactly one scenario, named at the reset.
+// exactly one scenario, named at the reset. Delays come from the shared
+// backoffDelayMs with EQUAL jitter by default: a deterministic ladder makes a
+// restarting coordinator face the whole fleet's redials in one synchronized
+// wave. jitter:"none" reproduces the legacy deterministic ladder exactly.
 
 import { signal } from "@roost/shared/diag";
 import { log } from "@roost/shared/log";
+import { backoffDelayMs } from "@roost/shared/retry";
 import {
-  BACKOFF_INITIAL_MS, BACKOFF_MULTIPLIER,
+  BACKOFF_INITIAL_MS,
   AUTH_REJECT_THRESHOLD, AUTH_REJECT_BACKOFF_CAP_MS,
   AUTH_REJECT_THRESHOLD_AFTER_OPEN, backoffCapMs,
 } from "./coord-link-constants.ts";
@@ -20,10 +24,10 @@ import type { CoordLinkReconnect, CoordLinkReconnectHooks } from "./coord-link-t
 // crossing the ceiling only fires an observability signal (once, then
 // cooldown-gated) so a wedged worker is visible in `roost doctor`.
 const RECONNECT_GIVE_UP_AFTER = 10;
-let _reconnectFailures = 0;
 
 export function createCoordLinkReconnect(hooks: CoordLinkReconnectHooks): CoordLinkReconnect {
-  let backoffMs = BACKOFF_INITIAL_MS;
+  let ladderAttempt = 0;
+  let _reconnectFailures = 0;
   // Monotonic dial counter. Stamped onto every `connecting` state
   // transition so consumers of state().attempt (telemetry, health UI)
   // can distinguish a wedged worker (attempt: 47) from a healthy one
@@ -69,12 +73,12 @@ export function createCoordLinkReconnect(hooks: CoordLinkReconnectHooks): CoordL
    * >=1 frame received AND >=STABLE_SESSION_MS uptime — distinguishes a
    * healthy long session from a flap. The caller owns the uptime test. */
   function noteStableSession(): void {
-    backoffMs = BACKOFF_INITIAL_MS;
+    ladderAttempt = 0;
     dialAttempt = 0;
   }
 
   function resetForRedial(): void {
-    backoffMs = BACKOFF_INITIAL_MS;
+    ladderAttempt = 0;
     // A worker auth-rejected by the source would otherwise carry a 5-minute
     // backoff cap into the healthy target and sit offline for minutes.
     dialAttempt = 0;
@@ -105,14 +109,19 @@ export function createCoordLinkReconnect(hooks: CoordLinkReconnectHooks): CoordL
         count: _authRejectCount, backoffMs: _cap, had_opened: hasOpened,
       });
     }
-    const nextDialAtMs = Date.now() + backoffMs;
-    hooks.setState({ kind: "reconnecting", nextDialAtMs, backoffMs });
-    const d = backoffMs;
-    backoffMs = Math.min(backoffMs * BACKOFF_MULTIPLIER, _cap);
+    const delayMs = backoffDelayMs(ladderAttempt, {
+      baseMs: BACKOFF_INITIAL_MS,
+      maxMs: _cap,
+      jitter: hooks.jitter,
+      rng: hooks.rng,
+    });
+    const nextDialAtMs = Date.now() + delayMs;
+    hooks.setState({ kind: "reconnecting", nextDialAtMs, backoffMs: delayMs });
+    ladderAttempt += 1;
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null;
       if (!hooks.isDisposed()) hooks.dial();
-    }, d);
+    }, delayMs);
   }
 
   return {

@@ -19,7 +19,7 @@ import {
   _resolveDeployEnvValue,
   parsePosixServiceEnvironment,
 } from "../src/deploy-plist-env.ts";
-import { _quoteRemoteShell } from "../src/deploy.ts";
+import { posixShellQuote } from "../src/shell-quote.ts";
 import { WORKER_UNIT } from "../src/service-ctl.ts";
 
 const KEYS = ["ROOST_COORDINATOR_URL", "ROOST_REACHABLE_ADDR", "ROOST_WORKER_LABEL", "HOME"] as const;
@@ -215,7 +215,7 @@ describe("_backfillEnvFromPlist — parsing", () => {
   });
 });
 
-describe("_quoteRemoteShell", () => {
+describe("posixShellQuote", () => {
   test("preserves remote-shell metacharacters without executing them", () => {
     const commandSubstitution = join(root, "command-substitution");
     const backtickSubstitution = join(root, "backtick-substitution");
@@ -223,7 +223,7 @@ describe("_quoteRemoteShell", () => {
     const proc = Bun.spawnSync([
       "bash",
       "-c",
-      `VALUE=${_quoteRemoteShell(value)}; printf '%s' "$VALUE"`,
+      `VALUE=${posixShellQuote(value)}; printf '%s' "$VALUE"`,
     ]);
 
     expect(proc.exitCode).toBe(0);

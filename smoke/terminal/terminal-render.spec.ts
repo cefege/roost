@@ -8,6 +8,7 @@ import {
 } from "./terminal-helpers.ts";
 import type { RecoverySmokeApi } from "./terminal-smoke-api.ts";
 import {
+  acceptedGeometry,
   coordinatorTerminalViewState,
   readTerminalStreamProbe,
 } from "./terminal-probe-helpers.ts";
@@ -257,26 +258,24 @@ test("duplicated tab rotates identity and adopts its final resize", async ({ smo
   await smokePage.goto(`${stack.baseUrl}/s/${sessionId}`);
   await expect(smokePage.getByTestId(`terminal-slot-${sessionId}`)).toBeVisible();
   await smokePage.evaluate(() => {
-    (window as unknown as Window & { __smoke: { forceVisible(on: boolean): void } })
-      .__smoke.forceVisible(true);
+    (window as unknown as Window & { __smoke: { forceVisible(on: boolean): void } }).__smoke.forceVisible(true);
   });
   await expect.poll(async () => {
     const probe = await readTerminalStreamProbe(smokePage, sessionId);
     const { view, replica } = probe.browser;
     const coordinator = coordinatorTerminalViewState(probe);
+    const geometry = acceptedGeometry(view);
     return view.status === "accepted"
       && view.active
       && view.view_id !== null
       && view.revision !== null
-      && view.effective_cols > 0
-      && view.effective_rows > 0
+      && geometry !== null && geometry.cols > 0 && geometry.rows > 0
       && replica.baseline_ready
       && replica.expected_stream_id === view.stream_id
       && coordinator?.activeViews === 1
       && coordinator.streamId === view.stream_id;
   }, { timeout: 30_000, intervals: [50, 100, 250] }).toBe(true);
-  const primaryViewId = (await readTerminalStreamProbe(smokePage, sessionId)).browser.view.view_id;
-  if (!primaryViewId) throw new Error("primary tab did not create a terminal view");
+  const primaryViewId = (await readTerminalStreamProbe(smokePage, sessionId)).browser.view.view_id; if (!primaryViewId) throw new Error("primary tab did not create a terminal view");
 
   const firstTabId = await smokePage.evaluate(() => sessionStorage.getItem("roost.tabId"));
   if (!firstTabId) throw new Error("primary tab did not persist roost.tabId");
@@ -316,13 +315,13 @@ test("duplicated tab rotates identity and adopts its final resize", async ({ smo
       const probe = await readTerminalStreamProbe(duplicate, sessionId);
       const { view, replica } = probe.browser;
       const coordinator = coordinatorTerminalViewState(probe);
+      const geometry = acceptedGeometry(view);
       return view.status === "accepted"
         && view.active
         && view.view_id !== null
         && view.view_id !== primaryViewId
         && view.revision !== null
-        && view.effective_cols > 0
-        && view.effective_rows > 0
+        && geometry !== null && geometry.cols > 0 && geometry.rows > 0
         && replica.baseline_ready
         && replica.expected_stream_id === view.stream_id
         && coordinator?.activeViews === 2
@@ -330,9 +329,7 @@ test("duplicated tab rotates identity and adopts its final resize", async ({ smo
     }, { timeout: 30_000, intervals: [50, 100, 250] }).toBe(true);
     const beforeResize = await readTerminalStreamProbe(duplicate, sessionId);
     const beforeView = beforeResize.browser.view;
-    if (!beforeView.revision || !beforeView.stream_id) {
-      throw new Error("duplicate tab never established its bootstrap terminal view");
-    }
+    if (!beforeView.revision || !beforeView.stream_id) throw new Error("duplicate tab never established its bootstrap terminal view");
     const beforeRevision = BigInt(beforeView.revision);
 
     await duplicate.setViewportSize({ width: 720, height: 500 });
@@ -340,11 +337,14 @@ test("duplicated tab rotates identity and adopts its final resize", async ({ smo
       const probe = await readTerminalStreamProbe(duplicate, sessionId);
       const { view, replica } = probe.browser;
       const coordinator = coordinatorTerminalViewState(probe);
+      const viewGeometry = acceptedGeometry(view);
+      const beforeGeometry = acceptedGeometry(beforeView);
       return {
         dimensionsConverged: coordinator?.effective?.cols === view.effective_cols
           && coordinator.effective?.rows === view.effective_rows,
-        smaller: view.effective_cols < beforeView.effective_cols
-          && view.effective_rows < beforeView.effective_rows,
+        smaller: viewGeometry !== null && beforeGeometry !== null
+          && viewGeometry.cols < beforeGeometry.cols
+          && viewGeometry.rows < beforeGeometry.rows,
         acceptedBaseline: view.status === "accepted"
           && view.active
           && replica.baseline_ready

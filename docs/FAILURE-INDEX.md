@@ -430,6 +430,28 @@ Diagnose `wire_received` → browser `replica` → `handler_canonical` →
 `apps/web/tests/terminalStream.test.ts`;
 `smoke/terminal/terminal-multiview.spec.ts`.
 
+### A busy session restarts its own baseline forever while chunks assemble
+
+**Symptom** — "ordinary frame interrupted chunk assembly / attaching to a busy terminal never
+finishes — the coordinator keeps requesting snapshots and `terminal.screen_resync` loops"
+
+**Wrong** — aborting the in-flight chunked full and latching a resync because ANY ordinary frame
+arrived mid-assembly. A session emitting deltas faster than its multi-megabyte baseline chunks land
+restarts the transfer on every delta: the worker builds another full, the next delta interrupts it
+again, and attach never completes.
+
+**Right** — park ordinary deltas in a per-session bounded hold (`TerminalAssemblyHold` in
+`apps/coord/src/connect/terminal-screen-hub-state.ts`: 512 frames / 4 MiB, mirroring the Sync v2
+delta-tail caps) while chunks assemble. When the assembled full installs, replay only held deltas
+whose base_seq extends the new baseline — earlier ones are already contained in that full — through
+the ordinary delta fold. Overflow, any other interruption, invalidation, or a minted stream clears
+the hold and falls back to the single-resync latch; an ordinary FULL still supersedes the partial
+outright without a resync.
+
+**Guard** — `apps/coord/tests/terminal-screen-hub-chunks.test.ts` —
+`"holds live deltas during chunk assembly and folds them like an uninterrupted run"`,
+`"falls back to the resync latch when the delta hold overflows"`.
+
 ---
 
 ## Terminal input, focus and keys

@@ -6,7 +6,7 @@
 // detector + the webhook/audit delta subscriber registries (iterated by the
 // firehose, which imports the const Sets).
 
-import { setRootStore } from "./root.ts";
+import { deleteStoreRecord, setRootStore } from "./root.ts";
 import { foldEventIntoStore } from "./projector.ts";
 import type { Worker, Workspace, Task, PermissionRule, McpRelay } from "@roost/shared/wire";
 
@@ -69,7 +69,7 @@ export function _handlePresenceEvent(event: unknown): void {
         : prev,
     );
   } else if (ev.kind === "removed") {
-    setRootStore("workers", ev.fp, undefined as unknown as Worker);
+    deleteStoreRecord("workers", ev.fp);
   }
 }
 export function _handleWorkspacesDelta(event: unknown): void {
@@ -80,7 +80,7 @@ export function _handleWorkspacesDelta(event: unknown): void {
   if (d.kind === "created" || d.kind === "updated") {
     setRootStore("workspaces", d.workspace.id, d.workspace);
   } else if (d.kind === "deleted") {
-    setRootStore("workspaces", d.id, undefined as unknown as Workspace);
+    deleteStoreRecord("workspaces", d.id);
   } else if (d.kind === "sessions-set") {
     setRootStore("workspaces", d.id, (prev) =>
       prev ? { ...prev, session_ids: d.session_ids as Workspace["session_ids"], version: d.version } : prev,
@@ -98,7 +98,7 @@ export function _handlePermissionsDelta(event: unknown): void {
   if (d.kind === "created" || d.kind === "updated") {
     setRootStore("permission_rules", d.rule.id, d.rule);
   } else if (d.kind === "deleted") {
-    setRootStore("permission_rules", d.id, undefined as unknown as PermissionRule);
+    deleteStoreRecord("permission_rules", d.id);
   }
 }
 export function _handleMcpEvent(event: unknown): void {
@@ -109,7 +109,7 @@ export function _handleMcpEvent(event: unknown): void {
   if ("kind" in msg && (msg.kind === "created" || msg.kind === "updated")) {
     setRootStore("mcp_relays", msg.relay.id, msg.relay);
   } else if ("kind" in msg && msg.kind === "deleted") {
-    setRootStore("mcp_relays", msg.id, undefined as unknown as McpRelay);
+    deleteStoreRecord("mcp_relays", msg.id);
   }
 }
 

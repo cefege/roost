@@ -120,10 +120,11 @@ export function createTerminalFind(opts: {
     publish([], 0);
   }
 
-  /** One search. `refence` is the budget for re-running against a grid that
-   *  re-numbered under this attempt — exactly one re-search per user action, so a
-   *  resize storm can never turn find into a polling loop. */
-  async function run(refence = 1): Promise<void> {
+  /** One search, debounced callers aside. `refence` is the budget for
+   *  re-running against a grid that re-numbered under this attempt — exactly
+   *  one re-search per user action, so a resize storm can never turn find
+   *  into a polling loop. */
+  async function searchNow(refence = 1): Promise<void> {
     const q = query();
     const mine = ++token;
     if (q.length === 0) { clear(); return; }
@@ -146,7 +147,7 @@ export function createTerminalFind(opts: {
       // The worker refuses an epoch it no longer serves. When OUR epoch has moved
       // too the refusal is stale news — the pane reframed mid-flight — so ask
       // again about the grid now on screen instead of blaming the query.
-      if (refence > 0 && paneEpoch() !== asked) { void run(refence - 1); return; }
+      if (refence > 0 && paneEpoch() !== asked) { void searchNow(refence - 1); return; }
       // A bad regex and an unreachable worker look the same to the user here:
       // the input tints and the count reads 0. Nothing is silently wrong.
       setMatches([]);
@@ -184,7 +185,7 @@ export function createTerminalFind(opts: {
     setIndex(0);
     setTruncated(false);
     publish([], 0);
-    if (refence > 0 && query().length > 0) void run(refence - 1);
+    if (refence > 0 && query().length > 0) void searchNow(refence - 1);
   }
 
   /** Land the reader on a match. Fails CLOSED on a re-numbered grid: a hit found
@@ -209,7 +210,7 @@ export function createTerminalFind(opts: {
       if (disposed || mine !== token) return;
       // The pull gave up: either the row is genuinely evicted or the page it
       // needed was rejected. Re-search once, then stop — never loop.
-      if (!ok) { if (refence > 0) void run(refence - 1); return; }
+      if (!ok) { if (refence > 0) void searchNow(refence - 1); return; }
       if (paneEpoch() !== match.epoch) { invalidate(refence); return; }
     }
     opts.renderer()?.scrollToScrollbackRow(match.row);
@@ -217,7 +218,7 @@ export function createTerminalFind(opts: {
 
   function schedule(): void {
     clearTimeout(debounce ?? undefined);
-    debounce = setTimeout(() => { debounce = null; void run(); }, FIND_DEBOUNCE_MS);
+    debounce = setTimeout(() => { debounce = null; void searchNow(); }, FIND_DEBOUNCE_MS);
   }
 
   return {

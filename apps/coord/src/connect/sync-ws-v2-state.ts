@@ -17,6 +17,9 @@ export const V2_DOMAIN_MAX_QUEUED_BYTES = 4 * 1024 * 1024;
 export const V2_AGGREGATE_MAX_QUEUED_FRAMES = 1_024;
 export const V2_AGGREGATE_MAX_QUEUED_BYTES = 8 * 1024 * 1024;
 export const V2_LOW_LANE_MAX_AGE_MS = 100;
+/** Freshly installed snapshot cursors keep attach priority for this long,
+ *  matching the 15 s view lease a browser holds on the session. */
+export const V2_ATTACH_PRIORITY_WINDOW_MS = 15_000;
 export const V2_DOMAINS = [
   SyncDomain.TERMINAL,
   SyncDomain.WORKERS,
@@ -45,6 +48,11 @@ export function isLazyDomain(domain: SyncDomain): boolean {
   return domain === SyncDomain.WEBHOOK || domain === SyncDomain.AUDIT;
 }
 
+export function isV2SnapshotFrame(frame: FirehoseFrame): boolean {
+  return frame.frame.case === "cellGridChunk"
+    || (frame.frame.case === "cellGrid" && frame.frame.value.full);
+}
+
 export interface SyncV2QueuedFrame {
   readonly frame: FirehoseFrame;
   readonly meta: SyncFeedFrameMeta;
@@ -63,7 +71,13 @@ export interface SyncTerminalSnapshotCursor {
 export interface SyncTerminalSessionLane {
   streamId: string;
   cursor: SyncTerminalSnapshotCursor | null;
+  /** Terminal view-states awaiting the domain queue. Bounded by
+   *  V2_DOMAIN_MAX_QUEUED_FRAMES with oldest-first shedding — see
+   *  enqueueTerminalState (sync-ws-v2-terminal.ts). */
   readonly pendingStates: FirehoseFrame[];
+  /** Deadline-clock time of the latest snapshot install; gates whether the
+   *  cursor's snapshot frames may jump other sessions' queued deltas. */
+  snapshotStartedAtMs: number | null;
 }
 
 

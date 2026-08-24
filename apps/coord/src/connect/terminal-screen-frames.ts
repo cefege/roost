@@ -1,3 +1,9 @@
+// Pure CellGrid frame helpers shared by the terminal screen hub: wraps frames
+// in FirehoseFrame envelopes, splits oversized full snapshots into
+// cellGridChunk firehose frames, counts rows/spans, and normalizes frames to
+// canonical baseline form (full=true, baseSeq=0, sbBase recomputed).
+// normalizeCellGridFrame mutates its argument in place — pass a clone when
+// the original proto must stay pristine.
 import { clone, create } from "@bufbuild/protobuf";
 import { randomUUID } from "node:crypto";
 import {

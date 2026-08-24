@@ -5,17 +5,15 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } 
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { _remoteDeployLockCommands, _startRemoteDeployLockRefreshForTest, DeployFailure, finishWorkerDeploy, REMOTE_MACHINE_TRANSACTION_PATHS, remoteMachineTransactionPath, run, workerServiceIsRunning, workerServiceMatchesRelease } from "../src/deploy-exec.ts";
+import { _linuxTargetVerificationCommand } from "../src/linux-deploy-journal-commands.ts";
+import type { LinuxDeployJournal } from "../src/linux-deploy-journal.ts";
 import {
-  _linuxTargetVerificationCommand,
   linuxCoordinatorWorkingDirectoryCommand,
   linuxWorkerResourceEnvironment,
   shouldRemovePriorWorkerRelease,
-  type LinuxDeployJournal,
 } from "../src/deploy-linux.ts";
-import {
-  _activateLocalWorker,
-  localWorkerReleaseMatches,
-} from "../src/deploy-local.ts";
+import { _activateLocalWorker } from "../src/deploy-local.ts";
+import { localWorkerReleaseMatches } from "../src/local-worker-deploy-journal.ts";
 
 describe("worker deployment verification", () => {
   test("a failed verification preserves output and never prints success", () => {

@@ -4,10 +4,12 @@
 // Depends on: trpc.ts, @roost/shared/wire (WebhookTokenMint).
 
 import { createSignal, Show } from "solid-js";
+import { createTrackedTimeouts } from "./trackedTimeout.ts";
 import type { WebhookTokenMint } from "@roost/shared/wire";
 import { coordClient } from "../connect.ts";
 import { TextField, Button, IconButton } from "./Settings/md/primitives.tsx";
 import { animateOverlayPanel } from "../lib/overlayMotion.ts";
+import { copyToClipboard } from "../lib/clipboard.ts";
 
 interface WebhookTokenMintDialogProps {
   onClose: () => void;
@@ -20,6 +22,7 @@ export function WebhookTokenMintDialog(props: WebhookTokenMintDialogProps) {
   const [err, setErr] = createSignal<string | null>(null);
   const [minted, setMinted] = createSignal<WebhookTokenMint | null>(null);
   const [copied, setCopied] = createSignal(false);
+  const setTimeoutTracked = createTrackedTimeouts();
 
   async function submit() {
     const l = label().trim();
@@ -46,13 +49,10 @@ export function WebhookTokenMintDialog(props: WebhookTokenMintDialogProps) {
   async function copyPlaintext() {
     const m = minted();
     if (!m) return;
-    try {
-      await navigator.clipboard.writeText(m.plaintext);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      setCopied(false);
-    }
+    // Denial clears the flag so the label keeps saying Copy — the plaintext
+    // is still on screen for manual selection.
+    setCopied(await copyToClipboard(m.plaintext));
+    if (copied()) setTimeoutTracked(() => setCopied(false), 2000);
   }
 
   return (

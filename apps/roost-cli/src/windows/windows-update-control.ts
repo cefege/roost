@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 import { finished } from "node:stream/promises";
 import { durableRemove, durableReplace, flushDurablePath } from "@roost/shared/durability";
 import { roostServiceDir, roostVersionsDir } from "@roost/shared/paths";
+import { normalizedVersion } from "./windows-path-safety.ts";
 import { probeServiceHealth } from "@roost/shared/service-health";
 import {
   windowsConsumeUpdaterRequest,
@@ -634,10 +635,6 @@ function requireHttps(value: string, label: string): void {
     throw new Error(`${label} must be absolute`);
   }
   if (url.protocol !== "https:") throw new Error(`${label} must use HTTPS`);
-}
-
-function normalizedVersion(version: string): string {
-  return version.replace(/^v/, "").split("+")[0]!;
 }
 
 export function compareWindowsReleaseIdentity(

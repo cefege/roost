@@ -69,8 +69,15 @@ import {
 } from "./sync-ws-v2-state.ts";
 import type { ConnectDeps } from "./router.ts";
 import type { TerminalViewHub } from "./terminal-view-hub.ts";
-
-const WS_PATH = "/ws/coord-sync";
+// Wire protocol values (path/subprotocol/query negotiation) live in
+// @roost/shared/wire/sync-ws so the SPA and CLI dials cannot drift from the
+// upgrade match here.
+import {
+  SYNC_WS_PATH,
+  SYNC_AUTH_SUBPROTOCOL,
+  SYNC_QUERY_FLOW_V1,
+  SYNC_QUERY_V2,
+} from "@roost/shared/wire/sync-ws";
 
 /** Coord pushes a keepalive data frame at this cadence on every long-lived
  *  WebSocket — the browser Sync firehose here and the worker transport
@@ -150,7 +157,7 @@ export async function handleSyncWsUpgrade(
   reauthAtMs: number | null = null,
 ): Promise<Response | undefined | null> {
   const url = new URL(req.url);
-  if (url.pathname !== WS_PATH) return null;
+  if (url.pathname !== SYNC_WS_PATH) return null;
   // WS handshakes are GET, so main.ts's retired gate (`req.method !== "GET"`)
   // cannot see them. Any non-active mode must fail fast here, or a browser
   // reconnecting mid-move attaches to a frozen DB and gets keepalives forever
@@ -172,7 +179,7 @@ export async function handleSyncWsUpgrade(
   const protocols = (req.headers.get("sec-websocket-protocol") ?? "")
     .split(",")
     .map((part) => part.trim());
-  if (protocols.length !== 2 || protocols[0] !== "roost-auth" || !protocols[1]) {
+  if (protocols.length !== 2 || protocols[0] !== SYNC_AUTH_SUBPROTOCOL || !protocols[1]) {
     return new Response("unauthorized", { status: 401 });
   }
   const token = protocols[1];
@@ -188,8 +195,8 @@ export async function handleSyncWsUpgrade(
   }
   const since = Number(url.searchParams.get("since")) || 0;
   const tabId = url.searchParams.get("tab");
-  const flowControl = url.searchParams.get("flow") === "1";
-  const syncV2 = flowControl && url.searchParams.get("sync_v") === "2";
+  const flowControl = url.searchParams.get("flow") === SYNC_QUERY_FLOW_V1;
+  const syncV2 = flowControl && url.searchParams.get("sync_v") === SYNC_QUERY_V2;
   const data: SyncWsData = {
     kind: "sync",
     caller,
@@ -214,7 +221,7 @@ export async function handleSyncWsUpgrade(
   };
   const ok = server.upgrade(req, {
     data,
-    headers: { "Sec-WebSocket-Protocol": "roost-auth" },
+    headers: { "Sec-WebSocket-Protocol": SYNC_AUTH_SUBPROTOCOL },
   });
   if (ok) return undefined; // hijacked
   return new Response("upgrade failed", { status: 400 });

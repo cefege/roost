@@ -1,3 +1,8 @@
+// Type surface for the per-channel terminal streaming state machine: what
+// each channel's delivery stream records (baseline readiness, live resize
+// capture, snapshot cursor, core validity) and the closed set of failure
+// kinds a control request can fail with. Types only — behavior lives in
+// session-terminal-txn / -control.
 import type { PbCellGridChunk, PbCellGridFrame } from "@roost/shared/proto/cell_pb";
 
 export type TerminalStreamFailure =

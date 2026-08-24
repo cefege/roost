@@ -18,9 +18,8 @@ import { cellRowToProto } from "@roost/shared/cell/cell-proto";
 import type { CellRow } from "@roost/shared/cell";
 import { asSessionId, type ScrollbackHistoryFloor } from "@roost/shared/wire";
 import { requireAuth } from "./auth-interceptor.ts";
-import { getWorkerHubSocket } from "./worker-service.ts";
 import { createPendingRpc } from "../router/pending-rpcs.ts";
-import { sendBrowserCmd } from "./router-helpers.ts";
+import { sendBrowserCmd, requireSessionWorkerSocket } from "./router-helpers.ts";
 import type { ConnectDeps } from "./router.ts";
 
 type ScrollbackMethods = "sessionsGetScrollbackCells" | "sessionsSearchScrollback";
@@ -39,10 +38,7 @@ export function makeSessionScrollbackHandlers(
   return {
     async sessionsGetScrollbackCells(req, ctx) {
       const caller = requireAuth(ctx.values);
-      const row = await deps.db.selectFrom("sessions").select(["worker_fp"]).where("id", "=", req.sessionId).executeTakeFirst();
-      if (!row) throw new ConnectError("unknown session", Code.NotFound);
-      const sock = getWorkerHubSocket(row.worker_fp);
-      if (!sock) throw new ConnectError("worker not connected", Code.Unavailable);
+      const { row, sock } = await requireSessionWorkerSocket(deps.db, req.sessionId);
       const pending = createPendingRpc<{
         rows: CellRow[];
         cols: number;
@@ -85,10 +81,7 @@ export function makeSessionScrollbackHandlers(
 
     async sessionsSearchScrollback(req, ctx) {
       const caller = requireAuth(ctx.values);
-      const row = await deps.db.selectFrom("sessions").select(["worker_fp"]).where("id", "=", req.sessionId).executeTakeFirst();
-      if (!row) throw new ConnectError("unknown session", Code.NotFound);
-      const sock = getWorkerHubSocket(row.worker_fp);
-      if (!sock) throw new ConnectError("worker not connected", Code.Unavailable);
+      const { row, sock } = await requireSessionWorkerSocket(deps.db, req.sessionId);
       const pending = createPendingRpc<{
         matches: Array<{ row: number; col: number; len: number; preview: string }>;
         truncated: boolean;

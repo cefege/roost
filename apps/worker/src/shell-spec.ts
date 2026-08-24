@@ -1,3 +1,8 @@
+// Resolves SpawnRequest.shell_spec into a concrete per-platform command
+// (executable, argv, env, cwd) before anything reaches the keeper: validates
+// the requested platform matches this host and materializes cwd directories,
+// so spawn failures surface here — with a reason — instead of deep in the
+// platform spawn paths.
 import { mkdirSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, win32 } from "node:path";

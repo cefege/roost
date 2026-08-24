@@ -9,13 +9,13 @@
 // Return insert newlines. Sending clears the per-session retained draft and
 // leaves the composer mounted. Escape only blurs the textarea.
 //
-// The inline MobileVoiceInput streams finalized speech into the same draft.
-// The viewport composer owns activeComposeSessionId for its entire lifetime.
-// Inline pane composers claim it while focus is inside their dock so terminal
-// autofocus never competes with any of their controls.
-// AppShell reserves the viewport composer's resting surface and turns measured
-// excess height into a paint-only TerminalDeck shift, keeping grid dimensions
-// stable.
+// The inline MobileVoiceInput streams finalized and interim speech into the
+// same draft; an explicit ✕ is the only action that reverts to the baseline.
+// The viewport composer owns activeComposeSessionId for its entire lifetime;
+// inline pane composers claim it while focus is inside their dock so terminal
+// autofocus never competes with their controls. AppShell reserves the viewport
+// composer's resting surface, turning measured excess height into a paint-only
+// TerminalDeck shift that keeps grid dimensions stable.
 
 import { createEffect, createSignal, onCleanup, Show } from "solid-js";
 import { Portal } from "solid-js/web";
@@ -250,28 +250,48 @@ export function TerminalComposeButton(props: Props) {
   // If Escape/outside interaction blurred it, this does not reopen the keyboard.
   const keepKeyboard = (e: MouseEvent) => e.preventDefault();
 
-  // Dictation streams into this field. Each engine update replaces its live
-  // tail, so dictationBase holds whatever was typed when the mic opened.
+  // Each engine update replaces the live tail; dictationBase = typed-at-open.
+  // lastDictatedFinal snapshots settled phrases so an abandoned dictation can
+  // keep real words while dropping the provisional tail.
   let dictationBase: string | null = null;
+  let lastDictatedFinal: string | null = null;
   const showDictation = (text: string | null) => {
     if (text === null) {
+      // Ended WITHOUT a commit (failure/empty/deactivation): keep base +
+      // finalized words, drop the unfinalized tail — reverting to base alone
+      // silently deleted dictated words, keeping draft() baked in a hypothesis
+      // the engine never settled ("still recording" leaking into the next take).
       if (dictationBase === null) return;
-      const base = dictationBase;
+      const kept = lastDictatedFinal ? glued(dictationBase, lastDictatedFinal) : dictationBase;
       dictationBase = null;
-      writeSpeechDraft(base);
-      // Discard can run during child disposal after this component's reactive
-      // writer is already being torn down. Persist and notify the replacement
-      // synchronously so no provisional hypothesis survives the handoff.
-      saveComposerDraft(sessionId, base);
+      lastDictatedFinal = null;
+      writeSpeechDraft(kept);
+      saveComposerDraft(sessionId, kept);
     } else {
-      dictationBase ??= draft();
+      if (dictationBase === null) {
+        dictationBase = draft();
+        lastDictatedFinal = null;
+      }
       writeSpeechDraft(text.length === 0 ? dictationBase : glued(dictationBase, text));
     }
+  };
+  // Explicit ✕: restore the pre-mic baseline — the only self-driven revert.
+  const discardDictation = () => {
+    const base = dictationBase ?? draft();
+    dictationBase = null;
+    lastDictatedFinal = null;
+    writeSpeechDraft(base);
+    saveComposerDraft(sessionId, base);
   };
   const commitDictation = (text: string) => {
     const base = dictationBase ?? draft();
     dictationBase = null;
-    writeSpeechDraft(glued(base, text));
+    lastDictatedFinal = null;
+    const committed = glued(base, text);
+    writeSpeechDraft(committed);
+    // Persist here, not via the reactive effect: an unmount-time commit runs
+    // while that effect is already being torn down.
+    saveComposerDraft(sessionId, committed);
   };
 
   const [dictating, setDictating] = createSignal(false);
@@ -311,17 +331,18 @@ export function TerminalComposeButton(props: Props) {
       });
     });
   };
-
   // Write through every edit and follow the same session's brief responsive
   // replacement so a provisional dictation cannot survive in one instance.
   createEffect(() => saveComposerDraft(sessionId, draft()));
-
   onCleanup(() => {
+    // Unmount mid-dictation (tab switch, swap, pane close): keep base + settled
+    // phrases, drop the provisional tail; replacements read this draft.
     if (dictationBase !== null) {
-      const base = dictationBase;
+      const kept = lastDictatedFinal ? glued(dictationBase, lastDictatedFinal) : dictationBase;
       dictationBase = null;
-      setDraft(base);
-      saveComposerDraft(sessionId, base);
+      lastDictatedFinal = null;
+      writeSpeechDraft(kept);
+      saveComposerDraft(sessionId, kept);
     }
     unsubscribeDraft();
     stopPointerReleaseWatch?.();
@@ -404,11 +425,13 @@ export function TerminalComposeButton(props: Props) {
             ref={mountInput}
           />
           <MobileVoiceInput
+            onFinalTranscript={(finalText) => { lastDictatedFinal = finalText; }}
             ownerId={sessionId}
             active={props.active && pendingSubmission() === null}
             onActiveChange={setDictating}
             onTranscript={commitDictation}
             onLiveTranscript={showDictation}
+            onDiscard={discardDictation}
             readContext={props.readContext}
           />
           {/* Hidden while dictating: the inline mic's own discard action occupies

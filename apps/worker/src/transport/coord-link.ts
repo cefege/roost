@@ -65,7 +65,10 @@ export function startCoordLink(deps: CoordLinkDeps): CoordLink {
     const from = state.kind;
     const to = next.kind;
     state = next;
-    log.debug("coord-link", "state", { kind: to });
+    // FSM transitions are low-frequency and load-bearing for diagnosis — a
+    // wedged or flapping link is read straight off these lines, so they are
+    // info, not debug.
+    log.info("coord-link", "state", { kind: to });
     diag("transport.state", { from, to });
   }
 

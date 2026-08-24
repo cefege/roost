@@ -1,9 +1,15 @@
+// Immutable full-snapshot cursors for cell emission: when an oversized delta
+// or a forced baseline must ship as chunked parts, the frame is parked here as
+// a cancellable cursor the emitter drains part-by-part across subsequent
+// emits. Also validates renewal-history snapshots so a stale grid epoch can
+// never pass as a full frame. Called only from session-emit.ts.
 import {
 	assertCellGridSnapshot,
 	CELL_GRID_PART_MAX_BYTES,
 	chunkCellGridFrame,
 	encodedCellGridFrameSize,
 	SB_RENEWAL_HISTORY_ROWS,
+	SB_SNAPSHOT_HISTORY_ROWS,
 	scrollbackOrigin,
 	type CellEmitState,
 } from "@roost/shared/cell";
@@ -29,7 +35,7 @@ export function renewalHistoryRows(core: TerminalCore, emit: CellEmitState): num
 		&& scrollbackTotal >= emit.lastSbTotal;
 	if (compatible) return SB_RENEWAL_HISTORY_ROWS;
 	emit.gridEpochRevision++;
-	return 0;
+	return SB_SNAPSHOT_HISTORY_ROWS;
 }
 
 /** Exercise the same snapshot and chunk bounds as cursor installation before

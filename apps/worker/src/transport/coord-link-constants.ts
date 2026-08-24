@@ -3,7 +3,6 @@
 
 export const BACKOFF_INITIAL_MS = 500;
 export const BACKOFF_MAX_MS = 30_000;
-export const BACKOFF_MULTIPLIER = 2;
 // Auth-rejection escalation: when a dial fails without ws.onopen firing, the
 // 30s backoff cap produces ~2,880 retries/day. After this many consecutive
 // non-open failures, cap backoff at AUTH_REJECT_BACKOFF_CAP_MS instead,

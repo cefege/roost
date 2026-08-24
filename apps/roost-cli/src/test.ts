@@ -47,12 +47,20 @@ async function runUnit(): Promise<void> {
     "apps/web/src/",
     "apps/roost-cli/tests/",
     "smoke/bun_smoke.test.ts",
-  ]);
+  ], {
+    // Web sources gate smoke hooks behind VITE_ROOST_SMOKE at build time; unit
+    // tests arm them via the runtime flag alone, so declare the build flag here too.
+    VITE_ROOST_SMOKE: "1",
+  });
 }
 
 async function runTerminal(): Promise<void> {
   try {
-    await run("web build", [process.execPath, "run", "--cwd", "apps/web", "build"]);
+    // VITE_ROOST_SMOKE=1 bakes the window.__smoke backdoor chunk into dist; the SPA
+    // still arms it only behind localStorage.roostSmoke (smoke fixtures set it pre-boot).
+    await run("web build", [process.execPath, "run", "--cwd", "apps/web", "build"], {
+      VITE_ROOST_SMOKE: "1",
+    });
     await run("web embed", [process.execPath, "scripts/gen-embed.ts"]);
     // Pass 1: correctness, fanned out (playwright.config.ts pins workers:4).
     await run(

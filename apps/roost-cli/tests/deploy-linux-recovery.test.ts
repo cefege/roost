@@ -1,15 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import {
-  _linuxRemoveManagedWorkerReleaseCommand,
-  _recoverLinuxDeployJournal,
   isManagedLinuxWorkerReleasePath,
   linuxDeployJournalPath,
   linuxDeployRecoveryPlan,
   parseLinuxDeployJournalSnapshot,
   type LinuxDeployJournal,
+} from "../src/linux-deploy-journal.ts";
+import { _linuxRemoveManagedWorkerReleaseCommand } from "../src/linux-deploy-journal-commands.ts";
+import {
+  _recoverLinuxDeployJournal,
   type LinuxDeployRecoveryRemote,
 } from "../src/deploy-linux.ts";
-
 const HOME = "/home/worker";
 const SHA = "a".repeat(40);
 const TARGET = `${HOME}/.local/share/roost/releases/worker/${SHA}-11111111-1111-4111-8111-111111111111`;

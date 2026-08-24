@@ -1,4 +1,9 @@
+// SOURCE half of a coordinator move: preflight, phase ladder, rollback, recovery from
+// durable state; phases/terminal states/gate flips all log — a silent mid-move failure was
+// undiagnosable. TARGET half: target-orchestrator.ts.
+
 import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { log } from "@roost/shared/log";
 import * as fs from "node:fs";
 import { COORD_GIT_SHA } from "../git-sha.ts";
 import { isTerminalPhase, type CoordinatorMoveTransaction, type HandoffState, type MovePhase } from "./state.ts";
@@ -33,16 +38,14 @@ const SHA8 = COORD_GIT_SHA.slice(0, 8);
 const FINISH_COMMIT_TIMEOUT_MS = 600_000;
 
 /** Phases where the target may already have self-committed under us. */
-const ROLLBACK_RACE_PHASES = new Set<MovePhase>([
-  "DRAINING_SOURCE", "COPYING_STATE", "WAITING_FOR_WORKERS", "COMMITTING",
-]);
-
-function blocker(code: MoveBlockerCode, message: string, workerFp?: string): MoveBlocker {
-  return workerFp ? { code, message, workerFp } : { code, message };
-}
+const ROLLBACK_RACE_PHASES = new Set<MovePhase>(["DRAINING_SOURCE", "COPYING_STATE", "WAITING_FOR_WORKERS", "COMMITTING"]);
 
 function publicTargetUrl(worker: MoveWorker): string {
   return worker.reachableAddr ? `https://${worker.reachableAddr}:4102` : "";
+}
+
+function blocker(code: MoveBlockerCode, message: string, workerFp?: string): MoveBlocker {
+  return workerFp ? { code, message, workerFp } : { code, message };
 }
 
 function targetProbeBlocker(target: MoveWorker, detail: string): MoveBlocker {
@@ -100,7 +103,8 @@ export class CoordinatorMoveOrchestrator extends CoordinatorMoveTargetRole imple
       if (!target.reachableAddr) blockers.push(blocker("target_address_missing", `${target.label} has not reported a Tailscale address.`, target.fp));
       if (target.gitSha !== COORD_GIT_SHA) blockers.push(blocker("target_version_mismatch", `Deploy coordinator version ${SHA8} to ${target.label} first.`, target.fp));
       if (target.online && target.reachableAddr && target.gitSha === COORD_GIT_SHA) {
-        const check = await this.options.runtime.checkTarget(target, COORD_GIT_SHA, await this.estimateDbSize());
+        // PREPARE stats dbPath size; the target sizes its disk check off it.
+        const check = await this.options.runtime.checkTarget(target, COORD_GIT_SHA, fs.statSync(this.options.cfg.dbPath).size);
         if (check) blockers.push(targetProbeBlocker(target, check));
       }
     }
@@ -227,9 +231,9 @@ export class CoordinatorMoveOrchestrator extends CoordinatorMoveTargetRole imple
         if (current.phase === "COMMITTING") {
           await this.options.store.writeDurable({ ...current, error: (error as Error).message });
           this.gate.setMode("retired");
-          // COMMITTING is not terminal: returning here leaves the source
-          // retired with no in-process retry. finishCommit is bounded and
-          // always ends terminal (#retire, or FAILED + gate active).
+          // COMMITTING is not terminal: returning leaves the source retired
+          // with no in-process retry; finishCommit is bounded and always ends
+          // terminal (#retire, or FAILED + gate active).
           await this.finishCommit({ ...current, secret: initial.secret });
           return;
         }
@@ -244,10 +248,12 @@ export class CoordinatorMoveOrchestrator extends CoordinatorMoveTargetRole imple
             return;
           }
         }
-        await this.options.store.writeDurable({ ...current, phase: "ROLLING_BACK", error: (error as Error).message });
-        // A process can crash after durable staging but before this invocation
-        // populated `staged`. ABORT is idempotent, so include every expected
-        // source-connected worker when recovering that durable boundary.
+        const rollbackReason = (error as Error).message;
+        await this.options.store.writeDurable({ ...current, phase: "ROLLING_BACK", error: rollbackReason });
+        log.info("coord-move", "rollback_started", { handoff_id: current.handoff_id, reason: rollbackReason });
+        // A crash after durable staging but before `staged` was populated is
+        // recovered by including every expected source-connected worker:
+        // ABORT is idempotent.
         const connected = await this.options.workers().catch(() => []);
         const rollbackWorkers = new Map(staged.map((worker) => [worker.fp, worker]));
         for (const worker of connected) {
@@ -363,9 +369,8 @@ export class CoordinatorMoveOrchestrator extends CoordinatorMoveTargetRole imple
     await this.writeTerminalState({ ...(this.options.store.load() ?? state), phase, error: undefined });
   }
 
-  /** The staged/activated set is the one snapshotted at start(), resolved
-   *  against the live registry. A missing fp is a hard error, not a silent
-   *  skip that would later time out in waitForWorkers. */
+  /** Staged set = exactly the start() snapshot, resolved against the live
+   *  registry; a missing fp is a hard error, not a silent skip. */
   async #expectedWorkers(fps: string[]): Promise<MoveWorker[]> {
     const live = await this.options.workers();
     const byFp = new Map(live.map((worker) => [worker.fp, worker]));
@@ -374,10 +379,9 @@ export class CoordinatorMoveOrchestrator extends CoordinatorMoveTargetRole imple
     return fps.map((fp) => byFp.get(fp)!);
   }
 
-  /** Recovery runs before any worker has re-attached to the fresh Bun.serve.
-   *  Acting on an empty registry guarantees `worker offline` and a blind
-   *  rollback, so give the expected set a chance to come back first. Returns
-   *  (never throws) on timeout so the existing rollback path still runs. */
+  /** Recovery runs before workers re-attach: an empty registry means a blind
+   *  rollback, so wait for the expected set. Never throws on timeout — the
+   *  rollback path handles it. */
   async #awaitExpectedWorkers(fps: string[], timeoutMs = 60_000): Promise<void> {
     const deadline = Date.now() + timeoutMs;
     for (;;) {
@@ -391,6 +395,7 @@ export class CoordinatorMoveOrchestrator extends CoordinatorMoveTargetRole imple
   private async rollbackRecovered(state: HandoffState): Promise<void> {
     const snapshot = this.snapshot(state, "ROLLING_BACK");
     await this.options.store.writeDurable({ ...state, phase: "ROLLING_BACK" });
+    log.info("coord-move", "rollback_started", { handoff_id: state.handoff_id, reason: `recovered in ${snapshot.phase}` });
     const workers = await this.options.workers();
     await Promise.allSettled(workers
       .filter((worker) => state.expected_worker_fps.includes(worker.fp))
@@ -407,11 +412,6 @@ export class CoordinatorMoveOrchestrator extends CoordinatorMoveTargetRole imple
     const current = this.options.store.load();
     if (!current || current.handoff_id !== initial.handoff_id) throw new Error("coordinator handoff state disappeared");
     await this.options.store.writeDurable({ ...current, phase });
-  }
-
-  private async estimateDbSize(): Promise<number> {
-    // PREPARE sends fs.statSync(dbPath).size and the target sizes its disk
-    // check off that number; preflight must validate the same one.
-    return fs.statSync(this.options.cfg.dbPath).size;
+    log.info("coord-move", "phase_transition", { handoff_id: current.handoff_id, from: current.phase, to: phase });
   }
 }

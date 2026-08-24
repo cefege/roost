@@ -7,8 +7,8 @@
 // `statusReport()` is also called by quickstart.ts for its final readout.
 
 import { Database } from "bun:sqlite";
-import { existsSync, lstatSync, readFileSync } from "node:fs";
-import { join, win32 } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { log } from "@roost/shared/log";
 import { runWindowsHelperSync, type WindowsServiceSnapshot } from "@roost/shared/windows-helper";
 import { coordDataDir, coordServiceLabel, coordServicePath, workerServiceLabel } from "@roost/shared/paths";
@@ -19,11 +19,11 @@ import {
   windowsServiceDefinitionsPath,
 } from "./service-ctl.ts";
 import { parsePosixServiceEnvironment } from "./deploy-plist-env.ts";
+import { trustedTailscaleExecutable } from "./windows/windows-identity.ts";
 
 const COORD_LABEL = coordServiceLabel();
 const WORKER_LABEL = workerServiceLabel();
 const WORKER_STALE_MS = 90_000;
-
 
 function defaultCoordinatorDbPath(): string {
   const dataDir = process.env.ROOST_COORD_DATA_DIR ?? coordDataDir();
@@ -77,9 +77,14 @@ export interface StatusReport {
   handoff: HandoffStatus | null;
 }
 
+// launchctl/systemctl/tailscale probes must never hang the one-shot status
+// readout on a wedged service manager; a timed-out probe reports exitCode
+// null, which folds into generic non-zero failure below.
+const PROBE_DEADLINE_MS = 5_000;
+
 function runCapture(cmd: string[]): { exit: number; stdout: string } {
   try {
-    const r = Bun.spawnSync(cmd);
+    const r = Bun.spawnSync(cmd, { timeout: PROBE_DEADLINE_MS });
     return { exit: r.exitCode ?? 1, stdout: r.stdout.toString() };
   } catch {
     return { exit: 127, stdout: "" };
@@ -89,21 +94,9 @@ function runCapture(cmd: string[]): { exit: number; stdout: string } {
 /** Tailscale BackendState + own tailnet FQDN. state="NotInstalled" when the
  *  binary is missing. fqdn is the trailing-dot-stripped Self.DNSName.
  *  Exported — quickstart.ts uses it for the hard Tailscale gate. */
-function tailscaleExecutable(): string {
-  if (process.platform !== "win32") return "tailscale";
-  const executable = process.env.ROOST_TAILSCALE_EXE?.trim();
-  if (!executable || !win32.isAbsolute(executable) || /[\0\r\n]/.test(executable)) {
-    throw new Error("Windows status requires the trusted absolute ROOST_TAILSCALE_EXE");
-  }
-  const info = lstatSync(executable);
-  if (!info.isFile() || info.isSymbolicLink()) {
-    throw new Error("ROOST_TAILSCALE_EXE must be a non-reparse regular file");
-  }
-  return executable;
-}
 
 export function resolveTailscale(): { state: string; fqdn: string | null } {
-  const r = runCapture([tailscaleExecutable(), "status", "--json"]);
+  const r = runCapture([trustedTailscaleExecutable(), "status", "--json"]);
   if (r.exit === 127) return { state: "NotInstalled", fqdn: null };
   if (r.exit !== 0 || !r.stdout) return { state: "Stopped", fqdn: null };
   try {
@@ -354,7 +347,7 @@ function currentTlsMode(): StatusReport["tlsMode"] {
   if (!existsSync(serviceFile)) return "missing";
   try {
     const serviceDefinition = readFileSync(serviceFile, "utf8");
-    const serve = runCapture([tailscaleExecutable(), "serve", "status"]);
+    const serve = runCapture([trustedTailscaleExecutable(), "serve", "status"]);
     return resolveTlsMode(serviceDefinition, serve.exit === 0 ? serve.stdout : null);
   } catch {
     return "missing";

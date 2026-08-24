@@ -229,6 +229,18 @@
   50%      { opacity: 0.45; }
 }
 
+/* ── starting: mic/transport opening — a distinct pending look, and taps are
+   deliberate no-ops until the engine reports both device and socket live ── */
+.voice-fab[data-starting="true"] {
+  opacity: 0.72;
+}
+.voice-fab[data-starting="true"] .voice-fab__icon {
+  animation: voice-spin 1s linear infinite;
+}
+@keyframes voice-spin {
+  to { transform: rotate(360deg); }
+}
+
 /* ── ✕ discard: small tonal FAB (40dp, medium shape) ── */
 .voice-fab--discard {
   width: 40px;

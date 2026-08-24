@@ -34,7 +34,7 @@ export async function dispatchFragmentCredential(
   }
   const result = await deps.redeemPair(credential.token);
   if (!result.ok) {
-    deps.warn(`[sync] #pair redeem failed: ${result.error}`);
+    deps.warn(`[sync] #pair redeem failed: ${"reason" in result ? result.reason : result.error}`);
     return false;
   }
   deps.reload();

@@ -16,7 +16,12 @@ import { animateSpring, SPRING_SNAP } from "../lib/spring.ts";
 import { prefersReducedMotion } from "../lib/prefersReducedMotion.ts";
 import { isCompact, isTouchDevice } from "../lib/windowSizeClass.ts";
 import { renderPreview } from "../lib/terminalPreview.ts";
-import { ctxMenuSurfaceStyle } from "./contextMenuPrimitives.tsx";
+import {
+	anchoredMenuPosition,
+	anchoredMenuSurfaceStyle,
+	trackFloatingMenuDismiss,
+} from "./contextMenuPrimitives.tsx";
+import { createTrackedTimeouts } from "./trackedTimeout.ts";
 import type { Session } from "@roost/shared/wire";
 import { AgentStatusIndicator } from "./AgentStatusIndicator.tsx";
 import "@material/web/ripple/ripple.js";
@@ -100,7 +105,6 @@ export function PaneStrip(props: PaneStripProps) {
   const [closing, setClosing] = createSignal<Set<string>>(new Set());
   // Cancel handle for the in-flight spring reorder settle (rAF driver).
   let cancelSettle: (() => void) | undefined;
-
   // --- Overflow tab-list popup + desktop hover cards ---
   // Popup: anchored below the chevron (right-aligned, like ArrangeMenu).
   let overflowBtnEl: HTMLButtonElement | undefined;
@@ -108,8 +112,7 @@ export function PaneStrip(props: PaneStripProps) {
   const toggleList = () => {
     if (listOpen()) { setListOpen(null); return; }
     clearHover(); // mutual exclusion: a hover card and the popup never coexist
-    const r = overflowBtnEl!.getBoundingClientRect();
-    setListOpen({ right: Math.max(6, window.innerWidth - r.right), y: r.bottom + 4 });
+    setListOpen(anchoredMenuPosition(overflowBtnEl!));
   };
   // Hover card: desktop-only, ~450ms dwell. Inert on touch/compact, while
   // dragging, or while the popup is open.
@@ -127,17 +130,18 @@ export function PaneStrip(props: PaneStripProps) {
   }
   onCleanup(() => clearTimeout(hoverTimer));
 
+  const setTimeoutTracked = createTrackedTimeouts();
+
   // Chrome-style close: collapse the tab's width (siblings reflow) then commit.
   // Reduced-motion or a double-fire → close immediately.
   function closeTab(s: Session): void {
     if (prefersReducedMotion() || closing().has(s.id)) { props.onClose(s); return; }
     setClosing((prev) => new Set(prev).add(s.id));
-    window.setTimeout(() => {
+    setTimeoutTracked(() => {
       props.onClose(s);
       setClosing((prev) => { const n = new Set(prev); n.delete(s.id); return n; });
     }, 220); // ≈ --md-sys-motion-duration-short4 (200ms) + slack
   }
-
   function tabRects(): TabRect[] {
     const els = barEl?.querySelectorAll<HTMLElement>(".df-tab") ?? [];
     return Array.from(els).map((el) => ({
@@ -275,35 +279,21 @@ export function PaneStrip(props: PaneStripProps) {
       );
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { e.preventDefault(); p.onClose(); return; }
       const list = matches();
       if (e.key === "ArrowDown") { e.preventDefault(); setHi((i) => Math.min(list.length - 1, i + 1)); }
       else if (e.key === "ArrowUp") { e.preventDefault(); setHi((i) => Math.max(0, i - 1)); }
       else if (e.key === "Enter") { e.preventDefault(); const s = list[hi()]; if (s) choose(s); }
     };
-    const onDocClick = (e: MouseEvent) => {
-      const t = e.target as Node;
-      if (overflowBtnEl?.contains(t) || menuEl?.contains(t)) return;
-      p.onClose();
-    };
-    onMount(() => {
-      inputEl?.focus();
-      document.addEventListener("click", onDocClick);
-      document.addEventListener("keydown", onKey);
-      onCleanup(() => {
-        document.removeEventListener("click", onDocClick);
-        document.removeEventListener("keydown", onKey);
+    trackFloatingMenuDismiss({ within: [() => overflowBtnEl, () => menuEl], onClose: p.onClose });
+    onMount(() => { inputEl?.focus(); });
+    const surfaceStyle = (): JSX.CSSProperties =>
+      anchoredMenuSurfaceStyle(p.pos, {
+        minWidth: "240px",
+        extra: {
+          "max-width": "340px",
+          padding: "0", overflow: "hidden", display: "flex", "flex-direction": "column",
+        },
       });
-    });
-    const surfaceStyle = (): JSX.CSSProperties => {
-      const s: JSX.CSSProperties = {
-        ...ctxMenuSurfaceStyle(0, p.pos.y),
-        "min-width": "240px", "max-width": "340px", right: `${p.pos.right}px`,
-        padding: "0", overflow: "hidden", display: "flex", "flex-direction": "column",
-      };
-      delete s.left;
-      return s;
-    };
     return (
       <Portal>
         <div ref={menuEl} data-testid="tab-list-popup" class="df-menu-enter" style={surfaceStyle()}>
@@ -312,6 +302,7 @@ export function PaneStrip(props: PaneStripProps) {
               ref={inputEl}
               type="text"
               value={filter()}
+              onKeyDown={onKey}
               onInput={(e) => { setFilter(e.currentTarget.value); setHi(0); }}
               placeholder="Filter terminals…"
               data-testid="tab-list-filter"

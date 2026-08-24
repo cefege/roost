@@ -1,3 +1,8 @@
+// Entry points for coordinator terminal-control RPCs (stream open/close/
+// resize): validates geometry, acquires the keeper admission lane so one
+// control can never starve input, then delegates the core mutation to
+// session-terminal-txn. This is where every downstream request's budget is
+// enforced before any work is queued.
 import { initCellEmitState } from "@roost/shared/cell";
 import { TERMINAL_MAX_COLS, TERMINAL_MAX_ROWS } from "@roost/shared/viewport";
 import { newTraceId } from "@roost/shared/trace";

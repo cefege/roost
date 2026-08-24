@@ -16,17 +16,18 @@ import {
   SessionsAssignWorkspaceResponseSchema,
 } from "@roost/shared/proto/coordinator_pb";
 import { sessionToProto } from "@roost/shared/wire/session-proto";
-import { asSessionId, asWorkspaceId } from "@roost/shared/wire";
+import { asSessionId, asWorkspaceId, SessionStatus } from "@roost/shared/wire";
+import type { SessionStatus as SessionStatusValue } from "@roost/shared/wire";
 import { safeJsonParse } from "@roost/shared/json";
 import type { ClientControlFrame } from "@roost/shared/wire";
 import { log } from "@roost/shared/log";
 import type { KyselyDB } from "../db/connection.ts";
-import { appendEvent } from "../event-log.ts";
+import { appendEvent, SESSION_COLUMNS } from "../event-log.ts";
 import { workspaceBus } from "../buses.ts";
 import { requireAuth, tabIdKey, remoteAddressKey } from "./auth-interceptor.ts";
-import { getWorkerHubSocket } from "./worker-service.ts";
 import { createPendingRpc } from "../router/pending-rpcs.ts";
-import { sendBrowserCmd, forwardToSessionWorker } from "./router-helpers.ts";
+import { getWorkerHubSocket } from "./worker-service.ts";
+import { sendBrowserCmd, forwardToSessionWorker, requireSessionWorkerSocket } from "./router-helpers.ts";
 import type { ConnectDeps } from "./router.ts";
 import { makeSessionScrollbackHandlers } from "./handlers-sessions-scrollback.ts";
 import { handleSessionsSpawn } from "./handler-session-spawn.ts";
@@ -37,6 +38,15 @@ import {
   terminalViewerIdentity,
 } from "./session-control.ts";
 
+// Proto arrives as a bare string; the projection and the SPA both speak the
+// shared SessionStatus union. Narrow once at the boundary.
+function sessionStatusOf(raw: string): SessionStatusValue {
+  const parsed = SessionStatus.safeParse(raw);
+  if (!parsed.success) {
+    throw new ConnectError(`invalid session status ${JSON.stringify(raw)}`, Code.InvalidArgument);
+  }
+  return parsed.data;
+}
 
 // DB row → proto Session through the shared terminal-session adapter.
 function sessionRowToProto(row: any) {
@@ -74,14 +84,10 @@ export function makeSessionHandlers(
   return {
     async sessionsList(req, ctx) {
       const caller = requireAuth(ctx.values);
-      let q = deps.db.selectFrom("sessions").select([
-        "id", "worker_fp", "channel", "kind", "cwd", "workspace_id", "status",
-        "created_at", "closed_at", "custom_title", "git_branch", "git_remote",
-        "pr_number", "pr_state", "pr_checks", "pr_url", "ports_json", "spawn_cwd",
-      ]);
-      if (req.workerFp) q = q.where("worker_fp", "=", req.workerFp);
+      let q = deps.db.selectFrom("sessions").select([...SESSION_COLUMNS]);
       const status = req.status || "open";
-      if (status !== "all") q = q.where("status", "=", status as any);
+      if (req.workerFp) q = q.where("worker_fp", "=", req.workerFp);
+      if (status !== "all") q = q.where("status", "=", sessionStatusOf(status));
       const rows = await q.execute();
       const syncSnapshotToken = req.syncSocketId
         ? bindSyncSessionSnapshot(req.syncSocketId, caller.fingerprint, rows.map((row) => row.id))
@@ -103,10 +109,7 @@ export function makeSessionHandlers(
 
     async sessionsAttach(req, ctx) {
       const caller = requireAuth(ctx.values);
-      const row = await deps.db.selectFrom("sessions").select(["worker_fp"]).where("id", "=", req.sessionId).executeTakeFirst();
-      if (!row) throw new ConnectError("unknown session", Code.NotFound);
-      const sock = getWorkerHubSocket(row.worker_fp);
-      if (!sock) throw new ConnectError("worker not connected", Code.Unavailable);
+      const { row, sock } = await requireSessionWorkerSocket(deps.db, req.sessionId);
       const pending = createPendingRpc<{ replay_offset: number }>(undefined, row.worker_fp);
       sendBrowserCmd(sock, caller, pending.request_id, {
         kind: "attach" as const,
@@ -148,7 +151,10 @@ export function makeSessionHandlers(
           kind: "kill" as const, session_id: asSessionId(req.sessionId),
         });
         return create(SessionsKillResponseSchema, { accepted: true });
-      } catch {
+      } catch (error) {
+        log.warn("connect-router.sessionsKill", "kill_send_failed", {
+          session_id: req.sessionId, error: String(error),
+        });
         return create(SessionsKillResponseSchema, { accepted: false });
       }
     },
@@ -226,35 +232,35 @@ export function makeSessionHandlers(
       // This path historically wrote ONLY the column, so a spawn-assigned session
       // was missing from the junction → orphanSessions double-counted it (shown
       // under its workspace AND Unassigned). Maintain BOTH so all readers agree.
-      // (1) column, via the workspace_assigned event (SPA column delta):
+      // (1) column + (2) junction BOTH fold inside the ONE appendEvent
+      // transaction: the workspace_assigned branch rewrites the junction row,
+      // and extraWork captures the PRIOR memberships in the same tx — a second,
+      // later transaction could commit nothing if it failed after the event.
+      const touched = new Set<string>();
+      if (targetWs) touched.add(targetWs);
       await appendEvent(deps.db, {
         kind: "workspace_assigned",
         session_id: asSessionId(sessionId),
         workspace_id: targetWs ? asWorkspaceId(targetWs) : null,
         ts: Date.now(),
-      });
-      // (2) junction: move the session to the target (remove from any prior).
-      const now = Date.now();
-      const touched = await deps.db.transaction().execute(async (trx) => {
-        const prior = (await trx.selectFrom("workspace_sessions").select("workspace_id")
-          .where("session_id", "=", sessionId).execute()).map(r => r.workspace_id as string);
-        await trx.deleteFrom("workspace_sessions").where("session_id", "=", sessionId).execute();
-        if (targetWs) {
-          await trx.insertInto("workspace_sessions")
-            .values({ workspace_id: targetWs, session_id: sessionId, added_at_ms: now })
-            .onConflict((oc) => oc.columns(["workspace_id", "session_id"]).doNothing())
-            .execute();
-        }
-        return [...new Set([...prior, ...(targetWs ? [targetWs] : [])])];
+      }, {
+        worker_fp: null,
+        client_seq: null,
+        extraWork: async (trx) => {
+          const prior = (await trx.selectFrom("workspace_sessions").select("workspace_id")
+            .where("session_id", "=", sessionId).execute()).map(r => r.workspace_id as string);
+          for (const wsId of prior) touched.add(wsId);
+        },
       });
       // Publish the updated junction for every touched workspace so SPA
-      // junction-readers update live (not just on reload).
+      // junction-readers update live — strictly AFTER commit (README invariant:
+      // no bus delta may precede the durable state it describes).
       for (const wsId of touched) {
         const ws = await deps.db.selectFrom("workspaces").select("version").where("id", "=", wsId).executeTakeFirst();
         if (!ws) continue;
         const sids = (await deps.db.selectFrom("workspace_sessions").select("session_id")
-          .where("workspace_id", "=", wsId).execute()).map(r => r.session_id as any);
-        workspaceBus.publish({ kind: "sessions-set", id: wsId as any, session_ids: sids, version: ws.version });
+          .where("workspace_id", "=", wsId).execute()).map(r => asSessionId(r.session_id));
+        workspaceBus.publish({ kind: "sessions-set", id: asWorkspaceId(wsId), session_ids: sids, version: ws.version });
       }
       return create(SessionsAssignWorkspaceResponseSchema, { ok: true });
     },

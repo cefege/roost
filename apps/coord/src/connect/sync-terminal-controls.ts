@@ -1,3 +1,9 @@
+// Routes Sync v2 terminal commands (view, resync, input controls) from the
+// websocket layer into TerminalViewHub and processInputControl, cancelling a
+// viewer's control generation on socket close.
+// Guard order is load-bearing: sockets without an established viewerKey are
+// refused first, then viewIds are UUID-validated, before anything reaches
+// input processing.
 import { create } from "@bufbuild/protobuf";
 import {
   InputAcceptedSchema,

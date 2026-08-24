@@ -1,6 +1,10 @@
+// Boot-time purge of durable rows that cannot represent live state after a
+// restart: deletes closed sessions and workspaces orphaned by them.
+// Load-bearing ordering: runs BEFORE sync feeds install bus listeners, so no
+// workspaceBus deltas are published here — reconnecting SPAs learn about the
+// pruning only from their sync-feed seed snapshot. Never touches 'open'
+// sessions; dead open ones are ghost-closed by worker snapshot reconcile.
 import { log } from "@roost/shared/log";
-import { asWorkspaceId } from "@roost/shared/wire";
-import { workspaceBus } from "./buses.ts";
 import type { KyselyDB } from "./db/connection.ts";
 
 /** Purge durable rows that cannot represent live coordinator state after boot. */
@@ -22,22 +26,15 @@ export async function runStartupJanitor(db: KyselyDB): Promise<void> {
         .innerJoin("sessions as s", "s.id", "ws.session_id")
         .where("s.status", "=", "open").select("ws.workspace_id"))
       .execute();
-    // Capture orphan ids BEFORE the delete so workspaceBus subscribers
-    // (SPA sync stream) get the `deleted` deltas — without this, SPAs
-    // that survive a coord restart see stale workspace rows in the
-    // sidebar until the user reloads the tab.
-    const orphanRows = await db
-      .selectFrom("workspaces")
-      .select("id")
-      .where("id", "not in", db.selectFrom("workspace_sessions").select("workspace_id").distinct())
-      .execute();
+    // Orphaned workspaces are deleted WITHOUT workspaceBus deltas: this runs
+    // before the sync feeds install their bus listeners, so any publish here
+    // is a structurally guaranteed no-op. Surviving SPAs instead learn about
+    // pruned rows from the sync-feed seed snapshot they receive on
+    // (re)connect — that seed is what actually protects the sidebar.
     const orphans = await db
       .deleteFrom("workspaces")
       .where("id", "not in", db.selectFrom("workspace_sessions").select("workspace_id").distinct())
       .executeTakeFirst();
-    for (const row of orphanRows) {
-      workspaceBus.publish({ kind: "deleted", id: asWorkspaceId(row.id as string) });
-    }
     log.info("main", "janitor", {
       deleted_sessions: Number(closed?.numDeletedRows ?? 0),
       pruned_orphan_workspaces: Number(orphans?.numDeletedRows ?? 0),

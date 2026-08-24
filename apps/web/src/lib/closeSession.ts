@@ -9,6 +9,7 @@
 import type { Session } from "@roost/shared/wire";
 import { rootStore } from "../store/root.ts";
 import { newestOpenSessionForFolderKey } from "../store/selectors.ts";
+import { sessionHref } from "../routes.ts";
 import { coordClient } from "../connect.ts";
 import { sessionTitle } from "./sessionTitle.ts";
 import { folderDisplayName, folderKeyOf } from "./folderKey.ts";
@@ -33,7 +34,7 @@ export function closeLabelsFor(s: Session): { terminalName: string; folder: stri
  *  guard, so we never land back on a tab that's also being closed. */
 export function siblingOrHomeHref(s: Session): string {
   const sib = newestOpenSessionForFolderKey(folderKeyOf(s), s.id);
-  return sib ? `/s/${sib.id}` : "/";
+  return sib ? sessionHref(sib.id) : "/";
 }
 
 /** The deferred-kill thunk handed to scheduleClose: after the undo window it

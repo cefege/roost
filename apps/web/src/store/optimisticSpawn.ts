@@ -5,7 +5,7 @@
 import { createSignal } from "solid-js";
 import { asSessionId, asChannelId } from "@roost/shared/wire";
 import type { Session } from "@roost/shared/wire";
-import { rootStore, setRootStore } from "./root.ts";
+import { deleteStoreRecord, rootStore, setRootStore } from "./root.ts";
 import { addToast } from "./toastStore.ts";
 import { clampTerminalGeometry } from "@roost/shared/viewport";
 
@@ -155,7 +155,7 @@ function closeMeasurementDeferred(id: string): void {
 }
 
 function removePlaceholder(id: string): void {
-  if (rootStore.sessions[id]) setRootStore("sessions", id, undefined as unknown as Session);
+  if (rootStore.sessions[id]) deleteStoreRecord("sessions", id);
 }
 function clearPending(id: string): void {
   setPendingIds((s) => {

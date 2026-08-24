@@ -1,3 +1,9 @@
+// The internet-facing listener surface: CF Access verification, public deny
+// lists, availability gating, the coord-sync WS upgrade, then coord dispatch.
+// Order is load-bearing — access.verify runs before any routing so
+// unauthenticated traffic never reaches RPC handling. PUBLIC_DENIED_* must
+// name every privileged RPC/path: this listener has no auth layer beyond
+// the Access token, so an unlisted privileged route is world-reachable.
 import type { CoordConfig } from "@roost/shared/config";
 import { signal as emitSignal } from "@roost/shared/diag";
 import type { ConnectDeps } from "../connect/router.ts";

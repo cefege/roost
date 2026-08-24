@@ -2,24 +2,11 @@
 
 aside[data-testid="sidebar-desktop"],
 aside[data-testid="sidebar-drawer"] {
-  /* B3 — tighter density: 22px rows / 12px font / 8px section pad.
-     Previous dimensions were 26/13/12 — too airy once we layered
-     PINNED + RECENT groups on top of machine sections; user has 4-5
-     groups stacked at once, density wins. */
-  /* Phase-m3c density bump — 30px M3 compact row height, 13px font,
-     full-radius pill for M3 selection shape. Matches mockup
-     m3-compact-hero.html session-row spec. */
   --df-row-h: 30px;
   --df-row-font: 13px;
   --df-row-gap: 9px;
   --df-row-px: 14px;
   --df-radius-pill: var(--md-shape-full);
-  /* Phase-m3a: --df-* surface/text tokens remapped to M3 Expressive
-     dark (coral source). The hover/selected state layers shift to
-     M3's "on-surface @ 7%/12%" model so chrome warms up uniformly.
-     --df-selected-accent stays #db7556 (Roost brand coral) — the
-     left-rail tick is the strongest brand signal in the sidebar
-     and should not migrate to M3's lighter #ffb59f. */
   --df-hover: var(--md-state-hover);
   --df-selected: var(--md-secondary-container);
   --df-selected-accent: var(--brand-coral);

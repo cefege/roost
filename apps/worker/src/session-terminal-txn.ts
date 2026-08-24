@@ -1,3 +1,8 @@
+// Terminal control transactions: applies a coordinator stream request to a
+// live core exactly once, under an admission ticket, with an ambiguous-
+// boundary protocol — when the core's validity changes mid-transaction the
+// outcome is reported as ambiguous rather than guessed. Called from
+// session-terminal-control.ts.
 import type { SessionManager } from "./session-manager.ts";
 import type { TerminalRequestBudget } from "./transport/coord-link-types.ts";
 import type { KeeperAdmissionTicket } from "./session-control-lanes.ts";

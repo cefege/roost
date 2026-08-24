@@ -1,3 +1,8 @@
+// Pure projection math over terminal view records and tombstones — no I/O, no
+// socket access. Tombstones keep a parked view's revision/intent alive so an
+// offline viewer can reclaim it; they are capped (128 per viewer, 131072 per
+// process) and evicted LRU, meaning a very stale client's revision guard can
+// be evicted. Effective geometry is the MINIMUM across all viewers.
 import {
   TERMINAL_VIEW_LEASE_MS,
   minimumTerminalGeometry,

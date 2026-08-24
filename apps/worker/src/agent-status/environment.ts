@@ -1,3 +1,8 @@
+// Provisions the local environment an installed integration needs to talk to
+// this worker: a capability-checked local endpoint plus the ROOST_* env block
+// (endpoint path, HMAC'd capability token, session id) that gets baked into
+// every agent config. The HMAC is what stops other local users from spoofing
+// reports onto our socket.
 import { createHmac } from "node:crypto";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
@@ -71,6 +76,22 @@ export function verifyAgentReportCapability(
     capabilityForSession(sessionId, endpoint),
     received,
   );
+}
+
+/** Evict cached capabilities for a closed session. Keys embed the session id
+ *  (`${capability}\0${sessionId}`), and respawns mint fresh ids forever, so a
+ *  closed session's entries can never be hit again — unbounded-map growth
+ *  without eviction. Returns how many entries were dropped (diag/test oracle). */
+export function releaseAgentStatusCapabilities(sessionId: string): number {
+  const suffix = `\0${sessionId}`;
+  let dropped = 0;
+  for (const key of sessionCapabilities.keys()) {
+    if (key.endsWith(suffix)) {
+      sessionCapabilities.delete(key);
+      dropped++;
+    }
+  }
+  return dropped;
 }
 
 export function withAgentStatusEnvironment(

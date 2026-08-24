@@ -88,6 +88,8 @@ export function cellGridEpoch(sessionId: string): string {
 }
 
 export function dropNextCellFrame(sessionId: string): void {
+  // Build-time gate first: prod bundles fold the whole drop path away.
+  if (import.meta.env.VITE_ROOST_SMOKE !== "1") return;
   try {
     if (localStorage.getItem("roostSmoke") !== "1") return;
   } catch {

@@ -1,3 +1,9 @@
+// The coordinator's single registry of live agent status: validates each
+// worker status frame, tracks the newest accepted revision per session, and
+// debounces transition pushes by 1s instead of firing per update.
+// Module-global Maps mean one hub per process; ownership comes exclusively
+// from the coordinator's session cache — a payload can never claim a session
+// for a worker that doesn't already own it, and stale revisions never win.
 import {
   AgentStatus,
   AgentStatusUpdate,

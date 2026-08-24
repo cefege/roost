@@ -1,3 +1,7 @@
+// Compile-time Kysely types for the coordinator's SQLite database. These
+// interfaces are NOT checked against the real schema: drift from
+// migrations/*.sql only surfaces as runtime SQLite errors, so every column
+// change requires a new migration file AND this interface updated together.
 import type { ColumnType } from "kysely";
 
 // Kysely DB interface — one interface per table, then composed into DB.

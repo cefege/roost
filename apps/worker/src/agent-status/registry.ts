@@ -1,3 +1,8 @@
+// Aggregates per-agent status reports into the AgentStatusUpdate frames coord
+// sees: one live entry per detected agent, each held under a time lease
+// (INTEGRATION_LEASE_MS) so a crashed reporter expires instead of sticking.
+// Consumed by the heartbeat/worker-send path; fed by report-server and
+// detector.
 import {
   AgentStatusUpdate,
   type AgentRuntimeState,
@@ -216,8 +221,6 @@ export class AgentStatusRegistry {
 
   snapshot(): AgentStatusUpdateType[] {
     const statuses: AgentStatusUpdateType[] = [];
-    const originalPublish = this.publish;
-    void originalPublish;
     for (const [sessionId, entry] of this.entries) {
       const effective = entry.effective;
       if (!effective) continue;

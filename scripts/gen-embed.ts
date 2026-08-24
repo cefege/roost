@@ -9,6 +9,7 @@
 // apps/roost-cli/src/install-binary-agents.ts (COORD/WORKER_INSTALL_SH).
 import { mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { extname, join, relative } from "node:path";
+import { composeStandaloneIntegration } from "../apps/worker/src/agent-status/standalone-integration.ts";
 
 const WEB_OUT = "apps/coord/src/web-embed.generated.ts";
 const WEB_GZIP_OUT = "apps/coord/src/web-embed.generated-assets";
@@ -105,8 +106,11 @@ function generate(): void {
   writeFileSync(SCRIPTS_OUT, `${HDR}import coord from "../../coord/scripts/install.sh" with { type: "text" };\nimport worker from "../../worker/scripts/install.sh" with { type: "text" };\nexport const COORD_INSTALL_SH = coord;\nexport const WORKER_INSTALL_SH = worker;\n`);
 
   // ── OMP/Pi lifecycle extensions: source text installed into user config dirs.
-  const ompIntegration = readFileSync("apps/worker/src/agent-status/integrations/omp/roost-agent-state.ts", "utf8");
-  const piIntegration = readFileSync("apps/worker/src/agent-status/integrations/pi/roost-agent-state.ts", "utf8");
+  // The deployed text must be standalone (no @roost/* imports survive in user
+  // config dirs), so bake the SAME composed asset install-integrations writes.
+  const reportTransport = readFileSync("apps/worker/src/agent-status/report-transport.ts", "utf8");
+  const ompIntegration = composeStandaloneIntegration(readFileSync("apps/worker/src/agent-status/integrations/omp/roost-agent-state.ts", "utf8"), reportTransport);
+  const piIntegration = composeStandaloneIntegration(readFileSync("apps/worker/src/agent-status/integrations/pi/roost-agent-state.ts", "utf8"), reportTransport);
   writeFileSync(
     AGENT_INTEGRATIONS_OUT,
     `${HDR}export const OMP_AGENT_INTEGRATION = ${JSON.stringify(ompIntegration)};\nexport const PI_AGENT_INTEGRATION = ${JSON.stringify(piIntegration)};\n`,

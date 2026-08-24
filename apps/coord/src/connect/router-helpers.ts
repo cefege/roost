@@ -13,6 +13,28 @@ import { getWorkerHubSocket } from "./worker-service.ts";
 
 export type WorkerHubSocket = { send(data: string | Uint8Array): void };
 
+/** A session row bound to its live worker hub socket. */
+export interface SessionWorkerBinding {
+  row: { worker_fp: string };
+  sock: WorkerHubSocket;
+}
+
+// Load a session's worker and its live hub socket in one step. Every
+// forwarding handler repeated this preamble with DRIFTED error strings
+// ("unknown session" vs "session not found"); these two wordings are THE
+// contract — do not re-diverge them.
+export async function requireSessionWorkerSocket(
+  db: KyselyDB,
+  sessionId: string,
+): Promise<SessionWorkerBinding> {
+  const row = await db.selectFrom("sessions").select(["worker_fp"])
+    .where("id", "=", sessionId).executeTakeFirst();
+  if (!row) throw new ConnectError("session not found", Code.NotFound);
+  const sock = getWorkerHubSocket(row.worker_fp);
+  if (!sock) throw new ConnectError("worker offline", Code.Unavailable);
+  return { row, sock };
+}
+
 // `${prefix}<bytes*2 hex>` random id. Used by auth/pair/webhook token mint.
 export function randomToken(prefix: string, bytes: number): string {
   const buf = new Uint8Array(bytes);
@@ -72,10 +94,12 @@ export async function forwardToSessionWorker(
   // Frames that carry their own request_id reuse it as the envelope id so
   // worker logs and RPC replies share one identifier; all others get a UUID.
   const requestId = "request_id" in frame ? frame.request_id : randomUUID();
-  const row = await db.selectFrom("sessions").select(["worker_fp"]).where("id", "=", sessionIdRaw).executeTakeFirst();
-  if (!row) return false;
-  const sock = getWorkerHubSocket(row.worker_fp);
-  if (!sock) return false;
-  try { sendBrowserCmd(sock, caller, requestId, frame); return true; }
+  let binding: SessionWorkerBinding;
+  try {
+    binding = await requireSessionWorkerSocket(db, sessionIdRaw);
+  } catch {
+    return false;
+  }
+  try { sendBrowserCmd(binding.sock, caller, requestId, frame); return true; }
   catch (e) { log.warn("router-helpers.forwardToSessionWorker", "send_failed", { error: String(e) }); return false; }
 }

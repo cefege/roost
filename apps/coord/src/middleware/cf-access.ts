@@ -1,3 +1,8 @@
+// Hand-rolled Cloudflare Access JWT verifier (RS256 against the team's JWKS)
+// — no JWT library, so every claim check lives here and none may be dropped:
+// alg pin, kid, iss, aud, exp, iat/nbf future skew, token type. The 60s
+// unknown-kid refresh floor exists so attackers can't force a JWKS fetch per
+// request while still-verifying cached keys ride out refresh failures.
 const TOKEN_MAX_BYTES = 16 * 1024;
 const JWKS_TTL_MS = 10 * 60_000;
 const UNKNOWN_KID_REFRESH_FLOOR_MS = 60_000;

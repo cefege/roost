@@ -1,3 +1,8 @@
+// Web Push get-config/subscribe/unsubscribe RPC handlers over the
+// push_subscriptions table, upserting on (viewer_fp, endpoint).
+// Endpoint and key inputs are attacker-controlled: endpoints must parse as
+// HTTPS URLs within 4 KiB and keys must be bounded base64url — all validated
+// BEFORE any DB write, so a hostile subscription can never reach storage.
 import { Code, ConnectError, type ServiceImpl } from "@connectrpc/connect";
 import { create } from "@bufbuild/protobuf";
 import {

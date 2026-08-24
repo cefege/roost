@@ -2,8 +2,11 @@
 // close/process-group/tree sweep. Windows closes its authenticated job-host
 // control channel and waits for ACTIVE_PROCESS_ZERO before releasing ConPTY.
 
+import { readFileSync } from "node:fs";
 import type { Channel } from "./keeper-types.ts";
-import { assertNeverPlatform, supportedHostPlatform } from "@roost/shared/platform";
+import { assertNeverPlatform, supportedHostPlatform, type SupportedHostPlatform } from "@roost/shared/platform";
+
+const HOST_PLATFORM = supportedHostPlatform() as SupportedHostPlatform;
 
 // Grace between the graceful reap signals (PTY master close + group SIGTERM)
 // and the SIGKILL sweep of survivors. A short termination grace interval.
@@ -44,6 +47,22 @@ function collectProcessTree(rootPid: number): number[] {
   return tree;
 }
 
+/** Linux-only identity token: /proc/<pid>/stat field 22, the process start
+ *  time in clock ticks since boot — stable for a process's whole life and
+ *  different after the pid is recycled. null when unreadable (vanished,
+ *  or non-Linux). */
+function procStartTimeTicks(pid: number): bigint | null {
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+    // comm can contain spaces/parens: resume AFTER the final ')'. Field 3
+    // (state) is then index 0, so field 22 is index 19.
+    const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
+    return BigInt(fields[19]!);
+  } catch {
+    return null;
+  }
+}
+
 /** kill(pid,0) liveness probe; ESRCH => gone. Guards self + pid<=1. */
 function isProcessAlive(pid: number): boolean {
   if (pid <= 1 || pid === process.pid) return false;
@@ -56,8 +75,26 @@ function reapPosixChannel(ch: Channel): void {
   try { ch.terminal.close(); } catch { /* already closed */ } // SIGHUP -> foreground group
   // Guard: kill(-1) / kill(-0) would signal every reachable process.
   if (leader > 1) try { process.kill(-leader, "SIGTERM"); } catch { /* gone / no group */ }
+  // Snapshot each member's birth at collection time so the deferred SIGKILL
+  // below can prove it is killing the process it saw, not a recycled pid.
+  const births = HOST_PLATFORM === "linux"
+    ? new Map(tree.map((pid) => [pid, procStartTimeTicks(pid)]))
+    : undefined; // darwin has no /proc; accepted residual risk (2s window)
+  try { ch.terminal.close(); } catch { /* already closed */ } // SIGHUP -> foreground group
+  // Guard: kill(-1) / kill(-0) would signal every reachable process.
+  if (leader > 1) try { process.kill(-leader, "SIGTERM"); } catch { /* gone / no group */ }
   setTimeout(() => {
-    for (const pid of tree) if (isProcessAlive(pid)) {
+    for (const pid of tree) {
+      if (!isProcessAlive(pid)) continue;
+      if (births) {
+        const birthAtSnapshot = births.get(pid) ?? null;
+        const birthNow = procStartTimeTicks(pid);
+        // Skip only when /proc PROVES the live pid is not the one we snapshotted
+        // (different start time, or vanished while still killable — i.e. now
+        // someone else's). An unreadable snapshot keeps legacy behavior: an
+        // unverifiable member must not weaken the every-survivor-dies guarantee.
+        if (birthAtSnapshot !== null && birthNow !== birthAtSnapshot) continue;
+      }
       try { process.kill(pid, "SIGKILL"); } catch { /* already reaped */ }
     }
   }, REAP_GRACE_MS);

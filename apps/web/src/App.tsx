@@ -5,7 +5,7 @@
 import { Router, Route, Navigate, useNavigate } from "@solidjs/router";
 import { createMemo, Show, onMount, onCleanup, lazy } from "solid-js";
 import type { JSX } from "solid-js";
-import { ROUTES } from "./routes.ts";
+import { ROUTES, settingsPaneHref } from "./routes.ts";
 import { AppShell } from "./components/layout/AppShell.tsx";
 import { HomeLanding } from "./components/HomeLanding.tsx";
 import { MainPane } from "./components/MainPane.tsx";
@@ -60,12 +60,15 @@ function WorkspaceRedirect() {
 export function App() {
   bootstrapSync();
   // Smoke backdoor: dynamic-import so the ~286-line window.__smoke API
-  // (+ its store/connect deps) is code-split into its own chunk fetched
-  // ONLY when localStorage.roostSmoke==="1" — non-smoke users never pay
-  // for it. Matches the lazy() split policy at L34. The harness reloads
-  // with the flag set and injects after load, so the async gap is
+  // (+ its store/connect deps) is code-split into its own chunk that exists
+  // ONLY in builds made with VITE_ROOST_SMOKE=1 (the test tier) AND when
+  // localStorage.roostSmoke==="1" at runtime. Production builds fold this
+  // branch out entirely — the harness chunk is absent from dist, so the
+  // backdoor cannot be armed by flipping a localStorage key. The test
+  // reloads with the flag set and injects after load, so the async gap is
   // invisible to run.js step1's window.__smoke check.
-  if (typeof localStorage !== "undefined" && localStorage.getItem("roostSmoke") === "1") {
+  if (import.meta.env.VITE_ROOST_SMOKE === "1"
+    && typeof localStorage !== "undefined" && localStorage.getItem("roostSmoke") === "1") {
     void import("./lib/smoke.ts").then((m) => m.maybeInstallSmokeBackdoor());
   }
   onMount(() => {
@@ -94,6 +97,7 @@ export function App() {
   // there but RootShell always renders it as the slot. Accept the wider
   // type + fall back to `<></>` when missing.
   function SmokeRouterBridge() {
+    if (import.meta.env.VITE_ROOST_SMOKE !== "1") return null;
     const navigate = useNavigate();
     onMount(() => {
       let enabled = false;
@@ -114,7 +118,7 @@ export function App() {
   function ShortcutRouterBridge() {
     const navigate = useNavigate();
     onMount(() => {
-      setSettingsOpener(() => navigate("/settings/machines"));
+      setSettingsOpener(() => navigate(settingsPaneHref("machines")));
       onCleanup(() => setSettingsOpener(null));
     });
     return null;

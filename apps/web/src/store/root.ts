@@ -76,3 +76,18 @@ const initialState: RootState = {
 };
 
 export const [rootStore, setRootStore] = createStore<RootState>(initialState);
+
+// Slices keyed as plain-object Records. Solid setStore cannot delete through
+// a setter function on such a subtree (feedback_solid_setstore_record_replace)
+// — the removal primitive IS the undefined write, so the one deliberate
+// value-slot cast lives HERE instead of repeated at every mutation site.
+type RecordSliceKey = {
+  [K in keyof RootState]: RootState[K] extends Record<string, unknown> ? K : never;
+}[keyof RootState];
+/** Remove one key from a root-store Record slice (per-key delete).
+ *  Solid's deep-setter types cannot express a generic slice+key pair, so
+ *  the single structural cast lives here — callers stay typed. */
+export function deleteStoreRecord<K extends RecordSliceKey>(slice: K, key: string): void {
+  type RawSetter = (slice: string, key: string, value: unknown) => void;
+  (setRootStore as unknown as RawSetter)(slice, key, undefined);
+}

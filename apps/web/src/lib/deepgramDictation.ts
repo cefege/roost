@@ -20,7 +20,13 @@ import {
 } from "./audioPcmCapture.ts";
 import { diag, signal } from "@roost/shared/diag";
 import { buildUrl } from "./deepgramDictation.url.ts";
-import { keytermHitRate, isExpectedClose, closeMessage } from "./deepgramDictation.helpers.ts";
+import {
+	keytermHitRate,
+	isExpectedClose,
+	closeMessage,
+	clientFacts,
+	micOpenFailure,
+} from "./deepgramDictation.helpers.ts";
 export { buildUrl };
 
 // Shared shape so MobileVoiceInput can treat Deepgram + Web Speech the same.
@@ -54,16 +60,15 @@ export const dictationTimings = {
 	 *  silence watch cannot cover this: it is armed FROM that resolution. */
 	startGraceMs: 9_000,
 };
-// Baked at build time by vite (define in vite.config.ts), same read as
-// VersionBanner. The LITERAL member expression is what vite substitutes —
-// reaching it through a variable or optional chain silently yields the
-// fallback, which is worse than useless in a build-provenance field.
-const BUILD_SHA = (import.meta.env as { VITE_BUILD_SHA?: string }).VITE_BUILD_SHA ?? "dev";
 
 export interface DeepgramDictationOpts {
 	language: () => string; // "en" | "multi" | "__auto__"
 	grantToken: () => Promise<string>;
 	onEnd?: () => void;
+	/** Fired ONCE per recording, the moment the mic is capturing AND the
+	 *  socket is open — i.e. speech from here on can be heard. The caller uses
+	 *  it to leave its "starting" UI; neither milestone alone means audible. */
+	onLive?: () => void;
 	// Nova-3 keyterm biasing — terms extracted from the terminal you're dictating
 	// into (keytermContext.extractKeyterms). Evaluated once at WS-open (Deepgram
 	// fixes keyterms per connection), so each recording snapshots fresh context.
@@ -125,10 +130,23 @@ export function createDeepgramDictation(
 	let recording = false;
 	let startTimer: ReturnType<typeof setTimeout> | null = null;
 	let captureAttached = false;
+	// The two liveness milestones onLive promises; either may land first.
+	let micAttached = false;
+	let socketOpen = false;
+	let liveNotified = false;
+
+	// Exactly-once per recording: both milestones in, nobody cancelled.
+	const notifyLive = () => {
+		if (liveNotified || endIntent !== null || !micAttached || !socketOpen) return;
+		liveNotified = true;
+		opts.onLive?.();
+	};
 
 	const teardown = () => {
 		runId++; // every in-flight continuation of the finished run is now stale
 		recording = false;
+		micAttached = false;
+		socketOpen = false;
 		if (startTimer) {
 			clearTimeout(startTimer);
 			startTimer = null;
@@ -180,15 +198,6 @@ export function createDeepgramDictation(
 		teardown();
 		opts.onFailure?.();
 	};
-
-	// Enough about the client to tell a phone from a desktop, and a stale cached
-	// bundle from the running one — the two questions a remote "the mic does
-	// nothing" report cannot be answered without.
-	const clientFacts = () => ({
-		build: BUILD_SHA,
-		standalone: typeof matchMedia === "function" && matchMedia("(display-mode: standalone)").matches,
-		ua: typeof navigator !== "undefined" ? navigator.userAgent.slice(0, 72) : "",
-	});
 
 	const completeSend = () => {
 		if (endIntent !== "send") return;
@@ -336,6 +345,9 @@ export function createDeepgramDictation(
 		chunksSent = 0;
 		bytesSent = 0;
 		resultsFrames = 0;
+		micAttached = false;
+		socketOpen = false;
+		liveNotified = false;
 		setFinalText("");
 		setInterimText("");
 		tapMs = performance.now();
@@ -377,6 +389,8 @@ export function createDeepgramDictation(
 				if (attached) {
 					captureAttached = true;
 					micReadyMs = performance.now() - tapMs;
+					micAttached = true;
+					notifyLive();
 					// Attached is not the same as ALIVE — see armSilenceWatch.
 					armSilenceWatch(run);
 					return;
@@ -386,35 +400,14 @@ export function createDeepgramDictation(
 				setError("Mic didn't start — tap the mic and try again.");
 				fail();
 			})
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			.catch((e: any) => {
+			.catch((e: unknown) => {
 				if (run !== runId) return;
-				const name = e?.name || "";
-				const msg = e?.message || "";
-				if (name === "NotAllowedError" || /denied|permission/i.test(msg)) {
-					setError(
-						"Mic blocked for this site — allow it (address-bar icon → Microphone → Allow), then reload.",
-					);
-				} else if (
-					name === "NotReadableError" ||
-					name === "AbortError" ||
-					/in use|busy|could not start|failed to allocate/i.test(msg)
-				) {
-					// Another tab/app holds the mic (WhatsApp/Telegram/Zoom/Meet) — macOS
-					// hands the device to one page at a time. This is the #1 intermittent
-					// "mic error" cause; name it so it's actionable.
-					setError(
-						"Mic is busy — another tab or app (WhatsApp, Telegram, Zoom…) is using it. Close it, then retry.",
-					);
-				} else if (name === "NotFoundError") {
-					setError("No microphone found on this device.");
-				} else {
-					setError("Mic: " + (msg || name || "unavailable"));
-				}
+				const f = micOpenFailure(e);
+				setError(f.message);
 				signal("voice.mic_failed", {
 					stage: "open",
-					name,
-					detail: msg,
+					name: f.name,
+					detail: f.detail,
 					cooldownKey: "voice",
 				});
 				fail();
@@ -475,6 +468,8 @@ export function createDeepgramDictation(
 		ws.onopen = () => {
 			if (run !== runId) return;
 			wsOpenMs = performance.now() - tapMs;
+			socketOpen = true;
+			notifyLive();
 			keepAlive = setInterval(() => {
 				try {
 					ws?.send(JSON.stringify({ type: "KeepAlive" }));

@@ -56,7 +56,8 @@ test("a document-return repair waits for a synchronized TUI repaint boundary", a
   }).toBeGreaterThan(0);
   await waitForStableCellFrames(smokePage, sessionId);
   const activeBeforeSyncHide = await readTerminalStreamProbe(smokePage, sessionId);
-  if (!activeBeforeSyncHide.browser.view.revision || !activeBeforeSyncHide.browser.view.stream_id) {
+  const beforeSyncRevision = activeBeforeSyncHide.browser.view.revision;
+  if (!beforeSyncRevision || !activeBeforeSyncHide.browser.view.stream_id) {
     throw new Error("synchronized-output fixture omitted its active terminal view");
   }
 
@@ -71,7 +72,7 @@ test("a document-return repair waits for a synchronized TUI repaint boundary", a
       status: probe.browser.view.status,
       active: probe.browser.view.active,
       revisionAdvanced: probe.browser.view.revision !== null
-        && BigInt(probe.browser.view.revision) > BigInt(activeBeforeSyncHide.browser.view.revision),
+        && BigInt(probe.browser.view.revision) > BigInt(beforeSyncRevision),
       coordinatorViews: coordinator?.activeViews ?? -1,
       coordinatorGeometry: coordinator?.effective,
     };

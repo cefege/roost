@@ -8,12 +8,12 @@
 // Settings/McpPane.tsx (mcp_relays).
 
 import type { PermissionRule, PermissionRuleId, McpRelay } from "@roost/shared/wire";
-import { setRootStore, type PairRequest } from "./root.ts";
+import { deleteStoreRecord, setRootStore } from "./root.ts";
 
 export function deletePairRequest(ephemeralId: string): void {
   // Per-key delete; setRootStore(key, fn → newRecord) silently no-ops on a
   // Record subtree (feedback_solid_setstore_record_replace).
-  setRootStore("pair_requests", ephemeralId, undefined as unknown as PairRequest);
+  deleteStoreRecord("pair_requests", ephemeralId);
 }
 
 export function upsertPermissionRule(rule: PermissionRule): void {
@@ -23,7 +23,7 @@ export function upsertPermissionRule(rule: PermissionRule): void {
 export function deletePermissionRule(id: PermissionRuleId): void {
   // Per-key delete; setRootStore(key, fn → newRecord) silently no-ops on a
   // Record subtree (feedback_solid_setstore_record_replace).
-  setRootStore("permission_rules", id, undefined as unknown as PermissionRule);
+  deleteStoreRecord("permission_rules", id);
 }
 
 export function replaceMcpRelays(record: Record<string, McpRelay>): void {
@@ -37,5 +37,5 @@ export function upsertMcpRelay(relay: McpRelay): void {
 export function deleteMcpRelay(id: string): void {
   // Per-key delete; setRootStore(key, fn → newRecord) silently no-ops on a
   // Record subtree (feedback_solid_setstore_record_replace).
-  setRootStore("mcp_relays", id, undefined as unknown as McpRelay);
+  deleteStoreRecord("mcp_relays", id);
 }

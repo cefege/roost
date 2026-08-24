@@ -1,3 +1,9 @@
+// Process-wide dedupe of in-flight session spawns keyed by caller-minted
+// UUID: exact duplicates join the first caller's promise; caller/parameter
+// conflicts reject before any membership change; capacity caps at 1024.
+// Ambiguous failures (transport loss, timeout) deliberately RETAIN the
+// reservation until durable-open reconciliation resolves it — rejecting
+// early here would let one lost rpc-ok turn into a duplicate spawn.
 import { Code, ConnectError } from "@connectrpc/connect";
 
 const PENDING_SPAWN_TIMEOUT_MS = 30_000;

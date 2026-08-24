@@ -246,6 +246,42 @@ describe("deepgramDictation run token", () => {
 		h.dispose();
 	});
 
+	test("interim Results update interim(); a final settles them into final()", async () => {
+		// The reported "only finalized text shows" defect lives or dies here:
+		// non-final frames MUST surface through interim() while speaking.
+		const h = mount({ grantToken: () => Promise.resolve("key") });
+
+		h.dict.start();
+		await waitFor(() => sockets.length === 1);
+		const ws = sockets[0]!;
+		ws.open();
+
+		ws.deliver({ type: "Results", is_final: false, channel: { alternatives: [{ transcript: "hello wor" }] } });
+		expect(h.dict.interim()).toBe("hello wor");
+		expect(h.dict.final()).toBe("");
+
+		// Each interim frame REPLACES the hypothesis instead of appending it.
+		ws.deliver({ type: "Results", is_final: false, channel: { alternatives: [{ transcript: "hello world" }] } });
+		expect(h.dict.interim()).toBe("hello world");
+
+		ws.deliver({ type: "Results", is_final: true, channel: { alternatives: [{ transcript: "Hello, world." }] } });
+		expect(h.dict.final()).toBe("Hello, world.");
+		expect(h.dict.interim()).toBe("");
+
+		// Deepgram emits empty non-final frames between phrases — they must not
+		// resurrect an interim tail over settled text.
+		ws.deliver({ type: "Results", is_final: false, channel: { alternatives: [{ transcript: "" }] } });
+		expect(h.dict.interim()).toBe("");
+		expect(h.dict.final()).toBe("Hello, world.");
+
+		h.dict.stop();
+		ws.finalResult("Hello, world. Goodbye.");
+		await flush();
+		expect(h.ends).toBe(1);
+		expect(h.dict.error()).toBeNull();
+		h.dispose();
+	});
+
 	test("a device open that never settles ends the recording and leaves the mic usable", async () => {
 		// The measured iOS 18.7 PWA case: getUserMedia parks forever, so
 		// startCapture never resolves and the silence watch — armed FROM that

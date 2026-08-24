@@ -26,6 +26,7 @@ import {
   waitForSyncSubscribed,
 } from "./sync.ts";
 import { createSingleSyncLoopStarter } from "./sync-flow.ts";
+import { mcpRelayProtoToWire, taskProtoToWire } from "./sync-proto-adapters.ts";
 import { applySessionsSnapshot } from "./projector.ts";
 import { _dispatchFragmentCredential } from "./sync-bootstrap.pair.ts";
 import { relocateRetiredBrowser } from "../auth/coordinator-relocation.ts";
@@ -389,21 +390,11 @@ async function _bootstrap(): Promise<void> {
       const response = await coordClient.tasksList({});
       const tasks: Record<string, Task> = {};
       for (const task of response.tasks) {
-        tasks[task.id] = {
-          id: task.id as never,
-          state: task.state as never,
-          payload: JSON.parse(task.payloadJson),
-          enqueued_at_ms: Number(task.enqueuedAtMs),
-          claimed_at_ms: task.claimedAtMs !== undefined ? Number(task.claimedAtMs) : null,
-          claimed_by: (task.claimedBy ?? null) as never,
-          finished_at_ms: task.finishedAtMs !== undefined ? Number(task.finishedAtMs) : null,
-          result: task.resultJson ? JSON.parse(task.resultJson) : null,
-          completion_check: task.completionCheck ?? null,
-          completion_check_last_attempt_ms: task.completionCheckLastAttemptMs !== undefined
-            ? Number(task.completionCheckLastAttemptMs)
-            : null,
-          claim_ttl_ms: Number(task.claimTtlMs),
-        };
+        // Same decoder as the live-delta path: a malformed *_json column
+        // drops its row (after the sync_json_parse signal) instead of
+        // failing the whole domain hydration into an endless retry.
+        const wire = taskProtoToWire(task);
+        if (wire) tasks[task.id] = wire;
       }
       return { apply: () => setRootStore("tasks", tasks) };
     });
@@ -428,13 +419,8 @@ async function _bootstrap(): Promise<void> {
       const response = await coordClient.mcpList({});
       const relays: Record<string, McpRelay> = {};
       for (const relay of response.relays) {
-        relays[relay.id] = {
-          id: relay.id as never,
-          label: relay.label,
-          kind: relay.kind as never,
-          config: JSON.parse(relay.configJson),
-          created_at_ms: Number(relay.createdAtMs),
-        };
+        const wire = mcpRelayProtoToWire(relay);
+        if (wire) relays[relay.id] = wire;
       }
       return { apply: () => setRootStore("mcp_relays", relays) };
     });

@@ -8,13 +8,14 @@
 // Calls: deploy() for the local worker, statusReport() for the readout.
 
 import { spawn } from "bun";
-import { Database } from "bun:sqlite";
+import { mintBrowserToken, mintWorkerToken } from "./quickstart-bootstrap-tokens.ts";
+import { trustedTailscaleExecutable } from "./windows/windows-identity.ts";
 import {
   chmodSync,
   existsSync,
-  lstatSync,
   mkdirSync,
   mkdtempSync,
+  lstatSync,
   renameSync,
   rmdirSync,
   unlinkSync,
@@ -348,69 +349,30 @@ async function dryRunServiceDefinitions(coordUrl: string): Promise<void> {
   }
 }
 
-/** Run a command capturing output (for tailscale cert). */
-function runCapture(cmd: string[]): { exit: number; stdout: string; stderr: string } {
-  const r = Bun.spawnSync(cmd);
-  return { exit: r.exitCode ?? 1, stdout: r.stdout.toString(), stderr: r.stderr.toString() };
-}
+const TAILSCALE_SET_DEADLINE_MS = 30_000;
+// First-time issuance walks tailscaled → Let's Encrypt and can be slow on a
+// cold box; the deadline exists so a hung issuance cannot wedge quickstart
+// forever, not to rush a legitimate mint.
+const TAILSCALE_CERT_DEADLINE_MS = 120_000;
 
-/** Insert a one-shot browser bootstrap token directly into the coord DB —
- *  same row shape as router.ts::authMintBootstrap. No RPC, no loopback
- *  bypass: quickstart runs on the coord host and owns the DB file. The host
- *  browser redeems it via the public authRedeemBrowser on first load. */
-function mintBrowserToken(label: string): string {
-  const rand = new Uint8Array(18);
-  crypto.getRandomValues(rand);
-  const token = "roost_bt_" + Array.from(rand).map((b) => b.toString(16).padStart(2, "0")).join("");
-  const now = Date.now();
-  const db = new Database(coordinatorPaths().database);
-  try {
-    db.query(
-      `INSERT INTO bootstrap_tokens (token, kind, label, created_at_ms, expires_at_ms, used_at_ms, used_by_fp)
-       VALUES (?, 'browser', ?, ?, ?, NULL, NULL)`,
-    ).run(token, label, now, now + 24 * 60 * 60 * 1000);
-  } finally {
-    db.close();
+/** Run a command capturing output, bounded — `tailscale cert` writes through
+ *  tailscaled, which can block indefinitely on a stuck backend. */
+async function runBoundedCapture(cmd: string[], timeoutMs: number): Promise<{ exit: number; stdout: string; stderr: string }> {
+  const signal = AbortSignal.timeout(timeoutMs);
+  const child = spawn(cmd, { stdout: "pipe", stderr: "pipe", signal });
+  const [stdout, stderr, exit] = await Promise.all([
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+    child.exited,
+  ]);
+  if (signal.aborted && signal.reason instanceof Error && signal.reason.name === "TimeoutError") {
+    return { exit: 124, stdout, stderr: `${stderr}\ncommand timed out after ${timeoutMs}ms`.trim() };
   }
-  return token;
-}
-
-/** Insert a one-shot WORKER bootstrap token directly into the coord DB (kind
- *  "worker" — authRedeemWorker enrolls the worker's key from it). Same owner-
- *  of-the-DB-file basis as mintBrowserToken; used by binary-mode quickstart so
- *  the local worker authorizes on a fresh install without a manual token. */
-function mintWorkerToken(label: string): string {
-  const rand = new Uint8Array(18);
-  crypto.getRandomValues(rand);
-  const token = "roost_bt_" + Array.from(rand).map((b) => b.toString(16).padStart(2, "0")).join("");
-  const now = Date.now();
-  const db = new Database(coordinatorPaths().database);
-  try {
-    db.query(
-      `INSERT INTO bootstrap_tokens (token, kind, label, created_at_ms, expires_at_ms, used_at_ms, used_by_fp)
-       VALUES (?, 'worker', ?, ?, ?, NULL, NULL)`,
-    ).run(token, label, now, now + 24 * 60 * 60 * 1000);
-  } finally {
-    db.close();
-  }
-  return token;
-}
-
-function trustedTailscaleExecutable(): string {
-  if (process.platform !== "win32") return "tailscale";
-  const executable = process.env.ROOST_TAILSCALE_EXE?.trim();
-  if (!executable || !win32.isAbsolute(executable) || /[\0\r\n]/.test(executable)) {
-    throw new Error("Windows quickstart requires the trusted absolute ROOST_TAILSCALE_EXE");
-  }
-  const info = lstatSync(executable);
-  if (!info.isFile() || info.isSymbolicLink()) {
-    throw new Error("ROOST_TAILSCALE_EXE must be a non-reparse regular file");
-  }
-  return executable;
+  return { exit: exit ?? 1, stdout, stderr };
 }
 
 /** Mint the tailnet TLS cert via `tailscale cert`. Skip if present unless force. */
-function mintCert(fqdn: string, force: boolean): void {
+async function mintCert(fqdn: string, force: boolean): Promise<void> {
   const tlsDir = coordinatorPaths().tlsDir;
   const certPath = join(tlsDir, `${fqdn}.crt`);
   const keyPath = join(tlsDir, `${fqdn}.key`);
@@ -426,7 +388,7 @@ function mintCert(fqdn: string, force: boolean): void {
     // credentials; the cert call below is the real test either way.
     switch (process.platform) {
       case "linux":
-        runCapture(["sudo", "-n", "tailscale", "set", `--operator=${userInfo().username}`]);
+        await runBoundedCapture(["sudo", "-n", "tailscale", "set", `--operator=${userInfo().username}`], TAILSCALE_SET_DEADLINE_MS);
         break;
       case "darwin":
       case "win32":
@@ -434,7 +396,7 @@ function mintCert(fqdn: string, force: boolean): void {
       default:
         throw new Error(`unsupported quickstart platform: ${process.platform}`);
     }
-    const cert = runCapture([
+    const cert = await runBoundedCapture([
       trustedTailscaleExecutable(),
       "cert",
       "--cert-file",
@@ -442,7 +404,7 @@ function mintCert(fqdn: string, force: boolean): void {
       "--key-file",
       keyPath,
       fqdn,
-    ]);
+    ], TAILSCALE_CERT_DEADLINE_MS);
     if (cert.exit !== 0 && !existsSync(certPath)) {
       const detail = cert.stderr.trim() || cert.stdout.trim();
       if (process.platform !== "linux") {
@@ -661,7 +623,7 @@ export async function quickstart(args: string[]): Promise<void> {
     // `roost worker` via the embedded install scripts (reusing the
     // FRONTED/TLS/serve bash).
     console.log(`   roost: ${process.execPath} (${ROOST_VERSION})`);
-    if (!dry) mintCert(fqdn, force);
+    if (!dry) await mintCert(fqdn, force);
     await installCoordAgent({
       execPath: process.execPath, gitSha: ROOST_VERSION,
       cmd: dry ? "write-plist" : "install", credentials: serviceCredentials,
@@ -683,7 +645,7 @@ export async function quickstart(args: string[]): Promise<void> {
       die(`coord did not become healthy at ${coordUrl}`, "check logs: roost logs coord");
     }
     console.log(`   coord healthy at ${coordUrl}`);
-    const workerToken = mintWorkerToken(`quickstart-${fqdn}`);
+    const workerToken = mintWorkerToken(coordinatorPaths().database, `quickstart-${fqdn}`);
     await installWorkerAgent({
       execPath: process.execPath, coordUrl, bootstrapToken: workerToken,
       gitSha: ROOST_VERSION, cmd: "install", coordinatorHost: true,
@@ -722,7 +684,7 @@ export async function quickstart(args: string[]): Promise<void> {
     } else {
       logStep("web SPA build (skipped — dist present)");
     }
-    mintCert(fqdn, force);
+    await mintCert(fqdn, force);
     logStep("installing coordinator service");
     if (await runInherit(["bash", "apps/coord/scripts/install.sh", "install"]) !== 0) {
       die("coord install.sh failed");
@@ -754,7 +716,7 @@ export async function quickstart(args: string[]): Promise<void> {
   // Authorize this machine's browser with no token paste: mint a #pair token +
   // open it. The fragment never reaches the coordinator or an HTTP Referer.
   logStep("opening the app (browser self-authorizes via #pair)");
-  const token = mintBrowserToken(`quickstart-${fqdn}`);
+  const token = mintBrowserToken(coordinatorPaths().database, `quickstart-${fqdn}`);
   const openUrl = `${coordUrl}/#pair=${encodeURIComponent(token)}`;
   switch (process.platform) {
     case "linux":

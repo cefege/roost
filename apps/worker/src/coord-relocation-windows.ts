@@ -1,3 +1,7 @@
+// Builds the Windows half of a coordinator relocation as an explicit
+// operation sequence (admit / apply / rollback / commit) against the service
+// control manager via relocation broker commands. The POSIX path in
+// coord-target.ts never runs here: SCM cutover must be transactional.
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import { dirname, join } from "node:path";

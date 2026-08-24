@@ -1,3 +1,8 @@
+// Thin Connect adapters for the coordinator-move lifecycle (preflight/start/
+// status): require auth, delegate to deps.move, translate results to protos.
+// Every method calls requireAuth — including status, whose phase, both URLs
+// and error text would otherwise be readable by any tailnet peer that knows
+// a handoff id. A missing move service is FailedPrecondition, not a crash.
 import { Code, ConnectError, type ServiceImpl } from "@connectrpc/connect";
 import { create } from "@bufbuild/protobuf";
 import {

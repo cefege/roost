@@ -1,3 +1,8 @@
+// Worker-side journal for coordinator relocations: durable, schema-versioned
+// records of each handoff's decisions and broker commands, written through
+// durableWriteFile so a crash mid-relocation leaves a readable trail the
+// recovery pass can classify instead of guessing. Consumed by
+// coord-relocation-recovery.ts and the Windows runtime.
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import { dirname } from "node:path";

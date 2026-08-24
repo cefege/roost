@@ -1,12 +1,14 @@
 // Security headers + CORS + audit log writes. Plain fetch-handler
 // helpers — no H3 dependency.
 
-import type { KyselyDB } from "../db/connection.ts";
+import type { CoordConfig } from "@roost/shared/config";
+// Exposed-to-JS header names are part of the SPA↔coord trust contract.
+import { X_ROOST_AUTH_LAYER } from "@roost/shared/wire/headers";
 import { TRACE_HEADER } from "@roost/shared/trace";
 import { auditBus } from "../buses.ts";
 import { recordRequest, recordError } from "../telemetry.ts";
 import { signal } from "@roost/shared/diag";
-import type { CoordConfig } from "@roost/shared/config";
+import type { KyselyDB } from "../db/connection.ts";
 
 const CSP_BASE = [
   "default-src 'self'",
@@ -77,7 +79,7 @@ export function applyCors(
 ): void {
   if (reqOrigin && allowedOrigins.includes(reqOrigin)) {
     headers.set("access-control-allow-origin", reqOrigin);
-    headers.set("access-control-expose-headers", "x-roost-auth-layer");
+    headers.set("access-control-expose-headers", X_ROOST_AUTH_LAYER);
   }
   headers.set("vary", "origin, access-control-request-method, access-control-request-headers");
   headers.set("access-control-allow-methods", "*");

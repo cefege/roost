@@ -1,5 +1,5 @@
 import { markPhase } from "./diag.ts";
-import type { SmokeApi } from "./smoke.ts";
+import type { SmokeApi } from "./smokeTypes.ts";
 import {
   recordTerminalGeometryProof,
   terminalBrowserStreamSnapshot,

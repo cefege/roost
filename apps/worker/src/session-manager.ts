@@ -11,7 +11,11 @@ import * as lifecycle from "./session-lifecycle.ts";
 import * as terminalControl from "./session-terminal-control.ts";
 import type { TerminalControlLane, KeeperAdmissionLane } from "./session-control-lanes.ts";
 import type { TerminalStreamState } from "./session-terminal-state.ts";
-import type { CellGateSuppression, SyncOutputHold } from "./session-emit.ts";
+import type { CellGateSuppression } from "./session-emit.ts";
+import type { SyncOutputHold } from "./session-sync-output.ts";
+import { releaseSyncOutputHold } from "./session-sync-output.ts";
+import { diagSnapshot } from "./session-diag-snapshot.ts";
+import { _enqueueRawMetadata } from "./session-raw-metadata.ts";
 import type { TerminalRequestBudget } from "./transport/coord-link-types.ts";
 
 import { getMultiplexedPool, type MuxChannelCallbacks } from "./keeper/multiplexed-client.ts";
@@ -59,12 +63,12 @@ export class SessionManager {
 	// Per-channel coalesce timer for cell deltas. A burst of terminal output
 	// marks the channel dirty; one delta ships the latest grid per
 	// CELL_EMIT_COALESCE_MS.
-	cellEmitTimers = new Map<number, ReturnType<typeof setTimeout>>();
+	cellEmitTimers = new Map<number, ReturnType<typeof setTimeout> | null>();
 	cellDirty = new Set<number>();
 	// Raw PTY bytes are coordinator-only metadata input. Stage them separately
 	// from cells so ready cell frames lead, while retaining FIFO byte order.
 	rawMetadataQueues = new Map<number, PendingRawMetadataQueue>();
-	rawMetadataTimers = new Map<number, NodeJS.Timeout>();
+	rawMetadataTimers = new Map<number, NodeJS.Timeout | null>();
 	rawMetadataQueuedBytes = 0;
 	// One-shot latency hint: the first PTY chunk after an admitted input may
 	// bypass an already-armed trailing cell timer.
@@ -297,9 +301,8 @@ export class SessionManager {
 	_scheduleCellEmit(channelId: number, promoteInputEcho = false): void {
 		return emit._scheduleCellEmit.call(this, channelId, promoteInputEcho);
 	}
-
 	_enqueueRawMetadata(channelId: number, endSeq: number, chunk: Buffer): void {
-		return emit._enqueueRawMetadata.call(this, channelId, endSeq, chunk);
+		return _enqueueRawMetadata.call(this, channelId, endSeq, chunk);
 	}
 
 	resumeTerminalSnapshots(): void {
@@ -310,11 +313,10 @@ export class SessionManager {
 		return emit._disposeOutputState.call(this, channelId);
 	}
 
-	/** Retire an open synchronized-output hold. The only importer of
-	 *  session-emit's values is this class, so the resize transaction reaches it
-	 *  through here rather than through an import cycle. */
+	/** Retire an open synchronized-output hold. The resize transaction reaches
+	 *  it through here rather than through an import cycle. */
 	_releaseSyncOutputHold(channelId: number): void {
-		return emit.releaseSyncOutputHold(this, channelId);
+		return releaseSyncOutputHold(this, channelId);
 	}
 
 	emitCellFrame(channelId: number, force: boolean): void {
@@ -419,8 +421,12 @@ export class SessionManager {
 		return lifecycle._dropChannelState.call(this, channelId);
 	}
 
+	markRecentlyClosed(channelId: number): void {
+		return lifecycle.markRecentlyClosed.call(this, channelId);
+	}
+
 	diagSnapshot(): Record<string, unknown> {
-		return lifecycle.diagSnapshot.call(this);
+		return diagSnapshot.call(this);
 	}
 
 	_onTransition(sessionId: SessionId, channelId: ChannelId, from: ChannelState, to: ChannelState, event: FsmEvent): void {

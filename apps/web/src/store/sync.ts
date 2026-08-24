@@ -1,7 +1,11 @@
-// Bootstrap and live-sync: populates root store from coord tRPC.
-// Phase 1: list queries → populate. Phase 2: single WS to /api/events → fold deltas.
-// Phase 3: coord-health poller → window.__roostCoordHealth (read by ConnectionBanner).
-// Called once from App.tsx on mount. R4.3 sync deliverable.
+// Sync transport: the one long-lived WebSocket to coord's /ws/coord-sync,
+// carrying the Sync-v2 firehose (state snapshots, cell grids, per-domain
+// deltas). This module owns the DIAL LIFECYCLE ONLY — capped-backoff redial
+// while visible, park-and-wake while hidden (any page-lifecycle resume
+// re-dials in place), and v2 domain subscribe/hydration bookkeeping. The
+// leaf modules hold the rest: sync-frame.ts dispatches each frame,
+// sync-handlers.ts folds deltas, sync-bootstrap.ts hydrates before/at
+// subscribe, sync-watchdog.ts owns backoff + staleness policy.
 
 import { create, toBinary } from "@bufbuild/protobuf";
 import {
@@ -23,6 +27,12 @@ import { isPageVisible } from "../lib/pageVisible.ts";
 // The event firehose is _runConnectSync: a raw WebSocket to coord's
 // /ws/coord-sync carrying state, cell grids, and compact terminal metadata.
 import { signal, diag } from "@roost/shared/diag";
+import {
+  SYNC_AUTH_SUBPROTOCOL,
+  SYNC_QUERY_FLOW_V1,
+  SYNC_QUERY_V2,
+  SYNC_WS_PATH,
+} from "@roost/shared/wire/sync-ws";
 import {
   nextRedialDelayMs,
   shouldCloseStaleLinkOnResume,
@@ -853,17 +863,18 @@ export async function _runConnectSync(): Promise<void> {
     let abortReason: SyncAbortReason = null;
     try {
       console.debug("[sync.connect] starting Sync stream", { sinceEventId: lastSeenSyncEventId(), attempt: _syncFailures + 1 });
-      // Coord base: localStorage override (multi-coord testing) else same-origin.
-      // http→ws / https→wss. The device JWT travels as a WebSocket
-      // subprotocol so proxies never log it in the URL.
+      // Coord base: localStorage override for multi-coord testing, else
+      // same-origin. http→ws / https→wss.
       const override = typeof localStorage !== "undefined" ? localStorage.getItem("roost.coordinatorUrl") : null;
       const wsBase = (override || location.origin).replace(/^http/, "ws");
       const jwt = await signCoordinatorJwt();
-      // flow=1 preserves cumulative application ACKs; exact sync_v=2 opts this
-      // build into subscribed/domain controls without exposing them to cached
-      // flow=1 clients.
-      const url = `${wsBase}/ws/coord-sync?since=${lastSeenSyncEventId()}&tab=${encodeURIComponent(getTabId())}&flow=1&sync_v=2`;
-      const ws = new WebSocket(url, ["roost-auth", jwt]);
+      // flow=v1 preserves cumulative application ACKs; exact sync_v=v2 opts
+      // this build into subscribed/domain controls without exposing them to
+      // cached flow=v1 clients. Path, query values and subprotocol are wire
+      // contract shared with coord's upgrade handler — never inline literals.
+      // The JWT travels as a subprotocol so proxies never log it in the URL.
+      const url = `${wsBase}${SYNC_WS_PATH}?since=${lastSeenSyncEventId()}&tab=${encodeURIComponent(getTabId())}&flow=${SYNC_QUERY_FLOW_V1}&sync_v=${SYNC_QUERY_V2}`;
+      const ws = new WebSocket(url, [SYNC_AUTH_SUBPROTOCOL, jwt]);
       ws.binaryType = "arraybuffer";
       const gen = ++_wsGen;
       const { promise: closed, resolve: resolveClosed } = Promise.withResolvers<void>();

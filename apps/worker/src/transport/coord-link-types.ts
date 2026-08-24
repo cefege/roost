@@ -197,11 +197,15 @@ export interface CoordLinkOutbox {
 }
 
 /** What the reconnect ladder (coord-link-reconnect.ts) needs from the link it
- * is redialling. `dial` is fire-and-forget: the ladder never awaits a dial. */
+ *  is redialing. `dial` is fire-and-forget: the ladder never awaits a dial.
+ *  `jitter`/`rng` tune the shared backoffDelayMs: production defaults to equal
+ *  jitter over Math.random; tests inject both for deterministic ladders. */
 export interface CoordLinkReconnectHooks {
   isDisposed(): boolean;
   dial(): void;
   setState(next: CoordLinkState): void;
+  jitter?: "equal" | "full" | "none";
+  rng?: () => number;
 }
 
 /** Exponential-backoff dial timer plus the dial/open counters its cap is

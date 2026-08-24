@@ -1,3 +1,8 @@
+// The coordinator's caller-trust model: one CallerOrigin per request, derived
+// from the listener's boot-selected trust profile. Forwarded headers are
+// trusted ONLY under "tailscale-serve"; sniffing XFF anywhere else would let
+// a client forge its address past the tailnet and on-host gates, which is
+// why onHost requires a direct loopback peer with no proxy hop.
 import { Code, ConnectError } from "@connectrpc/connect";
 
 /** How a listener learns the real client address. Chosen per-listener at boot

@@ -77,6 +77,7 @@ import { getSessionTraceId, markPhase, markPhaseOnce } from "../lib/diag.ts";
 import { recordInputRtt } from "../lib/leakWatch.ts";
 import { termFontSize } from "../lib/terminalFontPref.ts";
 import { copyOnSelect } from "../lib/copyOnSelectPref.ts";
+import { copyToClipboard } from "../lib/clipboard.ts";
 import { Dialog, Button } from "./Settings/md/primitives.tsx";
 import { sessionTitle } from "../lib/sessionTitle.ts";
 import { createTerminalFind } from "../lib/terminalFindController.ts";
@@ -93,6 +94,8 @@ import {
 	isPendingSpawn,
 	publishMountedSpawnMeasurement,
 } from "../store/optimisticSpawn.ts";
+import { startAttachDiagnosis, type AttachDiagnosisHandle } from "../lib/attachDiagnosis.ts";
+import type { BaselineProgress } from "../store/terminal-stream-types.ts";
 import { predictMode } from "../lib/predictPref.ts";
 
 interface CellTerminalProps {
@@ -125,6 +128,10 @@ const VIEWPORT_DEBOUNCE_MS = 150;
 // Each retry republishes the current socket-bound view intent. A slow first
 // baseline does not flash an offline notice, and the notice clears on paint.
 const OFFLINE_GRACE_MS = 3000;
+
+// Wire-dependent loading stages get a stall line only after this much
+// continuous waiting; faster attaches never pay for a diagnosis poll.
+const ATTACH_DIAGNOSIS_GRACE_MS = 2000;
 
 
 
@@ -245,7 +252,8 @@ export function CellTerminal(props: CellTerminalProps) {
 	async function copySelectionToClipboard(): Promise<void> {
 		const text = window.getSelection()?.toString() ?? "";
 		if (!text) return;
-		await navigator.clipboard.writeText(text).catch(() => { /* denied / insecure ctx */ });
+		// Denial is non-fatal: the selection stays visible for manual copy.
+		await copyToClipboard(text);
 	}
 
 	async function pasteFromClipboard(): Promise<void> {
@@ -307,6 +315,15 @@ export function CellTerminal(props: CellTerminalProps) {
 		if (sib) navigate(`/s/${sib.id}`);
 	};
 
+	const [attachProgress, setAttachProgress] = createSignal<BaselineProgress | null>(null);
+	// The card speaks in received/total parts; the replica speaks in chunks.
+	const loadingProgress = createMemo(() => {
+		const progress = attachProgress();
+		return progress === null
+			? null
+			: { received: progress.receivedChunks, total: progress.totalChunks };
+	});
+
 	const loadingNotice = createMemo(() => {
 		if (
 			props.inLayout !== true
@@ -317,6 +334,32 @@ export function CellTerminal(props: CellTerminalProps) {
 			|| (hasReconciledFrame() && viewportLiveReady())
 		) return null;
 		return terminalViewportLoadingNotice(pending(), viewStatus());
+	});
+
+	// Attach-progress meter + stall diagnosis. The meter rides the view's
+	// chunk assembler; the diagnosis poll starts only after the loading card
+	// has sat in a wire-dependent stage past ATTACH_DIAGNOSIS_GRACE_MS, and
+	// dies on paint, park, or unmount via this effect's cleanup.
+	const [stuckReason, setStuckReason] = createSignal<string | null>(null);
+	let attachDiagnosis: AttachDiagnosisHandle | null = null;
+	// Primitive stage on purpose: the notice object rebuilds on every
+	// pending()/viewStatus() tick, and this effect must not restart its grace
+	// window (or dispose an armed diagnosis) unless the stage itself changes.
+	const loadingStage = createMemo(() => loadingNotice()?.stage ?? null);
+	createEffect(() => {
+		const waitingForWire = loadingStage() === "viewport" || loadingStage() === "frame";
+		if (!waitingForWire) {
+			setStuckReason(null);
+			return;
+		}
+		const timer = setTimeout(() => {
+			attachDiagnosis = startAttachDiagnosis(props.session.id, setStuckReason);
+		}, ATTACH_DIAGNOSIS_GRACE_MS);
+		onCleanup(() => {
+			clearTimeout(timer);
+			attachDiagnosis?.dispose();
+			attachDiagnosis = null;
+		});
 	});
 
 	// Measure one monospace cell in the display font (independent of rendered
@@ -464,6 +507,7 @@ export function CellTerminal(props: CellTerminalProps) {
 					&& status.baselineReady,
 			);
 		});
+		const releaseViewProgress = view.subscribeProgress(setAttachProgress);
 		try {
 		// Sync v2 owns connection and replay; no per-pane input channel startup.
 		const sid = sessionId;
@@ -644,7 +688,9 @@ export function CellTerminal(props: CellTerminalProps) {
 				predictMode();
 				predictor?.refreshPreference();
 			});
-			if (typeof localStorage !== "undefined" && localStorage.getItem("roostSmoke") === "1") {
+			// Build-time gate first: prod bundles fold the debug hook away.
+			if (import.meta.env.VITE_ROOST_SMOKE === "1"
+				&& typeof localStorage !== "undefined" && localStorage.getItem("roostSmoke") === "1") {
 				(window as Window & { __roostPredictDebug?: () => unknown }).__roostPredictDebug =
 					() => predictor?._debug() ?? null;
 			}
@@ -1128,6 +1174,7 @@ export function CellTerminal(props: CellTerminalProps) {
 				document.removeEventListener("mousedown", onDocMousedown, true);
 				publishInactive();
 				releaseViewStatus();
+				releaseViewProgress();
 				view?.dispose();
 				backfill.dispose();
 				backfillRef = null;
@@ -1159,6 +1206,7 @@ export function CellTerminal(props: CellTerminalProps) {
 			inputController = null;
 			publishInactive();
 			releaseViewStatus();
+			releaseViewProgress();
 			view?.dispose();
 			view = null;
 			// A synchronous pane setup failure must surface instead of leaving a
@@ -1295,7 +1343,13 @@ export function CellTerminal(props: CellTerminalProps) {
 
 			/>
 			<Show when={loadingNotice()}>
-				{(notice) => <TerminalLoadingNotice {...notice()} />}
+				{(notice) => (
+					<TerminalLoadingNotice
+						{...notice()}
+						progress={loadingProgress()}
+						stuckReason={stuckReason()}
+					/>
+				)}
 			</Show>
 			<Show when={offline()}>
 				<TerminalOfflineNotice

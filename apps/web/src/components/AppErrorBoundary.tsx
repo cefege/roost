@@ -5,6 +5,7 @@
 
 import { type Component, type JSX, ErrorBoundary, onCleanup } from "solid-js";
 import { log } from "@roost/shared/log";
+import { copyToClipboard } from "../lib/clipboard.ts";
 
 interface Props {
   children: JSX.Element;
@@ -36,10 +37,10 @@ function ErrorFallback(err: unknown, reset: () => void): JSX.Element {
       error: msg,
       stack,
     };
-    try {
-      await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
-    } catch (e) {
-      log.warn("AppErrorBoundary", "copy_diagnostic_failed", { err: String(e) });
+    // Failure is logged, never surfaced — the fallback already prints the
+    // error, and the payload stays in __lastBoundaryErr for tooling.
+    if (!(await copyToClipboard(JSON.stringify(payload, null, 2)))) {
+      log.warn("AppErrorBoundary", "copy_diagnostic_failed", {});
     }
   }
 

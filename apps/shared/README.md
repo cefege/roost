@@ -4,6 +4,8 @@ Every shape that crosses a process boundary is defined here once: Zod schemas
 for in-app validation, protobuf for the bytes, and adapters between them. Coord,
 worker, web, and the CLI all import from this package; nothing here imports back.
 
+Path references are relative to `apps/shared/` unless they start at the repo root (`apps/…`, `scripts/…`, `smoke/…`, `docs/…`).
+
 ## Import rule: subpath-only
 
 **`import { X } from "@roost/shared"` does not resolve.** The package barrel
@@ -67,13 +69,13 @@ The `JsonEvent` fallback path was retired in PR-7g. Do not reintroduce it.
 
 ## Module map
 
-- **Wire (Zod)** — `src/wire/`: `brand.ts` (branded ids), `worker.ts`,
-  `session.ts`, `agent-status.ts`, `event.ts` (`foldEvent`, consumed by BOTH the
+- **Wire (Zod)** — `src/wire/brand.ts` (branded ids), `src/wire/worker.ts`,
+  `src/wire/session.ts`, `src/wire/agent-status.ts`, `src/wire/event.ts` (`foldEvent`, consumed by BOTH the
   coord projector and the web projector, so the two projections agree by
-  construction), `control.ts`, `coord-worker.ts`, `workspace.ts`, `task.ts`,
-  `webhook.ts`, `permission.ts`, `mcp.ts`, plus the `*-proto.ts` adapters.
-- **Terminal cell model** — `src/cell/`: `types.ts`, `grid-to-cells.ts`,
-  `diff-grid.ts`, `emitter.ts`, `cell-proto.ts`.
+  construction), `src/wire/control.ts`, `src/wire/coord-worker.ts`, `src/wire/workspace.ts`, `src/wire/task.ts`,
+  `src/wire/webhook.ts`, `src/wire/permission.ts`, `src/wire/mcp.ts`, plus the `*-proto.ts` adapters.
+- **Terminal cell model** — `src/cell/types.ts`, `src/cell/grid-to-cells.ts`,
+  `src/cell/diff-grid.ts`, `src/cell/emitter.ts`, `src/cell/cell-proto.ts`.
 - **Config** — `src/config.ts`: coord schema + loader only.
 - **Platform + paths** — `src/platform.ts`, `src/paths.ts`, `src/native-path.ts`,
   `src/tailnet.ts`, `src/durability.ts`, `src/local-endpoint.ts`,

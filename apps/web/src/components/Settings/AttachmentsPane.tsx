@@ -7,6 +7,8 @@
 // Sync v2 terminal outbound, attachments lib, md/primitives.
 
 import { createResource, createSignal, For, Show, onCleanup } from "solid-js";
+import { copyToClipboard } from "../../lib/clipboard.ts";
+import { createTrackedTimeouts } from "../trackedTimeout.ts";
 import { coordClient } from "../../connect.ts";
 import { rootStore } from "../../store/root.ts";
 import { sendUserTerminalInput } from "../../lib/userTerminalInput.ts";
@@ -67,6 +69,8 @@ export function AttachmentsPane() {
     if (!session) return false;
     return supportedWorkerPlatform(rootStore.workers[session.worker_fp]?.os) === "win32";
   };
+  const setTimeoutTracked = createTrackedTimeouts();
+
   const [statusMsg, setStatusMsg] = createSignal<string | null>(null);
 
   // Hidden-tab gate: skip the refresh while hidden; next visible tick refreshes.
@@ -98,23 +102,21 @@ export function AttachmentsPane() {
     setStatusMsg(outcome.status === "accepted"
       ? `Injected ${absPath}`
       : `Inject failed: ${outcome.reason}`);
-    setTimeout(() => setStatusMsg(null), 2000);
+    setTimeoutTracked(() => setStatusMsg(null), 2000);
   }
-  async function copyToClipboard(absPath: string): Promise<void> {
-    try {
-      await navigator.clipboard.writeText(absPath);
-      setStatusMsg("Copied to clipboard");
-      setTimeout(() => setStatusMsg(null), 2000);
-    } catch {
-      setStatusMsg("Copy failed (clipboard permission denied)");
-    }
+  async function copyPathToClipboard(absPath: string): Promise<void> {
+    // Both outcomes surface as a status chip; denial names its cause since
+    // there is no other feedback channel here.
+    const ok = await copyToClipboard(absPath);
+    setStatusMsg(ok ? "Copied to clipboard" : "Copy failed (clipboard permission denied)");
+    if (ok) setTimeoutTracked(() => setStatusMsg(null), 2000);
   }
   async function deleteAttachment(sid: string, filename: string): Promise<void> {
     try {
       await coordClient.deleteAttachment({ sessionId: sid, filename });
       setRefreshTick(refreshTick() + 1);
       setStatusMsg(`Deleted ${filename}`);
-      setTimeout(() => setStatusMsg(null), 2000);
+      setTimeoutTracked(() => setStatusMsg(null), 2000);
     } catch (err) {
       setStatusMsg(`Delete failed: ${err instanceof Error ? err.message : String(err)}`);
     }
@@ -146,7 +148,7 @@ export function AttachmentsPane() {
             onChange={(checked) => {
               setShortPathPref(checked);
               setStatusMsg(`Short paths ${checked ? "on" : "off"}`);
-              setTimeout(() => setStatusMsg(null), 1500);
+              setTimeoutTracked(() => setStatusMsg(null), 1500);
             }}
           />
           Use short-path {usesManagedCopies() ? "managed copies" : "symlinks"} for injected paths
@@ -223,7 +225,7 @@ export function AttachmentsPane() {
                           <Button variant="text" icon="content_paste_go" onClick={() => sid && injectPath(sid, entry.absPath)}>
                             Inject
                           </Button>
-                          <Button variant="text" icon="content_copy" onClick={() => copyToClipboard(entry.absPath)}>
+                          <Button variant="text" icon="content_copy" onClick={() => copyPathToClipboard(entry.absPath)}>
                             Copy
                           </Button>
                           <Button

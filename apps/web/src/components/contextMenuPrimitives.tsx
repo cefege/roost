@@ -8,7 +8,7 @@
 // Desktop floating menus only — the terminal menu's mobile bottom-sheet stays
 // in its own file (different interaction model).
 
-import type { JSX } from "solid-js";
+import { onCleanup, type JSX } from "solid-js";
 
 /** Canonical floating-menu surface. zIndex defaults to the terminal menu's 40;
  *  the sidebar-row menu passes 100 to sit above its click-away scrim (99). */
@@ -84,4 +84,67 @@ export function CtxMenuItem(props: {
 			{props.children}
 		</div>
 	);
+}
+
+// ─── right-anchored menus ─────────────────────────────────────────────────────
+// ArrangeMenu, MobileDeckBar's WorkspaceTabsMenu and PaneStrip's PaneTabList
+// all anchor a floating menu UNDER a trigger button with their RIGHT edges
+// aligned and dismiss on outside-click/Escape. The three copies drifted only
+// in min-width and z-index; these primitives pin the shared geometry and the
+// deterministic dismissal so a fourth menu can't fork them again.
+
+export interface AnchoredMenuPos {
+	right: number;
+	y: number;
+}
+
+/** Menu position anchored below `btn`, right edges aligned. `right` is an
+ *  offset from the viewport's right edge so a shrink-fit menu grows leftward
+ *  and can never overflow the screen while its width tracks its content. */
+export function anchoredMenuPosition(btn: Element): AnchoredMenuPos {
+	const r = btn.getBoundingClientRect();
+	return { right: Math.max(6, window.innerWidth - r.right), y: r.bottom + 4 };
+}
+
+/** Right-edge-anchored surface: ctxMenuSurfaceStyle with `left` deleted (a
+ *  stale left + our right would both constrain the box into full width) and
+ *  the trigger-derived `right` applied. `extra` wins for per-menu overrides
+ *  (max-width, padding, layout) on top of the shared chrome. */
+export function anchoredMenuSurfaceStyle(
+	pos: AnchoredMenuPos,
+	opts: { minWidth: string; zIndex?: number; extra?: JSX.CSSProperties },
+): JSX.CSSProperties {
+	const s: JSX.CSSProperties = {
+		...ctxMenuSurfaceStyle(0, pos.y, opts.zIndex),
+		"min-width": opts.minWidth,
+		right: `${pos.right}px`,
+		...opts.extra,
+	};
+	delete s.left;
+	return s;
+}
+
+/** Outside-click + Escape dismissal for a floating menu, registered for the
+ *  owning reactive scope's lifetime. A click closes UNLESS it landed inside an
+ *  element produced by `within` (the trigger button, the menu itself) — item
+ *  clicks close explicitly instead, keeping ordering deterministic against
+ *  Solid's delegated events. */
+export function trackFloatingMenuDismiss(opts: {
+	onClose(): void;
+	within?: Array<() => Element | undefined | null>;
+}): void {
+	const onDocClick = (e: MouseEvent) => {
+		const t = e.target as Node | null;
+		if (t) for (const el of opts.within ?? []) if (el()?.contains(t)) return;
+		opts.onClose();
+	};
+	const onEsc = (e: KeyboardEvent) => {
+		if (e.key === "Escape") opts.onClose();
+	};
+	document.addEventListener("click", onDocClick);
+	document.addEventListener("keydown", onEsc);
+	onCleanup(() => {
+		document.removeEventListener("click", onDocClick);
+		document.removeEventListener("keydown", onEsc);
+	});
 }

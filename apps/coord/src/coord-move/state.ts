@@ -1,3 +1,9 @@
+// Durable coordinator-handoff state: strict zod schema (version 1) plus the
+// HandoffStateStore that both SOURCE and TARGET coordinators read/write. The
+// schema is versioned and strict because a moved-to coordinator must parse
+// what its predecessor wrote — field changes need an upgrade story. Writes
+// are atomic and fsynced; writeDurable's onCommitted fires after the rename,
+// letting in-memory gates become visible no earlier than the persisted phase.
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import { dirname, join } from "node:path";

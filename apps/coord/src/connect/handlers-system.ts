@@ -130,19 +130,25 @@ export function makeSystemHandlers(
     // On-demand state dump. The coordinator captures its bounded local state,
     // requests one correlated snapshot from every known worker that is live,
     // and waits only through the worker-RPC deadline before returning.
+    // A non-empty sessionFilterId narrows the whole dump to ONE session and
+    // answers purely from memory (no DB): the attach-progress poller fires
+    // this RPC every 750 ms per attaching browser pane, so both the open-
+    // sessions scan and the fleet-wide worker fan-out would burn the shared
+    // loop for a question only one worker can answer.
     async diagSnapshot(req, ctx) {
       requireAuth(ctx.values);
       const capturedAtMs = Date.now();
+      const sessionFilterId: string = req.sessionFilterId || "";
       const connectedWorkerFps = new Set(connectWorkers.keys());
       const routeState = _sessionRouteSnapshot();
       const lastCellState = _lastCellSnapshot();
       const viewerState = terminalViewerProjection();
       const terminalScreen = currentTerminalScreenHub();
-      const openSessions = await deps.db.selectFrom("sessions")
+      const openSessions = sessionFilterId === "" ? [] : await deps.db.selectFrom("sessions")
         .select(["id", "worker_fp", "channel"])
         .where("status", "=", "open")
         .execute();
-      const registeredWorkers = await deps.db.selectFrom("workers")
+      const registeredWorkers = sessionFilterId === "" ? [] : await deps.db.selectFrom("workers")
         .select("fp")
         .execute();
 
@@ -195,7 +201,9 @@ export function makeSystemHandlers(
           };
         }
       }
+      const filtered = sessionFilterId === "" ? null : [sessionFilterId];
       for (const [sessionId, viewers] of viewerState) {
+        if (filtered !== null && !filtered.includes(sessionId)) continue;
         const state = ensureSession(sessionId);
         for (const [viewerId, geometry] of viewers) {
           state.viewers[viewerId] = {
@@ -217,11 +225,28 @@ export function makeSystemHandlers(
           };
         }
       }
-      for (const sessionId of Object.keys(lastCellState)) ensureSession(sessionId);
+      for (const sessionId of Object.keys(lastCellState)) {
+        if (filtered !== null && !filtered.includes(sessionId)) continue;
+        ensureSession(sessionId);
+      }
+      // The filtered dump must still describe its session even when no viewer,
+      // screen, or last-cell signal has ever touched it (e.g. a dead route).
+      if (filtered !== null) ensureSession(sessionFilterId);
 
-      const workerFps = new Set(registeredWorkers.map((worker) => worker.fp));
-      for (const workerFp of connectedWorkerFps) workerFps.add(workerFp);
+      // Session-scoped fan-out: only the routed worker is asked, and an
+      // unrouted session asks nobody — the browser-side mapper reads that as
+      // "worker offline". collectWorkerDiagSnapshots answers offline/timeout
+      // per fingerprint without throwing.
+      const workerFps = sessionFilterId !== ""
+        ? new Set(routeState[sessionFilterId]
+          ? [routeState[sessionFilterId]!.worker_fp]
+          : [])
+        : new Set([
+          ...registeredWorkers.map((worker) => worker.fp),
+          ...connectedWorkerFps,
+        ]);
       const workers = await collectWorkerDiagSnapshots(workerFps);
+
       const coordState: Record<string, unknown> = {
         build: {
           git_sha: COORD_GIT_SHA,

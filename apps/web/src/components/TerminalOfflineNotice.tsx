@@ -12,6 +12,7 @@ import {
   type JSX,
 } from "solid-js";
 import { isPageVisible } from "../lib/pageVisible.ts";
+import { terminalLoadingProgressView } from "../lib/terminalLoadingProgress.ts";
 import type { TerminalViewHandleStatus } from "../store/terminal-stream.ts";
 
 export type TerminalLoadingStage =
@@ -31,6 +32,12 @@ export interface TerminalLoadingNoticeProps {
   title: string;
   detail: string;
   actions?: JSX.Element;
+  /** Chunked-baseline assembly progress; null/undefined renders the
+   * indeterminate bar. Scrollback backfill and single-frame baselines never
+   * set it, so they stay indeterminate. */
+  progress?: { received: number; total: number } | null;
+  /** Diagnosis line explaining where a stalled attach is stuck. */
+  stuckReason?: string | null;
 }
 
 const VIEWPORT_CONFLICT_DETAIL =
@@ -105,7 +112,14 @@ export function TerminalLoadingNotice(props: TerminalLoadingNoticeProps) {
     detail: props.detail,
   });
   let announcedStage: TerminalLoadingStage | undefined;
-
+  const progressView = () => terminalLoadingProgressView(props.progress);
+  const trackStyle = {
+    height: "var(--md-space-1)",
+    width: "100%",
+    overflow: "hidden",
+    "border-radius": "var(--md-shape-full)",
+    background: "var(--md-sys-color-surface-container-highest)",
+  } as const;
   createEffect(() => {
     const stage = props.stage;
     const stageStartedAt = performance.now();
@@ -119,7 +133,7 @@ export function TerminalLoadingNotice(props: TerminalLoadingNoticeProps) {
     }
     const timer = setInterval(() => {
       if (!isPageVisible()) return;
-      setElapsedSeconds(Math.floor((performance.now() - stageStartedAt) / 1000));
+      setElapsedSeconds(Math.floor((performance.now() - stageStartedAt) / 1_000));
     }, 1_000);
     onCleanup(() => clearInterval(timer));
   });
@@ -140,6 +154,22 @@ export function TerminalLoadingNotice(props: TerminalLoadingNoticeProps) {
         "z-index": "5",
       }}
     >
+      <style>{`
+        /* 25% x 400% exits the track fully on both sides; a shorter stub
+           would end the loop inside the track and visibly snap back. */
+        @keyframes terminal-loading-indeterminate {
+          from { transform: translateX(-100%); }
+          to   { transform: translateX(400%); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          [data-testid="terminal-loading-progress-fill"] {
+            animation: none;
+            /* A parked indeterminate stub reads as a false "stuck 22%";
+               hide it instead of implying determinate progress. */
+            opacity: 0;
+          }
+        }
+      `}</style>
       <div
         role="status"
         aria-live="polite"
@@ -191,6 +221,76 @@ export function TerminalLoadingNotice(props: TerminalLoadingNoticeProps) {
         >
           This step has taken {elapsedSeconds()}s
         </div>
+        <div
+          data-testid="terminal-loading-progress"
+          style={{
+            display: "flex",
+            "flex-direction": "column",
+            gap: "var(--md-space-1)",
+          }}
+        >
+          {/* Indeterminate animation is decorative; determinate track is semantic. */}
+          <Show
+            when={progressView()}
+            fallback={(
+              <div aria-hidden="true" style={trackStyle}>
+                <div
+                  data-testid="terminal-loading-progress-fill"
+                  style={{
+                    height: "100%",
+                    width: "25%",
+                    "border-radius": "var(--md-shape-full)",
+                    background: "var(--md-sys-color-primary)",
+                    animation: "terminal-loading-indeterminate 1.2s var(--md-sys-motion-easing-standard) infinite",
+                  }}
+                />
+              </div>
+            )}
+          >
+            {(view) => (
+              <div
+                role="progressbar"
+                aria-valuemin="0"
+                aria-valuemax="100"
+                aria-valuenow={view().percent}
+                style={trackStyle}
+              >
+                <div
+                  data-testid="terminal-loading-progress-fill"
+                  style={{
+                    height: "100%",
+                    width: `${view().percent}%`,
+                    "border-radius": "var(--md-shape-full)",
+                    background: "var(--md-sys-color-primary)",
+                    transition: "width var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard)",
+                  }}
+                />
+              </div>
+            )}
+          </Show>
+          <Show when={progressView()}>
+            {(view) => (
+              <div
+                data-testid="terminal-loading-progress-label"
+                class="md-label-m"
+                style={{ color: "var(--text-mid)" }}
+              >
+                {view().label}
+              </div>
+            )}
+          </Show>
+        </div>
+        <Show when={props.stuckReason}>
+          {(reason) => (
+            <div
+              data-testid="terminal-loading-stuck-reason"
+              class="md-body-s"
+              style={{ color: "var(--text-mid)", "line-height": "1.4" }}
+            >
+              {reason()}
+            </div>
+          )}
+        </Show>
         <Show when={props.actions}>
           <div
             style={{

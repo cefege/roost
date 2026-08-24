@@ -149,7 +149,7 @@ export async function flushLeadingCellEmit(): Promise<void> {
 export function cleanupStreamHarnesses(): void {
   for (const manager of managers.splice(0).reverse()) {
     manager._disposeOutputState(CHANNEL_ID);
-    for (const timer of manager.cellEmitTimers.values()) clearTimeout(timer);
+    for (const timer of manager.cellEmitTimers.values()) if (timer !== null) clearTimeout(timer);
     manager.cellEmitTimers.clear();
     manager.sessions.clear();
     manager.dispose();

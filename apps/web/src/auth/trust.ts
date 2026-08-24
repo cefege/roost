@@ -56,8 +56,10 @@ export async function trustCoordFingerprint(fp: string): Promise<boolean> {
   return existing === fp;
 }
 
-// Clear pinned fingerprint (e.g. on explicit re-pair).
-async function clearCoordTrust(): Promise<void> {
+// Clear pinned fingerprint. Called only on EXPLICIT user consent ("Trust new
+// coordinator fingerprint" after a mismatch gate) so the next redeem re-runs
+// TOFU against the newly presented key.
+export async function clearCoordTrust(): Promise<void> {
   const db = await openDb();
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, "readwrite");

@@ -1,3 +1,7 @@
+// Keeper-side resize result handling: caches each acknowledged ResizeRequest
+// result on its channel keyed by sequence so ResizeStatus queries answer
+// identically after the fact, and serializes results back to the requesting
+// client. Sequence zero stays reserved for the legacy unsequenced frame.
 import {
   KEEPER_MAX_HISTORY_RESIZE_RECORDS,
   MuxFrameType,

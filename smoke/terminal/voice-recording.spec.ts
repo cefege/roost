@@ -304,10 +304,15 @@ test("Web Speech second recording starts from an empty sent draft", async ({ mob
       continuous = false;
       interimResults = false;
       lang = "";
+      onstart: (() => void) | null = null;
       onresult: ((event: FakeResultEvent) => void) | null = null;
       onend: (() => void) | null = null;
       onerror: ((event: { error: string }) => void) | null = null;
-      start() {}
+      start() {
+        // Real Web Speech fires onstart once the mic is live; the composer
+        // promotes out of its "starting" state on exactly this event.
+        queueMicrotask(() => this.onstart?.());
+      }
       stop() {
         const result = [{ transcript: "hello from web speech" }] as FakeResult;
         result.isFinal = true;

@@ -5,12 +5,12 @@ import {
   _macosDeployJournalPath,
   _parseMacosDeployJournal,
   _recoverMacosDeployJournal,
-} from "../src/deploy.ts";
+} from "../src/deploy-macos-journal.ts";
 import type {
   MacosDeployJournalV1,
   MacosDeployRecoveryRemote,
   MacosDeployTargetProof,
-} from "../src/deploy.ts";
+} from "../src/deploy-macos-journal.ts";
 
 const SHA = "a".repeat(40);
 const RELEASE_ROOT = "/Users/worker/RoostWorkerV2-releases";

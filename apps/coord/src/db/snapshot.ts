@@ -1,3 +1,8 @@
+// Integrity-checked VACUUM INTO snapshot of the live coordinator DB, used as
+// the payload for coordinator moves. Must use query() not prepare(): a
+// prepared statement is finalized only on GC and keeps the source handle
+// busy, so coord's own close() then fails with "database is locked". A failed
+// run removes destPath — partial snapshots must never escape to the target.
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import { Database } from "bun:sqlite";

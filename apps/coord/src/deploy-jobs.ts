@@ -9,6 +9,7 @@
 import { BoundedBus } from "./buses.ts";
 import { busToAsyncIterable } from "./sse.ts";
 import { signal } from "@roost/shared/diag";
+import { log } from "@roost/shared/log";
 import type { SignalKind } from "@roost/shared/diag";
 import { resolveTailnetDnsName } from "@roost/shared/tailnet";
 import { IS_COMPILED_ROOST_BUILD } from "@roost/shared/build-identity";
@@ -75,7 +76,13 @@ export function _gcJob(jobId: string, completedAt = Date.now()): void {
           mode: 0o600,
           privateDacl: true,
         });
-      } catch {
+      } catch (error) {
+        // The record survives until this succeeds; say which one so a stuck
+        // GC loop is diagnosable instead of silently rescheduling forever.
+        log.warn("windows-update", "gc_record_remove_failed", {
+          job_id: jobId, record: windowsUpdateDeployRecordPath(jobId),
+          error: String(error),
+        });
         current.gcTimer = setTimeout(() => void expire(), WINDOWS_UPDATE_POLL_MS);
         return;
       }
@@ -256,7 +263,13 @@ export async function* deployOutput(jobId: string, signal?: AbortSignal): AsyncG
     yield { kind: "done", exit: job.exitCode ?? null, error: job.error };
     return;
   }
-  for await (const message of busToAsyncIterable(job.bus, { signal })) {
+  for await (const message of busToAsyncIterable(job.bus, {
+    signal,
+    // Byte-weight the queue so a flood of long lines trips the byte cap
+    // before the frame cap; text.length approximates UTF-8 cost closely
+    // enough for a bound.
+    sizeOf: (message) => (message.kind === "line" ? message.text.length : 32),
+  })) {
     yield message;
     if (message.kind === "done") return;
   }

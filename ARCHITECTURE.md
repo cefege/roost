@@ -9,6 +9,7 @@ collaborators) is [`CLAUDE.md`](CLAUDE.md).
 Roost is three TypeScript apps on [Bun](https://bun.sh), plus a shared wire
 package. Protobuf messages travel over Connect-RPC for browser requests and
 raw WebSockets for long-lived browser sync and outbound worker transport.
+Path references in this document are repo-root-relative.
 
 ```text
   Browser  (Solid SPA, any device on your tailnet)
@@ -40,7 +41,7 @@ raw WebSockets for long-lived browser sync and outbound worker transport.
 - **Web** (`apps/web/`) — a [Solid](https://www.solidjs.com) SPA on plain
   Vite. One `createStore` root; components read derived selectors and never
   mutate the store directly. URL is the source of truth for navigation. A
-  terminal pane is `CellGridRenderer` (`lib/cellRenderer.ts`) painting
+  terminal pane is `CellGridRenderer` (`apps/web/src/lib/cellRenderer.ts`) painting
   worker-authored cell grids; the browser holds no VT core of its own. Served
   as static files by the coordinator in production.
 - **Coordinator** (`apps/coord/`) — `Bun.serve` with Connect-RPC, Kysely over
@@ -77,7 +78,8 @@ only for attribution. Raw PTY bytes never enter the browser.
 
 **Three explicit replicas.** The worker's wterm core is the authoritative
 terminal. `TerminalScreenHub` holds one complete viewport-only coordinator
-replica per watched session. `terminal-stream.ts` holds one browser replica per
+replica per watched session. `apps/web/src/store/terminal-stream.ts` holds one
+browser replica per
 session and fans owned frame shells to mounted `CellGridRenderer` subscribers.
 `CellTerminal` only measures, publishes view activity, forwards input and
 attaches a renderer; component mount or visibility is never the continuity
@@ -137,7 +139,7 @@ per-channel key, so two devices may both send local sequence 1 without
 collision or loss of FIFO ordering.
 
 **Canonical model vs painted DOM.** These remain different clocks and
-`terminalDiagSnapshot.ts` reports both: view ID/revision/lease state,
+`apps/web/src/lib/terminalDiagSnapshot.ts` reports both: view ID/revision/lease state,
 coordinator stream ID, browser replica epoch/sequence, and renderer reconciled
 epoch/sequence. A renderer frozen for a reader may intentionally trail the
 replica. A same-width, same-epoch full repair is a new tail checkpoint:
@@ -180,15 +182,15 @@ composer, no agent RPC.
 Detection lives entirely on the **worker**:
 
 - A periodic `ps` scan identifies a known agent binary in a session's process
-  tree (`agent-status/process-scan.ts`).
+  tree (`apps/worker/src/agent-status/process-scan.ts`).
 - Agents Roost owns an integration for (OMP, Pi) report their own lifecycle —
   including "needs input" and retry grace — over a per-worker Unix socket. Every
   spawned PTY gets `ROOST_AGENT_SOCKET_PATH` + `ROOST_SESSION_ID`, and the
   server validates that the reporting pid really belongs to that session
-  (`agent-status/report-server.ts`).
+  (`apps/worker/src/agent-status/report-server.ts`).
 - Terminals with no integration (other agents, sessions that predate an
   install) fall back to scanning the session's own screen and OSC title/progress
-  against pinned per-agent manifests (`agent-status/manifests.ts`).
+  against pinned per-agent manifests (`apps/worker/src/agent-status/manifests.ts`).
 
 An integration report beats the screen; a silent integration's lease expires
 after 30 s and the session falls back automatically. The worker publishes one
@@ -250,7 +252,7 @@ multiplexers use:
   dimensions and `baseSeq` match the installed replica and `seq` is its exact
   successor. Any mismatch invalidates the recipient cursor and requests one
   full snapshot. `TerminalScreenHub` keeps the coordinator's canonical replica,
-  while each browser's `terminal-stream.ts` replica survives renderer detach and
+  while each browser's `apps/web/src/store/terminal-stream.ts` replica survives renderer detach and
   Sync reconnect. Per-byte sequence numbers remain one layer lower in the
   keeper's per-channel ring so a restarted worker can re-adopt a live PTY.
 - Retained history is **demand-paged**: it is fetched only on explicit scroll or
@@ -266,7 +268,7 @@ multiplexers use:
 - The **core** is `@wterm/core` 0.3.4, loaded through
   `apps/shared/src/wterm-core-factory.ts` from a locally patched WASM build
   committed at `apps/shared/wasm/wterm-roost.wasm`. Its sha256 sits beside it
-  in `wterm-roost.wasm.sha256`, and `scripts/rebuild-wterm-wasm.sh` reproduces
+  in `apps/shared/wasm/wterm-roost.wasm.sha256`, and `scripts/rebuild-wterm-wasm.sh` reproduces
   the build. Loading is fail-fast: `verifyRoostWasm` rehashes the bytes against
   that digest and checks every 0.3.4 bridge export by name, throwing instead of
   returning a degraded core.
@@ -290,7 +292,7 @@ failure modes and their fixes are catalogued in `CLAUDE.md`.
   survive; the restarted worker reattaches over the UDS and re-adopts open
   sessions.
 - **Browser disconnects** — the `Sync` WebSocket redials on capped monotonic
-  backoff (1 s → `SYNC_REDIAL_MAX_MS` 30 s, `store/sync-watchdog.ts`) and
+  backoff (1 s → `SYNC_REDIAL_MAX_MS` 30 s, `apps/web/src/store/sync-watchdog.ts`) and
   backfills missed events from the last event id. The delay is capped, the
   attempt count never is: only a hidden document sleeps, and one coalesced
   lifecycle wake (`visibilitychange`, `pageshow`, Page Lifecycle `resume`,
@@ -303,23 +305,37 @@ failure modes and their fixes are catalogued in `CLAUDE.md`.
 
 ## Entry points
 
-- **Web:** `apps/web/src/main.tsx` (mount) · `routes.ts` ·
-  `store/{root,projector,sync,selectors}.ts` · `connect.ts` (RPC client) ·
-  `components/CellTerminal.tsx` + `lib/cellRenderer.ts` ·
-  `ws/sync-outbound.ts` + `store/sync-dispatch.ts` (terminal control) ·
-  `store/agent-status.ts` + `components/AgentNotificationBridge.tsx` (status +
+- **Web:** `apps/web/src/main.tsx` (mount) · `apps/web/src/routes.ts` ·
+  `apps/web/src/store/{root,projector,sync,selectors}.ts` ·
+  `apps/web/src/connect.ts` (RPC client) ·
+  `apps/web/src/components/CellTerminal.tsx` +
+  `apps/web/src/lib/cellRenderer.ts` ·
+  `apps/web/src/ws/sync-outbound.ts` +
+  `apps/web/src/store/sync-dispatch.ts` (terminal control) ·
+  `apps/web/src/store/agent-status.ts` +
+  `apps/web/src/components/AgentNotificationBridge.tsx` (status +
   notifications)
 - **Coordinator:** `apps/coord/src/main.ts` (Bun wrapper) ·
-  `coord-factory.ts` (`createCoord`) · `connect/router.ts` +
-  `connect/handlers-*.ts` · `connect/auth-interceptor.ts` · `event-log.ts` ·
-  `byte-hub.ts` · `connect/session-control.ts` +
-  `connect/announced-channel-barrier.ts` (terminal control + barrier) ·
-  `buses.ts` · `db/` · `agent-status-hub.ts` + `push-dispatch.ts`
-- **Worker:** `apps/worker/src/main.ts` · `session-manager.ts` ·
-  `transport/coord-link.ts` · `keeper/multiplexed-main.ts` · `fsm.ts` ·
-  `session-terminal-txn.ts` + `session-control-lanes.ts` (viewport
-  transaction + lanes) ·
-  `agent-status/` (scanner, manifests, report server, integrations)
-- **Shared:** `apps/shared/proto/roost/v1/*.proto` · `src/wire/event.ts`
-  (`foldEvent`) · `src/wire/agent-status.ts` · `src/cell/` (cell wire +
-  emitter) · `src/wterm-core-factory.ts` (pinned core + WASM verification)
+  `apps/coord/src/coord-factory.ts` (`createCoord`) ·
+  `apps/coord/src/connect/router.ts` +
+  `apps/coord/src/connect/handlers-*.ts` ·
+  `apps/coord/src/connect/auth-interceptor.ts` ·
+  `apps/coord/src/event-log.ts` ·
+  `apps/coord/src/byte-hub.ts` ·
+  `apps/coord/src/connect/session-control.ts` +
+  `apps/coord/src/connect/announced-channel-barrier.ts` (terminal control +
+  barrier) · `apps/coord/src/buses.ts` · `apps/coord/src/db/` ·
+  `apps/coord/src/agent-status-hub.ts` + `apps/coord/src/push-dispatch.ts`
+- **Worker:** `apps/worker/src/main.ts` ·
+  `apps/worker/src/session-manager.ts` ·
+  `apps/worker/src/transport/coord-link.ts` ·
+  `apps/worker/src/keeper/multiplexed-main.ts` · `apps/worker/src/fsm.ts` ·
+  `apps/worker/src/session-terminal-txn.ts` +
+  `apps/worker/src/session-control-lanes.ts` (viewport transaction + lanes) ·
+  `apps/worker/src/agent-status/` (scanner, manifests, report server,
+  integrations)
+- **Shared:** `apps/shared/proto/roost/v1/*.proto` ·
+  `apps/shared/src/wire/event.ts` (`foldEvent`) ·
+  `apps/shared/src/wire/agent-status.ts` · `apps/shared/src/cell/` (cell wire
+  + emitter) · `apps/shared/src/wterm-core-factory.ts` (pinned core + WASM
+  verification)

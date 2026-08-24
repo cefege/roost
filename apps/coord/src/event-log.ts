@@ -21,6 +21,14 @@ import { safeJsonParse } from "@roost/shared/json";
 
 // ─── projection helpers ────────────────────────────────────────────────
 
+// The exact session projection column list, shared with every handler that
+// reads sessions rows back for the same row→proto adapters.
+export const SESSION_COLUMNS = [
+  "id", "worker_fp", "channel", "kind", "cwd", "workspace_id", "status",
+  "created_at", "closed_at", "custom_title", "git_branch", "git_remote",
+  "pr_number", "pr_state", "pr_checks", "pr_url", "ports_json", "spawn_cwd",
+] as const;
+
 function sessionToRow(s: Session): Omit<SessionsTable, "agent_json"> {
   return {
     id: s.id,
@@ -47,11 +55,7 @@ function sessionToRow(s: Session): Omit<SessionsTable, "agent_json"> {
 async function loadSession(db: KyselyDB, id: string): Promise<Session | null> {
   const row = await db
     .selectFrom("sessions")
-    .select([
-      "id", "worker_fp", "channel", "kind", "cwd", "workspace_id", "status",
-      "created_at", "closed_at", "custom_title", "git_branch", "git_remote",
-      "pr_number", "pr_state", "pr_checks", "pr_url", "ports_json", "spawn_cwd",
-    ])
+    .select([...SESSION_COLUMNS])
     .where("id", "=", id)
     .executeTakeFirst();
   if (!row) return null;
@@ -179,7 +183,15 @@ async function _cascadeClosedSession(
 export async function appendEvent(
   db: KyselyDB,
   event: SessionEvent,
-  opts: { worker_fp: string | null; client_seq: number | null } = { worker_fp: null, client_seq: null },
+  opts: {
+    worker_fp: string | null;
+    client_seq: number | null;
+    /** Auxiliary writes that MUST commit atomically with the event (e.g.
+     *  junction-table moves). Runs inside the transaction, BEFORE the
+     *  projection fold, so it can still read pre-event state. Bus/channel
+     *  publication stays strictly post-commit — never publish from here. */
+    extraWork?: (trx: KyselyDB) => Promise<void>;
+  } = { worker_fp: null, client_seq: null },
 ): Promise<void> {
   let insertedId: number | undefined;
   let deduped = false;
@@ -192,6 +204,8 @@ export async function appendEvent(
   // Workspaces orphaned by a `closed` cascade; their deltas publish after commit.
   let cascadeOrphans: string[] = [];
   await db.transaction().execute(async (trx) => {
+    if (opts.extraWork) await opts.extraWork(trx as unknown as KyselyDB);
+
     // 1. Append to event log. If (worker_fp, client_seq) is present and
     //    already exists, the partial unique index makes this a conflict
     //    that we silently swallow via onConflict-doNothing.
@@ -365,6 +379,10 @@ export async function appendEvent(
         log.info("event-log", ok ? "reap_orphan_kill_sent" : "reap_orphan_kill_no_socket",
           { session_id: sessionId, worker_fp: workerFp });
       }
+    }).catch((e) => {
+      // Fire-and-forget must never surface as an unhandled rejection; the
+      // snapshot reconcile re-offers these orphans on the next snapshot.
+      log.warn("event-log", "reap_orphan_dispatch_failed", { error: String(e) });
     });
   }
 

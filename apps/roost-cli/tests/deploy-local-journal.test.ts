@@ -1,15 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import {
   _recoverLocalWorkerDeployJournal,
-  localWorkerDeployStageIsConfined,
   localWorkerDeployJournalPath,
+  localWorkerDeployStageIsConfined,
   parseLocalWorkerDeployJournal,
   type LocalWorkerDeployConfinement,
   type LocalWorkerDeployJournalV1,
   type LocalWorkerDeployRecoveryDeps,
   type LocalWorkerLifecycle,
   type LocalWorkerServiceSnapshot,
-} from "../src/deploy-local.ts";
+} from "../src/local-worker-deploy-journal.ts";
 
 const TARGET_SHA = "a".repeat(40);
 const PRIOR_SHA = "b".repeat(40);

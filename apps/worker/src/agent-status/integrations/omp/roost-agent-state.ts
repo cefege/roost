@@ -1,11 +1,14 @@
 // Roost-owned integration adapted from Herdr at commit
 // eacea2daf0b72973173b728936b27478374f2cd2 (Apache-2.0).
 // ROOST_INTEGRATION_ID=omp ROOST_INTEGRATION_VERSION=2
+//
+// Owns ONLY the omp event→state mapping (debounce, retry grace, nested
+// blockers). Delivery is the shared report transport; this source ships as a
+// standalone extension file, so standalone-integration.ts splices
+// report-transport.ts in place of the import below at embed/install time.
 
-import net from "node:net";
+import { createAgentReporter, type AgentReportState as AgentState } from "../../report-transport.ts";
 
-type AgentState = "working" | "blocked" | "idle";
-type QueuedReport = { state: AgentState; message?: string; active: boolean; seq: number };
 interface PiApi {
   events: { on(name: string, handler: (data: unknown) => void): void };
   on(name: string, handler: (event: unknown, context: unknown) => void): void;
@@ -28,67 +31,10 @@ function createReporter(): (state: AgentState, message?: string, active?: boolea
   const endpoint = process.env.ROOST_AGENT_ENDPOINT;
   const capability = process.env.ROOST_AGENT_CAPABILITY;
   const sessionId = process.env.ROOST_SESSION_ID;
-  let reportSeq = Date.now() * 1_000;
-  let queuedReport: QueuedReport | undefined;
-  let sendInFlight = false;
-
-  const sendAttempt = (report: QueuedReport, timeoutMs: number): Promise<boolean> => {
-    if (!endpoint || !capability || !sessionId) return Promise.resolve(false);
-    const request = {
-      version: 1,
-      capability,
-      method: "agent.report",
-      params: {
-        session_id: sessionId,
-        pid: process.pid,
-        agent: "omp",
-        state: report.state,
-        message: report.message,
-        seq: report.seq,
-        active: report.active,
-      },
-    };
-    const { promise, resolve } = Promise.withResolvers<boolean>();
-    const socket = net.createConnection(endpoint);
-    let settled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const finish = (delivered: boolean) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      socket.destroy();
-      resolve(delivered);
-    };
-    socket.on("error", () => finish(false));
-    socket.on("connect", () => socket.write(`${JSON.stringify(request)}\n`));
-    socket.on("data", () => finish(true));
-    socket.on("end", () => finish(false));
-    timer = setTimeout(() => finish(false), timeoutMs);
-    timer.unref?.();
-    return promise;
-  };
-  const sendNow = async (report: QueuedReport): Promise<void> => {
-    if (await sendAttempt(report, 500)) return;
-    await sendAttempt(report, 1_500);
-  };
-  const drain = async (): Promise<void> => {
-    if (sendInFlight) return;
-    sendInFlight = true;
-    try {
-      while (queuedReport) {
-        const report = queuedReport;
-        queuedReport = undefined;
-        await sendNow(report);
-      }
-    } finally {
-      sendInFlight = false;
-      if (queuedReport) void drain();
-    }
-  };
-  return (state, message, active = true) => {
-    queuedReport = { state, message, active, seq: ++reportSeq };
-    if (!sendInFlight) void drain();
-  };
+  // An incomplete endpoint triple means agent status was never provisioned on
+  // this machine; degrade to a no-op rather than crash the host agent.
+  if (!endpoint || !capability || !sessionId) return () => {};
+  return createAgentReporter({ agent: "omp", endpoint, capability, sessionId });
 }
 
 function lastAssistantMessage(messages: unknown[]): AssistantMessage | undefined {

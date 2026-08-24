@@ -7,15 +7,20 @@ import {
   SyncDomain,
   type FirehoseFrame,
 } from "@roost/shared/proto/sync_pb";
+import { log } from "@roost/shared/log";
+import type { SyncDeadlineClock } from "./sync-ws-deadline.ts";
 import type { SyncFeedFrameMeta } from "./sync-feed.ts";
 import type { SyncWsData } from "./sync-ws-handler.ts";
 import {
+  V2_ATTACH_PRIORITY_WINDOW_MS,
   V2_DOMAIN_MAX_QUEUED_BYTES,
   V2_DOMAIN_MAX_QUEUED_FRAMES,
+  isV2SnapshotFrame,
   type SyncTerminalSessionLane,
 } from "./sync-ws-v2-state.ts";
 
 interface SyncV2TerminalSchedulerDeps {
+  deadlineClock: SyncDeadlineClock;
   enqueueV2Frame(
     ws: ServerWebSocket<SyncWsData>,
     frame: FirehoseFrame,
@@ -31,7 +36,10 @@ interface SyncV2TerminalSchedulerDeps {
 export function makeSyncV2TerminalScheduler(
   deps: SyncV2TerminalSchedulerDeps,
 ) {
-  const { enqueueV2Frame, removeTerminalQueued } = deps;
+  const { deadlineClock, enqueueV2Frame, removeTerminalQueued } = deps;
+  // A backlogged socket re-enters this path on every state push until its
+  // ACKs drain, so the overflow warning fires once per socket, not per frame.
+  const overflowWarned = new WeakSet<ServerWebSocket<SyncWsData>>();
 
   function pumpTerminalStates(
     ws: ServerWebSocket<SyncWsData>,
@@ -69,12 +77,20 @@ export function makeSyncV2TerminalScheduler(
       lane.cursor = null;
       return;
     }
+    const startedAtMs = lane.snapshotStartedAtMs;
+    // A fresh baseline jumps other sessions' queued deltas so a new viewer
+    // paints ahead of steady-state traffic; the window keeps the privilege
+    // from outliving the attach.
+    const attachSnapshot = startedAtMs !== null
+      && deadlineClock.now() - startedAtMs <= V2_ATTACH_PRIORITY_WINDOW_MS
+      && isV2SnapshotFrame(frame);
     cursor.queued = enqueueV2Frame(ws, frame, {
       domain: SyncDomain.TERMINAL,
       lane: "cell",
       sessionId,
       terminalStreamId: cursor.streamId,
       terminalCursorIndex: cursorIndex,
+      attachSnapshot: attachSnapshot || undefined,
     });
   }
 
@@ -141,6 +157,7 @@ export function makeSyncV2TerminalScheduler(
       streamId,
       cursor: null,
       pendingStates,
+      snapshotStartedAtMs: deadlineClock.now(),
     };
     v2.terminalSessions.set(sessionId, lane);
     pumpTerminalStates(ws, sessionId, lane);
@@ -155,11 +172,28 @@ export function makeSyncV2TerminalScheduler(
     if (!v2) return;
     let lane = v2.terminalSessions.get(sessionId);
     if (!lane) {
-      lane = { streamId: "", cursor: null, pendingStates: [] };
+      lane = { streamId: "", cursor: null, pendingStates: [], snapshotStartedAtMs: null };
       v2.terminalSessions.set(sessionId, lane);
     }
     lane.pendingStates.push(clone(FirehoseFrameSchema, frame));
     pumpTerminalStates(ws, sessionId, lane);
+    if (lane.pendingStates.length > V2_DOMAIN_MAX_QUEUED_FRAMES) {
+      // Same frame cap the domain queue enforces. Shed the OLDEST states:
+      // a newer terminalViewState supersedes older ones, so keeping the
+      // newest tail is what leaves a correct view once the queue drains
+      // (dropping newest would strand a stale view instead).
+      lane.pendingStates.splice(
+        0,
+        lane.pendingStates.length - V2_DOMAIN_MAX_QUEUED_FRAMES,
+      );
+      if (!overflowWarned.has(ws)) {
+        overflowWarned.add(ws);
+        log.warn("sync-ws", "terminal_pending_states_overflow", {
+          session_id: sessionId,
+          cap: V2_DOMAIN_MAX_QUEUED_FRAMES,
+        });
+      }
+    }
   };
 
   const replaceTerminalSnapshot = (
@@ -180,6 +214,7 @@ export function makeSyncV2TerminalScheduler(
       deltaTail: [],
       deltaBytes: 0,
     };
+    lane.snapshotStartedAtMs = deadlineClock.now();
     pumpTerminalCursor(ws, sessionId, lane);
   };
 

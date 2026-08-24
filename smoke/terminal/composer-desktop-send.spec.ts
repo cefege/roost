@@ -10,6 +10,7 @@ import {
 } from "./terminal-helpers.ts";
 import { attemptPaintedMarker } from "./terminal-paint-helpers.ts";
 import {
+  acceptedGeometry,
   coordinatorTerminalViewState,
   readTerminalStreamProbe,
 } from "./terminal-probe-helpers.ts";
@@ -155,10 +156,11 @@ test("desktop composer submits Enter and grows above a stable terminal deck", as
     const probe = await readTerminalStreamProbe(smokePage, sessionId);
     const { view, replica } = probe.browser;
     const coordinator = coordinatorTerminalViewState(probe);
+    const geometry = acceptedGeometry(view);
     return {
       status: view.status,
       active: view.active,
-      positiveGeometry: view.effective_cols > 0 && view.effective_rows > 0,
+      positiveGeometry: geometry !== null && geometry.cols > 0 && geometry.rows > 0,
       baselineReady: replica.baseline_ready,
       streamMatched: replica.expected_stream_id === view.stream_id
         && coordinator?.streamId === view.stream_id,
@@ -222,12 +224,15 @@ test("desktop composer submits Enter and grows above a stable terminal deck", as
     const probe = await readTerminalStreamProbe(smokePage, sessionId);
     const { view, replica } = probe.browser;
     const coordinator = coordinatorTerminalViewState(probe);
+    const settled = acceptedGeometry(view);
+    const baselineGeometry = acceptedGeometry(baselineView);
     return view.revision !== null
       && view.status === "accepted"
       && view.active
       && BigInt(view.revision) > baselineRevision
-      && view.effective_cols === baselineView.effective_cols
-      && view.effective_rows < baselineView.effective_rows
+      && settled !== null && baselineGeometry !== null
+      && settled.cols === baselineGeometry.cols
+      && settled.rows < baselineGeometry.rows
       && view.stream_id !== baselineView.stream_id
       && replica.baseline_ready
       && replica.expected_stream_id === view.stream_id
@@ -242,9 +247,13 @@ test("desktop composer submits Enter and grows above a stable terminal deck", as
   }).toBe(true);
   const grownProbe = await readTerminalStreamProbe(smokePage, sessionId);
   const grownView = grownProbe.browser.view;
-  if (!grownView.revision) throw new Error("desktop terminal omitted its resized active view");
+  const grownGeometry = acceptedGeometry(grownView);
+  const baselineGeometry = acceptedGeometry(baselineView);
+  if (!grownView.revision || !grownGeometry || !baselineGeometry) {
+    throw new Error("desktop terminal omitted its resized active view geometry");
+  }
   expect(BigInt(grownView.revision)).toBeGreaterThan(baselineRevision);
-  expect(grownView.effective_rows).toBeLessThan(baselineView.effective_rows);
+  expect(grownGeometry.rows).toBeLessThan(baselineGeometry.rows);
   expect(grownProbe.browser.replica.baseline_ready).toBe(true);
 
   const growthOutputMarker = `DESKTOP_GROWTH_LIVE_${crypto.randomUUID().replaceAll("-", "").slice(0, 8)}`;

@@ -14,7 +14,11 @@ export const terminalGridEpochs = new Map<string, string>();
 export const terminalDropNextFrames = new Set<string>();
 export const terminalDroppedFrameCounts = new Map<string, number>();
 
-const TERMINAL_DROP_STORAGE_PREFIX = "roostSmoke.dropCell.";
+// Drop keys are written only from the smoke-gated dropNextCellFrame path, so
+// deriving the prefix from the build flag drops the roostSmoke literal from
+// prod bundles while smoke-build keys stay byte-identical.
+const TERMINAL_DROP_STORAGE_PREFIX =
+  import.meta.env.VITE_ROOST_SMOKE === "1" ? "roostSmoke.dropCell." : "";
 
 function terminalDropStorageKey(sessionId: string): string {
   return `${TERMINAL_DROP_STORAGE_PREFIX}${sessionId}`;
@@ -99,7 +103,9 @@ export function pruneTerminalSessionState(sessionId: string): void {
     session.assembler.reset();
     clearTimeout(session.chunkTimer ?? undefined);
     session.chunkTimer = null;
-    for (const view of session.handles.values()) clearInterval(view.heartbeat);
+    for (const view of session.handles.values()) {
+      if (view.heartbeat !== null) clearInterval(view.heartbeat);
+    }
     session.handles.clear();
     session.subscribers.clear();
     terminalSessions.delete(sessionId);

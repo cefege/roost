@@ -148,4 +148,38 @@ describe("cell grid chunk contract", () => {
     expect(CELL_GRID_SNAPSHOT_MAX_LINK_MAPPINGS).toBe(1_024);
     expect(code(() => assertCellGridSnapshot(source))).toBe("link-limit");
   });
+  test("reports assembly progress and clears it on completion", () => {
+    const source = frame(3);
+    const assembler = new CellGridChunkAssembler();
+    expect(assembler.snapshotProgress).toBeNull();
+    const values = chunks(source, [
+      [source.viewportRows[0]!],
+      [source.viewportRows[1]!],
+      [source.viewportRows[2]!],
+    ]);
+    expect(assembler.push(values[0]!, 1)).toEqual({
+      kind: "pending", snapshotId: SNAP, nextChunkIndex: 1,
+    });
+    expect(assembler.snapshotProgress).toEqual({
+      snapshotId: SNAP, receivedChunks: 1, totalChunks: 3,
+    });
+    assembler.push(values[1]!, 2);
+    expect(assembler.snapshotProgress).toEqual({
+      snapshotId: SNAP, receivedChunks: 2, totalChunks: 3,
+    });
+    let complete: PbCellGridFrame | undefined;
+    for (const value of values.slice(2)) {
+      const result = assembler.push(value, 3);
+      if (result.kind === "complete") complete = result.frame;
+    }
+    expect(complete).toEqual(source);
+    // Completed assembly is idle again: a single-frame baseline never
+    // reports progress.
+    expect(assembler.snapshotProgress).toBeNull();
+    // A reset mid-assembly (resync/stream change) clears it too.
+    assembler.push(values[0]!, 4);
+    expect(assembler.snapshotProgress).not.toBeNull();
+    assembler.reset();
+    expect(assembler.snapshotProgress).toBeNull();
+  });
 });

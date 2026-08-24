@@ -4,13 +4,19 @@
 // Main+stack rebuild one session per pane. The parent (TerminalDeck) owns the
 // actual layout mutation via onArrange(kind) → arrangeLayout; this file is
 // placement-agnostic UI only. Menu look reuses the shared context-menu
-// primitives; dismissal + Portal copy TerminalContextMenu.
+// primitives; anchoring/dismissal come from the shared anchored-menu helpers.
 
-import { Show, createSignal, onCleanup, onMount, type JSX } from "solid-js";
+import { Show, createSignal, type JSX } from "solid-js";
 import { Portal } from "solid-js/web";
 import { platformShortcutLabel } from "../lib/browserPlatform.ts";
 import type { ArrangeKind } from "../store/paneLayoutPresets.ts";
-import { ctxMenuSurfaceStyle, CtxMenuItem, CtxMenuSeparator } from "./contextMenuPrimitives.tsx";
+import {
+	anchoredMenuPosition,
+	anchoredMenuSurfaceStyle,
+	CtxMenuItem,
+	CtxMenuSeparator,
+	trackFloatingMenuDismiss,
+} from "./contextMenuPrimitives.tsx";
 
 interface Props {
   onArrange: (kind: ArrangeKind) => void;
@@ -83,12 +89,8 @@ export function ArrangeMenu(props: Props) {
   let menuEl: HTMLDivElement | undefined;
 
   const toggle = () => {
-    if (open()) {
-      setOpen(null);
-      return;
-    }
-    const r = btnEl!.getBoundingClientRect();
-    setOpen({ right: Math.max(6, window.innerWidth - r.right), y: r.bottom + 4 });
+    if (open()) { setOpen(null); return; }
+    setOpen(anchoredMenuPosition(btnEl!));
   };
 
   const choose = (kind: ArrangeKind) => {
@@ -96,34 +98,12 @@ export function ArrangeMenu(props: Props) {
     setOpen(null);
   };
 
-  // ctxMenuSurfaceStyle hardcodes `left` (it's a cursor-anchored menu); this
-  // menu instead anchors by its RIGHT edge (`right` = viewport-right → button-
-  // right offset) and shrink-fits leftward. Delete the inherited `left` so a
-  // stale left + our right don't both constrain the box into full width.
-  const surfaceStyle = (right: number, y: number) => {
-    const s = { ...ctxMenuSurfaceStyle(0, y), "min-width": "224px", right: `${right}px` };
-    delete s.left;
-    return s;
-  };
+  // ctxMenuSurfaceStyle hardcodes `left` (cursor-anchored); this menu anchors
+  // by its RIGHT edge and shrink-fits leftward — the primitive deletes it.
+  const surfaceStyle = (pos: { right: number; y: number }) =>
+    anchoredMenuSurfaceStyle(pos, { minWidth: "224px" });
 
-  // Deterministic dismissal (vs Solid's delegated-click ordering): a
-  // document-level click closes UNLESS it landed on the button or inside the
-  // menu; Escape always closes. Menu item clicks close explicitly.
-  const onDocClick = (e: MouseEvent) => {
-    const t = e.target as Node;
-    if (btnEl?.contains(t) || menuEl?.contains(t)) return;
-    setOpen(null);
-  };
-  const onEsc = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(null); };
-
-  onMount(() => {
-    document.addEventListener("click", onDocClick);
-    document.addEventListener("keydown", onEsc);
-    onCleanup(() => {
-      document.removeEventListener("click", onDocClick);
-      document.removeEventListener("keydown", onEsc);
-    });
-  });
+  trackFloatingMenuDismiss({ within: [() => btnEl, () => menuEl], onClose: () => setOpen(null) });
 
   return (
     <>
@@ -153,7 +133,7 @@ export function ArrangeMenu(props: Props) {
               ref={menuEl}
               data-testid="arrange-menu"
               class="df-menu-enter"
-              style={surfaceStyle(pos().right, pos().y)}
+              style={surfaceStyle(pos())}
             >
               <CtxMenuItem testid="arrange-balance" onClick={() => choose("balance")}>
                 <ArrangeRow kind="balance" label="Equalize sizes" hint={platformShortcutLabel("arrangeBalance", "Cmd+Opt+B")} />

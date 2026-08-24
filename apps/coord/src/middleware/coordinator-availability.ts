@@ -1,3 +1,8 @@
+// Edge enforcement of the coordinator write gate: once the move gate hits
+// "retired", every mutating request gets a 410. The allowlisted GET paths
+// (health, move status, auth identity) stay readable so workers and monitors
+// can still DISCOVER the relocation — adding an RPC here decides whether it
+// survives its own retirement.
 import type { CoordinatorWriteMode } from "../coord-move/write-gate.ts";
 
 function isRetiredDiscoveryPath(path: string): boolean {

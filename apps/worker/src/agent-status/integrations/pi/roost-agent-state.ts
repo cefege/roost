@@ -1,21 +1,14 @@
 // Roost-owned integration adapted from Herdr at commit
 // eacea2daf0b72973173b728936b27478374f2cd2 (Apache-2.0).
 // ROOST_INTEGRATION_ID=pi ROOST_INTEGRATION_VERSION=2
-// @ts-nocheck
+//
+// Owns ONLY the pi event→state mapping (root-session gate, blocked counter,
+// heartbeat). Delivery is the shared report transport; this source ships as a
+// standalone extension file, so standalone-integration.ts splices
+// report-transport.ts in place of the import below at embed/install time.
 
-import net from "node:net";
+import { createAgentReporter, type AgentReportState as AgentState } from "../../report-transport.ts";
 
-const endpoint = process.env.ROOST_AGENT_ENDPOINT;
-const capability = process.env.ROOST_AGENT_CAPABILITY;
-const sessionId = process.env.ROOST_SESSION_ID;
-const disabled = process.env.ROOST_AGENT_STATUS_DISABLED === "1"
-  || !endpoint || !capability || !sessionId;
-const parsedHeartbeatMs = Number.parseInt(process.env.ROOST_AGENT_HEARTBEAT_MS ?? "", 10);
-const heartbeatMs = Number.isFinite(parsedHeartbeatMs) && parsedHeartbeatMs >= 0
-  ? parsedHeartbeatMs : 10_000;
-
-type AgentState = "working" | "blocked" | "idle";
-type QueuedReport = { state: AgentState; message?: string; active: boolean; seq: number };
 interface PiContext { mode?: unknown; isIdle?: () => unknown }
 interface BlockedEvent { active?: unknown; label?: unknown }
 interface PiApi {
@@ -23,79 +16,15 @@ interface PiApi {
   on(name: string, handler: (event: unknown, context: unknown) => void): void;
 }
 
-let reportSeq = Date.now() * 1_000;
-let queuedReport: QueuedReport | undefined;
-let sendInFlight = false;
-
-
-function nextSeq(): number {
-  reportSeq++;
-  return reportSeq;
-}
-
-function sendAttempt(report: QueuedReport, timeoutMs: number): Promise<boolean> {
-  if (disabled) return Promise.resolve(true);
-  const request = {
-    version: 1,
-    capability,
-    method: "agent.report",
-    params: {
-      session_id: sessionId,
-      pid: process.pid,
-      agent: "pi",
-      state: report.state,
-      message: report.message,
-      seq: report.seq,
-      active: report.active,
-    },
-  };
-  const { promise, resolve } = Promise.withResolvers<boolean>();
-  const socket = net.createConnection(endpoint);
-  let settled = false;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const finish = (delivered: boolean) => {
-    if (settled) return;
-    settled = true;
-    clearTimeout(timer);
-    socket.destroy();
-    resolve(delivered);
-  };
-  socket.on("error", () => finish(false));
-  socket.on("connect", () => socket.write(`${JSON.stringify(request)}\n`));
-  socket.on("data", () => finish(true));
-  socket.on("end", () => finish(false));
-  timer = setTimeout(() => finish(false), timeoutMs);
-  timer.unref?.();
-  return promise;
-}
-
-async function sendNow(report: QueuedReport): Promise<void> {
-  if (await sendAttempt(report, 500)) return;
-  await sendAttempt(report, 1_500);
-}
-
-function queueReport(state: AgentState, message: string | undefined, active = true): void {
-  queuedReport = { state, message, active, seq: nextSeq() };
-  if (!sendInFlight) void drainReports();
-}
-
-async function drainReports(): Promise<void> {
-  if (sendInFlight) return;
-  sendInFlight = true;
-  try {
-    while (queuedReport) {
-      const report = queuedReport;
-      queuedReport = undefined;
-      await sendNow(report);
-    }
-  } finally {
-    sendInFlight = false;
-    if (queuedReport) void drainReports();
-  }
-}
-
 export default function install(pi: PiApi): void {
-  if (disabled) return;
+  const endpoint = process.env.ROOST_AGENT_ENDPOINT;
+  const capability = process.env.ROOST_AGENT_CAPABILITY;
+  const sessionId = process.env.ROOST_SESSION_ID;
+  if (process.env.ROOST_AGENT_STATUS_DISABLED === "1" || !endpoint || !capability || !sessionId) return;
+  const parsedHeartbeatMs = Number.parseInt(process.env.ROOST_AGENT_HEARTBEAT_MS ?? "", 10);
+  const heartbeatMs = Number.isFinite(parsedHeartbeatMs) && parsedHeartbeatMs >= 0
+    ? parsedHeartbeatMs : 10_000;
+
   let rootSession = false;
   let agentActive = false;
   let blockedCount = 0;
@@ -104,6 +33,7 @@ export default function install(pi: PiApi): void {
   let lastMessage: string | undefined;
   let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
 
+  const queueReport = createAgentReporter({ agent: "pi", endpoint, capability, sessionId });
   const desiredState = (): { state: AgentState; message?: string } => {
     if (blockedCount > 0) return { state: "blocked", message: blockedMessage };
     return { state: agentActive ? "working" : "idle" };

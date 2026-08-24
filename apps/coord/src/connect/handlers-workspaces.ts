@@ -85,24 +85,24 @@ export function makeWorkspaceHandlers(deps: ConnectDeps): WorkspaceHandlers {
           .where("id", "=", req.attachSessionIds[0]!).executeTakeFirst();
         if (sess?.cwd) folderPath = sess.cwd;
       }
-      const workerOs = (await deps.db.selectFrom("workers").select("os")
-        .where("fp", "=", req.workerFp).executeTakeFirst())?.os;
-      // Dedupe by PATH IDENTITY, not string equality: on darwin `/tmp` and
-      // `/private/tmp` are one directory, and a row can hold either form —
-      // sessions report the realpath (worker canonicalSessionCwd) while a row
-      // written before that, or from a typed path, holds what the user saw.
-      // Raw equality created a second workspace for the same folder, and the
-      // SPA then showed neither row's name (folderKey.ts resolves by identity).
-      // The SPA already checks client-side; this also catches two concurrent
-      // creates. Returns the EXISTING row when one lives at that path.
-      const rows = await deps.db.selectFrom("workspaces").selectAll()
-        .where("worker_fp", "=", req.workerFp).execute();
-      const existing = rows.find((r) => sameWorkerFolder(workerOs, r.folder_path, folderPath));
-      if (existing) {
-        const w = await workspaceRowToProto(deps.db, existing);
-        return create(WorkspacesCreateResponseSchema, { workspace: w });
-      }
       const result = await deps.db.transaction().execute(async (trx) => {
+        const workerOs = (await trx.selectFrom("workers").select("os")
+          .where("fp", "=", req.workerFp).executeTakeFirst())?.os;
+        // Dedupe by PATH IDENTITY, not string equality: on darwin `/tmp` and
+        // `/private/tmp` are one directory, and a row can hold either form —
+        // sessions report the realpath (worker canonicalSessionCwd) while a row
+        // written before that, or from a typed path, holds what the user saw.
+        // Raw equality created a second workspace for the same folder, and the
+        // SPA then showed neither row's name (folderKey.ts resolves by identity).
+        // The SPA already checks client-side; this also catches two concurrent
+        // creates — the scan runs INSIDE the insert transaction so a racing
+        // create serializes behind SQLite's write lock instead of slipping past
+        // an already-committed SELECT. Returns the EXISTING row when one lives
+        // at that path.
+        const rows = await trx.selectFrom("workspaces").selectAll()
+          .where("worker_fp", "=", req.workerFp).execute();
+        const existing = rows.find((r) => sameWorkerFolder(workerOs, r.folder_path, folderPath));
+        if (existing) return { kind: "existing" as const, row: existing };
         const position = await trx.selectFrom("workspaces").select(trx.fn.countAll<number>().as("cnt"))
           .executeTakeFirst().then(r => Number(r?.cnt ?? 0));
         await trx.insertInto("workspaces").values({
@@ -117,10 +117,14 @@ export function makeWorkspaceHandlers(deps: ConnectDeps): WorkspaceHandlers {
           }))).execute();
         }
         const row = await trx.selectFrom("workspaces").selectAll().where("id", "=", id).executeTakeFirstOrThrow();
-        return row;
+        return { kind: "created" as const, row };
       });
-      const w = await workspaceRowToProto(deps.db, result);
-      workspaceBus.publish({ kind: "created", workspace: wsRowToWire(result, await fetchSessionIds(deps.db, result.id)) as any });
+      if (result.kind === "existing") {
+        const w = await workspaceRowToProto(deps.db, result.row);
+        return create(WorkspacesCreateResponseSchema, { workspace: w });
+      }
+      const w = await workspaceRowToProto(deps.db, result.row);
+      workspaceBus.publish({ kind: "created", workspace: wsRowToWire(result.row, await fetchSessionIds(deps.db, result.row.id)) as any });
       return create(WorkspacesCreateResponseSchema, { workspace: w });
     },
 

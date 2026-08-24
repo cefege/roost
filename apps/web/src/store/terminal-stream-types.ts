@@ -33,6 +33,14 @@ export interface TerminalRendererDelivery {
   full: boolean;
 }
 
+/** Chunked-baseline attach progress for one session replica. Mirrors
+ * CellGridChunkAssembler.snapshotProgress; null whenever no chunk assembly
+ * is in flight (idle, single-frame baseline, completed, or reset). */
+export interface BaselineProgress {
+  snapshotId: string;
+  receivedChunks: number;
+  totalChunks: number;
+}
 export interface TerminalViewHandle {
   readonly sessionId: string;
   readonly viewId: string;
@@ -40,6 +48,10 @@ export interface TerminalViewHandle {
   setInactive(): void;
   refresh(): void;
   subscribeStatus(listener: (status: TerminalViewHandleStatus) => void): () => void;
+  /** Attach-progress stream for this view's session replica. Emits the
+   * current value immediately, then on every assembler change observed by
+   * the view-owned poller; null clears any determinate bar. */
+  subscribeProgress(listener: (progress: BaselineProgress | null) => void): () => void;
   subscribeRenderer(
     renderer: CellGridRenderer,
     onDelivery?: (delivery: TerminalRendererDelivery) => void,
@@ -62,9 +74,16 @@ export interface TerminalViewRecord {
   accepted: TerminalViewIntent | null;
   status: TerminalViewHandleStatus | null;
   statusListeners: Set<(status: TerminalViewHandleStatus) => void>;
+  progressListeners: Set<(progress: BaselineProgress | null) => void>;
+  // Attach-progress poll state owned by subscribeProgress in
+  // terminal-stream-view.ts; the interval lives only while listeners do.
+  progressTimer: ReturnType<typeof setInterval> | null;
+  lastProgressKey: string | null;
   rendererSubscribers: Set<TerminalRendererSubscriber>;
   rollingBack: boolean;
-  heartbeat: ReturnType<typeof setInterval>;
+  // Liveness re-assert interval; armed immediately after record creation,
+  // so null only between the two statements (and never observed).
+  heartbeat: ReturnType<typeof setInterval> | null;
   leaseDeadlineMs: number | null;
   disposed: boolean;
 }

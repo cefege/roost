@@ -1,7 +1,8 @@
 // MobileVoiceInput — the terminal composer's inline mic.
-// State: idle → listening → finalizing → insert. Tap to start; tap again to
-// finalize into the draft. While recording/finalizing, an ✕ discards both the
-// engine result and its provisional draft tail.
+// State: idle → starting → listening → finalizing → insert. The tap
+// synchronously enters "starting" (double-taps can never double-open the
+// device); only an engine report of mic+transport live leaves it. Tap again
+// to finalize into the draft; ✕ discards engine result and provisional tail.
 //
 // If a Deepgram key is configured in coord, dictation streams to Deepgram;
 // otherwise it uses the browser's built-in Web Speech recognizer. The
@@ -32,6 +33,7 @@ import {
 import { learnTerms, lexiconTopTerms } from "../lib/keytermLexicon.ts";
 import { keytermBiasing } from "../lib/keytermBiasingPref.ts";
 import { isTouchDevice } from "../lib/windowSizeClass.ts";
+import { createTrackedTimeouts } from "./trackedTimeout.ts";
 
 // The capture pipeline stays warm after a recording so the next tap skips a
 // 1–2 s cold device open. On a PHONE that window is also how long iOS/Android
@@ -67,31 +69,20 @@ function ensureTranscriptionConfig(): void {
 }
 
 // ─── voice recognition shim (built-in fallback) ──────────────────────────
-
-interface SpeechRecognitionEvent extends Event {
-	resultIndex: number;
-	results: SpeechRecognitionResultList;
-}
-interface SpeechRecognitionResultList {
-	length: number;
-	item(index: number): SpeechRecognitionResult;
-	[index: number]: SpeechRecognitionResult;
-}
+interface SpeechRecognitionAlternative { transcript: string; confidence: number }
 interface SpeechRecognitionResult {
 	isFinal: boolean;
 	length: number;
 	item(index: number): SpeechRecognitionAlternative;
 	[index: number]: SpeechRecognitionAlternative;
 }
-interface SpeechRecognitionAlternative {
-	transcript: string;
-	confidence: number;
+interface SpeechRecognitionResultList {
+	length: number;
+	item(index: number): SpeechRecognitionResult;
+	[index: number]: SpeechRecognitionResult;
 }
-interface SpeechRecognitionErrorEvent extends Event {
-	error: string;
-	message: string;
-}
-
+interface SpeechRecognitionEvent extends Event { resultIndex: number; results: SpeechRecognitionResultList }
+interface SpeechRecognitionErrorEvent extends Event { error: string; message: string }
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnySpeechRecognition = any;
 
@@ -116,10 +107,10 @@ function createSpeechRecognition(): AnySpeechRecognition {
 
 // ─── types ───────────────────────────────────────────────────────────────
 
-// listening = mic recording; finalizing = stopped, waiting for the engine to
-// settle the last words before the auto-send fires.
-type VoiceState = "idle" | "listening" | "finalizing";
+// starting = opening mic/transport (untappable-to-stop); listening = recording;
+// finalizing = stopped, waiting for the engine to settle before the auto-send.
 
+type VoiceState = "idle" | "starting" | "listening" | "finalizing";
 interface Props {
 	ownerId: SessionId;
 	/** False when this composer's terminal surface is parked or covered. */
@@ -127,9 +118,17 @@ interface Props {
 	onActiveChange?: (active: boolean) => void;
 	/** Inserts finalized speech into the owning composer's retained draft. */
 	onTranscript: (text: string) => void;
-	/** Replaces the provisional tail; null discards it and restores the base. */
+	/** Replaces the provisional tail with live speech. null ends the dictation
+	 *  without a commit: the caller keeps base + finalized words and drops the
+	 *  unfinalized tail (see onFinalTranscript), so an abandoned recording never
+	 *  eats settled words nor bakes a hypothesis into the draft. */
 	onLiveTranscript: (text: string | null) => void;
-	// Bias Deepgram toward on-screen jargon (keytermContext). Deepgram-only.
+	/** Fires on every engine final update while dictating. The caller uses it
+	 *  as the keep-on-abandon snapshot: finals are real text, the interim tail
+	 *  is not. */
+	onFinalTranscript?: (finalText: string) => void;
+	// Explicit ✕: caller restores its own pre-mic baseline (distinct from null).
+	onDiscard: () => void;
 	readContext?: () => TerminalContext;
 }
 
@@ -146,6 +145,7 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 	const [interimText, setInterimText] = createSignal("");
 	const [finalText, setFinalText] = createSignal("");
 	const [errorMsg, setErrorMsg] = createSignal<string | null>(null);
+	const setTimeoutTracked = createTrackedTimeouts();
 	const ownerToken = ++nextVoiceOwnerToken;
 	const ownsVoice = () => activeVoiceOwner()?.token === ownerToken;
 	const claimVoice = (): boolean => {
@@ -169,6 +169,9 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 		onEnd: () => sendTranscript(),
 		// A failed recording must leave the recording state (see failToIdle).
 		onFailure: () => failToIdle(),
+		// Device AND transport live — the tap's promise is kept. Until this fires
+		// the mic sits in "starting" where taps are deliberate no-ops.
+		onLive: () => promoteToListening(),
 		// Snapshot terminal context → keyterms at WS-open (best-effort). Learn from
 		// the PURE-live extraction (no lexicon) so recurring seeds still decay; then
 		// seed the persisted lexicon into what Deepgram actually gets.
@@ -196,9 +199,13 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 	// engine update while a dictation is open; the idle guard keeps the post-reset
 	// clear (dg.reset() empties both getters) from wiping the caller's text.
 	createEffect(() => {
-		const live = `${dispFinal()} ${dispInterim()}`.trim();
+		const finalPart = dispFinal();
+		const live = `${finalPart} ${dispInterim()}`.trim();
 		if (voiceState() === "idle") return;
+		// Open the caller's session first: its reset must not erase the snapshot
+		// this same engine update is about to deliver.
 		props.onLiveTranscript(live);
+		props.onFinalTranscript?.(finalPart);
 	});
 
 	let recognition: AnySpeechRecognition | null = null;
@@ -217,6 +224,7 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 	onMount(() => {
 		if (!webSupported) return;
 		recognition = createSpeechRecognition();
+		recognition.onstart = () => promoteToListening();
 		recognition.onresult = (e: SpeechRecognitionEvent) => {
 			let interim = "";
 			let final = finalText();
@@ -241,14 +249,14 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 			props.onLiveTranscript(null);
 			setVoiceState("idle");
 			releaseVoice();
-			setTimeout(() => setErrorMsg(null), 3000);
+			setTimeoutTracked(() => setErrorMsg(null), 3000);
 		};
 	});
 
 	onCleanup(() => {
 		clearFinalizeWatchdog();
 		if (voiceState() !== "idle") {
-			discard();
+			forceFinish(false); // unmount mid-dictation keeps settled words only
 		} else {
 			releaseVoice();
 			try {
@@ -265,8 +273,8 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 		clearFinalizeWatchdog();
 		if (!props.active || !claimVoice()) return;
 		const deepgram = useDeepgram();
-		// Clear the selected engine while still idle. The live-feed effect ignores
-		// these reset writes instead of reopening the prior dictation baseline.
+		// Clear the selected engine before any async open. The live-feed effect
+		// ignores these reset writes instead of reopening the prior baseline.
 		if (deepgram) {
 			dg.reset();
 		} else {
@@ -274,16 +282,22 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 			setFinalText("");
 			setInterimText("");
 		}
-		setVoiceState("listening");
+		// Synchronously claim the button: from this instant a second tap hits the
+		// "starting" no-op instead of re-entering the device open.
+		setVoiceState("starting");
 		if (deepgram) {
 			dg.start();
 		} else {
 			try {
-				recognition?.start();
+				recognition?.start(); // onstart promotes to listening
 			} catch {
 				/* already running */
 			}
 		}
+	};
+	// Mic attached AND transport open — the tap's promise is kept.
+	const promoteToListening = () => {
+		setVoiceState((s) => (s === "starting" ? "listening" : s));
 	};
 
 	// Stop recording and send automatically. Moves to `finalizing`; the actual
@@ -318,6 +332,7 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 		setErrorMsg(null);
 		const s = voiceState();
 		if (s === "idle") startRecording();
+		else if (s === "starting") return; // open in flight — a second tap must not double-start
 		else if (s === "listening") stopAndSend();
 		else forceFinish(); // finalizing: a second tap hurries the send, never wedges
 	};
@@ -333,12 +348,9 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 		setInterimText("");
 		releaseVoice();
 	};
-
-	// A failed recording must LEAVE the recording state — the engine has already
-	// torn itself down and its error() is what the caption shows, so nothing here
-	// may reset it. Releasing the voice slot matters as much as the state: while
-	// it is held, every OTHER pane's MobileVoiceInput early-returns null and the
-	// mic disappears from their composers.
+	// A failed recording must LEAVE its state — the engine tore itself down and
+	// error() holds the reason nothing here may reset. Releasing the voice slot
+	// matters equally: while it is held, no other instance may record.
 	const failToIdle = () => {
 		clearFinalizeWatchdog();
 		if (voiceState() === "idle") return;
@@ -361,12 +373,16 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 		resetToIdle();
 	};
 	const sendTranscript = () => { deliver(`${dispFinal()} ${dispInterim()}`.trim()); };
-
-	// Escape from `finalizing`: deliver whatever settled and tear the engine down.
-	// Never discards — a hurried second tap must not cost the user their words.
-	const forceFinish = () => {
+	// Escape from finalizing/starting (hurried tap, deactivation, unmount):
+	// deliver what settled and tear down — never cost the user their words.
+	// keepInterim=true (hurried tap) commits the painted tail the user sees;
+	// involuntary exits pass false so an engine hypothesis the user never
+	// got to accept is not baked into the draft behind their back.
+	const forceFinish = (keepInterim = true) => {
 		clearFinalizeWatchdog();
-		const text = `${dispFinal()} ${dispInterim()}`.trim();
+		const text = keepInterim
+			? `${dispFinal()} ${dispInterim()}`.trim()
+			: dispFinal().trim();
 		if (useDeepgram()) dg.abort();
 		else {
 			webIntent = "cancel";
@@ -379,7 +395,8 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 		deliver(text);
 	};
 
-	// ✕ during recording/finalizing — discard without sending.
+	// ✕ discards without sending. Routed through onDiscard: restoring the
+	// baseline is the CALLER's move, unlike null-keeps-painted semantics.
 	const discard = () => {
 		clearFinalizeWatchdog();
 		if (useDeepgram()) {
@@ -392,94 +409,87 @@ export const MobileVoiceInput: Component<Props> = (props) => {
 				/* ignore */
 			}
 		}
-		// Restore the caller's pre-dictation draft.
-		props.onLiveTranscript(null);
+		props.onDiscard();
 		resetToIdle();
 	};
 
-	// A parked/covered composer must never keep recording without reachable
-	// stop/discard controls. Discard also restores any provisional parent draft.
+	// A covered composer must never keep recording without reachable controls —
+	// but switching away commits what settled instead of silently discarding.
 	createEffect(() => {
-		if (!props.active && voiceState() !== "idle") discard();
+		if (!props.active && voiceState() !== "idle") forceFinish(false);
 	});
 
 	const isActive = () => voiceState() !== "idle";
-	// Material Symbols Rounded ligature per state. Finalizing inserts into the
-	// draft; there is intentionally no direct-send voice mode.
-	const micIcon = () => voiceState() === "listening"
-		? "stop"
-		: voiceState() === "finalizing"
-			? "keyboard_return"
-			: "mic";
+	// Material Symbols ligature per state; finalizing inserts into the draft
+	// (intentionally no direct-send voice mode).
+	const micIcon = () =>
+		({ idle: "mic", starting: "progress_activity", listening: "stop", finalizing: "keyboard_return" })[voiceState()];
 
-	// Only the owner instance remains rendered while recording. A session ID is
-	// not sufficient here: responsive swaps briefly create two mic instances for
-	// the same session.
+	// Every instance keeps its mic mounted and clickable — responsive swaps
+	// create two instances per session, and unmounting the idle twin made the
+	// button jump. Ownership arbitrates: only the owner shows recording state.
 	return (
-		<Show when={activeVoiceOwner() === null || ownsVoice()}>
-			<div
-				class="voice-input voice-input--inline"
-				data-testid="mobile-voice-input"
-				data-state={voiceState()}
-				data-engine={!engineAvailable ? "unavailable" : useDeepgram() ? "deepgram" : "web-speech"}
-			>
-				{/* Errors need their own surface; transcript text lives in the field. */}
-				<Show when={dispError()}>
-					{(error) => (
-						<div
-							class="voice-caption voice-caption--error"
-							data-testid="voice-caption"
-						>
-							<span class="voice-caption__error">Mic error: {error()}</span>
-						</div>
-					)}
-				</Show>
+		<div
+			class="voice-input voice-input--inline"
+			data-testid="mobile-voice-input"
+			data-state={voiceState()}
+			data-owner-active={ownsVoice() ? "true" : "false"}
+			data-engine={!engineAvailable ? "unavailable" : useDeepgram() ? "deepgram" : "web-speech"}
+		>
+			{/* Errors need their own surface; transcript text lives in the field. */}
+			<Show when={dispError()}>
+				{(error) => (
+					<div
+						class="voice-caption voice-caption--error"
+						data-testid="voice-caption"
+					>
+						<span class="voice-caption__error">Mic error: {error()}</span>
+					</div>
+				)}
+			</Show>
 
-				{/* ✕ discard (small tonal FAB) + mic (stop = send), side by side. */}
-				<div class="voice-input__cluster">
-					<Show when={isActive()}>
-						<button
-							type="button"
-							class="voice-fab voice-fab--discard"
-							data-testid="voice-discard"
-							onMouseDown={(event) => event.preventDefault()}
-							onClick={() => discard()}
-							aria-label="Discard recording"
-						>
-							<span class="voice-fab__icon">close</span>
-						</button>
-					</Show>
-
+			{/* Active extras (✕ discard) belong to the owner alone. */}
+			<div class="voice-input__cluster">
+				<Show when={isActive() && ownsVoice()}>
 					<button
 						type="button"
-						class="voice-fab"
-						data-testid="voice-mic"
-						data-recording={voiceState() === "listening" ? "true" : "false"}
-						data-finalizing={voiceState() === "finalizing" ? "true" : "false"}
+						class="voice-fab voice-fab--discard"
+						data-testid="voice-discard"
 						onMouseDown={(event) => event.preventDefault()}
-						onPointerDown={() => {
-							// Open the device and fetch the key on press, not on release:
-							// the cold getUserMedia is what used to eat the first words.
-							if (voiceState() === "idle" && useDeepgram()) {
-								void warmMic().catch(() => {
-									/* startCapture surfaces the error on the actual tap */
-								});
-								prefetchDeepgramKey();
-							}
-						}}
-						onClick={() => toggleRecord()}
-						aria-label={
-							voiceState() === "listening"
-								? "Stop and insert"
-								: voiceState() === "finalizing"
-									? "Inserting"
-									: "Start recording"
-						}
+						onClick={() => discard()}
+						aria-label="Discard recording"
 					>
-						<span class="voice-fab__icon">{micIcon()}</span>
+						<span class="voice-fab__icon">close</span>
 					</button>
-				</div>
+				</Show>
+
+				<button
+					type="button"
+					class="voice-fab"
+					data-testid="voice-mic"
+					data-recording={voiceState() === "listening" ? "true" : "false"}
+					data-starting={voiceState() === "starting" ? "true" : "false"}
+					data-finalizing={voiceState() === "finalizing" ? "true" : "false"}
+					aria-busy={voiceState() === "starting" ? "true" : undefined}
+					onMouseDown={(event) => event.preventDefault()}
+					onPointerDown={() => {
+						// Open the device and fetch the key on press, not on release:
+						// the cold getUserMedia is what used to eat the first words.
+						if (voiceState() === "idle" && useDeepgram()) {
+							void warmMic().catch(() => {
+								/* startCapture surfaces the error on the actual tap */
+							});
+							prefetchDeepgramKey();
+						}
+					}}
+					onClick={() => toggleRecord()}
+					aria-label={
+						({ idle: "Start recording", starting: "Starting recording", listening: "Stop and insert", finalizing: "Inserting" })[voiceState()]
+					}
+				>
+					<span class="voice-fab__icon">{micIcon()}</span>
+				</button>
 			</div>
-		</Show>
+		</div>
 	);
 };

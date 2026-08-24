@@ -11,6 +11,7 @@ import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 
 import { BoundedBus } from "./buses.ts";
+import { log } from "@roost/shared/log";
 import { signal } from "@roost/shared/diag";
 import { coordDataDir } from "@roost/shared/paths";
 import {
@@ -270,7 +271,10 @@ export async function handleWorkerUpdateProgress(workerFp: string, progress: {
   let job: DeployJob | null;
   try {
     job = await jobForWindowsUpdateProgress(progress.job_id, workerFp);
-  } catch {
+  } catch (error) {
+    log.warn("windows-update", "progress_job_lookup_failed", {
+      job_id: progress.job_id, worker_fp: workerFp, error: String(error),
+    });
     return;
   }
   if (!job) return;

@@ -17,22 +17,21 @@ import {
 	getMultiplexedPool,
 	type KeeperHistoryRecords,
 } from "./keeper/multiplexed-client.ts";
-import { ALT_ENTER_SEQS, _scanAltModeTransitions } from "./terminal-stream-scan.ts";
-import { _createWtermCore } from "./session-constants.ts";
+import { ALT_ENTER_SEQS, _scanAltModeTransitions, initAgentOscState } from "./terminal-stream-scan.ts";
+import { _createWtermCore, RESUME_STAGE_CAP_BYTES } from "./session-constants.ts";
 import { drainCoreReplies } from "./terminal-query-reply.ts";
 import { appendToRing, createSbRing, readRing } from "./session-scrollback-ring.ts";
 import { skipOrphanSequencePrefix } from "./terminal-replay-align.ts";
 import { withAgentStatusEnvironment } from "./agent-status/environment.ts";
-import { initAgentOscState } from "./terminal-stream-scan.ts";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { resolveShellSpec } from "./shell-spec.ts";
-import type { ShellSpec } from "./shell-spec.ts";
+import { resolveShellSpec, type ShellSpec } from "./shell-spec.ts";
 import { KeeperFeature } from "./keeper/protocol.ts";
 import {
 	flushResumeEvents,
 	stageResumeCallbacks,
 	type PendingResumeEvent,
+	type ResumeStageState,
 } from "./session-resume-events.ts";
 
 /** Rebuild SessionRecord for a session whose keeper survived this
@@ -48,8 +47,7 @@ export async function resume(this: SessionManager, opts: {
 	shellSpec: ShellSpec;
 }): Promise<boolean> {
 	if (this.sessions.has(opts.channelId)) return false;
-	if (opts.channelId >= this._nextChannel)
-		this._nextChannel = opts.channelId + 1;
+	if (opts.channelId >= this._nextChannel) this._nextChannel = opts.channelId + 1;
 	const fsm = new FsmChannel((from, to, event) =>
 		this._onTransition(opts.sessionId, opts.channelId, from, to, event),
 	);
@@ -57,6 +55,7 @@ export async function resume(this: SessionManager, opts: {
 	const pool = getMultiplexedPool();
 	const liveCallbacks = this.muxCallbacks(opts.channelId);
 	const pendingEvents: PendingResumeEvent[] = [];
+	const stage: ResumeStageState = { overflowed: false };
 	try {
 		const live = await pool.listChannels();
 		const liveChannel = live.find((c) => c.channelId === opts.channelId);
@@ -67,7 +66,7 @@ export async function resume(this: SessionManager, opts: {
 		// them into emitUpstreamChunk, which correctly rejects unknown channels.
 		pool.reattach(
 			opts.channelId,
-			stageResumeCallbacks(liveCallbacks, pendingEvents),
+			stageResumeCallbacks(liveCallbacks, pendingEvents, stage),
 		);
 		let orderedHistory: KeeperHistoryRecords | null = null;
 		let legacyBytes: Uint8Array = new Uint8Array(0);
@@ -85,8 +84,7 @@ export async function resume(this: SessionManager, opts: {
 				historyError = error;
 			}
 		} else {
-			// Drain-only compatibility for the currently deployed pre-capability
-			// keeper. New keepers always take the ordered branch above.
+			// Drain-only compatibility for the deployed pre-capability keeper; new keepers take the branch above.
 			try {
 				const legacy = await pool.getHistory(opts.channelId);
 				legacyBytes = legacy.bytes;
@@ -233,9 +231,15 @@ export async function resume(this: SessionManager, opts: {
 		};
 		this.sessions.set(opts.channelId, record);
 		this.channelResizeSeq.set(opts.channelId, terminalState.highestResizeSeq);
-		const originalCols = record.wtermCore.getCols();
-		const originalRows = record.wtermCore.getRows();
-		this.lastAppliedSize.set(opts.channelId, { cols: originalCols, rows: originalRows });
+		this.lastAppliedSize.set(opts.channelId, { cols: record.wtermCore.getCols(), rows: record.wtermCore.getRows() });
+		// Adoption must be atomic in stream terms: if staging overflowed while
+		// the core was being rebuilt, bytes were already dropped and replaying
+		// the remainder would splice a hole into a live parser. Throwing HERE
+		// (not inside the keeper callback) lands in this function's own catch,
+		// which kills the channel and respawns it fresh under the same sid.
+		if (stage.overflowed) {
+			throw new Error(`resume staged output exceeded ${RESUME_STAGE_CAP_BYTES} bytes; adopting would splice a byte gap`);
+		}
 		// Swap to the ordinary callbacks synchronously, then replay everything
 		// delivered after the keeper's history boundary. JS cannot interleave a
 		// socket callback between this swap and the synchronous flush.
@@ -260,28 +264,29 @@ export async function resume(this: SessionManager, opts: {
 		});
 		return true;
 	} catch (e) {
-		// Do not leave a surviving keeper channel attached to the staging queue
-		// when boot reconciliation falls back to respawn.
+		// Adoption failed AFTER reattach: the channel is live+attached but has
+		// NO SessionRecord, so its PtyOut frames land on emit_no_session and a
+		// chatty orphan crosses KEEPER_DEGRADED_THRESHOLD → onKeeperDegraded
+		// SIGTERMs every healthy session. Kill via the pool's own primitive,
+		// mark recently-closed so in-flight/tail frames drop through the tail
+		// gate, then replay staged events through live callbacks; finally emit
+		// the closed tombstone a mid-resume death produces and report failure
+		// so boot reconciliation respawns under the same sid.
+		pool.kill(opts.channelId);
+		this.markRecentlyClosed(opts.channelId);
 		pool.reattach(opts.channelId, liveCallbacks);
 		flushResumeEvents(liveCallbacks, pendingEvents);
+		this.emitClosedTombstone(opts.sessionId);
 		log.warn("session-manager", "resume_probe_failed", { error: String(e) });
-		diag("session.resume_downgraded_respawn", {
-			sid: opts.sessionId,
-			error: String(e),
-		});
+		diag("session.resume_downgraded_respawn", { sid: opts.sessionId, error: String(e) });
 		return false;
 	}
 }
 
-/** Rebind an existing session_id to a fresh keeper PTY. Used by:
- *  (a) the boot-time auto-respawn loop when `resume()` returned false
- *      (the keeper PTY died with the Mac), and
- *  (b) future manual-restart paths.
- *  The session row in coord's DB keeps its identity (workspace
- *  assignment + sidebar position survive); only the underlying
- *  PTY channel is new. Emits a `respawned` event, not `opened`.
- *  No `closed` is emitted for the old PTY — the row is logically
- *  continuous, not torn down and re-created. */
+/** Rebind an existing session_id to a fresh keeper PTY: the boot-time
+ *  auto-respawn loop after `resume()` returned false, plus future manual
+ *  restarts. Coord's row keeps its identity (workspace + sidebar); only the PTY channel is new.
+ *  Emits `respawned`, not `opened`/`closed` — logically continuous, not recreated. */
 export async function respawn(this: SessionManager, opts: {
 	oldSessionId: SessionId;
 	cwd: string;
@@ -295,9 +300,7 @@ export async function respawn(this: SessionManager, opts: {
 	// first means the async Exit-frame round-trip from the keeper finds
 	// no record and bails harmlessly.
 	const existing = this.getBySessionId(opts.oldSessionId);
-	const existingSize = existing
-		? { cols: existing.wtermCore.getCols(), rows: existing.wtermCore.getRows() }
-		: null;
+	const existingSize = existing ? { cols: existing.wtermCore.getCols(), rows: existing.wtermCore.getRows() } : null;
 	const requestedCwd = canonicalSessionCwd(opts.cwd);
 	const shellSpec = existing?.shellSpec ?? opts.shellSpec ?? resolveShellSpec({
 		cwd: requestedCwd,
@@ -373,9 +376,8 @@ export async function respawn(this: SessionManager, opts: {
 		throw e;
 	}
 
-	// The keeper created this channel's PTY at exactly cols×rows, so this is
-	// proven applied geometry. A later coordinator stream can reuse it without
-	// issuing a no-op keeper resize or replacing the in-memory core.
+	// The keeper created the PTY at exactly cols×rows — proven applied geometry a
+	// later coordinator stream reuses without a no-op resize or core replacement.
 	this.channelResizeSeq.set(channelId, 0);
 	this.lastAppliedSize.set(channelId, { cols, rows });
 

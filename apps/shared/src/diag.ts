@@ -128,6 +128,7 @@ export type SignalKind =
   | "keeper.dead_birth"         // a single spawn → instant zero-byte exit (head_seq===0, <2s); N within window → keeper.degraded self-heal
   | "keeper.restart_degraded"   // worker force-restarted a degraded survivor keeper (self-heal; grace-gated to avoid loops)
   | "spawn.no_ack"              // keeper never acked a Spawn frame within timeout → session hangs (degraded/wedged keeper)
+  | "spawn.agent_launch_dropped" // auto/forced agent launch input was rejected by terminal admission (Sync not connected/subscribed yet) — the PTY opens with no agent and nothing said why; kv names reason. One legitimate attempt exists; there is no retry path
   | "scrollback.gap"            // ring rolled past lastSeq → silent history hole on resume (observability, NOT a band-aid trigger)
   | "scrollback.replay_bound"   // a core rebuild could not reproduce the history the core it replaced still held, and/or its monotonic origin pin CLAMPED — the "history shrank / mis-spliced after a resize" class. A rebuild replays a FIXED byte ring, so once that ring no longer reaches as far back as the old core's line ring the history floor silently JUMPS; kv names the pin's before/after values, how many rows the replay could not reach, and whether the clamp fired. The one moment sbOrigin's correctness is in doubt, so it reports even though the rebuild itself succeeded
   | "terminal.gate_over_budget"  // worker cell-emission gate outlived the keeper command budget: a resize transaction (or repair) is stalling frames, so kv names the gate, its monotonic age, the transaction phase, and the captured byte count
@@ -180,6 +181,10 @@ export function setSignalSink(sink: SignalSink | null): void { _signalSink = sin
 // Per-(kind+key) cooldown so a flapping source can't flood the channel.
 const SIGNAL_COOLDOWN_MS = 10_000;
 const _signalLastFire = new Map<string, number>();
+// Distinct scope keys (per-sid anomalies) would accumulate forever on a
+// long-lived coordinator; drop cold entries once the map is clearly
+// larger than any realistic flapping anomaly set.
+const SIGNAL_COOLDOWN_MAX_KEYS = 512;
 
 /**
  * Emit ONE always-on Tier-1 signal. Cooldown-gated (default 10s) per
@@ -191,6 +196,11 @@ export function signal(kind: SignalKind, kv: DiagKv = {}): void {
   const cooldownKey = `${kind}|${scope}`;
   const now = Date.now();
   if (now - (_signalLastFire.get(cooldownKey) ?? 0) < SIGNAL_COOLDOWN_MS) return;
+  if (_signalLastFire.size > SIGNAL_COOLDOWN_MAX_KEYS) {
+    for (const [key, firedAt] of _signalLastFire) {
+      if (now - firedAt >= SIGNAL_COOLDOWN_MS) _signalLastFire.delete(key);
+    }
+  }
   _signalLastFire.set(cooldownKey, now);
   const record: Record<string, unknown> = { evt: kind, mono_ns: monoNs(), ...kv };
   delete record.cooldownKey;

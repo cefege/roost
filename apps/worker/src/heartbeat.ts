@@ -8,6 +8,7 @@ import type { CoordClient } from "./coord-client.ts";
 import { assertNeverPlatform, supportedHostPlatform } from "@roost/shared/platform";
 import { signal } from "@roost/shared/diag";
 import { log } from "@roost/shared/log";
+import type { HostMetrics } from "@roost/shared/wire";
 import { ROOST_BUILD_SHA } from "@roost/shared/build-identity";
 import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
 import { KEEPER_BUILD_STAMP } from "./keeper/keeper-stamp.ts";
@@ -122,16 +123,6 @@ function logCgroupPressure(): void {
 	}
 }
 
-type HostMetrics = {
-	cpu_pct: number;
-	mem_used_bytes: number;
-	mem_total_bytes: number;
-	disk_used_bytes: number;
-	disk_total_bytes: number;
-	net_rx_bps: number;
-	net_tx_bps: number;
-	sampled_at_ms: number;
-};
 let _cachedHostMetrics: HostMetrics | null = null;
 
 async function collectHostMetrics(): Promise<HostMetrics> {

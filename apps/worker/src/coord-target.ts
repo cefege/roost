@@ -1,6 +1,13 @@
+// TARGET side of a coordinator relocation: this process is the box ABOUT to
+// take the coordinator role. It stages the incoming database/keys into a
+// handoff directory, validates everything (checksum, SQLite integrity, key
+// kid), and only then swaps files into place and (re)installs the service —
+// with a rollback copy of every replaced artifact so any failure unwinds.
+// Windows choreography is delegated to coord-relocation-windows.ts; POSIX
+// install/rollback runs through install.sh here.
 import * as fs from "node:fs";
 import { dirname, join } from "node:path";
-import { createHash } from "node:crypto";
+import { fingerprintOf } from "@roost/shared/fingerprint";
 import { resolveTailnetDnsName } from "@roost/shared/tailnet";
 import { Database } from "bun:sqlite";
 import { COORD_INSTALL_SH } from "@roost/shared/install-scripts";
@@ -16,6 +23,16 @@ import {
   createDefaultWindowsCoordRuntime,
   type WindowsCoordRuntime,
 } from "./coord-relocation-windows-runtime.ts";
+
+import {
+  RELOCATION_PROBE_TIMEOUT_MS,
+  RELOCATION_INSTALLER_TIMEOUT_MS,
+  RelocationSpawnTimeoutError,
+  restoreServeConfig as runRestoreServeConfig,
+  captureServeConfig as runCaptureServeConfig,
+  assertCanFrontCoordinator as probeCanFrontCoordinator,
+  settleWithinTimeout,
+} from "./coord-target-spawns.ts";
 
 const coordLabel = (): string => coordServiceLabel();
 
@@ -133,7 +150,7 @@ const defaultRuntime: CoordTargetRuntime = {
   windows: process.platform === "win32" ? createDefaultWindowsCoordRuntime() : undefined,
 };
 
-function coordinatorKeyFingerprint(pem: Uint8Array): string {
+async function coordinatorKeyFingerprint(pem: Uint8Array): Promise<string> {
   const encoded = Buffer.from(pem).toString("utf8").replace(/-----[^-]+-----/g, "").replace(/\s+/g, "");
   const raw = Buffer.from(encoded, "base64");
   const magic = Buffer.from("openssh-key-v1\0", "ascii");
@@ -163,7 +180,12 @@ function coordinatorKeyFingerprint(pem: Uint8Array): string {
   if (readPrivateString().toString("utf8") !== "ssh-ed25519") throw new Error("coordinator key is not ed25519");
   const publicKey = readPrivateString();
   if (publicKey.length !== 32) throw new Error("coordinator key has an invalid public key");
-  return createHash("sha256").update(publicKey).digest("hex");
+  // The digest MUST come from @roost/shared/fingerprint: worker/coord/web all
+  // derive one byte-identical kid from the same raw 32-byte key, and this
+  // local createHash copy was exactly the fork that invariant forbids. The
+  // PEM/OpenSSH unwrapping above stays local — it parses a PRIVATE key file
+  // only the relocation path ever sees.
+  return fingerprintOf(publicKey);
 }
 
 function existingDirectory(path: string): string {
@@ -460,7 +482,7 @@ export class CoordTarget {
       }
       const prepared = this.#loadPrepared(chunk.handoff_id);
       if (!prepared) throw new Error("coordinator target was not prepared");
-      if (coordinatorKeyFingerprint(fs.readFileSync(join(dir, "ssh_ed25519.key"))) !== prepared.expectedCoordKid) {
+      if ((await coordinatorKeyFingerprint(fs.readFileSync(join(dir, "ssh_ed25519.key")))) !== prepared.expectedCoordKid) {
         throw new Error("coordinator key fingerprint does not match source");
       }
       if (this.runtime.platform === "win32") {
@@ -595,30 +617,12 @@ export class CoordTarget {
   }
 
   private async captureServeConfig(rollback: string): Promise<void> {
-    const config = join(rollback, "tailscale-serve.json");
-    const child = Bun.spawn([process.env.ROOST_TAILSCALE_BIN ?? "tailscale", "serve", "get-config", config, "--all"], { stdout: "ignore", stderr: "ignore" });
-    // Non-fatal, symmetric with restoreServeConfig: a box that never configured
-    // Serve has nothing to restore, and hard-failing PREPARE there would mean a
-    // fresh worker could not take the coordinator role at all.
-    if (await child.exited !== 0) {
-      log.warn("coord-target", "capture_serve_config_failed", { config });
-      return;
-    }
-    if (fs.existsSync(config)) fs.chmodSync(config, 0o600);
+    await runCaptureServeConfig(rollback);
     this.fsyncDirectory(rollback);
   }
+
   private async restoreServeConfig(rollback: string): Promise<void> {
-    const config = join(rollback, "tailscale-serve.json");
-    // `serve get-config` on a machine with no serve config yields an empty
-    // document that `set-config` rejects; the throw used to escape abort() and
-    // surface as "target rollback failed".
-    let captured: string;
-    try { captured = fs.readFileSync(config, "utf8").trim(); } catch { return; }
-    if (!captured || captured === "{}" || captured === "null") return;
-    const child = Bun.spawn([process.env.ROOST_TAILSCALE_BIN ?? "tailscale", "serve", "set-config", config, "--all"], { stdout: "ignore", stderr: "ignore" });
-    if (await child.exited !== 0) {
-      log.warn("coord-target", "restore_serve_config_failed", { config });
-    }
+    await runRestoreServeConfig(rollback);
   }
 
   /** A retired source coordinator is deliberately left running to serve
@@ -634,49 +638,8 @@ export class CoordTarget {
     }
     throw new Error("target already has an active coordinator");
   }
-
-  /** install.sh's serve_front runs `tailscale serve` as the worker's user and
-   *  only WARNS when it fails. On Linux that write needs root or an operator
-   *  grant, so without one the relocated coordinator binds loopback and is
-   *  unreachable at the https URL it advertises — the move gets all the way to
-   *  a swapped database before anything notices.
-   *
-   *  Probing has to attempt a real write: `tailscale serve status` exits 0
-   *  without the grant, so reads cannot tell the two states apart. Verified on
-   *  a Linux node — denied: "Access denied: serve config denied" (exit 1);
-   *  granted: exit 0. A throwaway high port keeps it off anything real, and it
-   *  is turned straight back off. */
   private async assertCanFrontCoordinator(): Promise<void> {
-    // Only the fronted mode invokes serve_front (install.sh:299); a direct-TLS
-    // target never calls `tailscale serve`, so its capability is irrelevant.
-    if (process.env.ROOST_FRONTED === "0") return;
-    switch (this.runtime.platform) {
-      case "darwin":
-        return; // GUI client runs as the user.
-      case "linux":
-        break;
-      case "win32":
-        throw new Error("Windows Tailscale preflight must run inside the relocation transaction");
-      default:
-        throw new Error(`unsupported coordinator target platform: ${this.runtime.platform}`);
-    }
-    const ts = process.env.ROOST_TAILSCALE_BIN ?? "tailscale";
-    const probe = Bun.spawn([ts, "serve", "--bg", "--https=65535", "http://127.0.0.1:1"], {
-      stdout: "pipe", stderr: "pipe",
-    });
-    const [err, code] = await Promise.all([new Response(probe.stderr).text(), probe.exited]);
-    if (code === 0) {
-      await Bun.spawn([ts, "serve", "--https=65535", "off"], { stdout: "ignore", stderr: "ignore" }).exited;
-      return;
-    }
-    // Keep more than the first line: tailscale prints the diagnosis AND the
-    // literal remedy ("To not require root, use 'sudo tailscale set
-    // --operator=$USER' once"). This string is what the SPA shows an operator,
-    // and a blocker that names the fix beats one that only names the fault.
-    const detail = err.trim().split("\n").map((l) => l.trim()).filter(Boolean).slice(0, 3).join(" ");
-    throw new Error(
-      `target cannot configure tailscale serve, so the relocated coordinator would be unreachable at its public URL: ${detail || `exit ${code}`}`,
-    );
+    await probeCanFrontCoordinator(this.runtime.platform);
   }
 
   /** Finalizes the updater transaction after the source has retired. */
@@ -725,11 +688,16 @@ export class CoordTarget {
     });
     // Both pipes must be drained: vite is chatty on stdout and an unread pipe
     // buffer blocks the child, hanging PREPARE.
-    const [out, err, code] = await Promise.all([
-      new Response(child.stdout).text(),
-      new Response(child.stderr).text(),
-      child.exited,
-    ]);
+    const [out, err, code] = await settleWithinTimeout(
+      child,
+      `bun run build (${webDir})`,
+      RELOCATION_INSTALLER_TIMEOUT_MS,
+      () => Promise.all([
+        new Response(child.stdout).text(),
+        new Response(child.stderr).text(),
+        child.exited,
+      ]),
+    );
     if (code !== 0) {
       const detail = `${err}\n${out}`.trim().split("\n").filter(Boolean).slice(-3).join("; ");
       throw new Error(`target web build failed in ${webDir} (exit ${code})${detail ? `: ${detail}` : ""}`);
@@ -773,11 +741,16 @@ export class CoordTarget {
       // thrown away, and this error text is what the SPA shows the operator.
       stdout: "pipe", stderr: "pipe",
     });
-    const [out, err, code] = await Promise.all([
-      new Response(child.stdout).text(),
-      new Response(child.stderr).text(),
-      child.exited,
-    ]);
+    const [out, err, code] = await settleWithinTimeout(
+      child,
+      `install.sh ${command}`,
+      RELOCATION_INSTALLER_TIMEOUT_MS,
+      () => Promise.all([
+        new Response(child.stdout).text(),
+        new Response(child.stderr).text(),
+        child.exited,
+      ]),
+    );
     if (code !== 0) {
       const detail = `${err}\n${out}`.trim().split("\n").filter(Boolean).slice(-4).join("; ");
       throw new Error(`coordinator ${command} failed (exit ${code})${detail ? `: ${detail}` : ` running ${script}`}`);

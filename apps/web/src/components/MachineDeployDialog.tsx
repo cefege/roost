@@ -11,6 +11,7 @@ import { workerCoordinatorUrl } from "../lib/workerCoordinatorUrl.ts";
 import { animateOverlayPanel } from "../lib/overlayMotion.ts";
 import { browserPlatform } from "../lib/browserPlatform.ts";
 import { buildMachineJoinCommand, machinePlatformLabel } from "@roost/shared/machine-join-command";
+import { copyToClipboard } from "../lib/clipboard.ts";
 import { supportedWorkerPlatform } from "../lib/nativePath.ts";
 import type { SupportedHostPlatform } from "@roost/shared/platform";
 
@@ -86,14 +87,11 @@ export function MachineDeployDialog(props: MachineDeployDialogProps) {
   async function copyCmd() {
     const cmd = deployCmd();
     if (!cmd) return;
-    try {
-      await navigator.clipboard.writeText(cmd);
-      setCopied(true);
-      if (copyTimer !== null) clearTimeout(copyTimer);
-      copyTimer = setTimeout(() => { copyTimer = null; setCopied(false); }, 2000);
-    } catch {
-      // clipboard unavailable — user can select manually
-    }
+    // Clipboard denial stays quiet — the command is on screen for manual copy.
+    if (!(await copyToClipboard(cmd))) return;
+    setCopied(true);
+    if (copyTimer !== null) clearTimeout(copyTimer);
+    copyTimer = setTimeout(() => { copyTimer = null; setCopied(false); }, 2000);
   }
 
   function onKeyDown(e: KeyboardEvent) {

@@ -7,6 +7,8 @@ import {
   runWindowsHelper,
   windowsProtectUpdaterArtifact,
 } from "@roost/shared/windows-helper";
+import { durableWriteFile } from "@roost/shared/durability";
+import { normalizedWindowsAccount } from "./windows/windows-identity.ts";
 import {
   existsSync,
   mkdirSync,
@@ -483,10 +485,6 @@ interface WindowsDefinitionsFileBaseline {
   contents: Uint8Array | null;
 }
 
-function normalizeWindowsAccount(account: string): string {
-  return account.trim().replace(/^\.\//, ".\\").toLocaleLowerCase("en-US");
-}
-
 function assertWindowsInstallBaseline(
   baseline: WindowsServiceSnapshotSet,
   expectedAccount: string,
@@ -501,7 +499,7 @@ function assertWindowsInstallBaseline(
     }
     if (
       service.account === null
-      || normalizeWindowsAccount(service.account) !== normalizeWindowsAccount(expectedAccount)
+      || normalizedWindowsAccount(service.account) !== normalizedWindowsAccount(expectedAccount)
     ) {
       throw new Error(
         `${service.name} account migration cannot be rolled back without its prior credential`,
@@ -569,12 +567,14 @@ function snapshotWindowsDefinitionsFile(context: WindowsInstallContext): Windows
   };
 }
 
-function restoreWindowsDefinitionsFile(baseline: WindowsDefinitionsFileBaseline): void {
+async function restoreWindowsDefinitionsFile(baseline: WindowsDefinitionsFileBaseline): Promise<void> {
   if (baseline.contents === null) {
     rmSync(baseline.path, { force: true });
     return;
   }
-  writeFileSync(baseline.path, baseline.contents);
+  // Rollback rewrites the trust anchor every Windows service definition is
+  // read from; a torn write here must stay as durable as the forward write.
+  await durableWriteFile(baseline.path, baseline.contents, { mode: 0o600, privateDacl: true });
 }
 
 async function stopWindowsServicesForCutover(manager: WindowsServiceManager): Promise<void> {
@@ -723,7 +723,7 @@ async function installWindowsServiceTopology(options: {
     }
     if (definitionsWriteAttempted) {
       try {
-        restoreWindowsDefinitionsFile(definitionsBaseline);
+        await restoreWindowsDefinitionsFile(definitionsBaseline);
       } catch (rollbackError) {
         rollbackErrors.push(rollbackError);
       }

@@ -26,7 +26,50 @@ import {
 import { webhookBus, permissionBus, mcpBus } from "../buses.ts";
 import { requireAuth } from "./auth-interceptor.ts";
 import { requireNonEmpty, sha256hex } from "./router-helpers.ts";
+import {
+  PermissionDecision,
+  McpRelayKind,
+  McpRelayId,
+  WebhookScope,
+  asWebhookTokenId,
+  asPermissionRuleId,
+} from "@roost/shared/wire";
+import type { PermissionDecision as PermissionDecisionValue } from "@roost/shared/wire";
+import type { McpRelayKind as McpRelayKindValue } from "@roost/shared/wire";
+import type { WebhookScope as WebhookScopeValue } from "@roost/shared/wire";
 import type { ConnectDeps } from "./router.ts";
+
+// Proto fields arrive as bare strings; rows and bus deltas below speak the
+// shared Zod unions. Narrow ONCE at handler entry so an unknown value is an
+// InvalidArgument here instead of a garbage row plus a delta every SPA must
+// survive. Re-validating row reads also fences hand-edited DB values.
+function permissionDecisionOf(raw: string): PermissionDecisionValue {
+  const parsed = PermissionDecision.safeParse(raw);
+  if (!parsed.success) {
+    throw new ConnectError(`invalid decision ${JSON.stringify(raw)}`, Code.InvalidArgument);
+  }
+  return parsed.data;
+}
+
+function mcpRelayKindOf(raw: string): McpRelayKindValue {
+  const parsed = McpRelayKind.safeParse(raw);
+  if (!parsed.success) {
+    throw new ConnectError(`invalid relay kind ${JSON.stringify(raw)}`, Code.InvalidArgument);
+  }
+  return parsed.data;
+}
+
+function webhookScopesOf(raw: string[]): WebhookScopeValue[] {
+  const scopes = raw.map((scope) => WebhookScope.safeParse(scope))
+    .map((parsed) => {
+      if (!parsed.success) {
+        throw new ConnectError(`invalid scope ${JSON.stringify(parsed.error.issues[0])}`, Code.InvalidArgument);
+      }
+      return parsed.data;
+    });
+  if (scopes.length === 0) throw new ConnectError("at least one scope is required", Code.InvalidArgument);
+  return scopes;
+}
 
 type SettingsMethods =
   | "webhookTokensList" | "webhookTokensMint" | "webhookTokensDelete"
@@ -62,7 +105,8 @@ export function makeSettingsHandlers(
         created_at_ms: now, last_used_at_ms: null,
       }).execute();
       webhookBus.publish({ kind: "created", token: {
-        id: id as any, label: req.label, last4, scopes: req.scopes as any,
+        id: asWebhookTokenId(id), label: req.label, last4,
+        scopes: webhookScopesOf(req.scopes),
         created_at_ms: now, last_used_at_ms: null,
       }});
       return create(WebhookTokensMintResponseSchema, {
@@ -77,7 +121,7 @@ export function makeSettingsHandlers(
       requireAuth(ctx.values);
       const result = await deps.db.deleteFrom("webhook_tokens").where("id", "=", req.id).returningAll().executeTakeFirst();
       if (!result) throw new ConnectError("not found", Code.NotFound);
-      webhookBus.publish({ kind: "deleted", id: result.id as any });
+      webhookBus.publish({ kind: "deleted", id: asWebhookTokenId(result.id) });
       return create(WebhookTokensDeleteResponseSchema, { ok: true });
     },
 
@@ -97,7 +141,7 @@ export function makeSettingsHandlers(
       const enabled = req.enabled ?? true;
       await deps.db.insertInto("permission_rules").values({
         id, tool_pattern: req.toolPattern, folder_glob: req.folderGlob,
-        decision: req.decision as any, enabled: enabled ? 1 : 0,
+        decision: permissionDecisionOf(req.decision), enabled: enabled ? 1 : 0,
         created_at_ms: now,
       }).execute();
       const rule = create(PermissionRuleSchema, {
@@ -105,8 +149,8 @@ export function makeSettingsHandlers(
         decision: req.decision, enabled, createdAtMs: BigInt(now),
       });
       permissionBus.publish({ kind: "created", rule: {
-        id: id as any, tool_pattern: req.toolPattern, folder_glob: req.folderGlob,
-        decision: req.decision as any, enabled, created_at_ms: now,
+        id: asPermissionRuleId(id), tool_pattern: req.toolPattern, folder_glob: req.folderGlob,
+        decision: permissionDecisionOf(req.decision), enabled, created_at_ms: now,
       }});
       return create(PermissionsCreateResponseSchema, { rule });
     },
@@ -116,14 +160,14 @@ export function makeSettingsHandlers(
       const result = await deps.db.updateTable("permission_rules").set({
         ...(req.toolPattern !== undefined && { tool_pattern: req.toolPattern }),
         ...(req.folderGlob !== undefined && { folder_glob: req.folderGlob }),
-        ...(req.decision !== undefined && { decision: req.decision as any }),
+        ...(req.decision !== undefined && { decision: permissionDecisionOf(req.decision) }),
         ...(req.enabled !== undefined && { enabled: req.enabled ? 1 : 0 }),
       }).where("id", "=", req.id).returningAll().executeTakeFirst();
       if (!result) throw new ConnectError("not found", Code.NotFound);
       const rule = permissionRuleRowToProto(result);
       permissionBus.publish({ kind: "updated", rule: {
-        id: result.id as any, tool_pattern: result.tool_pattern,
-        folder_glob: result.folder_glob, decision: result.decision as any,
+        id: asPermissionRuleId(result.id), tool_pattern: result.tool_pattern,
+        folder_glob: result.folder_glob, decision: permissionDecisionOf(result.decision),
         enabled: result.enabled === 1, created_at_ms: result.created_at_ms,
       }});
       return create(PermissionsUpdateResponseSchema, { rule });
@@ -133,7 +177,7 @@ export function makeSettingsHandlers(
       requireAuth(ctx.values);
       const result = await deps.db.deleteFrom("permission_rules").where("id", "=", req.id).returningAll().executeTakeFirst();
       if (!result) throw new ConnectError("not found", Code.NotFound);
-      permissionBus.publish({ kind: "deleted", id: result.id as any });
+      permissionBus.publish({ kind: "deleted", id: asPermissionRuleId(result.id) });
       return create(PermissionsDeleteResponseSchema, { ok: true });
     },
 
@@ -165,7 +209,7 @@ export function makeSettingsHandlers(
       const id = randomUUID();
       const now = Date.now();
       await deps.db.insertInto("mcp_relays").values({
-        id, label: req.label, kind: req.kind as any,
+        id, label: req.label, kind: mcpRelayKindOf(req.kind),
         config_json: req.configJson, created_at_ms: now,
       }).execute();
       const relay = create(McpRelaySchema, {
@@ -173,7 +217,7 @@ export function makeSettingsHandlers(
         createdAtMs: BigInt(now),
       });
       mcpBus.publish({ kind: "created", relay: {
-        id: id as any, label: req.label, kind: req.kind as any,
+        id: McpRelayId.parse(id), label: req.label, kind: mcpRelayKindOf(req.kind),
         config: configParsed, created_at_ms: now,
       }});
       return create(McpCreateResponseSchema, { relay });
@@ -183,7 +227,7 @@ export function makeSettingsHandlers(
       requireAuth(ctx.values);
       const result = await deps.db.deleteFrom("mcp_relays").where("id", "=", req.id).returningAll().executeTakeFirst();
       if (!result) throw new ConnectError("not found", Code.NotFound);
-      mcpBus.publish({ kind: "deleted", id: result.id as any });
+      mcpBus.publish({ kind: "deleted", id: McpRelayId.parse(result.id) });
       return create(McpDeleteResponseSchema, { ok: true });
     },
 
@@ -196,7 +240,7 @@ export function makeSettingsHandlers(
       }
       const relay = await deps.db.selectFrom("mcp_relays").select("id").where("id", "=", req.id).executeTakeFirst();
       if (!relay) throw new ConnectError("not found", Code.NotFound);
-      mcpBus.publish({ relay_id: req.id as any, payload, ts: Date.now() });
+      mcpBus.publish({ relay_id: McpRelayId.parse(req.id), payload, ts: Date.now() });
       return create(McpPublishResponseSchema, { ok: true });
     },
   };
