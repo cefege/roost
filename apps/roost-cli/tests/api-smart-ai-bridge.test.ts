@@ -79,4 +79,11 @@ describe('Smart AI API bridge', () => {
     await dispatch(h.client, 'input', ['s1', 'alpha\\nbeta', '--enter'], h.io)
     expect(new TextDecoder().decode(h.calls[0])).toBe('alpha\nbeta\r')
   })
+
+  test('advertises stdin capability without an RPC', async () => {
+    const h = harness()
+    expect(await dispatch(h.client, 'input', ['--help'], h.io)).toBe(0)
+    expect(h.lines[0]).toContain('--stdin')
+    expect(h.calls).toHaveLength(0)
+  })
 })

@@ -50,6 +50,10 @@ export async function sendTerminalInput(
   rest: string[],
   io: ApiDispatchIo
 ): Promise<number> {
+  if (rest.includes('--help')) {
+    io.stdout('Usage: roost api input <sessionId> (<escaped-text> | --stdin) [--enter]')
+    return 0
+  }
   const sessionId = rest[0]
   if (!sessionId) throw new Error('missing sessionId')
   const stdin = rest.includes('--stdin')
