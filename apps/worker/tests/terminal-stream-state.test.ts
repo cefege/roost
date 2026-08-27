@@ -34,14 +34,8 @@ describe("worker terminal stream baseline and sequence contract", () => {
       },
     });
 
-    const result = await enableStream(harness.manager, STREAM_A);
-    expect(result).toMatchObject({
-      status: "committed",
-      streamId: STREAM_A,
-      resized: false,
-      cols: TEST_COLS,
-      rows: TEST_ROWS,
-    });
+    const resultPromise = enableStream(harness.manager, STREAM_A);
+    await flushLeadingCellEmit();
     expect(harness.frameAttempts).toHaveLength(1);
     expect(harness.frameAttempts[0]).toMatchObject({
       full: true,
@@ -62,7 +56,15 @@ describe("worker terminal stream baseline and sequence contract", () => {
     writable = true;
     harness.manager.resumeTerminalSnapshots();
     await flushLeadingCellEmit();
+    const result = await resultPromise;
 
+    expect(result).toMatchObject({
+      status: "committed",
+      streamId: STREAM_A,
+      resized: false,
+      cols: TEST_COLS,
+      rows: TEST_ROWS,
+    });
     expect(harness.frameAttempts.map((frame) => frame.full)).toEqual([
       true,
       true,

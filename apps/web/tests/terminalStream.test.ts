@@ -22,7 +22,10 @@ import {
   viewCommands,
   type TerminalViewHandleStatus,
 } from "./helpers/terminalStreamFixture.ts";
-
+import {
+  FRAME_ACTIVITY_WINDOW_MS,
+  deriveTerminalPresentationState,
+} from "../src/store/terminal-stream-types.ts";
 describe("per-session browser terminal replica", () => {
   test("requires a full baseline, admits only an exact delta, and latches one resync", () => {
     const view = terminalStream.createTerminalView(SESSION_ID);
@@ -31,7 +34,6 @@ describe("per-session browser terminal replica", () => {
     view.setViewport({ cols: 1, rows: 1 });
     const revision = latestViewCommand().value.revision as bigint;
     acceptView(view.viewId, revision);
-
     terminalStream.dispatchTerminalCellFrame(cellFrameToProto(delta(2, "gap"), SESSION_ID));
     terminalStream.dispatchTerminalCellFrame(cellFrameToProto(delta(3, "gap-2", STREAM_A, 2), SESSION_ID));
     expect(sink.deltaFrames).toHaveLength(0);
@@ -65,7 +67,6 @@ describe("per-session browser terminal replica", () => {
       resync_latched: false,
     });
   });
-
   test("keeps subscriber row shells independent from each other and the canonical replica", () => {
     const view = terminalStream.createTerminalView(SESSION_ID);
     const mutating = new RecordingRenderer();
@@ -92,7 +93,6 @@ describe("per-session browser terminal replica", () => {
     expect(late.fullFrames[0]!.full).toBe(true);
     expect(late.fullFrames[0]!.baseSeq).toBe(0);
   });
-
   test("survives renderer detach and evicts only after the final handle", () => {
     const firstView = terminalStream.createTerminalView(SESSION_ID);
     const firstRenderer = new RecordingRenderer();
@@ -122,7 +122,6 @@ describe("per-session browser terminal replica", () => {
     expect(empty.fullFrames).toHaveLength(0);
     replacement.dispose();
   });
-
   test("assembles chunks atomically and resyncs on order and idle violations", () => {
     const view = terminalStream.createTerminalView(SESSION_ID);
     const sink = new RecordingRenderer();
@@ -176,7 +175,6 @@ describe("per-session browser terminal replica", () => {
     expect(resyncCommands()).toHaveLength(2);
     expect(terminalStream.terminalStreamDiagnosticSnapshot(SESSION_ID).replica.resync_latched).toBe(true);
   });
-
   test("keeps accepted status stable across exact heartbeats", () => {
     setSystemTime(0);
     try {
@@ -320,5 +318,82 @@ describe("per-session browser terminal replica", () => {
     });
     expect(statuses).toHaveLength(statusCount);
     expect(statuses.at(-1)?.status).toBe("accepted");
+  });
+});
+
+describe("terminal stream presentation state", () => {
+  const watermark = (grid_epoch: string, seq: number) => ({ grid_epoch, seq });
+
+  test("reports receiving for recent equal canonical and reconciled watermarks, then idles", () => {
+    const activity = {
+      grid_epoch: "epoch-a",
+      seq: 2,
+      started_at_ms: 1_000,
+    };
+    expect(FRAME_ACTIVITY_WINDOW_MS).toBe(500);
+    expect(deriveTerminalPresentationState({
+      active: true,
+      acceptedWithBaseline: true,
+      canonical: watermark("epoch-a", 2),
+      reconciled: watermark("epoch-a", 2),
+      activity,
+      nowMs: 1_499,
+    })).toBe("receiving");
+    expect(deriveTerminalPresentationState({
+      active: true,
+      acceptedWithBaseline: true,
+      canonical: watermark("epoch-a", 2),
+      reconciled: watermark("epoch-a", 2),
+      activity,
+      nowMs: 1_500,
+    })).toBe("idle");
+  });
+
+  test("reports catching_up while canonical is ahead of the renderer", () => {
+    expect(deriveTerminalPresentationState({
+      active: true,
+      acceptedWithBaseline: true,
+      canonical: watermark("epoch-a", 3),
+      reconciled: watermark("epoch-a", 2),
+      activity: {
+        grid_epoch: "epoch-a",
+        seq: 3,
+        started_at_ms: 1_000,
+      },
+      nowMs: 1_100,
+    })).toBe("catching_up");
+  });
+
+  test("returns to receiving after hold reconciliation, then expires to idle", () => {
+    const activity = {
+      grid_epoch: "epoch-a",
+      seq: 4,
+      started_at_ms: 2_000,
+    };
+    const input = {
+      active: true,
+      acceptedWithBaseline: true,
+      canonical: watermark("epoch-a", 4),
+      reconciled: watermark("epoch-a", 4),
+      activity,
+    };
+    expect(deriveTerminalPresentationState({ ...input, nowMs: 2_250 })).toBe("receiving");
+    expect(deriveTerminalPresentationState({ ...input, nowMs: 2_500 })).toBe("idle");
+  });
+
+  test("keeps missing baseline and inactive panes idle even when watermarks differ", () => {
+    const input = {
+      acceptedWithBaseline: false,
+      canonical: watermark("epoch-a", 3),
+      reconciled: watermark("epoch-a", 2),
+      activity: null,
+      nowMs: 10_000,
+    };
+    expect(deriveTerminalPresentationState({ ...input, active: true })).toBe("idle");
+    expect(deriveTerminalPresentationState({
+      ...input,
+      active: false,
+      acceptedWithBaseline: true,
+    })).toBe("idle");
   });
 });

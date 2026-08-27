@@ -19,7 +19,7 @@ import { SessionManager } from "../src/session-manager.ts";
 import type { SessionShellRecord } from "../src/session-record.ts";
 import { createSbRing } from "../src/session-scrollback-ring.ts";
 import { initAgentOscState } from "../src/terminal-stream-scan.ts";
-import type { TransportSendResult } from "../src/transport/coord-link-types.ts";
+import type { TerminalCellSendResult } from "../src/transport/coord-link-types.ts";
 import type { FakeKeeper } from "./keeper-fake-pool.ts";
 import { keeperTestShellSpec } from "./keeper-test-fixtures.ts";
 
@@ -33,8 +33,8 @@ export const TEST_COLS = 12;
 export const TEST_ROWS = 6;
 
 interface HarnessOptions {
-  sendFrame?: (frame: PbCellGridFrame) => TransportSendResult;
-  sendChunk?: (chunk: PbCellGridChunk) => TransportSendResult;
+  sendFrame?: (frame: PbCellGridFrame) => TerminalCellSendResult;
+  sendChunk?: (chunk: PbCellGridChunk) => TerminalCellSendResult;
 }
 
 export interface StreamHarness {

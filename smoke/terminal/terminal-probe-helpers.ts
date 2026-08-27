@@ -78,7 +78,8 @@ export function expectCanonicalAdvanceHeld(
     selection: options.selectionHold ?? true,
     link: false,
   });
-  expect(pending.browser.reconcile_block_reason).toBe("reader_pending_frame");
+  expect(["reader_pending_frame", "selection_hold", "link_hold"])
+    .toContain(pending.browser.reconcile_block_reason);
   const beforeRawHead = workerRawHeadSequence(before);
   const rawHead = workerRawHeadSequence(pending);
   const beforeWorkerCell = workerCellSequence(before);

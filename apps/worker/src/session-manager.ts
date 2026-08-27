@@ -1,7 +1,6 @@
 // SessionManager owns terminal lifecycle state keyed by ChannelId. It handles
 // shell spawn, terminal I/O, and session teardown; transitions emit
 // SessionEvents to the coordinator.
-
 import * as scrollback from "./session-scrollback.ts";
 import * as emit from "./session-emit.ts";
 import * as gitPorts from "./session-git-ports.ts";
@@ -9,6 +8,7 @@ import * as spawnFns from "./session-spawn.ts";
 import * as resumeFns from "./session-resume.ts";
 import * as lifecycle from "./session-lifecycle.ts";
 import * as terminalControl from "./session-terminal-control.ts";
+import { retireSnapshotCursor } from "./session-snapshot-cursor.ts";
 import type { TerminalControlLane, KeeperAdmissionLane } from "./session-control-lanes.ts";
 import type { TerminalStreamState } from "./session-terminal-state.ts";
 import type { CellGateSuppression } from "./session-emit.ts";
@@ -16,20 +16,17 @@ import type { SyncOutputHold } from "./session-sync-output.ts";
 import { releaseSyncOutputHold } from "./session-sync-output.ts";
 import { diagSnapshot } from "./session-diag-snapshot.ts";
 import { _enqueueRawMetadata } from "./session-raw-metadata.ts";
-import type { TerminalRequestBudget } from "./transport/coord-link-types.ts";
-
+import type { TerminalRequestBudget, TerminalCellSendResult, TransportSendResult } from "./transport/coord-link-types.ts";
 import { getMultiplexedPool, type MuxChannelCallbacks } from "./keeper/multiplexed-client.ts";
 import { log } from "@roost/shared/log";
 import { asChannelId } from "@roost/shared/wire";
 import type { PbCellGridChunk, PbCellGridFrame } from "@roost/shared/proto/cell_pb";
-import type { TransportSendResult } from "./transport/coord-link-types.ts";
 import type { SessionEventSink } from "./event-sink.ts";
 import type { ChannelState, FsmEvent } from "./fsm.ts";
 import type { SessionId, ChannelId, WorkerFp, SessionEvent } from "@roost/shared/wire";
 import { STRAY_REAP_INTERVAL_MS } from "./session-constants.ts";
 import type { SessionRecord, SessionShellRecord } from "./session-record.ts";
 import type { ShellSpec } from "./shell-spec.ts";
-
 export type { SessionRecord, SessionShellRecord } from "./session-record.ts";
 interface PendingRawMetadataFrame {
 	endSeq: number;
@@ -118,10 +115,10 @@ export class SessionManager {
 		) => TransportSendResult | void)
 		| null;
 	readonly sendCellGridUpstream:
-		| ((channelId: number, frame: PbCellGridFrame) => TransportSendResult | void)
+		| ((channelId: number, frame: PbCellGridFrame) => TerminalCellSendResult | void)
 		| null;
 	readonly sendCellGridChunkUpstream:
-		| ((channelId: number, chunk: PbCellGridChunk) => TransportSendResult | void)
+		| ((channelId: number, chunk: PbCellGridChunk) => TerminalCellSendResult | void)
 		| null;
 
 	// Sliding-window timestamps of emit_no_session events → keeper.degraded.
@@ -165,11 +162,11 @@ export class SessionManager {
 		sendCellGridUpstream?: (
 			channelId: number,
 			frame: PbCellGridFrame,
-		) => TransportSendResult | void;
+		) => TerminalCellSendResult | void;
 		sendCellGridChunkUpstream?: (
 			channelId: number,
 			chunk: PbCellGridChunk,
-		) => TransportSendResult | void;
+		) => TerminalCellSendResult | void;
 	}) {
 		this.workerFp = opts.workerFp;
 		this.sink = opts.sink;
@@ -250,8 +247,9 @@ export class SessionManager {
 	}
 	invalidateTerminalStreamsForReconnect(): void {
 		for (const [channelId, current] of this.terminalStreams) {
-			const baseline = Promise.withResolvers<void>();
-			baseline.resolve();
+			retireSnapshotCursor(this, channelId, current);
+			const baseline = Promise.withResolvers<boolean>();
+			baseline.resolve(true);
 			this.terminalStreams.set(channelId, {
 				streamId: current.streamId,
 				enabled: false,
@@ -264,6 +262,7 @@ export class SessionManager {
 				snapshotCursor: null,
 				resizeCapture: current.resizeCapture,
 				baselineInstalled: baseline.promise,
+				baselinePromisePending: false,
 				resolveBaselineInstalled: baseline.resolve,
 			});
 		}

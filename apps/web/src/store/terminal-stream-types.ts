@@ -41,6 +41,42 @@ export interface BaselineProgress {
   receivedChunks: number;
   totalChunks: number;
 }
+
+export type TerminalPresentationState = "idle" | "receiving" | "catching_up";
+export const FRAME_ACTIVITY_WINDOW_MS = 500;
+
+export interface TerminalPresentationWatermark {
+  grid_epoch: string | null;
+  seq: number | null;
+}
+
+export interface TerminalPresentationActivity {
+  grid_epoch: string;
+  seq: number;
+  started_at_ms: number;
+}
+
+export function deriveTerminalPresentationState(input: {
+  active: boolean;
+  acceptedWithBaseline: boolean;
+  canonical: TerminalPresentationWatermark;
+  reconciled: TerminalPresentationWatermark;
+  activity: TerminalPresentationActivity | null;
+  nowMs: number;
+}): TerminalPresentationState {
+  if (!input.active || !input.acceptedWithBaseline) return "idle";
+  if (
+    input.canonical.grid_epoch !== input.reconciled.grid_epoch
+    || input.canonical.seq !== input.reconciled.seq
+  ) return "catching_up";
+  if (
+    input.activity !== null
+    && input.activity.grid_epoch === input.canonical.grid_epoch
+    && input.activity.seq === input.canonical.seq
+    && input.nowMs - input.activity.started_at_ms < FRAME_ACTIVITY_WINDOW_MS
+  ) return "receiving";
+  return "idle";
+}
 export interface TerminalViewHandle {
   readonly sessionId: string;
   readonly viewId: string;
@@ -89,6 +125,7 @@ export interface TerminalViewRecord {
 }
 
 export interface TerminalRendererSubscriber {
+  sessionId: string;
   renderer: CellGridRenderer;
   onDelivery: ((delivery: TerminalRendererDelivery) => void) | undefined;
   streamId: string | null;

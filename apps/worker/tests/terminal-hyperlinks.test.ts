@@ -134,7 +134,7 @@ async function saturationHarness() {
     cell_emit: initCellEmitState("sat-grid", "00000000-0000-4000-8000-000000000001"),
     lastPtyOutMs: 0,
   });
-  const baseline = Promise.withResolvers<void>();
+  const baseline = Promise.withResolvers<boolean>();
   mgr.terminalStreams.set(asChannelId(1), {
     streamId: "00000000-0000-4000-8000-000000000001",
     enabled: true,
@@ -147,6 +147,7 @@ async function saturationHarness() {
     snapshotCursor: null,
     resizeCapture: null,
     baselineInstalled: baseline.promise,
+    baselinePromisePending: false,
     resolveBaselineInstalled: baseline.resolve,
   });
   return { mgr, links, signals };

@@ -17,9 +17,7 @@ import { proveDroppedRebaselineRecovery } from "./terminal-pty-recovery-rebaseli
 // dozens of painted-marker and cursor-geometry proofs, whose 10s budgets are
 // timeliness assertions, so it is measured alone rather than loosened.
 const FIXTURE_ARM_MS = 30_000; // the fixture's ARM acks are readiness gates, not latency guarantees: 10s overran a loaded CI runner while asserting nothing.
-// KNOWN-BROKEN at main de33ef83 on this host (deterministic across runs; not
-// introduced by pending work): loading status never leaves "render" stage.
-test.fixme("real PTY input recovers held rendering and a dropped rebaseline self-heals @serial", async ({
+test("real PTY input recovers held rendering and a dropped rebaseline self-heals @serial", async ({
   smokePage,
   stack,
 }, testInfo) => {
@@ -33,6 +31,7 @@ test.fixme("real PTY input recovers held rendering and a dropped rebaseline self
     const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
     return smokeWindow.__smoke.waitForPaintedMarker(id, marker, 30_000);
   }, { id: sessionId, marker: PTY_FIXTURE_READY });
+  await expect(smokePage.locator('[data-testid="terminal-loading-status"][data-stage="render"]')).toHaveCount(0);
   const slot = smokePage.getByTestId(`terminal-slot-${sessionId}`);
   const grid = slot.locator(".cell-grid");
   await grid.click();

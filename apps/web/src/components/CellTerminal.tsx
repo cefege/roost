@@ -6,7 +6,6 @@
 // Metadata alongside the cell stream lives here: remote cursor ghosts, OSC 8
 // mappings, file links, predictive overlay and mouse SGR forwarding. Input and
 // viewport control ride the generation-aware Sync v2 outbound owner.
-
 import {
 	onMount,
 	onCleanup,
@@ -68,8 +67,6 @@ import {
 import { registerCursorPoll } from "../lib/cursorPollTicker.ts";
 import { createTerminalSelectionGuard } from "../lib/terminalSelectionGuard.ts";
 import { applyCtrlModifier, isAltGraphKey } from "../lib/terminalInput.ts";
-
-
 import { coordClient } from "../connect.ts";
 import { isResizeDragging, arrangeEpoch } from "../lib/resizeDrag.ts";
 import { diag, isDiagEnabled, signal } from "@roost/shared/diag";
@@ -96,8 +93,8 @@ import {
 } from "../store/optimisticSpawn.ts";
 import { startAttachDiagnosis, type AttachDiagnosisHandle } from "../lib/attachDiagnosis.ts";
 import type { BaselineProgress } from "../store/terminal-stream-types.ts";
+import { createTerminalPresentationController } from "../lib/terminalPresentation.ts";
 import { predictMode } from "../lib/predictPref.ts";
-
 interface CellTerminalProps {
 	session: Session;
 	// In the current tiling layout (a visible pane's selected tab) → publish view
@@ -110,7 +107,6 @@ interface CellTerminalProps {
 	// The floated pane's selected tab (spotlight). Flipping this is an
 	// intent-bearing resize → force an exact re-fit (see effect in onMount).
 	spotlit?: boolean;
-
 	// False while a non-terminal route overlays the persistent deck. Compact
 	// accessories portal to <body>, so they must unmount explicitly rather than
 	// relying on the deck host's visibility/pointer-events gate.
@@ -119,22 +115,14 @@ interface CellTerminalProps {
 	// Kept separate from surfaceVisible because the composer DOM stays mounted.
 	surfaceActive: boolean;
 }
-
-
 const VIEWPORT_DEBOUNCE_MS = 150;
-
-
 // Grace before a viewed-but-frameless pane is declared "not responding".
 // Each retry republishes the current socket-bound view intent. A slow first
 // baseline does not flash an offline notice, and the notice clears on paint.
 const OFFLINE_GRACE_MS = 3000;
-
 // Wire-dependent loading stages get a stall line only after this much
 // continuous waiting; faster attaches never pay for a diagnosis poll.
 const ATTACH_DIAGNOSIS_GRACE_MS = 2000;
-
-
-
 export function CellTerminal(props: CellTerminalProps) {
 	const sessionId = props.session.id;
 	// Resolve terminal-emitted POSIX, drive, UNC, or relative paths through the
@@ -147,12 +135,9 @@ export function CellTerminal(props: CellTerminalProps) {
 		);
 		return abs ? workerFileHref(props.session.worker_fp, abs, line) : null;
 	};
-
 	const attachSelectedFiles = () => pickAndAttachFiles(props.session);
-
 	let displayRef: HTMLDivElement | undefined;
 	const [ctrlArmed, setCtrlArmed] = createSignal(false);
-
 	let renderer: CellGridRenderer | null = null;
 	let linkAttachment: TerminalLinkAttachment | null = null;
 	// The backfill controller is created inside onMount; the find controller and
@@ -182,7 +167,6 @@ export function CellTerminal(props: CellTerminalProps) {
 	let frameBracketed = false;
 	let frameMouseSgr = false;
 	let frameFocusEvents = false;
-
 	let cellW = 0;
 	let cellH = 0;
 	// Zoom changes the cell box without resizing the containing element.
@@ -222,13 +206,11 @@ export function CellTerminal(props: CellTerminalProps) {
 		});
 		return admission;
 	};
-
 	const [pendingPaste, setPendingPaste] = createSignal<string | null>(null);
 	const pendingPasteLines = () => {
 		const text = pendingPaste();
 		return text === null ? 0 : countLineBreaks(text) + 1;
 	};
-
 	/** The single entry point for every clipboard-originated paste: the ⌘⇧V
 	 *  chord, the context menu, and a native paste we intercepted. */
 	function pasteText(text: string): void {
@@ -248,19 +230,16 @@ export function CellTerminal(props: CellTerminalProps) {
 			if (file) void enqueueAttachment(props.session, file);
 		}
 	};
-
 	async function copySelectionToClipboard(): Promise<void> {
 		const text = window.getSelection()?.toString() ?? "";
 		if (!text) return;
 		// Denial is non-fatal: the selection stays visible for manual copy.
 		await copyToClipboard(text);
 	}
-
 	async function pasteFromClipboard(): Promise<void> {
 		const text = await navigator.clipboard.readText().catch(() => "");
 		pasteText(text);
 	}
-
 	// Find in scrollback. The controller owns the debounce, the single-flight
 	// token and the highlight/jump wiring; the bar is presentation.
 	const find = createTerminalFind({
@@ -269,7 +248,6 @@ export function CellTerminal(props: CellTerminalProps) {
 		backfill: () => backfillRef,
 	});
 	onCleanup(() => find.dispose());
-
 	let unmounted = false;
 	// Native browser scrolling owns the terminal position; the renderer classifies
 	// its events and guards only its own scrollTop writes. This component never
@@ -280,18 +258,36 @@ export function CellTerminal(props: CellTerminalProps) {
 	// the wheel/touchmove listener passivity below is keyed on it, so it must
 	// re-run when the app arms or drops tracking.
 	const [mouseTracking, setMouseTracking] = createSignal<MouseTracking>(0);
-
 	// True while this session is an optimistic placeholder (spawn RPC in flight).
 	// For a non-optimistic session this is always false → every gate below is a
 	// no-op, so mount behaviour is byte-identical to before.
 	const pending = createMemo(() => isPendingSpawn(props.session.id));
-
 	// A view is live-ready only after its active state is accepted and the
 	// session replica has installed that stream's complete full baseline.
 	const navigate = useNavigate();
 	const [viewportLiveReady, setViewportLiveReady] = createSignal(false);
 	const [viewStatus, setViewStatus] = createSignal<TerminalViewHandleStatus | null>(null);
 	const [hasReconciledFrame, setHasReconciledFrame] = createSignal(false);
+	const viewActiveFlag = createMemo(
+		() => props.inLayout === true
+			&& props.surfaceVisible
+			&& props.surfaceActive,
+	);
+	const terminalPresentation = createTerminalPresentationController({
+		active: viewActiveFlag,
+		focused: () => props.focused === true,
+		status: viewStatus,
+		renderer: () => renderer,
+	});
+	const terminalPresentationState = terminalPresentation.state;
+	const {
+		clearFrameActivity,
+		refreshTerminalPresentation,
+		noteFrameActivity,
+		clearCursorBlink,
+		refreshCursorBlink,
+	} = terminalPresentation;
+
 	const [offline, setOffline] = createSignal(false);
 	const retryOffline = () => view?.refresh();
 	const offlineWatch = createOfflineWatch(OFFLINE_GRACE_MS, setOffline, () => {
@@ -314,7 +310,6 @@ export function CellTerminal(props: CellTerminalProps) {
 		const sib = offlineSibling();
 		if (sib) navigate(`/s/${sib.id}`);
 	};
-
 	const [attachProgress, setAttachProgress] = createSignal<BaselineProgress | null>(null);
 	// The card speaks in received/total parts; the replica speaks in chunks.
 	const loadingProgress = createMemo(() => {
@@ -323,7 +318,6 @@ export function CellTerminal(props: CellTerminalProps) {
 			? null
 			: { received: progress.receivedChunks, total: progress.totalChunks };
 	});
-
 	const loadingNotice = createMemo(() => {
 		if (
 			props.inLayout !== true
@@ -335,7 +329,6 @@ export function CellTerminal(props: CellTerminalProps) {
 		) return null;
 		return terminalViewportLoadingNotice(pending(), viewStatus());
 	});
-
 	// Attach-progress meter + stall diagnosis. The meter rides the view's
 	// chunk assembler; the diagnosis poll starts only after the loading card
 	// has sat in a wire-dependent stage past ATTACH_DIAGNOSIS_GRACE_MS, and
@@ -361,7 +354,6 @@ export function CellTerminal(props: CellTerminalProps) {
 			attachDiagnosis = null;
 		});
 	});
-
 	// Measure one monospace cell in the display font (independent of rendered
 	// content, so view activity can publish before the first frame arrives).
 	function measureCell(): boolean {
@@ -380,7 +372,6 @@ export function CellTerminal(props: CellTerminalProps) {
 		cellH = rect.height;
 		return true;
 	}
-
 	function measureViewport(): { cols: number; rows: number } | null {
 		if (!displayRef) return null;
 		if ((cellW === 0 || cellH === 0) && !measureCell()) return null;
@@ -395,7 +386,6 @@ export function CellTerminal(props: CellTerminalProps) {
 		const rows = Math.floor(usableH / cellH);
 		return cols > 0 && rows > 0 ? { cols, rows } : null;
 	}
-
 	function shouldPublishActive(): boolean {
 		return !unmounted
 			&& !pending()
@@ -404,8 +394,9 @@ export function CellTerminal(props: CellTerminalProps) {
 			&& props.surfaceVisible
 			&& props.surfaceActive;
 	}
-
 	function publishInactive(): void {
+		clearFrameActivity();
+		clearCursorBlink();
 		setViewportLiveReady(false);
 		backfillRef?.suspend();
 		if (viewportTimer) {
@@ -420,12 +411,10 @@ export function CellTerminal(props: CellTerminalProps) {
 		unmeasuredRetryUsed = false;
 		view?.setInactive();
 	}
-
 	function parkView(): void {
 		releasePaintHolds();
 		publishInactive();
 	}
-
 	function retryUnmeasuredViewport(): void {
 		if (unmeasuredRaf !== 0 || unmeasuredRetryUsed) return;
 		unmeasuredRetryUsed = true;
@@ -434,7 +423,6 @@ export function CellTerminal(props: CellTerminalProps) {
 			if (shouldPublishActive()) publishViewport();
 		});
 	}
-
 	function publishViewport(): boolean {
 		if (!displayRef || !view) return false;
 		if (!shouldPublishActive()) {
@@ -458,7 +446,6 @@ export function CellTerminal(props: CellTerminalProps) {
 		});
 		return true;
 	}
-
 	function scheduleViewport(): void {
 		clearTimeout(viewportTimer ?? undefined);
 		viewportTimer = setTimeout(() => {
@@ -486,7 +473,6 @@ export function CellTerminal(props: CellTerminalProps) {
 			publishViewport();
 		}, VIEWPORT_DEBOUNCE_MS);
 	}
-
 	function publishViewportNow(): boolean {
 		if (viewportTimer) {
 			clearTimeout(viewportTimer);
@@ -495,8 +481,6 @@ export function CellTerminal(props: CellTerminalProps) {
 		viewportCandidate = null;
 		return publishViewport();
 	}
-
-
 	onMount(() => {
 		view = createTerminalView(sessionId);
 		const releaseViewStatus = view.subscribeStatus((status) => {
@@ -514,7 +498,12 @@ export function CellTerminal(props: CellTerminalProps) {
 		const cellOwner = getOwner();
 		runWithOwner(cellOwner, () => {
 			// ── output: cells ────────────────────────────────────────────────
-			renderer = new CellGridRenderer(displayRef!, () => setHasReconciledFrame(true));
+			renderer = new CellGridRenderer(
+				displayRef!,
+				() => setHasReconciledFrame(true),
+				refreshTerminalPresentation,
+			);
+			refreshCursorBlink();
 		// Retained history is paged only after explicit scroll/find demand; a
 		// literal-bottom full frame paints only the current viewport.
 		const backfill = createScrollbackBackfill({
@@ -645,6 +634,7 @@ export function CellTerminal(props: CellTerminalProps) {
 					}));
 				}
 				frameCursorApp = frame.cursorKeysApp;
+				noteFrameActivity(frame);
 				frameBracketed = frame.bracketedPaste;
 				frameMouseSgr = frame.mouseSgr;
 				frameFocusEvents = frame.focusEvents;
@@ -655,7 +645,6 @@ export function CellTerminal(props: CellTerminalProps) {
 				if (frame.full) backfill.onFullFrame();
 			});
 			markPhase("terminal_mount", { sessionId: props.session.id });
-
 			// Spawn geometry is only an initial PTY-size hint. The real mounted
 			// view always attaches normally after the opened event.
 			const publishSpawnMeasurement = (): boolean => {
@@ -676,9 +665,7 @@ export function CellTerminal(props: CellTerminalProps) {
 					publishSpawnMeasurement();
 				});
 			}
-
 			if (shouldPublishActive()) publishViewport();
-
 			predictor = new PredictiveEcho(renderer!.predictionHost, {
 				mode: predictMode,
 				sid: props.session.id,
@@ -749,7 +736,6 @@ export function CellTerminal(props: CellTerminalProps) {
 					) inputController?.forceFocus();
 				});
 			}
-
 			// Receive remote viewers' cursors → ghostMap → cellRenderer (ch/lh overlay).
 			unsubPresence = registerPresenceHandler(props.session.id, (msg) => {
 				const f = msg as {
@@ -774,8 +760,6 @@ export function CellTerminal(props: CellTerminalProps) {
 				}
 			});
 		});
-
-
 		// Send THIS viewer's cursor so others' ghostMaps update. Gated on visible +
 		// active (a hidden deck pane has no one watching). 500ms, only on change.
 		let lastSentRow = -1,
@@ -791,9 +775,6 @@ export function CellTerminal(props: CellTerminalProps) {
 				row: lastCurRow,
 			});
 		});
-
-
-
 		// Linkify rendered .cell-row text: regex URLs + resolvable file paths,
 		// Cmd/Ctrl-gated. OSC 8 producer links need no scan — the renderer paints
 		// them straight from the core's per-cell link data (cellRow.ts).
@@ -913,15 +894,8 @@ export function CellTerminal(props: CellTerminalProps) {
 			enqueueFileItems(e.dataTransfer?.items);
 		};
 
-		// Layout/surface visibility publishes membership only. The session replica
-		// continues owning canonical screen state while this renderer is detached,
-		// parked, or covered.
-		const viewActiveFlag = createMemo(
-			() => props.inLayout === true
-				&& props.surfaceVisible
-				&& props.surfaceActive,
-		);
 		createEffect(on(viewActiveFlag, (active) => {
+			refreshCursorBlink();
 			if (!active) {
 				parkView();
 				return;
@@ -1046,6 +1020,8 @@ export function CellTerminal(props: CellTerminalProps) {
 				parkView();
 				return;
 			}
+			refreshCursorBlink();
+			refreshTerminalPresentation();
 			publishViewportNow();
 		};
 		document.addEventListener("visibilitychange", onVisibility);
@@ -1055,10 +1031,14 @@ export function CellTerminal(props: CellTerminalProps) {
 		window.addEventListener("resize", onWindowResize);
 
 		const onPageHide = () => {
+			clearFrameActivity();
+			clearCursorBlink();
 			releasePaintHolds();
 			publishInactive();
 		};
 		const onPageShow = () => {
+			refreshCursorBlink();
+			refreshTerminalPresentation();
 			if (isPageVisible() && viewActiveFlag()) publishViewportNow();
 		};
 		window.addEventListener("pagehide", onPageHide);
@@ -1223,6 +1203,8 @@ export function CellTerminal(props: CellTerminalProps) {
 
 	onCleanup(() => {
 		unmounted = true;
+		clearFrameActivity();
+		clearCursorBlink();
 	});
 
 	// Deepgram keyterm biasing input for the composer's inline mic.
@@ -1244,6 +1226,24 @@ export function CellTerminal(props: CellTerminalProps) {
 				"min-height": "0",
 			}}
 		>
+			<Show when={terminalPresentationState() === "receiving"}>
+				<div
+					class="terminal-stream-indicator"
+					data-testid="terminal-stream-indicator"
+					data-state="receiving"
+					title="Receiving terminal frames"
+					aria-hidden="true"
+				/>
+			</Show>
+			<Show when={terminalPresentationState() === "catching_up"}>
+				<div
+					class="terminal-stream-indicator"
+					data-testid="terminal-stream-indicator"
+					data-state="catching_up"
+					title="Screen catching up"
+					aria-hidden="true"
+				/>
+			</Show>
 			{/* Above the display and inside the pane: the bar consumes real rows, so
           ResizeObserver publishes the smaller viewport. */}
 			<Show when={find.open()}>

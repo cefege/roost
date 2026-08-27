@@ -71,6 +71,46 @@ export async function attemptPaintedCursor(
   }, { id: sessionId, target: expected, timeout: timeoutMs });
 }
 
+export interface TerminalLayoutGeometry {
+  slot: { left: number; top: number; right: number; bottom: number };
+  terminal: { left: number; top: number; right: number; bottom: number };
+  clientWidth: number;
+  clientHeight: number;
+  position: string | null;
+  pointerEvents: string | null;
+}
+
+export async function readTerminalLayoutGeometry(
+  page: Page,
+  sessionId: string,
+  requireIndicator = false,
+): Promise<TerminalLayoutGeometry> {
+  return page.evaluate(({ id, requireIndicator: needsIndicator }) => {
+    const slot = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
+    const terminal = slot?.querySelector(".wterm");
+    const indicator = slot?.querySelector('[data-testid="terminal-stream-indicator"]');
+    if (!(slot instanceof HTMLElement) || !(terminal instanceof HTMLElement)) {
+      throw new Error("terminal geometry is unavailable");
+    }
+    if (needsIndicator && !(indicator instanceof HTMLElement)) {
+      throw new Error("terminal stream indicator did not mount");
+    }
+    const rect = (element: HTMLElement) => {
+      const box = element.getBoundingClientRect();
+      return { left: box.left, top: box.top, right: box.right, bottom: box.bottom };
+    };
+    const style = indicator instanceof HTMLElement ? getComputedStyle(indicator) : null;
+    return {
+      slot: rect(slot),
+      terminal: rect(terminal),
+      clientWidth: terminal.clientWidth,
+      clientHeight: terminal.clientHeight,
+      position: style?.position ?? null,
+      pointerEvents: style?.pointerEvents ?? null,
+    };
+  }, { id: sessionId, requireIndicator });
+}
+
 export async function armImmediateTerminalPaintSample(
   page: Page,
   sessionId: string,

@@ -329,6 +329,7 @@ export function createTerminalView(sessionId: string): TerminalViewHandle {
     subscribeRenderer(renderer, onDelivery): () => void {
       if (view.disposed) return () => undefined;
       const subscriber: TerminalRendererSubscriber = {
+        sessionId,
         renderer,
         onDelivery: (delivery) => {
           const desired = view.desired;

@@ -26,7 +26,7 @@ import {
   WS_BUFFERED_HIGH_WATER_BYTES, WS_DRAIN_RETRY_MS,
 } from "./coord-link-constants.ts";
 import type {
-  CoordLinkDeps, CoordLinkOutbox, TransportSendResult, UpstreamFrame,
+  CoordLinkDeps, CoordLinkOutbox, TerminalCellSendResult, TransportSendResult, UpstreamFrame,
 } from "./coord-link-types.ts";
 
 interface EncodedPending {
@@ -253,7 +253,7 @@ export function createCoordLinkOutbox(
     return enqueueEncoded("raw", bytes) ? "queued" : "dropped";
   }
 
-  function sendCellGrid(channelId: number, frame: PbCellGridFrame): TransportSendResult {
+  function sendCellGrid(channelId: number, frame: PbCellGridFrame): TerminalCellSendResult {
     if (isDisposed()) return "dropped";
     if (
       !linkReady ||
@@ -286,7 +286,7 @@ export function createCoordLinkOutbox(
     });
     return "dropped";
   }
-  function sendCellGridChunk(channelId: number, chunk: PbCellGridChunk): TransportSendResult {
+  function sendCellGridChunk(channelId: number, chunk: PbCellGridChunk): TerminalCellSendResult {
     if (
       isDisposed() ||
       !linkReady ||

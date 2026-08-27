@@ -4,6 +4,7 @@
 // with a SessionManager `this`.
 
 import type { SessionManager } from "./session-manager.ts";
+import { retireSnapshotCursor } from "./session-snapshot-cursor.ts";
 import type { SessionRecord } from "./session-record.ts";
 import type { SessionId, ChannelId } from "@roost/shared/wire";
 import { diag, signal } from "@roost/shared/diag";
@@ -214,6 +215,8 @@ export function _dropChannelState(this: SessionManager, channelId: number): void
 		byteCapture.drop(String(rec.sessionId));
 		this.onSessionClosed?.(String(rec.sessionId));
 	}
+	const stream = this.terminalStreams.get(channelId);
+	if (stream) retireSnapshotCursor(this, channelId, stream);
 	this.sessions.delete(channelId);
 	this.markRecentlyClosed(channelId);
 	this.terminalStreams.delete(channelId);

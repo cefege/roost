@@ -18,7 +18,6 @@ import {
 } from "@roost/shared/cell";
 import { cellFrameToProto } from "@roost/shared/cell/cell-proto";
 import type { MuxChannelCallbacks } from "./keeper/multiplexed-client.ts";
-import type { TransportSendResult } from "./transport/coord-link-types.ts";
 import {
 	RECENTLY_CLOSED_TTL_MS,
 	KEEPER_DEGRADED_WINDOW_MS,

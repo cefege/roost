@@ -39,7 +39,7 @@ import type {
   CoordLinkDeps, CoordLink, CoordLinkState,
 } from "./coord-link-types.ts";
 export type {
-  CoordLinkDeps, CoordLink, TransportSendResult, TerminalRequestBudget,
+  CoordLinkDeps, CoordLink, TerminalCellSendResult, TransportSendResult, TerminalRequestBudget,
 } from "./coord-link-types.ts";
 
 // ─── implementation ──────────────────────────────────────────────────

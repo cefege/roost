@@ -256,6 +256,27 @@ export function makeSyncV2Scheduler(deps: SyncV2SchedulerDeps) {
     removeTerminalQueued,
   });
   let scheduleV2: (ws: ServerWebSocket<SyncWsData>) => void;
+  const scheduleV2Yield = (
+    ws: ServerWebSocket<SyncWsData>,
+    v2: NonNullable<SyncWsData["v2"]>,
+  ): void => {
+    if (
+      ws.data.v2 !== v2
+      || ws.data.pressureClosing
+      || v2.schedulerYieldTimer !== null
+    ) return;
+    let timer: Timer | null = null;
+    timer = deadlineClock.setTimeout(() => {
+      // A close/reset may have cleared this handle while the callback was
+      // already queued by the deadline clock. Only the current continuation
+      // may reopen the normal microtask scheduler.
+      if (v2.schedulerYieldTimer !== timer) return;
+      v2.schedulerYieldTimer = null;
+      if (ws.data.v2 !== v2 || ws.data.pressureClosing) return;
+      scheduleV2(ws);
+    }, 0);
+    v2.schedulerYieldTimer = timer;
+  };
   const flushV2 = (ws: ServerWebSocket<SyncWsData>): void => {
     const v2 = ws.data.v2;
     if (!v2 || ws.data.pressureClosing) return;
@@ -331,14 +352,26 @@ export function makeSyncV2Scheduler(deps: SyncV2SchedulerDeps) {
         }, backpressureTimeoutMs);
       }
     }
-    if (selectV2Candidate(ws)) scheduleV2(ws);
+    const laneCursorBeforeProbe = v2.laneCursor;
+    const hasCandidate = selectV2Candidate(ws) !== null;
+    v2.laneCursor = laneCursorBeforeProbe;
+    if (hasCandidate) scheduleV2Yield(ws, v2);
   };
 
   scheduleV2 = (ws): void => {
     const v2 = ws.data.v2;
-    if (!v2 || v2.schedulerPending || ws.data.pressureClosing) return;
+    if (
+      !v2
+      || v2.schedulerPending
+      || v2.schedulerYieldTimer !== null
+      || ws.data.pressureClosing
+    ) return;
     v2.schedulerPending = true;
     queueMicrotask(() => {
+      if (v2.schedulerYieldTimer !== null) {
+        v2.schedulerPending = false;
+        return;
+      }
       if (ws.data.v2 === v2 && v2.schedulerPending && !ws.data.pressureClosing) {
         flushV2(ws);
       }

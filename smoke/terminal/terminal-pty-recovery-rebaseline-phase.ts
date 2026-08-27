@@ -37,6 +37,11 @@ export async function proveDroppedRebaselineRecovery({
   // transition, reload, or lost input.
   const otherSessionId = (await spawnSmokeShell(page, stackWorkerFp)).session_id;
   await switchToSmokeSession(page, otherSessionId);
+  const parkedCursor = page.getByTestId(`terminal-slot-${sessionId}`).locator(".cell-cursor");
+  await expect(parkedCursor).toHaveAttribute("data-visible", "true");
+  await expect(parkedCursor).toHaveAttribute("data-blink", "false");
+  await expect.poll(() => parkedCursor.evaluate((element) => getComputedStyle(element).animationName))
+    .toBe("none");
   await expect.poll(async () => {
     const probe = await readTerminalStreamProbe(page, sessionId);
     const coordinator = coordinatorTerminalViewState(probe);
@@ -72,6 +77,10 @@ export async function proveDroppedRebaselineRecovery({
     smokeWindow.__smoke.dropNextCellFrame(id);
   }, sessionId);
   await switchToSmokeSession(page, sessionId);
+  const restoredCursor = page.getByTestId(`terminal-slot-${sessionId}`).locator(".cell-cursor");
+  await expect(restoredCursor).toHaveAttribute("data-blink", "true");
+  await expect.poll(() => restoredCursor.evaluate((element) => getComputedStyle(element).animationName))
+    .not.toBe("none");
   await expect.poll(() => page.evaluate((id) => {
     const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
     return smokeWindow.__smoke.droppedCellFrameCount(id);
@@ -95,7 +104,8 @@ export async function proveDroppedRebaselineRecovery({
   });
   expect(droppedBaseline.browser.replica).toMatchObject({
     expected_stream_id: droppedBaseline.browser.view.stream_id,
-    baseline_ready: false,
+    baseline_ready: true,
+    resync_latched: false,
   });
 
   const resyncTriggerMarker = `REBASELINE-TRIGGER:${suffix}`;

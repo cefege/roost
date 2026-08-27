@@ -1131,7 +1131,35 @@ aside[data-testid="sidebar-drawer"]::-webkit-scrollbar-thumb:hover,
   background: var(--term-cursor, var(--term-fg));
   opacity: 0.7;
   pointer-events: none;
+  animation: none;
+}
+.cell-grid .cell-cursor[data-blink="true"] {
   animation: cell-blink 1.06s step-end infinite;
+}
+
+/* The stream indicator is presentation-only. It is absolutely positioned so
+   receiving/catch-up state never joins the pane's flex flow or changes its
+   terminal viewport geometry. */
+.terminal-stream-indicator {
+  position: absolute;
+  top: var(--md-space-2);
+  right: var(--md-space-2);
+  width: var(--md-space-2);
+  height: var(--md-space-2);
+  border-radius: var(--md-shape-full);
+  pointer-events: none;
+  z-index: 2;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cell-grid .cell-cursor[data-blink="true"] {
+    animation: none;
+  }
+}
+.terminal-stream-indicator[data-state="receiving"] {
+  background: var(--status-info);
+}
+.terminal-stream-indicator[data-state="catching_up"] {
+  background: var(--status-warn);
 }
 
 /* Find-in-scrollback matches. CellGridRenderer splits a matched run into its own

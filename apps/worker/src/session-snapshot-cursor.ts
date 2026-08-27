@@ -20,7 +20,35 @@ import { log } from "@roost/shared/log";
 import { randomUUID } from "node:crypto";
 import type { SessionManager } from "./session-manager.ts";
 import type { TerminalStreamState } from "./session-terminal-state.ts";
-import type { TransportSendResult } from "./transport/coord-link-types.ts";
+import type { TerminalCellSendResult } from "./transport/coord-link-types.ts";
+
+function beginBaselineInstallation(state: TerminalStreamState): void {
+	const baseline = Promise.withResolvers<boolean>();
+	state.baselineInstalled = baseline.promise;
+	state.resolveBaselineInstalled = baseline.resolve;
+	state.baselinePromisePending = true;
+}
+
+/** Stop a pending immutable snapshot and settle the generation's baseline
+ * waiters as a failed installation. Repeated retirement is harmless: the
+ * resolver and the cursor ownership are both one-shot. */
+export function retireSnapshotCursor(
+	mgr: SessionManager,
+	channelId: number,
+	state: TerminalStreamState,
+): void {
+	// Read the map so callers pass the channel they are retiring, while keeping
+	// the state object authoritative if it has already been superseded.
+	const current = mgr.terminalStreams.get(channelId);
+	if (current === state || state.snapshotCursor !== null || !state.baselineReady) {
+		state.snapshotCursor = null;
+		state.baselineReady = false;
+		if (state.baselinePromisePending) {
+			state.baselinePromisePending = false;
+			state.resolveBaselineInstalled(false);
+		}
+	}
+}
 
 /** Select the bounded history tail for a same-grid renewal full. An
  * incompatible renewal advances the epoch so a viewport-only full cannot be
@@ -56,7 +84,7 @@ function sendSnapshotPart(
 	mgr: SessionManager,
 	channelId: number,
 	state: TerminalStreamState,
-): TransportSendResult {
+): TerminalCellSendResult {
 	const cursor = state.snapshotCursor;
 	if (!cursor || cursor.nextPart >= cursor.parts.length) return "dropped";
 	const part = cursor.parts[cursor.nextPart]!;
@@ -82,11 +110,19 @@ export function drainSnapshotCursor(
 	while (mgr.terminalStreams.get(channelId) === state && state.snapshotCursor) {
 		const cursor = state.snapshotCursor;
 		const result = sendSnapshotPart(mgr, channelId, state);
-		if (result === "dropped") return;
+		// A sender may synchronously retire/replace this generation. Never
+		// advance a cursor that no longer owns the channel, even if the stale
+		// sender returned "sent".
+		if (mgr.terminalStreams.get(channelId) !== state || state.snapshotCursor !== cursor) return;
+		// Cells are either on the wire or dropped for the existing writable
+		// retry path. In particular, queue admission is not completion.
+		if (result !== "sent") return;
 		cursor.nextPart += 1;
 		if (cursor.nextPart < cursor.parts.length) continue;
 		state.snapshotCursor = null;
 		state.baselineReady = true;
+		state.baselinePromisePending = false;
+		state.resolveBaselineInstalled(true);
 		mgr.pendingCellRepairs.delete(channelId);
 		mgr.pendingSyncCellSnapshots.delete(channelId);
 		if (!mgr.syncOutputHolds.has(channelId)) mgr.cellGateSuppression.delete(channelId);
@@ -102,6 +138,9 @@ export function installSnapshotCursor(
 	state: TerminalStreamState,
 	pb: PbCellGridFrame,
 ): boolean {
+	if (state.snapshotCursor) retireSnapshotCursor(mgr, channelId, state);
+	if (!state.baselinePromisePending) beginBaselineInstallation(state);
+	state.baselineReady = false;
 	try {
 		assertCellGridSnapshot(pb);
 		const snapshotId = randomUUID();
@@ -119,13 +158,13 @@ export function installSnapshotCursor(
 			nextPart: 0,
 		};
 		state.baselineReady = false;
-		state.resolveBaselineInstalled();
 		drainSnapshotCursor(mgr, channelId, state);
 		return true;
 	} catch (error) {
+		retireSnapshotCursor(mgr, channelId, state);
 		state.coreValid = false;
-		state.snapshotCursor = null;
-		state.resolveBaselineInstalled();
+		state.baselineReady = false;
+		state.resolveBaselineInstalled(false);
 		signal("terminal.invalid_frame", {
 			sid: String(mgr.sessions.get(channelId)?.sessionId ?? ""),
 			channel_id: channelId,

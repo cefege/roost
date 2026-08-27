@@ -101,6 +101,7 @@ export interface SyncV2SocketState {
   queuedBytes: number;
   laneCursor: number;
   schedulerPending: boolean;
+  schedulerYieldTimer: Timer | null;
   snapshotDispose: (() => void) | null;
   closeNotified: boolean;
 }
@@ -127,15 +128,23 @@ export function createSyncV2SocketState(): SyncV2SocketState {
     queuedBytes: 0,
     laneCursor: 0,
     schedulerPending: false,
+    schedulerYieldTimer: null,
     snapshotDispose: null,
     closeNotified: false,
   };
 }
 
-export const clearV2State = (ws: ServerWebSocket<SyncWsData>): void => {
+export const clearV2State = (
+  ws: ServerWebSocket<SyncWsData>,
+  clearTimer: (timer: Timer) => void = (timer) => clearTimeout(timer),
+): void => {
   const v2 = ws.data.v2;
   if (!v2) return;
   v2.schedulerPending = false;
+  if (v2.schedulerYieldTimer !== null) {
+    clearTimer(v2.schedulerYieldTimer);
+    v2.schedulerYieldTimer = null;
+  }
   v2.queuedFrames = 0;
   v2.queuedBytes = 0;
   v2.announcedSessions.clear();
@@ -150,6 +159,7 @@ export const clearV2State = (ws: ServerWebSocket<SyncWsData>): void => {
   v2.snapshotDispose?.();
   v2.snapshotDispose = null;
 };
+
 
 export const clearV2DomainQueue = (
   ws: ServerWebSocket<SyncWsData>,

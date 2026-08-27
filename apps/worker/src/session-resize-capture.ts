@@ -6,6 +6,7 @@
 import { diag, signal } from "@roost/shared/diag";
 import { newTraceId } from "@roost/shared/trace";
 import type { SessionManager } from "./session-manager.ts";
+import { retireSnapshotCursor } from "./session-snapshot-cursor.ts";
 import type { LiveResizeCapture, TerminalStreamState } from "./session-terminal-state.ts";
 import type { KeeperHistoryRecords, KeeperResizeResult } from "./keeper/multiplexed-client.ts";
 import { getMultiplexedPool } from "./keeper/multiplexed-client.ts";
@@ -99,9 +100,13 @@ function resetEmissionEpoch(mgr: SessionManager, channelId: number): void {
 	};
 	const stream = mgr.terminalStreams.get(channelId);
 	if (stream) {
+		retireSnapshotCursor(mgr, channelId, stream);
+		const baseline = Promise.withResolvers<boolean>();
+		stream.baselineInstalled = baseline.promise;
+		stream.baselinePromisePending = true;
+		stream.resolveBaselineInstalled = baseline.resolve;
 		stream.baselineReady = false;
 		stream.baselineDirty = true;
-		stream.snapshotCursor = null;
 	}
 	for (let row = 0; row < rec.wtermCore.getRows(); row += 1) {
 		// The patched core marks every viewport row dirty during resize.
@@ -120,9 +125,8 @@ function failCore(
 	capture.failedReason = reason;
 	const stream = mgr.terminalStreams.get(channelId);
 	if (stream) {
+		retireSnapshotCursor(mgr, channelId, stream);
 		stream.coreValid = false;
-		stream.baselineReady = false;
-		stream.snapshotCursor = null;
 	}
 	signal("terminal.core_failed", {
 		sid: String(mgr.sessions.get(channelId)?.sessionId ?? ""),

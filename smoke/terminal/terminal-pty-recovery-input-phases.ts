@@ -16,6 +16,7 @@ import {
   attemptPaintedCursor,
   armImmediateTerminalPaintSample,
   readImmediateTerminalPaintSample,
+  readTerminalLayoutGeometry,
 } from "./terminal-paint-helpers.ts";
 import {
   readTerminalStreamProbe,
@@ -60,6 +61,54 @@ export async function proveCursorAndImeRecovery({
     const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
     return smokeWindow.__smoke.waitForPaintedCursor(id, undefined, 10_000);
   }, sessionId);
+  const cursor = grid.locator(".cell-cursor");
+  await expect(cursor).toHaveAttribute("data-blink", "true");
+  await expect.poll(() => cursor.evaluate((element) => getComputedStyle(element).animationName))
+    .not.toBe("none");
+  const hiddenFrameCount = await page.evaluate((id) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return smokeWindow.__smoke.cellFrameCount(id);
+  }, sessionId);
+  await inputSmokeTerminal(
+    page,
+    sessionId,
+    encodePtyFixtureCommand({ op: "EMIT", text: "\x1b[?25l", newline: false }),
+  );
+  await expect.poll(() => page.evaluate((id) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return smokeWindow.__smoke.cellFrameCount(id);
+  }, sessionId)).toBeGreaterThan(hiddenFrameCount);
+  await expect(cursor).toHaveAttribute("data-blink", "true");
+  await expect(cursor).toHaveAttribute("data-visible", "false");
+  await expect(cursor).toHaveCSS("display", "none");
+  expect((await attemptPaintedCursor(page, sessionId, {})).proof).toBeNull();
+  const shownFrameCount = await page.evaluate((id) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return smokeWindow.__smoke.cellFrameCount(id);
+  }, sessionId);
+  await inputSmokeTerminal(
+    page,
+    sessionId,
+    encodePtyFixtureCommand({ op: "EMIT", text: "\x1b[?25h", newline: false }),
+  );
+  await expect.poll(() => page.evaluate((id) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return smokeWindow.__smoke.cellFrameCount(id);
+  }, sessionId)).toBeGreaterThan(shownFrameCount);
+  const shownCursor = await page.evaluate(({ id, row, column }) => {
+    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+    return smokeWindow.__smoke.waitForPaintedCursor(id, { row, column }, 10_000);
+  }, { id: sessionId, row: baselineCursor.row, column: baselineCursor.column });
+  expect(shownCursor).toMatchObject({
+    row: baselineCursor.row,
+    column: baselineCursor.column,
+    frames: 2,
+  });
+  expect(shownCursor.terminalClip).toEqual(baselineCursor.terminalClip);
+  expect(shownCursor.visualViewport).toEqual(baselineCursor.visualViewport);
+  await expect(cursor).toHaveAttribute("data-visible", "true");
+  await expect(cursor).toHaveCSS("display", "block");
+  const geometryBeforeIndicator = await readTerminalLayoutGeometry(page, sessionId);
   const beforeCursor = await readTerminalStreamProbe(page, sessionId);
   expect(beforeCursor.browser.handler_canonical).toEqual(beforeCursor.browser.dom_reconciled);
   expect(await holdNativeTerminalSelection(page, sessionId)).toBe(true);
@@ -69,6 +118,20 @@ export async function proveCursorAndImeRecovery({
     readerReason: "selection",
     selectionHold: true,
   });
+  const indicator = page.getByTestId("terminal-stream-indicator");
+  await expect(indicator).toHaveAttribute("data-state", "catching_up");
+  await expect(indicator).toHaveAttribute("title", "Screen catching up");
+  const geometryWithIndicator = await readTerminalLayoutGeometry(page, sessionId, true);
+  expect(geometryWithIndicator).toMatchObject({
+    slot: geometryBeforeIndicator.slot,
+    terminal: geometryBeforeIndicator.terminal,
+    clientWidth: geometryBeforeIndicator.clientWidth,
+    clientHeight: geometryBeforeIndicator.clientHeight,
+    position: "absolute",
+    pointerEvents: "none",
+  });
+  await expect(indicator).toHaveAttribute("aria-hidden", "true");
+  expect(cursorPending.browser.replica.resync_latched).toBe(false);
   const canonicalCursor = cursorPending.browser.presentation?.cursor.canonical;
   if (!canonicalCursor?.visible) throw new Error("cursor-only fixture did not leave a canonical cursor");
   expect(canonicalCursor.row).toBe(baselineCursor.row);
@@ -125,13 +188,22 @@ export async function proveCursorAndImeRecovery({
     sessions: [sessionId],
     droppedBatches: 0,
   });
+  await inputSmokeTerminal(
+    page,
+    sessionId,
+    encodePtyFixtureCommand({ op: "EMIT", text: "\x1b[?25h", newline: false }),
+  );
+  await expect(indicator).toHaveAttribute("data-state", "receiving");
+  await expect(indicator).toHaveAttribute("title", "Receiving terminal frames");
   const afterTrustedKey = await readTerminalStreamProbe(page, sessionId);
   expect(afterTrustedKey.browser.presentation?.cursor.canonical).toEqual(canonicalCursor);
   expect(afterTrustedKey.browser.presentation?.cursor.dom).toMatchObject({
     ...canonicalCursor,
     connected: true,
   });
+  expect(afterTrustedKey.browser.replica.resync_latched).toBe(false);
   expectRecoveredLive(cursorPending, afterTrustedKey);
+
   const recoveredCursor = await page.evaluate(({ id, row, column }) => {
     const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
     return smokeWindow.__smoke.waitForPaintedCursor(id, { row, column }, 10_000);
@@ -149,6 +221,7 @@ export async function proveCursorAndImeRecovery({
       `synchronous cursor ${key}`,
     ).toBeLessThanOrEqual(1);
   }
+  await expect(indicator).toHaveCount(0, { timeout: 2_000 });
 
   const liveAfterKey = `LIVE-AFTER-KEY:${suffix}`;
   await inputSmokeTerminal(
@@ -214,6 +287,7 @@ export async function proveCursorAndImeRecovery({
     await readTerminalStreamProbe(page, sessionId),
     { predictiveCursor: true },
   );
+  await waitForStableCellFrames(page, sessionId);
 }
 
 type FindPasteRecoveryOptions = {

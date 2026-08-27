@@ -30,22 +30,61 @@ export const SESSION_B = "22222222-2222-4222-8222-222222222222";
 export const OTHER_SESSION = "33333333-3333-4333-8333-333333333333";
 export const TARGET_SESSION = "44444444-4444-4444-8444-444444444444";
 
-class TestDeadlineClock implements SyncDeadlineClock {
+export class TestDeadlineClock implements SyncDeadlineClock {
   private nextTimer = 1;
-  private readonly timers = new Set<number>();
+  private readonly timers = new Map<number, () => void>();
+  private readonly callbacks = new Map<number, () => void>();
+  private readonly delays = new Map<number, number>();
 
   now(): number {
     return 1_000;
   }
 
-  setTimeout(_callback: () => void, _delayMs: number): Timer {
+  setTimeout(callback: () => void, delayMs: number): Timer {
     const timer = this.nextTimer++;
-    this.timers.add(timer);
+    this.timers.set(timer, callback);
+    this.callbacks.set(timer, callback);
+    this.delays.set(timer, delayMs);
     return timer as unknown as Timer;
   }
 
   clearTimeout(timer: Timer): void {
-    this.timers.delete(timer as unknown as number);
+    const id = timer as unknown as number;
+    this.timers.delete(id);
+    this.delays.delete(id);
+  }
+
+  runTimer(timer: Timer): boolean {
+    const id = timer as unknown as number;
+    const callback = this.timers.get(id);
+    if (!callback) return false;
+    this.timers.delete(id);
+    this.delays.delete(id);
+    callback();
+    return true;
+  }
+  invokeTimerCallback(timer: Timer): boolean {
+    const callback = this.callbacks.get(timer as unknown as number);
+    if (!callback) return false;
+    callback();
+    return true;
+  }
+
+  runNextZeroDelayTimer(): boolean {
+    for (const [id, delayMs] of this.delays) {
+      if (delayMs !== 0) continue;
+      return this.runTimer(id as unknown as Timer);
+    }
+    return false;
+  }
+
+  pendingTimerCount(delayMs?: number): number {
+    if (delayMs === undefined) return this.timers.size;
+    let count = 0;
+    for (const timerDelay of this.delays.values()) {
+      if (timerDelay === delayMs) count++;
+    }
+    return count;
   }
 }
 
@@ -104,6 +143,7 @@ type Delivery = ReturnType<typeof makeSyncV1Delivery>;
 type TerminalState = SyncV2DomainState;
 
 export interface SchedulerHarness {
+  readonly clock: TestDeadlineClock;
   readonly socket: TestSocket;
   readonly ws: ServerWebSocket<SyncWsData>;
   readonly scheduler: SyncV2Scheduler;
@@ -141,7 +181,7 @@ export function makeHarness(viewerKey: string, terminalReady: boolean): Schedule
     scheduleV2: scheduler.scheduleV2,
   });
 
-  return { socket, ws, scheduler, delivery, terminal };
+  return { clock, socket, ws, scheduler, delivery, terminal };
 }
 
 export function makeCell(sessionId: string, seq: number, full: boolean): FirehoseFrame {

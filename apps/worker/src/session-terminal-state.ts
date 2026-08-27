@@ -64,9 +64,11 @@ export interface TerminalStreamState {
 	baselineDirty: boolean;
 	snapshotCursor: TerminalSnapshotCursor | null;
 	resizeCapture: LiveResizeCapture | null;
-	/** Settles when a complete immutable full transfer has been installed. */
-	baselineInstalled: Promise<void>;
-	resolveBaselineInstalled: () => void;
+	/** Settles with true only after a complete immutable full transfer is sent. */
+	baselineInstalled: Promise<boolean>;
+	/** True while baselineInstalled still belongs to an unsent snapshot. */
+	baselinePromisePending: boolean;
+	resolveBaselineInstalled: (installed: boolean) => void;
 	operation?: Promise<WorkerTerminalStreamResult>;
 }
 

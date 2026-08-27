@@ -92,6 +92,12 @@ export async function proveComposerRecovery({
   });
   expect(altPending.browser.presentation?.mode.canonical?.alt_screen).toBe(true);
   expect(altPending.browser.presentation?.mode.reconciled?.alt_screen).toBe(false);
+  const altHold = (await readTerminalStreamProbe(page, sessionId)).browser.presentation;
+  expect(altHold).toMatchObject({
+    reader_intent: "reading",
+    reader_reason: "selection",
+    hold_mask: { selection: true, link: false },
+  });
   const hiddenAltMarker = await attemptPaintedMarker(page, sessionId, altMarker);
   expect(hiddenAltMarker.proof).toBeNull();
   expect(await page.evaluate(() => window.getSelection()?.isCollapsed ?? true)).toBe(false);

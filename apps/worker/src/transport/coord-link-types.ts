@@ -97,17 +97,20 @@ export interface UpdateProgressFrame {
   success: boolean;
   error?: string;
 }
-
 export type TransportSendResult = "sent" | "queued" | "dropped";
+/** Cell frames are admitted directly to the wire or rejected for retry.
+ * Unlike generic control/raw sends, cells never use queue admission as an
+ * emission receipt: a snapshot cursor advances only on "sent". */
+export type TerminalCellSendResult = "sent" | "dropped";
 
 
 export interface CoordLink {
   send(frame: UpstreamFrame): boolean;
   sendBinary(channelId: number, direction: number, endSeq: number, data: Uint8Array): TransportSendResult;
-  sendCellGrid(channelId: number, frame: PbCellGridFrame): TransportSendResult;
+  sendCellGrid(channelId: number, frame: PbCellGridFrame): TerminalCellSendResult;
   sendAgentStatus(status: AgentStatusUpdate): boolean;
   state(): CoordLinkState;
-  sendCellGridChunk(channelId: number, chunk: PbCellGridChunk): TransportSendResult;
+  sendCellGridChunk(channelId: number, chunk: PbCellGridChunk): TerminalCellSendResult;
   relocate(targetUrl: string, force?: boolean): void;
   unackedEventCount(): number;
   dispose(): void;
@@ -173,9 +176,9 @@ export type CoordLinkState =
 export interface CoordLinkOutbox {
   send(frame: UpstreamFrame): boolean;
   sendBinary(channelId: number, direction: number, endSeq: number, data: Uint8Array): TransportSendResult;
-  sendCellGrid(channelId: number, frame: PbCellGridFrame): TransportSendResult;
+  sendCellGrid(channelId: number, frame: PbCellGridFrame): TerminalCellSendResult;
   sendAgentStatus(status: AgentStatusUpdate): boolean;
-  sendCellGridChunk(channelId: number, chunk: PbCellGridChunk): TransportSendResult;
+  sendCellGridChunk(channelId: number, chunk: PbCellGridChunk): TerminalCellSendResult;
   sendControlProto(frame: CoordWorkerUp): TransportSendResult;
   encodeUpstream(frame: CoordWorkerUp): Uint8Array | null;
   /** Bypasses byte admission. Legitimate only for the hello frame on a

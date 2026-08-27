@@ -9,6 +9,7 @@ import {
 } from "@roost/shared/proto/sync_pb";
 import {
   V2_DOMAIN_MAX_QUEUED_FRAMES,
+  clearV2State,
 } from "../src/connect/sync-ws-v2-state.ts";
 import {
   OTHER_SESSION,
@@ -24,7 +25,6 @@ import {
   makeHarness,
   makeState,
 } from "./sync-ws-v2-scheduler-harness.ts";
-
 test("dropping a terminal stream prunes its backlog before a replacement snapshot reaches the queue limit", async () => {
   const harness = makeHarness("scheduler-test:overflow-prune", true);
   const streamA = "stream-a";
@@ -32,7 +32,6 @@ test("dropping a terminal stream prunes its backlog before a replacement snapsho
   harness.scheduler.beginTerminalStream(harness.ws, SESSION_A, streamA);
   harness.socket.data.v2!.announcedSessions.add(SESSION_A);
   fillApplicationAckWindow(harness);
-
   const queuedA: FirehoseFrame[] = [];
   for (let seq = 1; seq <= V2_DOMAIN_MAX_QUEUED_FRAMES; seq += 1) {
     const frame = makeCell(SESSION_A, seq, false);
@@ -51,14 +50,12 @@ test("dropping a terminal stream prunes its backlog before a replacement snapsho
   await flushMicrotasks();
   expect(harness.socket.data.v2!.schedulerPending).toBe(false);
   expect(harness.socket.sent).toEqual([]);
-
   harness.scheduler.dropTerminalSession(harness.ws, SESSION_A);
   harness.scheduler.beginTerminalStream(harness.ws, SESSION_B, streamB);
   harness.socket.data.v2!.announcedSessions.add(SESSION_B);
   const replacement = makeCell(SESSION_B, 10_000, true);
   const replacementBytes = estimatedTerminalBytes(replacement, harness.terminal.generation);
   harness.scheduler.replaceTerminalSnapshot(harness.ws, SESSION_B, streamB, [replacement]);
-
   expect(harness.socket.closes).toEqual([]);
   expect(harness.terminal.queue.map((item) => cellIdentity(item.frame))).toEqual([{
     sessionId: SESSION_B,
@@ -70,11 +67,9 @@ test("dropping a terminal stream prunes its backlog before a replacement snapsho
   expect(harness.terminal.queuedBytes).toBe(replacementBytes);
   expect(harness.socket.data.v2!.queuedFrames).toBe(1);
   expect(harness.socket.data.v2!.queuedBytes).toBe(replacementBytes);
-
   const blockedThrough = harness.socket.data.lastSentDeliverySeq;
   expect(harness.delivery.applyCumulativeAck(harness.ws, blockedThrough)).toBe(true);
   await flushMicrotasks();
-
   const sentCells = decodedFrames(harness.socket).filter(
     (frame) => frame.frame.case === "cellGrid",
   );
@@ -91,18 +86,15 @@ test("dropping a terminal stream prunes its backlog before a replacement snapsho
   expect(harness.socket.data.v2!.queuedFrames).toBe(0);
   expect(harness.socket.data.v2!.queuedBytes).toBe(0);
   expect(harness.socket.closes).toEqual([]);
-
   expect(harness.delivery.applyCumulativeAck(harness.ws, sentCells[0]!.deliverySeq)).toBe(true);
   await flushMicrotasks();
 });
-
 test("a replacement snapshot supersedes only its own stream cursor and delta tail", async () => {
   const harness = makeHarness("scheduler-test:snapshot-supersession", false);
   const otherStream = "stream-other";
   const targetStream = "stream-target";
   harness.scheduler.beginTerminalStream(harness.ws, OTHER_SESSION, otherStream);
   harness.scheduler.beginTerminalStream(harness.ws, TARGET_SESSION, targetStream);
-
   const other = makeCell(OTHER_SESSION, 1, false);
   const oldFull = makeCell(TARGET_SESSION, 2, true);
   const oldSnapshotTail = makeCell(TARGET_SESSION, 3, false);
@@ -115,7 +107,6 @@ test("a replacement snapshot supersedes only its own stream cursor and delta tai
   harness.scheduler.replaceTerminalSnapshot(harness.ws, TARGET_SESSION, targetStream, [newFull]);
   expect(harness.scheduler.enqueueTerminalDelta(harness.ws, TARGET_SESSION, targetStream, followingDelta)).toBe(true);
   await flushMicrotasks();
-
   // The fresh TARGET baseline jumps the OTHER delta; snapshots never pass
   // snapshots and per-session FIFO still holds.
   const survivors = [newFull, other];
@@ -145,7 +136,6 @@ test("a replacement snapshot supersedes only its own stream cursor and delta tai
   expect(harness.socket.sent).toEqual([]);
   expect(harness.socket.closes).toEqual([]);
 });
-
 test("delta-only terminal streams retain FIFO order without a snapshot cursor", async () => {
   const harness = makeHarness("scheduler-test:delta-fifo", false);
   const streamId = "stream-delta-fifo";
@@ -159,7 +149,6 @@ test("delta-only terminal streams retain FIFO order without a snapshot cursor", 
     expect(harness.scheduler.enqueueTerminalDelta(harness.ws, TARGET_SESSION, streamId, delta)).toBe(true);
   }
   await flushMicrotasks();
-
   const expectedBytes = deltas.map((frame) =>
     estimatedTerminalBytes(frame, harness.terminal.generation)
   );
@@ -178,6 +167,111 @@ test("delta-only terminal streams retain FIFO order without a snapshot cursor", 
   expect(harness.socket.data.v2!.schedulerPending).toBe(false);
   expect(harness.socket.sent).toEqual([]);
   expect(harness.socket.closes).toEqual([]);
+});
+test("capped scheduler batches yield once before draining the next 64 frames", async () => {
+  const harness = makeHarness("scheduler-test:capped-yield", true);
+  const streamId = "stream-capped-yield";
+  harness.socket.data.v2!.announcedSessions.add(TARGET_SESSION);
+  harness.scheduler.beginTerminalStream(harness.ws, TARGET_SESSION, streamId);
+  for (let seq = 1; seq <= 128; seq += 1) {
+    expect(
+      harness.scheduler.enqueueTerminalDelta(
+        harness.ws,
+        TARGET_SESSION,
+        streamId,
+        makeCell(TARGET_SESSION, seq, false),
+      ),
+    ).toBe(true);
+  }
+  await flushMicrotasks();
+  const firstBatch = decodedFrames(harness.socket)
+    .filter((frame) => frame.frame.case === "cellGrid");
+  expect(firstBatch).toHaveLength(64);
+  expect(firstBatch.map(cellIdentity).map((cell) => cell.seq)).toEqual(
+    Array.from({ length: 64 }, (_, index) => BigInt(index + 1)),
+  );
+  const firstContinuation = harness.socket.data.v2!.schedulerYieldTimer;
+  expect(firstContinuation).not.toBeNull();
+  expect(harness.clock.pendingTimerCount(0)).toBe(1);
+  // New data and an ACK may arrive while the macrotask yield is pending, but
+  // neither is allowed to bypass it or create a second continuation.
+  expect(
+    harness.scheduler.enqueueTerminalDelta(
+      harness.ws,
+      TARGET_SESSION,
+      streamId,
+      makeCell(TARGET_SESSION, 129, false),
+    ),
+  ).toBe(true);
+  expect(harness.delivery.applyCumulativeAck(harness.ws, 64n)).toBe(true);
+  expect(
+    harness.scheduler.sendV2ControlFrame(harness.ws, makeState(TARGET_SESSION, streamId)),
+  ).toBe(true);
+  await flushMicrotasks();
+  expect(decodedFrames(harness.socket)).toHaveLength(65);
+  expect(harness.socket.data.v2!.schedulerYieldTimer).toBe(firstContinuation);
+  expect(harness.clock.pendingTimerCount(0)).toBe(1);
+  expect(harness.clock.runNextZeroDelayTimer()).toBe(true);
+  await flushMicrotasks();
+  const secondTurn = decodedFrames(harness.socket);
+  expect(secondTurn).toHaveLength(129);
+  expect(secondTurn[64]!.frame.case).toBe("terminalViewState");
+  expect(secondTurn.filter((frame) => frame.frame.case === "cellGrid")).toHaveLength(128);
+  expect(
+    secondTurn
+      .filter((frame) => frame.frame.case === "cellGrid")
+      .map(cellIdentity)
+      .map((cell) => cell.seq),
+  ).toEqual(Array.from({ length: 128 }, (_, index) => BigInt(index + 1)));
+  expect(harness.clock.pendingTimerCount(0)).toBe(1);
+  expect(harness.socket.data.v2!.schedulerYieldTimer).not.toBeNull();
+
+  expect(harness.clock.runNextZeroDelayTimer()).toBe(true);
+  await flushMicrotasks();
+  const finalFrames = decodedFrames(harness.socket);
+  expect(finalFrames.filter((frame) => frame.frame.case === "cellGrid")).toHaveLength(129);
+  expect(finalFrames.at(-1)!.frame.case).toBe("cellGrid");
+  expect(cellIdentity(finalFrames.at(-1)!)).toEqual({
+    sessionId: TARGET_SESSION,
+    full: false,
+    seq: 129n,
+  });
+  expect(harness.socket.data.v2!.schedulerYieldTimer).toBeNull();
+  expect(harness.clock.pendingTimerCount(0)).toBe(0);
+  expect(harness.socket.data.v2!.schedulerPending).toBe(false);
+});
+
+test("a reset cancels a capped continuation and retires its stale callback", async () => {
+  const harness = makeHarness("scheduler-test:capped-yield-reset", true);
+  const streamId = "stream-capped-yield-reset";
+  harness.scheduler.beginTerminalStream(harness.ws, TARGET_SESSION, streamId);
+  harness.socket.data.v2!.announcedSessions.add(TARGET_SESSION);
+  for (let seq = 1; seq <= 65; seq += 1) {
+    expect(
+      harness.scheduler.enqueueTerminalDelta(
+        harness.ws,
+        TARGET_SESSION,
+        streamId,
+        makeCell(TARGET_SESSION, seq, false),
+      ),
+    ).toBe(true);
+  }
+  await flushMicrotasks();
+
+  const staleContinuation = harness.socket.data.v2!.schedulerYieldTimer;
+  expect(staleContinuation).not.toBeNull();
+  harness.socket.data.pressureClosing = true;
+  clearV2State(harness.ws, (timer) => harness.clock.clearTimeout(timer));
+  expect(harness.socket.data.v2!.schedulerYieldTimer).toBeNull();
+  expect(harness.clock.pendingTimerCount(0)).toBe(0);
+
+  // Exercise a callback that was already taken from the clock's queue before
+  // cleanup; the timer identity guard must leave the cleared state inert.
+  expect(harness.clock.invokeTimerCallback(staleContinuation!)).toBe(true);
+  await flushMicrotasks();
+  expect(harness.socket.sent).toHaveLength(64);
+  expect(harness.socket.data.v2!.schedulerPending).toBe(false);
+  expect(harness.socket.data.v2!.queuedFrames).toBe(0);
 });
 
 test("terminal state precedes the snapshot cursor and its delta tail after ACK restart", async () => {

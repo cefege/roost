@@ -64,11 +64,11 @@ function committed(
 }
 
 async function awaitBaselineInstallation(state: TerminalStreamState): Promise<boolean> {
-	if (state.snapshotCursor || state.baselineReady) return true;
+	if (state.baselineReady) return true;
 	const timeout = Promise.withResolvers<boolean>();
 	const timer = setTimeout(() => timeout.resolve(false), STREAM_APPLICATION_BUDGET_MS);
 	const installed = await Promise.race([
-		state.baselineInstalled.then(() => true),
+		state.baselineInstalled,
 		timeout.promise,
 	]);
 	clearTimeout(timer);

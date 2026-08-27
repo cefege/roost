@@ -12,7 +12,7 @@ import type {
   PbCellGridFrame,
 } from "@roost/shared/proto/cell_pb";
 import { TerminalResyncCommandSchema } from "@roost/shared/proto/sync_pb";
-import { signal } from "@roost/shared/diag";
+import { signal, diag, isDiagEnabled } from "@roost/shared/diag";
 import { markPhaseOnce, recordCellLag } from "../lib/diag.ts";
 import {
   currentSyncV2TerminalState,
@@ -177,10 +177,20 @@ export function applyTerminalFrameToSubscriber(
   subscriber: TerminalRendererSubscriber,
   frame: CellGridFrame,
 ): boolean {
+  const diagnostics = isDiagEnabled();
+  const startedAt = diagnostics ? performance.now() : 0;
   const applied = frame.full
     ? subscriber.renderer.applyFullFrame(frame)
     : subscriber.renderer.applyDeltaFrame(frame);
   if (!applied) return false;
+  if (diagnostics) {
+    diag("cell.apply_dur", {
+      sid: subscriber.sessionId,
+      seq: frame.seq,
+      full: frame.full,
+      dur_ms: performance.now() - startedAt,
+    });
+  }
   subscriber.streamId = frame.streamId;
   subscriber.gridEpoch = frame.gridEpoch;
   subscriber.seq = frame.seq;

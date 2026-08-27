@@ -166,33 +166,63 @@ describe("CellGridRenderer DOM — viewport diff", () => {
   });
 });
 
-describe("CellGridRenderer DOM — first reconciliation notification", () => {
-  test("fires only after the first completed DOM reconciliation", () => {
+describe("CellGridRenderer DOM — reconciliation notification", () => {
+  test("fires first and subsequent reconciliation callbacks only after completed DOM reconciliation", () => {
     const c = makeContainer();
-    let notifications = 0;
+    let firstNotifications = 0;
+    let reconciliations = 0;
     const r = new CellGridRenderer(
       c as unknown as HTMLElement,
-      () => { notifications += 1; },
+      () => { firstNotifications += 1; },
+      () => { reconciliations += 1; },
     );
 
     const rejected = { ...fullFrame(80, [row(0, "rejected")]), rows: 2 };
     expect(r.applyFullFrame(rejected)).toBe(false);
-    expect(notifications).toBe(0);
+    expect(firstNotifications).toBe(0);
+    expect(reconciliations).toBe(0);
 
     r.setSelectionHold(true);
     expect(r.applyFullFrame(fullFrame(80, [row(0, "held")]))).toBe(true);
     expect(r.reconciledEpochSeq()).toEqual({ grid_epoch: null, seq: null });
-    expect(notifications).toBe(0);
+    expect(firstNotifications).toBe(0);
+    expect(reconciliations).toBe(0);
 
     expect(r.prepareLiveInteraction()).toEqual({ reconciled: true, anchorChanged: true });
     expect(r.reconciledEpochSeq()).toEqual({ grid_epoch: "test-grid:0", seq: 1 });
-    expect(notifications).toBe(1);
+    expect(firstNotifications).toBe(1);
+    expect(reconciliations).toBe(1);
 
     expect(r.applyDeltaFrame(deltaFrame(80, 1, [row(0, "delta")], [], 2))).toBe(true);
     expect(r.applyFullFrame({
       ...fullFrame(80, [row(0, "later-full")]),
       seq: 3,
     })).toBe(true);
-    expect(notifications).toBe(1);
+    expect(firstNotifications).toBe(1);
+    expect(reconciliations).toBe(3);
+  });
+
+  test("defaults the cursor to solid and changes only the explicit blink attribute", () => {
+    const c = makeContainer();
+    const r = new CellGridRenderer(c as unknown as HTMLElement);
+    expect(r.applyFullFrame(fullFrame(80, [row(0, "visible")]))).toBe(true);
+    const cursor = vpEl(c).children.find(
+      (child: FakeEl) => child.className === "cell-cursor",
+    ) as FakeEl;
+
+    expect(cursor.dataset.blink).toBe("false");
+    r.setCursorBlinkEnabled(false);
+    expect(cursor.dataset.blink).toBe("false");
+    r.setCursorBlinkEnabled(true);
+    expect(cursor.dataset.blink).toBe("true");
+    r.setCursorBlinkEnabled(true);
+    expect(cursor.dataset.blink).toBe("true");
+
+    expect(cursor.dataset.visible).toBe("true");
+    expect(cursor.style.display).toBe("block");
+    r.setCursorBlinkEnabled(false);
+    expect(cursor.dataset.blink).toBe("false");
+    expect(cursor.dataset.visible).toBe("true");
+    expect(cursor.style.display).toBe("block");
   });
 });

@@ -44,7 +44,7 @@ describe("worker diagnostic snapshot", () => {
       cell_emit: cellEmit,
       sb_origin_pin: null,
     } as never);
-    const baseline = Promise.withResolvers<void>();
+    const baseline = Promise.withResolvers<boolean>();
     manager.terminalStreams.set(CHANNEL_ID, {
       streamId: "00000000-0000-4000-8000-000000000001",
       enabled: true,
@@ -56,6 +56,7 @@ describe("worker diagnostic snapshot", () => {
       baselineDirty: true,
       snapshotCursor: null,
       baselineInstalled: baseline.promise,
+      baselinePromisePending: true,
       resolveBaselineInstalled: baseline.resolve,
       resizeCapture: {
         streamId: "00000000-0000-4000-8000-000000000001",

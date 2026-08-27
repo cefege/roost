@@ -303,7 +303,7 @@ export function makeSyncWsHandler(
     ws.data.reauthTimer = null;
     delivery.clearNativePressure(ws);
     delivery.clearApplicationWindow(ws);
-    clearV2State(ws);
+    clearV2State(ws, (timer) => deadlineClock.clearTimeout(timer));
     ws.data.feed?.dispose();
     ws.data.feed = null;
   };
