@@ -253,10 +253,9 @@ export async function api(args: string[]): Promise<void> {
     const exitCode = await dispatch(c, verb, rest);
     if (exitCode !== 0) process.exit(exitCode);
   } catch (e) {
-    // Duck-type the Connect Unauthenticated error by its "[unauthenticated]"
-    // message tag — avoids depending on @connectrpc/connect (a worker-only dep
-    // not resolvable from the roost-cli package).
-    if (/unauthenticated/i.test(String(e)) && c && _authorizeSelf) {
+    // Input might have reached the PTY before an Unauthenticated transport error,
+    // so only read/control verbs may self-authorize and retry once.
+    if (verb !== "input" && /unauthenticated/i.test(String(e)) && c && _authorizeSelf) {
       try {
         const fp = await _authorizeSelf(c);
         console.error(`roost api: key unknown to coord — self-authorized as ${fp.slice(0, 8)} (label roost-cli), retrying`);
