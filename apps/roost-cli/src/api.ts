@@ -27,7 +27,8 @@ import { CoordinatorMovePhase } from "@roost/shared/proto/coordinator_pb";
 import { diag } from "@roost/shared/diag";
 export type AuthorizedApiClient = CoordClient;
 import { openSyncWs } from "./sync-ws.ts";
-
+import { defaultDispatchIo, printSessions, sendTerminalInput, type ApiDispatchIo } from "./api-smart-ai-bridge.ts";
+export type { ApiDispatchIo } from "./api-smart-ai-bridge.ts";
 // Self-authorization hook, armed by buildApiClient once the key is loaded.
 // A closure (not a stored key) so jwt.ts's LoadedKey stays private to that
 // module. api() invokes it on an Unauthenticated dispatch: registers our raw
@@ -249,7 +250,8 @@ export async function api(args: string[]): Promise<void> {
     const realLog = console.log;
     console.log = ((...a: unknown[]) => console.error(...a)) as typeof console.log;
     try { c = await buildApiClient(); } finally { console.log = realLog; }
-    await dispatch(c, verb, rest);
+    const exitCode = await dispatch(c, verb, rest);
+    if (exitCode !== 0) process.exit(exitCode);
   } catch (e) {
     // Duck-type the Connect Unauthenticated error by its "[unauthenticated]"
     // message tag — avoids depending on @connectrpc/connect (a worker-only dep
@@ -267,7 +269,8 @@ export async function api(args: string[]): Promise<void> {
         process.exit(1);
       }
       try {
-        await dispatch(c, verb, rest); // retry ONCE with the now-authorized key
+        const exitCode = await dispatch(c, verb, rest); // retry ONCE with the now-authorized key
+        if (exitCode !== 0) process.exit(exitCode);
         return;
       } catch (e2) {
         console.error(`roost api: ${e2 instanceof Error ? e2.message : String(e2)}`);
@@ -279,14 +282,16 @@ export async function api(args: string[]): Promise<void> {
   }
 }
 
-async function dispatch(c: CoordClient, verb: string, rest: string[]): Promise<void> {
+
+export async function dispatch(
+  c: CoordClient,
+  verb: string,
+  rest: string[],
+  io: ApiDispatchIo = defaultDispatchIo,
+): Promise<number> {
   switch (verb) {
     case "sessions": {
-      const { sessions } = await c.sessionsList({ status: "all" });
-      for (const s of sessions) {
-        const title = s.customTitle || "";
-        console.log([s.id, s.workerFp, s.kind, s.cwd, title].join("\t"));
-      }
+      await printSessions(c, rest.includes("--json"), io);
       break;
     }
     case "workers": {
@@ -330,14 +335,8 @@ async function dispatch(c: CoordClient, verb: string, rest: string[]): Promise<v
       process.exit(1);
       break;
     }
-    case "input": {
-      const sid = requireArg(rest[0], "sessionId");
-      const raw = requireArg(rest[1], "text");
-      let text = raw.replace(/\\n/g, "\n").replace(/\\t/g, "\t").replace(/\\r/g, "\r");
-      if (rest.includes("--enter")) text += "\r";
-      await c.sessionsInput({ sessionId: sid, data: new TextEncoder().encode(text) });
-      break;
-    }
+    case "input":
+      return sendTerminalInput(c, rest, io);
     case "attach": {
       // Upload local file(s) to a session's worker over the chunked
       // AttachFileChunk RPC, print each abs_path (one per line), optionally
@@ -644,6 +643,7 @@ async function dispatch(c: CoordClient, verb: string, rest: string[]): Promise<v
       console.error(`roost api: unknown verb "${verb}" — sessions | cat | cells | input | rename | assign | attach | spawn | kill | workers | worker-rename | worker-rm | workspaces | ws-create | ws-update | ws-delete | ws-set-sessions | tasks | task-enqueue | task-cancel | move-preflight | move-start | move-status | ui | ui-state | events | watch`);
       process.exit(1);
   }
+  return 0;
 }
 
 
