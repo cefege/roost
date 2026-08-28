@@ -67,6 +67,59 @@ describe("per-session browser terminal replica", () => {
       resync_latched: false,
     });
   });
+
+  test("requests a missing initial full baseline on the first heartbeat", () => {
+    const view = terminalStream.createTerminalView(SESSION_ID);
+    view.setViewport({ cols: 1, rows: 1 });
+    acceptView(view.viewId, latestViewCommand().value.revision as bigint);
+
+    expect(resyncCommands()).toHaveLength(0);
+    vi.advanceTimersByTime(5_000);
+    expect(resyncCommands()).toHaveLength(1);
+  });
+
+  test("retries an unanswered resync once per heartbeat in the same generation", () => {
+    const view = terminalStream.createTerminalView(SESSION_ID);
+    view.setViewport({ cols: 1, rows: 1 });
+    acceptView(view.viewId, latestViewCommand().value.revision as bigint);
+
+    vi.advanceTimersByTime(5_000);
+    expect(resyncCommands()).toHaveLength(1);
+    vi.advanceTimersByTime(4_999);
+    expect(resyncCommands()).toHaveLength(1);
+    vi.advanceTimersByTime(1);
+    expect(resyncCommands()).toHaveLength(2);
+  });
+
+  test("deduplicates heartbeat retries across handles for one session", () => {
+    const first = terminalStream.createTerminalView(SESSION_ID);
+    first.setViewport({ cols: 1, rows: 1 });
+    acceptView(first.viewId, latestViewCommand().value.revision as bigint);
+    const second = terminalStream.createTerminalView(SESSION_ID);
+    second.setViewport({ cols: 1, rows: 1 });
+    acceptView(second.viewId, latestViewCommand().value.revision as bigint);
+
+    vi.advanceTimersByTime(5_000);
+    expect(resyncCommands()).toHaveLength(1);
+    vi.advanceTimersByTime(5_000);
+    expect(resyncCommands()).toHaveLength(2);
+  });
+
+  test("stops heartbeat retries after accepting a full baseline", () => {
+    const view = terminalStream.createTerminalView(SESSION_ID);
+    const sink = new RecordingRenderer();
+    view.subscribeRenderer(renderer(sink));
+    view.setViewport({ cols: 1, rows: 1 });
+    acceptView(view.viewId, latestViewCommand().value.revision as bigint);
+
+    vi.advanceTimersByTime(5_000);
+    expect(resyncCommands()).toHaveLength(1);
+    terminalStream.dispatchTerminalCellFrame(cellFrameToProto(full(), SESSION_ID));
+    expect(sink.fullFrames).toHaveLength(1);
+
+    vi.advanceTimersByTime(10_000);
+    expect(resyncCommands()).toHaveLength(1);
+  });
   test("keeps subscriber row shells independent from each other and the canonical replica", () => {
     const view = terminalStream.createTerminalView(SESSION_ID);
     const mutating = new RecordingRenderer();

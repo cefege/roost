@@ -72,6 +72,20 @@ export function attachTerminalMouseForwarding(
 		measureCell,
 	} = deps;
 	const forwardActive = () => mouseForwardEnabled() && mouseTracking() !== 0;
+	// Reader intent must only precede a native gesture that can actually move the
+	// display. Entering reader mode at a clamped edge (or with no overflow)
+	// freezes live painting even though the browser has no scroll to perform.
+	// `deltaY` is expressed as the resulting scrollTop direction: negative moves
+	// toward history, positive moves toward the live tail.
+	const enterReadingForNativeScroll = (
+		reason: "wheel" | "touch",
+		deltaY: number,
+	): void => {
+		const maxScrollTop = Math.max(0, display.scrollHeight - display.clientHeight);
+		const canMove =
+			deltaY < 0 ? display.scrollTop > 0 : display.scrollTop < maxScrollTop;
+		if (canMove) getRenderer()?.enterReading(reason);
+	};
 	const report = (gesture: MouseGesture): boolean => {
 		const bytes = terminalMouseReport(
 			{ tracking: mouseTracking(), sgr: getMouseSgr() },
@@ -111,7 +125,7 @@ export function attachTerminalMouseForwarding(
 	const onWheelForward = (ev: WheelEvent) => {
 		if (ev.defaultPrevented || ev.deltaY === 0) return;
 		if (!forwardActive()) {
-			getRenderer()?.enterReading("wheel");
+			enterReadingForNativeScroll("wheel", ev.deltaY);
 			return;
 		}
 		const { col, row } = cellOf(ev.clientX, ev.clientY);
@@ -121,7 +135,7 @@ export function attachTerminalMouseForwarding(
 			shift: ev.shiftKey, alt: ev.altKey, ctrl: ev.ctrlKey, meta: ev.metaKey,
 		});
 		if (!forwarded) {
-			getRenderer()?.enterReading("wheel");
+			enterReadingForNativeScroll("wheel", ev.deltaY);
 			return;
 		}
 		ev.preventDefault();
@@ -209,7 +223,7 @@ export function attachTerminalMouseForwarding(
 		if (Math.abs(dy) < step) return;
 		if (!touchForwarding || !forwardActive()) {
 			touchY = y;
-			getRenderer()?.enterReading("touch");
+			enterReadingForNativeScroll("touch", -dy);
 			return;
 		}
 		while (Math.abs(dy) >= step) {

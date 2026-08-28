@@ -332,7 +332,7 @@ export function emitCellFrame(this: SessionManager, channelId: number, force: bo
 	const core = rec.wtermCore;
 	const fullOwed = force || !rec.cell_emit.sentFull || this.pendingSyncCellSnapshots.has(channelId);
 	const syncAction = syncOutputAction(this, channelId);
-	const deferFull = (core.synchronizedOutput?.() ?? false) && fullOwed;
+	const deferFull = syncAction === "hold" && fullOwed;
 	if (deferFull) this.pendingSyncCellSnapshots.add(channelId);
 	if (syncAction === "hold" || deferFull) {
 		state.baselineDirty = true;

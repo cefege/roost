@@ -43,7 +43,7 @@ export const TERMINAL_SCREEN_MAX_RESIDENT_ROWS = 65_536;
 export const TERMINAL_SCREEN_MAX_RESIDENT_SPANS = 2_097_152;
 
 export interface TerminalScreenSocketSink {
-  beginTerminalStream(sessionId: string, streamId: string): void;
+  beginTerminalStream(sessionId: string, streamId: string): boolean;
   enqueueTerminalState(frame: FirehoseFrame, sessionId: string): void;
   replaceTerminalSnapshot(
     sessionId: string,
@@ -112,6 +112,25 @@ export class TerminalScreenHub {
     const state = this.sessions.get(sessionId);
     if (!socket?.watchedSessions.has(sessionId) || !state?.expected || !state.cache?.valid) return;
     this.seed(socket, sessionId, state.expected.streamId, state.cache.proto);
+  }
+
+  ensureSocketStream(socketId: string, sessionId: string): boolean {
+    const socket = this.sockets.get(socketId);
+    const state = this.sessions.get(sessionId);
+    if (!socket?.watchedSessions.has(sessionId) || !state?.expected) return false;
+    return socket.sink.beginTerminalStream(sessionId, state.expected.streamId);
+  }
+
+  resyncSocket(socketId: string, sessionId: string): void {
+    const socket = this.sockets.get(socketId);
+    const state = this.sessions.get(sessionId);
+    if (!socket?.watchedSessions.has(sessionId) || !state?.expected) return;
+    socket.sink.beginTerminalStream(sessionId, state.expected.streamId);
+    if (state.cache?.valid && !state.resyncLatched) {
+      this.seed(socket, sessionId, state.expected.streamId, state.cache.proto);
+      return;
+    }
+    this.retryResync(sessionId, state, "browser requested terminal rebaseline");
   }
 
   expectStream(sessionId: string, streamId: string, cols: number, rows: number): void {
@@ -358,7 +377,21 @@ export class TerminalScreenHub {
   }
 
   private latchResync(sessionId: string, state: SessionScreen, reason: string): void {
-    if (!state.expected || state.resyncLatched) return;
+    this.requestResync(sessionId, state, reason, false);
+  }
+
+  private retryResync(sessionId: string, state: SessionScreen, reason: string): void {
+    if (state.chunks.assembler.activeSnapshotId !== null) return;
+    this.requestResync(sessionId, state, reason, true);
+  }
+
+  private requestResync(
+    sessionId: string,
+    state: SessionScreen,
+    reason: string,
+    retry: boolean,
+  ): void {
+    if (!state.expected || (!retry && state.resyncLatched)) return;
     state.resyncLatched = true;
     diag("terminal.screen_resync", {
       session_id: sessionId,
@@ -374,7 +407,7 @@ export class TerminalScreenHub {
       state.chunks.timer = null;
       if (!state.chunks.assembler.expire(this.now())) return;
       state.hold.clear();
-      this.latchResync(sessionId, state, "terminal snapshot chunk transfer stalled");
+      this.retryResync(sessionId, state, "terminal snapshot chunk transfer stalled");
     }, CELL_GRID_CHUNK_STALL_MS);
     state.chunks.timer.unref?.();
   }

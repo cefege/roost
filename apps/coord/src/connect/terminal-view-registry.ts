@@ -165,6 +165,9 @@ export class TerminalViewRegistry {
         } else {
           this.replyView(current, TerminalViewStatus.ACCEPTED, "");
         }
+        if (this.options.screen.ensureSocketStream(socketId, current.sessionId)) {
+          this.options.screen.seedSocket(socketId, current.sessionId);
+        }
         return;
       }
       if (command.sessionId !== current.sessionId) {
@@ -256,7 +259,7 @@ export class TerminalViewRegistry {
       || view.sessionId !== command.sessionId
     ) return;
     if (this.options.streamState(command.sessionId)?.streamId === command.streamId) {
-      this.options.screen.invalidate(command.sessionId, "browser requested terminal rebaseline");
+      this.options.screen.resyncSocket(socketId, command.sessionId);
     }
   }
 

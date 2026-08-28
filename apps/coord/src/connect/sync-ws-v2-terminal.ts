@@ -147,11 +147,12 @@ export function makeSyncV2TerminalScheduler(
     ws: ServerWebSocket<SyncWsData>,
     sessionId: string,
     streamId: string,
-  ): void => {
+  ): boolean => {
     const v2 = ws.data.v2;
-    if (!v2) return;
-    const pendingStates =
-      v2.terminalSessions.get(sessionId)?.pendingStates ?? [];
+    if (!v2) return false;
+    const current = v2.terminalSessions.get(sessionId);
+    if (current?.streamId === streamId) return false;
+    const pendingStates = current?.pendingStates ?? [];
     removeTerminalQueued(ws, sessionId, false);
     const lane: SyncTerminalSessionLane = {
       streamId,
@@ -161,6 +162,7 @@ export function makeSyncV2TerminalScheduler(
     };
     v2.terminalSessions.set(sessionId, lane);
     pumpTerminalStates(ws, sessionId, lane);
+    return true;
   };
 
   const enqueueTerminalState = (

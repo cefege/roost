@@ -12,6 +12,7 @@ import type {
   PbCellGridFrame,
 } from "@roost/shared/proto/cell_pb";
 import { TerminalResyncCommandSchema } from "@roost/shared/proto/sync_pb";
+import { TERMINAL_VIEW_HEARTBEAT_MS } from "@roost/shared/viewport";
 import { signal, diag, isDiagEnabled } from "@roost/shared/diag";
 import { markPhaseOnce, recordCellLag } from "../lib/diag.ts";
 import {
@@ -54,13 +55,24 @@ export function activeTerminalResyncView(
   return null;
 }
 
-export function sendLatchedTerminalResync(session: TerminalSessionReplica): void {
+export function sendLatchedTerminalResync(
+  session: TerminalSessionReplica,
+  mode: "initial" | "heartbeat-retry" = "initial",
+): void {
   if (!session.resyncLatched || !session.expectedStreamId) return;
   const sync = currentSyncV2TerminalState();
   const view = activeTerminalResyncView(session);
   if (!sync?.ready || !view) return;
   const key = terminalGenerationKey(sync);
-  if (session.resyncSentGeneration === key) return;
+  if (session.resyncSentGeneration === key) {
+    if (mode !== "heartbeat-retry") return;
+    const now = Date.now();
+    if (
+      session.resyncRetryGeneration === key
+      && session.resyncRetryAtMs !== null
+      && now - session.resyncRetryAtMs < TERMINAL_VIEW_HEARTBEAT_MS
+    ) return;
+  }
   const canonical = session.canonical;
   const outbound: TerminalOutboundCommand = {
     case: "terminalResync",
@@ -73,12 +85,17 @@ export function sendLatchedTerminalResync(session: TerminalSessionReplica): void
       domainGeneration: sync.domainGeneration,
     }),
   };
-  if (sendSyncV2Command(outbound)) session.resyncSentGeneration = key;
+  if (sendSyncV2Command(outbound)) {
+    session.resyncSentGeneration = key;
+    session.resyncRetryGeneration = key;
+    session.resyncRetryAtMs = Date.now();
+  }
 }
 
 function requestTerminalResync(
   session: TerminalSessionReplica,
   reason: string,
+  mode: "initial" | "heartbeat-retry" = "initial",
 ): void {
   clearTerminalChunkTransfer(session);
   if (!session.resyncLatched) {
@@ -90,7 +107,7 @@ function requestTerminalResync(
       cooldownKey: session.sessionId,
     });
   }
-  sendLatchedTerminalResync(session);
+  sendLatchedTerminalResync(session, mode);
 }
 
 function suppressNextRendererFrame(session: TerminalSessionReplica): boolean {
@@ -112,12 +129,24 @@ function suppressNextRendererFrame(session: TerminalSessionReplica): boolean {
 export function repairStaleTerminalSubscriberOnHeartbeat(
   session: TerminalSessionReplica,
 ): void {
+  if (session.assembler.activeSnapshotId !== null) return;
   const canonical = session.canonical;
-  if (
-    !session.baselineReady
-    || !canonical
-    || session.assembler.activeSnapshotId !== null
-  ) return;
+  if (!session.baselineReady || !canonical) {
+    requestTerminalResync(
+      session,
+      "terminal baseline was still missing at heartbeat",
+      "heartbeat-retry",
+    );
+    return;
+  }
+  if (session.resyncLatched) {
+    requestTerminalResync(
+      session,
+      "terminal rebaseline remained unanswered at heartbeat",
+      "heartbeat-retry",
+    );
+    return;
+  }
   for (const subscriber of session.subscribers) {
     if (
       subscriber.streamId !== canonical.streamId
@@ -127,6 +156,7 @@ export function repairStaleTerminalSubscriberOnHeartbeat(
       requestTerminalResync(
         session,
         "terminal renderer applied sequence trailed the canonical replica at heartbeat",
+        "heartbeat-retry",
       );
       return;
     }
@@ -153,6 +183,8 @@ export function installExpectedTerminalStream(
     clearTerminalChunkTransfer(session);
     session.resyncLatched = false;
     session.resyncSentGeneration = null;
+    session.resyncRetryGeneration = null;
+    session.resyncRetryAtMs = null;
   }
   session.baselineReady = !session.requiresFreshBaseline
     && !!session.canonical
@@ -248,6 +280,8 @@ function acceptFull(session: TerminalSessionReplica, frame: CellGridFrame): void
   session.requiresFreshBaseline = false;
   session.resyncLatched = false;
   session.resyncSentGeneration = null;
+  session.resyncRetryGeneration = null;
+  session.resyncRetryAtMs = null;
   clearTerminalChunkTransfer(session);
   const suppressRendererDelivery = suppressNextRendererFrame(session);
   if (!suppressRendererDelivery) deliverFull(session);

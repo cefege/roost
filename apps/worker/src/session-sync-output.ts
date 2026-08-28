@@ -109,13 +109,13 @@ function openSyncOutputHold(
 	hold.timer = setTimeout(() => {
 		hold.timer = undefined;
 		if (mgr.syncOutputHolds.get(channelId) !== hold) return;
-		// The trip itself is what unblocks the emit below (it clears
-		// `tripped === false`), so this ships UNFORCED and lets nextCellFrame
-		// choose delta-vs-full. Nothing cleared the withheld rows' dirty bits and
-		// nothing advanced rec.cell_emit, so a delta still carries every row and
-		// every scrolled-off line the suppression accumulated.
+		// A deferred authoritative full must also bypass the baseline gate: its
+		// stream is not baseline-ready by definition, so an unforced recovery
+		// emit would be rejected before it could observe this tripped hold.
+		// Deltas remain unforced so nextCellFrame preserves its normal choice.
 		tripSyncOutputHold(mgr, channelId, hold, "elapsed_ms");
-		mgr.emitCellFrame(asChannelId(channelId), false);
+		const forceOwedFull = mgr.pendingSyncCellSnapshots.has(channelId);
+		mgr.emitCellFrame(asChannelId(channelId), forceOwedFull);
 	}, SYNC_OUTPUT_MAX_MS);
 	return hold;
 }

@@ -79,6 +79,8 @@ export function terminalSessionReplica(sessionId: string): TerminalSessionReplic
     requiresFreshBaseline: true,
     resyncLatched: false,
     resyncSentGeneration: null,
+    resyncRetryGeneration: null,
+    resyncRetryAtMs: null,
     assembler: new CellGridChunkAssembler(),
     chunkTimer: null,
     wireStreamId: null,

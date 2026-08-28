@@ -294,15 +294,21 @@ export function makeSyncV2Scheduler(deps: SyncV2SchedulerDeps) {
       ) return;
 
       const sentAtMs = deadlineClock.now();
-      const result = ws.send(binary);
-      const bufferedBytes = ws.getBufferedAmount();
+      const frameKind = outbound.frame.case ?? "application";
+      let result: number;
+      let bufferedBytes = 0;
+      try {
+        result = ws.send(binary);
+        bufferedBytes = ws.getBufferedAmount();
+      } catch {
+        // A throwing send may already have handed the frame to the socket. Do
+        // not acknowledge or retry that ambiguous delivery on this connection;
+        // closing forces the replacement socket to establish a fresh baseline.
+        closeForDroppedFrame(ws, frameKind, binary.byteLength, bufferedBytes);
+        return;
+      }
       if (result === 0) {
-        closeForDroppedFrame(
-          ws,
-          outbound.frame.case ?? "application",
-          binary.byteLength,
-          bufferedBytes,
-        );
+        closeForDroppedFrame(ws, frameKind, binary.byteLength, bufferedBytes);
         return;
       }
       candidate.domain.queue.splice(candidate.index, 1);
@@ -341,14 +347,14 @@ export function makeSyncV2Scheduler(deps: SyncV2SchedulerDeps) {
       terminalScheduler.onFrameDelivered(ws, candidate.item.meta);
 
       if (bufferedBytes > backpressureLimitBytes) {
-        closeForBackpressure(ws, "high_water", outbound.frame.case ?? "application");
+        closeForBackpressure(ws, "high_water", frameKind);
         return;
       }
       if (result === -1 && !ws.data.pressureTimer) {
-        ws.data.pressureFrame = outbound.frame.case ?? "application";
+        ws.data.pressureFrame = frameKind;
         ws.data.pressureTimer = deadlineClock.setTimeout(() => {
           ws.data.pressureTimer = null;
-          closeForBackpressure(ws, "timeout", ws.data.pressureFrame ?? "application");
+          closeForBackpressure(ws, "timeout", ws.data.pressureFrame ?? frameKind);
         }, backpressureTimeoutMs);
       }
     }

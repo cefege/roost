@@ -47,7 +47,7 @@ describe("coord cell passthrough", () => {
       gridEpoch: string;
     }> = [];
     hub.screen.registerSocket(socketId, {
-      beginTerminalStream: () => {},
+      beginTerminalStream: () => true,
       enqueueTerminalState: () => {},
       replaceTerminalSnapshot: (sessionId, streamId, frames) => {
         const envelope = frames[0]?.frame;

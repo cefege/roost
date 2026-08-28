@@ -92,6 +92,10 @@ export class TestSocket {
   readonly data: SyncWsData;
   readonly sent: Uint8Array[] = [];
   readonly closes: Array<[number | undefined, string | undefined]> = [];
+  sendError: Error | null = null;
+  bufferedAmountError: Error | null = null;
+  sendCalls = 0;
+  bufferedAmountCalls = 0;
 
   constructor(viewerKey: string) {
     this.data = {
@@ -126,11 +130,15 @@ export class TestSocket {
     if (!(payload instanceof Uint8Array)) {
       throw new TypeError("expected a binary Sync frame");
     }
+    this.sendCalls++;
+    if (this.sendError) throw this.sendError;
     this.sent.push(payload.slice());
     return 1;
   }
 
   getBufferedAmount(): number {
+    this.bufferedAmountCalls++;
+    if (this.bufferedAmountError) throw this.bufferedAmountError;
     return 0;
   }
 
@@ -142,12 +150,19 @@ export class TestSocket {
 type Delivery = ReturnType<typeof makeSyncV1Delivery>;
 type TerminalState = SyncV2DomainState;
 
+export interface DroppedFrameCall {
+  readonly frame: string;
+  readonly encodedBytes: number;
+  readonly bufferedBytes: number;
+}
+
 export interface SchedulerHarness {
   readonly clock: TestDeadlineClock;
   readonly socket: TestSocket;
   readonly ws: ServerWebSocket<SyncWsData>;
   readonly scheduler: SyncV2Scheduler;
   readonly delivery: Delivery;
+  readonly droppedFrames: DroppedFrameCall[];
   readonly terminal: TerminalState;
 }
 
@@ -157,6 +172,7 @@ export function makeHarness(viewerKey: string, terminalReady: boolean): Schedule
   const ws = socket as unknown as ServerWebSocket<SyncWsData>;
   const terminal = socket.data.v2!.domains.get(SyncDomain.TERMINAL)!;
   terminal.ready = terminalReady;
+  const droppedFrames: DroppedFrameCall[] = [];
 
   let delivery!: Delivery;
   const scheduler = makeSyncV2Scheduler({
@@ -167,6 +183,7 @@ export function makeHarness(viewerKey: string, terminalReady: boolean): Schedule
       delivery.closeForBackpressure(target, reason, frame);
     },
     closeForDroppedFrame(target, frame, encodedBytes, bufferedBytes) {
+      droppedFrames.push({ frame, encodedBytes, bufferedBytes });
       delivery.closeForDroppedFrame(target, frame, encodedBytes, bufferedBytes);
     },
     rearmApplicationDeadline(target) {
@@ -181,7 +198,7 @@ export function makeHarness(viewerKey: string, terminalReady: boolean): Schedule
     scheduleV2: scheduler.scheduleV2,
   });
 
-  return { clock, socket, ws, scheduler, delivery, terminal };
+  return { clock, socket, ws, scheduler, delivery, terminal, droppedFrames };
 }
 
 export function makeCell(sessionId: string, seq: number, full: boolean): FirehoseFrame {

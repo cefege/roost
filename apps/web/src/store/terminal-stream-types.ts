@@ -145,6 +145,8 @@ export interface TerminalSessionReplica {
   requiresFreshBaseline: boolean;
   resyncLatched: boolean;
   resyncSentGeneration: string | null;
+  resyncRetryGeneration: string | null;
+  resyncRetryAtMs: number | null;
   assembler: CellGridChunkAssembler;
   chunkTimer: ReturnType<typeof setTimeout> | null;
   wireStreamId: string | null;

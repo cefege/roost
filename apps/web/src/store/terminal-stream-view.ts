@@ -210,10 +210,14 @@ function handleGeneration(state: SyncV2TerminalState | null): void {
   terminalGenerationObservation.key = nextGenerationKey;
   for (const session of terminalSessions.values()) {
     clearTerminalChunkTransfer(session);
-    session.resyncSentGeneration = null;
-    if (generationChanged && state !== null) {
-      session.requiresFreshBaseline = true;
-      session.baselineReady = false;
+    if (generationChanged) {
+      session.resyncSentGeneration = null;
+      session.resyncRetryGeneration = null;
+      session.resyncRetryAtMs = null;
+      if (state !== null) {
+        session.requiresFreshBaseline = true;
+        session.baselineReady = false;
+      }
     }
     for (const view of session.handles.values()) {
       if (view.disposed || !view.desired) continue;

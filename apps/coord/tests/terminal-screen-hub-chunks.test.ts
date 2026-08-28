@@ -80,10 +80,12 @@ describe("TerminalScreenHub bounded chunk assembly", () => {
     expect(hub.snapshot(SESSION)).toBeNull();
   });
 
-  test("expires a partial at the exact stall boundary and keeps the latch closed", () => {
+  test("redrives a latched request when a partial stalls at the exact boundary", () => {
     const clock = { value: 0 };
     const { hub, requests, timers, fireTimer } = makeHarness(clock);
     hub.expectStream(SESSION, STREAM, 8, 2);
+    hub.publishFrame(SESSION, deltaFrame());
+    expect(requests).toEqual([[SESSION, STREAM]]);
     const source = fullFrame();
     const partial = chunks(source, [
       [source.viewportRows[0]!],
@@ -98,11 +100,14 @@ describe("TerminalScreenHub bounded chunk assembly", () => {
 
     clock.value = CELL_GRID_CHUNK_STALL_MS;
     fireTimer(timerId);
-    expect(requests).toEqual([[SESSION, STREAM]]);
+    expect(requests).toEqual([
+      [SESSION, STREAM],
+      [SESSION, STREAM],
+    ]);
     expect(hub.snapshot(SESSION)).toBeNull();
 
     hub.publishChunk(SESSION, partial[1]!);
-    expect(requests).toEqual([[SESSION, STREAM]]);
+    expect(requests).toHaveLength(2);
     expect(hub.snapshot(SESSION)).toBeNull();
   });
 });

@@ -212,7 +212,7 @@ describe("Web Push delivery", () => {
       viewerKey: `${viewerFp}:push-delivery-tab`,
       callerFingerprint: viewerFp,
       sink: {
-        beginTerminalStream() {},
+        beginTerminalStream: () => true,
         enqueueTerminalState() {},
         replaceTerminalSnapshot() {},
         enqueueTerminalDelta: () => true,

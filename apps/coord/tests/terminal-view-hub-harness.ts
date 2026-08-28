@@ -39,9 +39,13 @@ export class TestSink implements TerminalScreenSocketSink {
   }> = [];
   readonly deltas: Array<{ sessionId: string; streamId: string; frame: FirehoseFrame }> = [];
   readonly drops: string[] = [];
+  private readonly lanes = new Map<string, string>();
 
-  beginTerminalStream(sessionId: string, streamId: string): void {
+  beginTerminalStream(sessionId: string, streamId: string): boolean {
+    if (this.lanes.get(sessionId) === streamId) return false;
+    this.lanes.set(sessionId, streamId);
     this.begins.push([sessionId, streamId]);
+    return true;
   }
 
   enqueueTerminalState(frame: FirehoseFrame, sessionId: string): void {
@@ -62,6 +66,7 @@ export class TestSink implements TerminalScreenSocketSink {
   }
 
   dropTerminalSession(sessionId: string): void {
+    this.lanes.delete(sessionId);
     this.drops.push(sessionId);
   }
 }
