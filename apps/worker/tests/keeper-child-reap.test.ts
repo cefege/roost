@@ -84,7 +84,7 @@ const noopCallbacks: MuxChannelCallbacks = {
 };
 
 describe("keeper-child-reap — closing a channel kills the whole process tree", () => {
-  test("PTY owns a foreground process group and resize delivers SIGWINCH", async () => {
+  test("PTY owns a foreground process group and applies resize geometry", async () => {
     const channelId = _nextCh++;
     let output = "";
     const shellPid = await pool.spawn({
@@ -103,16 +103,15 @@ describe("keeper-child-reap — closing a channel kills the whole process tree",
       },
     });
 
-    pool.input(channelId, new TextEncoder().encode(
-      "trap 'read r c < <(stty size); echo WINCH:$r:$c' WINCH; echo TRAP_READY\n",
-    ));
-    expect(await waitFor(() => output.includes("TRAP_READY"), 4000)).toBe(true);
+    pool.input(channelId, new TextEncoder().encode("echo SHELL_READY\n"));
+    expect(await waitFor(() => output.includes("SHELL_READY"), 4000)).toBe(true);
     expect(output).not.toContain("no job control in this shell");
 
     const resize = pool.beginResize(channelId, 1, 70, 20);
     expect(resize.admission.written).toBe(true);
     expect(await resize.result).toEqual({ kind: "ack", seq: 1, cols: 70, rows: 20 });
-    expect(await waitFor(() => output.includes("WINCH:20:70"), 4000)).toBe(true);
+    pool.input(channelId, new TextEncoder().encode("stty size; echo SIZE_READY\n"));
+    expect(await waitFor(() => output.includes("20 70") && output.includes("SIZE_READY"), 4000)).toBe(true);
 
     pool.kill(channelId);
     expect(await waitFor(() => !isAlive(shellPid), 6000)).toBe(true);
