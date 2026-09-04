@@ -5,14 +5,17 @@ import {
   localWorkerDeployStageIsConfined,
   parseLocalWorkerDeployJournal,
   type LocalWorkerDeployConfinement,
-  type LocalWorkerDeployJournalV1,
+  type LocalWorkerDeployJournal,
   type LocalWorkerDeployRecoveryDeps,
   type LocalWorkerLifecycle,
   type LocalWorkerServiceSnapshot,
 } from "../src/local-worker-deploy-journal.ts";
+import { coordinatorJournalAllowsLocalWorkerRollout } from "../src/local-worker-rollout-coordinator.ts";
+import type { CoordinatorDeployJournalV2 } from "../src/coordinator-deploy-journal.ts";
 
 const TARGET_SHA = "a".repeat(40);
 const PRIOR_SHA = "b".repeat(40);
+const ROLLOUT_ID = "11111111-1111-4111-8111-111111111111";
 const SOURCE_ROOT = "/srv/roost/source";
 const RELEASE_ROOT = "/srv/roost/service/releases/worker";
 const STAGED_RELEASE = `${RELEASE_ROOT}/${TARGET_SHA}-11111111-1111-4111-8111-111111111111`;
@@ -39,16 +42,17 @@ const TARGET_SERVICE = snapshot([
 ].join("\n"), 0o640);
 
 function journal(
-  overrides: Partial<LocalWorkerDeployJournalV1> = {},
-): LocalWorkerDeployJournalV1 {
+  overrides: Partial<LocalWorkerDeployJournal> = {},
+): LocalWorkerDeployJournal {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     phase: "prepared",
     os: "linux",
     sourceRoot: SOURCE_ROOT,
     releaseRoot: RELEASE_ROOT,
     stagedReleasePath: STAGED_RELEASE,
     targetSha: TARGET_SHA,
+    rolloutId: null,
     priorService: PRIOR_SERVICE,
     priorWasRunning: true,
     priorWorkingDirectory: PRIOR_RELEASE,
@@ -93,6 +97,40 @@ describe("localhost worker deploy journal", () => {
     expect(localWorkerDeployJournalPath("/srv/roost/service")).toBe(
       "/srv/roost/service/transactions/worker-deploy.json",
     );
+  });
+
+
+  test("allows only the matching coordinator phase to coexist on localhost", () => {
+    const directive = {
+      action: "hold" as const,
+      rolloutId: ROLLOUT_ID,
+      priorSha: PRIOR_SHA,
+      targetSha: TARGET_SHA,
+    };
+    const load = () => ({
+      phase: "fleet-converging",
+      rolloutId: ROLLOUT_ID,
+      priorSha: PRIOR_SHA,
+      targetSha: TARGET_SHA,
+    }) as CoordinatorDeployJournalV2;
+    expect(coordinatorJournalAllowsLocalWorkerRollout(
+      "/srv/roost/service",
+      "linux",
+      directive,
+      load,
+    )).toBeTrue();
+    expect(coordinatorJournalAllowsLocalWorkerRollout(
+      "/srv/roost/service",
+      "linux",
+      { ...directive, action: "finalize" },
+      load,
+    )).toBeFalse();
+    expect(coordinatorJournalAllowsLocalWorkerRollout(
+      "/srv/roost/service",
+      "linux",
+      { ...directive, rolloutId: "22222222-2222-4222-8222-222222222222" },
+      load,
+    )).toBeFalse();
   });
 
   test("prepared recovery only removes the confined stage before clearing", async () => {
@@ -216,6 +254,86 @@ describe("localhost worker deploy journal", () => {
       deps,
     )).rejects.toThrow("could not be proven");
     expect(events).toEqual(["restore"]);
+  });
+
+  test("fleet target remains held until its exact rollout finalizes", async () => {
+    const events: string[] = [];
+    const fleetJournal = journal({
+      phase: "activated",
+      rolloutId: ROLLOUT_ID,
+      targetService: TARGET_SERVICE,
+    });
+    const deps: LocalWorkerDeployRecoveryDeps = {
+      readService: () => { events.push("read"); return TARGET_SERVICE; },
+      probeLifecycle: () => { events.push("probe"); return "running"; },
+      restorePrior: async () => { events.push("restore"); },
+      cleanupStage: async () => { events.push("cleanup"); },
+      commitTarget: async () => { events.push("commit"); },
+      clearJournal: async () => { events.push("clear"); },
+      proofAttempts: 1,
+    };
+    const directive = {
+      rolloutId: ROLLOUT_ID,
+      priorSha: PRIOR_SHA,
+      targetSha: TARGET_SHA,
+    };
+    await expect(_recoverLocalWorkerDeployJournal(
+      JSON.stringify(fleetJournal),
+      CONFINEMENT,
+      deps,
+      { ...directive, action: "hold" },
+    )).resolves.toBe("target-held");
+    expect(events).toEqual(["read", "probe"]);
+
+    events.length = 0;
+    await expect(_recoverLocalWorkerDeployJournal(
+      JSON.stringify(fleetJournal),
+      CONFINEMENT,
+      deps,
+      { ...directive, action: "finalize" },
+    )).resolves.toBe("target-committed");
+    expect(events).toEqual(["read", "probe", "commit", "clear"]);
+  });
+
+  test("fleet journal rejects standalone recovery and explicitly restores prior", async () => {
+    const events: string[] = [];
+    let activeService: LocalWorkerServiceSnapshot | null = TARGET_SERVICE;
+    const fleetJournal = journal({
+      phase: "activated",
+      rolloutId: ROLLOUT_ID,
+      targetService: TARGET_SERVICE,
+    });
+    const deps: LocalWorkerDeployRecoveryDeps = {
+      readService: () => { events.push("read"); return activeService; },
+      probeLifecycle: () => { events.push("probe"); return "running"; },
+      restorePrior: async () => {
+        events.push("restore");
+        activeService = PRIOR_SERVICE;
+      },
+      cleanupStage: async () => { events.push("cleanup"); },
+      commitTarget: async () => { events.push("commit"); },
+      clearJournal: async () => { events.push("clear"); },
+      proofAttempts: 1,
+    };
+    await expect(_recoverLocalWorkerDeployJournal(
+      JSON.stringify(fleetJournal),
+      CONFINEMENT,
+      deps,
+    )).rejects.toThrow("fleet rollout still owns");
+    expect(events).toEqual([]);
+
+    await expect(_recoverLocalWorkerDeployJournal(
+      JSON.stringify(fleetJournal),
+      CONFINEMENT,
+      deps,
+      {
+        action: "rollback",
+        rolloutId: ROLLOUT_ID,
+        priorSha: PRIOR_SHA,
+        targetSha: TARGET_SHA,
+      },
+    )).resolves.toBe("prior-restored");
+    expect(events).toEqual(["read", "probe", "restore", "read", "probe", "cleanup", "clear"]);
   });
 
   test("journal path confinement rejects traversal, nesting, and foreign roots", () => {

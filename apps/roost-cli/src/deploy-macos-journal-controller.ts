@@ -30,19 +30,30 @@ interface MacosJournalEnvelopeCandidate {
   journal?: unknown;
 }
 
+type MacosJournalTarget = {
+  gitSha: string;
+  rolloutId: string | null;
+} & ({ remoteDir: string } | { targetPath: string });
+
 function macosJournalUtilityCommand(
   journalPath: string,
-  action: "load" | "prepare" | "checkpoint-activating" | "restore-prior"
-    | "prove-prior-definition" | "remove-target" | "cleanup-prior" | "clear",
-  target?: { gitSha: string; remoteDir: string },
+  action: "load" | "prepare" | "checkpoint-activating" | "checkpoint-activated"
+    | "restore-prior" | "prove-prior-definition" | "remove-target"
+    | "cleanup-prior" | "clear",
+  target?: MacosJournalTarget,
 ): string {
-  if (target && !target.remoteDir.startsWith("~/")) {
+  if (target && "remoteDir" in target && !target.remoteDir.startsWith("~/")) {
     throw new Error("macOS staged release must be relative to the remote home");
   }
-  const targetDirectory = target
-    ? `target_spec=${posixShellQuote(target.remoteDir.slice(2))}; ` +
-      `target_path=$(cd "$HOME/$target_spec" && pwd -P); `
-    : `target_path=''; `;
+  if (target && "targetPath" in target && !isCanonicalAbsolutePosixPath(target.targetPath)) {
+    throw new Error("macOS staged release must be a canonical absolute path");
+  }
+  const targetDirectory = !target
+    ? `target_path=''; `
+    : "remoteDir" in target
+      ? `target_spec=${posixShellQuote(target.remoteDir.slice(2))}; ` +
+        `target_path=$(cd "$HOME/$target_spec" && pwd -P); `
+      : `target_path=${posixShellQuote(target.targetPath)}; `;
   return `set -e; umask 077; journal_spec=${posixShellQuote(journalPath)}; ` +
     `case "$journal_spec" in /*) journal="$journal_spec";; *) journal="$HOME/$journal_spec";; esac; ` +
     `release_root="$HOME/${MACOS_RELEASE_ROOT_RELATIVE}"; ` +
@@ -52,6 +63,7 @@ function macosJournalUtilityCommand(
     `ROOST_MAC_DEPLOY_JOURNAL="$journal" ROOST_MAC_DEPLOY_RELEASE_ROOT="$release_root" ` +
     `ROOST_MAC_DEPLOY_PLIST="$plist" ROOST_MAC_DEPLOY_LABEL=${posixShellQuote(MACOS_WORKER_LABEL)} ` +
     `ROOST_MAC_DEPLOY_TARGET_SHA=${posixShellQuote(target?.gitSha ?? "")} ` +
+    `ROOST_MAC_DEPLOY_ROLLOUT_ID=${posixShellQuote(target?.rolloutId ?? "")} ` +
     `ROOST_MAC_DEPLOY_TARGET_PATH="$target_path" bun -e ${posixShellQuote(MACOS_DEPLOY_JOURNAL_PROGRAM)}`;
 }
 
@@ -91,8 +103,8 @@ type MacosRemoteExecutor = (
 
 export interface MacosDeployJournalController {
   recovery: MacosDeployRecoveryRemote;
-  prepare(gitSha: string, remoteDir: string): Promise<MacosDeployJournalV1>;
-  checkpointActivating(gitSha: string, remoteDir: string): Promise<MacosDeployJournalV1>;
+  prepare(gitSha: string, remoteDir: string, rolloutId?: string | null): Promise<MacosDeployJournalV1>;
+  checkpointActivating(gitSha: string, remoteDir: string, rolloutId?: string | null): Promise<MacosDeployJournalV1>;
 }
 
 function macosTargetVerificationCommand(journal: Readonly<MacosDeployJournalV1>): string {
@@ -164,13 +176,28 @@ export function createMacosDeployJournalController(
   };
   const utility = (
     action: Parameters<typeof macosJournalUtilityCommand>[1],
-    target?: { gitSha: string; remoteDir: string },
+    target?: MacosJournalTarget,
   ) => macosJournalUtilityCommand(journalPath, action, target);
 
   const recovery: MacosDeployRecoveryRemote = {
     async load() {
       const result = await checked("load macOS deploy journal", utility("load"));
       return parseEnvelope(result, "load macOS deploy journal").journal;
+    },
+    async checkpointActivated(journal) {
+      const result = await checked(
+        "checkpoint activated macOS deploy",
+        utility("checkpoint-activated", {
+          gitSha: journal.targetGitSha,
+          targetPath: journal.targetReleasePath,
+          rolloutId: journal.rolloutId,
+        }),
+      );
+      const checkpointedJournal = parseEnvelope(result, "checkpoint activated macOS deploy").journal;
+      if (!checkpointedJournal || checkpointedJournal.phase !== "activated") {
+        throw new DeployFailure(5, "remote Mac did not durably checkpoint activated state");
+      }
+      return checkpointedJournal;
     },
     async proveTarget(journal) {
       const result = await execute(macosTargetVerificationCommand(journal));
@@ -274,10 +301,10 @@ export function createMacosDeployJournalController(
 
   return {
     recovery,
-    async prepare(gitSha, remoteDir) {
+    async prepare(gitSha, remoteDir, rolloutId = null) {
       const result = await checked(
         "prepare macOS deploy journal",
-        utility("prepare", { gitSha, remoteDir }),
+        utility("prepare", { gitSha, remoteDir, rolloutId }),
       );
       const journal = parseEnvelope(result, "prepare macOS deploy journal").journal;
       if (!journal || journal.phase !== "prepared") {
@@ -285,10 +312,10 @@ export function createMacosDeployJournalController(
       }
       return journal;
     },
-    async checkpointActivating(gitSha, remoteDir) {
+    async checkpointActivating(gitSha, remoteDir, rolloutId = null) {
       const result = await checked(
         "checkpoint activating macOS deploy",
-        utility("checkpoint-activating", { gitSha, remoteDir }),
+        utility("checkpoint-activating", { gitSha, remoteDir, rolloutId }),
       );
       const journal = parseEnvelope(result, "checkpoint activating macOS deploy").journal;
       if (!journal || journal.phase !== "activating") {

@@ -11,10 +11,11 @@ import {
   posixDeployJournalDecision,
 } from "./posix-deploy-journal.ts";
 import { failDeploy } from "./deploy-exec.ts";
+import { workerRolloutIdOrNull } from "./worker-deploy-rollout.ts";
 
 export const LINUX_WORKER_RELEASE_RELATIVE_ROOT = ".local/share/roost/releases/worker";
 export const LINUX_DEPLOY_JOURNAL_NAME = "worker-deploy-journal";
-export const LINUX_DEPLOY_JOURNAL_SCHEMA = "2";
+export const LINUX_DEPLOY_JOURNAL_SCHEMA = "3";
 
 export type LinuxDeployJournalPhase = "prepared" | "activating" | "activated";
 export type LinuxDeployPriorLifecycle = "running" | "stopped";
@@ -23,6 +24,7 @@ export type LinuxDeployPriorEnablement = "enabled" | "disabled" | "masked" | "ab
 export interface LinuxDeployJournal {
   phase: LinuxDeployJournalPhase;
   targetSha: string;
+  rolloutId: string | null;
   targetReleasePath: string;
   priorUnit: string | null;
   priorUnitMode: number | null;
@@ -33,6 +35,7 @@ export interface LinuxDeployJournal {
 
 export type LinuxDeployRecoveryPlan =
   | { kind: "clean-prepared" }
+  | { kind: "hold-target" }
   | { kind: "commit-target" }
   | {
       kind: "rollback";
@@ -103,6 +106,7 @@ export function assertLinuxDeployJournal(
   if (!POSIX_FULL_GIT_SHA_RE.test(journal.targetSha)) {
     malformedLinuxJournal("target SHA is not a full hexadecimal object id");
   }
+  workerRolloutIdOrNull(journal.rolloutId, "Linux worker rollout ID");
   if (!isManagedLinuxWorkerReleasePath(journal.targetReleasePath, home)) {
     malformedLinuxJournal(
       `target release path is outside the managed worker release root: ${JSON.stringify(journal.targetReleasePath)}`,
@@ -171,7 +175,7 @@ export function parseLinuxDeployJournalSnapshot(
     if (encoded.has(name)) malformedLinuxJournal(`duplicate ${name} field`);
     encoded.set(name, line.slice(separator + 1));
   }
-  const expected = [
+  const baseFields = [
     "schema",
     "phase",
     "target-sha",
@@ -183,6 +187,10 @@ export function parseLinuxDeployJournalSnapshot(
     "prior-pid",
     "prior-unit",
   ];
+  const schema = encoded.has("schema")
+    ? decodeJournalField("schema", encoded.get("schema")!).toString("utf8")
+    : "";
+  const expected = schema === "2" ? baseFields : [...baseFields, "rollout-id"];
   if (encoded.size !== expected.length || expected.some((name) => !encoded.has(name))) {
     malformedLinuxJournal("snapshot fields are incomplete or unexpected");
   }
@@ -194,12 +202,16 @@ export function parseLinuxDeployJournalSnapshot(
     }
     return decoded;
   };
-  if (text("schema") !== LINUX_DEPLOY_JOURNAL_SCHEMA) {
+  if (schema !== "2" && schema !== LINUX_DEPLOY_JOURNAL_SCHEMA) {
     malformedLinuxJournal("unsupported schema");
   }
   const phase = text("phase") as LinuxDeployJournalPhase;
   const targetSha = text("target-sha");
   const targetReleasePath = text("target-release");
+  const rolloutId = workerRolloutIdOrNull(
+    schema === "2" ? null : text("rollout-id"),
+    "Linux worker rollout ID",
+  );
   const priorUnitState = text("prior-unit-state");
   const priorUnitModeText = text("prior-unit-mode");
   const priorLifecycle = text("prior-lifecycle") as LinuxDeployPriorLifecycle;
@@ -226,6 +238,7 @@ export function parseLinuxDeployJournalSnapshot(
     phase,
     targetSha,
     targetReleasePath,
+    rolloutId,
     priorUnit: priorUnitState === "present"
       ? priorUnitBytes.toString("utf8")
       : null,
@@ -252,7 +265,9 @@ export function linuxDeployRecoveryPlan(
   assertLinuxDeployJournal(journal, home);
   const decision = posixDeployJournalDecision(journal.phase, targetHealthy);
   if (decision === "clean-prepared") return { kind: "clean-prepared" };
-  if (decision === "commit") return { kind: "commit-target" };
+  if (decision === "commit") {
+    return journal.rolloutId === null ? { kind: "commit-target" } : { kind: "hold-target" };
+  }
   return {
     kind: "rollback",
     priorUnitState: journal.priorUnit === null ? "absent" : "present",

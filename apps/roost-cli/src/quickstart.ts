@@ -27,7 +27,7 @@ import {
   dryRunServiceDefinitions,
   installRoostShim,
   logStep,
-  mintCert,
+  prepareAutomaticQuickstartNetwork,
   openQuickstartBrowser,
   runInherit,
   waitForCoordHealth,
@@ -183,8 +183,8 @@ export async function quickstart(args: string[]): Promise<void> {
 
     if (binary) {
       console.log(`   roost: ${process.execPath} (${ROOST_VERSION})`);
-      if (!dry && endpoint.mode === "automatic") {
-        await mintCert(endpoint.hostname, force);
+      if (!dry) {
+        await prepareAutomaticQuickstartNetwork(endpoint, force, process.platform);
       }
       await installCoordAgent({
         execPath: process.execPath,
@@ -254,8 +254,8 @@ export async function quickstart(args: string[]): Promise<void> {
       } else {
         logStep("web SPA build (skipped — dist present)");
       }
-      if (endpoint.mode === "automatic") await mintCert(endpoint.hostname, force);
 
+      await prepareAutomaticQuickstartNetwork(endpoint, force, process.platform);
       logStep("installing coordinator service");
       if (
         await runInherit(
@@ -281,7 +281,10 @@ export async function quickstart(args: string[]): Promise<void> {
         process.env.ROOST_COORDINATOR_URL = coordUrl;
         process.env.ROOST_BOOTSTRAP_TOKEN = workerToken;
         process.env.ROOST_ALLOW_DIRTY = "1";
-        await deploy(["localhost", "--allow-unpublished-local"]);
+        await deploy(
+          ["localhost", "--allow-unpublished-local"],
+          { coordinatorUrl: coordUrl },
+        );
       } finally {
         if (priorCoordinatorUrl === undefined) delete process.env.ROOST_COORDINATOR_URL;
         else process.env.ROOST_COORDINATOR_URL = priorCoordinatorUrl;

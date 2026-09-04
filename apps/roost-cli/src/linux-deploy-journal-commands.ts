@@ -25,16 +25,18 @@ export function _linuxLoadDeployJournalCommand(journalPath: string): string {
   return `set -e; journal=${posixShellQuote(journalPath)}; ` +
     `if test ! -e "$journal" && test ! -L "$journal"; then printf 'absent\\n'; exit 0; fi; ` +
     `test -d "$journal" && test ! -L "$journal"; ` +
-    `for name in schema phase target-sha target-release prior-unit-state prior-unit-mode prior-lifecycle prior-enablement prior-pid; do ` +
-    `test -f "$journal/$name" && test ! -L "$journal/$name"; done; ` +
+    `test -f "$journal/schema" && test ! -L "$journal/schema"; schema=$(cat "$journal/schema"); ` +
+    `case "$schema" in 2) fields='schema phase target-sha target-release prior-unit-state prior-unit-mode prior-lifecycle prior-enablement prior-pid';; ` +
+    `${LINUX_DEPLOY_JOURNAL_SCHEMA}) fields='schema phase target-sha target-release rollout-id prior-unit-state prior-unit-mode prior-lifecycle prior-enablement prior-pid';; ` +
+    `*) exit 65;; esac; ` +
+    `for name in $fields; do test -f "$journal/$name" && test ! -L "$journal/$name"; done; ` +
     `prior_unit_state=$(cat "$journal/prior-unit-state"); ` +
     `case "$prior_unit_state" in ` +
     `present) test -f "$journal/prior-unit" && test ! -L "$journal/prior-unit";; ` +
     `absent) test ! -e "$journal/prior-unit" && test ! -L "$journal/prior-unit";; ` +
     `*) exit 65;; esac; ` +
     `emit() { name="$1"; printf '%s=' "$name"; base64 -w0 < "$journal/$name"; printf '\\n'; }; ` +
-    `printf 'journal\\n'; ` +
-    `for name in schema phase target-sha target-release prior-unit-state prior-unit-mode prior-lifecycle prior-enablement prior-pid; do emit "$name"; done; ` +
+    `printf 'journal\\n'; for name in $fields; do emit "$name"; done; ` +
     `if test "$prior_unit_state" = present; then emit prior-unit; else printf 'prior-unit=\\n'; fi`;
 }
 
@@ -44,17 +46,19 @@ export interface LinuxPrepareJournalInput {
   targetSha: string;
   targetReleasePath: string;
   home: string;
+  rolloutId: string | null;
 }
 
 export function _linuxPrepareDeployJournalCommand(
   input: LinuxPrepareJournalInput,
 ): string {
-  const { journalPath, unitPath, targetSha, targetReleasePath, home } = input;
+  const { journalPath, unitPath, targetSha, targetReleasePath, rolloutId, home } = input;
   assertFixedLinuxJournalPath(journalPath);
   const candidate: LinuxDeployJournal = {
     phase: "prepared",
     targetSha,
     targetReleasePath,
+    rolloutId,
     priorUnit: "",
     priorUnitMode: 0o600,
     priorLifecycle: "stopped",
@@ -67,6 +71,7 @@ export function _linuxPrepareDeployJournalCommand(
     `export XDG_RUNTIME_DIR="\${XDG_RUNTIME_DIR:-/run/user/\$(id -u)}"; ` +
     `journal=${posixShellQuote(journalPath)}; parent=${posixShellQuote(parent)}; unit=${posixShellQuote(unitPath)}; ` +
     `target_sha=${posixShellQuote(targetSha)}; target_release=${posixShellQuote(targetReleasePath)}; ` +
+    `rollout_id=${posixShellQuote(rolloutId ?? "")}; ` +
     `test "$(basename -- "$journal")" = ${LINUX_DEPLOY_JOURNAL_NAME}; ` +
     `test ! -e "$journal" && test ! -L "$journal"; ` +
     `new="$journal.new"; rm -rf -- "$new"; mkdir "$new"; ` +
@@ -88,7 +93,8 @@ export function _linuxPrepareDeployJournalCommand(
     `chmod 600 "$new/$name"; sync -f "$new/$name"; }; ` +
     `write_metadata schema ${LINUX_DEPLOY_JOURNAL_SCHEMA}; ` +
     `write_metadata phase prepared; write_metadata target-sha "$target_sha"; ` +
-    `write_metadata target-release "$target_release"; write_metadata prior-unit-state "$unit_state"; ` +
+    `write_metadata target-release "$target_release"; write_metadata rollout-id "$rollout_id"; ` +
+    `write_metadata prior-unit-state "$unit_state"; ` +
     `write_metadata prior-unit-mode "$(if test "$unit_state" = present; then printf '%s' "$unit_mode"; fi)"; ` +
     `write_metadata prior-lifecycle "$lifecycle"; write_metadata prior-enablement "$enablement"; ` +
     `write_metadata prior-pid "$prior_pid"; ` +
@@ -108,6 +114,7 @@ export function _linuxCheckpointDeployJournalCommand(
   }
   return `set -e; umask 077; journal=${posixShellQuote(journalPath)}; ` +
     `test -d "$journal" && test ! -L "$journal"; ` +
+    `test -f "$journal/phase" && test ! -L "$journal/phase"; ` +
     `test "$(cat "$journal/phase")" = ${from}; next="$journal/phase.next"; ` +
     `rm -f -- "$next"; printf '%s' ${to} > "$next"; chmod 600 "$next"; ` +
     `sync -f "$next"; mv -- "$next" "$journal/phase"; sync -f "$journal"`;
@@ -162,6 +169,20 @@ export function _linuxTargetVerificationCommand(
     `&& test -d "$expected" && test "$actual" = "$expected" ` +
     `&& printf '%s\\n' "$environment" | grep -Fqx -- "GIT_SHA=$target_sha"; ` +
     `then echo RoostReleaseMatch=yes; else exit 1; fi`;
+}
+
+export function _linuxWorkerShaProofCommand(expectedSha: string): string {
+  if (!/^[a-f0-9]{40,64}$/i.test(expectedSha)) {
+    throw new Error("Linux worker proof SHA is malformed");
+  }
+  const sha = posixShellQuote(expectedSha.toLowerCase());
+  return `${verifyWorkerCmd("linux")}; service_exit=$?; expected_sha=${sha}; ` +
+    `pid=$(systemctl --user show ${WORKER_UNIT} --property=MainPID --value); pid_exit=$?; ` +
+    `case "$pid" in ''|0|*[!0-9]*) exit 1;; esac; ` +
+    `environment=$(tr '\\0' '\\n' < "/proc/$pid/environ"); environment_exit=$?; ` +
+    `if test "$service_exit" -eq 0 && test "$pid_exit" -eq 0 && test "$environment_exit" -eq 0 ` +
+    `&& printf '%s\\n' "$environment" | grep -Fqx -- "GIT_SHA=$expected_sha"; ` +
+    `then echo RoostGitShaMatch=yes; else exit 1; fi`;
 }
 
 export function _linuxRestorePriorServiceCommand(

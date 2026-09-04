@@ -7,10 +7,9 @@
 set -euo pipefail
 
 REPO_ROOT="${ROOST_REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd -P)}"
-# Load YOUR setup from repo-root .env.local (gitignored) — one place for ROOST_*.
-# CoordTarget sets ROOST_SKIP_ENV_LOCAL=1: on a relocation the deployed repo's
-# .env.local carries the SOURCE coordinator's public URL, and sourcing it would
-# make the new coordinator advertise the machine it just moved off.
+# Load repo-root defaults unless the caller supplies an authoritative endpoint.
+# Quickstart and CoordTarget set ROOST_SKIP_ENV_LOCAL=1 so stale checkout-local
+# values cannot replace the selected public URL or network mode.
 if [[ -z "${ROOST_SKIP_ENV_LOCAL:-}" ]]; then
   set -a; [ -f "$REPO_ROOT/.env.local" ] && source "$REPO_ROOT/.env.local"; set +a
 fi

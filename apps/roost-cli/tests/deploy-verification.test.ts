@@ -7,13 +7,11 @@ import { tmpdir } from "node:os";
 import { _remoteDeployLockCommands, _startRemoteDeployLockRefreshForTest, DeployFailure, finishWorkerDeploy, REMOTE_MACHINE_TRANSACTION_PATHS, remoteMachineTransactionPath, run, workerServiceIsRunning, workerServiceMatchesRelease } from "../src/deploy-exec.ts";
 import { _linuxTargetVerificationCommand } from "../src/linux-deploy-journal-commands.ts";
 import type { LinuxDeployJournal } from "../src/linux-deploy-journal.ts";
+import { linuxWorkerResourceEnvironment } from "../src/deploy-linux.ts";
 import {
   linuxCoordinatorWorkingDirectoryCommand,
-  linuxWorkerResourceEnvironment,
   shouldRemovePriorWorkerRelease,
-} from "../src/deploy-linux.ts";
-import { _activateLocalWorker } from "../src/deploy-local.ts";
-import { localWorkerReleaseMatches } from "../src/local-worker-deploy-journal.ts";
+} from "../src/deploy-linux-recovery.ts";
 
 describe("worker deployment verification", () => {
   test("a failed verification preserves output and never prints success", () => {
@@ -293,6 +291,7 @@ describe("worker deployment verification", () => {
     const base: LinuxDeployJournal = {
       phase: "activating",
       targetSha: "a".repeat(40),
+      rolloutId: null,
       targetReleasePath: target,
       priorUnit: "[Service]\n",
       priorUnitMode: 0o600,
@@ -357,47 +356,4 @@ describe("worker deployment verification", () => {
     expect((await running).exit).not.toBe(0);
   });
 
-  test("local activation rolls back and removes its stage when release proof fails", async () => {
-    let rollbacks = 0;
-    let cleanups = 0;
-    const running = {
-      exit: 0,
-      stdout: "MainPID=42\nActiveState=active\nSubState=running\n",
-      stderr: "",
-    };
-    await expect(_activateLocalWorker({
-      install: async () => ({ exit: 0, stdout: "installed", stderr: "" }),
-      restart: async () => ({ exit: 0, stdout: "", stderr: "" }),
-      verify: async () => running,
-      rollback: async () => {
-        rollbacks += 1;
-        return null;
-      },
-      cleanupStage: async () => {
-        cleanups += 1;
-      },
-    })).rejects.toThrow("prior worker service restored");
-    expect(rollbacks).toBe(1);
-    expect(cleanups).toBe(1);
-  });
-
-  test("local release proof binds both worktree and git identity", () => {
-    const definition = [
-      "[Service]",
-      'WorkingDirectory="/srv/releases/worker/sha-1"',
-      'Environment="GIT_SHA=sha-1"',
-    ].join("\n");
-    expect(localWorkerReleaseMatches(
-      definition,
-      "linux",
-      "/srv/releases/worker/sha-1",
-      "sha-1",
-    )).toBe(true);
-    expect(localWorkerReleaseMatches(
-      definition,
-      "linux",
-      "/srv/releases/worker/sha-2",
-      "sha-1",
-    )).toBe(false);
-  });
 });

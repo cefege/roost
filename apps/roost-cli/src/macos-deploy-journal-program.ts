@@ -18,9 +18,11 @@ const plistPath = process.env.ROOST_MAC_DEPLOY_PLIST ?? "";
 const label = process.env.ROOST_MAC_DEPLOY_LABEL ?? "";
 const requestedSha = process.env.ROOST_MAC_DEPLOY_TARGET_SHA ?? "";
 const requestedTarget = process.env.ROOST_MAC_DEPLOY_TARGET_PATH ?? "";
+const requestedRollout = process.env.ROOST_MAC_DEPLOY_ROLLOUT_ID || null;
 const outputPrefix = "RoostMacDeployJournal=";
 const shaPattern = /^[a-f0-9]{40,64}$/;
 const suffixPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const rolloutPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function reject(message) {
   throw new Error(message);
@@ -120,17 +122,22 @@ function durableRemove(destination) {
 function validateJournal(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) reject("journal is not an object");
   const keys = [
-    "schemaVersion", "phase", "targetGitSha", "targetReleasePath",
+    "schemaVersion", "phase", "targetGitSha", "targetReleasePath", "rolloutId",
     "priorPlistBase64", "priorPlistMode", "priorLifecycle", "priorPid",
     "priorDisabled", "createdAt", "updatedAt",
   ];
   if (Object.keys(value).some((key) => !keys.includes(key))) reject("journal has unknown fields");
   if (value.schemaVersion !== 1) reject("journal schema is unsupported");
-  if (value.phase !== "prepared" && value.phase !== "activating") reject("journal phase is malformed");
+  if (value.phase !== "prepared" && value.phase !== "activating" && value.phase !== "activated") reject("journal phase is malformed");
   if (typeof value.targetGitSha !== "string" || typeof value.targetReleasePath !== "string") {
     reject("journal target identity is malformed");
   }
   directReleasePath(value.targetReleasePath, value.targetGitSha);
+  if (value.rolloutId === undefined) value.rolloutId = null;
+  if (value.rolloutId !== null
+    && (typeof value.rolloutId !== "string" || !rolloutPattern.test(value.rolloutId))) {
+    reject("journal rollout ID is malformed");
+  }
   if (!["unloaded", "loaded", "running"].includes(value.priorLifecycle)) {
     reject("journal prior lifecycle is malformed");
   }
@@ -277,6 +284,7 @@ try {
       phase: "prepared",
       targetGitSha: requestedSha,
       targetReleasePath: requestedTarget,
+      rolloutId: requestedRollout,
       priorPlistBase64,
       priorPlistMode,
       priorLifecycle: lifecycle,
@@ -291,15 +299,29 @@ try {
     const journal = readJournal();
     if (!journal || journal.phase !== "prepared") reject("prepared journal is missing");
     directReleasePath(requestedTarget, requestedSha);
-    if (journal.targetGitSha !== requestedSha || journal.targetReleasePath !== requestedTarget) {
+    if (journal.targetGitSha !== requestedSha
+      || journal.targetReleasePath !== requestedTarget
+      || journal.rolloutId !== requestedRollout) {
       reject("activation checkpoint target does not match the prepared journal");
     }
     const activating = { ...journal, phase: "activating", updatedAt: new Date().toISOString() };
     writeJournal(activating);
     emit(activating);
-  } else if (action === "restore-prior") {
+  } else if (action === "checkpoint-activated") {
     const journal = readJournal();
     if (!journal || journal.phase !== "activating") reject("activating journal is missing");
+    directReleasePath(requestedTarget, requestedSha);
+    if (journal.targetGitSha !== requestedSha
+      || journal.targetReleasePath !== requestedTarget
+      || journal.rolloutId !== requestedRollout) {
+      reject("activated checkpoint target does not match the activating journal");
+    }
+    const activated = { ...journal, phase: "activated", updatedAt: new Date().toISOString() };
+    writeJournal(activated);
+    emit(activated);
+  } else if (action === "restore-prior") {
+    const journal = readJournal();
+    if (!journal || (journal.phase !== "activating" && journal.phase !== "activated")) reject("activated journal is missing");
     if (journal.priorPlistBase64 === null) {
       durableRemove(plistPath);
     } else {
@@ -320,7 +342,7 @@ try {
     removeRelease(journal.targetReleasePath, journal.targetGitSha);
   } else if (action === "cleanup-prior") {
     const journal = readJournal();
-    if (!journal || journal.phase !== "activating") reject("activating journal is missing");
+    if (!journal || (journal.phase !== "activating" && journal.phase !== "activated")) reject("activated journal is missing");
     if (journal.priorPlistBase64 !== null) {
       const priorPath = plistWorkingDirectory(Buffer.from(journal.priorPlistBase64, "base64"));
       if (priorPath && priorPath !== journal.targetReleasePath) {

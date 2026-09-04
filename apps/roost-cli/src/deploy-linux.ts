@@ -21,36 +21,34 @@ import {
   POSIX_WORKER_DEPLOY_JOURNAL_PATHS,
   releaseRemoteDeployLock,
   workerServiceIsRunning,
-  workerServiceMatchesRelease,
   sshExec,
 } from "./deploy-exec.ts";
-import { COORD_UNIT, WORKER_UNIT } from "./service-ctl.ts";
+import { WORKER_UNIT } from "./service-ctl.ts";
 import { posixShellQuote } from "@roost/shared/shell-quote";
 import {
   isManagedLinuxWorkerReleasePath,
   linuxDeployJournalPath,
-  linuxDeployRecoveryPlan,
   linuxWorkerReleaseRoot,
   malformedLinuxJournal,
-  parseLinuxDeployJournalSnapshot,
-  type LinuxDeployJournal,
 } from "./linux-deploy-journal.ts";
+import type { LinuxDeployJournal } from "./linux-deploy-journal.ts";
 import {
   _linuxCheckpointDeployJournalCommand,
   _linuxClearDeployJournalCommand,
-  _linuxLoadDeployJournalCommand,
   _linuxPrepareDeployJournalCommand,
-  _linuxPriorServiceProofCommand,
-  _linuxRemoveManagedWorkerReleaseCommand,
-  _linuxRestorePriorServiceCommand,
-  _linuxTargetVerificationCommand,
+  _linuxWorkerShaProofCommand,
 } from "./linux-deploy-journal-commands.ts";
+import {
+  loadLinuxDeployJournal,
+  proveLinuxTargetRelease,
+  recoverLinuxDeployJournal,
+  removeManagedLinuxWorkerRelease,
+} from "./deploy-linux-recovery.ts";
+import type { LinuxDeploySsh as DeploySsh, LinuxRecoveryOutcome } from "./deploy-linux-recovery.ts";
 import { POSIX_FULL_GIT_SHA_RE } from "./posix-deploy-journal.ts";
+import { assertWorkerRolloutDirective } from "./worker-deploy-rollout.ts";
+import type { WorkerRolloutDirective } from "./worker-deploy-rollout.ts";
 
-
-type DeploySsh = (
-  command: string,
-) => Promise<{ exit: number; stdout: string; stderr: string }>;
 
 
 
@@ -74,285 +72,21 @@ export function linuxWorkerResourceEnvironment(definition: string): Record<strin
   return environment;
 }
 
-export function shouldRemovePriorWorkerRelease(
-  prior: string,
-  current: string,
-  coordinator: string | null,
-  home: string,
-): boolean {
-  if ((coordinator !== null
-    && (!posix.isAbsolute(coordinator) || /[\r\n\0]/.test(coordinator)))
-    || !prior || prior === current || prior === coordinator
-    || !isManagedLinuxWorkerReleasePath(prior, home)
-    || !isManagedLinuxWorkerReleasePath(current, home)) {
-    return false;
-  }
-  return true;
-}
-
-export function linuxCoordinatorWorkingDirectoryCommand(): string {
-  return `set -e; export XDG_RUNTIME_DIR="\${XDG_RUNTIME_DIR:-/run/user/\$(id -u)}"; ` +
-    `load_state=$(systemctl --user show ${COORD_UNIT} --property=LoadState --value); ` +
-    `case "$load_state" in ` +
-    `not-found) printf 'absent\\n';; ` +
-    `loaded) systemctl --user show ${COORD_UNIT} --property=WorkingDirectory --value;; ` +
-    `*) exit 65;; esac`;
-}
-
-export interface LinuxDeployTargetProof {
-  healthy: boolean;
-  proof: { exit: number; stdout: string; stderr: string };
-}
-
-export interface LinuxDeployRecoveryRemote {
-  home: string;
-  loadJournal: () => Promise<LinuxDeployJournal | null>;
-  proveTarget: (journal: LinuxDeployJournal) => Promise<LinuxDeployTargetProof>;
-  restorePrior: (journal: LinuxDeployJournal) => Promise<void>;
-  provePrior: (journal: LinuxDeployJournal) => Promise<void>;
-  cleanupPrior: (journal: LinuxDeployJournal) => Promise<void>;
-  removeTarget: (journal: LinuxDeployJournal) => Promise<void>;
-  clearJournal: () => Promise<void>;
-}
-
-export interface LinuxRecoveryOutcome {
-  kind: "none" | "prepared-cleaned" | "target-committed" | "prior-restored";
-  verification?: { exit: number; stdout: string; stderr: string };
-}
-
-async function loadLinuxDeployJournal(
-  deploySsh: DeploySsh,
-  journalPath: string,
-  home: string,
-): Promise<LinuxDeployJournal | null> {
-  const loaded = await deploySsh(_linuxLoadDeployJournalCommand(journalPath));
-  if (loaded.exit !== 0) {
-    failDeploy(
-      loaded.exit || 5,
-      `cannot read the fixed Linux deployment journal; it was left intact\n${loaded.stdout}\n${loaded.stderr}`,
-    );
-  }
-  return parseLinuxDeployJournalSnapshot(loaded.stdout, home);
-}
-
-async function removeManagedLinuxWorkerRelease(
-  deploySsh: DeploySsh,
-  targetReleasePath: string,
-  home: string,
-): Promise<void> {
-  const removed = await deploySsh(
-    _linuxRemoveManagedWorkerReleaseCommand(targetReleasePath, home),
-  );
-  if (removed.exit !== 0) {
-    failDeploy(
-      removed.exit || 5,
-      `cannot remove managed worker stage ${targetReleasePath}; deployment journal retained\n` +
-        `${removed.stdout}\n${removed.stderr}`,
-    );
-  }
-}
-
-async function clearLinuxDeployJournal(
-  deploySsh: DeploySsh,
-  journalPath: string,
-): Promise<void> {
-  const cleared = await deploySsh(_linuxClearDeployJournalCommand(journalPath));
-  if (cleared.exit !== 0) {
-    failDeploy(
-      cleared.exit || 5,
-      `cannot durably clear the Linux deployment journal\n${cleared.stdout}\n${cleared.stderr}`,
-    );
-  }
-}
-
-async function proveLinuxTargetRelease(
-  deploySsh: DeploySsh,
-  journal: LinuxDeployJournal,
-  home: string,
-  attempts = 20,
-): Promise<{
-  healthy: boolean;
-  proof: { exit: number; stdout: string; stderr: string };
-}> {
-  let proof = { exit: 1, stdout: "", stderr: "target verification was not attempted" };
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
-    proof = await deploySsh(_linuxTargetVerificationCommand(journal, home));
-    if (proof.exit === 0
-      && workerServiceIsRunning(proof.stdout, "linux")
-      && workerServiceMatchesRelease(proof.stdout)) {
-      return { healthy: true, proof };
-    }
-    if (proof.exit === 9 || proof.exit === 130 || proof.exit === 143) break;
-    if (attempt + 1 < attempts) await Bun.sleep(250);
-  }
-  return { healthy: false, proof };
-}
-
-async function proveLinuxPriorService(
-  deploySsh: DeploySsh,
-  journal: LinuxDeployJournal,
-  journalPath: string,
-  unitPath: string,
-  home: string,
-): Promise<{ exit: number; stdout: string; stderr: string }> {
-  let proof = { exit: 1, stdout: "", stderr: "rollback verification was not attempted" };
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    proof = await deploySsh(
-      _linuxPriorServiceProofCommand(journal, journalPath, unitPath, home),
-    );
-    const lifecycleMatches = /^RoostPriorStateMatch=yes$/m.test(proof.stdout);
-    const runningMatches = journal.priorLifecycle !== "running"
-      || workerServiceIsRunning(proof.stdout, "linux");
-    if (proof.exit === 0 && lifecycleMatches && runningMatches) return proof;
-    if (proof.exit === 9 || proof.exit === 130 || proof.exit === 143) break;
-    if (attempt < 19) await Bun.sleep(250);
-  }
-  failDeploy(
-    proof.exit || 5,
-    `rollback could not prove the exact prior unit and lifecycle; deployment journal retained\n` +
-      `${proof.stdout}\n${proof.stderr}`,
-  );
-}
-
-async function removePriorLinuxWorkerRelease(
-  deploySsh: DeploySsh,
-  journal: LinuxDeployJournal,
-  home: string,
-  signal: AbortSignal,
-): Promise<void> {
-  const prior = journal.priorUnit === null
-    ? ""
-    : parseSystemdServiceDirective(journal.priorUnit, "WorkingDirectory") ?? "";
-  if (!prior || prior === journal.targetReleasePath) return;
-  if (!shouldRemovePriorWorkerRelease(
-    prior,
-    journal.targetReleasePath,
-    "/dev/null",
-    home,
-  )) return;
-  const coordinator = await deploySsh(linuxCoordinatorWorkingDirectoryCommand());
-  if (signal.aborted) {
-    const reason = signal.reason;
-    throw reason instanceof DeployFailure
-      ? reason
-      : new DeployFailure(coordinator.exit || 9, "deployment interrupted while retaining the prior release");
-  }
-  if (coordinator.exit !== 0) {
-    failDeploy(
-      coordinator.exit || 5,
-      `cannot prove the coordinator release before prior worker cleanup; deployment journal retained\n` +
-        `${coordinator.stdout}\n${coordinator.stderr}`,
-    );
-  }
-  const reportedCoordinatorPath = coordinator.stdout.trim();
-  const coordinatorPath = reportedCoordinatorPath === "absent"
-    ? null
-    : reportedCoordinatorPath;
-  if (coordinatorPath !== null
-    && (!posix.isAbsolute(coordinatorPath) || /[\r\n\0]/.test(coordinatorPath))) {
-    failDeploy(5, "coordinator WorkingDirectory is malformed; deployment journal retained");
-  }
-  if (!shouldRemovePriorWorkerRelease(
-    prior,
-    journal.targetReleasePath,
-    coordinatorPath,
-    home,
-  )) {
-    return;
-  }
-  const removed = await deploySsh(
-    _linuxRemoveManagedWorkerReleaseCommand(prior, home),
-  );
-  if (signal.aborted) {
-    const reason = signal.reason;
-    throw reason instanceof DeployFailure
-      ? reason
-      : new DeployFailure(removed.exit || 9, "deployment interrupted while removing the prior release");
-  }
-  if (removed.exit !== 0) {
-    failDeploy(
-      removed.exit || 5,
-      `cannot retire prior worker release ${prior}; deployment journal retained\n` +
-        `${removed.stdout}\n${removed.stderr}`,
-    );
-  }
-}
-
-export async function _recoverLinuxDeployJournal(
-  remote: LinuxDeployRecoveryRemote,
-): Promise<LinuxRecoveryOutcome> {
-  const journal = await remote.loadJournal();
-  if (journal === null) return { kind: "none" };
-
-  let target: LinuxDeployTargetProof = {
-    healthy: false,
-    proof: { exit: 1, stdout: "", stderr: "prepared stages are never committed" },
-  };
-  if (journal.phase !== "prepared") target = await remote.proveTarget(journal);
-  const plan = linuxDeployRecoveryPlan(journal, target.healthy, remote.home);
-  if (plan.kind === "clean-prepared") {
-    await remote.removeTarget(journal);
-    await remote.clearJournal();
-    return { kind: "prepared-cleaned" };
-  }
-  if (plan.kind === "commit-target") {
-    await remote.cleanupPrior(journal);
-    await remote.clearJournal();
-    return { kind: "target-committed", verification: target.proof };
-  }
-  await remote.restorePrior(journal);
-  await remote.provePrior(journal);
-  await remote.removeTarget(journal);
-  await remote.clearJournal();
-  return { kind: "prior-restored" };
-}
-
-async function recoverLinuxDeployJournal(
-  deploySsh: DeploySsh,
-  journalPath: string,
-  unitPath: string,
-  home: string,
-  signal: AbortSignal,
-): Promise<LinuxRecoveryOutcome> {
-  return await _recoverLinuxDeployJournal({
-    home,
-    loadJournal: () => loadLinuxDeployJournal(deploySsh, journalPath, home),
-    proveTarget: (journal) => proveLinuxTargetRelease(deploySsh, journal, home),
-    restorePrior: async (journal) => {
-      const restored = await deploySsh(
-        _linuxRestorePriorServiceCommand(journal, journalPath, unitPath, home),
-      );
-      if (restored.exit !== 0) {
-        failDeploy(
-          restored.exit || 5,
-          `rollback could not restore the prior Linux unit; deployment journal retained\n` +
-            `${restored.stdout}\n${restored.stderr}`,
-        );
-      }
-    },
-    provePrior: async (journal) => {
-      await proveLinuxPriorService(deploySsh, journal, journalPath, unitPath, home);
-    },
-    cleanupPrior: (journal) => removePriorLinuxWorkerRelease(
-      deploySsh,
-      journal,
-      home,
-      signal,
-    ),
-    removeTarget: (journal) => removeManagedLinuxWorkerRelease(
-      deploySsh,
-      journal.targetReleasePath,
-      home,
-    ),
-    clearJournal: () => clearLinuxDeployJournal(deploySsh, journalPath),
-  });
-}
 
 export async function deployLinux(
   host: string,
-  opts: { gitSha: string; passthroughEnv: string; machineTransactionPath: string },
+  opts: {
+    gitSha: string;
+    passthroughEnv: string;
+    machineTransactionPath: string;
+    rollout?: WorkerRolloutDirective;
+  },
 ): Promise<void> {
   const { gitSha, passthroughEnv, machineTransactionPath } = opts;
+  const rollout = opts.rollout ? assertWorkerRolloutDirective(opts.rollout) : null;
+  if (rollout && rollout.targetSha !== gitSha.toLowerCase()) {
+    failDeploy(7, "worker rollout target does not match the Linux deployment SHA");
+  }
 
   // The caller has refreshed and proved the source upstream before acquiring
   // any target lease; retain only the exact clean identity at this boundary.
@@ -374,11 +108,14 @@ export async function deployLinux(
     const home = resolvedHome.stdout.trim();
     const releaseRoot = linuxWorkerReleaseRoot(home);
     const journalPath = linuxDeployJournalPath(machineTransactionPath, home);
+    const foreignJournalPaths = [
+      POSIX_WORKER_DEPLOY_JOURNAL_PATHS.local,
+      POSIX_WORKER_DEPLOY_JOURNAL_PATHS.darwin,
+      POSIX_WORKER_DEPLOY_JOURNAL_PATHS.coordinator,
+    ].map(posixShellQuote).join(" ");
     const foreignJournalGuard = await deploySsh(
       `set -e; base=${posixShellQuote(posix.dirname(journalPath))}; ` +
-        `for relative in ${posixShellQuote(POSIX_WORKER_DEPLOY_JOURNAL_PATHS.local)} ` +
-        `${posixShellQuote(POSIX_WORKER_DEPLOY_JOURNAL_PATHS.darwin)} ` +
-        `${posixShellQuote(POSIX_WORKER_DEPLOY_JOURNAL_PATHS.coordinator)}; do ` +
+        `for relative in ${foreignJournalPaths}; do ` +
         `foreign="$base/$relative"; ` +
         `if test -e "$foreign" || test -L "$foreign"; then exit 66; fi; done`,
     );
@@ -398,7 +135,58 @@ export async function deployLinux(
       unitPath,
       home,
       deployLease.signal,
+      rollout ?? undefined,
     );
+    if (initialRecovery.kind === "target-held") {
+      if (rollout?.action !== "hold") {
+        failDeploy(5, "a fleet-held Linux worker requires its owning rollout");
+      }
+      if (initialRecovery.journal.phase === "activating") {
+        const checkpoint = await deploySsh(
+          _linuxCheckpointDeployJournalCommand(journalPath, "activating", "activated"),
+        );
+        if (checkpoint.exit !== 0) {
+          failDeploy(checkpoint.exit || 5, "cannot checkpoint recovered Linux fleet activation");
+        }
+      }
+      finishWorkerDeploy(
+        initialRecovery.verification,
+        `>> held ${host} v2 worker for fleet rollout ${rollout.rolloutId}`,
+        "linux",
+      );
+      return;
+    }
+    if (initialRecovery.kind === "none"
+      && (rollout?.action === "finalize" || rollout?.action === "rollback")) {
+      const expectedSha = rollout.action === "finalize" ? rollout.targetSha : rollout.priorSha;
+      const proof = await deploySsh(_linuxWorkerShaProofCommand(expectedSha));
+      if (proof.exit !== 0 || !workerServiceIsRunning(proof.stdout, "linux")
+        || !/^RoostGitShaMatch=yes$/m.test(proof.stdout)) {
+        failDeploy(proof.exit || 5, `Linux worker has no journal and does not prove ${expectedSha}`);
+      }
+      const settlement = rollout.action === "finalize" ? "finalized" : "rolled back";
+      finishWorkerDeploy(proof, `>> Linux worker already ${settlement} on ${host}`, "linux");
+      return;
+    }
+    if (rollout?.action === "finalize") {
+      if (initialRecovery.kind !== "target-committed") {
+        failDeploy(5, "Linux worker target was not finalized");
+      }
+      finishWorkerDeploy(
+        initialRecovery.verification,
+        `>> finalized fleet worker ${host}`,
+        "linux",
+      );
+      return;
+    }
+    if (rollout?.action === "rollback") {
+      if (initialRecovery.kind !== "prior-restored"
+        && initialRecovery.kind !== "prepared-cleaned") {
+        failDeploy(5, "Linux worker prior state was not restored");
+      }
+      console.log(`>> rolled back fleet worker ${host}`);
+      return;
+    }
     if (initialRecovery.kind === "prepared-cleaned") {
       console.log(">> recovered interrupted Linux deploy (discarded prepared stage)");
     } else if (initialRecovery.kind === "target-committed") {
@@ -456,6 +244,7 @@ export async function deployLinux(
       targetSha: gitSha,
       targetReleasePath: releaseDir,
       home,
+      rolloutId: rollout?.action === "hold" ? rollout.rolloutId : null,
     }));
     if (prepared.exit !== 0) {
       try {
@@ -465,6 +254,7 @@ export async function deployLinux(
           unitPath,
           home,
           deployLease.signal,
+          rollout?.action === "hold" ? rollout : undefined,
         );
         if (recovered.kind === "none") await cleanupStage();
       } catch (recoveryError) {
@@ -491,6 +281,20 @@ export async function deployLinux(
       || journal.targetReleasePath !== releaseDir) {
       malformedLinuxJournal("prepared checkpoint does not identify the staged target");
     }
+    if (rollout?.action === "hold") {
+      const priorEnvironment = journal.priorUnit
+        ? parsePosixServiceEnvironment(journal.priorUnit, "linux")
+        : {};
+      const priorSha = priorEnvironment.GIT_SHA ?? priorEnvironment.ROOST_GIT_SHA;
+      if (journal.priorLifecycle !== "running" || priorSha?.toLowerCase() !== rollout.priorSha) {
+        await cleanupStage();
+        const cleared = await deploySsh(_linuxClearDeployJournalCommand(journalPath));
+        if (cleared.exit !== 0) {
+          failDeploy(cleared.exit || 5, "cannot clear rejected Linux worker deploy journal");
+        }
+        failDeploy(5, `Linux worker does not match rollout prior SHA ${rollout.priorSha}`);
+      }
+    }
     const priorDefinition = journal.priorUnit ?? "";
     const preservedResources = linuxWorkerResourceEnvironment(priorDefinition);
     const resourceAssignments = Object.entries(preservedResources)
@@ -512,6 +316,7 @@ export async function deployLinux(
           unitPath,
           home,
           deployLease.signal,
+          rollout?.action === "hold" ? rollout : undefined,
         );
       } catch (recoveryError) {
         const detail = recoveryError instanceof Error
@@ -528,8 +333,15 @@ export async function deployLinux(
             `automatic recovery is incomplete; fixed journal retained\n${detail}`,
         );
       }
-      if (recovered.kind === "target-committed" && recovered.verification) {
-        console.warn(`   ${summary}; committed the independently verified target`);
+      if ((recovered.kind === "target-committed" || recovered.kind === "target-held")
+        && recovered.verification) {
+        if (recovered.kind === "target-held" && recovered.journal.phase === "activating") {
+          const checkpoint = await deploySsh(
+            _linuxCheckpointDeployJournalCommand(journalPath, "activating", "activated"),
+          );
+          if (checkpoint.exit !== 0) failDeploy(checkpoint.exit || 5, "cannot checkpoint held Linux target");
+        }
+        console.warn(`   ${summary}; retained the independently verified target`);
         return recovered.verification;
       }
       const recoveryDetail = recovered.kind === "prior-restored"
@@ -606,60 +418,23 @@ export async function deployLinux(
       return;
     }
 
-    const finalTarget = await proveLinuxTargetRelease(deploySsh, {
-      ...journal,
-      phase: "activated",
-    }, home);
-    if (!finalTarget.healthy) {
-      const committed = await settleActivationFailure(
-        "activated worker lost exact release health before commit",
-        finalTarget.proof,
-      );
-      finishWorkerDeploy(
-        committed,
-        `>> done — ${host} v2 worker deployed (linux)`,
-        "linux",
-      );
-      return;
-    }
-
-    await removePriorLinuxWorkerRelease(
+    const settlement = await recoverLinuxDeployJournal(
       deploySsh,
-      journal,
+      journalPath,
+      unitPath,
       home,
       deployLease.signal,
+      rollout?.action === "hold" ? rollout : undefined,
     );
-    const cleared = await deploySsh(_linuxClearDeployJournalCommand(journalPath));
-    if (cleared.exit !== 0) {
-      const recovered = await recoverLinuxDeployJournal(
-        deploySsh,
-        journalPath,
-        unitPath,
-        home,
-        deployLease.signal,
-      );
-      if (recovered.kind === "prior-restored") {
-        failDeploy(
-          cleared.exit || 5,
-          `commit journal cleanup failed and the prior worker service was restored\n` +
-            `${cleared.stdout}\n${cleared.stderr}`,
-        );
-      }
-      if (recovered.kind === "target-committed" && recovered.verification) {
-        finishWorkerDeploy(
-          recovered.verification,
-          `>> done — ${host} v2 worker deployed (linux)`,
-          "linux",
-        );
-        return;
-      }
-      if (recovered.kind !== "none") {
-        failDeploy(cleared.exit || 5, "Linux deployment journal cleanup did not commit");
-      }
+    if ((settlement.kind !== "target-held" && settlement.kind !== "target-committed")
+      || !settlement.verification) {
+      failDeploy(5, "verified Linux worker did not reach its requested settlement state");
     }
     finishWorkerDeploy(
-      finalTarget.proof,
-      `>> done — ${host} v2 worker deployed (linux)`,
+      settlement.verification,
+      settlement.kind === "target-held"
+        ? `>> held ${host} v2 worker for fleet rollout ${rollout!.rolloutId}`
+        : `>> done — ${host} v2 worker deployed (linux)`,
       "linux",
     );
   } finally {

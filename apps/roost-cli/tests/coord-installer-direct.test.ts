@@ -1,5 +1,9 @@
+// Coordinator installer tests compose quickstart endpoint selection with the
+// shipping POSIX service writers. Fake native commands keep activation hermetic
+// while preserving the exact launchd, systemd, and Tailscale boundaries.
 import { afterEach, describe, expect, test } from "bun:test";
 import {
+  appendFileSync,
   chmodSync,
   existsSync,
   mkdirSync,
@@ -10,6 +14,12 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import {
+  automaticQuickstartEndpoint,
+  coordinatorEnvironmentForQuickstart,
+  resolveQuickstartEndpoint,
+} from "../src/quickstart-endpoint.ts";
+import { prepareAutomaticQuickstartNetwork } from "../src/quickstart-runtime.ts";
 
 const ROOT = resolve(import.meta.dir, "../../..");
 const INSTALLER = join(ROOT, "apps/coord/scripts/install.sh");
@@ -37,7 +47,6 @@ function fixture(platform: "Linux" | "Darwin") {
     BUN_BIN: "/usr/bin/true",
     ROOST_EXEC_BIN: "/usr/bin/true",
     ROOST_REPO_ROOT: ROOT,
-    ROOST_SKIP_ENV_LOCAL: "1",
     ROOST_COORD_UNIT: definition,
     ROOST_COORD_PLIST: definition,
     ROOST_COORD_DATA_DIR: join(root, "data"),
@@ -82,12 +91,14 @@ afterEach(() => {
 describe.skipIf(process.platform === "win32")("POSIX coordinator installer endpoint modes", () => {
   test("direct definitions persist the exact endpoint contract on arbitrary ports", () => {
     for (const platform of ["Linux", "Darwin"] as const) {
+      const endpointPlatform = platform === "Linux" ? "linux" : "darwin";
+      const endpoint = resolveQuickstartEndpoint([
+        "--coordinator-url", "https://coord.example.test:18443",
+        "--tls-cert", "/var/lib/roost/tls/fullchain.pem",
+        "--tls-key", "/var/lib/roost/tls/privkey.pem",
+      ], {}, endpointPlatform);
       const definition = writeDefinition(platform, {
-        ROOST_FRONTED: "0",
-        ROOST_COORDINATOR_BIND: "0.0.0.0:18443",
-        ROOST_COORDINATOR_PUBLIC_URL: "https://coord.example.test:18443",
-        ROOST_TLS_CERT_PATH: "/var/lib/roost/tls/fullchain.pem",
-        ROOST_TLS_KEY_PATH: "/var/lib/roost/tls/privkey.pem",
+        ...coordinatorEnvironmentForQuickstart(endpoint, endpointPlatform),
         // Direct mode must ignore automatic-mode settings even when ambient.
         ROOST_COORD_LOOPBACK_PORT: "19998",
         ROOST_TAILNET_HTTPS_PORT: "19999",
@@ -110,19 +121,24 @@ describe.skipIf(process.platform === "win32")("POSIX coordinator installer endpo
 
   test("automatic definitions retain loopback and Tailscale Serve settings", () => {
     for (const platform of ["Linux", "Darwin"] as const) {
+      const endpointPlatform = platform === "Linux" ? "linux" : "darwin";
+      const endpoint = automaticQuickstartEndpoint(
+        "coord.tail.example",
+        "/unused/tls",
+      );
       const definition = writeDefinition(platform, {
-        ROOST_FRONTED: "1",
-        ROOST_COORD_LOOPBACK_PORT: "14103",
-        ROOST_TAILNET_HTTPS_PORT: "14102",
+        ...coordinatorEnvironmentForQuickstart(endpoint, endpointPlatform),
         ROOST_TLS_CERT_PATH: "/unused/cert.pem",
         ROOST_TLS_KEY_PATH: "/unused/key.pem",
       });
 
       expect(envValue(definition, platform, "ROOST_FRONTED")).toBe("1");
       expect(envValue(definition, platform, "ROOST_COORDINATOR_BIND"))
-        .toBe("127.0.0.1:14103");
-      expect(envValue(definition, platform, "ROOST_COORD_LOOPBACK_PORT")).toBe("14103");
-      expect(envValue(definition, platform, "ROOST_TAILNET_HTTPS_PORT")).toBe("14102");
+        .toBe("127.0.0.1:4103");
+      expect(envValue(definition, platform, "ROOST_COORD_LOOPBACK_PORT")).toBe("4103");
+      expect(envValue(definition, platform, "ROOST_TAILNET_HTTPS_PORT")).toBe("4102");
+      expect(envValue(definition, platform, "ROOST_COORDINATOR_PUBLIC_URL"))
+        .toBe("https://coord.tail.example:4102");
       expect(envValue(definition, platform, "ROOST_TRUST_PROXY")).toBe("1");
       expect(envValue(definition, platform, "ROOST_TLS_CERT_PATH")).toBeNull();
       expect(envValue(definition, platform, "ROOST_TLS_KEY_PATH")).toBeNull();
@@ -144,16 +160,17 @@ describe.skipIf(process.platform === "win32")("POSIX coordinator installer endpo
       "#!/bin/sh\nout=''\nwhile [ \"$#\" -gt 0 ]; do\n  case \"$1\" in\n    -o) out=\"$2\"; shift 2 ;;\n    -w|-X|-H|--data) shift 2 ;;\n    *) shift ;;\n  esac\ndone\nprintf '{\"gitSha\":\"test-sha\"}' > \"$out\"\nprintf '200'\n",
     );
 
+    const endpoint = resolveQuickstartEndpoint([
+      "--coordinator-url", "https://coord.example.test:28443",
+      "--tls-cert", join(root, "fullchain.pem"),
+      "--tls-key", join(root, "privkey.pem"),
+    ], {}, "linux");
     const result = Bun.spawnSync(["bash", INSTALLER, "install"], {
       cwd: ROOT,
       env: {
         ...env,
+        ...coordinatorEnvironmentForQuickstart(endpoint, "linux"),
         TAILSCALE_LOG: tailscaleLog,
-        ROOST_FRONTED: "0",
-        ROOST_COORDINATOR_BIND: "0.0.0.0:28443",
-        ROOST_COORDINATOR_PUBLIC_URL: "https://coord.example.test:28443",
-        ROOST_TLS_CERT_PATH: join(root, "fullchain.pem"),
-        ROOST_TLS_KEY_PATH: join(root, "privkey.pem"),
         ROOST_INSTALL_READY_ATTEMPTS: "1",
         ROOST_INSTALL_READY_INTERVAL_SECS: "0",
       },
@@ -166,5 +183,67 @@ describe.skipIf(process.platform === "win32")("POSIX coordinator installer endpo
       "direct HTTPS) - https://coord.example.test:28443 (bind 0.0.0.0:28443)",
     );
     expect(result.stdout.toString()).not.toContain("tailnet https://");
+  });
+
+  test("automatic quickstart defeats stale local state and configures Serve without cert minting", async () => {
+    const { root, bin, definition, env } = fixture("Linux");
+    const tailscaleLog = join(root, "tailscale.log");
+    writeFileSync(join(root, ".env.local"), [
+      "ROOST_FRONTED=0",
+      "ROOST_COORDINATOR_BIND=0.0.0.0:19443",
+      "ROOST_COORDINATOR_PUBLIC_URL=https://stale.example.test:19443",
+      "ROOST_TLS_CERT_PATH=/stale/fullchain.pem",
+      "ROOST_TLS_KEY_PATH=/stale/privkey.pem",
+      "",
+    ].join("\n"));
+    executable(join(bin, "loginctl"), "#!/bin/sh\nexit 0\n");
+    executable(join(bin, "systemctl"), "#!/bin/sh\nexit 0\n");
+    executable(join(bin, "logrotate"), "#!/bin/sh\nexit 0\n");
+    executable(
+      join(bin, "tailscale"),
+      "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$TAILSCALE_LOG\"\n",
+    );
+    executable(
+      join(bin, "curl"),
+      "#!/bin/sh\nout=''\nwhile [ \"$#\" -gt 0 ]; do\n  case \"$1\" in\n    -o) out=\"$2\"; shift 2 ;;\n    -w|-X|-H|--data) shift 2 ;;\n    *) shift ;;\n  esac\ndone\nprintf '{\"gitSha\":\"test-sha\"}' > \"$out\"\nprintf '200'\n",
+    );
+
+    const endpoint = automaticQuickstartEndpoint(
+      "fresh.tail.example",
+      join(root, "unused-tls"),
+    );
+    await prepareAutomaticQuickstartNetwork(endpoint, false, "linux", {
+      grantLinuxOperator: async () => {
+        appendFileSync(tailscaleLog, "set --operator=roost-test\n");
+      },
+      mintWindowsCertificate: async () => {
+        appendFileSync(tailscaleLog, "cert\n");
+      },
+    });
+    const result = Bun.spawnSync(["bash", INSTALLER, "install"], {
+      cwd: ROOT,
+      env: {
+        ...env,
+        ROOST_REPO_ROOT: root,
+        ...coordinatorEnvironmentForQuickstart(endpoint, "linux"),
+        TAILSCALE_LOG: tailscaleLog,
+        ROOST_INSTALL_READY_ATTEMPTS: "1",
+        ROOST_INSTALL_READY_INTERVAL_SECS: "0",
+      },
+    });
+
+    expect(result.exitCode, result.stderr.toString()).toBe(0);
+    const installed = readFileSync(definition, "utf8");
+    expect(envValue(installed, "Linux", "ROOST_FRONTED")).toBe("1");
+    expect(envValue(installed, "Linux", "ROOST_COORDINATOR_BIND")).toBe("127.0.0.1:4103");
+    expect(envValue(installed, "Linux", "ROOST_COORDINATOR_PUBLIC_URL"))
+      .toBe("https://fresh.tail.example:4102");
+    expect(envValue(installed, "Linux", "ROOST_TLS_CERT_PATH")).toBeNull();
+    expect(envValue(installed, "Linux", "ROOST_TLS_KEY_PATH")).toBeNull();
+    expect(readFileSync(tailscaleLog, "utf8").trim().split("\n")).toEqual([
+      "set --operator=roost-test",
+      "serve --bg --https=4102 http://127.0.0.1:4103",
+    ]);
+    expect(readFileSync(tailscaleLog, "utf8")).not.toContain("cert");
   });
 });

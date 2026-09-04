@@ -1,81 +1,78 @@
-// Schema, confinement, parsing, and recovery decision for the localhost
-// worker deploy journal (worker-deploy.json beside the machine transaction).
-// Pure logic plus service-definition inspection only: journal file IO,
-// lifecycle probes, and rollback commands stay in deploy-local.ts, which is
-// this module's sole runtime caller (tests pin the parse/decision surface).
-// Built on the shared posix-deploy-journal core.
+// Schema, confinement, and recovery decisions for the localhost worker
+// deploy journal. deploy-local.ts owns file IO and service lifecycle changes.
+// The shared POSIX core supplies phase decisions and path validation.
 
 import { dirname, join, resolve } from "node:path";
 import { roostServiceDir } from "@roost/shared/paths";
 import { parsePosixServiceEnvironment } from "./deploy-plist-env.ts";
 import {
   isResolvedCanonicalAbsolutePath,
+  POSIX_FULL_GIT_SHA_RE,
   posixDeployJournalDecision,
   posixJournalObjectValue,
 } from "./posix-deploy-journal.ts";
+import {
+  assertWorkerRolloutDirective,
+  assertWorkerRolloutMatches,
+  workerRolloutIdOrNull,
+} from "./worker-deploy-rollout.ts";
+import type { WorkerRolloutDirective } from "./worker-deploy-rollout.ts";
 
-export const LOCAL_WORKER_DEPLOY_JOURNAL_SCHEMA_VERSION = 1;
+export const LOCAL_WORKER_DEPLOY_JOURNAL_SCHEMA_VERSION = 2;
 const LOCAL_WORKER_DEPLOY_JOURNAL_FILE = "worker-deploy.json";
-
 export type LocalWorkerDeployPhase = "prepared" | "activating" | "activated";
 export type LocalWorkerLifecycle = "running" | "stopped" | "unknown";
-
 export interface LocalWorkerServiceSnapshot {
   definitionBase64: string;
   mode: number;
 }
-
-export interface LocalWorkerDeployJournalV1 {
-  schemaVersion: 1;
+export interface LocalWorkerDeployJournal {
+  schemaVersion: 2;
   phase: LocalWorkerDeployPhase;
   os: "linux" | "darwin";
   sourceRoot: string;
   releaseRoot: string;
   stagedReleasePath: string;
   targetSha: string;
+  rolloutId: string | null;
   priorService: LocalWorkerServiceSnapshot | null;
   priorWasRunning: boolean;
   priorWorkingDirectory: string | null;
   priorGitSha: string | null;
   targetService: LocalWorkerServiceSnapshot | null;
 }
-
 export interface LocalWorkerDeployConfinement {
   os: "linux" | "darwin";
   sourceRoot: string;
   releaseRoot: string;
 }
-
 export interface LocalWorkerDeployRecoveryDeps {
   readService: (
-    journal: Readonly<LocalWorkerDeployJournalV1>,
+    journal: Readonly<LocalWorkerDeployJournal>,
   ) => LocalWorkerServiceSnapshot | null | Promise<LocalWorkerServiceSnapshot | null>;
   probeLifecycle: (
-    journal: Readonly<LocalWorkerDeployJournalV1>,
+    journal: Readonly<LocalWorkerDeployJournal>,
   ) => LocalWorkerLifecycle | Promise<LocalWorkerLifecycle>;
-  restorePrior: (journal: Readonly<LocalWorkerDeployJournalV1>) => Promise<void>;
-  cleanupStage: (journal: Readonly<LocalWorkerDeployJournalV1>) => Promise<void>;
-  commitTarget: (journal: Readonly<LocalWorkerDeployJournalV1>) => Promise<void>;
+  restorePrior: (journal: Readonly<LocalWorkerDeployJournal>) => Promise<void>;
+  cleanupStage: (journal: Readonly<LocalWorkerDeployJournal>) => Promise<void>;
+  commitTarget: (journal: Readonly<LocalWorkerDeployJournal>) => Promise<void>;
   clearJournal: () => Promise<void>;
   sleep?: (milliseconds: number) => Promise<void>;
   proofAttempts?: number;
 }
-
 export type LocalWorkerDeployRecoveryDecision =
   | "prepared-cleaned"
+  | "target-held"
   | "target-committed"
   | "prior-restored";
-
 function objectValue(value: unknown, label: string): Record<string, unknown> {
   return posixJournalObjectValue(value, `${label} must be an object`);
 }
-
 function nullableString(value: unknown, label: string): string | null {
   if (value === null) return null;
   if (typeof value !== "string") throw new Error(`${label} must be a string or null`);
   return value;
 }
-
 function parseServiceSnapshot(
   value: unknown,
   label: string,
@@ -100,11 +97,9 @@ function parseServiceSnapshot(
     mode: snapshot.mode as number,
   };
 }
-
 export function decodeServiceSnapshot(snapshot: Readonly<LocalWorkerServiceSnapshot>): Buffer {
   return Buffer.from(snapshot.definitionBase64, "base64");
 }
-
 export function serviceSnapshotMatches(
   actual: Readonly<LocalWorkerServiceSnapshot> | null,
   expected: Readonly<LocalWorkerServiceSnapshot> | null,
@@ -147,7 +142,7 @@ export function localWorkerDeployStageIsConfined(
 export function parseLocalWorkerDeployJournal(
   raw: string,
   confinement: Readonly<LocalWorkerDeployConfinement>,
-): LocalWorkerDeployJournalV1 {
+): LocalWorkerDeployJournal {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -155,7 +150,7 @@ export function parseLocalWorkerDeployJournal(
     throw new Error(`worker deploy journal is malformed JSON: ${String(error)}`);
   }
   const value = objectValue(parsed, "worker deploy journal");
-  if (value.schemaVersion !== LOCAL_WORKER_DEPLOY_JOURNAL_SCHEMA_VERSION) {
+  if (value.schemaVersion !== 1 && value.schemaVersion !== LOCAL_WORKER_DEPLOY_JOURNAL_SCHEMA_VERSION) {
     throw new Error("worker deploy journal schema version is unsupported");
   }
   if (value.phase !== "prepared" && value.phase !== "activating" && value.phase !== "activated") {
@@ -187,7 +182,7 @@ export function parseLocalWorkerDeployJournal(
   if (!localWorkerDeployStageIsConfined(releaseRoot, stagedReleasePath)) {
     throw new Error("worker deploy journal staged release path is unsafe");
   }
-  if (typeof value.targetSha !== "string" || !/^[0-9a-f]{40}$/i.test(value.targetSha)) {
+  if (typeof value.targetSha !== "string" || !POSIX_FULL_GIT_SHA_RE.test(value.targetSha.toLowerCase())) {
     throw new Error("worker deploy journal target SHA is invalid");
   }
   const stagedReleaseId = stagedReleasePath.slice(releaseRoot.length + 1);
@@ -197,6 +192,10 @@ export function parseLocalWorkerDeployJournal(
   ).test(stagedReleaseId)) {
     throw new Error("worker deploy journal staged release identifier is invalid");
   }
+  const rolloutId = workerRolloutIdOrNull(
+    value.schemaVersion === 1 ? null : value.rolloutId,
+    "worker deploy journal rollout ID",
+  );
   if (typeof value.priorWasRunning !== "boolean") {
     throw new Error("worker deploy journal prior running state is invalid");
   }
@@ -248,6 +247,7 @@ export function parseLocalWorkerDeployJournal(
     releaseRoot,
     stagedReleasePath,
     targetSha: value.targetSha,
+    rolloutId,
     priorService,
     priorWasRunning: value.priorWasRunning,
     priorWorkingDirectory,
@@ -257,7 +257,7 @@ export function parseLocalWorkerDeployJournal(
 }
 
 export async function priorServiceIsProven(
-  journal: Readonly<LocalWorkerDeployJournalV1>,
+  journal: Readonly<LocalWorkerDeployJournal>,
   deps: Readonly<LocalWorkerDeployRecoveryDeps>,
 ): Promise<boolean> {
   const attempts = Math.max(1, deps.proofAttempts ?? 20);
@@ -284,8 +284,17 @@ export async function _recoverLocalWorkerDeployJournal(
   raw: string,
   confinement: Readonly<LocalWorkerDeployConfinement>,
   deps: Readonly<LocalWorkerDeployRecoveryDeps>,
+  directive?: Readonly<WorkerRolloutDirective>,
 ): Promise<LocalWorkerDeployRecoveryDecision> {
   const journal = parseLocalWorkerDeployJournal(raw, confinement);
+  const requested = directive ? assertWorkerRolloutDirective(directive) : null;
+  if (requested) assertWorkerRolloutMatches(journal, requested);
+  if (journal.rolloutId !== null && !requested) {
+    throw new Error("a fleet rollout still owns the local worker deploy journal");
+  }
+  if (requested && journal.priorGitSha?.toLowerCase() !== requested.priorSha) {
+    throw new Error("local worker journal does not prove the fleet rollout prior identity");
+  }
   let targetIsProven = false;
   if (journal.targetService) {
     try {
@@ -298,27 +307,48 @@ export async function _recoverLocalWorkerDeployJournal(
     }
   }
 
-  // A prepared journal can never carry a target service (parse enforces it),
-  // so no activation probe above can run before the prepared cleanup below.
-  const decision = posixDeployJournalDecision(journal.phase, targetIsProven);
-  if (decision === "clean-prepared") {
+  const restorePrior = async (): Promise<LocalWorkerDeployRecoveryDecision> => {
+    await deps.restorePrior(journal);
+    if (!await priorServiceIsProven(journal, deps)) {
+      throw new Error("prior worker service definition and lifecycle could not be proven");
+    }
+    await deps.cleanupStage(journal);
+    await deps.clearJournal();
+    return "prior-restored";
+  };
+  if (journal.phase === "prepared") {
+    if (requested?.action === "finalize") {
+      throw new Error("cannot finalize a worker rollout before activation");
+    }
     await deps.cleanupStage(journal);
     await deps.clearJournal();
     return "prepared-cleaned";
   }
+  if (requested?.action === "rollback") return await restorePrior();
+  if (journal.rolloutId !== null) {
+    if (!targetIsProven) {
+      if (requested?.action === "finalize") {
+        throw new Error("cannot finalize an unproven worker rollout target");
+      }
+      return await restorePrior();
+    }
+    if (requested?.action === "finalize") {
+      if (journal.phase !== "activated") {
+        throw new Error("cannot finalize a worker rollout before its activated checkpoint");
+      }
+      await deps.commitTarget(journal);
+      await deps.clearJournal();
+      return "target-committed";
+    }
+    return "target-held";
+  }
+  const decision = posixDeployJournalDecision(journal.phase, targetIsProven);
   if (decision === "commit") {
     await deps.commitTarget(journal);
     await deps.clearJournal();
     return "target-committed";
   }
-
-  await deps.restorePrior(journal);
-  if (!await priorServiceIsProven(journal, deps)) {
-    throw new Error("prior worker service definition and lifecycle could not be proven");
-  }
-  await deps.cleanupStage(journal);
-  await deps.clearJournal();
-  return "prior-restored";
+  return await restorePrior();
 }
 
 function unescapeXml(value: string): string {

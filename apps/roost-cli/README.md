@@ -21,7 +21,7 @@ omitted because neither is user-invoked.
 
 | Command | Purpose |
 | --- | --- |
-| `quickstart` | One-shot local install: tailscale gate → build SPA → mint TLS cert → install coord → deploy local worker → health → open the browser already authorized via a self-minted `#pair` token |
+| `quickstart` | One-shot local install: endpoint-group validation → optional Tailscale gate → build SPA → POSIX Serve setup (the paused Windows path retains direct tailnet cert minting) → install coord → deploy local worker → health → open an already-authorized browser via a self-minted `#pair` token |
 | `coord` | Run the coordinator in this process (compiled-binary server mode). Lazily `import()`ed so the generated SPA embed never loads into `roost test` |
 | `worker` | Run the worker in this process (compiled-binary worker mode); same entry the LaunchAgent/unit uses |
 | `keeper <sock>` | Run the multiplexed keeper in this process. Internal self-exec target: the worker spawns `roost keeper <sock>` when it is not running under bun |
@@ -58,18 +58,26 @@ code never enters a POSIX command path. It drains pending relocation requests
 ## Module map
 
 - **Dispatch** — `src/main.ts`.
-- **Deploy / push (POSIX)** — `src/deploy.ts` (macOS orchestrator + journalled
-  recovery), `src/deploy-linux.ts` (in-place git checkout, not an rsynced slim
-  tree), `src/deploy-local.ts`, `src/deploy-exec.ts` (the ssh/spawn layer and the
-  shared ssh option set), `src/deploy-plist-env.ts`, `src/deploy-self-host.ts`,
-  `src/push.ts`, `src/keeper-refresh.ts`. The deploy journals share
-  `src/posix-deploy-journal.ts` (phase/confinement/decision core); per-platform
-  halves: macOS `src/deploy-macos-journal.ts` + `-controller.ts` +
-  `macos-deploy-journal-program.ts`, Linux `src/linux-deploy-journal.ts` +
-  `-commands.ts`, localhost `src/local-worker-deploy-journal.ts`, coordinator
-  `src/coordinator-deploy-journal.ts` + `-recovery.ts`; the signed Windows
-  update twins live in `src/deploy-windows-channel.ts`, and the remote lease
-  program in `src/remote-deploy-lock-program.ts`.
+- **Deploy / push (POSIX)** — `src/deploy.ts` routes to `src/deploy-macos.ts`,
+  `src/deploy-linux.ts`, and `src/deploy-local.ts`; their activation/recovery
+  drivers live in `src/deploy-macos-rollout.ts`, `src/deploy-linux-recovery.ts`,
+  and `src/deploy-local-activation.ts`. `src/deploy-exec.ts` owns ssh/spawn,
+  while `src/deploy-worker-environment.ts` and `src/worker-deploy-rollout.ts`
+  share worker contracts with `src/push-fleet-rollout.ts`;
+  `src/local-worker-rollout-coordinator.ts` validates the one intentional
+  same-host journal overlap. `src/push-coordinator.ts` owns the local held
+  target, and `src/push.ts` is the operator entry point. The journals share
+  `src/posix-deploy-journal.ts`;
+  platform records live in
+  `src/deploy-macos-journal.ts` + `-controller.ts` +
+  `macos-deploy-journal-program.ts`, `src/linux-deploy-journal.ts` +
+  `-commands.ts`, and `src/local-worker-deploy-journal.ts`. Coordinator rollout
+  state is split by concern across `src/coordinator-deploy-journal.ts`,
+  `-recovery.ts`, `-finalization.ts`, `-snapshot.ts`, and `-release.ts`, with
+  service parsing/control in `src/coordinator-service-definition.ts`. Signed
+  Windows updates use `src/deploy-windows-channel.ts`; remote leases use
+  `src/remote-deploy-lock-program.ts`. `src/deploy-self-host.ts` and
+  `src/keeper-refresh.ts` own their explicit operator workflows.
 - **Windows-only** — `src/windows/windows-update-broker.ts` (the elevated
   update state machine), `src/windows/windows-update-journal.ts` (durable `update-v2.json`
   journal + progress ring), `src/windows/windows-update-control.ts` (request admission +
@@ -123,9 +131,10 @@ relocation / keeper-refresh / deploy against one lock per machine.
 
 ## Test
 
-`bun test apps/roost-cli/tests/` — 17 files, 178 tests, all hermetic (Windows
-paths are driven through injected fakes). `tests/update.test.ts` pins the release
-verification contract; `tests/machine-transaction.test.ts` pins the machine lock.
+`bun test apps/roost-cli/tests/` — hermetic tests with platform operations
+driven through injected fakes. `tests/coordinator-deploy.test.ts` pins atomic
+fleet rollback; `tests/update.test.ts` pins release verification; and
+`tests/machine-transaction.test.ts` pins the machine lock.
 
 The repo's own test scripts run through this CLI: `bun run test:unit`,
 `bun run test:terminal`, and `bun run test:live-api` all shell into

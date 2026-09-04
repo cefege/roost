@@ -1,3 +1,7 @@
+// Localhost worker source deployment, durable rollback journal, and service
+// activation. The deploy router supplies exact source and optional atomic
+// fleet directives; platform service writers remain owned by install.sh.
+
 import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, type Stats } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { durableRemove, durableWriteFile, flushDurablePath } from "@roost/shared/durability";
@@ -14,8 +18,11 @@ import {
   POSIX_WORKER_DEPLOY_JOURNAL_PATHS,
   run,
   workerServiceIsRunning,
-  workerServiceMatchesRelease,
 } from "./deploy-exec.ts";
+import {
+  _activateLocalWorker,
+  type LocalWorkerCommandResult as CommandResult,
+} from "./deploy-local-activation.ts";
 import {
   _backfillEnvFromPlist,
   _resolveDeployEnvValue,
@@ -35,11 +42,12 @@ import {
   serviceWorkingDirectory,
   _recoverLocalWorkerDeployJournal,
   type LocalWorkerDeployConfinement,
-  type LocalWorkerDeployJournalV1,
+  type LocalWorkerDeployJournal,
   type LocalWorkerDeployRecoveryDeps,
   type LocalWorkerLifecycle,
   type LocalWorkerServiceSnapshot,
 } from "./local-worker-deploy-journal.ts";
+import { coordinatorJournalAllowsLocalWorkerRollout } from "./local-worker-rollout-coordinator.ts";
 import {
   launchdBootstrapWithRetryCmd,
   restartWorkerCmd,
@@ -47,94 +55,11 @@ import {
   WORKER_AGENT,
   WORKER_UNIT,
 } from "./service-ctl.ts";
+import {
+  assertWorkerRolloutDirective,
+  type WorkerRolloutDirective,
+} from "./worker-deploy-rollout.ts";
 
-
-type CommandResult = { exit: number; stdout: string; stderr: string };
-export interface LocalWorkerActivation {
-  install: () => Promise<CommandResult>;
-  restart: () => Promise<CommandResult>;
-  verify: () => Promise<CommandResult>;
-  rollback: () => Promise<string | null>;
-  cleanupStage: () => Promise<void>;
-}
-
-async function failLocalActivation(
-  deps: LocalWorkerActivation,
-  exitCode: number,
-  message: string,
-): Promise<never> {
-  let rollbackError: string | null;
-  try {
-    rollbackError = await deps.rollback();
-  } catch (error) {
-    rollbackError = `rollback failed: ${error instanceof Error ? error.message : String(error)}`;
-  }
-  if (!rollbackError) await deps.cleanupStage();
-  throw new DeployFailure(
-    exitCode,
-    `${message}\n${rollbackError ?? "prior worker service restored"}`,
-  );
-}
-
-export async function _activateLocalWorker(
-  deps: LocalWorkerActivation,
-): Promise<{ install: CommandResult; verify: CommandResult }> {
-  let install: CommandResult;
-  try {
-    install = await deps.install();
-  } catch (error) {
-    return failLocalActivation(
-      deps,
-      5,
-      `install.sh failed: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
-  if (install.exit !== 0) {
-    return failLocalActivation(
-      deps,
-      5,
-      `install.sh failed\n${install.stdout}\n${install.stderr}`,
-    );
-  }
-
-  let restarted: CommandResult;
-  try {
-    restarted = await deps.restart();
-  } catch (error) {
-    return failLocalActivation(
-      deps,
-      4,
-      `restart failed: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
-  if (restarted.exit !== 0) {
-    return failLocalActivation(
-      deps,
-      4,
-      `restart failed (exit ${restarted.exit})\n${restarted.stdout}\n${restarted.stderr}`,
-    );
-  }
-
-  let verify: CommandResult;
-  try {
-    verify = await deps.verify();
-  } catch (error) {
-    return failLocalActivation(
-      deps,
-      8,
-      `worker service verification failed: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
-  if (verify.exit !== 0 || !workerServiceIsRunning(verify.stdout, process.platform === "linux" ? "linux" : "darwin")
-    || !workerServiceMatchesRelease(verify.stdout)) {
-    return failLocalActivation(
-      deps,
-      verify.exit || 8,
-      `worker service verification failed\n${verify.stdout}\n${verify.stderr}`,
-    );
-  }
-  return { install, verify };
-}
 
 
 function restoreCommand(
@@ -185,7 +110,7 @@ function readLocalWorkerServiceSnapshot(servicePath: string): LocalWorkerService
 
 async function checkpointLocalWorkerDeployJournal(
   journalPath: string,
-  journal: Readonly<LocalWorkerDeployJournalV1>,
+  journal: Readonly<LocalWorkerDeployJournal>,
   confinement: Readonly<LocalWorkerDeployConfinement>,
 ): Promise<void> {
   const serialized = `${JSON.stringify(journal)}\n`;
@@ -253,8 +178,25 @@ async function localWorkerStartupPolicyIsEnabled(os: "linux" | "darwin"): Promis
     && !new RegExp(`"${WORKER_AGENT.replaceAll(".", "[.]")}"\\s*=>\\s*true`).test(result.stdout);
 }
 
+function localCoordinatorWorkingDirectory(): string | null {
+  const servicePath = coordServicePath();
+  if (!existsSync(servicePath)) return null;
+  try {
+    const workingDirectory = serviceWorkingDirectory(
+      readFileSync(servicePath, "utf8"),
+      process.platform as "linux" | "darwin",
+    );
+    if (!workingDirectory) throw new Error("missing WorkingDirectory");
+    return workingDirectory;
+  } catch (error) {
+    throw new Error(
+      `cannot prove coordinator release use before worker cleanup: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
 async function cleanupLocalWorkerStage(
-  journal: Readonly<LocalWorkerDeployJournalV1>,
+  journal: Readonly<LocalWorkerDeployJournal>,
   confinement: Readonly<LocalWorkerDeployConfinement>,
 ): Promise<void> {
   if (
@@ -315,24 +257,7 @@ async function removeManagedPriorRelease(
       throw new Error("refusing to remove a prior worker release outside its release root");
     }
   }
-  const coordinatorPath = coordServicePath();
-  let coordinatorWorkingDirectory: string | null = null;
-  if (existsSync(coordinatorPath)) {
-    try {
-      coordinatorWorkingDirectory = serviceWorkingDirectory(
-        readFileSync(coordinatorPath, "utf8"),
-        process.platform as "linux" | "darwin",
-      );
-    } catch (error) {
-      throw new Error(
-        `cannot prove coordinator release use before worker cleanup: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
-    if (!coordinatorWorkingDirectory) {
-      throw new Error("cannot prove coordinator WorkingDirectory before worker cleanup");
-    }
-  }
-  if (coordinatorWorkingDirectory === priorWorkingDirectory) return;
+  if (localCoordinatorWorkingDirectory() === priorWorkingDirectory) return;
   const removed = await run(["git", "worktree", "remove", "--force", priorWorkingDirectory], {
     cwd: sourceRepo,
     quiet: true,
@@ -384,16 +309,38 @@ function createLocalWorkerDeployRecoveryDeps(
     },
   };
 }
+async function localWorkerIsRunningAtSha(
+  servicePath: string,
+  os: "linux" | "darwin",
+  expectedSha: string,
+): Promise<boolean> {
+  const service = readLocalWorkerServiceSnapshot(servicePath);
+  if (!service || serviceGitSha(decodeServiceSnapshot(service).toString("utf8"), os) !== expectedSha) {
+    return false;
+  }
+  const status = await run(["bash", "-lc", verifyWorkerCmd(os)], { quiet: true });
+  return status.exit === 0 && workerServiceIsRunning(status.stdout, os);
+}
+
 
 /** Localhost source deployment uses the same immutable stage, service
  * snapshot, activation proof, and rollback contract as remote POSIX deploys. */
 export async function _deployLocal(
   host: string,
-  options: { sourceRoot: string; gitSha: string },
+  options: {
+    sourceRoot: string;
+    gitSha: string;
+    rollout?: WorkerRolloutDirective;
+    coordinatorUrl?: string;
+  },
 ): Promise<void> {
   const os: "linux" | "darwin" = process.platform === "linux" ? "linux" : "darwin";
   const sourceRoot = realpathSync(resolve(options.sourceRoot));
   const localGitSha = options.gitSha;
+  const rollout = options.rollout ? assertWorkerRolloutDirective(options.rollout) : null;
+  if (rollout && rollout.targetSha !== localGitSha.toLowerCase()) {
+    failDeploy(7, "worker rollout target does not match the local deployment SHA");
+  }
   if (!/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/i.test(localGitSha)) {
     failDeploy(7, "a localhost deploy requires an exact clean source commit");
   }
@@ -427,30 +374,65 @@ export async function _deployLocal(
       POSIX_WORKER_DEPLOY_JOURNAL_PATHS.coordinator,
     ]) {
       const foreignJournal = join(serviceDir, relative);
-      if (lstatIfPresent(foreignJournal)) {
-        throw new DeployFailure(
-          5,
-          `cannot mutate past unsettled foreign worker deploy journal: ${foreignJournal}`,
-        );
+      if (!lstatIfPresent(foreignJournal)) continue;
+      if (relative === POSIX_WORKER_DEPLOY_JOURNAL_PATHS.coordinator
+        && rollout
+        && coordinatorJournalAllowsLocalWorkerRollout(serviceDir, os, rollout)) {
+        continue;
       }
+      throw new DeployFailure(
+        5,
+        `cannot mutate past unsettled foreign worker deploy journal: ${foreignJournal}`,
+      );
     }
     const existingJournal = readLocalWorkerDeployJournal(journalPath);
     if (existingJournal) {
       try {
+        let loaded = parseLocalWorkerDeployJournal(existingJournal, confinement);
+        if (loaded.rolloutId !== null && loaded.rolloutId !== rollout?.rolloutId) {
+          throw new Error("another fleet rollout still owns the local worker deploy journal");
+        }
         const decision = await _recoverLocalWorkerDeployJournal(
           existingJournal,
           confinement,
           recoveryDeps,
+          rollout ?? undefined,
         );
+        if (decision === "target-held") {
+          if (rollout?.action !== "hold") {
+            throw new Error("a fleet-held local worker requires its owning rollout");
+          }
+          if (loaded.phase === "activating") {
+            loaded = { ...loaded, phase: "activated" };
+            await checkpointLocalWorkerDeployJournal(journalPath, loaded, confinement);
+          }
+          console.log(`>> local worker target already held for fleet rollout ${rollout.rolloutId}`);
+          return;
+        }
         console.log(`>> recovered interrupted local worker deploy (${decision})`);
+        if (rollout?.action === "finalize") {
+          if (decision !== "target-committed") throw new Error("local worker target was not finalized");
+          return;
+        }
+        if (rollout?.action === "rollback") {
+          if (decision !== "prior-restored" && decision !== "prepared-cleaned") {
+            throw new Error("local worker prior state was not restored");
+          }
+          return;
+        }
       } catch (error) {
         throw new DeployFailure(
           5,
-          `cannot recover interrupted local worker deploy: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
+          `cannot settle local worker deploy: ${error instanceof Error ? error.message : String(error)}`,
         );
       }
+    } else if (rollout?.action === "finalize" || rollout?.action === "rollback") {
+      const expectedSha = rollout.action === "finalize" ? rollout.targetSha : rollout.priorSha;
+      if (!await localWorkerIsRunningAtSha(servicePath, os, expectedSha)) {
+        throw new DeployFailure(5, `local worker has no journal and does not prove ${expectedSha}`);
+      }
+      console.log(`>> local worker already ${rollout.action === "finalize" ? "finalized" : "rolled back"}`);
+      return;
     }
     const bunBin = Bun.which("bun") ?? process.execPath;
     const releaseId = `${localGitSha}-${crypto.randomUUID()}`;
@@ -479,6 +461,10 @@ export async function _deployLocal(
     const priorWasRunning = priorService !== null
       && priorStatus.exit === 0
       && workerServiceIsRunning(priorStatus.stdout, os);
+    if (rollout?.action === "hold"
+      && (!priorWasRunning || priorGitSha?.toLowerCase() !== rollout.priorSha)) {
+      failDeploy(5, `local worker does not match rollout prior SHA ${rollout.priorSha}`);
+    }
     if (priorService && (!priorWasRunning || !await localWorkerStartupPolicyIsEnabled(os))) {
       failDeploy(
         5,
@@ -498,7 +484,11 @@ export async function _deployLocal(
       "ROOST_WORKER_LABEL",
       "ROOST_REACHABLE_ADDR",
     ]) {
-      const value = _resolveDeployEnvValue(key, hostEnv);
+      const value = _resolveDeployEnvValue(
+        key,
+        hostEnv,
+        key === "ROOST_COORDINATOR_URL" ? options.coordinatorUrl : undefined,
+      );
       if (value === undefined) delete installEnv[key];
       else installEnv[key] = value;
     }
@@ -515,7 +505,7 @@ export async function _deployLocal(
     if (realpathSync(releaseRoot) !== releaseRoot) {
       failDeploy(5, "worker release root must not traverse a symbolic link");
     }
-    let journal: LocalWorkerDeployJournalV1 = {
+    let journal: LocalWorkerDeployJournal = {
       schemaVersion: LOCAL_WORKER_DEPLOY_JOURNAL_SCHEMA_VERSION,
       phase: "prepared",
       os,
@@ -523,6 +513,7 @@ export async function _deployLocal(
       releaseRoot,
       stagedReleasePath: releaseDir,
       targetSha: localGitSha,
+      rolloutId: rollout?.action === "hold" ? rollout.rolloutId : null,
       priorService,
       priorWasRunning,
       priorWorkingDirectory,
@@ -631,6 +622,10 @@ export async function _deployLocal(
     }
     journal = { ...journal, phase: "activated" };
     await checkpointLocalWorkerDeployJournal(journalPath, journal, confinement);
+    if (rollout?.action === "hold") {
+      console.log(`>> held ${host} v2 worker for fleet rollout ${rollout.rolloutId}`);
+      return;
+    }
     await recoveryDeps.commitTarget(journal);
     await recoveryDeps.clearJournal();
     finishWorkerDeploy(

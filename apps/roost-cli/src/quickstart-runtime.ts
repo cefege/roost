@@ -11,14 +11,16 @@ import {
   writeFileSync,
 } from "node:fs";
 import { homedir, tmpdir, userInfo } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { registeredWorkerForGrant } from "./quickstart-bootstrap-tokens.ts";
 import {
   coordinatorEnvironmentForQuickstart,
   requireResolvedEndpoint,
 } from "./quickstart-endpoint.ts";
-import type { QuickstartEndpoint } from "./quickstart-endpoint.ts";
-import { coordinatorPaths } from "./quickstart-windows-state.ts";
+import type {
+  QuickstartEndpoint,
+  ResolvedQuickstartEndpoint,
+} from "./quickstart-endpoint.ts";
 import { trustedTailscaleExecutable } from "./windows/windows-identity.ts";
 
 export function logStep(message: string): void {
@@ -80,14 +82,15 @@ export async function dryRunServiceDefinitions(endpoint: QuickstartEndpoint): Pr
 }
 
 const TAILSCALE_SET_DEADLINE_MS = 30_000;
-// First-time issuance walks tailscaled → Let's Encrypt and can be slow on a
-// cold box; the deadline exists so a hung issuance cannot wedge quickstart
-// forever, not to rush a legitimate mint.
+// Automatic Windows serves HTTPS in the coordinator process, so its
+// certificate issuance stays bounded. POSIX automatic mode uses Tailscale
+// Serve and never enters this path.
 const TAILSCALE_CERT_DEADLINE_MS = 120_000;
 
-/** Run a command capturing output, bounded — `tailscale cert` writes through
- *  tailscaled, which can block indefinitely on a stuck backend. */
-async function runBoundedCapture(cmd: string[], timeoutMs: number): Promise<{ exit: number; stdout: string; stderr: string }> {
+async function runBoundedCapture(
+  cmd: string[],
+  timeoutMs: number,
+): Promise<{ exit: number; stdout: string; stderr: string }> {
   const signal = AbortSignal.timeout(timeoutMs);
   const child = spawn(cmd, { stdout: "pipe", stderr: "pipe", signal });
   const [stdout, stderr, exit] = await Promise.all([
@@ -101,31 +104,36 @@ async function runBoundedCapture(cmd: string[], timeoutMs: number): Promise<{ ex
   return { exit: exit ?? 1, stdout, stderr };
 }
 
-/** Mint the tailnet TLS cert via `tailscale cert`. Skip if present unless force. */
-export async function mintCert(fqdn: string, force: boolean): Promise<void> {
-  const tlsDir = coordinatorPaths().tlsDir;
-  const certPath = join(tlsDir, `${fqdn}.crt`);
-  const keyPath = join(tlsDir, `${fqdn}.key`);
+async function grantLinuxTailscaleOperator(): Promise<void> {
+  // The installer’s Serve call is the authoritative permission check; this
+  // best-effort grant lets a fresh Linux host reach it before worker install.
+  try {
+    await runBoundedCapture(
+      ["sudo", "-n", "tailscale", "set", `--operator=${userInfo().username}`],
+      TAILSCALE_SET_DEADLINE_MS,
+    );
+  } catch {
+    // Missing sudo is reported by the subsequent Serve attempt.
+  }
+}
+
+type AutomaticCertificateMinter = (
+  endpoint: ResolvedQuickstartEndpoint,
+  force: boolean,
+) => Promise<void>;
+
+async function mintWindowsTailnetCertificate(
+  endpoint: ResolvedQuickstartEndpoint,
+  force: boolean,
+): Promise<void> {
+  const certPath = endpoint.tlsCertPath;
+  const keyPath = endpoint.tlsKeyPath;
+  const tlsDir = dirname(certPath);
   mkdirSync(tlsDir, { recursive: true });
   if (!force && existsSync(certPath) && existsSync(keyPath)) {
-    logStep(`TLS cert present for ${fqdn} (skipping mint; --force to re-mint)`);
+    logStep(`TLS cert present for ${endpoint.hostname} (skipping mint; --force to re-mint)`);
   } else {
-    logStep(`minting TLS cert for ${fqdn}`);
-    // On Linux `tailscale cert` writes through tailscaled and needs root or an
-    // operator grant. The worker installer issues the same grant, but it runs
-    // AFTER this — so take it here, best-effort, or a fresh box dies before the
-    // thing that would have fixed it ever runs. `sudo -n` fails without cached
-    // credentials; the cert call below is the real test either way.
-    switch (process.platform) {
-      case "linux":
-        await runBoundedCapture(["sudo", "-n", "tailscale", "set", `--operator=${userInfo().username}`], TAILSCALE_SET_DEADLINE_MS);
-        break;
-      case "darwin":
-      case "win32":
-        break;
-      default:
-        throw new Error(`unsupported quickstart platform: ${process.platform}`);
-    }
+    logStep(`minting TLS cert for ${endpoint.hostname}`);
     const cert = await runBoundedCapture([
       trustedTailscaleExecutable(),
       "cert",
@@ -133,22 +141,52 @@ export async function mintCert(fqdn: string, force: boolean): Promise<void> {
       certPath,
       "--key-file",
       keyPath,
-      fqdn,
+      endpoint.hostname,
     ], TAILSCALE_CERT_DEADLINE_MS);
     if (cert.exit !== 0 && !existsSync(certPath)) {
       const detail = cert.stderr.trim() || cert.stdout.trim();
-      if (process.platform !== "linux") {
-        die(`tailscale cert failed: ${detail}`,
-          "HTTPS is required (browsers need a secure context off localhost).");
-      }
-      die(`tailscale cert failed: ${detail}`,
+      die(
+        `tailscale cert failed: ${detail}`,
         "HTTPS is required (browsers need a secure context off localhost).",
-        "On Linux `tailscale cert` needs root or an operator grant. Run:",
-        "  sudo tailscale set --operator=$USER",
-        "then re-run `roost quickstart`.");
+      );
     }
   }
   console.log(`   cert: ${certPath}`);
+}
+
+export interface QuickstartAutomaticNetworkDependencies {
+  grantLinuxOperator: () => Promise<void>;
+  mintWindowsCertificate: AutomaticCertificateMinter;
+}
+
+const QUICKSTART_AUTOMATIC_NETWORK_DEPS: QuickstartAutomaticNetworkDependencies = {
+  grantLinuxOperator: grantLinuxTailscaleOperator,
+  mintWindowsCertificate: mintWindowsTailnetCertificate,
+};
+
+/** Prepare only the platform edge automatic mode actually needs. Linux grants
+ * the current user Serve access, macOS needs no prerequisite, and Windows
+ * retains its direct tailnet certificate listener. */
+export async function prepareAutomaticQuickstartNetwork(
+  endpoint: QuickstartEndpoint,
+  force: boolean,
+  platform: NodeJS.Platform,
+  deps: QuickstartAutomaticNetworkDependencies = QUICKSTART_AUTOMATIC_NETWORK_DEPS,
+): Promise<void> {
+  if (endpoint.mode !== "automatic") return;
+  requireResolvedEndpoint(endpoint);
+  switch (platform) {
+    case "linux":
+      await deps.grantLinuxOperator();
+      return;
+    case "darwin":
+      return;
+    case "win32":
+      await deps.mintWindowsCertificate(endpoint, force);
+      return;
+    default:
+      throw new Error(`unsupported quickstart platform: ${platform}`);
+  }
 }
 
 /** Drop an `roost` shim on PATH so `roost status` / `roost logs` work from any

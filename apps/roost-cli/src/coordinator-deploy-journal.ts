@@ -1,97 +1,47 @@
 // Schema, confinement, parsing, and phase bookkeeping for the coordinator
 // self-update deploy journal (coordinator-deploy.json under transactions/).
-// Also owns the installed-coordinator-definition parsers every journal check
-// validates against (WorkingDirectory + environment identity). The runtime
-// rollback/recovery drivers live in coordinator-deploy-recovery.ts; `roost
-// push` (deployLocalCoordinator) consumes both. Built on the shared
-// posix-deploy-journal core.
-import { existsSync, lstatSync, readFileSync } from "node:fs";
-import { coordServiceLabel } from "@roost/shared/paths";
-import { posixShellQuote } from "@roost/shared/shell-quote";
+// Version 2 binds one rollout to its exact worker set and live SQLite rollback
+// snapshot. Runtime rollback/finalization lives in coordinator-deploy-recovery.ts.
+import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 
-import { dirname, isAbsolute, relative } from "node:path";
+import { dirname, isAbsolute, join, relative } from "node:path";
 import { durableWriteFile } from "@roost/shared/durability";
 import { DeployFailure } from "./deploy-exec.ts";
 import {
-  parsePosixServiceEnvironment,
-  parseSystemdServiceDirective,
-} from "./deploy-plist-env.ts";
-import { launchdBootstrapWithRetryCmd } from "./service-ctl.ts";
+  coordinatorInstallEnvironment,
+  coordinatorRepoFromService,
+} from "./coordinator-service-definition.ts";
+export {
+  coordinatorInstallEnvironment,
+  coordinatorRepoFromService,
+  coordinatorRestartCommand,
+  coordinatorStopCommand,
+} from "./coordinator-service-definition.ts";
 import {
   POSIX_FULL_GIT_SHA_RE,
   POSIX_RELEASE_ID_SUFFIX_RE,
   isResolvedCanonicalAbsolutePath,
-  posixDeployJournalDecision,
   posixJournalObjectValue,
-  type PosixDeployJournalPhase,
 } from "./posix-deploy-journal.ts";
 
-export function coordinatorRepoFromService(
-  definition: string,
-  platform: NodeJS.Platform,
-): string | null {
-  if (platform === "linux") {
-    const match = /^WorkingDirectory=(?:"((?:\\.|[^"])*)"|([^\r\n]*))$/m.exec(definition);
-    const value = match?.[1] ?? match?.[2];
-    return value
-      ? value.replace(/\\([\\\"nrt])/g, (_full, escaped: string) => {
-        if (escaped === "n") return "\n";
-        if (escaped === "r") return "\r";
-        if (escaped === "t") return "\t";
-        return escaped;
-      }).trim() || null
-      : null;
-  }
-  if (platform === "darwin") {
-    const value = /<key>WorkingDirectory<\/key>\s*<string>([^<]+)<\/string>/.exec(definition)?.[1];
-    return value
-      ? value
-        .replaceAll("&lt;", "<")
-        .replaceAll("&gt;", ">")
-        .replaceAll("&quot;", "\"")
-        .replaceAll("&apos;", "'")
-        .replaceAll("&amp;", "&")
-        .trim() || null
-      : null;
-  }
-  return null;
-}
 
-export function coordinatorInstallEnvironment(
-  definition: string,
-  platform: "darwin" | "linux",
-): Record<string, string> {
-  const environment = parsePosixServiceEnvironment(definition, platform);
-  if (platform === "linux") {
-    for (const [directive, key] of [
-      ["MemoryHigh", "ROOST_COORD_MEMORY_HIGH"],
-      ["MemoryMax", "ROOST_COORD_MEMORY_MAX"],
-      ["TasksMax", "ROOST_COORD_TASKS_MAX"],
-    ] as const) {
-      const value = parseSystemdServiceDirective(definition, directive);
-      if (value) environment[key] = value;
-    }
-  }
-  if (environment.ROOST_FRONTED === undefined) {
-    const bind = environment.ROOST_COORDINATOR_BIND;
-    if (environment.ROOST_TRUST_PROXY === "1" || bind?.startsWith("127.0.0.1:")) {
-      environment.ROOST_FRONTED = "1";
-    } else if (bind || environment.ROOST_TLS_CERT_PATH || environment.ROOST_TLS_KEY_PATH) {
-      environment.ROOST_FRONTED = "0";
-    }
-  }
-  return environment;
-}
-
-export const COORDINATOR_DEPLOY_JOURNAL_SCHEMA_VERSION = 1 as const;
+export const COORDINATOR_DEPLOY_JOURNAL_SCHEMA_VERSION = 2 as const;
 const COORDINATOR_DEPLOY_JOURNAL_MAX_BYTES = 2 * 1024 * 1024;
 const COORDINATOR_SERVICE_DEFINITION_MAX_BYTES = 1024 * 1024;
+const SNAPSHOT_SHA256_RE = /^[0-9a-f]{64}$/;
+const WORKER_FINGERPRINT_RE = /^[0-9a-f]{64}$/;
 
-export type CoordinatorDeployPhase = PosixDeployJournalPhase;
+export type CoordinatorDeployPhase =
+  | "prepared"
+  | "activating"
+  | "fleet-converging"
+  | "finalizing";
 
-export interface CoordinatorDeployJournalV1 {
+export interface CoordinatorDeployJournalV2 {
   schemaVersion: typeof COORDINATOR_DEPLOY_JOURNAL_SCHEMA_VERSION;
   phase: CoordinatorDeployPhase;
+  rolloutId: string;
+  targetWorkerFingerprints: string[];
   priorDefinitionBase64: string;
   priorDefinitionMode: number;
   priorSha: string;
@@ -100,22 +50,26 @@ export interface CoordinatorDeployJournalV1 {
   sourceReleasePath: string;
   stagingRepoPath: string;
   stagedReleasePath: string;
+  databasePath: string;
+  databaseSnapshotPath: string;
+  databaseSnapshotSha256: string;
 }
 
 export interface CoordinatorDeployJournalContext {
   servicePath: string;
   releaseRoot: string;
+  transactionRoot: string;
   platform: "darwin" | "linux";
 }
 
 export type CoordinatorDeployRecoveryAction =
   | "clean-prepared"
-  | "commit-target"
-  | "rollback-prior";
+  | "rollback-prior"
+  | "finish-finalize";
 
 function journalString(
-  value: Partial<Record<keyof CoordinatorDeployJournalV1, unknown>>,
-  key: keyof CoordinatorDeployJournalV1,
+  value: Partial<Record<keyof CoordinatorDeployJournalV2, unknown>>,
+  key: keyof CoordinatorDeployJournalV2,
 ): string {
   const field = value[key];
   if (typeof field !== "string" || field.length === 0 || field.includes("\0")) {
@@ -161,10 +115,43 @@ export function coordinatorStagedReleasePathIsSafe(
     && POSIX_RELEASE_ID_SUFFIX_RE.test(releaseId.slice(targetSha.length + 1));
 }
 
+export function canonicalCoordinatorTargetWorkers(
+  workerFingerprints: readonly string[],
+): string[] {
+  if (workerFingerprints.length > 4_096) {
+    throw new Error("targetWorkerFingerprints exceeds the maximum count");
+  }
+  const canonical = [...workerFingerprints];
+  for (const fingerprint of canonical) {
+    if (!WORKER_FINGERPRINT_RE.test(fingerprint)) {
+      throw new Error("targetWorkerFingerprints contains an invalid worker fingerprint");
+    }
+  }
+  canonical.sort();
+  for (let index = 1; index < canonical.length; index++) {
+    if (canonical[index] === canonical[index - 1]) {
+      throw new Error("targetWorkerFingerprints contains a duplicate worker fingerprint");
+    }
+  }
+  return canonical;
+}
+
+export function coordinatorDeployJournalPath(transactionRoot: string): string {
+  return join(transactionRoot, "coordinator-deploy.json");
+}
+
+export function coordinatorDatabaseSnapshotPath(
+  transactionRoot: string,
+  rolloutId: string,
+): string {
+  return join(transactionRoot, `coordinator-deploy-${rolloutId}.db.gz`);
+}
+
+
 export function parseCoordinatorDeployJournal(
   serialized: string,
   context: CoordinatorDeployJournalContext,
-): CoordinatorDeployJournalV1 {
+): CoordinatorDeployJournalV2 {
   if (Buffer.byteLength(serialized) > COORDINATOR_DEPLOY_JOURNAL_MAX_BYTES) {
     throw new Error("journal exceeds the maximum size");
   }
@@ -177,20 +164,38 @@ export function parseCoordinatorDeployJournal(
     );
   }
   posixJournalObjectValue(value, "journal root must be an object");
-  const fields = value as Partial<Record<keyof CoordinatorDeployJournalV1, unknown>>;
+  const fields = value as Partial<Record<keyof CoordinatorDeployJournalV2, unknown>>;
   if (fields.schemaVersion !== COORDINATOR_DEPLOY_JOURNAL_SCHEMA_VERSION) {
     throw new Error(`unsupported coordinator deploy journal schema ${String(fields.schemaVersion)}`);
   }
   const phase = fields.phase;
-  if (phase !== "prepared" && phase !== "activating" && phase !== "activated") {
+  if (phase !== "prepared"
+    && phase !== "activating"
+    && phase !== "fleet-converging"
+    && phase !== "finalizing") {
     throw new Error(`invalid coordinator deploy phase ${String(phase)}`);
   }
 
   const expectedServicePath = canonicalAbsolutePath(context.servicePath, "expected servicePath");
   const releaseRoot = canonicalAbsolutePath(context.releaseRoot, "releaseRoot");
+  const transactionRoot = canonicalAbsolutePath(context.transactionRoot, "transactionRoot");
   const servicePath = canonicalAbsolutePath(journalString(fields, "servicePath"), "servicePath");
   if (servicePath !== expectedServicePath) {
-    throw new Error(`servicePath does not match the installed coordinator service`);
+    throw new Error("servicePath does not match the installed coordinator service");
+  }
+
+  const rolloutId = journalString(fields, "rolloutId");
+  if (!POSIX_RELEASE_ID_SUFFIX_RE.test(rolloutId)) {
+    throw new Error("rolloutId is not a lowercase UUIDv4");
+  }
+  const providedWorkers = fields.targetWorkerFingerprints;
+  if (!Array.isArray(providedWorkers)
+    || !providedWorkers.every((fingerprint) => typeof fingerprint === "string")) {
+    throw new Error("targetWorkerFingerprints must be an array of worker fingerprints");
+  }
+  const targetWorkerFingerprints = canonicalCoordinatorTargetWorkers(providedWorkers);
+  if (providedWorkers.some((fingerprint, index) => fingerprint !== targetWorkerFingerprints[index])) {
+    throw new Error("targetWorkerFingerprints must be sorted in canonical order");
   }
 
   const targetSha = journalString(fields, "targetSha");
@@ -215,6 +220,23 @@ export function parseCoordinatorDeployJournal(
   }
   if (sourceReleasePath === stagedReleasePath || stagingRepoPath === stagedReleasePath) {
     throw new Error("source and staging repository paths must differ from stagedReleasePath");
+  }
+
+  const databasePath = canonicalAbsolutePath(
+    journalString(fields, "databasePath"),
+    "databasePath",
+  );
+  const databaseSnapshotPath = canonicalAbsolutePath(
+    journalString(fields, "databaseSnapshotPath"),
+    "databaseSnapshotPath",
+  );
+  const expectedSnapshotPath = coordinatorDatabaseSnapshotPath(transactionRoot, rolloutId);
+  if (databaseSnapshotPath !== expectedSnapshotPath || databaseSnapshotPath === databasePath) {
+    throw new Error("databaseSnapshotPath does not match the rollout transaction path");
+  }
+  const databaseSnapshotSha256 = journalString(fields, "databaseSnapshotSha256");
+  if (!SNAPSHOT_SHA256_RE.test(databaseSnapshotSha256)) {
+    throw new Error("databaseSnapshotSha256 is not a lowercase SHA-256 digest");
   }
 
   const priorDefinitionMode = fields.priorDefinitionMode;
@@ -252,10 +274,18 @@ export function parseCoordinatorDeployJournal(
   if (definitionSha !== priorSha) {
     throw new Error("prior coordinator service definition does not match priorSha");
   }
+  const definitionDatabasePath = definitionEnvironment.ROOST_COORDINATOR_DB;
+  if (!definitionDatabasePath
+    || canonicalAbsolutePath(definitionDatabasePath, "prior definition ROOST_COORDINATOR_DB")
+      !== databasePath) {
+    throw new Error("prior coordinator service definition does not match databasePath");
+  }
 
   return {
     schemaVersion: COORDINATOR_DEPLOY_JOURNAL_SCHEMA_VERSION,
     phase,
+    rolloutId,
+    targetWorkerFingerprints,
     priorDefinitionBase64,
     priorDefinitionMode: priorDefinitionMode as number,
     priorSha,
@@ -264,36 +294,50 @@ export function parseCoordinatorDeployJournal(
     sourceReleasePath,
     stagingRepoPath,
     stagedReleasePath,
+    databasePath,
+    databaseSnapshotPath,
+    databaseSnapshotSha256,
   };
 }
 
 export function coordinatorDeployRecoveryAction(
   phase: CoordinatorDeployPhase,
-  targetHealthy: boolean,
 ): CoordinatorDeployRecoveryAction {
-  // Shared prepared⇒clean / health⇒commit|rollback decision, relabeled for
-  // the coordinator's action vocabulary.
-  const decision = posixDeployJournalDecision(phase, targetHealthy);
-  return decision === "clean-prepared"
-    ? "clean-prepared"
-    : decision === "commit"
-      ? "commit-target"
-      : "rollback-prior";
+  if (phase === "prepared") return "clean-prepared";
+  if (phase === "finalizing") return "finish-finalize";
+  return "rollback-prior";
 }
 
 export async function writeCoordinatorDeployJournal(
   journalPath: string,
-  journal: CoordinatorDeployJournalV1,
+  journal: CoordinatorDeployJournalV2,
 ): Promise<void> {
   await durableWriteFile(journalPath, `${JSON.stringify(journal)}\n`, { mode: 0o600 });
 }
 
 export async function writeCoordinatorDeployPhase(
   journalPath: string,
-  journal: CoordinatorDeployJournalV1,
-  phase: CoordinatorDeployPhase,
-): Promise<CoordinatorDeployJournalV1> {
+  journal: CoordinatorDeployJournalV2,
+  phase: "activating" | "fleet-converging",
+): Promise<CoordinatorDeployJournalV2> {
+  const validTransition = (journal.phase === "prepared" && phase === "activating")
+    || (journal.phase === "activating" && phase === "fleet-converging");
+  if (!validTransition) {
+    throw new Error(`invalid coordinator deploy phase transition ${journal.phase} -> ${phase}`);
+  }
   const next = { ...journal, phase };
+  await writeCoordinatorDeployJournal(journalPath, next);
+  return next;
+}
+
+export async function checkpointCoordinatorFinalizationDecision(
+  journalPath: string,
+  journal: CoordinatorDeployJournalV2,
+): Promise<CoordinatorDeployJournalV2> {
+  if (journal.phase !== "fleet-converging") {
+    throw new Error(`cannot finalize coordinator deploy from ${journal.phase}`);
+  }
+  const next = { ...journal, phase: "finalizing" as const };
   await writeCoordinatorDeployJournal(journalPath, next);
   return next;
 }
@@ -301,11 +345,22 @@ export async function writeCoordinatorDeployPhase(
 export function loadCoordinatorDeployJournal(
   journalPath: string,
   context: CoordinatorDeployJournalContext,
-): CoordinatorDeployJournalV1 | null {
-  if (!existsSync(journalPath)) return null;
+): CoordinatorDeployJournalV2 | null {
   try {
+    const transactionRoot = canonicalAbsolutePath(context.transactionRoot, "transactionRoot");
+    if (!existsSync(transactionRoot)
+      || !lstatSync(transactionRoot).isDirectory()
+      || lstatSync(transactionRoot).isSymbolicLink()
+      || realpathSync(transactionRoot) !== transactionRoot) {
+      throw new Error("transactionRoot must be a canonical real directory");
+    }
+    if (journalPath !== coordinatorDeployJournalPath(transactionRoot)) {
+      throw new Error("journalPath does not match the coordinator transaction root");
+    }
+    if (!existsSync(journalPath)) return null;
     const metadata = lstatSync(journalPath);
-    if (!metadata.isFile() || metadata.size > COORDINATOR_DEPLOY_JOURNAL_MAX_BYTES) {
+    if (!metadata.isFile() || metadata.isSymbolicLink()
+      || metadata.size > COORDINATOR_DEPLOY_JOURNAL_MAX_BYTES) {
       throw new Error("journal must be a bounded regular file");
     }
     return parseCoordinatorDeployJournal(readFileSync(journalPath, "utf8"), context);
@@ -318,16 +373,3 @@ export function loadCoordinatorDeployJournal(
   }
 }
 
-export function coordinatorRestartCommand(
-  servicePath: string,
-  platform: NodeJS.Platform = process.platform,
-  label: string = coordServiceLabel(),
-): string {
-  if (platform === "linux") {
-    const unit = label.endsWith(".service") ? label : `${label}.service`;
-    return `export XDG_RUNTIME_DIR="\${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"; ` +
-      `systemctl --user daemon-reload && systemctl --user restart ${posixShellQuote(unit)}`;
-  }
-  if (platform !== "darwin") throw new Error(`unsupported POSIX coordinator platform ${platform}`);
-  return launchdBootstrapWithRetryCmd(label, servicePath, { role: "coordinator rollback" });
-}

@@ -243,6 +243,7 @@ export function coordinatorEnvironmentForQuickstart(
       ROOST_COORD_LOOPBACK_PORT: "4103",
       ROOST_TAILNET_HTTPS_PORT: String(endpoint.port),
       ROOST_COORDINATOR_PUBLIC_URL: endpoint.origin,
+      ROOST_SKIP_ENV_LOCAL: "1",
     };
   }
   return {

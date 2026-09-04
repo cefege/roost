@@ -10,14 +10,16 @@ import { _linuxRemoveManagedWorkerReleaseCommand } from "../src/linux-deploy-jou
 import {
   _recoverLinuxDeployJournal,
   type LinuxDeployRecoveryRemote,
-} from "../src/deploy-linux.ts";
+} from "../src/deploy-linux-recovery.ts";
 const HOME = "/home/worker";
 const SHA = "a".repeat(40);
+const PRIOR_SHA = "c".repeat(40);
+const ROLLOUT_ID = "11111111-1111-4111-8111-111111111111";
 const TARGET = `${HOME}/.local/share/roost/releases/worker/${SHA}-11111111-1111-4111-8111-111111111111`;
 const PRIOR_UNIT = [
   "[Service]",
   `WorkingDirectory=${HOME}/.local/share/roost/releases/worker/prior`,
-  'Environment="GIT_SHA=prior"',
+  `Environment="GIT_SHA=${PRIOR_SHA}"`,
   "",
 ].join("\n");
 
@@ -32,11 +34,13 @@ function journalSnapshot(options: {
   priorUnit?: string | null;
   lifecycle?: string;
   priorPid?: number;
+  schema?: "2" | "3";
+  rolloutId?: string | null;
 }): string {
   const priorUnit = options.priorUnit === undefined ? PRIOR_UNIT : options.priorUnit;
   const lifecycle = options.lifecycle ?? "stopped";
   const fields: Record<string, string> = {
-    schema: "2",
+    schema: options.schema ?? "2",
     phase: options.phase,
     "target-sha": options.sha ?? SHA,
     "target-release": options.target ?? TARGET,
@@ -47,6 +51,9 @@ function journalSnapshot(options: {
     "prior-pid": String(options.priorPid ?? (lifecycle === "running" ? 42 : 0)),
     "prior-unit": priorUnit ?? "",
   };
+  if ((options.schema ?? "2") === "3") {
+    fields["rollout-id"] = options.rolloutId ?? "";
+  }
   return [
     "journal",
     ...Object.entries(fields).map(([name, value]) => `${name}=${encode(value)}`),
@@ -106,7 +113,7 @@ describe("durable Linux deployment journal recovery", () => {
     expect(linuxDeployRecoveryPlan(journal, true, HOME)).toEqual({
       kind: "clean-prepared",
     });
-    await expect(_recoverLinuxDeployJournal(fixture.remote)).resolves.toEqual({
+    await expect(_recoverLinuxDeployJournal(fixture.remote)).resolves.toMatchObject({
       kind: "prepared-cleaned",
     });
     expect(fixture.calls).toEqual(["load", `remove-${TARGET}`, "clear"]);
@@ -150,7 +157,7 @@ describe("durable Linux deployment journal recovery", () => {
       priorUnitState: "present",
       priorLifecycle: "running",
     });
-    await expect(_recoverLinuxDeployJournal(fixture.remote)).resolves.toEqual({
+    await expect(_recoverLinuxDeployJournal(fixture.remote)).resolves.toMatchObject({
       kind: "prior-restored",
     });
     expect(fixture.calls).toEqual([
@@ -176,7 +183,7 @@ describe("durable Linux deployment journal recovery", () => {
       priorUnitState: "absent",
       priorLifecycle: "stopped",
     });
-    await expect(_recoverLinuxDeployJournal(fixture.remote)).resolves.toEqual({
+    await expect(_recoverLinuxDeployJournal(fixture.remote)).resolves.toMatchObject({
       kind: "prior-restored",
     });
     expect(fixture.calls).toEqual([
@@ -244,6 +251,70 @@ describe("durable Linux deployment journal recovery", () => {
     )).toThrow("process epoch and lifecycle disagree");
     expect(() => linuxDeployJournalPath("../machine-transaction.sqlite", HOME))
       .toThrow("escapes the remote home");
+  });
+
+  test("schema 3 standalone journal decodes an empty rollout ID as null", () => {
+    const loaded = parseLinuxDeployJournalSnapshot(journalSnapshot({
+      phase: "activated",
+      schema: "3",
+      rolloutId: null,
+    }), HOME);
+    expect(loaded?.rolloutId).toBeNull();
+  });
+
+  test("fleet target stays held until its exact rollout explicitly finalizes", async () => {
+    const loaded = parseLinuxDeployJournalSnapshot(journalSnapshot({
+      phase: "activated",
+      schema: "3",
+      rolloutId: ROLLOUT_ID,
+      lifecycle: "running",
+    }), HOME)!;
+    const directive = {
+      rolloutId: ROLLOUT_ID,
+      priorSha: PRIOR_SHA,
+      targetSha: SHA,
+    };
+    const held = fakeRemote(loaded, true);
+    await expect(_recoverLinuxDeployJournal(held.remote, {
+      ...directive,
+      action: "hold",
+    })).resolves.toMatchObject({ kind: "target-held" });
+    expect(held.calls).toEqual(["load", "prove-target"]);
+
+    const finalized = fakeRemote(loaded, true);
+    await expect(_recoverLinuxDeployJournal(finalized.remote, {
+      ...directive,
+      action: "finalize",
+    })).resolves.toMatchObject({ kind: "target-committed" });
+    expect(finalized.calls).toEqual(["load", "prove-target", "cleanup-prior", "clear"]);
+  });
+
+  test("fleet journal rejects standalone recovery and rolls back explicitly", async () => {
+    const loaded = parseLinuxDeployJournalSnapshot(journalSnapshot({
+      phase: "activated",
+      schema: "3",
+      rolloutId: ROLLOUT_ID,
+      lifecycle: "running",
+    }), HOME)!;
+    const standalone = fakeRemote(loaded, true);
+    await expect(_recoverLinuxDeployJournal(standalone.remote))
+      .rejects.toThrow("fleet rollout still owns");
+    expect(standalone.calls).toEqual(["load"]);
+
+    const rolledBack = fakeRemote(loaded, true);
+    await expect(_recoverLinuxDeployJournal(rolledBack.remote, {
+      action: "rollback",
+      rolloutId: ROLLOUT_ID,
+      priorSha: PRIOR_SHA,
+      targetSha: SHA,
+    })).resolves.toMatchObject({ kind: "prior-restored" });
+    expect(rolledBack.calls).toEqual([
+      "load",
+      "restore-present-running",
+      "prove-prior",
+      `remove-${TARGET}`,
+      "clear",
+    ]);
   });
 
   test("journal location is fixed beside the machine transaction database", () => {

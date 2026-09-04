@@ -83,14 +83,15 @@ export interface HostEnvBackfill {
   filled: string[];
 }
 
-/** Resolve one deploy variable without mutating ambient state. An enrolled
- *  target's installed values are authoritative; ambient values are only a
- *  fallback for a fresh target. */
+/** Resolve one deploy variable without mutating ambient state. An explicit
+ *  invocation value is reserved for a caller-selected coordinator endpoint;
+ *  otherwise enrolled target identity remains authoritative. */
 export function _resolveDeployEnvValue(
   key: string,
   installedEnv: Record<string, string>,
+  invocationValue?: string,
 ): string | undefined {
-  return installedEnv[key] ?? process.env[key];
+  return invocationValue ?? installedEnv[key] ?? process.env[key];
 }
 
 /** Read deploy env vars from the existing worker service definition on the

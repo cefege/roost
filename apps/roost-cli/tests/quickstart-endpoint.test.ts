@@ -1,12 +1,19 @@
+// Quickstart endpoint tests pin the no-effect selection boundary and exact
+// service-facing values. Injected runtime edges prove secret handling and keep
+// platform-specific certificate behavior hermetic.
 import { afterEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { automaticQuickstartEndpoint } from "../src/quickstart-endpoint.ts";
+import { prepareAutomaticQuickstartNetwork } from "../src/quickstart-runtime.ts";
+import { _resolveDeployEnvValue } from "../src/deploy-plist-env.ts";
 import {
   coordinatorEnvironmentForQuickstart,
   openQuickstartBrowser,
   resolveQuickstartEndpoint,
   validateQuickstartTlsFiles,
+  quickstart,
   waitForCoordHealth,
   type QuickstartEndpoint,
   type QuickstartTlsFileSystem,
@@ -32,6 +39,17 @@ function directArgs(url = "https://Example.COM:4443/"): string[] {
     "--tls-cert", "/secure/fullchain.pem",
     "--tls-key", "/secure/privkey.pem",
   ];
+}
+
+function incompleteDirectArgumentGroups(): string[][] {
+  const directFlagValues = [
+    ["--coordinator-url", "https://host.example:4102"],
+    ["--tls-cert", "/tls/cert.pem"],
+    ["--tls-key", "/tls/key.pem"],
+  ] as const;
+  return [1, 2, 3, 4, 5, 6].map((selectionMask) => directFlagValues.flatMap(
+    (pair, pairIndex) => (selectionMask & (1 << pairIndex)) === 0 ? [] : [...pair],
+  ));
 }
 
 function directEndpoint(): QuickstartEndpoint {
@@ -76,12 +94,14 @@ describe("resolveQuickstartEndpoint", () => {
   });
 
   test("requires the complete explicit flag group", () => {
-    for (const args of [
-      ["--coordinator-url", "https://host.example:4102"],
-      ["--tls-cert", "/tls/cert.pem", "--tls-key", "/tls/key.pem"],
-      ["--coordinator-url=https://host.example:4102", "--tls-cert=/tls/cert.pem"],
-    ]) {
+    for (const args of incompleteDirectArgumentGroups()) {
       expect(() => resolveQuickstartEndpoint(args, {}, "linux")).toThrow(/provided together/);
+    }
+  });
+
+  test("quickstart rejects an incomplete flag group at its no-effect boundary", async () => {
+    for (const args of incompleteDirectArgumentGroups()) {
+      await expect(quickstart(args)).rejects.toThrow(/provided together/);
     }
   });
 
@@ -196,28 +216,95 @@ describe("quickstart endpoint consumers", () => {
     });
   });
 
-  test("automatic POSIX keeps Serve while automatic Windows keeps its direct tailnet certificate", () => {
-    const automatic: QuickstartEndpoint = {
-      mode: "automatic",
-      origin: "https://host.tail.example:4102",
-      hostname: "host.tail.example",
-      port: 4102,
-      tlsCertPath: "/tls/host.crt",
-      tlsKeyPath: "/tls/host.key",
+  test("selected endpoint overrides only a stale installed worker URL", () => {
+    const installed = {
+      ROOST_COORDINATOR_URL: "https://stale.example.test:4102",
+      ROOST_WORKER_LABEL: "existing-worker",
     };
-    expect(coordinatorEnvironmentForQuickstart(automatic, "linux")).toEqual({
-      ROOST_FRONTED: "1",
-      ROOST_COORD_LOOPBACK_PORT: "4103",
-      ROOST_TAILNET_HTTPS_PORT: "4102",
-      ROOST_COORDINATOR_PUBLIC_URL: "https://host.tail.example:4102",
-    });
+    expect(_resolveDeployEnvValue(
+      "ROOST_COORDINATOR_URL",
+      installed,
+      "https://selected.example.test:8443",
+    )).toBe("https://selected.example.test:8443");
+    expect(_resolveDeployEnvValue("ROOST_COORDINATOR_URL", installed))
+      .toBe("https://stale.example.test:4102");
+    expect(_resolveDeployEnvValue("ROOST_WORKER_LABEL", installed))
+      .toBe("existing-worker");
+  });
+
+  test("direct mode bypasses automatic network preparation", async () => {
+    const unexpected = async (): Promise<void> => {
+      throw new Error("automatic network preparation was called");
+    };
+    await expect(prepareAutomaticQuickstartNetwork(
+      directEndpoint(),
+      false,
+      "linux",
+      {
+        grantLinuxOperator: unexpected,
+        mintWindowsCertificate: unexpected,
+      },
+    )).resolves.toBeUndefined();
+  });
+
+  test("automatic POSIX composes Serve without cert minting while Windows keeps direct TLS", async () => {
+    const automatic = automaticQuickstartEndpoint(
+      "host.tail.example",
+      "/tls",
+    );
+    const networkCalls: string[] = [];
+    const dependencies = {
+      grantLinuxOperator: async (): Promise<void> => {
+        networkCalls.push("set --operator");
+      },
+      mintWindowsCertificate: async (
+        endpoint: { hostname: string },
+        force: boolean,
+      ): Promise<void> => {
+        networkCalls.push(`cert ${endpoint.hostname} force=${force}`);
+      },
+    };
+
+    for (const platform of ["linux", "darwin"] as const) {
+      expect(coordinatorEnvironmentForQuickstart(automatic, platform)).toEqual({
+        ROOST_FRONTED: "1",
+        ROOST_COORD_LOOPBACK_PORT: "4103",
+        ROOST_TAILNET_HTTPS_PORT: "4102",
+        ROOST_COORDINATOR_PUBLIC_URL: "https://host.tail.example:4102",
+        ROOST_SKIP_ENV_LOCAL: "1",
+      });
+    }
+    await prepareAutomaticQuickstartNetwork(
+      automatic,
+      false,
+      "linux",
+      dependencies,
+    );
+    await prepareAutomaticQuickstartNetwork(
+      automatic,
+      false,
+      "darwin",
+      dependencies,
+    );
+    expect(networkCalls).toEqual(["set --operator"]);
+
     expect(coordinatorEnvironmentForQuickstart(automatic, "win32")).toMatchObject({
       ROOST_FRONTED: "0",
       ROOST_COORDINATOR_BIND: "0.0.0.0:4102",
       ROOST_TAILNET_HTTPS_PORT: "4102",
-      ROOST_TLS_CERT_PATH: "/tls/host.crt",
-      ROOST_TLS_KEY_PATH: "/tls/host.key",
+      ROOST_TLS_CERT_PATH: "/tls/host.tail.example.crt",
+      ROOST_TLS_KEY_PATH: "/tls/host.tail.example.key",
     });
+    await prepareAutomaticQuickstartNetwork(
+      automatic,
+      true,
+      "win32",
+      dependencies,
+    );
+    expect(networkCalls).toEqual([
+      "set --operator",
+      "cert host.tail.example force=true",
+    ]);
   });
 
   test("health probes the exact normalized endpoint and requires the affirmative payload", async () => {

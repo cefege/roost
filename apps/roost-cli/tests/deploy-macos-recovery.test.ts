@@ -11,12 +11,19 @@ import type {
   MacosDeployRecoveryRemote,
   MacosDeployTargetProof,
 } from "../src/deploy-macos-journal.ts";
+import { createMacosDeployJournalController } from "../src/deploy-macos-journal-controller.ts";
 
 const SHA = "a".repeat(40);
+const PRIOR_SHA = "c".repeat(40);
+const ROLLOUT_ID = "11111111-1111-4111-8111-111111111111";
 const RELEASE_ROOT = "/Users/worker/RoostWorkerV2-releases";
 const RELEASE_ID = `${SHA}-00000000-0000-4000-8000-000000000001`;
 const RELEASE_PATH = `${RELEASE_ROOT}/${RELEASE_ID}`;
-const PRIOR_PLIST = Buffer.from("<plist>prior bytes</plist>\n").toString("base64");
+const PRIOR_PLIST = Buffer.from(
+  `<plist><dict><key>EnvironmentVariables</key><dict>` +
+    `<key>GIT_SHA</key><string>${PRIOR_SHA}</string>` +
+    `</dict></dict></plist>\n`,
+).toString("base64");
 
 function journal(overrides: Partial<MacosDeployJournalV1> = {}): MacosDeployJournalV1 {
   return {
@@ -24,6 +31,7 @@ function journal(overrides: Partial<MacosDeployJournalV1> = {}): MacosDeployJour
     phase: "activating",
     targetGitSha: SHA,
     targetReleasePath: RELEASE_PATH,
+    rolloutId: null,
     priorPlistBase64: PRIOR_PLIST,
     priorPlistMode: 0o600,
     priorLifecycle: "unloaded",
@@ -53,6 +61,10 @@ function fakeRemote(
     async proveTarget() {
       calls.push("prove-target");
       return targetProof;
+    },
+    async checkpointActivated(saved) {
+      calls.push("checkpoint-activated");
+      return { ...saved, phase: "activated" };
     },
     async bootout() {
       calls.push("bootout");
@@ -283,4 +295,91 @@ describe("remote macOS deploy journal recovery", () => {
     expect(fixture.calls).not.toContain("remove-target");
     expect(fixture.calls).not.toContain("clear");
   });
+  test("healthy fleet target stays held until exact explicit finalization", async () => {
+    const proof: MacosDeployTargetProof = {
+      definitionMatches: true,
+      running: true,
+      result: { exit: 0, stdout: "state = running\n", stderr: "" },
+    };
+    const durable = journal({
+      phase: "activating",
+      rolloutId: ROLLOUT_ID,
+      priorLifecycle: "running",
+      priorPid: 42,
+    });
+    const directive = {
+      rolloutId: ROLLOUT_ID,
+      priorSha: PRIOR_SHA,
+      targetSha: SHA,
+    };
+    const held = fakeRemote(durable, proof);
+    await expect(_recoverMacosDeployJournal(held.remote, {
+      ...directive,
+      action: "hold",
+    })).resolves.toMatchObject({
+      outcome: "held",
+      journal: { phase: "activated" },
+    });
+    expect(held.calls).toEqual(["load", "prove-target", "checkpoint-activated"]);
+
+    const finalized = fakeRemote({ ...durable, phase: "activated" }, proof);
+    await expect(_recoverMacosDeployJournal(finalized.remote, {
+      ...directive,
+      action: "finalize",
+    })).resolves.toMatchObject({ outcome: "committed" });
+    expect(finalized.calls).toEqual(["load", "prove-target", "cleanup-prior", "clear"]);
+  });
+
+  test("activated checkpoint carries the loaded target and rollout identity", async () => {
+    const activating = journal({ rolloutId: ROLLOUT_ID });
+    let command = "";
+    const controller = createMacosDeployJournalController(async (requested) => {
+      command = requested;
+      const checkpointed = { ...activating, phase: "activated" as const };
+      const payload = Buffer.from(JSON.stringify({
+        releaseRoot: RELEASE_ROOT,
+        journal: checkpointed,
+      })).toString("base64");
+      return { exit: 0, stdout: `RoostMacDeployJournal=${payload}\n`, stderr: "" };
+    }, ".roost/transactions/macos-worker-deploy-v1.json");
+    await expect(controller.recovery.checkpointActivated(activating))
+      .resolves.toMatchObject({ phase: "activated" });
+    expect(command).toContain(SHA);
+    expect(command).toContain(RELEASE_PATH);
+    expect(command).toContain(ROLLOUT_ID);
+  });
+
+  test("fleet journal refuses standalone recovery and supports exhaustive rollback", async () => {
+    const durable = journal({
+      phase: "activated",
+      rolloutId: ROLLOUT_ID,
+      priorLifecycle: "running",
+      priorPid: 42,
+    });
+    const standalone = fakeRemote(durable);
+    await expect(_recoverMacosDeployJournal(standalone.remote))
+      .rejects.toThrow("fleet rollout still owns");
+    expect(standalone.calls).toEqual(["load"]);
+
+    const rolledBack = fakeRemote(durable);
+    await expect(_recoverMacosDeployJournal(rolledBack.remote, {
+      action: "rollback",
+      rolloutId: ROLLOUT_ID,
+      priorSha: PRIOR_SHA,
+      targetSha: SHA,
+    })).resolves.toMatchObject({ outcome: "rolled-back", targetProof: null });
+    expect(rolledBack.calls).toEqual([
+      "load",
+      "bootout",
+      "restore-prior:bytes",
+      "disabled:false",
+      "bootstrap",
+      "kickstart",
+      "disabled:false",
+      "prove-prior",
+      "remove-target",
+      "clear",
+    ]);
+  });
+
 });

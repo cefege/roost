@@ -12,14 +12,7 @@ import {
   workerConvergenceThresholds,
   workerVersionProblems,
 } from "../src/push.ts";
-import {
-  coordinatorDeployRecoveryAction,
-  coordinatorInstallEnvironment,
-  coordinatorRestartCommand,
-  coordinatorStagedReleasePathIsSafe,
-  parseCoordinatorDeployJournal,
-  type CoordinatorDeployJournalV1,
-} from "../src/coordinator-deploy-journal.ts";
+import { coordinatorInstallEnvironment } from "../src/coordinator-deploy-journal.ts";
 import { tryCoordinatorSelfUpdate } from "../src/deploy-windows-channel.ts";
 import type { WorkerStatus } from "../src/status.ts";
 import { stubFetch } from "./test-helpers.ts";
@@ -290,102 +283,6 @@ describe("Windows coordinator fleet update", () => {
   });
 });
 
-describe("coordinator restart identity", () => {
-  test("uses the configured Linux unit rather than the default identity", () => {
-    const command = coordinatorRestartCommand("/tmp/custom.service", "linux", "custom-coord");
-    expect(command).toContain("restart 'custom-coord.service'");
-    expect(command).not.toContain("roost-coordinator-v2");
-  });
-
-  test("uses the configured macOS label for bootout, enable, and kickstart", () => {
-    const command = coordinatorRestartCommand(
-      "/Users/test/Library/LaunchAgents/custom.plist", "darwin", "org.example.custom",
-    );
-    expect(command).toContain("gui/$uid/'org.example.custom'");
-    expect(command).not.toContain("com.cefege.roost.coordinator-v2");
-  });
-});
-
-describe("coordinator deploy journal", () => {
-  const priorSha = "1".repeat(40);
-  const targetSha = "2".repeat(40);
-  const releaseSuffix = "12345678-1234-4123-8123-123456789abc";
-  const root = join(tmpdir(), "roost-push-journal-fixture");
-  const releaseRoot = join(root, "service", "releases", "coord");
-  const servicePath = join(root, "roost-coord.service");
-  const sourceReleasePath = join(root, "source");
-  const stagingRepoPath = join(root, "staging-repo");
-  const stagedReleasePath = join(releaseRoot, `${targetSha}-${releaseSuffix}`);
-  const priorDefinition = [
-    "[Service]",
-    `WorkingDirectory=${sourceReleasePath}`,
-    `Environment="ROOST_GIT_SHA=${priorSha}"`,
-  ].join("\n");
-  const journal: CoordinatorDeployJournalV1 = {
-    schemaVersion: 1,
-    phase: "prepared",
-    priorDefinitionBase64: Buffer.from(priorDefinition).toString("base64"),
-    priorDefinitionMode: 0o600,
-    priorSha,
-    targetSha,
-    servicePath,
-    sourceReleasePath,
-    stagingRepoPath,
-    stagedReleasePath,
-  };
-  const context = { servicePath, releaseRoot, platform: "linux" as const };
-
-  test("parses a complete validated recovery record", () => {
-    expect(parseCoordinatorDeployJournal(JSON.stringify(journal), context)).toEqual(journal);
-  });
-
-  test("rejects a journal that cannot restore the prior definition mode", () => {
-    expect(() => parseCoordinatorDeployJournal(
-      JSON.stringify({ ...journal, priorDefinitionMode: 0o1000 }),
-      context,
-    )).toThrow("priorDefinitionMode is invalid");
-  });
-
-  test("confines the staged target to one SHA-addressed release directory", () => {
-    expect(coordinatorStagedReleasePathIsSafe(releaseRoot, stagedReleasePath, targetSha)).toBeTrue();
-    expect(coordinatorStagedReleasePathIsSafe(
-      releaseRoot,
-      join(releaseRoot, "nested", `${targetSha}-${releaseSuffix}`),
-      targetSha,
-    )).toBeFalse();
-    const outside = join(root, "outside", `${targetSha}-${releaseSuffix}`);
-    expect(coordinatorStagedReleasePathIsSafe(releaseRoot, outside, targetSha)).toBeFalse();
-    expect(() => parseCoordinatorDeployJournal(
-      JSON.stringify({ ...journal, stagedReleasePath: outside }),
-      context,
-    )).toThrow(/outside the coordinator release root/);
-  });
-
-  test("fails closed on malformed or internally inconsistent state", () => {
-    expect(() => parseCoordinatorDeployJournal("{", context)).toThrow(/not valid JSON/);
-    expect(() => parseCoordinatorDeployJournal(
-      JSON.stringify({ ...journal, servicePath: join(root, "other.service") }),
-      context,
-    )).toThrow(/does not match the installed coordinator service/);
-    expect(() => parseCoordinatorDeployJournal(
-      JSON.stringify({ ...journal, sourceReleasePath: join(root, "other-source") }),
-      context,
-    )).toThrow(/does not match sourceReleasePath/);
-    expect(() => parseCoordinatorDeployJournal(
-      JSON.stringify({ ...journal, priorSha: "3".repeat(40) }),
-      context,
-    )).toThrow(/does not match priorSha/);
-  });
-
-  test("chooses deterministic recovery at every durable phase boundary", () => {
-    expect(coordinatorDeployRecoveryAction("prepared", false)).toBe("clean-prepared");
-    expect(coordinatorDeployRecoveryAction("prepared", true)).toBe("clean-prepared");
-    expect(coordinatorDeployRecoveryAction("activating", true)).toBe("commit-target");
-    expect(coordinatorDeployRecoveryAction("activated", true)).toBe("commit-target");
-    expect(coordinatorDeployRecoveryAction("activating", false)).toBe("rollback-prior");
-    expect(coordinatorDeployRecoveryAction("activated", false)).toBe("rollback-prior");
-  });
-});
 
 describe("staged coordinator preservation", () => {
   test("reuses the installed SPA without retaining the prior release", () => {
