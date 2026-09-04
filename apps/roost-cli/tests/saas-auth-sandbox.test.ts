@@ -266,6 +266,9 @@ describe("SaaS auth runtime sandbox", () => {
         "roost-saas-auth-bridge.service",
         "roost-saas-auth-bridge.socket",
         "roost-saas-origin-isolation.service",
+        "roost-saas-resolver.service",
+        "roost-saas-resolver-bridge.service",
+        "roost-saas-resolver-bridge.socket",
       ].map((name) => resolve(SYSTEMD_DIR, name));
       expect(verifySystemdUnitSyntax(systemdAnalyze as string, units)).toBe(0);
     },
