@@ -345,25 +345,31 @@ reader SEES at first paint, so the smoke now samples the READER'S POSITION durin
 
 **Symptom** — "tab switch / reveal waits on history before the live bottom is readable / deep sessions reveal slower than shallow ones"
 
-**Wrong** — bridge the claim snapshot's tail back to the viewer's held boundary (a 2000-row catch-up), or
-replace that with a constant 250-row tail plus a reveal-triggered proactive refill — either form puts retained
-history work ahead of or immediately behind the current viewport, scales resume work with session depth, and
-mutates the painted grid without reader demand; equally wrong: racing history away or reordering a mixed
-history+viewport repaint (breaks the single scroll writer). Measured: a 2000-row catch-up frame is 324–516 KiB
-of proto, 38 ms of blocked worker event loop, and ~300 ms of scrollback DOM built BEFORE the viewport paints.
+**Wrong** — bridge a renewal to the viewer's entire held boundary, or
+proactively refill retained history after reveal. Either form makes resume work
+scale with session depth and mutates the painted grid without reader demand;
+equally wrong: racing history away or reordering a mixed history+viewport
+repaint (breaks the single scroll writer).
 
-**Right** — **every authoritative FULL frame is viewport-only and epoch-addressed.** It carries no scrollback
-rows, a base equal to the total, and an opaque `gridEpoch`; the renderer immediately replaces the current
-viewport and the truthful spacer, then issues zero history RPCs while the reader remains at bottom. Only
-explicit scroll/find demand fetches disjoint `SessionsGetScrollbackCells` ranges carrying that epoch
-(`apps/coord/src/connect/handlers-sessions-scrollback.ts` relays it); the worker checks the epoch before and
-after each cooperative slice and returns an error rather than splice re-numbered rows. While the reader is
-off-bottom, every FULL frame — including an epoch change — is retained off-DOM as the latest pending frame and
-deltas fold into it; the painted frame, spacer, `scrollTop` and visible row stay immutable until an explicit
-return to bottom applies the latest frame once. If the worker ring dropped the requested prefix, the shorter
-response's start row is the retained floor: paint the surviving suffix and park there rather than rejecting the
-page or re-requesting impossible rows. Paused Sync recovery resumes the mounted loop in place (no reload), and
-durable replay yields periodically so live cells preempt it.
+**Right** — a fresh stream and any grid-incompatible authoritative FULL are
+viewport-only and epoch-addressed: no scrollback rows, a base equal to the
+total, and an opaque `gridEpoch`. A compatible same-grid renewal may carry only
+the bounded `SB_RENEWAL_HISTORY_ROWS` tail already retained by the worker; this
+restores the recent painted window without issuing a history RPC or scaling
+with total session depth. The renderer installs the current viewport and
+truthful spacer immediately. Only explicit scroll/find demand fetches older
+disjoint `SessionsGetScrollbackCells` ranges carrying that epoch
+(`apps/coord/src/connect/handlers-sessions-scrollback.ts` relays it); the worker
+checks the epoch before and after each cooperative slice and returns an error
+rather than splice re-numbered rows. While the reader is off-bottom, every FULL
+frame — including an epoch change — is retained off-DOM as the latest pending
+frame and deltas fold into it; the painted frame, spacer, `scrollTop` and
+visible row stay immutable until an explicit return to bottom applies the
+latest frame once. If the worker ring dropped the requested prefix, the shorter
+response's start row is the retained floor: paint the surviving suffix and
+park there rather than rejecting the page or re-requesting impossible rows.
+Paused Sync recovery resumes the mounted loop in place (no reload), and durable
+replay yields periodically so live cells preempt it.
 
 **Guard** — `smoke/terminal/` — `"deep-history attach/reveal paints the live tail until history is requested"`,
 `"long hidden deep-history resume paints the current viewport before history"`;

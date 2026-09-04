@@ -189,16 +189,20 @@ export async function waitForStableCellFrames(page: Page, sessionId: string): Pr
   let previous = -1;
   let unchangedPolls = 0;
   await expect.poll(async () => {
-    const current = await page.evaluate(
-      (id) => (window as unknown as { __smoke: RecoverySmokeApi }).__smoke.cellFrameCount(id),
-      sessionId,
-    );
-    if (current === previous) unchangedPolls += 1;
+    const { frames, fullFrames } = await page.evaluate((id) => {
+      // Smoke builds install this typed test-only API before specs navigate.
+      const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
+      return {
+        frames: smokeWindow.__smoke.cellFrameCount(id),
+        fullFrames: smokeWindow.__smoke.cellFullFrameCount(id),
+      };
+    }, sessionId);
+    if (frames === previous) unchangedPolls += 1;
     else {
-      previous = current;
+      previous = frames;
       unchangedPolls = 0;
     }
-    return unchangedPolls;
+    return fullFrames > 0 ? unchangedPolls : 0;
   }, { timeout: 3_000, intervals: [50] }).toBeGreaterThanOrEqual(3);
 }
 

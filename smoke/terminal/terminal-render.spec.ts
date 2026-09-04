@@ -165,8 +165,7 @@ test("alternate screen survives width and height perturbations", async ({ smokeP
 // `screen: "main"` additionally fails the run if the NEWEST marker stops being
 // painted, i.e. live history was lost rather than scrolled out (a shorter deck
 // legitimately paints fewer rows, so the oldest visible marker does move). This
-// is the invariant the hand-driven render-stress procedure asserted and nothing
-// else automates.
+// is the invariant the hand-driven render-stress procedure asserted.
 test("main screen history survives width and height perturbations", async ({ smokePage, stack }) => {
   test.setTimeout(240_000);
   const sessionId = await smokePage.evaluate(async (workerFp) => {
@@ -175,6 +174,7 @@ test("main screen history survives width and height perturbations", async ({ smo
   }, stack.workerFp);
   await smokePage.goto(`${stack.baseUrl}/s/${sessionId}`);
   await expect(smokePage.getByTestId(`terminal-slot-${sessionId}`)).toBeVisible();
+  await waitForStableCellFrames(smokePage, sessionId);
   await smokePage.keyboard.type("seq -f 'CELLLINE-%g' 1 60");
   await smokePage.keyboard.press("Enter");
   const range = () => smokePage.evaluate((id) => {

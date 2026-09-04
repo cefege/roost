@@ -13,7 +13,6 @@ import type { PtyInWireResult } from "./protocol.ts";
 import { _log } from "./keeper-log.ts";
 import type { Channel, ClientState } from "./keeper-types.ts";
 
-const KEEPER_INPUT_DEADLINE_MS = 2000;
 const KEEPER_INPUT_QUEUE_MAX_COMMANDS = 200;
 const KEEPER_INPUT_QUEUE_MAX_BYTES = 256 * 1024;
 
@@ -46,61 +45,36 @@ async function drainInputQueue(channelId: number, ch: Channel): Promise<void> {
         continue;
       }
       batch.started = true;
-      const deadline = Date.now() + KEEPER_INPUT_DEADLINE_MS;
-      let writtenBytes = 0;
-      let result: PtyInWireResult | null = null;
-      while (writtenBytes < batch.bytes.byteLength) {
-        if (ch.exited || ch.terminal.closed) {
-          result = writtenBytes === 0
-            ? { kind: "reject", inputSeq: batch.inputSeq ?? 1, writtenBytes: 0, reason: "channel_exited" }
-            : { kind: "ambiguous", inputSeq: batch.inputSeq ?? 1, writtenBytes, reason: "channel_exited" };
-          break;
-        }
-        if (Date.now() >= deadline) {
-          result = writtenBytes === 0
-            ? { kind: "reject", inputSeq: batch.inputSeq ?? 1, writtenBytes: 0, reason: "deadline" }
-            : { kind: "ambiguous", inputSeq: batch.inputSeq ?? 1, writtenBytes, reason: "deadline" };
-          break;
-        }
-        let count: number;
+      let result: PtyInWireResult;
+      if (ch.exited || ch.terminal.closed) {
+        result = {
+          kind: "reject",
+          inputSeq: batch.inputSeq ?? 1,
+          writtenBytes: 0,
+          reason: "channel_exited",
+        };
+      } else {
         try {
-          count = ch.terminal.write(batch.bytes.subarray(writtenBytes));
+          // Bun buffers the whole batch before returning; the numeric return is
+          // not a short-write contract and must never drive a resend.
+          ch.terminal.write(batch.bytes);
+          result = {
+            kind: "ack",
+            inputSeq: batch.inputSeq ?? 1,
+            writtenBytes: batch.bytes.byteLength,
+          };
         } catch (error) {
           _log("warn", "multiplexed-keeper", "ptyin_write_failed", {
             channelId,
             error: String(error),
           });
-          result = writtenBytes === 0
-            ? { kind: "reject", inputSeq: batch.inputSeq ?? 1, writtenBytes: 0, reason: "write_error" }
-            : { kind: "ambiguous", inputSeq: batch.inputSeq ?? 1, writtenBytes, reason: "write_error" };
-          break;
+          result = {
+            kind: "reject",
+            inputSeq: batch.inputSeq ?? 1,
+            writtenBytes: 0,
+            reason: "write_error",
+          };
         }
-        const remaining = batch.bytes.byteLength - writtenBytes;
-        if (!Number.isInteger(count) || count < 0 || count > remaining) {
-          _log("warn", "multiplexed-keeper", "ptyin_invalid_write_count", {
-            channelId,
-            count,
-            remaining,
-            writtenBytes,
-            inputBytes: batch.bytes.byteLength,
-          });
-          result = writtenBytes === 0
-            ? { kind: "reject", inputSeq: batch.inputSeq ?? 1, writtenBytes: 0, reason: "invalid_write_count" }
-            : { kind: "ambiguous", inputSeq: batch.inputSeq ?? 1, writtenBytes, reason: "invalid_write_count" };
-          break;
-        }
-        if (count > 0) {
-          writtenBytes += count;
-          continue;
-        }
-        await new Promise<void>(resolve => setTimeout(resolve, 0));
-      }
-      if (!result) {
-        result = {
-          kind: "ack",
-          inputSeq: batch.inputSeq ?? 1,
-          writtenBytes: batch.bytes.byteLength,
-        };
       }
       if (batch.inputSeq !== null && batch.socket) {
         sendPtyInResult(batch.socket, channelId, result);

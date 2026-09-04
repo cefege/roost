@@ -289,20 +289,24 @@ multiplexers use:
   append, totals, stream ID, base sequence, sequence and epoch). The protos
   mirror that shape as either a complete frame or bounded row chunks from
   worker → coordinator → browser.
-- Delivery is **stream-addressed and resumable by exact sequence**. Every stream
-  begins with a viewport-only full frame (`baseSeq === 0`,
-  `sbBase === scrollbackTotal`); deltas are accepted only when stream ID, epoch,
-  dimensions and `baseSeq` match the installed replica and `seq` is its exact
-  successor. Any mismatch invalidates the recipient cursor and requests one
-  full snapshot. `TerminalScreenHub` keeps the coordinator's canonical replica,
-  while each browser's `apps/web/src/store/terminal-stream.ts` replica survives renderer detach and
+- Delivery is **stream-addressed and resumable by exact sequence**. A fresh
+  stream and any grid-incompatible renewal begin with a viewport-only full
+  frame (`baseSeq === 0`, `sbBase === scrollbackTotal`). A compatible same-grid
+  renewal may include at most `SB_RENEWAL_HISTORY_ROWS` retained tail rows so a
+  reconnect preserves the recent painted window without an RPC. Deltas are
+  accepted only when stream ID, epoch, dimensions and `baseSeq` match the
+  installed replica and `seq` is its exact successor. Any mismatch invalidates
+  the recipient cursor and requests one full snapshot. `TerminalScreenHub`
+  keeps the coordinator's canonical replica, while each browser's
+  `apps/web/src/store/terminal-stream.ts` replica survives renderer detach and
   Sync reconnect. Per-byte sequence numbers remain one layer lower in the
   keeper's per-channel ring so a restarted worker can re-adopt a live PTY.
-- Retained history is **demand-paged**: it is fetched only on explicit scroll or
-  find (`SessionsGetScrollbackCells`, guarded by `scrollback_total`). A cold
-  attach lands at the bottom having fetched none of it, scrolling inside the
-  held window issues no RPC, and crossing the seam fetches under the current
-  epoch. A resize while parked off-bottom keeps the reader's position and first
+- Retained history beyond any bounded renewal tail is **demand-paged**: it is
+  fetched only on explicit scroll or find (`SessionsGetScrollbackCells`,
+  guarded by `scrollback_total`). A cold attach lands at the bottom having
+  fetched none of it, scrolling inside the held window issues no RPC, and
+  crossing the seam fetches under the current epoch. A resize while parked
+  off-bottom keeps the reader's position and first
   visible row, but de-materialises the rows behind the seam: the retired
   epoch's held window is dropped and a spacer preserves `scrollHeight`. That is
   reversible on the next demand fetch, which is why a render-stress run on the
