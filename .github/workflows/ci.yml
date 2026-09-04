@@ -20,7 +20,7 @@ jobs:
         with:
           bun-version-file: .bun-version
       - name: install
-        run: bun install
+        run: bun install --frozen-lockfile
       - name: typecheck
         run: bun x tsgo -p tsconfig.base.json --noEmit
       - name: typecheck (apps/site — astro check)
@@ -31,6 +31,48 @@ jobs:
         run: bunx knip || true
       - name: unit
         run: bun run test:unit
+
+  managed:
+    name: managed qualification
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: invariants
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.playwright-browsers
+      ROOST_SAAS_E2E_GIT_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - name: install
+        run: bun install --frozen-lockfile
+      - name: install managed prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes age
+      - name: install Playwright Chromium
+        run: bunx playwright install --with-deps chromium
+      - name: managed
+        run: |
+          mkdir -p managed-artifacts
+          BUN_PATH="$(realpath "$(command -v bun)")"
+          set +e
+          sudo --preserve-env=HOME,PATH,PLAYWRIGHT_BROWSERS_PATH,GITHUB_SHA,ROOST_SAAS_E2E_GIT_SHA \
+            "$BUN_PATH" run test:managed 2>&1 | tee managed-artifacts/managed.log
+          managed_status=${PIPESTATUS[0]}
+          set -e
+          tail -c 1048576 managed-artifacts/managed.log > managed-artifacts/managed.tail.log
+          mv managed-artifacts/managed.tail.log managed-artifacts/managed.log
+          exit "$managed_status"
+      - name: managed failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: managed-failure-artifacts
+          path: managed-artifacts/managed.log
+          if-no-files-found: ignore
+          retention-days: 7
 
   wterm-wasm:
     name: patched wterm wasm is reproducible
@@ -69,7 +111,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
-      - run: bun install
+      - run: bun install --frozen-lockfile
       # webkit is macOS-only here: playwright.config.ts drops the webkit-iphone
       # project off darwin, so installing that engine on Linux would only buy a
       # slow no-op (and RHEL/Ubuntu webkit system deps are the fragile part).
