@@ -67,7 +67,17 @@ export function mountCellTerminalInteractions(
   let gestureStartedOnDisplay = false;
   createEffect(() => {
     const focused = props.focused === true;
-    if (focused && !previouslyFocused) lastActivatedAt = Date.now();
+    if (focused && !previouslyFocused) {
+      lastActivatedAt = Date.now();
+      if (!isTouchDevice() && activeComposeSessionId() === null) {
+        queueMicrotask(() => {
+          if (
+            _terminalFocusAllowed(viewport, props.focused === true)
+            && activeComposeSessionId() === null
+          ) runtime.inputController?.forceFocus();
+        });
+      }
+    }
     previouslyFocused = focused;
   });
   const isNavFallthrough = (): boolean =>

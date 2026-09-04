@@ -90,39 +90,80 @@ export function TurnstileWidget(props: {
   const [loadFailed, setLoadFailed] = createSignal(false);
   const [loading, setLoading] = createSignal(false);
   let host: HTMLDivElement | undefined;
+  let retryButton: HTMLElement | undefined;
   let api: TurnstileApi | undefined;
   let widgetId: string | undefined;
+  let renderedSize: "normal" | "compact" | undefined;
+  let resizeObserver: ResizeObserver | undefined;
   let disposed = false;
   let loadAttempt = 0;
   let observedResetNonce = props.resetNonce;
+
+  function requestedSize(): "normal" | "compact" {
+    return host && host.clientWidth < TURNSTILE_NORMAL_WIDTH ? "compact" : "normal";
+  }
+
+  function widgetOwnsFocus(): boolean {
+    const activeElement = document.activeElement;
+    return (!!host && host.contains(activeElement)) || retryButton === activeElement;
+  }
+
+  function focusRenderedChallenge(attempt: number): void {
+    if (disposed || attempt !== loadAttempt || !host) return;
+    host.focus();
+    queueMicrotask(() => {
+      if (disposed || attempt !== loadAttempt || !host) return;
+      (host.querySelector<HTMLElement>("iframe") ?? host).focus();
+    });
+  }
+
+  function queueRetryFocus(attempt: number): void {
+    queueMicrotask(() => {
+      if (
+        !disposed
+        && attempt === loadAttempt
+        && loadFailed()
+        && !loading()
+      ) {
+        retryButton?.focus();
+      }
+    });
+  }
 
   function removeRenderedWidget(): void {
     if (api && widgetId) api.remove(widgetId);
     api = undefined;
     widgetId = undefined;
+    renderedSize = undefined;
   }
 
-  function resetRenderedWidget(): void {
+  function resetRenderedWidget(restoreFocus = false): void {
     props.onToken(null);
     if (!api || !widgetId) return;
+    const attempt = loadAttempt;
     try {
       api.reset(widgetId);
       setLoadFailed(false);
+      if (restoreFocus) focusRenderedChallenge(attempt);
     } catch {
       setLoadFailed(true);
+      if (restoreFocus) queueRetryFocus(attempt);
     }
   }
 
-  async function renderChallenge(): Promise<void> {
+  async function renderChallenge(restoreFocus = false): Promise<void> {
     const attempt = ++loadAttempt;
     props.onToken(null);
+    if (restoreFocus) host?.focus();
     setLoading(true);
+    setLoadFailed(false);
     removeRenderedWidget();
 
     if (!props.siteKey) {
       if (!disposed && attempt === loadAttempt) {
         setLoadFailed(true);
         setLoading(false);
+        if (restoreFocus) queueRetryFocus(attempt);
       }
       return;
     }
@@ -131,7 +172,7 @@ export function TurnstileWidget(props: {
       const loaded = await loadTurnstile();
       if (disposed || attempt !== loadAttempt || !host) return;
 
-      const size = host.clientWidth < TURNSTILE_NORMAL_WIDTH ? "compact" : "normal";
+      const size = requestedSize();
       const renderedWidgetId = loaded.render(host, {
         sitekey: props.siteKey,
         action: "signup",
@@ -143,17 +184,23 @@ export function TurnstileWidget(props: {
         },
         "expired-callback": () => {
           if (disposed || attempt !== loadAttempt) return;
+          const restoreAfterReset = widgetOwnsFocus();
           props.onToken(null);
           queueMicrotask(() => {
-            if (!disposed && attempt === loadAttempt) resetRenderedWidget();
+            if (!disposed && attempt === loadAttempt) {
+              resetRenderedWidget(restoreAfterReset);
+            }
           });
         },
         "error-callback": () => {
           if (disposed || attempt !== loadAttempt) return;
+          const restoreAfterReset = widgetOwnsFocus();
           props.onToken(null);
           setLoadFailed(true);
           queueMicrotask(() => {
-            if (!disposed && attempt === loadAttempt) resetRenderedWidget();
+            if (!disposed && attempt === loadAttempt) {
+              resetRenderedWidget(restoreAfterReset);
+            }
           });
         },
       });
@@ -164,20 +211,32 @@ export function TurnstileWidget(props: {
       }
       api = loaded;
       widgetId = renderedWidgetId;
+      renderedSize = size;
+      if (restoreFocus) focusRenderedChallenge(attempt);
       setLoadFailed(false);
     } catch {
       if (!disposed && attempt === loadAttempt) setLoadFailed(true);
     } finally {
-      if (!disposed && attempt === loadAttempt) setLoading(false);
+      if (!disposed && attempt === loadAttempt) {
+        setLoading(false);
+        if (restoreFocus && loadFailed()) queueRetryFocus(attempt);
+      }
     }
+  }
+
+  function rerenderForHostWidth(): void {
+    if (!host || !widgetId || loading() || requestedSize() === renderedSize) return;
+    void renderChallenge(widgetOwnsFocus());
   }
 
   function retryChallenge(): void {
     if (loading() || props.disabled) return;
-    void renderChallenge();
+    void renderChallenge(true);
   }
 
   onMount(() => {
+    resizeObserver = new ResizeObserver(rerenderForHostWidth);
+    if (host) resizeObserver.observe(host);
     void renderChallenge();
   });
 
@@ -189,6 +248,7 @@ export function TurnstileWidget(props: {
   });
 
   onCleanup(() => {
+    resizeObserver?.disconnect();
     disposed = true;
     loadAttempt++;
     props.onToken(null);
@@ -198,17 +258,21 @@ export function TurnstileWidget(props: {
   return (
     <div class="managed-turnstile">
       <div
-        ref={host}
+        ref={(element) => { host = element; }}
         class="managed-turnstile-widget"
         data-testid="managed-turnstile"
+        role="group"
+        aria-label="Human verification challenge"
         aria-busy={loading() || undefined}
         aria-disabled={props.disabled || undefined}
+        tabIndex={-1}
       />
       <Show when={loadFailed()}>
         <p class="managed-auth-hint managed-turnstile-error" role="alert">
           Human verification couldn’t load. Check your connection and try again.
         </p>
         <Button
+          ref={(element) => { retryButton = element; }}
           data-testid="managed-turnstile-retry"
           type="button"
           variant="text"

@@ -42,10 +42,14 @@ let synced = false;
 // protected SessionsList solely to classify first-use auth versus offline.
 const SYNC_SUBSCRIBED_WAIT_MS = 3000;
 
-// MainPane's dead-URL guards consume these leaf signals through the historical
-// sync-bootstrap import path; keeping the state in sync-hydrated avoids the
-// firehose import cycle.
-export { sessionsHydrated, terminalBootstrapStage, type TerminalBootstrapStage } from "./sync-hydrated.ts";
+// Route guards consume these leaf signals through the historical sync-bootstrap
+// import path; keeping the state in sync-hydrated avoids the firehose cycle.
+export {
+  sessionsHydrated,
+  workersHydrated,
+  terminalBootstrapStage,
+  type TerminalBootstrapStage,
+} from "./sync-hydrated.ts";
 
 
 export function bootstrapSync(): void {

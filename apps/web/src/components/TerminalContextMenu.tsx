@@ -10,6 +10,7 @@ import { copyToClipboard } from "../lib/clipboard.ts";
 import { Show, batch, createSignal, onCleanup, onMount, type JSX } from "solid-js";
 import { Portal } from "solid-js/web";
 import { useNavigate, useLocation } from "@solidjs/router";
+import type { Navigator } from "@solidjs/router";
 import type { Session } from "@roost/shared/wire";
 import { ctxMenuSurfaceStyle, CtxMenuItem, CtxMenuSeparator } from "./contextMenuPrimitives.tsx";
 import { spawnShell, waitForSession, maybeAutoLaunchAgent } from "../lib/spawnSession.ts";
@@ -18,6 +19,10 @@ import { closeLabelsFor, killAfterUndo, siblingOrHomeHref } from "../lib/closeSe
 import { activeSessionForPath } from "../store/selectors.ts";
 import { isCompact, isTouchDevice } from "../lib/windowSizeClass.ts";
 import { isSpotlit, setSpotlightSessionId, clearSpotlight, visiblePaneCount } from "../store/spotlight.ts";
+import {
+  captureDashboardResourceToken,
+  isCurrentDashboardResourceToken,
+} from "../store/dashboard-selection.ts";
 
 interface Props {
   session: Session;
@@ -43,6 +48,27 @@ interface OpenState {
 
 // Bottom action-sheet on touch (phones + tablets), floating menu on mouse.
 const isMobileViewport = () => isCompact() || isTouchDevice();
+
+/** Kept outside the component so deferred dashboard cutovers can be tested
+ * without mounting a DOM. */
+export async function _spawnContextTerminal(
+  session: Pick<Session, "worker_fp" | "cwd">,
+  navigate: Navigator,
+): Promise<void> {
+  const dashboardToken = captureDashboardResourceToken();
+  try {
+    const sessionId = await spawnShell(session.worker_fp, session.cwd);
+    if (!isCurrentDashboardResourceToken(dashboardToken)) return;
+    const projectedSession = await waitForSession(sessionId);
+    if (!isCurrentDashboardResourceToken(dashboardToken)) return;
+    maybeAutoLaunchAgent(sessionId);
+    if (!isCurrentDashboardResourceToken(dashboardToken)) return;
+    if (projectedSession) navigate(`/s/${projectedSession.id}`, { replace: false });
+  } catch (error) {
+    if (!isCurrentDashboardResourceToken(dashboardToken)) return;
+    console.warn("[ctx] new terminal failed", error);
+  }
+}
 
 export function TerminalContextMenu(props: Props) {
   const navigate = useNavigate();
@@ -105,14 +131,7 @@ export function TerminalContextMenu(props: Props) {
 
   const doNewTerminal = async () => {
     dismiss();
-    try {
-      const sessionId = await spawnShell(props.session.worker_fp, props.session.cwd);
-      const s = await waitForSession(sessionId);
-      maybeAutoLaunchAgent(sessionId);
-      if (s) navigate(`/s/${s.id}`, { replace: false });
-    } catch (e) {
-      console.warn("[ctx] new terminal failed", e);
-    }
+    await _spawnContextTerminal(props.session, navigate);
   };
 
   // Open the picker WITHIN this tap (gesture) before dismissing, so iOS allows it.
@@ -164,7 +183,7 @@ export function TerminalContextMenu(props: Props) {
               <div
                 data-testid="terminal-context-menu"
                 data-variant="sheet"
-                style={sheetStyle()}
+                style={_terminalActionSheetStyle()}
                 onClick={(e) => e.stopPropagation()}
               >
                 {/* Drag handle visual */}
@@ -274,19 +293,20 @@ export function TerminalContextMenu(props: Props) {
 
 // ─── mobile bottom sheet styles ─────────────────────────────────────────
 
-function sheetStyle(): JSX.CSSProperties {
+export function _terminalActionSheetStyle(): JSX.CSSProperties {
   return {
     position: "fixed",
     left: "0",
     right: "0",
-    bottom: "0",
+    bottom: "max(var(--kb-offset), 0px)",
     "z-index": "41",
+    "box-sizing": "border-box",
     background: "var(--bg-elev-2)",
     "border-top": "1px solid var(--border-strong)",
     "border-radius": "var(--md-shape-md) var(--md-shape-md) 0 0",
     "box-shadow": "0 -8px 32px rgba(0,0,0,0.45)",
     padding: "12px 0 calc(env(safe-area-inset-bottom, 0px) + 16px)",
-    "max-height": "calc(100dvh - var(--md-space-4))",
+    "max-height": "calc(100dvh - max(var(--kb-offset), 0px) - var(--md-space-4))",
     "overflow-y": "auto",
     "user-select": "none",
     color: "var(--text-hi)",

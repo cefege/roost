@@ -370,9 +370,8 @@ export async function refreshDashboardAccess(): Promise<boolean> {
 }
 
 /**
- * Install scope data only after it came from AuthDashboardAccess. A changed
- * selected ID cuts over all dashboard data under the same no-dial hold used by
- * an interactive switch.
+ * Install scope data only after AuthDashboardAccess confirms it. A changed ID
+ * cuts over dashboard data under the same no-dial hold as an interactive switch.
  */
 export function commitServerConfirmedDashboardAccess(
   snapshot: DashboardAccessSnapshot,
@@ -381,14 +380,16 @@ export function commitServerConfirmedDashboardAccess(
   const selectionChanged = rootStore.selected_dashboard_id !== snapshot.selected_dashboard_id;
   if (selectionChanged) {
     holdSyncForDashboardSwitch();
-    batch(() => {
-      invalidateDashboardResources();
-      clearDashboardRuntimeState();
-      // Validated above. Keep this assertion local to make a future root-state
-      // regression fail loudly rather than dialing with an unconfirmed scope.
-      if (!setDashboardAccess(snapshot)) throw new Error("invalid dashboard access response");
-    });
-    rehydrateConfirmedDashboard();
+    try {
+      batch(() => {
+        invalidateDashboardResources();
+        clearDashboardScopedOverlayState();
+        clearDashboardRuntimeState();
+        if (!setDashboardAccess(snapshot)) throw new Error("invalid dashboard access response");
+      });
+    } finally {
+      rehydrateConfirmedDashboard();
+    }
   } else {
     setDashboardAccess(snapshot);
   }

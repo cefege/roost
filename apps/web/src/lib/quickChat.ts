@@ -9,6 +9,10 @@ import { allSessions } from "../store/selectors.ts";
 import { workerOnline } from "../store/sync.ts";
 import { spawnShell, waitForSession, forceLaunchAgent } from "./spawnSession.ts";
 import { addToast } from "../store/toastStore.ts";
+import {
+  captureDashboardResourceToken,
+  isCurrentDashboardResourceToken,
+} from "../store/dashboard-selection.ts";
 
 export const CHAT_ROOT = "~/.roost/chats";
 export const CHAT_FOLDER_SEGMENT = "/.roost/chats/";
@@ -38,22 +42,31 @@ export function pickDefaultChatWorker(): WorkerFp | null {
 }
 
 export async function startQuickChat(navigate: Navigator): Promise<void> {
-  const fp = pickDefaultChatWorker();
-  if (!fp) {
+  const workerFp = pickDefaultChatWorker();
+  if (!workerFp) {
     addToast("No machine connected", "err");
     return;
   }
 
-  const folder = newChatFolderPath();
-  const sid = crypto.randomUUID();
+  const dashboardToken = captureDashboardResourceToken();
+  const chatFolder = newChatFolderPath();
+  const sessionId = crypto.randomUUID();
   try {
-    const mk = await coordClient.filesMkdir({ workerFp: fp, path: folder });
-    const abs = mk.resolvedPath || folder;
-    await spawnShell(fp, abs, sid);
-    await waitForSession(sid);
-    navigate(`/s/${sid}`);
-    forceLaunchAgent(sid);
+    const mkdirResponse = await coordClient.filesMkdir({
+      workerFp,
+      path: chatFolder,
+    });
+    if (!isCurrentDashboardResourceToken(dashboardToken)) return;
+    const resolvedFolder = mkdirResponse.resolvedPath || chatFolder;
+    await spawnShell(workerFp, resolvedFolder, sessionId);
+    if (!isCurrentDashboardResourceToken(dashboardToken)) return;
+    await waitForSession(sessionId);
+    if (!isCurrentDashboardResourceToken(dashboardToken)) return;
+    navigate(`/s/${sessionId}`);
+    if (!isCurrentDashboardResourceToken(dashboardToken)) return;
+    forceLaunchAgent(sessionId);
   } catch (error) {
+    if (!isCurrentDashboardResourceToken(dashboardToken)) return;
     addToast(`New chat failed: ${error instanceof Error ? error.message : String(error)}`, "err");
   }
 }

@@ -168,6 +168,7 @@ test("server-confirmed dashboard switch clears scope atomically and invalidates 
   root.setRootStore("last_activity", { "session-a": 1 });
   root.setRootStore("session_viewers", { "session-a": [{ fp: "viewer-a", cols: 80, rows: 24 }] });
   hydrated.setSessionsHydrated(true);
+  hydrated.setWorkersHydrated(true);
   hydrated.setTerminalBootstrapStage("ready");
 
   const staleRoute = selection.captureDashboardResourceToken();
@@ -183,6 +184,7 @@ test("server-confirmed dashboard switch clears scope atomically and invalidates 
   expect(root.rootStore.selected_dashboard_id).toBe("dashboard-a");
   expect(root.rootStore.sessions["session-a"]).toBeDefined();
   expect(selection.isCurrentDashboardResourceToken(staleRoute)).toBe(true);
+  openScopedOverlays();
 
   // Only the server's membership-confirmed B snapshot crosses the boundary.
   expect(selection.commitServerConfirmedDashboardAccess(accessB)).toBe(true);
@@ -192,6 +194,8 @@ test("server-confirmed dashboard switch clears scope atomically and invalidates 
   expect(Object.keys(root.rootStore.dashboards)).toEqual(["dashboard-b"]);
   expect(root.rootStore.effective_capabilities).toEqual(["dashboard:member"]);
   expect(local.get("roost.dashboardId")).toBe("dashboard-b");
+  expectScopedOverlaysCleared();
+  expect(sync._syncDashboardSwitchHeld()).toBe(false);
 
   // Every dashboard-scoped root slice, terminal replica/timer owner, Sync
   // hydration marker, and durable replay cursor is gone before redial.
@@ -207,6 +211,7 @@ test("server-confirmed dashboard switch clears scope atomically and invalidates 
   expect(Object.keys(root.rootStore.session_viewers)).toEqual([]);
   expect(terminalState.terminalSessions.size).toBe(0);
   expect(hydrated.sessionsHydrated()).toBe(false);
+  expect(hydrated.workersHydrated()).toBe(false);
   expect(hydrated.terminalBootstrapStage()).toBe("sync");
   expect(frame.lastSeenSyncEventId()).toBe(0);
   expect(local.has("roost.syncLastEventId")).toBe(false);

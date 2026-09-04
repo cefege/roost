@@ -1,11 +1,8 @@
-// Has the bootstrap's sessionsList snapshot been applied to the store yet?
+// Tracks whether the terminal and worker bootstrap snapshots are authoritative.
 //
-// A leaf module on purpose. sync-bootstrap.ts owns the write, but the firehose
-// (sync.ts) must READ it to hold deltas that arrive before the snapshot — and
-// sync-bootstrap already imports sync.ts, so the flag cannot live there without
-// an import cycle. Consumers: sync.ts (pre-hydration queue), and MainPane's
-// dead-URL safety net + stuck-terminal watcher via sync-bootstrap's re-export,
-// which use it to tell "still bootstrapping" from "genuinely gone".
+// This leaf avoids the sync-bootstrap ↔ sync.ts import cycle. Domain hydrators
+// publish the flags; dashboard cutovers reset them before scoped records clear.
+// Route guards read the matching domain instead of inferring one from another.
 
 import { createSignal } from "solid-js";
 
@@ -20,17 +17,20 @@ const [terminalBootstrapStage, setTerminalBootstrapStage] =
   createSignal<TerminalBootstrapStage>("identity");
 
 const [sessionsHydrated, setSessionsHydrated] = createSignal(false);
-/** A dashboard switch has no valid terminal snapshot until the next selected
- * scope finishes Sync hydration. */
+const [workersHydrated, setWorkersHydrated] = createSignal(false);
+/** A dashboard switch has no valid terminal or worker snapshot until each
+ * domain finishes hydration in the newly selected scope. */
 export function resetSyncHydration(): void {
   setSessionsHydrated(false);
+  setWorkersHydrated(false);
   setTerminalBootstrapStage("sync");
 }
-
 
 export {
   sessionsHydrated,
   setSessionsHydrated,
+  workersHydrated,
+  setWorkersHydrated,
   terminalBootstrapStage,
   setTerminalBootstrapStage,
 };

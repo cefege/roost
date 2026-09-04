@@ -14,40 +14,25 @@ import { decodeWorkerPathRoute } from "../lib/nativePath.ts";
 import { copyToClipboard } from "../lib/clipboard.ts";
 import { createTrackedTimeouts } from "./trackedTimeout.ts";
 import { rootStore } from "../store/root.ts";
-import { sessionsHydrated } from "../store/sync-bootstrap.ts";
+import { workersHydrated } from "../store/sync-bootstrap.ts";
+import {
+  captureDashboardResourceToken,
+  isCurrentDashboardResourceToken,
+} from "../store/dashboard-selection.ts";
 import { Button } from "./Settings/md/Button.tsx";
 import { EmptyState } from "./Settings/md/EmptyState.tsx";
 
-// ─── helpers ─────────────────────────────────────────────────────────────
-
 function parseLineFromHash(): number {
-  // Support #L42 fragment in the URL (e.g. /file/fp/src/foo.ts#L42).
   const hash = typeof location !== "undefined" ? location.hash : "";
   const m = hash.match(/^#L(\d+)$/);
   return m ? parseInt(m[1]!, 10) : 1;
 }
 
-// Attempt UTF-8 decode of base64 content. Returns null if bytes are not valid
-// UTF-8 (signals binary content to the renderer).
-function decodeBase64ToText(b64: string): string | null {
-  try {
-    const bin = atob(b64);
-    const bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  } catch {
-    return null;
-  }
-}
-
-// Build a URL with #L<n> appended, replacing any existing hash.
 function lineUrl(lineNum: number): string {
   const url = new URL(location.href);
   url.hash = `L${lineNum}`;
   return url.toString();
 }
-
-// ─── sub-components ───────────────────────────────────────────────────────
 
 const KIND_COLORS: Record<Token["kind"], string> = {
   keyword: "var(--syntax-keyword)",
@@ -56,7 +41,6 @@ const KIND_COLORS: Record<Token["kind"], string> = {
   number:  "var(--syntax-number)",
   plain:   "var(--syntax-plain)",
 };
-
 function HighlightedLine(props: { tokens: Token[] }) {
   return (
     <span style={{ "white-space": "pre" }}>
@@ -68,7 +52,6 @@ function HighlightedLine(props: { tokens: Token[] }) {
     </span>
   );
 }
-
 function PlainLine(props: { text: string }) {
   return (
     <span style={{ color: "var(--syntax-plain)", "white-space": "pre" }}>
@@ -76,9 +59,6 @@ function PlainLine(props: { text: string }) {
     </span>
   );
 }
-
-// ─── component ───────────────────────────────────────────────────────────
-
 export function FileViewerSheet() {
   const params = useParams<{ workerFp?: string; path?: string }>();
   const route = useLocation();
@@ -86,8 +66,8 @@ export function FileViewerSheet() {
 
   const workerFp = createMemo(() => params.workerFp ?? "");
   const scopedWorker = createMemo(() => !rootStore.browser_unauthorized && !!rootStore.workers[workerFp()]);
-  const scopePending = createMemo(() => !scopedWorker() && !sessionsHydrated() && !rootStore.browser_unauthorized);
-  const scopeUnavailable = createMemo(() => !scopedWorker() && (sessionsHydrated() || rootStore.browser_unauthorized));
+  const scopePending = createMemo(() => !scopedWorker() && !workersHydrated() && !rootStore.browser_unauthorized);
+  const scopeUnavailable = createMemo(() => !scopedWorker() && (workersHydrated() || rootStore.browser_unauthorized));
   const filePath = createMemo(() => {
     const fp = workerFp();
     const encoded = route.pathname.match(/^\/file\/[^/]+\/(.+)$/)?.[1];
@@ -104,10 +84,10 @@ export function FileViewerSheet() {
   const [loading, setLoading] = createSignal(false);
   const [fetchError, setFetchError] = createSignal<string | null>(null);
   const [copiedLine, setCopiedLine] = createSignal<{ line: number; ok: boolean } | null>(null);
-  // Single-flight token (terminalFindController idiom): only the newest
-  // route-param fetch may publish. Navigating /file/A → /file/B must not let
-  // A's slower response overwrite B's state, and a late reply after unmount
-  // must not touch disposed signals.
+  let scrollRef: HTMLDivElement | undefined;
+  let unavailableRef: HTMLDivElement | undefined;
+  // Superseded route reads and replies after disposal cannot publish.
+  // Dashboard generation separately fences a scope cutover at the same path.
   let fetchToken = 0;
   onCleanup(() => { fetchToken++; });
   const setTimeoutTracked = createTrackedTimeouts();
@@ -124,15 +104,17 @@ export function FileViewerSheet() {
       setByteSize(0);
       setLoading(false);
       setFetchError(null);
+      setCopiedLine(null);
       return;
     }
+    const dashboardToken = captureDashboardResourceToken();
     setLoading(true);
     setFetchError(null);
+    setCopiedLine(null);
     coordClient.filesRead({ workerFp: fp, path })
       .then((result) => {
-        if (mine !== fetchToken) return; // superseded by a newer route param / unmount
+        if (mine !== fetchToken || !isCurrentDashboardResourceToken(dashboardToken)) return;
         setByteSize(Number(result.size));
-        // Connect returns raw bytes; decode UTF-8 via TextDecoder
         const text = (() => {
           try { return new TextDecoder("utf-8", { fatal: true }).decode(result.data); }
           catch { return null; }
@@ -149,15 +131,15 @@ export function FileViewerSheet() {
           setTokenGrid(shouldHighlight(ext) ? tokenizeLines(split) : null);
         }
         setLoading(false);
-        // After DOM settles, scroll to target line.
         requestAnimationFrame(() => {
+          if (mine !== fetchToken || !isCurrentDashboardResourceToken(dashboardToken)) return;
           const tl = targetLine();
           const el = scrollRef?.querySelector<HTMLElement>(`[data-line="${tl}"]`);
           el?.scrollIntoView({ block: "center" });
         });
       })
       .catch((e: unknown) => {
-        if (mine !== fetchToken) return;
+        if (mine !== fetchToken || !isCurrentDashboardResourceToken(dashboardToken)) return;
         const msg = e instanceof Error ? e.message : String(e);
         setFetchError(msg);
         setLoading(false);
@@ -165,19 +147,26 @@ export function FileViewerSheet() {
   });
 
   function copyLineLink(lineNum: number) {
-    // Clipboard denial (permission, insecure context) shows ✕, never ✓.
-    void copyToClipboard(lineUrl(lineNum)).then((ok) =>
-      setCopiedLine({ line: lineNum, ok }));
-    setTimeoutTracked(() => setCopiedLine(null), 1500);
+    const mine = fetchToken;
+    const dashboardToken = captureDashboardResourceToken();
+    void copyToClipboard(lineUrl(lineNum)).then((ok) => {
+      if (mine !== fetchToken || !isCurrentDashboardResourceToken(dashboardToken)) return;
+      setCopiedLine({ line: lineNum, ok });
+      setTimeoutTracked(() => {
+        if (mine === fetchToken && isCurrentDashboardResourceToken(dashboardToken)) {
+          setCopiedLine(null);
+        }
+      }, 1500);
+    });
   }
 
-  // Ref to the scroll container — used to scrollIntoView after load.
-  let scrollRef: HTMLDivElement | undefined;
+  createEffect(() => {
+    if (!scopeUnavailable()) return;
+    const frame = requestAnimationFrame(() => unavailableRef?.focus());
+    onCleanup(() => cancelAnimationFrame(frame));
+  });
 
-  // Only render when we have route params to show.
   const hasTarget = createMemo(() => !!workerFp() && !!filePath());
-
-  // 1-based target line.
   const tl = createMemo(() => targetLine());
 
   return (
@@ -198,6 +187,7 @@ export function FileViewerSheet() {
           style={{
             background: "var(--bg-base)",
             border: "1px solid var(--border-strong)",
+            "box-sizing": "border-box",
             "border-radius": "8px",
             padding: "20px",
             width: "700px",
@@ -209,7 +199,6 @@ export function FileViewerSheet() {
             overflow: "hidden",
           }}
         >
-          {/* Header */}
           <div style={{ display: "flex", "align-items": "center", gap: "10px" }}>
             <span
               data-testid="file-viewer-sheet-title"
@@ -244,28 +233,36 @@ export function FileViewerSheet() {
               </span>
             </Show>
           </div>
-
           <Show when={scopePending() || (scopedWorker() && loading())}>
             <span style={{ color: "var(--text-lo)", "font-size": "var(--md-body-s-size)" }}>
               Loading file…
             </span>
           </Show>
-
           <Show when={scopeUnavailable()}>
-            <EmptyState
-              icon="draft"
-              title="File unavailable"
-              supporting="This file isn't available in the current dashboard."
-              action={
-                <Button variant="tonal" data-testid="file-viewer-unavailable-home"
-                  onClick={() => navigate("/", { replace: true })}>
-                  Go home
-                </Button>
-              }
-            />
+            <div
+              ref={unavailableRef}
+              data-testid="file-viewer-unavailable"
+              role="status"
+              aria-live="polite"
+              aria-label="File unavailable. This file isn't available in the current dashboard."
+              aria-atomic="true"
+              tabIndex={-1}
+              style={{ flex: "1", "min-height": "0", "overflow-y": "auto" }}
+            >
+              <EmptyState
+                icon="draft"
+                title="File unavailable"
+                supporting="This file isn't available in the current dashboard."
+                action={
+                  <Button variant="tonal" data-testid="file-viewer-unavailable-home"
+                    onFocus={(event) => event.currentTarget.scrollIntoView({ block: "center" })}
+                    onClick={() => navigate("/", { replace: true })}>
+                    Go home
+                  </Button>
+                }
+              />
+            </div>
           </Show>
-
-          {/* Error */}
           <Show when={scopedWorker() && fetchError()}>
             <span
               data-testid="file-viewer-sheet-error"
@@ -274,8 +271,6 @@ export function FileViewerSheet() {
               {fetchError()}
             </span>
           </Show>
-
-          {/* Binary notice */}
           <Show when={scopedWorker() && isBinary()}>
             <span
               data-testid="file-viewer-sheet-binary"
@@ -284,8 +279,6 @@ export function FileViewerSheet() {
               binary file ({byteSize()} bytes) — not renderable as text
             </span>
           </Show>
-
-          {/* Line listing */}
           <Show when={scopedWorker() && lines().length > 0}>
             <div
               ref={scrollRef}
@@ -301,7 +294,6 @@ export function FileViewerSheet() {
                 position: "relative",
               }}
             >
-              {/* Target-line marker bar (1-based) */}
               <div
                 data-testid="file-viewer-sheet-target-marker"
                 style={{
@@ -327,12 +319,10 @@ export function FileViewerSheet() {
                         gap: "12px",
                         "line-height": "20px",
                         background: isTarget ? "color-mix(in srgb, var(--ansi-bright-yellow) 10%, transparent)" : undefined,
-                        // Show copy button on hover via group pattern.
                         position: "relative",
                       }}
                       class="fvs-line"
                     >
-                      {/* Line number */}
                       <span
                         data-testid={`file-viewer-sheet-line-num-${lineNum}`}
                         data-target={isTarget ? "true" : undefined}
@@ -346,16 +336,12 @@ export function FileViewerSheet() {
                       >
                         {lineNum}
                       </span>
-
-                      {/* Source text (highlighted or plain) */}
                       <Show
                         when={toks()}
                         fallback={<PlainLine text={lineText()} />}
                       >
                         {(t) => <HighlightedLine tokens={t()} />}
                       </Show>
-
-                      {/* Copy-line-as-link button */}
                       <button
                         data-testid={`file-viewer-sheet-copy-link-${lineNum}`}
                         title={`Copy link to line ${lineNum}`}
@@ -372,7 +358,6 @@ export function FileViewerSheet() {
                           "font-size": "10px",
                           "padding": "0 4px",
                           opacity: "0",
-                          // Revealed by .fvs-line:hover via injected style below.
                         }}
                         class="fvs-copy-btn"
                         aria-label={`Copy link to line ${lineNum}`}
@@ -387,8 +372,6 @@ export function FileViewerSheet() {
           </Show>
         </div>
       </div>
-
-      {/* Inline style for hover reveal — avoids a separate CSS file import. */}
       <style>{`
         .fvs-line:hover .fvs-copy-btn { opacity: 1 !important; }
       `}</style>

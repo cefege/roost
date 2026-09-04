@@ -3,7 +3,13 @@
 // Gateway, login, Google, and web-key modules remain authoritative for each auth transition.
 
 import { useNavigate } from "@solidjs/router";
-import { createEffect, createResource, createSignal, Show } from "solid-js";
+import {
+  createEffect,
+  createResource,
+  createSignal,
+  onCleanup,
+  Show,
+} from "solid-js";
 import { ManagedAuthLayout } from "./ManagedAuthLayout.tsx";
 import {
   getManagedAuthConfig,
@@ -44,11 +50,20 @@ export function ManagedLogin() {
   let passwordInput: TextFieldElement | undefined;
   let googleButton: HTMLElement | undefined;
   let resetKeyButton: HTMLElement | undefined;
+  let configStatus: HTMLDivElement | undefined;
+  let configRetryButton: HTMLElement | undefined;
+  let disposed = false;
   let loginAttempted = false;
   const [resetEligible] = createResource(
     () => rootStore.browser_unauthorized && rootStore.coord_identity?.saas_mode === true,
     async (unauthorized) => unauthorized ? isResetWebKeyEligible("managed") : false,
   );
+
+  function focusAfterRender(target: () => HTMLElement | undefined): void {
+    queueMicrotask(() => {
+      if (!disposed) target()?.focus();
+    });
+  }
 
   createEffect(() => {
     if (!loginAttempted && !rootStore.browser_unauthorized && hasConfirmedDashboardAccess()) {
@@ -90,14 +105,14 @@ export function ManagedLogin() {
       setPassword("");
       setErrorMessage(managedLoginErrorMessage(error));
       setPhase("ready");
-      queueMicrotask(() => passwordInput?.focus());
+      focusAfterRender(() => passwordInput);
     }
   }
 
 
   function resetDialogClosed(): void {
     setResetConfirmationOpen(false);
-    if (!resettingKey()) queueMicrotask(() => resetKeyButton?.focus());
+    if (!resettingKey()) focusAfterRender(() => resetKeyButton);
   }
 
   async function resetRejectedKey(): Promise<void> {
@@ -111,15 +126,19 @@ export function ManagedLogin() {
     } finally {
       setResettingKey(false);
       if (resetConfirmationOpen()) setResetConfirmationOpen(false);
-      else queueMicrotask(() => resetKeyButton?.focus());
+      else focusAfterRender(() => resetKeyButton);
     }
   }
 
   async function retryManagedConfig(): Promise<void> {
     if (busy() || config.loading) return;
+    configStatus?.focus();
     await refetchConfig();
-    if (config.error) return;
-    queueMicrotask(() => (googleAvailable() ? googleButton : emailInput)?.focus());
+    if (config.error) {
+      focusAfterRender(() => configRetryButton);
+      return;
+    }
+    focusAfterRender(() => googleAvailable() ? googleButton : emailInput);
   }
 
   const busy = () => phase() !== "ready" || resettingKey();
@@ -137,6 +156,10 @@ export function ManagedLogin() {
       : "Use your email and password.";
   };
 
+  onCleanup(() => {
+    disposed = true;
+  });
+
   return (
     <ManagedAuthLayout
       testId="managed-login"
@@ -151,7 +174,13 @@ export function ManagedLogin() {
         </Show>
 
         <Show when={config.error}>
-          <div class="managed-auth-status">
+          <div
+            ref={(element) => { configStatus = element; }}
+            data-testid="managed-login-config-status"
+            class="managed-auth-status"
+            aria-busy={config.loading || undefined}
+            tabIndex={-1}
+          >
             <p
               class="managed-auth-error"
               id="managed-login-config-error"
@@ -161,6 +190,7 @@ export function ManagedLogin() {
               Roost couldn’t check all sign-in options. Check your connection and retry.
             </p>
             <Button
+              ref={(element) => { configRetryButton = element; }}
               class="managed-auth-submit"
               data-testid="managed-login-config-retry"
               type="button"

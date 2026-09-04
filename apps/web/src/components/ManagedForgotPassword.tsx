@@ -2,7 +2,7 @@
 // The public recovery route submits an email and renders the coordinator's neutral response.
 // Managed-account recovery policy owns the request while this component owns form state.
 
-import { createSignal, Show } from "solid-js";
+import { createSignal, onCleanup, Show } from "solid-js";
 import {
   MANAGED_PASSWORD_RESET_ACKNOWLEDGEMENT,
   requestManagedPasswordReset,
@@ -19,6 +19,8 @@ export function ManagedForgotPassword() {
   const [email, setEmail] = createSignal("");
   const [phase, setPhase] = createSignal<ForgotPhase>("ready");
   const [acknowledgement, setAcknowledgement] = createSignal("");
+  let acknowledgementSummary: HTMLParagraphElement | undefined;
+  let disposed = false;
 
   async function submit(event: SubmitEvent): Promise<void> {
     event.preventDefault();
@@ -33,7 +35,14 @@ export function ManagedForgotPassword() {
     setEmail("");
     setAcknowledgement(message);
     setPhase("acknowledged");
+    queueMicrotask(() => {
+      if (!disposed && phase() === "acknowledged") acknowledgementSummary?.focus();
+    });
   }
+
+  onCleanup(() => {
+    disposed = true;
+  });
 
   return (
     <ManagedAuthLayout
@@ -45,7 +54,13 @@ export function ManagedForgotPassword() {
         when={phase() !== "acknowledged"}
         fallback={
           <div class="managed-auth-status">
-            <p data-testid="managed-forgot-password-ack" role="status" aria-live="polite">
+            <p
+              ref={(element) => { acknowledgementSummary = element; }}
+              data-testid="managed-forgot-password-ack"
+              role="status"
+              aria-live="polite"
+              tabIndex={-1}
+            >
               {acknowledgement() || MANAGED_PASSWORD_RESET_ACKNOWLEDGEMENT}
             </p>
             <div class="managed-auth-links">

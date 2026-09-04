@@ -7,15 +7,16 @@ import { useNavigate } from "@solidjs/router";
 import { rootStore } from "../store/root.ts";
 import { allSessions } from "../store/selectors.ts";
 import { workerOnline } from "../store/sync.ts";
-import { sessionsHydrated } from "../store/sync-bootstrap.ts";
+import { workersHydrated } from "../store/sync-bootstrap.ts";
 import { coordClient } from "../connect.ts";
-import { spawnShell, waitForSession, maybeAutoLaunchAgent } from "../lib/spawnSession.ts";
-import { terminalHref } from "../lib/terminalHref.ts";
-import { pushRecent } from "../lib/sidebarRecent.ts";
-import { browseHref, sessionHref } from "../routes.ts";
+import { browseHref } from "../routes.ts";
 import { computeFolderActivity, type FolderActivity } from "../lib/folderActivity.ts";
 import { isCompact } from "../lib/windowSizeClass.ts";
 import { addToast } from "../store/toastStore.ts";
+import {
+  captureDashboardResourceToken,
+  isCurrentDashboardResourceToken,
+} from "../store/dashboard-selection.ts";
 import { childPath, pathCrumbs, collapseCrumbsTo, type CrumbView } from "../lib/folderPalette.ts";
 import { workerPathBasename } from "../lib/nativePath.ts";
 import { initHistory, pushHistory as pushHistoryFn, goBack as goBackFn, goForward as goForwardFn, canGoBack as canBackFn, canGoForward as canFwdFn, type HistoryState } from "../lib/browseHistory.ts";
@@ -26,6 +27,7 @@ import { BrowseBreadcrumbs } from "./BrowseBreadcrumbs.tsx";
 import { BrowseFolderGrid, type DirEntry } from "./BrowseFolderGrid.tsx";
 import { NewFolderDialog } from "./NewFolderDialog.tsx";
 import { createBrowseBreadcrumbCollapse } from "./browseBreadcrumbCollapse.ts";
+import { launchWorkerBrowseTerminal } from "./workerBrowseActions.ts";
 import type { WorkerFp } from "@roost/shared/wire";
 import { Button } from "./Settings/md/Button.tsx";
 import { EmptyState } from "./Settings/md/EmptyState.tsx";
@@ -36,7 +38,6 @@ export function WorkerBrowsePage(props: { workerFp: string }) {
   const initialDir = [...allSessions()]
     .filter((session) => String(session.worker_fp) === workerFp)
     .sort((a, b) => b.created_at - a.created_at)[0]?.cwd ?? "~";
-
   // Navigation is click-driven: `cwd` is the canonical current directory
   // (no trailing slash, "~" = home). Every worker-keyed owner starts with its
   // own newest session cwd and owns its complete browser/history lifecycle.
@@ -48,11 +49,11 @@ export function WorkerBrowsePage(props: { workerFp: string }) {
   const [crumbMenuOpen, setCrumbMenuOpen] = createSignal(false);
   const [crumbMenuPos, setCrumbMenuPos] = createSignal<{ top: number; left: number }>({ top: 0, left: 0 });
   let resultsRef: HTMLDivElement | undefined;
+  let unavailableRef: HTMLDivElement | undefined;
   const [newFolderOpen, setNewFolderOpen] = createSignal(false);
   const [newFolderName, setNewFolderName] = createSignal("");
   const [newFolderBusy, setNewFolderBusy] = createSignal(false);
   let newFolderInput: HTMLElement | undefined;
-
   const folderServer = () => workerFp;
   const serverLabel = createMemo(() => rootStore.workers[folderServer()]?.label ?? folderServer().slice(0, 8));
   const serverOnline = createMemo(() => { const w = rootStore.workers[folderServer()]; return w ? workerOnline(w) : false; });
@@ -60,9 +61,8 @@ export function WorkerBrowsePage(props: { workerFp: string }) {
     !rootStore.browser_unauthorized && rootStore.workers[folderServer()] !== undefined);
   const scopeState = createMemo<"loading" | "available" | "unavailable">(() => {
     if (scopedWorker()) return "available";
-    return sessionsHydrated() || rootStore.browser_unauthorized ? "unavailable" : "loading";
+    return workersHydrated() || rootStore.browser_unauthorized ? "unavailable" : "loading";
   });
-
   createEffect(() => {
     if (scopedWorker()) return;
     setServerMenuOpen(false);
@@ -71,30 +71,42 @@ export function WorkerBrowsePage(props: { workerFp: string }) {
     setNewFolderName("");
     setNewFolderBusy(false);
   });
-
   const onlineWorkers = createMemo(() =>
     Object.values(rootStore.workers).filter(workerOnline).sort((a, b) => a.label.localeCompare(b.label)),
   );
-
-
-  // Directory listing — eager createEffect, last-write-wins cancellation (same
-  // pattern as the retired palette folder mode).
   const [dirData, setDirData] = createSignal<{ resolved: string; entries: DirEntry[] } | null>(null);
   const [dirLoading, setDirLoading] = createSignal(false);
   createEffect(() => {
     const fp = folderServer();
     const dir = cwd();
-    if (!fp || !scopedWorker()) { setDirData(null); setDirLoading(false); return; }
+    if (!fp || !scopedWorker()) {
+      setDirData(null);
+      setDirLoading(false);
+      return;
+    }
+    const dashboardToken = captureDashboardResourceToken();
     let cancelled = false;
     setDirLoading(true);
     coordClient.filesListDir({ workerFp: fp as unknown as WorkerFp, path: dir })
-      .then((res) => { if (!cancelled) setDirData({ resolved: res.resolvedPath || dir, entries: res.entries.map((e) => ({ name: e.name, isDir: e.isDir, mtimeMs: Number(e.mtimeMs) })) }); })
-      .catch(() => { if (!cancelled) setDirData(null); })
-      .finally(() => { if (!cancelled) setDirLoading(false); });
+      .then((response) => {
+        if (cancelled || !isCurrentDashboardResourceToken(dashboardToken)) return;
+        setDirData({
+          resolved: response.resolvedPath || dir,
+          entries: response.entries.map((entry) => ({
+            name: entry.name, isDir: entry.isDir, mtimeMs: Number(entry.mtimeMs),
+          })),
+        });
+      })
+      .catch(() => {
+        if (cancelled || !isCurrentDashboardResourceToken(dashboardToken)) return;
+        setDirData(null);
+      })
+      .finally(() => {
+        if (cancelled || !isCurrentDashboardResourceToken(dashboardToken)) return;
+        setDirLoading(false);
+      });
     onCleanup(() => { cancelled = true; });
   });
-
-  // Server-scoped recent cwds, shown as a chip strip above the grid.
   const folderRecents = createMemo<string[]>(() => {
     const fp = folderServer();
     const seen = new Set<string>();
@@ -113,9 +125,6 @@ export function WorkerBrowsePage(props: { workerFp: string }) {
   const crumbViews = createMemo<CrumbView[]>(() => collapseCrumbsTo(crumbs(), breadcrumbCollapse.hideMiddle()));
   const backEnabled = createMemo(() => canBackFn(historyState()));
   const forwardEnabled = createMemo(() => canFwdFn(historyState()));
-
-  // Dotfiles always hidden (no frag — the path input is gone, so there is
-  // no filter to reveal dotfiles matching a typed prefix).
   const filteredDirs = createMemo<DirEntry[]>(() => {
     const dirs = dirData()?.entries ?? [];
     return dirs.filter((d) => d.isDir && !d.name.startsWith("."));
@@ -125,7 +134,6 @@ export function WorkerBrowsePage(props: { workerFp: string }) {
       .filter((d) => !d.isDir && !d.name.startsWith("."));
     return [...files].sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
   });
-  // Cumulative terminal counts for each visible subdirectory, including its subtree.
   const folderActivity = createMemo<Map<string, FolderActivity>>(() => {
     const fp = folderServer();
     if (!fp) return new Map();
@@ -133,7 +141,6 @@ export function WorkerBrowsePage(props: { workerFp: string }) {
     const childPaths = filteredDirs().map((d) => childPath(fp, base, d.name));
     return computeFolderActivity(allSessions(), fp, childPaths);
   });
-  // Subtitle per folder: human-readable summary from session activity.
   const folderSubtitles = createMemo<Map<string, string>>(() => {
     const out = new Map<string, string>();
     for (const [path, a] of folderActivity()) {
@@ -141,29 +148,22 @@ export function WorkerBrowsePage(props: { workerFp: string }) {
     }
     return out;
   });
-
-
-  // Reset cursor on query change only (not on background WS ticks).
   createEffect(() => { cwd(); setActiveIdx(0); });
-
   // Keep the keyboard-highlighted tile in view.
   createEffect(() => {
     const idx = activeIdx();
     const el = resultsRef?.querySelectorAll<HTMLElement>('[data-testid="browse-tile"],[data-testid="browse-row"]')[idx];
     el?.scrollIntoView({ block: "nearest" });
   });
-
-
   createEffect(() => {
-    if (scopeState() !== "available") return;
-    const frame = requestAnimationFrame(() => resultsRef?.focus());
+    const state = scopeState();
+    if (state === "loading") return;
+    const frame = requestAnimationFrame(() => {
+      if (state === "available") resultsRef?.focus();
+      else unavailableRef?.focus();
+    });
     onCleanup(() => cancelAnimationFrame(frame));
   });
-
-
-  // Every navigation is an explicit click: push the new dir onto history
-  // (truncating any forward branch) and set cwd. No typed-path tracking,
-  // no navigating guard — click ops are the only thing that moves cwd.
   function pushCwd(path: string) {
     setCwd(path);
     setHistoryState((s) => pushHistoryFn(s, path));
@@ -186,21 +186,11 @@ export function WorkerBrowsePage(props: { workerFp: string }) {
     setActiveIdx(0);
   }
 
-  // Open a terminal in the selected folder.
-  async function pickFolder(path: string) {
+  function pickFolder(path: string): void {
     const fp = folderServer();
     if (!fp || !scopedWorker()) return;
-    try {
-      const sessionId = await spawnShell(fp as unknown as WorkerFp, path);
-      pushRecent(sessionId);
-      const session = await waitForSession(sessionId);
-      maybeAutoLaunchAgent(sessionId);
-      navigate(session ? terminalHref(session) : sessionHref(sessionId));
-    } catch (err) {
-      addToast(`New terminal failed: ${err instanceof Error ? err.message : String(err)}`, "err");
-    }
+    void launchWorkerBrowseTerminal(fp as unknown as WorkerFp, path, navigate);
   }
-
   function newFolder() {
     if (!scopedWorker()) return;
     setNewFolderName("");
@@ -208,31 +198,33 @@ export function WorkerBrowsePage(props: { workerFp: string }) {
     setNewFolderOpen(true);
     queueMicrotask(() => newFolderInput?.focus());
   }
-
   async function commitNewFolder() {
     const name = newFolderName().trim();
     if (!name || newFolderBusy()) return;
     const fp = folderServer();
     if (!fp || !scopedWorker()) return;
+    const dashboardToken = captureDashboardResourceToken();
     setNewFolderBusy(true);
     try {
       const target = childPath(fp, cwd(), name);
-      const res = await coordClient.filesMkdir({ workerFp: fp as unknown as WorkerFp, path: target });
+      const response = await coordClient.filesMkdir({
+        workerFp: fp as unknown as WorkerFp,
+        path: target,
+      });
+      if (!isCurrentDashboardResourceToken(dashboardToken)) return;
       setNewFolderOpen(false);
-      pushCwd(res.resolvedPath || target);
-    } catch (err) {
-      addToast(`Create folder failed: ${err instanceof Error ? err.message : String(err)}`, "err");
+      pushCwd(response.resolvedPath || target);
+    } catch (error) {
+      if (!isCurrentDashboardResourceToken(dashboardToken)) return;
+      addToast(`Create folder failed: ${error instanceof Error ? error.message : String(error)}`, "err");
       setNewFolderBusy(false);
     }
   }
-
   function selectServer(fp: string) {
     setServerMenuOpen(false);
     navigate(browseHref(fp));
   }
-
   function onKeydown(e: KeyboardEvent) {
-    // ESC: close overlay on desktop
     if (e.key === "Escape") {
       const dlg = document.querySelector("md-dialog");
       if (dlg && dlg.open) return;          // let New-folder dialog close itself
@@ -272,7 +264,16 @@ export function WorkerBrowsePage(props: { workerFp: string }) {
       </Show>
 
       <Show when={scopeState() === "unavailable"}>
-        <div class="df-browse-area" data-testid="browse-worker-unavailable">
+        <div
+          ref={unavailableRef}
+          class="df-browse-area"
+          data-testid="browse-worker-unavailable"
+          role="status"
+          aria-live="polite"
+          aria-label="Machine unavailable. This machine isn't available in the current dashboard."
+          aria-atomic="true"
+          tabIndex={-1}
+        >
           <EmptyState
             icon="folder_off"
             title="Machine unavailable"

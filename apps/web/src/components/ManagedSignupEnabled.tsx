@@ -3,7 +3,7 @@
 // Gateway responses and Turnstile state drive the form without inventing eligibility.
 
 import type { ManagedAuthConfig } from "../auth/managed-auth-gateway.ts";
-import { createSignal, Show } from "solid-js";
+import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import {
   ManagedAuthGatewayError,
   startManagedEmailSignup,
@@ -18,7 +18,10 @@ import { clearManagedGoogleCompletionProgress } from "../auth/managed-auth-progr
 import { ROUTES } from "../routes.ts";
 import { ManagedAuthLayout } from "./ManagedAuthLayout.tsx";
 import { Button } from "./Settings/md/Button.tsx";
-import { TextField } from "./Settings/md/TextField.tsx";
+import {
+  TextField,
+  type TextFieldElement,
+} from "./Settings/md/TextField.tsx";
 import { TurnstileWidget } from "./TurnstileWidget.tsx";
 
 export const MANAGED_SIGNUP_PENDING_MESSAGE =
@@ -36,6 +39,9 @@ export function ManagedSignupEnabled(props: { config: ManagedAuthConfig }) {
   const [action, setAction] = createSignal<SignupAction>("idle");
   const [message, setMessage] = createSignal("");
   const [isError, setIsError] = createSignal(false);
+  let emailInput: TextFieldElement | undefined;
+  let messageSummary: HTMLParagraphElement | undefined;
+  let disposed = false;
 
   function requireTurnstile(): string | null {
     const token = turnstileToken();
@@ -52,8 +58,9 @@ export function ManagedSignupEnabled(props: { config: ManagedAuthConfig }) {
     const token = requireTurnstile();
     if (!token) return;
 
+    messageSummary?.focus();
     setAction("google");
-    setMessage("");
+    setMessage("Opening Google sign-in…");
     setIsError(false);
     try {
       const authorizationUrl = await startManagedGoogle({
@@ -80,8 +87,9 @@ export function ManagedSignupEnabled(props: { config: ManagedAuthConfig }) {
     const token = requireTurnstile();
     if (!token) return;
 
+    messageSummary?.focus();
     setAction("email");
-    setMessage("");
+    setMessage("Sending a verification link…");
     setIsError(false);
     try {
       await startManagedEmailSignup({ email: email().trim(), turnstileToken: token });
@@ -105,6 +113,16 @@ export function ManagedSignupEnabled(props: { config: ManagedAuthConfig }) {
       setAction("idle");
     }
   }
+
+  onMount(() => {
+    queueMicrotask(() => {
+      if (!disposed) emailInput?.focus();
+    });
+  });
+
+  onCleanup(() => {
+    disposed = true;
+  });
 
   const busy = () => action() !== "idle";
 
@@ -134,6 +152,7 @@ export function ManagedSignupEnabled(props: { config: ManagedAuthConfig }) {
 
         <form class="managed-auth-form" onSubmit={(event) => void submitEmail(event)}>
           <TextField
+            ref={(element) => { emailInput = element; }}
             class="managed-auth-text-field"
             label="Email"
             testId="managed-signup-email"
@@ -159,11 +178,13 @@ export function ManagedSignupEnabled(props: { config: ManagedAuthConfig }) {
           </Show>
 
           <p
+            ref={(element) => { messageSummary = element; }}
             class={isError() ? "managed-auth-error" : "managed-auth-message"}
             id="managed-signup-message"
             data-testid="managed-signup-message"
             role={isError() ? "alert" : "status"}
             aria-live="polite"
+            tabIndex={-1}
           >
             {message()}
           </p>

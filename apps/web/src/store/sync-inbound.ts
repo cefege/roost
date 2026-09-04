@@ -23,6 +23,7 @@ import {
   _hasLazySyncDomainHydrator,
   _triggerSyncDomainHydration,
 } from "./sync-domain-hydration.ts";
+import { setWorkersHydrated } from "./sync-hydrated.ts";
 import {
   _dispatchSyncV2Control,
   _resolveSyncSubscribedWaiters,
@@ -136,7 +137,10 @@ function handleDomainReset(link: LiveSyncLink, reset: SyncDomainResetFrame): voi
   domain.generation = reset.generation;
   domain.subscribed = reset.subscribed;
   domain.ready = false;
-  if (reset.domain === SyncDomain.WORKERS) v2.routableChunks.clear();
+  if (reset.domain === SyncDomain.WORKERS) {
+    v2.routableChunks.clear();
+    setWorkersHydrated(false);
+  }
   if (reset.domain === SyncDomain.TERMINAL) {
     _notifySyncV2Generation(currentSyncV2TerminalState());
   }

@@ -20,7 +20,6 @@ import { logoutManagedBrowser } from "../../auth/managed-logout.ts";
 import { AuthorizedDevicesCard } from "./DevicesPane.tsx";
 import { Button, Card, List, ListRow, TextField } from "./md/primitives.tsx";
 
-
 /** Managed coordinators have one owner account and one immutable coordinator
  * scope. Account actions live together so the managed UI never exposes the
  * self-hosted organization, dashboard, pairing, or connection controls. */
@@ -42,6 +41,7 @@ export function AccountPane() {
   let passwordInput: HTMLElement | undefined;
   let passwordConfirmationInput: HTMLElement | undefined;
   let passwordStatus: HTMLSpanElement | undefined;
+  let credentialsState: HTMLDivElement | undefined;
 
   const busy = () => busyAction() !== null;
 
@@ -77,8 +77,9 @@ export function AccountPane() {
     });
   }
 
-  async function refreshCredentials(): Promise<void> {
+  async function refreshCredentials(restoreFocus = false): Promise<void> {
     const request = ++credentialsRequest;
+    if (restoreFocus) credentialsState?.focus();
     setCredentialsLoading(true);
     setCredentialsError("");
     try {
@@ -183,6 +184,14 @@ export function AccountPane() {
         title="Sign-in methods"
         supporting="These methods sign in to this Roost account. Credential details stay only in this page while it is open."
       >
+        <div
+          ref={(element) => { credentialsState = element; }}
+          data-testid="account-credentials-state"
+          role="group"
+          aria-label="Sign-in methods status"
+          aria-busy={credentialsLoading() || undefined}
+          tabIndex={-1}
+        >
         <Show when={credentialsLoading()}>
           <p aria-live="polite" class="md-body-m" style={{ margin: "0", color: "var(--md-sys-color-on-surface-variant)" }}>
             Loading sign-in methods…
@@ -193,7 +202,12 @@ export function AccountPane() {
             <p role="alert" data-testid="account-credentials-error" class="md-body-m" style={{ margin: "0", color: "var(--md-sys-color-error)" }}>
               {credentialsError()}
             </p>
-            <Button variant="tonal" disabled={busy()} onClick={() => void refreshCredentials()}>
+            <Button
+              data-testid="account-credentials-retry"
+              variant="tonal"
+              disabled={busy()}
+              onClick={() => void refreshCredentials(true)}
+            >
               Try again
             </Button>
           </div>
@@ -343,6 +357,7 @@ export function AccountPane() {
             </div>
           )}
         </Show>
+        </div>
       </Card>
 
       <AuthorizedDevicesCard

@@ -1,21 +1,34 @@
-// Managed Sync still subscribes to the PAIR domain even though pairing is unavailable.
-// This regression drives the real bootstrap hydrators and domain-ready publisher against
-// one live generation, proving every eager domain crosses its readiness barrier without PairList.
+// Sync bootstrap domains publish readiness independently within one generation.
+// This regression delays WorkersList past terminal hydration and also proves the
+// managed PAIR domain becomes ready without requesting the unavailable PairList.
+// A WORKERS domain reset must withdraw readiness until its replacement snapshot lands.
 
 import { expect, test } from "bun:test";
-import { fromBinary } from "@bufbuild/protobuf";
+import { create, fromBinary } from "@bufbuild/protobuf";
 import {
+  FirehoseFrameSchema,
   SyncClientFrameSchema,
   SyncDomain,
+  SyncDomainResetFrameSchema,
 } from "@roost/shared/proto/sync_pb";
+import {
+  type WorkersListResponse,
+  WorkersListResponseSchema,
+} from "@roost/shared/proto/coordinator_pb";
 import { reconcile } from "solid-js/store";
 import { _installBootstrapDomainHydrators } from "../src/store/sync-bootstrap-hydration.ts";
+import { _consumeSyncFrame } from "../src/store/sync-inbound.ts";
 import {
   _clearLiveSyncLink,
   _installLiveSyncLink,
   type LiveSyncLink,
 } from "../src/store/sync-link-state.ts";
 import { rootStore, setRootStore } from "../src/store/root.ts";
+import {
+  resetSyncHydration,
+  sessionsHydrated,
+  workersHydrated,
+} from "../src/store/sync-hydrated.ts";
 
 const EAGER_DOMAINS = [
   SyncDomain.TERMINAL,
@@ -30,7 +43,7 @@ async function flushHydrators(): Promise<void> {
   for (let turn = 0; turn < 24; turn++) await Promise.resolve();
 }
 
-test("managed bootstrap marks every eager domain ready without requesting PairList", async () => {
+test("managed bootstrap hydrates and rehydrates workers independently without PairList", async () => {
   const sent: Uint8Array[] = [];
   const calls = {
     sessionsList: 0,
@@ -40,6 +53,8 @@ test("managed bootstrap marks every eager domain ready without requesting PairLi
     mcpList: 0,
     pairList: 0,
   };
+  const workerList = Promise.withResolvers<WorkersListResponse>();
+  const workerRehydration = Promise.withResolvers<WorkersListResponse>();
   const coordClient = {
     sessionsList: async () => {
       calls.sessionsList += 1;
@@ -47,7 +62,7 @@ test("managed bootstrap marks every eager domain ready without requesting PairLi
     },
     workersList: async () => {
       calls.workersList += 1;
-      return { workers: [], routableFps: [] };
+      return calls.workersList === 1 ? workerList.promise : workerRehydration.promise;
     },
     workspacesList: async () => {
       calls.workspacesList += 1;
@@ -96,6 +111,8 @@ test("managed bootstrap marks every eager domain ready without requesting PairLi
     label: "stale",
     created_at_ms: 1,
   });
+  setRootStore("workers", reconcile({}));
+  resetSyncHydration();
   _installLiveSyncLink(link);
   const disposeHydrators = _installBootstrapDomainHydrators({
     coordClient: coordClient as never,
@@ -107,6 +124,24 @@ test("managed bootstrap marks every eager domain ready without requesting PairLi
 
   try {
     await flushHydrators();
+    expect(sessionsHydrated()).toBe(true);
+    expect(workersHydrated()).toBe(false);
+    expect(link.v2?.domains.get(SyncDomain.TERMINAL)?.ready).toBe(true);
+    expect(link.v2?.domains.get(SyncDomain.WORKERS)?.ready).toBe(false);
+
+    workerList.resolve(create(WorkersListResponseSchema, {
+      workers: [{
+        fp: "worker-a",
+        label: "Worker A",
+        os: "linux",
+        registeredAtMs: 1n,
+        lastSeenMs: 2n,
+      }],
+      routableFps: ["worker-a"],
+    }));
+    await flushHydrators();
+    expect(workersHydrated()).toBe(true);
+    expect(rootStore.workers["worker-a"]?.label).toBe("Worker A");
 
     expect(calls).toEqual({
       sessionsList: 1,
@@ -128,9 +163,53 @@ test("managed bootstrap marks every eager domain ready without requesting PairLi
     expect(readyDomains).toHaveLength(EAGER_DOMAINS.length);
     expect([...readyDomains].sort((left, right) => left - right))
       .toEqual([...EAGER_DOMAINS].sort((left, right) => left - right));
+
+    _consumeSyncFrame(link, create(FirehoseFrameSchema, {
+      deliverySeq: 0n,
+      frame: {
+        case: "domainReset",
+        value: create(SyncDomainResetFrameSchema, {
+          domain: SyncDomain.WORKERS,
+          generation: 2n,
+          subscribed: true,
+        }),
+      },
+    }));
+    expect(workersHydrated()).toBe(false);
+    expect(link.v2?.domains.get(SyncDomain.WORKERS)?.ready).toBe(false);
+    await flushHydrators();
+    expect(calls.workersList).toBe(2);
+    expect(workersHydrated()).toBe(false);
+
+    workerRehydration.resolve(create(WorkersListResponseSchema, {
+      workers: [{
+        fp: "worker-b",
+        label: "Worker B",
+        os: "linux",
+        registeredAtMs: 3n,
+        lastSeenMs: 4n,
+      }],
+      routableFps: ["worker-b"],
+    }));
+    await flushHydrators();
+    expect(workersHydrated()).toBe(true);
+    expect(rootStore.workers["worker-b"]?.label).toBe("Worker B");
+    expect(link.v2?.domains.get(SyncDomain.WORKERS)?.ready).toBe(true);
+    const rehydratedReady = fromBinary(
+      SyncClientFrameSchema,
+      sent[sent.length - 1]!,
+    ).command;
+    expect(rehydratedReady.case).toBe("domainReady");
+    if (rehydratedReady.case !== "domainReady") {
+      throw new Error("expected workers domain-ready command");
+    }
+    expect(rehydratedReady.value.domain).toBe(SyncDomain.WORKERS);
+    expect(rehydratedReady.value.generation).toBe(2n);
   } finally {
     disposeHydrators();
     _clearLiveSyncLink(link);
     setRootStore("pair_requests", reconcile({}));
+    setRootStore("workers", reconcile({}));
+    resetSyncHydration();
   }
 });

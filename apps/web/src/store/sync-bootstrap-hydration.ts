@@ -3,6 +3,7 @@
 // sync-bootstrap.ts supplies authorization and retry callbacks so socket ordering stays there.
 // Live deltas keep using the same wire decoders after these guarded snapshots become ready.
 
+import { batch } from "solid-js";
 import { reconcile } from "solid-js/store";
 import type { Client } from "@connectrpc/connect";
 import { SyncDomain } from "@roost/shared/proto/sync_pb";
@@ -24,7 +25,11 @@ import type { PairRequest } from "./root.ts";
 import { setRoutableFps } from "./sync-routable.ts";
 import { applySessionsSnapshot } from "./projector.ts";
 import { mcpRelayProtoToWire, taskProtoToWire } from "./sync-proto-adapters.ts";
-import { setSessionsHydrated, setTerminalBootstrapStage } from "./sync-hydrated.ts";
+import {
+  setSessionsHydrated,
+  setTerminalBootstrapStage,
+  setWorkersHydrated,
+} from "./sync-hydrated.ts";
 import { registerSyncDomainHydrator } from "./sync-domain-hydration.ts";
 import type { SyncDomainToken } from "./sync-link-state.ts";
 
@@ -109,8 +114,11 @@ export function _installBootstrapDomainHydrators(
     }
     return {
       apply: () => {
-        setRoutableFps(new Set(response.routableFps));
-        setRootStore("workers", workers);
+        batch(() => {
+          setRoutableFps(new Set(response.routableFps));
+          setRootStore("workers", workers);
+          setWorkersHydrated(true);
+        });
       },
     };
   }));
