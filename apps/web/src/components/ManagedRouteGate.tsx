@@ -54,7 +54,10 @@ export function ManagedRouteGate(props: ParentProps) {
     if (!outgoingFocusOwned) loadingFocusPending = false;
   }
 
-  onMount(() => document.addEventListener("focusin", trackAccessFocus));
+  onMount(() => {
+    document.addEventListener("focusin", trackAccessFocus);
+    onCleanup(() => document.removeEventListener("focusin", trackAccessFocus));
+  });
 
   createEffect(() => {
     const managed = rootStore.coord_identity?.saas_mode === true;
@@ -147,7 +150,6 @@ export function ManagedRouteGate(props: ParentProps) {
 
   onCleanup(() => {
     disposed = true;
-    document.removeEventListener("focusin", trackAccessFocus);
   });
 
   return (
