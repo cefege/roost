@@ -252,6 +252,7 @@ export function mountCellTerminalRenderer(
 	});
 	if (
 		_terminalForegroundWorkAllowed(viewport)
+		&& !signals.pending()
 		&& props.focused === true
 		&& !isTouchDevice()
 		&& activeComposeSessionId() === null
@@ -261,6 +262,7 @@ export function mountCellTerminalRenderer(
 			if (
 				!runtime.unmounted
 				&& _terminalForegroundWorkAllowed(viewport)
+				&& !signals.pending()
 				&& props.focused === true
 				&& activeComposeSessionId() === null
 			) runtime.inputController?.forceFocus();

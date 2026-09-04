@@ -109,6 +109,7 @@ export function CellTerminal(props: CellTerminalProps) {
 					input,
 					presentation,
 					viewport,
+					pending,
 					navigate,
 					{ mouseTracking },
 				);

@@ -81,8 +81,9 @@ afterEach(() => {
 });
 
 describe("terminal foreground visibility", () => {
-  test("covered and hidden panes release focus while an active visible pane owns it", () => {
+  test("pending, covered, and hidden panes wait until an active visible pane can own focus", () => {
     const [viewActive, setViewActive] = Solid.createSignal(true);
+    const [pending, setPending] = Solid.createSignal(true);
     const textarea = new FakeTextarea();
     const controller = {
       textarea,
@@ -137,20 +138,26 @@ describe("terminal foreground visibility", () => {
         input as never,
         presentation as never,
         viewport as never,
+        pending,
         () => undefined,
         { mouseTracking: () => "none" } as never,
       );
     });
 
+    expect(controller.forceFocusCalls).toBe(0);
+    expect(fakeDocument.activeElement).toBeNull();
+    expect(_terminalFocusAllowed(viewport as never, true, !pending())).toBe(false);
+
+    setPending(false);
     expect(controller.forceFocusCalls).toBe(1);
     expect(fakeDocument.activeElement).toBe(textarea);
-    expect(_terminalFocusAllowed(viewport as never, true)).toBe(true);
+    expect(_terminalFocusAllowed(viewport as never, true, !pending())).toBe(true);
 
     setViewActive(false);
     expect(controller.forceFocusCalls).toBe(1);
     expect(textarea.blurCalls).toBe(1);
     expect(fakeDocument.activeElement).toBeNull();
-    expect(_terminalFocusAllowed(viewport as never, true)).toBe(false);
+    expect(_terminalFocusAllowed(viewport as never, true, !pending())).toBe(false);
 
     setViewActive(true);
     expect(controller.forceFocusCalls).toBe(2);
@@ -158,7 +165,7 @@ describe("terminal foreground visibility", () => {
     expect(controller.forceFocusCalls).toBe(2);
     expect(textarea.blurCalls).toBe(2);
     expect(fakeDocument.activeElement).toBeNull();
-    expect(_terminalFocusAllowed(viewport as never, true)).toBe(false);
+    expect(_terminalFocusAllowed(viewport as never, true, !pending())).toBe(false);
 
     interactions.dispose();
     disposeRoot();

@@ -122,7 +122,7 @@ export function mountCellTerminalLifecycle(
   window.addEventListener("pageshow", onPageShow);
 
   const onDocumentMouseDown = (event: MouseEvent): void => {
-    if (!viewport.viewActive() || !props.focused || !isPageVisible()) return;
+    if (pending() || !viewport.viewActive() || !props.focused || !isPageVisible()) return;
     if (event.button !== 0) return;
     const target = event.target as HTMLElement | null;
     if (target?.closest(FOCUS_OWNERS) || target?.closest("[data-pane]")) return;
@@ -131,7 +131,7 @@ export function mountCellTerminalLifecycle(
   const onDocumentKeyDown = (event: KeyboardEvent): void => {
     if (event.defaultPrevented) return;
     if (!event.isTrusted && isTouchDevice()) return;
-    if (!viewport.viewActive() || !props.focused || !isPageVisible()) return;
+    if (pending() || !viewport.viewActive() || !props.focused || !isPageVisible()) return;
 
     if ((event.metaKey || event.ctrlKey) && event.shiftKey && !event.altKey) {
       const key = event.key.toLowerCase();

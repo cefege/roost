@@ -34,8 +34,9 @@ export interface CellTerminalInteractions {
 export function _terminalFocusAllowed(
   viewport: Pick<CellTerminalViewport, "viewActive">,
   focused: boolean,
+  inputReady: boolean,
 ): boolean {
-  return viewport.viewActive() && focused && isPageVisible();
+  return inputReady && viewport.viewActive() && focused && isPageVisible();
 }
 
 export function mountCellTerminalInteractions(
@@ -44,6 +45,7 @@ export function mountCellTerminalInteractions(
   input: CellTerminalInput,
   presentation: CellTerminalPresentation,
   viewport: CellTerminalViewport,
+  pending: Accessor<boolean>,
   navigate: (href: string) => void,
   signals: CellTerminalInteractionSignals,
 ): CellTerminalInteractions {
@@ -69,10 +71,10 @@ export function mountCellTerminalInteractions(
     const focused = props.focused === true;
     if (focused && !previouslyFocused) {
       lastActivatedAt = Date.now();
-      if (!isTouchDevice() && activeComposeSessionId() === null) {
+      if (!pending() && !isTouchDevice() && activeComposeSessionId() === null) {
         queueMicrotask(() => {
           if (
-            _terminalFocusAllowed(viewport, props.focused === true)
+            _terminalFocusAllowed(viewport, props.focused === true, !pending())
             && activeComposeSessionId() === null
           ) runtime.inputController?.forceFocus();
         });
@@ -83,7 +85,7 @@ export function mountCellTerminalInteractions(
   const isNavFallthrough = (): boolean =>
     isTouchDevice() && Date.now() - lastActivatedAt < NAV_FALLTHROUGH_MS;
   const onDisplayDown = (event: MouseEvent): void => {
-    if (!_terminalFocusAllowed(viewport, props.focused === true)) return;
+    if (!_terminalFocusAllowed(viewport, props.focused === true, !pending())) return;
     runtime.renderer?.finishLiveSelectionRelease();
     if (event.button !== 0) return;
     gestureStartedOnDisplay = true;
@@ -91,13 +93,13 @@ export function mountCellTerminalInteractions(
     const target = event.target as HTMLElement | null;
     if (target?.closest("button, input, textarea, a")) return;
     queueMicrotask(() => {
-      if (_terminalFocusAllowed(viewport, props.focused === true)) {
+      if (_terminalFocusAllowed(viewport, props.focused === true, !pending())) {
         runtime.inputController?.forceFocus();
       }
     });
   };
   const onDisplayClick = (event: MouseEvent): void => {
-    if (!_terminalFocusAllowed(viewport, props.focused === true)) return;
+    if (!_terminalFocusAllowed(viewport, props.focused === true, !pending())) return;
     const startedHere = gestureStartedOnDisplay;
     gestureStartedOnDisplay = false;
     if (event.button !== 0 || (!startedHere && isNavFallthrough())) return;
@@ -144,8 +146,11 @@ export function mountCellTerminalInteractions(
     event.preventDefault();
     input.enqueueFileItems(event.dataTransfer?.items);
   };
+  // The selected optimistic placeholder exists before coord can accept its
+  // session ID. It must not advertise a keyboard owner until spawn confirms.
   createEffect(() => {
-    const mayOwnFocus = viewport.viewActive()
+    const mayOwnFocus = !pending()
+      && viewport.viewActive()
       && props.focused === true
       && pageVisible();
     if (!mayOwnFocus) {

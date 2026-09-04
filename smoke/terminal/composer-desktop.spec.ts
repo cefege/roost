@@ -293,6 +293,9 @@ test("desktop split panes each own and route their composer", async ({ smokePage
   expect(spawnedSessionId).toBeTruthy();
   const spawnedSlot = smokePage.getByTestId(`terminal-slot-${spawnedSessionId!}`);
   await expect(spawnedSlot).toHaveAttribute("data-focused", "true");
+  await expect.poll(() => smokePage.evaluate((id) =>
+    window.__smoke.paneFocused(id).focused,
+  spawnedSessionId!)).toBe(true);
   const spawnedMarker = `SPLIT_COMPOSER_NEWTAB_${suffix}`;
   await smokePage.keyboard.type(`printf '%s\\n' ${spawnedMarker}`);
   await smokePage.keyboard.press("Enter");
