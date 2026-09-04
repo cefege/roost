@@ -8,19 +8,21 @@ Path references are relative to `apps/web/` unless they start at the repo root (
 
 ## Entry point
 
-`apps/web/index.html` loads `apps/web/src/main.tsx`. In order, before any component renders:
+`apps/web/index.html` loads `apps/web/src/entry.ts`, a dependency-minimal
+security boundary. Startup order:
 
-1. `applyTheme(loadTheme())` (`apps/web/src/lib/theme.ts`) — sets `data-theme` so first paint is not
-   flash-of-wrong-theme.
-2. `installSignalShip()` + `installSpaDiag()` (`apps/web/src/lib/diag.ts`) — Tier-1 `signal` is always
-   on and ships anomalies to coord's `*.err.log`; Tier-2 `diag` firehose is gated on
-   `localStorage.roostDiag`. Installed before render so `spa.uncaught` catches setup throws.
-3. `window` `error` / `unhandledrejection` / `vite:preloadError` handlers — chunk-mismatch recovery
-   after a redeploy, loop-guarded through `sessionStorage` by `apps/web/src/lib/chunkError.ts`.
-4. `applyTermFontSize()` (`apps/web/src/lib/terminalFontPref.ts`) — pushes persisted terminal zoom
-   onto the document *before* the first pane measures its cell box, or that pane claims a viewport
-   sized for 14px and immediately re-claims.
-5. `render(() => <App />, #app)`, then `installLeakWatch()` and `void loadAgentConfig()`.
+1. `captureAndScrubFragmentCredential()` synchronously removes URL-carried
+   credentials before the SPA module graph loads.
+2. `entry.ts` dynamically imports `apps/web/src/main.tsx`; it installs the
+   tenant-route switch listener and awaits
+   `completePendingTenantRouteSwitch()` before diagnostics or transport.
+3. `applyTheme(loadTheme())` sets `data-theme` before first paint.
+4. `installSignalShip()` + `installSpaDiag()` and the global
+   error/rejection/chunk-recovery handlers install before render.
+5. `claimTabIdentity()` settles this document's unique identity, then
+   `applyTermFontSize()` sets terminal metrics.
+6. `render(() => <App />, #app)` mounts Solid; leak watch and agent-config load
+   follow.
 
 `apps/web/src/App.tsx` is the root: `AppErrorBoundary` outermost, `ConnectionBanner` +
 `VersionBanner` always mounted, `bootstrapSync()` (`apps/web/src/store/sync-bootstrap.ts`) called at
@@ -39,24 +41,34 @@ solid `lazy()`, the repo's sanctioned code-split mechanism (its `ts-no-dynamic-i
 
 ## Module map
 
-One row per directory in this workspace. Within a row, a bare file name lives in that
-row's directory; any ref with a path prefix follows the convention at the top of this file.
+Rows cover the owned source/test directories. Within a row, a bare file name
+lives in that row's directory; prefixed refs follow the convention above.
 
 | Directory | Owns | Must not own |
 | --- | --- | --- |
-| `apps/web/src/` (root files) | `main.tsx` (boot), `App.tsx` (router + overlay shell), `routes.ts` (URL table), `connect.ts` (Connect-RPC client: binary protobuf + JWT interceptor), the two `*.d.ts` ambient decls | anything feature-shaped; every screen lives under `apps/web/src/components/` |
-| `apps/web/src/components/` | screens, panes, dialogs, and the terminal surface (`CellTerminal.tsx`, `TerminalDeck.tsx`, `MainPane.tsx`) | direct store writes (use `apps/web/src/store/mutations.ts`), wire framing, persistence |
-| `apps/web/src/components/layout/` | `AppShell.tsx` (sidebar + main 2-pane shell, mobile drawer) and `MobileTopBar.tsx` | route-specific content; it renders the route slot |
+| `apps/web/src/` (root files) | `entry.ts` (credential scrub + deferred graph load), `main.tsx` (post-scrub bootstrap + mount), `App.tsx` (router + overlay shell), `routes.ts` (URL table), `connect.ts` (Connect-RPC client), `css-imports.d.ts` and `md-elements.d.ts` (ambient imports/elements) | feature-shaped UI |
+| `apps/web/src/components/` | screens/dialogs; `CellTerminal.tsx` composes `cell-terminal-types.ts`, `cell-terminal-runtime.ts`, `cell-terminal-input.ts`, `cell-terminal-presentation.ts`, `cell-terminal-viewport.ts`, `cell-terminal-renderer.ts`, `cell-terminal-interactions.ts`, and `cell-terminal-lifecycle.ts`; `TerminalDeck.tsx` owns persistent keyed mounting; `ManagedRouteGate.tsx` and `ManagedLogin.tsx`/`ManagedSignup.tsx` own managed gates/routes | direct store writes, wire framing, persistence |
+| `apps/web/src/components/layout/` | `AppShell.tsx` (sidebar + route slot), `MobileTopBar.tsx`, `DashboardScopeSelector.tsx` (server-confirmed organization/dashboard selection) | route-specific content |
 | `apps/web/src/components/sidebar/` | machine / folder / session lists, sidebar search, row context menus, `ViewersChip.tsx` | per-view stores — selection and filtering derive from the URL and `rootStore` |
-| `apps/web/src/components/Settings/` | the settings panes + `SettingsRoot.tsx` + `CoordinatorMoveDialog.tsx`; MCP remains under Agents, and the workers pane is `MachinesPane.tsx` (there is no `WorkersPane`) | raw CSS values; panes compose the primitives in `apps/web/src/components/Settings/md/` |
-| `apps/web/src/components/Settings/md/` | the M3 primitive set (one component per file, re-exported by `primitives.tsx`) plus `tokens.css` / `icon.css` — a token *declaration* site | app state or data fetching; primitives are presentational |
-| `apps/web/src/store/` | the single reactive-global-state tier: `root.ts` + `selectors.ts` + `mutations.ts`, the projector, the Sync client (`sync.ts` and its `sync-*.ts` leaves), the per-session terminal replica/view registry (`terminal-stream.ts`), pane-layout tiling, and **every** UI-state store (`uiStore.ts`, `toastStore.ts`, `renameDialog.ts`, `queueTaskDialog.ts`) | JSX, and module-level `let _ws` / `let _reconnectTimer` / `let _backoffMs` (lint-guarded) |
-| `apps/web/src/ws/` | the **outbound** half of the Sync v2 socket: PTY input plus terminal-view command transport (`sync-outbound.ts`) and smoke backdoor hooks | the socket, inbound dispatch, terminal membership, or terminal continuity — those live in `apps/web/src/store/` |
-| `apps/web/src/lib/` | pure helpers, DOM controllers, and browser-API adapters (`cellRenderer.ts`, `cellRow.ts`, `terminalInputController.ts`, `ptyPaste.ts`, `deckSwipe.ts`, prefs, diag) | JSX or terminal stream ownership — this directory holds zero `.tsx` files, which is why `src/components/UiBridge.tsx` lives in `apps/web/src/components/` |
-| `apps/web/src/auth/` | credential material: ed25519 WebCrypto key + IndexedDB (`web-key.ts`), pair-token redemption, per-tab identity, coordinator relocation | RPC plumbing (`apps/web/src/connect.ts`) and any UI |
-| `apps/web/src/styles/` | the six eagerly-imported global stylesheets; `theme-vars.css` is the alias graph the theme engine writes into, `sidebar.css` carries the `.wterm` terminal shell | component-local one-offs; scoped styles stay inline in the component |
-| `apps/web/tests/` | the hermetic Bun tier (~80 files), including 10 hand-rolled fake-DOM suites and the shared shim `apps/web/tests/helpers/cellRendererFakeDom.ts` | browser-real assertions — those are Playwright specs in `smoke/terminal/` |
-| `apps/web/public/` | static assets copied verbatim: fonts, icons, `manifest.webmanifest`, `sw-push.js` (push renderer), `whatsnew.json`, the pinned `wterm-roost.wasm` | anything generated by the build |
+| `apps/web/src/components/Settings/` | settings shell/panes; `OrganizationPane.tsx` and `DashboardPane.tsx` project confirmed scope, `MachinesPane.tsx` owns workers, `settingsNavigation.ts` hides self-hosted-only scope controls in managed mode | raw CSS values; panes compose `apps/web/src/components/Settings/md/` |
+| `apps/web/src/components/Settings/md/` | one-component-per-file M3 primitives re-exported by `primitives.tsx`; `tokens.css` consumes canonical theme variables and `icon.css` styles icons | app state, data fetching, or token declarations |
+| `apps/web/src/store/` | single reactive state: `root.ts`, selectors/mutations/projector, Sync leaves, terminal replica/view leaves, pane/UI stores; `dashboard-selection.ts` owns access bootstrap, remembered hints, generation-fenced resources, and atomic scope cutover | JSX or module-global socket/reconnect state |
+| `apps/web/src/ws/` | the **outbound** half of Sync v2: PTY input, terminal-view commands (`sync-outbound.ts`), smoke hooks | socket, inbound dispatch, membership, or continuity |
+| `apps/web/src/lib/` | pure helpers, DOM controllers, browser adapters (`cellRenderer.ts`, `cellRow.ts`, `terminalInputController.ts`, `ptyPaste.ts`, `deckSwipe.ts`, prefs, diag) | JSX or terminal stream ownership; this directory has zero `.tsx` files |
+| `apps/web/src/auth/` | web-key/IndexedDB, fragment credentials, pairing/tab identity/relocation; `tenant-routing.ts`, `managed-routes.ts`, `managed-auth-gateway.ts`, `managed-login.ts`, `managed-account.ts`, `managed-credentials.ts`, and `managed-logout.ts` own managed policy/transitions | RPC plumbing (`apps/web/src/connect.ts`) or UI |
+| `apps/web/src/styles/` | six global stylesheets imported by `main.tsx`; `theme-vars.css` is the canonical token/alias graph, `sidebar.css` owns `.wterm` shell rules | component-local one-offs |
+| `apps/web/tests/` | 112 recursive `*.test.ts` Bun suites, including 19 root `*.dom.test.ts` fake-DOM suites | browser-real assertions |
+| `apps/web/tests/helpers/` | shared non-suite fixtures: `cellRendererFakeDom.ts`, `terminalStreamFixture.ts` | test registration |
+| `apps/web/public/` | static assets copied verbatim: fonts, icons, `manifest.webmanifest`, `sw-push.js`, `whatsnew.json`, pinned `wterm-roost.wasm` | generated build output |
+
+Managed per-account isolation and these auth/dashboard modules are qualified,
+but the managed service is not publicly launched in v0.5.0. Accounts are
+operator-created; open signup and production managed image publication are off.
+
+`/search` and cross-worker transfer are beta placeholders in v0.5.0. Search
+directs users to sidebar filtering or terminal find; the session transfer item
+opens an explanatory dialog without issuing a transfer RPC. Attachment
+upload/download through `TransferStack` remains supported.
 
 ## Invariants
 
@@ -66,8 +78,9 @@ Break one of these and you get back the history-corruption class this repo keeps
   grid; `apps/web/src/lib/cellRenderer.ts` paints immutable cell rows at the worker's grid width and
   letterboxes surplus pane width. There is no client-side re-parse at a new width, no mirrored grid,
   no output reparse. Raw PTY bytes never enter the browser Sync socket.
-- **`apps/web/src/lib/cellRenderer.ts` is ONE class and is never split.** `CellGridRenderer` is
-  ~1296 lines and ~53 methods that share private per-frame state (`frame`, reader-intent holds,
+- **`apps/web/src/lib/cellRenderer.ts` is ONE class and is never split.**
+  `CellGridRenderer` methods share private per-frame state (`frame`,
+  reader-intent holds,
   the owned-scroll epoch); that encapsulation is the invariant. It carries
   `// ─── frame application ───`, `// ─── reader-intent holds ───` and `// ─── scroll ownership ───`
   banners at the method-group boundaries — navigate by those, do not extract past them. It is
@@ -95,10 +108,12 @@ Break one of these and you get back the history-corruption class this repo keeps
   `sendTerminalInput` in `apps/web/src/ws/sync-outbound.ts`; every batch resolves
   accepted/rejected/ambiguous and is never silently retried. `src/store/terminal-stream.ts`
   owns stable `view_id` handles, revisions, Sync-generation replay and one
-  canonical viewport replica per session. `CellTerminal` only calls
-  `view.setViewport(...)` / `view.setInactive()` and attaches a renderer. A
-  hidden renderer receives no cells, but detach or tab switching cannot delete
-  the session replica; reactivation receives a complete baseline before deltas.
+  canonical viewport replica per session. `CellTerminal.tsx` composes the pane;
+  `src/components/cell-terminal-viewport.ts` alone publishes active/inactive
+  view geometry, while `src/components/cell-terminal-renderer.ts` attaches the
+  renderer/stream. Hidden panes receive no cells, but detach or tab switching
+  cannot delete the session replica; reactivation receives a complete baseline
+  before deltas.
 - **Design system: no raw values in components.** No hex, `rgb()`, or px font-size outside the
   token-declaration files — `apps/web/src/styles/theme-vars.css`,
   `apps/web/src/styles/syntax-vars.css`, `apps/web/src/styles/voice-input.css`,
@@ -124,15 +139,18 @@ Break one of these and you get back the history-corruption class this repo keeps
   both of which poison every later file that would otherwise share the process.
 - `bun run test:terminal` — the Playwright browser tier, and the only tier that proves paint. It
   builds this app (`vite build`), regenerates the embeds (`scripts/gen-embed.ts`), runs pass 1
-  `--project=chromium-desktop` (plus `--project=webkit-iphone` on darwin) across the 23 spec files in
-  `smoke/terminal/` at `playwright.config.ts`'s `workers: 4`, then pass 2
-  `--project=chromium-serial --workers=1` for the `@serial` perf cases, and restores the embed stubs
+  `--project=chromium-desktop` (plus `--project=webkit-iphone` on darwin)
+  across the 36 `smoke/terminal/**/*.spec.ts` files. Repo-root
+  `playwright.config.ts` derives pass-1 workers from available CPUs, capped at
+  four. Pass 2 uses `--project=chromium-serial --workers=1` for `@serial` perf
+  cases, then the runner restores embed stubs
   (`scripts/gen-embed.ts --stub`) in a `finally`.
-- **Fake DOM, not jsdom.** `apps/web/tests/*.dom.test.ts` use a hand-rolled fake DOM and this repo
-  runs no jsdom or happy-dom, by design: Solid resolves to its **SSR build** under `bun test`, so a
-  DOM emulator buys nothing and the fake asserts exactly what the code touches (node identity, one
-  conditional scroll writer). The shared shim + frame builders are
-  `apps/web/tests/helpers/cellRendererFakeDom.ts`; the `cellRenderer.*.dom.test.ts` files consume it.
+- **Fake DOM, not jsdom.** The 19 `apps/web/tests/*.dom.test.ts` suites use a
+  hand-rolled fake DOM; this repo runs no jsdom or happy-dom. Solid resolves to
+  its SSR build under `bun test`, so a DOM emulator buys nothing and the fake
+  asserts exactly what the code touches. Shared renderer fixtures are in
+  `apps/web/tests/helpers/cellRendererFakeDom.ts`; the
+  `cellRenderer.*.dom.test.ts` files consume them.
   Do not introduce a DOM emulator to make a test easier.
 - `bun run --cwd apps/web typecheck` type-checks this workspace; CI type-checks the whole tree with
   `bun x tsgo -p tsconfig.base.json --noEmit`.

@@ -5,16 +5,21 @@
 
 # Roost
 
-**One control panel for every machine you own.**
+**One control panel for your terminal fleet.**
 
-Roost is a self-hosted, Bun-powered terminal control plane. One machine hosts the coordinator and works as a worker itself; add every other macOS, Linux, or Windows x64 machine as a worker. Your main laptop and spare machines become one terminal fleet you can control from a laptop, tablet, or phone.
+Roost is a self-hosted, Bun-powered terminal control plane. One macOS or Linux
+machine hosts the coordinator and works as a worker itself; add other macOS or
+Linux machines as workers. Control the whole fleet from a laptop, tablet, or
+phone.
 
-**macOS, Linux, and Windows x64 can run Roost coordinators and workers.** You reach them from a browser, so the device in your hand can be anything: Mac, Windows, Linux, iPhone, Android, iPad, or Android tablet.
+**v0.5.0 publishes macOS arm64/x64 and Linux arm64/x64 host binaries.**
+Windows host releases are paused, but a Windows device remains fully supported
+as a browser client alongside macOS, Linux, iPhone, Android, and tablets.
 
 _I built Roost for my own daily workflow: real infrastructure, not a demo._
 
 [![License](https://img.shields.io/badge/license-GPL--3.0--only-blue)](LICENSE)
-![Servers](https://img.shields.io/badge/coordinator%20%2B%20workers-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey)
+![Servers](https://img.shields.io/badge/coordinator%20%2B%20workers-macOS%20%7C%20Linux-lightgrey)
 ![Clients](https://img.shields.io/badge/clients-any%20browser%20%C2%B7%20iOS%20%7C%20Android%20%7C%20desktop-lightgrey)
 ![Runtime](https://img.shields.io/badge/runtime-Bun-14151a?logo=bun&logoColor=white)
 ![UI](https://img.shields.io/badge/ui-SolidJS-2c4f7c?logo=solid&logoColor=white)
@@ -24,7 +29,12 @@ _I built Roost for my own daily workflow: real infrastructure, not a demo._
 
 ## What it is
 
-One coordinator connects every machine you own into one fleet, and the coordinator machine can be a worker too. Add spare or older MacBooks, a Mac mini, a Linux box, or a Windows workstation, spread agent workloads across them, and manage every session from the same control panel. Pick a folder on any machine, open a workspace there, and the process runs on that machine while its native terminal stays available on every device you use — including devices that could never host a worker, like a phone or tablet.
+One coordinator connects every supported machine you own into one fleet, and
+the coordinator machine can be a worker too. Add spare or older MacBooks, a
+Mac mini, or a Linux box, spread agent workloads across them, and manage every
+session from the same control panel. Pick a folder on any machine, open a
+workspace there, and the process runs on that machine while its terminal stays
+available on every browser device — including a phone or tablet.
 
 Every session is a shell PTY rendered in the browser. Launch any agent CLI, shell, REPL, or TUI inside it and use that program's native terminal interface. Roost never spawns, supervises, or owns an agent session; the CLI remains an ordinary command in its shell PTY.
 
@@ -34,7 +44,12 @@ Once you have agents across several machines, spare hardware often sits unused w
 
 ## Three ways I use it
 
-**Leave the heavy work at home.** Have old MacBooks, a spare Mac mini, a Linux box, or a Windows workstation sitting around? Add them as workers, choose the project folder on each one, and put the heavy agent runs there. Their CPU and RAM carry the workload while your main laptop stays light enough to take with you. Roost keeps all of those sessions in the same control panel, so working from a different machine does not mean juggling a different workflow.
+**Leave the heavy work at home.** Have old MacBooks, a spare Mac mini, or a
+Linux box sitting around? Add them as workers, choose the project folder on
+each one, and put the heavy agent runs there. Their CPU and RAM carry the
+workload while your main laptop stays light enough to take with you. Roost
+keeps all of those sessions in the same control panel, so working from a
+different device does not mean juggling a different workflow.
 
 **Take only a tablet.** Roost is a fully functional web app, not a cut-down remote viewer. Pair an iPad or Android tablet, add a keyboard, and you get the same terminal, pane layout, and shortcuts as the desktop surface. The work still runs on your workers at home; the tablet is simply another way into the same sessions.
 
@@ -44,10 +59,21 @@ Once you have agents across several machines, spare hardware often sits unused w
 
 **Run any terminal program.** Pick a server and folder, open a terminal, and launch `omp`, Claude Code, Codex, a shell, a REPL, or any other TUI. Roost keeps the PTY alive and renders the program's own terminal interface on every device.
 
-**Build a fleet from the machines you already own.** Connect every macOS, Linux, and Windows x64 machine to one coordinator, then use each one as a worker, including the coordinator machine. Put an agent run where CPU and RAM are available, pick a project folder on that worker, and open a workspace there. Workers dial outbound only, so they do not expose an inbound port. The sidebar groups every live session by machine, so the entire fleet stays legible in one browser tab.
+**Build a fleet from the machines you already own.** Connect your macOS and
+Linux hosts to one coordinator, then use each one as a worker, including the
+coordinator machine. Put an agent run where CPU and RAM are available, pick a
+project folder on that worker, and open a workspace there. Workers dial
+outbound only, so they do not expose an inbound port. The sidebar groups every
+live session by machine, so the fleet stays legible in one browser tab.
 
 
-**A full terminal on every device.** The same fully functional web app runs on any modern browser — macOS, Windows, and Linux desktops, iPhone, Android phones, iPads, and Android tablets. Nothing to install on the device you browse from. It renders the real persistent PTY with full ANSI, colors, and scrollback. Upload files into a session, download files from a worker to your browser, and use the terminal without caring which machine runs it. Tablets keep the desktop layout, panes, and shortcuts. Phones add touch selection, an on-screen key row, and gestures for real work. Add it to your home screen and it installs as a standalone PWA with its own icon and no browser chrome.
+**A full terminal on every device.** The same web app runs in any modern
+browser — macOS, Windows, and Linux desktops, iPhone, Android phones, iPads,
+and Android tablets. Nothing is installed on the device you browse from.
+Roost renders ANSI, colors, and retained scrollback; uploads files into a
+session and downloads files from a worker. Tablets keep the desktop layout,
+panes, and shortcuts. Phones add touch selection, an on-screen key row, and
+gestures. Add it to your home screen for a standalone PWA with its own icon.
 
 ![Desktop-grade on a tablet, the same real terminal and layout as a laptop](docs/media/tablet-desktop.png)
 
@@ -63,7 +89,14 @@ Once you have agents across several machines, spare hardware often sits unused w
 
 **Talk to your terminal.** Tap the mic and dictate straight into a session. The recognized text is typed in as real input and sent, with no review step in between. It works with zero setup using your browser's built-in speech recognition, though that's a rough fallback. For dictation that's actually good, add a Deepgram API key (Settings → Voice). That's the recommended path, with much higher accuracy and multi-language support, and the key is stored once on the coordinator and shared across every device. It's especially handy on a phone, where typing a long prompt is a chore.
 
-**Sessions that don't die.** PTYs run in a keeper subprocess that outlives worker restarts. Drop WiFi, close the laptop, refresh, or reopen the same session on another machine, and the process is still running with full scrollback. Sessions are event-sourced and the byte stream is resumable from an offset, so reconnects splice back cleanly, with no loss and no duplication.
+**Sessions that survive ordinary disconnects.** A keeper subprocess normally
+keeps each PTY alive across worker restarts and retains a bounded 1 MiB raw
+history window per channel for adoption. Open, close, and respawn events enter
+a crash-safe SQLite outbox, replay one at a time, and leave only after an exact
+coordinator ACK. Browsers consume authoritative cell snapshots and deltas;
+sequence gaps trigger an in-place rebaseline or Sync redial rather than a
+silent splice or page reload. Retained history is bounded, not an unlimited
+lossless byte log.
 
 
 **See which agent needs you.** Every terminal running a coding agent carries one
@@ -76,64 +109,121 @@ after you grant permission in Settings → Notifications — a real OS notificat
 on your phone or laptop that opens straight to that session. Nothing about
 status is stored: restart anything and it re-derives itself.
 
-**The terminal is the only interactive surface.** Every session owns a PTY. Output renders in a real WASM VT terminal (`@wterm/dom`) with full ANSI and scrollback, whether the process is an agent CLI, shell, REPL, editor, or other TUI.
+**The terminal is the only interactive surface.** Every session owns a PTY.
+The worker feeds its output through the `@wterm/core` WASM terminal model and
+ships cell snapshots/deltas; the browser paints that authoritative grid. The
+program itself remains an ordinary agent CLI, shell, REPL, editor, or TUI.
 
-**Yours, not a SaaS.** It runs on your hardware over your own network. Auth is an EdDSA JWT minted in the browser with WebCrypto, and the private key lives in IndexedDB and is never sent to the coordinator. There are no shared tokens, no accounts, and no telemetry. Revoke a device by deleting a row.
+**Yours, not a SaaS.** It runs on your hardware over your own network. Coordinator startup automatically owns one internal local tenant (`local@roost.invalid`, a `personal` organization, and its `default` dashboard); there is no tenant-bootstrap command or login account to provision. Browser auth is an EdDSA JWT minted with WebCrypto, and the private key lives in IndexedDB and is never sent to the coordinator. There are no shared bearer tokens and no telemetry. Revoke a device by deleting a row.
+
+The managed per-account container, authentication gateway, and
+dashboard-isolation implementation also pass the mandatory four-file
+qualification profile, but they are **not publicly launched** in v0.5.0. No
+production managed containers run, no managed image is published, and the
+shared dashboard route is not active. Accounts remain operator-created;
+production email signup and Google auth are off.
 
 ## How it works
 
 ```text
-   Browser  (any device on your network)
-      │   Connect-RPC over HTTP/2, protobuf binary
-      │   terminal data · session state, one connection
+   Browser  (any device that can reach the selected HTTPS origin)
+      │   unary Connect-RPC over HTTPS
+      │   protobuf Sync WebSocket: events, terminal cells, views, input
       ▼
  ┌─────────────────────────┐
- │ Coordinator  (Bun)      │   event-sourced SQLite · auth · session registry
- │ one machine · port 4102 │   fans live updates out to every open browser
+ │ Coordinator  (Bun)      │   event log + transactional projection · auth
+ │ one machine · HTTPS     │   dashboard-scoped Sync and terminal fan-out
  └───────────┬─────────────┘
-             │   raw WebSocket · protobuf frames · worker dials outbound
-   ┌─────────┼───────────────────┐
-   ▼         ▼                   ▼
- Worker    Worker              Worker        (Bun, one per machine)
- macOS     Linux               Windows
-   │  a keeper subprocess hosts every PTY and outlives worker restarts
+             │   protobuf WebSocket · worker dials outbound
+      ┌──────┴───────────────┐
+      ▼                      ▼
+ Worker                   Worker        (Bun, one per macOS/Linux host)
+      │   keeper subprocess owns each PTY across worker restarts
 ```
 
-The coordinator handles control and fan-out only. It holds an append-only event log that every session is projected from, so the browser and the server agree on state by replaying the same events rather than mirroring a snapshot. Workers are outbound-only: they dial the coordinator, never the reverse. For the full tour, see [`ARCHITECTURE.md`](ARCHITECTURE.md).
+The coordinator atomically stores each accepted session event with its
+projection. On reconnect, a worker replays durable lifecycle rows, publishes
+one authoritative membership snapshot, then enters live delivery. A browser
+reconnect folds ordered event backfill and uses guarded current-state snapshots
+when cold start or recovery requires them. Workers remain outbound-only. For
+the full tour, see [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 
 ## Network
 
-Roost's supported automated production topology is [Tailscale](https://tailscale.com): it gives every device a stable name, provides the trusted private enrollment boundary, and connects phones without port-forwarding. WireGuard, Headscale, ZeroTier, other VPNs, and a plain LAN can be wired up manually when browser and coordinator reachability is already solved, but those paths are not exercised by the installer or release canaries.
+Quickstart supports two production coordinator modes:
 
-**[Cloudflare browser access](GETTING_STARTED.md#optional-browser-access-through-cloudflare) is optional.** Browsers may enter through Cloudflare Access and Tunnel, while the coordinator and every worker still communicate over Tailscale. A phone, tablet, or browser-only computer using the Cloudflare hostname needs only an ordinary browser, not Tailscale; worker machines still need Tailscale. That's the setup for reaching your fleet from a device you can't or won't install a VPN client on — a work laptop, a borrowed machine, a locked-down phone. Only the coordinator runs `cloudflared` (macOS via Homebrew, Linux via Cloudflare's apt/rpm repo). This removes the client-install requirement from browser devices without changing worker enrollment, worker WebSockets, `roost deploy`, `roost status`, direct-machine links, or coordinator relocation. Run `roost expose` only as a post-install step after Roost is already working over Tailscale.
+- **Automatic Tailscale Serve (no endpoint flags).** Quickstart discovers the
+  coordinator's MagicDNS name, keeps coordinator HTTP on loopback port 4103,
+  and configures Tailscale Serve HTTPS on port 4102. Browsers and workers using
+  this route join the tailnet.
+- **Direct HTTPS (all three endpoint flags).** Coordinator quickstart does not
+  call Tailscale. Bun listens on the explicitly selected port and terminates
+  HTTPS with the supplied certificate. You provide DNS, routing, firewall
+  policy, and a chain trusted by every client.
+
+Direct mode is Tailscale-free for the coordinator, its installed local worker,
+and browser access. The current POSIX extra-worker join script still performs a
+Tailscale preflight, and the CLI enrollment generator is automatic-mode-only.
+
+**[Cloudflare browser access](GETTING_STARTED.md#optional-cloudflare-browser-access-for-automatic-mode)
+is optional.** It layers browser access onto automatic mode: browsers enter
+through Cloudflare Access/Tunnel while coordinator-worker traffic remains on
+Tailscale. Only the coordinator runs `cloudflared`.
 
 ## Install
 
-Roost's coordinator and workers run on macOS, Linux, and Windows x64. POSIX hosts use launchd or `systemd --user`; Windows uses restricted SCM services. Browsing devices need only a modern browser. The supported production install uses Tailscale.
+Roost v0.5.0 publishes coordinator/worker binaries for macOS arm64/x64 and
+Linux arm64/x64. POSIX hosts use launchd or `systemd --user`; browsing devices
+need only a modern browser. The installer checks the binary against its GitHub
+Release SHA-256 sidecar.
 
-On macOS or Linux:
+Choose one quickstart mode. Automatic Tailscale mode needs no endpoint flags:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/cefege/roost/main/install-binary.sh | bash
 "$HOME/.local/bin/roost" quickstart
 ```
 
-On Windows x64, install Tailscale first and use the signed PowerShell 5.1+
-bootstrap flow in [`GETTING_STARTED.md`](GETTING_STARTED.md#install--run). It
-requires the release-publisher certificate SHA-256 from an independent trusted
-channel, verifies the downloaded installer's Authenticode chain, trusted
-timestamp, and exact leaf-certificate pin before execution, then verifies the
-signed release manifest and every package file.
+For direct HTTPS, pass the three endpoint flags together:
+
+```sh
+"$HOME/.local/bin/roost" quickstart \
+  --coordinator-url "https://roost.example.com:8443" \
+  --tls-cert "$HOME/.config/roost/tls/fullchain.pem" \
+  --tls-key "$HOME/.config/roost/tls/privkey.pem"
+```
+
+The URL is an HTTPS origin with an explicit numeric port, no credentials,
+query, fragment, or non-root path. Certificate and key paths are absolute,
+readable, non-symlink regular files that resolve to distinct files. The
+certificate must match the hostname and be trusted by every client. See
+[`GETTING_STARTED.md`](GETTING_STARTED.md) for the full contract.
+
+Windows host releases are paused: v0.5.0 publishes no Windows coordinator,
+worker, installer, join script, or update path. Windows remains supported as a
+browser client.
 
 For source development only, `curl -fsSL https://raw.githubusercontent.com/cefege/roost/main/install.sh | bash` installs Bun and a checkout that tracks `main`; it is not the pinned production release path.
 
-Two things make growing your fleet painless, with no SSH and no tokens to hand-copy:
+Quickstart sends its one-shot `#pair` fragment directly to the local browser
+opener and never prints or logs the secret. The fragment is absent from HTTP
+requests and `Referer` headers. If the opener fails, fix the local opener and
+rerun quickstart, or pair from an already authorized browser; never move an
+enrollment secret through shell history, chat, logs, or screenshots.
 
-- **Add a phone or tablet by QR.** In **Settings → Pair a device**, scan the QR with your phone's camera. It opens Roost and signs itself in, with nothing to type.
-- **Add another machine.** On the coordinator, run `roost add-machine --platform macos`, `roost add-machine --platform linux`, or `roost add-machine --platform windows` (or use **Settings → Machines → Add machine**), then paste its one-shot enrollment command on the new host.
+Two enrollment surfaces avoid copying long-lived credentials:
 
-The full walkthrough, covering pairing devices and adding machines, is in [`GETTING_STARTED.md`](GETTING_STARTED.md).
+- **Add a phone or tablet by QR.** In **Settings → Pair a device**, scan the QR
+  with the device camera. It opens Roost and signs itself in.
+- **Add a macOS/Linux worker.** **Settings → Machines → Add machine** uses the
+  configured coordinator origin in either mode; the `roost add-machine`
+  generators are automatic-mode-only. Paste the one-shot command on the new
+  host. The current POSIX join script still requires a running Tailscale daemon
+  even for a direct origin, so v0.5.0 has no Tailscale-free extra-worker
+  enrollment path.
+
+The full walkthrough is in [`GETTING_STARTED.md`](GETTING_STARTED.md).
 
 ![Pair a phone or tablet by scanning a QR; it signs itself in, nothing to type](docs/media/pair-qr.png)
 
@@ -143,39 +233,64 @@ Claude on the web and on your phone is a control plane too, but it drives Anthro
 
 |   | Claude on the web / phone | Roost |
 |---|---|---|
-| **What it drives** | Anthropic-hosted cloud sandboxes, or one local Mac tethered via `claude rc` | Every macOS, Linux, or Windows x64 machine you own, natively |
-| **Open a new terminal while away** | No; limited to sandboxes or sessions already running | Yes; open a fresh terminal in any folder on any machine, from your phone |
+| **What it drives** | Anthropic-hosted cloud sandboxes, or one local Mac tethered via `claude rc` | Every macOS or Linux worker you own, natively |
+| **Open a new terminal while away** | No; limited to sandboxes or sessions already running | Yes; open a fresh terminal in any folder on any registered worker, from your phone |
 | **What runs in it** | Claude Code only | Any agent, shell, REPL, or TUI |
 | **Where your code lives** | A cloud VM (or the one tethered Mac) | Your own hardware, your own network |
 | **The surface** | A chat window onto the agent | The real terminal, with full ANSI, scrollback, and touch |
-| **Hosting** | SaaS, tied to an account | Self-hosted, no account, no telemetry |
+| **Hosting** | SaaS, tied to a login account | Self-hosted, automatic local tenant, no login account or telemetry |
 
 Your desktop browser stays perfectly usable for claude.ai. Roost isn't a replacement for it; it's the piece the cloud can't be, which is native control of your own fleet from anywhere.
 
 ## Roadmap
 
-- **Headless-server polish.** Linux workers already install as a `systemd --user` unit with linger, so an always-on box keeps running after logout; the remaining work is the setup path for a box you only ever reach over SSH.
-- **Multi-user.** The schema already models multiple operators; a UI for it is next.
+- **Headless-server polish.** Linux workers already install as a
+  `systemd --user` unit with linger; setup for a box reached only over SSH
+  remains.
+- **Tailscale-free direct enrollment.** Direct coordinator quickstart already
+  avoids Tailscale, but the current POSIX worker join front door still requires
+  a Tailscale preflight.
+- **Multi-user self-hosting.** v0.5.0 automatically provisions one local
+  tenant; broader self-hosted operator administration remains outside this
+  release.
+- **Public managed launch.** Per-account isolation is qualified, while image
+  publication, dashboard activation, and production signup remain off.
 
 ## Status
 
-Early, and honest about it. I use Roost every day as my primary coding surface, so the paths I hit are solid. Paths I don't may be rough.
+The v0.5.0 release boundary is explicit:
 
-- Coordinator and workers: macOS, Linux, and Windows x64 (launchd, `systemd --user`, or Windows SCM services)
-- Browsing devices: any modern browser — macOS, Windows, Linux, iOS, iPadOS, Android — with nothing to install
-- Needs a shared network (Tailscale tested) and whatever terminal CLI tools you want to run
-- Single-user today; the schema is built for multiple operators but there's no UI for it yet
+- **Hosts:** macOS arm64/x64 and Linux arm64/x64. Windows host support is
+  paused; Windows remains supported as a browser client.
+- **Networks:** automatic Tailscale Serve or direct HTTPS. The current
+  extra-worker join path is still Tailscale-gated.
+- **Deployment:** self-hosted macOS/Linux is released and deployed. Managed
+  per-account isolation is qualified, not publicly launched; accounts are
+  operator-created and production signup, Google auth, image publication, and
+  dashboard activation remain off.
+- **Beta surfaces:** global search is unavailable; use sidebar filtering or
+  per-terminal find. Cross-worker file transfer is unavailable; use `rsync` or
+  `scp` in a terminal.
 
 ## Built with
 
-- **Web:** Solid + Vite, `@connectrpc/connect-web`, `@wterm/dom` (WASM terminal core)
-- **Coordinator:** Bun, Connect-RPC + protobuf, Kysely + `bun:sqlite`, event-sourced session log, EdDSA-JWT auth
-- **Workers:** Bun, native PTYs via `Bun.spawn`
-- **Transport:** Connect-RPC (browser↔coordinator), protobuf-over-WebSocket (worker↔coordinator)
+- **Web:** Solid + Vite, `@connectrpc/connect-web`, and a canvas cell-grid
+  renderer
+- **Coordinator:** Bun, Connect-RPC + protobuf, Kysely + `bun:sqlite`,
+  transactional event projection, EdDSA-JWT auth
+- **Workers:** Bun, native PTYs via `Bun.spawn`, `@wterm/core`, keeper
+  subprocesses
+- **Transport:** unary Connect-RPC plus a protobuf Sync WebSocket
+  (browser↔coordinator), protobuf WebSocket (worker↔coordinator)
 
 ## Built by
 
-I'm Mihai — I build and run Roost solo, and it's my daily coding surface. That's why the hard parts are real rather than demo-deep: an event-sourced coordinator that projects every session from an append-only log, outbound-only workers that never expose an inbound port, a custom Connect-RPC and protobuf transport, a resumable byte stream that reconnects with no loss and no duplication, a WASM VT terminal that renders full ANSI on a phone, and self-hosted EdDSA-JWT auth with a private key that never leaves the browser.
+I'm Mihai — I build and run Roost solo, and it is my daily coding surface.
+That is why the hard parts are real rather than demo-deep: a crash-safe
+lifecycle outbox, atomic coordinator event projection, outbound-only workers,
+keeper-owned PTYs, generation-addressed terminal cells that repair gaps in
+place, and self-hosted EdDSA-JWT device auth whose private key never leaves the
+browser.
 
 Reach me on [GitHub](https://github.com/cefege) or [LinkedIn](https://de.linkedin.com/in/mihai-mateias).
 

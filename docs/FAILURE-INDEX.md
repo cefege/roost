@@ -570,6 +570,25 @@ on `hasOpened`; the log is `reconnect_backoff_escalated`, never `auth_rejection_
 
 **Guard** — `apps/worker/tests/coord-link-backoff-cap.test.ts`.
 
+### Managed worker reconnects but respawns every terminal
+
+**Symptom** — "worker WebSocket opens and heartbeats are fresh, but every workspace remains unavailable /
+worker logs `resume_failed` with `[unauthenticated] authentication required`, followed by a burst of
+`respawn_if_missing_spawning` instead of keeper adoption"
+
+**Wrong** — treat a successful worker WebSocket as terminal recovery, let the coordinator's delayed
+`respawn-if-missing` fallback recreate every database row, or grant workers browser/session mutation authority.
+The fallback preserves sidebar rows but loses the prior subprocess and terminal context.
+
+**Right** — `SessionsList` admits a worker principal only when the request names that exact worker fingerprint,
+requests only `status=open`, carries no browser sync-snapshot ID, and remains scoped to the worker's assigned
+dashboard. Boot reconciliation can then advance the channel counter and adopt keeper survivors before the
+coordinator fallback runs; every other session RPC remains account-device-only.
+
+**Guard** — `apps/coord/tests/worker-session-list-auth.test.ts`;
+`apps/coord/tests/dashboard-resource-scope.test.ts`;
+`apps/worker/tests/boot-reconcile-admission.test.ts`.
+
 ### A live viewport change rebuilds the terminal core
 
 **Symptom** — "tab switch stalls for seconds and reloads scrollback / unchanged
@@ -675,16 +694,17 @@ heals the rest. Same half-open-through-tailscale class as the boot RPC timeout.
 **Wrong** — dial the Sync socket after the bootstrap lists again (throws away the cold-start win for every warm
 boot to fix only the first-ever boot), or paper over it with a post-bootstrap `sessionsList` refetch.
 
-**Right** — **the snapshot must be ordered AFTER the socket is subscribed, and an authorization must wake the
-backoff.** coord runs NO backfill from zero, so an event published between `sessionsList` resolving and the
-socket subscribing is lost outright — there is nothing to replay it from. (a)
-`apps/web/src/store/sync-bootstrap.ts` awaits the subscribed barrier (`waitForSyncSubscribed` in
-`apps/web/src/store/sync.ts`, which resolves only once the subscription establishes
-socket/domain generations, never at `WebSocket.onopen`) and takes its snapshot against that socket's id, so the
-window is CLOSED, not merely shrunk. (b) after a first-boot `_attemptSelfRegister()` authorizes the key,
-`resumeSyncNow()` re-dials at once instead of serving out a 1s/2s/4s backoff. Any change to the dial ordering
-MUST keep both. Instrumented proof: lists 401 → self-register → retry OK, but the socket's first dial 401'd and
-the `opened` event fired during its 1s backoff.
+**Right** — **the snapshot must be ordered AFTER the socket is subscribed.**
+Coordinator Sync runs no backfill from zero, so an event published between
+`sessionsList` resolving and the socket subscribing is lost outright — there is
+nothing to replay it from. `apps/web/src/store/sync-bootstrap.ts` awaits the
+subscribed barrier (`waitForSyncSubscribed` in `apps/web/src/store/sync.ts`,
+which resolves only once the subscription establishes socket/domain
+generations, never at `WebSocket.onopen`) and takes its snapshot against that
+socket's id, so the window is CLOSED, not merely shrunk. Browser authorization
+finishes separately through one-shot grant redemption or pairing before this
+pipeline proceeds; an unknown key remains in onboarding and is not silently
+enrolled or retried as a transport failure.
 
 **Guard** — `smoke/terminal/` — `"browser smoke flow creates and cleans its resources"` on a FRESH context;
 `apps/web/tests/sync-flow.test.ts` — `"repeated bootstrap retries retain one infinite-loop owner"`.
@@ -697,14 +717,18 @@ the `opened` event fired during its 1s backoff.
 
 **Symptom** — "browser 401 on workers.list after fresh context"
 
-**Wrong** — manual debugging, or a retired REST/tRPC authorize route.
+**Wrong** — infer authority from loopback, a tailnet source address, or a
+retired implicit-enrollment route.
 
-**Right** — the Connect `AuthAuthorizeBrowser` RPC (loopback-or-tailnet,
-`apps/coord/src/connect/handlers-auth.ts`) takes the pubkey: `roost api <verb>` SELF-authorizes its own key on
-`Unauthenticated` (the bootstrap hook in `apps/roost-cli/src/api.ts`); a fresh BROWSER's IndexedDB WebCrypto
-pubkey goes through the same RPC or the loopback pair flow (`PairApprove`).
+**Right** — a fresh browser must redeem a scoped one-shot browser grant
+(`#pair=<bearer>` or pasted token), or post a pairing request that an
+already-authorized browser or direct on-host operator explicitly approves.
+Tailscale supplies reachability only. Quickstart preserves one-command initial
+use by opening a host-minted fragment grant after tenant initialization.
 
-**Guard** — `apps/coord/tests/public-surface.test.ts` (pins which auth routes are reachable unauthenticated).
+**Guard** — `apps/coord/tests/device-revocation.test.ts` (a tailnet address
+without a grant remains unauthorized) and `apps/coord/tests/pair-bus-publish.test.ts`
+(a tailnet caller cannot self-approve).
 
 ### audit_log caller_fp is NULL for every authed RPC
 
@@ -747,12 +771,12 @@ the events table.
 never triggers.
 
 **Right** — **`RATE_LIMITED_ROUTES: ReadonlySet<string>` enumerating mutation paths only** at
-`apps/coord/src/middleware/rate-limit.ts`: auth (AuthorizeBrowser/MintBootstrap/RedeemWorker/RedeemBrowser),
-workspace create/update/delete/set-sessions, task enqueue/set-state/cancel, webhook-token / permission / MCP
-mutations, worker rename/delete/deploy-start. `*List`, identity and health probes are NOT in the set.
+`apps/coord/src/middleware/rate-limit.ts`: auth (MintBootstrap/RedeemWorker/RedeemBrowser),
+workspace create/update/delete/set-sessions, task enqueue/set-state/cancel, MCP mutations, and worker
+rename/delete/deploy-start. `*List`, identity and health probes are NOT in the set.
 
 **Guard** — `apps/coord/tests/coord-e2e.test.ts` —
-`"rate limit: 100 AuthAuthorizeBrowser POSTs from same IP → 101st returns 429"`.
+`"rate limit: 100 AuthRedeemBrowser POSTs from same IP → 101st returns 429"`.
 
 ### JSON.parse inside a bus publish, after the commit
 

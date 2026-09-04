@@ -12,9 +12,9 @@ Path references are relative to `apps/shared/` unless they start at the repo roo
 module and the `"."` entry in `package.json#exports` are both deleted. Import the
 subpath that owns the symbol.
 
-The old barrel re-exported 8 of 23 modules with no stated rule, so a bare import
-silently resolved for some symbols and failed for others — worker code mixed both
-styles on adjacent lines. One import style is now correct instead of two.
+The removed barrel exposed only a subset of modules with no stated rule, so a
+bare import silently resolved for some symbols and failed for others. One
+import style is now correct instead of two.
 
 `@roost/shared` is still the valid **package** name, so
 `bun run --filter='@roost/shared' proto:gen` remains correct. It is only the `"."`
@@ -24,18 +24,28 @@ styles on adjacent lines. One import style is now correct instead of two.
 | --- | --- |
 | `@roost/shared/wire` | Zod schemas + `z.brand()` identity types + `foldEvent`/`foldAll` |
 | `@roost/shared/wire/event-proto` | `eventToProto` / `protoToEvent` |
+| `@roost/shared/wire/coord-worker` | worker↔coordinator WebSocket schemas, auth subprotocol, PTY directions |
 | `@roost/shared/wire/session-proto` | Session ↔ proto |
 | `@roost/shared/wire/row-proto` | scrollback row ↔ proto |
-| `@roost/shared/cell` | cell-grid model, emitter, delta apply (R11) |
+| `@roost/shared/wire/sync-ws` | Sync WebSocket path, auth subprotocol, negotiation query constants |
+| `@roost/shared/wire/headers` | shared `x-roost-*` header names and listener-trust sentinel values |
+| `@roost/shared/cell` | cell-grid model, emitter, delta apply, bounded snapshot chunking/assembly (R11) |
 | `@roost/shared/cell/cell-proto` | cell frame ↔ proto |
 | `@roost/shared/proto/*` | every generated `_pb.ts` (`…/proto/coordinator_pb`) |
 | `@roost/shared/config` | `CoordConfig` + `loadCoordConfig(env)` — **coord only** |
+| `@roost/shared/tenant-route` | lowercase 64-hex tenant route-key validation |
 | `@roost/shared/paths` | per-platform data/log/service dirs + service labels |
+| `@roost/shared/shell-quote` | canonical POSIX single-quote encoding |
 | `@roost/shared/platform` | `SupportedHostPlatform`, `supportedHostPlatform()`, `assertNeverPlatform` |
 | `@roost/shared/native-path` | lexical worker-path normalization (browser-safe) |
 | `@roost/shared/tailnet` | tailscale binary candidates + MagicDNS name resolution |
 | `@roost/shared/fingerprint` | `fingerprintOf` — the one pubkey fingerprint |
 | `@roost/shared/durability` | `durableWriteFile` atomic write + private DACL |
+| `@roost/shared/email-client` | provider-neutral Resend client + classified outcomes |
+| `@roost/shared/email-payload` | AES-256-GCM persisted email-outbox payload boundary |
+| `@roost/shared/retry` | capped exponential-backoff delay + jitter policy |
+| `@roost/shared/jwt-base` | Node-side JWT base64url codec; never browser-imported |
+| `@roost/shared/native-credentials` | account-email normalization + native-password policy |
 | `@roost/shared/local-endpoint` | UDS / named-pipe prep, securing, capability tokens |
 | `@roost/shared/service-health` | local health server + prober (re-exports its protocol schemas) |
 | `@roost/shared/build-identity` | compiled-binary version + git sha |
@@ -60,29 +70,40 @@ reached through `@roost/shared/service-health`, which re-exports it.
    `sync.proto`, `events.proto`, `cell.proto`, `worker_transport.proto`).
 2. `bun run --filter='@roost/shared' proto:gen` (`buf generate`; config in
    `buf.gen.yaml` + `proto/buf.yaml`). Output lands in `src/gen/roost/v1/`, one
-   `_pb.ts` per proto — 9,649 generated lines, never hand-edited, excluded from
-   the line-cap lint.
+   `_pb.ts` per proto; generated files are never hand-edited and are excluded
+   from the line-cap lint.
 3. Update the Zod schema in `src/wire/` and its adapter in the same pass.
 4. Every consumer typechecks against the regenerated code.
 
-The `JsonEvent` fallback path was retired in PR-7g. Do not reintroduce it.
+The `JsonEvent` Sync fallback remains for payloads without a typed frame and
+for deployed-client compatibility; do not retire it without migrating both
+producers and consumers.
 
 ## Module map
 
-- **Wire (Zod)** — `src/wire/brand.ts` (branded ids), `src/wire/worker.ts`,
-  `src/wire/session.ts`, `src/wire/agent-status.ts`, `src/wire/event.ts` (`foldEvent`, consumed by BOTH the
-  coord projector and the web projector, so the two projections agree by
-  construction), `src/wire/control.ts`, `src/wire/coord-worker.ts`, `src/wire/workspace.ts`, `src/wire/task.ts`,
-  `src/wire/mcp.ts`, plus the `*-proto.ts` adapters.
-- **Terminal cell model** — `src/cell/types.ts`, `src/cell/grid-to-cells.ts`,
-  `src/cell/diff-grid.ts`, `src/cell/emitter.ts`, `src/cell/cell-proto.ts`.
-- **Config** — `src/config.ts`: coord schema + loader only.
+- **Wire (Zod)** — public barrel `src/wire/index.ts`; owners
+  `src/wire/brand.ts`, `src/wire/worker.ts`, `src/wire/session.ts`,
+  `src/wire/agent-status.ts`, `src/wire/event.ts` (`foldEvent`, consumed by BOTH
+  projectors), `src/wire/control.ts`, `src/wire/coord-worker.ts`,
+  `src/wire/sync-ws.ts`, `src/wire/headers.ts`, `src/wire/workspace.ts`,
+  `src/wire/task.ts`, `src/wire/mcp.ts`, plus the `*-proto.ts` adapters.
+- **Terminal cell model** — public barrel `src/cell/index.ts`;
+  `src/cell/types.ts`, `src/cell/grid-to-cells.ts`, `src/cell/diff-grid.ts`,
+  `src/cell/emitter.ts`, `src/cell/cell-proto.ts`, and snapshot owners
+  `src/cell/frame-chunks.ts`, `src/cell/frame-chunk-validation.ts`,
+  `src/cell/frame-chunk-assembler.ts`.
+- **Config** — `src/coord-config-schema.ts` owns the declarative `CoordConfig`;
+  `src/config.ts` owns environment normalization, secret resolution, cross-field
+  policy, and the public re-export.
 - **Platform + paths** — `src/platform.ts`, `src/paths.ts`, `src/native-path.ts`,
-  `src/tailnet.ts`, `src/durability.ts`, `src/local-endpoint.ts`,
-  `src/service-health.ts`, `src/service-health-protocol.ts`,
-  `src/build-identity.ts`, `src/machine-join-command.ts`.
+  `src/tenant-route.ts`, `src/tailnet.ts`, `src/durability.ts`,
+  `src/local-endpoint.ts`, `src/service-health.ts`,
+  `src/service-health-protocol.ts`, `src/build-identity.ts`,
+  `src/machine-join-command.ts`, `src/shell-quote.ts`.
 - **Observability** — `src/log.ts`, `src/diag.ts`, `src/trace.ts`, `src/json.ts`.
-- **Identity + timing** — `src/fingerprint.ts`, `src/viewport.ts`.
+- **Identity + timing** — `src/fingerprint.ts`, `src/native-credentials.ts`,
+  `src/jwt-base.ts`, `src/viewport.ts`, `src/retry.ts`.
+- **Email** — `src/email-client.ts`, `src/email-payload.ts`.
 - **Native / Windows** — `src/windows-helper.ts`, `src/windows-relocation.ts`.
 - **WASM** — `src/wterm-core-factory.ts`, `src/wterm-wasm.ts`, `wasm/`.
 - **Generated** — `src/gen/roost/v1/`, `src/install-scripts.generated.ts`,
@@ -123,6 +144,9 @@ The `JsonEvent` fallback path was retired in PR-7g. Do not reintroduce it.
 
 ## Test
 
-`bun test apps/shared/tests/` — 21 files, 157 tests. `tests/trace-oracle.ts` is
-the differential VT trace oracle that gates the pinned WASM; it is a helper, not
-a spec, and is driven by `tests/core-trace-oracle.test.ts`.
+`bun test apps/shared/tests/` — 27 `**/*.test.ts` files, 218 registered
+tests. `tests/trace-oracle.ts` is the differential VT trace oracle that gates
+the pinned WASM; it is a helper, not a spec, and is driven by
+`tests/core-trace-oracle.test.ts`.
+`tests/coordinator-transfer-retirement.test.ts` pins the absence of
+cross-worker RPC/worker-wire variants while preserving attachment RPCs.

@@ -1,94 +1,110 @@
 <!-- AUDIENCE: human -->
 # Getting started with Roost
 
-Roost runs across macOS, Linux, and Windows x64 machines. The supported
-automated production topology is [Tailscale](https://tailscale.com): one machine
-runs the coordinator plus a worker, and browsers and other workers reach it
-through the tailnet. WireGuard, Headscale, ZeroTier, other VPNs, and a plain LAN
-are manual, unverified alternatives rather than equivalent installer paths.
+The v0.5.0 self-hosted coordinator/worker runtime is released and deployed on
+macOS arm64/x64 and Linux arm64/x64. Quickstart supports two production modes:
+automatic Tailscale Serve and operator-managed direct HTTPS. Direct
+coordinator quickstart is Tailscale-free; the current extra-worker installer
+still requires a running Tailscale daemon and is called out below.
 
 **Only coordinator and worker machines need a supported host OS.** Everything
 you browse *from* — a Mac, a Windows PC, a Linux desktop, an iPhone, an Android
-phone, an iPad, an Android tablet, whatever — needs nothing but a browser
-(optionally added to the home screen as a PWA).
+phone, an iPad, an Android tablet, whatever — needs nothing but a modern
+browser (optionally added to the home screen as a PWA).
 
-## Prerequisite: Tailscale
+## Choose a coordinator network mode
 
-Roost's supported setup requires Tailscale on the coordinator and every worker
-machine; it is both the private transport and trusted enrollment boundary.
+### Automatic: Tailscale Serve
 
-1. Install it: `brew install tailscale` on macOS (or use the Mac App Store);
-   follow <https://tailscale.com/download/linux> on Linux; or install it from
-   <https://tailscale.com/download/windows> on Windows.
-2. Start it: `tailscale up` (on Linux: `sudo systemctl enable --now tailscaled`
-   first).
-3. On macOS, approve the Tailscale **network extension** when the system prompts
-   you in System Settings. (This one step can't be automated.)
+Run `roost quickstart` without any endpoint flags. Quickstart discovers the
+coordinator's tailnet name, keeps the coordinator's plaintext listener on
+loopback, provisions HTTPS on port 4102, and configures Tailscale Serve.
+Coordinator and worker machines, and browsers using this route, join the same
+tailnet.
+
+For this convenience mode:
+
+1. On macOS, either install the open-source CLI daemon with
+   `brew install tailscale`, or install the GUI app and follow its prompts.
+2. For the Homebrew daemon, run
+   `sudo tailscaled install-system-daemon && sudo tailscale up`. It does not
+   use the macOS network extension. The GUI app does, so approve that extension
+   when its UI asks.
+3. On Linux, add Tailscale's repository, then run
+   `sudo systemctl enable --now tailscaled && sudo tailscale up` and
+   `sudo tailscale set --operator=$USER`.
+
+### Direct: your trusted HTTPS endpoint
+
+Direct coordinator quickstart does not resolve or call Tailscale. You provide
+DNS or another stable hostname, routing and firewall policy, and the
+certificate files. Every browser and worker connection using that origin must
+be able to reach it and trust its complete certificate chain; a self-signed or
+privately issued certificate works only after its CA is trusted on every
+client.
+
+The three flags are one group: supply all of `--coordinator-url`, `--tls-cert`,
+and `--tls-key`, or supply none and use automatic mode. Ambient `ROOST_*`
+endpoint variables do not turn a no-flag invocation into direct mode.
+
+Direct inputs follow these rules:
+
+- `--coordinator-url` is an HTTPS origin with an explicit numeric port from 1
+  through 65535, even for `:443`. It has no username/password, query, fragment,
+  or path other than an optional single `/`.
+- Certificate and key paths are absolute, readable, non-symlink regular files.
+  They must remain distinct after lexical normalization and must resolve to
+  different files; aliases and hard links to one file are rejected.
+- The certificate covers the URL hostname and is currently valid, and its chain
+  terminates at a CA trusted by every browser and worker.
+
+Quickstart normalizes the URL to its HTTPS origin, while retaining the explicit
+input port for the listener. For example, `https://roost.example.com:443/`
+persists the public origin as `https://roost.example.com` and binds port 443.
 
 ## Install + run
 
-Install the verified release, then run the guided production setup.
-
-On macOS or Linux:
+On macOS arm64/x64 or Linux arm64/x64, install the published binary. The
+installer verifies it against the adjacent GitHub Release SHA-256 sidecar:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/cefege/roost/main/install-binary.sh | bash
+```
+
+Then choose exactly one quickstart form. Automatic Tailscale mode:
+
+```sh
 "$HOME/.local/bin/roost" quickstart
 ```
 
-> **Windows releases are paused.** The Windows CI/release tier is disabled while
-> its gates are repaired, so releases after `v0.3.2` publish no
-> `install-binary.ps1`, `join.ps1`, or `roost-windows-x64.zip`. The steps below
-> are unchanged and correct, but they cannot complete against
-> `releases/latest` today.
+Direct HTTPS, here using arbitrary port 8443:
 
-On Windows x64, open an elevated PowerShell 5.1+ session. Supply the trusted
-SHA-256 fingerprint of the release-publisher leaf certificate through a channel
-independent of the downloaded release manifest:
-
-```powershell
-$publisher = "<trusted publisher certificate SHA-256>".ToLowerInvariant()
-if ($publisher -notmatch '^[0-9a-f]{64}$') { throw 'Invalid publisher SHA-256' }
-$release = Invoke-RestMethod 'https://api.github.com/repos/cefege/roost/releases/latest'
-$base = "https://github.com/cefege/roost/releases/download/$($release.tag_name)"
-$programData = [IO.Path]::GetFullPath($env:ProgramData)
-if (((Get-Item -LiteralPath $programData -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
-  throw 'Unsafe ProgramData directory'
-}
-$owner = ([Security.Principal.NTAccount](Get-Acl -LiteralPath $programData).Owner).Translate([Security.Principal.SecurityIdentifier]).Value
-if ($owner -notin @('S-1-5-18', 'S-1-5-32-544')) { throw 'ProgramData owner is not trusted' }
-$staging = Join-Path $programData ('RoostBootstrap-' + [Guid]::NewGuid().ToString('N'))
-$security = [Security.AccessControl.DirectorySecurity]::new()
-$security.SetSecurityDescriptorSddlForm('O:BAG:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)')
-[IO.Directory]::CreateDirectory($staging, $security) | Out-Null
-& icacls.exe $staging '/setintegritylevel' '(OI)(CI)H' | Out-Null
-if ($LASTEXITCODE -ne 0) { throw 'Cannot apply high-integrity staging policy' }
-$installer = Join-Path $staging 'install-binary.ps1'
-try {
-  Invoke-WebRequest -UseBasicParsing "$base/install-binary.ps1" -OutFile $installer
-  $signature = Get-AuthenticodeSignature -LiteralPath $installer
-  if ($signature.Status -ne 'Valid' -or $null -eq $signature.SignerCertificate -or $null -eq $signature.TimeStamperCertificate) {
-    throw 'Roost installer has no valid Authenticode signature and trusted timestamp'
-  }
-  $sha256 = [Security.Cryptography.SHA256]::Create()
-  try { $actual = -join ($sha256.ComputeHash($signature.SignerCertificate.RawData) | ForEach-Object { $_.ToString('x2') }) }
-  finally { $sha256.Dispose() }
-  if ($actual -cne $publisher) { throw "Roost installer publisher mismatch: $actual" }
-  Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned -Force
-  & $installer -HostRole coordinator -PublisherSha256 $publisher -ReleaseBaseUrl $base
-} finally {
-  Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
-}
+```sh
+"$HOME/.local/bin/roost" quickstart \
+  --coordinator-url "https://roost.example.com:8443" \
+  --tls-cert "$HOME/.config/roost/tls/fullchain.pem" \
+  --tls-key "$HOME/.config/roost/tls/privkey.pem"
 ```
 
-The Windows installer defaults to a dedicated local `roost-operator` identity,
-creates it with a cryptographically random password when absent, and rejects
-administrator identities. It prompts for a password only when reusing an
-existing account. It denies interactive logon, verifies the
-detached manifest signature, ZIP digest, per-file digests, Authenticode publisher,
-and trusted timestamps, then installs the coordinator, worker, keeper, and updater
-as Windows SCM services. `quickstart` configures the coordinator, local worker,
-and browser pairing; no enrollment token is copied.
+That direct invocation installs the coordinator service with this endpoint
+contract (using the normalized absolute certificate paths):
+
+```text
+ROOST_FRONTED=0
+ROOST_COORDINATOR_BIND=0.0.0.0:8443
+ROOST_COORDINATOR_PUBLIC_URL=https://roost.example.com:8443
+ROOST_TLS_CERT_PATH=/home/<user>/.config/roost/tls/fullchain.pem
+ROOST_TLS_KEY_PATH=/home/<user>/.config/roost/tls/privkey.pem
+```
+
+`ROOST_TAILNET_HTTPS_PORT` and the loopback/front-proxy settings belong only to
+automatic mode; a direct coordinator quickstart neither persists them nor
+invokes Tailscale.
+
+> **Windows host releases are paused.** v0.5.0 publishes no Windows
+> coordinator, worker, installer, join script, or package. Windows remains
+> supported as a browser client, but there is no supported Windows host
+> install, enrollment, or update procedure in this release.
 
 The source/development path is separate and intended for macOS or Linux:
 
@@ -99,10 +115,61 @@ curl -fsSL https://raw.githubusercontent.com/cefege/roost/main/install.sh | bash
 That command installs Bun and a checkout which tracks `main`; it is not a
 pinned production release.
 
-## Optional: browser access through Cloudflare
+In self-hosted mode, coordinator startup creates and thereafter validates the
+single local tenant automatically: the internal `local@roost.invalid` account,
+its `personal` organization, and the `default` dashboard. Existing coherent
+single-tenant databases keep their IDs and names. There is no separate
+organization bootstrap command to run before quickstart or after an upgrade.
+
+### First browser enrollment
+
+Quickstart mints a one-shot browser grant in a `#pair` URL fragment and passes
+that URL directly to the platform browser opener. Quickstart never prints or
+logs the grant. URL fragments are not sent in the HTTP request or an HTTP
+`Referer`, so the coordinator and intermediaries do not receive the secret as
+URL metadata; the loaded Roost app redeems it.
+
+Do not try to copy a pairing secret from terminal output, shell history, logs,
+or screenshots. If the platform opener fails, arrange a working local browser
+opener and rerun quickstart, or use **Settings → Pair a device** from an already
+authorized browser. Later devices should always use that Settings pairing flow.
+
+## Managed deployment qualification (not publicly launched)
+
+v0.5.0 includes a qualified managed implementation, not a public managed
+service. Production does not publish the managed coordinator image or activate
+the shared dashboard origin, so the public release cannot be used to provision
+a managed account.
+
+The qualified Linux profile has a root-owned operator/provisioner plane and
+one exact-spec non-root coordinator container per account, created from a
+digest-pinned immutable image. Each account has separate writable state, keys,
+worker credentials, and an opaque route key. The profile's Caddy configuration
+routes `/_roost/t/<route-key>/…` on the shared dashboard origin to exactly one
+container over the named Docker `web` network; no coordinator port is
+published on the host. The container has no shell, package manager, SSH,
+rsync, Docker socket, source checkout, host home, or customer worker process.
+
+Managed accounts are operator-created through the `roost saas` commands.
+Production email signup and Google auth remain disabled. Owner activation is a
+held, expiring email flow: routing and resolver proofs complete before mail is
+released, and reconciliation resumes the last safe state without deleting
+tenant data.
+
+Server authorization derives dashboard scope from the authenticated account
+membership rather than trusting a browser-supplied dashboard id. RPC, Sync,
+worker routing, and browser dashboard cutover retain that same scope.
+
+The mandatory `test:managed` profile runs four E2E files with five top-level
+cases: browser activation/login/reset, two-account container and route
+isolation, encrypted backup/restore, and dormant email/Google signup. Passing
+that profile is the qualification gate; it is not evidence that the service,
+image, domain, containers, or signup path is live.
+
+## Optional: Cloudflare browser access for automatic mode
 
 Cloudflare browser access adds a public browser endpoint to an already working
-Roost installation:
+automatic Tailscale installation:
 
 - Cloudflare Access authenticates the human reaching the browser endpoint.
 - Roost pairing still authorizes that browser as a Roost device. An Access
@@ -307,12 +374,15 @@ Choose one route:
 - **Default Tailscale route:** Install the Tailscale app on the phone and sign
   in to the same tailnet. In Roost on your computer, choose **Settings → Pair a
   device**, then scan the QR with the phone's camera.
+- **Direct HTTPS route:** Make the configured HTTPS origin reachable from the
+  phone and ensure its certificate chain is trusted there. In Roost on an
+  authorized browser, choose **Settings → Pair a device**, then scan the QR.
 - **Cloudflare route:** After completing the optional Cloudflare setup above,
   open your Cloudflare hostname on the phone without installing Tailscale.
   Complete the Cloudflare Access login, then complete Roost QR/device pairing.
 
-Both routes require Roost pairing. Cloudflare Access login alone does not
-authorize the phone as a Roost device.
+Every route requires Roost pairing. Network reachability or a Cloudflare Access
+login alone does not authorize the phone as a Roost device.
 
 ## Turn on agent notifications
 
@@ -337,71 +407,56 @@ notification opens that session.
 
 ## Add another machine
 
-Extra machines join by pulling; no SSH and no push from the coordinator. On the
-coordinator, open **Settings → Machines → Add machine**, or run one of
-`roost add-machine --platform macos`, `roost add-machine --platform linux`,
-or `roost add-machine --platform windows`. Each creates a one-shot token and
-the platform-specific enrollment command.
+v0.5.0 enrolls macOS or Linux workers. In either coordinator mode,
+**Settings → Machines → Add machine** derives the installed public HTTPS
+origin and creates a one-shot pull command. On an automatic-mode coordinator,
+the equivalent CLI generators are `roost add-machine --platform macos` and
+`roost add-machine --platform linux`. No coordinator SSH or push is involved.
 
-On a macOS or Linux worker, paste the generated command:
+Paste the generated command on the worker:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/cefege/roost/main/join.sh | \
-  ROOST_COORDINATOR_URL="https://<coord>.<tailnet>.ts.net:4102" \
+  ROOST_COORDINATOR_URL="https://<coordinator-host>:<port>" \
   ROOST_BOOTSTRAP_TOKEN="roost_bt_…" bash
 ```
 
-For a Windows x64 worker, choose **Windows** in the dialog and enter the
-trusted release-publisher certificate SHA-256, or run:
+`join.sh` currently requires a running Tailscale daemon even when
+`ROOST_COORDINATOR_URL` is the direct HTTPS origin. In direct mode, the worker
+must also reach that origin and trust its certificate chain. The CLI generator
+is automatic-mode-only and always uses the coordinator MagicDNS name on port
+4102. v0.5.0 therefore has no Tailscale-free direct extra-worker enrollment
+flow.
 
-```sh
-roost add-machine --platform windows --publisher-sha256 "<trusted publisher certificate SHA-256>"
-```
+The machine appears in **Settings → Machines** within a few seconds. macOS
+uses launchd and Linux uses `systemd --user`. The server-side bootstrap token
+is one-shot and expires after 24 hours.
 
-Paste the generated command into elevated PowerShell 5.1+. Before executing
-downloaded code, that command verifies the release `join.ps1` Authenticode
-chain, trusted timestamp, and exact leaf-certificate pin. The signed join script
-then keeps the one-shot token in memory only while enrolling the worker and
-installing its restricted SCM services.
-
-The machine appears in **Settings → Machines** within a few seconds. macOS uses
-launchd, Linux uses `systemd --user`, and Windows uses SCM. The server-side
-bootstrap token is one-shot and expires after 24 hours.
-
-To update the whole registered fleet from a clean Roost checkout, push the
-commit first and run:
+To update a source-installed coordinator and its registered fleet from a clean
+Roost checkout, run:
 
 ```sh
 bun apps/roost-cli/src/main.ts push
 ```
 
-`roost push` discovers every registered worker, preflights the exact published
-Windows manifest when the fleet contains Windows, upgrades and proves the
-coordinator first, then deploys the exact clean commit to macOS and Linux and
-sends authenticated Windows workers through the signed updater service. It
-waits for a fresh post-update heartbeat reporting the expected worker build and
-a current keeper from every target. Each host uses a journaled activation with
-health proof and automatic rollback; the command continues to independent
-hosts but never prints completion when any host failed, stayed stale, or
-reported another build. Use `--targets=host1,host2` to narrow the rollout and
-`--no-web` only when the existing coordinator SPA should be retained.
+`roost push` is one journaled transaction across the local POSIX coordinator
+and the exact complete registered macOS/Linux worker fleet. It requires at
+least one registered worker, a clean complete Git commit, and proof that the
+commit is on the configured upstream (unless `--no-git` was explicitly
+chosen). A registered Windows worker blocks the rollout. `--targets` may name
+the exact complete registered set, but cannot narrow it; `--no-web` only
+retains an existing coordinator SPA.
 
-To update one registered Windows worker, run `roost deploy <host>` from the
-coordinator; it uses the same authenticated, signed, journaled transaction.
+The command snapshots the live coordinator database, activates and proves the
+target coordinator in a held state, then stages and proves every worker at the
+same SHA with a current keeper and fresh heartbeat. Only then does it record
+the durable finalization decision. Before that decision, any participant
+failure rolls every worker back, restores and proves the prior coordinator and
+database, and reports failure. After that decision, interrupted recovery can
+only finish the target release.
 
-On an installed Windows host, `roost update` queues the signed release through
-the restricted updater service without a UAC prompt, then exits so the service
-can replace the stable launcher. The updater persists every phase and completes
-or rolls back independently. Only the initial install or the one-time legacy
-migration below needs elevation.
-
-Windows installations created before the stable launcher/updater topology need
-one final run of the signed elevated installer before remote updates can use
-that topology. The updater detects this state and returns
-`migration-required` before mutation; it never attempts an unprivileged,
-non-rollback-safe SCM migration.
-One-host POSIX deployment is source-based:
-`bun apps/roost-cli/src/main.ts deploy <host>` stages that exact pushed commit
+One-host POSIX deployment remains a separate source operation:
+`bun apps/roost-cli/src/main.ts deploy <host>` stages the exact pushed commit
 over SSH. Source deployments intentionally refuse to run from the standalone
 release binary because it does not contain a Git checkout.
 
@@ -412,61 +467,72 @@ roost status
 roost doctor --since 1h
 ```
 
-`roost status` is the current service/network/fleet gate: Tailscale state,
-coordinator and worker services, coordinator health and tagged SHA, worker
-freshness, and whether TLS is provided by Tailscale Serve or a direct
-certificate. `roost doctor --since <window>` is different: it summarizes local
-logs from that time window and reports anomaly counts such as uncaught errors,
-sequence gaps, queue overflows, degraded keepers, and failed backups/readiness.
+`roost status` reports the selected network mode, required Tailscale/Serve or
+direct-certificate state, local coordinator and worker services, coordinator
+health and tagged SHA, and remote worker age/build observations. Its exit
+status gates required Tailscale, the two local services, and coordinator
+reachability; inspect the fleet rows rather than treating that exit status as
+proof that every remote worker converged. `roost doctor --since <window>`
+summarizes local logs from that window and reports anomalies such as uncaught
+errors, sequence gaps, queue overflows, degraded keepers, and failed
+backups/readiness.
+
+During an ordinary worker or coordinator-link disconnect, keeper processes
+continue owning the PTYs. Crash-safe lifecycle events replay before the worker
+snapshot, and visible browsers redial, rehydrate, and rebaseline in place
+without requiring a page reload. Keeper adoption retains a bounded 1 MiB raw
+history window per channel; it is not an unlimited full-scrollback guarantee,
+and continuity failures surface as doctor diagnostics rather than being
+silently spliced.
 
 ## Backups and rollback scope
 
 The coordinator creates a verified SQLite snapshot before applying pending
-migrations to an existing database and on the scheduled backup interval. It
-integrity-checks the standalone snapshot before compressing it and retains the
-14 newest `coord_v2.<timestamp>.db.gz` archives in the coordinator data
-directory's `backups/` folder.
+migrations to an existing database. It also backs up every 24 hours from
+process start, including an immediate startup backup when none exists or the
+newest is stale. It integrity-checks the standalone snapshot before
+compressing it and retains the 14 newest
+`coord_v2.<timestamp>.db.gz` archives in the coordinator data directory's
+`backups/` folder.
 
-These archives are same-host rollback material. They do not survive loss of the
-coordinator disk and are not off-host disaster recovery; copy them to storage
-with an independent failure domain if host-loss recovery is required.
+These archives are same-host recovery material. They do not survive loss of
+the coordinator disk, are not off-host disaster recovery, and are not the
+automatic fleet-rollout rollback mechanism. Copy them to storage with an
+independent failure domain and own the restore procedure when host-loss
+recovery is required.
 
-Windows update journals and retained version directories are same-host rollback
-material too. Each update checkpoints the prior service definitions, active
-role vector, health identity, and current manifest before switching versions;
-startup replays unfinished rollback and progress after worker or coordinator
-restarts. As with coordinator database snapshots, copy required recovery
-material off-host if disk-loss recovery matters.
-
+Atomic rollout creates a separate temporary gzip snapshot, records its digest
+in the coordinator deploy journal, and verifies decompression and SQLite
+integrity before an automatic restore. Successful fleet finalization removes
+that transaction snapshot and journal.
 
 ## Release rollout and canaries
 
-Use one tagged release and one clean command:
+Use one release commit and one atomic fleet transaction:
 
-1. Publish the release. The canonical macOS, Linux, and Windows x64 assets must
-   identify the same source commit; the Windows manifest, checksum sidecar,
-   detached signature, package, publisher certificate, and `shawl.exe` must all
-   pass the release workflow before publication.
-2. From that clean pushed checkout, run
-   `bun apps/roost-cli/src/main.ts push`. The command upgrades and proves the
-   coordinator first, then updates every registered worker, continues past an
-   independent host failure, and reports a final failure unless every target
-   converges to the expected build.
-3. Run the live API canary:
+1. Qualify the four public host targets—macOS arm64/x64 and Linux arm64/x64—
+   from the same source commit. Each published binary must match its GitHub
+   Release SHA-256 sidecar.
+2. Run the hermetic real-flow tier on that commit:
+   `bun run test:terminal` (real coordinator, worker, keeper, PTY, and browser
+   through `smoke/terminal/stack.ts`). That tier is the gate; a live canary
+   only observes a deployment.
+3. From the clean pushed checkout, run
+   `bun apps/roost-cli/src/main.ts push`. Require the exact registered
+   macOS/Linux fleet to converge atomically: exhaustive staging/proof and
+   global rollback before the durable decision, finish-only recovery after it.
+4. Run the live API canary against the installed origin:
    ```sh
-   ROOST_COORD_URL=https://<coord>.<tailnet>.ts.net:4102 \
+   ROOST_COORD_URL="https://<host>:<port>" \
      bun test smoke/api_smoke.test.ts
    ```
-4. Run the hermetic real-flow tier on the release commit — `bun run test:terminal`
-   (real coord + worker + keeper + PTY + browser, `smoke/terminal/stack.ts`).
-   That tier is the gate; the live steps here only observe the deployment.
 5. Restart the coordinator and local worker. Require a new coordinator boot
    timestamp, all workers online on the expected build, and the pre-restart PTY
    to paint a new marker. Reject new uncaught errors, sequence gaps, queue
    overflows, stale keepers, or failed backup/readiness events.
-6. If Cloudflare access is enabled, require an unauthenticated public
-   `MiscHealth` POST to receive the Access challenge rather than origin 200,
-   while the authorized browser and private Tailscale URL both remain healthy.
+6. If automatic-mode Cloudflare access is enabled, require an unauthenticated
+   public `MiscHealth` POST to receive the Access challenge rather than origin
+   200, while the authorized browser and private Tailscale URL remain healthy.
 
 ## Logs
 
