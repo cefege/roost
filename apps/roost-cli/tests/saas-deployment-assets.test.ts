@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { PRIVATE_IPC_SOCKET_PATH } from "../src/saas-auth/private-ipc.ts";
+import { verifySystemdUnitSyntax } from "./systemd-unit-verification.ts";
 
 const REPO_ROOT = resolve(import.meta.dir, "../../..");
 const SYSTEMD_DIR = resolve(REPO_ROOT, "assets/linux/systemd");
@@ -135,7 +136,6 @@ describe("disabled-safe SaaS deployment assets", () => {
       "roost-saas-resolver-bridge.service",
       "roost-saas-resolver-bridge.socket",
     ].map((name) => resolve(SYSTEMD_DIR, name));
-    const proc = Bun.spawnSync([Bun.which("systemd-analyze") as string, "verify", ...units]);
-    expect(proc.exitCode).toBe(0);
+    expect(verifySystemdUnitSyntax(Bun.which("systemd-analyze") as string, units)).toBe(0);
   });
 });

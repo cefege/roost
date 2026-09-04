@@ -12,6 +12,7 @@ import {
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { verifySystemdUnitSyntax } from "./systemd-unit-verification.ts";
 
 const REPO_ROOT = resolve(import.meta.dir, "../../..");
 const SYSTEMD_DIR = resolve(REPO_ROOT, "assets/linux/systemd");
@@ -266,8 +267,7 @@ describe("SaaS auth runtime sandbox", () => {
         "roost-saas-auth-bridge.socket",
         "roost-saas-origin-isolation.service",
       ].map((name) => resolve(SYSTEMD_DIR, name));
-      const proc = Bun.spawnSync([systemdAnalyze as string, "verify", ...units]);
-      expect(proc.exitCode).toBe(0);
+      expect(verifySystemdUnitSyntax(systemdAnalyze as string, units)).toBe(0);
     },
   );
 
