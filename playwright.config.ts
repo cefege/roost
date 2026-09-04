@@ -14,12 +14,14 @@ export default defineConfig({
   // process) against a coord, a worker, a keeper, and the PTY children of every
   // session it spawns, and the flood cases push 20k rows through that whole
   // pipeline, so one worker's peak demand is ~2 cores. Size to the host instead
-  // of pinning 4: an 8-core dev box still gets 4, while GitHub's 3-4 core
-  // runners get 2 rather than 4x oversubscription — which is what turned paint
-  // polls and readiness waits into timeouts that asserted nothing (three macOS
-  // runs, three different 10s waits, each green on rerun). Floor of 2 keeps the
-  // parallel-independence contract above exercised even on a 2-core box.
-  workers: Math.max(2, Math.min(4, Math.floor(availableParallelism() / 2))),
+  // of pinning 4: an 8-core dev box still gets 4, while GitHub's Linux runners
+  // get 2 rather than 4x oversubscription. macOS CI runs one stack because each
+  // correctness pass also carries WebKit and current hosted runners showed
+  // unrelated PTY, navigation, and paint timeouts when two stacks competed.
+  // Linux CI still exercises the parallel-independence contract.
+  workers: process.env.CI && process.platform === "darwin"
+    ? 1
+    : Math.max(2, Math.min(4, Math.floor(availableParallelism() / 2))),
   // Deliberately 0: a retry would paper over exactly the order- and
   // contention-dependent flakiness that raising parallelism can introduce.
   retries: 0,

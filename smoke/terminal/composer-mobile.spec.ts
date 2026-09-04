@@ -24,7 +24,7 @@ test("mobile composer starts unfocused and reserves terminal space through rotat
 
   const readGeometry = () => mobileSmokePage.evaluate((id) => {
     const terminal = document.querySelector(`[data-testid="terminal-slot-${id}"]`);
-    const composer = document.querySelector('[data-testid="mobile-chat-input"]');
+    const composer = document.querySelector('[data-testid="mobile-chat-input"][data-active="true"]');
     if (!(terminal instanceof HTMLElement) || !(composer instanceof HTMLElement)) return null;
 
     const safeAreaProbe = document.createElement("div");
@@ -98,7 +98,8 @@ test("mobile composer starts unfocused and reserves terminal space through rotat
   await expect(paneDock).toHaveAttribute("data-placement", "pane");
   await expect.poll(() => paneDock.evaluate((el) => getComputedStyle(el).position)).toBe("relative");
   await mobileSmokePage.setViewportSize(portrait);
-  await expect(mobileSmokePage.getByTestId("mobile-chat-input")).toHaveAttribute("data-placement", "viewport");
+  await expect(mobileSmokePage.locator('[data-testid="mobile-chat-input"][data-active="true"]'))
+    .toHaveAttribute("data-placement", "viewport");
   await expectReservedGeometry("portrait after desktop handoff");
   await expect.poll(async () => {
     const geometry = await readGeometry();
