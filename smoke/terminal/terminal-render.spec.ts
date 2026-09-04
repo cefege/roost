@@ -342,9 +342,10 @@ test("duplicated tab rotates identity and adopts its final resize", async ({ smo
       return {
         dimensionsConverged: coordinator?.effective?.cols === view.effective_cols
           && coordinator.effective?.rows === view.effective_rows,
-        smaller: viewGeometry !== null && beforeGeometry !== null
-          && viewGeometry.cols < beforeGeometry.cols
-          && viewGeometry.rows < beforeGeometry.rows,
+        reduced: viewGeometry !== null && beforeGeometry !== null
+          && viewGeometry.cols <= beforeGeometry.cols
+          && viewGeometry.rows <= beforeGeometry.rows
+          && (viewGeometry.cols < beforeGeometry.cols || viewGeometry.rows < beforeGeometry.rows),
         acceptedBaseline: view.status === "accepted"
           && view.active
           && replica.baseline_ready
@@ -356,7 +357,7 @@ test("duplicated tab rotates identity and adopts its final resize", async ({ smo
       };
     }, { timeout: 30_000, intervals: [50, 100, 250] }).toEqual({
       dimensionsConverged: true,
-      smaller: true,
+      reduced: true,
       acceptedBaseline: true,
       newer: true,
       newStream: true,

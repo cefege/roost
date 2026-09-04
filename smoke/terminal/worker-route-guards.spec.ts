@@ -12,6 +12,7 @@ interface WorkerRouteGuardWindow extends Window {
 test("worker routes wait for their domain and keep denial recovery reachable", async ({
   smokePage,
   stack,
+  browserName,
 }) => {
   await smokePage.setViewportSize({ width: 1024, height: 720 });
 
@@ -112,7 +113,7 @@ test("worker routes wait for their domain and keep denial recovery reachable", a
   expect(scrollState.overflowY).toBe("auto");
   expect(scrollState.scrollHeight).toBeGreaterThan(scrollState.clientHeight);
 
-  await smokePage.keyboard.press("Tab");
+  await smokePage.keyboard.press(browserName === "webkit" ? "Alt+Tab" : "Tab");
   await expect(homeAction).toBeFocused();
   await expect(homeAction).toBeInViewport({ ratio: 1 });
 });

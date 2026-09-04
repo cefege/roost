@@ -55,12 +55,12 @@ export default defineConfig({
   // bare `bunx playwright test` is still correct: it just runs both projects.
   projects: process.platform === "darwin"
     ? [
-      { name: "chromium-desktop", grepInvert: /@serial/, use: { ...devices["Desktop Chrome"] } },
+      { name: "chromium-desktop", grepInvert: /@serial/, use: { ...devices["Desktop Chrome"], userAgent: undefined } },
       { name: "webkit-iphone", grepInvert: /@serial/, use: { ...devices["iPhone 15"] } },
-      { name: "chromium-serial", grep: /@serial/, fullyParallel: false, use: { ...devices["Desktop Chrome"] } },
+      { name: "chromium-serial", grep: /@serial/, fullyParallel: false, use: { ...devices["Desktop Chrome"], userAgent: undefined } },
     ]
     : [
-      { name: "chromium-desktop", grepInvert: /@serial/, use: { ...devices["Desktop Chrome"] } },
-      { name: "chromium-serial", grep: /@serial/, fullyParallel: false, use: { ...devices["Desktop Chrome"] } },
+      { name: "chromium-desktop", grepInvert: /@serial/, use: { ...devices["Desktop Chrome"], userAgent: undefined } },
+      { name: "chromium-serial", grep: /@serial/, fullyParallel: false, use: { ...devices["Desktop Chrome"], userAgent: undefined } },
     ],
 });

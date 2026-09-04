@@ -17,10 +17,8 @@ import type {
 
 export const fixturePath = join(dirname(fileURLToPath(import.meta.url)), "resize-tui.ts");
 
-// Playwright's Desktop Chrome profile currently advertises a Windows browser
-// even when the test runner itself is hosted elsewhere. Resolve shortcuts from
-// the page's navigator and the product's authoritative matcher rather than
-// assuming the runner OS or hard-coding one platform's chord.
+// Resolve shortcuts from the page's navigator and the product's authoritative
+// matcher rather than assuming the runner OS or hard-coding one platform's chord.
 const shortcutPlatformByPage = new WeakMap<Page, Promise<BrowserPlatform>>();
 
 export function shortcutPlatform(page: Page): Promise<BrowserPlatform> {
