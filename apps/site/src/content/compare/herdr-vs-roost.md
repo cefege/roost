@@ -16,8 +16,8 @@ matrix:
   voiceInput: "no"
   pushAgentState: "working / blocked / idle marked on every pane in the terminal UI"
   selfHostedNoAccount: "yes"
-verdict: "herdr is the better answer when your client is always a terminal; Roost trades in-process fidelity for reaching any machine from any browser."
-pickRoostIf: "You want the same terminal from a phone, a tablet, or a borrowed laptop, on machines that never expose an inbound port."
+verdict: "herdr is the better answer when your client is always a terminal; Roost trades in-process fidelity for reaching any enrolled macOS or Linux machine from any browser."
+pickRoostIf: "You want the same terminal from a phone, a tablet, or a borrowed laptop, on macOS and Linux machines that never expose an inbound port."
 useInsteadIf: "You live in one terminal emulator over SSH and want agent-state awareness without any browser or server."
 ---
 
@@ -25,7 +25,7 @@ useInsteadIf: "You live in one terminal emulator over SSH and want agent-state a
 
 - **The client is a terminal versus a browser.** herdr renders a TUI inside the terminal emulator you already use, which is exactly why it feels fast and native. Roost's client is a browser tab, which is why it can be a phone: an iPhone, an Android phone, or an iPad is a full client with nothing to install. Neither is strictly better — herdr pays nothing for rendering and cannot be opened on a device without an SSH client.
 
-- **One host per attach versus one control plane over many.** herdr runs where the work is; reaching a second machine means SSHing to it and attaching that machine's herdr. Roost connects every macOS, Linux, and Windows x64 machine to one coordinator and shows all of them in a single sidebar grouped by machine, with per-machine CPU, memory, disk, and network tiles. Workers dial outbound only, so no host exposes an inbound port, and `roost add-machine --platform …` prints a one-shot 24-hour enrollment command.
+- **One host per attach versus one control plane over many.** herdr runs where the work is; reaching a second machine means SSHing to it and attaching that machine's herdr. Roost connects your macOS and Linux machines to one coordinator and shows all of them in a single sidebar grouped by machine, with per-machine CPU, memory, disk, and network tiles. Workers dial outbound only, so no host exposes an inbound port, and `roost add-machine --platform macos|linux` prints a one-shot 24-hour enrollment command.
 
 - **Fidelity for free versus fidelity rebuilt over a network.** herdr is in the same process as your terminal, so fidelity costs nothing. Roost has to make a browser behave: an authoritative cell grid rebuilt at one agreed width on resize, a monotonic `seq` on every frame so a reconnecting viewer gets one authoritative full frame rather than duplicated history, on-demand scrollback, atomic two-column spans for double-width CJK and emoji, mouse tracking forwarded only when the program requested it, and predictive local echo above roughly 10 ms.
 

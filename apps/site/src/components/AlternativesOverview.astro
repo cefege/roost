@@ -1,0 +1,342 @@
+---
+/**
+ * Above-the-fold positioning, matrix, decision list, and detail cards for the alternatives hub.
+ * The alternatives index supplies its ordered content entries and editorial decisions.
+ * CompareMatrix remains the single owner of Roost's side of every comparison.
+ */
+import type { CollectionEntry } from "astro:content";
+
+import CompareMatrix from "./CompareMatrix.astro";
+
+interface Decision {
+  goal: string;
+  pick: string;
+  page?: string;
+  roost: boolean;
+}
+
+interface Props {
+  entries: CollectionEntry<"compare">[];
+  decisions: Decision[];
+}
+
+const { entries, decisions }: Props = Astro.props;
+---
+
+<section class="section">
+  <div class="wrap">
+    <p class="eyebrow">Alternatives</p>
+    <h1>Roost vs the agent terminal landscape</h1>
+    <p class="lede">
+      A dozen tools now claim some version of &ldquo;run your coding agents in parallel&rdquo;. They are not
+      competing for the same job.
+    </p>
+
+    <div class="answer">
+      <p>
+        <strong>
+          Roost is a self-hosted web terminal for fleets of macOS and Linux machines you already own.
+        </strong>
+        Every session is a real PTY that any CLI runs inside natively, including Claude Code, reachable from any
+        browser &mdash; laptop, phone or tablet. The released, accountless open-source product supports automatic
+        Tailscale Serve or direct HTTPS with a browser-trusted certificate. A per-account managed implementation
+        is qualified but not launched; production signup and the shared dashboard origin are inactive, and accounts
+        can only be operator-created.
+      </p>
+      <ul class="nots">
+        <li><strong>Not</strong> a macOS terminal app</li>
+        <li><strong>Not</strong> a tmux wrapper</li>
+        <li><strong>Not</strong> a vendor agent sandbox: your CLIs still run on your machines</li>
+      </ul>
+    </div>
+
+    <p class="reads">
+      <a href="/docs/fleet/">How the fleet works</a>
+      <a href="/docs/terminal/">Why a browser can be a real terminal</a>
+      <a href="/docs/mobile/">The phone and tablet client</a>
+    </p>
+  </div>
+</section>
+
+<section class="section">
+  <div class="wrap">
+    <h2>The matrix</h2>
+    <p class="sub">
+      Ten rows decide most of these choices. Roost's column is pinned first; scroll or swipe the table sideways
+      for the rest.
+    </p>
+    <CompareMatrix entries={entries} />
+  </div>
+</section>
+
+<section class="section">
+  <div class="wrap">
+    <h2>Pick by what you actually want</h2>
+    <p class="sub">Seven goals, and the tool that serves each one best &mdash; including where that is not Roost.</p>
+    <ul class="decide">
+      {
+        decisions.map((row) => (
+          <li class:list={["decide-row", { roost: row.roost }]}>
+            <strong class="goal">If you want {row.goal}</strong>
+            <span class="pick">
+              <span class="pick-name">{row.pick}</span>
+              {row.page ? (
+                <a class="detail" href={row.page}>
+                  compare
+                </a>
+              ) : null}
+            </span>
+          </li>
+        ))
+      }
+    </ul>
+  </div>
+</section>
+
+<section class="section">
+  <div class="wrap">
+    <h2>Eight comparisons in detail</h2>
+    <p class="sub">
+      Each page states what the tool actually is, where the two differ, and when to pick it over Roost.
+    </p>
+    <ul class="cards">
+      {
+        entries.map((entry) => (
+          <li class="card">
+            <h3>
+              <a href={`/alternatives/${entry.id}/`}>{entry.data.competitor} vs Roost</a>
+            </h3>
+            <p class="card-meta">
+              <span>{entry.data.vendor}</span>
+              <span aria-hidden="true">&middot;</span>
+              <span>{entry.data.license}</span>
+            </p>
+            <p class="card-body">{entry.data.useInsteadIf}</p>
+          </li>
+        ))
+      }
+    </ul>
+  </div>
+</section>
+
+<style>
+  h1 {
+    margin: 0 0 var(--md-space-4);
+    max-width: 24ch;
+    color: var(--text-hi);
+    font-size: var(--md-headline-l-size);
+    line-height: var(--md-headline-l-line);
+    font-weight: var(--md-headline-l-weight);
+  }
+
+  h2 {
+    margin: 0 0 var(--md-space-3);
+    color: var(--text-hi);
+    font-size: var(--md-title-l-size);
+    line-height: var(--md-title-l-line);
+    font-weight: var(--md-title-l-weight);
+  }
+
+  .lede {
+    margin: 0;
+    max-width: 62ch;
+  }
+
+  .sub {
+    margin: 0 0 var(--md-space-6);
+    max-width: 68ch;
+    color: var(--text-lo);
+    font-size: 16px;
+    line-height: 26px;
+  }
+
+  .answer {
+    margin: var(--md-space-6) 0 var(--md-space-5);
+    padding: var(--md-space-6);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--md-shape-lg);
+    background: var(--surface-1);
+  }
+
+  .answer p {
+    margin: 0;
+    max-width: 74ch;
+    color: var(--text-mid);
+    font-size: 17px;
+    line-height: 28px;
+  }
+
+  .answer strong {
+    color: var(--text-hi);
+  }
+
+  .nots {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--md-space-2) var(--md-space-3);
+    margin: var(--md-space-4) 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .nots li {
+    padding: var(--md-space-2) var(--md-space-4);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--md-shape-full);
+    background: var(--surface-0);
+    color: var(--text-mid);
+    font-size: var(--md-body-m-size);
+    line-height: var(--md-body-m-line);
+  }
+
+  .nots strong {
+    color: var(--text-hi);
+  }
+
+  .reads {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--md-space-2) var(--md-space-5);
+    margin: 0;
+    font-size: 16px;
+    line-height: 26px;
+  }
+
+  .reads a {
+    color: var(--brand-coral);
+  }
+
+  .decide {
+    display: grid;
+    gap: var(--md-space-3);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .decide-row {
+    display: grid;
+    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+    align-items: baseline;
+    gap: var(--md-space-2) var(--md-space-4);
+    padding: var(--md-space-4) var(--md-space-5);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--md-shape-md);
+    background: var(--surface-0);
+  }
+
+  .decide-row.roost {
+    border-color: var(--border-strong);
+    background: var(--surface-1);
+  }
+
+  .goal {
+    color: var(--text-hi);
+    font-size: 16px;
+    line-height: 24px;
+    font-weight: 500;
+  }
+
+  .pick {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--md-space-2) var(--md-space-3);
+    color: var(--text-mid);
+    font-size: 16px;
+    line-height: 24px;
+  }
+
+  .pick::before {
+    content: "\2192";
+    color: var(--text-lo);
+  }
+
+  .pick-name {
+    overflow-wrap: anywhere;
+  }
+
+  .decide-row.roost .pick-name {
+    color: var(--brand-coral);
+    font-weight: 500;
+  }
+
+  .detail {
+    color: var(--brand-coral);
+    font-size: var(--md-label-m-size);
+    line-height: var(--md-label-m-line);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: var(--md-space-4);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--md-space-2);
+    padding: var(--md-space-5);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--md-shape-md);
+    background: var(--surface-0);
+  }
+
+  .card h3 {
+    margin: 0;
+    font-size: 18px;
+    line-height: 26px;
+    font-weight: 500;
+  }
+
+  .card h3 a {
+    color: var(--text-hi);
+    text-decoration: none;
+  }
+
+  .card h3 a:hover {
+    color: var(--brand-coral);
+  }
+
+  .card-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--md-space-2);
+    margin: 0;
+    color: var(--text-lo);
+    font-size: var(--md-label-m-size);
+    line-height: var(--md-label-m-line);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .card-body {
+    margin: 0;
+    color: var(--text-mid);
+    font-size: var(--md-body-m-size);
+    line-height: 22px;
+  }
+
+  @media (max-width: 700px) {
+    .decide-row {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+
+  @media (max-width: 600px) {
+    h1 {
+      font-size: 26px;
+      line-height: 34px;
+    }
+
+    .answer {
+      padding: var(--md-space-5) var(--md-space-4);
+    }
+  }
+</style>

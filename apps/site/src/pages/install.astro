@@ -4,48 +4,19 @@ import Hero from "../components/Hero.astro";
 import CtaBand from "../components/CtaBand.astro";
 import Callout from "../components/Callout.astro";
 
-/** macOS + Linux: install-binary.sh verifies the release asset against its
- *  published .sha256 sidecar, then `quickstart` does the guided local setup. */
-const POSIX = `curl -fsSL https://raw.githubusercontent.com/cefege/roost/main/install-binary.sh | bash
-"$HOME/.local/bin/roost" quickstart`;
+/** Published macOS and Linux binaries are verified against their adjacent
+ *  GitHub Release SHA-256 sidecars before installation. */
+const INSTALL = `curl -fsSL https://raw.githubusercontent.com/cefege/roost/main/install-binary.sh | bash`;
+
+const AUTOMATIC = `"$HOME/.local/bin/roost" quickstart`;
+
+/** Direct mode requires one HTTPS origin and two absolute certificate paths. */
+const DIRECT = `"$HOME/.local/bin/roost" quickstart \\
+  --coordinator-url "https://roost.example.com:8443" \\
+  --tls-cert "$HOME/.config/roost/tls/fullchain.pem" \\
+  --tls-key "$HOME/.config/roost/tls/privkey.pem"`;
 
 const HOMEBREW = `brew install cefege/tap/roost`;
-
-/** Windows x64: the signed bootstrap from GETTING_STARTED.md, verbatim. Nothing
- *  downloaded runs before its Authenticode chain, trusted timestamp, and exact
- *  leaf-certificate pin match the publisher fingerprint supplied out of band. */
-const WINDOWS = `$publisher = "<trusted publisher certificate SHA-256>".ToLowerInvariant()
-if ($publisher -notmatch '^[0-9a-f]{64}$') { throw 'Invalid publisher SHA-256' }
-$release = Invoke-RestMethod 'https://api.github.com/repos/cefege/roost/releases/latest'
-$base = "https://github.com/cefege/roost/releases/download/$($release.tag_name)"
-$programData = [IO.Path]::GetFullPath($env:ProgramData)
-if (((Get-Item -LiteralPath $programData -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
-  throw 'Unsafe ProgramData directory'
-}
-$owner = ([Security.Principal.NTAccount](Get-Acl -LiteralPath $programData).Owner).Translate([Security.Principal.SecurityIdentifier]).Value
-if ($owner -notin @('S-1-5-18', 'S-1-5-32-544')) { throw 'ProgramData owner is not trusted' }
-$staging = Join-Path $programData ('RoostBootstrap-' + [Guid]::NewGuid().ToString('N'))
-$security = [Security.AccessControl.DirectorySecurity]::new()
-$security.SetSecurityDescriptorSddlForm('O:BAG:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)')
-[IO.Directory]::CreateDirectory($staging, $security) | Out-Null
-& icacls.exe $staging '/setintegritylevel' '(OI)(CI)H' | Out-Null
-if ($LASTEXITCODE -ne 0) { throw 'Cannot apply high-integrity staging policy' }
-$installer = Join-Path $staging 'install-binary.ps1'
-try {
-  Invoke-WebRequest -UseBasicParsing "$base/install-binary.ps1" -OutFile $installer
-  $signature = Get-AuthenticodeSignature -LiteralPath $installer
-  if ($signature.Status -ne 'Valid' -or $null -eq $signature.SignerCertificate -or $null -eq $signature.TimeStamperCertificate) {
-    throw 'Roost installer has no valid Authenticode signature and trusted timestamp'
-  }
-  $sha256 = [Security.Cryptography.SHA256]::Create()
-  try { $actual = -join ($sha256.ComputeHash($signature.SignerCertificate.RawData) | ForEach-Object { $_.ToString('x2') }) }
-  finally { $sha256.Dispose() }
-  if ($actual -cne $publisher) { throw "Roost installer publisher mismatch: $actual" }
-  Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned -Force
-  & $installer -HostRole coordinator -PublisherSha256 $publisher -ReleaseBaseUrl $base
-} finally {
-  Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
-}`;
 
 const SOURCE = `curl -fsSL https://raw.githubusercontent.com/cefege/roost/main/install.sh | bash`;
 
@@ -55,52 +26,38 @@ const ASSETS: { name: string; host: string }[] = [
   { name: "roost-darwin-x64", host: "macOS x64" },
   { name: "roost-linux-x64", host: "Linux x64" },
   { name: "roost-linux-arm64", host: "Linux arm64" },
-  { name: "roost-windows-x64.zip", host: "Windows x64" },
 ];
 ---
 
 <BaseLayout
-  title="Self-host Roost — macOS, Linux, Windows"
-  description="Install the accountless open-source edition of Roost on macOS, Linux, or Windows x64. Managed Roost is a separate private operator-provisioned service."
+  title="Install Roost v0.5.0 — macOS and Linux"
+  description="Install the released, accountless Roost v0.5.0 on macOS or Linux, then choose automatic Tailscale Serve or direct HTTPS for the coordinator."
 >
   <Hero
-    title="Self-host Roost"
-    sub="Run the open-source edition under your own operation, with no Roost account required. macOS and Linux install with a checksum-verified one-liner; Windows x64 uses a signed, certificate-pinned PowerShell bootstrap."
-    badges={["GPL-3.0-only", "accountless self-hosting", "no telemetry"]}
+    title="Self-host Roost v0.5.0"
+    sub="Install the released open-source edition on macOS or Linux, with no Roost account or telemetry. Choose automatic Tailscale Serve or bring a browser-trusted certificate for direct HTTPS."
+    badges={["v0.5.0", "macOS + Linux", "GPL-3.0-only"]}
   >
     <a class="btn btn-primary" href="/docs/install/">Full install guide</a>
     <a class="btn" href="/docs/quickstart/">Quickstart</a>
-    <a class="btn" href="https://dashboard.roosttt.com/login">Managed login</a>
+    <a class="btn" href="https://github.com/cefege/roost/releases">Release assets</a>
   </Hero>
 
   <div class="wrap">
-    <section class="section">
-      <Callout tone="info" title="Install Tailscale first">
-        <p>
-          The supported production topology puts the coordinator and every worker
-          on a <a href="https://tailscale.com">Tailscale</a> tailnet — it is the
-          private transport, the trusted enrollment boundary, and the source of
-          TLS certificates. Machines you only browse from need nothing. Details,
-          including which other networks are manual and unexercised, are in
-          <a href="/docs/networking/">networking</a>.
-        </p>
-      </Callout>
-    </section>
 
     <section class="section">
       <p class="eyebrow">macOS and Linux</p>
-      <h2>The verified binary installer</h2>
+      <h2>Install the verified v0.5.0 binary</h2>
       <p class="lede">
-        The script resolves your OS and architecture to one release asset,
-        downloads it with its published <code>.sha256</code> sidecar, refuses to
+        The script resolves your OS and architecture to one published release
+        asset, downloads it with its <code>.sha256</code> sidecar, refuses to
         install on a digest mismatch, and puts the binary in
-        <code>$HOME/.local/bin</code>. Then <code>quickstart</code> does the
-        guided local setup: coordinator, a worker on the same machine, and a
-        browser that pairs itself.
+        <code>$HOME/.local/bin</code>. Choose one of the two coordinator
+        quickstart modes below after it finishes.
       </p>
       <CtaBand
-        command={POSIX}
-        note="Override the install directory with ROOST_BIN_DIR. quickstart stops early if Tailscale is missing."
+        command={INSTALL}
+        note="Supports macOS arm64/x64 and Linux arm64/x64. Override the install directory with ROOST_BIN_DIR."
       />
     </section>
 
@@ -109,24 +66,57 @@ const ASSETS: { name: string; host: string }[] = [
       <h2>Homebrew</h2>
       <CtaBand
         command={HOMEBREW}
-        note="macOS-only on purpose: the unsuffixed roost asset is the darwin-arm64 build and there is no tested Linuxbrew bottle. The formula pulls in the open-source tailscaled, which needs no network-extension approval."
+        note="macOS-only on purpose. After installation, choose either automatic Tailscale Serve or direct HTTPS below."
       />
     </section>
 
     <section class="section">
-      <p class="eyebrow">Windows x64</p>
-      <h2>Signed, pinned PowerShell bootstrap</h2>
+      <p class="eyebrow">Automatic HTTPS</p>
+      <h2>Let Tailscale Serve the coordinator</h2>
       <p class="lede">
-        Run this in an elevated PowerShell 5.1+ session, with the trusted
-        release-publisher certificate SHA-256 supplied through a channel
-        independent of the release manifest. Nothing that was downloaded executes
-        before its Authenticode chain, trusted timestamp, and exact
-        leaf-certificate pin have been checked against that fingerprint.
+        With no endpoint flags, quickstart discovers the coordinator's tailnet
+        hostname, keeps its plaintext listener on loopback, provisions HTTPS on
+        port 4102, and configures Tailscale Serve. The coordinator, workers, and
+        browsers using this route join the same tailnet.
       </p>
       <CtaBand
-        command={WINDOWS}
-        note="The installer then verifies the detached manifest signature, ZIP digest, and every per-file digest before installing the coordinator, worker, keeper, and updater as Windows SCM services under a dedicated low-privilege roost-operator identity that is denied interactive logon."
+        command={AUTOMATIC}
+        note="Install and connect Tailscale first. On Linux, also set the current user as the Tailscale operator."
       />
+    </section>
+
+    <section class="section">
+      <p class="eyebrow">Direct HTTPS</p>
+      <h2>Bring your own trusted hostname and certificate</h2>
+      <p class="lede">
+        Supply the coordinator URL, certificate, and key together. Direct
+        coordinator quickstart does not resolve or call Tailscale; you own DNS,
+        routing, firewall policy, and a certificate chain trusted by every
+        browser and worker that connects to this origin.
+      </p>
+      <CtaBand
+        command={DIRECT}
+        note="The URL must include an explicit port. Certificate and key paths must be absolute, readable, distinct regular files."
+      />
+      <Callout tone="warn" title="Extra workers still require Tailscale in v0.5.0">
+        <p>
+          The current <code>join.sh</code> requires a running Tailscale daemon
+          even when it enrolls against the direct HTTPS origin. Direct mode is
+          Tailscale-free for the first coordinator and its local worker, but not
+          yet for extra-worker enrollment.
+        </p>
+      </Callout>
+    </section>
+
+    <section class="section">
+      <Callout tone="warn" title="Windows host releases are paused">
+        <p>
+          v0.5.0 publishes no Windows coordinator, worker, installer, join
+          script, or package. A Windows PC remains supported as a browser
+          client, but there is no Windows host install, enrollment, or update
+          procedure in this release.
+        </p>
+      </Callout>
     </section>
 
     <section class="section">
@@ -148,11 +138,10 @@ const ASSETS: { name: string; host: string }[] = [
         </tbody>
       </table>
       <p class="note">
-        Every asset ships a <code>.sha256</code> sidecar, and <code>roost</code>
-        is byte-identical to <code>roost-darwin-arm64</code> so older release
-        links keep working. The Windows package additionally ships a signed
-        manifest, its checksum, and a detached <code>.p7s</code> signature. See
-        the <a href="https://github.com/cefege/roost/releases">releases</a>.
+        Every published asset ships a <code>.sha256</code> sidecar, and
+        <code>roost</code> is byte-identical to
+        <code>roost-darwin-arm64</code> so older release links keep working.
+        See the <a href="https://github.com/cefege/roost/releases">releases</a>.
       </p>
     </section>
 

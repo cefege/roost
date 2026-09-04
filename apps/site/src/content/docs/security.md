@@ -1,16 +1,21 @@
 ---
 title: "Security model"
-description: "How Roost uses non-extractable device keys in both deployment modes, plus self-hosted pairing, revocation, audit, backups, and telemetry behavior."
+description: "How self-hosted Roost uses non-extractable device keys, pairing, revocation, audit, backups, and local-only telemetry."
 order: 9
 section: "Reference"
 ---
 
-Managed Roost is a private operator-provisioned service with one initial owner
-and dashboard. The owner password authorizes a browser's non-extractable device
-key; subsequent requests use signed device JWTs. Self-hosted startup instead
-creates and validates one internal local account, `personal` organization, and
-`default` dashboard automatically. That topology is not an operator login
-identity; the pairing and operational details below describe self-hosted access.
+The per-account managed implementation is qualified but not launched. Production
+publishes no managed coordinator image, the shared dashboard origin is inactive,
+and public email signup and Google authentication remain disabled. Qualification
+accounts can only be operator-created. Each starts with one owner and dashboard;
+the owner password authorizes a browser's non-extractable device key, and
+subsequent requests use signed device JWTs.
+
+Self-hosted startup instead creates and validates one internal local account,
+`personal` organization, and `default` dashboard automatically. That topology
+is not an operator login identity; the pairing and operational details below
+describe self-hosted access.
 
 ## Self-hosted device identity is a key, not a login account
 
@@ -79,18 +84,18 @@ path, query, or fragment. See [the CLI](/docs/cli/).
 
 ## Enrollment boundaries
 
-Worker enrollment uses the same one-shot bootstrap tokens, minted by
-`roost add-machine` or **Settings → Machines → Add machine**, and the machine
-joins by *pulling* — the coordinator never SSHes out to push a credential. On
-Windows, nothing downloaded is executed until its Authenticode chain, trusted
-timestamp, and exact leaf-certificate pin have been verified against a publisher
-fingerprint you supplied out of band, and the signed join script keeps the one-shot
-token in memory only.
+Worker enrollment for supported macOS and Linux hosts uses the same one-shot
+bootstrap tokens, minted by `roost add-machine` or **Settings → Machines → Add
+machine**. The machine joins by *pulling*; the coordinator never SSHes out to
+push a credential.
+
+Windows host enrollment is unavailable in `v0.5.0`. The release publishes no
+Windows worker, package, installer, or signed join script, so the paused Windows
+implementation provides no current enrollment path. Windows remains supported
+as a browser client.
 
 Workers dial the coordinator outbound and never listen, so a worker machine
-exposes no inbound port to attack. Windows services run under a dedicated
-low-privilege `roost-operator` identity that is denied interactive logon;
-administrator identities are rejected outright.
+exposes no inbound port to attack.
 
 ## The audit log
 

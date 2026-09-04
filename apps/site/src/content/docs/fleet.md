@@ -48,10 +48,10 @@ the last event id it saw and receives exactly the events it missed.
 
 Each worker heartbeat carries a host sample: CPU percent, memory used and total,
 disk used and total, network receive and transmit bytes per second, and the
-timestamp the sample was taken. Sampling is per platform (macOS, Linux, and
-Windows each have their own collector). **Settings → Machines** renders these as
-a tile per metric, so "which box has capacity right now" is a glance rather than
-an SSH session. In the sidebar, live sessions are grouped by machine.
+timestamp the sample was taken. Sampling is implemented for the supported macOS
+and Linux hosts. **Settings → Machines** renders these as a tile per metric, so
+"which box has capacity right now" is a glance rather than an SSH session. In
+the sidebar, live sessions are grouped by machine.
 
 ## What survives what
 
@@ -75,29 +75,31 @@ From a clean checkout at the commit you pushed:
 bun apps/roost-cli/src/main.ts push
 ```
 
-`roost push` discovers every registered worker and, when the fleet contains
-Windows hosts, preflights the exact published Windows manifest first. It then
-upgrades and *proves* the coordinator before touching a remote worker, deploys
-the exact clean commit to macOS and Linux hosts, and sends authenticated Windows
-workers through the signed updater service.
+`roost push` is one journaled transaction across the local POSIX coordinator
+and the exact complete registered macOS/Linux worker fleet. It requires at least
+one registered worker, a clean complete Git commit, and proof that the commit is
+on the configured upstream unless `--no-git` was explicitly chosen.
 
-Convergence is proven, not assumed. The command waits for a fresh post-update
-heartbeat from every target reporting the expected worker build and a current
-keeper. Each host activates through a journal with a health proof and automatic
-rollback, so a failed activation returns the host to its previous version rather
-than leaving it half-updated. `push` continues past a failure on an independent
-host, but it never prints completion if any host failed, stayed stale, or
-reported a different build.
+A registered Windows worker blocks the rollout. Windows host updates are paused
+in `v0.5.0`, which publishes no Windows package, manifest, or updater payload;
+`push` and `deploy` cannot update one to this release.
 
-Two flags narrow the rollout: `--targets=host1,host2` restricts which hosts are
-updated, and `--no-web` retains the coordinator's existing web bundle instead of
-shipping a new one.
+Convergence is proven, not assumed. The command snapshots the live coordinator
+database, activates and proves the target coordinator in a held state, then
+stages and proves every worker at the same SHA with a current keeper and fresh
+heartbeat. Only then does it record the durable finalization decision. Before
+that decision, any participant failure rolls every worker back and restores and
+proves the prior coordinator and database. After it, interrupted recovery can
+only finish the target release.
 
-To update one registered Windows worker, run `roost deploy <host>` from the
-coordinator; it uses the same authenticated, signed, journaled transaction.
-One-host POSIX deployment is source-based: `bun apps/roost-cli/src/main.ts deploy <host>`
-stages that exact pushed commit over SSH, and deliberately refuses to run from
-the standalone release binary, which contains no Git checkout.
+`--targets` may name the exact complete registered worker set, but it cannot
+narrow the transaction to a partial fleet. `--no-web` retains the coordinator's
+existing web bundle instead of shipping a new one.
+
+One-host POSIX deployment remains a separate source operation:
+`bun apps/roost-cli/src/main.ts deploy <host>` stages the exact pushed commit
+over SSH and deliberately refuses to run from the standalone release binary,
+which contains no Git checkout.
 
 ## Coordinator database backups
 
@@ -109,8 +111,7 @@ directory beside the database file.
 
 Treat these as same-host rollback material. They do not survive the loss of the
 coordinator's disk; copy them somewhere with an independent failure domain if
-host-loss recovery matters. Windows update journals and retained version
-directories are same-host material for the same reason.
+host-loss recovery matters.
 
 ## Moving the coordinator to another machine
 

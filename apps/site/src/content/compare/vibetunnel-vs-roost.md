@@ -16,14 +16,14 @@ matrix:
   voiceInput: "no"
   pushAgentState: "Session activity indicators showing active or idle; no agent-state push"
   selfHostedNoAccount: "yes"
-verdict: "VibeTunnel forwards one host's terminals into a browser in one command; Roost is a control plane over many hosts with a phone client built for a phone."
-pickRoostIf: "You want one control plane over macOS, Linux, and Windows hosts, with a phone client designed for a phone rather than a shrunken dashboard."
-useInsteadIf: "You want one Mac's terminals in a browser with the least possible setup and don't care about phones, Windows hosts, or fleets."
+verdict: "VibeTunnel forwards one host's terminals into a browser in one command; Roost is a control plane over macOS and Linux hosts with a phone client built for a phone."
+pickRoostIf: "You want one control plane over macOS and Linux hosts, with a phone client designed for a phone rather than a shrunken dashboard."
+useInsteadIf: "You want one Mac's terminals in a browser with the least possible setup and don't care about phones or fleets."
 ---
 
 ## Where they differ
 
-- **Forwarding from one host versus a control plane over many.** VibeTunnel's server runs on one machine and publishes that machine's terminals. Roost is a coordinator plus N workers across macOS, Linux, and Windows x64, where the coordinator is also a worker; `roost add-machine --platform macos|linux|windows` prints a one-shot enrollment command valid for 24 hours, and workers then dial outbound only and never expose an inbound port. The sidebar groups sessions by machine with per-machine CPU, memory, disk, and network tiles.
+- **Forwarding from one host versus a control plane over many.** VibeTunnel's server runs on one machine and publishes that machine's terminals. Roost is a coordinator plus N workers across macOS and Linux, where the coordinator is also a worker; `roost add-machine --platform macos|linux` prints a one-shot enrollment command valid for 24 hours, and workers then dial outbound only and never expose an inbound port. The sidebar groups sessions by machine with per-machine CPU, memory, disk, and network tiles.
 
 - **Wrapping a command versus opening a terminal anywhere.** With VibeTunnel a session exists because you prefixed a command with `vt` on that host. In Roost you browse folders on any worker from the browser and choose *Open terminal here*, so you can start a brand-new session on a machine you are nowhere near, from a phone.
 
@@ -36,11 +36,11 @@ useInsteadIf: "You want one Mac's terminals in a browser with the least possible
 ## What you give up either way
 
 - **Choosing Roost costs you:** asciinema recording of every session, Git follow mode that tracks your IDE's branch switching, and a genuinely one-command setup on a Mac — you enroll workers into a coordinator instead.
-- **Choosing VibeTunnel costs you:** Windows hosts (not supported, tracked as issue #252), Intel Macs for the menu-bar app, more than one host in one view, a phone-native client, voice dictation, and any agent-state model beyond active or idle.
+- **Choosing VibeTunnel costs you:** Intel Macs for the menu-bar app, more than one host in one view, a phone-native client, voice dictation, and any agent-state model beyond active or idle.
 
 ## Use VibeTunnel instead if…
 
-You want one Mac's terminals in a browser with the least possible setup and don't care about phones, Windows hosts, or fleets. Installing a menu-bar app and typing `vt` in front of a command is a much shorter path than enrolling workers into a coordinator, and if the only thing you need is to glance at a long build or an agent from a laptop on the sofa, that is the right amount of machinery. The asciinema recordings are also a real feature if you want to replay what an agent did.
+You want one Mac's terminals in a browser with the least possible setup and don't care about phones or fleets. Installing a menu-bar app and typing `vt` in front of a command is a much shorter path than enrolling workers into a coordinator, and if the only thing you need is to glance at a long build or an agent from a laptop on the sofa, that is the right amount of machinery. The asciinema recordings are also a real feature if you want to replay what an agent did.
 
 ## What VibeTunnel is
 

@@ -1,21 +1,33 @@
 ---
 title: "Quickstart"
-description: "Bring up a coordinator and its first worker with one command, pair a phone by QR, enroll another machine, and open your first workspace."
+description: "Bring up a coordinator and its first worker, pair a phone by QR, enroll another macOS or Linux machine, and open your first workspace."
 order: 2
 section: "Start"
 ---
 
 ## One command for the first machine
 
+Choose one `quickstart` form. Automatic Tailscale Serve:
+
 ```sh
 roost quickstart
 ```
 
-`quickstart` is the local one-shot installer for a single machine. It checks
-Tailscale first and stops if it is missing, then builds the web app, mints a TLS
-certificate for the machine's tailnet FQDN, installs the coordinator service,
-deploys a worker on the same machine, waits for the coordinator to report
-healthy, prints a status readout, and opens your browser already authorized.
+Direct HTTPS:
+
+```sh
+roost quickstart \
+  --coordinator-url "https://roost.example.com:8443" \
+  --tls-cert "/absolute/path/fullchain.pem" \
+  --tls-key "/absolute/path/privkey.pem"
+```
+
+Both forms install the coordinator service, deploy a worker on the same machine,
+wait for health, print a status readout, and open your browser already
+authorized. Automatic mode requires Tailscale and configures Serve in front of a
+loopback coordinator. Direct mode does not resolve or call Tailscale; the
+coordinator serves your browser-trusted certificate on the configured HTTPS
+origin.
 
 Coordinator startup owns the self-hosted tenant setup. Before enrollment, it
 creates or validates one internal `local@roost.invalid` account, one `personal`
@@ -36,16 +48,18 @@ one-shot browser token and renders a QR for the current HTTPS origin, again with
 the token in the fragment. Scan it with the phone's camera — the phone opens
 Roost and signs itself in with nothing to type.
 
-Two routes reach that origin:
+Choose a browser route:
 
-- **Tailscale (default).** Install the Tailscale app on the phone and sign in to
-  the same tailnet, then scan.
-- **Cloudflare (optional).** After the setup in
+- **Automatic Tailscale Serve.** Install the Tailscale app on the phone and sign
+  in to the same tailnet, then scan.
+- **Direct HTTPS.** Make the configured origin reachable from the phone and make
+  sure its complete certificate chain is trusted there, then scan.
+- **Cloudflare (optional for automatic mode).** After the setup in
   [networking](/docs/networking/), open your Cloudflare hostname on the phone
   with no VPN client, complete the Cloudflare Access login, then pair.
 
-Both routes require Roost pairing. A successful Access login on its own does not
-authorize a device.
+Every route requires Roost pairing. Network reachability or a successful Access
+login on its own does not authorize a device.
 
 Three other ways to authorize a browser — pasting a bootstrap token, loopback
 self-registration, and tap-to-pair approval — are described in
@@ -53,45 +67,40 @@ self-registration, and tap-to-pair approval — are described in
 
 ## Add another machine
 
-Extra machines join by **pulling**. There is no SSH from the coordinator and no
-token to hand-copy. On the coordinator, use **Settings → Machines → Add machine**
-or run one of:
+`v0.5.0` enrolls macOS and Linux workers. On a coordinator in either HTTPS
+mode, use **Settings → Machines → Add machine** to generate a one-shot pull
+command for the installed public origin. On an automatic-mode coordinator, the
+equivalent CLI generators are:
 
 ```sh
 roost add-machine --platform macos
 roost add-machine --platform linux
-roost add-machine --platform windows --publisher-sha256 "<trusted publisher certificate SHA-256>"
 ```
 
-`--label` optionally names the machine up front. Each invocation mints a one-shot
-bootstrap token (prefixed `roost_bt_`, valid for 24 hours) and prints the
-platform-specific enrollment command.
-
-On a macOS or Linux worker, paste the generated command. It has this shape:
+`--label` optionally names the machine up front. Each invocation mints a
+single-use bootstrap token (prefixed `roost_bt_`, valid for 24 hours) and prints
+the enrollment command. Paste that command on the macOS or Linux worker; it has
+this shape:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/cefege/roost/main/join.sh | \
-  ROOST_COORDINATOR_URL="https://<coord>.<tailnet>.ts.net:4102" \
+  ROOST_COORDINATOR_URL="https://<coordinator-host>:<port>" \
   ROOST_BOOTSTRAP_TOKEN="roost_bt_…" bash
 ```
 
-Those two environment variables are the whole contract: `roost join` refuses to
-run without both.
+Those two environment variables are the enrollment contract. `join.sh`
+currently also requires a running Tailscale daemon, even when
+`ROOST_COORDINATOR_URL` names the direct HTTPS origin. In direct mode, the
+worker must reach that origin and trust its certificate chain. `v0.5.0`
+therefore has no Tailscale-free extra-worker enrollment path.
 
-> **Windows enrollment is paused.** Releases since `v0.4.2` publish no signed
-> `join.ps1`, so the generated PowerShell command has nothing to verify or run
-> until the Windows release tier is re-enabled.
-
-For a Windows x64 worker, choose **Windows** in the dialog (or pass
-`--publisher-sha256`) and paste the generated command into elevated
-PowerShell 5.1+. Before executing anything it downloaded, that command verifies
-the release `join.ps1` Authenticode chain, trusted timestamp, and exact
-leaf-certificate pin. The signed join script keeps the one-shot token in memory
-only while it enrolls the worker and installs the restricted SCM services.
+> **Windows host enrollment is paused.** `v0.5.0` publishes no Windows worker,
+> package, installer, or signed join script, so there is no Windows command to
+> generate or run. Windows remains supported as a browser client.
 
 The machine appears in **Settings → Machines** within a few seconds. macOS uses
-launchd, Linux uses `systemd --user`, and Windows uses SCM. The token is
-single-use and expires 24 hours after minting whether or not it is redeemed.
+launchd and Linux uses `systemd --user`. The token expires 24 hours after
+minting whether or not it is redeemed.
 
 ## Open your first workspace
 
@@ -126,10 +135,11 @@ On macOS and Linux keyboards:
 | Settings | `⌘,` |
 | Shortcut help | `Shift+?` |
 
-Windows uses a deliberately different set — `Ctrl+Shift+P` for the palette,
-`Alt+Shift+D` / `Alt+Shift+S` to split, `Alt+1`–`Alt+9` for tabs, `Alt+Enter`
-for spotlight, `Alt+← ↑ → ↓` for pane focus — so that a plain `Ctrl`+letter chord
-still reaches the program running in the PTY.
+When browsing from Windows, Roost uses a deliberately different shortcut set —
+`Ctrl+Shift+P` for the palette, `Alt+Shift+D` / `Alt+Shift+S` to split,
+`Alt+1`–`Alt+9` for tabs, `Alt+Enter` for spotlight, and `Alt+← ↑ → ↓` for pane
+focus — so that a plain `Ctrl`+letter chord still reaches the program running in
+the PTY.
 
 ## Confirm it is healthy
 
@@ -138,9 +148,10 @@ roost status
 roost doctor --since 1h
 ```
 
-`roost status` is the current service, network, and fleet gate: Tailscale state,
-coordinator and worker services, coordinator health and tagged SHA, worker
-freshness, and whether TLS comes from Tailscale Serve or a direct certificate.
+`roost status` is the current service, network, and fleet gate: it reports the
+selected HTTPS mode, required Tailscale/Serve or direct-certificate state,
+coordinator and worker services, coordinator health and tagged SHA, and worker
+freshness.
 `roost doctor --since <window>` is a different question — it summarizes the local
 logs from that window and reports anomaly counts such as uncaught errors,
 sequence gaps, queue overflows, degraded keepers, and failed backups or

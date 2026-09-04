@@ -1,0 +1,302 @@
+---
+/**
+ * Category definitions, wider catalog, and closing caveats for the alternatives hub.
+ * The alternatives index owns the editorial data and passes it here for rendering.
+ * Competitor domains remain plain text; only internal detail pages become links.
+ */
+interface CategoryNote {
+  name: string;
+  blurb: string;
+}
+
+interface LandscapeItem {
+  name: string;
+  domain: string;
+  note: string;
+  page?: string;
+}
+
+interface LandscapeGroup {
+  name: string;
+  items: LandscapeItem[];
+}
+
+interface Props {
+  categories: CategoryNote[];
+  landscape: LandscapeGroup[];
+}
+
+const { categories, landscape }: Props = Astro.props;
+---
+
+<section class="section">
+  <div class="wrap">
+    <h2>The four categories, briefly</h2>
+    <dl class="cats">
+      {
+        categories.map((category) => (
+          <div class="cat">
+            <dt>{category.name}</dt>
+            <dd>{category.blurb}</dd>
+          </div>
+        ))
+      }
+    </dl>
+    <p class="note">
+      Roost is in the second, with the agent-state model from the first. Underneath all four sits the baseline:
+      <a href="/alternatives/tmux-vs-roost/">tmux and Zellij</a>, which give you persistent sessions and splits
+      and deliberately know nothing about agents.
+    </p>
+  </div>
+</section>
+
+<section class="section">
+  <div class="wrap">
+    <h2>The wider landscape</h2>
+    <p class="sub">
+      Everything else worth knowing about, grouped the same way. These do not have dedicated pages; the
+      one-liners are factual summaries from each project's own material.
+    </p>
+    {
+      landscape.map((group) => (
+        <div class="group">
+          <h3>{group.name}</h3>
+          <ul class="items">
+            {group.items.map((item) => (
+              <li class="item">
+                <p class="item-head">
+                  <span class="item-name">
+                    {item.name} <span class="item-domain">({item.domain})</span>
+                  </span>
+                  {item.page ? (
+                    <a class="detail" href={item.page}>
+                      compare with Roost
+                    </a>
+                  ) : null}
+                </p>
+                <p class="item-note" set:html={item.note.replace(/`([^`]+)`/g, "<code>$1</code>")} />
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))
+    }
+  </div>
+</section>
+
+<section class="section">
+  <div class="wrap">
+    <div class="wrong">
+      <h2>Roost is the wrong tool if&hellip;</h2>
+      <ul>
+        <li>
+          <strong>You only ever use one Mac and want a native desktop app.</strong> A local AppKit terminal will
+          feel better than any browser can, and everything Roost spends on a wire protocol and worker enrollment
+          is overhead you will never get value from. Roost has no desktop app.
+        </li>
+        <li>
+          <strong>You want managed cloud sandboxes with no machine of your own.</strong> Roost has nothing to
+          give an agent to run on. It reaches computers you already own and operate; if that set is empty, so is
+          Roost.
+        </li>
+        <li>
+          <strong>You need per-agent cost tracking or a kanban board today.</strong> Roost does not own the agent
+          process by design, so it will not restart a crashed run, compact its context, tell you what it spent,
+          or hand it the next ticket. If coordinating dozens of unattended runs is the actual problem, an
+          orchestration product solves it and Roost does not.
+        </li>
+      </ul>
+      <p class="reads">
+        <a href="/">What Roost is</a>
+        <a href="/docs/fleet/">Fleet architecture</a>
+        <a href="/install/">Install it</a>
+      </p>
+    </div>
+  </div>
+</section>
+
+<style>
+  h2 {
+    margin: 0 0 var(--md-space-3);
+    color: var(--text-hi);
+    font-size: var(--md-title-l-size);
+    line-height: var(--md-title-l-line);
+    font-weight: var(--md-title-l-weight);
+  }
+
+  .sub {
+    margin: 0 0 var(--md-space-6);
+    max-width: 68ch;
+    color: var(--text-lo);
+    font-size: 16px;
+    line-height: 26px;
+  }
+
+  .reads {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--md-space-2) var(--md-space-5);
+    margin: 0;
+    font-size: 16px;
+    line-height: 26px;
+  }
+
+  .note a,
+  .reads a {
+    color: var(--brand-coral);
+  }
+
+  .detail {
+    color: var(--brand-coral);
+    font-size: var(--md-label-m-size);
+    line-height: var(--md-label-m-line);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .cats {
+    display: grid;
+    gap: var(--md-space-3);
+    margin: 0;
+  }
+
+  .cat {
+    display: grid;
+    grid-template-columns: minmax(0, 26ch) minmax(0, 1fr);
+    gap: var(--md-space-1) var(--md-space-5);
+    padding-bottom: var(--md-space-3);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .cat:last-child {
+    padding-bottom: 0;
+    border-bottom: 0;
+  }
+
+  .cat dt {
+    color: var(--text-hi);
+    font-size: 15px;
+    line-height: 22px;
+    font-weight: 500;
+  }
+
+  .cat dd {
+    margin: 0;
+    color: var(--text-mid);
+    font-size: var(--md-body-m-size);
+    line-height: 22px;
+  }
+
+  .note {
+    margin: var(--md-space-5) 0 0;
+    max-width: 74ch;
+    color: var(--text-lo);
+    font-size: 16px;
+    line-height: 26px;
+  }
+
+  .group + .group {
+    margin-top: var(--md-space-8);
+  }
+
+  .group h3 {
+    margin: 0 0 var(--md-space-4);
+    padding-bottom: var(--md-space-2);
+    border-bottom: 1px solid var(--border-subtle);
+    color: var(--text-hi);
+    font-size: 16px;
+    line-height: 24px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+  }
+
+  .items {
+    display: grid;
+    gap: var(--md-space-5);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .item-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--md-space-2) var(--md-space-4);
+    margin: 0 0 var(--md-space-1);
+  }
+
+  .item-name {
+    color: var(--text-hi);
+    font-size: 16px;
+    line-height: 24px;
+    font-weight: 500;
+    overflow-wrap: anywhere;
+  }
+
+  .item-domain {
+    color: var(--text-lo);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 400;
+  }
+
+  .item-note {
+    margin: 0;
+    max-width: 78ch;
+    color: var(--text-mid);
+    font-size: var(--md-body-m-size);
+    line-height: 22px;
+  }
+
+  .item-note :global(code) {
+    padding: 1px 4px;
+    border-radius: var(--md-shape-xs);
+    background: var(--surface-2);
+    color: var(--text-hi);
+    font-family: var(--font-mono);
+    font-size: 0.92em;
+    overflow-wrap: anywhere;
+  }
+
+  .wrong {
+    padding: var(--md-space-6);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--md-shape-lg);
+    background: var(--surface-1);
+  }
+
+  .wrong ul {
+    display: grid;
+    gap: var(--md-space-4);
+    margin: 0 0 var(--md-space-6);
+    padding-left: var(--md-space-5);
+  }
+
+  .wrong li {
+    max-width: 74ch;
+    color: var(--text-mid);
+    font-size: 16px;
+    line-height: 26px;
+  }
+
+  .wrong li::marker {
+    color: var(--text-lo);
+  }
+
+  .wrong strong {
+    color: var(--text-hi);
+  }
+
+  @media (max-width: 700px) {
+    .cat {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+
+  @media (max-width: 600px) {
+    .wrong {
+      padding: var(--md-space-5) var(--md-space-4);
+    }
+  }
+</style>

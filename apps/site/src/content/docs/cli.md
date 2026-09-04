@@ -23,36 +23,43 @@ standalone release binary (it contains no Git checkout).
 
 | Subcommand | What it does |
 |---|---|
-| `quickstart` | One-shot local install: Tailscale gate, then coordinator, local worker, and browser pairing |
+| `quickstart` | One-shot local install: automatic Tailscale Serve or explicit-certificate direct HTTPS, then coordinator, local worker, and browser pairing |
 | `coord` | Run the coordinator (server mode; used by the compiled binary) |
 | `worker` | Run the worker (server-side; compiled binary or supervised service) |
 | `keeper` | Run the keeper subprocess that hosts this machine's PTYs |
-| `update` | Self-update the binary from the latest GitHub release |
+| `update` | Self-update a supported macOS or Linux binary from the latest GitHub release |
 | `version` | Print the Roost version |
 | `expose <hostname>` | Configure Cloudflare Access browser entry — `--team <team>.cloudflareaccess.com --aud <64-hex> [--config <path>]` |
 | `dev` | Start coordinator, worker, and web dev servers |
 | `test` | Run all tests in dependency order |
-| `deploy <host>` | Deploy a worker to a tailnet host |
-| `push` | Push the commit, update the fleet, and kickstart the local coordinator |
+| `deploy <host>` | Deploy a macOS or Linux worker from a source checkout |
+| `push` | Journaled update of the local coordinator and complete registered macOS/Linux fleet |
 | `keeper-refresh <host> --yes` | Re-spawn a host's keeper on current code (destructive) |
 | `logs <coord\|worker>` | Tail an app's logs, `--tail N` (default: last 100 lines) |
 | `reset` | Nuke local state — database, keys, lock |
 | `state` | Print the state snapshot |
 | `cutover` | Migrate from the legacy `coordinator.db` to `coordinator_v2.db` |
-| `status` | Health readout: Tailscale, coordinator, workers |
+| `status` | Health readout: selected network/TLS mode, coordinator, workers |
 | `doctor [--since]` | Anomaly digest from the error logs (default window 24h) |
 | `api <verb>` | Headless introspection and control (see below) |
-| `join` | Install and register this machine's worker; needs `ROOST_COORDINATOR_URL` and `ROOST_BOOTSTRAP_TOKEN` |
-| `add-machine` | Print a one-shot enrollment command — `--platform <macos\|linux\|windows> [--label X] [--publisher-sha256 HEX]` |
+| `join` | Install and register a macOS or Linux worker; needs `ROOST_COORDINATOR_URL` and `ROOST_BOOTSTRAP_TOKEN` |
+| `add-machine` | Print a one-shot macOS or Linux enrollment command for automatic mode — `--platform <macos\|linux> [--label X]` |
 
 `--since` accepts a number plus a unit, so `90m`, `1h`, `24h`, and `7d` are all
 valid. `roost logs` also warns when a log file has grown past 100 MB.
 
 Notes on the destructive ones. `keeper-refresh` requires `--yes` because
 re-spawning the keeper ends the PTYs it hosts. `reset` deletes local state
-outright. `push` narrows with `--targets=host1,host2` and can retain the existing
-web bundle with `--no-web`; see [fleet](/docs/fleet/) for how it proves
-convergence and rolls back.
+outright. `push` may use `--targets` to name the exact complete registered
+worker set, but cannot narrow the transaction to a partial fleet; `--no-web`
+retains the existing web bundle. See [fleet](/docs/fleet/) for its convergence
+proof and rollback behavior.
+
+Windows-specific host options that remain in the CLI are non-actionable in
+`v0.5.0`: no Windows package, installer, join script, manifest, or updater
+payload is published. Windows host install, enrollment, and update are paused,
+and a registered Windows worker blocks `push`. A Windows browser client remains
+supported.
 
 ## `roost api`
 
@@ -146,9 +153,9 @@ to that dashboard.
 
 An unknown key can enroll automatically only while the CLI is running on the
 coordinator host: the host mints a scoped one-shot browser grant and the CLI
-redeems it through the normal browser-redemption RPC. A fresh remote or managed
-CLI instead stops with explicit pairing-required guidance. Loopback and tailnet
-addresses are not credentials and never authorize the key by themselves.
+redeems it through the normal browser-redemption RPC. A fresh remote CLI instead
+stops with explicit pairing-required guidance. Loopback and tailnet addresses
+are not credentials and never authorize the key by themselves.
 
 ## Two verbs that were removed
 

@@ -28,6 +28,9 @@ The URL, certificate, and key flags form one required group; partial input never
 falls back to Tailscale. The certificate must be browser-trusted for the
 coordinator hostname.
 
+Direct coordinator quickstart does not resolve or call Tailscale. You provide
+the stable hostname, routing and firewall policy, and certificate lifecycle.
+
 Tailscale supplies convenient private reachability and TLS in automatic mode. It
 is never an application identity or enrollment authority. Every browser must
 redeem a scoped one-shot browser grant or complete approved pairing, and every
@@ -38,12 +41,17 @@ Workers dial the configured coordinator HTTPS origin outbound and never listen
 for inbound connections. `roost status` reports whether TLS is provided by
 Tailscale Serve or directly by the coordinator certificate.
 
-## Optional: Cloudflare browser access
+The current `join.sh` for an additional macOS or Linux worker still requires a
+running Tailscale daemon, even when that worker dials the direct HTTPS origin.
+That enrollment limitation does not make Tailscale part of the direct
+coordinator topology.
 
-Cloudflare Access adds a *public browser endpoint* on top of an already working
-Roost installation. It exists for one case: reaching your fleet from a device you
-cannot or will not install a VPN client on — a work laptop, a borrowed machine, a
-locked-down phone.
+## Optional: Cloudflare browser access for automatic mode
+
+Cloudflare Access adds a *public browser endpoint* to an already working
+automatic Tailscale Serve installation. It exists for one case: reaching your
+fleet from a device you cannot or will not install a VPN client on — a work
+laptop, a borrowed machine, or a locked-down phone.
 
 What changes and what does not:
 
@@ -151,10 +159,11 @@ or reconfigure the coordinator for a full local reset.
 
 ## Other private overlays
 
-WireGuard, Headscale, ZeroTier, and other private overlays can provide the
-reachability that automatic Tailscale mode normally supplies. Roost does not
-configure or exercise those overlays; you own their routing and DNS. Use a
-browser-trusted certificate at the coordinator origin.
+WireGuard, Headscale, ZeroTier, and other private overlays can make a direct
+HTTPS origin reachable, but Roost does not configure or exercise them. You own
+their routing and DNS, and the coordinator still needs a certificate trusted by
+every browser and worker. They do not bypass the current `join.sh` requirement
+for a running Tailscale daemon when enrolling an additional worker.
 
 No network membership grants Roost authority. Browsers and workers still redeem
 scoped one-shot grants or complete explicit pairing, exactly as they do over

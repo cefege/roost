@@ -16,8 +16,8 @@ matrix:
   voiceInput: "no"
   pushAgentState: "Run status and diffs in the app window"
   selfHostedNoAccount: "partial"
-verdict: "Conductor solves git isolation and diff review for parallel agents on one Mac; Roost solves reaching a real terminal on every machine you own."
-pickRoostIf: "You want a real terminal on any of your machines from any browser, and you already have a git workflow you like."
+verdict: "Conductor solves git isolation and diff review for parallel agents on one Mac; Roost solves reaching a real terminal on your macOS and Linux machines."
+pickRoostIf: "You want a real terminal on your macOS and Linux machines from any browser, and you already have a git workflow you like."
 useInsteadIf: "Your bottleneck is git isolation and diff review for parallel agents on one machine, not reaching machines or terminals."
 ---
 
@@ -25,7 +25,7 @@ useInsteadIf: "Your bottleneck is git isolation and diff review for parallel age
 
 - **Different bottleneck entirely.** Conductor assumes you can already reach your machine and your terminals, and that your problem is that five agents editing one checkout is chaos. Roost assumes you can already run agents fine, and that your problem is that the machine is in another room, or another city, or that you are holding a phone.
 
-- **One Mac versus a fleet.** Conductor is a native macOS app; its scope is the machine it is installed on. Roost is a coordinator with N workers across macOS, Linux, and Windows x64, the coordinator itself also a worker, each enrolled with a one-shot command from `roost add-machine --platform …` and dialling outbound only. The sidebar groups every live session by machine with per-machine CPU, memory, disk, and network tiles, so "run this on the box with free RAM" is a normal thing to do.
+- **One Mac versus a fleet.** Conductor is a native macOS app; its scope is the machine it is installed on. Roost is a coordinator with N workers across macOS and Linux, the coordinator itself also a worker, each enrolled with a one-shot command from `roost add-machine --platform …` and dialling outbound only. The sidebar groups every live session by machine with per-machine CPU, memory, disk, and network tiles, so "run this on the box with free RAM" is a normal thing to do.
 
 - **Owning the agent and the git workflow versus owning neither.** Conductor launches the agent, gives it a workspace, watches the run, and drives the diff-review-merge loop. Roost never spawns, supervises, or owns an agent, and it has no concept of a branch, a diff, or a merge. The CLI is an ordinary command in a shell, so anything runs, including Claude Code — but nothing about your git workflow is automated for you.
 
@@ -38,7 +38,7 @@ useInsteadIf: "Your bottleneck is git isolation and diff review for parallel age
 ## What you give up either way
 
 - **Choosing Roost costs you:** git worktree isolation per agent, diff review, checks, and merge or pull-request flows — Roost offers nothing comparable. Its only code surface is an in-app file viewer reachable by Cmd/Ctrl-clicking an inferred path or `#PR` link, with `#L42` anchors.
-- **Choosing Conductor costs you:** Linux and Windows hosts, more than one machine, any client that is not that Mac, a mobile surface of any kind, voice dictation, and any CLI outside the ones it drives.
+- **Choosing Conductor costs you:** Linux hosts, more than one machine, any client that is not that Mac, a mobile surface of any kind, voice dictation, and any CLI outside the ones it drives.
 
 ## Use Conductor instead if…
 

@@ -16,14 +16,14 @@ matrix:
   voiceInput: "no"
   pushAgentState: "Notification rings driven by OSC 9/99/777, surfaced on the Mac"
   selfHostedNoAccount: "yes"
-verdict: "cmux is the better terminal on the one Mac it runs on; Roost is the only one of the two that reaches every machine you own from any browser."
-pickRoostIf: "You have more than one machine and want a real terminal on any of them from a browser, including your phone."
+verdict: "cmux is the better terminal on the one Mac it runs on; Roost reaches your macOS and Linux machines from any browser."
+pickRoostIf: "You have more than one macOS or Linux machine and want a real terminal on any of them from a browser, including your phone."
 useInsteadIf: "You work on one Mac at your desk and want the most polished native terminal, GPU rendering, and an in-app scriptable browser."
 ---
 
 ## Where they differ
 
-- **One host versus a fleet.** cmux is an application that runs on your Mac and owns the terminals on that Mac. Roost is a coordinator plus any number of workers: every macOS, Linux, and Windows x64 machine you own on one coordinator, grouped in one sidebar with per-machine CPU, memory, disk, and network tiles. The coordinator machine is itself a worker, so a one-box install is the degenerate case rather than a different product.
+- **One host versus a fleet.** cmux is an application that runs on your Mac and owns the terminals on that Mac. Roost is a coordinator plus any number of workers: every macOS and Linux machine you connect on one coordinator, grouped in one sidebar with per-machine CPU, memory, disk, and network tiles. The coordinator machine is itself a worker, so a one-box install is the degenerate case rather than a different product.
 
 - **What counts as the client.** cmux's client is the Mac it is installed on; reaching it from elsewhere means the TestFlight iOS companion or its beta SSH and remote-tmux paths, which are ways for a local app to reach a remote shell. Roost inverts the direction: the coordinator holds the sessions, any browser is a full client on a laptop, an iPhone, an Android phone, or an iPad, and workers dial outbound only so no machine exposes an inbound port.
 
@@ -36,7 +36,7 @@ useInsteadIf: "You work on one Mac at your desk and want the most polished nativ
 ## What you give up either way
 
 - **Choosing Roost costs you:** GPU-native rendering, the embedded scriptable WebKit browser, the per-tab git branch, pull request, and listening-port annotations, and the feel of a native AppKit app. Roost has no in-app browser and no per-agent cost accounting.
-- **Choosing cmux costs you:** Linux and Windows hosts, any client that is not that Mac or its TestFlight companion, a phone-native UI, voice dictation, and push that reaches you away from the machine.
+- **Choosing cmux costs you:** Linux hosts, any client that is not that Mac or its TestFlight companion, a phone-native UI, voice dictation, and push that reaches you away from the machine.
 
 ## Use cmux instead if…
 

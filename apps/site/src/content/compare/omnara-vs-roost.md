@@ -16,8 +16,8 @@ matrix:
   voiceInput: "yes"
   pushAgentState: "Progress, streaming output, and approval requests in the dashboard and mobile apps"
   selfHostedNoAccount: "partial"
-verdict: "Omnara is a managed agent runtime you chat with and approve; Roost is the real terminal for any CLI on machines you own."
-pickRoostIf: "You want a real shell with panes, scrollback, and TUIs on machines you own, not a chat transcript of an agent."
+verdict: "Omnara is a managed agent runtime you chat with and approve; Roost is the real terminal for any CLI on macOS and Linux machines you own."
+pickRoostIf: "You want a real shell with panes, scrollback, and TUIs on your macOS and Linux machines, not a chat transcript of an agent."
 useInsteadIf: "You want a phone-first chat and approval workflow over managed agents and never need a shell."
 ---
 
@@ -27,9 +27,9 @@ useInsteadIf: "You want a phone-first chat and approval workflow over managed ag
 
 - **What the surface actually shows you.** Omnara shows a structured conversation: progress, streamed output, diffs, and approval prompts. Roost shows the literal cell grid the program is drawing, with full ANSI, scrollback, mouse support, and alt-screen TUIs — which is what you need to run `htop`, page through `git log`, answer an interactive prompt, or use a shell at all.
 
-- **Accounts and device keys.** Omnara is account-based, with organisations, roles, and API keys, and its default path is Omnara Cloud. Managed Roost currently has one operator-provisioned owner and dashboard. The owner password authorizes a browser's non-extractable Ed25519 device key, which then signs ordinary requests. The self-hosted edition remains accountless and user-operated.
+- **Accounts and device keys.** Omnara is account-based, with organisations, roles, and API keys, and its default path is Omnara Cloud. Roost's released product is self-hosted, accountless, and user-operated: each authorized browser holds a non-extractable Ed25519 device key and signs ordinary requests. A per-account managed implementation is qualified but not launched; production signup and the shared dashboard origin are inactive, and accounts can only be operator-created.
 
-- **Machines mean different things.** Omnara's machines are execution targets an agent can be handed, including vendor sandboxes from Blaxel, Daytona, or Unikraft, added or removed while the agent is running. Roost's workers are your own long-lived computers, enrolled once with `roost add-machine --platform macos|linux|windows`, dialling outbound only so none exposes an inbound port, and shown in one sidebar with per-machine CPU, memory, disk, and network tiles.
+- **Machines mean different things.** Omnara's machines are execution targets an agent can be handed, including vendor sandboxes from Blaxel, Daytona, or Unikraft, added or removed while the agent is running. Roost's workers are your own long-lived macOS and Linux computers, enrolled once with `roost add-machine --platform macos|linux`, dialling outbound only so none exposes an inbound port, and shown in one sidebar with per-machine CPU, memory, disk, and network tiles.
 
 - **Both are open, and durable about different things.** Omnara's Apache-2.0 licence is real: self-host it with Docker Compose, and agent state is committed atomically to Postgres so runs survive crashes, restarts, and temporary machine disconnects. Roost's durability is a keeper subprocess that hosts every PTY and outlives worker restarts and updates — session durability, not agent durability.
 
@@ -40,7 +40,7 @@ useInsteadIf: "You want a phone-first chat and approval workflow over managed ag
 
 ## Use Omnara instead if…
 
-You want a phone-first chat and approval workflow over managed agents and never need a shell. If the job is "let an agent work, show me what it wants to do, let me approve or redirect it from my phone, and make sure the run survives a crash", Omnara is built exactly for that and Roost gives you none of it. Choose Roost only when what you actually miss is the real terminal on your own machines.
+You want a phone-first chat and approval workflow over managed agents and never need a shell. If the job is "let an agent work, show me what it wants to do, let me approve or redirect it from my phone, and make sure the run survives a crash", Omnara is built exactly for that and Roost gives you none of it. Choose Roost only when what you actually miss is the real terminal on your own macOS or Linux machines.
 
 ## What Omnara is
 

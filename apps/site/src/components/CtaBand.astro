@@ -38,9 +38,8 @@ const { command, note }: Props = Astro.props;
     background: var(--surface-1);
   }
 
-  /* flex-start, not center: `command` is often multi-line (the Windows
-     PowerShell bootstrap is ~30 lines) and a vertically centred button beside
-     a tall block looks broken. */
+  /* Multi-line commands keep the copy control aligned with their first row
+     instead of leaving it floating halfway down the block. */
   .row {
     display: flex;
     align-items: flex-start;

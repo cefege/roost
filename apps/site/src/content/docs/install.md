@@ -1,42 +1,60 @@
 ---
 title: "Install Roost"
-description: "Install the verified Roost release on macOS, Linux, or Windows x64 — binary installer, Homebrew, the signed PowerShell bootstrap, release assets."
+description: "Install the verified Roost release on macOS or Linux — binary installer, Homebrew, HTTPS modes, and release assets."
 order: 1
 section: "Start"
 ---
 
 ## What needs a supported host OS
 
-Only coordinator and worker machines. Those run on macOS, Linux, and Windows x64:
-POSIX hosts are supervised by launchd or `systemd --user`, Windows by restricted
-SCM services. Everything you *browse from* — a Mac, a Windows PC, a Linux
-desktop, an iPhone, an Android phone, an iPad, an Android tablet — needs nothing
-but a modern browser.
+Only coordinator and worker machines need a supported host OS. In `v0.5.0`,
+those roles run on macOS arm64/x64 and Linux arm64/x64. Everything you *browse
+from* — a Mac, a Windows PC, a Linux desktop, an iPhone, an Android phone, an
+iPad, an Android tablet — needs nothing but a modern browser.
 
-## Prerequisite: Tailscale
+## Choose a coordinator HTTPS mode
 
-The supported automated production topology requires Tailscale on the
-coordinator and on every worker. It is both the private transport and the
-trusted enrollment boundary, and it is what lets a phone connect without port
-forwarding.
+`roost quickstart` supports two production topologies:
 
-1. Install it: `brew install tailscale` on macOS (or the Mac App Store),
-   [tailscale.com/download/linux](https://tailscale.com/download/linux) on
-   Linux, [tailscale.com/download/windows](https://tailscale.com/download/windows)
-   on Windows.
-2. Start it: `tailscale up` — on Linux run `sudo systemctl enable --now tailscaled`
-   first.
-3. On macOS, approve the Tailscale **network extension** when System Settings
-   prompts. That step cannot be automated.
+- **Automatic Tailscale Serve.** With no endpoint flags, Tailscale supplies
+  private reachability and browser-trusted HTTPS in front of the coordinator's
+  loopback listener.
+- **Direct HTTPS.** Supply `--coordinator-url`, `--tls-cert`, and `--tls-key`
+  together. The coordinator serves HTTPS itself with your browser-trusted
+  certificate; initial coordinator setup and its local worker do not require
+  Tailscale. You own DNS, routing, firewall policy, and certificate renewal.
 
-Other networks are covered in [networking](/docs/networking/), including which
-parts are manual and unexercised.
+For automatic mode, install and start Tailscale on the macOS or Linux host. On
+macOS, use `brew install tailscale` or the Mac App Store. On Linux, follow
+[tailscale.com/download/linux](https://tailscale.com/download/linux), enable
+`tailscaled`, run `tailscale up`, and set the current user as operator. Approve
+the macOS network extension only when the GUI app prompts; the Homebrew daemon
+does not use it.
+
+The current extra-worker installer still requires a running Tailscale daemon,
+even when that worker dials a direct HTTPS coordinator. That installer
+limitation does not make Tailscale a prerequisite for direct coordinator
+quickstart. See [networking](/docs/networking/) for both endpoint contracts.
 
 ## macOS and Linux
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/cefege/roost/main/install-binary.sh | bash
+```
+
+Then choose one quickstart form. Automatic Tailscale Serve:
+
+```sh
 "$HOME/.local/bin/roost" quickstart
+```
+
+Direct HTTPS:
+
+```sh
+"$HOME/.local/bin/roost" quickstart \
+  --coordinator-url "https://roost.example.com:8443" \
+  --tls-cert "$HOME/.config/roost/tls/fullchain.pem" \
+  --tls-key "$HOME/.config/roost/tls/privkey.pem"
 ```
 
 The installer resolves `uname -s` / `uname -m` to one release asset —
@@ -53,9 +71,12 @@ OS/architecture pair exits with an error rather than guessing an asset.
 
 ```sh
 brew install cefege/tap/roost
-sudo tailscaled install-system-daemon && sudo tailscale up
-roost quickstart
 ```
+
+For automatic mode, start the Homebrew daemon with
+`sudo tailscaled install-system-daemon && sudo tailscale up`, then run
+`roost quickstart`. For direct HTTPS, run `roost quickstart` with all three
+endpoint flags shown above; direct quickstart does not call Tailscale.
 
 The formula is macOS-only on purpose: the unsuffixed `roost` asset is the
 darwin-arm64 build and there is no tested Linuxbrew bottle, so Linux installs go
@@ -63,65 +84,15 @@ through `install-binary.sh` instead. The formula depends on `tailscale`, which
 installs the open-source `tailscaled` — that daemon needs no System Settings
 network-extension approval.
 
-## Windows x64
+## Windows hosts
 
-> **Windows releases are paused.** `v0.4.2` and later publish macOS and Linux
-> assets only: the Windows CI/release tier is disabled while its gates are
-> repaired, so no `roost-windows-x64.zip`, manifest, or signed `join.ps1` /
-> `install-binary.ps1` exists on `releases/latest`. The procedure below is
-> correct and unchanged, but it cannot complete until Windows assets are
-> published again. `v0.3.2` is the last release that carries them.
+> **Windows host support is paused for `v0.5.0`.** The release publishes no
+> Windows coordinator, worker, package, installer, join script, or updater
+> payload. There is no supported Windows host install, enrollment, or update
+> procedure in this release. Windows remains supported as a browser client.
 
-Install Tailscale first. Then open an **elevated PowerShell 5.1+** session and
-supply the trusted SHA-256 fingerprint of the release-publisher leaf certificate
-through a channel independent of the downloaded release manifest:
-
-```powershell
-$publisher = "<trusted publisher certificate SHA-256>".ToLowerInvariant()
-if ($publisher -notmatch '^[0-9a-f]{64}$') { throw 'Invalid publisher SHA-256' }
-$release = Invoke-RestMethod 'https://api.github.com/repos/cefege/roost/releases/latest'
-$base = "https://github.com/cefege/roost/releases/download/$($release.tag_name)"
-$programData = [IO.Path]::GetFullPath($env:ProgramData)
-if (((Get-Item -LiteralPath $programData -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
-  throw 'Unsafe ProgramData directory'
-}
-$owner = ([Security.Principal.NTAccount](Get-Acl -LiteralPath $programData).Owner).Translate([Security.Principal.SecurityIdentifier]).Value
-if ($owner -notin @('S-1-5-18', 'S-1-5-32-544')) { throw 'ProgramData owner is not trusted' }
-$staging = Join-Path $programData ('RoostBootstrap-' + [Guid]::NewGuid().ToString('N'))
-$security = [Security.AccessControl.DirectorySecurity]::new()
-$security.SetSecurityDescriptorSddlForm('O:BAG:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)')
-[IO.Directory]::CreateDirectory($staging, $security) | Out-Null
-& icacls.exe $staging '/setintegritylevel' '(OI)(CI)H' | Out-Null
-if ($LASTEXITCODE -ne 0) { throw 'Cannot apply high-integrity staging policy' }
-$installer = Join-Path $staging 'install-binary.ps1'
-try {
-  Invoke-WebRequest -UseBasicParsing "$base/install-binary.ps1" -OutFile $installer
-  $signature = Get-AuthenticodeSignature -LiteralPath $installer
-  if ($signature.Status -ne 'Valid' -or $null -eq $signature.SignerCertificate -or $null -eq $signature.TimeStamperCertificate) {
-    throw 'Roost installer has no valid Authenticode signature and trusted timestamp'
-  }
-  $sha256 = [Security.Cryptography.SHA256]::Create()
-  try { $actual = -join ($sha256.ComputeHash($signature.SignerCertificate.RawData) | ForEach-Object { $_.ToString('x2') }) }
-  finally { $sha256.Dispose() }
-  if ($actual -cne $publisher) { throw "Roost installer publisher mismatch: $actual" }
-  Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned -Force
-  & $installer -HostRole coordinator -PublisherSha256 $publisher -ReleaseBaseUrl $base
-} finally {
-  Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
-}
-```
-
-Nothing downloaded is executed before its Authenticode chain, trusted
-timestamp, and exact leaf-certificate pin have been verified against the
-fingerprint you supplied out of band. The installer then verifies the detached
-release manifest signature, the ZIP digest, every per-file digest, the
-Authenticode publisher, and the trusted timestamps before installing the
-coordinator, worker, keeper, and updater as Windows SCM services.
-
-Services run under a dedicated low-privilege local `roost-operator` identity.
-The installer creates that account with a cryptographically random password when
-it is absent, rejects administrator identities outright, denies interactive
-logon, and prompts for a password only when reusing an existing account.
+`v0.3.2` was the last release with Windows host artifacts. Those historical
+artifacts are not an install path for a `v0.5.0` fleet.
 
 ## Release assets
 
@@ -136,15 +107,10 @@ release links keep working.
 | `roost-darwin-x64` | macOS x64 |
 | `roost-linux-x64` | Linux x64 |
 | `roost-linux-arm64` | Linux arm64 |
-| `roost-windows-x64.zip` | Windows x64 — **not published since `v0.3.2`** |
 
-When the Windows tier is enabled, the Windows package additionally ships
-`roost-windows-x64.manifest.json`, its `.sha256`, and a detached `.p7s`
-signature, plus the signed `join.ps1` and `install-binary.ps1` bootstrap
-scripts, and the release workflow refuses to publish unless every Windows
-signing artifact passes. That tier is currently disabled, so a release either
-carries the full signed Windows set or — as with `v0.4.2` — no Windows asset at
-all; a partial Windows package is never published.
+Historical releases through `v0.3.2` also carried Windows packages and signed
+PowerShell bootstrap scripts. The Windows release tier is paused, so none of
+those artifacts is published or supported for `v0.5.0`.
 
 ## Source checkout (development only)
 
@@ -158,16 +124,14 @@ development path, not the pinned production release path — use
 
 ## Keeping it updated
 
-`roost update` self-updates the binary from the latest GitHub release. On an
-installed Windows host it queues the signed release through the restricted
-updater service with no UAC prompt, then exits so the service can replace the
-stable launcher; the updater persists every phase and completes or rolls back on
-its own. To update a whole registered fleet in one command, see
-[fleet](/docs/fleet/).
+`roost update` self-updates the published macOS or Linux binary from the latest
+GitHub release. `v0.5.0` has no Windows updater payload, so an old Windows host
+cannot receive the current release. To update a whole supported fleet in one
+command, see [fleet](/docs/fleet/).
 
 ## Next
 
 - [Quickstart](/docs/quickstart/) — first coordinator, first phone, first workspace
-- [Networking](/docs/networking/) — Tailscale, and the optional Cloudflare browser path
+- [Networking](/docs/networking/) — automatic Tailscale Serve and direct HTTPS
 - [The CLI](/docs/cli/) — every subcommand
 - [Security](/docs/security/) — pairing, keys, audit, backups

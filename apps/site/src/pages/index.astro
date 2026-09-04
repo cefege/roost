@@ -1,7 +1,13 @@
 ---
+/**
+ * Public landing page metadata, hero, deployment details, install CTAs, and FAQ.
+ * The long capability tour lives in HomeFeatureTour to keep this page navigable.
+ * Shared landing components and canonical media own the visual presentation.
+ */
 import BaseLayout from "../layouts/BaseLayout.astro";
 import Hero from "../components/Hero.astro";
 import FeatureRow from "../components/FeatureRow.astro";
+import HomeFeatureTour from "../components/HomeFeatureTour.astro";
 import Screenshot from "../components/Screenshot.astro";
 import CtaBand from "../components/CtaBand.astro";
 import Callout from "../components/Callout.astro";
@@ -9,9 +15,9 @@ import { SHOTS } from "../data/media";
 import { FAQ } from "../data/faq";
 import { clampDescription } from "../lib/seo";
 
-const TITLE = "Roost — one managed dashboard for every machine you own";
+const TITLE = "Roost — one self-hosted dashboard for your machines";
 const DESCRIPTION = clampDescription(
-  "Run any CLI across your own macOS, Linux and Windows machines from one private operator-provisioned dashboard. Roost is managed first, with self-hosted open source available separately.",
+  "Run any CLI across your macOS and Linux machines from one self-hosted browser dashboard. Roost v0.5.0 supports automatic Tailscale Serve or direct HTTPS.",
 );
 
 // JSON-LD needs absolute URLs. `site` is set unconditionally in
@@ -21,27 +27,27 @@ if (!site) throw new Error("index.astro: astro.config.mjs must set `site`");
 
 const REPO = "https://github.com/cefege/roost";
 
-/** Both one-liners are the ones on /install/ and /docs/install/, character for character. */
+/** Published installer followed by the default automatic-mode quickstart. */
 const POSIX = `curl -fsSL https://raw.githubusercontent.com/cefege/roost/main/install-binary.sh | bash
 "$HOME/.local/bin/roost" quickstart`;
 
 const HOMEBREW = `brew install cefege/tap/roost`;
 
-/** Verbatim from README.md "How it works". */
-const DIAGRAM = `   Browser  (any device on your network)
+/** Compact public view of the coordinator-to-worker transport. */
+const DIAGRAM = `   Browser  (any device with a modern browser)
       │   Connect-RPC over HTTP/2, protobuf binary
       │   terminal data · session state, one connection
       ▼
  ┌─────────────────────────┐
  │ Coordinator  (Bun)      │   event-sourced SQLite · auth · session registry
- │ one machine · port 4102 │   fans live updates out to every open browser
+ │ one HTTPS endpoint      │   fans live updates out to every open browser
  └───────────┬─────────────┘
-             │   raw WebSocket · protobuf frames · worker dials outbound
-   ┌─────────┼───────────────────┐
-   ▼         ▼                   ▼
- Worker    Worker              Worker        (Bun, one per machine)
- macOS     Linux               Windows
-   │  a keeper subprocess hosts every PTY and outlives worker restarts`;
+             │   raw WebSocket · protobuf frames · workers dial outbound
+      ┌──────┴──────────┐
+      ▼                 ▼
+   Worker             Worker        (Bun, one per machine)
+   macOS              Linux
+      │  a keeper subprocess hosts every PTY and outlives worker restarts`;
 
 const softwareApplication = {
   "@context": "https://schema.org",
@@ -49,7 +55,7 @@ const softwareApplication = {
   name: "Roost",
   description: DESCRIPTION,
   applicationCategory: "DeveloperApplication",
-  operatingSystem: "macOS, Linux, Windows",
+  operatingSystem: "macOS, Linux",
   url: new URL("/", site).href,
   codeRepository: REPO,
   license: "GPL-3.0-only",
@@ -69,13 +75,13 @@ const faqPage = {
 <BaseLayout title={TITLE} description={DESCRIPTION}>
   {/* 1 — Hero */}
   <Hero
-    title="Your machines. One managed dashboard."
-    sub="Run Claude Code, Codex, OMP, or any other CLI across your macOS, Linux, and Windows machines. Managed Roost is a private operator-provisioned login and dashboard; the accountless open-source edition remains available to self-host."
-    badges={["private managed dashboard", "your machines", "non-extractable device keys"]}
+    title="Your machines. One self-hosted dashboard."
+    sub="Run Claude Code, Codex, OMP, or any other CLI across your macOS and Linux machines. Roost v0.5.0 is released for accountless self-hosting, with automatic Tailscale Serve or direct HTTPS."
+    badges={["v0.5.0", "self-hosted", "macOS + Linux"]}
   >
-    <a class="btn btn-primary" href="https://dashboard.roosttt.com/login">Log in</a>
-    <a class="btn" href="https://dashboard.roosttt.com/app">Open dashboard</a>
-    <a class="btn" href="/install/">Self-host</a>
+    <a class="btn btn-primary" href="/install/">Install Roost</a>
+    <a class="btn" href="/docs/quickstart/">Quickstart</a>
+    <a class="btn" href="https://github.com/cefege/roost/releases">Release assets</a>
   </Hero>
 
   <div class="wrap shot-hero">
@@ -92,9 +98,9 @@ const faqPage = {
     <div class="section">
       <FeatureRow eyebrow="The problem" title="The machines are idle and the sessions are unreachable">
         <p>
-          There is a MacBook in a drawer, a Mac mini under the desk, a Linux box in
-          the corner and a Windows workstation that boots once a week. All of that
-          capacity sits idle while one laptop does the work.
+          There is a MacBook in a drawer, a Mac mini under the desk, and a Linux
+          box in the corner. All of that capacity sits idle while one laptop does
+          the work.
         </p>
         <p>
           Meanwhile &ldquo;remote&rdquo; means opening a terminal, SSH-ing in, and hunting for
@@ -109,322 +115,35 @@ const faqPage = {
       </FeatureRow>
     </div>
 
-    {/* 3 — Fleet, not a terminal app */}
-    <div class="section">
-      <FeatureRow eyebrow="Fleet" title="A fleet, not a terminal app">
-        <p>
-          One coordinator connects every machine you own. It is control plane only —
-          auth, an append-only event log, and fan-out to every open browser — and the
-          machine running it is usually a worker too. Every other macOS, Linux, or
-          Windows x64 box joins as a worker.
-        </p>
-        <p>
-          Workers dial outbound and never listen, so a worker machine never opens a
-          firewall hole, exposes an inbound port, or needs a publicly reachable name.
-          The sidebar groups live sessions by machine and each machine carries tiles
-          for CPU, memory, disk, and network from its own heartbeat, so
-          &ldquo;which box has capacity right now&rdquo; is a glance instead of an SSH
-          session.
-        </p>
-        <p>
-          Adding a machine is one command on the coordinator —
-          <code>roost add-machine --platform macos</code>, <code>linux</code>, or
-          <code>windows</code> — which mints a one-shot token valid for 24 hours and
-          prints the enrollment command to paste on the new host. Machines join by
-          pulling; the coordinator never SSHes out. See <a href="/docs/fleet/">fleet</a>.
-        </p>
-      </FeatureRow>
+    <HomeFeatureTour />
 
-      <div class="shots">
-        <Screenshot
-          src={SHOTS.sidebarStatus.src}
-          alt={SHOTS.sidebarStatus.alt}
-          caption="Sessions grouped by machine, with live per-machine metrics."
-          maxWidth={200}
-        />
-        <Screenshot
-          src={SHOTS.workspaceTabs.src}
-          alt={SHOTS.workspaceTabs.alt}
-          caption="Browse any machine's folders, press Open terminal here, and the workspace starts in that directory on that machine."
-          maxWidth={840}
-        />
-      </div>
-    </div>
-
-    {/* 4 — Native, not a viewer */}
-    <div class="section">
-      <FeatureRow eyebrow="Terminal fidelity" title="Native, not a viewer">
-        <p>
-          Streaming raw PTY bytes into a browser looks simple and corrupts in
-          practice: every resize re-reflows history, and every reconnect duplicates or
-          drops output. Roost uses the model server-side multiplexers use instead, and
-          then adds the things that make a browser feel like a terminal emulator.
-        </p>
-        <ul>
-          <li>
-            <strong>One authoritative grid, on the worker.</strong> The worker holds the
-            grid and rebuilds it at a single agreed width when your viewport changes.
-            The browser renders those cells as-is and never re-reflows history.
-          </li>
-          <li>
-            <strong>Reconnects splice instead of guessing.</strong> Every cell frame
-            carries a monotonic <code>seq</code>, and a stale or unset viewer sequence
-            is answered with exactly one authoritative full frame — so a reconnect can
-            never duplicate or drop rows.
-          </li>
-          <li>
-            <strong>Scrollback is fetched on demand.</strong> History is never streamed.
-            It is requested explicitly and served from the worker's retained buffer of
-            roughly 10,000 lines per session, walked in slices so one backfill never
-            blocks another session's live output.
-          </li>
-          <li>
-            <strong>Wide glyphs stay atomic.</strong> Column occupancy is stated on the
-            wire, so a double-width CJK ideograph or emoji is one two-column span and
-            no phantom continuation cell is ever emitted.
-          </li>
-          <li>
-            <strong>Links are real.</strong> OSC 8 hyperlinks travel as per-cell link
-            identity. On top of plain output Roost infers URLs, <code>owner/repo#123</code>
-            and bare <code>#123</code> references, and file paths; Cmd- or Ctrl-click
-            opens a path in the in-app file viewer, which honours the
-            <code>#L42</code> anchor.
-          </li>
-          <li>
-            <strong>The application decides about the mouse.</strong> Pointer gestures
-            are forwarded only when the running program actually asked for them —
-            DECSET 1000 and 1002 tracking, SGR 1006 encoding, focus events 1004 — so a
-            click in <code>vim</code> or <code>less</code> is not silently swallowed.
-          </li>
-          <li>
-            <strong>Predictive echo, mosh-style.</strong> Above roughly 10 ms round
-            trip, a keystroke is drawn immediately in a client-side overlay and
-            reconciled against the authoritative frame that lands an RTT later. The
-            overlay never reaches the worker, and alt-screen TUIs suppress it entirely.
-          </li>
-          <li>
-            <strong>Keyboard parity.</strong> The ⌘ and Ctrl shortcuts behave like a
-            native app, and Windows gets a deliberately separate binding set — Alt and
-            Alt+Shift chords — so a plain Ctrl plus letter still reaches the program in
-            the PTY.
-          </li>
-        </ul>
-        <p>
-          The whole data plane is described in <a href="/docs/terminal/">terminal fidelity</a>.
-        </p>
-      </FeatureRow>
-    </div>
-
-    {/* 5 — Any agent, any CLI */}
-    <div class="section">
-      <FeatureRow eyebrow="Agents" title="Any agent, any CLI">
-        <p>
-          Roost never spawns, supervises, or owns an agent. There is no wrapper
-          process, no transcript store, and no agent-specific RPC — the CLI is an
-          ordinary command in a shell PTY. That boundary is what makes
-          &ldquo;any CLI&rdquo; true rather than aspirational: a shell, a REPL,
-          <code>vim</code>, <code>htop</code>, a build, <code>ssh</code>, tmux, and any
-          coding agent, including Claude Code.
-        </p>
-        <p>
-          Ten agents are first-class in the launcher and in status detection — Codex,
-          Gemini CLI, OpenCode, Cursor Agent, Amp, GitHub Copilot CLI, Droid, Grok, Pi,
-          and OMP — beside a custom-command entry that launches anything you type. What
-          the list adds is a status badge, not the ability to run; an unlabelled
-          terminal is the normal case, not a failure.
-        </p>
-        <p>
-          Detection, its three tiers, and what the badges mean are in
-          <a href="/docs/agents/">agents and status</a>.
-        </p>
-      </FeatureRow>
-    </div>
-
-    {/* 6 — Split panes and layouts */}
-    <div class="section">
-      <FeatureRow
-        eyebrow="Layouts"
-        title="Split panes, arranged the way you think"
-        media={SHOTS.splitPanes.src}
-        alt={SHOTS.splitPanes.alt}
-        caption="Several machines, several agents, one workspace."
-        reverse
-      >
-        <p>
-          Drag a tab onto the edge of a pane to split right, left, up, or down, then
-          drag the dividers to resize. <strong>Arrange</strong> applies a preset
-          instead: Grid, Columns, Rows, Main + stack, or Equalize sizes.
-        </p>
-        <p>
-          On macOS and Linux keyboards, <code>⌘D</code> and <code>⌘⇧D</code> split,
-          <code>⌘⌥G</code> / <code>E</code> / <code>R</code> / <code>V</code> /
-          <code>B</code> arrange, <code>⌘1</code>–<code>⌘8</code> jump to a tab with
-          <code>⌘9</code> for the last one in the pane, and <code>⌘↵</code> spotlights
-          the focused pane. Windows uses a deliberately different set —
-          <code>Alt+Shift+D</code> and <code>Alt+Shift+S</code> to split,
-          <code>Alt+1</code>–<code>Alt+9</code> for tabs, <code>Alt+Enter</code> for
-          spotlight.
-        </p>
-      </FeatureRow>
-    </div>
-
-    {/* 7 — Every device is a full client */}
-    <div class="section">
-      <FeatureRow
-        eyebrow="Every device"
-        title="Every device is a full client"
-        media={SHOTS.tabletDesktop.src}
-        alt={SHOTS.tabletDesktop.alt}
-        caption="A tablet keeps the desktop layout, panes, and shortcuts."
-      >
-        <p>
-          The same web app runs on macOS, Windows, and Linux desktops, on iPhone and
-          Android, and on iPad and Android tablets. There is nothing to install on the
-          device you browse from, and nothing is cut down: it renders the same real PTY
-          with full ANSI, colour, and scrollback.
-        </p>
-        <p>
-          A tablet with a keyboard keeps the desktop layout, panes, and shortcuts
-          unchanged. A phone gets a layout designed for one thumb.
-        </p>
-      </FeatureRow>
-
-      <div class="phone">
-        <Screenshot
-          src={SHOTS.mobilePhone.src}
-          alt={SHOTS.mobilePhone.alt}
-          caption="A real terminal on a phone — not a log viewer."
-          maxWidth={220}
-        />
-        <div class="prose">
-          <ul>
-            <li>Terminal text is selectable by touch, and copy-on-select is a per-device toggle.</li>
-            <li>
-              An on-screen key row carries <code>esc</code>, <code>tab</code>,
-              backspace, <code>home</code>, <code>end</code>, page up and down, the
-              arrows, <code>enter</code>, and a <strong>latching</strong>
-              <code>ctrl</code> — so Ctrl+C is two taps, and closing the pad clears an
-              armed <code>ctrl</code> instead of leaking it into the next thing you type.
-            </li>
-            <li>
-              Sessions become a swipeable deck of terminal cards: peek at the neighbour
-              mid-gesture, commit on 40% of the card width or a fast flick.
-            </li>
-            <li>
-              The soft keyboard translates the layout instead of reflowing the terminal.
-              Roost measures the covered area and shifts the content up by exactly that
-              much, so the PTY keeps its size and grid while you type.
-            </li>
-            <li>
-              <strong>Add to Home Screen</strong> installs it as a standalone PWA with
-              its own icon — and on iPhone and iPad that is also what makes OS
-              notifications possible.
-            </li>
-          </ul>
-          <p>The full phone and tablet story is in <a href="/docs/mobile/">phones and tablets</a>.</p>
-        </div>
-      </div>
-    </div>
-
-    {/* 8 — Sessions that don't die */}
-    <div class="section">
-      <FeatureRow eyebrow="Persistence" title="Sessions that don't die">
-        <p>
-          A keeper subprocess hosts every PTY on a machine over a single
-          capability-authenticated local endpoint, with one channel per session.
-          Because it is a separate process, PTYs outlive the worker: a restarted or
-          updated worker reattaches over the same endpoint and re-adopts its open
-          sessions.
-        </p>
-        <p>
-          So drop WiFi, close the laptop, refresh the tab, or reopen the same session
-          from a different machine — the process is still running, with full scrollback.
-          The browser redials on capped backoff, sends the last event id it saw, and
-          gets exactly the events it missed. When the coordinator itself restarts, every
-          session is re-projected from the event log, because the log is the source of
-          truth.
-        </p>
-      </FeatureRow>
-    </div>
-
-    {/* 9 — See which agent needs you */}
-    <div class="section">
-      <FeatureRow eyebrow="Status" title="See which agent needs you">
-        <p>
-          Roost labels a terminal with the state of whatever agent is running inside
-          it: <strong>working</strong>, <strong>needs input</strong>, or
-          <strong>done</strong>. It shows up in four places — the session's sidebar row,
-          its tab, its card on mobile, and a rollup on the folder that contains it, for
-          example <code>2 working · 1 needs input</code>.
-        </p>
-        <p>
-          An in-app toast and an unseen count in the tab title need no setup at all. OS
-          notifications, the kind that reach you when Roost is not the tab you are
-          looking at, need one explicit grant per device, because browsers only prompt
-          on a real click — and a device already viewing that session is deliberately
-          left alone.
-        </p>
-        <p>
-          OMP and Pi report their own lifecycle over a per-worker Unix socket, validated
-          against the reporting process id. The other eight are detected from pinned
-          screen and OSC-title manifests plus a periodic process-tree scan, so an agent
-          you started by hand still gets recognised. Nothing about status is persisted:
-          a worker, coordinator, or browser restart re-derives it rather than leaving a
-          stale badge behind.
-        </p>
-      </FeatureRow>
-    </div>
-
-    {/* 10 — Talk to your terminal */}
-    <div class="section">
-      <FeatureRow eyebrow="Voice" title="Talk to your terminal">
-        <p>
-          Typing a long prompt on a phone is miserable, so tap the mic and dictate. The
-          recognized text is typed into the session as real input and sent, with no
-          review step in between.
-        </p>
-        <p>
-          The zero-setup path is the browser's own speech recognition, which is a rough
-          fallback. The recommended path is a Deepgram <code>nova-3</code> key added
-          once in <strong>Settings → Voice</strong>: it is stored on the coordinator and
-          shared to every paired device, so you configure it once rather than per phone,
-          and it can run a single language, automatic detection, or multilingual mode
-          with live code-switching.
-        </p>
-        <p>
-          Roost also extracts terminal jargon from the screen you are dictating into and
-          passes it to Deepgram as keyterm bias, so project vocabulary and identifiers
-          transcribe as themselves rather than as phonetic mush.
-        </p>
-      </FeatureRow>
-    </div>
-
-    {/* 11 — Two deployment modes */}
+    {/* 11 — Deployment */}
     <div class="section">
       <FeatureRow
         eyebrow="Deployment"
-        title="Managed first, self-hosted when you want it"
+        title="Self-hosted and released"
         media={SHOTS.pairQr.src}
         alt={SHOTS.pairQr.alt}
         caption="Each browser keeps its own non-extractable device key."
         reverse
       >
         <p>
-          <strong>Managed Roost is a private operator-provisioned service.</strong> The
-          initial owner signs in to one hosted dashboard and attaches worker machines
-          manually. Account lifecycle and coordinator operations remain under direct
-          operator control.
+          <strong>Roost v0.5.0 is released for accountless self-hosting.</strong> You
+          operate the coordinator on macOS or Linux and authorize browsers through QR,
+          a one-shot bootstrap token, loopback registration, or approval from a device
+          you already trust.
         </p>
         <p>
-          <strong>The open-source edition remains accountless and self-hosted.</strong> You
-          operate the coordinator and authorize browsers through QR, a one-shot bootstrap
-          token, loopback registration, or approval from a device you already trust.
+          <strong>The managed deployment is qualified, not publicly launched.</strong>
+          Production publishes no managed coordinator image and the shared dashboard
+          origin is inactive. Email signup and Google authentication are off; managed
+          accounts exist only when an operator creates them.
         </p>
         <p>
-          In either mode, each browser mints an Ed25519 key pair with WebCrypto. The private
+          Each self-hosted browser mints an Ed25519 key pair with WebCrypto. The private
           key is non-extractable and persisted in IndexedDB, and requests are signed with
-          short-lived device JWTs. Read the <a href="/docs/security/">security model</a>,
-          <a href="https://dashboard.roosttt.com/login">log in to managed Roost</a>, or <a href="https://dashboard.roosttt.com/app">open your dashboard</a>.
+          short-lived device JWTs. Read the <a href="/docs/security/">security model</a>
+          or <a href="/install/">install Roost</a>.
         </p>
       </FeatureRow>
     </div>
@@ -444,7 +163,7 @@ const faqPage = {
     {/* 13 — Install */}
     <div class="section">
       <p class="eyebrow">Install</p>
-      <h2>Two commands on the first machine</h2>
+      <h2>Two commands on the first macOS or Linux machine</h2>
       <div class="install">
         {/* The wrapper carries `min-width: 0`: a grid item defaults to a
             content-based minimum, and CtaBand's `white-space: pre` command block
@@ -459,18 +178,27 @@ const faqPage = {
         <div class="cell">
           <CtaBand
             command={HOMEBREW}
-            note="macOS only. Then run sudo tailscaled install-system-daemon && sudo tailscale up, followed by roost quickstart."
+            note="macOS only. For automatic mode, run sudo tailscaled install-system-daemon && sudo tailscale up, followed by roost quickstart. Direct HTTPS instead uses the three endpoint flags shown in the install guide."
           />
         </div>
       </div>
-      <Callout tone="info" title="Windows x64 and coordinator networking">
+      <Callout tone="info" title="Automatic Tailscale Serve or direct HTTPS">
         <p>
-          Windows x64 hosts install through a signed, certificate-pinned PowerShell
-          bootstrap. Automatic setup can use Tailscale Serve, while explicit setup
-          can use a browser-trusted coordinator certificate without Tailscale.
-          Browsing devices need only a modern browser. Both modes are covered on
-          <a href="/install/">the install page</a> and in
-          <a href="/docs/install/">the install guide</a>.
+          With no endpoint flags, <code>roost quickstart</code> configures Tailscale
+          Serve in front of a loopback coordinator. Supply
+          <code>--coordinator-url</code>, <code>--tls-cert</code>, and
+          <code>--tls-key</code> together to serve a browser-trusted certificate
+          directly; coordinator quickstart then does not use Tailscale. In v0.5.0,
+          the extra-worker join script still requires a running Tailscale daemon in
+          either mode. See <a href="/docs/networking/">networking</a>.
+        </p>
+      </Callout>
+      <Callout tone="warn" title="Windows host releases are paused">
+        <p>
+          v0.5.0 publishes no Windows coordinator, worker, installer, join script, or
+          package. Windows remains supported as a browser client, but there is no
+          supported Windows host install, enrollment, or update procedure in this
+          release.
         </p>
       </Callout>
     </div>
@@ -534,24 +262,6 @@ const faqPage = {
      never be the reason a 360px viewport scrolls sideways. */
   code {
     overflow-wrap: anywhere;
-  }
-
-  /* sidebar-status.png is a 600×1800 strip; pairing it with the landscape
-     workspace shot keeps it from becoming a 1500px-tall column of its own. */
-  .shots {
-    display: grid;
-    grid-template-columns: minmax(0, 200px) minmax(0, 1fr);
-    gap: var(--md-space-6);
-    align-items: start;
-    margin-top: var(--md-space-8);
-  }
-
-  .phone {
-    display: grid;
-    grid-template-columns: minmax(0, 220px) minmax(0, 1fr);
-    gap: var(--md-space-7);
-    align-items: center;
-    margin-top: var(--md-space-8);
   }
 
   .diagram {
@@ -640,12 +350,6 @@ const faqPage = {
     h2 {
       font-size: 26px;
       line-height: 34px;
-    }
-
-    .shots,
-    .phone {
-      grid-template-columns: minmax(0, 1fr);
-      gap: var(--md-space-6);
     }
 
     .diagram {

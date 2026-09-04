@@ -1,0 +1,332 @@
+---
+/**
+ * Long-form capability tour for the public landing page.
+ * The home page places it between the problem statement and deployment details.
+ * It composes the shared feature and screenshot components with canonical media.
+ */
+import FeatureRow from "./FeatureRow.astro";
+import Screenshot from "./Screenshot.astro";
+import { SHOTS } from "../data/media";
+---
+
+{/* 3 — Fleet, not a terminal app */}
+<div class="section">
+  <FeatureRow eyebrow="Fleet" title="A fleet, not a terminal app">
+    <p>
+      One coordinator connects every supported machine you own. It is control
+      plane only — auth, an append-only event log, and fan-out to every open
+      browser — and the machine running it is usually a worker too. Every other
+      macOS or Linux box joins as a worker.
+    </p>
+    <p>
+      Workers dial outbound and never listen, so a worker machine never opens a
+      firewall hole, exposes an inbound port, or needs a publicly reachable name.
+      The sidebar groups live sessions by machine and each machine carries tiles
+      for CPU, memory, disk, and network from its own heartbeat, so
+      &ldquo;which box has capacity right now&rdquo; is a glance instead of an SSH
+      session.
+    </p>
+    <p>
+      Adding a machine is one command on an automatic-mode coordinator —
+      <code>roost add-machine --platform macos</code> or <code>linux</code> —
+      which mints a one-shot token valid for 24 hours and prints the enrollment
+      command to paste on the new host. Machines join by pulling; the coordinator
+      never SSHes out. See <a href="/docs/fleet/">fleet</a>.
+    </p>
+  </FeatureRow>
+
+  <div class="shots">
+    <Screenshot
+      src={SHOTS.sidebarStatus.src}
+      alt={SHOTS.sidebarStatus.alt}
+      caption="Sessions grouped by machine, with live per-machine metrics."
+      maxWidth={200}
+    />
+    <Screenshot
+      src={SHOTS.workspaceTabs.src}
+      alt={SHOTS.workspaceTabs.alt}
+      caption="Browse any machine's folders, press Open terminal here, and the workspace starts in that directory on that machine."
+      maxWidth={840}
+    />
+  </div>
+</div>
+
+{/* 4 — Native, not a viewer */}
+<div class="section">
+  <FeatureRow eyebrow="Terminal fidelity" title="Native, not a viewer">
+    <p>
+      Streaming raw PTY bytes into a browser looks simple and corrupts in
+      practice: every resize re-reflows history, and every reconnect duplicates or
+      drops output. Roost uses the model server-side multiplexers use instead, and
+      then adds the things that make a browser feel like a terminal emulator.
+    </p>
+    <ul>
+      <li>
+        <strong>One authoritative grid, on the worker.</strong> The worker holds the
+        grid and rebuilds it at a single agreed width when your viewport changes.
+        The browser renders those cells as-is and never re-reflows history.
+      </li>
+      <li>
+        <strong>Reconnects splice instead of guessing.</strong> Every cell frame
+        carries a monotonic <code>seq</code>, and a stale or unset viewer sequence
+        is answered with exactly one authoritative full frame — so a reconnect can
+        never duplicate or drop rows.
+      </li>
+      <li>
+        <strong>Scrollback is fetched on demand.</strong> History is never streamed.
+        It is requested explicitly and served from the worker's retained buffer of
+        roughly 10,000 lines per session, walked in slices so one backfill never
+        blocks another session's live output.
+      </li>
+      <li>
+        <strong>Wide glyphs stay atomic.</strong> Column occupancy is stated on the
+        wire, so a double-width CJK ideograph or emoji is one two-column span and
+        no phantom continuation cell is ever emitted.
+      </li>
+      <li>
+        <strong>Links are real.</strong> OSC 8 hyperlinks travel as per-cell link
+        identity. On top of plain output Roost infers URLs, <code>owner/repo#123</code>
+        and bare <code>#123</code> references, and file paths; Cmd- or Ctrl-click
+        opens a path in the in-app file viewer, which honours the
+        <code>#L42</code> anchor.
+      </li>
+      <li>
+        <strong>The application decides about the mouse.</strong> Pointer gestures
+        are forwarded only when the running program actually asked for them —
+        DECSET 1000 and 1002 tracking, SGR 1006 encoding, focus events 1004 — so a
+        click in <code>vim</code> or <code>less</code> is not silently swallowed.
+      </li>
+      <li>
+        <strong>Predictive echo, mosh-style.</strong> Above roughly 10 ms round
+        trip, a keystroke is drawn immediately in a client-side overlay and
+        reconciled against the authoritative frame that lands an RTT later. The
+        overlay never reaches the worker, and alt-screen TUIs suppress it entirely.
+      </li>
+      <li>
+        <strong>Keyboard parity.</strong> The ⌘ and Ctrl shortcuts behave like a
+        native app. A browser running on Windows gets a deliberately separate
+        binding set — Alt and Alt+Shift chords — so a plain Ctrl plus letter
+        still reaches the program in the PTY.
+      </li>
+    </ul>
+    <p>
+      The whole data plane is described in <a href="/docs/terminal/">terminal fidelity</a>.
+    </p>
+  </FeatureRow>
+</div>
+
+{/* 5 — Any agent, any CLI */}
+<div class="section">
+  <FeatureRow eyebrow="Agents" title="Any agent, any CLI">
+    <p>
+      Roost never spawns, supervises, or owns an agent. There is no wrapper
+      process, no transcript store, and no agent-specific RPC — the CLI is an
+      ordinary command in a shell PTY. That boundary is what makes
+      &ldquo;any CLI&rdquo; true rather than aspirational: a shell, a REPL,
+      <code>vim</code>, <code>htop</code>, a build, <code>ssh</code>, tmux, and any
+      coding agent, including Claude Code.
+    </p>
+    <p>
+      Ten agents are first-class in the launcher and in status detection — Codex,
+      Gemini CLI, OpenCode, Cursor Agent, Amp, GitHub Copilot CLI, Droid, Grok, Pi,
+      and OMP — beside a custom-command entry that launches anything you type. What
+      the list adds is a status badge, not the ability to run; an unlabelled
+      terminal is the normal case, not a failure.
+    </p>
+    <p>
+      Detection, its three tiers, and what the badges mean are in
+      <a href="/docs/agents/">agents and status</a>.
+    </p>
+  </FeatureRow>
+</div>
+
+{/* 6 — Split panes and layouts */}
+<div class="section">
+  <FeatureRow
+    eyebrow="Layouts"
+    title="Split panes, arranged the way you think"
+    media={SHOTS.splitPanes.src}
+    alt={SHOTS.splitPanes.alt}
+    caption="Several machines, several agents, one workspace."
+    reverse
+  >
+    <p>
+      Drag a tab onto the edge of a pane to split right, left, up, or down, then
+      drag the dividers to resize. <strong>Arrange</strong> applies a preset
+      instead: Grid, Columns, Rows, Main + stack, or Equalize sizes.
+    </p>
+    <p>
+      In browsers on macOS and Linux, <code>⌘D</code> and <code>⌘⇧D</code> split,
+      <code>⌘⌥G</code> / <code>E</code> / <code>R</code> / <code>V</code> /
+      <code>B</code> arrange, <code>⌘1</code>–<code>⌘8</code> jump to a tab with
+      <code>⌘9</code> for the last one in the pane, and <code>⌘↵</code> spotlights
+      the focused pane. A browser on Windows uses a deliberately different set —
+      <code>Alt+Shift+D</code> and <code>Alt+Shift+S</code> to split,
+      <code>Alt+1</code>–<code>Alt+9</code> for tabs, <code>Alt+Enter</code> for
+      spotlight.
+    </p>
+  </FeatureRow>
+</div>
+
+{/* 7 — Every device is a full client */}
+<div class="section">
+  <FeatureRow
+    eyebrow="Every device"
+    title="Every device is a full client"
+    media={SHOTS.tabletDesktop.src}
+    alt={SHOTS.tabletDesktop.alt}
+    caption="A tablet keeps the desktop layout, panes, and shortcuts."
+  >
+    <p>
+      The same web app runs on macOS, Windows, and Linux desktops, on iPhone and
+      Android, and on iPad and Android tablets. There is nothing to install on the
+      device you browse from, and nothing is cut down: it renders the same real PTY
+      with full ANSI, colour, and scrollback.
+    </p>
+    <p>
+      A tablet with a keyboard keeps the desktop layout, panes, and shortcuts
+      unchanged. A phone gets a layout designed for one thumb.
+    </p>
+  </FeatureRow>
+
+  <div class="phone">
+    <Screenshot
+      src={SHOTS.mobilePhone.src}
+      alt={SHOTS.mobilePhone.alt}
+      caption="A real terminal on a phone — not a log viewer."
+      maxWidth={220}
+    />
+    <div class="prose">
+      <ul>
+        <li>Terminal text is selectable by touch, and copy-on-select is a per-device toggle.</li>
+        <li>
+          An on-screen key row carries <code>esc</code>, <code>tab</code>,
+          backspace, <code>home</code>, <code>end</code>, page up and down, the
+          arrows, <code>enter</code>, and a <strong>latching</strong>
+          <code>ctrl</code> — so Ctrl+C is two taps, and closing the pad clears an
+          armed <code>ctrl</code> instead of leaking it into the next thing you type.
+        </li>
+        <li>
+          Sessions become a swipeable deck of terminal cards: peek at the neighbour
+          mid-gesture, commit on 40% of the card width or a fast flick.
+        </li>
+        <li>
+          The soft keyboard translates the layout instead of reflowing the terminal.
+          Roost measures the covered area and shifts the content up by exactly that
+          much, so the PTY keeps its size and grid while you type.
+        </li>
+        <li>
+          <strong>Add to Home Screen</strong> installs it as a standalone PWA with
+          its own icon — and on iPhone and iPad that is also what makes OS
+          notifications possible.
+        </li>
+      </ul>
+      <p>The full phone and tablet story is in <a href="/docs/mobile/">phones and tablets</a>.</p>
+    </div>
+  </div>
+</div>
+
+{/* 8 — Sessions that don't die */}
+<div class="section">
+  <FeatureRow eyebrow="Persistence" title="Sessions that don't die">
+    <p>
+      A keeper subprocess hosts every PTY on a machine over a single
+      capability-authenticated local endpoint, with one channel per session.
+      Because it is a separate process, PTYs outlive the worker: a restarted or
+      updated worker reattaches over the same endpoint and re-adopts its open
+      sessions.
+    </p>
+    <p>
+      So drop WiFi, close the laptop, refresh the tab, or reopen the same session
+      from a different machine — the process is still running, with full scrollback.
+      The browser redials on capped backoff, sends the last event id it saw, and
+      gets exactly the events it missed. When the coordinator itself restarts, every
+      session is re-projected from the event log, because the log is the source of
+      truth.
+    </p>
+  </FeatureRow>
+</div>
+
+{/* 9 — See which agent needs you */}
+<div class="section">
+  <FeatureRow eyebrow="Status" title="See which agent needs you">
+    <p>
+      Roost labels a terminal with the state of whatever agent is running inside
+      it: <strong>working</strong>, <strong>needs input</strong>, or
+      <strong>done</strong>. It shows up in four places — the session's sidebar row,
+      its tab, its card on mobile, and a rollup on the folder that contains it, for
+      example <code>2 working · 1 needs input</code>.
+    </p>
+    <p>
+      An in-app toast and an unseen count in the tab title need no setup at all. OS
+      notifications, the kind that reach you when Roost is not the tab you are
+      looking at, need one explicit grant per device, because browsers only prompt
+      on a real click — and a device already viewing that session is deliberately
+      left alone.
+    </p>
+    <p>
+      OMP and Pi report their own lifecycle over a per-worker Unix socket, validated
+      against the reporting process id. The other eight are detected from pinned
+      screen and OSC-title manifests plus a periodic process-tree scan, so an agent
+      you started by hand still gets recognised. Nothing about status is persisted:
+      a worker, coordinator, or browser restart re-derives it rather than leaving a
+      stale badge behind.
+    </p>
+  </FeatureRow>
+</div>
+
+{/* 10 — Talk to your terminal */}
+<div class="section">
+  <FeatureRow eyebrow="Voice" title="Talk to your terminal">
+    <p>
+      Typing a long prompt on a phone is miserable, so tap the mic and dictate. The
+      recognized text is typed into the session as real input and sent, with no
+      review step in between.
+    </p>
+    <p>
+      The zero-setup path is the browser's own speech recognition, which is a rough
+      fallback. The recommended path is a Deepgram <code>nova-3</code> key added
+      once in <strong>Settings → Voice</strong>: it is stored on the coordinator and
+      shared to every paired device, so you configure it once rather than per phone,
+      and it can run a single language, automatic detection, or multilingual mode
+      with live code-switching.
+    </p>
+    <p>
+      Roost also extracts terminal jargon from the screen you are dictating into and
+      passes it to Deepgram as keyterm bias, so project vocabulary and identifiers
+      transcribe as themselves rather than as phonetic mush.
+    </p>
+  </FeatureRow>
+</div>
+
+<style>
+  /* Long identifiers must never make a narrow viewport scroll sideways. */
+  code {
+    overflow-wrap: anywhere;
+  }
+
+  /* The status image is a tall strip; the paired landscape shot contains it. */
+  .shots {
+    display: grid;
+    grid-template-columns: minmax(0, 200px) minmax(0, 1fr);
+    gap: var(--md-space-6);
+    align-items: start;
+    margin-top: var(--md-space-8);
+  }
+
+  .phone {
+    display: grid;
+    grid-template-columns: minmax(0, 220px) minmax(0, 1fr);
+    gap: var(--md-space-7);
+    align-items: center;
+    margin-top: var(--md-space-8);
+  }
+
+  @media (max-width: 900px) {
+    .shots,
+    .phone {
+      grid-template-columns: minmax(0, 1fr);
+      gap: var(--md-space-6);
+    }
+  }
+</style>
