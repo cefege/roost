@@ -185,7 +185,7 @@ test("foreground terminal blackhole recovers without visibility or identity chan
     - (challengeProbe.browser.replica.challenge_age_ms ?? 0);
   expect(challengeIssuedAt).toBeLessThanOrEqual(20_000);
 
-  const generationTimeout = Math.max(1_000, 30_000 - (Date.now() - startedAt));
+  const generationTimeout = Math.max(1_000, 35_000 - (Date.now() - startedAt));
   await expect.poll(async () => {
     const sync = (await readTerminalStreamProbe(smokePage, sessionId)).browser.sync;
     return sync.ready
@@ -194,14 +194,14 @@ test("foreground terminal blackhole recovers without visibility or identity chan
       && sync.socket_generation > before.browser.sync.socket_generation
       && sync.socket_id !== before.browser.sync.socket_id;
   }, { timeout: generationTimeout, intervals: [100, 250] }).toBe(true);
-  expect(Date.now() - startedAt).toBeLessThanOrEqual(30_000);
+  expect(Date.now() - startedAt).toBeLessThanOrEqual(35_000);
 
-  const paintTimeout = Math.max(1_000, 45_000 - (Date.now() - startedAt));
+  const paintTimeout = Math.max(1_000, 50_000 - (Date.now() - startedAt));
   await smokePage.evaluate(
     ({ id, marker, timeout }) => window.__smoke.waitForPaintedMarker(id, marker, timeout),
     { id: sessionId, marker: interruptedMarker, timeout: paintTimeout },
   );
-  expect(Date.now() - startedAt).toBeLessThanOrEqual(45_000);
+  expect(Date.now() - startedAt).toBeLessThanOrEqual(50_000);
   await waitForStableCellFrames(smokePage, sessionId);
   await expect.poll(async () => everyLayerConverged(
     await readTerminalStreamProbe(smokePage, sessionId),

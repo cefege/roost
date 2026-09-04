@@ -132,6 +132,7 @@ test("mobile composer gives multiline drafts the full message width", async ({ m
       && coordinator.effective?.cols === view.effective_cols
       && coordinator.effective?.rows === view.effective_rows;
   }, { timeout: 10_000, intervals: [50] }).toBe(true);
+  await mobileSmokePage.waitForTimeout(250);
   const baselineProbe = await readTerminalStreamProbe(mobileSmokePage, sessionId);
   const baselineView = baselineProbe.browser.view;
   if (!baselineView.revision || !baselineView.stream_id) {

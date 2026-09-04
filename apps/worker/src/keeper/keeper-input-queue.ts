@@ -77,6 +77,13 @@ async function drainInputQueue(channelId: number, ch: Channel): Promise<void> {
         }
         const remaining = batch.bytes.byteLength - writtenBytes;
         if (!Number.isInteger(count) || count < 0 || count > remaining) {
+          _log("warn", "multiplexed-keeper", "ptyin_invalid_write_count", {
+            channelId,
+            count,
+            remaining,
+            writtenBytes,
+            inputBytes: batch.bytes.byteLength,
+          });
           result = writtenBytes === 0
             ? { kind: "reject", inputSeq: batch.inputSeq ?? 1, writtenBytes: 0, reason: "invalid_write_count" }
             : { kind: "ambiguous", inputSeq: batch.inputSeq ?? 1, writtenBytes, reason: "invalid_write_count" };
