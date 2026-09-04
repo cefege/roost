@@ -10,7 +10,7 @@ import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { MultiplexedKeeperPool, probeKeeperCompatible, type MuxChannelCallbacks } from "../src/keeper/multiplexed-client.ts";
-import { KEEPER_BUILD_STAMP } from "../src/keeper/keeper-stamp.ts";
+import { KEEPER_BUILD_STAMP, _KEEPER_SOURCE_FILES } from "../src/keeper/keeper-stamp.ts";
 import { muxLocalEndpoint } from "../src/keeper/keeper-pool-config.ts";
 import { keeperTestShellSpec } from "./keeper-test-fixtures.ts";
 
@@ -37,6 +37,10 @@ describe("keeper-stamp — code-version stamp + handshake agreement", () => {
   test("KEEPER_BUILD_STAMP is a real 12-hex stamp (not the read-fail sentinel)", () => {
     expect(KEEPER_BUILD_STAMP).toMatch(/^[0-9a-f]{12}$/);
     expect(KEEPER_BUILD_STAMP).not.toBe("unknown");
+  });
+
+  test("stamp covers the acknowledged-input queue implementation", () => {
+    expect(_KEEPER_SOURCE_FILES).toContain("keeper-input-queue.ts");
   });
 
   test("a real keeper reports OUR exact stamp over HelloResp (worker+keeper agree)", async () => {

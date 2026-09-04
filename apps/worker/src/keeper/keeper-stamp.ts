@@ -20,8 +20,8 @@ import { join } from "node:path";
 // The files the keeper PROCESS actually runs. multiplexed-client.ts is
 // worker-side (not loaded by the keeper) and is deliberately excluded — a
 // client-only change must not flag every keeper stale.
-const KEEPER_SOURCE_FILES = [
-  "multiplexed-main.ts", "protocol.ts", "histfile.ts",
+export const _KEEPER_SOURCE_FILES = [
+  "multiplexed-main.ts", "protocol.ts", "histfile.ts", "keeper-input-queue.ts",
   // The keeper protocol module was renamed and split by message family
   // 2026-08-18; protocol.ts is now only the version record + re-exports, so the
   // family modules holding the actual keeper-side codec must be listed too or a
@@ -44,7 +44,7 @@ const KEEPER_SOURCE_FILES = [
 function computeKeeperBuildStamp(): string {
   try {
     const hasher = new Bun.CryptoHasher("sha256");
-    for (const name of KEEPER_SOURCE_FILES) {
+    for (const name of _KEEPER_SOURCE_FILES) {
       hasher.update(readFileSync(join(import.meta.dir, name)));
     }
     return hasher.digest("hex").slice(0, 12);
